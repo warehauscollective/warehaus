@@ -9,7 +9,16 @@ import { ProjectScope } from '@/components/react/chat/ProjectScope';
 import { useChatApi } from '@/components/react/chat/useChatApi';
 import type { ChatMessage } from '@/lib/chat/types';
 
-const GREETING: Record<ActiveTab, ChatMessage> = {
+const DEFAULT_GREETING: ChatMessage = {
+  id: 'greeting-default',
+  role: 'assistant',
+  content: "Hey — I'm the Warehaus assistant. Ask me anything about the work, the process, or what you're building.",
+  timestamp: new Date(),
+};
+
+// Pillar tabs get a persona-specific greeting; other surfaces fall back to the
+// neutral default.
+const GREETING: Partial<Record<ActiveTab, ChatMessage>> = {
   dream: {
     id: 'greeting-dreamer',
     role: 'assistant',
@@ -38,7 +47,7 @@ export function ChatOverlay() {
   const { messages, isLoading, sendMessage, error } = useChatApi(activeTab);
 
   const allMessages = useMemo(
-    () => [GREETING[activeTab], ...messages],
+    () => [GREETING[activeTab] ?? DEFAULT_GREETING, ...messages],
     [activeTab, messages],
   );
 

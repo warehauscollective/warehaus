@@ -173,6 +173,271 @@ body {
 }
 
 /* ═══════════════════════════════════════════════════
+   WAREHAUS DESIGN-SYSTEM TOKENS (imported from the
+   brand style guide). These are additive + reusable
+   site-wide: spacing, fluid type scale, shape/cut, and
+   section rhythm. The neutral ink/paper palette is
+   scoped to `.ds-scope` (see below) so existing pages
+   keep their own backgrounds. Pillar accent colors
+   (Dream/Design/Develop) are intentionally untouched.
+   ═══════════════════════════════════════════════════ */
+:root {
+  /* Mono voice — Geist Mono (loaded in layout.tsx) */
+  --font-mono: var(--font-geist-mono), ui-monospace, "JetBrains Mono", monospace;
+
+  /* Type scale (fluid) */
+  --t-xs: 0.75rem;
+  --t-sm: 0.875rem;
+  --t-base: 1rem;
+  --t-md: 1.25rem;
+  --t-lg: 1.5rem;
+  --t-xl: clamp(1.75rem, 1.2rem + 2vw, 2.5rem);
+  --t-2xl: clamp(2.25rem, 1.4rem + 3.4vw, 3.75rem);
+  --t-3xl: clamp(3rem, 1.6rem + 5.6vw, 6rem);
+
+  --lh-tight: 1.05;
+  --lh-head: 1.12;
+  --lh-body: 1.6;
+  --ls-display: -0.01em;
+  --ls-eyebrow: 0.22em;
+
+  /* Spacing — negative-space heavy, 4px base */
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --s-8: 4rem;
+  --s-9: 6rem;
+  --s-10: 8rem;
+  --s-11: 10rem;
+
+  /* Section rhythm */
+  --section-y: clamp(4rem, 2rem + 8vw, 8rem);
+  --gutter: clamp(1.25rem, 0.5rem + 3vw, 3rem);
+  --maxw: 1240px;
+
+  /* Shape — smooth radius + 45° chamfer cut */
+  --radius-sm: 10px;
+  --radius: 18px;
+  --radius-lg: 28px;
+  --radius-pill: 999px;
+  --cut: 22px;
+  --cut-lg: 40px;
+
+  --speed: 180ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+/* ── Design-system palette scope ──────────────────────
+   Apply the two-color (ink/paper) brand palette + the
+   monochrome accent within `.ds-scope`. Theme-aware:
+   inverts with the site's existing `.light` toggle.
+   Aliases the site's own tokens (--background, --surface,
+   --border, --accent…) so Tailwind utilities resolve to
+   the brand palette inside the scope. */
+.ds-scope {
+  --ink: #1f1f1f;
+  --paper: #f6f6f7;
+
+  --bg: var(--ink);
+  --bg-2: oklch(21% 0 0);
+  --surface-ds: oklch(30% 0 0);
+  --surface-2: oklch(35% 0 0);
+  --fg: var(--paper);
+  --muted-ds: oklch(72% 0 0);
+  --faint: oklch(50% 0 0);
+  --border-ds: oklch(38% 0 0);
+  --border-2: oklch(46% 0 0);
+
+  /* Monochrome accent = paper-on-ink (inverts in light) */
+  --accent-ds: oklch(97% 0 0);
+  --accent-hover: oklch(100% 0 0);
+  --accent-press: oklch(88% 0 0);
+  --accent-fg: var(--ink);
+  --accent-tint: oklch(97% 0 0 / 0.12);
+
+  /* Status — the only hue, kept scarce */
+  --success: oklch(70% 0.16 150);
+  --warn: oklch(80% 0.15 85);
+  --danger: oklch(64% 0.2 25);
+
+  /* Fonts — Geist body, Eurostile display, Geist Mono */
+  --font-body: var(--font-geist), "DM Sans", -apple-system, system-ui, sans-serif;
+
+  /* Map onto the site tokens so utilities + the Bevel
+     component defaults (var(--surface)/var(--border)…) pick
+     up the brand palette in-scope. */
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --surface: var(--surface-ds);
+  --muted: var(--muted-ds);
+  --border: var(--border-ds);
+  --accent: var(--accent-ds);
+
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+}
+
+:root.light .ds-scope {
+  --bg: var(--paper);
+  --bg-2: oklch(93.5% 0 0);
+  --surface-ds: #ffffff;
+  --surface-2: oklch(97.5% 0 0);
+  --fg: var(--ink);
+  --muted-ds: oklch(44% 0 0);
+  --faint: oklch(66% 0 0);
+  --border-ds: oklch(88% 0 0);
+  --border-2: oklch(82% 0 0);
+
+  --accent-ds: var(--ink);
+  --accent-hover: oklch(18% 0 0);
+  --accent-press: oklch(32% 0 0);
+  --accent-fg: var(--paper);
+  --accent-tint: oklch(25% 0 0 / 0.1);
+}
+
+/* Rail width reserved for the style-guide sub-nav on desktop.
+   Reuses the existing --left-sidebar-w that panels already pad for. */
+@media (min-width: 1024px) {
+  .ds-scope {
+    --left-sidebar-w: 244px;
+  }
+}
+
+/* ── Design-system helper classes (scoped) ─────────── */
+/* Display voice — Eurostile defaults to Black (900), italic, all-caps in the
+   style guide. Per-element inline overrides (e.g. the lowercase expressive
+   lockup) still win. */
+.ds-scope .font-display {
+  font-weight: 900;
+  font-style: italic;
+  text-transform: uppercase;
+}
+
+.ds-scope .ds-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: var(--ls-eyebrow);
+  color: var(--accent);
+  font-weight: 500;
+}
+.ds-scope .ds-mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+.ds-scope .ds-lead {
+  font-size: var(--t-md);
+  color: var(--muted);
+  line-height: 1.5;
+  max-width: 56ch;
+}
+
+/* Bento grid */
+.ds-scope .ds-bento {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-auto-rows: minmax(180px, auto);
+  gap: var(--s-4);
+}
+.ds-scope .ds-bento .col-2 { grid-column: span 2; }
+.ds-scope .ds-bento .col-3 { grid-column: span 3; }
+.ds-scope .ds-bento .col-4 { grid-column: span 4; }
+.ds-scope .ds-bento .col-6 { grid-column: span 6; }
+.ds-scope .ds-bento .row-2 { grid-row: span 2; }
+@media (max-width: 860px) {
+  .ds-scope .ds-bento { grid-template-columns: repeat(2, 1fr); }
+  .ds-scope .ds-bento .col-2,
+  .ds-scope .ds-bento .col-3,
+  .ds-scope .ds-bento .col-4,
+  .ds-scope .ds-bento .col-6 { grid-column: span 2; }
+  .ds-scope .ds-bento .row-2 { grid-row: span 1; }
+}
+@media (max-width: 520px) {
+  .ds-scope .ds-bento { grid-template-columns: 1fr; }
+  .ds-scope .ds-bento .col-2,
+  .ds-scope .ds-bento .col-3,
+  .ds-scope .ds-bento .col-4,
+  .ds-scope .ds-bento .col-6 { grid-column: span 1; }
+}
+
+/* Pills / tags */
+.ds-scope .ds-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.04em;
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-2);
+  color: var(--muted);
+}
+.ds-scope .ds-pill.accent {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+/* Inputs */
+.ds-scope .ds-input,
+.ds-scope .ds-textarea {
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: var(--t-base);
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius-sm);
+  width: 100%;
+  transition: border-color var(--speed) var(--ease), box-shadow var(--speed) var(--ease);
+}
+.ds-scope .ds-input::placeholder,
+.ds-scope .ds-textarea::placeholder { color: var(--faint); }
+.ds-scope .ds-input:focus,
+.ds-scope .ds-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+.ds-scope .ds-divider { height: 1px; background: var(--border); border: 0; }
+.ds-scope a { color: inherit; }
+
+/* Cards */
+.ds-scope .ds-card { transition: transform var(--speed) var(--ease); }
+.ds-scope .ds-card-interactive { cursor: pointer; }
+.ds-scope .ds-card-interactive:hover { transform: translateY(-2px); }
+
+/* Data table */
+.ds-scope table.ds-data { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+.ds-scope table.ds-data th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 0.7rem var(--s-4);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+.ds-scope table.ds-data td { padding: 0.7rem var(--s-4); border-bottom: 1px solid var(--border); }
+.ds-scope table.ds-data tr:last-child td { border-bottom: 0; }
+.ds-scope table.ds-data tbody tr:hover { background: var(--surface-2); }
+.ds-scope table.ds-data td.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* ═══════════════════════════════════════════════════
    LIGHT THEME — Atmosphere Inversion System
 
    Every section background uses absolute-positioned
@@ -421,6 +686,13 @@ canvas.r3f {
 }
 .scrollbar-none::-webkit-scrollbar {
   display: none;
+}
+
+/* Spinner (style-guide loading state) */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Progress bar animation for hero carousel */

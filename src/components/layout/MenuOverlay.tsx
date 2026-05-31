@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useLayout } from '@/components/providers/LayoutProvider';
-import { Home, BookOpen, DoorOpen, Users, Sun, Moon, Monitor } from 'lucide-react';
+import { Home, BookOpen, DoorOpen, Users, Palette, Sun, Moon, Monitor } from 'lucide-react';
 
 const MENU_ITEMS = [
   { icon: Home, label: 'Home', href: '/' },
   { icon: BookOpen, label: 'Codex', href: '/codex' },
+  { icon: Palette, label: 'Style Guide', href: '/style-guide' },
   { icon: Users, label: 'About', href: '/about' },
   { icon: DoorOpen, label: 'Contact', href: '/contact' },
 ];

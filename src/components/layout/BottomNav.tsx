@@ -1,23 +1,28 @@
 'use client';
 
 import { useRef, useEffect, useState, useCallback } from 'react';
+import { usePathname } from 'next/navigation';
 import { useLayout, type ActiveTab } from '@/components/providers/LayoutProvider';
+import { getNavTabsForPath } from '@/lib/data/navTabs';
 import { Menu, X, MessageCircle, ChevronDown } from 'lucide-react';
-
-const TABS: { label: string; value: ActiveTab }[] = [
-  { label: 'DREAM', value: 'dream' },
-  { label: 'DESIGN', value: 'design' },
-  { label: 'DEVELOP', value: 'develop' },
-];
-
-const TAB_COLORS: Record<ActiveTab, string> = {
-  dream: 'text-dream',
-  design: 'text-design',
-  develop: 'text-develop',
-};
 
 export function BottomNav() {
   const { activeTab, setActiveTab, toggleMenu, menuOpen, toggleChatOverlay, chatOverlayOpen } = useLayout();
+  const pathname = usePathname();
+
+  // Tabs are route-aware: the home surface shows the pillars, /style-guide shows
+  // Brand/Website/Portal, etc.
+  const TABS = getNavTabsForPath(pathname);
+  const activeColorClass = TABS.find((t) => t.value === activeTab)?.colorClass ?? 'text-accent';
+
+  // When the route's tab set changes, keep the global active tab valid for it.
+  useEffect(() => {
+    if (!TABS.some((t) => t.value === activeTab)) {
+      setActiveTab(TABS[0].value);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
   const navRef = useRef<HTMLElement>(null);
   const tabRefs = useRef<Map<ActiveTab, HTMLButtonElement>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
@@ -164,7 +169,7 @@ export function BottomNav() {
                 aria-selected={isActive}
                 aria-controls={`tabpanel-${value}`}
                 onClick={() => setActiveTab(value)}
-                className="relative z-10 flex-1 min-w-[80px] md:min-w-[100px] text-center py-3 text-xs font-bold tracking-widest rounded-xl transition-colors duration-300 font-display"
+                className="relative z-10 flex-1 min-w-[60px] md:min-w-[76px] text-center px-2 py-3 text-xs font-bold tracking-widest rounded-xl transition-colors duration-300 font-display whitespace-nowrap"
                 style={{ color: isActive ? 'var(--nav-text-active)' : 'var(--nav-text-muted)' }}
               >
                 {label}
@@ -179,7 +184,7 @@ export function BottomNav() {
         type="button"
         onClick={toggleChatOverlay}
         aria-label={chatOverlayOpen ? 'Close chat' : 'Open chat'}
-        className={`flex h-11 w-11 items-center justify-center rounded-2xl backdrop-blur-2xl transition-colors ${TAB_COLORS[activeTab]}`}
+        className={`flex h-11 w-11 items-center justify-center rounded-2xl backdrop-blur-2xl transition-colors ${activeColorClass}`}
         style={{ background: 'var(--nav-bg)', borderColor: 'var(--nav-border)', borderWidth: '1px' }}
       >
         {chatOverlayOpen ? (

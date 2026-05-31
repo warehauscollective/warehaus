@@ -1,9 +1,10 @@
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
-import { DM_Sans } from 'next/font/google';
+import { DM_Sans, Geist, Geist_Mono } from 'next/font/google';
 import { VercelToolbar } from '@vercel/toolbar/next';
 import { AppShell } from '@/components/layout/AppShell';
 import { AgentationProvider } from '@/components/providers/AgentationProvider';
+import { BevelInspectorProvider } from '@/components/dev/bevelInspector';
 import '@/styles/global.css';
 
 const eurostile = localFont({
@@ -25,6 +26,22 @@ const dmSans = DM_Sans({
   subsets: ['latin'],
   weight: ['400', '500', '600', '700'],
   variable: '--font-body',
+  display: 'swap',
+});
+
+// Design-system body + mono voices (Warehaus style guide). Geist carries
+// everything you read; Geist Mono handles eyebrows, codes, and tabular data.
+const geist = Geist({
+  subsets: ['latin'],
+  weight: ['300', '400', '500', '600', '700'],
+  variable: '--font-geist',
+  display: 'swap',
+});
+
+const geistMono = Geist_Mono({
+  subsets: ['latin'],
+  weight: ['400', '500'],
+  variable: '--font-geist-mono',
   display: 'swap',
 });
 
@@ -62,12 +79,18 @@ const themeInitScript = `
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${eurostile.variable} ${dmSans.variable}`} suppressHydrationWarning>
+    <html
+      lang="en"
+      className={`${eurostile.variable} ${dmSans.variable} ${geist.variable} ${geistMono.variable}`}
+      suppressHydrationWarning
+    >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="bg-background text-foreground font-body antialiased" suppressHydrationWarning>
-        <AppShell>{children}</AppShell>
+        <BevelInspectorProvider>
+          <AppShell>{children}</AppShell>
+        </BevelInspectorProvider>
         <AgentationProvider />
         {(process.env.NODE_ENV === 'development' ||
           process.env.NEXT_PUBLIC_VERCEL_ENV === 'preview') && <VercelToolbar />}

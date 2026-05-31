@@ -718,7 +718,32 @@ export function buildCodexEntrySections(slug: string): SectionEntry[] {
   return sections;
 }
 
+export const STYLEGUIDE_SECTIONS: SectionEntry[] = [
+  {
+    key: 'brand-hero',
+    heading: 'Brand.',
+    description: 'The visual and verbal foundations of Warehaus — color, type, and voice.',
+    tag: 'ブランド',
+    code: '1001',
+  },
+  {
+    key: 'website-hero',
+    heading: 'Website.',
+    description: 'Layout foundations, components, and motion for the marketing surface.',
+    tag: 'ウェブ',
+    code: '1002',
+  },
+  {
+    key: 'portal-hero',
+    heading: 'Portal.',
+    description: 'The product UI kit — forms, states, and navigation for the logged-in experience.',
+    tag: 'ポータル',
+    code: '1003',
+  },
+];
+
 export function getSectionsForPath(pathname: string): SectionEntry[] {
+  if (pathname === '/style-guide') return STYLEGUIDE_SECTIONS;
   if (pathname === '/dream') return DREAM_SECTIONS;
   if (pathname === '/design') return DESIGN_SECTIONS;
   if (pathname === '/develop') return DEVELOP_SECTIONS;

@@ -12,7 +12,7 @@ const SENDER_CONFIG: Record<string, { label: string; color: string; bg: string; 
   developer: { label: 'Developer', color: 'text-develop', bg: 'bg-develop-surface', glow: 'var(--develop-primary)' },
 };
 
-const TAB_TO_SENDER: Record<ActiveTab, string> = {
+const TAB_TO_SENDER: Partial<Record<ActiveTab, string>> = {
   dream: 'dreamer',
   design: 'designer',
   develop: 'developer',
@@ -70,7 +70,7 @@ export function ChatMessages({ messages, isLoading, activeTab }: ChatMessagesPro
     );
   }
 
-  const thinkingSender = activeTab ? TAB_TO_SENDER[activeTab] : 'dreamer';
+  const thinkingSender = (activeTab && TAB_TO_SENDER[activeTab]) ?? 'dreamer';
 
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-y-auto min-h-0 px-4 pt-14 md:pt-8 pb-4">

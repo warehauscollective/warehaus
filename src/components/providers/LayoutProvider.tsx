@@ -10,7 +10,18 @@ import {
   type ReactNode,
 } from 'react';
 
-export type ActiveTab = 'dream' | 'design' | 'develop';
+/** The three home-page pillars — these double as chat personas and color themes. */
+export type PillarTab = 'dream' | 'design' | 'develop';
+/** The three Style Guide tabs. */
+export type StyleGuideTab = 'brand' | 'website' | 'portal';
+/** The logged-in Portal tabs. */
+export type PortalTab = 'dashboard' | 'projects' | 'chatroom' | 'activity' | 'account';
+/**
+ * Any tab the route-aware navbar can surface. The navbar is fully data-driven
+ * from `navTabs.ts` and supports up to 6 tabs per route — add a route's set
+ * there and extend this union with any new tab values.
+ */
+export type ActiveTab = PillarTab | StyleGuideTab | PortalTab;
 export type Theme = 'dark' | 'light';
 export type ThemeMode = 'dark' | 'light' | 'auto';
 

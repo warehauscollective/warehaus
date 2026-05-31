@@ -1,4 +1,4 @@
-import type { ActiveTab } from '@/components/providers/LayoutProvider';
+import type { PillarTab } from '@/components/providers/LayoutProvider';
 
 /**
  * Centralized pillar color system.
@@ -42,7 +42,7 @@ export interface PillarColorSet {
   };
 }
 
-export const PILLAR_COLORS: Record<ActiveTab, PillarColorSet> = {
+export const PILLAR_COLORS: Record<PillarTab, PillarColorSet> = {
   dream: {
     primary: 'var(--dream-primary)',
     secondary: 'var(--dream-secondary)',
@@ -115,11 +115,11 @@ export const PILLAR_COLORS: Record<ActiveTab, PillarColorSet> = {
 };
 
 /** Helper: get rgba string from a pillar's glow token */
-export function pillarGlow(tab: ActiveTab, opacity: number): string {
+export function pillarGlow(tab: PillarTab, opacity: number): string {
   return `rgba(var(--${tab}-glow), ${opacity})`;
 }
 
 /** Helper: get the current pillar's CSS variable value */
-export function pillarVar(tab: ActiveTab, tier: 'primary' | 'secondary' | 'dim' | 'surface' | 'border' | 'bg-deep' | 'bg-mid'): string {
+export function pillarVar(tab: PillarTab, tier: 'primary' | 'secondary' | 'dim' | 'surface' | 'border' | 'bg-deep' | 'bg-mid'): string {
   return `var(--${tab}-${tier})`;
 }
