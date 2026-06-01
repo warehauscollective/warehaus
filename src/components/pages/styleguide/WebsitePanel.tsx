@@ -60,7 +60,7 @@ export function WebsitePanel() {
             Warehaus pages are built out of air. A centered container, a 12-column grid for alignment, and a section rhythm that gives every idea room to land. The grid keeps things straight; the negative space does the design work.
           </p>
 
-          <Card cut={56} shoulder={20} style={{ marginTop: 'var(--s-6)' }}>
+          <Card cut={3.5} shoulder={1.25} style={{ marginTop: 'var(--s-6)' }}>
             <div className="flex items-baseline justify-between gap-4 flex-wrap">
               <h3 style={{ fontSize: 'var(--t-lg)', fontWeight: 600 }}>Container</h3>
               <Pill><span className="ds-mono">--maxw 1240px</span></Pill>
@@ -240,7 +240,7 @@ export function WebsitePanel() {
           <div style={{ marginTop: 'var(--s-6)' }}>
             <SectionHead title="Hero-anchored" pill="one big, several small" />
             <div className="ds-bento">
-              <Card corners="br" cut={40} shoulder={14} fill="var(--accent)" stroke="none" className="col-4 row-2" style={{ color: 'var(--accent-fg)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+              <Card corners="br" cut={2.5} shoulder={0.875} fill="var(--accent)" stroke="none" className="col-4 row-2" style={{ color: 'var(--accent-fg)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
                 <div>
                   <Eyebrow style={{ color: 'var(--accent-fg)', opacity: 0.8 }}>Operations</Eyebrow>
                   <h2 className="font-display" style={{ color: 'var(--accent-fg)', marginTop: 'var(--s-3)', fontSize: 'var(--t-xl)' }}>Every dock, one view</h2>

@@ -92,10 +92,10 @@ export function BrandPanel() {
           </p>
 
           <div className="grid gap-4 md:grid-cols-2" style={{ marginTop: 'var(--s-6)' }}>
-            <Card cut={56} shoulder={20} style={{ alignItems: 'center', justifyContent: 'center', display: 'flex', minHeight: 280 }}>
+            <Card cut={3.5} shoulder={1.25} style={{ alignItems: 'center', justifyContent: 'center', display: 'flex', minHeight: 280 }}>
               <WarehausLogo height={56} />
             </Card>
-            <Card cut={56} shoulder={20} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <Card cut={3.5} shoulder={1.25} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
               <Eyebrow>Construction</Eyebrow>
               <p style={{ color: 'var(--muted)', marginTop: 'var(--s-3)' }}>
                 Square base. The bottom-right corner is cut at 45°, removing roughly 36% of each adjacent edge. The other three corners stay square in the icon (the rounded-shoulder version is reserved for surfaces, not the mark).
@@ -108,7 +108,7 @@ export function BrandPanel() {
 
           {/* Lockup + wordmark variants */}
           <div className="grid gap-4 md:grid-cols-2" style={{ marginTop: 'var(--s-4)' }}>
-            <Card cut={44} shoulder={16}>
+            <Card cut={2.75} shoulder={1}>
               <Eyebrow>Primary lockup</Eyebrow>
               <div className="flex items-center" style={{ minHeight: 64, marginTop: 'var(--s-4)' }}>
                 <WarehausLogo height={34} />
@@ -117,7 +117,7 @@ export function BrandPanel() {
                 The primary logo — a geometric Eurostile wordmark. Use it as-is on light or dark; it inverts with the theme. Keep its proportions; never restretch or recolor.
               </p>
             </Card>
-            <Card cut={44} shoulder={16}>
+            <Card cut={2.75} shoulder={1}>
               <Eyebrow>Expressive alt</Eyebrow>
               <div className="grid place-items-center" style={{ minHeight: 92, marginTop: 'var(--s-4)' }}>
                 <span className="font-display" style={{ fontStyle: 'italic', fontWeight: 900, fontSize: 'clamp(1.75rem,5vw,2.75rem)', letterSpacing: '-0.05em', textTransform: 'lowercase' }}>
@@ -132,7 +132,7 @@ export function BrandPanel() {
 
           {/* Clearspace, sizing, do/don't */}
           <div className="grid gap-4 md:grid-cols-2" style={{ marginTop: 'var(--s-4)' }}>
-            <Card cut={44} shoulder={16}>
+            <Card cut={2.75} shoulder={1}>
               <Eyebrow>Sizing</Eyebrow>
               <div className="flex" style={{ alignItems: 'flex-end', gap: 'var(--s-5)', marginTop: 'var(--s-4)' }}>
                 {[16, 22, 34, 48].map((s) => (
@@ -143,7 +143,7 @@ export function BrandPanel() {
                 Minimum height is <strong style={{ color: 'var(--fg)' }}>16px</strong>. Below that the bars start to merge. Keep clearspace at 60% of the cap height on every side.
               </p>
             </Card>
-            <Card cut={44} shoulder={16}>
+            <Card cut={2.75} shoulder={1}>
               <Eyebrow>Do &amp; don’t</Eyebrow>
               <ul style={{ color: 'var(--muted)', marginTop: 'var(--s-3)', paddingLeft: '1.1rem', lineHeight: 1.9, fontSize: 'var(--t-sm)' }}>
                 <li><span style={{ color: 'var(--success)' }}>Do</span> use the accent fill — it inverts correctly in both themes.</li>
@@ -169,7 +169,7 @@ export function BrandPanel() {
             <SectionHead title={<span style={{ fontSize: 'var(--t-md)' }}>Brand anchors</span>} pill="the only two" pillAccent />
             <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
               {[{ name: 'Ink', token: '--ink · #1F1F1F', value: 'var(--ink)' }, { name: 'Paper', token: '--paper · #F6F6F7', value: 'var(--paper)' }].map((c) => (
-                <Bevel key={c.name} corners="br" cut={40} shoulder={14} clip fill="var(--surface)" stroke="var(--border)">
+                <Bevel key={c.name} corners="br" cut={2.5} shoulder={0.875} clip fill="var(--surface)" stroke="var(--border)">
                   <div style={{ height: 120, background: c.value }} />
                   <div style={{ padding: 'var(--s-4)' }}>
                     <b>{c.name}</b>
@@ -184,7 +184,7 @@ export function BrandPanel() {
             <SectionHead title={<span style={{ fontSize: 'var(--t-md)' }}>Core tokens</span>} pill="resolves per theme" />
             <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' }}>
               {CORE_TOKENS.map((c) => (
-                <Bevel key={c.token} corners="br" cut={40} shoulder={14} clip fill="var(--surface)" stroke="var(--border)">
+                <Bevel key={c.token} corners="br" cut={2.5} shoulder={0.875} clip fill="var(--surface)" stroke="var(--border)">
                   <div style={{ height: 96, background: c.value }} />
                   <div style={{ padding: 'var(--s-4)' }}>
                     <b style={{ fontSize: 'var(--t-sm)' }}>{c.name}</b>
@@ -204,7 +204,7 @@ export function BrandPanel() {
             </div>
           </div>
 
-          <Card cut={40} shoulder={14} style={{ marginTop: 'var(--s-7)' }}>
+          <Card cut={2.5} shoulder={0.875} style={{ marginTop: 'var(--s-7)' }}>
             <h3 style={{ fontSize: 'var(--t-lg)', fontWeight: 600 }}>Rules of use</h3>
             <ul style={{ color: 'var(--muted)', marginTop: 'var(--s-4)', paddingLeft: '1.1rem', lineHeight: 1.7 }}>
               <li>Two brand colors only — everything else is a neutral grey between them.</li>
@@ -302,14 +302,14 @@ export function BrandPanel() {
             <SectionHead title="The corner family" pill="painted SVG bevel" pillAccent />
             <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))' }}>
               <Card>
-                <Bevel corners="br" cut={40} shoulder={14} fill="var(--accent)" stroke="none" style={{ aspectRatio: '1.4', display: 'flex', alignItems: 'flex-end', padding: 'var(--s-4)' }}>
+                <Bevel corners="br" cut={2.5} shoulder={0.875} fill="var(--accent)" stroke="none" style={{ aspectRatio: '1.4', display: 'flex', alignItems: 'flex-end', padding: 'var(--s-4)' }}>
                   <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--accent-fg)' }}>chamfer</span>
                 </Bevel>
                 <p style={{ marginTop: 'var(--s-4)', fontWeight: 600 }}>Chamfer mix</p>
                 <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Default. Three rounded, bottom-right cut at 45°.</p>
               </Card>
               <Card>
-                <Bevel corners="tl tr br bl" cut={22} shoulder={8} fill="var(--accent)" stroke="none" style={{ aspectRatio: '1.4', display: 'flex', alignItems: 'flex-end', padding: 'var(--s-4)' }}>
+                <Bevel corners="tl tr br bl" cut={1.375} shoulder={0.5} fill="var(--accent)" stroke="none" style={{ aspectRatio: '1.4', display: 'flex', alignItems: 'flex-end', padding: 'var(--s-4)' }}>
                   <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--accent-fg)' }}>bevel</span>
                 </Bevel>
                 <p style={{ marginTop: 'var(--s-4)', fontWeight: 600 }}>Full bevel</p>
@@ -345,11 +345,11 @@ export function BrandPanel() {
                 <b>18px</b><br /><code className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>--radius</code>
               </Card>
               <Card style={{ textAlign: 'center' }}>
-                <Bevel corners="br" radius={18} cut={22} shoulder={8} fill="var(--surface-2)" stroke="none" style={{ height: 60, marginBottom: 'var(--s-3)' }} />
+                <Bevel corners="br" radius={1.125} cut={1.375} shoulder={0.5} fill="var(--surface-2)" stroke="none" style={{ height: 60, marginBottom: 'var(--s-3)' }} />
                 <b>22px</b><br /><code className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>--cut</code>
               </Card>
               <Card style={{ textAlign: 'center' }}>
-                <Bevel corners="br" radius={18} cut={40} shoulder={14} fill="var(--surface-2)" stroke="none" style={{ height: 60, marginBottom: 'var(--s-3)' }} />
+                <Bevel corners="br" radius={1.125} cut={2.5} shoulder={0.875} fill="var(--surface-2)" stroke="none" style={{ height: 60, marginBottom: 'var(--s-3)' }} />
                 <b>40px</b><br /><code className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>--cut-lg</code>
               </Card>
             </div>
@@ -401,7 +401,7 @@ export function BrandPanel() {
             Warehaus sounds like the most competent person in the warehouse: direct, calm, and a little dry. We earn trust by being precise and skipping the hype — the same restraint the visuals show, in words.
           </p>
 
-          <Card cut={56} shoulder={20} style={{ marginTop: 'var(--s-6)' }}>
+          <Card cut={3.5} shoulder={1.25} style={{ marginTop: 'var(--s-6)' }}>
             <Eyebrow>North-star line</Eyebrow>
             <p className="font-display" style={{ fontSize: 'clamp(1.75rem,4vw,3rem)', lineHeight: 1.1, letterSpacing: '0.01em', maxWidth: '20ch', marginTop: 'var(--s-4)' }}>
               Built for the people who keep things moving.
@@ -448,7 +448,7 @@ export function BrandPanel() {
                 </div>
               ))}
             </div>
-            <Card cut={44} shoulder={16} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+            <Card cut={2.75} shoulder={1} style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
               <Eyebrow>Rules</Eyebrow>
               <ul style={{ color: 'var(--muted)', marginTop: 'var(--s-3)', paddingLeft: '1.1rem', lineHeight: 1.9 }}>
                 <li>Lead with the verb. Cut the warm-up clause.</li>
@@ -462,7 +462,7 @@ export function BrandPanel() {
           <div style={{ marginTop: 'var(--s-7)' }}>
             <SectionHead title="Taglines" pill="approved set" />
             <div className="grid gap-3">
-              <Bevel corners="br" cut={28} shoulder={10} fill="var(--accent)" stroke="none" className="font-display" style={{ padding: 'var(--s-4) var(--s-5)', fontSize: 'var(--t-md)', letterSpacing: '0.02em', color: 'var(--accent-fg)' }}>
+              <Bevel corners="br" cut={1.75} shoulder={0.625} fill="var(--accent)" stroke="none" className="font-display" style={{ padding: 'var(--s-4) var(--s-5)', fontSize: 'var(--t-md)', letterSpacing: '0.02em', color: 'var(--accent-fg)' }}>
                 Keep things moving.
               </Bevel>
               {['Every pallet, accounted for.', 'The warehouse, on one screen.', 'From dock to delivery, in view.'].map((t) => (
@@ -507,7 +507,7 @@ export function BrandPanel() {
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', marginTop: 'var(--s-6)' }}>
             {WORLDS.map((w) => (
               <Link key={w.key} href={`/style-guide/worlds?tab=${w.key}`} style={{ textDecoration: 'none' }} aria-label={`Enter ${w.name}`}>
-                <Card interactive cut={44} shoulder={16} style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
+                <Card interactive cut={2.75} shoulder={1} style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
                   <div className="flex items-baseline" style={{ gap: 'var(--s-3)' }}>
                     <span className="font-display" style={{ fontStyle: 'italic', fontWeight: 900, fontSize: 'var(--t-2xl)', lineHeight: 0.85, color: w.accent, letterSpacing: '-0.04em', flex: 'none' }}>{w.num}</span>
                     <div>

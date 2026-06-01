@@ -136,8 +136,8 @@ export function PortalPanel() {
           {/* Live-styled replica of the real navigation dock */}
           <Bevel
             corners="br"
-            cut={40}
-            shoulder={14}
+            cut={2.5}
+            shoulder={0.875}
             fill="var(--bg-2)"
             stroke="var(--border)"
             style={{ marginTop: 'var(--s-6)', minHeight: 220, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'clamp(1.25rem, 4vw, var(--s-7))' }}
@@ -174,7 +174,7 @@ export function PortalPanel() {
             </p>
             <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))' }}>
               {ROUTE_TAB_SETS.map((r) => (
-                <Card key={r.path} cut={28} shoulder={10}>
+                <Card key={r.path} cut={1.75} shoulder={0.625}>
                   <div className="flex items-baseline justify-between gap-3 flex-wrap">
                     <Eyebrow>{r.routeLabel}</Eyebrow>
                     <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>{r.path}</span>
@@ -195,7 +195,7 @@ export function PortalPanel() {
             </div>
           </div>
 
-          <Card cut={44} shoulder={16} style={{ marginTop: 'var(--s-7)' }}>
+          <Card cut={2.75} shoulder={1} style={{ marginTop: 'var(--s-7)' }}>
             <Eyebrow>Behavior</Eyebrow>
             <div className="grid gap-4 md:grid-cols-2" style={{ marginTop: 'var(--s-4)', color: 'var(--muted)' }}>
               <ul style={{ paddingLeft: '1.1rem', lineHeight: 1.9 }}>
@@ -256,7 +256,7 @@ export function PortalPanel() {
           {/* Form */}
           <div style={{ marginTop: 'var(--s-7)' }}>
             <SectionHead title="Form" pill="inline validation" />
-            <Card cut={44} shoulder={16}>
+            <Card cut={2.75} shoulder={1}>
               <Eyebrow>New shipment</Eyebrow>
               <div className="grid gap-5 md:grid-cols-2" style={{ marginTop: 'var(--s-5)' }}>
                 <div className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
@@ -296,7 +296,7 @@ export function PortalPanel() {
               { e: 'Numbers', p: 'Tabular figures, right-aligned in tables. Units in muted text, never inside the number.' },
               { e: 'Empty & loading', p: 'A table with no rows shows a one-line reason + a primary action, never a blank box.' },
             ].map((c) => (
-              <Card key={c.e} cut={28} shoulder={10}>
+              <Card key={c.e} cut={1.75} shoulder={0.625}>
                 <Eyebrow>{c.e}</Eyebrow>
                 <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 'var(--s-2)' }}>{c.p}</p>
               </Card>
@@ -318,7 +318,7 @@ export function PortalPanel() {
             <SectionHead title="Flow · Create a shipment" pill="4 steps" />
             <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
               {FLOW_CREATE.map((s) => (
-                <Card key={s.n} cut={24} shoulder={9}>
+                <Card key={s.n} cut={1.5} shoulder={0.5625}>
                   <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--accent)' }}>{s.n}</span>
                   <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 6 }}>{s.h}</h3>
                   <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>{s.p}</p>
@@ -334,7 +334,7 @@ export function PortalPanel() {
             <SectionHead title="Flow · First-run onboarding" pill="3 steps" />
             <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))' }}>
               {FLOW_ONBOARD.map((s) => (
-                <Card key={s.n} cut={24} shoulder={9}>
+                <Card key={s.n} cut={1.5} shoulder={0.5625}>
                   <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--accent)' }}>{s.n}</span>
                   <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 6 }}>{s.h}</h3>
                   <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>{s.p}</p>
@@ -346,22 +346,22 @@ export function PortalPanel() {
           <div style={{ marginTop: 'var(--s-7)' }}>
             <SectionHead title="The four states" pill="every screen, no exceptions" />
             <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
-              <Card cut={28} shoulder={10} style={{ minHeight: 170, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 'var(--s-3)' }}>
+              <Card cut={1.75} shoulder={0.625} style={{ minHeight: 170, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 'var(--s-3)' }}>
                 <span style={{ width: 34, height: 34, borderRadius: 9, border: '2px solid var(--border-2)', borderTopColor: 'var(--accent)', animation: 'spin 0.9s linear infinite' }} />
                 <span style={{ fontWeight: 600 }}>Loading</span>
                 <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Skeleton rows, never a spinner alone on data screens.</p>
               </Card>
-              <Card cut={28} shoulder={10} style={{ minHeight: 170, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 'var(--s-3)' }}>
+              <Card cut={1.75} shoulder={0.625} style={{ minHeight: 170, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 'var(--s-3)' }}>
                 <span style={{ width: 34, height: 34, borderRadius: 9, background: 'var(--surface-2)' }} />
                 <span style={{ fontWeight: 600 }}>Empty</span>
                 <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>One-line reason + a primary action. Explain, then offer the fix.</p>
               </Card>
-              <Card cut={28} shoulder={10} style={{ minHeight: 170, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 'var(--s-3)' }}>
+              <Card cut={1.75} shoulder={0.625} style={{ minHeight: 170, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 'var(--s-3)' }}>
                 <span className="grid place-items-center" style={{ width: 34, height: 34, borderRadius: 9, background: 'color-mix(in oklch, var(--danger) 22%, transparent)', color: 'var(--danger)', fontWeight: 700 }}>!</span>
                 <span style={{ fontWeight: 600 }}>Error</span>
                 <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>What failed, in plain words, and a retry. No codes the operator can’t act on.</p>
               </Card>
-              <Card cut={28} shoulder={10} style={{ minHeight: 170, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 'var(--s-3)' }}>
+              <Card cut={1.75} shoulder={0.625} style={{ minHeight: 170, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 'var(--s-3)' }}>
                 <span className="grid place-items-center" style={{ width: 34, height: 34, borderRadius: 9, background: 'color-mix(in oklch, var(--success) 22%, transparent)', color: 'var(--success)', fontWeight: 700 }}>✓</span>
                 <span style={{ fontWeight: 600 }}>Success</span>
                 <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Brief confirmation, then return to the work — with an undo where it matters.</p>
@@ -369,7 +369,7 @@ export function PortalPanel() {
             </div>
           </div>
 
-          <Card cut={44} shoulder={16} style={{ marginTop: 'var(--s-7)' }}>
+          <Card cut={2.75} shoulder={1} style={{ marginTop: 'var(--s-7)' }}>
             <Eyebrow>Flow principles</Eyebrow>
             <ul style={{ color: 'var(--muted)', marginTop: 'var(--s-4)', paddingLeft: '1.1rem', lineHeight: 1.9 }}>
               <li>End every flow inside real work, not on a congratulations screen.</li>
@@ -392,19 +392,19 @@ export function PortalPanel() {
           </p>
 
           <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', marginTop: 'var(--s-6)' }}>
-            <Card cut={28} shoulder={10}>
+            <Card cut={1.75} shoulder={0.625}>
               <Eyebrow>01 · Rounded shoulders</Eyebrow>
               <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 'var(--s-2)' }}>
                 Kept corners are quadratic curves (<code className="ds-mono">Q</code>). The cut’s two shoulders are filleted by <code className="ds-mono">shoulder</code>, so the flat face eases in and out instead of meeting at a sharp point.
               </p>
             </Card>
-            <Card cut={28} shoulder={10}>
+            <Card cut={1.75} shoulder={0.625}>
               <Eyebrow>02 · The 45° face</Eyebrow>
               <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 'var(--s-2)' }}>
                 The cut itself is a straight line (<code className="ds-mono">L</code>) across the corner. <code className="ds-mono">cut</code> sets how deep it bites along each edge; pick any of the four corners independently.
               </p>
             </Card>
-            <Card cut={28} shoulder={10}>
+            <Card cut={1.75} shoulder={0.625}>
               <Eyebrow>03 · Painted, not clipped</Eyebrow>
               <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 'var(--s-2)' }}>
                 The path is drawn as fill <em>and</em> hairline stroke at the element’s real size, so the border follows the cut. Fills use live tokens, so light/dark re-resolves with no repaint.

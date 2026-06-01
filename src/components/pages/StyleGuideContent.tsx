@@ -8,6 +8,7 @@ import { BrandPanel } from '@/components/pages/styleguide/BrandPanel';
 import { WebsitePanel } from '@/components/pages/styleguide/WebsitePanel';
 import { PortalPanel } from '@/components/pages/styleguide/PortalPanel';
 import { STYLE_GUIDE_SECTIONS } from '@/components/pages/styleguide/sections';
+import { BevelFrame } from '@/components/react/ui/BevelFrame';
 import { WarehausLogo } from '@/components/react/ui/WarehausLogo';
 
 const TABS: StyleGuideTab[] = ['brand', 'website', 'portal'];
@@ -60,30 +61,38 @@ export function StyleGuideContent() {
 
   return (
     <div className="ds-scope w-full h-[100dvh] overflow-hidden">
-      {/* Left sub-nav rail — the current section's pages (desktop only) */}
-      <nav
+      {/* Left sub-nav rail (desktop only). Framed glass: a translucent,
+          blurred outer frame (inverted background) rendered as a RING, with a
+          separate translucent inner panel that blurs the page directly — the
+          frame is knocked out behind the content. */}
+      <BevelFrame
+        as="nav"
+        corners="br"
+        radius={1.25}
+        cut={3}
+        shoulder={0.875}
+        frame={{ top: 1, right: 1, bottom: 48, left: 1 }}
         aria-label={`${sgTab} sections`}
-        className="hidden lg:flex flex-col gap-1 fixed z-[70] overflow-y-auto overscroll-contain backdrop-blur-2xl"
+        className="hidden lg:flex fixed z-[70]"
         style={{
+          position: 'fixed',
           top: 'var(--sidebar-inset, 1.1rem)',
           left: 'var(--sidebar-inset, 1.1rem)',
           bottom: '1.75rem',
           width: 'calc(var(--left-sidebar-w, 244px) - 1.6rem)',
-          padding: 'var(--s-6) var(--s-5)',
-          background: 'var(--nav-bg)',
-          border: '1px solid var(--nav-border)',
-          borderRadius: '1rem',
         }}
+        innerClassName="flex flex-col gap-1 overflow-y-auto overscroll-contain"
+        innerStyle={{ padding: 'var(--s-6) var(--s-5)' }}
       >
         <div
           className="flex items-center"
-          style={{ paddingBottom: 'var(--s-5)', borderBottom: '1px solid var(--nav-border)', marginBottom: 'var(--s-4)' }}
+          style={{ paddingBottom: 'var(--s-5)', borderBottom: '1px solid var(--border)', marginBottom: 'var(--s-4)' }}
         >
-          <WarehausLogo height={22} color="var(--nav-text-active)" />
+          <WarehausLogo height={22} color="var(--fg)" />
         </div>
         <p
           className="ds-mono"
-          style={{ fontSize: 'var(--t-xs)', textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--nav-text-muted)', marginBottom: 'var(--s-2)' }}
+          style={{ fontSize: 'var(--t-xs)', textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--muted)', marginBottom: 'var(--s-2)' }}
         >
           {sgTab}
         </p>
@@ -100,9 +109,9 @@ export function StyleGuideContent() {
                 fontSize: 'var(--t-sm)',
                 padding: '0.6rem 0.8rem',
                 borderRadius: 12,
-                color: active ? 'var(--nav-text-active)' : 'var(--nav-text)',
-                background: active ? 'var(--nav-pill-bg)' : 'transparent',
-                borderColor: active ? 'var(--nav-pill-border)' : 'transparent',
+                color: active ? 'var(--fg)' : 'var(--muted)',
+                background: active ? 'color-mix(in oklab, var(--fg) 8%, transparent)' : 'transparent',
+                borderColor: active ? 'color-mix(in oklab, var(--fg) 14%, transparent)' : 'transparent',
                 borderWidth: 1,
               }}
             >
@@ -110,7 +119,7 @@ export function StyleGuideContent() {
             </button>
           );
         })}
-      </nav>
+      </BevelFrame>
 
       <div
         ref={scrollRef}

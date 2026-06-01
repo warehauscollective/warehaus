@@ -5,6 +5,7 @@ import { useLayout, type ActiveTab } from '@/components/providers/LayoutProvider
 import { useScrollObserver } from '@/hooks/useScrollObserver';
 import { useSwipeTabs } from '@/hooks/useSwipeTabs';
 import { Bevel } from '@/components/react/ui/Bevel';
+import { BevelFrame } from '@/components/react/ui/BevelFrame';
 import { WORLDS, type World, type WorldKey } from '@/lib/data/worlds';
 import { Card, DsButton, Eyebrow, Section, SectionHead, Wrap } from '@/components/pages/styleguide/_shared';
 
@@ -65,7 +66,7 @@ function WorldPanel({ world }: { world: World }) {
             <SectionHead title={vc.lab} pill={vc.forbid ? 'never — wrong world' : undefined} />
             <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))' }}>
               {vc.items.map((it) => (
-                <Card key={it} cut={24} shoulder={9} padding="var(--s-5)" style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)' }}>
+                <Card key={it} cut={1.5} shoulder={0.5625} padding="var(--s-5)" style={{ display: 'flex', alignItems: 'center', gap: 'var(--s-3)' }}>
                   <span style={{ width: 8, height: 8, borderRadius: 999, background: vc.forbid ? 'var(--faint)' : world.accent, flex: 'none' }} />
                   <span style={{ fontSize: 'var(--t-sm)', color: vc.forbid ? 'var(--faint)' : 'var(--fg)', textDecoration: vc.forbid ? 'line-through' : undefined }}>{it}</span>
                 </Card>
@@ -82,7 +83,7 @@ function WorldPanel({ world }: { world: World }) {
           <div className="flex flex-wrap" style={{ gap: 'var(--s-4)' }}>
             {world.palette.map((c) => (
               <div key={c.nm} className="flex flex-col" style={{ gap: 8, width: 128 }}>
-                <Bevel corners="br" cut={22} shoulder={8} clip fill="var(--surface)" stroke="var(--border)">
+                <Bevel corners="br" cut={1.375} shoulder={0.5} clip fill="var(--surface)" stroke="var(--border)">
                   <div style={{ height: 84, background: c.value }} />
                 </Bevel>
                 <span style={{ fontSize: 'var(--t-xs)', color: 'var(--fg)' }}>{c.nm}</span>
@@ -137,28 +138,35 @@ export function WorldsContent() {
 
   return (
     <div className="ds-scope w-full h-[100dvh] overflow-hidden">
-      {/* Per-world sub-nav rail (desktop) */}
-      <nav
+      {/* Per-world sub-nav rail (desktop). Framed glass: translucent blurred
+          outer frame (ring) + translucent inner panel that blurs the page
+          directly (frame knocked out behind the content). */}
+      <BevelFrame
+        as="nav"
+        corners="br"
+        radius={1.25}
+        cut={3}
+        shoulder={0.875}
+        frame={{ top: 1, right: 1, bottom: 48, left: 1 }}
         aria-label={`${world} sections`}
-        className="hidden lg:flex flex-col gap-1 fixed z-[70] overflow-y-auto overscroll-contain backdrop-blur-2xl"
+        className="hidden lg:flex fixed z-[70]"
         style={{
+          position: 'fixed',
           top: 'var(--sidebar-inset, 1.1rem)',
           left: 'var(--sidebar-inset, 1.1rem)',
           bottom: '1.75rem',
           width: 'calc(var(--left-sidebar-w, 244px) - 1.6rem)',
-          padding: 'var(--s-6) var(--s-5)',
-          background: 'var(--nav-bg)',
-          border: '1px solid var(--nav-border)',
-          borderRadius: '1rem',
         }}
+        innerClassName="flex flex-col gap-1 overflow-y-auto overscroll-contain"
+        innerStyle={{ padding: 'var(--s-6) var(--s-5)' }}
       >
-        <div className="flex items-center gap-3" style={{ paddingBottom: 'var(--s-5)', borderBottom: '1px solid var(--nav-border)', marginBottom: 'var(--s-4)' }}>
+        <div className="flex items-center gap-3" style={{ paddingBottom: 'var(--s-5)', borderBottom: '1px solid var(--border)', marginBottom: 'var(--s-4)' }}>
           <span aria-hidden style={{ width: 24, height: 24, background: activeWorld.accent, clipPath: 'polygon(0 0,100% 0,100% 64%,64% 100%,0 100%)', flex: 'none' }} />
-          <span className="font-display" style={{ fontSize: 'var(--t-md)', letterSpacing: '0.04em', fontStyle: 'normal', fontWeight: 500, color: 'var(--nav-text-active)' }}>
+          <span className="font-display" style={{ fontSize: 'var(--t-md)', letterSpacing: '0.04em', fontStyle: 'normal', fontWeight: 500, color: 'var(--fg)' }}>
             {activeWorld.name}
           </span>
         </div>
-        <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--nav-text-muted)', marginBottom: 'var(--s-2)' }}>
+        <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', textTransform: 'uppercase', letterSpacing: '0.16em', color: 'var(--muted)', marginBottom: 'var(--s-2)' }}>
           World · {world}
         </p>
         {railSections.map((s) => {
@@ -174,9 +182,9 @@ export function WorldsContent() {
                 fontSize: 'var(--t-sm)',
                 padding: '0.6rem 0.8rem',
                 borderRadius: 12,
-                color: active ? 'var(--nav-text-active)' : 'var(--nav-text)',
-                background: active ? 'var(--nav-pill-bg)' : 'transparent',
-                borderColor: active ? 'var(--nav-pill-border)' : 'transparent',
+                color: active ? 'var(--fg)' : 'var(--muted)',
+                background: active ? 'color-mix(in oklab, var(--fg) 8%, transparent)' : 'transparent',
+                borderColor: active ? 'color-mix(in oklab, var(--fg) 14%, transparent)' : 'transparent',
                 borderWidth: 1,
               }}
             >
@@ -184,7 +192,7 @@ export function WorldsContent() {
             </button>
           );
         })}
-      </nav>
+      </BevelFrame>
 
       <div
         ref={scrollRef}

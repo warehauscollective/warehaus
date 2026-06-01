@@ -25,12 +25,14 @@ const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : use
    content (z-index -1 inside an isolated stacking context), so children ride
    above it with no per-child z-index.
 
-   Highly tweakable — every knob from the original engine is a prop:
-     <Bevel>                                   // default: bottom-right cut
-     <Bevel corners="tl tr br bl" cut={22} />  // full bevel
+   Highly tweakable — every knob from the original engine is a prop. Geometry
+   values (radius / cut / shoulder + perCorner) are authored in REM and painted
+   in px relative to the root font size; strokeWidth stays in px.
+     <Bevel>                                    // default: bottom-right cut
+     <Bevel corners="tl tr br bl" cut={1.375} />// full bevel (≈22px)
      <Bevel fill="var(--accent)" stroke="none" />
-     <Bevel perCorner={{ br: { cut: 64, shoulder: 22 } }} />
-     <Bevel clip>…</Bevel>                      // also clip content to the shape
+     <Bevel perCorner={{ br: { cut: 4, shoulder: 1.375 } }} />
+     <Bevel clip>…</Bevel>                       // also clip content to the shape
 
    It is theme-aware by default: fill / stroke resolve live `var(--…)` tokens,
    so a light/dark swap re-resolves with no repaint.
@@ -135,19 +137,19 @@ export interface BevelProps {
   as?: ElementType;
   /** Which corners carry the 45° cut. Default `'br'`. e.g. `'tl tr br bl'` or `['br','tl']`. */
   corners?: string | BevelCorner[];
-  /** Rounded-corner radius for non-beveled corners (px). Default 18. */
+  /** Rounded-corner radius for non-beveled corners, in **rem**. Default 1.125 (≈18px). */
   radius?: number;
-  /** Bevel face depth along each edge (px). Default 40. */
+  /** Bevel face depth along each edge, in **rem**. Default 2.5 (≈40px). */
   cut?: number;
-  /** Shoulder fillet radius (px). 0 = sharp bevel. Default 14. */
+  /** Shoulder fillet radius, in **rem**. 0 = sharp bevel. Default 0.875 (≈14px). */
   shoulder?: number;
-  /** Per-corner overrides — win over the globals. */
+  /** Per-corner overrides (rem) — win over the globals. */
   perCorner?: Partial<Record<BevelCorner, { cut?: number; shoulder?: number; radius?: number }>>;
   /** Surface fill — any CSS color or token. Default `var(--surface)`. */
   fill?: string;
   /** Hairline stroke — any CSS color or token, or `'none'`. Default `var(--border)`. */
   stroke?: string;
-  /** Stroke width (px). Default 1. */
+  /** Stroke width, in **px** (hairlines stay pixel-based). Default 1. */
   strokeWidth?: number;
   /** Also clip the inner content to the beveled shape. Default false. */
   clip?: boolean;
@@ -164,9 +166,9 @@ export interface BevelProps {
 export function Bevel({
   as,
   corners = 'br',
-  radius = 18,
-  cut = 40,
-  shoulder = 14,
+  radius = 1.125,
+  cut = 2.5,
+  shoulder = 0.875,
   perCorner,
   fill = 'var(--surface)',
   stroke = 'var(--border)',
@@ -184,6 +186,10 @@ export function Bevel({
   const Tag = (as || 'div') as any;
   const ref = useRef<HTMLElement | null>(null);
   const [box, setBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
+  // Root font size (px per rem) — geometry props are authored in rem and
+  // converted to px for the painted path. Read live so it respects the user's
+  // base font size and updates on resize.
+  const [remPx, setRemPx] = useState(16);
 
   // ── Dev inspector (no-op in production / when disabled) ──
   const inspector = useBevelInspector();
@@ -194,12 +200,33 @@ export function Bevel({
   baseRef.current = { corners, cut, shoulder, radius, perCorner, strokeWidth, fill, stroke, label: inspectorLabel };
   useEffect(() => {
     if (!inspector.enabled) return;
-    inspector.register(inspId, baseRef.current);
+    // Capture the element's current padding (px) so the inspector can seed its
+    // padding controls from whatever the surface authored (style or token).
+    let padding;
+    const el = ref.current;
+    if (el) {
+      const cs = getComputedStyle(el);
+      padding = {
+        top: parseFloat(cs.paddingTop) || 0,
+        right: parseFloat(cs.paddingRight) || 0,
+        bottom: parseFloat(cs.paddingBottom) || 0,
+        left: parseFloat(cs.paddingLeft) || 0,
+      };
+    }
+    inspector.register(inspId, { ...baseRef.current, padding });
     return () => inspector.unregister(inspId);
   }, [inspector.enabled, inspId, inspector.register, inspector.unregister]);
 
   // Live overrides from the inspector take precedence over authored props.
   const ov = inspector.enabled ? inspector.overrides[inspId] : undefined;
+  const ovPadding = ov?.padding
+    ? {
+        paddingTop: ov.padding.top,
+        paddingRight: ov.padding.right,
+        paddingBottom: ov.padding.bottom,
+        paddingLeft: ov.padding.left,
+      }
+    : null;
   const effCorners = ov?.corners ?? corners;
   const effPerCorner: Partial<Record<BevelCorner, { cut?: number; shoulder?: number; radius?: number }>> | undefined =
     ov?.perCorner ?? perCorner;
@@ -218,6 +245,8 @@ export function Bevel({
           ? prev
           : { w: rect.width, h: rect.height },
       );
+      const fs = parseFloat(getComputedStyle(document.documentElement).fontSize);
+      if (fs) setRemPx(fs);
     };
     measure();
     const ro = new ResizeObserver(measure);
@@ -229,12 +258,13 @@ export function Bevel({
   const hasStroke = effStroke !== 'none' && effStroke != null;
   const inset = hasStroke ? effStrokeWidth / 2 : 0;
 
+  // Geometry props are authored in rem → convert to px for the painted path.
   const cornerMap = ALL_CORNERS.reduce(
     (acc, k) => {
       const o = effPerCorner?.[k];
       acc[k] = beveled.has(k)
-        ? { type: 'bevel', r: 0, c: o?.cut ?? cut, s: o?.shoulder ?? shoulder }
-        : { type: 'round', r: o?.radius ?? effRadius, c: 0, s: 0 };
+        ? { type: 'bevel', r: 0, c: (o?.cut ?? cut) * remPx, s: (o?.shoulder ?? shoulder) * remPx }
+        : { type: 'round', r: (o?.radius ?? effRadius) * remPx, c: 0, s: 0 };
       return acc;
     },
     {} as Record<BevelCorner, CornerGeo>,
@@ -278,6 +308,7 @@ export function Bevel({
         isolation: 'isolate',
         ...(clip && clipD ? { clipPath: `path("${clipD}")` } : null),
         ...style,
+        ...ovPadding,
         ...inspectorStyle,
       }}
       {...rest}

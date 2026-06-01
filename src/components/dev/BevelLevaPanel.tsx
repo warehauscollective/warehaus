@@ -17,12 +17,13 @@ function Controls({ id }: { id: string }) {
   const ov = overrides[id];
 
   const beveledSet = parseCorners(ov?.corners ?? base.corners);
+  const pad = ov?.padding ?? base.padding ?? { top: 0, right: 0, bottom: 0, left: 0 };
   const cornerInit = (c: BevelCorner) => {
     const o = ov?.perCorner?.[c];
     return {
       beveled: beveledSet.has(c),
-      cut: o?.cut ?? base.perCorner?.[c]?.cut ?? base.cut ?? 40,
-      shoulder: o?.shoulder ?? base.perCorner?.[c]?.shoulder ?? base.shoulder ?? 14,
+      cut: o?.cut ?? base.perCorner?.[c]?.cut ?? base.cut ?? 2.5,
+      shoulder: o?.shoulder ?? base.perCorner?.[c]?.shoulder ?? base.shoulder ?? 0.875,
     };
   };
 
@@ -34,8 +35,8 @@ function Controls({ id }: { id: string }) {
         folder(
           {
             [`${c}_beveled`]: { label: 'beveled', value: e.beveled },
-            [`${c}_cut`]: { label: 'cut', value: e.cut, min: 0, max: 96, step: 1 },
-            [`${c}_shoulder`]: { label: 'shoulder', value: e.shoulder, min: 0, max: 48, step: 1 },
+            [`${c}_cut`]: { label: 'cut (rem)', value: e.cut, min: 0, max: 6, step: 0.125 },
+            [`${c}_shoulder`]: { label: 'shoulder (rem)', value: e.shoulder, min: 0, max: 3, step: 0.125 },
           },
           { collapsed: !e.beveled },
         ),
@@ -45,8 +46,17 @@ function Controls({ id }: { id: string }) {
 
   const values = useControls({
     ...cornerSchema,
-    radius: { value: ov?.radius ?? base.radius ?? 18, min: 0, max: 48, step: 1 },
-    strokeWidth: { label: 'stroke width', value: ov?.strokeWidth ?? base.strokeWidth ?? 1, min: 0, max: 4, step: 1 },
+    Padding: folder(
+      {
+        pt: { label: 'top (px)', value: pad.top, min: 0, max: 96, step: 1 },
+        pr: { label: 'right (px)', value: pad.right, min: 0, max: 96, step: 1 },
+        pb: { label: 'bottom (px)', value: pad.bottom, min: 0, max: 96, step: 1 },
+        pl: { label: 'left (px)', value: pad.left, min: 0, max: 96, step: 1 },
+      },
+      { collapsed: true },
+    ),
+    radius: { label: 'radius (rem)', value: ov?.radius ?? base.radius ?? 1.125, min: 0, max: 3, step: 0.125 },
+    strokeWidth: { label: 'stroke width (px)', value: ov?.strokeWidth ?? base.strokeWidth ?? 1, min: 0, max: 4, step: 1 },
     fill: {
       value: ov?.fill ?? base.fill ?? 'var(--accent)',
       options: withCurrent(
@@ -77,6 +87,12 @@ function Controls({ id }: { id: string }) {
       strokeWidth: Number(values.strokeWidth),
       fill: String(values.fill),
       stroke: String(values.stroke),
+      padding: {
+        top: Number(values.pt),
+        right: Number(values.pr),
+        bottom: Number(values.pb),
+        left: Number(values.pl),
+      },
     });
   }, [values, id, setOverride]);
 

@@ -28,6 +28,8 @@ export interface BevelBase {
   strokeWidth?: number;
   fill?: string;
   stroke?: string;
+  /** Computed padding (px) captured at registration, to seed the controls. */
+  padding?: { top: number; right: number; bottom: number; left: number };
   label?: string;
 }
 
@@ -39,6 +41,8 @@ export interface BevelOverride {
   strokeWidth?: number;
   fill?: string;
   stroke?: string;
+  /** Padding (px), independently per side. */
+  padding?: { top: number; right: number; bottom: number; left: number };
 }
 
 interface InspectorCtx {
@@ -82,18 +86,19 @@ export function parseCorners(corners: string | BevelCorner[] | undefined): Set<B
 /** Build a copy-pasteable <Bevel> snippet from a base + its live override. */
 export function snippetFor(base: BevelBase | undefined, ov: BevelOverride | undefined): string {
   const beveled = ov?.corners ?? Array.from(parseCorners(base?.corners));
-  const radius = ov?.radius ?? base?.radius ?? 18;
+  const radius = ov?.radius ?? base?.radius ?? 1.125;
   const strokeWidth = ov?.strokeWidth ?? base?.strokeWidth ?? 1;
   const fill = ov?.fill ?? base?.fill ?? 'var(--surface)';
   const stroke = ov?.stroke ?? base?.stroke ?? 'var(--border)';
   const per = beveled
     .map((c) => {
       const o = ov?.perCorner?.[c];
-      const cut = o?.cut ?? base?.perCorner?.[c]?.cut ?? base?.cut ?? 40;
-      const shoulder = o?.shoulder ?? base?.perCorner?.[c]?.shoulder ?? base?.shoulder ?? 14;
+      const cut = o?.cut ?? base?.perCorner?.[c]?.cut ?? base?.cut ?? 2.5;
+      const shoulder = o?.shoulder ?? base?.perCorner?.[c]?.shoulder ?? base?.shoulder ?? 0.875;
       return `    ${c}: { cut: ${cut}, shoulder: ${shoulder} },`;
     })
     .join('\n');
+  const pad = ov?.padding ?? base?.padding;
   return [
     '<Bevel',
     `  corners="${beveled.join(' ') || 'none'}"`,
@@ -101,6 +106,7 @@ export function snippetFor(base: BevelBase | undefined, ov: BevelOverride | unde
     `  radius={${radius}}`,
     stroke !== 'none' ? `  stroke="${stroke}" strokeWidth={${strokeWidth}}` : null,
     `  fill="${fill}"`,
+    pad ? `  style={{ padding: '${pad.top}px ${pad.right}px ${pad.bottom}px ${pad.left}px' }}` : null,
     '/>',
   ]
     .filter(Boolean)

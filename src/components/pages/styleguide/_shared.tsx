@@ -120,8 +120,8 @@ export function SectionHead({
 /** Beveled surface card with the system's default card geometry + padding. */
 export function Card({
   children,
-  cut = 40,
-  shoulder = 14,
+  cut = 2.5,
+  shoulder = 0.875,
   corners = 'br',
   fill = 'var(--surface)',
   stroke = 'var(--border)',
@@ -186,9 +186,9 @@ export function DsButton({
     <Bevel
       as={as}
       corners="br"
-      radius={12}
-      cut={16}
-      shoulder={7}
+      radius={0.75}
+      cut={1}
+      shoulder={0.4375}
       fill={fill}
       stroke={stroke}
       inspectorLabel={label}
