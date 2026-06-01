@@ -12,5 +12,10 @@ export declare const tokens: {
   motion: { speed: string; ease: string };
 };
 
+export declare const colorThemes: { dark: Record<string, string>; light: Record<string, string> };
+
 /** Render the scalar tokens as a CSS `:root { … }` block. */
 export declare function toCssRoot(scalars: Record<string, string>): string;
+
+/** Render the color themes as `:root { …dark… }` + `:root.light { …light… }`. */
+export declare function toCssThemes(themes: { dark: Record<string, string>; light: Record<string, string> }): string;

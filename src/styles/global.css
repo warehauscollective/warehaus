@@ -38,17 +38,9 @@
 }
 
 :root {
-  --background: #050505;
-  --foreground: #e8e6e3;
-  --muted: #6b6966;
-  --accent: #00e5ff;
-  --surface: #0d0d0d;
-  --surface-elevated: #141414;
-  --border: #1f1f1f;
-  --border-subtle: #161616;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --info: #3b82f6;
+  /* Semantic palette, status, and the Dream/Design/Develop pillar colors now
+     come from @warehaus/tokens (generated into tokens.generated.css, imported
+     at the top of this file). What remains here is app chrome set in CSS. */
   --font-display: "Eurostile", sans-serif;
   --font-body: "DM Sans", sans-serif;
 
@@ -57,48 +49,6 @@
   --glass-blur: 16px;
   --panel-radius: 12px;
   --panel-padding: 1.25rem;
-
-  /* ═══ Pillar Color System ═══
-     Each pillar has a full palette with semantic tiers:
-     - primary:    Main accent (icons, headings, CTAs)
-     - secondary:  Lighter accent (hover states, emphasis)
-     - dim:        Muted accent (labels, metadata)
-     - glow:       For shadows & glowing effects (rgba base)
-     - surface:    Tinted background fills (cards, badges)
-     - border:     Accent-tinted borders
-     - bg-deep:    Deep tinted background for hero gradients
-     - bg-mid:     Mid-tone tinted background for sections
-  */
-
-  /* Dream — Indigo / Violet */
-  --dream-primary: #818cf8;
-  --dream-secondary: #a5b4fc;
-  --dream-dim: rgba(129, 140, 248, 0.4);
-  --dream-glow: 129, 140, 248;
-  --dream-surface: rgba(99, 102, 241, 0.08);
-  --dream-border: rgba(99, 102, 241, 0.15);
-  --dream-bg-deep: #1e1b4b;
-  --dream-bg-mid: #0c0a1a;
-
-  /* Design — Orange / Amber */
-  --design-primary: #f97316;
-  --design-secondary: #fbbf24;
-  --design-dim: rgba(249, 115, 22, 0.4);
-  --design-glow: 249, 115, 22;
-  --design-surface: rgba(249, 115, 22, 0.08);
-  --design-border: rgba(249, 115, 22, 0.15);
-  --design-bg-deep: #451a03;
-  --design-bg-mid: #0d0805;
-
-  /* Develop — Emerald / Green */
-  --develop-primary: #10b981;
-  --develop-secondary: #34d399;
-  --develop-dim: rgba(16, 185, 129, 0.4);
-  --develop-glow: 16, 185, 129;
-  --develop-surface: rgba(16, 185, 129, 0.08);
-  --develop-border: rgba(16, 185, 129, 0.15);
-  --develop-bg-deep: #052e16;
-  --develop-bg-mid: #0a120d;
 
   /* Navbar colors (theme-aware) */
   --nav-bg: rgba(0, 0, 0, 0.7);
@@ -115,17 +65,8 @@
   --right-sidebar-w: 0px;
 }
 
-/* Light theme */
+/* Light theme — palette + pillars come from @warehaus/tokens (tokens.generated.css). */
 :root.light {
-  --background: #ededed;
-  --foreground: #1a1a1a;
-  --muted: #888888;
-  --accent: #0099cc;
-  --surface: #ffffff;
-  --surface-elevated: #f0f0f0;
-  --border: #e0e0e0;
-  --border-subtle: #eaeaea;
-
   --glass-bg: rgba(0, 0, 0, 0.03);
   --glass-border: rgba(0, 0, 0, 0.06);
 
@@ -137,34 +78,6 @@
   --nav-pill-bg: rgba(255, 255, 255, 0.6);
   --nav-pill-border: rgba(0, 0, 0, 0.08);
   --nav-text-inverse: #fff;
-
-  /* Pillar colors — darkened for light backgrounds */
-  --dream-primary: #4338ca;
-  --dream-secondary: #6366f1;
-  --dream-dim: rgba(67, 56, 202, 0.5);
-  --dream-glow: 67, 56, 202;
-  --dream-surface: rgba(99, 102, 241, 0.06);
-  --dream-border: rgba(99, 102, 241, 0.12);
-  --dream-bg-deep: #e8e5f8;
-  --dream-bg-mid: #f0eef8;
-
-  --design-primary: #c2410c;
-  --design-secondary: #ea580c;
-  --design-dim: rgba(194, 65, 12, 0.5);
-  --design-glow: 194, 65, 12;
-  --design-surface: rgba(249, 115, 22, 0.06);
-  --design-border: rgba(249, 115, 22, 0.12);
-  --design-bg-deep: #fef3e2;
-  --design-bg-mid: #fdf8f0;
-
-  --develop-primary: #047857;
-  --develop-secondary: #059669;
-  --develop-dim: rgba(4, 120, 87, 0.5);
-  --develop-glow: 4, 120, 87;
-  --develop-surface: rgba(16, 185, 129, 0.06);
-  --develop-border: rgba(16, 185, 129, 0.12);
-  --develop-bg-deep: #e2f8f0;
-  --develop-bg-mid: #f0faf5;
 }
 
 body {
