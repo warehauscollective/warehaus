@@ -34,3 +34,7 @@ pnpm-debug.log*
 
 *storybook.log
 storybook-static
+
+# Chromatic/Storybook build log
+build-storybook.log
+chromatic-diagnostics.json
