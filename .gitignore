@@ -31,3 +31,6 @@ pnpm-debug.log*
 .shipstudio/
 .vercel
 .env*.local
+
+*storybook.log
+storybook-static
