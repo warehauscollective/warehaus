@@ -34,6 +34,13 @@ const preview: Preview = {
       },
     },
     a11y: { test: 'todo' },
+    // Chromatic snapshots every story in both themes.
+    chromatic: {
+      modes: {
+        dark: { theme: 'dark' },
+        light: { theme: 'light' },
+      },
+    },
   },
   // Light/dark toggle in the toolbar — flips the `.light` class the tokens use.
   globalTypes: {
