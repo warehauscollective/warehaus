@@ -148,6 +148,7 @@ export function WorldsContent() {
         cut={3}
         shoulder={0.875}
         frame={{ top: 1, right: 1, bottom: 48, left: 1 }}
+        innerFill="var(--nav-bg)"
         aria-label={`${world} sections`}
         className="hidden lg:flex fixed z-[70]"
         style={{

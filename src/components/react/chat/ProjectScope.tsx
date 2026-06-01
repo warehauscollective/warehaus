@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { ChevronUp, Eye, Users, Target, Sparkles, TrendingUp, Palette, Droplets, Type, LayoutGrid, Layers, Code2, Database, Cable, Shield, Rocket } from 'lucide-react';
 import { useLayout, type ActiveTab } from '@/components/providers/LayoutProvider';
 import type { LucideIcon } from 'lucide-react';
+import { Eyebrow, Mono } from '@/components/react/ui/typography';
 
 /* ───────── Types ───────── */
 interface SkillNode {
@@ -196,8 +197,9 @@ function SphereNodeHtml({
         }}
       />
       {/* Label — below the orb */}
-      <span
-        className="text-[9px] font-display font-semibold tracking-wider uppercase whitespace-nowrap text-foreground/80"
+      <Eyebrow
+        as="span"
+        className="text-[9px] whitespace-nowrap text-foreground/80"
         style={{
           position: 'absolute',
           left: 0,
@@ -208,7 +210,7 @@ function SphereNodeHtml({
         }}
       >
         {node.label}
-      </span>
+      </Eyebrow>
     </div>
   );
 }
@@ -233,7 +235,7 @@ export function ProjectScope() {
         className="flex w-full items-center justify-center gap-2 py-2 text-xs text-foreground/60 hover:text-foreground/80 transition-colors"
       >
         <span className="font-display font-bold tracking-wider">PROJECT SCOPE</span>
-        <span className="text-white/30">{totalCollected}/{totalSkills}</span>
+        <Mono className="text-white/30">{totalCollected}/{totalSkills}</Mono>
         <ChevronUp
           className={`w-4 h-4 transition-transform duration-200 ${
             isOpen ? '' : 'rotate-180'
@@ -263,13 +265,13 @@ export function ProjectScope() {
           {SKILL_TREES.map((tree) => {
             const centerX = tree.nodes.reduce((s, n) => s + n.x, 0) / tree.nodes.length;
             return (
-              <div
+              <Eyebrow
                 key={tree.tab}
-                className={`absolute text-[10px] font-display font-bold tracking-[0.3em] ${tree.color} opacity-40`}
+                className={`absolute tracking-[0.3em] ${tree.color} opacity-40`}
                 style={{ left: `${centerX}%`, top: '10%', transform: 'translateX(-50%)' }}
               >
                 {tree.label.toUpperCase()}
-              </div>
+              </Eyebrow>
             );
           })}
 
@@ -371,10 +373,10 @@ export function ProjectScope() {
                     className="w-2 h-2 rounded-full"
                     style={{ backgroundColor: tree.hexColor, boxShadow: `0 0 6px ${tree.hexColor}` }}
                   />
-                  <span className={`text-[10px] font-display font-bold tracking-wider ${tree.color}`}>
+                  <Eyebrow as="span" className={tree.color}>
                     {tree.label.toUpperCase()}
-                  </span>
-                  <span className="text-[10px] text-white/30">{count}/{tree.nodes.length}</span>
+                  </Eyebrow>
+                  <Mono className="text-[10px] text-white/30">{count}/{tree.nodes.length}</Mono>
                 </div>
               );
             })}

@@ -62,13 +62,9 @@ export function Section({
   );
 }
 
-export function Eyebrow({ children, style }: { children: ReactNode; style?: CSSProperties }) {
-  return (
-    <p className="ds-eyebrow" style={style}>
-      {children}
-    </p>
-  );
-}
+// Eyebrow now lives in the shared typography primitives; re-exported here so
+// the style-guide panels keep their existing import path.
+export { Eyebrow } from '@/components/react/ui/typography/Eyebrow';
 
 export function Pill({
   children,

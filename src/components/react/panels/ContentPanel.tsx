@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { cn } from '@/lib/utils/cn';
 import { GlassCard } from '@/components/react/ui/GlassCard';
 import { FilterBar } from '@/components/react/ui/FilterBar';
+import { Heading, Text, Eyebrow } from '@/components/react/ui/typography';
 import { BasePanel } from './BasePanel';
 
 export interface ContentItem {
@@ -88,20 +89,25 @@ export function ContentPanel({ items, categories }: ContentPanelProps) {
                 </div>
               )}
               <div className="p-4">
-                <span
+                <Eyebrow
+                  as="span"
                   className={cn(
-                    'mb-2 inline-block rounded-full border border-accent/20 bg-accent/5 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wider text-accent',
+                    'mb-2 inline-block rounded-full border border-accent/20 bg-accent/5 px-2 py-0.5 text-[10px] text-accent',
                   )}
                 >
                   {item.category}
-                </span>
-                <h4 className="text-sm font-medium text-foreground transition-colors duration-200 group-hover:text-accent">
+                </Eyebrow>
+                <Heading
+                  level={6}
+                  display={false}
+                  className="text-sm text-foreground transition-colors duration-200 group-hover:text-accent"
+                >
                   {item.title}
-                </h4>
+                </Heading>
                 {item.description && (
-                  <p className="mt-1 line-clamp-2 text-xs text-muted">
+                  <Text size="sm" muted className="mt-1 line-clamp-2 text-xs">
                     {item.description}
-                  </p>
+                  </Text>
                 )}
               </div>
             </GlassCard>
@@ -110,9 +116,9 @@ export function ContentPanel({ items, categories }: ContentPanelProps) {
       </div>
 
       {filteredItems.length === 0 && (
-        <p className="py-8 text-center text-sm text-muted">
+        <Text size="sm" muted className="py-8 text-center">
           No items found in this category.
-        </p>
+        </Text>
       )}
     </BasePanel>
   );

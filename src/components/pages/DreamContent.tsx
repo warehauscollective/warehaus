@@ -19,6 +19,7 @@ import {
 import { GlassCard } from '@/components/react/ui/GlassCard';
 import { ALL_SERVICES } from '@/lib/data/services';
 import { useFadeIn } from '@/hooks/useFadeIn';
+import { Heading, Text, Eyebrow, Mono } from '@/components/react/ui/typography';
 
 /* ───────── Data ───────── */
 const disciplines = [
@@ -113,20 +114,20 @@ export function DreamContent() {
             <div className="w-8 h-8 rounded-full bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center">
               <Compass className="w-4 h-4 text-indigo-400" />
             </div>
-            <span className="text-indigo-400 text-xs font-bold tracking-[0.3em] uppercase">
+            <Eyebrow as="span" className="text-indigo-400">
               The Navigator Realm
-            </span>
+            </Eyebrow>
           </div>
 
-          <h1 className="font-display text-5xl md:text-7xl lg:text-8xl font-black italic tracking-tighter text-white/90 leading-[0.9] mb-8">
+          <Heading level={1} size="display" className="text-white/90 mb-8">
             Build your Dream
-          </h1>
+          </Heading>
 
-          <p className="text-lg md:text-xl text-white/40 max-w-lg mx-auto leading-relaxed">
+          <Text size="lg" className="text-white/40 max-w-lg mx-auto">
             It starts here. A spark. An ambition you can&apos;t quite name yet.
             <br className="hidden md:block" />
             <span className="text-white/25">That&apos;s exactly where we begin.</span>
-          </p>
+          </Text>
         </div>
 
         {/* Scroll indicator */}
@@ -166,17 +167,17 @@ export function DreamContent() {
           }`}
           style={SIDEBAR_PAD}
         >
-          <p className="text-indigo-400/30 text-[10px] font-bold tracking-[0.3em] uppercase mb-8">
+          <Eyebrow className="text-indigo-400/30 mb-8">
             The Unknown
-          </p>
-          <h2 className="font-display text-3xl md:text-5xl lg:text-6xl font-bold text-white/70 leading-tight max-w-2xl mx-auto mb-6">
+          </Eyebrow>
+          <Heading level={2} size="h1" className="text-white/70 max-w-2xl mx-auto mb-6">
             You know something
             <br />
             <span className="text-white/30">needs to exist.</span>
-          </h2>
-          <p className="text-white/20 text-base md:text-lg max-w-md mx-auto leading-relaxed">
+          </Heading>
+          <Text size="lg" className="text-white/20 max-w-md mx-auto">
             But the vision is still forming. Too many directions. Too much noise. The path forward isn&apos;t clear yet.
-          </p>
+          </Text>
         </div>
       </section>
 
@@ -225,15 +226,15 @@ export function DreamContent() {
               <div className="absolute -inset-8 rounded-[2rem] bg-indigo-500/5 blur-2xl -z-10" />
             </div>
 
-            <p className="text-indigo-400/30 text-[10px] tracking-[0.3em] uppercase mb-4">
+            <Eyebrow className="text-indigo-400/30 mb-4">
               Your guide has arrived
-            </p>
-            <h2 className="font-display text-3xl md:text-5xl font-bold text-white text-center mb-3">
+            </Eyebrow>
+            <Heading level={2} className="text-white text-center mb-3">
               Meet Vaelen
-            </h2>
-            <p className="text-indigo-300/30 text-sm italic max-w-sm text-center">
+            </Heading>
+            <Text size="sm" className="text-indigo-300/30 italic max-w-sm text-center">
               The Dark Elf Pathfinder. He&apos;s charted a thousand futures and knows which ones are worth chasing.
-            </p>
+            </Text>
           </div>
         </div>
       </section>
@@ -291,17 +292,17 @@ export function DreamContent() {
           }`}
           style={SIDEBAR_PAD}
         >
-          <p className="text-indigo-400/40 text-[10px] font-bold tracking-[0.3em] uppercase mb-6">
+          <Eyebrow className="text-indigo-400/40 mb-6">
             The fog clears
-          </p>
-          <h2 className="font-display text-4xl md:text-6xl lg:text-7xl font-bold text-white leading-tight">
+          </Eyebrow>
+          <Heading level={2} size="h1" className="text-white">
             Now we see
             <br />
             <span className="text-indigo-300/60">everything.</span>
-          </h2>
-          <p className="mt-6 text-white/25 text-sm max-w-sm mx-auto leading-relaxed">
+          </Heading>
+          <Text size="sm" className="mt-6 text-white/25 max-w-sm mx-auto">
             Together, we map the terrain. Your market. Your audience. Your competition. Every path laid bare.
-          </p>
+          </Text>
         </div>
       </section>
 
@@ -320,15 +321,15 @@ export function DreamContent() {
           style={SIDEBAR_PAD}
         >
           <div className="mb-16 text-center">
-            <p className="text-indigo-400/40 text-[10px] font-bold tracking-[0.3em] uppercase mb-4">
+            <Eyebrow className="text-indigo-400/40 mb-4">
               Refining the vision
-            </p>
-            <h2 className="font-display text-4xl md:text-6xl font-bold text-white">
+            </Eyebrow>
+            <Heading level={2} size="h1" className="text-white">
               From fog to compass bearing.
-            </h2>
-            <p className="mt-4 text-white/20 text-sm max-w-md mx-auto">
+            </Heading>
+            <Text size="sm" className="mt-4 text-white/20 max-w-md mx-auto">
               Five disciplines. Each one sharpens your dream into something you can act on.
-            </p>
+            </Text>
           </div>
 
           {/* Discipline constellation */}
@@ -351,12 +352,12 @@ export function DreamContent() {
                       <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-indigo-500/8 border border-indigo-500/15 flex items-center justify-center mb-5 group-hover:bg-indigo-500/15 group-hover:border-indigo-500/30 transition-all duration-500">
                         <Icon className="w-8 h-8 md:w-10 md:h-10 text-indigo-400/70 group-hover:text-indigo-400 transition-colors" />
                       </div>
-                      <h3 className="font-display text-base md:text-lg font-semibold text-white/80 mb-1">
+                      <Heading level={3} className="text-white/80 mb-1">
                         {d.loreTitle}
-                      </h3>
-                      <span className="text-[10px] text-indigo-400/40 font-mono">
+                      </Heading>
+                      <Mono className="text-[10px] text-indigo-400/40">
                         {'// '}{d.realTitle}
-                      </span>
+                      </Mono>
                     </div>
                   );
                 })}
@@ -369,12 +370,12 @@ export function DreamContent() {
                         <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-indigo-500/8 border border-indigo-500/15 flex items-center justify-center mb-5 group-hover:bg-indigo-500/15 group-hover:border-indigo-500/30 transition-all duration-500">
                           <Icon className="w-8 h-8 md:w-10 md:h-10 text-indigo-400/70 group-hover:text-indigo-400 transition-colors" />
                         </div>
-                        <h3 className="font-display text-base md:text-lg font-semibold text-white/80 mb-1">
+                        <Heading level={3} className="text-white/80 mb-1">
                           {d.loreTitle}
-                        </h3>
-                        <span className="text-[10px] text-indigo-400/40 font-mono">
+                        </Heading>
+                        <Mono className="text-[10px] text-indigo-400/40">
                           {'// '}{d.realTitle}
-                        </span>
+                        </Mono>
                       </div>
                     );
                   })}
@@ -401,15 +402,15 @@ export function DreamContent() {
           style={SIDEBAR_PAD}
         >
           <div className="text-center mb-16">
-            <p className="text-indigo-400/40 text-[10px] font-bold tracking-[0.3em] uppercase mb-4">
+            <Eyebrow className="text-indigo-400/40 mb-4">
               The dream takes form
-            </p>
-            <h2 className="font-display text-4xl md:text-6xl font-bold text-white">
+            </Eyebrow>
+            <Heading level={2} size="h1" className="text-white">
               You leave with a plan.
-            </h2>
-            <p className="mt-4 text-white/20 text-sm max-w-md mx-auto">
+            </Heading>
+            <Text size="sm" className="mt-4 text-white/20 max-w-md mx-auto">
               Not just ideas. Tangible artifacts you can hold, share, and build from.
-            </p>
+            </Text>
           </div>
 
           {/* Artifact cards with placeholder images */}
@@ -435,12 +436,12 @@ export function DreamContent() {
                       <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-[#050505] to-transparent" />
                     </div>
                     <div className="absolute bottom-0 left-0 right-0 p-6">
-                      <h3 className="font-display text-xl font-bold text-white mb-1">
+                      <Heading level={3} size="h3" className="text-white mb-1">
                         {artifact.loreTitle}
-                      </h3>
-                      <p className="text-[11px] text-indigo-400/50 font-mono uppercase tracking-wider">
+                      </Heading>
+                      <Mono as="p" className="text-[11px] text-indigo-400/50 uppercase tracking-wider">
                         {artifact.realTitle}
-                      </p>
+                      </Mono>
                     </div>
                   </div>
                 </div>
@@ -467,9 +468,9 @@ export function DreamContent() {
           }`}
           style={SIDEBAR_PAD}
         >
-          <p className="text-indigo-400/30 text-[10px] font-bold tracking-[0.3em] uppercase mb-8">
+          <Eyebrow className="text-indigo-400/30 mb-8">
             You&apos;re never alone
-          </p>
+          </Eyebrow>
 
           {/* Echo familiar visual */}
           <div className="relative w-[200px] h-[200px] md:w-[280px] md:h-[280px] mb-10">
@@ -486,12 +487,12 @@ export function DreamContent() {
             <div className="absolute -inset-8 rounded-full bg-indigo-500/5 blur-2xl" />
           </div>
 
-          <h2 className="font-display text-4xl md:text-5xl font-bold text-white text-center mb-2">
+          <Heading level={2} className="text-white text-center mb-2">
             Meet Echo.
-          </h2>
-          <p className="text-indigo-300/30 text-sm max-w-sm text-center mb-6">
+          </Heading>
+          <Text size="sm" className="text-indigo-300/30 max-w-sm text-center mb-6">
             Your AI familiar. While Vaelen guides the strategy, Echo crunches the data — surfacing insights that would take weeks to find alone.
-          </p>
+          </Text>
 
           <div className="flex flex-wrap justify-center gap-2 mt-2">
             {['Research Synthesis', 'Insight Clustering', 'Trend Detection', 'Strategy Simulation'].map((cap) => (
@@ -525,12 +526,12 @@ export function DreamContent() {
               <Compass className="w-8 h-8 text-indigo-400" />
             </div>
           </div>
-          <h2 className="font-display text-4xl md:text-6xl font-bold text-white mb-4">
+          <Heading level={2} size="h1" className="text-white mb-4">
             Your compass is set.
-          </h2>
-          <p className="text-lg text-foreground/40 max-w-lg mx-auto mb-12 leading-relaxed">
+          </Heading>
+          <Text size="lg" className="text-foreground/40 max-w-lg mx-auto mb-12">
             Every great thing starts as a conversation. Tell us what you&apos;re dreaming, and we&apos;ll help you find the path.
-          </p>
+          </Text>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
@@ -560,12 +561,12 @@ export function DreamContent() {
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-indigo-500/20 to-transparent" />
 
         <div className="relative z-10" style={SIDEBAR_PAD}>
-          <h2 className="font-display text-xl font-semibold mb-3 text-center text-foreground/40">
+          <Heading level={2} display={false} size="h3" className="mb-3 text-center text-foreground/40">
             The journey continues
-          </h2>
-          <p className="text-center text-foreground/30 text-sm mb-10 max-w-md mx-auto">
+          </Heading>
+          <Text size="sm" className="text-center text-foreground/30 mb-10 max-w-md mx-auto">
             Dream is where it starts. Design and Develop are where it becomes real.
-          </p>
+          </Text>
           <div className="max-w-3xl mx-auto grid gap-4 sm:grid-cols-2">
             {siblings.map((s) => (
               <Link key={s.href} href={s.href} className="group block">
@@ -577,9 +578,9 @@ export function DreamContent() {
                     >
                       <Compass className="w-4 h-4" style={{ color: s.color }} />
                     </div>
-                    <h3 className="font-display text-sm font-semibold" style={{ color: s.color }}>
+                    <Heading level={3} display={false} size="sm" style={{ color: s.color }}>
                       {s.realm}
-                    </h3>
+                    </Heading>
                   </div>
                   <p className="text-xs text-foreground/40">Guided by {s.mentor}</p>
                   <p className="text-xs text-foreground/30 mt-1 line-clamp-2">{s.loreBlurb.slice(0, 100)}...</p>

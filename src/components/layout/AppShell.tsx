@@ -19,6 +19,16 @@ function AppShellInner({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const mainRef = useRef<HTMLDivElement>(null);
 
+  // Full-viewport routes render their own `h-[100dvh] overflow-hidden` shell and
+  // scroll internally (per panel). They must NOT get the flowing-page bottom
+  // padding — that would tack a strip of the root background below the 100dvh
+  // page and make the window scrollable past the content. Flowing pages keep
+  // `pb-28` so their last content clears the floating BottomNav.
+  const isFullViewport =
+    pathname === '/' ||
+    pathname === '/style-guide' ||
+    pathname === '/style-guide/worlds';
+
   // Reset scroll state on route change
   useEffect(() => {
     setSectionProgress(0);
@@ -108,7 +118,9 @@ function AppShellInner({ children }: { children: ReactNode }) {
 
   return (
     <div
-      className="min-h-screen w-full bg-background text-foreground font-sans selection:bg-foreground/20 transition-colors duration-500"
+      className={`${
+        isFullViewport ? 'h-[100dvh] overflow-hidden' : 'min-h-screen'
+      } w-full bg-background text-foreground font-sans selection:bg-foreground/20 transition-colors duration-500`}
       style={
         {
           '--left-sidebar-w': '0px',
@@ -116,8 +128,9 @@ function AppShellInner({ children }: { children: ReactNode }) {
         } as React.CSSProperties
       }
     >
-      {/* Main content — bottom padding for BottomNav */}
-      <main ref={mainRef} className="w-full pb-28">
+      {/* Main content — flowing pages pad the bottom so their last content
+          clears the floating BottomNav; full-viewport tabbed pages don't. */}
+      <main ref={mainRef} className={`w-full ${isFullViewport ? 'h-full overflow-hidden' : 'pb-28'}`}>
         <PageTransition>{children}</PageTransition>
       </main>
 

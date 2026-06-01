@@ -20,6 +20,7 @@ import {
 import { useLayout } from '@/components/providers/LayoutProvider';
 import type { CodexEntry } from '@/lib/types/service';
 import { codexEntries } from '@/lib/data/codex';
+import { Heading, Text, Eyebrow, Mono } from '@/components/react/ui/typography';
 
 /* ───────── Constants ───────── */
 const SIDEBAR_PAD = {
@@ -114,24 +115,24 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
           <div className="max-w-5xl mx-auto">
             {/* Tags */}
             <div className="flex items-center gap-3 mb-4">
-              <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-purple-400/60">
+              <Eyebrow as="span" style={{ color: 'rgb(192 132 252 / 0.6)' }}>
                 {entry.category}
-              </span>
+              </Eyebrow>
               <span className="text-gray-700">|</span>
               <div className="flex items-center gap-1.5">
                 <div className={`w-1.5 h-1.5 rounded-full ${statusGlow[entry.status]} animate-pulse`} />
-                <span className="text-[10px] font-bold uppercase tracking-[0.2em] text-gray-500">
+                <Eyebrow as="span" className="text-gray-500">
                   {entry.type} — {statusLabel[entry.status]}
-                </span>
+                </Eyebrow>
               </div>
             </div>
 
-            <h1 className="font-display text-5xl md:text-7xl font-bold text-white mb-4 leading-[1.05]">
+            <Heading level={1} size="display" className="text-white mb-4 leading-[1.05]">
               {entry.title}
-            </h1>
-            <p className="text-lg md:text-xl text-gray-400 max-w-2xl leading-relaxed">
+            </Heading>
+            <Text lead className="text-gray-400 max-w-2xl">
               {entry.description}
-            </p>
+            </Text>
           </div>
         </div>
 
@@ -165,10 +166,10 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
                   key={meta.label}
                   className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-4"
                 >
-                  <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-purple-400/50 mb-1">
+                  <Eyebrow className="text-[9px] mb-1" style={{ color: 'rgb(192 132 252 / 0.5)' }}>
                     {meta.label}
-                  </p>
-                  <p className="text-sm font-semibold text-white">{meta.value}</p>
+                  </Eyebrow>
+                  <Text size="sm" className="font-semibold text-white">{meta.value}</Text>
                 </div>
               ))}
             </div>
@@ -206,13 +207,13 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
                 <div>
                   <div className="flex items-center gap-2 mb-4">
                     <Target className="w-4 h-4 text-purple-400/60" />
-                    <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-400/60">
+                    <Eyebrow as="span" style={{ color: 'rgb(192 132 252 / 0.6)' }}>
                       The Challenge
-                    </span>
+                    </Eyebrow>
                   </div>
-                  <p className="text-gray-300 leading-relaxed">
+                  <Text className="text-gray-300">
                     {entry.challenge}
-                  </p>
+                  </Text>
                 </div>
 
                 {/* Approach */}
@@ -220,13 +221,13 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
                   <div>
                     <div className="flex items-center gap-2 mb-4">
                       <Layers className="w-4 h-4 text-purple-400/60" />
-                      <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-400/60">
+                      <Eyebrow as="span" style={{ color: 'rgb(192 132 252 / 0.6)' }}>
                         Our Approach
-                      </span>
+                      </Eyebrow>
                     </div>
-                    <p className="text-gray-300 leading-relaxed">
+                    <Text className="text-gray-300">
                       {entry.approach}
-                    </p>
+                    </Text>
                   </div>
                 )}
               </div>
@@ -252,13 +253,13 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
               >
                 <div className="flex items-center gap-2 mb-4">
                   <Wrench className="w-4 h-4 text-purple-400/60" />
-                  <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-400/60">
+                  <Eyebrow as="span" style={{ color: 'rgb(192 132 252 / 0.6)' }}>
                     Services Applied
-                  </span>
+                  </Eyebrow>
                 </div>
-                <h2 className="font-display text-3xl md:text-4xl font-bold text-white">
+                <Heading level={2} className="text-white">
                   How we built it.
-                </h2>
+                </Heading>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -273,12 +274,12 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
                     style={{ transitionDelay: servicesVisible ? `${200 + i * 150}ms` : '0ms' }}
                   >
                     <div className="w-8 h-8 rounded-lg bg-purple-500/10 border border-purple-500/20 flex items-center justify-center mb-4">
-                      <span className="text-[10px] font-bold text-purple-400">
+                      <Mono className="text-[10px] font-bold text-purple-400">
                         {String(i + 1).padStart(2, '0')}
-                      </span>
+                      </Mono>
                     </div>
-                    <h3 className="text-sm font-bold text-white mb-2">{sd.name}</h3>
-                    <p className="text-xs text-gray-400 leading-relaxed">{sd.description}</p>
+                    <Heading level={6} display={false} className="text-white mb-2">{sd.name}</Heading>
+                    <Text size="sm" className="text-gray-400">{sd.description}</Text>
                   </div>
                 ))}
               </div>
@@ -302,13 +303,13 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
             >
               <div className="flex items-center gap-2 mb-4">
                 <ImageIcon className="w-4 h-4 text-purple-400/60" />
-                <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-400/60">
+                <Eyebrow as="span" style={{ color: 'rgb(192 132 252 / 0.6)' }}>
                   Showcase
-                </span>
+                </Eyebrow>
               </div>
-              <h2 className="font-display text-3xl md:text-4xl font-bold text-white">
+              <Heading level={2} className="text-white">
                 The work, up close.
-              </h2>
+              </Heading>
             </div>
 
             {/* Main showcase image */}
@@ -330,9 +331,9 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
                 ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center gap-3">
                     <BookOpen className="w-12 h-12 text-purple-500/20" />
-                    <p className="text-xs text-gray-600">
+                    <Text size="sm" className="text-gray-600">
                       Project visuals will be loaded from CMS
-                    </p>
+                    </Text>
                   </div>
                 )}
               </div>
@@ -353,9 +354,9 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
                   <div className="relative aspect-[4/3] w-full bg-purple-900/5">
                     <div className="absolute inset-0 flex flex-col items-center justify-center gap-2">
                       <ImageIcon className="w-6 h-6 text-purple-500/15" />
-                      <p className="text-[9px] text-gray-700 uppercase tracking-wider">
+                      <Eyebrow className="text-[9px] tracking-wider text-gray-700">
                         Gallery {String(i).padStart(2, '0')}
-                      </p>
+                      </Eyebrow>
                     </div>
                   </div>
                 </div>
@@ -382,13 +383,13 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
               >
                 <div className="flex items-center gap-2 mb-4">
                   <TrendingUp className="w-4 h-4 text-purple-400/60" />
-                  <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-400/60">
+                  <Eyebrow as="span" style={{ color: 'rgb(192 132 252 / 0.6)' }}>
                     Results
-                  </span>
+                  </Eyebrow>
                 </div>
-                <h2 className="font-display text-3xl md:text-4xl font-bold text-white">
+                <Heading level={2} className="text-white">
                   The impact.
-                </h2>
+                </Heading>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -403,7 +404,7 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
                     style={{ transitionDelay: resultsVisible ? `${200 + i * 150}ms` : '0ms' }}
                   >
                     <div className="w-2 h-2 rounded-full bg-purple-500/40 mb-4" />
-                    <p className="text-sm text-white leading-relaxed">{result}</p>
+                    <Text size="sm" className="text-white">{result}</Text>
                   </div>
                 ))}
               </div>
@@ -444,12 +445,12 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
                 >
                   <ChevronLeft className="w-5 h-5 text-gray-600 group-hover:text-purple-400 transition-colors" />
                   <div>
-                    <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-600 mb-1">
+                    <Eyebrow className="text-[9px] mb-1 text-gray-600">
                       Previous
-                    </p>
-                    <p className="text-sm font-semibold text-white group-hover:text-purple-300 transition-colors">
+                    </Eyebrow>
+                    <Text size="sm" className="font-semibold text-white group-hover:text-purple-300 transition-colors">
                       {prev.title}
-                    </p>
+                    </Text>
                   </div>
                 </Link>
               ) : (
@@ -461,12 +462,12 @@ export function CodexEntryContent({ entry }: CodexEntryContentProps) {
                   className="group flex items-center justify-end gap-4 rounded-xl border border-white/[0.06] bg-white/[0.02] p-5 hover:border-purple-500/20 transition-all duration-300 text-right"
                 >
                   <div>
-                    <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-gray-600 mb-1">
+                    <Eyebrow className="text-[9px] mb-1 text-gray-600">
                       Next
-                    </p>
-                    <p className="text-sm font-semibold text-white group-hover:text-purple-300 transition-colors">
+                    </Eyebrow>
+                    <Text size="sm" className="font-semibold text-white group-hover:text-purple-300 transition-colors">
                       {next.title}
-                    </p>
+                    </Text>
                   </div>
                   <ChevronRightIcon className="w-5 h-5 text-gray-600 group-hover:text-purple-400 transition-colors" />
                 </Link>

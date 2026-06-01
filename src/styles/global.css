@@ -42,7 +42,9 @@
      come from @warehaus/tokens (generated into tokens.generated.css, imported
      at the top of this file). What remains here is app chrome set in CSS. */
   --font-display: "Eurostile", sans-serif;
-  --font-body: "DM Sans", sans-serif;
+  /* Geist is the system body voice (style-guide source of truth); DM Sans +
+     system fonts remain as fallbacks. */
+  --font-body: var(--font-geist), "DM Sans", -apple-system, system-ui, sans-serif;
 
   --glass-bg: rgba(255, 255, 255, 0.03);
   --glass-border: rgba(255, 255, 255, 0.06);
@@ -87,6 +89,81 @@ body {
   transition: background-color 0.5s ease, color 0.5s ease;
 }
 
+/* ── Global typography system ─────────────────────────
+   The Warehaus type system, promoted out of `.ds-scope` so the whole site
+   (not just the style guide) inherits one source of truth. Treatment classes
+   live in `@layer components` so any Tailwind utility (font-bold, not-italic,
+   normal-case, text-…) still overrides them — bespoke pages that stack their
+   own weight/style on `font-display` (family-only) are untouched. The Black/
+   italic/UPPERCASE display treatment is opt-in via `.type-display`, never a
+   bare-element override. Backed by the global type-scale tokens. */
+@layer components {
+  /* Display voice — Eurostile Black, italic, all-caps. The default heading
+     treatment; opt out with `.type-heading` or Tailwind utilities. The
+     `.ds-scope .font-display` selector keeps the style guide's longstanding
+     shorthand (`className="font-display"`) rendering the display treatment, so
+     the reference panels need no churn. */
+  .type-display,
+  .ds-scope .font-display {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-style: italic;
+    text-transform: uppercase;
+    letter-spacing: var(--ls-display);
+    line-height: var(--lh-tight);
+  }
+  /* Expressive lockup — italic Black, lowercase, heavy negative tracking.
+     Hero/cover moments only. */
+  .type-display-expressive {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-style: italic;
+    text-transform: lowercase;
+    letter-spacing: -0.05em;
+    line-height: var(--lh-tight);
+  }
+  /* Lighter sub-head — Eurostile 600, sentence case, no italic. */
+  .type-heading {
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: var(--lh-head);
+    letter-spacing: var(--ls-display);
+  }
+
+  /* Eyebrow — mono, uppercase, accent. */
+  .ds-eyebrow {
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+    text-transform: uppercase;
+    letter-spacing: var(--ls-eyebrow);
+    color: var(--accent);
+    font-weight: 500;
+  }
+  /* Mono / tabular data. */
+  .ds-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Lead paragraph. */
+  .ds-lead {
+    font-size: var(--t-md);
+    color: var(--muted);
+    line-height: 1.5;
+    max-width: 56ch;
+  }
+
+  /* Type-scale size utilities (map to the fluid --t-* scale). Kept in
+     @layer components so an explicit Tailwind text-* still wins. */
+  .t-display { font-size: var(--t-3xl); }
+  .t-h1 { font-size: var(--t-2xl); }
+  .t-h2 { font-size: var(--t-xl); }
+  .t-h3 { font-size: var(--t-lg); }
+  .t-md { font-size: var(--t-md); }
+  .t-base { font-size: var(--t-base); }
+  .t-sm { font-size: var(--t-sm); }
+  .t-xs { font-size: var(--t-xs); }
+}
+
 /* WAREHAUS DESIGN-SYSTEM TOKENS
    Scalar tokens (spacing, fluid type scale, shape/cut, section rhythm, motion,
    mono font) now come from @warehaus/tokens — see the @import at the top of this
@@ -127,8 +204,7 @@ body {
   --warn: oklch(80% 0.15 85);
   --danger: oklch(64% 0.2 25);
 
-  /* Fonts — Geist body, Eurostile display, Geist Mono */
-  --font-body: var(--font-geist), "DM Sans", -apple-system, system-ui, sans-serif;
+  /* Body font (Geist) is now set globally on :root; the scope inherits it. */
 
   /* Map onto the site tokens so utilities + the Bevel
      component defaults (var(--surface)/var(--border)…) pick
@@ -171,34 +247,12 @@ body {
   }
 }
 
-/* ── Design-system helper classes (scoped) ─────────── */
-/* Display voice — Eurostile defaults to Black (900), italic, all-caps in the
-   style guide. Per-element inline overrides (e.g. the lowercase expressive
-   lockup) still win. */
-.ds-scope .font-display {
-  font-weight: 900;
-  font-style: italic;
-  text-transform: uppercase;
-}
-
-.ds-scope .ds-eyebrow {
-  font-family: var(--font-mono);
-  font-size: var(--t-xs);
-  text-transform: uppercase;
-  letter-spacing: var(--ls-eyebrow);
-  color: var(--accent);
-  font-weight: 500;
-}
-.ds-scope .ds-mono {
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-}
-.ds-scope .ds-lead {
-  font-size: var(--t-md);
-  color: var(--muted);
-  line-height: 1.5;
-  max-width: 56ch;
-}
+/* ── Design-system helper classes ─────────────────────
+   The display/eyebrow/mono/lead treatments are now defined globally in the
+   `@layer components` block near the top of this file (promoted out of this
+   scope so the whole site shares one source of truth). Their tokens
+   (--accent/--muted/--font-mono) still resolve to the ink/paper palette inside
+   `.ds-scope`. */
 
 /* Bento grid */
 .ds-scope .ds-bento {
