@@ -1,0 +1,40 @@
+/* AUTO-GENERATED from @warehaus/tokens — do not edit by hand. Run `npm run tokens`. */
+
+:root {
+  --font-mono: var(--font-geist-mono), ui-monospace, "JetBrains Mono", monospace;
+  --t-xs: 0.75rem;
+  --t-sm: 0.875rem;
+  --t-base: 1rem;
+  --t-md: 1.25rem;
+  --t-lg: 1.5rem;
+  --t-xl: clamp(1.75rem, 1.2rem + 2vw, 2.5rem);
+  --t-2xl: clamp(2.25rem, 1.4rem + 3.4vw, 3.75rem);
+  --t-3xl: clamp(3rem, 1.6rem + 5.6vw, 6rem);
+  --lh-tight: 1.05;
+  --lh-head: 1.12;
+  --lh-body: 1.6;
+  --ls-display: -0.01em;
+  --ls-eyebrow: 0.22em;
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --s-8: 4rem;
+  --s-9: 6rem;
+  --s-10: 8rem;
+  --s-11: 10rem;
+  --section-y: clamp(4rem, 2rem + 8vw, 8rem);
+  --gutter: clamp(1.25rem, 0.5rem + 3vw, 3rem);
+  --maxw: 1240px;
+  --radius-sm: 10px;
+  --radius: 18px;
+  --radius-lg: 28px;
+  --radius-pill: 999px;
+  --cut: 22px;
+  --cut-lg: 40px;
+  --speed: 180ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
