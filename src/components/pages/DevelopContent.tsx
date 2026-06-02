@@ -19,6 +19,7 @@ import {
 import { GlassCard } from '@/components/react/ui/GlassCard';
 import { ALL_SERVICES } from '@/lib/data/services';
 import { useFadeIn } from '@/hooks/useFadeIn';
+import { Heading, Text, Eyebrow, Mono } from '@/components/react/ui/typography';
 
 /* ───────── Data ───────── */
 const disciplines = [
@@ -112,20 +113,20 @@ export function DevelopContent() {
             <div className="w-8 h-8 rounded-sm bg-emerald-500/20 border border-emerald-400/30 flex items-center justify-center">
               <Building2 className="w-4 h-4 text-emerald-400" />
             </div>
-            <span className="text-emerald-400 text-xs font-bold tracking-[0.3em] uppercase">
+            <Eyebrow as="span" className="text-emerald-400">
               The High Tower
-            </span>
+            </Eyebrow>
           </div>
 
-          <h1 className="font-display text-7xl md:text-9xl lg:text-[12rem] font-black italic tracking-tighter text-white/90 leading-[0.85] mb-8">
+          <Heading level={1} size="display" className="text-white/90 mb-8">
             DEVELOP.
-          </h1>
+          </Heading>
 
-          <p className="text-lg md:text-xl text-white/40 max-w-lg mx-auto leading-relaxed">
+          <Text size="lg" className="text-white/40 max-w-lg mx-auto">
             The blueprints are drawn. The designs are forged.
             <br className="hidden md:block" />
             <span className="text-white/25">Now we build something that lives.</span>
-          </p>
+          </Text>
         </div>
 
         {/* Scroll indicator */}
@@ -161,17 +162,17 @@ export function DevelopContent() {
           }`}
           style={SIDEBAR_PAD}
         >
-          <p className="text-emerald-400/30 text-[10px] font-bold tracking-[0.3em] uppercase mb-8">
+          <Eyebrow className="text-emerald-400/30 mb-8">
             The gap
-          </p>
-          <h2 className="font-display text-3xl md:text-5xl lg:text-6xl font-bold text-white/70 leading-tight max-w-2xl mx-auto mb-6">
+          </Eyebrow>
+          <Heading level={2} size="h1" className="text-white/70 max-w-2xl mx-auto mb-6">
             Pixel-perfect designs.
             <br />
             <span className="text-white/30">That don&apos;t do anything yet.</span>
-          </h2>
-          <p className="text-white/20 text-base md:text-lg max-w-md mx-auto leading-relaxed">
+          </Heading>
+          <Text size="lg" className="text-white/20 max-w-md mx-auto">
             Figma files that look incredible but can&apos;t handle a click. Prototypes that fake it. The gap between what it looks like and what it does — that&apos;s the chasm the Tower bridges.
-          </p>
+          </Text>
         </div>
       </section>
 
@@ -228,15 +229,15 @@ export function DevelopContent() {
               <div className="absolute -inset-8 rounded-sm bg-emerald-500/3 blur-2xl -z-10" />
             </div>
 
-            <p className="text-emerald-400/30 text-[10px] tracking-[0.3em] uppercase mb-4">
+            <Eyebrow className="text-emerald-400/30 mb-4">
               The master architects
-            </p>
-            <h2 className="font-display text-3xl md:text-5xl font-bold text-white text-center mb-3">
+            </Eyebrow>
+            <Heading level={2} className="text-white text-center mb-3">
               Cirion & The Council
-            </h2>
-            <p className="text-emerald-300/30 text-sm italic max-w-sm text-center">
+            </Heading>
+            <Text size="sm" className="text-emerald-300/30 italic max-w-sm text-center">
               The Council of Architects. They transform blueprints into living systems — code forged with intent and tempered by performance.
-            </p>
+            </Text>
           </div>
         </div>
       </section>
@@ -302,17 +303,17 @@ export function DevelopContent() {
           }`}
           style={SIDEBAR_PAD}
         >
-          <p className="text-emerald-400/40 text-[10px] font-bold tracking-[0.3em] uppercase mb-6">
+          <Eyebrow className="text-emerald-400/40 mb-6">
             Construction begins
-          </p>
-          <h2 className="font-display text-4xl md:text-6xl lg:text-7xl font-bold text-white leading-tight">
+          </Eyebrow>
+          <Heading level={2} size="h1" className="text-white">
             The Tower
             <br />
             <span className="text-emerald-300/50">rises.</span>
-          </h2>
-          <p className="mt-6 text-white/25 text-sm max-w-sm mx-auto leading-relaxed">
+          </Heading>
+          <Text size="sm" className="mt-6 text-white/25 max-w-sm mx-auto">
             Where designs become living systems. Every line of code laid with intent. Every component engineered to perform.
-          </p>
+          </Text>
         </div>
       </section>
 
@@ -331,15 +332,15 @@ export function DevelopContent() {
           style={SIDEBAR_PAD}
         >
           <div className="mb-16 text-center">
-            <p className="text-emerald-400/40 text-[10px] font-bold tracking-[0.3em] uppercase mb-4">
+            <Eyebrow className="text-emerald-400/40 mb-4">
               The architecture
-            </p>
-            <h2 className="font-display text-4xl md:text-6xl font-bold text-white">
+            </Eyebrow>
+            <Heading level={2} size="h1" className="text-white">
               Five pillars of the Tower.
-            </h2>
-            <p className="mt-4 text-white/20 text-sm max-w-md mx-auto">
+            </Heading>
+            <Text size="sm" className="mt-4 text-white/20 max-w-md mx-auto">
               Each discipline builds a layer of your product. Together, they create something that stands.
-            </p>
+            </Text>
           </div>
 
           {/* Discipline constellation — vertical tower arrangement */}
@@ -362,12 +363,12 @@ export function DevelopContent() {
                       <div className="w-20 h-20 md:w-24 md:h-24 rounded-sm bg-emerald-500/8 border border-emerald-500/15 flex items-center justify-center mb-5 group-hover:bg-emerald-500/15 group-hover:border-emerald-500/30 transition-all duration-500">
                         <Icon className="w-8 h-8 md:w-10 md:h-10 text-emerald-400/70 group-hover:text-emerald-400 transition-colors" />
                       </div>
-                      <h3 className="font-display text-base md:text-lg font-semibold text-white/80 mb-1">
+                      <Heading level={3} className="text-white/80 mb-1">
                         {d.loreTitle}
-                      </h3>
-                      <span className="text-[10px] text-emerald-400/40 font-mono">
+                      </Heading>
+                      <Mono className="text-[10px] text-emerald-400/40">
                         {'// '}{d.realTitle}
-                      </span>
+                      </Mono>
                     </div>
                   );
                 })}
@@ -380,12 +381,12 @@ export function DevelopContent() {
                         <div className="w-20 h-20 md:w-24 md:h-24 rounded-sm bg-emerald-500/8 border border-emerald-500/15 flex items-center justify-center mb-5 group-hover:bg-emerald-500/15 group-hover:border-emerald-500/30 transition-all duration-500">
                           <Icon className="w-8 h-8 md:w-10 md:h-10 text-emerald-400/70 group-hover:text-emerald-400 transition-colors" />
                         </div>
-                        <h3 className="font-display text-base md:text-lg font-semibold text-white/80 mb-1">
+                        <Heading level={3} className="text-white/80 mb-1">
                           {d.loreTitle}
-                        </h3>
-                        <span className="text-[10px] text-emerald-400/40 font-mono">
+                        </Heading>
+                        <Mono className="text-[10px] text-emerald-400/40">
                           {'// '}{d.realTitle}
-                        </span>
+                        </Mono>
                       </div>
                     );
                   })}
@@ -412,15 +413,15 @@ export function DevelopContent() {
           style={SIDEBAR_PAD}
         >
           <div className="text-center mb-16">
-            <p className="text-emerald-400/40 text-[10px] font-bold tracking-[0.3em] uppercase mb-4">
+            <Eyebrow className="text-emerald-400/40 mb-4">
               Built and launched
-            </p>
-            <h2 className="font-display text-4xl md:text-6xl font-bold text-white">
+            </Eyebrow>
+            <Heading level={2} size="h1" className="text-white">
               What you launch with.
-            </h2>
-            <p className="mt-4 text-white/20 text-sm max-w-md mx-auto">
+            </Heading>
+            <Text size="sm" className="mt-4 text-white/20 max-w-md mx-auto">
               Not prototypes. Not demos. Production systems that handle real users, real traffic, and real business.
-            </p>
+            </Text>
           </div>
 
           {/* Artifact cards */}
@@ -446,12 +447,12 @@ export function DevelopContent() {
                       <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-[#050505] to-transparent" />
                     </div>
                     <div className="absolute bottom-0 left-0 right-0 p-4">
-                      <h3 className="font-display text-sm font-bold text-white mb-1">
+                      <Heading level={3} size="h3" className="text-white mb-1">
                         {artifact.loreTitle}
-                      </h3>
-                      <p className="text-[9px] text-emerald-400/50 font-mono uppercase tracking-wider">
+                      </Heading>
+                      <Mono as="p" className="text-[9px] text-emerald-400/50 uppercase tracking-wider">
                         {artifact.realTitle}
-                      </p>
+                      </Mono>
                     </div>
                   </div>
                 </div>
@@ -478,9 +479,9 @@ export function DevelopContent() {
           }`}
           style={SIDEBAR_PAD}
         >
-          <p className="text-emerald-400/30 text-[10px] font-bold tracking-[0.3em] uppercase mb-8">
+          <Eyebrow className="text-emerald-400/30 mb-8">
             Your tower guardian
-          </p>
+          </Eyebrow>
 
           {/* Axiom familiar visual — angular/architectural */}
           <div className="relative w-[200px] h-[200px] md:w-[280px] md:h-[280px] mb-10">
@@ -498,12 +499,12 @@ export function DevelopContent() {
             <div className="absolute -inset-8 rounded-full bg-emerald-500/4 blur-2xl" />
           </div>
 
-          <h2 className="font-display text-4xl md:text-5xl font-bold text-white text-center mb-2">
+          <Heading level={2} className="text-white text-center mb-2">
             Meet Axiom.
-          </h2>
-          <p className="text-emerald-300/30 text-sm max-w-sm text-center mb-6">
+          </Heading>
+          <Text size="sm" className="text-emerald-300/30 max-w-sm text-center mb-6">
             Your AI familiar. Axiom writes tests, catches bugs before they ship, and optimizes performance — a tireless guardian watching every build.
-          </p>
+          </Text>
 
           <div className="flex flex-wrap justify-center gap-2 mt-2">
             {['Automated Testing', 'Bug Detection', 'Performance Tuning', 'Code Review', 'CI/CD Ops'].map((cap) => (
@@ -537,12 +538,12 @@ export function DevelopContent() {
               <Building2 className="w-8 h-8 text-emerald-400" />
             </div>
           </div>
-          <h2 className="font-display text-4xl md:text-6xl font-bold text-white mb-4">
+          <Heading level={2} size="h1" className="text-white mb-4">
             The Tower awaits.
-          </h2>
-          <p className="text-lg text-foreground/40 max-w-lg mx-auto mb-12 leading-relaxed">
+          </Heading>
+          <Text size="lg" className="text-foreground/40 max-w-lg mx-auto mb-12">
             Bring your designs. The Council will build something that performs as good as it looks.
-          </p>
+          </Text>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
@@ -572,12 +573,12 @@ export function DevelopContent() {
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-emerald-500/20 to-transparent" />
 
         <div className="relative z-10" style={SIDEBAR_PAD}>
-          <h2 className="font-display text-xl font-semibold mb-3 text-center text-foreground/40">
+          <Heading level={2} display={false} size="h3" className="mb-3 text-center text-foreground/40">
             The journey continues
-          </h2>
-          <p className="text-center text-foreground/30 text-sm mb-10 max-w-md mx-auto">
+          </Heading>
+          <Text size="sm" className="text-center text-foreground/30 mb-10 max-w-md mx-auto">
             Develop is where it all becomes real. But every tower needs a dream and a design.
-          </p>
+          </Text>
           <div className="max-w-3xl mx-auto grid gap-4 sm:grid-cols-2">
             {siblings.map((s) => (
               <Link key={s.href} href={s.href} className="group block">
@@ -589,9 +590,9 @@ export function DevelopContent() {
                     >
                       <Compass className="w-4 h-4" style={{ color: s.color }} />
                     </div>
-                    <h3 className="font-display text-sm font-semibold" style={{ color: s.color }}>
+                    <Heading level={3} display={false} size="sm" style={{ color: s.color }}>
                       {s.realm}
-                    </h3>
+                    </Heading>
                   </div>
                   <p className="text-xs text-foreground/40">Guided by {s.mentor}</p>
                   <p className="text-xs text-foreground/30 mt-1 line-clamp-2">{s.loreBlurb.slice(0, 100)}...</p>

@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Scalar design tokens — generated from @warehaus/tokens via `npm run tokens`. */
+@import "./tokens.generated.css";
 
 @theme inline {
   --color-background: var(--background);
@@ -36,19 +38,13 @@
 }
 
 :root {
-  --background: #050505;
-  --foreground: #e8e6e3;
-  --muted: #6b6966;
-  --accent: #00e5ff;
-  --surface: #0d0d0d;
-  --surface-elevated: #141414;
-  --border: #1f1f1f;
-  --border-subtle: #161616;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --info: #3b82f6;
+  /* Semantic palette, status, and the Dream/Design/Develop pillar colors now
+     come from @warehaus/tokens (generated into tokens.generated.css, imported
+     at the top of this file). What remains here is app chrome set in CSS. */
   --font-display: "Eurostile", sans-serif;
-  --font-body: "DM Sans", sans-serif;
+  /* Geist is the system body voice (style-guide source of truth); DM Sans +
+     system fonts remain as fallbacks. */
+  --font-body: var(--font-geist), "DM Sans", -apple-system, system-ui, sans-serif;
 
   --glass-bg: rgba(255, 255, 255, 0.03);
   --glass-border: rgba(255, 255, 255, 0.06);
@@ -56,113 +52,41 @@
   --panel-radius: 12px;
   --panel-padding: 1.25rem;
 
-  /* ═══ Pillar Color System ═══
-     Each pillar has a full palette with semantic tiers:
-     - primary:    Main accent (icons, headings, CTAs)
-     - secondary:  Lighter accent (hover states, emphasis)
-     - dim:        Muted accent (labels, metadata)
-     - glow:       For shadows & glowing effects (rgba base)
-     - surface:    Tinted background fills (cards, badges)
-     - border:     Accent-tinted borders
-     - bg-deep:    Deep tinted background for hero gradients
-     - bg-mid:     Mid-tone tinted background for sections
-  */
-
-  /* Dream — Indigo / Violet */
-  --dream-primary: #818cf8;
-  --dream-secondary: #a5b4fc;
-  --dream-dim: rgba(129, 140, 248, 0.4);
-  --dream-glow: 129, 140, 248;
-  --dream-surface: rgba(99, 102, 241, 0.08);
-  --dream-border: rgba(99, 102, 241, 0.15);
-  --dream-bg-deep: #1e1b4b;
-  --dream-bg-mid: #0c0a1a;
-
-  /* Design — Orange / Amber */
-  --design-primary: #f97316;
-  --design-secondary: #fbbf24;
-  --design-dim: rgba(249, 115, 22, 0.4);
-  --design-glow: 249, 115, 22;
-  --design-surface: rgba(249, 115, 22, 0.08);
-  --design-border: rgba(249, 115, 22, 0.15);
-  --design-bg-deep: #451a03;
-  --design-bg-mid: #0d0805;
-
-  /* Develop — Emerald / Green */
-  --develop-primary: #10b981;
-  --develop-secondary: #34d399;
-  --develop-dim: rgba(16, 185, 129, 0.4);
-  --develop-glow: 16, 185, 129;
-  --develop-surface: rgba(16, 185, 129, 0.08);
-  --develop-border: rgba(16, 185, 129, 0.15);
-  --develop-bg-deep: #052e16;
-  --develop-bg-mid: #0a120d;
-
-  /* Navbar colors (theme-aware) */
-  --nav-bg: rgba(0, 0, 0, 0.7);
-  --nav-border: rgba(255, 255, 255, 0.1);
-  --nav-text: rgba(255, 255, 255, 0.6);
-  --nav-text-active: #fff;
-  --nav-text-muted: rgba(255, 255, 255, 0.4);
-  --nav-pill-bg: rgba(255, 255, 255, 0.15);
-  --nav-pill-border: rgba(255, 255, 255, 0.2);
-  --nav-text-inverse: #000;
+  /* Navbar colors (theme-aware) — brand ink/paper neutrals.
+     The active tab pill is INVERTED vs the theme: in dark mode it's a bright
+     paper pill with ink text; in light mode an ink pill with paper text.
+     --nav-text-active stays theme-bright (for the indicator dots, which sit on
+     the nav background); --nav-text-inverse is the dark-on-bright pill text. */
+  --nav-bg: rgba(10, 10, 11, 0.7);
+  --nav-border: rgba(253, 253, 254, 0.18);
+  --nav-text: rgba(253, 253, 254, 0.6);
+  --nav-text-active: #fdfdfe;
+  --nav-text-muted: rgba(253, 253, 254, 0.4);
+  --nav-pill-bg: #fdfdfe;
+  --nav-pill-border: rgba(10, 10, 11, 0.06);
+  --nav-text-inverse: #0a0a0b;
+  /* Subtle translucent surface — menu trays/dividers (NOT the bright pill). */
+  --nav-surface: rgba(253, 253, 254, 0.08);
 
   /* Layout vars — sidebars removed, kept at 0 for backward compat */
   --left-sidebar-w: 0px;
   --right-sidebar-w: 0px;
 }
 
-/* Light theme */
+/* Light theme — palette + pillars come from @warehaus/tokens (tokens.generated.css). */
 :root.light {
-  --background: #ededed;
-  --foreground: #1a1a1a;
-  --muted: #888888;
-  --accent: #0099cc;
-  --surface: #ffffff;
-  --surface-elevated: #f0f0f0;
-  --border: #e0e0e0;
-  --border-subtle: #eaeaea;
-
   --glass-bg: rgba(0, 0, 0, 0.03);
   --glass-border: rgba(0, 0, 0, 0.06);
 
-  --nav-bg: rgba(255, 255, 255, 0.7);
-  --nav-border: rgba(0, 0, 0, 0.08);
-  --nav-text: rgba(0, 0, 0, 0.6);
-  --nav-text-active: #000;
-  --nav-text-muted: rgba(0, 0, 0, 0.3);
-  --nav-pill-bg: rgba(255, 255, 255, 0.6);
-  --nav-pill-border: rgba(0, 0, 0, 0.08);
-  --nav-text-inverse: #fff;
-
-  /* Pillar colors — darkened for light backgrounds */
-  --dream-primary: #4338ca;
-  --dream-secondary: #6366f1;
-  --dream-dim: rgba(67, 56, 202, 0.5);
-  --dream-glow: 67, 56, 202;
-  --dream-surface: rgba(99, 102, 241, 0.06);
-  --dream-border: rgba(99, 102, 241, 0.12);
-  --dream-bg-deep: #e8e5f8;
-  --dream-bg-mid: #f0eef8;
-
-  --design-primary: #c2410c;
-  --design-secondary: #ea580c;
-  --design-dim: rgba(194, 65, 12, 0.5);
-  --design-glow: 194, 65, 12;
-  --design-surface: rgba(249, 115, 22, 0.06);
-  --design-border: rgba(249, 115, 22, 0.12);
-  --design-bg-deep: #fef3e2;
-  --design-bg-mid: #fdf8f0;
-
-  --develop-primary: #047857;
-  --develop-secondary: #059669;
-  --develop-dim: rgba(4, 120, 87, 0.5);
-  --develop-glow: 4, 120, 87;
-  --develop-surface: rgba(16, 185, 129, 0.06);
-  --develop-border: rgba(16, 185, 129, 0.12);
-  --develop-bg-deep: #e2f8f0;
-  --develop-bg-mid: #f0faf5;
+  --nav-bg: rgba(253, 253, 254, 0.7);
+  --nav-border: rgba(10, 10, 11, 0.32);
+  --nav-text: rgba(10, 10, 11, 0.6);
+  --nav-text-active: #0a0a0b;
+  --nav-text-muted: rgba(10, 10, 11, 0.35);
+  --nav-pill-bg: #0a0a0b;
+  --nav-pill-border: rgba(253, 253, 254, 0.1);
+  --nav-text-inverse: #fdfdfe;
+  --nav-surface: rgba(10, 10, 11, 0.05);
 }
 
 body {
@@ -170,6 +94,274 @@ body {
   color: var(--foreground);
   font-family: var(--font-body);
   transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+/* ── Global typography system ─────────────────────────
+   The Warehaus type system, promoted out of `.ds-scope` so the whole site
+   (not just the style guide) inherits one source of truth. Treatment classes
+   live in `@layer components` so any Tailwind utility (font-bold, not-italic,
+   normal-case, text-…) still overrides them — bespoke pages that stack their
+   own weight/style on `font-display` (family-only) are untouched. The Black/
+   italic/UPPERCASE display treatment is opt-in via `.type-display`, never a
+   bare-element override. Backed by the global type-scale tokens. */
+@layer components {
+  /* Display voice — Eurostile Black, italic, all-caps. The default heading
+     treatment; opt out with `.type-heading` or Tailwind utilities. The
+     `.ds-scope .font-display` selector keeps the style guide's longstanding
+     shorthand (`className="font-display"`) rendering the display treatment, so
+     the reference panels need no churn. */
+  .type-display,
+  .ds-scope .font-display {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-style: italic;
+    text-transform: uppercase;
+    letter-spacing: var(--ls-display);
+    line-height: var(--lh-tight);
+  }
+  /* Expressive lockup — italic Black, lowercase, heavy negative tracking.
+     Hero/cover moments only. */
+  .type-display-expressive {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-style: italic;
+    text-transform: lowercase;
+    letter-spacing: -0.05em;
+    line-height: var(--lh-tight);
+  }
+  /* Lighter sub-head — Eurostile 600, sentence case, no italic. */
+  .type-heading {
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: var(--lh-head);
+    letter-spacing: var(--ls-display);
+  }
+
+  /* Eyebrow — mono, uppercase, accent. */
+  .ds-eyebrow {
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+    text-transform: uppercase;
+    letter-spacing: var(--ls-eyebrow);
+    color: var(--accent);
+    font-weight: 500;
+  }
+  /* Mono / tabular data. */
+  .ds-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+  /* Lead paragraph. */
+  .ds-lead {
+    font-size: var(--t-md);
+    color: var(--muted);
+    line-height: 1.5;
+    max-width: 56ch;
+  }
+
+  /* Type-scale size utilities (map to the fluid --t-* scale). Kept in
+     @layer components so an explicit Tailwind text-* still wins. */
+  .t-display { font-size: var(--t-3xl); }
+  .t-h1 { font-size: var(--t-2xl); }
+  .t-h2 { font-size: var(--t-xl); }
+  .t-h3 { font-size: var(--t-lg); }
+  .t-md { font-size: var(--t-md); }
+  .t-base { font-size: var(--t-base); }
+  .t-sm { font-size: var(--t-sm); }
+  .t-xs { font-size: var(--t-xs); }
+}
+
+/* WAREHAUS DESIGN-SYSTEM TOKENS
+   Scalar tokens (spacing, fluid type scale, shape/cut, section rhythm, motion,
+   mono font) now come from @warehaus/tokens — see the @import at the top of this
+   file (generated into tokens.generated.css). The neutral ink/paper palette is
+   still scoped to `.ds-scope` below; colors/theme tokens will be tokenized in a
+   follow-up phase. Pillar accent colors (Dream/Design/Develop) are untouched. */
+
+/* ── Design-system palette scope ──────────────────────
+   Apply the two-color (ink/paper) brand palette + the
+   monochrome accent within `.ds-scope`. Theme-aware:
+   inverts with the site's existing `.light` toggle.
+   Aliases the site's own tokens (--background, --surface,
+   --border, --accent…) so Tailwind utilities resolve to
+   the brand palette inside the scope. */
+.ds-scope {
+  --ink: #0a0a0b;
+  --paper: #fdfdfe;
+
+  --bg: var(--ink);
+  --bg-2: oklch(18% 0 0);
+  --surface-ds: oklch(27% 0 0);
+  --surface-2: oklch(34% 0 0);
+  --fg: var(--paper);
+  --muted-ds: oklch(72% 0 0);
+  --faint: oklch(50% 0 0);
+  --border-ds: oklch(38% 0 0);
+  --border-2: oklch(46% 0 0);
+
+  /* Monochrome accent = paper-on-ink (inverts in light) */
+  --accent-ds: oklch(99% 0 0);
+  --accent-hover: oklch(100% 0 0);
+  --accent-press: oklch(88% 0 0);
+  --accent-fg: var(--ink);
+  --accent-tint: oklch(99% 0 0 / 0.12);
+
+  /* Status — the only hue, kept scarce */
+  --success: oklch(70% 0.16 150);
+  --warn: oklch(80% 0.15 85);
+  --danger: oklch(64% 0.2 25);
+
+  /* Body font (Geist) is now set globally on :root; the scope inherits it. */
+
+  /* Map onto the site tokens so utilities + the Bevel
+     component defaults (var(--surface)/var(--border)…) pick
+     up the brand palette in-scope. */
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --surface: var(--surface-ds);
+  --muted: var(--muted-ds);
+  --border: var(--border-ds);
+  --accent: var(--accent-ds);
+
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-body);
+}
+
+:root.light .ds-scope {
+  --bg: var(--paper);
+  --bg-2: oklch(93.5% 0 0);
+  --surface-ds: #ffffff;
+  --surface-2: oklch(97.5% 0 0);
+  --fg: var(--ink);
+  --muted-ds: oklch(44% 0 0);
+  --faint: oklch(66% 0 0);
+  --border-ds: oklch(88% 0 0);
+  --border-2: oklch(82% 0 0);
+
+  --accent-ds: var(--ink);
+  --accent-hover: oklch(18% 0 0);
+  --accent-press: oklch(32% 0 0);
+  --accent-fg: var(--paper);
+  --accent-tint: oklch(25% 0 0 / 0.1);
+}
+
+/* Rail width reserved for the style-guide sub-nav on desktop.
+   Reuses the existing --left-sidebar-w that panels already pad for.
+   Driven by the Style Guide's resizable/collapsible rail via an inline
+   --sg-rail-w (set on the .ds-scope wrapper); other ds-scope pages omit it and
+   fall back to the 244px default. Collapsed → --sg-rail-w: 0px. */
+@media (min-width: 1024px) {
+  .ds-scope {
+    --left-sidebar-w: var(--sg-rail-w, 244px);
+  }
+}
+
+/* ── Design-system helper classes ─────────────────────
+   The display/eyebrow/mono/lead treatments are now defined globally in the
+   `@layer components` block near the top of this file (promoted out of this
+   scope so the whole site shares one source of truth). Their tokens
+   (--accent/--muted/--font-mono) still resolve to the ink/paper palette inside
+   `.ds-scope`. */
+
+/* Bento grid */
+.ds-scope .ds-bento {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  grid-auto-rows: minmax(180px, auto);
+  gap: var(--s-4);
+}
+.ds-scope .ds-bento .col-2 { grid-column: span 2; }
+.ds-scope .ds-bento .col-3 { grid-column: span 3; }
+.ds-scope .ds-bento .col-4 { grid-column: span 4; }
+.ds-scope .ds-bento .col-6 { grid-column: span 6; }
+.ds-scope .ds-bento .row-2 { grid-row: span 2; }
+@media (max-width: 860px) {
+  .ds-scope .ds-bento { grid-template-columns: repeat(2, 1fr); }
+  .ds-scope .ds-bento .col-2,
+  .ds-scope .ds-bento .col-3,
+  .ds-scope .ds-bento .col-4,
+  .ds-scope .ds-bento .col-6 { grid-column: span 2; }
+  .ds-scope .ds-bento .row-2 { grid-row: span 1; }
+}
+@media (max-width: 520px) {
+  .ds-scope .ds-bento { grid-template-columns: 1fr; }
+  .ds-scope .ds-bento .col-2,
+  .ds-scope .ds-bento .col-3,
+  .ds-scope .ds-bento .col-4,
+  .ds-scope .ds-bento .col-6 { grid-column: span 1; }
+}
+
+/* Pills / tags */
+.ds-scope .ds-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.04em;
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-2);
+  color: var(--muted);
+}
+.ds-scope .ds-pill.accent {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-tint);
+}
+
+/* Inputs */
+.ds-scope .ds-input,
+.ds-scope .ds-textarea {
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: var(--t-base);
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius-sm);
+  width: 100%;
+  transition: border-color var(--speed) var(--ease), box-shadow var(--speed) var(--ease);
+}
+.ds-scope .ds-input::placeholder,
+.ds-scope .ds-textarea::placeholder { color: var(--faint); }
+.ds-scope .ds-input:focus,
+.ds-scope .ds-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+.ds-scope .ds-divider { height: 1px; background: var(--border); border: 0; }
+.ds-scope a { color: inherit; }
+
+/* Cards */
+.ds-scope .ds-card { transition: transform var(--speed) var(--ease); }
+.ds-scope .ds-card-interactive { cursor: pointer; }
+.ds-scope .ds-card-interactive:hover { transform: translateY(-2px); }
+
+/* Data table */
+.ds-scope table.ds-data { width: 100%; border-collapse: collapse; font-size: var(--t-sm); }
+.ds-scope table.ds-data th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 0.7rem var(--s-4);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+.ds-scope table.ds-data td { padding: 0.7rem var(--s-4); border-bottom: 1px solid var(--border); }
+.ds-scope table.ds-data tr:last-child td { border-bottom: 0; }
+.ds-scope table.ds-data tbody tr:hover { background: var(--surface-2); }
+.ds-scope table.ds-data td.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
 }
 
 /* ═══════════════════════════════════════════════════
@@ -421,6 +613,13 @@ canvas.r3f {
 }
 .scrollbar-none::-webkit-scrollbar {
   display: none;
+}
+
+/* Spinner (style-guide loading state) */
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 /* Progress bar animation for hero carousel */

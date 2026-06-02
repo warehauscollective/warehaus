@@ -2,6 +2,7 @@
 
 import { AnimatedCounter } from '@/components/react/ui/AnimatedCounter';
 import { StatusIndicator } from '@/components/react/ui/StatusIndicator';
+import { Eyebrow, Mono } from '@/components/react/ui/typography';
 import { BasePanel } from './BasePanel';
 
 interface DataPanelProps {
@@ -29,8 +30,8 @@ export function DataPanel({
     <BasePanel>
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-xs text-muted">{label}</p>
-          <p className="mt-1 font-display text-2xl font-semibold text-foreground">
+          <Eyebrow className="text-xs" style={{ color: 'var(--muted)' }}>{label}</Eyebrow>
+          <Mono className="mt-1 block font-display text-2xl font-semibold text-foreground">
             <AnimatedCounter target={value} suffix={suffix} />
             {trend && (
               <span
@@ -39,7 +40,7 @@ export function DataPanel({
                 {trendIcons[trend].symbol}
               </span>
             )}
-          </p>
+          </Mono>
         </div>
         {status && (
           <StatusIndicator status={status} label={status} size="md" />

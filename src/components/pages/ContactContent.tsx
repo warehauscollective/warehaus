@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { useLayout } from '@/components/providers/LayoutProvider';
 import { StatusIndicator } from '@/components/react/ui/StatusIndicator';
+import { Heading, Text, Eyebrow } from '@/components/react/ui/typography';
 import { useFadeIn } from '@/hooks/useFadeIn';
 
 /* ───────── Data ───────── */
@@ -87,28 +88,28 @@ export function ContactContent() {
           <div className="max-w-2xl mx-auto">
             <div className="flex items-center justify-center gap-2 mb-6">
               <MessageCircle className="w-4 h-4 text-cyan-400/60" />
-              <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-cyan-400/60">
+              <Eyebrow as="span" style={{ color: 'rgb(34 211 238 / 0.6)' }}>
                 Begin Your Journey
-              </span>
+              </Eyebrow>
             </div>
-            <h1 className="font-display text-5xl md:text-7xl font-bold text-white mb-6 leading-[1.1]">
+            <Heading level={1} size="display" className="text-white mb-6 leading-[1.1]">
               Step Inside<br />
               <span className="bg-gradient-to-r from-cyan-400 to-blue-400 bg-clip-text text-transparent">
                 the House
               </span>
-            </h1>
-            <p className="text-lg text-gray-400 max-w-lg mx-auto leading-relaxed">
+            </Heading>
+            <Text lead className="text-gray-400 max-w-lg mx-auto">
               The door is open. Tell us what you&apos;re building, and we&apos;ll match you
               with the right mentor and familiar to bring it to life.
-            </p>
+            </Text>
           </div>
         </div>
 
         {/* Scroll indicator */}
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
-          <span className="text-[9px] uppercase tracking-[0.3em] text-cyan-400/40">
+          <Eyebrow as="span" className="text-[9px]" style={{ color: 'rgb(34 211 238 / 0.4)' }}>
             Choose Your Path
-          </span>
+          </Eyebrow>
           <ChevronDown className="w-4 h-4 text-cyan-400/40 animate-bounce" />
         </div>
       </section>
@@ -128,17 +129,17 @@ export function ContactContent() {
             >
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-8 h-px bg-cyan-500/40" />
-                <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-cyan-400/60">
+                <Eyebrow as="span" style={{ color: 'rgb(34 211 238 / 0.6)' }}>
                   Three Realms
-                </span>
+                </Eyebrow>
               </div>
-              <h2 className="font-display text-3xl md:text-4xl font-bold text-white mb-3">
+              <Heading level={2} className="text-white mb-3">
                 Choose your path.
-              </h2>
-              <p className="text-sm text-gray-400 max-w-lg">
+              </Heading>
+              <Text size="sm" className="text-gray-400 max-w-lg">
                 Each realm has its own mentor, familiar, and expertise.
                 Not sure where to start? Send us a message below and we&apos;ll guide you.
-              </p>
+              </Text>
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -175,18 +176,15 @@ export function ContactContent() {
                       >
                         <Icon className="w-5 h-5" style={{ color: type.color }} />
                       </div>
-                      <h3 className="font-display text-lg font-bold text-white mb-1">
+                      <Heading level={3} display={false} className="text-white mb-1">
                         {type.label}
-                      </h3>
-                      <p
-                        className="text-[10px] font-bold uppercase tracking-[0.2em] mb-3"
-                        style={{ color: type.color }}
-                      >
+                      </Heading>
+                      <Eyebrow className="mb-3" style={{ color: type.color }}>
                         {type.subtitle}
-                      </p>
-                      <p className="text-xs text-gray-500 leading-relaxed mb-4">
+                      </Eyebrow>
+                      <Text size="sm" className="text-gray-500 mb-4">
                         {type.description}
-                      </p>
+                      </Text>
                       <div
                         className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider opacity-0 group-hover:opacity-100 transition-opacity duration-300"
                         style={{ color: type.color }}
@@ -218,13 +216,13 @@ export function ContactContent() {
             >
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-8 h-px bg-cyan-500/40" />
-                <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-cyan-400/60">
+                <Eyebrow as="span" style={{ color: 'rgb(34 211 238 / 0.6)' }}>
                   Get In Touch
-                </span>
+                </Eyebrow>
               </div>
-              <h2 className="font-display text-3xl md:text-4xl font-bold text-white">
+              <Heading level={2} className="text-white">
                 Send a message.
-              </h2>
+              </Heading>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -307,9 +305,9 @@ export function ContactContent() {
                 <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
                   <div className="flex items-center gap-2 mb-2">
                     <Mail className="w-4 h-4 text-cyan-400/60" />
-                    <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-400/60">
+                    <Eyebrow as="h3" style={{ color: 'rgb(34 211 238 / 0.6)' }}>
                       Email
-                    </h3>
+                    </Eyebrow>
                   </div>
                   <a
                     href="mailto:hello@warehaus.studio"
@@ -322,12 +320,12 @@ export function ContactContent() {
                 <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
                   <div className="flex items-center gap-2 mb-2">
                     <MapPin className="w-4 h-4 text-cyan-400/60" />
-                    <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-400/60">
+                    <Eyebrow as="h3" style={{ color: 'rgb(34 211 238 / 0.6)' }}>
                       Location
-                    </h3>
+                    </Eyebrow>
                   </div>
-                  <p className="text-sm text-white">Remote-first</p>
-                  <p className="text-xs text-gray-500 mt-1">Globally distributed team</p>
+                  <Text size="sm" className="text-white">Remote-first</Text>
+                  <Text size="sm" className="text-gray-500 mt-1">Globally distributed team</Text>
                 </div>
 
                 <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
@@ -335,18 +333,18 @@ export function ContactContent() {
                     <div className="w-4 h-4 flex items-center justify-center">
                       <StatusIndicator status="online" size="sm" />
                     </div>
-                    <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-400/60">
+                    <Eyebrow as="h3" style={{ color: 'rgb(34 211 238 / 0.6)' }}>
                       Availability
-                    </h3>
+                    </Eyebrow>
                   </div>
-                  <p className="text-sm text-white">Open for new projects</p>
-                  <p className="text-xs text-gray-500 mt-1">Currently accepting work for Q2 2026</p>
+                  <Text size="sm" className="text-white">Open for new projects</Text>
+                  <Text size="sm" className="text-gray-500 mt-1">Currently accepting work for Q2 2026</Text>
                 </div>
 
                 <div className="rounded-xl border border-white/[0.06] bg-white/[0.02] p-5">
-                  <h3 className="text-[10px] font-bold uppercase tracking-[0.2em] text-cyan-400/60 mb-3">
+                  <Eyebrow as="h3" className="mb-3" style={{ color: 'rgb(34 211 238 / 0.6)' }}>
                     Social
-                  </h3>
+                  </Eyebrow>
                   <div className="flex flex-wrap gap-2">
                     {['Twitter', 'Dribbble', 'GitHub', 'LinkedIn'].map((s) => (
                       <a

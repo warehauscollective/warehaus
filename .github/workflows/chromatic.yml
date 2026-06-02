@@ -1,0 +1,41 @@
+name: Chromatic
+
+# Visual-regression testing of the Storybook via Chromatic.
+# Requires a repo secret: CHROMATIC_PROJECT_TOKEN (from chromatic.com).
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: chromatic-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  chromatic:
+    name: Visual regression
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Chromatic needs full git history to compare baselines
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Publish to Chromatic
+        uses: chromaui/action@latest
+        with:
+          projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+          buildScriptName: build-storybook
+          # Don't fail the PR on visual changes — review/approve diffs in the
+          # Chromatic UI instead. Flip to false once baselines are trusted.
+          exitZeroOnChanges: true
+          # TurboSnap: only snapshot stories affected by the diff (uses the
+          # @chromatic-com/storybook addon already installed).
+          onlyChanged: true

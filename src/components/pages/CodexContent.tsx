@@ -16,6 +16,7 @@ import {
 import { useLayout } from '@/components/providers/LayoutProvider';
 import { codexEntries } from '@/lib/data/codex';
 import { ALL_SERVICES } from '@/lib/data/services';
+import { Heading, Text, Eyebrow, Mono } from '@/components/react/ui/typography';
 import { useFadeIn } from '@/hooks/useFadeIn';
 
 /* ───────── Data ───────── */
@@ -114,28 +115,28 @@ export function CodexContent() {
           <div className="max-w-3xl mx-auto">
             <div className="flex items-center justify-center gap-2 mb-6">
               <Scroll className="w-4 h-4 text-purple-400/60" />
-              <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-400/60">
+              <Eyebrow as="span" style={{ color: 'rgb(192 132 252 / 0.6)' }}>
                 The Collected Works
-              </span>
+              </Eyebrow>
             </div>
-            <h1 className="font-display text-5xl md:text-7xl font-bold text-white mb-6 leading-[1.1]">
+            <Heading level={1} size="display" className="text-white mb-6 leading-[1.1]">
               Codex of<br />
               <span className="bg-gradient-to-r from-purple-400 to-violet-300 bg-clip-text text-transparent">
                 Creations
               </span>
-            </h1>
-            <p className="text-lg md:text-xl text-gray-400 max-w-xl mx-auto leading-relaxed">
+            </Heading>
+            <Text lead className="text-gray-400 max-w-xl mx-auto">
               Every artifact forged, every quest undertaken, every fragment explored.
               The living record of everything we&apos;ve built.
-            </p>
+            </Text>
           </div>
         </div>
 
         {/* Scroll indicator */}
         <div className="absolute bottom-8 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2">
-          <span className="text-[9px] uppercase tracking-[0.3em] text-purple-400/40">
+          <Eyebrow as="span" className="text-[9px]" style={{ color: 'rgb(192 132 252 / 0.4)' }}>
             Explore
-          </span>
+          </Eyebrow>
           <ChevronDown className="w-4 h-4 text-purple-400/40 animate-bounce" />
         </div>
       </section>
@@ -159,17 +160,17 @@ export function CodexContent() {
             >
               <div className="flex items-center gap-2 mb-4">
                 <div className="w-8 h-px bg-purple-500/40" />
-                <span className="text-[10px] font-bold uppercase tracking-[0.3em] text-purple-400/60">
+                <Eyebrow as="span" style={{ color: 'rgb(192 132 252 / 0.6)' }}>
                   Archive
-                </span>
+                </Eyebrow>
               </div>
-              <h2 className="font-display text-3xl md:text-4xl font-bold text-white mb-4">
+              <Heading level={2} className="text-white mb-4">
                 The works within.
-              </h2>
-              <p className="text-sm text-gray-400 max-w-lg">
+              </Heading>
+              <Text size="sm" className="text-gray-400 max-w-lg">
                 Hover over any creation to reveal its details in the sidebar.
                 Each entry holds the story of its making.
-              </p>
+              </Text>
             </div>
 
             {/* Filter bar */}
@@ -243,19 +244,19 @@ export function CodexContent() {
                   {/* Content */}
                   <div className="p-5">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="text-[9px] font-bold uppercase tracking-[0.2em] text-purple-400/50">
+                      <Eyebrow as="span" className="text-[9px]" style={{ color: 'rgb(192 132 252 / 0.5)' }}>
                         {entry.category}
-                      </span>
-                      <span className="text-[9px] text-gray-600">
+                      </Eyebrow>
+                      <Mono className="text-[9px] text-gray-600">
                         {entry.year}
-                      </span>
+                      </Mono>
                     </div>
-                    <h3 className="font-display text-lg font-bold text-white mb-2 transition-colors duration-300 group-hover:text-purple-300">
+                    <Heading level={3} display={false} className="text-white mb-2 transition-colors duration-300 group-hover:text-purple-300">
                       {entry.title}
-                    </h3>
-                    <p className="text-xs text-gray-500 line-clamp-2 leading-relaxed">
+                    </Heading>
+                    <Text size="sm" className="text-gray-500 line-clamp-2">
                       {entry.description}
-                    </p>
+                    </Text>
 
                     {/* Services tags */}
                     <div className="flex flex-wrap gap-1 mt-3">
@@ -281,9 +282,9 @@ export function CodexContent() {
             {filtered.length === 0 && (
               <div className="py-20 text-center">
                 <Sparkles className="w-8 h-8 text-purple-500/20 mx-auto mb-4" />
-                <p className="text-sm text-gray-500">
+                <Text size="sm" className="text-gray-500">
                   No entries found for this filter.
-                </p>
+                </Text>
               </div>
             )}
           </div>
@@ -306,14 +307,14 @@ export function CodexContent() {
         >
           <div className="max-w-2xl mx-auto">
             <BookOpen className="w-10 h-10 text-purple-400/40 mx-auto mb-6" />
-            <h2 className="font-display text-4xl md:text-5xl font-bold text-white mb-6 leading-tight">
+            <Heading level={2} size="display" className="text-white mb-6 leading-tight">
               Every creation starts<br />
               as a conversation.
-            </h2>
-            <p className="text-gray-400 mb-10 max-w-md mx-auto leading-relaxed">
+            </Heading>
+            <Text className="text-gray-400 mb-10 max-w-md mx-auto">
               Ready to add your project to the Codex?
               Tell us what you&apos;re building and we&apos;ll chart the path.
-            </p>
+            </Text>
             <Link
               href="/contact"
               className="inline-flex items-center gap-2 px-8 py-3 rounded-full bg-purple-500/20 border border-purple-500/30 text-purple-300 text-sm font-bold hover:bg-purple-500/30 transition-all duration-300"

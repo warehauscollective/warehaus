@@ -4,7 +4,9 @@ import { useState, useCallback, useRef } from 'react';
 import type { ChatMessage, ChatState } from '@/lib/chat/types';
 import type { ActiveTab } from '@/components/providers/LayoutProvider';
 
-const TAB_TO_SENDER: Record<ActiveTab, ChatMessage['sender']> = {
+// Only the pillar tabs map to a chat persona; other surfaces (e.g. Style Guide)
+// fall through to an undefined sender.
+const TAB_TO_SENDER: Partial<Record<ActiveTab, ChatMessage['sender']>> = {
   dream: 'dreamer',
   design: 'designer',
   develop: 'developer',

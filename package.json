@@ -3,13 +3,20 @@
   "type": "module",
   "version": "0.1.0",
   "private": true,
+  "workspaces": [
+    "packages/*"
+  ],
   "scripts": {
     "dev": "next dev --turbopack",
     "dev:webpack": "next dev",
+    "prebuild": "npm run tokens",
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "tokens": "node scripts/build-tokens.mjs",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.74.0",
@@ -25,6 +32,7 @@
     "embla-carousel-react": "^8.6.0",
     "embla-carousel-wheel-gestures": "^8.1.0",
     "gsap": "^3.14.2",
+    "leva": "^0.10.1",
     "lucide-react": "^0.563.0",
     "next": "^15.3.3",
     "react": "^19.2.4",
@@ -41,6 +49,19 @@
     "@types/three": "^0.182.0",
     "eslint": "^9.39.3",
     "eslint-config-next": "^16.1.6",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "storybook": "^10.4.1",
+    "@storybook/nextjs-vite": "^10.4.1",
+    "@chromatic-com/storybook": "^5.2.1",
+    "@storybook/addon-vitest": "^10.4.1",
+    "@storybook/addon-a11y": "^10.4.1",
+    "@storybook/addon-docs": "^10.4.1",
+    "@storybook/addon-mcp": "^0.6.0",
+    "vite": "^8.0.16",
+    "eslint-plugin-storybook": "^10.4.1",
+    "vitest": "^4.1.8",
+    "playwright": "^1.60.0",
+    "@vitest/browser-playwright": "^4.1.8",
+    "@vitest/coverage-v8": "^4.1.8"
   }
 }

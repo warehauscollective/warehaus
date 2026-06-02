@@ -19,6 +19,7 @@ import {
 import { GlassCard } from '@/components/react/ui/GlassCard';
 import { ALL_SERVICES } from '@/lib/data/services';
 import { useFadeIn } from '@/hooks/useFadeIn';
+import { Heading, Text, Eyebrow, Mono } from '@/components/react/ui/typography';
 
 /* ───────── Data ───────── */
 const disciplines = [
@@ -111,20 +112,20 @@ export function DesignContent() {
             <div className="w-8 h-8 rounded-full bg-orange-500/20 border border-orange-400/30 flex items-center justify-center">
               <Hammer className="w-4 h-4 text-orange-400" />
             </div>
-            <span className="text-orange-400 text-xs font-bold tracking-[0.3em] uppercase">
+            <Eyebrow as="span" className="text-orange-400">
               The Forge
-            </span>
+            </Eyebrow>
           </div>
 
-          <h1 className="font-display text-7xl md:text-9xl lg:text-[12rem] font-black italic tracking-tighter text-white/90 leading-[0.85] mb-8">
+          <Heading level={1} size="display" className="text-white/90 mb-8">
             DESIGN.
-          </h1>
+          </Heading>
 
-          <p className="text-lg md:text-xl text-white/40 max-w-lg mx-auto leading-relaxed">
+          <Text size="lg" className="text-white/40 max-w-lg mx-auto">
             You have a vision. Now it needs a form.
             <br className="hidden md:block" />
             <span className="text-white/25">Something people can see, touch, and feel.</span>
-          </p>
+          </Text>
         </div>
 
         {/* Scroll indicator */}
@@ -162,17 +163,17 @@ export function DesignContent() {
           }`}
           style={SIDEBAR_PAD}
         >
-          <p className="text-orange-400/30 text-[10px] font-bold tracking-[0.3em] uppercase mb-8">
+          <Eyebrow className="text-orange-400/30 mb-8">
             Raw material
-          </p>
-          <h2 className="font-display text-3xl md:text-5xl lg:text-6xl font-bold text-white/70 leading-tight max-w-2xl mx-auto mb-6">
+          </Eyebrow>
+          <Heading level={2} size="h1" className="text-white/70 max-w-2xl mx-auto mb-6">
             The strategy is set.
             <br />
             <span className="text-white/30">But it&apos;s still just words on a page.</span>
-          </h2>
-          <p className="text-white/20 text-base md:text-lg max-w-md mx-auto leading-relaxed">
+          </Heading>
+          <Text size="lg" className="text-white/20 max-w-md mx-auto">
             Wireframes without soul. Mood boards that don&apos;t quite click. Ideas scattered across whiteboards and sticky notes. The raw material is there — it just needs a master&apos;s hand.
-          </p>
+          </Text>
         </div>
       </section>
 
@@ -225,15 +226,15 @@ export function DesignContent() {
               <div className="absolute -inset-8 rounded-[2rem] bg-orange-500/4 blur-2xl -z-10" />
             </div>
 
-            <p className="text-orange-400/30 text-[10px] tracking-[0.3em] uppercase mb-4">
+            <Eyebrow className="text-orange-400/30 mb-4">
               The master craftsman
-            </p>
-            <h2 className="font-display text-3xl md:text-5xl font-bold text-white text-center mb-3">
+            </Eyebrow>
+            <Heading level={2} className="text-white text-center mb-3">
               Meet Korr
-            </h2>
-            <p className="text-orange-300/30 text-sm italic max-w-sm text-center">
+            </Heading>
+            <Text size="sm" className="text-orange-300/30 italic max-w-sm text-center">
               The Shaper. He bends light and pixel with equal mastery — forging interfaces that feel alive and identities that burn into memory.
-            </p>
+            </Text>
           </div>
         </div>
       </section>
@@ -290,17 +291,17 @@ export function DesignContent() {
           }`}
           style={SIDEBAR_PAD}
         >
-          <p className="text-orange-400/40 text-[10px] font-bold tracking-[0.3em] uppercase mb-6">
+          <Eyebrow className="text-orange-400/40 mb-6">
             The fire is lit
-          </p>
-          <h2 className="font-display text-4xl md:text-6xl lg:text-7xl font-bold text-white leading-tight">
+          </Eyebrow>
+          <Heading level={2} size="h1" className="text-white">
             The Forge
             <br />
             <span className="text-orange-300/50">shapes everything.</span>
-          </h2>
-          <p className="mt-6 text-white/25 text-sm max-w-sm mx-auto leading-relaxed">
+          </Heading>
+          <Text size="sm" className="mt-6 text-white/25 max-w-sm mx-auto">
             This is where vision becomes visible. Rough ideas heated, hammered, and refined until they shine.
-          </p>
+          </Text>
         </div>
       </section>
 
@@ -319,15 +320,15 @@ export function DesignContent() {
           style={SIDEBAR_PAD}
         >
           <div className="mb-16 text-center">
-            <p className="text-orange-400/40 text-[10px] font-bold tracking-[0.3em] uppercase mb-4">
+            <Eyebrow className="text-orange-400/40 mb-4">
               The craft
-            </p>
-            <h2 className="font-display text-4xl md:text-6xl font-bold text-white">
+            </Eyebrow>
+            <Heading level={2} size="h1" className="text-white">
               Five ways we shape the fire.
-            </h2>
-            <p className="mt-4 text-white/20 text-sm max-w-md mx-auto">
+            </Heading>
+            <Text size="sm" className="mt-4 text-white/20 max-w-md mx-auto">
               Each discipline tempers your vision into something precise, beautiful, and built to last.
-            </p>
+            </Text>
           </div>
 
           {/* Discipline constellation */}
@@ -350,12 +351,12 @@ export function DesignContent() {
                       <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-orange-500/8 border border-orange-500/15 flex items-center justify-center mb-5 group-hover:bg-orange-500/15 group-hover:border-orange-500/30 transition-all duration-500">
                         <Icon className="w-8 h-8 md:w-10 md:h-10 text-orange-400/70 group-hover:text-orange-400 transition-colors" />
                       </div>
-                      <h3 className="font-display text-base md:text-lg font-semibold text-white/80 mb-1">
+                      <Heading level={3} className="text-white/80 mb-1">
                         {d.loreTitle}
-                      </h3>
-                      <span className="text-[10px] text-orange-400/40 font-mono">
+                      </Heading>
+                      <Mono className="text-[10px] text-orange-400/40">
                         {'// '}{d.realTitle}
-                      </span>
+                      </Mono>
                     </div>
                   );
                 })}
@@ -368,12 +369,12 @@ export function DesignContent() {
                         <div className="w-20 h-20 md:w-24 md:h-24 rounded-full bg-orange-500/8 border border-orange-500/15 flex items-center justify-center mb-5 group-hover:bg-orange-500/15 group-hover:border-orange-500/30 transition-all duration-500">
                           <Icon className="w-8 h-8 md:w-10 md:h-10 text-orange-400/70 group-hover:text-orange-400 transition-colors" />
                         </div>
-                        <h3 className="font-display text-base md:text-lg font-semibold text-white/80 mb-1">
+                        <Heading level={3} className="text-white/80 mb-1">
                           {d.loreTitle}
-                        </h3>
-                        <span className="text-[10px] text-orange-400/40 font-mono">
+                        </Heading>
+                        <Mono className="text-[10px] text-orange-400/40">
                           {'// '}{d.realTitle}
-                        </span>
+                        </Mono>
                       </div>
                     );
                   })}
@@ -400,15 +401,15 @@ export function DesignContent() {
           style={SIDEBAR_PAD}
         >
           <div className="text-center mb-16">
-            <p className="text-orange-400/40 text-[10px] font-bold tracking-[0.3em] uppercase mb-4">
+            <Eyebrow className="text-orange-400/40 mb-4">
               Forged and finished
-            </p>
-            <h2 className="font-display text-4xl md:text-6xl font-bold text-white">
+            </Eyebrow>
+            <Heading level={2} size="h1" className="text-white">
               What you leave the Forge with.
-            </h2>
-            <p className="mt-4 text-white/20 text-sm max-w-md mx-auto">
+            </Heading>
+            <Text size="sm" className="mt-4 text-white/20 max-w-md mx-auto">
               Not concepts. Not promises. Tangible design artifacts, forged to precision.
-            </p>
+            </Text>
           </div>
 
           {/* Artifact cards */}
@@ -434,12 +435,12 @@ export function DesignContent() {
                       <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-[#050505] to-transparent" />
                     </div>
                     <div className="absolute bottom-0 left-0 right-0 p-5">
-                      <h3 className="font-display text-lg font-bold text-white mb-1">
+                      <Heading level={3} size="h3" className="text-white mb-1">
                         {artifact.loreTitle}
-                      </h3>
-                      <p className="text-[10px] text-orange-400/50 font-mono uppercase tracking-wider">
+                      </Heading>
+                      <Mono as="p" className="text-[10px] text-orange-400/50 uppercase tracking-wider">
                         {artifact.realTitle}
-                      </p>
+                      </Mono>
                     </div>
                   </div>
                 </div>
@@ -466,9 +467,9 @@ export function DesignContent() {
           }`}
           style={SIDEBAR_PAD}
         >
-          <p className="text-orange-400/30 text-[10px] font-bold tracking-[0.3em] uppercase mb-8">
+          <Eyebrow className="text-orange-400/30 mb-8">
             Your forge companion
-          </p>
+          </Eyebrow>
 
           {/* Flint familiar visual */}
           <div className="relative w-[200px] h-[200px] md:w-[280px] md:h-[280px] mb-10">
@@ -486,12 +487,12 @@ export function DesignContent() {
             <div className="absolute -inset-8 rounded-full bg-orange-500/4 blur-2xl" />
           </div>
 
-          <h2 className="font-display text-4xl md:text-5xl font-bold text-white text-center mb-2">
+          <Heading level={2} className="text-white text-center mb-2">
             Meet Flint.
-          </h2>
-          <p className="text-orange-300/30 text-sm max-w-sm text-center mb-6">
+          </Heading>
+          <Text size="sm" className="text-orange-300/30 max-w-sm text-center mb-6">
             Your AI familiar. Flint accelerates iteration — generating variations, checking accessibility, and keeping every artboard consistent while you focus on the craft.
-          </p>
+          </Text>
 
           <div className="flex flex-wrap justify-center gap-2 mt-2">
             {['Rapid Iteration', 'Accessibility Checks', 'Design Consistency', 'Asset Generation'].map((cap) => (
@@ -525,12 +526,12 @@ export function DesignContent() {
               <Hammer className="w-8 h-8 text-orange-400" />
             </div>
           </div>
-          <h2 className="font-display text-4xl md:text-6xl font-bold text-white mb-4">
+          <Heading level={2} size="h1" className="text-white mb-4">
             The Forge is ready.
-          </h2>
-          <p className="text-lg text-foreground/40 max-w-lg mx-auto mb-12 leading-relaxed">
+          </Heading>
+          <Text size="lg" className="text-foreground/40 max-w-lg mx-auto mb-12">
             Bring your vision. Korr will shape it into something people can&apos;t look away from.
-          </p>
+          </Text>
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <Link
@@ -560,12 +561,12 @@ export function DesignContent() {
         <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-orange-500/20 to-transparent" />
 
         <div className="relative z-10" style={SIDEBAR_PAD}>
-          <h2 className="font-display text-xl font-semibold mb-3 text-center text-foreground/40">
+          <Heading level={2} display={false} size="h3" className="mb-3 text-center text-foreground/40">
             The journey continues
-          </h2>
-          <p className="text-center text-foreground/30 text-sm mb-10 max-w-md mx-auto">
+          </Heading>
+          <Text size="sm" className="text-center text-foreground/30 mb-10 max-w-md mx-auto">
             Design is where vision becomes form. But the journey doesn&apos;t end here.
-          </p>
+          </Text>
           <div className="max-w-3xl mx-auto grid gap-4 sm:grid-cols-2">
             {siblings.map((s) => (
               <Link key={s.href} href={s.href} className="group block">
@@ -577,9 +578,9 @@ export function DesignContent() {
                     >
                       <Compass className="w-4 h-4" style={{ color: s.color }} />
                     </div>
-                    <h3 className="font-display text-sm font-semibold" style={{ color: s.color }}>
+                    <Heading level={3} display={false} size="sm" style={{ color: s.color }}>
                       {s.realm}
-                    </h3>
+                    </Heading>
                   </div>
                   <p className="text-xs text-foreground/40">Guided by {s.mentor}</p>
                   <p className="text-xs text-foreground/30 mt-1 line-clamp-2">{s.loreBlurb.slice(0, 100)}...</p>

@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useLayout } from '@/components/providers/LayoutProvider';
-import { Home, BookOpen, DoorOpen, Users, Sun, Moon, Monitor } from 'lucide-react';
+import { Home, BookOpen, DoorOpen, Users, Palette, Sun, Moon, Monitor } from 'lucide-react';
 
 const MENU_ITEMS = [
   { icon: Home, label: 'Home', href: '/' },
   { icon: BookOpen, label: 'Codex', href: '/codex' },
+  { icon: Palette, label: 'Style Guide', href: '/style-guide' },
   { icon: Users, label: 'About', href: '/about' },
   { icon: DoorOpen, label: 'Contact', href: '/contact' },
 ];
@@ -88,7 +89,7 @@ export function MenuOverlay() {
                 href={href}
                 className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors"
                 style={{
-                  color: isActive ? 'var(--nav-text-active)' : 'var(--nav-text)',
+                  color: isActive ? 'var(--nav-text-inverse)' : 'var(--nav-text)',
                   background: isActive ? 'var(--nav-pill-bg)' : 'transparent',
                 }}
               >
@@ -99,10 +100,10 @@ export function MenuOverlay() {
           })}
 
           {/* Divider */}
-          <div className="h-px mx-2 my-1" style={{ background: 'var(--nav-pill-border)' }} />
+          <div className="h-px mx-2 my-1" style={{ background: 'var(--nav-border)' }} />
 
           {/* Theme switcher — dark / light / auto */}
-          <div className="flex items-center gap-1 mx-2 my-1 rounded-xl p-1" style={{ background: 'var(--nav-pill-bg)' }}>
+          <div className="flex items-center gap-1 mx-2 my-1 rounded-xl p-1" style={{ background: 'var(--nav-surface)' }}>
             {([
               { mode: 'auto', label: 'Auto', Icon: Monitor },
               { mode: 'light', label: 'Light', Icon: Sun },

@@ -7,6 +7,7 @@ import { ChatAvatar } from './ChatAvatar';
 import { ChatMessages } from './ChatMessages';
 import { ChatInput } from './ChatInput';
 import { useChatApi } from './useChatApi';
+import { Heading, Text, Eyebrow } from '@/components/react/ui/typography';
 
 const PANEL_WIDTH = 380;
 
@@ -91,9 +92,9 @@ export function ChatPanel() {
         <div className="flex items-center justify-between border-b border-border px-4 py-3">
           <div className="flex items-center gap-2.5">
             <ChatAvatar size="sm" />
-            <span className="font-display text-sm font-semibold text-foreground">
+            <Heading level={6} display={false} as="span" className="text-foreground">
               Warehaus AI
-            </span>
+            </Heading>
           </div>
 
           <button
@@ -128,13 +129,13 @@ export function ChatPanel() {
         {/* Welcome message — shown once before any conversation */}
         {hasOpened && messages.length === 0 && (
           <div className="px-5 pt-6 pb-2">
-            <span className="font-display text-[10px] font-bold uppercase tracking-[0.2em] text-accent">
+            <Eyebrow as="span">
               Start Here
-            </span>
-            <p className="mt-2 text-sm leading-relaxed text-foreground/80">
+            </Eyebrow>
+            <Text size="sm" className="mt-2 leading-relaxed text-foreground/80">
               Welcome to Warehaus AI. Ask me anything about your project — from
               design ideas to code architecture.
-            </p>
+            </Text>
           </div>
         )}
 

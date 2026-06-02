@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { cn } from '@/lib/utils/cn';
 import { useTypewriter } from '@/hooks/useTypewriter';
+import { Text, Eyebrow } from '@/components/react/ui/typography';
 import type { ChatMessage } from '@/lib/chat/types';
 import type { ActiveTab } from '@/components/providers/LayoutProvider';
 
@@ -12,7 +13,7 @@ const SENDER_CONFIG: Record<string, { label: string; color: string; bg: string; 
   developer: { label: 'Developer', color: 'text-develop', bg: 'bg-develop-surface', glow: 'var(--develop-primary)' },
 };
 
-const TAB_TO_SENDER: Record<ActiveTab, string> = {
+const TAB_TO_SENDER: Partial<Record<ActiveTab, string>> = {
   dream: 'dreamer',
   design: 'designer',
   develop: 'developer',
@@ -63,14 +64,14 @@ export function ChatMessages({ messages, isLoading, activeTab }: ChatMessagesPro
   if (messages.length === 0) {
     return (
       <div className="flex flex-1 items-center justify-center px-6">
-        <p className="text-center text-sm text-muted">
+        <Text size="sm" muted className="text-center">
           No messages yet. Say hello to get started.
-        </p>
+        </Text>
       </div>
     );
   }
 
-  const thinkingSender = activeTab ? TAB_TO_SENDER[activeTab] : 'dreamer';
+  const thinkingSender = (activeTab && TAB_TO_SENDER[activeTab]) ?? 'dreamer';
 
   return (
     <div className="flex flex-1 flex-col gap-4 overflow-y-auto min-h-0 px-4 pt-14 md:pt-8 pb-4">
@@ -105,9 +106,9 @@ function ThinkingBubble({ senderKey }: { senderKey: string }) {
       <SenderAvatar sender={sender} />
 
       <div className="flex flex-col gap-1">
-        <span className={cn('text-[10px] font-bold uppercase tracking-wider', sender.color)}>
+        <Eyebrow as="span" className={sender.color}>
           {sender.label}
-        </span>
+        </Eyebrow>
 
         <div className="rounded-xl px-3.5 py-2.5 bg-white/5 text-foreground">
           <div className="flex items-center gap-1 h-5">
@@ -197,9 +198,9 @@ function MessageBubble({
       <div className={cn('max-w-[85%]', !isUser && sender && 'flex flex-col gap-1')}>
         {/* Sender label */}
         {!isUser && sender && (
-          <span className={cn('text-[10px] font-bold uppercase tracking-wider', sender.color)}>
+          <Eyebrow as="span" className={sender.color}>
             {sender.label}
-          </span>
+          </Eyebrow>
         )}
 
         <div

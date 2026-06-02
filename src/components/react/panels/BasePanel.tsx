@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { cn } from '@/lib/utils/cn';
+import { Heading, Text } from '@/components/react/ui/typography';
 
 interface BasePanelProps {
   title?: string;
@@ -50,14 +51,14 @@ export function BasePanel({
         <div className="mb-4 flex items-start justify-between gap-3">
           <div className="min-w-0">
             {title && (
-              <h3 className="truncate font-display text-sm font-medium text-foreground">
+              <Heading level={3} display={false} className="truncate text-sm text-foreground">
                 {title}
-              </h3>
+              </Heading>
             )}
             {subtitle && (
-              <p className="mt-0.5 truncate text-xs text-muted">
+              <Text size="sm" muted className="mt-0.5 truncate text-xs">
                 {subtitle}
-              </p>
+              </Text>
             )}
           </div>
           {headerAction && (

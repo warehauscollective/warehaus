@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import type { ServicePageData } from '@/lib/types/service';
 import { GlassCard } from '@/components/react/ui/GlassCard';
+import { Heading, Text } from '@/components/react/ui/typography';
 import { ALL_SERVICES } from '@/lib/data/services';
 
 interface ServicePageLayoutProps {
@@ -34,34 +35,31 @@ export function ServicePageLayout({ service }: ServicePageLayoutProps) {
           >
             {service.sigil} Sigil
           </div>
-          <h1 className="font-display text-5xl md:text-7xl font-black italic tracking-tight text-white mb-4">
+          <Heading level={1} size="display" className="text-white mb-4">
             {service.realm}
-          </h1>
-          <p className="text-lg md:text-xl text-white/70 max-w-xl">
+          </Heading>
+          <Text size="lg" className="max-w-xl" style={{ color: 'rgb(255 255 255 / 0.7)' }}>
             Guided by <span style={{ color: service.color }} className="font-bold">{service.mentor}</span>
-          </p>
+          </Text>
         </div>
       </section>
 
       {/* Mentor Lore */}
       <section data-section="lore" className="max-w-4xl mx-auto px-6 py-16 md:px-10">
-        <p className="text-lg leading-relaxed text-foreground/80">
+        <Text size="lg" style={{ color: 'var(--foreground)', opacity: 0.8 }}>
           {service.loreBlurb}
-        </p>
+        </Text>
       </section>
 
       {/* Skills / Abilities */}
       <section data-section="skills" className="max-w-4xl mx-auto px-6 pb-16 md:px-10">
-        <h2 className="font-display text-2xl font-semibold mb-6">Abilities</h2>
+        <Heading level={2} className="mb-6">Abilities</Heading>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {service.skills.map((skill) => (
             <GlassCard key={skill}>
-              <h3
-                className="font-display text-sm font-semibold"
-                style={{ color: service.color }}
-              >
+              <Heading level={6} display={false} style={{ color: service.color }}>
                 {skill}
-              </h3>
+              </Heading>
             </GlassCard>
           ))}
         </div>
@@ -69,19 +67,16 @@ export function ServicePageLayout({ service }: ServicePageLayoutProps) {
 
       {/* Artifacts / Deliverables */}
       <section data-section="artifacts" className="max-w-4xl mx-auto px-6 pb-16 md:px-10">
-        <h2 className="font-display text-2xl font-semibold mb-6">Artifacts & Deliverables</h2>
+        <Heading level={2} className="mb-6">Artifacts & Deliverables</Heading>
         <div className="grid gap-4 sm:grid-cols-2">
           {service.artifacts.map((artifact) => (
             <GlassCard key={artifact.name}>
-              <h3
-                className="font-display text-sm font-semibold mb-2"
-                style={{ color: service.color }}
-              >
+              <Heading level={6} display={false} className="mb-2" style={{ color: service.color }}>
                 {artifact.name}
-              </h3>
-              <p className="text-sm leading-relaxed text-foreground/70">
+              </Heading>
+              <Text size="sm" style={{ color: 'var(--foreground)', opacity: 0.7 }}>
                 {artifact.description}
-              </p>
+              </Text>
             </GlassCard>
           ))}
         </div>
@@ -89,11 +84,11 @@ export function ServicePageLayout({ service }: ServicePageLayoutProps) {
 
       {/* Familiars */}
       <section data-section="familiars" className="max-w-4xl mx-auto px-6 pb-16 md:px-10">
-        <h2 className="font-display text-2xl font-semibold mb-6">Familiar: {service.familiarName}</h2>
+        <Heading level={2} className="mb-6">Familiar: {service.familiarName}</Heading>
         <GlassCard>
-          <p className="text-sm leading-relaxed text-foreground/80">
+          <Text size="sm" style={{ color: 'var(--foreground)', opacity: 0.8 }}>
             {service.familiarDescription}
-          </p>
+          </Text>
         </GlassCard>
       </section>
 
@@ -110,15 +105,15 @@ export function ServicePageLayout({ service }: ServicePageLayoutProps) {
 
       {/* Cross-links */}
       <section className="max-w-4xl mx-auto px-6 pb-20 md:px-10">
-        <h2 className="font-display text-xl font-semibold mb-6 text-center">Explore Other Realms</h2>
+        <Heading level={3} className="mb-6 text-center">Explore Other Realms</Heading>
         <div className="grid gap-4 sm:grid-cols-2">
           {siblings.map((s) => (
             <Link key={s.href} href={s.href} className="group block">
               <GlassCard className="transition-transform duration-200 group-hover:-translate-y-0.5">
-                <h3 className="font-display text-sm font-semibold" style={{ color: s.color }}>
+                <Heading level={6} display={false} style={{ color: s.color }}>
                   {s.realm}
-                </h3>
-                <p className="text-xs text-foreground/60 mt-1">Guided by {s.mentor}</p>
+                </Heading>
+                <Text size="sm" className="mt-1" style={{ color: 'var(--foreground)', opacity: 0.6 }}>Guided by {s.mentor}</Text>
               </GlassCard>
             </Link>
           ))}

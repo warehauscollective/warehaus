@@ -1,0 +1,39 @@
+import type { CSSProperties } from 'react';
+
+/**
+ * The Warehaus wordmark (from /Logos and Icons/Logo.svg), inlined so it can be
+ * colored via `currentColor` and stay visible in both light and dark themes
+ * (the source SVG is hard-coded ink #1F1F1F, which would vanish on a dark
+ * background). Width scales from the given height to preserve the aspect ratio.
+ */
+export function WarehausLogo({
+  height = 27,
+  color = 'var(--fg)',
+  className,
+  style,
+  title = 'Warehaus',
+}: {
+  height?: number;
+  color?: string;
+  className?: string;
+  style?: CSSProperties;
+  title?: string;
+}) {
+  return (
+    <svg
+      viewBox="0 0 72 27"
+      height={height}
+      role="img"
+      aria-label={title}
+      className={className}
+      style={{ display: 'block', width: 'auto', color, flex: 'none', ...style }}
+    >
+      <path
+        fill="currentColor"
+        d="M22.5913 5.43494C23.7124 5.43494 24.6214 6.34321 24.6216 7.46423V24.7777C24.6216 25.8989 23.7125 26.808 22.5913 26.808H17.2095C16.0884 26.8079 15.1792 25.8988 15.1792 24.7777V7.46423C15.1794 6.34327 16.0885 5.43504 17.2095 5.43494H22.5913ZM52.688 5.43494C53.8091 5.43494 54.7181 6.34321 54.7183 7.46423V24.7777C54.7182 25.8989 53.8091 26.808 52.688 26.808H47.3062C46.1851 26.8078 45.2759 25.8988 45.2759 24.7777V7.46423C45.2761 6.3433 46.1852 5.43508 47.3062 5.43494H52.688ZM7.83838 0.0911865C8.95953 0.0912223 9.86865 1.0003 9.86865 2.12146V19.434C9.86865 20.5551 8.95953 21.4642 7.83838 21.4642H2.45654C1.33537 21.4642 0.42627 20.5551 0.42627 19.434V2.12146C0.42627 1.00028 1.33537 0.0911865 2.45654 0.0911865H7.83838ZM37.9351 0.0911865C39.0562 0.0911865 39.9653 1.00028 39.9653 2.12146V19.434C39.9653 20.5551 39.0562 21.4642 37.9351 21.4642H32.5532C31.432 21.4642 30.5229 20.5551 30.5229 19.434V2.12146C30.5229 1.00028 31.432 0.0911865 32.5532 0.0911865H37.9351ZM68.6216 0.0911865C69.7428 0.0911865 70.6519 1.00028 70.6519 2.12146V19.434C70.6519 20.5551 69.7428 21.4642 68.6216 21.4642H63.2397C62.1187 21.4641 61.2104 20.555 61.2104 19.434V2.12146C61.2104 1.00038 62.1187 0.0913491 63.2397 0.0911865H68.6216Z"
+      />
+    </svg>
+  );
+}
+
+export default WarehausLogo;

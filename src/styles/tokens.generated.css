@@ -1,0 +1,113 @@
+/* AUTO-GENERATED from @warehaus/tokens — do not edit by hand. Run `npm run tokens`. */
+
+:root {
+  --font-mono: var(--font-geist-mono), ui-monospace, "JetBrains Mono", monospace;
+  --t-xs: 0.75rem;
+  --t-sm: 0.875rem;
+  --t-base: 1rem;
+  --t-md: 1.25rem;
+  --t-lg: 1.5rem;
+  --t-xl: clamp(1.75rem, 1.2rem + 2vw, 2.5rem);
+  --t-2xl: clamp(2.25rem, 1.4rem + 3.4vw, 3.75rem);
+  --t-3xl: clamp(3rem, 1.6rem + 5.6vw, 6rem);
+  --lh-tight: 1.05;
+  --lh-head: 1.12;
+  --lh-body: 1.6;
+  --ls-display: -0.01em;
+  --ls-eyebrow: 0.22em;
+  --s-1: 0.25rem;
+  --s-2: 0.5rem;
+  --s-3: 0.75rem;
+  --s-4: 1rem;
+  --s-5: 1.5rem;
+  --s-6: 2rem;
+  --s-7: 3rem;
+  --s-8: 4rem;
+  --s-9: 6rem;
+  --s-10: 8rem;
+  --s-11: 10rem;
+  --section-y: clamp(4rem, 2rem + 8vw, 8rem);
+  --gutter: clamp(1.25rem, 0.5rem + 3vw, 3rem);
+  --maxw: 1240px;
+  --radius-sm: 10px;
+  --radius: 18px;
+  --radius-lg: 28px;
+  --radius-pill: 999px;
+  --cut: 22px;
+  --cut-lg: 40px;
+  --speed: 180ms;
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+}
+
+:root {
+  --background: #050505;
+  --foreground: #e8e6e3;
+  --muted: #6b6966;
+  --accent: #00e5ff;
+  --surface: #0d0d0d;
+  --surface-elevated: #141414;
+  --border: #1f1f1f;
+  --border-subtle: #161616;
+  --success: #22c55e;
+  --warning: #f59e0b;
+  --info: #3b82f6;
+  --dream-primary: #818cf8;
+  --dream-secondary: #a5b4fc;
+  --dream-dim: rgba(129, 140, 248, 0.4);
+  --dream-glow: 129, 140, 248;
+  --dream-surface: rgba(99, 102, 241, 0.08);
+  --dream-border: rgba(99, 102, 241, 0.15);
+  --dream-bg-deep: #1e1b4b;
+  --dream-bg-mid: #0c0a1a;
+  --design-primary: #f97316;
+  --design-secondary: #fbbf24;
+  --design-dim: rgba(249, 115, 22, 0.4);
+  --design-glow: 249, 115, 22;
+  --design-surface: rgba(249, 115, 22, 0.08);
+  --design-border: rgba(249, 115, 22, 0.15);
+  --design-bg-deep: #451a03;
+  --design-bg-mid: #0d0805;
+  --develop-primary: #10b981;
+  --develop-secondary: #34d399;
+  --develop-dim: rgba(16, 185, 129, 0.4);
+  --develop-glow: 16, 185, 129;
+  --develop-surface: rgba(16, 185, 129, 0.08);
+  --develop-border: rgba(16, 185, 129, 0.15);
+  --develop-bg-deep: #052e16;
+  --develop-bg-mid: #0a120d;
+}
+
+:root.light {
+  --background: #ededed;
+  --foreground: #1a1a1a;
+  --muted: #888888;
+  --accent: #0099cc;
+  --surface: #ffffff;
+  --surface-elevated: #f0f0f0;
+  --border: #e0e0e0;
+  --border-subtle: #eaeaea;
+  --dream-primary: #4338ca;
+  --dream-secondary: #6366f1;
+  --dream-dim: rgba(67, 56, 202, 0.5);
+  --dream-glow: 67, 56, 202;
+  --dream-surface: rgba(99, 102, 241, 0.06);
+  --dream-border: rgba(99, 102, 241, 0.12);
+  --dream-bg-deep: #e8e5f8;
+  --dream-bg-mid: #f0eef8;
+  --design-primary: #c2410c;
+  --design-secondary: #ea580c;
+  --design-dim: rgba(194, 65, 12, 0.5);
+  --design-glow: 194, 65, 12;
+  --design-surface: rgba(249, 115, 22, 0.06);
+  --design-border: rgba(249, 115, 22, 0.12);
+  --design-bg-deep: #fef3e2;
+  --design-bg-mid: #fdf8f0;
+  --develop-primary: #047857;
+  --develop-secondary: #059669;
+  --develop-dim: rgba(4, 120, 87, 0.5);
+  --develop-glow: 4, 120, 87;
+  --develop-surface: rgba(16, 185, 129, 0.06);
+  --develop-border: rgba(16, 185, 129, 0.12);
+  --develop-bg-deep: #e2f8f0;
+  --develop-bg-mid: #f0faf5;
+}
