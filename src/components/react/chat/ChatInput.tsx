@@ -68,7 +68,7 @@ export function ChatInput({ onSend, disabled = false }: ChatInputProps) {
             'disabled:cursor-not-allowed disabled:opacity-40'
           )}
           style={{
-            background: 'var(--nav-pill-bg)',
+            background: 'var(--nav-surface)',
             color: 'var(--nav-text)',
           }}
         >

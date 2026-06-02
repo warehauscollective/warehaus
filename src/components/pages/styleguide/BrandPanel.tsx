@@ -162,13 +162,13 @@ export function BrandPanel() {
           <Eyebrow>Foundations</Eyebrow>
           <h2 className="font-display" style={{ fontSize: 'var(--t-2xl)', marginTop: 'var(--s-3)' }}>Color</h2>
           <p className="ds-lead" style={{ marginTop: 'var(--s-4)', maxWidth: '64ch' }}>
-            Two brand colors, full stop: ink <code className="ds-mono">#1F1F1F</code> and paper <code className="ds-mono">#F6F6F7</code>. They swap roles between modes, and every neutral is a grey between them. Status colors are the only hue. Flip the site theme to watch every token re-resolve.
+            Two brand colors, full stop: ink <code className="ds-mono">#0A0A0B</code> and paper <code className="ds-mono">#FDFDFE</code>. They swap roles between modes, and every neutral is a grey between them. Status colors are the only hue. Flip the site theme to watch every token re-resolve.
           </p>
 
           <div style={{ marginTop: 'var(--s-6)' }}>
             <SectionHead title={<span style={{ fontSize: 'var(--t-md)' }}>Brand anchors</span>} pill="the only two" pillAccent />
             <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
-              {[{ name: 'Ink', token: '--ink · #1F1F1F', value: 'var(--ink)' }, { name: 'Paper', token: '--paper · #F6F6F7', value: 'var(--paper)' }].map((c) => (
+              {[{ name: 'Ink', token: '--ink · #0A0A0B', value: 'var(--ink)' }, { name: 'Paper', token: '--paper · #FDFDFE', value: 'var(--paper)' }].map((c) => (
                 <Bevel key={c.name} corners="br" cut={2.5} shoulder={0.875} clip fill="var(--surface)" stroke="var(--border)">
                   <div style={{ height: 120, background: c.value }} />
                   <div style={{ padding: 'var(--s-4)' }}>

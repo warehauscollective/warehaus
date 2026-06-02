@@ -89,7 +89,7 @@ export function MenuOverlay() {
                 href={href}
                 className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors"
                 style={{
-                  color: isActive ? 'var(--nav-text-active)' : 'var(--nav-text)',
+                  color: isActive ? 'var(--nav-text-inverse)' : 'var(--nav-text)',
                   background: isActive ? 'var(--nav-pill-bg)' : 'transparent',
                 }}
               >
@@ -100,10 +100,10 @@ export function MenuOverlay() {
           })}
 
           {/* Divider */}
-          <div className="h-px mx-2 my-1" style={{ background: 'var(--nav-pill-border)' }} />
+          <div className="h-px mx-2 my-1" style={{ background: 'var(--nav-border)' }} />
 
           {/* Theme switcher — dark / light / auto */}
-          <div className="flex items-center gap-1 mx-2 my-1 rounded-xl p-1" style={{ background: 'var(--nav-pill-bg)' }}>
+          <div className="flex items-center gap-1 mx-2 my-1 rounded-xl p-1" style={{ background: 'var(--nav-surface)' }}>
             {([
               { mode: 'auto', label: 'Auto', Icon: Monitor },
               { mode: 'light', label: 'Light', Icon: Sun },

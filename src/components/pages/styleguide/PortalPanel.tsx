@@ -65,7 +65,7 @@ function NavDockDemo({ active = 2 }: { active?: number }) {
             <div
               key={t}
               className="relative z-10 flex-1 text-center py-3 text-xs tracking-widest rounded-xl"
-              style={{ minWidth: 100, fontFamily: 'var(--font-display)', fontWeight: 700, color: i === active ? 'var(--nav-text-active)' : 'var(--nav-text-muted)' }}
+              style={{ minWidth: 100, fontFamily: 'var(--font-display)', fontWeight: 700, color: i === active ? 'var(--nav-text-inverse)' : 'var(--nav-text-muted)' }}
             >
               {t}
             </div>

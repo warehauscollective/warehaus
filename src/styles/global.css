@@ -52,15 +52,21 @@
   --panel-radius: 12px;
   --panel-padding: 1.25rem;
 
-  /* Navbar colors (theme-aware) */
-  --nav-bg: rgba(0, 0, 0, 0.7);
-  --nav-border: rgba(255, 255, 255, 0.1);
-  --nav-text: rgba(255, 255, 255, 0.6);
-  --nav-text-active: #fff;
-  --nav-text-muted: rgba(255, 255, 255, 0.4);
-  --nav-pill-bg: rgba(255, 255, 255, 0.15);
-  --nav-pill-border: rgba(255, 255, 255, 0.2);
-  --nav-text-inverse: #000;
+  /* Navbar colors (theme-aware) — brand ink/paper neutrals.
+     The active tab pill is INVERTED vs the theme: in dark mode it's a bright
+     paper pill with ink text; in light mode an ink pill with paper text.
+     --nav-text-active stays theme-bright (for the indicator dots, which sit on
+     the nav background); --nav-text-inverse is the dark-on-bright pill text. */
+  --nav-bg: rgba(10, 10, 11, 0.7);
+  --nav-border: rgba(253, 253, 254, 0.18);
+  --nav-text: rgba(253, 253, 254, 0.6);
+  --nav-text-active: #fdfdfe;
+  --nav-text-muted: rgba(253, 253, 254, 0.4);
+  --nav-pill-bg: #fdfdfe;
+  --nav-pill-border: rgba(10, 10, 11, 0.06);
+  --nav-text-inverse: #0a0a0b;
+  /* Subtle translucent surface — menu trays/dividers (NOT the bright pill). */
+  --nav-surface: rgba(253, 253, 254, 0.08);
 
   /* Layout vars — sidebars removed, kept at 0 for backward compat */
   --left-sidebar-w: 0px;
@@ -72,14 +78,15 @@
   --glass-bg: rgba(0, 0, 0, 0.03);
   --glass-border: rgba(0, 0, 0, 0.06);
 
-  --nav-bg: rgba(255, 255, 255, 0.7);
-  --nav-border: rgba(0, 0, 0, 0.08);
-  --nav-text: rgba(0, 0, 0, 0.6);
-  --nav-text-active: #000;
-  --nav-text-muted: rgba(0, 0, 0, 0.3);
-  --nav-pill-bg: rgba(255, 255, 255, 0.6);
-  --nav-pill-border: rgba(0, 0, 0, 0.08);
-  --nav-text-inverse: #fff;
+  --nav-bg: rgba(253, 253, 254, 0.7);
+  --nav-border: rgba(10, 10, 11, 0.32);
+  --nav-text: rgba(10, 10, 11, 0.6);
+  --nav-text-active: #0a0a0b;
+  --nav-text-muted: rgba(10, 10, 11, 0.35);
+  --nav-pill-bg: #0a0a0b;
+  --nav-pill-border: rgba(253, 253, 254, 0.1);
+  --nav-text-inverse: #fdfdfe;
+  --nav-surface: rgba(10, 10, 11, 0.05);
 }
 
 body {
@@ -179,13 +186,13 @@ body {
    --border, --accent…) so Tailwind utilities resolve to
    the brand palette inside the scope. */
 .ds-scope {
-  --ink: #1f1f1f;
-  --paper: #f6f6f7;
+  --ink: #0a0a0b;
+  --paper: #fdfdfe;
 
   --bg: var(--ink);
-  --bg-2: oklch(21% 0 0);
-  --surface-ds: oklch(30% 0 0);
-  --surface-2: oklch(35% 0 0);
+  --bg-2: oklch(18% 0 0);
+  --surface-ds: oklch(27% 0 0);
+  --surface-2: oklch(34% 0 0);
   --fg: var(--paper);
   --muted-ds: oklch(72% 0 0);
   --faint: oklch(50% 0 0);
@@ -193,11 +200,11 @@ body {
   --border-2: oklch(46% 0 0);
 
   /* Monochrome accent = paper-on-ink (inverts in light) */
-  --accent-ds: oklch(97% 0 0);
+  --accent-ds: oklch(99% 0 0);
   --accent-hover: oklch(100% 0 0);
   --accent-press: oklch(88% 0 0);
   --accent-fg: var(--ink);
-  --accent-tint: oklch(97% 0 0 / 0.12);
+  --accent-tint: oklch(99% 0 0 / 0.12);
 
   /* Status — the only hue, kept scarce */
   --success: oklch(70% 0.16 150);
@@ -240,10 +247,13 @@ body {
 }
 
 /* Rail width reserved for the style-guide sub-nav on desktop.
-   Reuses the existing --left-sidebar-w that panels already pad for. */
+   Reuses the existing --left-sidebar-w that panels already pad for.
+   Driven by the Style Guide's resizable/collapsible rail via an inline
+   --sg-rail-w (set on the .ds-scope wrapper); other ds-scope pages omit it and
+   fall back to the 244px default. Collapsed → --sg-rail-w: 0px. */
 @media (min-width: 1024px) {
   .ds-scope {
-    --left-sidebar-w: 244px;
+    --left-sidebar-w: var(--sg-rail-w, 244px);
   }
 }
 

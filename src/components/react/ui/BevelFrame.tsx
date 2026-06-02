@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -9,6 +10,7 @@ import {
   type ElementType,
   type ReactNode,
 } from 'react';
+import { useBevelInspector } from '@/components/dev/bevelInspector';
 
 const useIso = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
@@ -77,10 +79,15 @@ function pathFor(x0: number, y0: number, x1: number, y1: number, corners: Record
   return d + ' Z';
 }
 
-function cornerMap(beveled: Set<Corner>, radiusPx: number, cutPx: number, shoulderPx: number): Record<Corner, Geo> {
+function cornerMap(
+  beveled: Set<Corner>,
+  radiusPx: number,
+  cutPxFor: (k: Corner) => number,
+  shoulderPxFor: (k: Corner) => number,
+): Record<Corner, Geo> {
   return ALL.reduce((acc, k) => {
     acc[k] = beveled.has(k)
-      ? { type: 'bevel', r: 0, c: cutPx, s: shoulderPx }
+      ? { type: 'bevel', r: 0, c: cutPxFor(k), s: shoulderPxFor(k) }
       : { type: 'round', r: radiusPx, c: 0, s: 0 };
     return acc;
   }, {} as Record<Corner, Geo>);
@@ -88,8 +95,12 @@ function cornerMap(beveled: Set<Corner>, radiusPx: number, cutPx: number, should
 
 export interface BevelFrameProps {
   as?: ElementType;
-  /** Beveled corners. Default 'br'. */
+  /** Beveled corners for the OUTER frame silhouette. Default 'br'. */
   corners?: string;
+  /** Beveled corners for the INNER panel (+ the hole it sits in). Defaults to
+      `corners`. Lets the inner glass cut a different corner than the outer
+      frame (which is left untouched). */
+  innerCorners?: string;
   /** Rounded radius (rem). Default 1.25. */
   radius?: number;
   /** Bevel cut (rem). Default 3. */
@@ -110,12 +121,17 @@ export interface BevelFrameProps {
   innerClassName?: string;
   innerStyle?: CSSProperties;
   children?: ReactNode;
+  /** Stable id for the dev bevel inspector (defaults to an auto-generated id). */
+  inspectorId?: string;
+  /** Label shown in the dev inspector panel title. */
+  inspectorLabel?: string;
   [key: string]: unknown;
 }
 
 export function BevelFrame({
   as,
   corners = 'br',
+  innerCorners,
   radius = 1.25,
   cut = 3,
   shoulder = 0.875,
@@ -128,11 +144,14 @@ export function BevelFrame({
   innerClassName,
   innerStyle,
   children,
+  inspectorId,
+  inspectorLabel,
   ...rest
 }: BevelFrameProps) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const Tag = (as || 'div') as any;
   const ref = useRef<HTMLElement | null>(null);
+  const innerRef = useRef<HTMLDivElement | null>(null);
   const [box, setBox] = useState({ w: 0, h: 0 });
   const [remPx, setRemPx] = useState(16);
 
@@ -151,31 +170,121 @@ export function BevelFrame({
     return () => ro.disconnect();
   }, []);
 
+  // ── Dev bevel inspector (no-op in production / when disabled) ──
+  const inspector = useBevelInspector();
+  const autoId = useId();
+  const inspId = inspectorId ?? autoId;
+  const [hovered, setHovered] = useState(false);
+  useEffect(() => {
+    if (!inspector.enabled) return;
+    // Capture the inner panel's current padding (px) so the inspector seeds its
+    // padding controls from whatever the frame authored (innerStyle/token).
+    let padding;
+    const innerEl = innerRef.current;
+    if (innerEl) {
+      const cs = getComputedStyle(innerEl);
+      padding = {
+        top: parseFloat(cs.paddingTop) || 0,
+        right: parseFloat(cs.paddingRight) || 0,
+        bottom: parseFloat(cs.paddingBottom) || 0,
+        left: parseFloat(cs.paddingLeft) || 0,
+      };
+    }
+    // Seed fill from innerFill + stroke=none so selecting doesn't recolor the frame.
+    inspector.register(inspId, {
+      corners,
+      cut,
+      shoulder,
+      radius,
+      fill: innerFill,
+      stroke: 'none',
+      strokeWidth: 0,
+      padding,
+      label: inspectorLabel,
+    });
+    return () => inspector.unregister(inspId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inspector.enabled, inspId, corners, cut, shoulder, radius, innerFill, inspectorLabel]);
+
+  // Live overrides take precedence over authored geometry.
+  const ov = inspector.enabled ? inspector.overrides[inspId] : undefined;
+  const effCorners = ov?.corners ?? corners;
+  const effRadius = ov?.radius ?? radius;
+  const effInnerFill = ov?.fill ?? innerFill;
+  // Inspector padding (px) is applied to the INNER panel as per-side longhands.
+  const ovPadding = ov?.padding
+    ? {
+        paddingTop: ov.padding.top,
+        paddingRight: ov.padding.right,
+        paddingBottom: ov.padding.bottom,
+        paddingLeft: ov.padding.left,
+      }
+    : null;
+
   const top = frame?.top ?? 2;
   const right = frame?.right ?? 2;
   const bottom = frame?.bottom ?? 48;
   const left = frame?.left ?? 2;
 
-  const beveled = new Set(corners.toLowerCase().split(/\s+/).filter(Boolean) as Corner[]);
-  const radiusPx = radius * remPx;
-  const cutPx = cut * remPx;
-  const shoulderPx = shoulder * remPx;
+  const parseBeveled = (c: string | Corner[]): Set<Corner> =>
+    new Set(Array.isArray(c) ? c : (c.toLowerCase().split(/\s+/).filter(Boolean) as Corner[]));
+  // Outer frame keeps its own beveled corners; the inner panel (+ the hole it
+  // sits in) can bevel a DIFFERENT corner via `innerCorners` — so the inner
+  // glass cut can move without touching the outer silhouette.
+  const beveled = parseBeveled(effCorners);
+  const innerBeveled = parseBeveled(innerCorners ?? effCorners);
+  const radiusPx = effRadius * remPx;
+  const cutPxFor = (k: Corner) => (ov?.perCorner?.[k]?.cut ?? cut) * remPx;
+  const shoulderPxFor = (k: Corner) => (ov?.perCorner?.[k]?.shoulder ?? shoulder) * remPx;
 
   const { w, h } = box;
   const painted = w > 0 && h > 0;
   const innerW = Math.max(0, w - left - right);
   const innerH = Math.max(0, h - top - bottom);
 
-  const outerCorners = cornerMap(beveled, radiusPx, cutPx, shoulderPx);
-  const innerCorners = cornerMap(beveled, Math.max(0, radiusPx - left), cutPx, shoulderPx);
+  const outerCornerMap = cornerMap(beveled, radiusPx, cutPxFor, shoulderPxFor);
+  const innerCornerMap = cornerMap(innerBeveled, Math.max(0, radiusPx - left), cutPxFor, shoulderPxFor);
 
-  const outerD = painted ? pathFor(0, 0, w, h, outerCorners) : '';
-  const holeD = painted ? pathFor(left, top, w - right, h - bottom, innerCorners) : '';
-  const innerLocalD = painted ? pathFor(0, 0, innerW, innerH, innerCorners) : '';
+  // Outer silhouette uses the outer corners; the hole + inner panel share the
+  // inner corners so the panel fits the knockout exactly.
+  const outerD = painted ? pathFor(0, 0, w, h, outerCornerMap) : '';
+  const holeD = painted ? pathFor(left, top, w - right, h - bottom, innerCornerMap) : '';
+  const innerLocalD = painted ? pathFor(0, 0, innerW, innerH, innerCornerMap) : '';
   const blurCss = `blur(${blur}px) saturate(1.4)`;
 
+  // Inspector affordances (only when the inspector is enabled).
+  const selected = inspector.enabled && inspector.selectedId === inspId;
+  const inspectorStyle: CSSProperties | null = inspector.enabled
+    ? {
+        outline: selected
+          ? '2px solid #00e5ff'
+          : hovered
+            ? '2px dashed rgba(0,229,255,0.7)'
+            : '1px dashed rgba(0,229,255,0.25)',
+        outlineOffset: 2,
+        cursor: 'pointer',
+      }
+    : null;
+  const inspectorHandlers = inspector.enabled
+    ? {
+        onMouseEnter: () => setHovered(true),
+        onMouseLeave: () => setHovered(false),
+        onClick: (e: { preventDefault: () => void; stopPropagation: () => void }) => {
+          e.preventDefault();
+          e.stopPropagation();
+          inspector.select(inspId);
+        },
+      }
+    : null;
+
   return (
-    <Tag ref={ref} className={className} style={{ position: 'relative', isolation: 'isolate', ...style }} {...rest}>
+    <Tag
+      ref={ref}
+      className={className}
+      style={{ position: 'relative', isolation: 'isolate', ...style, ...inspectorStyle }}
+      {...rest}
+      {...inspectorHandlers}
+    >
       {painted && (
         <div
           aria-hidden
@@ -183,7 +292,12 @@ export function BevelFrame({
             position: 'absolute',
             inset: 0,
             zIndex: 0,
-            pointerEvents: 'none',
+            // Hit-testable: the clip-path is a RING (center hole is clipped out
+            // of hit-testing too), and the inner panel sits above at zIndex 1 —
+            // so only the visible glass border/bottom-reveal catches the cursor.
+            // This lets element inspectors select the frame and removes a
+            // phantom click-through on the decorative glass. Stays aria-hidden.
+            pointerEvents: 'auto',
             background: outerFill,
             backdropFilter: blurCss,
             WebkitBackdropFilter: blurCss,
@@ -192,6 +306,7 @@ export function BevelFrame({
         />
       )}
       <div
+        ref={innerRef}
         className={innerClassName}
         style={{
           position: 'absolute',
@@ -202,13 +317,16 @@ export function BevelFrame({
           zIndex: 1,
           ...(painted
             ? {
-                background: innerFill,
+                background: effInnerFill,
                 backdropFilter: blurCss,
                 WebkitBackdropFilter: blurCss,
                 clipPath: `path("${innerLocalD}")`,
               }
             : null),
           ...innerStyle,
+          // Inspector per-side padding wins; drop any `padding` shorthand from
+          // innerStyle first so the shorthand can't clobber the longhands.
+          ...(ovPadding ? { padding: undefined, ...ovPadding } : null),
         }}
       >
         {children}

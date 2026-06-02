@@ -308,7 +308,12 @@ export function Bevel({
         isolation: 'isolate',
         ...(clip && clipD ? { clipPath: `path("${clipD}")` } : null),
         ...style,
-        ...ovPadding,
+        // When the inspector drives per-side padding, neutralize any `padding`
+        // SHORTHAND from `style` (e.g. <Card padding="var(--s-6)">) first —
+        // mixing shorthand + longhand in one React style object lets the
+        // shorthand clobber the longhands across re-renders, which made the
+        // card padding visibly jump while the inspector was open.
+        ...(ovPadding ? { padding: undefined, ...ovPadding } : null),
         ...inspectorStyle,
       }}
       {...rest}
