@@ -154,10 +154,10 @@ function InspectorInner({ children }: { children: ReactNode }) {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  // Clear selection when turning the inspector off.
-  useEffect(() => {
-    if (!enabled) setSelectedId(null);
-  }, [enabled]);
+  // Selection only applies while the inspector is enabled. Deriving it (rather
+  // than clearing via an effect) keeps the stored selection but presents it as
+  // null to consumers whenever the inspector is off.
+  const effectiveSelectedId = enabled ? selectedId : null;
 
   const copyProps = async () => {
     if (!selectedId) return;
@@ -172,7 +172,7 @@ function InspectorInner({ children }: { children: ReactNode }) {
 
   return (
     <InspectorContext.Provider
-      value={{ enabled, selectedId, select, register, unregister, getBase, overrides, setOverride }}
+      value={{ enabled, selectedId: effectiveSelectedId, select, register, unregister, getBase, overrides, setOverride }}
     >
       {children}
 

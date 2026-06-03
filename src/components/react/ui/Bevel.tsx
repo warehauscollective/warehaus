@@ -196,8 +196,6 @@ export function Bevel({
   const autoId = useId();
   const inspId = inspectorId ?? autoId;
   const [hovered, setHovered] = useState(false);
-  const baseRef = useRef({ corners, cut, shoulder, radius, perCorner, strokeWidth, fill, stroke, label: inspectorLabel });
-  baseRef.current = { corners, cut, shoulder, radius, perCorner, strokeWidth, fill, stroke, label: inspectorLabel };
   useEffect(() => {
     if (!inspector.enabled) return;
     // Capture the element's current padding (px) so the inspector can seed its
@@ -213,9 +211,10 @@ export function Bevel({
         left: parseFloat(cs.paddingLeft) || 0,
       };
     }
-    inspector.register(inspId, { ...baseRef.current, padding });
+    inspector.register(inspId, { corners, cut, shoulder, radius, perCorner, strokeWidth, fill, stroke, label: inspectorLabel, padding });
     return () => inspector.unregister(inspId);
-  }, [inspector.enabled, inspId, inspector.register, inspector.unregister]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [inspector.enabled, inspId, inspector.register, inspector.unregister, corners, cut, shoulder, radius, perCorner, strokeWidth, fill, stroke, inspectorLabel]);
 
   // Live overrides from the inspector take precedence over authored props.
   const ov = inspector.enabled ? inspector.overrides[inspId] : undefined;
