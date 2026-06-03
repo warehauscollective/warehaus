@@ -182,7 +182,6 @@ export function Bevel({
   ...rest
 }: BevelProps) {
   // Polymorphic tag — typed loosely so any element/props (incl. ref) are valid.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const Tag = (as || 'div') as any;
   const ref = useRef<HTMLElement | null>(null);
   const [box, setBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });
