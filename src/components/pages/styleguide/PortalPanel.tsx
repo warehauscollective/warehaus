@@ -151,7 +151,7 @@ export function PortalPanel() {
           {/* Anatomy — the three controls */}
           <div style={{ marginTop: 'var(--s-7)' }}>
             <SectionHead title="Anatomy" pill="menu · tabs · chat" />
-            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(240px,100%),1fr))' }}>
               {[
                 { n: '01 · Menu', h: 'Full navigation', p: 'A 44px button that opens the menu overlay — every route, grouped. The hamburger crossfades and rotates into a close icon while open.' },
                 { n: '02 · Tabs', h: 'Sliding switcher', p: 'Three route-aware tabs in a pill. The active pill slides 300ms and the indicator bar above it morphs from a dot to a 56px bar.' },
@@ -172,7 +172,7 @@ export function PortalPanel() {
             <p className="ds-lead" style={{ maxWidth: '64ch', marginBottom: 'var(--s-5)' }}>
               The same dock adapts its tabs to the current route while the page’s main content stays mounted. Each route defines its own set of up to six tabs in <code className="ds-mono">navTabs.ts</code> — these are the surfaces wired today:
             </p>
-            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(300px,1fr))' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(300px,100%),1fr))' }}>
               {ROUTE_TAB_SETS.map((r) => (
                 <Card key={r.path} cut={1.75} shoulder={0.625}>
                   <div className="flex items-baseline justify-between gap-3 flex-wrap">
@@ -290,7 +290,7 @@ export function PortalPanel() {
             </Card>
           </div>
 
-          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', marginTop: 'var(--s-7)' }}>
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(240px,100%),1fr))', marginTop: 'var(--s-7)' }}>
             {[
               { e: 'States', p: 'Every input has rest, focus, filled, error, and disabled. Validate on blur, not keystroke.' },
               { e: 'Numbers', p: 'Tabular figures, right-aligned in tables. Units in muted text, never inside the number.' },
@@ -316,7 +316,7 @@ export function PortalPanel() {
 
           <div style={{ marginTop: 'var(--s-6)' }}>
             <SectionHead title="Flow · Create a shipment" pill="4 steps" />
-            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(200px,100%),1fr))' }}>
               {FLOW_CREATE.map((s) => (
                 <Card key={s.n} cut={1.5} shoulder={0.5625}>
                   <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--accent)' }}>{s.n}</span>
@@ -332,7 +332,7 @@ export function PortalPanel() {
 
           <div style={{ marginTop: 'var(--s-7)' }}>
             <SectionHead title="Flow · First-run onboarding" pill="3 steps" />
-            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(220px,100%),1fr))' }}>
               {FLOW_ONBOARD.map((s) => (
                 <Card key={s.n} cut={1.5} shoulder={0.5625}>
                   <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--accent)' }}>{s.n}</span>
@@ -345,7 +345,7 @@ export function PortalPanel() {
 
           <div style={{ marginTop: 'var(--s-7)' }}>
             <SectionHead title="The four states" pill="every screen, no exceptions" />
-            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(200px,100%),1fr))' }}>
               <Card cut={1.75} shoulder={0.625} style={{ minHeight: 170, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', gap: 'var(--s-3)' }}>
                 <span style={{ width: 34, height: 34, borderRadius: 9, border: '2px solid var(--border-2)', borderTopColor: 'var(--accent)', animation: 'spin 0.9s linear infinite' }} />
                 <span style={{ fontWeight: 600 }}>Loading</span>
@@ -391,7 +391,7 @@ export function PortalPanel() {
             Every beveled surface in Warehaus is one component — <code className="ds-mono">&lt;Bevel&gt;</code>. It paints the signature 45° cut as an inline SVG behind your content, sized to the element’s true pixels, so the hairline traces the cut — the move <code className="ds-mono">clip-path</code> and <code className="ds-mono">corner-shape</code> can’t do. It’s fully tweakable, per corner, and re-resolves live on a theme change.
           </p>
 
-          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))', marginTop: 'var(--s-6)' }}>
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(240px,100%),1fr))', marginTop: 'var(--s-6)' }}>
             <Card cut={1.75} shoulder={0.625}>
               <Eyebrow>01 · Rounded shoulders</Eyebrow>
               <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 'var(--s-2)' }}>

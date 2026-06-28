@@ -15,10 +15,13 @@ function isWorldTab(value: string | null): value is WorldKey {
   return value === 'dream' || value === 'design' || value === 'develop';
 }
 
-/** The sub-nav rail entries for one world tab. */
-function worldSections(k: WorldKey) {
+/** The sub-nav rail entries for one world tab. The named-guide entry only
+    appears for worlds that have a `character`. */
+function worldSections(world: World) {
+  const k = world.key;
   return [
     { key: `${k}-overview`, label: 'Overview' },
+    ...(world.character ? [{ key: `${k}-character`, label: 'Character' }] : []),
     { key: `${k}-subjects`, label: 'Subjects' },
     { key: `${k}-architecture`, label: 'Architecture' },
     { key: `${k}-characters`, label: 'Characters' },
@@ -58,6 +61,69 @@ function WorldPanel({ world }: { world: World }) {
           </div>
         </Wrap>
       </Section>
+
+      {/* Named guide — portrait + bio + abilities. Only worlds with a
+          `character` render this; others skip straight to the vocab columns. */}
+      {world.character && (
+        <Section id={`${k}-character`}>
+          <Wrap>
+            <SectionHead title="Character" pill="your guide" />
+            <div
+              className="grid"
+              style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(280px,100%),1fr))', gap: 'var(--s-6)', alignItems: 'start' }}
+            >
+              {/* Portrait */}
+              <div style={{ width: '100%', maxWidth: 420 }}>
+                <Bevel corners="br" cut={2.75} shoulder={1} clip fill="var(--surface)" stroke="var(--border)">
+                  <div style={{ position: 'relative', width: '100%', aspectRatio: '2764 / 3420' }}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={world.character.portrait}
+                      alt={world.character.portraitAlt}
+                      loading="lazy"
+                      style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+                    />
+                  </div>
+                </Bevel>
+              </div>
+
+              {/* Detail */}
+              <div className="flex flex-col" style={{ gap: 'var(--s-4)', maxWidth: '60ch' }}>
+                <div>
+                  <Eyebrow style={{ color: world.accent }}>{world.character.role}</Eyebrow>
+                  <h2
+                    className="font-display"
+                    style={{ fontStyle: 'italic', fontWeight: 900, fontSize: 'var(--t-3xl)', lineHeight: 0.95, letterSpacing: '-0.03em', textTransform: 'uppercase', color: world.accent, marginTop: 'var(--s-2)' }}
+                  >
+                    {world.character.name}
+                  </h2>
+                  <p
+                    className="ds-mono"
+                    style={{ fontSize: 'var(--t-xs)', letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--muted)', marginTop: 'var(--s-2)' }}
+                  >
+                    {world.character.title} · {world.character.archetype}
+                  </p>
+                </div>
+                <p
+                  className="font-display"
+                  style={{ fontStyle: 'italic', fontWeight: 700, fontSize: 'clamp(1.125rem,2.4vw,1.5rem)', lineHeight: 1.25, color: 'var(--fg)' }}
+                >
+                  {world.character.tagline}
+                </p>
+                <p className="ds-lead" style={{ maxWidth: '60ch' }}>{world.character.bio}</p>
+                <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(200px,100%),1fr))', marginTop: 'var(--s-2)' }}>
+                  {world.character.abilities.map((ab) => (
+                    <Card key={ab.nm} cut={1.5} shoulder={0.5625} padding="var(--s-4)" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      <span style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg)' }}>{ab.nm}</span>
+                      <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', lineHeight: 1.5 }}>{ab.desc}</span>
+                    </Card>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </Wrap>
+        </Section>
+      )}
 
       {/* Vocabulary columns — one section each */}
       {world.vocab.map((vc) => (
@@ -133,8 +199,8 @@ export function WorldsContent() {
     isValidTab: isWorldTab,
   });
 
-  const railSections = worldSections(world);
   const activeWorld = WORLDS.find((w) => w.key === world) ?? WORLDS[0];
+  const railSections = worldSections(activeWorld);
 
   return (
     <div className="ds-scope w-full h-[100dvh] overflow-hidden">

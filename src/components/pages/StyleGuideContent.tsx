@@ -226,27 +226,30 @@ export function StyleGuideContent() {
         </>
       )}
 
-      {/* Collapsed: floating expand button in the rail's place. */}
+      {/* Collapsed: floating expand button in the rail's place — keeps the
+          Warehaus logo visible (brand presence) with the expand affordance
+          stacked beneath it, echoing the expanded header. */}
       {collapsed && (
         <button
           type="button"
           onClick={() => setCollapsed(false)}
           aria-label="Expand sidebar"
           title="Expand sidebar"
-          className="hidden lg:flex fixed z-[71] items-center justify-center transition-opacity hover:opacity-80"
+          className="hidden lg:flex flex-row items-center gap-3 fixed z-[71] transition-opacity hover:opacity-80"
           style={{
             top: 'var(--sidebar-inset, 1.1rem)',
             left: 'var(--sidebar-inset, 1.1rem)',
-            width: 40,
-            height: 40,
-            borderRadius: 12,
+            padding: '10px 14px',
+            borderRadius: 14,
             background: 'var(--nav-bg)',
             border: '1px solid var(--border)',
             color: 'var(--fg)',
             backdropFilter: 'blur(12px)',
           }}
         >
-          <PanelLeftOpen className="w-4 h-4" />
+          <WarehausLogo height={20} color="var(--fg)" />
+          <span className="block h-5 w-px" style={{ background: 'var(--border)' }} />
+          <PanelLeftOpen className="w-4 h-4" style={{ color: 'var(--muted)' }} />
         </button>
       )}
 
@@ -262,7 +265,7 @@ export function StyleGuideContent() {
             role="tabpanel"
             aria-labelledby={`tab-${tab}`}
             ref={panelRefs[tab]}
-            className="h-full overflow-y-auto shrink-0 w-screen snap-start"
+            className="h-full overflow-y-auto overflow-x-hidden shrink-0 w-screen snap-start"
           >
             {tab === 'brand' && <BrandPanel />}
             {tab === 'website' && <WebsitePanel />}

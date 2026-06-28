@@ -1,23 +1,23 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useLayout } from '@/components/providers/LayoutProvider';
-import { Home, BookOpen, DoorOpen, Users, Palette, Sun, Moon, Monitor } from 'lucide-react';
+import { Sun, Moon, Monitor } from 'lucide-react';
 
 const MENU_ITEMS = [
-  { icon: Home, label: 'Home', href: '/' },
-  { icon: BookOpen, label: 'Codex', href: '/codex' },
-  { icon: Palette, label: 'Style Guide', href: '/style-guide' },
-  { icon: Users, label: 'About', href: '/about' },
-  { icon: DoorOpen, label: 'Contact', href: '/contact' },
+  { label: 'Home', href: '/' },
+  { label: 'Codex', href: '/codex' },
+  { label: 'About', href: '/about' },
+  { label: 'Contact', href: '/contact' },
 ];
+
+const SECONDARY_LINK = { label: 'Style Guide', href: '/style-guide' };
 
 export function MenuOverlay() {
   const { menuOpen, toggleMenu, themeMode, setThemeMode } = useLayout();
   const pathname = usePathname();
-  const panelRef = useRef<HTMLDivElement>(null);
   // `themeMode` differs between server (always 'auto') and client (read from
   // localStorage), so gate theme-dependent rendering until after hydration to
   // avoid a mismatch.
@@ -40,70 +40,77 @@ export function MenuOverlay() {
     return () => window.removeEventListener('keydown', handleKey);
   }, [menuOpen, toggleMenu]);
 
-  // Click outside to close
-  useEffect(() => {
-    if (!menuOpen) return;
-    const handleClick = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        toggleMenu();
-      }
-    };
-    // Defer to avoid catching the toggle click itself
-    const timer = setTimeout(() => {
-      window.addEventListener('click', handleClick);
-    }, 0);
-    return () => {
-      clearTimeout(timer);
-      window.removeEventListener('click', handleClick);
-    };
-  }, [menuOpen, toggleMenu]);
+  const secondaryActive = pathname === SECONDARY_LINK.href;
 
   return (
     <>
-      {/* Backdrop */}
-      <div
-        className={`fixed inset-0 z-40 bg-black/50 backdrop-blur-sm transition-opacity duration-300 ${
+      {/* Full-screen blurred backdrop. Clicking the empty area closes the menu;
+          the bottom-nav close button stays reachable because the menu layer
+          above is pointer-events-none except for its links/controls. */}
+      <button
+        type="button"
+        aria-label="Close menu"
+        tabIndex={menuOpen ? 0 : -1}
+        onClick={toggleMenu}
+        className={`fixed inset-0 z-40 backdrop-blur-2xl transition-opacity duration-300 ${
           menuOpen ? 'opacity-100' : 'opacity-0 pointer-events-none'
         }`}
-        aria-hidden="true"
+        style={{ background: 'color-mix(in oklab, var(--background) 72%, transparent)' }}
       />
 
-      {/* Menu panel — opens upward above the navbar, same width */}
+      {/* Full-screen menu — no panel/background wrapper, items centered. The
+          container itself never captures pointer events; only the interactive
+          nav + theme switcher do, so clicks elsewhere fall through to the
+          backdrop (close) or the bottom nav (close button). */}
       <div
-        ref={panelRef}
         role="dialog"
+        aria-modal="true"
         aria-label="Navigation menu"
-        className={`fixed left-1/2 -translate-x-1/2 z-50 rounded-2xl backdrop-blur-2xl shadow-[0_0_40px_rgba(0,0,0,0.3)] p-2 transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
-          menuOpen
-            ? 'opacity-100 translate-y-0'
-            : 'opacity-0 translate-y-4 pointer-events-none'
+        className={`fixed inset-0 z-50 flex flex-col items-center justify-between px-6 pt-28 pb-28 pointer-events-none transition-all duration-300 ease-[cubic-bezier(0.4,0,0.2,1)] ${
+          menuOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-4'
         }`}
-        style={{ bottom: 'calc(1.75rem + 56px + 12px)', width: 'fit-content', minWidth: 'var(--nav-width, auto)', background: 'var(--nav-bg)', borderColor: 'var(--nav-border)', borderWidth: '1px' }}
       >
-        <nav className="flex flex-col gap-0.5">
-          {MENU_ITEMS.map(({ icon: Icon, label, href }) => {
+        <nav className={`flex flex-1 flex-col items-center justify-center gap-10 sm:gap-12 md:gap-14 ${menuOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}>
+          {MENU_ITEMS.map(({ label, href }) => {
             const isActive = pathname === href;
             return (
               <Link
                 key={href}
                 href={href}
-                className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-colors"
-                style={{
-                  color: isActive ? 'var(--nav-text-inverse)' : 'var(--nav-text)',
-                  background: isActive ? 'var(--nav-pill-bg)' : 'transparent',
-                }}
+                aria-current={isActive ? 'page' : undefined}
+                className={`font-display font-black italic uppercase tracking-wide leading-none text-5xl sm:text-6xl md:text-7xl transition-opacity duration-200 ${
+                  isActive ? 'opacity-100' : 'opacity-50 hover:opacity-100'
+                }`}
+                style={{ color: 'var(--nav-text-active)' }}
               >
-                <Icon className="w-4 h-4" />
-                <span>{label}</span>
+                <span className="[text-box:trim-both_cap_alphabetic]">{label}</span>
               </Link>
             );
           })}
+        </nav>
 
-          {/* Divider */}
-          <div className="h-px mx-2 my-1" style={{ background: 'var(--nav-border)' }} />
+        {/* Secondary group — the Style Guide link sits just above the theme
+            switcher and the two read as one cluster, set apart from the big
+            primary nav above. */}
+        <div className="flex flex-col items-center gap-4">
+          {/* Style Guide link — much smaller than the primary nav; the padding
+              gives it a comfortably larger clickable area. */}
+          <Link
+            href={SECONDARY_LINK.href}
+            aria-current={secondaryActive ? 'page' : undefined}
+            className={`font-display font-bold italic uppercase tracking-[0.18em] leading-none text-sm px-4 py-2 rounded-full transition-opacity duration-200 ${
+              menuOpen ? 'pointer-events-auto' : 'pointer-events-none'
+            } ${secondaryActive ? 'opacity-100' : 'opacity-50 hover:opacity-100'}`}
+            style={{ color: 'var(--nav-text-active)' }}
+          >
+            <span className="[text-box:trim-both_cap_alphabetic]">{SECONDARY_LINK.label}</span>
+          </Link>
 
           {/* Theme switcher — dark / light / auto */}
-          <div className="flex items-center gap-1 mx-2 my-1 rounded-xl p-1" style={{ background: 'var(--nav-surface)' }}>
+          <div
+            className={`flex items-center gap-1 rounded-full p-1 ${menuOpen ? 'pointer-events-auto' : 'pointer-events-none'}`}
+            style={{ background: 'var(--nav-surface)', borderColor: 'var(--nav-border)', borderWidth: '1px' }}
+          >
             {([
               { mode: 'auto', label: 'Auto', Icon: Monitor },
               { mode: 'light', label: 'Light', Icon: Sun },
@@ -115,7 +122,7 @@ export function MenuOverlay() {
                   key={mode}
                   type="button"
                   onClick={() => !isActive && setThemeMode(mode)}
-                  className="flex flex-1 items-center justify-center gap-1.5 px-2 py-2 rounded-lg text-xs font-medium transition-all duration-200"
+                  className="flex items-center justify-center gap-1.5 px-3.5 py-2 rounded-full text-xs font-medium transition-all duration-200"
                   style={{
                     background: isActive ? 'var(--nav-text-active)' : 'transparent',
                     color: isActive ? 'var(--nav-text-inverse)' : 'var(--nav-text-muted)',
@@ -127,7 +134,7 @@ export function MenuOverlay() {
               );
             })}
           </div>
-        </nav>
+        </div>
       </div>
     </>
   );

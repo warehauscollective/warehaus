@@ -160,7 +160,7 @@ const DREAM_SECTIONS: SectionEntry[] = [
     key: 'guide',
     heading: 'You don\u2019t walk alone.',
     description:
-      'Vaelen has charted a thousand futures and remembers the mistakes in all of them. He speaks in metaphors pulled from navigation and starlight, but never wastes a word. His Pathfinder\u2019s Atlas rewrites itself with every decision. His Shadow Compass points toward futures aligned with your vision.',
+      'Vaelen has charted a thousand futures and remembers the mistakes in all of them. She speaks in metaphors pulled from navigation and starlight, but never wastes a word. Her Pathfinder\u2019s Atlas rewrites itself with every decision. Her Shadow Compass points toward futures aligned with your vision.',
     tag: '\u5C0E\u304D',
     code: '0003',
     details: [

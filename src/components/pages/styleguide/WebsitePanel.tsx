@@ -174,7 +174,7 @@ export function WebsitePanel() {
             </Card>
           </div>
 
-          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(220px,1fr))', marginTop: 'var(--s-4)' }}>
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(220px,100%),1fr))', marginTop: 'var(--s-4)' }}>
             <Card>
               <h3 style={{ fontSize: 'var(--t-lg)', fontWeight: 600, marginBottom: 'var(--s-4)' }}>Tags &amp; status</h3>
               <div className="flex flex-wrap" style={{ gap: 'var(--s-3)' }}>
@@ -206,7 +206,7 @@ export function WebsitePanel() {
 
           <div style={{ marginTop: 'var(--s-7)' }}>
             <SectionHead title="Cards &amp; bento tiles" />
-            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(240px,1fr))' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(240px,100%),1fr))' }}>
               <Card interactive>
                 <Eyebrow>Standard</Eyebrow>
                 <h3 style={{ fontSize: 'var(--t-lg)', fontWeight: 600, marginTop: 'var(--s-2)' }}>Surface card</h3>

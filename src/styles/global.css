@@ -271,6 +271,10 @@ body {
   grid-auto-rows: minmax(180px, auto);
   gap: var(--s-4);
 }
+/* Grid items default to min-width:auto, which lets wide/unbreakable content
+   overflow the track and stretch the whole grid. Force tiles to shrink so the
+   bento always reflows cleanly on tablet/mobile. */
+.ds-scope .ds-bento > * { min-width: 0; }
 .ds-scope .ds-bento .col-2 { grid-column: span 2; }
 .ds-scope .ds-bento .col-3 { grid-column: span 3; }
 .ds-scope .ds-bento .col-4 { grid-column: span 4; }

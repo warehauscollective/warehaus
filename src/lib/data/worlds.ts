@@ -18,6 +18,31 @@ export interface WorldPaletteChip {
   value: string;
 }
 
+export interface CharacterAbility {
+  nm: string;
+  desc: string;
+}
+
+/** The named guide who leads a world — portrait, role, and bio. Optional: only
+    Dream (Vaelen) is fleshed out today; Design/Develop fall back to the generic
+    `vocab` Characters column until their guides are illustrated. */
+export interface WorldCharacter {
+  name: string;
+  /** Species / class line, e.g. "Dark Elf Pathfinder". */
+  title: string;
+  /** One-line realm role, e.g. "Strategy · The Upstream". */
+  role: string;
+  /** Personality keywords, dot-separated. */
+  archetype: string;
+  /** Public-path portrait (URL-encoded; spaces as %20). */
+  portrait: string;
+  portraitAlt: string;
+  /** Short italic line — typically her signature quote. */
+  tagline: string;
+  bio: string;
+  abilities: CharacterAbility[];
+}
+
 export interface World {
   key: WorldKey;
   num: string;
@@ -27,6 +52,8 @@ export interface World {
   accent: string;
   tag: string;
   prose: string;
+  /** The world's named guide. Optional — see WorldCharacter. */
+  character?: WorldCharacter;
   vocab: WorldVocab[];
   palette: WorldPaletteChip[];
 }
@@ -41,6 +68,23 @@ export const WORLDS: World[] = [
     tag: 'Wide open. Cosmically quiet. Where the question lives before the answer arrives.',
     prose:
       'Dream is the upstream — half-formed visions, celestial maps carved into stone, oracles at the edge of impossible space. Architecture is minimal because the void is the subject. The witness is always tiny, often robed, always alone or in pairs. Light is silver, low, ancient.',
+    character: {
+      name: 'Vaelen',
+      title: 'Dark Elf Pathfinder',
+      role: 'Strategy · The Upstream',
+      archetype: 'Mystical · Curious · Adventurous',
+      portrait: '/Characters/Dream%20-%20Character@2x.png',
+      portraitAlt:
+        'Vaelen, the Dark Elf Pathfinder — silver-locked hair coiled like a compass, cradling a glowing orb of light at the edge of the upstream sky.',
+      tagline: '“The path exists. You just need sharper eyes to see it.”',
+      bio:
+        'Vaelen has charted a thousand futures and remembers the mistakes in all of them. Where everyone else sees only fog, she reads the salt flats like a map no one else can hold — sightlines, currents, the one true horizon hidden in the noise. She speaks in metaphors pulled from navigation and starlight, and never wastes a word. In the digital frontier, she is your first guide: the one who finds the path before the path exists, and walks the upstream beside you until raw ambition has a shape worth chasing.',
+      abilities: [
+        { nm: 'Pathfinder’s Atlas', desc: 'Holographic maps that rewrite themselves with every decision you make.' },
+        { nm: 'Shadow Compass', desc: 'Points not north, but toward the futures aligned with your vision.' },
+        { nm: 'Echo', desc: 'Her spectral AI familiar — pulls signal from the noise of the frontier.' },
+      ],
+    },
     vocab: [
       { lab: 'Subjects', items: ['Salt flats & cracked plains', 'Ringed apertures, oculi', 'Celestial cartography', 'Reflective stillwater', 'Suspended geometric icons'] },
       { lab: 'Architecture', items: ['Single monumental arch', 'Carved astrolabes in cliffs', 'Ancient stonework, weathered', 'Greek-key & meander motifs', 'Negative space as mass'] },
@@ -113,6 +157,7 @@ export function getWorld(key: string): World | undefined {
 /** Sub-section nav for a single world's page tab. Keys are prefixed by world. */
 export const WORLD_SECTION_SLUGS = [
   'overview',
+  'character',
   'subjects',
   'architecture',
   'characters',

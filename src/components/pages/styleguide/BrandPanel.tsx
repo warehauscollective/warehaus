@@ -134,7 +134,7 @@ export function BrandPanel() {
           <div className="grid gap-4 md:grid-cols-2" style={{ marginTop: 'var(--s-4)' }}>
             <Card cut={2.75} shoulder={1}>
               <Eyebrow>Sizing</Eyebrow>
-              <div className="flex" style={{ alignItems: 'flex-end', gap: 'var(--s-5)', marginTop: 'var(--s-4)' }}>
+              <div className="flex flex-col items-start sm:flex-row sm:flex-wrap sm:items-end" style={{ gap: 'var(--s-5)', marginTop: 'var(--s-4)' }}>
                 {[16, 22, 34, 48].map((s) => (
                   <WarehausLogo key={s} height={s} />
                 ))}
@@ -167,7 +167,7 @@ export function BrandPanel() {
 
           <div style={{ marginTop: 'var(--s-6)' }}>
             <SectionHead title={<span style={{ fontSize: 'var(--t-md)' }}>Brand anchors</span>} pill="the only two" pillAccent />
-            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(200px,1fr))' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(200px,100%),1fr))' }}>
               {[{ name: 'Ink', token: '--ink · #0A0A0B', value: 'var(--ink)' }, { name: 'Paper', token: '--paper · #FDFDFE', value: 'var(--paper)' }].map((c) => (
                 <Bevel key={c.name} corners="br" cut={2.5} shoulder={0.875} clip fill="var(--surface)" stroke="var(--border)">
                   <div style={{ height: 120, background: c.value }} />
@@ -182,7 +182,7 @@ export function BrandPanel() {
 
           <div style={{ marginTop: 'var(--s-7)' }}>
             <SectionHead title={<span style={{ fontSize: 'var(--t-md)' }}>Core tokens</span>} pill="resolves per theme" />
-            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(180px,100%),1fr))' }}>
               {CORE_TOKENS.map((c) => (
                 <Bevel key={c.token} corners="br" cut={2.5} shoulder={0.875} clip fill="var(--surface)" stroke="var(--border)">
                   <div style={{ height: 96, background: c.value }} />
@@ -250,7 +250,7 @@ export function BrandPanel() {
               <div
                 key={t.tag}
                 className="grid items-baseline"
-                style={{ gridTemplateColumns: '140px 1fr', gap: 'var(--s-5)', borderTop: '1px solid var(--border)', paddingBlock: 'var(--s-6)' }}
+                style={{ gridTemplateColumns: 'clamp(84px, 24vw, 140px) 1fr', gap: 'var(--s-5)', borderTop: '1px solid var(--border)', paddingBlock: 'var(--s-6)' }}
               >
                 <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>{t.tag}</span>
                 <span
@@ -300,7 +300,7 @@ export function BrandPanel() {
 
           <div style={{ marginTop: 'var(--s-6)' }}>
             <SectionHead title="The corner family" pill="painted SVG bevel" pillAccent />
-            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(190px,100%),1fr))' }}>
               <Card>
                 <Bevel corners="br" cut={2.5} shoulder={0.875} fill="var(--accent)" stroke="none" style={{ aspectRatio: '1.4', display: 'flex', alignItems: 'flex-end', padding: 'var(--s-4)' }}>
                   <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--accent-fg)' }}>chamfer</span>
@@ -335,7 +335,7 @@ export function BrandPanel() {
           {/* Radius & cut tokens */}
           <div style={{ marginTop: 'var(--s-7)' }}>
             <SectionHead title="Radius &amp; cut tokens" />
-            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(190px,1fr))' }}>
+            <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(190px,100%),1fr))' }}>
               <Card style={{ textAlign: 'center' }}>
                 <div style={{ height: 60, background: 'var(--surface-2)', borderRadius: 10, marginBottom: 'var(--s-3)' }} />
                 <b>10px</b><br /><code className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>--radius-sm</code>
@@ -486,7 +486,7 @@ export function BrandPanel() {
 
           <div style={{ marginTop: 'var(--s-6)' }}>
             <SectionHead title="The shared DNA" pill="true of all three" />
-            <div className="grid gap-px" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(180px,1fr))', background: 'var(--border)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
+            <div className="grid gap-px" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(180px,100%),1fr))', background: 'var(--border)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', overflow: 'hidden' }}>
               {[
                 { n: '01', h: 'Painterly', p: 'Illustrated, not rendered. Visible brushwork, flat washes, no PBR shine.' },
                 { n: '02', h: 'Atmosphere', p: 'Volumetric haze, soft rim light, faded distances. Fog is mandatory.' },
@@ -504,7 +504,7 @@ export function BrandPanel() {
           </div>
 
           {/* Overview — one linked card per world; full detail lives on /style-guide/worlds */}
-          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(260px,1fr))', marginTop: 'var(--s-6)' }}>
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'repeat(auto-fit,minmax(min(260px,100%),1fr))', marginTop: 'var(--s-6)' }}>
             {WORLDS.map((w) => (
               <Link key={w.key} href={`/style-guide/worlds?tab=${w.key}`} style={{ textDecoration: 'none' }} aria-label={`Enter ${w.name}`}>
                 <Card interactive cut={2.75} shoulder={1} style={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 'var(--s-3)' }}>
@@ -516,6 +516,25 @@ export function BrandPanel() {
                     </div>
                   </div>
                   <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', lineHeight: 1.5, flex: 1 }}>{w.tag}</p>
+                  {w.character && (
+                    <div className="flex items-center" style={{ gap: 'var(--s-3)' }}>
+                      <span style={{ width: 44, height: 44, flex: 'none', borderRadius: 8, overflow: 'hidden', border: '1px solid var(--border)', background: 'var(--surface)' }}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img
+                          src={w.character.portrait}
+                          alt={w.character.portraitAlt}
+                          loading="lazy"
+                          width={44}
+                          height={44}
+                          style={{ width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'top center' }}
+                        />
+                      </span>
+                      <span className="flex flex-col" style={{ gap: 2 }}>
+                        <span style={{ fontSize: 'var(--t-sm)', fontWeight: 600, color: 'var(--fg)' }}>{w.character.name}</span>
+                        <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{w.character.title}</span>
+                      </span>
+                    </div>
+                  )}
                   <div className="flex" style={{ gap: 6 }}>
                     {w.palette.map((c) => (
                       <span key={c.nm} title={c.nm} style={{ width: 22, height: 22, borderRadius: 6, border: '1px solid var(--border)', background: c.value }} />
@@ -527,7 +546,7 @@ export function BrandPanel() {
             ))}
           </div>
 
-          <div className="flex" style={{ marginTop: 'var(--s-7)', gap: 'var(--s-3)' }}>
+          <div className="flex flex-wrap" style={{ marginTop: 'var(--s-7)', gap: 'var(--s-3)' }}>
             <DsButton variant="primary" as="a" href="/style-guide/worlds">View all worlds →</DsButton>
             <DsButton variant="secondary" as="span" onClick={() => scrollTo('brand-hero')}>Back to top</DsButton>
           </div>
