@@ -1,17 +1,20 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { usePathname } from 'next/navigation';
+import { usePortalTab } from '@/components/providers/PortalTabProvider';
 
-/** Observe `[data-section]` nodes and report the most-visible key. */
+/** Observe `[data-section]` nodes inside the active swipe panel. */
 export function useActiveSection(defaultKey = 'overview') {
-  const pathname = usePathname();
+  const { activeTab, activePanelRef } = usePortalTab();
   const [activeSection, setActiveSection] = useState(defaultKey);
 
   useEffect(() => {
     setActiveSection(defaultKey);
 
-    const nodes = document.querySelectorAll<HTMLElement>('[data-section]');
+    const root = activePanelRef.current;
+    if (!root) return;
+
+    const nodes = root.querySelectorAll<HTMLElement>('[data-section]');
     if (!nodes.length) return;
 
     const observer = new IntersectionObserver(
@@ -26,12 +29,12 @@ export function useActiveSection(defaultKey = 'overview') {
         });
         if (maxRatio > 0.2) setActiveSection(maxKey);
       },
-      { threshold: [0.2, 0.5, 0.8] },
+      { root, threshold: [0.2, 0.5, 0.8] },
     );
 
     nodes.forEach((el) => observer.observe(el));
     return () => observer.disconnect();
-  }, [pathname, defaultKey]);
+  }, [activeTab, activePanelRef, defaultKey]);
 
   return activeSection;
 }

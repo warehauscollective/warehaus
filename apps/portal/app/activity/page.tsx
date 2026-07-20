@@ -1,5 +1,4 @@
-import { ActivityContent } from '@/components/pages/ActivityContent';
-
+/** Content is owned by PortalSwipeWorkspace (shared swipe-tab shell). */
 export default function ActivityPage() {
-  return <ActivityContent />;
+  return null;
 }

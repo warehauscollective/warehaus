@@ -1,5 +1,4 @@
-import { ChatroomContent } from '@/components/pages/ChatroomContent';
-
+/** Content is owned by PortalSwipeWorkspace (shared swipe-tab shell). */
 export default function ChatroomPage() {
-  return <ChatroomContent />;
+  return null;
 }

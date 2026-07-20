@@ -1,5 +1,4 @@
-import { PortalHomeContent } from '@/components/pages/PortalHomeContent';
-
+/** Content is owned by PortalSwipeWorkspace (shared swipe-tab shell). */
 export default function PortalHomePage() {
-  return <PortalHomeContent />;
+  return null;
 }

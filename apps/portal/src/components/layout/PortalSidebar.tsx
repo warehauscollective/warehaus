@@ -1,22 +1,15 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { usePathname } from 'next/navigation';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
-import { getPortalTabForPath } from '@warehaus/logic/portal';
 import { BevelFrame } from '@warehaus/ui';
 import { WarehausLogo } from '@warehaus/ui';
 import { PORTAL_SIDEBAR_SECTIONS } from '@/lib/data/sidebarSections';
+import { usePortalTab } from '@/components/providers/PortalTabProvider';
 
 const MIN_RAIL = 200;
 const MAX_RAIL = 460;
 const DEFAULT_RAIL = 244;
-
-function scrollToSection(key: string) {
-  document
-    .querySelector<HTMLElement>(`[data-section="${key}"]`)
-    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
 
 /**
  * Section navigation:
@@ -28,9 +21,14 @@ export function PortalSidebar({
 }: {
   activeSection: string;
 }) {
-  const pathname = usePathname();
-  const tab = getPortalTabForPath(pathname);
+  const { activeTab: tab, activePanelRef } = usePortalTab();
   const sections = PORTAL_SIDEBAR_SECTIONS[tab];
+
+  const scrollToSection = (key: string) => {
+    activePanelRef.current
+      ?.querySelector<HTMLElement>(`[data-section="${key}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
 
   const [railW, setRailW] = useState(DEFAULT_RAIL);
   const [collapsed, setCollapsed] = useState(false);

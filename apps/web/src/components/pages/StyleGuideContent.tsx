@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { SwipeTabView, useSwipeTabs } from '@warehaus/ui';
 import { useLayout, type StyleGuideTab } from '@/components/providers/LayoutProvider';
 import { useScrollObserver } from '@/hooks/useScrollObserver';
-import { useSwipeTabs } from '@/hooks/useSwipeTabs';
 import { BrandPanel } from '@/components/pages/styleguide/BrandPanel';
 import { WebsitePanel } from '@/components/pages/styleguide/WebsitePanel';
 import { PortalPanel } from '@/components/pages/styleguide/PortalPanel';
@@ -33,7 +33,10 @@ export function StyleGuideContent() {
   const brandRef = useRef<HTMLDivElement>(null);
   const websiteRef = useRef<HTMLDivElement>(null);
   const portalRef = useRef<HTMLDivElement>(null);
-  const panelRefs = { brand: brandRef, website: websiteRef, portal: portalRef };
+  const panelRefs = useMemo(
+    () => ({ brand: brandRef, website: websiteRef, portal: portalRef }),
+    [],
+  );
 
   // Scroll observers — only the active tab writes to context
   useScrollObserver(brandRef, sgTab === 'brand');
@@ -47,8 +50,6 @@ export function StyleGuideContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Shared swipe-tab behavior (settle-debounced, no scroll collisions, panels
-  // start from the top, ?tab= sync).
   const scrollRef = useSwipeTabs({
     tabs: TABS,
     active: sgTab,
@@ -253,26 +254,16 @@ export function StyleGuideContent() {
         </button>
       )}
 
-      <div
-        ref={scrollRef}
-        className="flex h-full overflow-x-auto snap-x snap-mandatory scrollbar-none overscroll-x-contain"
-        style={{ scrollbarWidth: 'none', willChange: 'scroll-position' }}
-      >
-        {TABS.map((tab) => (
-          <div
-            key={tab}
-            id={`tabpanel-${tab}`}
-            role="tabpanel"
-            aria-labelledby={`tab-${tab}`}
-            ref={panelRefs[tab]}
-            className="h-full overflow-y-auto overflow-x-hidden shrink-0 w-screen snap-start"
-          >
-            {tab === 'brand' && <BrandPanel />}
-            {tab === 'website' && <WebsitePanel />}
-            {tab === 'portal' && <PortalPanel />}
-          </div>
-        ))}
-      </div>
+      <SwipeTabView
+        tabs={TABS}
+        scrollRef={scrollRef}
+        panelRefs={panelRefs}
+        renderPanel={(tab) => {
+          if (tab === 'brand') return <BrandPanel />;
+          if (tab === 'website') return <WebsitePanel />;
+          return <PortalPanel />;
+        }}
+      />
     </div>
   );
 }

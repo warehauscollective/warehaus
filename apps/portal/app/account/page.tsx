@@ -1,5 +1,4 @@
-import { AccountContent } from '@/components/pages/AccountContent';
-
+/** Content is owned by PortalSwipeWorkspace (shared swipe-tab shell). */
 export default function AccountPage() {
-  return <AccountContent />;
+  return null;
 }

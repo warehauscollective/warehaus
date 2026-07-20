@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Ensure utilities used by shared UI package classes are generated. */
+@source "../../../../packages/ui/src";
 /* Shared design tokens + brand chrome (single source of truth). */
 @import "@warehaus/tokens/css";
 @import "@warehaus/ui/styles/brand.css";

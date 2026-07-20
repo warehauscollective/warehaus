@@ -25,3 +25,12 @@ export {
   type BevelOverride,
   type InspectorCtx,
 } from './bevel-inspector';
+export {
+  useSwipeTabs,
+  type UseSwipeTabsOptions,
+} from './useSwipeTabs';
+export {
+  SwipeTabView,
+  type SwipeTabViewProps,
+} from './SwipeTabView';
+export { createSwipePanelRefs } from './createSwipePanelRefs';

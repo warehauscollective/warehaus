@@ -1,4 +1,6 @@
 @import "tailwindcss";
+/* Ensure utilities used by shared UI package classes are generated. */
+@source "../../../../packages/ui/src";
 /* Shared design tokens — built by @warehaus/tokens (`npm run tokens`). */
 @import "@warehaus/tokens/css";
 /* Shared brand chrome, type system, ds-scope, glass — @warehaus/ui */
