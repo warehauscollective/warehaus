@@ -8,7 +8,7 @@ tokens and logic, separate deployable apps.
 | App | Package | Port | Role |
 | --- | --- | --- | --- |
 | Website | `@warehaus/web` | `3000` | Marketing site (Next.js) |
-| Portal | `@warehaus/portal` | `3001` | Client product shell (Next.js) |
+| Portal | `@warehaus/portal` | `3001` | Client product shell (Next.js) — deploy on `portal.` subdomain |
 
 A React Native **portal** (`apps/native`) is planned later. There will be no RN
 marketing site. Architecture: [`docs/monorepo-portal-architecture.md`](docs/monorepo-portal-architecture.md).
@@ -27,7 +27,7 @@ marketing site. Architecture: [`docs/monorepo-portal-architecture.md`](docs/mono
 npm install
 
 npm run dev            # website → http://localhost:3000
-npm run dev:portal     # portal  → http://localhost:3001
+npm run dev:portal     # portal  → http://localhost:3001 (home tab: PORTAL)
 
 npm run build          # all apps (Turborepo)
 npm run build:web

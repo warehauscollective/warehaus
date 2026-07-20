@@ -49,7 +49,7 @@ const WORLDS_TABS: NavTab[] = [
 ];
 
 const PORTAL_TABS: NavTab[] = [
-  { value: 'dashboard', label: 'DASHBOARD', colorClass: 'text-accent' },
+  { value: 'portal', label: 'PORTAL', colorClass: 'text-accent' },
   { value: 'projects', label: 'PROJECTS', colorClass: 'text-accent' },
   { value: 'chatroom', label: 'CHATROOM', colorClass: 'text-accent' },
   { value: 'activity', label: 'ACTIVITY', colorClass: 'text-accent' },

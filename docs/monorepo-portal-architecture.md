@@ -71,7 +71,7 @@ Strong product intent already exists — but only as documentation and nav confi
 - Style guide tab **Portal** → `PortalPanel.tsx` defines app shell, data/forms,
   flows (onboarding, create shipment), chamfer usage in dense UI.
 - `navTabs.ts` already declares `PORTAL_TABS` for path `/portal`
-  (`dashboard` | `projects` | `chatroom` | `activity` | `account`).
+  (`portal` | `projects` | `chatroom` | `activity` | `account`).
 - `LayoutProvider` already includes `PortalTab` in the shared `ActiveTab` union.
 - **There is no `app/portal/` route** and no auth. The dock would show portal
   tabs only if that path existed.
@@ -213,8 +213,8 @@ and lint paradigms without copy-paste drift.
 
 #### `apps/portal` — Portal
 
-- Authenticated product: dashboard, projects, chatroom, activity, account
-  (tabs already named in `navTabs.ts`).
+- Authenticated product on the `portal.` subdomain: portal home (`/`),
+  projects, chatroom, activity, account (tabs in `@warehaus/logic`).
 - Own `AppShell` composition: same dock paradigm, portal tab set, portal menu.
 - Own Next root layout, env, middleware/proxy for auth.
 - Uses the same `@warehaus/ui` / `tokens` / `logic`.
