@@ -108,11 +108,12 @@ export function useSwipeTabs<T extends string>({
     let axis: 'h' | 'v' | null = null;
     let accX = 0;
     let committedThisGesture = false;
-    let coolUntil = 0;
     let resetTimer: ReturnType<typeof setTimeout>;
-    const GESTURE_GAP_MS = 100; // quick re-arm once the flick stops
-    const POST_COMMIT_MS = 160; // brief lock so inertia can't double-advance
-    const AXIS_RATIO = 0.55; // easy to register horizontal intent
+    // Quiet period after the last wheel event before a new flick can start.
+    // Short so successive intentional swipes feel immediate; long enough that
+    // trackpad inertia after a commit doesn't start a second gesture.
+    const GESTURE_GAP_MS = 90;
+    const AXIS_RATIO = 0.5; // easy to register horizontal intent
 
     const resetGesture = () => {
       axis = null;
@@ -153,20 +154,12 @@ export function useSwipeTabs<T extends string>({
       e.preventDefault();
       e.stopPropagation();
 
-      // After a commit, briefly eat leftover inertia, then allow the next flick.
-      if (committedThisGesture) {
-        if (performance.now() < coolUntil) return;
-        committedThisGesture = false;
-        axis = null;
-        accX = 0;
-        // Re-evaluate axis for this event as the start of a new flick.
-        axis = Math.abs(dx) >= Math.abs(dy) * AXIS_RATIO ? 'h' : 'v';
-        if (axis !== 'h') return;
-      }
+      // Already changed tabs for this flick — eat leftover inertia until quiet.
+      if (committedThisGesture) return;
 
       const width = el.clientWidth || 1;
-      // Light flick (~7% of panel / min 48px) — easy without skipping tabs.
-      const commitPx = Math.max(48, Math.round(width * 0.07));
+      // Light flick: ~4% of panel, between 36–52px so wide desktops stay easy.
+      const commitPx = Math.min(52, Math.max(36, Math.round(width * 0.04)));
 
       isDragging.current = true;
       accX += dx;
@@ -182,7 +175,6 @@ export function useSwipeTabs<T extends string>({
       // Positive deltaX (trackpad swipe left / content moves left) → next tab.
       const nextIndex = accX > 0 ? current + 1 : current - 1;
       committedThisGesture = true;
-      coolUntil = performance.now() + POST_COMMIT_MS;
       accX = 0;
       isDragging.current = false;
 
