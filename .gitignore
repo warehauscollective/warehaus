@@ -39,3 +39,4 @@ storybook-static
 # Chromatic/Storybook build log
 build-storybook.log
 chromatic-diagnostics.json
+*.tsbuildinfo
