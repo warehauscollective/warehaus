@@ -98,25 +98,24 @@ export function useSwipeTabs<T extends string>({
   }, [settleMs]);
 
   // Trackpad / mouse-wheel horizontal swipe → previous/next tab.
-  // Capture-phase so nested tile panes can't swallow the gesture. We lock to
-  // an axis for the burst, accumulate deltaX, and commit a tab change once
-  // past the threshold (same feel as pointer drag).
+  // Capture-phase so nested tile panes can't swallow the gesture. One physical
+  // flick commits at most one tab: higher distance threshold + ignore the rest
+  // of the burst until the fingers stop (gesture gap).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
 
     let axis: 'h' | 'v' | null = null;
     let accX = 0;
-    let coolUntil = 0;
+    let committedThisGesture = false;
     let resetTimer: ReturnType<typeof setTimeout>;
-    const GESTURE_GAP_MS = 140;
-    const COOLDOWN_MS = 420; // one trackpad flick → one tab
-    const AXIS_RATIO = 0.55; // allow slightly diagonal trackpad swipes
-    const COMMIT_PX = swipeThresholdPx;
+    const GESTURE_GAP_MS = 220; // quiet period before a new flick can start
+    const AXIS_RATIO = 0.85; // prefer clear horizontal intent over diagonals
 
     const resetGesture = () => {
       axis = null;
       accX = 0;
+      committedThisGesture = false;
       isDragging.current = false;
     };
 
@@ -152,24 +151,30 @@ export function useSwipeTabs<T extends string>({
       e.preventDefault();
       e.stopPropagation();
 
-      // After a commit, ignore the rest of the same physical flick.
-      if (performance.now() < coolUntil) return;
+      // Already changed tabs for this flick — eat leftover inertia, don't advance again.
+      if (committedThisGesture) return;
+
+      const width = el.clientWidth || 1;
+      // Require a deliberate swipe (~30% of the panel), not a light nudge.
+      const commitPx = Math.max(180, Math.round(width * 0.3));
 
       isDragging.current = true;
       accX += dx;
 
-      const width = el.clientWidth || 1;
       const current = tabsRef.current.indexOf(activeRef.current);
       const base = Math.max(0, current) * width;
       const max = el.scrollWidth - width;
-      el.scrollLeft = Math.min(max, Math.max(0, base + accX));
+      // Cap live preview so inertia can't visually fly across multiple panels.
+      const preview = Math.max(-width * 0.4, Math.min(width * 0.4, accX));
+      el.scrollLeft = Math.min(max, Math.max(0, base + preview));
 
-      if (Math.abs(accX) < COMMIT_PX) return;
+      if (Math.abs(accX) < commitPx) return;
 
       // Positive deltaX (trackpad swipe left / content moves left) → next tab.
       const nextIndex = accX > 0 ? current + 1 : current - 1;
-      resetGesture();
-      coolUntil = performance.now() + COOLDOWN_MS;
+      committedThisGesture = true;
+      accX = 0;
+      isDragging.current = false;
 
       if (nextIndex < 0 || nextIndex >= tabsRef.current.length) {
         el.scrollTo({ left: current * width, behavior: 'smooth' });
@@ -191,7 +196,7 @@ export function useSwipeTabs<T extends string>({
       clearTimeout(resetTimer);
       resetGesture();
     };
-  }, [swipeThresholdPx]);
+  }, []);
 
   // Pointer + mouse + touch: swipe left/right past a threshold → adjacent tab.
   // Capture-phase + document move/up so nested buttons/tiles can't swallow it.
