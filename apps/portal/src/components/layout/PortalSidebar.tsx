@@ -12,9 +12,16 @@ const MIN_RAIL = 200;
 const MAX_RAIL = 460;
 const DEFAULT_RAIL = 244;
 
+function scrollToSection(key: string) {
+  document
+    .querySelector<HTMLElement>(`[data-section="${key}"]`)
+    ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 /**
- * Left sub-nav rail — same framed-glass BevelFrame pattern as the style guide
- * portal section. Present on every portal tab; section list swaps per route.
+ * Section navigation:
+ * - Desktop (lg+): left BevelFrame rail (style-guide pattern)
+ * - Mobile / tablet: floating top nav with horizontal section chips
  */
 export function PortalSidebar({
   activeSection,
@@ -55,11 +62,21 @@ export function PortalSidebar({
     }
   }, [collapsed]);
 
-  // Publish rail width for content padding (matches style-guide --sg-rail-w).
+  // Desktop rail width only — mobile uses the top nav (no left reserve).
   useEffect(() => {
     const root = document.documentElement;
-    root.style.setProperty('--portal-rail-w', collapsed ? '0px' : `${railW}px`);
+    const mq = window.matchMedia('(min-width: 1024px)');
+    const sync = () => {
+      if (!mq.matches) {
+        root.style.setProperty('--portal-rail-w', '0px');
+        return;
+      }
+      root.style.setProperty('--portal-rail-w', collapsed ? '0px' : `${railW}px`);
+    };
+    sync();
+    mq.addEventListener('change', sync);
     return () => {
+      mq.removeEventListener('change', sync);
       root.style.removeProperty('--portal-rail-w');
     };
   }, [railW, collapsed]);
@@ -89,14 +106,63 @@ export function PortalSidebar({
     window.addEventListener('pointerup', onUp);
   };
 
-  const scrollToSection = (key: string) => {
-    document
-      .querySelector<HTMLElement>(`[data-section="${key}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-
   return (
     <>
+      {/* ── Mobile / tablet: floating top nav ── */}
+      <nav
+        aria-label={`${tab} sections`}
+        className="fixed inset-x-3 top-3 z-[70] flex items-center gap-2 rounded-2xl px-3 py-2 backdrop-blur-2xl lg:hidden"
+        style={{
+          background: 'var(--nav-bg)',
+          border: '1px solid var(--nav-border)',
+          boxShadow: '0 8px 32px color-mix(in oklab, var(--ink) 18%, transparent)',
+        }}
+      >
+        <WarehausLogo height={18} color="var(--fg)" className="shrink-0" />
+        <span
+          className="ds-mono hidden shrink-0 sm:inline"
+          style={{
+            fontSize: '0.65rem',
+            textTransform: 'uppercase',
+            letterSpacing: '0.14em',
+            color: 'var(--muted)',
+          }}
+        >
+          {tab}
+        </span>
+        <div
+          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain"
+          style={{ scrollbarWidth: 'none' }}
+        >
+          {sections.map((s) => {
+            const active = activeSection === s.key;
+            return (
+              <button
+                key={s.key}
+                type="button"
+                onClick={() => scrollToSection(s.key)}
+                aria-current={active ? 'true' : undefined}
+                className="shrink-0 whitespace-nowrap transition-colors"
+                style={{
+                  fontSize: 'var(--t-xs)',
+                  fontWeight: active ? 600 : 500,
+                  padding: '0.45rem 0.7rem',
+                  borderRadius: 999,
+                  color: active ? 'var(--nav-text-inverse)' : 'var(--nav-text)',
+                  background: active ? 'var(--nav-pill-bg)' : 'transparent',
+                  border: active
+                    ? '1px solid var(--nav-pill-border)'
+                    : '1px solid transparent',
+                }}
+              >
+                {s.label}
+              </button>
+            );
+          })}
+        </div>
+      </nav>
+
+      {/* ── Desktop: left BevelFrame rail ── */}
       {!collapsed && (
         <>
           <BevelFrame
@@ -110,7 +176,7 @@ export function PortalSidebar({
             innerFill="var(--nav-bg)"
             inspectorLabel="Portal sidebar"
             aria-label={`${tab} sections`}
-            className="hidden lg:flex fixed z-[70]"
+            className="fixed z-[70] hidden lg:flex"
             style={{
               position: 'fixed',
               top: 'var(--sidebar-inset, 1.1rem)',
