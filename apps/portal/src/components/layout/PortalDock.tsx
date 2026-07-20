@@ -1,29 +1,24 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import Link from 'next/link';
-import { usePathname } from 'next/navigation';
 import { Menu, MessageCircle } from 'lucide-react';
-import {
-  PORTAL_TABS,
-  getPortalTabForPath,
-  type PortalTab,
-} from '@warehaus/logic/portal';
+import { PORTAL_TABS, type PortalTab } from '@warehaus/logic/portal';
 import { PORTAL_TAB_ICONS } from '@/lib/data/tabIcons';
+import { usePortalTab } from '@/components/providers/PortalTabProvider';
 
 /**
- * Portal floating dock — same chrome paradigm as the website BottomNav,
- * but route-driven (links) so each tab is a real portal destination.
+ * Portal floating dock — same chrome paradigm as the website BottomNav.
+ * Tabs call into PortalTabProvider (swipe shell) instead of hard navigations,
+ * so left/right swipe and dock clicks stay one continuous surface.
  *
  * Below `lg`: icon-only tabs so all five fit. `lg+`: full word labels.
  */
 export function PortalDock() {
-  const pathname = usePathname();
-  const activeTab = getPortalTabForPath(pathname);
+  const { activeTab, setActiveTab } = usePortalTab();
   const [iconMode, setIconMode] = useState(true);
 
   const navRef = useRef<HTMLElement>(null);
-  const tabRefs = useRef<Map<PortalTab, HTMLAnchorElement>>(new Map());
+  const tabRefs = useRef<Map<PortalTab, HTMLButtonElement>>(new Map());
   const containerRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
   const [pill, setPill] = useState<{ left: number; width: number } | null>(null);
@@ -147,20 +142,23 @@ export function PortalDock() {
             />
           )}
 
-          {PORTAL_TABS.map(({ label, value, href }) => {
+          {PORTAL_TABS.map(({ label, value }) => {
             const isActive = value === activeTab;
             const Icon = PORTAL_TAB_ICONS[value];
             return (
-              <Link
+              <button
                 key={value}
-                href={href}
+                type="button"
+                id={`tab-${value}`}
                 ref={(el) => {
                   if (el) tabRefs.current.set(value, el);
                 }}
                 role="tab"
                 aria-selected={isActive}
+                aria-controls={`tabpanel-${value}`}
                 aria-label={label}
                 title={label}
+                onClick={() => setActiveTab(value)}
                 className="relative z-10 flex min-w-0 flex-1 items-center justify-center rounded-xl px-1 py-3 sm:px-2 sm:py-3.5 lg:min-w-[96px] lg:px-6 lg:py-5"
                 style={{
                   fontFamily: 'var(--font-display)',
@@ -171,7 +169,7 @@ export function PortalDock() {
                 <span className="hidden text-xs font-black tracking-widest leading-none whitespace-nowrap lg:block lg:text-sm [text-box:trim-both_cap_alphabetic]">
                   {label}
                 </span>
-              </Link>
+              </button>
             );
           })}
         </div>

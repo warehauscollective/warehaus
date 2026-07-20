@@ -1,26 +1,31 @@
 'use client';
 
 import type { ReactNode } from 'react';
+import { PortalTabProvider } from '@/components/providers/PortalTabProvider';
+import { PortalViewProvider } from '@/components/providers/PortalViewProvider';
 import { PortalDock } from './PortalDock';
 import { PortalSidebar } from './PortalSidebar';
-import { useActiveSection } from '@/hooks/useActiveSection';
+import { PortalSwipeWorkspace } from './PortalSwipeWorkspace';
 
-export function PortalShell({ children }: { children: ReactNode }) {
-  const activeSection = useActiveSection('overview');
-
+function PortalChrome({ children }: { children: ReactNode }) {
   return (
-    <div className="ds-scope relative min-h-[100dvh]">
-      <PortalSidebar activeSection={activeSection} />
-      <main
-        className="pb-28 pt-20 lg:pt-0"
-        style={{
-          paddingLeft: 'calc(var(--left-sidebar-w, 0px) + var(--gutter))',
-          paddingRight: 'var(--gutter)',
-        }}
-      >
+    <div className="ds-scope relative h-[100dvh] overflow-hidden">
+      <PortalSidebar />
+      <PortalSwipeWorkspace />
+      <div className="hidden" aria-hidden>
         {children}
-      </main>
+      </div>
       <PortalDock />
     </div>
+  );
+}
+
+export function PortalShell({ children }: { children: ReactNode }) {
+  return (
+    <PortalTabProvider>
+      <PortalViewProvider>
+        <PortalChrome>{children}</PortalChrome>
+      </PortalViewProvider>
+    </PortalTabProvider>
   );
 }

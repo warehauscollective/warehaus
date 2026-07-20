@@ -1,9 +1,9 @@
 'use client';
 
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
+import { SwipeTabView, useSwipeTabs } from '@warehaus/ui';
 import { useLayout, type ActiveTab } from '@/components/providers/LayoutProvider';
 import { useScrollObserver } from '@/hooks/useScrollObserver';
-import { useSwipeTabs } from '@/hooks/useSwipeTabs';
 import { Bevel } from '@/components/react/ui/Bevel';
 import { BevelFrame } from '@/components/react/ui/BevelFrame';
 import { WORLDS, type World, type WorldKey } from '@/lib/data/worlds';
@@ -177,7 +177,10 @@ export function WorldsContent() {
   const dreamRef = useRef<HTMLDivElement>(null);
   const designRef = useRef<HTMLDivElement>(null);
   const developRef = useRef<HTMLDivElement>(null);
-  const panelRefs = { dream: dreamRef, design: designRef, develop: developRef };
+  const panelRefs = useMemo(
+    () => ({ dream: dreamRef, design: designRef, develop: developRef }),
+    [],
+  );
 
   useScrollObserver(dreamRef, world === 'dream');
   useScrollObserver(designRef, world === 'design');
@@ -189,8 +192,6 @@ export function WorldsContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Shared swipe-tab behavior (settle-debounced, no scroll collisions, panels
-  // start from the top, ?tab= sync).
   const scrollRef = useSwipeTabs({
     tabs: TABS,
     active: world,
@@ -261,27 +262,15 @@ export function WorldsContent() {
         })}
       </BevelFrame>
 
-      <div
-        ref={scrollRef}
-        className="flex h-full overflow-x-auto snap-x snap-mandatory scrollbar-none overscroll-x-contain"
-        style={{ scrollbarWidth: 'none', willChange: 'scroll-position' }}
-      >
-        {TABS.map((tab) => {
+      <SwipeTabView
+        tabs={TABS}
+        scrollRef={scrollRef}
+        panelRefs={panelRefs}
+        renderPanel={(tab) => {
           const w = WORLDS.find((x) => x.key === tab);
-          return (
-            <div
-              key={tab}
-              id={`tabpanel-${tab}`}
-              role="tabpanel"
-              aria-labelledby={`tab-${tab}`}
-              ref={panelRefs[tab]}
-              className="h-full overflow-y-auto shrink-0 w-screen snap-start"
-            >
-              {w && <MemoWorldPanel world={w} />}
-            </div>
-          );
-        })}
-      </div>
+          return w ? <MemoWorldPanel world={w} /> : null;
+        }}
+      />
     </div>
   );
 }

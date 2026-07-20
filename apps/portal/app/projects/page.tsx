@@ -1,5 +1,4 @@
-import { ProjectsContent } from '@/components/pages/ProjectsContent';
-
+/** Content is owned by PortalSwipeWorkspace (shared swipe-tab shell). */
 export default function ProjectsPage() {
-  return <ProjectsContent />;
+  return null;
 }

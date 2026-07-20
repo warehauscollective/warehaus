@@ -181,6 +181,7 @@ Start with what both surfaces already need:
 - `Bevel`, `BevelFrame`
 - Typography (`Heading`, `Text`, `Eyebrow`, `Mono`)
 - `WarehausLogo`
+- `useSwipeTabs` + `SwipeTabView` (standard left/right tab page shell)
 - Buttons / inputs / status (as portal work forces them)
 - Nav dock primitive (presentational); apps wire route-specific tab data
 
