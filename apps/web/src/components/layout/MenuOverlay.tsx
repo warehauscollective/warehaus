@@ -15,7 +15,7 @@ const MENU_ITEMS = [
 
 const SECONDARY_LINK = { label: 'Style Guide', href: '/style-guide' };
 const PORTAL_ORIGIN = (
-  process.env.NEXT_PUBLIC_PORTAL_URL || 'http://localhost:3001'
+  process.env.NEXT_PUBLIC_PORTAL_URL || 'http://localhost:3100'
 ).replace(/\/$/, '');
 const PORTAL_LINK = { label: 'Portal', href: PORTAL_ORIGIN };
 

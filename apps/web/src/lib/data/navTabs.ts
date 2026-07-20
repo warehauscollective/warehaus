@@ -48,7 +48,13 @@ const WORLDS_TABS: NavTab[] = [
   { value: 'develop', label: 'DEVELOP', colorClass: 'text-develop' },
 ];
 
-const PORTAL_TABS: NavTab[] = [
+/**
+ * Portal product tabs — documented for the style guide only.
+ * The live portal app (`apps/portal` on :3100) owns these routes; the website
+ * must NOT register `/portal` here or a busy-port website on :3001 will show
+ * the portal dock chrome around a Next.js 404.
+ */
+export const PORTAL_PRODUCT_TABS: NavTab[] = [
   { value: 'portal', label: 'PORTAL', colorClass: 'text-accent' },
   { value: 'projects', label: 'PROJECTS', colorClass: 'text-accent' },
   { value: 'chatroom', label: 'CHATROOM', colorClass: 'text-accent' },
@@ -65,7 +71,8 @@ export const ROUTE_TAB_SETS: RouteTabSet[] = [
   { path: '/', routeLabel: 'Home', tabs: HOME_TABS },
   { path: '/style-guide', routeLabel: 'Style Guide', tabs: STYLE_GUIDE_TABS },
   { path: '/style-guide/worlds', routeLabel: 'Style Guide / Worlds', tabs: WORLDS_TABS },
-  { path: '/portal', routeLabel: 'Portal', tabs: PORTAL_TABS },
+  // Docs-only entry (not a live website route — portal is apps/portal :3100).
+  { path: 'apps/portal', routeLabel: 'Portal · localhost:3100', tabs: PORTAL_PRODUCT_TABS },
 ];
 
 /** Returns the tab set the navbar should render for the given pathname. */

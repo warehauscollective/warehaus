@@ -253,8 +253,8 @@ Two Vercel projects from one repo (standard monorepo pattern):
 
 | Project | Root directory | Domain example |
 | --- | --- | --- |
-| `warehaus-web` | `apps/web` | `warehaus.co` / `www` |
-| `warehaus-portal` | `apps/portal` | `portal.warehaus.co` or `app.warehaus.co` |
+| `warehaus-web` | `apps/web` | `warehaus.co` / `www` (local **:3000**) |
+| `warehaus-portal` | `apps/portal` | `portal.warehaus.co` (local **:3100**, not :3001) |
 
 - Ignored build step / Turbo filter so each project only builds its app + deps.
 - Separate env vars (portal gets auth + API secrets; website stays lean).

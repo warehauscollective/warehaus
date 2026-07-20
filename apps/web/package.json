@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
-    "dev:webpack": "next dev",
+    "dev": "node ../../scripts/dev-app.mjs web",
+    "dev:webpack": "node ../../scripts/ensure-port.mjs ${WEB_PORT:-3000} @warehaus/web && next dev --port ${WEB_PORT:-3000}",
     "prebuild": "npm run tokens -w @warehaus/tokens",
     "build": "next build",
     "start": "next start",

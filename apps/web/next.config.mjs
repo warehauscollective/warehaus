@@ -1,8 +1,10 @@
 import createWithVercelToolbar from '@vercel/toolbar/plugins/next';
 
-/** Portal app origin — separate deployable (`apps/portal`). Override in env for prod. */
+/** Portal app origin — separate deployable (`apps/portal`). Override in env for prod.
+ *  Local default is :3100 (not :3001) so a website bumped off a busy :3000
+ *  cannot silently occupy the portal port. */
 const PORTAL_ORIGIN = (
-  process.env.NEXT_PUBLIC_PORTAL_URL || 'http://localhost:3001'
+  process.env.NEXT_PUBLIC_PORTAL_URL || 'http://localhost:3100'
 ).replace(/\/$/, '');
 
 /** @type {import('next').NextConfig} */

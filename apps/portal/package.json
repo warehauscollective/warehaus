@@ -4,11 +4,11 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack --port 3001",
-    "dev:webpack": "next dev --port 3001",
+    "dev": "node ../../scripts/dev-app.mjs portal",
+    "dev:webpack": "node ../../scripts/ensure-port.mjs ${PORTAL_PORT:-3100} @warehaus/portal && next dev --port ${PORTAL_PORT:-3100}",
     "prebuild": "npm run tokens -w @warehaus/tokens",
     "build": "next build",
-    "start": "next start --port 3001",
+    "start": "next start --port ${PORTAL_PORT:-3100}",
     "lint": "next lint",
     "typecheck": "tsc --noEmit"
   },
