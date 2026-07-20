@@ -98,3 +98,137 @@ body {
     max-width: 56ch;
   }
 }
+
+/* ── Portal product scope (ink/paper density from the style guide) ── */
+.ds-scope {
+  --ink: #0a0a0b;
+  --paper: #fdfdfe;
+
+  --bg: var(--ink);
+  --bg-2: oklch(18% 0 0);
+  --surface-ds: oklch(27% 0 0);
+  --surface-2: oklch(34% 0 0);
+  --fg: var(--paper);
+  --muted-ds: oklch(72% 0 0);
+  --faint: oklch(50% 0 0);
+  --border-ds: oklch(38% 0 0);
+  --border-2: oklch(46% 0 0);
+
+  --accent-ds: oklch(99% 0 0);
+  --accent-fg: var(--ink);
+  --accent-tint: oklch(99% 0 0 / 0.12);
+
+  --success: oklch(70% 0.16 150);
+  --warn: oklch(80% 0.15 85);
+  --danger: oklch(64% 0.2 25);
+
+  --background: var(--bg);
+  --foreground: var(--fg);
+  --surface: var(--surface-ds);
+  --muted: var(--muted-ds);
+  --border: var(--border-ds);
+  --accent: var(--accent-ds);
+
+  --sidebar-inset: 1.1rem;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+:root.light .ds-scope {
+  --bg: var(--paper);
+  --bg-2: oklch(93.5% 0 0);
+  --surface-ds: #ffffff;
+  --surface-2: oklch(97.5% 0 0);
+  --fg: var(--ink);
+  --muted-ds: oklch(44% 0 0);
+  --faint: oklch(66% 0 0);
+  --border-ds: oklch(88% 0 0);
+  --border-2: oklch(82% 0 0);
+
+  --accent-ds: var(--ink);
+  --accent-fg: var(--paper);
+  --accent-tint: oklch(25% 0 0 / 0.1);
+}
+
+@media (min-width: 1024px) {
+  .ds-scope {
+    --left-sidebar-w: var(--portal-rail-w, 244px);
+  }
+}
+
+.ds-scope .ds-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  letter-spacing: 0.04em;
+  padding: 0.35rem 0.7rem;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--border-2);
+  color: var(--muted);
+}
+
+.ds-scope .ds-input,
+.ds-scope .ds-textarea {
+  background: var(--bg-2);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  font-family: inherit;
+  font-size: var(--t-base);
+  padding: 0.8rem 1rem;
+  border-radius: var(--radius-sm);
+  width: 100%;
+  transition: border-color var(--speed) var(--ease), box-shadow var(--speed) var(--ease);
+}
+
+.ds-scope .ds-input::placeholder,
+.ds-scope .ds-textarea::placeholder {
+  color: var(--faint);
+}
+
+.ds-scope .ds-input:focus,
+.ds-scope .ds-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-tint);
+}
+
+.ds-scope table.ds-data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--t-sm);
+}
+
+.ds-scope table.ds-data th {
+  text-align: left;
+  font-family: var(--font-mono);
+  font-size: var(--t-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  color: var(--muted);
+  font-weight: 500;
+  padding: 0.7rem var(--s-4);
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--border);
+}
+
+.ds-scope table.ds-data td {
+  padding: 0.7rem var(--s-4);
+  border-bottom: 1px solid var(--border);
+}
+
+.ds-scope table.ds-data tr:last-child td {
+  border-bottom: 0;
+}
+
+.ds-scope table.ds-data tbody tr:hover {
+  background: var(--surface-2);
+}
+
+.ds-scope table.ds-data td.num,
+.ds-scope table.ds-data th.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}

@@ -1,11 +1,5 @@
-import { PortalPage } from '@/components/layout/PortalPage';
+import { ProjectsContent } from '@/components/pages/ProjectsContent';
 
 export default function ProjectsPage() {
-  return (
-    <PortalPage
-      eyebrow="Portal · Projects"
-      title="Projects"
-      description="Active workstreams and deliverables. Dense lists and detail views will live here."
-    />
-  );
+  return <ProjectsContent />;
 }

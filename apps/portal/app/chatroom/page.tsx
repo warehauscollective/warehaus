@@ -1,11 +1,5 @@
-import { PortalPage } from '@/components/layout/PortalPage';
+import { ChatroomContent } from '@/components/pages/ChatroomContent';
 
 export default function ChatroomPage() {
-  return (
-    <PortalPage
-      eyebrow="Portal · Chatroom"
-      title="Chatroom"
-      description="Product conversation for operators — separate from the marketing site’s AI chat overlay."
-    />
-  );
+  return <ChatroomContent />;
 }

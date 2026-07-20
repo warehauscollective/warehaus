@@ -1,11 +1,5 @@
-import { PortalPage } from '@/components/layout/PortalPage';
+import { AccountContent } from '@/components/pages/AccountContent';
 
 export default function AccountPage() {
-  return (
-    <PortalPage
-      eyebrow="Portal · Account"
-      title="Account"
-      description="Profile, team, and settings. Auth lands here when the portal scaffold gets a session boundary."
-    />
-  );
+  return <AccountContent />;
 }
