@@ -26,8 +26,6 @@ const trackStyle: CSSProperties = {
   scrollbarWidth: 'none',
   willChange: 'scroll-position',
   msOverflowStyle: 'none',
-  // Prefer horizontal gestures on the track (touch / trackpad).
-  touchAction: 'pan-x',
 };
 
 const panelStyle: CSSProperties = {
@@ -41,7 +39,8 @@ const panelStyle: CSSProperties = {
   scrollSnapAlign: 'start',
   overflowY: 'auto',
   overflowX: 'hidden',
-  touchAction: 'pan-y',
+  // Do NOT set touch-action: pan-y here — it blocks horizontal tab swipes that
+  // start on the panel. Put pan-y only on nested vertical scroll regions.
 };
 
 /**

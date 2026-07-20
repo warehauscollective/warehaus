@@ -147,7 +147,8 @@ export function PortalWorkspace({
   );
 }
 
-/** Scrollable tile/list region that stays inside the workspace (not the page). */
+/** Scrollable tile/list region that stays inside the workspace (not the page).
+ *  Vertical-only overflow so horizontal tab swipes chain to the snap track. */
 export function PortalTilePane({
   children,
   className,
@@ -161,8 +162,11 @@ export function PortalTilePane({
       style={{
         height: '100%',
         minHeight: 0,
-        overflow: 'auto',
-        overscrollBehavior: 'contain',
+        overflowX: 'hidden',
+        overflowY: 'auto',
+        overscrollBehaviorX: 'none',
+        overscrollBehaviorY: 'contain',
+        touchAction: 'pan-y',
         paddingBottom: '0.25rem',
       }}
     >

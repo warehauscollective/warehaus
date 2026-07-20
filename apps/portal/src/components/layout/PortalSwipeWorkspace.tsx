@@ -46,7 +46,7 @@ export function PortalSwipeWorkspace() {
         tabs={tabs}
         scrollRef={scrollRef}
         panelRefs={panelRefs}
-        panelStyle={{ overflowY: 'hidden' }}
+        panelStyle={{ overflowY: 'hidden', touchAction: 'auto' }}
         renderPanel={(tab) => (
           <div
             className="box-border h-full min-h-0 overflow-hidden pb-28 pt-16 lg:pt-3"

@@ -88,6 +88,107 @@ export function useSwipeTabs<T extends string>({
     };
   }, [tabs, setActiveTab, settleMs]);
 
+  // Nested vertical panes (portal tile lists, website panels) can swallow
+  // trackpad X-deltas. Forward dominant-horizontal wheel intent to the snap
+  // track so left/right tab swipes keep working.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+      const max = el.scrollWidth - el.clientWidth;
+      if (max <= 0) return;
+      const next = Math.min(max, Math.max(0, el.scrollLeft + e.deltaX));
+      if (next === el.scrollLeft) return;
+      el.scrollLeft = next;
+      e.preventDefault();
+    };
+    el.addEventListener('wheel', onWheel, { passive: false });
+    return () => el.removeEventListener('wheel', onWheel);
+  }, []);
+
+  // Pointer swipe: lock to horizontal once the gesture is clearly sideways so
+  // nested vertical panes don't steal the tab change. Vertical locks leave
+  // native list scrolling alone. Listeners attach to document after down so
+  // drags that start on nested buttons/tiles still reach the track.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+
+    let pointerId: number | null = null;
+    let startX = 0;
+    let startY = 0;
+    let startScroll = 0;
+    let axis: 'h' | 'v' | null = null;
+    let swiped = false;
+
+    const onMove = (e: PointerEvent) => {
+      if (pointerId !== e.pointerId) return;
+      const dx = e.clientX - startX;
+      const dy = e.clientY - startY;
+      if (!axis) {
+        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
+        axis = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+      }
+      if (axis !== 'h') return;
+      swiped = true;
+      el.scrollLeft = startScroll - dx;
+      e.preventDefault();
+    };
+
+    const onUp = (e: PointerEvent) => {
+      if (pointerId !== e.pointerId) return;
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      document.body.style.removeProperty('user-select');
+      if (swiped) {
+        const width = el.clientWidth || 1;
+        const index = Math.min(
+          Math.max(0, Math.round(el.scrollLeft / width)),
+          Math.max(0, Math.round(el.scrollWidth / width) - 1),
+        );
+        el.scrollTo({ left: index * width, behavior: 'smooth' });
+        // Suppress the click that would otherwise fire on the tile/button under
+        // the pointer after a horizontal swipe.
+        const blockClick = (ev: Event) => {
+          ev.preventDefault();
+          ev.stopPropagation();
+        };
+        document.addEventListener('click', blockClick, { capture: true, once: true });
+      }
+      pointerId = null;
+      axis = null;
+      swiped = false;
+    };
+
+    const onDown = (e: PointerEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      pointerId = e.pointerId;
+      startX = e.clientX;
+      startY = e.clientY;
+      startScroll = el.scrollLeft;
+      axis = null;
+      swiped = false;
+      document.body.style.userSelect = 'none';
+      document.addEventListener('pointermove', onMove, { passive: false });
+      document.addEventListener('pointerup', onUp);
+      document.addEventListener('pointercancel', onUp);
+    };
+
+    el.addEventListener('pointerdown', onDown);
+    return () => {
+      el.removeEventListener('pointerdown', onDown);
+      document.removeEventListener('pointermove', onMove);
+      document.removeEventListener('pointerup', onUp);
+      document.removeEventListener('pointercancel', onUp);
+      document.body.style.removeProperty('user-select');
+    };
+  }, []);
+
   // Tab change → scroll to slide (skipped when swipe-driven), then pin every
   // off-screen panel to the top so the destination always starts at the top.
   useEffect(() => {
