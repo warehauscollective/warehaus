@@ -109,8 +109,8 @@ export function useSwipeTabs<T extends string>({
     let accX = 0;
     let committedThisGesture = false;
     let resetTimer: ReturnType<typeof setTimeout>;
-    const GESTURE_GAP_MS = 220; // quiet period before a new flick can start
-    const AXIS_RATIO = 0.85; // prefer clear horizontal intent over diagonals
+    const GESTURE_GAP_MS = 200; // quiet period before a new flick can start
+    const AXIS_RATIO = 0.7; // allow mildly diagonal trackpad swipes
 
     const resetGesture = () => {
       axis = null;
@@ -155,8 +155,8 @@ export function useSwipeTabs<T extends string>({
       if (committedThisGesture) return;
 
       const width = el.clientWidth || 1;
-      // Require a deliberate swipe (~30% of the panel), not a light nudge.
-      const commitPx = Math.max(180, Math.round(width * 0.3));
+      // Deliberate but easy flick (~18% of the panel). Still one commit per burst.
+      const commitPx = Math.max(110, Math.round(width * 0.18));
 
       isDragging.current = true;
       accX += dx;
