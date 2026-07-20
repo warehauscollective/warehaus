@@ -97,22 +97,101 @@ export function useSwipeTabs<T extends string>({
     };
   }, [settleMs]);
 
-  // Trackpad: forward dominant-horizontal wheel to the snap track.
+  // Trackpad / mouse-wheel horizontal swipe → previous/next tab.
+  // Capture-phase so nested tile panes can't swallow the gesture. We lock to
+  // an axis for the burst, accumulate deltaX, and commit a tab change once
+  // past the threshold (same feel as pointer drag).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const onWheel = (e: WheelEvent) => {
-      if (Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
-      const max = el.scrollWidth - el.clientWidth;
-      if (max <= 0) return;
-      const next = Math.min(max, Math.max(0, el.scrollLeft + e.deltaX));
-      if (next === el.scrollLeft) return;
-      el.scrollLeft = next;
-      e.preventDefault();
+
+    let axis: 'h' | 'v' | null = null;
+    let accX = 0;
+    let coolUntil = 0;
+    let resetTimer: ReturnType<typeof setTimeout>;
+    const GESTURE_GAP_MS = 140;
+    const COOLDOWN_MS = 420; // one trackpad flick → one tab
+    const AXIS_RATIO = 0.55; // allow slightly diagonal trackpad swipes
+    const COMMIT_PX = swipeThresholdPx;
+
+    const resetGesture = () => {
+      axis = null;
+      accX = 0;
+      isDragging.current = false;
     };
-    el.addEventListener('wheel', onWheel, { passive: false });
-    return () => el.removeEventListener('wheel', onWheel);
-  }, []);
+
+    const onWheel = (e: WheelEvent) => {
+      // Shift+vertical wheel is the classic desktop “horizontal scroll” chord.
+      let dx = e.deltaX;
+      let dy = e.deltaY;
+      if (e.shiftKey && Math.abs(dy) >= Math.abs(dx)) {
+        dx = dy;
+        dy = 0;
+      }
+
+      // Normalize line/page modes to pixel-ish values.
+      if (e.deltaMode === 1) {
+        dx *= 16;
+        dy *= 16;
+      } else if (e.deltaMode === 2) {
+        dx *= el.clientWidth;
+        dy *= el.clientHeight;
+      }
+
+      if (!axis) {
+        if (Math.abs(dx) < 1.5 && Math.abs(dy) < 1.5) return;
+        axis = Math.abs(dx) >= Math.abs(dy) * AXIS_RATIO ? 'h' : 'v';
+      }
+
+      clearTimeout(resetTimer);
+      resetTimer = setTimeout(resetGesture, GESTURE_GAP_MS);
+
+      // Vertical burst → leave alone so lists can scroll.
+      if (axis !== 'h') return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      // After a commit, ignore the rest of the same physical flick.
+      if (performance.now() < coolUntil) return;
+
+      isDragging.current = true;
+      accX += dx;
+
+      const width = el.clientWidth || 1;
+      const current = tabsRef.current.indexOf(activeRef.current);
+      const base = Math.max(0, current) * width;
+      const max = el.scrollWidth - width;
+      el.scrollLeft = Math.min(max, Math.max(0, base + accX));
+
+      if (Math.abs(accX) < COMMIT_PX) return;
+
+      // Positive deltaX (trackpad swipe left / content moves left) → next tab.
+      const nextIndex = accX > 0 ? current + 1 : current - 1;
+      resetGesture();
+      coolUntil = performance.now() + COOLDOWN_MS;
+
+      if (nextIndex < 0 || nextIndex >= tabsRef.current.length) {
+        el.scrollTo({ left: current * width, behavior: 'smooth' });
+        return;
+      }
+
+      scrollSync.current = true;
+      isProgScrolling.current = true;
+      el.scrollTo({ left: nextIndex * width, behavior: 'smooth' });
+      setActiveTabRef.current(tabsRef.current[nextIndex]!);
+      window.setTimeout(() => {
+        isProgScrolling.current = false;
+      }, 450);
+    };
+
+    el.addEventListener('wheel', onWheel, { passive: false, capture: true });
+    return () => {
+      el.removeEventListener('wheel', onWheel, true);
+      clearTimeout(resetTimer);
+      resetGesture();
+    };
+  }, [swipeThresholdPx]);
 
   // Pointer + mouse + touch: swipe left/right past a threshold → adjacent tab.
   // Capture-phase + document move/up so nested buttons/tiles can't swallow it.
