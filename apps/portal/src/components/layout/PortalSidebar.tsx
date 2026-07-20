@@ -6,29 +6,21 @@ import { BevelFrame } from '@warehaus/ui';
 import { WarehausLogo } from '@warehaus/ui';
 import { PORTAL_SIDEBAR_SECTIONS } from '@/lib/data/sidebarSections';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
+import { usePortalView } from '@/components/providers/PortalViewProvider';
 
 const MIN_RAIL = 200;
 const MAX_RAIL = 460;
 const DEFAULT_RAIL = 244;
 
 /**
- * Section navigation:
- * - Desktop (lg+): left BevelFrame rail (style-guide pattern)
+ * Section navigation as view modes (not page-scroll anchors):
+ * - Desktop (lg+): left BevelFrame rail
  * - Mobile / tablet: floating top nav with horizontal section chips
  */
-export function PortalSidebar({
-  activeSection,
-}: {
-  activeSection: string;
-}) {
-  const { activeTab: tab, activePanelRef } = usePortalTab();
+export function PortalSidebar() {
+  const { activeTab: tab } = usePortalTab();
+  const { activeSection, setActiveSection } = usePortalView();
   const sections = PORTAL_SIDEBAR_SECTIONS[tab];
-
-  const scrollToSection = (key: string) => {
-    activePanelRef.current
-      ?.querySelector<HTMLElement>(`[data-section="${key}"]`)
-      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
 
   const [railW, setRailW] = useState(DEFAULT_RAIL);
   const [collapsed, setCollapsed] = useState(false);
@@ -138,7 +130,7 @@ export function PortalSidebar({
               <button
                 key={s.key}
                 type="button"
-                onClick={() => scrollToSection(s.key)}
+                onClick={() => setActiveSection(s.key)}
                 aria-current={active ? 'true' : undefined}
                 className="shrink-0 whitespace-nowrap transition-colors"
                 style={{
@@ -223,7 +215,7 @@ export function PortalSidebar({
                 <button
                   key={s.key}
                   type="button"
-                  onClick={() => scrollToSection(s.key)}
+                  onClick={() => setActiveSection(s.key)}
                   aria-current={active ? 'true' : undefined}
                   className="text-left transition-colors"
                   style={{

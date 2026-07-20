@@ -25,9 +25,8 @@ function renderPortalPanel(tab: PortalTab) {
 }
 
 /**
- * Portal product surface — the same swipe-tab shell as the website pillars /
- * style guide. All tab panels stay mounted; the dock and gestures switch tabs.
- * Paths (`/projects`, …) stay deep-linkable via PortalTabProvider.
+ * Portal product surface — swipe tabs at the shell level; each tab is a
+ * fixed-height panel workspace (no whole-page scroll on desktop).
  */
 export function PortalSwipeWorkspace() {
   const { tabs, activeTab, setActiveTab, panelRefs } = usePortalTab();
@@ -47,9 +46,10 @@ export function PortalSwipeWorkspace() {
         tabs={tabs}
         scrollRef={scrollRef}
         panelRefs={panelRefs}
+        panelStyle={{ overflowY: 'hidden' }}
         renderPanel={(tab) => (
           <div
-            className="min-h-full pb-28 pt-20 lg:pt-0"
+            className="box-border h-full min-h-0 overflow-hidden pb-28 pt-16 lg:pt-3"
             style={{
               paddingLeft: 'calc(var(--portal-rail-w, 0px) + var(--gutter))',
               paddingRight: 'var(--gutter)',

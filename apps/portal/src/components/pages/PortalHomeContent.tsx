@@ -1,4 +1,12 @@
-import { Eyebrow, GhostButton, Pill, PrimaryButton, Section, Surface } from '@/components/ui/primitives';
+'use client';
+
+import { GhostButton, Pill, PrimaryButton, Surface } from '@/components/ui/primitives';
+import {
+  PortalStatGrid,
+  PortalTilePane,
+  PortalWorkspace,
+} from '@/components/layout/PortalWorkspace';
+import { usePortalView } from '@/components/providers/PortalViewProvider';
 
 const SHIPMENTS = [
   { id: 'SH-4821', origin: 'North Bay Hub', dock: 'Dock 3', status: ['On time', 'var(--success)'], pallets: '24', eta: '14:20' },
@@ -8,190 +16,280 @@ const SHIPMENTS = [
   { id: 'SH-4825', origin: 'Sparks Yard', dock: 'Dock 2', status: ['Exception', 'var(--danger)'], pallets: '9', eta: '—' },
 ];
 
-export function PortalHomeContent() {
-  return (
-    <div style={{ maxWidth: 'var(--maxw)' }}>
-      <Section id="overview" style={{ paddingTop: 'clamp(3rem, 2rem + 5vw, 5rem)' }}>
-        <Eyebrow>Portal · Dashboard</Eyebrow>
-        <h1
-          className="type-display"
-          style={{ fontSize: 'var(--t-3xl)', marginTop: 'var(--s-4)', maxWidth: '16ch' }}
-        >
-          Overview
-        </h1>
-        <p className="ds-lead" style={{ marginTop: 'var(--s-5)' }}>
-          Where the work actually happens — dense tables, inline forms, and flows tuned for
-          operators who live in this surface all day.
-        </p>
-        <div className="flex flex-wrap gap-2" style={{ marginTop: 'var(--s-5)' }}>
-          {['App Shell', 'Data & Forms', 'Flows'].map((t) => (
-            <Pill key={t}>{t}</Pill>
-          ))}
-        </div>
-        <div
-          className="grid gap-4"
-          style={{
-            marginTop: 'var(--s-7)',
-            gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))',
-          }}
-        >
-          {[
-            { label: 'On time', value: '38' },
-            { label: 'In dock', value: '12' },
-            { label: 'Exceptions', value: '3' },
-            { label: 'Queued', value: '9' },
-          ].map((stat) => (
-            <Surface key={stat.label} style={{ padding: 'var(--s-5)' }}>
-              <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                {stat.label}
-              </p>
-              <p
-                className="ds-mono"
-                style={{ fontSize: 'var(--t-2xl)', marginTop: 'var(--s-2)', color: 'var(--fg)' }}
-              >
-                {stat.value}
-              </p>
-            </Surface>
-          ))}
-        </div>
-      </Section>
+const SECTION_TITLE: Record<string, string> = {
+  overview: 'Overview',
+  shipments: 'Shipments',
+  'new-shipment': 'New shipment',
+};
 
-      <Section id="shipments">
-        <Eyebrow>Data</Eyebrow>
-        <h2 className="type-heading" style={{ fontSize: 'var(--t-2xl)', marginTop: 'var(--s-3)' }}>
-          Shipments
-        </h2>
-        <p className="ds-lead" style={{ marginTop: 'var(--s-4)' }}>
-          Dense, scannable, tabular. Status at a glance — the pattern from the style guide, live in
-          the portal shell.
-        </p>
-        <div
-          style={{
-            marginTop: 'var(--s-6)',
-            border: '1px solid var(--border)',
-            borderRadius: 'var(--radius)',
-            overflow: 'hidden',
-          }}
-        >
-          <div
-            className="flex flex-wrap items-center"
-            style={{
-              gap: 'var(--s-3)',
-              padding: 'var(--s-4)',
-              borderBottom: '1px solid var(--border)',
-              background: 'var(--bg-2)',
-            }}
-          >
-            <input
-              className="ds-input"
-              placeholder="Filter shipments…"
-              style={{ flex: 1, minWidth: 160, background: 'var(--bg)' }}
-            />
+export function PortalHomeContent() {
+  const { activeSection, openDetail, setActiveSection } = usePortalView();
+  const title = SECTION_TITLE[activeSection] ?? 'Overview';
+
+  return (
+    <PortalWorkspace
+      eyebrow="Portal · Dashboard"
+      title={title}
+      actions={
+        activeSection === 'shipments' ? (
+          <>
             <GhostButton>Export</GhostButton>
             <PrimaryButton>New shipment</PrimaryButton>
-          </div>
-          <div style={{ overflowX: 'auto' }}>
-            <table className="ds-data" style={{ minWidth: 560 }}>
-              <thead>
-                <tr>
-                  <th>Shipment</th>
-                  <th>Origin</th>
-                  <th>Dock</th>
-                  <th>Status</th>
-                  <th className="num">Pallets</th>
-                  <th className="num">ETA</th>
-                </tr>
-              </thead>
-              <tbody>
-                {SHIPMENTS.map((r) => (
-                  <tr key={r.id}>
-                    <td>{r.id}</td>
-                    <td>{r.origin}</td>
-                    <td>{r.dock}</td>
-                    <td>
+          </>
+        ) : activeSection === 'overview' ? (
+          <PrimaryButton>New shipment</PrimaryButton>
+        ) : undefined
+      }
+    >
+      {activeSection === 'overview' && (
+        <PortalTilePane>
+          <div className="flex h-full min-h-0 flex-col gap-4">
+            <PortalStatGrid
+              items={[
+                { label: 'On time', value: '38', hint: 'Today' },
+                { label: 'In dock', value: '12' },
+                { label: 'Exceptions', value: '3', hint: 'Needs attention' },
+                { label: 'Queued', value: '9' },
+              ]}
+            />
+            <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
+              <Surface style={{ padding: 'var(--s-4)', minHeight: 0 }}>
+                <div className="mb-3 flex items-center justify-between gap-2">
+                  <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
+                    Live board
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setActiveSection('shipments')}
+                    className="ds-mono"
+                    style={{
+                      fontSize: 'var(--t-xs)',
+                      color: 'var(--accent)',
+                      background: 'none',
+                      border: 0,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    Open shipments →
+                  </button>
+                </div>
+                <div className="flex flex-col gap-2">
+                  {SHIPMENTS.slice(0, 4).map((r) => (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() =>
+                        openDetail({
+                          id: r.id,
+                          title: r.origin,
+                          subtitle: `${r.dock} · ETA ${r.eta}`,
+                          body: (
+                            <ShipmentDetail shipment={r} />
+                          ),
+                        })
+                      }
+                      className="flex w-full items-center justify-between gap-3 text-left"
+                      style={{
+                        padding: '0.65rem 0.75rem',
+                        borderRadius: 10,
+                        border: '1px solid var(--border)',
+                        background: 'var(--bg)',
+                        cursor: 'pointer',
+                      }}
+                    >
+                      <span>
+                        <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
+                          {r.id}
+                        </span>
+                        <span className="block" style={{ fontSize: 'var(--t-sm)', fontWeight: 600 }}>
+                          {r.origin}
+                        </span>
+                      </span>
                       <Pill color={r.status[1]}>● {r.status[0]}</Pill>
-                    </td>
-                    <td className="num">{r.pallets}</td>
-                    <td className="num">{r.eta}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                    </button>
+                  ))}
+                </div>
+              </Surface>
+              <Surface style={{ padding: 'var(--s-4)' }}>
+                <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
+                  Quick create
+                </p>
+                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>
+                  Start a shipment without leaving the board. Full form lives in the sidebar view.
+                </p>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  <PrimaryButton>New shipment</PrimaryButton>
+                  <GhostButton>Invite operator</GhostButton>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveSection('new-shipment')}
+                  className="ds-mono mt-4"
+                  style={{
+                    fontSize: 'var(--t-xs)',
+                    color: 'var(--accent)',
+                    background: 'none',
+                    border: 0,
+                    cursor: 'pointer',
+                  }}
+                >
+                  Open full form →
+                </button>
+              </Surface>
+            </div>
           </div>
-        </div>
-      </Section>
+        </PortalTilePane>
+      )}
 
-      <Section id="new-shipment">
-        <Eyebrow>Form</Eyebrow>
-        <h2 className="type-heading" style={{ fontSize: 'var(--t-2xl)', marginTop: 'var(--s-3)' }}>
-          New shipment
-        </h2>
-        <p className="ds-lead" style={{ marginTop: 'var(--s-4)' }}>
-          Inline validation on blur. One primary action. Comfort here means speed, not space.
-        </p>
-        <Surface style={{ marginTop: 'var(--s-6)' }}>
-          <Eyebrow>Create</Eyebrow>
-          <div className="grid gap-5 md:grid-cols-2" style={{ marginTop: 'var(--s-5)' }}>
-            <label className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
-              <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
-                Shipment ID
-              </span>
-              <input className="ds-input" value="SH-4826" readOnly />
-              <span style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                Auto-generated · read only
-              </span>
-            </label>
-            <label className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
-              <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
-                Origin
-              </span>
-              <input className="ds-input" placeholder="Select a location…" />
-            </label>
-            <label className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
-              <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
-                Pallet count
-              </span>
-              <input className="ds-input" defaultValue="24" style={{ borderColor: 'var(--success)' }} />
-              <span style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                Within dock capacity
-              </span>
-            </label>
-            <label className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
-              <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
-                ETA
-              </span>
+      {activeSection === 'shipments' && (
+        <PortalTilePane>
+          <div
+            style={{
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--radius)',
+              overflow: 'hidden',
+              background: 'var(--bg-2)',
+              height: '100%',
+              display: 'flex',
+              flexDirection: 'column',
+            }}
+          >
+            <div
+              className="flex shrink-0 flex-wrap items-center"
+              style={{
+                gap: 'var(--s-3)',
+                padding: 'var(--s-3) var(--s-4)',
+                borderBottom: '1px solid var(--border)',
+              }}
+            >
               <input
                 className="ds-input"
-                defaultValue="25:00"
-                style={{
-                  borderColor: 'var(--danger)',
-                  boxShadow: '0 0 0 3px color-mix(in oklch, var(--danger) 22%, transparent)',
-                }}
+                placeholder="Filter shipments…"
+                style={{ flex: 1, minWidth: 160, background: 'var(--bg)' }}
               />
-              <span style={{ color: 'var(--danger)', fontSize: 'var(--t-xs)' }}>
-                Enter a valid 24-hour time (HH:MM).
-              </span>
-            </label>
-            <label className="flex flex-col md:col-span-2" style={{ gap: 'var(--s-2)' }}>
-              <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
-                Notes
-              </span>
-              <textarea
-                className="ds-textarea"
-                rows={3}
-                placeholder="Anything the receiving team should know…"
-              />
-            </label>
+            </div>
+            <div className="min-h-0 flex-1 overflow-auto">
+              <table className="ds-data" style={{ minWidth: 560 }}>
+                <thead>
+                  <tr>
+                    <th>Shipment</th>
+                    <th>Origin</th>
+                    <th>Dock</th>
+                    <th>Status</th>
+                    <th className="num">Pallets</th>
+                    <th className="num">ETA</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {SHIPMENTS.map((r) => (
+                    <tr
+                      key={r.id}
+                      onClick={() =>
+                        openDetail({
+                          id: r.id,
+                          title: r.origin,
+                          subtitle: `${r.dock} · ETA ${r.eta}`,
+                          body: <ShipmentDetail shipment={r} />,
+                        })
+                      }
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <td>{r.id}</td>
+                      <td>{r.origin}</td>
+                      <td>{r.dock}</td>
+                      <td>
+                        <Pill color={r.status[1]}>● {r.status[0]}</Pill>
+                      </td>
+                      <td className="num">{r.pallets}</td>
+                      <td className="num">{r.eta}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
           </div>
-          <div
-            className="flex flex-wrap justify-end"
-            style={{ marginTop: 'var(--s-6)', gap: 'var(--s-3)' }}
-          >
-            <GhostButton>Cancel</GhostButton>
-            <PrimaryButton>Create shipment</PrimaryButton>
+        </PortalTilePane>
+      )}
+
+      {activeSection === 'new-shipment' && (
+        <PortalTilePane>
+          <Surface style={{ padding: 'var(--s-5)', maxWidth: 720 }}>
+            <div className="grid gap-4 md:grid-cols-2">
+              <label className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
+                <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
+                  Shipment ID
+                </span>
+                <input className="ds-input" value="SH-4826" readOnly />
+              </label>
+              <label className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
+                <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
+                  Origin
+                </span>
+                <input className="ds-input" placeholder="Select a location…" />
+              </label>
+              <label className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
+                <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
+                  Pallet count
+                </span>
+                <input className="ds-input" defaultValue="24" />
+              </label>
+              <label className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
+                <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
+                  ETA
+                </span>
+                <input className="ds-input" defaultValue="15:00" />
+              </label>
+              <label className="flex flex-col md:col-span-2" style={{ gap: 'var(--s-2)' }}>
+                <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
+                  Notes
+                </span>
+                <textarea
+                  className="ds-textarea"
+                  rows={3}
+                  placeholder="Anything the receiving team should know…"
+                />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <GhostButton>Cancel</GhostButton>
+              <PrimaryButton>Create shipment</PrimaryButton>
+            </div>
+          </Surface>
+        </PortalTilePane>
+      )}
+    </PortalWorkspace>
+  );
+}
+
+function ShipmentDetail({
+  shipment,
+}: {
+  shipment: (typeof SHIPMENTS)[number];
+}) {
+  return (
+    <div className="flex flex-col gap-4">
+      <div className="grid grid-cols-2 gap-3">
+        {[
+          ['Status', shipment.status[0]],
+          ['Dock', shipment.dock],
+          ['Pallets', shipment.pallets],
+          ['ETA', shipment.eta],
+        ].map(([k, v]) => (
+          <div key={k}>
+            <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
+              {k}
+            </p>
+            <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600, marginTop: 2 }}>{v}</p>
           </div>
-        </Surface>
-      </Section>
+        ))}
+      </div>
+      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+        Select a row to inspect without leaving the board. Actions stay in this panel.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        <PrimaryButton>Assign dock</PrimaryButton>
+        <GhostButton>Message yard</GhostButton>
+      </div>
     </div>
   );
 }

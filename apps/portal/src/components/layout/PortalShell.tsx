@@ -2,19 +2,16 @@
 
 import type { ReactNode } from 'react';
 import { PortalTabProvider } from '@/components/providers/PortalTabProvider';
+import { PortalViewProvider } from '@/components/providers/PortalViewProvider';
 import { PortalDock } from './PortalDock';
 import { PortalSidebar } from './PortalSidebar';
 import { PortalSwipeWorkspace } from './PortalSwipeWorkspace';
-import { useActiveSection } from '@/hooks/useActiveSection';
 
 function PortalChrome({ children }: { children: ReactNode }) {
-  const activeSection = useActiveSection('overview');
-
   return (
     <div className="ds-scope relative h-[100dvh] overflow-hidden">
-      <PortalSidebar activeSection={activeSection} />
+      <PortalSidebar />
       <PortalSwipeWorkspace />
-      {/* Route pages stay for deep-link path matching; content lives in the swipe shell. */}
       <div className="hidden" aria-hidden>
         {children}
       </div>
@@ -26,7 +23,9 @@ function PortalChrome({ children }: { children: ReactNode }) {
 export function PortalShell({ children }: { children: ReactNode }) {
   return (
     <PortalTabProvider>
-      <PortalChrome>{children}</PortalChrome>
+      <PortalViewProvider>
+        <PortalChrome>{children}</PortalChrome>
+      </PortalViewProvider>
     </PortalTabProvider>
   );
 }

@@ -12,6 +12,8 @@ export interface SwipeTabViewProps<T extends string> {
   className?: string;
   /** Extra classes on each vertical panel. */
   panelClassName?: string;
+  /** Merge into each panel's inline style (e.g. portal locks page scroll). */
+  panelStyle?: CSSProperties;
 }
 
 const trackStyle: CSSProperties = {
@@ -56,6 +58,7 @@ export function SwipeTabView<T extends string>({
   renderPanel,
   className,
   panelClassName,
+  panelStyle: panelStyleOverride,
 }: SwipeTabViewProps<T>) {
   return (
     <div ref={scrollRef} className={cn(className)} style={trackStyle}>
@@ -67,7 +70,7 @@ export function SwipeTabView<T extends string>({
           aria-labelledby={`tab-${tab}`}
           ref={panelRefs[tab]}
           className={cn(panelClassName)}
-          style={panelStyle}
+          style={{ ...panelStyle, ...panelStyleOverride }}
         >
           {renderPanel(tab)}
         </div>
