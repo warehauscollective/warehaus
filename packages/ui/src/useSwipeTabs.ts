@@ -34,7 +34,7 @@ export interface UseSwipeTabsOptions<T extends string> {
    * - `'none'`: caller owns URL (e.g. portal path tabs)
    */
   urlSync?: 'query' | 'none';
-  /** Min horizontal drag (px) to change tabs. Default 64. */
+  /** Min horizontal drag (px) to change tabs. Default 48. */
   swipeThresholdPx?: number;
 }
 
@@ -46,7 +46,7 @@ export function useSwipeTabs<T extends string>({
   isValidTab,
   settleMs = 90,
   urlSync = 'query',
-  swipeThresholdPx = 64,
+  swipeThresholdPx = 48,
 }: UseSwipeTabsOptions<T>): RefObject<HTMLDivElement | null> {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isProgScrolling = useRef(false);
@@ -108,9 +108,11 @@ export function useSwipeTabs<T extends string>({
     let axis: 'h' | 'v' | null = null;
     let accX = 0;
     let committedThisGesture = false;
+    let coolUntil = 0;
     let resetTimer: ReturnType<typeof setTimeout>;
-    const GESTURE_GAP_MS = 200; // quiet period before a new flick can start
-    const AXIS_RATIO = 0.7; // allow mildly diagonal trackpad swipes
+    const GESTURE_GAP_MS = 100; // quick re-arm once the flick stops
+    const POST_COMMIT_MS = 160; // brief lock so inertia can't double-advance
+    const AXIS_RATIO = 0.55; // easy to register horizontal intent
 
     const resetGesture = () => {
       axis = null;
@@ -151,12 +153,20 @@ export function useSwipeTabs<T extends string>({
       e.preventDefault();
       e.stopPropagation();
 
-      // Already changed tabs for this flick — eat leftover inertia, don't advance again.
-      if (committedThisGesture) return;
+      // After a commit, briefly eat leftover inertia, then allow the next flick.
+      if (committedThisGesture) {
+        if (performance.now() < coolUntil) return;
+        committedThisGesture = false;
+        axis = null;
+        accX = 0;
+        // Re-evaluate axis for this event as the start of a new flick.
+        axis = Math.abs(dx) >= Math.abs(dy) * AXIS_RATIO ? 'h' : 'v';
+        if (axis !== 'h') return;
+      }
 
       const width = el.clientWidth || 1;
-      // Easy flick (~12% of the panel). One commit per burst still enforced.
-      const commitPx = Math.max(96, Math.round(width * 0.12));
+      // Light flick (~7% of panel / min 48px) — easy without skipping tabs.
+      const commitPx = Math.max(48, Math.round(width * 0.07));
 
       isDragging.current = true;
       accX += dx;
@@ -164,8 +174,7 @@ export function useSwipeTabs<T extends string>({
       const current = tabsRef.current.indexOf(activeRef.current);
       const base = Math.max(0, current) * width;
       const max = el.scrollWidth - width;
-      // Cap live preview so inertia can't visually fly across multiple panels.
-      const preview = Math.max(-width * 0.4, Math.min(width * 0.4, accX));
+      const preview = Math.max(-width * 0.35, Math.min(width * 0.35, accX));
       el.scrollLeft = Math.min(max, Math.max(0, base + preview));
 
       if (Math.abs(accX) < commitPx) return;
@@ -173,6 +182,7 @@ export function useSwipeTabs<T extends string>({
       // Positive deltaX (trackpad swipe left / content moves left) → next tab.
       const nextIndex = accX > 0 ? current + 1 : current - 1;
       committedThisGesture = true;
+      coolUntil = performance.now() + POST_COMMIT_MS;
       accX = 0;
       isDragging.current = false;
 
@@ -187,7 +197,7 @@ export function useSwipeTabs<T extends string>({
       setActiveTabRef.current(tabsRef.current[nextIndex]!);
       window.setTimeout(() => {
         isProgScrolling.current = false;
-      }, 450);
+      }, 350);
     };
 
     el.addEventListener('wheel', onWheel, { passive: false, capture: true });
