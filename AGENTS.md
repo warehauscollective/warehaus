@@ -26,3 +26,10 @@ All commands are wired through the root `package.json` (which delegates to the `
 - The AI chat feature (`/api/chat`, Anthropic SDK) is optional. Without `ANTHROPIC_API_KEY` it runs in "demo mode" and returns a canned reply — no secret is required to run or test the app. Set `ANTHROPIC_API_KEY` only to exercise live AI responses.
 - The site is effectively a single-page tab UI: `/design`, `/develop`, `/dream` intentionally `307`-redirect to `/?tab=<name>`; `/work` and `/work/:slug` permanently redirect to `/codex`. These redirects are expected, not errors.
 - `@vercel/toolbar` logs `No project info found ... run vc link` on dev startup. This is harmless.
+
+### Platform access (pushing up edits)
+
+- **GitHub**: `git push` and pull-request creation already work from the VM (the agent has push access and uses the PR tooling). This is the normal way to ship changes; a git-connected Vercel project builds a preview deployment automatically on push / PR.
+- **Vercel**: the Vercel MCP server is authenticated to the **Warehaus** team (`team_gk8AwUegrHijeRwyTvHBsWhO`, slug `warehaus-collective`). Use it to deploy, read build/runtime logs, inspect deployments, and manage env vars without any extra credentials. The current Next.js app maps to the `warehaus-portal` Vercel project (framework `nextjs`); the older `new-warehaus` project is the stale Astro site.
+- **Vercel CLI**: not installed globally (the npm global prefix is `/`, which needs root). Run it on demand with `npx vercel@latest <cmd>`. It requires a token to run non-interactively — interactive `vercel login` will hang in this VM. Set the `VERCEL_TOKEN` secret and run commands as `npx vercel@latest --token "$VERCEL_TOKEN" <cmd>` (e.g. `link`, `pull`, `env pull`, `deploy --prebuilt`). Prefer the MCP tools for deploys/logs when a token is not configured. `.vercel/` is gitignored, so linking is a per-VM step.
+- **Chromatic** (visual regression, `.github/workflows/chromatic.yml`) runs in GitHub Actions and needs the `CHROMATIC_PROJECT_TOKEN` repo secret. It is CI-side and not required for the agent to push edits.
