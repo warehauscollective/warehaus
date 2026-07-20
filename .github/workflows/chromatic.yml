@@ -32,6 +32,8 @@ jobs:
         uses: chromaui/action@latest
         with:
           projectToken: ${{ secrets.CHROMATIC_PROJECT_TOKEN }}
+          # The app (and its Storybook) now lives in the apps/web workspace.
+          workingDir: apps/web
           buildScriptName: build-storybook
           # Don't fail the PR on visual changes — review/approve diffs in the
           # Chromatic UI instead. Flip to false once baselines are trusted.
