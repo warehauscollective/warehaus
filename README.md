@@ -29,6 +29,9 @@ npm install
 npm run dev            # website → http://localhost:3000
 npm run dev:portal     # portal  → http://localhost:3001 (home tab: PORTAL)
 
+# Website /portal redirects to the portal app (NEXT_PUBLIC_PORTAL_URL, default :3001).
+# Run both apps when following Portal links from the marketing site.
+
 npm run build          # all apps (Turborepo)
 npm run build:web
 npm run build:portal

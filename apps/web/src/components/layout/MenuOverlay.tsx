@@ -14,6 +14,10 @@ const MENU_ITEMS = [
 ];
 
 const SECONDARY_LINK = { label: 'Style Guide', href: '/style-guide' };
+const PORTAL_ORIGIN = (
+  process.env.NEXT_PUBLIC_PORTAL_URL || 'http://localhost:3001'
+).replace(/\/$/, '');
+const PORTAL_LINK = { label: 'Portal', href: PORTAL_ORIGIN };
 
 export function MenuOverlay() {
   const { menuOpen, toggleMenu, themeMode, setThemeMode } = useLayout();
@@ -93,18 +97,31 @@ export function MenuOverlay() {
             switcher and the two read as one cluster, set apart from the big
             primary nav above. */}
         <div className="flex flex-col items-center gap-4">
-          {/* Style Guide link — much smaller than the primary nav; the padding
-              gives it a comfortably larger clickable area. */}
-          <Link
-            href={SECONDARY_LINK.href}
-            aria-current={secondaryActive ? 'page' : undefined}
-            className={`font-display font-bold italic uppercase tracking-[0.18em] leading-none text-sm px-4 py-2 rounded-full transition-opacity duration-200 ${
+          {/* Style Guide + Portal — smaller than primary nav. Portal is a
+              separate app (apps/portal); link out to its origin. */}
+          <div
+            className={`flex flex-wrap items-center justify-center gap-2 ${
               menuOpen ? 'pointer-events-auto' : 'pointer-events-none'
-            } ${secondaryActive ? 'opacity-100' : 'opacity-50 hover:opacity-100'}`}
-            style={{ color: 'var(--nav-text-active)' }}
+            }`}
           >
-            <span className="[text-box:trim-both_cap_alphabetic]">{SECONDARY_LINK.label}</span>
-          </Link>
+            <Link
+              href={SECONDARY_LINK.href}
+              aria-current={secondaryActive ? 'page' : undefined}
+              className={`font-display font-bold italic uppercase tracking-[0.18em] leading-none text-sm px-4 py-2 rounded-full transition-opacity duration-200 ${
+                secondaryActive ? 'opacity-100' : 'opacity-50 hover:opacity-100'
+              }`}
+              style={{ color: 'var(--nav-text-active)' }}
+            >
+              <span className="[text-box:trim-both_cap_alphabetic]">{SECONDARY_LINK.label}</span>
+            </Link>
+            <a
+              href={PORTAL_LINK.href}
+              className="font-display font-bold italic uppercase tracking-[0.18em] leading-none text-sm px-4 py-2 rounded-full opacity-50 transition-opacity duration-200 hover:opacity-100"
+              style={{ color: 'var(--nav-text-active)' }}
+            >
+              <span className="[text-box:trim-both_cap_alphabetic]">{PORTAL_LINK.label}</span>
+            </a>
+          </div>
 
           {/* Theme switcher — dark / light / auto */}
           <div
