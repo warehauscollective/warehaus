@@ -155,8 +155,8 @@ export function useSwipeTabs<T extends string>({
       if (committedThisGesture) return;
 
       const width = el.clientWidth || 1;
-      // Deliberate but easy flick (~18% of the panel). Still one commit per burst.
-      const commitPx = Math.max(110, Math.round(width * 0.18));
+      // Easy flick (~12% of the panel). One commit per burst still enforced.
+      const commitPx = Math.max(96, Math.round(width * 0.12));
 
       isDragging.current = true;
       accX += dx;
