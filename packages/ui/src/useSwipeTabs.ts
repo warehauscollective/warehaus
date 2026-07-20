@@ -7,15 +7,13 @@ import { useEffect, useRef, type RefObject } from 'react';
  * full-screen panels (website pillars / style guide / portal product tabs).
  *
  * Key behaviors:
- * - Native CSS scroll-snap drives the gesture; we never fight it.
- * - The active tab updates only once the swipe SETTLES (debounced) — never
- *   mid-gesture — so the easing is never interrupted.
- * - A swipe-driven tab change does NOT trigger a programmatic scroll (guarded),
- *   so the two never collide. Tab-button clicks / deep links DO smooth-scroll.
- * - Every off-screen panel is pinned to the top, so the panel you swipe/click to
- *   always starts from the top.
- * - Optional `?tab=` URL sync (website default). Path-based apps (portal) use
- *   `urlSync: 'none'` and own the URL themselves.
+ * - Native CSS scroll-snap + programmatic scroll for dock/click changes.
+ * - Pointer/touch/mouse swipes commit to the previous/next tab once the
+ *   gesture clears a distance threshold (works even when nested panes would
+ *   otherwise swallow scroll deltas).
+ * - Trackpad horizontal wheel still moves the snap track directly.
+ * - A swipe-driven tab change does NOT trigger a second programmatic scroll.
+ * - Optional `?tab=` URL sync (website). Path-based apps use `urlSync: 'none'`.
  */
 export interface UseSwipeTabsOptions<T extends string> {
   /** Ordered tab keys; index = slide order. The first is the default. */
@@ -28,7 +26,7 @@ export interface UseSwipeTabsOptions<T extends string> {
   panelRefs: Record<T, RefObject<HTMLDivElement | null>>;
   /** Narrows a `?tab=` string to a valid tab for this surface. */
   isValidTab: (value: string | null) => value is T;
-  /** Debounce before a settled swipe commits the tab. Default 90ms. */
+  /** Debounce before a settled native scroll commits the tab. Default 90ms. */
   settleMs?: number;
   /**
    * URL sync strategy.
@@ -36,6 +34,8 @@ export interface UseSwipeTabsOptions<T extends string> {
    * - `'none'`: caller owns URL (e.g. portal path tabs)
    */
   urlSync?: 'query' | 'none';
+  /** Min horizontal drag (px) to change tabs. Default 64. */
+  swipeThresholdPx?: number;
 }
 
 export function useSwipeTabs<T extends string>({
@@ -46,39 +46,48 @@ export function useSwipeTabs<T extends string>({
   isValidTab,
   settleMs = 90,
   urlSync = 'query',
+  swipeThresholdPx = 64,
 }: UseSwipeTabsOptions<T>): RefObject<HTMLDivElement | null> {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isProgScrolling = useRef(false);
+  const isDragging = useRef(false);
   // Marks an activeTab change that came from the user's swipe, so the
   // tab→scroll effect doesn't fire a second (colliding) smooth scroll.
   const scrollSync = useRef(false);
   const didInit = useRef(false);
   const activeRef = useRef(active);
   activeRef.current = active;
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  const setActiveTabRef = useRef(setActiveTab);
+  setActiveTabRef.current = setActiveTab;
 
   const indexOf = (t: T) => tabs.indexOf(t);
 
-  // Commit the active tab only once the swipe settles (debounced) — never
-  // mid-gesture — so native scroll-snap easing is never interrupted.
+  const commitTabAtIndex = (index: number, fromGesture: boolean) => {
+    const list = tabsRef.current;
+    const tab = list[Math.min(list.length - 1, Math.max(0, index))];
+    if (!tab || tab === activeRef.current) return;
+    if (fromGesture) scrollSync.current = true;
+    setActiveTabRef.current(tab);
+  };
+
+  // Commit the active tab only once native scroll-snap settles (debounced).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     let settle: ReturnType<typeof setTimeout>;
     const onScroll = () => {
-      if (isProgScrolling.current) return;
+      if (isProgScrolling.current || isDragging.current) return;
       clearTimeout(settle);
       settle = setTimeout(() => {
-        if (!el || isProgScrolling.current) return;
+        if (!el || isProgScrolling.current || isDragging.current) return;
         const width = el.clientWidth || 1;
         const index = Math.min(
-          tabs.length - 1,
+          tabsRef.current.length - 1,
           Math.max(0, Math.round(el.scrollLeft / width)),
         );
-        const tab = tabs[index];
-        if (tab && tab !== activeRef.current) {
-          scrollSync.current = true;
-          setActiveTab(tab);
-        }
+        commitTabAtIndex(index, true);
       }, settleMs);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
@@ -86,11 +95,9 @@ export function useSwipeTabs<T extends string>({
       el.removeEventListener('scroll', onScroll);
       clearTimeout(settle);
     };
-  }, [tabs, setActiveTab, settleMs]);
+  }, [settleMs]);
 
-  // Nested vertical panes (portal tile lists, website panels) can swallow
-  // trackpad X-deltas. Forward dominant-horizontal wheel intent to the snap
-  // track so left/right tab swipes keep working.
+  // Trackpad: forward dominant-horizontal wheel to the snap track.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -107,87 +114,195 @@ export function useSwipeTabs<T extends string>({
     return () => el.removeEventListener('wheel', onWheel);
   }, []);
 
-  // Pointer swipe: lock to horizontal once the gesture is clearly sideways so
-  // nested vertical panes don't steal the tab change. Vertical locks leave
-  // native list scrolling alone. Listeners attach to document after down so
-  // drags that start on nested buttons/tiles still reach the track.
+  // Pointer + mouse + touch: swipe left/right past a threshold → adjacent tab.
+  // Capture-phase + document move/up so nested buttons/tiles can't swallow it.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
 
-    let pointerId: number | null = null;
-    let startX = 0;
-    let startY = 0;
-    let startScroll = 0;
-    let axis: 'h' | 'v' | null = null;
-    let swiped = false;
-
-    const onMove = (e: PointerEvent) => {
-      if (pointerId !== e.pointerId) return;
-      const dx = e.clientX - startX;
-      const dy = e.clientY - startY;
-      if (!axis) {
-        if (Math.abs(dx) < 10 && Math.abs(dy) < 10) return;
-        axis = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
-      }
-      if (axis !== 'h') return;
-      swiped = true;
-      el.scrollLeft = startScroll - dx;
-      e.preventDefault();
+    type Gesture = {
+      id: number | 'mouse' | 'touch';
+      startX: number;
+      startY: number;
+      axis: 'h' | 'v' | null;
+      swiped: boolean;
     };
+    let gesture: Gesture | null = null;
 
-    const onUp = (e: PointerEvent) => {
-      if (pointerId !== e.pointerId) return;
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-      document.removeEventListener('pointercancel', onUp);
+    const endGesture = (clientX: number) => {
+      if (!gesture) return;
+      const dx = clientX - gesture.startX;
+      const didSwipe = gesture.swiped || Math.abs(dx) >= swipeThresholdPx;
+      const axis = gesture.axis;
+      gesture = null;
+      isDragging.current = false;
       document.body.style.removeProperty('user-select');
-      if (swiped) {
+      document.body.style.removeProperty('cursor');
+
+      if (!didSwipe || axis === 'v') return;
+      if (Math.abs(dx) < swipeThresholdPx) {
+        // Snap back to the current tab if the drag was short.
         const width = el.clientWidth || 1;
-        const index = Math.min(
-          Math.max(0, Math.round(el.scrollLeft / width)),
-          Math.max(0, Math.round(el.scrollWidth / width) - 1),
-        );
+        const index = indexOf(activeRef.current);
         el.scrollTo({ left: index * width, behavior: 'smooth' });
-        // Suppress the click that would otherwise fire on the tile/button under
-        // the pointer after a horizontal swipe.
-        const blockClick = (ev: Event) => {
-          ev.preventDefault();
-          ev.stopPropagation();
-        };
-        document.addEventListener('click', blockClick, { capture: true, once: true });
+        return;
       }
-      pointerId = null;
-      axis = null;
-      swiped = false;
+
+      const current = indexOf(activeRef.current);
+      // Drag content left (finger moves left, dx < 0) → next tab.
+      const nextIndex = dx < 0 ? current + 1 : current - 1;
+      if (nextIndex < 0 || nextIndex >= tabsRef.current.length) {
+        const width = el.clientWidth || 1;
+        el.scrollTo({ left: current * width, behavior: 'smooth' });
+        return;
+      }
+
+      scrollSync.current = true;
+      const width = el.clientWidth || 1;
+      isProgScrolling.current = true;
+      el.scrollTo({ left: nextIndex * width, behavior: 'smooth' });
+      setActiveTabRef.current(tabsRef.current[nextIndex]!);
+      window.setTimeout(() => {
+        isProgScrolling.current = false;
+      }, 450);
+
+      const blockClick = (ev: Event) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+      };
+      document.addEventListener('click', blockClick, { capture: true, once: true });
     };
 
-    const onDown = (e: PointerEvent) => {
+    const onMoveXY = (clientX: number, clientY: number, prevent: () => void) => {
+      if (!gesture) return;
+      const dx = clientX - gesture.startX;
+      const dy = clientY - gesture.startY;
+      if (!gesture.axis) {
+        if (Math.abs(dx) < 8 && Math.abs(dy) < 8) return;
+        gesture.axis = Math.abs(dx) > Math.abs(dy) ? 'h' : 'v';
+      }
+      if (gesture.axis !== 'h') return;
+      gesture.swiped = true;
+      isDragging.current = true;
+      // Live-drag the track so the user sees panels move under the finger.
+      el.scrollLeft = indexOf(activeRef.current) * (el.clientWidth || 1) - dx;
+      prevent();
+    };
+
+    const onPointerDown = (e: PointerEvent) => {
       const target = e.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
       if (e.pointerType === 'mouse' && e.button !== 0) return;
-      pointerId = e.pointerId;
-      startX = e.clientX;
-      startY = e.clientY;
-      startScroll = el.scrollLeft;
-      axis = null;
-      swiped = false;
+      gesture = {
+        id: e.pointerId,
+        startX: e.clientX,
+        startY: e.clientY,
+        axis: null,
+        swiped: false,
+      };
       document.body.style.userSelect = 'none';
-      document.addEventListener('pointermove', onMove, { passive: false });
-      document.addEventListener('pointerup', onUp);
-      document.addEventListener('pointercancel', onUp);
     };
 
-    el.addEventListener('pointerdown', onDown);
-    return () => {
-      el.removeEventListener('pointerdown', onDown);
-      document.removeEventListener('pointermove', onMove);
-      document.removeEventListener('pointerup', onUp);
-      document.removeEventListener('pointercancel', onUp);
-      document.body.style.removeProperty('user-select');
+    const onPointerMove = (e: PointerEvent) => {
+      if (!gesture || gesture.id !== e.pointerId) return;
+      onMoveXY(e.clientX, e.clientY, () => e.preventDefault());
     };
-  }, []);
+
+    const onPointerUp = (e: PointerEvent) => {
+      if (!gesture || gesture.id !== e.pointerId) return;
+      endGesture(e.clientX);
+    };
+
+    // Mouse fallbacks for environments that don't emit pointer events.
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      // If a pointer gesture already started, skip duplicate mouse path.
+      if (gesture) return;
+      gesture = {
+        id: 'mouse',
+        startX: e.clientX,
+        startY: e.clientY,
+        axis: null,
+        swiped: false,
+      };
+      document.body.style.userSelect = 'none';
+    };
+
+    const onMouseMove = (e: MouseEvent) => {
+      if (!gesture || gesture.id !== 'mouse') return;
+      onMoveXY(e.clientX, e.clientY, () => e.preventDefault());
+    };
+
+    const onMouseUp = (e: MouseEvent) => {
+      if (!gesture || gesture.id !== 'mouse') return;
+      endGesture(e.clientX);
+    };
+
+    const onTouchStart = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (gesture) return;
+      const t = e.touches[0]!;
+      gesture = {
+        id: 'touch',
+        startX: t.clientX,
+        startY: t.clientY,
+        axis: null,
+        swiped: false,
+      };
+    };
+
+    const onTouchMove = (e: TouchEvent) => {
+      if (!gesture || gesture.id !== 'touch' || e.touches.length !== 1) return;
+      const t = e.touches[0]!;
+      onMoveXY(t.clientX, t.clientY, () => {
+        if (gesture?.axis === 'h') e.preventDefault();
+      });
+    };
+
+    const onTouchEnd = (e: TouchEvent) => {
+      if (!gesture || gesture.id !== 'touch') return;
+      const t = e.changedTouches[0];
+      endGesture(t?.clientX ?? gesture.startX);
+    };
+
+    // Capture on the track so we see events before children stop them.
+    el.addEventListener('pointerdown', onPointerDown, true);
+    document.addEventListener('pointermove', onPointerMove, { passive: false });
+    document.addEventListener('pointerup', onPointerUp, true);
+    document.addEventListener('pointercancel', onPointerUp, true);
+
+    el.addEventListener('mousedown', onMouseDown, true);
+    document.addEventListener('mousemove', onMouseMove);
+    document.addEventListener('mouseup', onMouseUp, true);
+
+    el.addEventListener('touchstart', onTouchStart, { capture: true, passive: true });
+    el.addEventListener('touchmove', onTouchMove, { capture: true, passive: false });
+    el.addEventListener('touchend', onTouchEnd, true);
+    el.addEventListener('touchcancel', onTouchEnd, true);
+
+    return () => {
+      el.removeEventListener('pointerdown', onPointerDown, true);
+      document.removeEventListener('pointermove', onPointerMove);
+      document.removeEventListener('pointerup', onPointerUp, true);
+      document.removeEventListener('pointercancel', onPointerUp, true);
+      el.removeEventListener('mousedown', onMouseDown, true);
+      document.removeEventListener('mousemove', onMouseMove);
+      document.removeEventListener('mouseup', onMouseUp, true);
+      el.removeEventListener('touchstart', onTouchStart, true);
+      el.removeEventListener('touchmove', onTouchMove, true);
+      el.removeEventListener('touchend', onTouchEnd, true);
+      el.removeEventListener('touchcancel', onTouchEnd, true);
+      document.body.style.removeProperty('user-select');
+      document.body.style.removeProperty('cursor');
+    };
+  }, [swipeThresholdPx]);
 
   // Tab change → scroll to slide (skipped when swipe-driven), then pin every
   // off-screen panel to the top so the destination always starts at the top.
@@ -198,8 +313,6 @@ export function useSwipeTabs<T extends string>({
       }
     };
 
-    // Swipe-driven: we're already at the slide and the outgoing panel is fully
-    // off-screen, so resetting it now is invisible.
     if (scrollSync.current) {
       scrollSync.current = false;
       resetInactive();
@@ -218,8 +331,6 @@ export function useSwipeTabs<T extends string>({
       return;
     }
 
-    // First paint / deep link: snap instantly so the correct panel is visible
-    // before the first paint settles (path-based portals especially).
     if (!didInit.current) {
       didInit.current = true;
       el.scrollTo({ left: target });
@@ -227,8 +338,6 @@ export function useSwipeTabs<T extends string>({
       return;
     }
 
-    // Click / programmatic: smooth-scroll there, then reset the (now off-screen)
-    // outgoing panels once the scroll has finished — so no exit jump is visible.
     isProgScrolling.current = true;
     el.scrollTo({ left: target, behavior: 'smooth' });
     const timeout = setTimeout(() => {
@@ -244,7 +353,7 @@ export function useSwipeTabs<T extends string>({
     if (urlSync !== 'query') return;
     const tabParam = new URLSearchParams(window.location.search).get('tab');
     if (isValidTab(tabParam)) {
-      scrollSync.current = true; // position instantly below; skip the smooth scroll
+      scrollSync.current = true;
       setActiveTab(tabParam);
       requestAnimationFrame(() => {
         const el = scrollRef.current;

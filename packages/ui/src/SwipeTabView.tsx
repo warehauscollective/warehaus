@@ -26,7 +26,9 @@ const trackStyle: CSSProperties = {
   scrollbarWidth: 'none',
   willChange: 'scroll-position',
   msOverflowStyle: 'none',
-};
+  touchAction: 'pan-x pan-y',
+  WebkitOverflowScrolling: 'touch',
+} as CSSProperties;
 
 const panelStyle: CSSProperties = {
   height: '100%',

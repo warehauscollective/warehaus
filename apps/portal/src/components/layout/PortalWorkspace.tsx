@@ -166,7 +166,8 @@ export function PortalTilePane({
         overflowY: 'auto',
         overscrollBehaviorX: 'none',
         overscrollBehaviorY: 'contain',
-        touchAction: 'pan-y',
+        // Allow both axes so horizontal tab swipes aren't killed by pan-y.
+        touchAction: 'pan-x pan-y',
         paddingBottom: '0.25rem',
       }}
     >

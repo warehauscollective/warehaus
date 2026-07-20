@@ -46,13 +46,14 @@ export function PortalSwipeWorkspace() {
         tabs={tabs}
         scrollRef={scrollRef}
         panelRefs={panelRefs}
-        panelStyle={{ overflowY: 'hidden', touchAction: 'auto' }}
+        panelStyle={{ overflowY: 'hidden', touchAction: 'pan-x pan-y' }}
         renderPanel={(tab) => (
           <div
             className="box-border h-full min-h-0 overflow-hidden pb-28 pt-16 lg:pt-3"
             style={{
               paddingLeft: 'calc(var(--portal-rail-w, 0px) + var(--gutter))',
               paddingRight: 'var(--gutter)',
+              touchAction: 'pan-x pan-y',
             }}
           >
             {renderPortalPanel(tab)}
