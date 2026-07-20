@@ -37,3 +37,21 @@ export const PORTAL_SIDEBAR_SECTIONS: Record<PortalTab, PortalSidebarSection[]> 
     { key: 'preferences', label: 'Preferences' },
   ],
 };
+
+/** Left-rail sections when a single project workspace is open. */
+export const PROJECT_WORKSPACE_SECTIONS: PortalSidebarSection[] = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'client', label: 'Client' },
+  { key: 'tasks', label: 'Tasks' },
+  { key: 'context', label: 'Context' },
+  { key: 'design', label: 'Design' },
+  { key: 'build', label: 'Build' },
+  { key: 'resources', label: 'Resources' },
+];
+
+/** `/projects` list vs `/projects/[slug]` workspace. */
+export function getProjectSlugFromPath(pathname: string): string | null {
+  const match = pathname.match(/^\/projects\/([^/]+)\/?$/);
+  if (!match?.[1] || match[1] === 'new') return null;
+  return decodeURIComponent(match[1]);
+}

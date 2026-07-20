@@ -9,7 +9,14 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { PORTAL_SIDEBAR_SECTIONS } from '@/lib/data/sidebarSections';
+import { usePathname } from 'next/navigation';
+import {
+  getProjectSlugFromPath,
+  PORTAL_SIDEBAR_SECTIONS,
+  PROJECT_WORKSPACE_SECTIONS,
+  type PortalSidebarSection,
+} from '@/lib/data/sidebarSections';
+import { getProjectBySlug } from '@/lib/data/projects';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 
 export type PortalDetail = {
@@ -23,6 +30,11 @@ interface PortalViewContextValue {
   /** Active sidebar section for the current tab — a view mode, not a scroll target. */
   activeSection: string;
   setActiveSection: (key: string) => void;
+  /** Sidebar sections for the current surface (list tab or project workspace). */
+  sections: PortalSidebarSection[];
+  /** When set, the projects tab is showing a single engagement workspace. */
+  projectSlug: string | null;
+  projectName: string | null;
   detail: PortalDetail;
   openDetail: (detail: NonNullable<PortalDetail>) => void;
   closeDetail: () => void;
@@ -31,16 +43,24 @@ interface PortalViewContextValue {
 const PortalViewContext = createContext<PortalViewContextValue | null>(null);
 
 export function PortalViewProvider({ children }: { children: ReactNode }) {
+  const pathname = usePathname();
   const { activeTab } = usePortalTab();
-  const defaultSection = PORTAL_SIDEBAR_SECTIONS[activeTab][0]?.key ?? 'overview';
+  const projectSlug = activeTab === 'projects' ? getProjectSlugFromPath(pathname) : null;
+  const project = projectSlug ? getProjectBySlug(projectSlug) : undefined;
+  const sections =
+    projectSlug && project ? PROJECT_WORKSPACE_SECTIONS : PORTAL_SIDEBAR_SECTIONS[activeTab];
+  const defaultSection = sections[0]?.key ?? 'overview';
+
   const [activeSection, setActiveSectionState] = useState(defaultSection);
   const [detail, setDetail] = useState<PortalDetail>(null);
 
-  // Tab change → reset to that tab's first section and clear the inspector.
+  // Tab change or enter/leave project workspace → reset section + inspector.
   useEffect(() => {
-    setActiveSectionState(PORTAL_SIDEBAR_SECTIONS[activeTab][0]?.key ?? 'overview');
+    setActiveSectionState(sections[0]?.key ?? 'overview');
     setDetail(null);
-  }, [activeTab]);
+    // sections identity changes with projectSlug / activeTab
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, projectSlug]);
 
   const setActiveSection = useCallback((key: string) => {
     setActiveSectionState(key);
@@ -57,11 +77,22 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
     () => ({
       activeSection,
       setActiveSection,
+      sections,
+      projectSlug: project ? project.slug : null,
+      projectName: project?.name ?? null,
       detail,
       openDetail,
       closeDetail,
     }),
-    [activeSection, setActiveSection, detail, openDetail, closeDetail],
+    [
+      activeSection,
+      setActiveSection,
+      sections,
+      project,
+      detail,
+      openDetail,
+      closeDetail,
+    ],
   );
 
   return (

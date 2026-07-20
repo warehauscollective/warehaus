@@ -2,9 +2,9 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { BevelFrame } from '@warehaus/ui';
 import { WarehausLogo } from '@warehaus/ui';
-import { PORTAL_SIDEBAR_SECTIONS } from '@/lib/data/sidebarSections';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 
@@ -18,9 +18,15 @@ const DEFAULT_RAIL = 244;
  * - Mobile / tablet: floating top nav with horizontal section chips
  */
 export function PortalSidebar() {
+  const router = useRouter();
   const { activeTab: tab } = usePortalTab();
-  const { activeSection, setActiveSection } = usePortalView();
-  const sections = PORTAL_SIDEBAR_SECTIONS[tab];
+  const {
+    activeSection,
+    setActiveSection,
+    sections,
+    projectSlug,
+    projectName,
+  } = usePortalView();
 
   const [railW, setRailW] = useState(DEFAULT_RAIL);
   const [collapsed, setCollapsed] = useState(false);
@@ -118,8 +124,25 @@ export function PortalSidebar() {
             color: 'var(--muted)',
           }}
         >
-          {tab}
+          {projectSlug ? 'Project' : tab}
         </span>
+        {projectSlug ? (
+          <button
+            type="button"
+            onClick={() => router.push('/projects')}
+            className="ds-mono shrink-0"
+            style={{
+              fontSize: '0.65rem',
+              color: 'var(--accent)',
+              background: 'none',
+              border: 0,
+              cursor: 'pointer',
+              padding: '0.35rem 0.4rem',
+            }}
+          >
+            ← List
+          </button>
+        ) : null}
         <div
           className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain"
           style={{ scrollbarWidth: 'none' }}
@@ -207,8 +230,33 @@ export function PortalSidebar() {
                 marginBottom: 'var(--s-2)',
               }}
             >
-              {tab}
+              {projectSlug ? 'Project' : tab}
             </p>
+            {projectSlug ? (
+              <button
+                type="button"
+                onClick={() => router.push('/projects')}
+                className="mb-2 text-left transition-colors"
+                style={{
+                  fontSize: 'var(--t-xs)',
+                  padding: '0.5rem 0.8rem',
+                  borderRadius: 12,
+                  color: 'var(--accent)',
+                  background: 'transparent',
+                  border: '1px solid transparent',
+                }}
+              >
+                ← All projects
+                {projectName ? (
+                  <span
+                    className="mt-1 block truncate"
+                    style={{ color: 'var(--muted)', fontSize: 'var(--t-xs)' }}
+                  >
+                    {projectName}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
             {sections.map((s) => {
               const active = activeSection === s.key;
               return (

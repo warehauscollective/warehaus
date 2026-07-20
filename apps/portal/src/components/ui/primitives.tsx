@@ -65,13 +65,16 @@ export function Surface({
 export function PrimaryButton({
   children,
   type = 'button',
+  onClick,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
+  onClick?: () => void;
 }) {
   return (
     <button
       type={type}
+      onClick={onClick}
       className="inline-flex items-center justify-center"
       style={{
         background: 'var(--accent)',
@@ -90,10 +93,17 @@ export function PrimaryButton({
   );
 }
 
-export function GhostButton({ children }: { children: ReactNode }) {
+export function GhostButton({
+  children,
+  onClick,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+}) {
   return (
     <button
       type="button"
+      onClick={onClick}
       className="inline-flex items-center justify-center"
       style={{
         background: 'transparent',
