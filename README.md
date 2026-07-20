@@ -1,7 +1,7 @@
 # Warehaus
 
 Monorepo for the Warehaus **website** and **client portal** — shared design
-tokens and logic, separate deployable apps.
+tokens, brand UI, and logic; separate deployable apps.
 
 ## Apps
 
@@ -25,6 +25,7 @@ marketing site. Architecture: [`docs/monorepo-portal-architecture.md`](docs/mono
 | Package | Role |
 | --- | --- |
 | `@warehaus/tokens` | Design tokens → CSS vars (web) + JS maps (native later) |
+| `@warehaus/ui` | Brand UI source of truth — Bevel, typography, logo, brand CSS |
 | `@warehaus/logic` | Pure nav/config helpers (portal IA today) |
 | `@warehaus/typescript-config` | Shared TSConfig bases |
 

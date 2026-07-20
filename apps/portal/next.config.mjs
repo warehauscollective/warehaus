@@ -1,6 +1,6 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['@warehaus/logic', '@warehaus/tokens'],
+  transpilePackages: ['@warehaus/logic', '@warehaus/tokens', '@warehaus/ui'],
   async redirects() {
     return [
       // Home is `/` on this app (the portal. host). Nested /portal and

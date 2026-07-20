@@ -10,7 +10,7 @@ import {
   type ElementType,
   type ReactNode,
 } from 'react';
-import { useBevelInspector } from '@/components/dev/bevelInspector';
+import { useBevelInspector } from './bevel-inspector';
 
 // useLayoutEffect on the client (no paint flash), useEffect on the server (no SSR warning).
 const useIsoLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
@@ -182,7 +182,6 @@ export function Bevel({
   ...rest
 }: BevelProps) {
   // Polymorphic tag — typed loosely so any element/props (incl. ref) are valid.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- polymorphic host
   const Tag = (as || 'div') as any;
   const ref = useRef<HTMLElement | null>(null);
   const [box, setBox] = useState<{ w: number; h: number }>({ w: 0, h: 0 });

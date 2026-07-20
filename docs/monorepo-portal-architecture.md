@@ -33,7 +33,7 @@ Goals:
 | --- | --- | --- |
 | Workspace layout | **In place** | npm workspaces: `apps/*`, `packages/*` |
 | Deployable apps | **Two** | `@warehaus/web`, `@warehaus/portal` |
-| Shared packages | **Growing** | `tokens`, `logic`, `typescript-config` (`ui` still pending) |
+| Shared packages | **Growing** | `tokens`, `ui`, `logic`, `typescript-config` |
 | Turborepo | **In place** | Root scripts filter web / portal |
 | Package manager | **npm** | Staying on npm workspaces for now |
 | Portal app | **Scaffolded** | Shell + dock + tab routes; no auth yet |

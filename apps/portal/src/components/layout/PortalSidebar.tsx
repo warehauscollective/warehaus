@@ -4,8 +4,8 @@ import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { getPortalTabForPath } from '@warehaus/logic/portal';
-import { BevelFrame } from '@/components/ui/BevelFrame';
-import { WarehausLogo } from '@/components/ui/WarehausLogo';
+import { BevelFrame } from '@warehaus/ui';
+import { WarehausLogo } from '@warehaus/ui';
 import { PORTAL_SIDEBAR_SECTIONS } from '@/lib/data/sidebarSections';
 
 const MIN_RAIL = 200;

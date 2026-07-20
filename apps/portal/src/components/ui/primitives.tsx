@@ -1,8 +1,8 @@
 import type { CSSProperties, ReactNode } from 'react';
-import { Bevel } from './Bevel';
+import { Bevel, Eyebrow as UiEyebrow } from '@warehaus/ui';
 
 export function Eyebrow({ children }: { children: ReactNode }) {
-  return <p className="ds-eyebrow">{children}</p>;
+  return <UiEyebrow>{children}</UiEyebrow>;
 }
 
 export function Pill({

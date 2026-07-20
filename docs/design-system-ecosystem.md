@@ -1,6 +1,7 @@
 # Warehaus Design-System Ecosystem — Architecture Plan
 
-> Status: **proposal / decision doc** (partially executed — see §2 note).
+> Status: **proposal / decision doc** (Phase B started — `@warehaus/ui` extracted;
+> see §2 note and `monorepo-portal-architecture.md`).
 > Captures the target architecture for growing the Warehaus UI into a managed
 > system that spans a **marketing website**, a **portal**, and eventually a
 > **React Native portal**, with good performance across devices.

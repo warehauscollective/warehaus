@@ -10,7 +10,7 @@ import {
   type ElementType,
   type ReactNode,
 } from 'react';
-import { useBevelInspector } from '@/components/dev/bevelInspector';
+import { useBevelInspector } from './bevel-inspector';
 
 const useIso = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
@@ -148,7 +148,6 @@ export function BevelFrame({
   inspectorLabel,
   ...rest
 }: BevelFrameProps) {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- polymorphic host
   const Tag = (as || 'div') as any;
   const ref = useRef<HTMLElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);

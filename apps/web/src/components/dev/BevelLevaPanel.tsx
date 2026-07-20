@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { Leva, useControls, folder } from 'leva';
-import type { BevelCorner } from '@/components/react/ui/Bevel';
+import type { BevelCorner } from '@warehaus/ui';
 import { BEVEL_CORNERS, parseCorners, useBevelInspector } from './bevelInspector';
 
 /** Build an options object that always includes the current value. */

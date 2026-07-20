@@ -22,6 +22,7 @@
     "@tailwindcss/postcss": "^4.1.18",
     "@vercel/toolbar": "^0.2.2",
     "@warehaus/tokens": "*",
+    "@warehaus/ui": "*",
     "agentation": "^3.0.2",
     "clsx": "^2.1.1",
     "embla-carousel-react": "^8.6.0",

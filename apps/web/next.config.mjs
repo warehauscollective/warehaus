@@ -15,6 +15,7 @@ const nextConfig = {
     '@react-three/drei',
     '@warehaus/tokens',
     '@warehaus/logic',
+    '@warehaus/ui',
   ],
   async redirects() {
     return [

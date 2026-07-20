@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
-import { Geist, Geist_Mono } from 'next/font/google';
+import { DM_Sans, Geist, Geist_Mono } from 'next/font/google';
 import { PortalShell } from '@/components/layout/PortalShell';
 import '@/styles/global.css';
 
@@ -32,6 +32,13 @@ const eurostile = localFont({
     },
   ],
   variable: '--font-display',
+  display: 'swap',
+});
+
+const dmSans = DM_Sans({
+  subsets: ['latin'],
+  weight: ['400', '500', '600', '700'],
+  variable: '--font-body',
   display: 'swap',
 });
 
@@ -76,13 +83,13 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html
       lang="en"
-      className={`${eurostile.variable} ${geist.variable} ${geistMono.variable}`}
+      className={`${eurostile.variable} ${dmSans.variable} ${geist.variable} ${geistMono.variable}`}
       suppressHydrationWarning
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
-      <body className="bg-background text-foreground antialiased" suppressHydrationWarning>
+      <body className="bg-background text-foreground font-body antialiased" suppressHydrationWarning>
         <PortalShell>{children}</PortalShell>
       </body>
     </html>
