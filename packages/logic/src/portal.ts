@@ -33,8 +33,9 @@ export const PORTAL_TABS: PortalNavTab[] = [
 ];
 
 export function getPortalTabForPath(pathname: string): PortalTab {
-  // Exact `/` is the portal home — must not use startsWith('/') or every path matches.
-  if (pathname === '/') return 'portal';
+  // Exact `/` (and legacy `/portal`) is the portal home — must not use
+  // startsWith('/') or every path matches.
+  if (pathname === '/' || pathname === '/portal') return 'portal';
 
   const match = PORTAL_TABS.find(
     (tab) =>
