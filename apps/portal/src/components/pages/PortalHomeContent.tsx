@@ -12,7 +12,7 @@ export function PortalHomeContent() {
   return (
     <div style={{ maxWidth: 'var(--maxw)' }}>
       <Section id="overview" style={{ paddingTop: 'clamp(3rem, 2rem + 5vw, 5rem)' }}>
-        <Eyebrow>Portal</Eyebrow>
+        <Eyebrow>Portal · Dashboard</Eyebrow>
         <h1
           className="type-display"
           style={{ fontSize: 'var(--t-3xl)', marginTop: 'var(--s-4)', maxWidth: '16ch' }}

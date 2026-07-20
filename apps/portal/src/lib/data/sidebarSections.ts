@@ -10,7 +10,7 @@ export interface PortalSidebarSection {
 }
 
 export const PORTAL_SIDEBAR_SECTIONS: Record<PortalTab, PortalSidebarSection[]> = {
-  portal: [
+  dashboard: [
     { key: 'overview', label: 'Overview' },
     { key: 'shipments', label: 'Shipments' },
     { key: 'new-shipment', label: 'New shipment' },

@@ -55,7 +55,7 @@ How to tell which app you’re on:
 | URL | App | Dock tabs |
 | --- | --- | --- |
 | `http://localhost:3000` | Website | DREAM · DESIGN · DEVELOP |
-| `http://localhost:3100` | Portal | PORTAL · PROJECTS · CHATROOM · ACTIVITY · ACCOUNT |
+| `http://localhost:3100` | Portal | DASHBOARD · PROJECTS · CHATROOM · ACTIVITY · ACCOUNT |
 
 Website `/portal` redirects to `NEXT_PUBLIC_PORTAL_URL` (default `http://localhost:3100`).
 

@@ -55,7 +55,7 @@ const WORLDS_TABS: NavTab[] = [
  * the portal dock chrome around a Next.js 404.
  */
 export const PORTAL_PRODUCT_TABS: NavTab[] = [
-  { value: 'portal', label: 'PORTAL', colorClass: 'text-accent' },
+  { value: 'dashboard', label: 'DASHBOARD', colorClass: 'text-accent' },
   { value: 'projects', label: 'PROJECTS', colorClass: 'text-accent' },
   { value: 'chatroom', label: 'CHATROOM', colorClass: 'text-accent' },
   { value: 'activity', label: 'ACTIVITY', colorClass: 'text-accent' },

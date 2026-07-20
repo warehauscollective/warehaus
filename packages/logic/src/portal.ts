@@ -8,7 +8,7 @@
  */
 
 export type PortalTab =
-  | 'portal'
+  | 'dashboard'
   | 'projects'
   | 'chatroom'
   | 'activity'
@@ -25,7 +25,7 @@ export interface PortalNavTab {
 
 /** Ordered tab set for the portal floating dock. First entry is the default. */
 export const PORTAL_TABS: PortalNavTab[] = [
-  { value: 'portal', label: 'PORTAL', href: '/', colorClass: 'text-accent' },
+  { value: 'dashboard', label: 'DASHBOARD', href: '/', colorClass: 'text-accent' },
   { value: 'projects', label: 'PROJECTS', href: '/projects', colorClass: 'text-accent' },
   { value: 'chatroom', label: 'CHATROOM', href: '/chatroom', colorClass: 'text-accent' },
   { value: 'activity', label: 'ACTIVITY', href: '/activity', colorClass: 'text-accent' },
@@ -33,9 +33,9 @@ export const PORTAL_TABS: PortalNavTab[] = [
 ];
 
 export function getPortalTabForPath(pathname: string): PortalTab {
-  // Exact `/` (and legacy `/portal`) is the portal home — must not use
+  // Exact `/` (and legacy `/portal`) is the dashboard home — must not use
   // startsWith('/') or every path matches.
-  if (pathname === '/' || pathname === '/portal') return 'portal';
+  if (pathname === '/' || pathname === '/portal') return 'dashboard';
 
   const match = PORTAL_TABS.find(
     (tab) =>

@@ -15,7 +15,7 @@ export type PillarTab = 'dream' | 'design' | 'develop';
 /** The three Style Guide tabs. */
 export type StyleGuideTab = 'brand' | 'website' | 'portal';
 /** The logged-in Portal tabs. */
-export type PortalTab = 'portal' | 'projects' | 'chatroom' | 'activity' | 'account';
+export type PortalTab = 'dashboard' | 'projects' | 'chatroom' | 'activity' | 'account';
 /**
  * Any tab the route-aware navbar can surface. The navbar is fully data-driven
  * from `navTabs.ts` and supports up to 6 tabs per route — add a route's set
