@@ -1,0 +1,25 @@
+@import "tailwindcss";
+/* Shared design tokens + brand chrome (single source of truth). */
+@import "@warehaus/tokens/css";
+@import "@warehaus/ui/styles/brand.css";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+}
+
+/* Portal-only: product shell uses the full viewport under the dock. */
+main {
+  min-height: 100dvh;
+}

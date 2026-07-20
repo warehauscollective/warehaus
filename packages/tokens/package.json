@@ -10,9 +10,16 @@
     ".": {
       "types": "./src/index.d.ts",
       "default": "./src/index.mjs"
-    }
+    },
+    "./css": "./dist/tokens.css"
   },
   "files": [
-    "src"
-  ]
+    "src",
+    "dist"
+  ],
+  "scripts": {
+    "tokens": "node scripts/build-css.mjs",
+    "build": "node scripts/build-css.mjs",
+    "prepare": "node scripts/build-css.mjs"
+  }
 }

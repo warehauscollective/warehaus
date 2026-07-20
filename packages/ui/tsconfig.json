@@ -1,0 +1,10 @@
+{
+  "extends": "@warehaus/typescript-config/base.json",
+  "compilerOptions": {
+    "jsx": "preserve",
+    "rootDir": "src",
+    "baseUrl": "."
+  },
+  "include": ["src/**/*.ts", "src/**/*.tsx"],
+  "exclude": ["node_modules"]
+}

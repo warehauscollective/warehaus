@@ -2,6 +2,7 @@
 .next/
 out/
 .vercel/
+.turbo/
 
 # generated types
 next-env.d.ts
@@ -38,3 +39,4 @@ storybook-static
 # Chromatic/Storybook build log
 build-storybook.log
 chromatic-diagnostics.json
+*.tsbuildinfo
