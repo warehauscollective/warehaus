@@ -140,7 +140,7 @@ web primitive layer in Path B, but it is not the cross-platform answer.
 - **Phase 0 — Tokens + monorepo skeleton.** Stand up Turborepo, move the app to
   `apps/web`, create `packages/tokens` and generate today's `global.css` block
   from it. No visual change. *Highest leverage, lowest risk.*
-  **Progress:** `apps/web` + `@warehaus/tokens` exist; Turborepo still missing.
+  **Progress:** `apps/web` + `@warehaus/tokens` + Turborepo + thin `apps/portal`.
 - **Phase 1 — Storybook (web).** Add Storybook to `packages/ui`; write stories
   for `Bevel`, `BevelFrame`, `Card`, `DsButton`, inputs, the rail, etc. Add a11y
   + viewport addons.

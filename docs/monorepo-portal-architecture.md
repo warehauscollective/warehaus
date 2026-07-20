@@ -1,9 +1,7 @@
 # Warehaus Monorepo — Website + Portal Architecture Plan
 
-> Status: **decision / planning doc**. Captures a thorough diagnosis of today’s
-> repo and the recommended path to two deployable surfaces (**website** and
-> **portal**) that share libraries, tokens, and frontend paradigms — with a
-> future **React Native portal** (and explicitly **no** React Native website).
+> Status: **active plan** — Phase A scaffolding has started (`turbo`,
+> `apps/portal`, package-level tokens CSS, `@warehaus/logic` portal IA).
 >
 > Companion to [`design-system-ecosystem.md`](./design-system-ecosystem.md).
 > Where the two differ, **this doc wins** on app naming and app boundaries.
@@ -33,12 +31,12 @@ Goals:
 
 | Layer | Status | Notes |
 | --- | --- | --- |
-| Workspace layout | **Started** | npm workspaces: `apps/*`, `packages/*` |
-| Deployable apps | **One** | Only `@warehaus/web` |
-| Shared packages | **One** | `@warehaus/tokens` (scalars + color themes) |
-| Turborepo | **Missing** | No `turbo.json`; root scripts proxy into `@warehaus/web` only |
-| pnpm | **Not adopted** | Lockfile is `package-lock.json` (npm). Ecosystem plan preferred pnpm; either works — pick one and stick. |
-| Portal app | **Does not exist** | No `apps/portal`, no `/portal` route page |
+| Workspace layout | **In place** | npm workspaces: `apps/*`, `packages/*` |
+| Deployable apps | **Two** | `@warehaus/web`, `@warehaus/portal` |
+| Shared packages | **Growing** | `tokens`, `logic`, `typescript-config` (`ui` still pending) |
+| Turborepo | **In place** | Root scripts filter web / portal |
+| Package manager | **npm** | Staying on npm workspaces for now |
+| Portal app | **Scaffolded** | Shell + dock + tab routes; no auth yet |
 | Native app | **Does not exist** | Intentionally later |
 
 Phase 0 from the ecosystem plan is **partially complete**: the Next app lives under
@@ -343,11 +341,13 @@ the phase’s goal says otherwise.
 
 ### Phase A — Tooling skeleton (no UX change)
 
-- Add Turborepo (`turbo.json`) with `build` / `lint` / `typecheck` / `tokens`.
-- Root scripts: `turbo run dev --filter=@warehaus/web` etc.
-- Decide package manager (stay on npm **or** migrate to pnpm); document in README.
-- Add `packages/typescript-config`.
-- Update root README (current root README still describes an Astro starter — stale).
+- [x] Add Turborepo (`turbo.json`) with `build` / `lint` / `typecheck` / `tokens`.
+- [x] Root scripts: `turbo run dev --filter=@warehaus/web` / `@warehaus/portal`.
+- [x] Stay on **npm** workspaces (documented in README).
+- [x] Add `packages/typescript-config`.
+- [x] Update root README for the monorepo.
+- [x] Scaffold thin `apps/portal` on shared tokens + `@warehaus/logic` portal tabs.
+- [x] Move token CSS emit to `packages/tokens` (`@warehaus/tokens/css`).
 
 ### Phase B — Shared packages from existing code
 

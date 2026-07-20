@@ -1,0 +1,27 @@
+{
+  "name": "@warehaus/logic",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Framework-agnostic Warehaus logic — nav config, types, pure helpers.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./portal": {
+      "types": "./src/portal.ts",
+      "default": "./src/portal.ts"
+    }
+  },
+  "files": [
+    "src"
+  ],
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@warehaus/typescript-config": "*",
+    "typescript": "^5.9.3"
+  }
+}

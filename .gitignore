@@ -2,6 +2,7 @@
 .next/
 out/
 .vercel/
+.turbo/
 
 # generated types
 next-env.d.ts

@@ -1,0 +1,100 @@
+@import "tailwindcss";
+/* Shared design tokens — built by @warehaus/tokens. */
+@import "@warehaus/tokens/css";
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-accent: var(--accent);
+  --color-surface: var(--surface);
+  --color-surface-elevated: var(--surface-elevated);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  --color-info: var(--info);
+  --font-display: var(--font-display);
+  --font-body: var(--font-body);
+}
+
+:root {
+  --font-display: "Eurostile", sans-serif;
+  --font-body: var(--font-geist), "DM Sans", -apple-system, system-ui, sans-serif;
+
+  --glass-bg: rgba(255, 255, 255, 0.03);
+  --glass-border: rgba(255, 255, 255, 0.06);
+  --glass-blur: 16px;
+
+  /* Navbar chrome — same ink/paper contract as the website dock. */
+  --nav-bg: rgba(10, 10, 11, 0.7);
+  --nav-border: rgba(253, 253, 254, 0.18);
+  --nav-text: rgba(253, 253, 254, 0.6);
+  --nav-text-active: #fdfdfe;
+  --nav-text-muted: rgba(253, 253, 254, 0.4);
+  --nav-pill-bg: #fdfdfe;
+  --nav-pill-border: rgba(10, 10, 11, 0.06);
+  --nav-text-inverse: #0a0a0b;
+  --nav-surface: rgba(253, 253, 254, 0.08);
+}
+
+:root.light {
+  --glass-bg: rgba(0, 0, 0, 0.03);
+  --glass-border: rgba(0, 0, 0, 0.06);
+
+  --nav-bg: rgba(253, 253, 254, 0.7);
+  --nav-border: rgba(10, 10, 11, 0.32);
+  --nav-text: rgba(10, 10, 11, 0.6);
+  --nav-text-active: #0a0a0b;
+  --nav-text-muted: rgba(10, 10, 11, 0.35);
+  --nav-pill-bg: #0a0a0b;
+  --nav-pill-border: rgba(253, 253, 254, 0.1);
+  --nav-text-inverse: #fdfdfe;
+  --nav-surface: rgba(10, 10, 11, 0.05);
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-body);
+  transition: background-color 0.5s ease, color 0.5s ease;
+}
+
+@layer components {
+  .type-display {
+    font-family: var(--font-display);
+    font-weight: 900;
+    font-style: italic;
+    text-transform: uppercase;
+    letter-spacing: var(--ls-display);
+    line-height: var(--lh-tight);
+  }
+
+  .type-heading {
+    font-family: var(--font-display);
+    font-weight: 600;
+    line-height: var(--lh-head);
+    letter-spacing: var(--ls-display);
+  }
+
+  .ds-eyebrow {
+    font-family: var(--font-mono);
+    font-size: var(--t-xs);
+    text-transform: uppercase;
+    letter-spacing: var(--ls-eyebrow);
+    color: var(--accent);
+    font-weight: 500;
+  }
+
+  .ds-mono {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .ds-lead {
+    font-size: var(--t-md);
+    color: var(--muted);
+    line-height: 1.5;
+    max-width: 56ch;
+  }
+}

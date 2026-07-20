@@ -2,7 +2,13 @@ import createWithVercelToolbar from '@vercel/toolbar/plugins/next';
 
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  transpilePackages: ['three', '@react-three/fiber', '@react-three/drei'],
+  transpilePackages: [
+    'three',
+    '@react-three/fiber',
+    '@react-three/drei',
+    '@warehaus/tokens',
+    '@warehaus/logic',
+  ],
   async redirects() {
     return [
       {

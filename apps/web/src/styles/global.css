@@ -1,6 +1,6 @@
 @import "tailwindcss";
-/* Scalar design tokens — generated from @warehaus/tokens via `npm run tokens`. */
-@import "./tokens.generated.css";
+/* Shared design tokens — built by @warehaus/tokens (`npm run tokens`). */
+@import "@warehaus/tokens/css";
 
 @theme inline {
   --color-background: var(--background);

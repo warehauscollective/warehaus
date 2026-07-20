@@ -1,65 +1,53 @@
-# Astro Static Marketing Site Starter
+# Warehaus
 
-A minimal Astro starter with Tailwind CSS for building static marketing sites with Ship Studio.
+Monorepo for the Warehaus **website** and **client portal** — shared design
+tokens and logic, separate deployable apps.
 
-## Features
+## Apps
 
-- **Astro 5** - Static site generation with island architecture
-- **Tailwind CSS 4** - Modern utility-first CSS with CSS variables
-- **Dark Mode** - Automatic dark/light theme based on system preferences
-- **Google Fonts** - Space Grotesk (display) + DM Sans (body)
-- **Responsive** - Mobile-first design patterns
+| App | Package | Port | Role |
+| --- | --- | --- | --- |
+| Website | `@warehaus/web` | `3000` | Marketing site (Next.js) |
+| Portal | `@warehaus/portal` | `3001` | Client product shell (Next.js) |
 
-## Getting Started
+A React Native **portal** (`apps/native`) is planned later. There will be no RN
+marketing site. Architecture: [`docs/monorepo-portal-architecture.md`](docs/monorepo-portal-architecture.md).
 
-```bash
-npm install
-npm run dev
-```
+## Packages
 
-Open [http://localhost:4321](http://localhost:4321) to view your site.
-
-## Project Structure
-
-```
-├── src/
-│   ├── layouts/
-│   │   └── Layout.astro    # Base layout with fonts and styles
-│   ├── pages/
-│   │   └── index.astro     # Homepage
-│   └── styles/
-│       └── global.css      # Tailwind + CSS variables
-├── public/                  # Static assets
-└── astro.config.mjs        # Astro configuration
-```
+| Package | Role |
+| --- | --- |
+| `@warehaus/tokens` | Design tokens → CSS vars (web) + JS maps (native later) |
+| `@warehaus/logic` | Pure nav/config helpers (portal IA today) |
+| `@warehaus/typescript-config` | Shared TSConfig bases |
 
 ## Commands
 
-| Command         | Action                                       |
-| --------------- | -------------------------------------------- |
-| `npm run dev`   | Start dev server at `localhost:4321`         |
-| `npm run build` | Build production site to `./dist/`           |
-| `npm run preview` | Preview production build locally           |
+```bash
+npm install
 
-## Customization
+npm run dev            # website → http://localhost:3000
+npm run dev:portal     # portal  → http://localhost:3001
 
-### Colors
+npm run build          # all apps (Turborepo)
+npm run build:web
+npm run build:portal
 
-Edit the CSS variables in `src/styles/global.css`:
-
-```css
-:root {
-  --background: #fafaf9;
-  --foreground: #1c1917;
-  --muted: #78716c;
-  --accent: #dc2626;
-}
+npm run tokens         # regenerate packages/tokens/dist/tokens.css
+npm run typecheck
+npm run lint
 ```
 
-### Fonts
+Package manager: **npm workspaces** (staying on npm for now). Orchestration:
+**Turborepo**.
 
-Fonts are loaded via Google Fonts in `src/layouts/Layout.astro`. Update the import URL and CSS variables to change fonts.
+## Deploy
 
-## License
+Two Vercel projects from this repo (recommended):
 
-MIT
+- Website → root directory `apps/web`
+- Portal → root directory `apps/portal`
+
+## Brand
+
+Heading font: **Eurostile** (see `CLAUDE.md` / style guide).

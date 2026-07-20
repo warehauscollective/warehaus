@@ -8,13 +8,23 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "npm run dev -w @warehaus/web",
-    "build": "npm run build -w @warehaus/web",
-    "start": "npm run start -w @warehaus/web",
-    "lint": "npm run lint -w @warehaus/web",
-    "typecheck": "npm run typecheck -w @warehaus/web",
-    "tokens": "npm run tokens -w @warehaus/web",
-    "storybook": "npm run storybook -w @warehaus/web",
-    "build-storybook": "npm run build-storybook -w @warehaus/web"
-  }
+    "dev": "turbo run dev --filter=@warehaus/web",
+    "dev:web": "turbo run dev --filter=@warehaus/web",
+    "dev:portal": "turbo run dev --filter=@warehaus/portal",
+    "build": "turbo run build",
+    "build:web": "turbo run build --filter=@warehaus/web",
+    "build:portal": "turbo run build --filter=@warehaus/portal",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "tokens": "turbo run tokens --filter=@warehaus/tokens",
+    "storybook": "turbo run storybook --filter=@warehaus/web",
+    "build-storybook": "turbo run build-storybook --filter=@warehaus/web"
+  },
+  "devDependencies": {
+    "turbo": "^2.5.4"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "packageManager": "npm@10.9.7"
 }
