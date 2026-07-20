@@ -1,16 +1,21 @@
 # Warehaus Design-System Ecosystem — Architecture Plan
 
-> Status: **proposal / decision doc**. No code has changed. This captures the
-> target architecture for growing the Warehaus UI into a managed system that
-> spans a **marketing website**, a **web app**, and eventually a **React Native
-> app**, with good performance across devices.
+> Status: **proposal / decision doc** (partially executed — see §2 note).
+> Captures the target architecture for growing the Warehaus UI into a managed
+> system that spans a **marketing website**, a **portal**, and eventually a
+> **React Native portal**, with good performance across devices.
+>
+> For app boundaries, monorepo layout, and website-vs-portal separation, see
+> [`monorepo-portal-architecture.md`](./monorepo-portal-architecture.md)
+> (that doc wins on naming: `apps/portal`, not `apps/app`).
 
 ---
 
 ## 1. Goals & constraints
 
 - One coherent system: tokens + components shared as the surface area grows.
-- Three runtime targets: **web (Next.js)**, **web app**, **React Native (Expo)**.
+- Three runtime targets: **website (Next.js)**, **portal (Next.js)**,
+  **React Native portal (Expo)**. No RN marketing site.
 - Performance across devices (mobile → desktop → native).
 - Living documentation + isolation for development and visual testing.
 - Preserve the brand signature — the painted **45° chamfer** (`Bevel`/`BevelFrame`),
@@ -48,19 +53,20 @@ Even staying web-only, a variant layer would reduce sprawl.
 ```
 warehaus/
 ├─ apps/
-│  ├─ web/            # marketing site (Next.js)  ← current app moves here
-│  ├─ app/            # web app (Next.js or Vite)
-│  └─ native/         # Expo / React Native (later)
+│  ├─ web/            # marketing website (Next.js)  ← exists today
+│  ├─ portal/         # client portal (Next.js)      ← next app to scaffold
+│  └─ native/         # Expo portal only (later)     ← no RN website
 ├─ packages/
-│  ├─ tokens/         # source of truth → emits CSS vars + TS + native
+│  ├─ tokens/         # source of truth → emits CSS vars + TS + native  ← exists
 │  ├─ ui/             # cross-platform components (Bevel, Button, …)
-│  ├─ ui-web/         # web-only impls if needed (or .web.tsx files)
 │  ├─ logic/          # framework-agnostic hooks/state (useSwipeTabs, navTabs)
-│  └─ config/         # eslint/tsconfig/tailwind presets
-└─ .storybook/ (per UI package)
+│  └─ typescript-config/ (+ eslint-config as needed)
+└─ .storybook/ (on packages/ui once extracted)
 ```
 
 Turborepo gives cached builds, parallel tasks, and clean dependency boundaries.
+Prefer platform files (`*.web.tsx` / `*.native.tsx`) inside `@warehaus/ui` over
+a separate `ui-web` package unless web-only surface area grows large.
 
 ### 3.2 Tokens pipeline — **the real foundation** (do this first)
 
@@ -134,15 +140,20 @@ web primitive layer in Path B, but it is not the cross-platform answer.
 - **Phase 0 — Tokens + monorepo skeleton.** Stand up Turborepo, move the app to
   `apps/web`, create `packages/tokens` and generate today's `global.css` block
   from it. No visual change. *Highest leverage, lowest risk.*
+  **Progress:** `apps/web` + `@warehaus/tokens` exist; Turborepo still missing.
 - **Phase 1 — Storybook (web).** Add Storybook to `packages/ui`; write stories
   for `Bevel`, `BevelFrame`, `Card`, `DsButton`, inputs, the rail, etc. Add a11y
   + viewport addons.
+  **Progress:** Storybook + Chromatic live under `apps/web` (interim home).
 - **Phase 2 — `ui` package + variants.** Extract components into `packages/ui`;
   introduce `cva` + `cn()` to replace inline-style sprawl with managed variants;
   move `logic` (hooks, nav config, swipe state) to `packages/logic`.
-- **Phase 3 — Cross-platform.** Adopt the chosen stack (§6). Build native
-  primitives + the `.native.tsx` `Bevel`; scaffold `apps/native` (Expo) + RN
-  Storybook.
+- **Phase 2b — Portal app.** Scaffold `apps/portal` (Next.js) consuming tokens
+  (+ ui/logic as they land). Separate Vercel project. See
+  `monorepo-portal-architecture.md`.
+- **Phase 3 — Cross-platform portal.** Adopt the chosen stack (§6). Build native
+  primitives + the `.native.tsx` `Bevel`; scaffold `apps/native` (Expo portal
+  only) + RN Storybook.
 - **Phase 4 — CI + visual regression.** Chromatic, Turbo cache, typecheck/lint
   gates.
 
@@ -174,7 +185,7 @@ web primitive layer in Path B, but it is not the cross-platform answer.
 
 ## 7. Recommended immediate next step
 
-**Phase 0 + Phase 1** regardless of the §6 stack choice: they're additive,
-reversible, and lock in nothing. They give us the tokens source of truth and a
-Storybook workbench immediately, after which the cross-platform decision can be
-made with real components in hand.
+Phase 0 tokens + interim Storybook already landed. Next: finish Phase 0 tooling
+(Turborepo), start Phase 2 extraction of `@warehaus/ui` / `@warehaus/logic`, and
+scaffold `apps/portal` early so the website stays clean. Details and sequencing
+live in [`monorepo-portal-architecture.md`](./monorepo-portal-architecture.md).
