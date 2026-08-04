@@ -3,7 +3,7 @@ import {
   Activity,
   FolderKanban,
   LayoutDashboard,
-  MessagesSquare,
+  Library,
   UserRound,
 } from 'lucide-react';
 import type { PortalTab } from '@warehaus/logic/portal';
@@ -12,7 +12,7 @@ import type { PortalTab } from '@warehaus/logic/portal';
 export const PORTAL_TAB_ICONS: Record<PortalTab, LucideIcon> = {
   dashboard: LayoutDashboard,
   projects: FolderKanban,
-  chatroom: MessagesSquare,
+  resources: Library,
   activity: Activity,
   account: UserRound,
 };

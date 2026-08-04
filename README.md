@@ -8,7 +8,7 @@ tokens, brand UI, and logic; separate deployable apps.
 | App | Package | Local port | Role |
 | --- | --- | --- | --- |
 | Website | `@warehaus/web` | **`3000`** | Marketing site (Next.js) |
-| Portal | `@warehaus/portal` | **`3100`** | Client product shell (Next.js) — deploy on `portal.` subdomain |
+| Portal | `@warehaus/portal` | **`3100`** | Team + client product shell — `portal.*` and `{slug}.*` (see `docs/portal-multi-tenant.md`) |
 
 > **Port collision warning:** If something else already owns `:3000`, plain
 > `next dev` auto-bumps the website to `:3001`. That makes `localhost:3001`
@@ -27,7 +27,18 @@ marketing site. Architecture: [`docs/monorepo-portal-architecture.md`](docs/mono
 | `@warehaus/tokens` | Design tokens → CSS vars (web) + JS maps (native later) |
 | `@warehaus/ui` | Brand UI source of truth — Bevel, typography, logo, brand CSS |
 | `@warehaus/logic` | Pure nav/config helpers (portal IA today) |
+| `@warehaus/portal-sync` | Notion → Convex allowlist, gates, mappers (portal SoT contracts) |
 | `@warehaus/typescript-config` | Shared TSConfig bases |
+
+Portal SoT is **Convex** (Notion authoring → allowlisted sync). Planning:
+[`docs/planning/portal-convex/MIGRATION-PLAN.md`](docs/planning/portal-convex/MIGRATION-PLAN.md).
+Historical dual-space notes (obsolete for portal runtime):
+[`docs/notion-sync-architecture.md`](docs/notion-sync-architecture.md).
+
+```bash
+# Bootstrap Warehaus Notion DBs (requires token + parent page id):
+NOTION_WAREHAUS_TOKEN=... NOTION_WAREHAUS_PARENT_PAGE_ID=... npm run notion:bootstrap
+```
 
 ## Commands
 
@@ -56,7 +67,8 @@ How to tell which app you’re on:
 | URL | App | Dock tabs |
 | --- | --- | --- |
 | `http://localhost:3000` | Website | DREAM · DESIGN · DEVELOP |
-| `http://localhost:3100` | Portal | DASHBOARD · PROJECTS · CHATROOM · ACTIVITY · ACCOUNT |
+| `http://localhost:3100` / `http://portal.localhost:3100` | Portal (team) | All clients |
+| `http://client-portal.localhost:3100` | Portal (client) | Strict ACL for that client ID only |
 
 Website `/portal` redirects to `NEXT_PUBLIC_PORTAL_URL` (default `http://localhost:3100`).
 

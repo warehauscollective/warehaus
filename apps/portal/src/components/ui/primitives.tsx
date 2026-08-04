@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Bevel, Eyebrow as UiEyebrow } from '@warehaus/ui';
+import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 
 export function Eyebrow({ children }: { children: ReactNode }) {
   return <UiEyebrow>{children}</UiEyebrow>;
@@ -51,6 +52,7 @@ export function Surface({
   return (
     <Bevel
       corners="br"
+      radius={PORTAL_SURFACE_RADIUS}
       cut={1.75}
       shoulder={0.625}
       fill="var(--surface)"
@@ -65,13 +67,19 @@ export function Surface({
 export function PrimaryButton({
   children,
   type = 'button',
+  onClick,
+  disabled,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
+  onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
       type={type}
+      onClick={onClick}
+      disabled={disabled}
       className="inline-flex items-center justify-center"
       style={{
         background: 'var(--accent)',
@@ -82,7 +90,8 @@ export function PrimaryButton({
         fontSize: 'var(--t-sm)',
         fontWeight: 600,
         padding: '0.65rem 1.1rem',
-        cursor: 'pointer',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.55 : 1,
       }}
     >
       {children}
@@ -90,10 +99,17 @@ export function PrimaryButton({
   );
 }
 
-export function GhostButton({ children }: { children: ReactNode }) {
+export function GhostButton({
+  children,
+  onClick,
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+}) {
   return (
     <button
       type="button"
+      onClick={onClick}
       className="inline-flex items-center justify-center"
       style={{
         background: 'transparent',

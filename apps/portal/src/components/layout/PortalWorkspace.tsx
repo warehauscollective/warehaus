@@ -4,142 +4,159 @@ import type { ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { Bevel } from '@warehaus/ui';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
+import { PORTAL_PANEL_GAP_VAR, PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 
 /**
  * Desktop portal chrome for a single tab: fixed above-the-fold workspace.
  * - No page scroll — the main tile region fills the viewport
- * - Optional right inspector when a row/tile is selected
+ * - Optional persistent right rail (`aside`)
+ * - Optional detail inspector (replaces rail while open)
  * - Mobile keeps a simpler stacked scroll (lg: and below)
  */
 export function PortalWorkspace({
   eyebrow,
   title,
   actions,
+  aside,
+  hideHeader = false,
   children,
 }: {
   eyebrow: string;
   title: string;
   actions?: ReactNode;
+  /** Persistent right rail (e.g. dashboard tasks / activity). */
+  aside?: ReactNode;
+  /** When true, skip the eyebrow/title/actions header bar. */
+  hideHeader?: boolean;
   children: ReactNode;
 }) {
   const { detail, closeDetail } = usePortalView();
   const detailOpen = Boolean(detail);
+  const showRight = detailOpen || Boolean(aside);
 
   return (
     <div className="flex h-full min-h-0 flex-col lg:overflow-hidden">
-      {/* Compact header — not a marketing hero */}
-      <header
-        className="flex shrink-0 flex-wrap items-end justify-between gap-3"
-        style={{
-          paddingTop: 'var(--s-5)',
-          paddingBottom: 'var(--s-4)',
-          borderBottom: '1px solid var(--border)',
-        }}
-      >
-        <div className="min-w-0">
-          <p
-            className="ds-mono"
-            style={{
-              fontSize: 'var(--t-xs)',
-              textTransform: 'uppercase',
-              letterSpacing: '0.16em',
-              color: 'var(--muted)',
-            }}
-          >
-            {eyebrow}
-          </p>
-          <h1
-            className="type-display truncate"
-            style={{
-              fontSize: 'clamp(1.5rem, 1.2rem + 1vw, 2rem)',
-              marginTop: '0.35rem',
-              lineHeight: 1.1,
-            }}
-          >
-            {title}
-          </h1>
-        </div>
-        {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
-      </header>
+      {!hideHeader ? (
+        <header
+          className="flex shrink-0 flex-wrap items-end justify-between gap-3"
+          style={{
+            paddingTop: 'var(--s-5)',
+            paddingBottom: 'var(--s-4)',
+            borderBottom: '1px solid var(--border)',
+          }}
+        >
+          <div className="min-w-0">
+            <p
+              className="ds-mono"
+              style={{
+                fontSize: 'var(--t-xs)',
+                textTransform: 'uppercase',
+                letterSpacing: '0.16em',
+                color: 'var(--muted)',
+              }}
+            >
+              {eyebrow}
+            </p>
+            <h1
+              className="type-display truncate"
+              style={{
+                fontSize: 'clamp(1.5rem, 1.2rem + 1vw, 2rem)',
+                marginTop: '0.35rem',
+                lineHeight: 1.1,
+              }}
+            >
+              {title}
+            </h1>
+          </div>
+          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+        </header>
+      ) : null}
 
-      {/* Body: main tiles + optional detail inspector */}
-      <div className="flex min-h-0 flex-1 flex-col gap-4 pt-4 lg:flex-row lg:overflow-hidden">
+      <div
+        className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:overflow-hidden${hideHeader ? '' : ' pt-4'}`}
+        style={{ gap: PORTAL_PANEL_GAP_VAR }}
+      >
         <div className="min-h-0 min-w-0 flex-1 lg:overflow-hidden">{children}</div>
 
-        {detailOpen && detail ? (
+        {showRight ? (
           <aside
-            className="flex w-full shrink-0 flex-col lg:w-[min(360px,34%)] lg:overflow-hidden"
-            aria-label="Details"
+            className="flex w-full shrink-0 flex-col lg:w-[min(300px,32%)] lg:overflow-hidden"
+            aria-label={detailOpen ? 'Details' : 'Sidebar'}
           >
-            <Bevel
-              corners="bl"
-              cut={2}
-              shoulder={0.75}
-              fill="var(--surface)"
-              stroke="var(--border)"
-              className="flex h-full min-h-0 flex-col"
-              style={{ padding: 0, overflow: 'hidden' }}
-            >
-              <div
-                className="flex items-start justify-between gap-3"
-                style={{
-                  padding: 'var(--s-5)',
-                  borderBottom: '1px solid var(--border)',
-                }}
+            {detailOpen && detail ? (
+              <Bevel
+                corners="bl"
+                radius={PORTAL_SURFACE_RADIUS}
+                cut={2}
+                shoulder={0.75}
+                fill="var(--surface)"
+                stroke="var(--border)"
+                className="flex h-full min-h-0 flex-col"
+                style={{ padding: 0, overflow: 'hidden' }}
               >
-                <div className="min-w-0">
-                  <p
-                    className="ds-mono"
-                    style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}
-                  >
-                    {detail.id}
-                  </p>
-                  <h2
-                    style={{
-                      fontSize: 'var(--t-lg)',
-                      fontWeight: 600,
-                      marginTop: 4,
-                      lineHeight: 1.2,
-                    }}
-                  >
-                    {detail.title}
-                  </h2>
-                  {detail.subtitle ? (
-                    <p
-                      style={{
-                        fontSize: 'var(--t-sm)',
-                        color: 'var(--muted)',
-                        marginTop: 6,
-                      }}
-                    >
-                      {detail.subtitle}
-                    </p>
-                  ) : null}
-                </div>
-                <button
-                  type="button"
-                  onClick={closeDetail}
-                  aria-label="Close details"
-                  className="flex shrink-0 items-center justify-center"
+                <div
+                  className="flex items-start justify-between gap-3"
                   style={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: 8,
-                    color: 'var(--muted)',
-                    border: '1px solid var(--border)',
-                    background: 'transparent',
+                    padding: 'var(--s-5)',
+                    borderBottom: '1px solid var(--border)',
                   }}
                 >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div
-                className="min-h-0 flex-1 overflow-y-auto"
-                style={{ padding: 'var(--s-5)' }}
-              >
-                {detail.body}
-              </div>
-            </Bevel>
+                  <div className="min-w-0">
+                    <p
+                      className="ds-mono"
+                      style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}
+                    >
+                      {detail.id}
+                    </p>
+                    <h2
+                      style={{
+                        fontSize: 'var(--t-lg)',
+                        fontWeight: 600,
+                        marginTop: 4,
+                        lineHeight: 1.2,
+                      }}
+                    >
+                      {detail.title}
+                    </h2>
+                    {detail.subtitle ? (
+                      <p
+                        style={{
+                          fontSize: 'var(--t-sm)',
+                          color: 'var(--muted)',
+                          marginTop: 6,
+                        }}
+                      >
+                        {detail.subtitle}
+                      </p>
+                    ) : null}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={closeDetail}
+                    aria-label="Close details"
+                    className="flex shrink-0 items-center justify-center"
+                    style={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: 8,
+                      color: 'var(--muted)',
+                      border: '1px solid var(--border)',
+                      background: 'transparent',
+                    }}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </div>
+                <div
+                  className="min-h-0 flex-1 overflow-y-auto"
+                  style={{ padding: 'var(--s-5)' }}
+                >
+                  {detail.body}
+                </div>
+              </Bevel>
+            ) : (
+              aside
+            )}
           </aside>
         ) : null}
       </div>
@@ -166,7 +183,6 @@ export function PortalTilePane({
         overflowY: 'auto',
         overscrollBehaviorX: 'none',
         overscrollBehaviorY: 'contain',
-        // Allow both axes so horizontal tab swipes aren't killed by pan-y.
         touchAction: 'pan-x pan-y',
         paddingBottom: '0.25rem',
       }}
@@ -193,6 +209,7 @@ export function PortalStatGrid({
         <Bevel
           key={stat.label}
           corners="br"
+          radius={PORTAL_SURFACE_RADIUS}
           cut={1.5}
           shoulder={0.5}
           fill="var(--surface)"

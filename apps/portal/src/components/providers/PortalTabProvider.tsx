@@ -14,6 +14,7 @@ import { usePathname, useRouter } from 'next/navigation';
 import {
   PORTAL_TABS,
   getPortalTabForPath,
+  isPortalTab,
   type PortalTab,
 } from '@warehaus/logic/portal';
 import { createSwipePanelRefs } from '@warehaus/ui';
@@ -82,12 +83,4 @@ export function usePortalTab() {
   return ctx;
 }
 
-export function isPortalTab(value: string | null): value is PortalTab {
-  return (
-    value === 'dashboard' ||
-    value === 'projects' ||
-    value === 'chatroom' ||
-    value === 'activity' ||
-    value === 'account'
-  );
-}
+export { isPortalTab };

@@ -7,62 +7,141 @@ import {
   PortalWorkspace,
 } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
-
-const FEED = [
-  { t: '14:18', h: 'SH-4821 docked', p: 'North Bay Hub · Dock 3', tone: 'var(--success)' },
-  { t: '14:05', h: 'SH-4822 delayed', p: 'Portland DC · ETA +45m', tone: 'var(--warn)' },
-  { t: '13:42', h: 'Team invite sent', p: 'operator@northbay.co', tone: 'var(--accent)' },
-  { t: '12:10', h: 'Location connected', p: 'Sparks Yard', tone: 'var(--success)' },
-];
-
-const EXCEPTIONS = [
-  { id: 'EX-07', h: 'Missing pallet count', p: 'SH-4825 · Sparks Yard', status: 'Open' },
-  { id: 'EX-06', h: 'Dock conflict', p: 'Dock 1 double-booked 15:00', status: 'Open' },
-  { id: 'EX-03', h: 'Stale ETA', p: 'SH-4810 · no update in 2h', status: 'Watching' },
-];
+import { activityToneVar, tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
+import type { PortalActivity } from '@/lib/data/view-models';
 
 const SECTION_TITLE: Record<string, string> = {
   overview: 'Activity',
-  feed: 'Today',
+  feed: 'Feed',
   exceptions: 'Exceptions',
 };
 
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso.slice(0, 5);
+  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
+}
+
+function formatDay(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function isException(a: PortalActivity): boolean {
+  return a.type === 'exception' || a.tone === 'danger';
+}
+
+function isWatching(a: PortalActivity): boolean {
+  return a.tone === 'warn' && !isException(a);
+}
+
+function activityPillColor(a: PortalActivity): string {
+  if (isException(a)) return 'var(--danger)';
+  if (a.tone === 'warn') return 'var(--warn)';
+  return activityToneVar(a.tone);
+}
+
+function ActivityDetailBody({ item }: { item: PortalActivity }) {
+  return (
+    <div className="flex flex-col gap-3">
+      <Pill color={activityPillColor(item)}>{item.type}</Pill>
+      {item.summary ? (
+        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', lineHeight: 1.5 }}>
+          {item.summary}
+        </p>
+      ) : null}
+      <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
+        {formatDay(item.timestamp)} · {formatTime(item.timestamp)}
+      </p>
+    </div>
+  );
+}
+
 export function ActivityContent() {
-  const { activeSection, openDetail } = usePortalView();
+  const { sectionFor, openDetail } = usePortalView();
+  const { data, loading } = usePortalData();
+  const activeSection = sectionFor('activity');
   const title = SECTION_TITLE[activeSection] ?? 'Activity';
 
+  const feed = data.activity;
+  const exceptions = feed.filter(isException);
+  const watching = feed.filter(isWatching);
+  const attention = exceptions.length ? exceptions : watching;
+  const syncMeta = data.syncMeta;
+  const isTeam = data.tenant.mode === 'team';
+
   return (
-    <PortalWorkspace eyebrow="Portal · Activity" title={title}>
+    <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Activity')} title={title}>
       {activeSection === 'overview' && (
         <PortalTilePane>
           <div className="flex h-full min-h-0 flex-col gap-4">
             <PortalStatGrid
               items={[
-                { label: 'Events', value: String(FEED.length), hint: 'Today' },
-                { label: 'Open', value: '2', hint: 'Exceptions' },
-                { label: 'Watching', value: '1' },
+                { label: 'Events', value: loading ? '…' : String(feed.length), hint: 'Feed' },
+                {
+                  label: 'Exceptions',
+                  value: String(exceptions.length),
+                  hint: exceptions.length ? 'Needs attention' : 'Clear',
+                },
+                {
+                  label: 'Watching',
+                  value: String(watching.length),
+                  hint: 'Warn tone',
+                },
+                ...(isTeam
+                  ? [
+                      {
+                        label: 'Sync',
+                        value: syncMeta.lastError
+                          ? 'Error'
+                          : syncMeta.lastSyncedAt
+                            ? 'OK'
+                            : 'Idle',
+                        hint: 'Convex pull',
+                      },
+                    ]
+                  : [
+                      {
+                        label: 'Scope',
+                        value: data.tenant.slug ?? '—',
+                        hint: 'Your org',
+                      },
+                    ]),
               ]}
             />
+            {isTeam && syncMeta.lastError && (
+              <Surface style={{ padding: 'var(--s-3)', borderColor: 'var(--danger)' }}>
+                <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--danger)' }}>
+                  Sync status · error
+                </p>
+                <p style={{ fontSize: 'var(--t-sm)', marginTop: 4 }}>{syncMeta.lastError}</p>
+              </Surface>
+            )}
             <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
               <Surface style={{ padding: 'var(--s-4)', minHeight: 0 }}>
                 <p className="ds-mono mb-3" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
                   Latest
                 </p>
                 <div className="flex flex-col gap-2">
-                  {FEED.slice(0, 3).map((item) => (
+                  {loading && (
+                    <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading…</p>
+                  )}
+                  {!loading && feed.length === 0 && (
+                    <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+                      No activity yet for this org.
+                    </p>
+                  )}
+                  {feed.slice(0, 5).map((item) => (
                     <button
-                      key={item.t + item.h}
+                      key={item.id}
                       type="button"
                       onClick={() =>
                         openDetail({
-                          id: item.t,
-                          title: item.h,
-                          subtitle: item.p,
-                          body: (
-                            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                              Event at {item.t}. Use the Exceptions view for items that need action.
-                            </p>
-                          ),
+                          id: item.id,
+                          title: item.name,
+                          subtitle: item.summary,
+                          body: <ActivityDetailBody item={item} />,
                         })
                       }
                       className="flex w-full gap-3 text-left"
@@ -77,7 +156,7 @@ export function ActivityContent() {
                         className="ds-mono"
                         style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', minWidth: '3rem' }}
                       >
-                        {item.t}
+                        {formatTime(item.timestamp)}
                       </span>
                       <span>
                         <span className="flex items-center gap-2">
@@ -86,16 +165,16 @@ export function ActivityContent() {
                               width: 7,
                               height: 7,
                               borderRadius: 999,
-                              background: item.tone,
+                              background: activityToneVar(item.tone),
                             }}
                           />
-                          <span style={{ fontSize: 'var(--t-sm)', fontWeight: 600 }}>{item.h}</span>
+                          <span style={{ fontSize: 'var(--t-sm)', fontWeight: 600 }}>{item.name}</span>
                         </span>
                         <span
                           className="block"
                           style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 2 }}
                         >
-                          {item.p}
+                          {item.summary || item.type}
                         </span>
                       </span>
                     </button>
@@ -107,25 +186,16 @@ export function ActivityContent() {
                   Needs attention
                 </p>
                 <div className="flex flex-col gap-2">
-                  {EXCEPTIONS.map((e) => (
+                  {attention.map((e) => (
                     <button
                       key={e.id}
                       type="button"
                       onClick={() =>
                         openDetail({
                           id: e.id,
-                          title: e.h,
-                          subtitle: e.p,
-                          body: (
-                            <div className="flex flex-col gap-3">
-                              <Pill color={e.status === 'Open' ? 'var(--danger)' : 'var(--warn)'}>
-                                {e.status}
-                              </Pill>
-                              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                                Resolve from the inspector — keep the feed above the fold.
-                              </p>
-                            </div>
-                          ),
+                          title: e.name,
+                          subtitle: e.summary,
+                          body: <ActivityDetailBody item={e} />,
                         })
                       }
                       className="flex w-full items-center justify-between gap-2 text-left"
@@ -138,17 +208,24 @@ export function ActivityContent() {
                     >
                       <span>
                         <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                          {e.id}
+                          {formatDay(e.timestamp)}
                         </span>
                         <span className="block" style={{ fontSize: 'var(--t-sm)', fontWeight: 600 }}>
-                          {e.h}
+                          {e.name}
                         </span>
                       </span>
-                      <Pill color={e.status === 'Open' ? 'var(--danger)' : 'var(--warn)'}>
-                        {e.status}
-                      </Pill>
+                      <Pill color={activityPillColor(e)}>{e.type}</Pill>
                     </button>
                   ))}
+                  {!attention.length && (
+                    <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+                      {isTeam
+                        ? syncMeta.lastError
+                          ? 'Sync reported an error — see banner above.'
+                          : 'No exceptions. Convex sync looks healthy.'
+                        : 'Nothing needs attention right now.'}
+                    </p>
+                  )}
                 </div>
               </Surface>
             </div>
@@ -159,32 +236,54 @@ export function ActivityContent() {
       {activeSection === 'feed' && (
         <PortalTilePane>
           <div className="flex flex-col gap-2">
-            {FEED.map((item) => (
-              <Surface key={item.t + item.h} style={{ padding: 'var(--s-4)' }}>
-                <div className="flex gap-4">
+            {loading && (
+              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading…</p>
+            )}
+            {!loading && feed.length === 0 && (
+              <Surface style={{ padding: 'var(--s-5)' }}>
+                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+                  No activity events yet.
+                </p>
+              </Surface>
+            )}
+            {feed.map((item) => (
+              <Surface key={item.id} style={{ padding: 'var(--s-4)' }}>
+                <button
+                  type="button"
+                  className="flex w-full gap-4 text-left"
+                  onClick={() =>
+                    openDetail({
+                      id: item.id,
+                      title: item.name,
+                      subtitle: item.summary,
+                      body: <ActivityDetailBody item={item} />,
+                    })
+                  }
+                >
                   <span
                     className="ds-mono"
                     style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', minWidth: '3.5rem' }}
                   >
-                    {item.t}
+                    {formatTime(item.timestamp)}
                   </span>
                   <div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex flex-wrap items-center gap-2">
                       <span
                         style={{
                           width: 8,
                           height: 8,
                           borderRadius: 999,
-                          background: item.tone,
+                          background: activityToneVar(item.tone),
                         }}
                       />
-                      <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{item.h}</h3>
+                      <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{item.name}</h3>
+                      <Pill color={activityPillColor(item)}>{item.type}</Pill>
                     </div>
                     <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
-                      {item.p}
+                      {item.summary || '—'}
                     </p>
                   </div>
-                </div>
+                </button>
               </Surface>
             ))}
           </div>
@@ -202,45 +301,47 @@ export function ActivityContent() {
             }}
           >
             <div className="h-full overflow-auto">
-              <table className="ds-data" style={{ minWidth: 480 }}>
-                <thead>
-                  <tr>
-                    <th>ID</th>
-                    <th>Issue</th>
-                    <th>Context</th>
-                    <th>Status</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {EXCEPTIONS.map((e) => (
-                    <tr
-                      key={e.id}
-                      onClick={() =>
-                        openDetail({
-                          id: e.id,
-                          title: e.h,
-                          subtitle: e.p,
-                          body: (
-                            <Pill color={e.status === 'Open' ? 'var(--danger)' : 'var(--warn)'}>
-                              {e.status}
-                            </Pill>
-                          ),
-                        })
-                      }
-                      style={{ cursor: 'pointer' }}
-                    >
-                      <td className="ds-mono">{e.id}</td>
-                      <td>{e.h}</td>
-                      <td style={{ color: 'var(--muted)' }}>{e.p}</td>
-                      <td>
-                        <Pill color={e.status === 'Open' ? 'var(--danger)' : 'var(--warn)'}>
-                          {e.status}
-                        </Pill>
-                      </td>
+              {!attention.length ? (
+                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', padding: 'var(--s-5)' }}>
+                  No exceptions or warnings in the current feed.
+                </p>
+              ) : (
+                <table className="ds-data" style={{ minWidth: 480 }}>
+                  <thead>
+                    <tr>
+                      <th>When</th>
+                      <th>Issue</th>
+                      <th>Context</th>
+                      <th>Type</th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
+                  </thead>
+                  <tbody>
+                    {attention.map((e) => (
+                      <tr
+                        key={e.id}
+                        onClick={() =>
+                          openDetail({
+                            id: e.id,
+                            title: e.name,
+                            subtitle: e.summary,
+                            body: <ActivityDetailBody item={e} />,
+                          })
+                        }
+                        style={{ cursor: 'pointer' }}
+                      >
+                        <td className="ds-mono">
+                          {formatDay(e.timestamp)} {formatTime(e.timestamp)}
+                        </td>
+                        <td>{e.name}</td>
+                        <td style={{ color: 'var(--muted)' }}>{e.summary || '—'}</td>
+                        <td>
+                          <Pill color={activityPillColor(e)}>{e.type}</Pill>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </PortalTilePane>
