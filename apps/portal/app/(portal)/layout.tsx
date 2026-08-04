@@ -6,7 +6,13 @@ import { isAuthenticated } from '@/lib/auth-server';
 
 export default async function PortalLayout({ children }: { children: ReactNode }) {
   // Fail closed: no Convex config or no Better Auth session → login page.
-  if (!process.env.NEXT_PUBLIC_CONVEX_URL) {
+  if (
+    !process.env.NEXT_PUBLIC_CONVEX_URL?.trim() ||
+    !(
+      process.env.NEXT_PUBLIC_CONVEX_SITE_URL?.trim() ||
+      process.env.CONVEX_SITE_URL?.trim()
+    )
+  ) {
     redirect('/login');
   }
 
