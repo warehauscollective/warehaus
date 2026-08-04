@@ -1,4 +1,4 @@
 /** Content is owned by PortalSwipeWorkspace (shared swipe-tab shell). */
-export default function ChatroomPage() {
+export default function ResourcesPage() {
   return null;
 }

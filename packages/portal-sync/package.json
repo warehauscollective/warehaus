@@ -1,0 +1,40 @@
+{
+  "name": "@warehaus/portal-sync",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Portal Notion→Convex allowlist contracts, row gates, and file metadata types.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    },
+    "./collections": {
+      "types": "./src/collections.ts",
+      "default": "./src/collections.ts"
+    },
+    "./tiers": {
+      "types": "./src/tiers.ts",
+      "default": "./src/tiers.ts"
+    },
+    "./gates": {
+      "types": "./src/gates.ts",
+      "default": "./src/gates.ts"
+    },
+    "./files": {
+      "types": "./src/files.ts",
+      "default": "./src/files.ts"
+    }
+  },
+  "files": ["src"],
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test src/**/*.test.ts"
+  },
+  "devDependencies": {
+    "@warehaus/typescript-config": "*",
+    "@types/node": "^26.0.1",
+    "tsx": "^4.20.3",
+    "typescript": "^5.8.3"
+  }
+}

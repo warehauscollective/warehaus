@@ -39,6 +39,8 @@ const panelStyle: CSSProperties = {
   minWidth: '100%',
   maxWidth: '100%',
   scrollSnapAlign: 'start',
+  // Force each flick to stop on the next panel — prevents multi-tab jumps.
+  scrollSnapStop: 'always',
   overflowY: 'auto',
   overflowX: 'hidden',
   // Do NOT set touch-action: pan-y here — it blocks horizontal tab swipes that

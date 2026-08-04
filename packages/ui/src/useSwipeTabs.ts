@@ -8,10 +8,9 @@ import { useEffect, useRef, type RefObject } from 'react';
  *
  * Key behaviors:
  * - Native CSS scroll-snap + programmatic scroll for dock/click changes.
- * - Pointer/touch/mouse swipes commit to the previous/next tab once the
- *   gesture clears a distance threshold (works even when nested panes would
- *   otherwise swallow scroll deltas).
- * - Trackpad horizontal wheel still moves the snap track directly.
+ * - Every gesture commits at most one adjacent tab (±1). Never skips.
+ * - Pointer/touch/mouse swipes commit once past a distance threshold.
+ * - Trackpad horizontal wheel accumulates to one tab, then cools down.
  * - A swipe-driven tab change does NOT trigger a second programmatic scroll.
  * - Optional `?tab=` URL sync (website). Path-based apps use `urlSync: 'none'`.
  */
@@ -36,6 +35,19 @@ export interface UseSwipeTabsOptions<T extends string> {
   urlSync?: 'query' | 'none';
   /** Min horizontal drag (px) to change tabs. Default 64. */
   swipeThresholdPx?: number;
+}
+
+function clamp(n: number, min: number, max: number) {
+  return Math.min(max, Math.max(min, n));
+}
+
+/** Snap an index to the active tab or one neighbor — never skip. */
+function adjacentIndex(current: number, raw: number, length: number): number {
+  if (length <= 0) return 0;
+  const base = clamp(current, 0, length - 1);
+  if (raw > base) return clamp(base + 1, 0, length - 1);
+  if (raw < base) return clamp(base - 1, 0, length - 1);
+  return base;
 }
 
 export function useSwipeTabs<T extends string>({
@@ -64,15 +76,30 @@ export function useSwipeTabs<T extends string>({
 
   const indexOf = (t: T) => tabs.indexOf(t);
 
+  const commitAdjacent = (direction: -1 | 1, fromGesture: boolean) => {
+    const list = tabsRef.current;
+    const current = list.indexOf(activeRef.current);
+    if (current < 0) return;
+    const nextIndex = current + direction;
+    if (nextIndex < 0 || nextIndex >= list.length) return;
+    const tab = list[nextIndex]!;
+    if (tab === activeRef.current) return;
+    if (fromGesture) scrollSync.current = true;
+    setActiveTabRef.current(tab);
+  };
+
   const commitTabAtIndex = (index: number, fromGesture: boolean) => {
     const list = tabsRef.current;
-    const tab = list[Math.min(list.length - 1, Math.max(0, index))];
+    const current = list.indexOf(activeRef.current);
+    const clamped = adjacentIndex(current < 0 ? 0 : current, index, list.length);
+    const tab = list[clamped];
     if (!tab || tab === activeRef.current) return;
     if (fromGesture) scrollSync.current = true;
     setActiveTabRef.current(tab);
   };
 
   // Commit the active tab only once native scroll-snap settles (debounced).
+  // Always clamp to ±1 from the current tab so momentum can't skip panels.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -83,10 +110,20 @@ export function useSwipeTabs<T extends string>({
       settle = setTimeout(() => {
         if (!el || isProgScrolling.current || isDragging.current) return;
         const width = el.clientWidth || 1;
-        const index = Math.min(
-          tabsRef.current.length - 1,
-          Math.max(0, Math.round(el.scrollLeft / width)),
-        );
+        const rawIndex = Math.round(el.scrollLeft / width);
+        const current = tabsRef.current.indexOf(activeRef.current);
+        const index = adjacentIndex(current < 0 ? 0 : current, rawIndex, tabsRef.current.length);
+
+        // If native scroll overshot past one neighbor, pull back.
+        const targetLeft = index * width;
+        if (Math.abs(el.scrollLeft - targetLeft) > 2) {
+          isProgScrolling.current = true;
+          el.scrollTo({ left: targetLeft, behavior: 'smooth' });
+          window.setTimeout(() => {
+            isProgScrolling.current = false;
+          }, 450);
+        }
+
         commitTabAtIndex(index, true);
       }, settleMs);
     };
@@ -97,10 +134,7 @@ export function useSwipeTabs<T extends string>({
     };
   }, [settleMs]);
 
-  // Trackpad / mouse-wheel horizontal swipe → previous/next tab.
-  // Capture-phase so nested tile panes can't swallow the gesture. We lock to
-  // an axis for the burst, accumulate deltaX, and commit a tab change once
-  // past the threshold (same feel as pointer drag).
+  // Trackpad / mouse-wheel horizontal swipe → exactly one adjacent tab.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -109,9 +143,9 @@ export function useSwipeTabs<T extends string>({
     let accX = 0;
     let coolUntil = 0;
     let resetTimer: ReturnType<typeof setTimeout>;
-    const GESTURE_GAP_MS = 140;
-    const COOLDOWN_MS = 420; // one trackpad flick → one tab
-    const AXIS_RATIO = 0.55; // allow slightly diagonal trackpad swipes
+    const GESTURE_GAP_MS = 160;
+    const COOLDOWN_MS = 520; // one trackpad flick → one tab
+    const AXIS_RATIO = 0.55;
     const COMMIT_PX = swipeThresholdPx;
 
     const resetGesture = () => {
@@ -121,7 +155,6 @@ export function useSwipeTabs<T extends string>({
     };
 
     const onWheel = (e: WheelEvent) => {
-      // Shift+vertical wheel is the classic desktop “horizontal scroll” chord.
       let dx = e.deltaX;
       let dy = e.deltaY;
       if (e.shiftKey && Math.abs(dy) >= Math.abs(dx)) {
@@ -129,7 +162,6 @@ export function useSwipeTabs<T extends string>({
         dy = 0;
       }
 
-      // Normalize line/page modes to pixel-ish values.
       if (e.deltaMode === 1) {
         dx *= 16;
         dy *= 16;
@@ -146,7 +178,6 @@ export function useSwipeTabs<T extends string>({
       clearTimeout(resetTimer);
       resetTimer = setTimeout(resetGesture, GESTURE_GAP_MS);
 
-      // Vertical burst → leave alone so lists can scroll.
       if (axis !== 'h') return;
 
       e.preventDefault();
@@ -161,13 +192,15 @@ export function useSwipeTabs<T extends string>({
       const width = el.clientWidth || 1;
       const current = tabsRef.current.indexOf(activeRef.current);
       const base = Math.max(0, current) * width;
+      // Live preview capped to one panel width so snap can't overshoot.
+      const preview = clamp(accX, -width * 0.95, width * 0.95);
       const max = el.scrollWidth - width;
-      el.scrollLeft = Math.min(max, Math.max(0, base + accX));
+      el.scrollLeft = clamp(base + preview, 0, max);
 
       if (Math.abs(accX) < COMMIT_PX) return;
 
-      // Positive deltaX (trackpad swipe left / content moves left) → next tab.
-      const nextIndex = accX > 0 ? current + 1 : current - 1;
+      const direction: -1 | 1 = accX > 0 ? 1 : -1;
+      const nextIndex = current + direction;
       resetGesture();
       coolUntil = performance.now() + COOLDOWN_MS;
 
@@ -179,7 +212,7 @@ export function useSwipeTabs<T extends string>({
       scrollSync.current = true;
       isProgScrolling.current = true;
       el.scrollTo({ left: nextIndex * width, behavior: 'smooth' });
-      setActiveTabRef.current(tabsRef.current[nextIndex]!);
+      commitAdjacent(direction, true);
       window.setTimeout(() => {
         isProgScrolling.current = false;
       }, 450);
@@ -193,8 +226,7 @@ export function useSwipeTabs<T extends string>({
     };
   }, [swipeThresholdPx]);
 
-  // Pointer + mouse + touch: swipe left/right past a threshold → adjacent tab.
-  // Capture-phase + document move/up so nested buttons/tiles can't swallow it.
+  // Pointer + mouse + touch: swipe → exactly one adjacent tab.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -219,28 +251,27 @@ export function useSwipeTabs<T extends string>({
       document.body.style.removeProperty('cursor');
 
       if (!didSwipe || axis === 'v') return;
+
+      const current = indexOf(activeRef.current);
+      const width = el.clientWidth || 1;
+
       if (Math.abs(dx) < swipeThresholdPx) {
-        // Snap back to the current tab if the drag was short.
-        const width = el.clientWidth || 1;
-        const index = indexOf(activeRef.current);
-        el.scrollTo({ left: index * width, behavior: 'smooth' });
+        el.scrollTo({ left: current * width, behavior: 'smooth' });
         return;
       }
 
-      const current = indexOf(activeRef.current);
-      // Drag content left (finger moves left, dx < 0) → next tab.
-      const nextIndex = dx < 0 ? current + 1 : current - 1;
+      // Always ±1 regardless of how far the finger traveled.
+      const direction: -1 | 1 = dx < 0 ? 1 : -1;
+      const nextIndex = current + direction;
       if (nextIndex < 0 || nextIndex >= tabsRef.current.length) {
-        const width = el.clientWidth || 1;
         el.scrollTo({ left: current * width, behavior: 'smooth' });
         return;
       }
 
       scrollSync.current = true;
-      const width = el.clientWidth || 1;
       isProgScrolling.current = true;
       el.scrollTo({ left: nextIndex * width, behavior: 'smooth' });
-      setActiveTabRef.current(tabsRef.current[nextIndex]!);
+      commitAdjacent(direction, true);
       window.setTimeout(() => {
         isProgScrolling.current = false;
       }, 450);
@@ -263,8 +294,10 @@ export function useSwipeTabs<T extends string>({
       if (gesture.axis !== 'h') return;
       gesture.swiped = true;
       isDragging.current = true;
-      // Live-drag the track so the user sees panels move under the finger.
-      el.scrollLeft = indexOf(activeRef.current) * (el.clientWidth || 1) - dx;
+      const width = el.clientWidth || 1;
+      // Cap live drag to one panel so release velocity can't fling past a neighbor.
+      const clampedDx = clamp(dx, -width * 0.95, width * 0.95);
+      el.scrollLeft = indexOf(activeRef.current) * width - clampedDx;
       prevent();
     };
 
@@ -293,13 +326,11 @@ export function useSwipeTabs<T extends string>({
       endGesture(e.clientX);
     };
 
-    // Mouse fallbacks for environments that don't emit pointer events.
     const onMouseDown = (e: MouseEvent) => {
       if (e.button !== 0) return;
       const target = e.target as HTMLElement | null;
       if (!target) return;
       if (target.closest('input, textarea, select, [contenteditable="true"]')) return;
-      // If a pointer gesture already started, skip duplicate mouse path.
       if (gesture) return;
       gesture = {
         id: 'mouse',
@@ -351,7 +382,6 @@ export function useSwipeTabs<T extends string>({
       endGesture(t?.clientX ?? gesture.startX);
     };
 
-    // Capture on the track so we see events before children stop them.
     el.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('pointermove', onPointerMove, { passive: false });
     document.addEventListener('pointerup', onPointerUp, true);

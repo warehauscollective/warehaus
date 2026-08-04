@@ -7,13 +7,12 @@ import {
   PortalWorkspace,
 } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
-
-const PROJECTS = [
-  { id: 'PRJ-104', name: 'North Bay retrofit', phase: 'Build', owner: 'M. Chen', due: 'Apr 12' },
-  { id: 'PRJ-108', name: 'Portal chatroom v1', phase: 'Design', owner: 'A. Okonkwo', due: 'Apr 18' },
-  { id: 'PRJ-111', name: 'Dock capacity model', phase: 'Discovery', owner: 'J. Park', due: 'May 02' },
-  { id: 'PRJ-115', name: 'Operator onboarding', phase: 'Build', owner: 'S. Rivera', due: 'May 09' },
-];
+import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
+import {
+  formatPortalDate,
+  projectStatusColor,
+  type PortalProject,
+} from '@/lib/data/view-models';
 
 const PIPELINE = [
   { n: '01', h: 'Brief', p: 'Scope lands from Dream. One owner, one outcome.' },
@@ -27,29 +26,47 @@ const SECTION_TITLE: Record<string, string> = {
   pipeline: 'Pipeline',
 };
 
+function statusBucket(status: string): 'progress' | 'planned' | 'inbox' | 'done' {
+  const s = status.toLowerCase();
+  if (s.includes('done') || s.includes('ship')) return 'done';
+  if (s.includes('progress')) return 'progress';
+  if (s.includes('plan')) return 'planned';
+  return 'inbox';
+}
+
 export function ProjectsContent() {
-  const { activeSection, openDetail, setActiveSection } = usePortalView();
-  const title = SECTION_TITLE[activeSection] ?? 'Projects';
+  const { sectionFor, setSectionFor, openDetail } = usePortalView();
+  const { data, loading } = usePortalData();
+  const activeSection = sectionFor('projects');
+  const projects = data.projects;
+  const title =
+    data.tenant.mode === 'client' && activeSection === 'active'
+      ? 'Your projects'
+      : (SECTION_TITLE[activeSection] ?? 'Projects');
+
+  const inProgress = projects.filter((p) => statusBucket(p.status) === 'progress').length;
+  const planned = projects.filter((p) => statusBucket(p.status) === 'planned').length;
+  const inbox = projects.filter((p) => statusBucket(p.status) === 'inbox').length;
 
   return (
     <PortalWorkspace
-      eyebrow="Portal · Projects"
+      eyebrow={tenantEyebrow(data.tenant, 'Projects')}
       title={title}
-      actions={<PrimaryButton>New project</PrimaryButton>}
+      actions={data.tenant.mode === 'team' ? <PrimaryButton>New project</PrimaryButton> : undefined}
     >
       {activeSection === 'overview' && (
         <PortalTilePane>
           <div className="flex h-full min-h-0 flex-col gap-4">
             <PortalStatGrid
               items={[
-                { label: 'Active', value: String(PROJECTS.length) },
-                { label: 'Build', value: '2' },
-                { label: 'Design', value: '1' },
-                { label: 'Discovery', value: '1' },
+                { label: 'Active', value: loading ? '…' : String(projects.length) },
+                { label: 'In progress', value: String(inProgress) },
+                { label: 'Planned', value: String(planned) },
+                { label: 'Inbox', value: String(inbox) },
               ]}
             />
             <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
-              {PROJECTS.slice(0, 4).map((p) => (
+              {projects.slice(0, 4).map((p) => (
                 <button
                   key={p.id}
                   type="button"
@@ -57,32 +74,35 @@ export function ProjectsContent() {
                     openDetail({
                       id: p.id,
                       title: p.name,
-                      subtitle: `${p.phase} · ${p.owner}`,
+                      subtitle: p.status,
                       body: <ProjectDetail project={p} />,
                     })
                   }
                   className="text-left"
                 >
                   <Surface style={{ padding: 'var(--s-4)', height: '100%' }}>
-                    <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                      {p.id}
-                    </p>
-                    <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 6 }}>
-                      {p.name}
-                    </h3>
+                    <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{p.name}</h3>
                     <div className="mt-3 flex flex-wrap items-center gap-2">
-                      <Pill>{p.phase}</Pill>
+                      <Pill color={projectStatusColor(p.status)}>{p.status}</Pill>
                       <span style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                        Due {p.due}
+                        End {formatPortalDate(p.endDate)}
                       </span>
                     </div>
+                    {p.progress != null && (
+                      <p
+                        className="ds-mono mt-2"
+                        style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}
+                      >
+                        Progress {Math.round(p.progress * 100)}%
+                      </p>
+                    )}
                   </Surface>
                 </button>
               ))}
             </div>
             <button
               type="button"
-              onClick={() => setActiveSection('active')}
+              onClick={() => setSectionFor('projects', 'active')}
               className="ds-mono self-start"
               style={{
                 fontSize: 'var(--t-xs)',
@@ -112,34 +132,34 @@ export function ProjectsContent() {
               <table className="ds-data" style={{ minWidth: 520 }}>
                 <thead>
                   <tr>
-                    <th>ID</th>
                     <th>Name</th>
-                    <th>Phase</th>
-                    <th>Owner</th>
-                    <th className="num">Due</th>
+                    <th>Status</th>
+                    <th className="num">Progress</th>
+                    <th className="num">End</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {PROJECTS.map((p) => (
+                  {projects.map((p) => (
                     <tr
                       key={p.id}
                       onClick={() =>
                         openDetail({
                           id: p.id,
                           title: p.name,
-                          subtitle: `${p.phase} · ${p.owner}`,
+                          subtitle: p.status,
                           body: <ProjectDetail project={p} />,
                         })
                       }
                       style={{ cursor: 'pointer' }}
                     >
-                      <td className="ds-mono">{p.id}</td>
                       <td>{p.name}</td>
                       <td>
-                        <Pill>{p.phase}</Pill>
+                        <Pill color={projectStatusColor(p.status)}>{p.status}</Pill>
                       </td>
-                      <td>{p.owner}</td>
-                      <td className="num">{p.due}</td>
+                      <td className="num">
+                        {p.progress != null ? `${Math.round(p.progress * 100)}%` : '—'}
+                      </td>
+                      <td className="num">{formatPortalDate(p.endDate)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -174,16 +194,25 @@ export function ProjectsContent() {
   );
 }
 
-function ProjectDetail({ project }: { project: (typeof PROJECTS)[number] }) {
+function ProjectDetail({ project }: { project: PortalProject }) {
+  const rows: [string, string][] = [
+    ['Status', project.status],
+    ['Progress', project.progress != null ? `${Math.round(project.progress * 100)}%` : '—'],
+    ['Start', formatPortalDate(project.startDate)],
+    ['End', formatPortalDate(project.endDate)],
+  ];
+  if (project.stack.length) rows.push(['Stack', project.stack.join(', ')]);
+  if (project.liveUrl) rows.push(['Live', project.liveUrl]);
+
   return (
     <div className="flex flex-col gap-4">
+      {project.description && (
+        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', lineHeight: 1.5 }}>
+          {project.description}
+        </p>
+      )}
       <div className="grid grid-cols-2 gap-3">
-        {[
-          ['Phase', project.phase],
-          ['Owner', project.owner],
-          ['Due', project.due],
-          ['ID', project.id],
-        ].map(([k, v]) => (
+        {rows.map(([k, v]) => (
           <div key={k}>
             <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
               {k}
@@ -192,7 +221,6 @@ function ProjectDetail({ project }: { project: (typeof PROJECTS)[number] }) {
           </div>
         ))}
       </div>
-      <PrimaryButton>Open workspace</PrimaryButton>
     </div>
   );
 }

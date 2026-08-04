@@ -1,7 +1,7 @@
 import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import { DM_Sans, Geist, Geist_Mono } from 'next/font/google';
-import { PortalShell } from '@/components/layout/PortalShell';
+import { ConvexClientProvider } from '@/components/providers/ConvexClientProvider';
 import '@/styles/global.css';
 
 const eurostile = localFont({
@@ -90,7 +90,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="bg-background text-foreground font-body antialiased" suppressHydrationWarning>
-        <PortalShell>{children}</PortalShell>
+        <ConvexClientProvider>{children}</ConvexClientProvider>
       </body>
     </html>
   );

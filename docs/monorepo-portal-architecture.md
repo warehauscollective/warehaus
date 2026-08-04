@@ -69,7 +69,7 @@ apps/web/
 Strong product intent already exists — but only as documentation and nav config:
 
 - Style guide tab **Portal** → `PortalPanel.tsx` defines app shell, data/forms,
-  flows (onboarding, create shipment), chamfer usage in dense UI.
+  flows (onboarding, create project), chamfer usage in dense UI.
 - `navTabs.ts` already declares `PORTAL_TABS` for path `/portal`
   (`portal` | `projects` | `chatroom` | `activity` | `account`).
 - `LayoutProvider` already includes `PortalTab` in the shared `ActiveTab` union.
@@ -122,10 +122,14 @@ warehaus/
 │  ├─ tokens/              # @warehaus/tokens — already exists
 │  ├─ ui/                  # @warehaus/ui — shared primitives (platform files)
 │  ├─ logic/               # @warehaus/logic — hooks, nav config, pure state
+│  ├─ portal-sync/         # @warehaus/portal-sync — Notion→Convex allowlists
 │  ├─ typescript-config/   # shared tsconfig bases
 │  └─ eslint-config/       # shared lint presets (optional early)
 ├─ docs/
 │  ├─ design-system-ecosystem.md
+│  ├─ portal-multi-tenant.md
+│  ├─ planning/portal-convex/           # migration SoT (Convex + Notion authoring)
+│  ├─ notion-sync-architecture.md       # historical dual-space notes (obsolete for portal runtime)
 │  └─ monorepo-portal-architecture.md   ← this file
 ├─ package.json            # workspace root scripts via turbo
 └─ turbo.json              # build/lint/typecheck/test orchestration
@@ -255,7 +259,7 @@ Two Vercel projects from one repo (standard monorepo pattern):
 | Project | Root directory | Domain example |
 | --- | --- | --- |
 | `warehaus-web` | `apps/web` | `warehaus.co` / `www` (local **:3000**) |
-| `warehaus-portal` | `apps/portal` | `portal.warehaus.co` (local **:3100**, not :3001) |
+| `warehaus-portal` | `apps/portal` | `portal.warehaus.co` + `*.warehaus.co` (local **:3100**, not :3001). See `docs/portal-multi-tenant.md`. |
 
 - Ignored build step / Turbo filter so each project only builds its app + deps.
 - Separate env vars (portal gets auth + API secrets; website stays lean).
@@ -370,7 +374,7 @@ the phase’s goal says otherwise.
 
 - Auth provider + protected routes.
 - Implement tab routes from the style guide flows (start with one vertical:
-  e.g. projects list → detail, or shipments if that remains the metaphor).
+  e.g. projects list → detail).
 - Promote repeated portal primitives into `@warehaus/ui`.
 
 ### Phase E — Native portal (when ready)

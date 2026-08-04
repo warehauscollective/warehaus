@@ -1,22 +1,28 @@
 'use client';
 
+import type { ReactNode } from 'react';
 import { SwipeTabView, useSwipeTabs } from '@warehaus/ui';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { isPortalTab, usePortalTab } from '@/components/providers/PortalTabProvider';
 import { PortalHomeContent } from '@/components/pages/PortalHomeContent';
 import { ProjectsContent } from '@/components/pages/ProjectsContent';
-import { ChatroomContent } from '@/components/pages/ChatroomContent';
+import { TasksContent } from '@/components/pages/TasksContent';
+import { ResourcesContent } from '@/components/pages/ResourcesContent';
 import { ActivityContent } from '@/components/pages/ActivityContent';
 import { AccountContent } from '@/components/pages/AccountContent';
+import { usePortalData } from '@/hooks/usePortalData';
+import type { TenantMode } from '@/lib/auth/tenancy';
+import { PORTAL_PANEL_GAP_VAR } from '@/lib/design/portal-chrome';
+import { PortalTabSidebar } from './PortalSidebar';
 
-function renderPortalPanel(tab: PortalTab) {
+function renderPortalPanel(tab: PortalTab, mode: TenantMode) {
   switch (tab) {
     case 'dashboard':
       return <PortalHomeContent />;
     case 'projects':
-      return <ProjectsContent />;
-    case 'chatroom':
-      return <ChatroomContent />;
+      return mode === 'client' ? <TasksContent /> : <ProjectsContent />;
+    case 'resources':
+      return <ResourcesContent />;
     case 'activity':
       return <ActivityContent />;
     case 'account':
@@ -24,12 +30,38 @@ function renderPortalPanel(tab: PortalTab) {
   }
 }
 
+function TabPanelShell({
+  tab,
+  children,
+}: {
+  tab: PortalTab;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="box-border flex h-full min-h-0 flex-col overflow-hidden pb-28 pt-3 lg:flex-row lg:pt-[var(--portal-panel-gap,1.25rem)]"
+      style={{
+        paddingLeft: PORTAL_PANEL_GAP_VAR,
+        paddingRight: PORTAL_PANEL_GAP_VAR,
+        gap: PORTAL_PANEL_GAP_VAR,
+        touchAction: 'pan-x pan-y',
+      }}
+    >
+      <PortalTabSidebar tab={tab} />
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+        {children}
+      </div>
+    </div>
+  );
+}
+
 /**
  * Portal product surface — swipe tabs at the shell level; each tab is a
- * fixed-height panel workspace (no whole-page scroll on desktop).
+ * fixed-height panel workspace with its own in-flow sidebar.
  */
 export function PortalSwipeWorkspace() {
   const { tabs, activeTab, setActiveTab, panelRefs } = usePortalTab();
+  const { data } = usePortalData();
 
   const scrollRef = useSwipeTabs({
     tabs,
@@ -48,16 +80,9 @@ export function PortalSwipeWorkspace() {
         panelRefs={panelRefs}
         panelStyle={{ overflowY: 'hidden', touchAction: 'pan-x pan-y' }}
         renderPanel={(tab) => (
-          <div
-            className="box-border h-full min-h-0 overflow-hidden pb-28 pt-16 lg:pt-3"
-            style={{
-              paddingLeft: 'calc(var(--portal-rail-w, 0px) + var(--gutter))',
-              paddingRight: 'var(--gutter)',
-              touchAction: 'pan-x pan-y',
-            }}
-          >
-            {renderPortalPanel(tab)}
-          </div>
+          <TabPanelShell tab={tab}>
+            {renderPortalPanel(tab, data.tenant.mode)}
+          </TabPanelShell>
         )}
       />
     </main>

@@ -1,20 +1,24 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Menu, MessageCircle } from 'lucide-react';
-import { PORTAL_TABS, type PortalTab } from '@warehaus/logic/portal';
+import { ListTodo, Menu } from 'lucide-react';
+import { getPortalTabsForMode, type PortalTab } from '@warehaus/logic/portal';
 import { PORTAL_TAB_ICONS } from '@/lib/data/tabIcons';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
+import { usePortalData } from '@/hooks/usePortalData';
 
 /**
  * Portal floating dock — same chrome paradigm as the website BottomNav.
  * Tabs call into PortalTabProvider (swipe shell) instead of hard navigations,
  * so left/right swipe and dock clicks stay one continuous surface.
  *
- * Below `lg`: icon-only tabs so all five fit. `lg+`: full word labels.
+ * Below `lg`: icon-only tabs. `lg+`: full word labels.
+ * Client portals relabel the projects tab as Tasks. Chatroom is out of scope.
  */
 export function PortalDock() {
   const { activeTab, setActiveTab } = usePortalTab();
+  const { data } = usePortalData();
+  const dockTabs = getPortalTabsForMode(data.tenant.mode);
   const [iconMode, setIconMode] = useState(true);
 
   const navRef = useRef<HTMLElement>(null);
@@ -60,7 +64,7 @@ export function PortalDock() {
     updatePositions();
     const timer = setTimeout(updatePositions, 50);
     return () => clearTimeout(timer);
-  }, [updatePositions, iconMode]);
+  }, [updatePositions, iconMode, data.tenant.mode]);
 
   useEffect(() => {
     window.addEventListener('resize', updatePositions);
@@ -99,7 +103,7 @@ export function PortalDock() {
           borderWidth: 1,
         }}
       >
-        {PORTAL_TABS.map(({ value }) => {
+        {dockTabs.map(({ value }) => {
           const isActive = value === activeTab;
           const pos = indicators.get(value);
           const w = isActive ? (iconMode ? 28 : 56) : 10;
@@ -142,9 +146,12 @@ export function PortalDock() {
             />
           )}
 
-          {PORTAL_TABS.map(({ label, value }) => {
+          {dockTabs.map(({ label, value }) => {
             const isActive = value === activeTab;
-            const Icon = PORTAL_TAB_ICONS[value];
+            const Icon =
+              value === 'projects' && data.tenant.mode === 'client'
+                ? ListTodo
+                : PORTAL_TAB_ICONS[value];
             return (
               <button
                 key={value}
@@ -175,18 +182,6 @@ export function PortalDock() {
         </div>
       </div>
 
-      <button
-        type="button"
-        aria-label="Open chat"
-        className="text-accent flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl backdrop-blur-2xl sm:h-12 sm:w-12 lg:h-14 lg:w-14 lg:rounded-3xl"
-        style={{
-          background: 'var(--nav-bg)',
-          borderColor: 'var(--nav-border)',
-          borderWidth: 1,
-        }}
-      >
-        <MessageCircle className="h-5 w-5" />
-      </button>
     </nav>
   );
 }
