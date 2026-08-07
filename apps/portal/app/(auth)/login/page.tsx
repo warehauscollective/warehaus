@@ -1,28 +1,18 @@
 'use client';
 
-import { Suspense, useEffect } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { Suspense } from 'react';
+import { useSearchParams } from 'next/navigation';
 import {
   PortalAuthUnavailable,
   PortalLoginForm,
 } from '@/components/auth/PortalLoginForm';
-import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { isConvexConfigured } from '@/lib/convex/client';
 
 function LoginInner() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const next = searchParams.get('next') || '/';
   const urlError = searchParams.get('error');
   const configured = isConvexConfigured();
-  const { portalSession, sessionPending, linkStatus } = usePortalAuth();
-
-  useEffect(() => {
-    if (!configured || sessionPending) return;
-    if (portalSession && linkStatus === 'linked') {
-      router.replace(next.startsWith('/') ? next : '/');
-    }
-  }, [configured, sessionPending, portalSession, linkStatus, next, router]);
 
   return (
     <main
@@ -57,13 +47,6 @@ function LoginInner() {
 
         {!configured ? (
           <PortalAuthUnavailable />
-        ) : sessionPending || (portalSession && linkStatus === 'linked') ? (
-          <p
-            className="ds-mono text-center"
-            style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}
-          >
-            {portalSession ? 'Opening portal…' : 'Loading…'}
-          </p>
         ) : (
           <PortalLoginForm
             redirectTo={next.startsWith('/') ? next : '/'}
@@ -79,11 +62,11 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <main className="ds-scope flex min-h-[100dvh] items-center justify-center">
-          <p className="ds-mono" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-            Loading…
-          </p>
-        </main>
+        <main
+          className="ds-scope flex min-h-[100dvh] items-center justify-center px-6 py-12"
+          style={{ background: 'var(--background)' }}
+          aria-busy="true"
+        />
       }
     >
       <LoginInner />

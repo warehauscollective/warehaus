@@ -75,7 +75,19 @@ export function AuthGate({ children }: { children: ReactNode }) {
     Boolean(portalSession) &&
     !joinError;
 
+  // Stay blank while session/join settles — login form owns the loading UX (button state).
+  // Only show a message when access was denied.
   if (!ready) {
+    if (!joinError) {
+      return (
+        <div
+          className="ds-scope h-[100dvh]"
+          style={{ background: 'var(--background)' }}
+          aria-busy="true"
+          aria-label="Loading portal"
+        />
+      );
+    }
     return (
       <div
         className="ds-scope flex h-[100dvh] items-center justify-center"
@@ -85,7 +97,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         }}
       >
         <p className="ds-mono" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-          {joinError ? 'Access denied — redirecting…' : 'Checking access…'}
+          Access denied — redirecting…
         </p>
       </div>
     );
