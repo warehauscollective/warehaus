@@ -64,6 +64,19 @@ For production:
 4. Then run Better Auth **local install** for the organization plugin
    (see [`better-auth-org-plugin.md`](./better-auth-org-plugin.md))
 
+### Cloud Agent test logins
+
+Stable credentials for Cloud Agents (and Grok / Cursor UI testing) live in
+root [`AGENTS.md`](../../AGENTS.md). Bootstrap:
+
+```bash
+bash scripts/portal-cloud-bootstrap.sh
+npm run dev:portal
+node scripts/ensure-portal-test-auth.mjs --wait-portal
+```
+
+Default client login: `demo@northbay.test` / `WarehausDemo1!`
+
 ### Cost alarms
 
 See [`storage-retention.md`](./storage-retention.md) checklist (Vercel Blob + Convex usage alerts).

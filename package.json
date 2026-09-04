@@ -20,6 +20,8 @@
     "storybook": "turbo run storybook --filter=@warehaus/web",
     "build-storybook": "turbo run build-storybook --filter=@warehaus/web",
     "notion:bootstrap": "node scripts/notion-bootstrap-warehaus.mjs",
+    "portal:cloud-bootstrap": "bash scripts/portal-cloud-bootstrap.sh",
+    "portal:ensure-test-auth": "node scripts/ensure-portal-test-auth.mjs",
     "test:portal-sync": "npm run test -w @warehaus/portal-sync",
     "test:portal-convex": "npm run test:convex-lib -w @warehaus/portal"
   },
