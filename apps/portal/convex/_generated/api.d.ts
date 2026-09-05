@@ -9,6 +9,7 @@
  */
 
 import type * as _lib_contactJoin from "../_lib/contactJoin.js";
+import type * as _lib_email from "../_lib/email.js";
 import type * as _lib_identity from "../_lib/identity.js";
 import type * as _lib_wrappers from "../_lib/wrappers.js";
 import type * as auth from "../auth.js";
@@ -46,6 +47,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   "_lib/contactJoin": typeof _lib_contactJoin;
+  "_lib/email": typeof _lib_email;
   "_lib/identity": typeof _lib_identity;
   "_lib/wrappers": typeof _lib_wrappers;
   auth: typeof auth;

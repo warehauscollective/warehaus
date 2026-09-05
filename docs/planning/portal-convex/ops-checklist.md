@@ -46,7 +46,13 @@ npx convex env set STRIPE_WEBHOOK_SECRET 'whsec_…'   # when Stripe test mode r
 # optional until Checkout: STRIPE_SECRET_KEY
 npx convex env set SITE_URL 'https://your-portal-host'
 npx convex env set BETTER_AUTH_SECRET '…'
+npx convex env set RESEND_API_KEY 're_…'             # Warehaus Pro Resend (warehaus.co verified)
+npx convex env set EMAIL_FROM 'Warehaus Portal <noreply@warehaus.co>'
+npx convex env set EMAIL_REPLY_TO 'peter@warehaus.co'
 ```
+
+Password reset UI: `/forgot-password` → Resend email → `/reset-password?token=…`.
+Send from `noreply@warehaus.co` on the Warehaus Pro Resend account (`warehaus.co` verified).
 
 Webhook URLs:
 
