@@ -25,6 +25,9 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     database: authComponent.adapter(ctx),
     trustedOrigins: [
       siteUrl,
+      'https://warehaus-portal.vercel.app',
+      // Preview aliases + per-deployment hosts (Better Auth accepts `*` labels).
+      'https://*.vercel.app',
       'http://localhost:3100',
       'http://portal.localhost:3100',
       'http://client-portal.localhost:3100',
