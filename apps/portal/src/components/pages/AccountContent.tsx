@@ -368,7 +368,7 @@ export function AccountContent() {
             {billing && !billing.subscription && billing.invoices.length === 0 && (
               <Surface style={{ padding: 'var(--s-5)' }}>
                 <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                  No billing on file. Stripe invoices appear here once a customer is linked.
+                  No billing on file.
                 </p>
               </Surface>
             )}
