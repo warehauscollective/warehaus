@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
@@ -87,6 +87,28 @@ export function AccountContent() {
   const activeSection = sectionFor('account');
   const isClient = data.tenant.mode === 'client';
   const isStaff = Boolean(portalSession?.isStaff);
+
+  const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable');
+  const [savedDensity, setSavedDensity] = useState<'comfortable' | 'compact'>('comfortable');
+  const [prefsSaved, setPrefsSaved] = useState(false);
+  const prefsDirty = density !== savedDensity;
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('warehaus-density');
+      const next = raw === 'compact' ? 'compact' : 'comfortable';
+      setDensity(next);
+      setSavedDensity(next);
+      document.documentElement.dataset.density = next;
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  useEffect(() => {
+    setPrefsSaved(false);
+  }, [density]);
+
   const titles = isClient ? CLIENT_SECTION_TITLE : SECTION_TITLE;
   const title = titles[activeSection] ?? (isClient ? 'Organization' : 'Account');
   const primary = data.clients[0];
@@ -539,8 +561,26 @@ export function AccountContent() {
               Preferences
             </p>
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>
-              Workspace density preferences are not wired yet. Billing lives under Account → Billing.
+              Density is stored in this browser. Profile name and email stay Notion-sourced.
             </p>
+            <label className="mt-4 flex flex-col gap-1">
+              <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Workspace density</span>
+              <select
+                value={density}
+                onChange={(e) => setDensity(e.target.value as 'comfortable' | 'compact')}
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 8,
+                  background: 'var(--bg)',
+                  color: 'var(--fg)',
+                  padding: '0.55rem 0.7rem',
+                  fontSize: 'var(--t-sm)',
+                }}
+              >
+                <option value="comfortable">Comfortable</option>
+                <option value="compact">Compact</option>
+              </select>
+            </label>
             {!isClient && (
               <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 'var(--s-4)' }}>
                 Sync mode: {data.syncMeta.mode}
@@ -549,8 +589,27 @@ export function AccountContent() {
                   : ' · not synced yet'}
               </p>
             )}
+            {prefsSaved ? (
+              <p style={{ fontSize: 'var(--t-xs)', color: 'var(--success)', marginTop: 12 }}>
+                Saved for this browser.
+              </p>
+            ) : null}
             <div className="mt-5 flex justify-end">
-              <PrimaryButton disabled>Save preferences</PrimaryButton>
+              <PrimaryButton
+                disabled={!prefsDirty}
+                onClick={() => {
+                  try {
+                    localStorage.setItem('warehaus-density', density);
+                    document.documentElement.dataset.density = density;
+                    setSavedDensity(density);
+                    setPrefsSaved(true);
+                  } catch {
+                    /* ignore quota / private mode */
+                  }
+                }}
+              >
+                Save preferences
+              </PrimaryButton>
             </div>
           </Surface>
         </PortalTilePane>

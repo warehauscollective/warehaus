@@ -84,6 +84,7 @@ export const finalizeUpload = clientMutation({
       throw new PortalAuthError('Daily upload quota exceeded', 'FORBIDDEN');
     }
 
+    const now = Date.now();
     const id = await ctx.db.insert('clientUploads', {
       orgId: ctx.orgId,
       uploadedByContactId: ctx.identity.contactId as Id<'contacts'>,
@@ -94,7 +95,17 @@ export const finalizeUpload = clientMutation({
       scanStatus: 'pending',
       needsReview: true,
       projectId: args.projectId,
-      createdAt: Date.now(),
+      createdAt: now,
+    });
+
+    await ctx.db.insert('activity', {
+      orgId: ctx.orgId,
+      projectId: args.projectId,
+      name: 'File uploaded',
+      summary: args.filename,
+      type: 'project',
+      tone: 'muted',
+      timestamp: now,
     });
 
     return { id };
@@ -140,11 +151,21 @@ export const approveUpload = adminMutation({
     if (row.scanStatus === 'infected') {
       throw new PortalAuthError('Cannot approve infected upload', 'FORBIDDEN');
     }
+    const now = Date.now();
     await ctx.db.patch(uploadId, {
       needsReview: false,
       scanStatus: row.scanStatus === 'pending' ? 'clean' : row.scanStatus,
       reviewedBy: ctx.identity.contactId as Id<'contacts'>,
-      reviewedAt: Date.now(),
+      reviewedAt: now,
+    });
+    await ctx.db.insert('activity', {
+      orgId: row.orgId,
+      projectId: row.projectId,
+      name: 'Upload approved',
+      summary: row.filename,
+      type: 'project',
+      tone: 'success',
+      timestamp: now,
     });
     return { ok: true as const };
   },
