@@ -75,6 +75,10 @@ const themeInitScript = `
     } else {
       document.documentElement.classList.remove('light');
     }
+    var density = localStorage.getItem('warehaus-density');
+    if (density === 'compact' || density === 'comfortable') {
+      document.documentElement.dataset.density = density;
+    }
   } catch (e) {}
 })();
 `.trim();

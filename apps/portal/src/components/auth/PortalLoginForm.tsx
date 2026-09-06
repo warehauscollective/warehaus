@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
@@ -129,6 +130,21 @@ export function PortalLoginForm({
             required
           />
         </label>
+
+        {mode === 'signin' && (
+          <div className="flex justify-end">
+            <Link
+              href="/forgot-password"
+              style={{
+                fontSize: 'var(--t-sm)',
+                color: 'var(--muted)',
+                textDecoration: 'underline',
+              }}
+            >
+              Forgot password?
+            </Link>
+          </div>
+        )}
 
         {mode === 'register' && canRegister && !canRegister.ok && (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>

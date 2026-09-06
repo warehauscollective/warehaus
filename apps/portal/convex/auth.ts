@@ -5,6 +5,7 @@ import { components } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import { query } from './_generated/server';
 import authConfig from './auth.config';
+import { passwordResetEmail, sendPortalEmail } from './_lib/email';
 
 /**
  * Better Auth on the portal Convex deployment (separate from Motoko).
@@ -25,6 +26,9 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     database: authComponent.adapter(ctx),
     trustedOrigins: [
       siteUrl,
+      'https://warehaus-portal.vercel.app',
+      // Preview aliases + per-deployment hosts (Better Auth accepts `*` labels).
+      'https://*.vercel.app',
       'http://localhost:3100',
       'http://portal.localhost:3100',
       'http://client-portal.localhost:3100',
@@ -32,6 +36,18 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: false,
+      sendResetPassword: async ({ user, url }) => {
+        const content = passwordResetEmail({
+          name: user.name,
+          resetUrl: url,
+        });
+        await sendPortalEmail({
+          to: user.email,
+          subject: content.subject,
+          html: content.html,
+          text: content.text,
+        });
+      },
     },
     plugins: [convex({ authConfig })],
   });

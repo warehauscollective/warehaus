@@ -25,3 +25,18 @@
 main {
   min-height: 100dvh;
 }
+
+
+/* Local preference: compact density (Account → Preferences) */
+html[data-density='compact'] {
+  --s-3: 0.55rem;
+  --s-4: 0.75rem;
+  --s-5: 1rem;
+  --s-6: 1.25rem;
+  --t-sm: 0.875rem;
+  --t-md: 1rem;
+}
+html[data-density='compact'] .ds-data td,
+html[data-density='compact'] .ds-data th {
+  padding-block: 0.45rem;
+}

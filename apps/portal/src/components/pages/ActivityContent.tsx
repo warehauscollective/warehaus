@@ -129,7 +129,7 @@ export function ActivityContent() {
                   )}
                   {!loading && feed.length === 0 && (
                     <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                      No activity yet for this org.
+                      No activity yet. Task responses, uploads, and staff project creates show up here.
                     </p>
                   )}
                   {feed.slice(0, 5).map((item) => (
