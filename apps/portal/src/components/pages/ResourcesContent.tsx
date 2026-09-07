@@ -131,7 +131,7 @@ export function ResourcesContent() {
       }
     >
       <PortalTilePane>
-        <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto">
+        <div className="flex max-lg:h-auto lg:h-full lg:min-h-0 flex-col gap-3 max-lg:overflow-visible lg:overflow-y-auto">
           {uploadError && (
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>{uploadError}</p>
           )}

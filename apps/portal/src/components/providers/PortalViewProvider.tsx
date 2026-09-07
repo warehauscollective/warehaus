@@ -36,6 +36,10 @@ interface PortalViewContextValue {
   detail: PortalDetail;
   openDetail: (detail: NonNullable<PortalDetail>) => void;
   closeDetail: () => void;
+  /** Mobile sidebar / section drawer (top-bar hamburger). */
+  menuOpen: boolean;
+  setMenuOpen: (open: boolean) => void;
+  toggleMenu: () => void;
 }
 
 const PortalViewContext = createContext<PortalViewContextValue | null>(null);
@@ -44,10 +48,12 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
   const { activeTab } = usePortalTab();
   const [sectionsByTab, setSectionsByTab] = useState<Record<PortalTab, string>>(defaultSections);
   const [detail, setDetail] = useState<PortalDetail>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
 
-  // Clear inspector when switching dock tabs (section state is kept per tab).
+  // Clear inspector + close mobile menu when switching dock tabs.
   useEffect(() => {
     setDetail(null);
+    setMenuOpen(false);
   }, [activeTab]);
 
   const sectionFor = useCallback(
@@ -74,6 +80,8 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
 
   const closeDetail = useCallback(() => setDetail(null), []);
 
+  const toggleMenu = useCallback(() => setMenuOpen((prev) => !prev), []);
+
   const value = useMemo(
     () => ({
       activeSection: sectionFor(activeTab),
@@ -83,6 +91,9 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
       detail,
       openDetail,
       closeDetail,
+      menuOpen,
+      setMenuOpen,
+      toggleMenu,
     }),
     [
       activeTab,
@@ -92,6 +103,8 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
       detail,
       openDetail,
       closeDetail,
+      menuOpen,
+      toggleMenu,
     ],
   );
 
