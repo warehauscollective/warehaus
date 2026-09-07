@@ -134,7 +134,7 @@ export function ProjectsContent() {
     >
       {activeSection === 'overview' && (
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4">
+          <div className="flex max-lg:h-auto lg:h-full lg:min-h-0 flex-col gap-4">
             <PortalStatGrid
               items={[
                 { label: 'Active', value: projectsLoading ? '…' : String(projects.length) },
@@ -150,7 +150,7 @@ export function ProjectsContent() {
                 </p>
               </Surface>
             ) : (
-              <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
+              <div className="grid max-lg:flex-none lg:min-h-0 lg:flex-1 gap-3 lg:grid-cols-2">
                 {projects.slice(0, 4).map((p) => (
                   <button
                     key={p.id}
@@ -208,14 +208,13 @@ export function ProjectsContent() {
       {activeSection === 'active' && (
         <PortalTilePane>
           <div
+            className="max-lg:overflow-x-auto lg:h-full lg:overflow-hidden"
             style={{
               border: '1px solid var(--border)',
               borderRadius: 'var(--radius)',
-              overflow: 'hidden',
-              height: '100%',
             }}
           >
-            <div className="h-full overflow-auto">
+            <div className="max-lg:h-auto max-lg:overflow-x-auto max-lg:overflow-y-visible lg:h-full lg:overflow-auto">
               {!projectsLoading && projects.length === 0 ? (
                 <p
                   style={{

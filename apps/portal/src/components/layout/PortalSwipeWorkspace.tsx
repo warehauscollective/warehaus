@@ -53,10 +53,10 @@ function TabPanelShell({
     >
       <PortalTabSidebar tab={tab} />
       {/*
-        Mobile: natural document flow so the tab panel scrolls as one page.
-        Desktop: clipped flex column for the fixed tile workspace.
+        Mobile: block-level document flow so content height drives the tab panel
+        scroll (no flex-1 viewport lock). Desktop: clipped tile workspace.
       */}
-      <div className="flex min-w-0 flex-1 flex-col lg:min-h-0 lg:overflow-hidden">
+      <div className="min-w-0 w-full max-lg:block lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
         {children}
       </div>
     </div>

@@ -35,7 +35,7 @@ export function PortalWorkspace({
   const showRight = detailOpen || Boolean(aside);
 
   return (
-    <div className="flex flex-col lg:h-full lg:min-h-0 lg:overflow-hidden">
+    <div className="max-lg:block lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
       {!hideHeader ? (
         <header
           className={`shrink-0 flex-wrap items-end justify-between gap-3 ${
@@ -79,10 +79,10 @@ export function PortalWorkspace({
       ) : null}
 
       <div
-        className={`flex flex-1 flex-col lg:min-h-0 lg:flex-row lg:overflow-hidden${hideHeader ? '' : ' pt-3 lg:pt-4'}`}
+        className={`max-lg:block lg:flex lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden${hideHeader ? '' : ' pt-3 lg:pt-4'}`}
         style={{ gap: PORTAL_PANEL_GAP_VAR }}
       >
-        <div className="min-w-0 flex-1 lg:min-h-0 lg:overflow-hidden">{children}</div>
+        <div className="min-w-0 max-lg:block lg:min-h-0 lg:flex-1 lg:overflow-hidden">{children}</div>
 
         {showRight ? (
           <aside
