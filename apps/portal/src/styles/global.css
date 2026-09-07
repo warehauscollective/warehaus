@@ -37,6 +37,22 @@ main {
   }
 }
 
+/* Mobile: kill flex height locks so tab content grows with the document. */
+@media (max-width: 1023px) {
+  .portal-tab-shell,
+  .portal-tab-content,
+  .portal-workspace {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .portal-tab-shell {
+    min-height: 100% !important;
+  }
+}
+
 
 /* Local preference: compact density (Account → Preferences) */
 html[data-density='compact'] {

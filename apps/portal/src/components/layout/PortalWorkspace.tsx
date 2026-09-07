@@ -35,7 +35,7 @@ export function PortalWorkspace({
   const showRight = detailOpen || Boolean(aside);
 
   return (
-    <div className="max-lg:block lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
+    <div className="portal-workspace max-lg:block lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
       {!hideHeader ? (
         <header
           className={`shrink-0 flex-wrap items-end justify-between gap-3 ${

@@ -41,8 +41,8 @@ function TabPanelShell({
   children: ReactNode;
 }) {
   return (
-    <div
-      className="box-border flex min-h-full flex-col pt-[4.75rem] lg:h-full lg:min-h-0 lg:flex-row lg:overflow-hidden lg:pt-[var(--portal-panel-gap,1.25rem)]"
+      <div
+      className="portal-tab-shell box-border flex min-h-full flex-col pt-[4.75rem] lg:h-full lg:min-h-0 lg:flex-row lg:overflow-hidden lg:pt-[var(--portal-panel-gap,1.25rem)]"
       style={{
         paddingLeft: PORTAL_PANEL_GAP_VAR,
         paddingRight: PORTAL_PANEL_GAP_VAR,
@@ -56,7 +56,7 @@ function TabPanelShell({
         Mobile: block-level document flow so content height drives the tab panel
         scroll (no flex-1 viewport lock). Desktop: clipped tile workspace.
       */}
-      <div className="min-w-0 w-full max-lg:block lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
+      <div className="portal-tab-content min-w-0 w-full max-lg:block lg:flex lg:min-h-0 lg:flex-1 lg:flex-col lg:overflow-hidden">
         {children}
       </div>
     </div>
