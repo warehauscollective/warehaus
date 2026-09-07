@@ -38,14 +38,16 @@ export function PortalWorkspace({
     <div className="flex h-full min-h-0 flex-col lg:overflow-hidden">
       {!hideHeader ? (
         <header
-          className="flex shrink-0 flex-wrap items-end justify-between gap-3"
+          className={`shrink-0 flex-wrap items-end justify-between gap-3 ${
+            actions ? 'flex' : 'hidden lg:flex'
+          }`}
           style={{
-            paddingTop: 'var(--s-5)',
-            paddingBottom: 'var(--s-4)',
+            paddingTop: 'var(--s-3)',
+            paddingBottom: 'var(--s-3)',
             borderBottom: '1px solid var(--border)',
           }}
         >
-          <div className="min-w-0">
+          <div className="hidden min-w-0 lg:block">
             <p
               className="ds-mono"
               style={{
@@ -68,12 +70,16 @@ export function PortalWorkspace({
               {title}
             </h1>
           </div>
-          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+          {actions ? (
+            <div className="flex w-full flex-wrap items-center gap-2 lg:ml-auto lg:w-auto">
+              {actions}
+            </div>
+          ) : null}
         </header>
       ) : null}
 
       <div
-        className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:overflow-hidden${hideHeader ? '' : ' pt-4'}`}
+        className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:overflow-hidden${hideHeader ? '' : ' pt-3 lg:pt-4'}`}
         style={{ gap: PORTAL_PANEL_GAP_VAR }}
       >
         <div className="min-h-0 min-w-0 flex-1 lg:overflow-hidden">{children}</div>

@@ -6,6 +6,8 @@ import { PortalTabProvider } from '@/components/providers/PortalTabProvider';
 import { PortalViewProvider } from '@/components/providers/PortalViewProvider';
 import { PORTAL_PANEL_GAP } from '@/lib/design/portal-chrome';
 import { PortalDock } from './PortalDock';
+import { PortalMobileSidebar } from './PortalMobileSidebar';
+import { PortalMobileTopBar } from './PortalMobileTopBar';
 import { PortalSwipeWorkspace } from './PortalSwipeWorkspace';
 
 function PortalChrome({ children }: { children: ReactNode }) {
@@ -27,6 +29,8 @@ function PortalChrome({ children }: { children: ReactNode }) {
       <div className="hidden" aria-hidden>
         {children}
       </div>
+      <PortalMobileTopBar />
+      <PortalMobileSidebar />
       <PortalDock />
     </div>
   );

@@ -39,7 +39,7 @@ function TabPanelShell({
 }) {
   return (
     <div
-      className="box-border flex h-full min-h-0 flex-col overflow-hidden pb-28 pt-3 lg:flex-row lg:pt-[var(--portal-panel-gap,1.25rem)]"
+      className="box-border flex h-full min-h-0 flex-col overflow-hidden pb-28 pt-[4.75rem] lg:flex-row lg:pt-[var(--portal-panel-gap,1.25rem)]"
       style={{
         paddingLeft: PORTAL_PANEL_GAP_VAR,
         paddingRight: PORTAL_PANEL_GAP_VAR,
