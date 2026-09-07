@@ -16,10 +16,15 @@ function PortalChrome({ children }: { children: ReactNode }) {
     root.style.setProperty('--portal-panel-gap', PORTAL_PANEL_GAP);
     root.style.setProperty('--portal-col-gap', PORTAL_PANEL_GAP);
     root.style.setProperty('--portal-rail-w', '0px');
+    root.style.setProperty(
+      '--portal-dock-clearance',
+      'calc(7.25rem + env(safe-area-inset-bottom, 0px))',
+    );
     return () => {
       root.style.removeProperty('--portal-panel-gap');
       root.style.removeProperty('--portal-col-gap');
       root.style.removeProperty('--portal-rail-w');
+      root.style.removeProperty('--portal-dock-clearance');
     };
   }, []);
 
