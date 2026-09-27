@@ -8,7 +8,7 @@ import { api } from '@convex/_generated/api';
 import { passwordRuleState } from '@convex/_lib/passwordRules';
 import { CANT_REGISTER_MESSAGE } from '@convex/_lib/registration';
 import { safeRedirectPath } from '@convex/_lib/safeRedirect';
-import { GhostButton, PrimaryButton, Surface } from '@/components/ui/primitives';
+import { ButtonSpinner, GhostButton, PrimaryButton, Surface } from '@/components/ui/primitives';
 import {
   CantRegisterMessage,
   CheckEmailPanel,
@@ -230,7 +230,11 @@ export function PortalLoginForm({
           </p>
         )}
 
-        <div className="mt-2 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div
+          className={`mt-2 flex gap-3 sm:flex-row sm:items-center sm:justify-between ${
+            mode === 'register' ? 'flex-col-reverse' : 'flex-col'
+          }`}
+        >
           <button
             type="button"
             onClick={() => {
@@ -264,14 +268,23 @@ export function PortalLoginForm({
               </>
             )}
           </button>
-          <PrimaryButton type="submit" disabled={pending || registerBlocked}>
-            {pending
-              ? mode === 'register'
-                ? 'Creating account…'
-                : 'Working…'
-              : mode === 'signin'
-                ? 'Sign in'
-                : 'Create account'}
+          <PrimaryButton
+            type="submit"
+            disabled={pending || registerBlocked}
+            className={mode === 'register' ? 'w-full sm:w-auto' : undefined}
+          >
+            {pending && mode === 'register' ? (
+              <>
+                <ButtonSpinner />
+                Creating account…
+              </>
+            ) : pending ? (
+              'Working…'
+            ) : mode === 'signin' ? (
+              'Sign in'
+            ) : (
+              'Create account'
+            )}
           </PrimaryButton>
         </div>
       </form>

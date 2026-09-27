@@ -35,6 +35,46 @@ export function isCantRegisterError(message: string | null | undefined): boolean
   return Boolean(message && message.includes(CANT_REGISTER_MESSAGE));
 }
 
+export type VerifyEmailView =
+  | 'checking'
+  | 'check-email'
+  | 'expired'
+  | 'cant-register'
+  | 'verified'
+  | 'error';
+
+const EXPIRED_TOKEN_ERRORS = new Set(['TOKEN_EXPIRED', 'INVALID_TOKEN', 'USER_NOT_FOUND']);
+
+/** A link opened on another device has no address in this browser. */
+export function needsTypedVerifyEmail(storedEmail: string): boolean {
+  return storedEmail.trim().length === 0;
+}
+
+/**
+ * Verify-page screen. A linking failure other than can't-register becomes
+ * an error screen. A resolved visit with no session is an invalid link.
+ */
+export function verifyEmailView(input: {
+  resentTo: string | null;
+  tokenError: string | null;
+  sessionPending: boolean;
+  hasUser: boolean;
+  linkStatus: string;
+  joining: boolean;
+  joinError: string | null;
+  refused: boolean;
+}): VerifyEmailView {
+  if (input.resentTo) return 'check-email';
+  if (input.tokenError && EXPIRED_TOKEN_ERRORS.has(input.tokenError)) return 'expired';
+  if (input.refused || isCantRegisterError(input.joinError)) return 'cant-register';
+  if (input.sessionPending || input.joining || input.linkStatus === 'loading') return 'checking';
+  if (input.joinError) return 'error';
+  if (input.hasUser && input.linkStatus === 'linked') return 'verified';
+  if (input.hasUser && input.linkStatus === 'unlinked') return 'checking';
+  if (!input.hasUser) return 'expired';
+  return 'error';
+}
+
 /**
  * No matching contact uses the same check-email screen as an allowed contact.
  * Staff and every other refusal use the shared sentence.

@@ -2,14 +2,14 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import { PrimaryButton, Surface } from '@/components/ui/primitives';
+import { ButtonSpinner, PrimaryButton, Surface } from '@/components/ui/primitives';
 import { authClient } from '@/lib/auth-client';
 import {
   CANT_REGISTER_MESSAGE,
   REGISTRATION_UI_FLOOR_MS,
   VERIFY_EMAIL_PATH,
   checkEmailModel,
+  needsTypedVerifyEmail,
   registrationWaitMs,
 } from '@convex/_lib/registration';
 import {
@@ -66,13 +66,15 @@ function useResendCooldown(run: number) {
   return remainingMs;
 }
 
-function requestVerificationEmail(email: string): void {
-  void authClient.sendVerificationEmail({
-    email,
-    callbackURL: VERIFY_EMAIL_PATH,
-  }).catch(() => {
+async function requestVerificationEmail(email: string): Promise<void> {
+  try {
+    await authClient.sendVerificationEmail({
+      email,
+      callbackURL: VERIFY_EMAIL_PATH,
+    });
+  } catch {
     // Same confirmation either way. Do not surface whether an account exists.
-  });
+  }
 }
 
 export function CheckEmailPanel({
@@ -151,7 +153,7 @@ export function CheckEmailPanel({
             type="button"
             style={{ ...textLink, color: 'var(--foreground)' }}
             onClick={() => {
-              requestVerificationEmail(email);
+              void requestVerificationEmail(email);
               setCooldownRun((n) => n + 1);
             }}
           >
@@ -211,8 +213,12 @@ export function ExpiredVerificationPanel({
 }: {
   onSent?: (email: string) => void;
 }) {
-  const router = useRouter();
-  const email = readPendingVerifyEmail();
+  const storedEmail = readPendingVerifyEmail();
+  const askForEmail = needsTypedVerifyEmail(storedEmail);
+  const [typedEmail, setTypedEmail] = useState('');
+  const [sending, setSending] = useState(false);
+  const email = askForEmail ? typedEmail.trim() : storedEmail;
+  const canSend = email.includes('@') && !sending;
 
   return (
     <Surface style={{ padding: 'var(--s-5)', maxWidth: 480, width: '100%' }}>
@@ -226,23 +232,69 @@ export function ExpiredVerificationPanel({
         This verification link is invalid, has expired or has already been used. Send a new link to
         continue.
       </p>
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+      <form
+        className="mt-5 flex flex-col gap-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!canSend) return;
+          void (async () => {
+            setSending(true);
+            try {
+              await requestVerificationEmail(email);
+              onSent?.(email);
+            } finally {
+              setSending(false);
+            }
+          })();
+        }}
+      >
+        {askForEmail && (
+          <label className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
+            <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500 }}>Email</span>
+            <input
+              className="ds-input"
+              type="email"
+              autoComplete="username"
+              value={typedEmail}
+              onChange={(event) => setTypedEmail(event.target.value)}
+              required
+            />
+          </label>
+        )}
+        <div className="flex flex-col-reverse gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Link href="/login" style={{ ...textLink, color: 'var(--muted)' }}>
+            Back to sign in
+          </Link>
+          <PrimaryButton type="submit" disabled={!canSend} className="w-full sm:w-auto">
+            {sending ? (
+              <>
+                <ButtonSpinner />
+                Sending…
+              </>
+            ) : (
+              'Send a new link'
+            )}
+          </PrimaryButton>
+        </div>
+      </form>
+    </Surface>
+  );
+}
+
+export function VerifyLinkErrorPanel() {
+  return (
+    <Surface style={{ padding: 'var(--s-5)', maxWidth: 480, width: '100%' }}>
+      <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
+        Verify email
+      </p>
+      <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>Something went wrong</h3>
+      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8, lineHeight: 1.5 }}>
+        We couldn&apos;t check this link. Back to sign in and try again.
+      </p>
+      <div className="mt-5">
         <Link href="/login" style={{ ...textLink, color: 'var(--muted)' }}>
           Back to sign in
         </Link>
-        <PrimaryButton
-          type="button"
-          onClick={() => {
-            if (!email) {
-              router.push('/login');
-              return;
-            }
-            requestVerificationEmail(email);
-            onSent?.(email);
-          }}
-        >
-          Send a new link
-        </PrimaryButton>
       </div>
     </Surface>
   );

@@ -8,10 +8,11 @@ import {
   CheckEmailPanel,
   ExpiredVerificationPanel,
   VerifiedEmailPanel,
+  VerifyLinkErrorPanel,
 } from '@/components/auth/EmailVerificationScreens';
 import { Surface } from '@/components/ui/primitives';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
-import { isCantRegisterError } from '@convex/_lib/registration';
+import { isCantRegisterError, verifyEmailView } from '@convex/_lib/registration';
 import { safeRedirectPath } from '@convex/_lib/safeRedirect';
 
 function VerifyEmailInner() {
@@ -19,14 +20,9 @@ function VerifyEmailInner() {
   const searchParams = useSearchParams();
   const tokenError = searchParams.get('error');
   const next = safeRedirectPath(searchParams.get('next'));
-  const { authUser, sessionPending, linkStatus, joinError, signOut } = usePortalAuth();
+  const { authUser, sessionPending, linkStatus, joining, joinError, signOut } = usePortalAuth();
   const [refused, setRefused] = useState(false);
   const [resentTo, setResentTo] = useState<string | null>(null);
-
-  const expired =
-    tokenError === 'TOKEN_EXPIRED' ||
-    tokenError === 'INVALID_TOKEN' ||
-    tokenError === 'USER_NOT_FOUND';
 
   useEffect(() => {
     if (refused || !isCantRegisterError(joinError)) return;
@@ -34,17 +30,28 @@ function VerifyEmailInner() {
     void signOut();
   }, [joinError, refused, signOut]);
 
+  const view = verifyEmailView({
+    resentTo,
+    tokenError,
+    sessionPending,
+    hasUser: Boolean(authUser),
+    linkStatus,
+    joining,
+    joinError,
+    refused,
+  });
+
   let body = (
     <p className="ds-mono text-center" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
       Checking your link…
     </p>
   );
 
-  if (resentTo) {
+  if (view === 'check-email' && resentTo) {
     body = <CheckEmailPanel email={resentTo} />;
-  } else if (expired) {
+  } else if (view === 'expired') {
     body = <ExpiredVerificationPanel onSent={setResentTo} />;
-  } else if (refused || isCantRegisterError(joinError)) {
+  } else if (view === 'cant-register') {
     body = (
       <Surface style={{ padding: 'var(--s-5)', maxWidth: 480, width: '100%' }}>
         <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
@@ -56,8 +63,10 @@ function VerifyEmailInner() {
         </div>
       </Surface>
     );
-  } else if (!sessionPending && authUser && linkStatus === 'linked') {
+  } else if (view === 'verified') {
     body = <VerifiedEmailPanel onContinue={() => router.replace(next)} />;
+  } else if (view === 'error') {
+    body = <VerifyLinkErrorPanel />;
   }
 
   return <AuthPageShell subtitle="Verify your email">{body}</AuthPageShell>;

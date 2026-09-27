@@ -8,8 +8,10 @@ import {
   decideSelfServeRegistration,
   registrationBlockMessage,
   registrationWaitMs,
+  needsTypedVerifyEmail,
   signupScreenForDecision,
   staffManualLinkError,
+  verifyEmailView,
   staffProvisionContactError,
   staffSessionDeleteArgs,
   staffSessionDeleteCursor,
@@ -88,6 +90,78 @@ describe('self-serve registration', () => {
     assert.equal(registrationWaitMs(0, REGISTRATION_UI_FLOOR_MS), REGISTRATION_UI_FLOOR_MS);
     assert.equal(registrationWaitMs(REGISTRATION_UI_FLOOR_MS), 0);
     assert.equal(registrationWaitMs(50), registrationWaitMs(50));
+  });
+
+  it('asks for an email on an expired link when this browser has none', () => {
+    assert.equal(needsTypedVerifyEmail(''), true);
+    assert.equal(needsTypedVerifyEmail('   '), true);
+    assert.equal(needsTypedVerifyEmail('ada@client.test'), false);
+  });
+
+  it('leaves checking your link for every settled verify outcome', () => {
+    const checking = {
+      resentTo: null,
+      tokenError: null,
+      sessionPending: true,
+      hasUser: false,
+      linkStatus: 'loading',
+      joining: false,
+      joinError: null,
+      refused: false,
+    };
+    assert.equal(verifyEmailView(checking), 'checking');
+    assert.equal(
+      verifyEmailView({ ...checking, sessionPending: false, linkStatus: 'disabled' }),
+      'expired',
+    );
+    assert.equal(
+      verifyEmailView({ ...checking, tokenError: 'INVALID_TOKEN', sessionPending: false }),
+      'expired',
+    );
+    assert.equal(
+      verifyEmailView({
+        ...checking,
+        sessionPending: false,
+        hasUser: true,
+        linkStatus: 'unlinked',
+        joining: false,
+        joinError: 'Could not link portal contact',
+      }),
+      'error',
+    );
+    assert.equal(
+      verifyEmailView({
+        ...checking,
+        sessionPending: false,
+        hasUser: true,
+        linkStatus: 'unlinked',
+        joinError: CANT_REGISTER_MESSAGE,
+      }),
+      'cant-register',
+    );
+    assert.equal(
+      verifyEmailView({
+        ...checking,
+        sessionPending: false,
+        hasUser: true,
+        linkStatus: 'linked',
+      }),
+      'verified',
+    );
+    assert.equal(
+      verifyEmailView({ ...checking, resentTo: 'ada@client.test', sessionPending: false }),
+      'check-email',
+    );
+    assert.equal(
+      verifyEmailView({
+        ...checking,
+        sessionPending: false,
+        hasUser: true,
+        linkStatus: 'unlinked',
+        joining: true,
+      }),
+      'checking',
+    );
   });
 
   it('staff reprovision deletes only that user\'s sessions', () => {
