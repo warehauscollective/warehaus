@@ -241,6 +241,8 @@ export default defineSchema({
     database: v.string(),
     reason: v.string(),
     payload: v.optional(v.string()),
+    /** Notion last_edited_time. Same page and edit must not insert twice. */
+    editedAtMs: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index('by_notionPageId', ['notionPageId'])

@@ -13,12 +13,13 @@ import {
   mergeReleasedPages,
   pageEditedAtMs,
   parsePullCursorState,
-  recordPageFailure,
   refreshUnseenRetries,
+  settleRecordedFailures,
   shouldDeferPageRetry,
   shouldSkipReleased,
   type FailedPageRetry,
   type PageProcessOutcome,
+  type RecordedPageFailure,
   type ReleasedPage,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
@@ -118,7 +119,9 @@ export const pullAll = internalAction({
     let terminalError: string | undefined;
     const outcomes: PageProcessOutcome[] = [];
     const nextRetries: FailedPageRetry[] = [];
+    const pageFailures: RecordedPageFailure[] = [];
     const seen = new Set<string>();
+    let attempted = 0;
     let priorRetries: FailedPageRetry[] = [];
     let priorReleased: ReleasedPage[] = [];
     const priorById = new Map<string, FailedPageRetry>();
@@ -146,21 +149,21 @@ export const pullAll = internalAction({
       }
       try {
         await fn();
+        attempted += 1;
         outcomes.push({ id: page.id, editedAtMs, ok: true });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        attempted += 1;
         stats.errors.push(`${database} ${page.id}: ${message}`);
         stats.failed += 1;
         outcomes.push({ id: page.id, editedAtMs, ok: false });
-        nextRetries.push(
-          recordPageFailure(prior, {
-            id: page.id,
-            database,
-            editedAtMs,
-            error: message,
-            nowMs: now,
-          }),
-        );
+        pageFailures.push({
+          id: page.id,
+          database,
+          editedAtMs,
+          error: message,
+          prior,
+        });
       }
     };
 
@@ -176,6 +179,7 @@ export const pullAll = internalAction({
       for (const retry of priorRetries) priorById.set(retry.id, retry);
 
       const forceFull = Boolean(args.forceFull) || previousWatermark == null;
+      if (forceFull) priorReleased = [];
       const editedSinceIso = forceFull
         ? null
         : new Date(Math.max(0, previousWatermark! - INCREMENTAL_OVERLAP_MS)).toISOString();
@@ -201,6 +205,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'clients',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid client map',
           });
@@ -241,6 +246,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'contacts',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid contact map',
           });
@@ -253,6 +259,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'contacts',
             reason: 'Client Company not resolved to a synced client',
           });
@@ -295,6 +302,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'projects',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid project map',
           });
@@ -306,6 +314,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'projects',
             reason: 'Client relation not resolved',
           });
@@ -365,6 +374,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'tasks',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid task map',
           });
@@ -379,6 +389,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'tasks',
             reason: 'Parent project not resolved',
           });
@@ -432,6 +443,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'sharedResources',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid resource map',
           });
@@ -444,6 +456,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'sharedResources',
             reason: 'No resolvable Client/Project org',
           });
@@ -539,6 +552,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'clientDocs',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid doc map',
           });
@@ -551,6 +565,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'clientDocs',
             reason: 'Client relation not resolved',
           });
@@ -585,6 +600,13 @@ export const pullAll = internalAction({
       }
 
       const outstanding = refreshUnseenRetries(priorRetries, seen, now);
+      nextRetries.push(
+        ...settleRecordedFailures({
+          failures: pageFailures,
+          attempted,
+          nowMs: now,
+        }),
+      );
       const combined = [...nextRetries, ...outstanding];
       const quarantined = combined.filter(isExhaustedRetry);
       const exhaustedIds = new Set(quarantined.map((retry) => retry.id));
@@ -602,6 +624,7 @@ export const pullAll = internalAction({
       for (const row of quarantined) {
         await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
           notionPageId: row.id,
+          editedAtMs: row.editedAtMs ?? undefined,
           database: row.database,
           reason: `Stopped after ${row.attempts} failed attempts: ${row.error}`,
         });
@@ -611,6 +634,7 @@ export const pullAll = internalAction({
         priorReleased,
         quarantined,
         outcomes.map((outcome) => ({ id: outcome.id, editedAtMs: outcome.editedAtMs })),
+        now,
       );
       const notes = [
         retries.length > 0

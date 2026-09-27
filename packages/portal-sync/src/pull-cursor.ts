@@ -30,7 +30,10 @@ export type FailedPageRetry = {
   id: string;
   database: string;
   editedAtMs: number | null;
+  /** Deterministic failures only. Transient errors leave this unchanged. */
   attempts: number;
+  /** Every failure, used only to grow backoff up to 6 hours. */
+  backoffStep?: number;
   nextRetryAt: number;
   error: string;
 };
@@ -42,10 +45,20 @@ export type SyncPage = {
   body: string;
 };
 
-/** Page already given up on, until Notion edits it again. */
+/** Page already given up on, until Notion edits it again or a full resync clears it. */
 export type ReleasedPage = {
   id: string;
   editedAtMs: number | null;
+  /** When this edit was quarantined. Missing values sort as oldest. */
+  releasedAt?: number;
+};
+
+export type RecordedPageFailure = {
+  id: string;
+  database: string;
+  editedAtMs: number | null;
+  error: string;
+  prior?: FailedPageRetry;
 };
 
 export function pageEditedAtMs(lastEdited: string | null | undefined): number | null {
@@ -83,6 +96,7 @@ export function mergeReleasedPages(
   prior: ReleasedPage[],
   quarantined: FailedPageRetry[],
   seenPages: Array<{ id: string; editedAtMs: number | null }>,
+  nowMs: number,
 ): ReleasedPage[] {
   const seenAt = new Map(seenPages.map((page) => [page.id, page.editedAtMs]));
   const kept = prior.filter((row) => {
@@ -93,9 +107,80 @@ export function mergeReleasedPages(
   });
   const byId = new Map(kept.map((row) => [row.id, row]));
   for (const row of quarantined) {
-    byId.set(row.id, { id: row.id, editedAtMs: row.editedAtMs });
+    byId.set(row.id, { id: row.id, editedAtMs: row.editedAtMs, releasedAt: nowMs });
   }
-  return [...byId.values()].slice(0, MAX_STORED_RETRIES);
+  return [...byId.values()]
+    .sort((a, b) => (b.releasedAt ?? 0) - (a.releasedAt ?? 0) || a.id.localeCompare(b.id))
+    .slice(0, MAX_STORED_RETRIES);
+}
+
+/**
+ * Quarantine only page-specific data failures. Notion 5xx, 429, and network
+ * errors are outages: they back off, and they do not move the attempt count.
+ */
+export function isDeterministicPageFailure(error: string): boolean {
+  const marked = error.match(/→\s*(\d{3})\b/);
+  const status = marked ? Number(marked[1]) : null;
+  if (status != null) {
+    if (status === 429 || status >= 500) return false;
+    if (status === 400 || status === 404) return true;
+    return false;
+  }
+  const text = error.toLowerCase();
+  if (/\b(429|500|502|503|504)\b/.test(error) || text.includes('5xx')) return false;
+  if (
+    /econnreset|etimedout|enotfound|eai_again|fetch failed|network error|socket hang up|\btimed out\b|\btimeout\b/.test(
+      text,
+    )
+  ) {
+    return false;
+  }
+  if (/\b(400|404)\b/.test(error)) return true;
+  if (text.includes('validation') || text.includes('mapping')) return true;
+  if (
+    text.includes('relation') &&
+    (text.includes('missing') || text.includes('required'))
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * A dead query, or a majority of a multi-page pass, is an outage.
+ * One failing page is page-specific and can still count.
+ */
+export function isPassOutage(input: {
+  attempted: number;
+  failed: number;
+  queryFailed?: boolean;
+}): boolean {
+  if (input.queryFailed) return true;
+  if (input.attempted < 2) return false;
+  return input.failed * 2 > input.attempted;
+}
+
+export function settleRecordedFailures(input: {
+  failures: RecordedPageFailure[];
+  attempted: number;
+  nowMs: number;
+  queryFailed?: boolean;
+}): FailedPageRetry[] {
+  const freeze = isPassOutage({
+    attempted: input.attempted,
+    failed: input.failures.length,
+    queryFailed: input.queryFailed,
+  });
+  return input.failures.map((failure) =>
+    recordPageFailure(failure.prior, {
+      id: failure.id,
+      database: failure.database,
+      editedAtMs: failure.editedAtMs,
+      error: failure.error,
+      nowMs: input.nowMs,
+      countAttempt: !freeze && isDeterministicPageFailure(failure.error),
+    }),
+  );
 }
 
 export function recordPageFailure(
@@ -106,15 +191,18 @@ export function recordPageFailure(
     editedAtMs: number | null;
     error: string;
     nowMs: number;
+    countAttempt: boolean;
   },
 ): FailedPageRetry {
-  const attempts = (prior?.attempts ?? 0) + 1;
+  const attempts = (prior?.attempts ?? 0) + (input.countAttempt ? 1 : 0);
+  const backoffStep = (prior?.backoffStep ?? prior?.attempts ?? 0) + 1;
   return {
     id: input.id,
     database: input.database,
     editedAtMs: input.editedAtMs ?? prior?.editedAtMs ?? null,
     attempts,
-    nextRetryAt: input.nowMs + pageRetryBackoffMs(attempts),
+    backoffStep,
+    nextRetryAt: input.nowMs + pageRetryBackoffMs(backoffStep),
     error: input.error.slice(0, 500),
   };
 }
@@ -180,6 +268,7 @@ export function refreshUnseenRetries(
       editedAtMs: retry.editedAtMs,
       error: retry.error || 'not returned by Notion',
       nowMs,
+      countAttempt: false,
     });
   });
 }
@@ -214,6 +303,7 @@ function parseRetryRow(row: unknown): FailedPageRetry | null {
     database: record.database,
     editedAtMs: typeof record.editedAtMs === 'number' ? record.editedAtMs : null,
     attempts: record.attempts,
+    backoffStep: typeof record.backoffStep === 'number' ? record.backoffStep : undefined,
     nextRetryAt: record.nextRetryAt,
     error: typeof record.error === 'string' ? record.error : 'failed',
   };
@@ -226,7 +316,28 @@ function parseReleasedRow(row: unknown): ReleasedPage | null {
   return {
     id: record.id,
     editedAtMs: typeof record.editedAtMs === 'number' ? record.editedAtMs : null,
+    releasedAt: typeof record.releasedAt === 'number' ? record.releasedAt : undefined,
   };
+}
+
+/** Drop one page from the stored released list. Other sync details stay put. */
+export function releaseQuarantinedPageFromDetails(
+  details: string | null | undefined,
+  pageId: string,
+): string {
+  let parsed: Record<string, unknown> = {};
+  if (details) {
+    try {
+      const value = JSON.parse(details) as unknown;
+      if (value && typeof value === 'object' && !Array.isArray(value)) {
+        parsed = { ...(value as Record<string, unknown>) };
+      }
+    } catch {
+      parsed = {};
+    }
+  }
+  parsed.released = parsePullCursorState(details).released.filter((row) => row.id !== pageId);
+  return JSON.stringify(parsed);
 }
 
 export function parsePullRetries(details: string | null | undefined): FailedPageRetry[] {
@@ -271,8 +382,14 @@ export function applyPullPass(input: {
   lastSyncedAtMs: number | null;
   nowMs: number;
   failIds: ReadonlySet<string>;
+  /** Error text for every id in failIds. Defaults to a Notion 400. */
+  failureError?: string;
   priorRetries?: FailedPageRetry[];
   priorReleased?: ReleasedPage[];
+  /** Ignore and clear `released` so quarantined pages are pulled again. */
+  forceFull?: boolean;
+  /** The data-source query died before any page was handled. */
+  queryFailed?: boolean;
 }): {
   lastSyncedAtMs: number | null;
   retries: FailedPageRetry[];
@@ -281,11 +398,22 @@ export function applyPullPass(input: {
   appliedIds: string[];
 } {
   const priorRetries = input.priorRetries ?? [];
-  const priorReleased = input.priorReleased ?? [];
+  const priorReleased = input.forceFull ? [] : (input.priorReleased ?? []);
+  if (input.queryFailed) {
+    return {
+      lastSyncedAtMs: input.lastSyncedAtMs,
+      retries: priorRetries,
+      quarantined: [],
+      released: input.priorReleased ?? [],
+      appliedIds: [],
+    };
+  }
+  const failureError = input.failureError ?? 'Notion /v1/pages → 400: invalid property';
   const priorById = new Map(priorRetries.map((retry) => [retry.id, retry]));
   const selected = selectPagesForPull({
     pages: input.source,
     lastSyncedAtMs: input.lastSyncedAtMs,
+    forceFull: input.forceFull,
   });
   const selectedIds = new Set(selected.map((page) => page.id));
   for (const retry of priorRetries) {
@@ -298,8 +426,10 @@ export function applyPullPass(input: {
 
   const outcomes: PageProcessOutcome[] = [];
   const nextRetries: FailedPageRetry[] = [];
+  const failures: RecordedPageFailure[] = [];
   const seen = new Set<string>();
   const appliedIds: string[] = [];
+  let attempted = 0;
 
   for (const page of selected) {
     seen.add(page.id);
@@ -319,21 +449,28 @@ export function applyPullPass(input: {
       continue;
     }
     if (input.failIds.has(page.id)) {
+      attempted += 1;
       outcomes.push({ id: page.id, editedAtMs: page.editedAtMs, ok: false });
-      nextRetries.push(
-        recordPageFailure(prior, {
-          ...attempt,
-          error: 'failed',
-          nowMs: input.nowMs,
-        }),
-      );
+      failures.push({
+        ...attempt,
+        error: failureError,
+        prior,
+      });
       continue;
     }
+    attempted += 1;
     input.stored.set(page.id, page);
     appliedIds.push(page.id);
     outcomes.push({ id: page.id, editedAtMs: page.editedAtMs, ok: true });
   }
 
+  nextRetries.push(
+    ...settleRecordedFailures({
+      failures,
+      attempted,
+      nowMs: input.nowMs,
+    }),
+  );
   const outstanding = refreshUnseenRetries(priorRetries, seen, input.nowMs);
   const combined = [...nextRetries, ...outstanding];
   const quarantined = combined.filter(isExhaustedRetry);
@@ -355,7 +492,7 @@ export function applyPullPass(input: {
     lastSyncedAtMs,
     retries: capStoredRetries(combined.filter((retry) => !exhaustedIds.has(retry.id))),
     quarantined,
-    released: mergeReleasedPages(priorReleased, quarantined, seenPages),
+    released: mergeReleasedPages(priorReleased, quarantined, seenPages, input.nowMs),
     appliedIds,
   };
 }

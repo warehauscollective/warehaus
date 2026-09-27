@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
+import { matchingQuarantineId } from '../_lib/quarantineRow';
 
 export const upsertClient = internalMutation({
   args: {
@@ -266,8 +267,22 @@ export const writeQuarantine = internalMutation({
     database: v.string(),
     reason: v.string(),
     payload: v.optional(v.string()),
+    editedAtMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('quarantine')
+      .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
+      .collect();
+    const matchId = matchingQuarantineId(
+      existing.map((row) => ({
+        id: row._id,
+        notionPageId: row.notionPageId,
+        editedAtMs: row.editedAtMs ?? null,
+      })),
+      args,
+    );
+    if (matchId) return matchId;
     return ctx.db.insert('quarantine', {
       ...args,
       createdAt: Date.now(),
