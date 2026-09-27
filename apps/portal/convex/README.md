@@ -51,21 +51,19 @@ same Resend env as password reset (`RESEND_API_KEY`, optional `EMAIL_FROM` / `EM
 
 ### Staff links (not self-serve)
 
-`linkSession` will not claim a Warehaus Staff contact. Create the Better Auth user with the
-provision header (the value is `BETTER_AUTH_SECRET` already on the deployment), then link by hand:
+`linkSession` will not claim a Warehaus Staff contact, and there is no HTTP header that can.
+Create the verified user and link it with one internal action (not callable from the browser):
 
 ```bash
-curl -sS -X POST "$SITE_URL/api/auth/sign-up/email" \
-  -H 'content-type: application/json' \
-  -H "x-warehaus-staff-provision: $BETTER_AUTH_SECRET" \
-  -d '{"name":"Peter","email":"peter@warehaus.co","password":"<password>"}'
-
-npx convex run contacts:linkStaffContact \
-  '{"email":"peter@warehaus.co","authUserId":"<id from the signup response>"}'
+npx convex run staffProvision:provisionStaffUser \
+  '{"email":"peter@warehaus.co","name":"Peter","password":"<password>"}'
 ```
 
-The auth user must have `emailVerified: true` (the provision header sets that). Review
-contacts linked to unverified users without unlinking them:
+Run that from a private shell. The password is a function argument. Do not pass
+`BETTER_AUTH_SECRET`. The password must be at least 12 characters with mixed case and a
+number or symbol. The action sets `emailVerified: true` and links the staff contact.
+
+Review contacts linked to unverified users without unlinking them:
 
 ```bash
 npx convex run contacts:listLinkedUnverifiedContacts

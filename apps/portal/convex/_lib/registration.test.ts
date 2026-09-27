@@ -10,6 +10,7 @@ import {
   registrationWaitMs,
   signupScreenForDecision,
   staffManualLinkError,
+  staffProvisionContactError,
   type RegistrationBlockReason,
 } from './registration';
 
@@ -85,6 +86,17 @@ describe('self-serve registration', () => {
     assert.equal(registrationWaitMs(0, REGISTRATION_UI_FLOOR_MS), REGISTRATION_UI_FLOOR_MS);
     assert.equal(registrationWaitMs(REGISTRATION_UI_FLOOR_MS), 0);
     assert.equal(registrationWaitMs(50), registrationWaitMs(50));
+  });
+
+  it('staff provision only accepts one enabled staff contact', () => {
+    const staff = { ...client, role: 'Warehaus Staff' as const, email: 'peter@warehaus.co' };
+    assert.equal(staffProvisionContactError(staff), null);
+    assert.match(staffProvisionContactError(null) ?? '', /No contact/);
+    assert.match(staffProvisionContactError(client) ?? '', /not Warehaus Staff/);
+    assert.match(
+      staffProvisionContactError({ ...staff, portalAccess: 'Disabled' }) ?? '',
+      /disabled/,
+    );
   });
 
   it('manual staff link requires a verified auth user on a staff contact', () => {

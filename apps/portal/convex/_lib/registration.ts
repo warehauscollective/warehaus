@@ -94,6 +94,15 @@ export function decideSelfServeRegistration(input: {
   return { allowed: true };
 }
 
+export function staffProvisionContactError(
+  contact: JoinContactCandidate | null,
+): string | null {
+  if (!contact) return 'No contact for that email';
+  if (contact.role !== 'Warehaus Staff') return 'Contact is not Warehaus Staff';
+  if (contact.portalAccess !== 'Enabled') return 'Staff contact portal access is disabled';
+  return null;
+}
+
 export function staffManualLinkError(input: {
   contact: JoinContactCandidate | null;
   authUser: { id: string; email: string; emailVerified: boolean } | null;

@@ -8,7 +8,6 @@ import { components } from './_generated/api';
 import type { DataModel } from './_generated/dataModel';
 import { query } from './_generated/server';
 import authConfig from './auth.config';
-import { timingSafeEqualUtf8 } from './_lib/constantTime';
 import {
   passwordResetEmail,
   rewriteVerificationCallback,
@@ -23,18 +22,9 @@ import { VERIFICATION_EXPIRES_IN_SECONDS } from './_lib/resendCooldown';
  *
  * Tenancy join is Contacts.authUserId → Better Auth user subject.
  * Self-serve signup is limited to a single enabled client contact.
- * Staff contacts are not claimable here; link them with `contacts.linkStaffContact`.
+ * Staff contacts are not claimable here. Operators run `staffProvision.provisionStaffUser`.
  */
 export const authComponent = createClient<DataModel>(components.betterAuth);
-
-const STAFF_PROVISION_HEADER = 'x-warehaus-staff-provision';
-
-function staffProvisionHeaderOk(context: { request?: Request } | null): boolean {
-  const secret = process.env.BETTER_AUTH_SECRET?.trim() ?? '';
-  const header = context?.request?.headers?.get(STAFF_PROVISION_HEADER)?.trim() ?? '';
-  if (!secret || !header) return false;
-  return timingSafeEqualUtf8(header, secret);
-}
 
 function refuseRegistration(): never {
   throw APIError.from('BAD_REQUEST', {
@@ -106,12 +96,17 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
           name: user.name,
           verifyUrl,
         });
-        await sendPortalEmail({
+        const message = {
           to: user.email,
           subject: content.subject,
           html: content.html,
           text: content.text,
-        });
+        };
+        if ('scheduler' in ctx) {
+          await ctx.scheduler.runAfter(0, anyApi.mail.deliver, message);
+          return;
+        }
+        await sendPortalEmail(message);
       },
     },
     hooks: {
@@ -130,7 +125,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     databaseHooks: {
       user: {
         create: {
-          before: async (user, context) => {
+          before: async (user) => {
             let decision: SelfServeDecision;
             try {
               decision = (await ctx.runQuery(anyApi.contacts.selfServeEligibility, {
@@ -146,9 +141,6 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
             if (decision.allowed) return { data: user };
             if (decision.reason === 'no_contact') {
               await runResendMutation(ctx, 'stamp', user.email);
-            }
-            if (decision.reason === 'staff' && staffProvisionHeaderOk(context)) {
-              return { data: { ...user, emailVerified: true } };
             }
             refuseRegistration();
           },

@@ -176,14 +176,30 @@ export const getLinkStatus = query({
   },
 });
 
+/** Contact row used by `staffProvision.provisionStaffUser`. Not callable from the browser. */
+export const staffContactForProvision = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const contacts = await contactsForEmail(ctx, email);
+    const contact = contacts.length === 1 ? contacts[0] : null;
+    if (!contact) return null;
+    return {
+      _id: contact._id,
+      orgId: contact.orgId,
+      email: contact.email,
+      name: contact.name,
+      role: contact.role,
+      portalAccess: contact.portalAccess,
+      authUserId: contact.authUserId ?? null,
+      notionPageId: contact.notionPageId,
+      externalId: contact.externalId ?? null,
+    };
+  },
+});
+
 /**
  * Hand link for a Warehaus Staff contact. Not callable from the browser.
- *
- * The Better Auth user must already exist and be email-verified. Self-serve
- * signup will not create that user. Operators create it with the provision
- * header (see convex/README.md), then:
- *
- * `npx convex run contacts:linkStaffContact '{"email":"peter@warehaus.co","authUserId":"<better-auth user id>"}'`
+ * Prefer `staffProvision.provisionStaffUser`, which creates the verified user and calls this.
  */
 export const linkStaffContact = internalMutation({
   args: {
