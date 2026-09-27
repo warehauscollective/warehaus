@@ -28,6 +28,7 @@ describe('contact join', () => {
     const contact = selectContactForJoin({
       email: 'demo@northbay.test',
       authUserId: 'user_1',
+      emailVerified: true,
       contacts: [baseContact],
     });
     assert.equal(contact._id, 'con_1');
@@ -39,6 +40,7 @@ describe('contact join', () => {
         selectContactForJoin({
           email: 'nobody@x.test',
           authUserId: 'user_1',
+          emailVerified: true,
           contacts: [baseContact],
         }),
       (err: unknown) => err instanceof PortalAuthError && err.code === 'NO_CONTACT',
@@ -51,9 +53,48 @@ describe('contact join', () => {
         selectContactForJoin({
           email: 'demo@northbay.test',
           authUserId: 'user_2',
+          emailVerified: true,
           contacts: [{ ...baseContact, authUserId: 'user_1' }],
         }),
       (err: unknown) => err instanceof PortalAuthError && err.code === 'FORBIDDEN',
+    );
+  });
+
+  it('rejects an unverified email', () => {
+    assert.throws(
+      () =>
+        selectContactForJoin({
+          email: 'demo@northbay.test',
+          authUserId: 'user_1',
+          emailVerified: false,
+          contacts: [baseContact],
+        }),
+      (err: unknown) => err instanceof PortalAuthError && err.code === 'FORBIDDEN',
+    );
+  });
+
+  it('matches email with trim and lowercase only', () => {
+    const contact = selectContactForJoin({
+      email: '  Demo@NorthBay.test ',
+      authUserId: 'user_1',
+      emailVerified: true,
+      contacts: [baseContact],
+    });
+    assert.equal(contact._id, 'con_1');
+    assert.equal(normalizeEmail('  Ada@X.COM '), 'ada@x.com');
+    assert.notEqual(normalizeEmail('ada.lovelace+tag@x.com'), normalizeEmail('adalovelace@x.com'));
+  });
+
+  it('rejects a soft-hidden contact', () => {
+    assert.throws(
+      () =>
+        selectContactForJoin({
+          email: 'demo@northbay.test',
+          authUserId: 'user_1',
+          emailVerified: true,
+          contacts: [{ ...baseContact, syncHiddenAt: 1 }],
+        }),
+      (err: unknown) => err instanceof PortalAuthError && err.code === 'PORTAL_DISABLED',
     );
   });
 

@@ -14,6 +14,8 @@ export type JoinContactCandidate = {
   role: PortalRole;
   portalAccess: 'Enabled' | 'Disabled';
   authUserId?: string | null;
+  /** Set when the pull has soft-hidden this contact. */
+  syncHiddenAt?: number | null;
   notionPageId: string;
   externalId?: string | null;
 };
@@ -31,8 +33,17 @@ export function normalizeEmail(email: string): string {
 export function selectContactForJoin(input: {
   email: string;
   authUserId: string;
+  /** Better Auth `emailVerified`. Unverified users cannot bind a contact. */
+  emailVerified: boolean;
   contacts: readonly JoinContactCandidate[];
 }): JoinContactCandidate {
+  if (input.emailVerified !== true) {
+    throw new PortalAuthError(
+      'Verify your email before this contact can be linked',
+      'FORBIDDEN',
+    );
+  }
+
   const email = normalizeEmail(input.email);
   const matches = input.contacts.filter((c) => normalizeEmail(c.email) === email);
 
@@ -52,7 +63,7 @@ export function selectContactForJoin(input: {
 
   const contact = matches[0]!;
 
-  if (contact.portalAccess !== 'Enabled') {
+  if (contact.portalAccess !== 'Enabled' || contact.syncHiddenAt != null) {
     throw new PortalAuthError('Portal access is disabled for this contact', 'PORTAL_DISABLED');
   }
 

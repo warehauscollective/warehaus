@@ -1,3 +1,4 @@
+import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
@@ -45,12 +46,14 @@ function toClientResource(
 export const listForClient = clientQuery({
   args: {},
   handler: async (ctx) => {
+    const org = await ctx.db.get(ctx.orgId);
+    if (!isOrgVisibleToClients(org)) return [];
     const rows = await ctx.db
       .query('sharedResources')
       .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
       .collect();
 
-    const published = rows.filter((r) => r.publishToWarehaus && !r.archive);
+    const published = rows.filter((r) => isClientSurfaceVisible(r) && r.publishToWarehaus && !r.archive);
     const out = [];
     for (const row of published) {
       const project = row.projectId ? await ctx.db.get(row.projectId) : null;
@@ -64,7 +67,8 @@ export const getForClient = clientQuery({
   args: { resourceId: v.id('sharedResources') },
   handler: async (ctx, { resourceId }) => {
     const row = await ctx.db.get(resourceId);
-    if (!row || row.orgId !== ctx.orgId || !row.publishToWarehaus || row.archive) {
+    const org = await ctx.db.get(ctx.orgId);
+    if (!row || row.orgId !== ctx.orgId || !isOrgVisibleToClients(org) || !isClientSurfaceVisible(row) || !row.publishToWarehaus || row.archive) {
       throw new PortalAuthError('Resource not found', 'FORBIDDEN');
     }
     const project = row.projectId ? await ctx.db.get(row.projectId) : null;

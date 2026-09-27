@@ -11,6 +11,8 @@ export type NotionPageRow = {
   id: string;
   lastEdited: string;
   properties: Record<string, unknown>;
+  archived: boolean;
+  inTrash: boolean;
 };
 
 const dataSourceCache = new Map<string, string>();
@@ -70,7 +72,26 @@ export type QueryPagesOpts = {
    * Omit / null for a full scan.
    */
   editedSinceIso?: string | null;
+  /** Query the archived partition. Default query omits archived pages. */
+  archived?: boolean;
 };
+
+function toNotionPageRow(page: {
+  id: string;
+  last_edited_time?: string;
+  properties: Record<string, unknown>;
+  archived?: boolean;
+  in_trash?: boolean;
+  is_archived?: boolean;
+}, fromArchivedQuery: boolean): NotionPageRow {
+  return {
+    id: page.id,
+    lastEdited: page.last_edited_time ?? '',
+    properties: page.properties,
+    archived: Boolean(page.archived) || Boolean(page.is_archived) || fromArchivedQuery,
+    inTrash: Boolean(page.in_trash),
+  };
+}
 
 /** Query a collection (database or data source id) with pagination. */
 export async function queryAllDataSourcePages(
@@ -83,6 +104,7 @@ export async function queryAllDataSourcePages(
   do {
     const body: Record<string, unknown> = { page_size: 100 };
     if (cursor) body.start_cursor = cursor;
+    if (opts?.archived) body.is_archived = true;
     if (opts?.editedSinceIso) {
       body.filter = {
         timestamp: 'last_edited_time',
@@ -95,11 +117,7 @@ export async function queryAllDataSourcePages(
     });
     for (const page of json.results ?? []) {
       if (!page?.id || !page.properties) continue;
-      out.push({
-        id: page.id,
-        lastEdited: page.last_edited_time ?? '',
-        properties: page.properties,
-      });
+      out.push(toNotionPageRow(page, Boolean(opts?.archived)));
     }
     cursor = json.has_more ? json.next_cursor : undefined;
   } while (cursor);
@@ -111,11 +129,7 @@ export async function fetchNotionPage(pageId: string): Promise<NotionPageRow | n
   try {
     const page = await notionFetch(`/pages/${pageId}`);
     if (!page?.id || !page.properties) return null;
-    return {
-      id: page.id,
-      lastEdited: page.last_edited_time ?? '',
-      properties: page.properties,
-    };
+    return toNotionPageRow(page, false);
   } catch {
     return null;
   }

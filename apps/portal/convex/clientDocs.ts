@@ -1,3 +1,4 @@
+import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
@@ -29,13 +30,15 @@ function toClientDoc(row: {
 export const listForClient = clientQuery({
   args: {},
   handler: async (ctx) => {
+    const org = await ctx.db.get(ctx.orgId);
+    if (!isOrgVisibleToClients(org)) return [];
     const rows = await ctx.db
       .query('clientDocs')
       .withIndex('by_orgId_status', (q) => q.eq('orgId', ctx.orgId).eq('status', 'Published'))
       .collect();
 
     return rows
-      .filter((r) => r.publishToWarehaus)
+      .filter((r) => isClientSurfaceVisible(r) && r.publishToWarehaus)
       .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.title.localeCompare(b.title))
       .map(toClientDoc);
   },
@@ -45,8 +48,11 @@ export const getForClient = clientQuery({
   args: { docId: v.id('clientDocs') },
   handler: async (ctx, { docId }) => {
     const row = await ctx.db.get(docId);
+    const org = await ctx.db.get(ctx.orgId);
     if (
       !row ||
+      !isOrgVisibleToClients(org) ||
+      !isClientSurfaceVisible(row) ||
       row.orgId !== ctx.orgId ||
       row.status !== 'Published' ||
       !row.publishToWarehaus

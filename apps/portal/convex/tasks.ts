@@ -1,3 +1,4 @@
+import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
@@ -26,13 +27,15 @@ function toClientTask(row: {
 export const listForClient = clientQuery({
   args: {},
   handler: async (ctx) => {
+    const org = await ctx.db.get(ctx.orgId);
+    if (!isOrgVisibleToClients(org)) return [];
     const projects = await ctx.db
       .query('projects')
       .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
       .collect();
     const publishedProjectIds = new Set(
       projects
-        .filter((p) => p.publishToWarehaus && !p.archive && !p.type.includes('Internal'))
+        .filter((p) => isClientSurfaceVisible(p) && p.publishToWarehaus && !p.archive && !p.type.includes('Internal'))
         .map((p) => p._id),
     );
 
@@ -42,7 +45,7 @@ export const listForClient = clientQuery({
       .collect();
 
     return rows
-      .filter((t) => t.publishToWarehaus && publishedProjectIds.has(t.projectId))
+      .filter((t) => isClientSurfaceVisible(t) && t.publishToWarehaus && publishedProjectIds.has(t.projectId))
       .map(toClientTask);
   },
 });
@@ -51,13 +54,15 @@ export const getForClient = clientQuery({
   args: { taskId: v.id('tasks') },
   handler: async (ctx, { taskId }) => {
     const row = await ctx.db.get(taskId);
-    if (!row || row.orgId !== ctx.orgId || !row.publishToWarehaus) {
+    const org = await ctx.db.get(ctx.orgId);
+    if (!row || row.orgId !== ctx.orgId || !row.publishToWarehaus || !isClientSurfaceVisible(row) || !isOrgVisibleToClients(org)) {
       throw new PortalAuthError('Task not found', 'FORBIDDEN');
     }
     const project = await ctx.db.get(row.projectId);
     if (
       !project ||
       project.orgId !== ctx.orgId ||
+      !isClientSurfaceVisible(project) ||
       !project.publishToWarehaus ||
       project.archive ||
       project.type.includes('Internal')

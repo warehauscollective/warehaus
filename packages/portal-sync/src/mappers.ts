@@ -182,7 +182,7 @@ export function mapNotionClient(
   };
 
   const gate = clientRowPassesGate({ portalAccess: row.portalAccess });
-  if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties };
+  if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties, row };
   if (!row.slug) {
     return { disposition: 'quarantine', reason: 'Client missing Slug', droppedProperties, row };
   }
@@ -222,7 +222,7 @@ export function mapNotionProject(
     archive: row.archive,
     types: row.type,
   });
-  if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties };
+  if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties, row };
   return { disposition: 'upsert', droppedProperties, row };
 }
 
@@ -254,7 +254,7 @@ export function mapNotionTask(
     projectRelationIds: row.projectNotionIds,
     parentProjectPassesGate,
   });
-  if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties };
+  if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties, row };
   return { disposition: 'upsert', droppedProperties, row };
 }
 
@@ -282,7 +282,7 @@ export function mapNotionContact(
     portalAccess: row.portalAccess,
     clientCompanyRelationIds: row.clientNotionIds,
   });
-  if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties };
+  if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties, row };
   if (!row.email.includes('@')) {
     return { disposition: 'quarantine', reason: 'Contact missing Email', droppedProperties, row };
   }
@@ -321,7 +321,7 @@ export function mapNotionSharedResource(
     if (gate.reason.includes('quarantine') || gate.reason.includes('disagree')) {
       return { disposition: 'quarantine', reason: gate.reason, droppedProperties, row };
     }
-    return { disposition: 'skip', reason: gate.reason, droppedProperties };
+    return { disposition: 'skip', reason: gate.reason, droppedProperties, row };
   }
   return { disposition: 'upsert', droppedProperties, row };
 }
@@ -353,6 +353,6 @@ export function mapNotionClientDoc(
     publishToWarehaus: row.publishToWarehaus,
     clientRelationIds: row.clientNotionIds,
   });
-  if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties };
+  if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties, row };
   return { disposition: 'upsert', droppedProperties, row };
 }

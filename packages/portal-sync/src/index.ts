@@ -49,6 +49,16 @@ export {
 } from './gates';
 
 export {
+  decideSyncedRowVisibility,
+  isClientSurfaceVisible,
+  isOrgVisibleToClients,
+  type ContactRole,
+  type HideReason,
+  type SyncTable,
+  type VisibilityDecision,
+} from './ungate';
+
+export {
   partitionProperties,
   serializeForClient,
   assertNoForbiddenFileHosts,
