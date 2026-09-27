@@ -35,7 +35,7 @@ describe('verification email', () => {
     assert.equal(delivery.delayMs, 0);
     assert.equal(delivery.to, 'team@warehaus.co');
     assert.equal(delivery.subject, BLOCKED_SIGNUP_SUBJECT);
-    assert.equal(delivery.subject, 'About your Warehaus portal sign-up');
+    assert.equal(delivery.subject, 'About your Warehaus sign-up');
     assert.equal(
       BLOCKED_SIGNUP_BODY,
       "Someone tried to create a Warehaus portal account with this email. This email can't register here. Contact your Warehaus team if you need access.",
@@ -43,8 +43,10 @@ describe('verification email', () => {
     assert.match(delivery.text, /Someone tried to create a Warehaus portal account with this email/);
     assert.match(delivery.text, /This email can't register here\. Contact your Warehaus team if you need access\./);
     assert.match(delivery.text, new RegExp(BLOCKED_SIGNUP_IGNORE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    assert.match(delivery.html, /font-size: 14px; color: #555;/);
+    assert.match(delivery.html, /WAREHAUS/);
+    assert.match(delivery.html, /font-size:14px;line-height:21px;color:#a4a4a4;/);
     assert.match(delivery.html, /If this wasn&#39;t you, you can ignore this email\./);
+    assert.match(delivery.html, /Warehaus Studio/);
     assert.doesNotMatch(delivery.html, /href=/);
     assert.doesNotMatch(delivery.text, /https?:/);
   });
