@@ -120,9 +120,15 @@ export {
   refreshUnseenRetries,
   selectPagesForPull,
   shouldDeferPageRetry,
+  shouldSkipReleased,
   unseenPageRetries,
+  MAX_PAGE_ATTEMPTS,
+  isExhaustedRetry,
+  mergeReleasedPages,
+  parsePullCursorState,
   type FailedPageRetry,
   type PageProcessOutcome,
+  type ReleasedPage,
   type SyncPage,
 } from './pull-cursor';
 

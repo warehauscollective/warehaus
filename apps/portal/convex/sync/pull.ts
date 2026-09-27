@@ -3,19 +3,23 @@ import {
   capStoredRetries,
   decidePullWatermark,
   dueRetryIds,
+  isExhaustedRetry,
   mapNotionClient,
   mapNotionClientDoc,
   mapNotionContact,
   mapNotionProject,
   mapNotionSharedResource,
   mapNotionTask,
+  mergeReleasedPages,
   pageEditedAtMs,
-  parsePullRetries,
+  parsePullCursorState,
   recordPageFailure,
   refreshUnseenRetries,
   shouldDeferPageRetry,
+  shouldSkipReleased,
   type FailedPageRetry,
   type PageProcessOutcome,
+  type ReleasedPage,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internal } from '../_generated/api';
@@ -116,6 +120,7 @@ export const pullAll = internalAction({
     const nextRetries: FailedPageRetry[] = [];
     const seen = new Set<string>();
     let priorRetries: FailedPageRetry[] = [];
+    let priorReleased: ReleasedPage[] = [];
     const priorById = new Map<string, FailedPageRetry>();
 
     const refreshIds = async (): Promise<IdMaps> =>
@@ -129,6 +134,10 @@ export const pullAll = internalAction({
       const editedAtMs = pageEditedAtMs(page.lastEdited);
       seen.add(page.id);
       const prior = priorById.get(page.id);
+      if (shouldSkipReleased({ id: page.id, editedAtMs }, priorReleased)) {
+        outcomes.push({ id: page.id, editedAtMs, ok: true });
+        return;
+      }
       if (prior && shouldDeferPageRetry(prior, now)) {
         outcomes.push({ id: page.id, editedAtMs, ok: false });
         nextRetries.push(prior);
@@ -161,7 +170,9 @@ export const pullAll = internalAction({
       });
       metaDetails = meta?.details;
       previousWatermark = typeof meta?.lastSyncedAt === 'number' ? meta.lastSyncedAt : null;
-      priorRetries = parsePullRetries(meta?.details);
+      const cursor = parsePullCursorState(meta?.details);
+      priorRetries = cursor.retries;
+      priorReleased = cursor.released;
       for (const retry of priorRetries) priorById.set(retry.id, retry);
 
       const forceFull = Boolean(args.forceFull) || previousWatermark == null;
@@ -574,24 +585,49 @@ export const pullAll = internalAction({
       }
 
       const outstanding = refreshUnseenRetries(priorRetries, seen, now);
+      const combined = [...nextRetries, ...outstanding];
+      const quarantined = combined.filter(isExhaustedRetry);
+      const exhaustedIds = new Set(quarantined.map((retry) => retry.id));
+      const retries = capStoredRetries(
+        combined.filter((retry) => !exhaustedIds.has(retry.id)),
+      );
       const lastSyncedAtMs = decidePullWatermark({
         previousWatermarkMs: previousWatermark,
         nowMs: now,
-        outcomes,
-        outstanding,
+        outcomes: outcomes.map((outcome) =>
+          exhaustedIds.has(outcome.id) ? { ...outcome, ok: true } : outcome,
+        ),
+        outstanding: outstanding.filter((retry) => !exhaustedIds.has(retry.id)),
       });
-      const retries = capStoredRetries([...nextRetries, ...outstanding]);
-      const pageError =
+      for (const row of quarantined) {
+        await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
+          notionPageId: row.id,
+          database: row.database,
+          reason: `Stopped after ${row.attempts} failed attempts: ${row.error}`,
+        });
+        stats.quarantined += 1;
+      }
+      const released = mergeReleasedPages(
+        priorReleased,
+        quarantined,
+        outcomes.map((outcome) => ({ id: outcome.id, editedAtMs: outcome.editedAtMs })),
+      );
+      const notes = [
         retries.length > 0
           ? `${retries.length} Notion page(s) failed; cursor held for retry`
-          : undefined;
+          : null,
+        quarantined.length > 0
+          ? `${quarantined.length} Notion page(s) quarantined after repeated failures`
+          : null,
+      ].filter((note): note is string => Boolean(note));
+      const pageError = notes.length > 0 ? notes.join('. ') : undefined;
       await ctx.runMutation(internal.sync.upsert.writeSyncMeta, {
         key: 'notion-pull',
         setLastSyncedAt: lastSyncedAtMs != null,
         lastSyncedAt: lastSyncedAtMs ?? undefined,
         lastError: pageError,
         clearLastError: !pageError,
-        details: JSON.stringify({ stats, retries }),
+        details: JSON.stringify({ stats, retries, released }),
       });
     } catch (err) {
       terminalError = err instanceof Error ? err.message : String(err);

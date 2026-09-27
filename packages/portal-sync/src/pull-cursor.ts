@@ -13,6 +13,13 @@ const PAGE_RETRY_BASE_MS = 60 * 1000;
 const PAGE_RETRY_MAX_MS = 6 * 60 * 60 * 1000;
 const MAX_STORED_RETRIES = 200;
 
+/**
+ * A page that still fails on this attempt is quarantined and released so the
+ * cursor can move. Early waits are 1, 2, 4… minutes (cap 6h), so eight
+ * attempts is a few hours, not days.
+ */
+export const MAX_PAGE_ATTEMPTS = 8;
+
 export type PageProcessOutcome = {
   id: string;
   editedAtMs: number | null;
@@ -35,6 +42,12 @@ export type SyncPage = {
   body: string;
 };
 
+/** Page already given up on, until Notion edits it again. */
+export type ReleasedPage = {
+  id: string;
+  editedAtMs: number | null;
+};
+
 export function pageEditedAtMs(lastEdited: string | null | undefined): number | null {
   if (!lastEdited) return null;
   const ms = Date.parse(lastEdited);
@@ -49,6 +62,40 @@ export function pageRetryBackoffMs(attempts: number): number {
 
 export function shouldDeferPageRetry(page: FailedPageRetry, nowMs: number): boolean {
   return page.nextRetryAt > nowMs;
+}
+
+export function isExhaustedRetry(retry: FailedPageRetry): boolean {
+  return retry.attempts >= MAX_PAGE_ATTEMPTS;
+}
+
+/** Same edit that was already quarantined. A newer last_edited_time is retried. */
+export function shouldSkipReleased(
+  page: { id: string; editedAtMs: number | null },
+  released: ReleasedPage[],
+): boolean {
+  const prior = released.find((row) => row.id === page.id);
+  if (!prior) return false;
+  if (prior.editedAtMs == null || page.editedAtMs == null) return true;
+  return page.editedAtMs <= prior.editedAtMs;
+}
+
+export function mergeReleasedPages(
+  prior: ReleasedPage[],
+  quarantined: FailedPageRetry[],
+  seenPages: Array<{ id: string; editedAtMs: number | null }>,
+): ReleasedPage[] {
+  const seenAt = new Map(seenPages.map((page) => [page.id, page.editedAtMs]));
+  const kept = prior.filter((row) => {
+    if (!seenAt.has(row.id)) return true;
+    const editedAtMs = seenAt.get(row.id) ?? null;
+    if (row.editedAtMs == null || editedAtMs == null) return true;
+    return editedAtMs <= row.editedAtMs;
+  });
+  const byId = new Map(kept.map((row) => [row.id, row]));
+  for (const row of quarantined) {
+    byId.set(row.id, { id: row.id, editedAtMs: row.editedAtMs });
+  }
+  return [...byId.values()].slice(0, MAX_STORED_RETRIES);
 }
 
 export function recordPageFailure(
@@ -157,31 +204,59 @@ export function capStoredRetries(retries: FailedPageRetry[]): FailedPageRetry[] 
   return retries.slice(0, MAX_STORED_RETRIES);
 }
 
+function parseRetryRow(row: unknown): FailedPageRetry | null {
+  if (!row || typeof row !== 'object') return null;
+  const record = row as Record<string, unknown>;
+  if (typeof record.id !== 'string' || typeof record.database !== 'string') return null;
+  if (typeof record.attempts !== 'number' || typeof record.nextRetryAt !== 'number') return null;
+  return {
+    id: record.id,
+    database: record.database,
+    editedAtMs: typeof record.editedAtMs === 'number' ? record.editedAtMs : null,
+    attempts: record.attempts,
+    nextRetryAt: record.nextRetryAt,
+    error: typeof record.error === 'string' ? record.error : 'failed',
+  };
+}
+
+function parseReleasedRow(row: unknown): ReleasedPage | null {
+  if (!row || typeof row !== 'object') return null;
+  const record = row as Record<string, unknown>;
+  if (typeof record.id !== 'string') return null;
+  return {
+    id: record.id,
+    editedAtMs: typeof record.editedAtMs === 'number' ? record.editedAtMs : null,
+  };
+}
+
 export function parsePullRetries(details: string | null | undefined): FailedPageRetry[] {
-  if (!details) return [];
+  return parsePullCursorState(details).retries;
+}
+
+export function parsePullCursorState(details: string | null | undefined): {
+  retries: FailedPageRetry[];
+  released: ReleasedPage[];
+} {
+  if (!details) return { retries: [], released: [] };
   try {
     const parsed = JSON.parse(details) as unknown;
-    if (!parsed || typeof parsed !== 'object') return [];
-    const retries = (parsed as { retries?: unknown }).retries;
-    if (!Array.isArray(retries)) return [];
-    const out: FailedPageRetry[] = [];
-    for (const row of retries) {
-      if (!row || typeof row !== 'object') continue;
-      const record = row as Record<string, unknown>;
-      if (typeof record.id !== 'string' || typeof record.database !== 'string') continue;
-      if (typeof record.attempts !== 'number' || typeof record.nextRetryAt !== 'number') continue;
-      out.push({
-        id: record.id,
-        database: record.database,
-        editedAtMs: typeof record.editedAtMs === 'number' ? record.editedAtMs : null,
-        attempts: record.attempts,
-        nextRetryAt: record.nextRetryAt,
-        error: typeof record.error === 'string' ? record.error : 'failed',
-      });
-    }
-    return out;
+    if (!parsed || typeof parsed !== 'object') return { retries: [], released: [] };
+    const bag = parsed as { retries?: unknown; released?: unknown };
+    const retries = Array.isArray(bag.retries)
+      ? bag.retries.flatMap((row) => {
+          const parsedRow = parseRetryRow(row);
+          return parsedRow ? [parsedRow] : [];
+        })
+      : [];
+    const released = Array.isArray(bag.released)
+      ? bag.released.flatMap((row) => {
+          const parsedRow = parseReleasedRow(row);
+          return parsedRow ? [parsedRow] : [];
+        })
+      : [];
+    return { retries, released };
   } catch {
-    return [];
+    return { retries: [], released: [] };
   }
 }
 
@@ -197,12 +272,16 @@ export function applyPullPass(input: {
   nowMs: number;
   failIds: ReadonlySet<string>;
   priorRetries?: FailedPageRetry[];
+  priorReleased?: ReleasedPage[];
 }): {
   lastSyncedAtMs: number | null;
   retries: FailedPageRetry[];
+  quarantined: FailedPageRetry[];
+  released: ReleasedPage[];
   appliedIds: string[];
 } {
   const priorRetries = input.priorRetries ?? [];
+  const priorReleased = input.priorReleased ?? [];
   const priorById = new Map(priorRetries.map((retry) => [retry.id, retry]));
   const selected = selectPagesForPull({
     pages: input.source,
@@ -230,6 +309,10 @@ export function applyPullPass(input: {
       database: page.database,
       editedAtMs: page.editedAtMs,
     };
+    if (shouldSkipReleased(attempt, priorReleased)) {
+      outcomes.push({ id: page.id, editedAtMs: page.editedAtMs, ok: true });
+      continue;
+    }
     if (prior && shouldDeferPageRetry(prior, input.nowMs)) {
       outcomes.push({ id: page.id, editedAtMs: page.editedAtMs, ok: false });
       nextRetries.push(prior);
@@ -252,16 +335,27 @@ export function applyPullPass(input: {
   }
 
   const outstanding = refreshUnseenRetries(priorRetries, seen, input.nowMs);
+  const combined = [...nextRetries, ...outstanding];
+  const quarantined = combined.filter(isExhaustedRetry);
+  const exhaustedIds = new Set(quarantined.map((retry) => retry.id));
   const lastSyncedAtMs = decidePullWatermark({
     previousWatermarkMs: input.lastSyncedAtMs,
     nowMs: input.nowMs,
-    outcomes,
-    outstanding,
+    outcomes: outcomes.map((outcome) =>
+      exhaustedIds.has(outcome.id) ? { ...outcome, ok: true } : outcome,
+    ),
+    outstanding: outstanding.filter((retry) => !exhaustedIds.has(retry.id)),
   });
+  const seenPages = selected.map((page) => ({
+    id: page.id,
+    editedAtMs: page.editedAtMs,
+  }));
 
   return {
     lastSyncedAtMs,
-    retries: capStoredRetries([...nextRetries, ...outstanding]),
+    retries: capStoredRetries(combined.filter((retry) => !exhaustedIds.has(retry.id))),
+    quarantined,
+    released: mergeReleasedPages(priorReleased, quarantined, seenPages),
     appliedIds,
   };
 }

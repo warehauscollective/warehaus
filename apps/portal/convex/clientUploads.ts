@@ -3,7 +3,7 @@ import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/w
 import { PortalAuthError } from './_lib/identity';
 import {
   ORPHAN_UPLOAD_BLOB_MIN_AGE_MS,
-  isOrphanedUploadBlob,
+  isSweepableUploadBlob,
   shouldDiscardUnreferencedBlob,
   verifyFinalizedUpload,
 } from './_lib/uploadBlob';
@@ -203,25 +203,41 @@ export const finalizeUpload = clientMutation({
 });
 
 /**
- * Delete Convex storage that never landed in clientUploads, plus stale
- * upload intents. Does not touch Shared Resources, docs, or other tables.
+ * Delete abandoned client-upload bytes in Convex `_storage`.
+ *
+ * Can delete a `_storage` object only when all of these are true:
+ * - it is older than 24 hours
+ * - its id is not `clientUploads.storageId`
+ * - its id is not `uploadIntents.storageId`
+ *
+ * Those are the only portal tables that store a Convex `_storage` id.
+ * Shared Resources, doc images, and other files are Vercel Blob pathnames
+ * and are never candidates. Old upload-intent rows are bookkeeping and are
+ * removed only after the file check, so a file an intent still points at
+ * is kept.
  */
 export const gcOrphanedUploadBlobs = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
-    const referenced = new Set(
-      (await ctx.db.query('clientUploads').collect()).map((row) => row.storageId),
-    );
+    const referenced = new Set<string>();
+    for (const row of await ctx.db.query('clientUploads').collect()) {
+      referenced.add(row.storageId);
+    }
+    for (const intent of await ctx.db.query('uploadIntents').collect()) {
+      if (intent.storageId) referenced.add(intent.storageId);
+    }
+
     const files = await ctx.db.system.query('_storage').collect();
     let deleted = 0;
     for (const file of files) {
       if (deleted >= ORPHAN_GC_BATCH) break;
       if (
-        !isOrphanedUploadBlob({
+        !isSweepableUploadBlob({
+          storageId: file._id,
           creationTime: file._creationTime,
           nowMs: now,
-          referenced: referenced.has(file._id),
+          referencedStorageIds: referenced,
         })
       ) {
         continue;

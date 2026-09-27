@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   applyPullPass,
   decidePullWatermark,
+  MAX_PAGE_ATTEMPTS,
   parsePullRetries,
   selectPagesForPull,
   type SyncPage,
@@ -168,5 +169,81 @@ describe('notion pull cursor', () => {
     assert.equal(retries[0].database, 'tasks');
     assert.deepEqual(parsePullRetries('not-json'), []);
     assert.deepEqual(parsePullRetries(JSON.stringify({ upserted: 3 })), []);
+  });
+
+  it('quarantines a page after 8 failures and lets the cursor advance', () => {
+    const later: SyncPage = {
+      id: 'page-2',
+      database: 'projects',
+      editedAtMs: editedAt + 60 * 60 * 1000,
+      body: 'kept',
+    };
+    const stored = new Map<string, SyncPage>();
+    let lastSyncedAtMs: number | null = watermark;
+    let retries: ReturnType<typeof applyPullPass>['retries'] = [];
+    let released: ReturnType<typeof applyPullPass>['released'] = [];
+    let pass: ReturnType<typeof applyPullPass> | undefined;
+    let nowMs = pulledAt;
+
+    for (let attempt = 0; attempt < MAX_PAGE_ATTEMPTS; attempt += 1) {
+      if (attempt > 0) nowMs = retries[0].nextRetryAt + 1;
+      pass = applyPullPass({
+        source: [editedPage, later],
+        stored,
+        lastSyncedAtMs,
+        nowMs,
+        failIds: new Set(['page-1']),
+        priorRetries: retries,
+        priorReleased: released,
+      });
+      if (attempt < MAX_PAGE_ATTEMPTS - 1) {
+        assert.equal(pass.quarantined.length, 0);
+        assert.ok(pass.lastSyncedAtMs != null && pass.lastSyncedAtMs < editedAt);
+      }
+      lastSyncedAtMs = pass.lastSyncedAtMs;
+      retries = pass.retries;
+      released = pass.released;
+    }
+
+    assert.ok(pass);
+    assert.equal(pass.quarantined.length, 1);
+    assert.equal(pass.quarantined[0].id, 'page-1');
+    assert.equal(pass.quarantined[0].attempts, MAX_PAGE_ATTEMPTS);
+    assert.match(pass.quarantined[0].error, /failed/);
+    assert.equal(pass.retries.length, 0);
+    assert.equal(pass.lastSyncedAtMs, nowMs);
+    assert.equal(stored.has('page-1'), false);
+    assert.equal(stored.get('page-2')?.body, 'kept');
+    assert.equal(
+      selectPagesForPull({ pages: [editedPage], lastSyncedAtMs: pass.lastSyncedAtMs }).length,
+      0,
+    );
+
+    const stillInWindow = applyPullPass({
+      source: [editedPage],
+      stored,
+      lastSyncedAtMs: editedAt - 1,
+      nowMs: nowMs + 1000,
+      failIds: new Set(['page-1']),
+      priorReleased: pass.released,
+    });
+    assert.equal(stillInWindow.quarantined.length, 0);
+    assert.equal(stillInWindow.retries.length, 0);
+    assert.equal(stillInWindow.lastSyncedAtMs, nowMs + 1000);
+
+    const editedAgain = applyPullPass({
+      source: [{ ...editedPage, editedAtMs: editedAt + 86_400_000, body: 'fixed later' }],
+      stored,
+      lastSyncedAtMs: editedAt + 86_400_000 - 1000,
+      nowMs: editedAt + 86_400_000 + 1000,
+      failIds: new Set(),
+      priorReleased: pass.released,
+    });
+    assert.equal(stored.get('page-1')?.body, 'fixed later');
+    assert.equal(editedAgain.quarantined.length, 0);
+    assert.equal(
+      editedAgain.released.some((row) => row.id === 'page-1'),
+      false,
+    );
   });
 });

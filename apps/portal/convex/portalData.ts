@@ -1,5 +1,6 @@
 import { clientQuery } from './_lib/wrappers';
 import { isStaff } from './_lib/identity';
+import { staffQuarantineActivity } from './_lib/quarantineActivity';
 import { isClientVisibleActivityType } from '@warehaus/portal-sync';
 
 function isActivityVisible(type: string, staff: boolean): boolean {
@@ -36,6 +37,25 @@ export const getSnapshot = clientQuery({
       .query('syncMeta')
       .withIndex('by_key', (q) => q.eq('key', 'notion-pull'))
       .unique();
+    const quarantineActivity = staff
+      ? staffQuarantineActivity(
+          (
+            await ctx.db
+              .query('quarantine')
+              .withIndex('by_createdAt')
+              .order('desc')
+              .take(40)
+          ).map((row) => ({
+            id: row._id,
+            notionPageId: row.notionPageId,
+            database: row.database,
+            reason: row.reason,
+            createdAt: row.createdAt,
+            orgId: row.orgId ?? null,
+          })),
+          orgId,
+        )
+      : [];
 
     const publishedProjects = projects
       .filter((p) => p.publishToWarehaus && !p.archive && !p.type.includes('Internal'))
@@ -94,17 +114,20 @@ export const getSnapshot = clientQuery({
             projectEndDate: project?.endDate ?? null,
           };
         }),
-      activity: activity
-        .filter((a) => isActivityVisible(a.type, staff))
-        .map((a) => ({
-          id: a._id,
-          name: a.name,
-          type: a.type,
-          summary: a.summary ?? '',
-          timestamp: new Date(a.timestamp).toISOString(),
-          tone: a.tone ?? 'muted',
-          projectId: a.projectId ?? null,
-        })),
+      activity: [
+        ...quarantineActivity,
+        ...activity
+          .filter((a) => isActivityVisible(a.type, staff))
+          .map((a) => ({
+            id: a._id,
+            name: a.name,
+            type: a.type,
+            summary: a.summary ?? '',
+            timestamp: new Date(a.timestamp).toISOString(),
+            tone: a.tone ?? 'muted',
+            projectId: a.projectId ?? null,
+          })),
+      ],
       syncMeta: {
         lastSyncedAt: syncMeta?.lastSyncedAt
           ? new Date(syncMeta.lastSyncedAt).toISOString()
