@@ -11,6 +11,8 @@ import {
   signupScreenForDecision,
   staffManualLinkError,
   staffProvisionContactError,
+  staffSessionDeleteArgs,
+  staffSessionDeleteCursor,
   type RegistrationBlockReason,
 } from './registration';
 
@@ -86,6 +88,18 @@ describe('self-serve registration', () => {
     assert.equal(registrationWaitMs(0, REGISTRATION_UI_FLOOR_MS), REGISTRATION_UI_FLOOR_MS);
     assert.equal(registrationWaitMs(REGISTRATION_UI_FLOOR_MS), 0);
     assert.equal(registrationWaitMs(50), registrationWaitMs(50));
+  });
+
+  it('staff reprovision deletes only that user\'s sessions', () => {
+    const args = staffSessionDeleteArgs('user_existing');
+    assert.equal(args.model, 'session');
+    assert.deepEqual(args.where, [{ field: 'userId', operator: 'eq', value: 'user_existing' }]);
+    assert.equal(staffSessionDeleteCursor({ isDone: false, continueCursor: 'page-2' }), 'page-2');
+    assert.equal(staffSessionDeleteCursor({ isDone: true, continueCursor: 'page-2' }), null);
+    assert.throws(
+      () => staffSessionDeleteCursor({ isDone: false, continueCursor: null }),
+      /did not finish/,
+    );
   });
 
   it('staff provision only accepts one enabled staff contact', () => {

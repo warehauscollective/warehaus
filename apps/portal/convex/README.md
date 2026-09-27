@@ -61,7 +61,8 @@ npx convex run staffProvision:provisionStaffUser \
 
 Run that from a private shell. The password is a function argument. Do not pass
 `BETTER_AUTH_SECRET`. The password must be at least 12 characters with mixed case and a
-number or symbol. The action sets `emailVerified: true` and links the staff contact.
+number or symbol. The action sets `emailVerified: true` and links the staff contact. If that email already
+has a Better Auth user, it deletes that user's sessions before resetting the password.
 
 Review contacts linked to unverified users without unlinking them:
 

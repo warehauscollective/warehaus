@@ -94,6 +94,29 @@ export function decideSelfServeRegistration(input: {
   return { allowed: true };
 }
 
+/** Delete only this user's Better Auth sessions. Used before a staff password reset. */
+export function staffSessionDeleteArgs(userId: string): {
+  model: 'session';
+  where: [{ field: 'userId'; operator: 'eq'; value: string }];
+} {
+  return {
+    model: 'session',
+    where: [{ field: 'userId', operator: 'eq', value: userId }],
+  };
+}
+
+/** Next page cursor, or null when every matching session is gone. */
+export function staffSessionDeleteCursor(page: {
+  isDone: boolean;
+  continueCursor: string | null;
+}): string | null {
+  if (page.isDone) return null;
+  if (!page.continueCursor) {
+    throw new Error('Staff session delete did not finish');
+  }
+  return page.continueCursor;
+}
+
 export function staffProvisionContactError(
   contact: JoinContactCandidate | null,
 ): string | null {

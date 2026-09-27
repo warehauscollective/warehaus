@@ -4,7 +4,7 @@ import { components, internal } from './_generated/api';
 import { internalAction } from './_generated/server';
 import type { JoinContactCandidate } from './_lib/contactJoin';
 import { passwordRuleState } from './_lib/passwordRules';
-import { staffProvisionContactError } from './_lib/registration';
+import { staffProvisionContactError, staffSessionDeleteArgs, staffSessionDeleteCursor } from './_lib/registration';
 import type { SelfServeDecision } from './_lib/registration';
 
 type AuthUserDoc = { _id: string; email?: string; emailVerified?: boolean };
@@ -85,6 +85,18 @@ export const provisionStaffUser = internalAction({
         },
       });
     } else {
+      let cursor: string | null = null;
+      for (let page = 0; page < 20; page++) {
+        const deleted = (await ctx.runMutation(components.betterAuth.adapter.deleteMany, {
+          paginationOpts: { numItems: 100, cursor },
+          input: staffSessionDeleteArgs(existing._id),
+        })) as { isDone: boolean; continueCursor: string | null };
+        cursor = staffSessionDeleteCursor(deleted);
+        if (!cursor) break;
+        if (page === 19) {
+          throw new Error('Could not delete all existing staff sessions');
+        }
+      }
       await ctx.runMutation(components.betterAuth.adapter.updateOne, {
         input: {
           model: 'user',
