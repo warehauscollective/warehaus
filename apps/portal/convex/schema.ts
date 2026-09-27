@@ -292,4 +292,13 @@ export default defineSchema({
   })
     .index('by_eventId', ['eventId'])
     .index('by_receivedAt', ['receivedAt']),
+
+  /**
+   * Resend cooldown for verification mail. One row per normalized address,
+   * including addresses that cannot register, so the window does not reveal them.
+   */
+  verificationResend: defineTable({
+    email: v.string(),
+    lastAttemptAt: v.number(),
+  }).index('by_email', ['email']),
 });
