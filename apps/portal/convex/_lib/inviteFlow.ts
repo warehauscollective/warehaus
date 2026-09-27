@@ -113,10 +113,10 @@ export function planInviteAccept(input: {
   if (input.tokenStatus !== 'live' || input.expiresAt <= input.now) {
     return { ok: false, reason: input.expiresAt <= input.now ? 'expired' : 'unusable' };
   }
-  if (input.emailVerified !== true) return { ok: false, reason: 'unverified' };
   if (!inviteEmailsMatch(input.signedInEmail, input.tokenEmail)) {
     return { ok: false, reason: 'mismatch', signedInEmail: normalizeEmail(input.signedInEmail) };
   }
+  if (input.emailVerified !== true) return { ok: false, reason: 'unverified' };
   return { ok: true, emailNormalized: normalizeEmail(input.signedInEmail) };
 }
 

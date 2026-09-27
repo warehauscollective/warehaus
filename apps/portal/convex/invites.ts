@@ -6,9 +6,10 @@
 import { inviteIdempotencyKey, stateIdempotencyKey } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
-import { internalAction, internalMutation, mutation, type MutationCtx } from './_generated/server';
+import { internalAction, internalMutation, mutation, query, type MutationCtx } from './_generated/server';
+import { clientQuery } from './_lib/wrappers';
 import { authComponent } from './auth';
-import { inviteEmail, sendPortalEmail } from './_lib/email';
+import { existingLoginEmail, inviteEmail, sendPortalEmail } from './_lib/email';
 import { normalizeEmail } from './_lib/contactJoin';
 import { PortalAuthError } from './_lib/identity';
 import {
@@ -132,6 +133,71 @@ export const create = clientMutation({
   },
 });
 
+export const previewAccept = query({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const user = await authComponent.getAuthUser(ctx);
+    const row = await ctx.db
+      .query('inviteTokens')
+      .withIndex('by_tokenHash', (q) => q.eq('tokenHash', hashInviteToken(token)))
+      .unique();
+    const client = row ? await ctx.db.get(row.orgId) : null;
+    const portalName = client ? `${client.companyName} portal invite` : 'Portal invite';
+    if (!user?.email) return { status: 'sign-in' as const, portalName };
+    const plan = planInviteAccept({
+      tokenStatus: row?.status ?? 'missing',
+      expiresAt: row?.expiresAt ?? 0,
+      now: Date.now(),
+      tokenEmail: row?.emailNormalized ?? '',
+      signedInEmail: user.email,
+      emailVerified: user.emailVerified === true,
+    });
+    if (!plan.ok && plan.reason === 'mismatch') {
+      return {
+        status: 'different-email' as const,
+        portalName,
+        signedInEmail: plan.signedInEmail ?? normalizeEmail(user.email),
+      };
+    }
+    if (!plan.ok) return { status: plan.reason, portalName };
+    return { status: 'ready' as const, portalName };
+  },
+});
+
+export const listTeam = clientQuery({
+  args: {},
+  handler: async (ctx) => {
+    const canInvite = ctx.identity.role === 'Client Admin' || ctx.identity.role === 'Warehaus Staff';
+    const contacts = await ctx.db
+      .query('contacts')
+      .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
+      .collect();
+    const invites = await ctx.db
+      .query('pendingInvites')
+      .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
+      .collect();
+    return {
+      canInvite,
+      members: contacts
+        .filter((contact) => !contact.syncHiddenAt && contact.role !== 'Warehaus Staff')
+        .map((contact) => ({
+          notionPageId: contact.notionPageId,
+          name: contact.name,
+          email: contact.email,
+          role: contact.role,
+          portalAccess: contact.portalAccess,
+        })),
+      invites: invites.map((invite) => ({
+        notionPageId: invite.notionPageId,
+        name: invite.name,
+        email: invite.email,
+        role: invite.role,
+        inviteStatus: invite.inviteStatus,
+      })),
+    };
+  },
+});
+
 export const accept = mutation({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
@@ -244,6 +310,7 @@ export const issueTokenAfterConfirm = internalMutation({
     if (row.resultJson?.includes('"issued":true')) return { issued: false as const };
     const now = Date.now();
     if (row.kind === 'createInvite' && parsed.invite) {
+      const invite = parsed.invite;
       const issued = tokenFromConfirmation({ confirmed: true, now });
       if (!issued) return { issued: false as const };
       const existing = await ctx.db
@@ -257,13 +324,13 @@ export const issueTokenAfterConfirm = internalMutation({
         orgId: row.orgId,
         contactNotionPageId: args.notionPageId,
         clientNotionPageId: parsed.invite.clientNotionPageId,
-        emailNormalized: parsed.invite.emailNormalized,
+        emailNormalized: invite.emailNormalized,
         tokenHash: issued.tokenHash,
         status: 'live',
         expiresAt: issued.expiresAt,
         createdAt: now,
-        ...(parsed.invite.createdByContactId
-          ? { createdByContactId: parsed.invite.createdByContactId as Id<'contacts'> }
+        ...(invite.createdByContactId
+          ? { createdByContactId: invite.createdByContactId as Id<'contacts'> }
           : {}),
       });
       const pending = await ctx.db
@@ -273,9 +340,9 @@ export const issueTokenAfterConfirm = internalMutation({
       const pendingRow = {
         orgId: row.orgId,
         notionPageId: args.notionPageId,
-        name: parsed.invite.name,
-        email: parsed.invite.emailNormalized,
-        role: parsed.invite.role,
+        name: invite.name,
+        email: invite.emailNormalized,
+        role: invite.role,
         inviteStatus: 'Pending' as const,
         source: 'portal',
         lastSyncedAt: now,
@@ -283,7 +350,17 @@ export const issueTokenAfterConfirm = internalMutation({
       if (pending) await ctx.db.patch(pending._id, pendingRow);
       else await ctx.db.insert('pendingInvites', pendingRow);
       await ctx.db.patch(row._id, { resultJson: JSON.stringify({ issued: true, notionPageId: args.notionPageId }) });
-      return { issued: true as const, raw: issued.raw, to: parsed.invite.emailNormalized, name: parsed.invite.name };
+      const logins = await ctx.db
+        .query('contacts')
+        .withIndex('by_email', (q) => q.eq('email', invite.emailNormalized))
+        .collect();
+      return {
+        issued: true as const,
+        raw: issued.raw,
+        to: invite.emailNormalized,
+        name: invite.name,
+        alreadyHasLogin: logins.some((contact) => Boolean(contact.authUserId)),
+      };
     }
     if (row.kind === 'setInviteState' && parsed.tokenId) {
       const token = await ctx.db.get(parsed.tokenId as Id<'inviteTokens'>);
@@ -304,11 +381,19 @@ export const issueTokenAfterConfirm = internalMutation({
 });
 
 export const sendIssuedInvite = internalAction({
-  args: { to: v.string(), rawToken: v.string(), name: v.string() },
+  args: {
+    to: v.string(),
+    rawToken: v.string(),
+    name: v.string(),
+    alreadyHasLogin: v.optional(v.boolean()),
+  },
   handler: async (_ctx, args) => {
     const origin = process.env.PORTAL_PUBLIC_URL?.replace(/\/$/, '') ?? '';
     if (!origin) throw new Error('PORTAL_PUBLIC_URL is not set');
-    const mail = inviteEmail({ name: args.name, acceptUrl: `${origin}/accept?token=${args.rawToken}` });
+    const acceptUrl = `${origin}/accept?token=${args.rawToken}`;
+    const mail = args.alreadyHasLogin
+      ? existingLoginEmail({ name: args.name, acceptUrl })
+      : inviteEmail({ name: args.name, acceptUrl });
     await sendPortalEmail({ to: args.to, ...mail });
   },
 });

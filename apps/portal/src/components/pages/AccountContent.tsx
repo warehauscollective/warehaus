@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
+import { TeamInvites } from '@/components/pages/TeamInvites';
 import { GhostButton, Pill, PrimaryButton, Surface } from '@/components/ui/primitives';
 import {
   PortalStatGrid,
@@ -28,6 +29,7 @@ const CLIENT_SECTION_TITLE: Record<string, string> = {
   overview: 'Organization',
   profile: 'Profile',
   billing: 'Billing',
+  team: 'Team',
   preferences: 'Preferences',
 };
 
@@ -81,7 +83,7 @@ function subscriptionStatusColor(status: string): string {
 export function AccountContent() {
   const router = useRouter();
   const configured = isConvexConfigured();
-  const { sectionFor, setSectionFor, openDetail } = usePortalView();
+  const { sectionFor, openDetail } = usePortalView();
   const { data, loading, error } = usePortalData();
   const { portalSession, signOut } = usePortalAuth();
   const activeSection = sectionFor('account');
@@ -130,10 +132,6 @@ export function AccountContent() {
       ? { hostSlug }
       : 'skip',
   );
-
-  useEffect(() => {
-    if (isClient && activeSection === 'team') setSectionFor('account', 'overview');
-  }, [isClient, activeSection, setSectionFor]);
 
   return (
     <PortalWorkspace eyebrow={tenantEyebrow(tenant, isClient ? 'Organization' : 'Account')} title={title}>
@@ -454,6 +452,10 @@ export function AccountContent() {
             )}
           </div>
         </PortalTilePane>
+      )}
+
+      {isClient && activeSection === 'team' && (
+        <TeamInvites hostSlug={hostSlug} configured={configured} />
       )}
 
       {!isClient && activeSection === 'team' && (

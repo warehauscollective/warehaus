@@ -313,6 +313,7 @@ export const processDue = internalAction({
               to: issued.to,
               rawToken: issued.raw,
               name: issued.name,
+              alreadyHasLogin: issued.alreadyHasLogin === true,
             });
           }
         }
