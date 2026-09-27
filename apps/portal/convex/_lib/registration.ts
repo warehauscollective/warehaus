@@ -1,7 +1,7 @@
 /**
- * Self-serve signup decisions. Every refusal uses the same sentence.
- * The check-your-email screen is one model: a missing contact and an
- * allowed contact do not change its layout, wording, or timing inputs.
+ * Self-serve signup decisions. The check-your-email screen is one model
+ * for an allowed contact, a missing contact, and a blocked contact.
+ * Blocked contacts hear the refusal by email, not on screen.
  */
 
 import { CANT_REGISTER_MESSAGE, normalizeEmail, type JoinContactCandidate } from './contactJoin';
@@ -76,14 +76,27 @@ export function verifyEmailView(input: {
 }
 
 /**
- * No matching contact uses the same check-email screen as an allowed contact.
- * Staff and every other refusal use the shared sentence.
+ * Every address gets the same check-email screen. A missing contact sends
+ * nothing. A real contact that cannot self-serve gets a notice email instead.
  */
-export function signupScreenForDecision(
-  decision: SelfServeDecision,
-): 'check-email' | 'cant-register' {
-  if (decision.allowed || decision.reason === 'no_contact') return 'check-email';
-  return 'cant-register';
+export function signupScreenForDecision(_decision: SelfServeDecision): 'check-email' {
+  return 'check-email';
+}
+
+export type SignupOutbound = 'verification' | 'none' | 'blocked-notice';
+
+export function signupOutbound(decision: SelfServeDecision): SignupOutbound {
+  if (decision.allowed) return 'verification';
+  if (decision.reason === 'no_contact' || decision.reason === 'invalid_email') return 'none';
+  return 'blocked-notice';
+}
+
+/**
+ * Stamp the resend window for silent refusals and blocked notices.
+ * Eligible signups stamp inside the verification send itself.
+ */
+export function signupStampsCooldown(decision: SelfServeDecision): boolean {
+  return !decision.allowed && decision.reason !== 'invalid_email';
 }
 
 export function registrationWaitMs(elapsedMs: number, floor = REGISTRATION_UI_FLOOR_MS): number {

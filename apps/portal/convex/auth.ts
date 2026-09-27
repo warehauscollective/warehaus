@@ -9,12 +9,18 @@ import type { DataModel } from './_generated/dataModel';
 import { query } from './_generated/server';
 import authConfig from './auth.config';
 import {
+  blockedSignupDelivery,
   passwordResetEmail,
   rewriteVerificationCallback,
   sendPortalEmail,
   verificationEmail,
 } from './_lib/email';
-import { CANT_REGISTER_MESSAGE, type SelfServeDecision } from './_lib/registration';
+import {
+  CANT_REGISTER_MESSAGE,
+  signupOutbound,
+  signupStampsCooldown,
+  type SelfServeDecision,
+} from './_lib/registration';
 import { VERIFICATION_EXPIRES_IN_SECONDS } from './_lib/resendCooldown';
 
 /**
@@ -34,6 +40,50 @@ function refuseRegistration(): never {
 }
 
 type ResendDecision = { allowed: boolean; retryAfterMs: number };
+
+type PortalEmail = { to: string; subject: string; html: string; text: string };
+
+async function deliverPortalEmail(
+  ctx: GenericCtx<DataModel>,
+  message: PortalEmail,
+  delayMs = 0,
+): Promise<void> {
+  if ('scheduler' in ctx) {
+    await ctx.scheduler.runAfter(delayMs, anyApi.mail.deliver, message);
+    return;
+  }
+  await sendPortalEmail(message);
+}
+
+async function deliverBlockedSignupEmail(ctx: GenericCtx<DataModel>, email: string): Promise<void> {
+  const delivery = blockedSignupDelivery(email);
+  await deliverPortalEmail(
+    ctx,
+    {
+      to: delivery.to,
+      subject: delivery.subject,
+      html: delivery.html,
+      text: delivery.text,
+    },
+    delivery.delayMs,
+  );
+}
+
+async function readEligibility(
+  ctx: GenericCtx<DataModel>,
+  email: string,
+): Promise<SelfServeDecision | null> {
+  if (!('runQuery' in ctx)) return null;
+  try {
+    return (await ctx.runQuery(anyApi.contacts.selfServeEligibility, { email })) as SelfServeDecision;
+  } catch (err) {
+    console.error(
+      '[auth] self-serve eligibility check failed',
+      err instanceof Error ? err.message : 'failed',
+    );
+    return null;
+  }
+}
 
 async function runResendMutation(
   ctx: GenericCtx<DataModel>,
@@ -96,17 +146,12 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
           name: user.name,
           verifyUrl,
         });
-        const message = {
+        await deliverPortalEmail(ctx, {
           to: user.email,
           subject: content.subject,
           html: content.html,
           text: content.text,
-        };
-        if ('scheduler' in ctx) {
-          await ctx.scheduler.runAfter(0, anyApi.mail.deliver, message);
-          return;
-        }
-        await sendPortalEmail(message);
+        });
       },
     },
     hooks: {
@@ -118,29 +163,28 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
             ? String((baCtx.body as { email?: unknown }).email ?? '')
             : '';
         if (!email.trim()) return;
-        const decision = await runResendMutation(ctx, 'claim', email);
-        if (!decision?.allowed) return { status: true };
+        const cooldown = await runResendMutation(ctx, 'claim', email);
+        if (!cooldown?.allowed) return { status: true };
+        const eligibility = await readEligibility(ctx, email);
+        if (!eligibility || signupOutbound(eligibility) === 'none') return { status: true };
+        if (signupOutbound(eligibility) === 'blocked-notice') {
+          await deliverBlockedSignupEmail(ctx, email);
+          return { status: true };
+        }
       }),
     },
     databaseHooks: {
       user: {
         create: {
           before: async (user) => {
-            let decision: SelfServeDecision;
-            try {
-              decision = (await ctx.runQuery(anyApi.contacts.selfServeEligibility, {
-                email: user.email,
-              })) as SelfServeDecision;
-            } catch (err) {
-              console.error(
-                '[auth] self-serve eligibility check failed',
-                err instanceof Error ? err.message : 'failed',
-              );
-              refuseRegistration();
-            }
+            const decision = await readEligibility(ctx, user.email);
+            if (!decision) refuseRegistration();
             if (decision.allowed) return { data: user };
-            if (decision.reason === 'no_contact') {
+            if (signupStampsCooldown(decision)) {
               await runResendMutation(ctx, 'stamp', user.email);
+            }
+            if (signupOutbound(decision) === 'blocked-notice') {
+              await deliverBlockedSignupEmail(ctx, user.email);
             }
             refuseRegistration();
           },

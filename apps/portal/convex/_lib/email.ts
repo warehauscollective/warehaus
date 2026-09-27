@@ -65,6 +65,42 @@ export function rewriteVerificationCallback(verifyUrl: string, callbackPath = '/
   }
 }
 
+export const BLOCKED_SIGNUP_SUBJECT = 'About your Warehaus portal sign-up';
+
+/** Exact sentence mailed when a real contact cannot self-serve. */
+export const BLOCKED_SIGNUP_BODY =
+  "This email can't register here. Contact your Warehaus team.";
+
+export function blockedSignupEmail(): { subject: string; html: string; text: string } {
+  const text = [BLOCKED_SIGNUP_BODY, '', '— Warehaus'].join('\n');
+  const html = `<!DOCTYPE html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111; max-width: 520px; margin: 0 auto; padding: 24px;">
+    <p style="font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: #666; margin: 0 0 16px;">Warehaus Portal</p>
+    <p>${escapeHtml(BLOCKED_SIGNUP_BODY)}</p>
+  </body>
+</html>`;
+  return { subject: BLOCKED_SIGNUP_SUBJECT, html, text };
+}
+
+/** Payload scheduled with `ctx.scheduler.runAfter(0, mail.deliver, …)`. */
+export function blockedSignupDelivery(to: string): {
+  delayMs: 0;
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+} {
+  const content = blockedSignupEmail();
+  return {
+    delayMs: 0,
+    to,
+    subject: content.subject,
+    html: content.html,
+    text: content.text,
+  };
+}
+
 export function verificationEmail(args: {
   name?: string | null;
   verifyUrl: string;

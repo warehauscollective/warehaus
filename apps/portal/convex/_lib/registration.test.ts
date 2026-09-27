@@ -9,7 +9,9 @@ import {
   registrationBlockMessage,
   registrationWaitMs,
   needsTypedVerifyEmail,
+  signupOutbound,
   signupScreenForDecision,
+  signupStampsCooldown,
   staffManualLinkError,
   verifyEmailView,
   staffProvisionContactError,
@@ -72,12 +74,50 @@ describe('self-serve registration', () => {
       clientPortalAccess: 'Enabled',
     });
     assert.equal(signupScreenForDecision(missing), 'check-email');
-    assert.equal(signupScreenForDecision(staff), 'cant-register');
-    assert.equal(signupScreenForDecision(disabled), 'cant-register');
+    assert.equal(signupScreenForDecision(staff), 'check-email');
+    assert.equal(signupScreenForDecision(disabled), 'check-email');
+    assert.equal(signupOutbound(missing), 'none');
+    assert.equal(signupOutbound(staff), 'blocked-notice');
+    assert.equal(signupOutbound(disabled), 'blocked-notice');
+    assert.equal(signupStampsCooldown(missing), true);
+    assert.equal(signupStampsCooldown(staff), true);
     assert.equal(missing.allowed, false);
     if (!staff.allowed && !disabled.allowed) {
       assert.equal(registrationBlockMessage(staff.reason), registrationBlockMessage(disabled.reason));
     }
+  });
+
+  it('returns one check-email response for eligible, missing, and blocked addresses', () => {
+    const allowed = decideSelfServeRegistration({
+      email: client.email,
+      contacts: [client],
+      clientPortalAccess: 'Enabled',
+    });
+    const missing = decideSelfServeRegistration({
+      email: 'nobody@x.test',
+      contacts: [],
+      clientPortalAccess: null,
+    });
+    const staff = decideSelfServeRegistration({
+      email: 'team@warehaus.co',
+      contacts: [{ ...client, email: 'team@warehaus.co', role: 'Warehaus Staff' }],
+      clientPortalAccess: 'Enabled',
+    });
+    const linked = decideSelfServeRegistration({
+      email: client.email,
+      contacts: [{ ...client, authUserId: 'user_existing' }],
+      clientPortalAccess: 'Enabled',
+    });
+    for (const decision of [allowed, missing, staff, linked]) {
+      assert.equal(signupScreenForDecision(decision), 'check-email');
+    }
+    assert.equal(signupOutbound(allowed), 'verification');
+    assert.equal(signupOutbound(missing), 'none');
+    assert.equal(signupOutbound(staff), 'blocked-notice');
+    assert.equal(signupOutbound(linked), 'blocked-notice');
+    assert.equal(signupStampsCooldown(allowed), false);
+    assert.equal(signupStampsCooldown(missing), true);
+    assert.equal(signupStampsCooldown({ allowed: false, reason: 'invalid_email' }), false);
   });
 
   it('check-email copy and timing do not depend on a matching contact', () => {

@@ -131,16 +131,11 @@ export function PortalLoginForm({
             const trimmed = email.trim();
             try {
               if (mode === 'register') {
-                const gate = await prepareRegistration({ email: trimmed });
-                if (gate.screen === 'check-email') {
-                  const outcome = await signUp(trimmed, password, name.trim() || undefined);
-                  await waitForRegistrationFloor(started);
-                  if (outcome === 'error') return;
-                  setScreen('check-email');
-                  return;
-                }
+                await prepareRegistration({ email: trimmed });
+                const outcome = await signUp(trimmed, password, name.trim() || undefined);
                 await waitForRegistrationFloor(started);
-                setEmailError(CANT_REGISTER_MESSAGE);
+                if (outcome === 'error') return;
+                setScreen('check-email');
                 return;
               }
 
