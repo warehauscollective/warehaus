@@ -1,3 +1,4 @@
+import type { WriteProperties } from '@warehaus/portal-sync';
 import {
   INCREMENTAL_OVERLAP_MS,
   capStoredRetries,
@@ -10,6 +11,8 @@ import {
   mapNotionSharedResource,
   mapNotionTask,
   decideSyncedRowVisibility,
+  isPortalSelfWrite,
+  observedFromNotionPage,
   pageEditedAtMs,
   parsePullRetries,
   recordPageFailure,
@@ -43,6 +46,7 @@ export type PullStats = {
   deferred: number;
   failed: number;
   concealed: number;
+  selfWrites: number;
   mode: 'full' | 'incremental';
   editedSinceIso: string | null;
   errors: string[];
@@ -148,6 +152,7 @@ export const pullAll = internalAction({
       deferred: 0,
       failed: 0,
       concealed: 0,
+      selfWrites: 0,
       mode: 'full',
       editedSinceIso: null,
       errors: [],
@@ -236,6 +241,29 @@ export const pullAll = internalAction({
       }
     };
 
+    const noteSelfWrite = async (page: NotionPageRow) => {
+      const state = await ctx.runQuery(internal.sync.outbox.getWriteState, {
+        notionPageId: page.id,
+      });
+      if (!state) return;
+      let lastWritten: WriteProperties;
+      try {
+        lastWritten = JSON.parse(state.lastValues) as WriteProperties;
+      } catch {
+        return;
+      }
+      const fields = Object.keys(lastWritten);
+      if (
+        isPortalSelfWrite({
+          observed: observedFromNotionPage(page.properties, fields),
+          lastWritten,
+          fields,
+        })
+      ) {
+        stats.selfWrites += 1;
+      }
+    };
+
     const track = async (
       page: NotionPageRow,
       database: string,
@@ -251,6 +279,7 @@ export const pullAll = internalAction({
         return;
       }
       try {
+        await noteSelfWrite(page);
         await fn();
         outcomes.push({ id: page.id, editedAtMs, ok: true });
       } catch (err) {
@@ -338,6 +367,7 @@ export const pullAll = internalAction({
           phone: mapped.row.phone,
           externalId: mapped.row.externalId,
           source: mapped.row.source,
+          notionLastEditedTime: page.lastEdited || undefined,
         });
         await ctx.runMutation(internal.sync.hide.clearAncestorHides, { orgId });
         stats.upserted.clients += 1;
@@ -421,6 +451,7 @@ export const pullAll = internalAction({
           phone: mapped.row.phone,
           externalId: mapped.row.externalId,
           source: mapped.row.source,
+          notionLastEditedTime: page.lastEdited || undefined,
           hiddenReason: decision.action === 'store-hidden' ? 'ancestor' : undefined,
         });
         if (decision.action === 'store-hidden') {
@@ -522,6 +553,7 @@ export const pullAll = internalAction({
           priority: mapped.row.priority,
           externalId: mapped.row.externalId,
           source: mapped.row.source,
+          notionLastEditedTime: page.lastEdited || undefined,
           hiddenReason: decision.action === 'store-hidden' ? 'ancestor' : undefined,
         });
         projectClientNotion.set(page.id, clientNotionId);
@@ -634,6 +666,7 @@ export const pullAll = internalAction({
           priority: mapped.row.priority,
           externalId: mapped.row.externalId,
           source: mapped.row.source,
+          notionLastEditedTime: page.lastEdited || undefined,
           hiddenReason: decision.action === 'store-hidden' ? 'ancestor' : undefined,
         });
         if (decision.action === 'store-hidden') {
@@ -795,6 +828,7 @@ export const pullAll = internalAction({
           archive: mapped.row.archive,
           externalId: mapped.row.externalId,
           source: mapped.row.source,
+          notionLastEditedTime: page.lastEdited || undefined,
           hiddenReason: decision.action === 'store-hidden' ? 'ancestor' : undefined,
         });
         if (decision.action === 'store-hidden') {
@@ -886,6 +920,7 @@ export const pullAll = internalAction({
           publishToWarehaus: mapped.row.publishToWarehaus,
           externalId: mapped.row.externalId,
           source: mapped.row.source,
+          notionLastEditedTime: page.lastEdited || undefined,
           hiddenReason: decision.action === 'store-hidden' ? 'ancestor' : undefined,
         });
         await ctx.runMutation(internal.sync.upsert.replaceClientDocImages, {

@@ -13,6 +13,8 @@ const notionSyncFields = {
   notionPageId: v.string(),
   externalId: v.optional(v.string()),
   lastSyncedAt: v.number(),
+  /** Notion `last_edited_time` from the last pull. Optional until a page is seen. */
+  notionLastEditedTime: v.optional(v.string()),
   /**
    * Set while the row must not be shown to clients.
    * Cleared when a later pull shows the row again. The Convex copy stays.
@@ -317,4 +319,79 @@ export default defineSchema({
   })
     .index('by_eventId', ['eventId'])
     .index('by_receivedAt', ['receivedAt']),
+
+  /**
+   * Notion writes waiting to be sent. Nothing that grants access is inserted
+   * from a row until Notion confirms and a later success handler runs.
+   */
+  notionOutbox: defineTable({
+    idempotencyKey: v.string(),
+    kind: v.string(),
+    orgId: v.id('clients'),
+    database: v.string(),
+    notionPageId: v.optional(v.string()),
+    payload: v.string(),
+    actor: v.union(v.literal('staff'), v.literal('clientAdmin'), v.literal('system')),
+    status: v.union(
+      v.literal('queued'),
+      v.literal('inflight'),
+      v.literal('done'),
+      v.literal('failed'),
+      v.literal('dead'),
+    ),
+    attempts: v.number(),
+    nextAttemptAt: v.number(),
+    lastError: v.optional(v.string()),
+    createdAt: v.number(),
+    staffNotifiedAt: v.optional(v.number()),
+    resultJson: v.optional(v.string()),
+  })
+    .index('by_idempotencyKey', ['idempotencyKey'])
+    .index('by_status_nextAttemptAt', ['status', 'nextAttemptAt'])
+    .index('by_orgId', ['orgId']),
+
+  /** Last values the portal wrote, plus the response last_edited_time. */
+  notionWriteState: defineTable({
+    notionPageId: v.string(),
+    orgId: v.id('clients'),
+    database: v.string(),
+    lastValues: v.string(),
+    lastEditedTime: v.optional(v.string()),
+    updatedAt: v.number(),
+  })
+    .index('by_notionPageId', ['notionPageId'])
+    .index('by_orgId', ['orgId']),
+
+  auditEvents: defineTable({
+    orgId: v.id('clients'),
+    actorKind: v.union(
+      v.literal('clientAdmin'),
+      v.literal('staff'),
+      v.literal('system'),
+      v.literal('notionEdit'),
+    ),
+    actorId: v.optional(v.string()),
+    action: v.string(),
+    notionPageId: v.optional(v.string()),
+    notionUrl: v.optional(v.string()),
+    before: v.optional(v.string()),
+    after: v.optional(v.string()),
+    createdAt: v.number(),
+  })
+    .index('by_orgId', ['orgId'])
+    .index('by_orgId_createdAt', ['orgId', 'createdAt'])
+    .index('by_notionPageId', ['notionPageId']),
+
+  /** Portal notices only. No Notion comments in this foundation. */
+  notices: defineTable({
+    orgId: v.id('clients'),
+    audience: v.union(v.literal('staff'), v.literal('clientAdmin')),
+    message: v.string(),
+    contactNotionPageId: v.optional(v.string()),
+    edgeCase: v.optional(v.string()),
+    createdAt: v.number(),
+    readAt: v.optional(v.number()),
+  })
+    .index('by_orgId', ['orgId'])
+    .index('by_audience_createdAt', ['audience', 'createdAt']),
 });

@@ -28,9 +28,10 @@ export const upsertClient = internalMutation({
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
     hiddenReason: hiddenReasonArg,
+    notionLastEditedTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { hiddenReason, ...fields } = args;
+    const { hiddenReason, notionLastEditedTime, ...fields } = args;
     const existing = await ctx.db
       .query('clients')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
@@ -40,6 +41,7 @@ export const upsertClient = internalMutation({
       ...fields,
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
+      ...(notionLastEditedTime ? { notionLastEditedTime } : {}),
     };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
@@ -70,9 +72,10 @@ export const upsertProject = internalMutation({
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
     hiddenReason: hiddenReasonArg,
+    notionLastEditedTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { hiddenReason, ...fields } = args;
+    const { hiddenReason, notionLastEditedTime, ...fields } = args;
     const existing = await ctx.db
       .query('projects')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
@@ -82,6 +85,7 @@ export const upsertProject = internalMutation({
       ...fields,
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
+      ...(notionLastEditedTime ? { notionLastEditedTime } : {}),
     };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
@@ -106,9 +110,10 @@ export const upsertTask = internalMutation({
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
     hiddenReason: hiddenReasonArg,
+    notionLastEditedTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { hiddenReason, ...fields } = args;
+    const { hiddenReason, notionLastEditedTime, ...fields } = args;
     const existing = await ctx.db
       .query('tasks')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
@@ -118,6 +123,7 @@ export const upsertTask = internalMutation({
       ...fields,
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
+      ...(notionLastEditedTime ? { notionLastEditedTime } : {}),
     };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
@@ -144,9 +150,10 @@ export const upsertContact = internalMutation({
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
     hiddenReason: hiddenReasonArg,
+    notionLastEditedTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { hiddenReason, ...fields } = args;
+    const { hiddenReason, notionLastEditedTime, ...fields } = args;
     const byNotion = await ctx.db
       .query('contacts')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
@@ -166,6 +173,7 @@ export const upsertContact = internalMutation({
       authUserId,
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
+      ...(notionLastEditedTime ? { notionLastEditedTime } : {}),
     };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
@@ -195,9 +203,10 @@ export const upsertSharedResource = internalMutation({
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
     hiddenReason: hiddenReasonArg,
+    notionLastEditedTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { hiddenReason, ...fields } = args;
+    const { hiddenReason, notionLastEditedTime, ...fields } = args;
     const existing = await ctx.db
       .query('sharedResources')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
@@ -214,6 +223,7 @@ export const upsertSharedResource = internalMutation({
       sourceNotionUrl: fields.sourceNotionUrl ?? existing?.sourceNotionUrl,
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
+      ...(notionLastEditedTime ? { notionLastEditedTime } : {}),
     };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
@@ -238,9 +248,10 @@ export const upsertClientDoc = internalMutation({
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
     hiddenReason: hiddenReasonArg,
+    notionLastEditedTime: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const { hiddenReason, ...fields } = args;
+    const { hiddenReason, notionLastEditedTime, ...fields } = args;
     const existing = await ctx.db
       .query('clientDocs')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
@@ -250,6 +261,7 @@ export const upsertClientDoc = internalMutation({
       ...fields,
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
+      ...(notionLastEditedTime ? { notionLastEditedTime } : {}),
     };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
