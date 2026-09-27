@@ -1,10 +1,17 @@
 import { v } from 'convex/values';
 import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
+import {
+  ORPHAN_UPLOAD_BLOB_MIN_AGE_MS,
+  isOrphanedUploadBlob,
+  shouldDiscardUnreferencedBlob,
+  verifyFinalizedUpload,
+} from './_lib/uploadBlob';
 import type { Id } from './_generated/dataModel';
+import { internalMutation } from './_generated/server';
 
-const MAX_BYTES = 25 * 1024 * 1024; // 25 MB v1 soft cap per file
 const MAX_UPLOADS_PER_DAY = 40;
+const ORPHAN_GC_BATCH = 50;
 
 /** CLIENT-safe view — never returns raw storageId to the browser. */
 async function toClientView(
@@ -38,21 +45,54 @@ async function toClientView(
   };
 }
 
+async function discardUnreferencedUpload(
+  ctx: { storage: { delete: (id: Id<'_storage'>) => Promise<void> } },
+  input: {
+    ownsIntent: boolean;
+    referenced: boolean;
+    metadataExists: boolean;
+    storageId: Id<'_storage'>;
+  },
+) {
+  if (!input.ownsIntent) return;
+  if (
+    !shouldDiscardUnreferencedBlob({
+      referenced: input.referenced,
+      metadataExists: input.metadataExists,
+    })
+  ) {
+    return;
+  }
+  try {
+    await ctx.storage.delete(input.storageId);
+  } catch {
+    // Sweeper deletes anything still unreferenced after a day.
+  }
+}
+
 /** Phase 1 stub: mint a Convex storage upload URL for the caller's org. */
 export const generateUploadUrl = clientMutation({
   args: {},
   handler: async (ctx) => {
+    const intentId = await ctx.db.insert('uploadIntents', {
+      orgId: ctx.orgId,
+      contactId: ctx.identity.contactId as Id<'contacts'>,
+      createdAt: Date.now(),
+    });
     const url = await ctx.storage.generateUploadUrl();
-    return { uploadUrl: url, orgId: ctx.orgId, contactId: ctx.identity.contactId };
+    return { uploadUrl: url, orgId: ctx.orgId, contactId: ctx.identity.contactId, intentId };
   },
 });
 
 /**
  * Finalize after the client POSTs bytes to the upload URL.
+ * Size, type, and owner are taken from Convex storage plus the upload intent,
+ * not from the browser's claimed byteSize/mimeType alone.
  * Defaults: needsReview=true, scanStatus=pending.
  */
 export const finalizeUpload = clientMutation({
   args: {
+    intentId: v.id('uploadIntents'),
     storageId: v.id('_storage'),
     filename: v.string(),
     mimeType: v.optional(v.string()),
@@ -60,16 +100,55 @@ export const finalizeUpload = clientMutation({
     projectId: v.optional(v.id('projects')),
   },
   handler: async (ctx, args) => {
-    if (args.byteSize <= 0 || args.byteSize > MAX_BYTES) {
-      throw new PortalAuthError(
-        `File size must be between 1 byte and ${MAX_BYTES} bytes`,
-        'FORBIDDEN',
-      );
+    const intent = await ctx.db.get(args.intentId);
+    const metadata = await ctx.db.system.get('_storage', args.storageId);
+    const existing = await ctx.db
+      .query('clientUploads')
+      .withIndex('by_storageId', (q) => q.eq('storageId', args.storageId))
+      .unique();
+
+    let verified: { byteSize: number; mimeType?: string };
+    try {
+      verified = verifyFinalizedUpload({
+        metadata: metadata
+          ? { size: metadata.size, contentType: metadata.contentType }
+          : null,
+        claimedByteSize: args.byteSize,
+        claimedMimeType: args.mimeType,
+        intent: intent
+          ? {
+              orgId: intent.orgId,
+              contactId: intent.contactId,
+              createdAt: intent.createdAt,
+              consumedAt: intent.consumedAt,
+            }
+          : null,
+        callerOrgId: ctx.orgId,
+        callerContactId: ctx.identity.contactId,
+        alreadyClaimed: Boolean(existing),
+        nowMs: Date.now(),
+      });
+    } catch (err) {
+      await discardUnreferencedUpload(ctx, {
+        ownsIntent:
+          intent?.orgId === ctx.orgId &&
+          String(intent.contactId) === ctx.identity.contactId,
+        referenced: Boolean(existing),
+        metadataExists: Boolean(metadata),
+        storageId: args.storageId,
+      });
+      throw err;
     }
 
     if (args.projectId) {
       const project = await ctx.db.get(args.projectId);
       if (!project || project.orgId !== ctx.orgId) {
+        await discardUnreferencedUpload(ctx, {
+          ownsIntent: true,
+          referenced: false,
+          metadataExists: Boolean(metadata),
+          storageId: args.storageId,
+        });
         throw new PortalAuthError('Project not in session org', 'FORBIDDEN');
       }
     }
@@ -81,6 +160,12 @@ export const finalizeUpload = clientMutation({
       .collect();
     const todayCount = recent.filter((r) => r.createdAt >= dayAgo).length;
     if (todayCount >= MAX_UPLOADS_PER_DAY) {
+      await discardUnreferencedUpload(ctx, {
+        ownsIntent: true,
+        referenced: false,
+        metadataExists: Boolean(metadata),
+        storageId: args.storageId,
+      });
       throw new PortalAuthError('Daily upload quota exceeded', 'FORBIDDEN');
     }
 
@@ -90,12 +175,17 @@ export const finalizeUpload = clientMutation({
       uploadedByContactId: ctx.identity.contactId as Id<'contacts'>,
       storageId: args.storageId,
       filename: args.filename,
-      mimeType: args.mimeType,
-      byteSize: args.byteSize,
+      mimeType: verified.mimeType,
+      byteSize: verified.byteSize,
       scanStatus: 'pending',
       needsReview: true,
       projectId: args.projectId,
       createdAt: now,
+    });
+
+    await ctx.db.patch(args.intentId, {
+      consumedAt: now,
+      storageId: args.storageId,
     });
 
     await ctx.db.insert('activity', {
@@ -109,6 +199,50 @@ export const finalizeUpload = clientMutation({
     });
 
     return { id };
+  },
+});
+
+/**
+ * Delete Convex storage that never landed in clientUploads, plus stale
+ * upload intents. Does not touch Shared Resources, docs, or other tables.
+ */
+export const gcOrphanedUploadBlobs = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const referenced = new Set(
+      (await ctx.db.query('clientUploads').collect()).map((row) => row.storageId),
+    );
+    const files = await ctx.db.system.query('_storage').collect();
+    let deleted = 0;
+    for (const file of files) {
+      if (deleted >= ORPHAN_GC_BATCH) break;
+      if (
+        !isOrphanedUploadBlob({
+          creationTime: file._creationTime,
+          nowMs: now,
+          referenced: referenced.has(file._id),
+        })
+      ) {
+        continue;
+      }
+      await ctx.storage.delete(file._id);
+      deleted += 1;
+    }
+
+    const staleIntents = await ctx.db
+      .query('uploadIntents')
+      .withIndex('by_createdAt', (q) =>
+        q.lt('createdAt', now - ORPHAN_UPLOAD_BLOB_MIN_AGE_MS),
+      )
+      .take(ORPHAN_GC_BATCH);
+    let intentsDeleted = 0;
+    for (const intent of staleIntents) {
+      await ctx.db.delete(intent._id);
+      intentsDeleted += 1;
+    }
+
+    return { deleted, intentsDeleted };
   },
 });
 

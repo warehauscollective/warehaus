@@ -108,6 +108,25 @@ export {
 } from './extract';
 
 export {
+  INCREMENTAL_OVERLAP_MS,
+  applyPullPass,
+  capStoredRetries,
+  decidePullWatermark,
+  dueRetryIds,
+  pageEditedAtMs,
+  pageRetryBackoffMs,
+  parsePullRetries,
+  recordPageFailure,
+  refreshUnseenRetries,
+  selectPagesForPull,
+  shouldDeferPageRetry,
+  unseenPageRetries,
+  type FailedPageRetry,
+  type PageProcessOutcome,
+  type SyncPage,
+} from './pull-cursor';
+
+export {
   mapNotionClient,
   mapNotionProject,
   mapNotionTask,

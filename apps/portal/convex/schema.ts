@@ -210,7 +210,23 @@ export default defineSchema({
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_needsReview', ['orgId', 'needsReview'])
-    .index('by_orgId_createdAt', ['orgId', 'createdAt']),
+    .index('by_orgId_createdAt', ['orgId', 'createdAt'])
+    .index('by_storageId', ['storageId']),
+
+  /**
+   * Minted with generateUploadUrl. finalizeUpload requires it so a browser
+   * cannot attach an arbitrary storage id. Bookkeeping only — swept with
+   * orphaned upload blobs.
+   */
+  uploadIntents: defineTable({
+    orgId: v.id('clients'),
+    contactId: v.id('contacts'),
+    createdAt: v.number(),
+    consumedAt: v.optional(v.number()),
+    storageId: v.optional(v.id('_storage')),
+  })
+    .index('by_orgId_createdAt', ['orgId', 'createdAt'])
+    .index('by_createdAt', ['createdAt']),
 
   syncMeta: defineTable({
     key: v.string(),
@@ -244,7 +260,8 @@ export default defineSchema({
     error: v.optional(v.string()),
   })
     .index('by_eventId', ['eventId'])
-    .index('by_receivedAt', ['receivedAt']),
+    .index('by_receivedAt', ['receivedAt'])
+    .index('by_processedAt', ['processedAt']),
 
   /** Stripe → Convex billing (never Notion) */
   billingSubscriptions: defineTable({

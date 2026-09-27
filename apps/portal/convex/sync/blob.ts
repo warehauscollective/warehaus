@@ -81,6 +81,8 @@ export async function copyNotionFileToBlob(input: {
     token,
     contentType: mimeType,
     addRandomSuffix: false,
+    // Path includes checksum, so a retry of the same bytes targets one key.
+    allowOverwrite: true,
   });
 
   return {

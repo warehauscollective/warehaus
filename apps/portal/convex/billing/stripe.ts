@@ -1,6 +1,8 @@
 import { internal } from '../_generated/api';
 import { httpAction } from '../_generated/server';
+import type { ActionCtx } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
+import { mergeStripeOrgHints, stripeCustomerOrgHint } from '../_lib/billingEvent';
 
 type StripeObject = Record<string, unknown>;
 
@@ -83,6 +85,44 @@ async function verifyStripeSignature(
   return ok === 0;
 }
 
+type LinkedOrg =
+  | { orgId: Id<'clients'> }
+  | { ignore: string };
+
+/**
+ * Resolve a Stripe customer to an org. When the customer is first seen and
+ * metadata names the org (orgId, slug, or externalId), persist stripeCustomerId.
+ */
+async function linkStripeCustomer(
+  ctx: ActionCtx,
+  customerId: string,
+  sources: Array<StripeObject | null>,
+): Promise<LinkedOrg> {
+  const hint = mergeStripeOrgHints(
+    ...sources.map((source) => stripeCustomerOrgHint(source?.metadata)),
+  );
+  const resolved = await ctx.runQuery(internal.billingUpsert.resolveOrgForStripeLink, {
+    stripeCustomerId: customerId,
+    orgId: hint.orgId,
+    slug: hint.slug,
+    externalId: hint.externalId,
+  });
+  if (!resolved) return { ignore: `unknown stripe customer ${customerId}` };
+  if ('conflict' in resolved && resolved.conflict) {
+    return { ignore: `stripe customer ${customerId} conflicts with another org` };
+  }
+  if (!resolved.alreadyLinked) {
+    const linked = await ctx.runMutation(internal.billingUpsert.setStripeCustomerId, {
+      orgId: resolved.orgId,
+      stripeCustomerId: customerId,
+    });
+    if (!linked.ok) {
+      return { ignore: `could not store stripe customer ${customerId} (${linked.reason})` };
+    }
+  }
+  return { orgId: resolved.orgId };
+}
+
 /**
  * POST /stripe/webhook — Stripe → Convex billing tables.
  * Requires STRIPE_WEBHOOK_SECRET in production; local anonymous may skip when unset.
@@ -159,21 +199,19 @@ export const stripeWebhook = httpAction(async (ctx, req) => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      orgId = await ctx.runQuery(
-        internal.billingUpsert.resolveOrgByStripeCustomer,
-        { stripeCustomerId: customerId },
-      );
-      if (!orgId) {
+      const linked = await linkStripeCustomer(ctx, customerId, [obj, asObject(obj.customer)]);
+      if ('ignore' in linked) {
         await ctx.runMutation(internal.billingUpsert.finishBillingEvent, {
           eventId,
           status: 'ignored',
-          error: `unknown stripe customer ${customerId}`,
+          error: linked.ignore,
         });
         return new Response(JSON.stringify({ ok: true, ignored: true }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      orgId = linked.orgId;
       const subId = asString(obj.id);
       if (!subId) throw new Error('subscription missing id');
       const periodEnd = asNumber(obj.current_period_end);
@@ -203,21 +241,19 @@ export const stripeWebhook = httpAction(async (ctx, req) => {
           headers: { 'Content-Type': 'application/json' },
         });
       }
-      orgId = await ctx.runQuery(
-        internal.billingUpsert.resolveOrgByStripeCustomer,
-        { stripeCustomerId: customerId },
-      );
-      if (!orgId) {
+      const linked = await linkStripeCustomer(ctx, customerId, [obj, asObject(obj.customer)]);
+      if ('ignore' in linked) {
         await ctx.runMutation(internal.billingUpsert.finishBillingEvent, {
           eventId,
           status: 'ignored',
-          error: `unknown stripe customer ${customerId}`,
+          error: linked.ignore,
         });
         return new Response(JSON.stringify({ ok: true, ignored: true }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         });
       }
+      orgId = linked.orgId;
       const invoiceId = asString(obj.id);
       if (!invoiceId) throw new Error('invoice missing id');
       const periodStart = asNumber(obj.period_start);
@@ -236,6 +272,32 @@ export const stripeWebhook = httpAction(async (ctx, req) => {
         periodEnd: periodEnd != null ? periodEnd * 1000 : undefined,
         createdAt: created != null ? created * 1000 : Date.now(),
       });
+    } else if (type === 'customer.created' || type === 'customer.updated') {
+      const customerId = asString(obj?.id);
+      if (!customerId || !obj) {
+        await ctx.runMutation(internal.billingUpsert.finishBillingEvent, {
+          eventId,
+          status: 'ignored',
+          error: 'missing customer',
+        });
+        return new Response(JSON.stringify({ ok: true, ignored: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      const linked = await linkStripeCustomer(ctx, customerId, [obj]);
+      if ('ignore' in linked) {
+        await ctx.runMutation(internal.billingUpsert.finishBillingEvent, {
+          eventId,
+          status: 'ignored',
+          error: linked.ignore,
+        });
+        return new Response(JSON.stringify({ ok: true, ignored: true }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      orgId = linked.orgId;
     } else {
       await ctx.runMutation(internal.billingUpsert.finishBillingEvent, {
         eventId,
@@ -258,9 +320,8 @@ export const stripeWebhook = httpAction(async (ctx, req) => {
     });
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await ctx.runMutation(internal.billingUpsert.finishBillingEvent, {
+    await ctx.runMutation(internal.billingUpsert.failBillingEvent, {
       eventId,
-      status: 'error',
       error: message,
     });
     return new Response(JSON.stringify({ error: message }), {
