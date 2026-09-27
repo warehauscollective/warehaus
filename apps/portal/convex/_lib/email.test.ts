@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   BLOCKED_SIGNUP_BODY,
+  BLOCKED_SIGNUP_IGNORE,
   BLOCKED_SIGNUP_SUBJECT,
   blockedSignupDelivery,
   rewriteVerificationCallback,
@@ -35,8 +36,16 @@ describe('verification email', () => {
     assert.equal(delivery.to, 'team@warehaus.co');
     assert.equal(delivery.subject, BLOCKED_SIGNUP_SUBJECT);
     assert.equal(delivery.subject, 'About your Warehaus portal sign-up');
-    assert.match(delivery.text, new RegExp(BLOCKED_SIGNUP_BODY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    assert.match(delivery.html, /This email can&#39;t register here\. Contact your Warehaus team\./);
-    assert.equal(BLOCKED_SIGNUP_BODY, "This email can't register here. Contact your Warehaus team.");
+    assert.equal(
+      BLOCKED_SIGNUP_BODY,
+      "Someone tried to create a Warehaus portal account with this email. This email can't register here. Contact your Warehaus team if you need access.",
+    );
+    assert.match(delivery.text, /Someone tried to create a Warehaus portal account with this email/);
+    assert.match(delivery.text, /This email can't register here\. Contact your Warehaus team if you need access\./);
+    assert.match(delivery.text, new RegExp(BLOCKED_SIGNUP_IGNORE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(delivery.html, /font-size: 14px; color: #555;/);
+    assert.match(delivery.html, /If this wasn&#39;t you, you can ignore this email\./);
+    assert.doesNotMatch(delivery.html, /href=/);
+    assert.doesNotMatch(delivery.text, /https?:/);
   });
 });

@@ -17,8 +17,12 @@ import {
 } from './_lib/email';
 import {
   CANT_REGISTER_MESSAGE,
+  existingUserSignupAction,
+  genericSignupBody,
   signupOutbound,
+  signupRequestCanShortCircuit,
   signupStampsCooldown,
+  shouldSendAfterCooldownClaim,
   type SelfServeDecision,
 } from './_lib/registration';
 import { VERIFICATION_EXPIRES_IN_SECONDS } from './_lib/resendCooldown';
@@ -53,6 +57,13 @@ async function deliverPortalEmail(
     return;
   }
   await sendPortalEmail(message);
+}
+
+async function sendBlockedSignupNotice(ctx: GenericCtx<DataModel>, email: string): Promise<void> {
+  const action = existingUserSignupAction();
+  const claim = await runResendMutation(ctx, action.cooldown, email);
+  if (!action.sendNotice || !shouldSendAfterCooldownClaim(claim)) return;
+  await deliverBlockedSignupEmail(ctx, email);
 }
 
 async function deliverBlockedSignupEmail(ctx: GenericCtx<DataModel>, email: string): Promise<void> {
@@ -102,6 +113,66 @@ async function runResendMutation(
   }
 }
 
+type SignupHookCtx = {
+  body?: unknown;
+  context?: {
+    internalAdapter?: {
+      findUserByEmail?: (email: string) => Promise<{ user?: unknown } | null>;
+    };
+    password?: { hash?: (password: string) => Promise<string> };
+    generateId?: (input: { model: string }) => string | false | undefined;
+  };
+};
+
+function signupFields(body: unknown): { email: string; password: string; name: string } | null {
+  if (!body || typeof body !== 'object') return null;
+  const record = body as { email?: unknown; password?: unknown; name?: unknown };
+  if (typeof record.email !== 'string' || typeof record.password !== 'string') return null;
+  if (typeof record.name !== 'string') return null;
+  return { email: record.email, password: record.password, name: record.name };
+}
+
+/** True when an account already exists, or when the lookup failed (let Better Auth decide). */
+async function authUserExists(baCtx: SignupHookCtx, email: string): Promise<boolean> {
+  try {
+    const found = await baCtx.context?.internalAdapter?.findUserByEmail?.(email.trim().toLowerCase());
+    return Boolean(found?.user);
+  } catch (err) {
+    console.error(
+      '[auth] existing user lookup failed',
+      err instanceof Error ? err.message : 'failed',
+    );
+    return true;
+  }
+}
+
+/**
+ * Blocked and unknown addresses never become users. Return the same 200
+ * `{ token: null, user }` envelope Better Auth uses when verification is
+ * required, so the status does not reveal eligibility. An address that already
+ * has an account falls through: Better Auth returns that envelope itself and
+ * `onExistingUserSignUp` sends the notice.
+ */
+async function uniformBlockedSignup(
+  ctx: GenericCtx<DataModel>,
+  baCtx: SignupHookCtx,
+): Promise<ReturnType<typeof genericSignupBody> | undefined> {
+  const fields = signupFields(baCtx.body);
+  if (!fields || !signupRequestCanShortCircuit(fields)) return;
+  const eligibility = await readEligibility(ctx, fields.email);
+  if (!eligibility || eligibility.allowed) return;
+  if (await authUserExists(baCtx, fields.email)) return;
+  if (signupOutbound(eligibility) === 'blocked-notice') {
+    await sendBlockedSignupNotice(ctx, fields.email);
+  } else if (signupStampsCooldown(eligibility)) {
+    await runResendMutation(ctx, 'stamp', fields.email);
+  }
+  await baCtx.context?.password?.hash?.(fields.password);
+  const generated = baCtx.context?.generateId?.({ model: 'user' });
+  const id = typeof generated === 'string' && generated ? generated : crypto.randomUUID();
+  return genericSignupBody({ email: fields.email, name: fields.name.trim(), id });
+}
+
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
   const siteUrl = process.env.SITE_URL ?? process.env.BETTER_AUTH_URL ?? '';
   return betterAuth({
@@ -121,6 +192,9 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: true,
+      onExistingUserSignUp: async ({ user }) => {
+        await sendBlockedSignupNotice(ctx, user.email);
+      },
       sendResetPassword: async ({ user, url }) => {
         const content = passwordResetEmail({
           name: user.name,
@@ -157,6 +231,9 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
     hooks: {
       before: createAuthMiddleware(async (baCtx) => {
         const path = baCtx.path ?? '';
+        if (path.endsWith('/sign-up/email')) {
+          return await uniformBlockedSignup(ctx, baCtx as SignupHookCtx);
+        }
         if (!path.endsWith('/send-verification-email')) return;
         const email =
           baCtx.body && typeof baCtx.body === 'object' && 'email' in baCtx.body
@@ -180,11 +257,10 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
             const decision = await readEligibility(ctx, user.email);
             if (!decision) refuseRegistration();
             if (decision.allowed) return { data: user };
-            if (signupStampsCooldown(decision)) {
-              await runResendMutation(ctx, 'stamp', user.email);
-            }
             if (signupOutbound(decision) === 'blocked-notice') {
-              await deliverBlockedSignupEmail(ctx, user.email);
+              await sendBlockedSignupNotice(ctx, user.email);
+            } else if (signupStampsCooldown(decision)) {
+              await runResendMutation(ctx, 'stamp', user.email);
             }
             refuseRegistration();
           },

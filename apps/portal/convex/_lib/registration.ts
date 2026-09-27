@@ -99,6 +99,63 @@ export function signupStampsCooldown(decision: SelfServeDecision): boolean {
   return !decision.allowed && decision.reason !== 'invalid_email';
 }
 
+/**
+ * Better Auth calls `onExistingUserSignUp` only when the email already has an
+ * account, and it does that before the user-create hook. Every such attempt
+ * gets the blocked notice. Claim the cooldown first so a repeat does not send.
+ */
+export function existingUserSignupAction(): { cooldown: 'claim'; sendNotice: true } {
+  return { cooldown: 'claim', sendNotice: true };
+}
+
+/** A claim that did not take the slot must not send. */
+export function shouldSendAfterCooldownClaim(claim: { allowed: boolean } | null): boolean {
+  return claim?.allowed === true;
+}
+
+/** Same checks Better Auth runs before it would create a user (min 8, max 128). */
+export function signupRequestCanShortCircuit(input: { email: string; password: string; name: string }): boolean {
+  const email = input.email.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return false;
+  if (input.password.length < 8 || input.password.length > 128) return false;
+  return input.name.trim().length > 0;
+}
+
+/** HTTP 200 envelope shared with a verification-required sign-up (`token: null`). */
+export const GENERIC_SIGNUP_STATUS = 200;
+
+export function genericSignupBody(input: {
+  email: string;
+  name: string;
+  id: string;
+  now?: Date;
+}): {
+  token: null;
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    image: null;
+    emailVerified: false;
+    createdAt: string;
+    updatedAt: string;
+  };
+} {
+  const now = (input.now ?? new Date()).toISOString();
+  return {
+    token: null,
+    user: {
+      id: input.id,
+      email: input.email.trim().toLowerCase(),
+      name: input.name,
+      image: null,
+      emailVerified: false,
+      createdAt: now,
+      updatedAt: now,
+    },
+  };
+}
+
 export function registrationWaitMs(elapsedMs: number, floor = REGISTRATION_UI_FLOOR_MS): number {
   if (!Number.isFinite(elapsedMs) || elapsedMs < 0) return floor;
   return Math.max(0, floor - elapsedMs);

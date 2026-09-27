@@ -8,8 +8,13 @@ import {
   decideSelfServeRegistration,
   registrationBlockMessage,
   registrationWaitMs,
+  existingUserSignupAction,
+  genericSignupBody,
+  GENERIC_SIGNUP_STATUS,
   needsTypedVerifyEmail,
+  shouldSendAfterCooldownClaim,
   signupOutbound,
+  signupRequestCanShortCircuit,
   signupScreenForDecision,
   signupStampsCooldown,
   staffManualLinkError,
@@ -130,6 +135,45 @@ describe('self-serve registration', () => {
     assert.equal(registrationWaitMs(0, REGISTRATION_UI_FLOOR_MS), REGISTRATION_UI_FLOOR_MS);
     assert.equal(registrationWaitMs(REGISTRATION_UI_FLOOR_MS), 0);
     assert.equal(registrationWaitMs(50), registrationWaitMs(50));
+  });
+
+  it('existing accounts claim the cooldown and send the blocked notice', () => {
+    const action = existingUserSignupAction();
+    assert.equal(action.cooldown, 'claim');
+    assert.equal(action.sendNotice, true);
+    assert.equal(shouldSendAfterCooldownClaim({ allowed: true }), true);
+    assert.equal(shouldSendAfterCooldownClaim({ allowed: false }), false);
+    assert.equal(shouldSendAfterCooldownClaim(null), false);
+  });
+
+  it('returns one 200 sign-up envelope for a blocked or unknown address', () => {
+    assert.equal(GENERIC_SIGNUP_STATUS, 200);
+    assert.equal(
+      signupRequestCanShortCircuit({ email: 'not-an-email', password: 'long-enough', name: 'Ada' }),
+      false,
+    );
+    assert.equal(
+      signupRequestCanShortCircuit({ email: 'ada@client.test', password: 'short', name: 'Ada' }),
+      false,
+    );
+    const body = genericSignupBody({
+      email: 'Ada@Client.test',
+      name: 'Ada',
+      id: 'user_test',
+      now: new Date('2026-09-27T00:00:00.000Z'),
+    });
+    assert.deepEqual(body, {
+      token: null,
+      user: {
+        id: 'user_test',
+        email: 'ada@client.test',
+        name: 'Ada',
+        image: null,
+        emailVerified: false,
+        createdAt: '2026-09-27T00:00:00.000Z',
+        updatedAt: '2026-09-27T00:00:00.000Z',
+      },
+    });
   });
 
   it('asks for an email on an expired link when this browser has none', () => {

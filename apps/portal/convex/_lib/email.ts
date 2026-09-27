@@ -67,17 +67,20 @@ export function rewriteVerificationCallback(verifyUrl: string, callbackPath = '/
 
 export const BLOCKED_SIGNUP_SUBJECT = 'About your Warehaus portal sign-up';
 
-/** Exact sentence mailed when a real contact cannot self-serve. */
+/** Mailed when this address cannot start a new self-serve account. No links. */
 export const BLOCKED_SIGNUP_BODY =
-  "This email can't register here. Contact your Warehaus team.";
+  "Someone tried to create a Warehaus portal account with this email. This email can't register here. Contact your Warehaus team if you need access.";
+
+export const BLOCKED_SIGNUP_IGNORE = "If this wasn't you, you can ignore this email.";
 
 export function blockedSignupEmail(): { subject: string; html: string; text: string } {
-  const text = [BLOCKED_SIGNUP_BODY, '', '— Warehaus'].join('\n');
+  const text = [BLOCKED_SIGNUP_BODY, '', BLOCKED_SIGNUP_IGNORE, '', '— Warehaus'].join('\n');
   const html = `<!DOCTYPE html>
 <html>
   <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111; max-width: 520px; margin: 0 auto; padding: 24px;">
     <p style="font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: #666; margin: 0 0 16px;">Warehaus Portal</p>
     <p>${escapeHtml(BLOCKED_SIGNUP_BODY)}</p>
+    <p style="font-size: 14px; color: #555;">${escapeHtml(BLOCKED_SIGNUP_IGNORE)}</p>
   </body>
 </html>`;
   return { subject: BLOCKED_SIGNUP_SUBJECT, html, text };
