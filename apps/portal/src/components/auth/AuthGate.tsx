@@ -4,6 +4,7 @@ import { type ReactNode, useEffect, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { isConvexConfigured } from '@/lib/convex/client';
+import { safeRedirectPath } from '@convex/_lib/safeRedirect';
 
 /**
  * Blocks portal chrome until Better Auth session + Contact join succeed.
@@ -32,7 +33,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
     }
     if (sessionPending) return;
 
-    const next = pathname && pathname !== '/' ? `?next=${encodeURIComponent(pathname)}` : '';
+    const nextPath = safeRedirectPath(pathname);
+    const next = nextPath !== '/' ? `?next=${encodeURIComponent(nextPath)}` : '';
 
     if (!authUser) {
       router.replace(`/login${next}`);

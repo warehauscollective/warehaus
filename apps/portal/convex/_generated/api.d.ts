@@ -26,6 +26,7 @@ import type * as me from "../me.js";
 import type * as notionAuth from "../notionAuth.js";
 import type * as portalData from "../portalData.js";
 import type * as projects from "../projects.js";
+import type * as registrationGate from "../registrationGate.js";
 import type * as seed from "../seed.js";
 import type * as sharedResources from "../sharedResources.js";
 import type * as sync_blob from "../sync/blob.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   notionAuth: typeof notionAuth;
   portalData: typeof portalData;
   projects: typeof projects;
+  registrationGate: typeof registrationGate;
   seed: typeof seed;
   sharedResources: typeof sharedResources;
   "sync/blob": typeof sync_blob;

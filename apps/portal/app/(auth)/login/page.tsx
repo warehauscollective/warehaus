@@ -8,11 +8,13 @@ import {
 } from '@/components/auth/PortalLoginForm';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { isConvexConfigured } from '@/lib/convex/client';
+import { safeRedirectPath } from '@convex/_lib/safeRedirect';
+import { isCantRegisterError } from '@convex/_lib/registration';
 
 function LoginInner() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const next = searchParams.get('next') || '/';
+  const next = safeRedirectPath(searchParams.get('next'));
   const urlError = searchParams.get('error');
   const configured = isConvexConfigured();
   const { portalSession, sessionPending, linkStatus } = usePortalAuth();
@@ -20,7 +22,7 @@ function LoginInner() {
   useEffect(() => {
     if (!configured || sessionPending) return;
     if (portalSession && linkStatus === 'linked') {
-      router.replace(next.startsWith('/') ? next : '/');
+      router.replace(next);
     }
   }, [configured, sessionPending, portalSession, linkStatus, next, router]);
 
@@ -48,7 +50,7 @@ function LoginInner() {
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 10 }}>
             Sign in to continue to the portal
           </p>
-          {urlError && (
+          {urlError && !isCantRegisterError(urlError) && (
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)', marginTop: 12 }}>
               {urlError}
             </p>
@@ -66,8 +68,9 @@ function LoginInner() {
           </p>
         ) : (
           <PortalLoginForm
-            redirectTo={next.startsWith('/') ? next : '/'}
+            redirectTo={next}
             showSignedInCard={false}
+            initialScreen={isCantRegisterError(urlError) ? 'cant-register' : 'form'}
           />
         )}
       </div>

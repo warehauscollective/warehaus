@@ -50,6 +50,60 @@ export async function sendPortalEmail(args: SendPortalEmailArgs): Promise<void> 
   }
 }
 
+/** Keep verification links on our callback page, not a caller-supplied absolute URL. */
+export function rewriteVerificationCallback(verifyUrl: string, callbackPath = '/verify-email'): string {
+  const safePath =
+    callbackPath.startsWith('/') && !callbackPath.startsWith('//') && !callbackPath.includes('\\')
+      ? callbackPath
+      : '/verify-email';
+  try {
+    const url = new URL(verifyUrl);
+    url.searchParams.set('callbackURL', safePath);
+    return url.toString();
+  } catch {
+    return verifyUrl;
+  }
+}
+
+export function verificationEmail(args: {
+  name?: string | null;
+  verifyUrl: string;
+}): { subject: string; html: string; text: string } {
+  const greeting = args.name?.trim() ? `Hi ${args.name.trim()},` : 'Hi,';
+  const subject = 'Verify your Warehaus portal email';
+  const text = [
+    greeting,
+    '',
+    'Confirm your email to finish creating your Warehaus portal password.',
+    'Open this link (it expires in about an hour):',
+    args.verifyUrl,
+    '',
+    'If you did not try to register, you can ignore this email.',
+    '',
+    '— Warehaus',
+  ].join('\n');
+
+  const html = `<!DOCTYPE html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111; max-width: 520px; margin: 0 auto; padding: 24px;">
+    <p style="font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: #666; margin: 0 0 16px;">Warehaus Portal</p>
+    <p>${escapeHtml(greeting)}</p>
+    <p>Confirm your email to finish creating your portal password.</p>
+    <p style="margin: 28px 0;">
+      <a href="${escapeHtml(args.verifyUrl)}"
+         style="display: inline-block; background: #111; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 8px; font-weight: 600;">
+        Verify email
+      </a>
+    </p>
+    <p style="font-size: 14px; color: #555;">Or paste this link into your browser:</p>
+    <p style="font-size: 13px; word-break: break-all; color: #333;">${escapeHtml(args.verifyUrl)}</p>
+    <p style="font-size: 14px; color: #555;">This link expires in about an hour. If you did not try to register, you can ignore this email.</p>
+  </body>
+</html>`;
+
+  return { subject, html, text };
+}
+
 export function passwordResetEmail(args: {
   name?: string | null;
   resetUrl: string;

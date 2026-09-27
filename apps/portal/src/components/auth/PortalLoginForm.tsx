@@ -3,20 +3,29 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { useQuery } from 'convex/react';
+import { useAction } from 'convex/react';
 import { api } from '@convex/_generated/api';
+import { safeRedirectPath } from '@convex/_lib/safeRedirect';
 import { GhostButton, PrimaryButton, Surface } from '@/components/ui/primitives';
+import {
+  CantRegisterPanel,
+  CheckEmailPanel,
+  waitForRegistrationFloor,
+} from '@/components/auth/EmailVerificationScreens';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 
 export function PortalLoginForm({
   redirectTo = '/',
   showSignedInCard = true,
+  initialScreen = 'form',
 }: {
   redirectTo?: string;
   /** When false (login page), hide the “already signed in” card — parent redirects. */
   showSignedInCard?: boolean;
+  initialScreen?: 'form' | 'cant-register';
 }) {
   const router = useRouter();
+  const prepareRegistration = useAction(api.registrationGate.prepareRegistration);
   const { signIn, signUp, signOut, joinError, joining, portalSession, authUser, linkStatus } =
     usePortalAuth();
   const [email, setEmail] = useState('');
@@ -24,11 +33,7 @@ export function PortalLoginForm({
   const [mode, setMode] = useState<'signin' | 'register'>('signin');
   const [busy, setBusy] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
-
-  const canRegister = useQuery(
-    api.contacts.canRegister,
-    mode === 'register' && email.includes('@') ? { email } : 'skip',
-  );
+  const [screen, setScreen] = useState<'form' | 'check-email' | 'cant-register'>(initialScreen);
 
   if (showSignedInCard && portalSession) {
     return (
@@ -62,8 +67,17 @@ export function PortalLoginForm({
     );
   }
 
+  if (screen === 'check-email') {
+    return <CheckEmailPanel email={email.trim()} />;
+  }
+
+  if (screen === 'cant-register') {
+    return <CantRegisterPanel />;
+  }
+
   const error = localError ?? joinError;
   const pending = busy || joining || linkStatus === 'loading';
+  const destination = safeRedirectPath(redirectTo);
 
   return (
     <Surface style={{ padding: 'var(--s-5)', maxWidth: 480, width: '100%' }}>
@@ -84,19 +98,34 @@ export function PortalLoginForm({
           void (async () => {
             setBusy(true);
             setLocalError(null);
+            const started = performance.now();
+            const trimmed = email.trim();
             try {
               if (mode === 'register') {
-                if (canRegister && !canRegister.ok) {
-                  setLocalError('No enabled portal contact for this email.');
+                const gate = await prepareRegistration({ email: trimmed });
+                if (gate.screen === 'check-email') {
+                  const outcome = await signUp(trimmed, password);
+                  await waitForRegistrationFloor(started);
+                  if (outcome === 'error') return;
+                  setScreen('check-email');
                   return;
                 }
-                const ok = await signUp(email.trim(), password);
-                if (!ok) return; // joinError / sign-up error already set on the hook
-              } else {
-                const ok = await signIn(email.trim(), password);
-                if (!ok) return;
+                await waitForRegistrationFloor(started);
+                setScreen('cant-register');
+                return;
               }
-              router.replace(redirectTo);
+
+              const outcome = await signIn(trimmed, password);
+              if (outcome === 'verify') {
+                setScreen('check-email');
+                return;
+              }
+              if (outcome === 'rejected') {
+                setScreen('cant-register');
+                return;
+              }
+              if (outcome !== 'ok') return;
+              router.replace(destination);
             } finally {
               setBusy(false);
             }
@@ -144,12 +173,6 @@ export function PortalLoginForm({
               Forgot password?
             </Link>
           </div>
-        )}
-
-        {mode === 'register' && canRegister && !canRegister.ok && (
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>
-            This email is not on an enabled Contact.
-          </p>
         )}
 
         {error && (
