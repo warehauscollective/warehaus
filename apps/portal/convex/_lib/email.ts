@@ -89,6 +89,40 @@ export function passwordResetEmail(args: {
   return { subject, html, text };
 }
 
+export function inviteEmail(args: {
+  name?: string | null;
+  acceptUrl: string;
+}): { subject: string; html: string; text: string } {
+  const greeting = args.name?.trim() ? `Hi ${args.name.trim()},` : 'Hi,';
+  const subject = 'You’re invited to the Warehaus portal';
+  const text = [
+    greeting,
+    '',
+    'You have been invited to the Warehaus portal.',
+    'Open this link to accept:',
+    args.acceptUrl,
+    '',
+    '— Warehaus',
+  ].join('\n');
+  const html = `<!DOCTYPE html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111; max-width: 520px; margin: 0 auto; padding: 24px;">
+    <p style="font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: #666; margin: 0 0 16px;">Warehaus Portal</p>
+    <p>${escapeHtml(greeting)}</p>
+    <p>You have been invited to the Warehaus portal.</p>
+    <p style="margin: 28px 0;">
+      <a href="${escapeHtml(args.acceptUrl)}"
+         style="display: inline-block; background: #111; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 8px; font-weight: 600;">
+        Accept invite
+      </a>
+    </p>
+    <p style="font-size: 14px; color: #555;">Or paste this link into your browser:</p>
+    <p style="font-size: 13px; word-break: break-all; color: #333;">${escapeHtml(args.acceptUrl)}</p>
+  </body>
+</html>`;
+  return { subject, html, text };
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')
