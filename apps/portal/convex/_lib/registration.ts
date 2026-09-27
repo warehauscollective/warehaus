@@ -5,6 +5,7 @@
  */
 
 import { CANT_REGISTER_MESSAGE, normalizeEmail, type JoinContactCandidate } from './contactJoin';
+import { CHECK_EMAIL_BODY } from './resendCooldown';
 
 export { CANT_REGISTER_MESSAGE };
 
@@ -53,19 +54,23 @@ export function registrationWaitMs(elapsedMs: number, floor = REGISTRATION_UI_FL
 export type CheckEmailModel = {
   title: string;
   body: string;
+  hint: string;
   resendLabel: string;
   resendPendingLabel: string;
   resendDoneLabel: string;
+  differentEmailLabel: string;
 };
 
 /** `contactExists` is ignored on purpose — the screen must not vary. */
 export function checkEmailModel(_contactExists?: boolean): CheckEmailModel {
   return {
     title: 'Check your email',
-    body: 'Check your email for a verification link. It expires in about an hour.',
-    resendLabel: 'Resend email',
-    resendPendingLabel: 'Sending…',
-    resendDoneLabel: 'Sent. Check your inbox.',
+    body: CHECK_EMAIL_BODY,
+    hint: "Didn't get it? Check spam or promotions, then resend.",
+    resendLabel: 'Resend link',
+    resendPendingLabel: 'Resend link',
+    resendDoneLabel: 'Resend link',
+    differentEmailLabel: 'Use a different email',
   };
 }
 

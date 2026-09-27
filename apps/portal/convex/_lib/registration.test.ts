@@ -78,6 +78,10 @@ describe('self-serve registration', () => {
   it('check-email copy and timing do not depend on a matching contact', () => {
     assert.deepEqual(checkEmailModel(true), checkEmailModel(false));
     assert.deepEqual(checkEmailModel(), checkEmailModel(true));
+    assert.equal(
+      checkEmailModel().body,
+      "If this address can use the portal, we've sent a link to verify it. It expires in 30 minutes.",
+    );
     assert.equal(registrationWaitMs(0, REGISTRATION_UI_FLOOR_MS), REGISTRATION_UI_FLOOR_MS);
     assert.equal(registrationWaitMs(REGISTRATION_UI_FLOOR_MS), 0);
     assert.equal(registrationWaitMs(50), registrationWaitMs(50));

@@ -1,7 +1,8 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { PrimaryButton, Surface } from '@/components/ui/primitives';
 import { authClient } from '@/lib/auth-client';
 import {
@@ -11,96 +12,237 @@ import {
   checkEmailModel,
   registrationWaitMs,
 } from '@convex/_lib/registration';
+import {
+  RESEND_COOLDOWN_MS,
+  formatResendCountdown,
+} from '@convex/_lib/resendCooldown';
+
+export const PENDING_VERIFY_EMAIL_KEY = 'warehaus.pendingVerifyEmail';
+
+export function rememberPendingVerifyEmail(email: string): void {
+  try {
+    sessionStorage.setItem(PENDING_VERIFY_EMAIL_KEY, email.trim());
+  } catch {
+    // Private mode can block storage. The screen still shows the typed address.
+  }
+}
+
+export function readPendingVerifyEmail(): string {
+  try {
+    return sessionStorage.getItem(PENDING_VERIFY_EMAIL_KEY)?.trim() ?? '';
+  } catch {
+    return '';
+  }
+}
 
 async function waitForRegistrationFloor(startedAtMs: number): Promise<void> {
   const wait = registrationWaitMs(performance.now() - startedAtMs, REGISTRATION_UI_FLOOR_MS);
   if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
 }
 
-const linkStyle = {
+const textLink = {
   fontSize: 'var(--t-sm)',
-  color: 'var(--muted)',
   textDecoration: 'underline',
+  background: 'none',
+  border: 0,
+  padding: 0,
+  cursor: 'pointer',
 } as const;
 
-export function CheckEmailPanel({ email }: { email: string }) {
+function useResendCooldown(run: number) {
+  const [remainingMs, setRemainingMs] = useState(RESEND_COOLDOWN_MS);
+
+  useEffect(() => {
+    setRemainingMs(RESEND_COOLDOWN_MS);
+    const started = Date.now();
+    const timer = window.setInterval(() => {
+      const left = RESEND_COOLDOWN_MS - (Date.now() - started);
+      setRemainingMs(left > 0 ? left : 0);
+      if (left <= 0) window.clearInterval(timer);
+    }, 250);
+    return () => window.clearInterval(timer);
+  }, [run]);
+
+  return remainingMs;
+}
+
+function requestVerificationEmail(email: string): void {
+  void authClient.sendVerificationEmail({
+    email,
+    callbackURL: VERIFY_EMAIL_PATH,
+  }).catch(() => {
+    // Same confirmation either way. Do not surface whether an account exists.
+  });
+}
+
+export function CheckEmailPanel({
+  email,
+  onDifferentEmail,
+}: {
+  email: string;
+  onDifferentEmail?: () => void;
+}) {
   const copy = checkEmailModel();
-  const [phase, setPhase] = useState<'idle' | 'sending' | 'sent'>('idle');
+  const [cooldownRun, setCooldownRun] = useState(0);
+  const remainingMs = useResendCooldown(cooldownRun);
+  const cooling = remainingMs > 0;
+
+  useEffect(() => {
+    rememberPendingVerifyEmail(email);
+  }, [email]);
 
   return (
     <Surface style={{ padding: 'var(--s-5)', maxWidth: 480, width: '100%' }}>
       <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-        Email verification
+        Verify email
       </p>
       <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>{copy.title}</h3>
-      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>{copy.body}</p>
-      <p style={{ fontSize: 'var(--t-sm)', marginTop: 12 }}>{email}</p>
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
-        <Link href="/login" style={linkStyle}>
-          Back to sign in
-        </Link>
-        <PrimaryButton
-          type="button"
-          disabled={phase === 'sending'}
-          onClick={() => {
-            void (async () => {
-              const started = performance.now();
-              setPhase('sending');
-              try {
-                await authClient.sendVerificationEmail({
-                  email,
-                  callbackURL: VERIFY_EMAIL_PATH,
-                });
-              } catch {
-                // Same confirmation either way. Do not surface whether an account exists.
-              }
-              await waitForRegistrationFloor(started);
-              setPhase('sent');
-            })();
-          }}
+      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8, lineHeight: 1.5 }}>
+        {copy.body}
+      </p>
+      <div
+        style={{
+          marginTop: 16,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 12,
+          padding: '12px 16px',
+          borderRadius: 'var(--radius-sm)',
+          border: '1px solid var(--border)',
+          background: 'var(--bg)',
+        }}
+      >
+        <span
+          className="ds-mono"
+          style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', letterSpacing: '0.08em' }}
         >
-          {phase === 'sending' ? copy.resendPendingLabel : phase === 'sent' ? copy.resendDoneLabel : copy.resendLabel}
-        </PrimaryButton>
+          EMAIL
+        </span>
+        <span style={{ fontSize: 'var(--t-sm)', color: 'var(--foreground)' }}>{email}</span>
+      </div>
+      <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 12, lineHeight: 1.45 }}>
+        {copy.hint}
+      </p>
+      <div className="mt-4 flex flex-wrap items-center justify-between gap-3">
+        {cooling ? (
+          <span
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 8,
+              fontSize: 'var(--t-sm)',
+              color: 'var(--faint)',
+            }}
+          >
+            <span
+              aria-hidden
+              style={{
+                width: 12,
+                height: 12,
+                borderRadius: 999,
+                border: '1.5px solid currentColor',
+                display: 'inline-block',
+              }}
+            />
+            {formatResendCountdown(remainingMs)}
+          </span>
+        ) : (
+          <button
+            type="button"
+            style={{ ...textLink, color: 'var(--foreground)' }}
+            onClick={() => {
+              requestVerificationEmail(email);
+              setCooldownRun((n) => n + 1);
+            }}
+          >
+            {copy.resendLabel}
+          </button>
+        )}
+        {onDifferentEmail ? (
+          <button
+            type="button"
+            style={{ ...textLink, color: 'var(--muted)' }}
+            onClick={onDifferentEmail}
+          >
+            {copy.differentEmailLabel}
+          </button>
+        ) : (
+          <Link href="/login" style={{ ...textLink, color: 'var(--muted)' }}>
+            {copy.differentEmailLabel}
+          </Link>
+        )}
       </div>
     </Surface>
   );
 }
 
-export function CantRegisterPanel() {
+export function CantRegisterMessage() {
   return (
-    <Surface style={{ padding: 'var(--s-5)', maxWidth: 480, width: '100%' }}>
-      <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-        Registration
-      </p>
-      <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>Can&apos;t register</h3>
-      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--foreground)', marginTop: 8 }}>
+    <span style={{ display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+      <span
+        aria-hidden
+        style={{
+          width: 16,
+          height: 16,
+          flex: '0 0 16px',
+          marginTop: 1,
+          borderRadius: 999,
+          border: '1.25px solid var(--danger)',
+          color: 'var(--danger)',
+          fontSize: 10,
+          fontWeight: 600,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          lineHeight: 1,
+        }}
+      >
+        !
+      </span>
+      <span style={{ fontSize: 13, lineHeight: '18px', color: 'var(--danger)' }}>
         {CANT_REGISTER_MESSAGE}
-      </p>
-      <div className="mt-5">
-        <Link href="/login" style={linkStyle}>
-          Back to sign in
-        </Link>
-      </div>
-    </Surface>
+      </span>
+    </span>
   );
 }
 
-export function ExpiredVerificationPanel() {
+export function ExpiredVerificationPanel({
+  onSent,
+}: {
+  onSent?: (email: string) => void;
+}) {
+  const router = useRouter();
+  const email = readPendingVerifyEmail();
+
   return (
     <Surface style={{ padding: 'var(--s-5)', maxWidth: 480, width: '100%' }}>
       <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-        Email verification
+        Verify email
       </p>
       <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>
         Link expired or already used
       </h3>
-      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
-        This verification link expired or was already used. Sign in to send a new one.
+      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8, lineHeight: 1.5 }}>
+        This verification link is invalid, has expired or has already been used. Send a new link to
+        continue.
       </p>
-      <div className="mt-5">
-        <Link href="/login" style={linkStyle}>
+      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+        <Link href="/login" style={{ ...textLink, color: 'var(--muted)' }}>
           Back to sign in
         </Link>
+        <PrimaryButton
+          type="button"
+          onClick={() => {
+            if (!email) {
+              router.push('/login');
+              return;
+            }
+            requestVerificationEmail(email);
+            onSent?.(email);
+          }}
+        >
+          Send a new link
+        </PrimaryButton>
       </div>
     </Surface>
   );
@@ -110,7 +252,7 @@ export function VerifiedEmailPanel({ onContinue }: { onContinue: () => void }) {
   return (
     <Surface style={{ padding: 'var(--s-5)', maxWidth: 480, width: '100%' }}>
       <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-        Email verification
+        Verify email
       </p>
       <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>Email verified</h3>
       <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>

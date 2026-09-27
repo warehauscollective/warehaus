@@ -75,7 +75,7 @@ export function verificationEmail(args: {
     greeting,
     '',
     'Confirm your email to finish creating your Warehaus portal password.',
-    'Open this link (it expires in about an hour):',
+    'Open this link (it expires in 30 minutes):',
     args.verifyUrl,
     '',
     'If you did not try to register, you can ignore this email.',
@@ -97,7 +97,7 @@ export function verificationEmail(args: {
     </p>
     <p style="font-size: 14px; color: #555;">Or paste this link into your browser:</p>
     <p style="font-size: 13px; word-break: break-all; color: #333;">${escapeHtml(args.verifyUrl)}</p>
-    <p style="font-size: 14px; color: #555;">This link expires in about an hour. If you did not try to register, you can ignore this email.</p>
+    <p style="font-size: 14px; color: #555;">This link expires in 30 minutes. If you did not try to register, you can ignore this email.</p>
   </body>
 </html>`;
 

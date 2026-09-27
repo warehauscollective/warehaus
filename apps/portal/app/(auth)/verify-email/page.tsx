@@ -4,10 +4,12 @@ import { Suspense, useEffect, useState } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AuthPageShell } from '@/components/auth/AuthPageShell';
 import {
-  CantRegisterPanel,
+  CantRegisterMessage,
+  CheckEmailPanel,
   ExpiredVerificationPanel,
   VerifiedEmailPanel,
 } from '@/components/auth/EmailVerificationScreens';
+import { Surface } from '@/components/ui/primitives';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { isCantRegisterError } from '@convex/_lib/registration';
 import { safeRedirectPath } from '@convex/_lib/safeRedirect';
@@ -19,6 +21,7 @@ function VerifyEmailInner() {
   const next = safeRedirectPath(searchParams.get('next'));
   const { authUser, sessionPending, linkStatus, joinError, signOut } = usePortalAuth();
   const [refused, setRefused] = useState(false);
+  const [resentTo, setResentTo] = useState<string | null>(null);
 
   const expired =
     tokenError === 'TOKEN_EXPIRED' ||
@@ -37,10 +40,22 @@ function VerifyEmailInner() {
     </p>
   );
 
-  if (expired) {
-    body = <ExpiredVerificationPanel />;
+  if (resentTo) {
+    body = <CheckEmailPanel email={resentTo} />;
+  } else if (expired) {
+    body = <ExpiredVerificationPanel onSent={setResentTo} />;
   } else if (refused || isCantRegisterError(joinError)) {
-    body = <CantRegisterPanel />;
+    body = (
+      <Surface style={{ padding: 'var(--s-5)', maxWidth: 480, width: '100%' }}>
+        <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
+          Portal sign up
+        </p>
+        <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>Can&apos;t register</h3>
+        <div style={{ marginTop: 12 }}>
+          <CantRegisterMessage />
+        </div>
+      </Surface>
+    );
   } else if (!sessionPending && authUser && linkStatus === 'linked') {
     body = <VerifiedEmailPanel onContinue={() => router.replace(next)} />;
   }

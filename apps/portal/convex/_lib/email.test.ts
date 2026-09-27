@@ -19,5 +19,7 @@ describe('verification email', () => {
     assert.match(content.subject, /Verify/);
     assert.match(content.text, /token=abc/);
     assert.match(content.html, /token=abc/);
+    assert.match(content.text, /30 minutes/);
+    assert.match(content.html, /30 minutes/);
   });
 });

@@ -1,5 +1,6 @@
 import { createClient, type GenericCtx } from '@convex-dev/better-auth';
 import { convex } from '@convex-dev/better-auth/plugins';
+import { createAuthMiddleware } from '@better-auth/core/api';
 import { APIError } from '@better-auth/core/error';
 import { betterAuth } from 'better-auth/minimal';
 import { anyApi } from 'convex/server';
@@ -15,6 +16,7 @@ import {
   verificationEmail,
 } from './_lib/email';
 import { CANT_REGISTER_MESSAGE, type SelfServeDecision } from './_lib/registration';
+import { VERIFICATION_EXPIRES_IN_SECONDS } from './_lib/resendCooldown';
 
 /**
  * Better Auth on the portal Convex deployment (separate from Motoko).
@@ -39,6 +41,25 @@ function refuseRegistration(): never {
     message: CANT_REGISTER_MESSAGE,
     code: 'CANT_REGISTER',
   });
+}
+
+type ResendDecision = { allowed: boolean; retryAfterMs: number };
+
+async function runResendMutation(
+  ctx: GenericCtx<DataModel>,
+  name: 'stamp' | 'claim',
+  email: string,
+): Promise<ResendDecision | null> {
+  if (!('runMutation' in ctx)) return null;
+  try {
+    return (await ctx.runMutation(anyApi.verificationResend[name], { email })) as ResendDecision;
+  } catch (err) {
+    console.error(
+      '[auth] verification resend cooldown failed',
+      err instanceof Error ? err.message : 'failed',
+    );
+    return null;
+  }
 }
 
 export const createAuth = (ctx: GenericCtx<DataModel>) => {
@@ -77,7 +98,9 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
       sendOnSignUp: true,
       sendOnSignIn: true,
       autoSignInAfterVerification: true,
+      expiresIn: VERIFICATION_EXPIRES_IN_SECONDS,
       sendVerificationEmail: async ({ user, url }) => {
+        await runResendMutation(ctx, 'stamp', user.email);
         const verifyUrl = rewriteVerificationCallback(url);
         const content = verificationEmail({
           name: user.name,
@@ -90,6 +113,19 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
           text: content.text,
         });
       },
+    },
+    hooks: {
+      before: createAuthMiddleware(async (baCtx) => {
+        const path = baCtx.path ?? '';
+        if (!path.endsWith('/send-verification-email')) return;
+        const email =
+          baCtx.body && typeof baCtx.body === 'object' && 'email' in baCtx.body
+            ? String((baCtx.body as { email?: unknown }).email ?? '')
+            : '';
+        if (!email.trim()) return;
+        const decision = await runResendMutation(ctx, 'claim', email);
+        if (!decision?.allowed) return { status: true };
+      }),
     },
     databaseHooks: {
       user: {
@@ -108,6 +144,9 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
               refuseRegistration();
             }
             if (decision.allowed) return { data: user };
+            if (decision.reason === 'no_contact') {
+              await runResendMutation(ctx, 'stamp', user.email);
+            }
             if (decision.reason === 'staff' && staffProvisionHeaderOk(context)) {
               return { data: { ...user, emailVerified: true } };
             }
