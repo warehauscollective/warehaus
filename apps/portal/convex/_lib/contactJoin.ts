@@ -28,6 +28,10 @@ export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
 
+/** Shown for every self-serve refusal. Does not say why. */
+export const CANT_REGISTER_MESSAGE =
+  "This email can't register here. Contact your Warehaus team.";
+
 export function selectContactForJoin(input: {
   email: string;
   authUserId: string;
@@ -37,33 +41,26 @@ export function selectContactForJoin(input: {
   const matches = input.contacts.filter((c) => normalizeEmail(c.email) === email);
 
   if (matches.length === 0) {
-    throw new PortalAuthError(
-      'No portal contact found for this email. Ask Warehaus to enable access.',
-      'NO_CONTACT',
-    );
+    throw new PortalAuthError(CANT_REGISTER_MESSAGE, 'NO_CONTACT');
   }
 
   if (matches.length > 1) {
-    throw new PortalAuthError(
-      'Multiple contacts share this email — fix in Notion before joining.',
-      'FORBIDDEN',
-    );
+    throw new PortalAuthError(CANT_REGISTER_MESSAGE, 'FORBIDDEN');
   }
 
   const contact = matches[0]!;
 
-  if (contact.portalAccess !== 'Enabled') {
-    throw new PortalAuthError('Portal access is disabled for this contact', 'PORTAL_DISABLED');
+  // Staff contacts are linked by hand. An existing link to this user may continue.
+  if (contact.role === 'Warehaus Staff' && contact.authUserId !== input.authUserId) {
+    throw new PortalAuthError(CANT_REGISTER_MESSAGE, 'FORBIDDEN');
   }
 
-  if (
-    contact.authUserId &&
-    contact.authUserId !== input.authUserId
-  ) {
-    throw new PortalAuthError(
-      'This contact is already linked to a different login',
-      'FORBIDDEN',
-    );
+  if (contact.portalAccess !== 'Enabled') {
+    throw new PortalAuthError(CANT_REGISTER_MESSAGE, 'PORTAL_DISABLED');
+  }
+
+  if (contact.authUserId && contact.authUserId !== input.authUserId) {
+    throw new PortalAuthError(CANT_REGISTER_MESSAGE, 'FORBIDDEN');
   }
 
   return contact;
@@ -71,10 +68,10 @@ export function selectContactForJoin(input: {
 
 export function assertJoinClient(client: JoinClientCandidate | null, role: PortalRole): JoinClientCandidate {
   if (!client) {
-    throw new PortalAuthError('Contact has no client company', 'NO_CONTACT');
+    throw new PortalAuthError(CANT_REGISTER_MESSAGE, 'NO_CONTACT');
   }
   if (role !== 'Warehaus Staff' && client.portalAccess !== 'Enabled') {
-    throw new PortalAuthError('Client portal access is disabled', 'PORTAL_DISABLED');
+    throw new PortalAuthError(CANT_REGISTER_MESSAGE, 'PORTAL_DISABLED');
   }
   return client;
 }
