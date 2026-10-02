@@ -11,16 +11,16 @@ export type SendPortalEmailArgs = {
   text: string;
 };
 
-function requireEnv(name: string): string {
-  const value = process.env[name]?.trim();
-  if (!value) {
-    throw new Error(`${name} is not set on the Convex deployment`);
-  }
-  return value;
-}
-
 export async function sendPortalEmail(args: SendPortalEmailArgs): Promise<void> {
-  const apiKey = requireEnv('RESEND_API_KEY');
+  const apiKey = process.env.RESEND_API_KEY?.trim();
+  if (!apiKey) {
+    console.info('[portal-email] RESEND_API_KEY unset — logged instead of sending', {
+      to: args.to,
+      subject: args.subject,
+      text: args.text,
+    });
+    return;
+  }
   const from =
     process.env.EMAIL_FROM?.trim() ||
     'Warehaus Portal <noreply@warehaus.co>';

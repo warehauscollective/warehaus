@@ -69,6 +69,11 @@ export const pullAll = internalAction({
       errors: [],
     };
 
+    if (!process.env.NOTION_WAREHAUS_TOKEN?.trim()) {
+      console.info('[notion-sync] NOTION_WAREHAUS_TOKEN unset — pull skipped');
+      return stats;
+    }
+
     const refreshIds = async (): Promise<IdMaps> =>
       ctx.runMutation(internal.sync.upsert.resolveIds, {});
 

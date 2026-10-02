@@ -6,6 +6,7 @@ import {
   BLOCKED_SIGNUP_SUBJECT,
   blockedSignupDelivery,
   rewriteVerificationCallback,
+  sendPortalEmail,
   verificationEmail,
 } from './email';
 
@@ -49,5 +50,29 @@ describe('verification email', () => {
     assert.match(delivery.html, /Warehaus Studio/);
     assert.doesNotMatch(delivery.html, /href=/);
     assert.doesNotMatch(delivery.text, /https?:/);
+  });
+
+  it('logs mail instead of calling Resend when the key is unset', async () => {
+    const previous = process.env.RESEND_API_KEY;
+    delete process.env.RESEND_API_KEY;
+    const lines: unknown[][] = [];
+    const original = console.info;
+    console.info = (...args: unknown[]) => {
+      lines.push(args);
+    };
+    try {
+      await sendPortalEmail({
+        to: 'olivia.owner@northwind.test',
+        subject: 'Verify your email',
+        html: '<p>hidden</p>',
+        text: 'sample body',
+      });
+    } finally {
+      console.info = original;
+      if (previous === undefined) delete process.env.RESEND_API_KEY;
+      else process.env.RESEND_API_KEY = previous;
+    }
+    assert.equal(lines.length, 1);
+    assert.match(String(lines[0]?.[0]), /logged instead of sending/);
   });
 });
