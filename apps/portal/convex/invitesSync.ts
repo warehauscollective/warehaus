@@ -7,6 +7,9 @@ import type { ContactSyncAction, InviteStatus } from '@warehaus/portal-sync';
 import { isPortalSelfWrite } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from './_generated/server';
+import { adminQuery } from './_lib/wrappers';
+import { revertAllowed, revertIdempotencyKey, REVERT_WINDOW_MS } from './_lib/revertLimit';
+import { isNotionWritebackEnabled } from './_lib/writeAuthz';
 
 const inviteStatus = v.union(
   v.literal('Pending'),
@@ -69,6 +72,17 @@ export const contactSyncContext = internalQuery({
   },
 });
 
+export const listStaffNotices = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    return ctx.db
+      .query('notices')
+      .withIndex('by_audience_createdAt', (q) => q.eq('audience', 'staff'))
+      .order('desc')
+      .take(50);
+  },
+});
+
 export const applyContactRead = internalMutation({
   args: {
     notionPageId: v.string(),
@@ -110,11 +124,12 @@ export const applyContactRead = internalMutation({
       }
     }
 
-    if (!selfWrite && args.orgId) {
+    const orgId = args.orgId;
+    if (!selfWrite && orgId) {
       for (const action of actions) {
         if (action.type === 'notice') {
           await ctx.db.insert('notices', {
-            orgId: args.orgId,
+            orgId: orgId,
             audience: 'staff',
             message: action.message,
             contactNotionPageId: args.notionPageId,
@@ -123,13 +138,84 @@ export const applyContactRead = internalMutation({
           });
         }
         await ctx.db.insert('auditEvents', {
-          orgId: args.orgId,
+          orgId: orgId,
           actorKind: 'notionEdit',
           action: `invite.case${'caseId' in action ? action.caseId : ''}.${action.type}`,
           notionPageId: args.notionPageId,
           after: JSON.stringify(action),
           createdAt: now,
         });
+        if (action.type === 'revert' && isNotionWritebackEnabled()) {
+          const since = now - REVERT_WINDOW_MS;
+          const prior = await ctx.db
+            .query('auditEvents')
+            .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
+            .collect();
+          const attempts = prior.filter(
+            (event) => event.action === `invite.revert.${action.field}` && event.createdAt >= since,
+          ).length;
+          if (!revertAllowed(attempts)) {
+            const edgeCase = `revert-limit:${action.field}`;
+            const notices = await ctx.db
+              .query('notices')
+              .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+              .collect();
+            const alerted = notices.some(
+              (notice) =>
+                notice.edgeCase === edgeCase &&
+                notice.contactNotionPageId === args.notionPageId &&
+                notice.createdAt >= since,
+            );
+            if (!alerted) {
+              await ctx.db.insert('notices', {
+                orgId: orgId,
+                audience: 'staff',
+                message: `Stopped reverting ${action.field} on ${args.notionPageId} after 3 attempts in an hour.`,
+                contactNotionPageId: args.notionPageId,
+                edgeCase,
+                createdAt: now,
+              });
+            }
+          } else {
+            const key = revertIdempotencyKey(
+              args.notionPageId,
+              action.field,
+              args.notionLastEditedTime ?? 'unknown',
+            );
+            const existing = await ctx.db
+              .query('notionOutbox')
+              .withIndex('by_idempotencyKey', (q) => q.eq('idempotencyKey', key))
+              .unique();
+            if (!existing) {
+              await ctx.db.insert('notionOutbox', {
+                idempotencyKey: key,
+                kind: 'revert',
+                orgId: orgId,
+                database: 'contacts',
+                notionPageId: args.notionPageId,
+                payload: JSON.stringify({
+                  properties:
+                    action.field === 'Client Company' && action.value
+                      ? { 'Client Company': [action.value] }
+                      : { [action.field]: action.value ?? '' },
+                }),
+                actor: 'system',
+                status: 'queued',
+                attempts: 0,
+                nextAttemptAt: now,
+                createdAt: now,
+              });
+            }
+            await ctx.db.insert('auditEvents', {
+              orgId: orgId,
+              actorKind: 'system',
+              action: `invite.revert.${action.field}`,
+              notionPageId: args.notionPageId,
+              after: JSON.stringify(action),
+              createdAt: now,
+            });
+          }
+        }
         if (action.type === 'killToken') {
           const tokens = await ctx.db
             .query('inviteTokens')
@@ -147,9 +233,9 @@ export const applyContactRead = internalMutation({
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
       .unique();
 
-    if (args.placement === 'UPSERT_PENDING_INVITE' && args.orgId && args.inviteStatus) {
+    if (args.placement === 'UPSERT_PENDING_INVITE' && orgId && args.inviteStatus) {
       const row = {
-        orgId: args.orgId,
+        orgId: orgId,
         notionPageId: args.notionPageId,
         name: args.name,
         email: args.email,
