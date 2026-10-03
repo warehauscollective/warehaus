@@ -39,6 +39,12 @@ export {
   contactRowPassesGate,
   sharedResourceRowPassesGate,
   clientDocRowPassesGate,
+  isWarehausInternalClient,
+  isApprovedInternalWarehausProject,
+  projectCountsForTaskGate,
+  projectClientIdForResourceGate,
+  WAREHAUS_INTERNAL_CLIENT_SLUG,
+  WAREHAUS_INTERNAL_CLIENT_EXTERNAL_ID,
   type GateResult,
   type ClientGateInput,
   type ProjectGateInput,
@@ -47,6 +53,16 @@ export {
   type SharedResourceGateInput,
   type ClientDocGateInput,
 } from './gates';
+
+export {
+  decideSyncedRowVisibility,
+  isClientSurfaceVisible,
+  isOrgVisibleToClients,
+  type ContactRole,
+  type HideReason,
+  type SyncTable,
+  type VisibilityDecision,
+} from './ungate';
 
 export {
   partitionProperties,

@@ -1,3 +1,4 @@
+import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
@@ -39,14 +40,17 @@ function isPublishedProject(row: {
   publishToWarehaus: boolean;
   archive: boolean;
   type: string[];
+  syncHiddenAt?: number;
 }) {
-  return row.publishToWarehaus && !row.archive && !row.type.includes('Internal');
+  return isClientSurfaceVisible(row) && row.publishToWarehaus && !row.archive && !row.type.includes('Internal');
 }
 
 /** List published projects for the caller's org. */
 export const listForClient = clientQuery({
   args: {},
   handler: async (ctx) => {
+    const org = await ctx.db.get(ctx.orgId);
+    if (!isOrgVisibleToClients(org)) return [];
     const rows = await ctx.db
       .query('projects')
       .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))

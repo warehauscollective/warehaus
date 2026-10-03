@@ -10,6 +10,9 @@ import {
   mapNotionProject,
   mapNotionSharedResource,
   mapNotionTask,
+  isApprovedInternalWarehausProject,
+  projectClientIdForResourceGate,
+  decideSyncedRowVisibility,
   mergeReleasedPages,
   pageEditedAtMs,
   parsePullCursorState,
@@ -19,6 +22,7 @@ import {
   shouldSkipReleased,
   type FailedPageRetry,
   type PageProcessOutcome,
+  type VisibilityDecision,
   type RecordedPageFailure,
   type ReleasedPage,
 } from '@warehaus/portal-sync';
@@ -45,6 +49,7 @@ export type PullStats = {
   urlWritebacks: number;
   deferred: number;
   failed: number;
+  concealed: number;
   mode: 'full' | 'incremental';
   editedSinceIso: string | null;
   errors: string[];
@@ -52,16 +57,33 @@ export type PullStats = {
 
 type IdMaps = {
   clientByNotion: Record<string, Id<'clients'>>;
+  clientEnabledByNotion: Record<string, boolean>;
   projectByNotion: Record<string, Id<'projects'>>;
   projectOrgByNotion: Record<string, Id<'clients'>>;
+  projectVisibleByNotion: Record<string, boolean>;
+  warehausInternalByNotion: Record<string, boolean>;
+  projectTaskParentByNotion: Record<string, boolean>;
 };
+
+type SyncedTable = 'clients' | 'contacts' | 'projects' | 'tasks' | 'sharedResources' | 'clientDocs';
+
+function mergePages(live: NotionPageRow[], archived: NotionPageRow[]): NotionPageRow[] {
+  const byId = new Map<string, NotionPageRow>();
+  for (const page of live) byId.set(page.id, page);
+  for (const page of archived) {
+    const prev = byId.get(page.id);
+    if (!prev) byId.set(page.id, page);
+    else byId.set(page.id, { ...prev, archived: true, inTrash: prev.inTrash || page.inTrash });
+  }
+  return [...byId.values()];
+}
 
 async function concatDueRetries(
   database: string,
   pages: NotionPageRow[],
   priorRetries: FailedPageRetry[],
   nowMs: number,
-): Promise<NotionPageRow[]> {
+): Promise<{ pages: NotionPageRow[]; missingIds: string[] }> {
   const present = new Set(pages.map((page) => page.id));
   const ids = dueRetryIds({
     prior: priorRetries,
@@ -69,13 +91,39 @@ async function concatDueRetries(
     alreadyPresent: present,
     nowMs,
   });
-  if (ids.length === 0) return pages;
+  if (ids.length === 0) return { pages, missingIds: [] };
   const extra: NotionPageRow[] = [];
+  const missingIds: string[] = [];
   for (const id of ids) {
     const page = await fetchNotionPage(id);
     if (page) extra.push(page);
+    else missingIds.push(id);
   }
-  return extra.length ? [...pages, ...extra] : pages;
+  return { pages: extra.length ? [...pages, ...extra] : pages, missingIds };
+}
+
+async function loadSourcePages(
+  database: string,
+  sourceId: string,
+  pageOpts: { editedSinceIso: string | null },
+  priorRetries: FailedPageRetry[],
+  nowMs: number,
+  onError: (message: string) => void,
+): Promise<{ pages: NotionPageRow[]; missingIds: string[]; archivedOk: boolean }> {
+  const live = await queryAllDataSourcePages(sourceId, pageOpts);
+  let archivedOk = true;
+  let archived: NotionPageRow[] = [];
+  try {
+    archived = await queryAllDataSourcePages(sourceId, { ...pageOpts, archived: true });
+  } catch (err) {
+    archivedOk = false;
+    onError(
+      `archived query ${database}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  const merged = mergePages(live, archived);
+  const loaded = await concatDueRetries(database, merged, priorRetries, nowMs);
+  return { ...loaded, archivedOk };
 }
 
 /**
@@ -108,6 +156,7 @@ export const pullAll = internalAction({
       urlWritebacks: 0,
       deferred: 0,
       failed: 0,
+      concealed: 0,
       mode: 'full',
       editedSinceIso: null,
       errors: [],
@@ -128,6 +177,76 @@ export const pullAll = internalAction({
 
     const refreshIds = async (): Promise<IdMaps> =>
       ctx.runMutation(internal.sync.upsert.resolveIds, {});
+
+    const conceal = async (
+      table: SyncedTable,
+      notionPageId: string,
+      decision: Extract<VisibilityDecision, { action: 'hide' }>,
+    ) => {
+      const hidden = await ctx.runMutation(internal.sync.hide.hideSyncedPage, {
+        table,
+        notionPageId,
+        reason: decision.reason,
+        detail: decision.detail,
+      });
+      if (hidden.hidden) stats.concealed += 1;
+      const authIds = decision.revokeSessions ? [...hidden.authUserIds] : [];
+      if (hidden.orgId && decision.cascade === 'client-children') {
+        const child = await ctx.runMutation(internal.sync.hide.hideClientChildren, {
+          orgId: hidden.orgId,
+        });
+        authIds.push(...child.authUserIds);
+      }
+      if (hidden.projectId && decision.cascade === 'project-tasks') {
+        await ctx.runMutation(internal.sync.hide.hideProjectTasks, { projectId: hidden.projectId });
+      }
+      for (const authUserId of authIds) {
+        await ctx.runAction(internal.sync.revokeSessions.revokeUserSessions, { authUserId });
+      }
+    };
+
+    const noteMissing = async (table: SyncedTable, missingIds: string[]) => {
+      for (const id of missingIds) {
+        await track(
+          { id, lastEdited: '', properties: {}, archived: false, inTrash: true },
+          table,
+          async () => {
+            await conceal(table, id, {
+              action: 'hide',
+              reason: 'trashed',
+              detail: 'Notion page is gone',
+              revokeSessions: table === 'contacts',
+              cascade: table === 'clients' ? 'client-children' : table === 'projects' ? 'project-tasks' : 'none',
+            });
+          },
+        );
+      }
+    };
+
+    const hideMissingOnFullPull = async (
+      table: SyncedTable,
+      pages: NotionPageRow[],
+      archivedOk: boolean,
+    ) => {
+      if (stats.mode !== 'full' || !archivedOk) return;
+      const unseen = await ctx.runMutation(internal.sync.hide.hideUnseen, {
+        table,
+        seenNotionPageIds: pages.map((page) => page.id),
+      });
+      stats.concealed += unseen.concealed;
+      for (const orgId of unseen.clientIds) {
+        const child = await ctx.runMutation(internal.sync.hide.hideClientChildren, { orgId });
+        for (const authUserId of child.authUserIds) {
+          await ctx.runAction(internal.sync.revokeSessions.revokeUserSessions, { authUserId });
+        }
+      }
+      for (const projectId of unseen.projectIds) {
+        await ctx.runMutation(internal.sync.hide.hideProjectTasks, { projectId });
+      }
+      for (const authUserId of unseen.authUserIds) {
+        await ctx.runAction(internal.sync.revokeSessions.revokeUserSessions, { authUserId });
+      }
+    };
 
     const track = async (
       page: NotionPageRow,
@@ -188,20 +307,31 @@ export const pullAll = internalAction({
       const pageOpts = { editedSinceIso };
 
       // --- Clients ---
-      const clientPages = await concatDueRetries(
+      const clientLoaded = await loadSourcePages(
         'clients',
-        await queryAllDataSourcePages(SYNC_SOURCES.clients, pageOpts),
+        SYNC_SOURCES.clients,
+        pageOpts,
         priorRetries,
         now,
+        (message) => stats.errors.push(message),
       );
-      for (const page of clientPages) {
+      await noteMissing('clients', clientLoaded.missingIds);
+      for (const page of clientLoaded.pages) {
         await track(page, 'clients', async () => {
         const mapped = mapNotionClient(page.id, page.properties);
-        if (mapped.disposition === 'skip') {
+        const decision = decideSyncedRowVisibility({
+          table: 'clients',
+          disposition: mapped.disposition,
+          dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
+          archived: page.archived,
+          inTrash: page.inTrash,
+        });
+        if (decision.action === 'hide') {
           stats.skipped += 1;
+          await conceal('clients', page.id, decision);
           return;
         }
-        if (mapped.disposition === 'quarantine' || !mapped.row || mapped.row.database !== 'clients') {
+        if (decision.action === 'quarantine' || !mapped.row || mapped.row.database !== 'clients') {
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
@@ -209,9 +339,16 @@ export const pullAll = internalAction({
             database: 'clients',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid client map',
           });
+          await conceal('clients', page.id, {
+            action: 'hide',
+            reason: 'gate',
+            detail: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid client map',
+            revokeSessions: false,
+            cascade: 'client-children',
+          });
           return;
         }
-        await ctx.runMutation(internal.sync.upsert.upsertClient, {
+        const orgId = await ctx.runMutation(internal.sync.upsert.upsertClient, {
           notionPageId: mapped.row.notionPageId,
           companyName: mapped.row.companyName,
           slug: mapped.row.slug,
@@ -222,33 +359,56 @@ export const pullAll = internalAction({
           externalId: mapped.row.externalId,
           source: mapped.row.source,
         });
+        await ctx.runMutation(internal.sync.hide.clearAncestorHides, { orgId });
         stats.upserted.clients += 1;
         });
       }
+      await hideMissingOnFullPull('clients', clientLoaded.pages, clientLoaded.archivedOk);
 
       let ids = await refreshIds();
 
       // --- Contacts ---
-      const contactPages = await concatDueRetries(
+      const contactLoaded = await loadSourcePages(
         'contacts',
-        await queryAllDataSourcePages(SYNC_SOURCES.contacts, pageOpts),
+        SYNC_SOURCES.contacts,
+        pageOpts,
         priorRetries,
         now,
+        (message) => stats.errors.push(message),
       );
-      for (const page of contactPages) {
+      await noteMissing('contacts', contactLoaded.missingIds);
+      for (const page of contactLoaded.pages) {
         await track(page, 'contacts', async () => {
         const mapped = mapNotionContact(page.id, page.properties);
-        if (mapped.disposition === 'skip') {
+        const clientNotionId = mapped.row?.database === 'contacts' ? mapped.row.clientNotionIds[0] : undefined;
+        const decision = decideSyncedRowVisibility({
+          table: 'contacts',
+          disposition: mapped.disposition,
+          dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
+          archived: page.archived,
+          inTrash: page.inTrash,
+          parentClientEnabled: clientNotionId ? ids.clientEnabledByNotion[clientNotionId] === true : undefined,
+          contactRole: mapped.row?.database === 'contacts' ? mapped.row.role : undefined,
+        });
+        if (decision.action === 'hide') {
           stats.skipped += 1;
+          await conceal('contacts', page.id, decision);
           return;
         }
-        if (mapped.disposition === 'quarantine' || !mapped.row || mapped.row.database !== 'contacts') {
+        if (decision.action === 'quarantine' || !mapped.row || mapped.row.database !== 'contacts') {
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
             editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'contacts',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid contact map',
+          });
+          await conceal('contacts', page.id, {
+            action: 'hide',
+            reason: 'gate',
+            detail: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid contact map',
+            revokeSessions: true,
+            cascade: 'none',
           });
           return;
         }
@@ -263,6 +423,13 @@ export const pullAll = internalAction({
             database: 'contacts',
             reason: 'Client Company not resolved to a synced client',
           });
+          await conceal('contacts', page.id, {
+            action: 'hide',
+            reason: 'gate',
+            detail: 'Client Company not resolved to a synced client',
+            revokeSessions: true,
+            cascade: 'none',
+          });
           return;
         }
         await ctx.runMutation(internal.sync.upsert.upsertContact, {
@@ -276,29 +443,68 @@ export const pullAll = internalAction({
           phone: mapped.row.phone,
           externalId: mapped.row.externalId,
           source: mapped.row.source,
+          hiddenReason: decision.action === 'store-hidden' ? 'ancestor' : undefined,
         });
+        if (decision.action === 'store-hidden') {
+          stats.concealed += 1;
+          if (decision.revokeSessions) {
+            const authUserId = await ctx.runQuery(internal.sync.hide.contactAuthUserId, {
+              notionPageId: page.id,
+            });
+            if (authUserId) {
+              await ctx.runAction(internal.sync.revokeSessions.revokeUserSessions, { authUserId });
+            }
+          }
+          return;
+        }
         stats.upserted.contacts += 1;
         });
       }
+      await hideMissingOnFullPull('contacts', contactLoaded.pages, contactLoaded.archivedOk);
 
       // --- Projects ---
-      const projectPages = await concatDueRetries(
+      const projectLoaded = await loadSourcePages(
         'projects',
-        await queryAllDataSourcePages(SYNC_SOURCES.projects, pageOpts),
+        SYNC_SOURCES.projects,
+        pageOpts,
         priorRetries,
         now,
+        (message) => stats.errors.push(message),
       );
       const projectPass = new Set<string>();
       const projectClientNotion = new Map<string, string>();
+      await noteMissing('projects', projectLoaded.missingIds);
 
-      for (const page of projectPages) {
+      for (const page of projectLoaded.pages) {
         await track(page, 'projects', async () => {
         const mapped = mapNotionProject(page.id, page.properties);
-        if (mapped.disposition === 'skip') {
+        const clientNotionId = mapped.row?.database === 'projects' ? mapped.row.clientNotionIds[0] : undefined;
+        const decision = decideSyncedRowVisibility({
+          table: 'projects',
+          disposition: mapped.disposition,
+          dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
+          archived: page.archived,
+          inTrash: page.inTrash,
+          parentClientEnabled: clientNotionId ? ids.clientEnabledByNotion[clientNotionId] === true : undefined,
+        });
+        const approvedInternal =
+          !page.archived &&
+          !page.inTrash &&
+          mapped.row?.database === 'projects' &&
+          isApprovedInternalWarehausProject({
+            types: mapped.row.type,
+            publishToWarehaus: mapped.row.publishToWarehaus,
+            archive: mapped.row.archive,
+            clientIsWarehausInternal: Boolean(
+              clientNotionId && ids.warehausInternalByNotion[clientNotionId],
+            ),
+          });
+        if (decision.action === 'hide' && !approvedInternal) {
           stats.skipped += 1;
+          await conceal('projects', page.id, decision);
           return;
         }
-        if (mapped.disposition === 'quarantine' || !mapped.row || mapped.row.database !== 'projects') {
+        if (decision.action === 'quarantine' || !mapped.row || mapped.row.database !== 'projects') {
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
@@ -306,9 +512,15 @@ export const pullAll = internalAction({
             database: 'projects',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid project map',
           });
+          await conceal('projects', page.id, {
+            action: 'hide',
+            reason: 'gate',
+            detail: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid project map',
+            revokeSessions: false,
+            cascade: 'project-tasks',
+          });
           return;
         }
-        const clientNotionId = mapped.row.clientNotionIds[0];
         const orgId = clientNotionId ? ids.clientByNotion[clientNotionId] : undefined;
         if (!orgId || !clientNotionId) {
           stats.quarantined += 1;
@@ -318,9 +530,16 @@ export const pullAll = internalAction({
             database: 'projects',
             reason: 'Client relation not resolved',
           });
+          await conceal('projects', page.id, {
+            action: 'hide',
+            reason: 'gate',
+            detail: 'Client relation not resolved',
+            revokeSessions: false,
+            cascade: 'project-tasks',
+          });
           return;
         }
-        await ctx.runMutation(internal.sync.upsert.upsertProject, {
+        const projectId = await ctx.runMutation(internal.sync.upsert.upsertProject, {
           notionPageId: mapped.row.notionPageId,
           orgId,
           name: mapped.row.name,
@@ -339,26 +558,50 @@ export const pullAll = internalAction({
           priority: mapped.row.priority,
           externalId: mapped.row.externalId,
           source: mapped.row.source,
+          hiddenReason:
+            approvedInternal || decision.action === 'hide'
+              ? 'gate'
+              : decision.action === 'store-hidden'
+                ? 'ancestor'
+                : undefined,
         });
-        projectPass.add(page.id);
         projectClientNotion.set(page.id, clientNotionId);
+        if (approvedInternal) {
+          projectPass.add(page.id);
+          stats.concealed += 1;
+          await ctx.runMutation(internal.sync.hide.clearProjectTaskAncestors, { projectId });
+          return;
+        }
+        if (decision.action === 'store-hidden') {
+          stats.concealed += 1;
+          if (decision.cascade === 'project-tasks') {
+            await ctx.runMutation(internal.sync.hide.hideProjectTasks, { projectId });
+          }
+          return;
+        }
+        await ctx.runMutation(internal.sync.hide.clearProjectTaskAncestors, { projectId });
+        projectPass.add(page.id);
         stats.upserted.projects += 1;
         });
       }
+      await hideMissingOnFullPull('projects', projectLoaded.pages, projectLoaded.archivedOk);
 
       ids = await refreshIds();
-      for (const notionId of Object.keys(ids.projectByNotion)) {
-        projectPass.add(notionId);
+      for (const [notionId, allows] of Object.entries(ids.projectTaskParentByNotion)) {
+        if (allows) projectPass.add(notionId);
       }
 
       // --- Tasks ---
-      const taskPages = await concatDueRetries(
+      const taskLoaded = await loadSourcePages(
         'tasks',
-        await queryAllDataSourcePages(SYNC_SOURCES.tasks, pageOpts),
+        SYNC_SOURCES.tasks,
+        pageOpts,
         priorRetries,
         now,
+        (message) => stats.errors.push(message),
       );
-      for (const page of taskPages) {
+      await noteMissing('tasks', taskLoaded.missingIds);
+      for (const page of taskLoaded.pages) {
         await track(page, 'tasks', async () => {
         const projectIds = (() => {
           const rel = page.properties.Projects as { relation?: Array<{ id?: string }> } | undefined;
@@ -366,17 +609,42 @@ export const pullAll = internalAction({
         })();
         const parentOk = projectIds.some((id) => projectPass.has(id));
         const mapped = mapNotionTask(page.id, page.properties, parentOk);
-        if (mapped.disposition === 'skip') {
+        const parentClientEnabled = projectIds.length === 0
+          ? undefined
+          : projectIds.some((id) => {
+              const orgId = ids.projectOrgByNotion[id];
+              if (!orgId) return false;
+              const clientNotionId = Object.entries(ids.clientByNotion).find(([, clientId]) => clientId === orgId)?.[0];
+              return clientNotionId ? ids.clientEnabledByNotion[clientNotionId] === true : false;
+            });
+        const decision = decideSyncedRowVisibility({
+          table: 'tasks',
+          disposition: mapped.disposition,
+          dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
+          archived: page.archived,
+          inTrash: page.inTrash,
+          parentClientEnabled: typeof parentClientEnabled === 'boolean' ? parentClientEnabled : undefined,
+          parentProjectVisible: parentOk,
+        });
+        if (decision.action === 'hide') {
           stats.skipped += 1;
+          await conceal('tasks', page.id, decision);
           return;
         }
-        if (mapped.disposition === 'quarantine' || !mapped.row || mapped.row.database !== 'tasks') {
+        if (decision.action === 'quarantine' || !mapped.row || mapped.row.database !== 'tasks') {
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
             editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'tasks',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid task map',
+          });
+          await conceal('tasks', page.id, {
+            action: 'hide',
+            reason: 'gate',
+            detail: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid task map',
+            revokeSessions: false,
+            cascade: 'none',
           });
           return;
         }
@@ -393,6 +661,13 @@ export const pullAll = internalAction({
             database: 'tasks',
             reason: 'Parent project not resolved',
           });
+          await conceal('tasks', page.id, {
+            action: 'hide',
+            reason: 'gate',
+            detail: 'Parent project not resolved',
+            revokeSessions: false,
+            cascade: 'none',
+          });
           return;
         }
         await ctx.runMutation(internal.sync.upsert.upsertTask, {
@@ -408,19 +683,32 @@ export const pullAll = internalAction({
           priority: mapped.row.priority,
           externalId: mapped.row.externalId,
           source: mapped.row.source,
+          hiddenReason: decision.action === 'store-hidden' ? 'ancestor' : undefined,
         });
+        if (decision.action === 'store-hidden') {
+          stats.concealed += 1;
+          return;
+        }
         stats.upserted.tasks += 1;
         });
       }
+      await hideMissingOnFullPull('tasks', taskLoaded.pages, taskLoaded.archivedOk);
 
       // --- Shared Resources (+ optional Blob copy) ---
-      const resourcePages = await concatDueRetries(
+      const resourceLoaded = await loadSourcePages(
         'sharedResources',
-        await queryAllDataSourcePages(SYNC_SOURCES.sharedResources, pageOpts),
+        SYNC_SOURCES.sharedResources,
+        pageOpts,
         priorRetries,
         now,
+        (message) => stats.errors.push(message),
       );
-      for (const page of resourcePages) {
+      await noteMissing('sharedResources', resourceLoaded.missingIds);
+      const clientNotionIdByOrgId: Record<string, string> = {};
+      for (const [notionId, orgId] of Object.entries(ids.clientByNotion)) {
+        clientNotionIdByOrgId[orgId] = notionId;
+      }
+      for (const page of resourceLoaded.pages) {
         await track(page, 'sharedResources', async () => {
         const projectNotionId = (() => {
           const rel = page.properties.Project as { relation?: Array<{ id?: string }> } | undefined;
@@ -429,14 +717,42 @@ export const pullAll = internalAction({
         const mapped = mapNotionSharedResource(
           page.id,
           page.properties,
-          projectNotionId ? projectClientNotion.get(projectNotionId) ?? null : null,
+          projectClientIdForResourceGate({
+            projectNotionId,
+            clientFromThisPull: projectNotionId
+              ? projectClientNotion.get(projectNotionId) ?? null
+              : null,
+            storedProjectOrgId: projectNotionId
+              ? ids.projectOrgByNotion[projectNotionId] ?? null
+              : null,
+            clientNotionIdByOrgId,
+          }),
         );
-        if (mapped.disposition === 'skip') {
+        const resourceClientId = mapped.row?.database === 'sharedResources' ? mapped.row.clientNotionIds[0] : undefined;
+        const projectOrgId = projectNotionId ? ids.projectOrgByNotion[projectNotionId] : undefined;
+        const projectClientId = projectOrgId
+          ? Object.entries(ids.clientByNotion).find(([, clientId]) => clientId === projectOrgId)?.[0]
+          : undefined;
+        const parentClientEnabled = resourceClientId
+          ? ids.clientEnabledByNotion[resourceClientId] === true
+          : projectClientId
+            ? ids.clientEnabledByNotion[projectClientId] === true
+            : undefined;
+        const decision = decideSyncedRowVisibility({
+          table: 'sharedResources',
+          disposition: mapped.disposition,
+          dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
+          archived: page.archived,
+          inTrash: page.inTrash,
+          parentClientEnabled,
+        });
+        if (decision.action === 'hide') {
           stats.skipped += 1;
+          await conceal('sharedResources', page.id, decision);
           return;
         }
         if (
-          mapped.disposition === 'quarantine' ||
+          decision.action === 'quarantine' ||
           !mapped.row ||
           mapped.row.database !== 'sharedResources'
         ) {
@@ -446,6 +762,13 @@ export const pullAll = internalAction({
             editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'sharedResources',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid resource map',
+          });
+          await conceal('sharedResources', page.id, {
+            action: 'hide',
+            reason: 'gate',
+            detail: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid resource map',
+            revokeSessions: false,
+            cascade: 'none',
           });
           return;
         }
@@ -459,6 +782,13 @@ export const pullAll = internalAction({
             editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'sharedResources',
             reason: 'No resolvable Client/Project org',
+          });
+          await conceal('sharedResources', page.id, {
+            action: 'hide',
+            reason: 'gate',
+            detail: 'No resolvable Client/Project org',
+            revokeSessions: false,
+            cascade: 'none',
           });
           return;
         }
@@ -529,32 +859,58 @@ export const pullAll = internalAction({
           archive: mapped.row.archive,
           externalId: mapped.row.externalId,
           source: mapped.row.source,
+          hiddenReason: decision.action === 'store-hidden' ? 'ancestor' : undefined,
         });
+        if (decision.action === 'store-hidden') {
+          stats.concealed += 1;
+          return;
+        }
         stats.upserted.sharedResources += 1;
         });
       }
+      await hideMissingOnFullPull('sharedResources', resourceLoaded.pages, resourceLoaded.archivedOk);
 
       // --- Client Docs (properties + allowlisted body) ---
-      const docPages = await concatDueRetries(
+      const docLoaded = await loadSourcePages(
         'clientDocs',
-        await queryAllDataSourcePages(SYNC_SOURCES.clientDocs, pageOpts),
+        SYNC_SOURCES.clientDocs,
+        pageOpts,
         priorRetries,
         now,
+        (message) => stats.errors.push(message),
       );
-      for (const page of docPages) {
+      await noteMissing('clientDocs', docLoaded.missingIds);
+      for (const page of docLoaded.pages) {
         await track(page, 'clientDocs', async () => {
         const mapped = mapNotionClientDoc(page.id, page.properties);
-        if (mapped.disposition === 'skip') {
+        const docClientId = mapped.row?.database === 'clientDocs' ? mapped.row.clientNotionIds[0] : undefined;
+        const decision = decideSyncedRowVisibility({
+          table: 'clientDocs',
+          disposition: mapped.disposition,
+          dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
+          archived: page.archived,
+          inTrash: page.inTrash,
+          parentClientEnabled: docClientId ? ids.clientEnabledByNotion[docClientId] === true : undefined,
+        });
+        if (decision.action === 'hide') {
           stats.skipped += 1;
+          await conceal('clientDocs', page.id, decision);
           return;
         }
-        if (mapped.disposition === 'quarantine' || !mapped.row || mapped.row.database !== 'clientDocs') {
+        if (decision.action === 'quarantine' || !mapped.row || mapped.row.database !== 'clientDocs') {
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
             editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'clientDocs',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid doc map',
+          });
+          await conceal('clientDocs', page.id, {
+            action: 'hide',
+            reason: 'gate',
+            detail: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid doc map',
+            revokeSessions: false,
+            cascade: 'none',
           });
           return;
         }
@@ -568,6 +924,13 @@ export const pullAll = internalAction({
             editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'clientDocs',
             reason: 'Client relation not resolved',
+          });
+          await conceal('clientDocs', page.id, {
+            action: 'hide',
+            reason: 'gate',
+            detail: 'Client relation not resolved',
+            revokeSessions: false,
+            cascade: 'none',
           });
           return;
         }
@@ -589,15 +952,21 @@ export const pullAll = internalAction({
           publishToWarehaus: mapped.row.publishToWarehaus,
           externalId: mapped.row.externalId,
           source: mapped.row.source,
+          hiddenReason: decision.action === 'store-hidden' ? 'ancestor' : undefined,
         });
         await ctx.runMutation(internal.sync.upsert.replaceClientDocImages, {
           orgId,
           docId,
           images: docImages,
         });
+        if (decision.action === 'store-hidden') {
+          stats.concealed += 1;
+          return;
+        }
         stats.upserted.clientDocs += 1;
         });
       }
+      await hideMissingOnFullPull('clientDocs', docLoaded.pages, docLoaded.archivedOk);
 
       const outstanding = refreshUnseenRetries(priorRetries, seen, now);
       nextRetries.push(

@@ -1,3 +1,4 @@
+import { isClientSurfaceVisible } from '@warehaus/portal-sync';
 import { adminQuery } from './_lib/wrappers';
 
 export type ClientDirectoryRow = {
@@ -29,7 +30,7 @@ export const listDirectory = adminQuery({
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
       const publishedProjects = projects.filter(
-        (p) => p.publishToWarehaus && !p.archive && !p.type.includes('Internal'),
+        (p) => isClientSurfaceVisible(p) && p.publishToWarehaus && !p.archive && !p.type.includes('Internal'),
       );
 
       const tasks = await ctx.db
@@ -37,7 +38,7 @@ export const listDirectory = adminQuery({
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
       const openTaskCount = tasks.filter(
-        (t) => t.publishToWarehaus && !t.isDone,
+        (t) => isClientSurfaceVisible(t) && t.publishToWarehaus && !t.isDone,
       ).length;
 
       const resources = await ctx.db
@@ -45,7 +46,7 @@ export const listDirectory = adminQuery({
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
       const resourceCount = resources.filter(
-        (r) => r.publishToWarehaus && !r.archive,
+        (r) => isClientSurfaceVisible(r) && r.publishToWarehaus && !r.archive,
       ).length;
 
       const uploads = await ctx.db
@@ -89,19 +90,19 @@ export const getTeamStats = adminQuery({
     let portalEnabled = 0;
 
     for (const client of clients) {
-      if (client.portalAccess === 'Enabled') portalEnabled += 1;
+      if (client.portalAccess === 'Enabled' && isClientSurfaceVisible(client)) portalEnabled += 1;
       const projects = await ctx.db
         .query('projects')
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
       projectCount += projects.filter(
-        (p) => p.publishToWarehaus && !p.archive && !p.type.includes('Internal'),
+        (p) => isClientSurfaceVisible(p) && p.publishToWarehaus && !p.archive && !p.type.includes('Internal'),
       ).length;
       const tasks = await ctx.db
         .query('tasks')
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
-      openTaskCount += tasks.filter((t) => t.publishToWarehaus && !t.isDone).length;
+      openTaskCount += tasks.filter((t) => isClientSurfaceVisible(t) && t.publishToWarehaus && !t.isDone).length;
       const uploads = await ctx.db
         .query('clientUploads')
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))

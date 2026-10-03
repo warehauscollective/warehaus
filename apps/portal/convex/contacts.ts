@@ -86,6 +86,7 @@ export const linkSession = mutation({
     const contact = selectContactForJoin({
       email,
       authUserId,
+      emailVerified: user.emailVerified === true,
       contacts: contacts.map((c) => ({
         _id: c._id,
         orgId: c.orgId,
@@ -94,6 +95,7 @@ export const linkSession = mutation({
         role: c.role,
         portalAccess: c.portalAccess,
         authUserId: c.authUserId,
+        syncHiddenAt: c.syncHiddenAt,
         notionPageId: c.notionPageId,
         externalId: c.externalId,
       })),
