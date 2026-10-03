@@ -1,7 +1,9 @@
-import { mutation } from './_generated/server';
+import { internalMutation, internalQuery } from './_generated/server';
+import { seedMatchReasons } from './_lib/seedMarkers';
 
 /**
  * Local/dev seed for login + Contact join testing.
+ * Internal only (not callable from the browser).
  * Run: `npx convex run seed:seedDemoTenants`
  *
  * Demo client login: demo@northbay.test / (create password on /login)
@@ -9,7 +11,7 @@ import { mutation } from './_generated/server';
  *
  * Safe to re-run (idempotent upsert by slug/email).
  */
-export const seedDemoTenants = mutation({
+export const seedDemoTenants = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
@@ -173,9 +175,10 @@ export const seedDemoTenants = mutation({
 
 /**
  * Demo Stripe-shaped billing rows (no live Stripe required).
+ * Internal only (not callable from the browser).
  * Run: `npx convex run seed:seedDemoBilling`
  */
-export const seedDemoBilling = mutation({
+export const seedDemoBilling = internalMutation({
   args: {},
   handler: async (ctx) => {
     const now = Date.now();
@@ -274,6 +277,100 @@ export const seedDemoBilling = mutation({
     const warehaus = await seedOrg('warehaus-internal', 'Workspace', 0);
 
     return { northBay, warehaus };
+  },
+});
+
+/**
+ * Read-only list of rows that match this seed's emails and markers.
+ * Does not delete or modify anything.
+ *
+ * `npx convex run seed:listSeededRecords`
+ */
+export const listSeededRecords = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const clients = [];
+    for (const client of await ctx.db.query('clients').collect()) {
+      const reasons = seedMatchReasons({
+        primaryEmail: client.primaryEmail,
+        notionPageId: client.notionPageId,
+        externalId: client.externalId,
+        stripeId: client.stripeCustomerId,
+      });
+      if (reasons.length === 0) continue;
+      clients.push({
+        id: client._id,
+        slug: client.slug,
+        companyName: client.companyName,
+        notionPageId: client.notionPageId,
+        reasons,
+      });
+    }
+
+    const contacts = [];
+    for (const contact of await ctx.db.query('contacts').collect()) {
+      const reasons = seedMatchReasons({
+        email: contact.email,
+        notionPageId: contact.notionPageId,
+        externalId: contact.externalId,
+      });
+      if (reasons.length === 0) continue;
+      contacts.push({
+        id: contact._id,
+        email: contact.email,
+        name: contact.name,
+        role: contact.role,
+        notionPageId: contact.notionPageId,
+        reasons,
+      });
+    }
+
+    const projects = [];
+    for (const project of await ctx.db.query('projects').collect()) {
+      const reasons = seedMatchReasons({
+        notionPageId: project.notionPageId,
+        externalId: project.externalId,
+      });
+      if (reasons.length === 0) continue;
+      projects.push({
+        id: project._id,
+        name: project.name,
+        notionPageId: project.notionPageId,
+        reasons,
+      });
+    }
+
+    const billingSubscriptions = [];
+    for (const row of await ctx.db.query('billingSubscriptions').collect()) {
+      const reasons = seedMatchReasons({ stripeId: row.stripeSubscriptionId });
+      if (reasons.length === 0) continue;
+      billingSubscriptions.push({
+        id: row._id,
+        stripeSubscriptionId: row.stripeSubscriptionId,
+        planName: row.planName,
+        reasons,
+      });
+    }
+
+    const billingInvoices = [];
+    for (const row of await ctx.db.query('billingInvoices').collect()) {
+      const reasons = seedMatchReasons({ stripeId: row.stripeInvoiceId });
+      if (reasons.length === 0) continue;
+      billingInvoices.push({
+        id: row._id,
+        stripeInvoiceId: row.stripeInvoiceId,
+        number: row.number ?? null,
+        reasons,
+      });
+    }
+
+    return {
+      clients,
+      contacts,
+      projects,
+      billingSubscriptions,
+      billingInvoices,
+    };
   },
 });
 

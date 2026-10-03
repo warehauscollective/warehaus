@@ -113,6 +113,64 @@ export type ClientDocGateInput = {
   clientRelationIds: readonly string[];
 };
 
+/** Client slug and external id for the staff org that owns the internal project. */
+export const WAREHAUS_INTERNAL_CLIENT_SLUG = 'warehaus-internal';
+export const WAREHAUS_INTERNAL_CLIENT_EXTERNAL_ID = 'wh_cli_warehaus-internal';
+
+export function isWarehausInternalClient(input: {
+  slug?: string | null;
+  externalId?: string | null;
+}): boolean {
+  return (
+    input.slug === WAREHAUS_INTERNAL_CLIENT_SLUG ||
+    input.externalId === WAREHAUS_INTERNAL_CLIENT_EXTERNAL_ID
+  );
+}
+
+/**
+ * The internal Warehaus project stays off client project lists, but its tasks
+ * still pass the task parent gate. Other Internal projects do not.
+ */
+export function isApprovedInternalWarehausProject(input: {
+  types: readonly string[];
+  publishToWarehaus: boolean;
+  archive: boolean;
+  clientIsWarehausInternal: boolean;
+}): boolean {
+  return (
+    input.clientIsWarehausInternal &&
+    input.publishToWarehaus &&
+    !input.archive &&
+    input.types.includes('Internal')
+  );
+}
+
+/** Visible client projects and the approved internal Warehaus project. */
+export function projectCountsForTaskGate(input: {
+  visibleToClients: boolean;
+  approvedInternal: boolean;
+  hiddenReason?: 'gate' | 'ancestor' | 'trashed' | null;
+}): boolean {
+  if (input.hiddenReason === 'trashed') return false;
+  return input.visibleToClients || input.approvedInternal;
+}
+
+/**
+ * Shared-resource tenancy compare. A project missing from this pull still
+ * contributes its stored client. Null only when the client cannot be resolved.
+ */
+export function projectClientIdForResourceGate(input: {
+  projectNotionId: string | null;
+  clientFromThisPull?: string | null;
+  storedProjectOrgId?: string | null;
+  clientNotionIdByOrgId: Readonly<Record<string, string>>;
+}): string | null {
+  if (!input.projectNotionId) return null;
+  if (input.clientFromThisPull) return input.clientFromThisPull;
+  if (!input.storedProjectOrgId) return null;
+  return input.clientNotionIdByOrgId[input.storedProjectOrgId] ?? null;
+}
+
 /** Client Docs: Status = Published AND Publish AND Client not empty */
 export function clientDocRowPassesGate(row: ClientDocGateInput): GateResult {
   if (row.status !== 'Published') {

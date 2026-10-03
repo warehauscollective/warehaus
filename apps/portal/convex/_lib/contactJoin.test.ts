@@ -98,6 +98,45 @@ describe('contact join', () => {
     );
   });
 
+  it('refuses to auto-link an unlinked staff contact', () => {
+    assert.throws(
+      () =>
+        selectContactForJoin({
+          email: 'team@warehaus.co',
+          authUserId: 'user_new',
+          emailVerified: true,
+          contacts: [
+            {
+              ...baseContact,
+              email: 'team@warehaus.co',
+              role: 'Warehaus Staff',
+            },
+          ],
+        }),
+      (err: unknown) =>
+        err instanceof PortalAuthError &&
+        err.code === 'FORBIDDEN' &&
+        err.message === "This email can't register here. Contact your Warehaus team.",
+    );
+  });
+
+  it('allows a staff contact already linked to this user', () => {
+    const contact = selectContactForJoin({
+      email: 'team@warehaus.co',
+      authUserId: 'user_staff',
+      emailVerified: true,
+      contacts: [
+        {
+          ...baseContact,
+          email: 'team@warehaus.co',
+          role: 'Warehaus Staff',
+          authUserId: 'user_staff',
+        },
+      ],
+    });
+    assert.equal(contact.role, 'Warehaus Staff');
+  });
+
   it('rejects disabled client for non-staff', () => {
     assert.throws(
       () =>

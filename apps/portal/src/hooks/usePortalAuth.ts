@@ -6,6 +6,7 @@ import { api } from '@convex/_generated/api';
 import { authClient } from '@/lib/auth-client';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
+import { VERIFY_EMAIL_PATH, isCantRegisterError } from '@convex/_lib/registration';
 
 export type PortalSessionView = {
   contactId: string;
@@ -40,7 +41,7 @@ export function usePortalAuth() {
   const [joining, setJoining] = useState(false);
 
   const ensureLinked = useCallback(async () => {
-    if (!configured) return null;
+    if (!configured) return { linked: false as const, message: 'Auth is not configured' };
     setJoining(true);
     setJoinError(null);
     try {
@@ -53,11 +54,11 @@ export function usePortalAuth() {
 
       const result = await linkSession({});
       await refetch?.();
-      return result;
+      return { linked: true as const, result };
     } catch (err) {
       const message = errorMessage(err, 'Could not link portal contact');
       setJoinError(message);
-      return null;
+      return { linked: false as const, message };
     } finally {
       setJoining(false);
     }
@@ -80,42 +81,37 @@ export function usePortalAuth() {
       setJoinError(null);
       const { error } = await authClient.signIn.email({ email, password });
       if (error) {
+        const code = 'code' in error ? String(error.code ?? '') : '';
+        if (code === 'EMAIL_NOT_VERIFIED' || /not verified/i.test(error.message ?? '')) {
+          return 'verify' as const;
+        }
         setJoinError(error.message ?? 'Sign in failed');
-        return false;
+        return 'error' as const;
       }
       const linked = await ensureLinked();
-      return Boolean(linked);
+      if (linked.linked) return 'ok' as const;
+      if (isCantRegisterError(linked.message)) return 'rejected' as const;
+      return 'error' as const;
     },
     [ensureLinked],
   );
 
-  const signUp = useCallback(
-    async (email: string, password: string, name?: string) => {
-      setJoinError(null);
-      const { error } = await authClient.signUp.email({
-        email,
-        password,
-        name: name ?? email.split('@')[0] ?? 'Portal user',
-      });
-      if (error) {
-        const msg = error.message ?? 'Sign up failed';
-        // Common when the account already exists from a prior attempt
-        if (/already|exists|registered/i.test(msg)) {
-          setJoinError(`${msg} Try Sign in instead.`);
-        } else {
-          setJoinError(msg);
-        }
-        return false;
-      }
-      const linked = await ensureLinked();
-      if (!linked) {
-        await authClient.signOut();
-        return false;
-      }
-      return true;
-    },
-    [ensureLinked],
-  );
+  const signUp = useCallback(async (email: string, password: string, name?: string) => {
+    setJoinError(null);
+    const { error } = await authClient.signUp.email({
+      email,
+      password,
+      name: name ?? email.split('@')[0] ?? 'Portal user',
+      callbackURL: VERIFY_EMAIL_PATH,
+    });
+    if (!error) return 'check-email' as const;
+    const code = 'code' in error ? String(error.code ?? '') : '';
+    if (code === 'CANT_REGISTER' || isCantRegisterError(error.message)) {
+      return 'rejected' as const;
+    }
+    setJoinError(error.message ?? 'Sign up failed');
+    return 'error' as const;
+  }, []);
 
   const signOut = useCallback(async () => {
     setJoinError(null);
