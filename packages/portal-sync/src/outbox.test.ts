@@ -145,6 +145,28 @@ describe('outbox attempt', () => {
     }
   });
 
+  it('patches invite state without the full create payload', async () => {
+    const outcome = await runOutboxAttempt({
+      item: item({
+        kind: 'setInviteState',
+        notionPageId: 'page-1',
+        properties: { 'Portal Access': 'Enabled', 'Invite Status': 'Accepted' },
+      }),
+      nowMs: 0,
+      writebackEnabled: true,
+      actor: 'system',
+      search: async () => {
+        throw new Error('search should not run');
+      },
+      write: async (request) => {
+        assert.equal(request.method, 'update');
+        assert.equal(request.properties['Invite Status'], 'Accepted');
+        return { ok: true, status: 200, notionPageId: 'page-1', lastEditedTime: null };
+      },
+    });
+    assert.equal(outcome.outcome, 'confirmed');
+  });
+
   it('rejects another client before writing', async () => {
     let wrote = false;
     const outcome = await runOutboxAttempt({

@@ -127,19 +127,26 @@ export async function runOutboxAttempt(input: {
     return { outcome: 'dead', notifyStaff: plan.notifyStaff, error: 'Outbox item exceeded 24h' };
   }
 
-  const validated = validateWriteback({
-    database: input.item.database,
-    properties: input.item.properties,
-    actor: input.actor,
-  });
-  if (!validated.ok) {
-    return { outcome: 'rejected', reason: validated.errors.join('; ') };
+  const stateChange = input.item.kind === 'setInviteState' || input.item.kind === 'revert';
+  let properties = input.item.properties;
+  if (!stateChange) {
+    const validated = validateWriteback({
+      database: input.item.database,
+      properties: input.item.properties,
+      actor: input.actor,
+    });
+    if (!validated.ok) {
+      return { outcome: 'rejected', reason: validated.errors.join('; ') };
+    }
+    properties = validated.properties;
+  } else if (!input.item.notionPageId) {
+    return { outcome: 'rejected', reason: 'State changes need an existing Notion page' };
   }
 
   let notionPageId = input.item.notionPageId;
   let reused = false;
   if (!notionPageId) {
-    const search = searchPlanForCreate(input.item.database, validated.properties);
+    const search = searchPlanForCreate(input.item.database, properties);
     if ('error' in search) return { outcome: 'rejected', reason: search.error };
     const hits = await input.search(search);
     const dedupe = decideCreateDedupe(hits);
@@ -153,7 +160,7 @@ export async function runOutboxAttempt(input: {
   const response = await input.write({
     method: notionPageId ? 'update' : 'create',
     notionPageId,
-    properties: validated.properties,
+    properties,
   });
 
   if (!response.ok || !response.notionPageId) {
@@ -175,7 +182,7 @@ export async function runOutboxAttempt(input: {
     write: {
       notionPageId: response.notionPageId,
       lastEditedTime: response.lastEditedTime ?? null,
-      properties: validated.properties,
+      properties,
     },
   };
 }
