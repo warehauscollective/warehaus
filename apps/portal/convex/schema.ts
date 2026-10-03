@@ -251,6 +251,8 @@ export default defineSchema({
     database: v.string(),
     reason: v.string(),
     payload: v.optional(v.string()),
+    /** Notion last_edited_time. Same page and edit must not insert twice. */
+    editedAtMs: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index('by_notionPageId', ['notionPageId'])
@@ -394,4 +396,13 @@ export default defineSchema({
   })
     .index('by_orgId', ['orgId'])
     .index('by_audience_createdAt', ['audience', 'createdAt']),
+
+  /**
+   * Resend cooldown for verification mail. One row per normalized address,
+   * including addresses that cannot register, so the window does not reveal them.
+   */
+  verificationResend: defineTable({
+    email: v.string(),
+    lastAttemptAt: v.number(),
+  }).index('by_email', ['email']),
 });
