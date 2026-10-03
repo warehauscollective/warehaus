@@ -1,6 +1,12 @@
+import {
+  isApprovedInternalWarehausProject,
+  isWarehausInternalClient,
+  projectCountsForTaskGate,
+} from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
+import { matchingQuarantineId } from '../_lib/quarantineRow';
 
 const hiddenReasonArg = v.optional(
   v.union(v.literal('gate'), v.literal('ancestor'), v.literal('trashed')),
@@ -313,8 +319,22 @@ export const writeQuarantine = internalMutation({
     database: v.string(),
     reason: v.string(),
     payload: v.optional(v.string()),
+    editedAtMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('quarantine')
+      .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
+      .collect();
+    const matchId = matchingQuarantineId(
+      existing.map((row) => ({
+        id: row._id,
+        notionPageId: row.notionPageId,
+        editedAtMs: row.editedAtMs ?? null,
+      })),
+      args,
+    );
+    if (matchId) return matchId;
     return ctx.db.insert('quarantine', {
       ...args,
       createdAt: Date.now(),
@@ -376,17 +396,26 @@ export const resolveIds = internalMutation({
     const clients = await ctx.db.query('clients').collect();
     const projects = await ctx.db.query('projects').collect();
     const clientEnabledByNotion: Record<string, boolean> = {};
+    const warehausInternalByNotion: Record<string, boolean> = {};
     const enabledClientIds = new Set<Id<'clients'>>();
+    const warehausInternalOrgIds = new Set<Id<'clients'>>();
     for (const client of clients) {
       const enabled = client.portalAccess === 'Enabled' && client.syncHiddenAt == null;
       clientEnabledByNotion[client.notionPageId] = enabled;
       if (enabled) enabledClientIds.add(client._id);
+      const internal = isWarehausInternalClient({
+        slug: client.slug,
+        externalId: client.externalId,
+      });
+      warehausInternalByNotion[client.notionPageId] = internal;
+      if (internal) warehausInternalOrgIds.add(client._id);
     }
     return {
       clientByNotion: Object.fromEntries(
         clients.map((c) => [c.notionPageId, c._id as Id<'clients'>]),
       ),
       clientEnabledByNotion,
+      warehausInternalByNotion,
       projectByNotion: Object.fromEntries(
         projects.map((p) => [p.notionPageId, p._id as Id<'projects'>]),
       ),
@@ -402,6 +431,29 @@ export const resolveIds = internalMutation({
             p.syncHiddenAt == null &&
             enabledClientIds.has(p.orgId),
         ]),
+      ),
+      projectTaskParentByNotion: Object.fromEntries(
+        projects.map((p) => {
+          const visibleToClients =
+            p.publishToWarehaus &&
+            !p.archive &&
+            !p.type.includes('Internal') &&
+            p.syncHiddenAt == null &&
+            enabledClientIds.has(p.orgId);
+          return [
+            p.notionPageId,
+            projectCountsForTaskGate({
+              visibleToClients,
+              approvedInternal: isApprovedInternalWarehausProject({
+                types: p.type,
+                publishToWarehaus: p.publishToWarehaus,
+                archive: p.archive,
+                clientIsWarehausInternal: warehausInternalOrgIds.has(p.orgId),
+              }),
+              hiddenReason: p.syncHiddenReason ?? null,
+            }),
+          ];
+        }),
       ),
     };
   },
