@@ -64,25 +64,44 @@ export function Surface({
   );
 }
 
+export function ButtonSpinner() {
+  return (
+    <span
+      aria-hidden
+      className="inline-block animate-spin"
+      style={{
+        width: 14,
+        height: 14,
+        borderRadius: 999,
+        border: '1.5px solid currentColor',
+        borderRightColor: 'transparent',
+        flex: '0 0 auto',
+      }}
+    />
+  );
+}
+
 export function PrimaryButton({
   children,
   type = 'button',
   onClick,
   disabled,
   fullWidth,
+  className,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
   onClick?: () => void;
   disabled?: boolean;
   fullWidth?: boolean;
+  className?: string;
 }) {
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center justify-center"
+      className={['inline-flex items-center justify-center gap-2', className].filter(Boolean).join(' ')}
       style={{
         background: 'var(--accent)',
         color: 'var(--accent-fg)',

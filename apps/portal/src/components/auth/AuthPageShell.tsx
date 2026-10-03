@@ -26,7 +26,7 @@ export function AuthPageShell({
           ? { background: 'var(--background)' }
           : {
               background:
-                'radial-gradient(900px 480px at 50% 0%, color-mix(in oklab, var(--accent) 14%, transparent), transparent 70%), var(--background)',
+                'radial-gradient(1000px 560px at 50% -180px, color-mix(in oklab, var(--foreground) 16%, transparent), transparent 68%), var(--background)',
             }
       }
     >

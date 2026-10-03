@@ -97,3 +97,22 @@ export function isOrphanedUploadBlob(input: {
   const minAge = input.minAgeMs ?? ORPHAN_UPLOAD_BLOB_MIN_AGE_MS;
   return input.nowMs - input.creationTime >= minAge;
 }
+
+/**
+ * Sweeper predicate. `referencedStorageIds` must be every `_storage` id stored
+ * on portal tables (today: clientUploads.storageId and uploadIntents.storageId).
+ */
+export function isSweepableUploadBlob(input: {
+  storageId: string;
+  creationTime: number;
+  nowMs: number;
+  referencedStorageIds: ReadonlySet<string>;
+  minAgeMs?: number;
+}): boolean {
+  return isOrphanedUploadBlob({
+    creationTime: input.creationTime,
+    nowMs: input.nowMs,
+    referenced: input.referencedStorageIds.has(input.storageId),
+    minAgeMs: input.minAgeMs,
+  });
+}

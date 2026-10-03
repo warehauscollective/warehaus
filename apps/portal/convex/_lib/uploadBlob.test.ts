@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { PortalAuthError } from './identity';
 import {
   isOrphanedUploadBlob,
+  isSweepableUploadBlob,
   shouldDiscardUnreferencedBlob,
   verifyFinalizedUpload,
   type UploadIntentClaim,
@@ -117,6 +118,38 @@ describe('orphaned upload blobs', () => {
         creationTime: now - day - 1,
         nowMs: now,
         referenced: true,
+      }),
+      false,
+    );
+  });
+
+  it('keeps a blob listed on an upload intent or a client upload', () => {
+    const day = 24 * 60 * 60 * 1000;
+    const referenced = new Set(['storage_upload', 'storage_intent']);
+    assert.equal(
+      isSweepableUploadBlob({
+        storageId: 'storage_intent',
+        creationTime: now - day - 1,
+        nowMs: now,
+        referencedStorageIds: referenced,
+      }),
+      false,
+    );
+    assert.equal(
+      isSweepableUploadBlob({
+        storageId: 'storage_abandoned',
+        creationTime: now - day - 1,
+        nowMs: now,
+        referencedStorageIds: referenced,
+      }),
+      true,
+    );
+    assert.equal(
+      isSweepableUploadBlob({
+        storageId: 'storage_abandoned',
+        creationTime: now - 1000,
+        nowMs: now,
+        referencedStorageIds: referenced,
       }),
       false,
     );
