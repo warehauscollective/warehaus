@@ -22,12 +22,15 @@ import type * as clients from "../clients.js";
 import type * as contacts from "../contacts.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
+import type * as mail from "../mail.js";
 import type * as me from "../me.js";
 import type * as notionAuth from "../notionAuth.js";
 import type * as portalData from "../portalData.js";
 import type * as projects from "../projects.js";
+import type * as registrationGate from "../registrationGate.js";
 import type * as seed from "../seed.js";
 import type * as sharedResources from "../sharedResources.js";
+import type * as staffProvision from "../staffProvision.js";
 import type * as sync_blob from "../sync/blob.js";
 import type * as sync_blobGc from "../sync/blobGc.js";
 import type * as sync_docBody from "../sync/docBody.js";
@@ -41,6 +44,7 @@ import type * as sync_trigger from "../sync/trigger.js";
 import type * as sync_upsert from "../sync/upsert.js";
 import type * as taskResponses from "../taskResponses.js";
 import type * as tasks from "../tasks.js";
+import type * as verificationResend from "../verificationResend.js";
 
 import type {
   ApiFromModules,
@@ -63,12 +67,15 @@ declare const fullApi: ApiFromModules<{
   contacts: typeof contacts;
   crons: typeof crons;
   http: typeof http;
+  mail: typeof mail;
   me: typeof me;
   notionAuth: typeof notionAuth;
   portalData: typeof portalData;
   projects: typeof projects;
+  registrationGate: typeof registrationGate;
   seed: typeof seed;
   sharedResources: typeof sharedResources;
+  staffProvision: typeof staffProvision;
   "sync/blob": typeof sync_blob;
   "sync/blobGc": typeof sync_blobGc;
   "sync/docBody": typeof sync_docBody;
@@ -82,6 +89,7 @@ declare const fullApi: ApiFromModules<{
   "sync/upsert": typeof sync_upsert;
   taskResponses: typeof taskResponses;
   tasks: typeof tasks;
+  verificationResend: typeof verificationResend;
 }>;
 
 /**

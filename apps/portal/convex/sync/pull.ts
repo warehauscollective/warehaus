@@ -4,23 +4,30 @@ import {
   capStoredRetries,
   decidePullWatermark,
   dueRetryIds,
+  isExhaustedRetry,
   mapNotionClient,
   mapNotionClientDoc,
   mapNotionContact,
   mapNotionProject,
   mapNotionSharedResource,
   mapNotionTask,
+  isApprovedInternalWarehausProject,
+  projectClientIdForResourceGate,
   decideSyncedRowVisibility,
   isPortalSelfWrite,
   observedFromNotionPage,
+  mergeReleasedPages,
   pageEditedAtMs,
-  parsePullRetries,
-  recordPageFailure,
+  parsePullCursorState,
   refreshUnseenRetries,
+  settleRecordedFailures,
   shouldDeferPageRetry,
+  shouldSkipReleased,
   type FailedPageRetry,
   type PageProcessOutcome,
   type VisibilityDecision,
+  type RecordedPageFailure,
+  type ReleasedPage,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internal } from '../_generated/api';
@@ -58,6 +65,8 @@ type IdMaps = {
   projectByNotion: Record<string, Id<'projects'>>;
   projectOrgByNotion: Record<string, Id<'clients'>>;
   projectVisibleByNotion: Record<string, boolean>;
+  warehausInternalByNotion: Record<string, boolean>;
+  projectTaskParentByNotion: Record<string, boolean>;
 };
 
 type SyncedTable = 'clients' | 'contacts' | 'projects' | 'tasks' | 'sharedResources' | 'clientDocs';
@@ -164,8 +173,11 @@ export const pullAll = internalAction({
     let terminalError: string | undefined;
     const outcomes: PageProcessOutcome[] = [];
     const nextRetries: FailedPageRetry[] = [];
+    const pageFailures: RecordedPageFailure[] = [];
     const seen = new Set<string>();
+    let attempted = 0;
     let priorRetries: FailedPageRetry[] = [];
+    let priorReleased: ReleasedPage[] = [];
     const priorById = new Map<string, FailedPageRetry>();
 
     const refreshIds = async (): Promise<IdMaps> =>
@@ -272,6 +284,10 @@ export const pullAll = internalAction({
       const editedAtMs = pageEditedAtMs(page.lastEdited);
       seen.add(page.id);
       const prior = priorById.get(page.id);
+      if (shouldSkipReleased({ id: page.id, editedAtMs }, priorReleased)) {
+        outcomes.push({ id: page.id, editedAtMs, ok: true });
+        return;
+      }
       if (prior && shouldDeferPageRetry(prior, now)) {
         outcomes.push({ id: page.id, editedAtMs, ok: false });
         nextRetries.push(prior);
@@ -281,21 +297,21 @@ export const pullAll = internalAction({
       try {
         await noteSelfWrite(page);
         await fn();
+        attempted += 1;
         outcomes.push({ id: page.id, editedAtMs, ok: true });
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
+        attempted += 1;
         stats.errors.push(`${database} ${page.id}: ${message}`);
         stats.failed += 1;
         outcomes.push({ id: page.id, editedAtMs, ok: false });
-        nextRetries.push(
-          recordPageFailure(prior, {
-            id: page.id,
-            database,
-            editedAtMs,
-            error: message,
-            nowMs: now,
-          }),
-        );
+        pageFailures.push({
+          id: page.id,
+          database,
+          editedAtMs,
+          error: message,
+          prior,
+        });
       }
     };
 
@@ -305,10 +321,13 @@ export const pullAll = internalAction({
       });
       metaDetails = meta?.details;
       previousWatermark = typeof meta?.lastSyncedAt === 'number' ? meta.lastSyncedAt : null;
-      priorRetries = parsePullRetries(meta?.details);
+      const cursor = parsePullCursorState(meta?.details);
+      priorRetries = cursor.retries;
+      priorReleased = cursor.released;
       for (const retry of priorRetries) priorById.set(retry.id, retry);
 
       const forceFull = Boolean(args.forceFull) || previousWatermark == null;
+      if (forceFull) priorReleased = [];
       const editedSinceIso = forceFull
         ? null
         : new Date(Math.max(0, previousWatermark! - INCREMENTAL_OVERLAP_MS)).toISOString();
@@ -345,6 +364,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'clients',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid client map',
           });
@@ -409,6 +429,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'contacts',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid contact map',
           });
@@ -428,6 +449,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'contacts',
             reason: 'Client Company not resolved to a synced client',
           });
@@ -496,7 +518,19 @@ export const pullAll = internalAction({
           inTrash: page.inTrash,
           parentClientEnabled: clientNotionId ? ids.clientEnabledByNotion[clientNotionId] === true : undefined,
         });
-        if (decision.action === 'hide') {
+        const approvedInternal =
+          !page.archived &&
+          !page.inTrash &&
+          mapped.row?.database === 'projects' &&
+          isApprovedInternalWarehausProject({
+            types: mapped.row.type,
+            publishToWarehaus: mapped.row.publishToWarehaus,
+            archive: mapped.row.archive,
+            clientIsWarehausInternal: Boolean(
+              clientNotionId && ids.warehausInternalByNotion[clientNotionId],
+            ),
+          });
+        if (decision.action === 'hide' && !approvedInternal) {
           stats.skipped += 1;
           await conceal('projects', page.id, decision);
           return;
@@ -505,6 +539,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'projects',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid project map',
           });
@@ -522,6 +557,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'projects',
             reason: 'Client relation not resolved',
           });
@@ -554,9 +590,20 @@ export const pullAll = internalAction({
           externalId: mapped.row.externalId,
           source: mapped.row.source,
           notionLastEditedTime: page.lastEdited || undefined,
-          hiddenReason: decision.action === 'store-hidden' ? 'ancestor' : undefined,
+          hiddenReason:
+            approvedInternal || decision.action === 'hide'
+              ? 'gate'
+              : decision.action === 'store-hidden'
+                ? 'ancestor'
+                : undefined,
         });
         projectClientNotion.set(page.id, clientNotionId);
+        if (approvedInternal) {
+          projectPass.add(page.id);
+          stats.concealed += 1;
+          await ctx.runMutation(internal.sync.hide.clearProjectTaskAncestors, { projectId });
+          return;
+        }
         if (decision.action === 'store-hidden') {
           stats.concealed += 1;
           if (decision.cascade === 'project-tasks') {
@@ -572,8 +619,8 @@ export const pullAll = internalAction({
       await hideMissingOnFullPull('projects', projectLoaded.pages, projectLoaded.archivedOk);
 
       ids = await refreshIds();
-      for (const [notionId, visible] of Object.entries(ids.projectVisibleByNotion)) {
-        if (visible) projectPass.add(notionId);
+      for (const [notionId, allows] of Object.entries(ids.projectTaskParentByNotion)) {
+        if (allows) projectPass.add(notionId);
       }
 
       // --- Tasks ---
@@ -620,6 +667,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'tasks',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid task map',
           });
@@ -641,6 +689,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'tasks',
             reason: 'Parent project not resolved',
           });
@@ -688,6 +737,10 @@ export const pullAll = internalAction({
         (message) => stats.errors.push(message),
       );
       await noteMissing('sharedResources', resourceLoaded.missingIds);
+      const clientNotionIdByOrgId: Record<string, string> = {};
+      for (const [notionId, orgId] of Object.entries(ids.clientByNotion)) {
+        clientNotionIdByOrgId[orgId] = notionId;
+      }
       for (const page of resourceLoaded.pages) {
         await track(page, 'sharedResources', async () => {
         const projectNotionId = (() => {
@@ -697,7 +750,16 @@ export const pullAll = internalAction({
         const mapped = mapNotionSharedResource(
           page.id,
           page.properties,
-          projectNotionId ? projectClientNotion.get(projectNotionId) ?? null : null,
+          projectClientIdForResourceGate({
+            projectNotionId,
+            clientFromThisPull: projectNotionId
+              ? projectClientNotion.get(projectNotionId) ?? null
+              : null,
+            storedProjectOrgId: projectNotionId
+              ? ids.projectOrgByNotion[projectNotionId] ?? null
+              : null,
+            clientNotionIdByOrgId,
+          }),
         );
         const resourceClientId = mapped.row?.database === 'sharedResources' ? mapped.row.clientNotionIds[0] : undefined;
         const projectOrgId = projectNotionId ? ids.projectOrgByNotion[projectNotionId] : undefined;
@@ -730,6 +792,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'sharedResources',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid resource map',
           });
@@ -749,6 +812,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'sharedResources',
             reason: 'No resolvable Client/Project org',
           });
@@ -871,6 +935,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'clientDocs',
             reason: mapped.disposition === 'quarantine' ? mapped.reason : 'invalid doc map',
           });
@@ -890,6 +955,7 @@ export const pullAll = internalAction({
           stats.quarantined += 1;
           await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
             notionPageId: page.id,
+            editedAtMs: pageEditedAtMs(page.lastEdited) ?? undefined,
             database: 'clientDocs',
             reason: 'Client relation not resolved',
           });
@@ -938,24 +1004,58 @@ export const pullAll = internalAction({
       await hideMissingOnFullPull('clientDocs', docLoaded.pages, docLoaded.archivedOk);
 
       const outstanding = refreshUnseenRetries(priorRetries, seen, now);
+      nextRetries.push(
+        ...settleRecordedFailures({
+          failures: pageFailures,
+          attempted,
+          nowMs: now,
+        }),
+      );
+      const combined = [...nextRetries, ...outstanding];
+      const quarantined = combined.filter(isExhaustedRetry);
+      const exhaustedIds = new Set(quarantined.map((retry) => retry.id));
+      const retries = capStoredRetries(
+        combined.filter((retry) => !exhaustedIds.has(retry.id)),
+      );
       const lastSyncedAtMs = decidePullWatermark({
         previousWatermarkMs: previousWatermark,
         nowMs: now,
-        outcomes,
-        outstanding,
+        outcomes: outcomes.map((outcome) =>
+          exhaustedIds.has(outcome.id) ? { ...outcome, ok: true } : outcome,
+        ),
+        outstanding: outstanding.filter((retry) => !exhaustedIds.has(retry.id)),
       });
-      const retries = capStoredRetries([...nextRetries, ...outstanding]);
-      const pageError =
+      for (const row of quarantined) {
+        await ctx.runMutation(internal.sync.upsert.writeQuarantine, {
+          notionPageId: row.id,
+          editedAtMs: row.editedAtMs ?? undefined,
+          database: row.database,
+          reason: `Stopped after ${row.attempts} failed attempts: ${row.error}`,
+        });
+        stats.quarantined += 1;
+      }
+      const released = mergeReleasedPages(
+        priorReleased,
+        quarantined,
+        outcomes.map((outcome) => ({ id: outcome.id, editedAtMs: outcome.editedAtMs })),
+        now,
+      );
+      const notes = [
         retries.length > 0
           ? `${retries.length} Notion page(s) failed; cursor held for retry`
-          : undefined;
+          : null,
+        quarantined.length > 0
+          ? `${quarantined.length} Notion page(s) quarantined after repeated failures`
+          : null,
+      ].filter((note): note is string => Boolean(note));
+      const pageError = notes.length > 0 ? notes.join('. ') : undefined;
       await ctx.runMutation(internal.sync.upsert.writeSyncMeta, {
         key: 'notion-pull',
         setLastSyncedAt: lastSyncedAtMs != null,
         lastSyncedAt: lastSyncedAtMs ?? undefined,
         lastError: pageError,
         clearLastError: !pageError,
-        details: JSON.stringify({ stats, retries }),
+        details: JSON.stringify({ stats, retries, released }),
       });
     } catch (err) {
       terminalError = err instanceof Error ? err.message : String(err);
