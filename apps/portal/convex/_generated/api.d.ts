@@ -22,6 +22,7 @@ import type * as clients from "../clients.js";
 import type * as contacts from "../contacts.js";
 import type * as crons from "../crons.js";
 import type * as http from "../http.js";
+import type * as invitesSync from "../invitesSync.js";
 import type * as mail from "../mail.js";
 import type * as me from "../me.js";
 import type * as notionAuth from "../notionAuth.js";
@@ -67,6 +68,7 @@ declare const fullApi: ApiFromModules<{
   contacts: typeof contacts;
   crons: typeof crons;
   http: typeof http;
+  invitesSync: typeof invitesSync;
   mail: typeof mail;
   me: typeof me;
   notionAuth: typeof notionAuth;
