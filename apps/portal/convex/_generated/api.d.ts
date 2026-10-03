@@ -36,6 +36,7 @@ import type * as sync_blobGc from "../sync/blobGc.js";
 import type * as sync_docBody from "../sync/docBody.js";
 import type * as sync_hide from "../sync/hide.js";
 import type * as sync_notionApi from "../sync/notionApi.js";
+import type * as sync_outbox from "../sync/outbox.js";
 import type * as sync_pull from "../sync/pull.js";
 import type * as sync_revokeSessions from "../sync/revokeSessions.js";
 import type * as sync_queue from "../sync/queue.js";
@@ -80,6 +81,7 @@ declare const fullApi: ApiFromModules<{
   "sync/docBody": typeof sync_docBody;
   "sync/hide": typeof sync_hide;
   "sync/notionApi": typeof sync_notionApi;
+  "sync/outbox": typeof sync_outbox;
   "sync/pull": typeof sync_pull;
   "sync/revokeSessions": typeof sync_revokeSessions;
   "sync/queue": typeof sync_queue;

@@ -154,6 +154,49 @@ export {
 } from './pull-cursor';
 
 export {
+  NOTION_WRITE_VERSION,
+  decideCreateDedupe,
+  readNotionPlain,
+  searchPlanForCreate,
+  toNotionProperties,
+  validateWriteback,
+  type DedupeDecision,
+  type ExistingPageHit,
+  type SearchPlan,
+  type WriteActor,
+  type WriteProperties,
+  type WriteValue,
+  type WritebackDatabase,
+  type WritebackResult,
+} from './writeback';
+
+export {
+  OUTBOX_BACKOFF_MS,
+  OUTBOX_DEAD_AFTER_MS,
+  OUTBOX_STAFF_NOTICE_ATTEMPTS,
+  OUTBOX_STAFF_NOTICE_QUEUED_MS,
+  inviteIdempotencyKey,
+  isOutboxDead,
+  nextBackoffMs,
+  planOutboxAttempt,
+  revertIdempotencyKey,
+  runOutboxAttempt,
+  shouldNotifyStaff,
+  stateIdempotencyKey,
+  type AttemptOutcome,
+  type AttemptPlan,
+  type ConfirmedWrite,
+  type NotionWriteResponse,
+  type OutboxItem,
+  type OutboxStatus,
+} from './outbox';
+
+export {
+  isPortalSelfWrite,
+  observedFromNotionPage,
+} from './selfWrite';
+
+export {
   mapNotionClient,
   mapNotionProject,
   mapNotionTask,
