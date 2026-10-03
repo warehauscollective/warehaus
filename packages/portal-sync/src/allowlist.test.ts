@@ -30,9 +30,11 @@ import {
   toSharedResourceClientView,
 } from './index';
 import {
+  LIVE_CONTACT_PROPERTY_NAMES,
   LIVE_PROJECT_PROPERTY_NAMES,
   SUGAR_SHARK_PROJECT_WITH_BRAIN_EDGE,
 } from './fixtures/sugar-shark';
+import { mapNotionContact } from './mappers';
 
 describe('portal collections boundary', () => {
   it('exposes exactly seven portal collection IDs', () => {
@@ -310,6 +312,49 @@ describe('schema drift map coverage', () => {
   it('every live Projects property appears in the tier map', () => {
     const unmapped = findUnmappedProperties('projects', LIVE_PROJECT_PROPERTY_NAMES);
     assert.deepEqual(unmapped, []);
+  });
+
+  it('every Contacts property, including Invite Status, appears in the tier map', () => {
+    assert.equal(classifyProperty('contacts', 'Invite Status'), 'SERVER');
+    assert.deepEqual(findUnmappedProperties('contacts', LIVE_CONTACT_PROPERTY_NAMES), []);
+  });
+
+  it('keeps today\'s contact gate when Invite Status is absent', () => {
+    const skipped = mapNotionContact('page-1', {
+      Name: { type: 'title', title: [{ plain_text: 'Ada' }] },
+      Email: { type: 'email', email: 'ada@example.com' },
+      'Portal Access': { type: 'select', select: { name: 'Disabled' } },
+      'Client Company': { type: 'relation', relation: [{ id: 'client-1' }] },
+    });
+    assert.equal(skipped.disposition, 'skip');
+    assert.equal(skipped.row && skipped.row.database === 'contacts' && skipped.row.inviteStatus, undefined);
+
+    const enabled = mapNotionContact('page-2', {
+      Name: { type: 'title', title: [{ plain_text: 'Ada' }] },
+      Email: { type: 'email', email: 'ada@example.com' },
+      'Portal Access': { type: 'select', select: { name: 'Enabled' } },
+      'Client Company': { type: 'relation', relation: [{ id: 'client-1' }] },
+      Role: { type: 'select', select: { name: 'Client Member' } },
+    });
+    assert.equal(enabled.disposition, 'upsert');
+    assert.equal(enabled.row && enabled.row.database === 'contacts' && enabled.row.inviteStatus, undefined);
+  });
+
+  it('reads Invite Status when the property is present and keeps it off the client payload', () => {
+    const mapped = mapNotionContact('page-3', {
+      Name: { type: 'title', title: [{ plain_text: 'Ada' }] },
+      Email: { type: 'email', email: 'ada@example.com' },
+      'Portal Access': { type: 'select', select: { name: 'Enabled' } },
+      'Client Company': { type: 'relation', relation: [{ id: 'client-1' }] },
+      'Invite Status': { type: 'select', select: { name: 'Accepted' } },
+    });
+    assert.equal(mapped.row && mapped.row.database === 'contacts' && mapped.row.inviteStatus, 'Accepted');
+    const { client } = serializeForClient('contacts', {
+      Name: 'Ada',
+      Email: 'ada@example.com',
+      'Invite Status': 'Pending',
+    });
+    assert.equal('Invite Status' in client, false);
   });
 });
 

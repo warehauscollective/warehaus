@@ -100,6 +100,8 @@ export const CONTACT_PROPERTY_TIERS = {
   'Client Company': 'SERVER',
   Role: 'SERVER',
   'Portal Access': 'SERVER',
+  /** Absent on live Contacts until Peter adds it. Empty means not an invite. */
+  'Invite Status': 'SERVER',
   Phone: 'SERVER',
   Source: 'SERVER',
   LastBridgedAt: 'SERVER',

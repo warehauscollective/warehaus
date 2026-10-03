@@ -79,3 +79,29 @@ export const LIVE_PROJECT_PROPERTY_NAMES = [
   'Publish to Warehaus',
   'Promote to Brain',
 ] as const;
+
+/**
+ * Contacts property names, including Invite Status.
+ * The live database does not have that property yet. The fixture lists it so
+ * the allowlist is ready, and the mapper still treats a missing value as empty.
+ */
+export const LIVE_CONTACT_PROPERTY_NAMES = [
+  'Name',
+  'Email',
+  'Auth User ID',
+  'External ID',
+  'Client Company',
+  'Role',
+  'Portal Access',
+  'Invite Status',
+  'Phone',
+  'Source',
+  'LastBridgedAt',
+  'Internal Notes',
+  'Internal Description',
+  'Website',
+  'LinkedIn',
+  'Instagram',
+  'X / Twitter',
+  'Publish to Warehaus',
+] as const;

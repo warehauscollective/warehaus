@@ -205,6 +205,8 @@ export {
   mapNotionClientDoc,
   type MapResult,
   type MappedRow,
+  asInviteStatus,
+  type InviteStatus,
   type MappedClient,
   type MappedProject,
   type MappedTask,
