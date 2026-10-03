@@ -210,7 +210,23 @@ export default defineSchema({
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_needsReview', ['orgId', 'needsReview'])
-    .index('by_orgId_createdAt', ['orgId', 'createdAt']),
+    .index('by_orgId_createdAt', ['orgId', 'createdAt'])
+    .index('by_storageId', ['storageId']),
+
+  /**
+   * Minted with generateUploadUrl. finalizeUpload requires it so a browser
+   * cannot attach an arbitrary storage id. Bookkeeping only — swept with
+   * orphaned upload blobs.
+   */
+  uploadIntents: defineTable({
+    orgId: v.id('clients'),
+    contactId: v.id('contacts'),
+    createdAt: v.number(),
+    consumedAt: v.optional(v.number()),
+    storageId: v.optional(v.id('_storage')),
+  })
+    .index('by_orgId_createdAt', ['orgId', 'createdAt'])
+    .index('by_createdAt', ['createdAt']),
 
   syncMeta: defineTable({
     key: v.string(),
@@ -225,6 +241,8 @@ export default defineSchema({
     database: v.string(),
     reason: v.string(),
     payload: v.optional(v.string()),
+    /** Notion last_edited_time. Same page and edit must not insert twice. */
+    editedAtMs: v.optional(v.number()),
     createdAt: v.number(),
   })
     .index('by_notionPageId', ['notionPageId'])
@@ -244,7 +262,8 @@ export default defineSchema({
     error: v.optional(v.string()),
   })
     .index('by_eventId', ['eventId'])
-    .index('by_receivedAt', ['receivedAt']),
+    .index('by_receivedAt', ['receivedAt'])
+    .index('by_processedAt', ['processedAt']),
 
   /** Stripe → Convex billing (never Notion) */
   billingSubscriptions: defineTable({
@@ -292,4 +311,13 @@ export default defineSchema({
   })
     .index('by_eventId', ['eventId'])
     .index('by_receivedAt', ['receivedAt']),
+
+  /**
+   * Resend cooldown for verification mail. One row per normalized address,
+   * including addresses that cannot register, so the window does not reveal them.
+   */
+  verificationResend: defineTable({
+    email: v.string(),
+    lastAttemptAt: v.number(),
+  }).index('by_email', ['email']),
 });

@@ -83,7 +83,7 @@ export function ResourcesContent() {
     setUploading(true);
     setUploadError(null);
     try {
-      const { uploadUrl } = await generateUploadUrl({ hostSlug });
+      const { uploadUrl, intentId } = await generateUploadUrl({ hostSlug });
       const res = await fetch(uploadUrl, {
         method: 'POST',
         headers: { 'Content-Type': file.type || 'application/octet-stream' },
@@ -92,6 +92,7 @@ export function ResourcesContent() {
       if (!res.ok) throw new Error(`Upload failed (${res.status})`);
       const { storageId } = (await res.json()) as { storageId: Id<'_storage'> };
       await finalizeUpload({
+        intentId,
         storageId,
         filename: file.name,
         mimeType: file.type || undefined,

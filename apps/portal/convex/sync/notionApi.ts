@@ -106,6 +106,21 @@ export async function queryAllDataSourcePages(
   return out;
 }
 
+/** Fetch one page by id. Returns null when Notion no longer has it. */
+export async function fetchNotionPage(pageId: string): Promise<NotionPageRow | null> {
+  try {
+    const page = await notionFetch(`/pages/${pageId}`);
+    if (!page?.id || !page.properties) return null;
+    return {
+      id: page.id,
+      lastEdited: page.last_edited_time ?? '',
+      properties: page.properties,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export const SYNC_SOURCES = {
   clients: PORTAL_COLLECTIONS.clients,
   projects: PORTAL_COLLECTIONS.projects,

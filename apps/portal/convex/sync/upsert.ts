@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
+import { matchingQuarantineId } from '../_lib/quarantineRow';
 
 export const upsertClient = internalMutation({
   args: {
@@ -266,8 +267,22 @@ export const writeQuarantine = internalMutation({
     database: v.string(),
     reason: v.string(),
     payload: v.optional(v.string()),
+    editedAtMs: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('quarantine')
+      .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
+      .collect();
+    const matchId = matchingQuarantineId(
+      existing.map((row) => ({
+        id: row._id,
+        notionPageId: row.notionPageId,
+        editedAtMs: row.editedAtMs ?? null,
+      })),
+      args,
+    );
+    if (matchId) return matchId;
     return ctx.db.insert('quarantine', {
       ...args,
       createdAt: Date.now(),
@@ -278,7 +293,11 @@ export const writeQuarantine = internalMutation({
 export const writeSyncMeta = internalMutation({
   args: {
     key: v.string(),
+    /** When true, persist lastSyncedAt. Omit to leave the cursor unchanged. */
+    setLastSyncedAt: v.optional(v.boolean()),
     lastSyncedAt: v.optional(v.number()),
+    /** When true and lastError is empty, remove the stored error. */
+    clearLastError: v.optional(v.boolean()),
     lastError: v.optional(v.string()),
     details: v.optional(v.string()),
   },
@@ -287,15 +306,35 @@ export const writeSyncMeta = internalMutation({
       .query('syncMeta')
       .withIndex('by_key', (q) => q.eq('key', args.key))
       .unique();
+
+    const patch: {
+      lastSyncedAt?: number;
+      lastError?: string;
+      details?: string;
+    } = {};
+    if (args.setLastSyncedAt) {
+      if (args.lastSyncedAt === undefined) {
+        throw new Error('writeSyncMeta setLastSyncedAt requires lastSyncedAt');
+      }
+      patch.lastSyncedAt = args.lastSyncedAt;
+    }
+    if (args.lastError) {
+      patch.lastError = args.lastError;
+    } else if (args.clearLastError) {
+      patch.lastError = undefined;
+    }
+    if (args.details !== undefined) patch.details = args.details;
+
     if (existing) {
-      await ctx.db.patch(existing._id, {
-        lastSyncedAt: args.lastSyncedAt,
-        lastError: args.lastError,
-        details: args.details,
-      });
+      await ctx.db.patch(existing._id, patch);
       return existing._id;
     }
-    return ctx.db.insert('syncMeta', args);
+    return ctx.db.insert('syncMeta', {
+      key: args.key,
+      ...(patch.lastSyncedAt !== undefined ? { lastSyncedAt: patch.lastSyncedAt } : {}),
+      ...(args.lastError ? { lastError: args.lastError } : {}),
+      ...(args.details !== undefined ? { details: args.details } : {}),
+    });
   },
 });
 
