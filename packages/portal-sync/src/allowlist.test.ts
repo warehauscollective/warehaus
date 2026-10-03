@@ -21,6 +21,9 @@ import {
   partitionProperties,
   projectRowPassesGate,
   serializeForClient,
+  isApprovedInternalWarehausProject,
+  projectClientIdForResourceGate,
+  projectCountsForTaskGate,
   sharedResourceRowPassesGate,
   taskRowPassesGate,
   toClientUploadClientView,
@@ -174,6 +177,99 @@ describe('row gates', () => {
         projectClientId: 'c2',
       }).ok,
       false,
+    );
+  });
+
+  it('lets tasks pass when the parent is the approved internal Warehaus project', () => {
+    const approved = isApprovedInternalWarehausProject({
+      types: ['Internal'],
+      publishToWarehaus: true,
+      archive: false,
+      clientIsWarehausInternal: true,
+    });
+    assert.equal(approved, true);
+    assert.equal(
+      projectCountsForTaskGate({
+        visibleToClients: false,
+        approvedInternal: approved,
+        hiddenReason: 'gate',
+      }),
+      true,
+    );
+    assert.equal(
+      taskRowPassesGate({
+        publishToWarehaus: true,
+        projectRelationIds: ['warehaus-internal-project'],
+        parentProjectPassesGate: true,
+      }).ok,
+      true,
+    );
+  });
+
+  it('still blocks tasks under another client Internal project', () => {
+    assert.equal(
+      isApprovedInternalWarehausProject({
+        types: ['Internal'],
+        publishToWarehaus: true,
+        archive: false,
+        clientIsWarehausInternal: false,
+      }),
+      false,
+    );
+    assert.equal(
+      projectCountsForTaskGate({
+        visibleToClients: false,
+        approvedInternal: false,
+        hiddenReason: 'gate',
+      }),
+      false,
+    );
+    const gate = taskRowPassesGate({
+      publishToWarehaus: true,
+      projectRelationIds: ['other-internal'],
+      parentProjectPassesGate: false,
+    });
+    assert.equal(gate.ok, false);
+  });
+
+  it('does not parent tasks from a trashed internal Warehaus project', () => {
+    assert.equal(
+      projectCountsForTaskGate({
+        visibleToClients: false,
+        approvedInternal: true,
+        hiddenReason: 'trashed',
+      }),
+      false,
+    );
+  });
+
+  it('checks shared-resource tenancy when the project was not in this pull', () => {
+    const projectClientId = projectClientIdForResourceGate({
+      projectNotionId: 'proj-stored',
+      clientFromThisPull: null,
+      storedProjectOrgId: 'org-b',
+      clientNotionIdByOrgId: { 'org-b': 'client-b' },
+    });
+    assert.equal(projectClientId, 'client-b');
+    const gate = sharedResourceRowPassesGate({
+      publishToWarehaus: true,
+      clientRelationIds: ['client-a'],
+      projectRelationIds: ['proj-stored'],
+      projectClientId,
+    });
+    assert.equal(gate.ok, false);
+    if (!gate.ok) assert.match(gate.reason, /disagree/);
+  });
+
+  it('prefers the project client seen in this pull over the stored org', () => {
+    assert.equal(
+      projectClientIdForResourceGate({
+        projectNotionId: 'proj-stored',
+        clientFromThisPull: 'client-fresh',
+        storedProjectOrgId: 'org-old',
+        clientNotionIdByOrgId: { 'org-old': 'client-old' },
+      }),
+      'client-fresh',
     );
   });
 });
