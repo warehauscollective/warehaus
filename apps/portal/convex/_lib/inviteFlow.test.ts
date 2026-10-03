@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { inviteEmail } from './email';
+import { signInToAcceptPath } from './acceptPaths';
+import { existingLoginEmail, inviteEmail } from './email';
 import {
   INVITE_CLIENT_FAILURE,
   createInviteToken,
@@ -61,6 +62,36 @@ describe('invite accept email match', () => {
     assert.equal(inviteEmailsMatch('  Ada@Example.com ', 'ada@example.com'), true);
     assert.equal(inviteEmailsMatch('ada+tag@example.com', 'ada@example.com'), false);
     assert.equal(inviteEmailsMatch('a.da@example.com', 'ada@example.com'), false);
+    const accepted = planInviteAccept({
+      tokenStatus: 'live',
+      expiresAt: 100,
+      now: 1,
+      tokenEmail: 'ada@example.com',
+      signedInEmail: '  Ada@Example.com ',
+      emailVerified: true,
+    });
+    assert.deepEqual(accepted, { ok: true, emailNormalized: 'ada@example.com' });
+  });
+
+  it('treats a different email as a mismatch before verification and omits the invited address', () => {
+    const plan = planInviteAccept({
+      tokenStatus: 'live',
+      expiresAt: 100,
+      now: 1,
+      tokenEmail: 'ada+tag@example.com',
+      signedInEmail: '  Other@Example.com ',
+      emailVerified: false,
+    });
+    assert.deepEqual(plan, { ok: false, reason: 'mismatch', signedInEmail: 'other@example.com' });
+    assert.equal(JSON.stringify(plan).includes('ada+tag@example.com'), false);
+    assert.equal(JSON.stringify(plan).includes('+tag'), false);
+  });
+
+  it('keeps the invite token on the sign-in return path', () => {
+    const path = signInToAcceptPath('tok en+1');
+    const next = new URL(path, 'https://portal.example').searchParams.get('next');
+    assert.equal(next, '/accept?token=tok%20en%2B1');
+    assert.equal(path.includes('@'), false);
   });
 
   it('rejects a different signed-in email without returning the invited address', () => {
@@ -113,6 +144,20 @@ describe('invite accept email match', () => {
     assert.match(mail.html, /Warehaus Portal/);
     assert.match(mail.html, /background: #111/);
     assert.match(mail.text, /portal\.example\/accept\?token=abc/);
+    assert.equal(mail.html.includes('Decline'), false);
+  });
+
+  it('emails people who already have a login instead of a password screen', () => {
+    const mail = existingLoginEmail({
+      name: 'Ada',
+      acceptUrl: 'https://portal.example/accept?token=abc',
+    });
+    assert.match(mail.subject, /already have a Warehaus portal login/);
+    assert.match(mail.html, /Warehaus Portal/);
+    assert.match(mail.html, /background: #111/);
+    assert.match(mail.html, /Sign in to accept/);
+    assert.equal(mail.html.includes('set a password'), false);
+    assert.equal(mail.html.includes('Decline'), false);
   });
 
   it('maps accept, decline, revoke, and expire onto Notion fields', () => {

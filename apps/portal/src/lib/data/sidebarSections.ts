@@ -26,6 +26,7 @@ const TEAM_SECTIONS: Record<PortalTab, PortalSidebarSection[]> = {
     { key: 'overview', label: 'Overview' },
     { key: 'feed', label: 'Feed' },
     { key: 'exceptions', label: 'Exceptions' },
+    { key: 'invite-notices', label: 'Invite notices' },
   ],
   account: [
     { key: 'overview', label: 'Overview' },
@@ -48,10 +49,16 @@ const CLIENT_SECTIONS: Record<PortalTab, PortalSidebarSection[]> = {
     { key: 'overview', label: 'Library' },
     { key: 'uploads', label: 'Your uploads' },
   ],
+  activity: [
+    { key: 'overview', label: 'Overview' },
+    { key: 'feed', label: 'Feed' },
+    { key: 'exceptions', label: 'Exceptions' },
+  ],
   account: [
     { key: 'overview', label: 'Organization' },
     { key: 'profile', label: 'Profile' },
     { key: 'billing', label: 'Billing' },
+    { key: 'team', label: 'Team' },
     { key: 'preferences', label: 'Preferences' },
   ],
 };

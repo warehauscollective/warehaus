@@ -1,5 +1,7 @@
 'use client';
 
+import { useQuery } from 'convex/react';
+import { api } from '@convex/_generated/api';
 import { Pill, Surface } from '@/components/ui/primitives';
 import {
   PortalStatGrid,
@@ -8,12 +10,15 @@ import {
 } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { activityToneVar, tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
+import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
+import { isConvexConfigured } from '@/lib/convex/client';
 import type { PortalActivity } from '@/lib/data/view-models';
 
 const SECTION_TITLE: Record<string, string> = {
   overview: 'Activity',
   feed: 'Feed',
   exceptions: 'Exceptions',
+  'invite-notices': 'Invite notices',
 };
 
 function formatTime(iso: string): string {
@@ -63,6 +68,8 @@ export function ActivityContent() {
   const { data, loading } = usePortalData();
   const activeSection = sectionFor('activity');
   const title = SECTION_TITLE[activeSection] ?? 'Activity';
+  const configured = isConvexConfigured();
+  const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
 
   const feed = data.activity;
   const exceptions = feed.filter(isException);
@@ -70,6 +77,10 @@ export function ActivityContent() {
   const attention = exceptions.length ? exceptions : watching;
   const syncMeta = data.syncMeta;
   const isTeam = data.tenant.mode === 'team';
+  const notices = useQuery(
+    api.invitesSync.listStaffNotices,
+    configured && isTeam && activeSection === 'invite-notices' ? { hostSlug } : 'skip',
+  );
 
   return (
     <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Activity')} title={title}>
@@ -284,6 +295,28 @@ export function ActivityContent() {
                     </p>
                   </div>
                 </button>
+              </Surface>
+            ))}
+          </div>
+        </PortalTilePane>
+      )}
+
+      {activeSection === 'invite-notices' && isTeam && (
+        <PortalTilePane>
+          <div className="flex h-full min-h-0 flex-col gap-3 overflow-auto">
+            {notices === undefined && (
+              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading notices…</p>
+            )}
+            {notices?.length === 0 && (
+              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>No invite notices.</p>
+            )}
+            {notices?.map((notice) => (
+              <Surface key={notice._id} style={{ padding: 24 }}>
+                <p style={{ fontSize: 14, lineHeight: '21px', margin: 0 }}>{notice.message}</p>
+                <p className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)', margin: '8px 0 0' }}>
+                  {new Date(notice.createdAt).toLocaleString('en-US')}
+                  {notice.edgeCase ? ` · ${notice.edgeCase}` : ''}
+                </p>
               </Surface>
             ))}
           </div>

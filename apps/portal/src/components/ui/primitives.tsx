@@ -86,12 +86,14 @@ export function PrimaryButton({
   type = 'button',
   onClick,
   disabled,
+  fullWidth,
   className,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
   onClick?: () => void;
   disabled?: boolean;
+  fullWidth?: boolean;
   className?: string;
 }) {
   return (
@@ -107,10 +109,11 @@ export function PrimaryButton({
         borderRadius: 9,
         fontFamily: 'var(--font-body)',
         fontSize: 'var(--t-sm)',
-        fontWeight: 600,
-        padding: '0.65rem 1.1rem',
+        fontWeight: 500,
+        padding: '12px 20px',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.55 : 1,
+        width: fullWidth ? '100%' : undefined,
       }}
     >
       {children}
@@ -121,9 +124,13 @@ export function PrimaryButton({
 export function GhostButton({
   children,
   onClick,
+  fullWidth,
+  tone = 'muted',
 }: {
   children: ReactNode;
   onClick?: () => void;
+  fullWidth?: boolean;
+  tone?: 'muted' | 'foreground';
 }) {
   return (
     <button
@@ -132,13 +139,15 @@ export function GhostButton({
       className="inline-flex items-center justify-center"
       style={{
         background: 'transparent',
-        color: 'var(--muted)',
+        color: tone === 'foreground' ? 'var(--foreground)' : 'var(--muted)',
         border: '1px solid var(--border)',
         borderRadius: 9,
         fontFamily: 'var(--font-body)',
         fontSize: 'var(--t-sm)',
-        padding: '0.65rem 1.1rem',
+        fontWeight: 500,
+        padding: '12px 20px',
         cursor: 'pointer',
+        width: fullWidth ? '100%' : undefined,
       }}
     >
       {children}
