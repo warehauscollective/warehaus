@@ -64,7 +64,7 @@ Set on **Convex** (not Next dualStore):
 
 ```bash
 NOTION_WAREHAUS_TOKEN=
-NOTION_WEBHOOK_SECRET=          # optional
+NOTION_WEBHOOK_SECRET=          # required; Notion verification_token (HMAC). Fail closed if unset.
 BLOB_READ_WRITE_TOKEN=          # Shared Resource / doc image copy
 STRIPE_WEBHOOK_SECRET=          # Phase 4 (parked until keys)
 NEXT_PUBLIC_CONVEX_URL=

@@ -21,4 +21,20 @@ crons.daily(
   internal.sync.blobGc.gcUnpublishedSharedBlobs,
 );
 
+/** Processed Notion webhook rows only — never business data. */
+crons.daily(
+  'sync-events-retention',
+  { hourUTC: 8, minuteUTC: 5 },
+  internal.sync.queue.deleteExpiredSyncEvents,
+  {},
+);
+
+/** Convex storage left behind when a client upload never finalized. */
+crons.daily(
+  'client-upload-orphan-gc',
+  { hourUTC: 7, minuteUTC: 45 },
+  internal.clientUploads.gcOrphanedUploadBlobs,
+  {},
+);
+
 export default crons;

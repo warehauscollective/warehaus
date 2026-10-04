@@ -108,6 +108,36 @@ export {
 } from './extract';
 
 export {
+  INCREMENTAL_OVERLAP_MS,
+  MAX_PAGE_ATTEMPTS,
+  applyPullPass,
+  capStoredRetries,
+  decidePullWatermark,
+  dueRetryIds,
+  isDeterministicPageFailure,
+  isExhaustedRetry,
+  isPassOutage,
+  mergeReleasedPages,
+  pageEditedAtMs,
+  pageRetryBackoffMs,
+  parsePullCursorState,
+  parsePullRetries,
+  recordPageFailure,
+  refreshUnseenRetries,
+  releaseQuarantinedPageFromDetails,
+  selectPagesForPull,
+  settleRecordedFailures,
+  shouldDeferPageRetry,
+  shouldSkipReleased,
+  unseenPageRetries,
+  type FailedPageRetry,
+  type PageProcessOutcome,
+  type RecordedPageFailure,
+  type ReleasedPage,
+  type SyncPage,
+} from './pull-cursor';
+
+export {
   mapNotionClient,
   mapNotionProject,
   mapNotionTask,

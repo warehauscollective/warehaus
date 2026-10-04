@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from './_generated/server';
 import type { Id } from './_generated/dataModel';
+import { isTerminalBillingEventStatus } from './_lib/billingEvent';
 
 export const upsertSubscription = internalMutation({
   args: {
@@ -75,7 +76,68 @@ export const setStripeCustomerId = internalMutation({
     stripeCustomerId: v.string(),
   },
   handler: async (ctx, { orgId, stripeCustomerId }) => {
+    const client = await ctx.db.get(orgId);
+    if (!client) return { ok: false as const, reason: 'missing_org' as const };
+    if (client.stripeCustomerId === stripeCustomerId) {
+      return { ok: true as const, reason: 'already' as const };
+    }
+    if (client.stripeCustomerId && client.stripeCustomerId !== stripeCustomerId) {
+      return { ok: false as const, reason: 'conflict' as const };
+    }
+    const other = await ctx.db
+      .query('clients')
+      .withIndex('by_stripeCustomerId', (q) => q.eq('stripeCustomerId', stripeCustomerId))
+      .unique();
+    if (other && other._id !== orgId) {
+      return { ok: false as const, reason: 'conflict' as const };
+    }
     await ctx.db.patch(orgId, { stripeCustomerId });
+    return { ok: true as const, reason: 'set' as const };
+  },
+});
+
+export const resolveOrgForStripeLink = internalQuery({
+  args: {
+    stripeCustomerId: v.string(),
+    orgId: v.optional(v.string()),
+    slug: v.optional(v.string()),
+    externalId: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const linked = await ctx.db
+      .query('clients')
+      .withIndex('by_stripeCustomerId', (q) =>
+        q.eq('stripeCustomerId', args.stripeCustomerId),
+      )
+      .unique();
+    if (linked) return { orgId: linked._id, alreadyLinked: true as const };
+
+    let client: { _id: Id<'clients'>; stripeCustomerId?: string } | null = null;
+    if (args.slug) {
+      client = await ctx.db
+        .query('clients')
+        .withIndex('by_slug', (q) => q.eq('slug', args.slug!))
+        .unique();
+    }
+    if (!client && args.externalId) {
+      client = await ctx.db
+        .query('clients')
+        .withIndex('by_externalId', (q) => q.eq('externalId', args.externalId!))
+        .unique();
+    }
+    if (!client && args.orgId) {
+      try {
+        const row = await ctx.db.get(args.orgId as Id<'clients'>);
+        if (row && 'slug' in row && 'companyName' in row) client = row;
+      } catch {
+        client = null;
+      }
+    }
+    if (!client) return null;
+    if (client.stripeCustomerId && client.stripeCustomerId !== args.stripeCustomerId) {
+      return { orgId: client._id, alreadyLinked: false as const, conflict: true as const };
+    }
+    return { orgId: client._id, alreadyLinked: false as const, conflict: false as const };
   },
 });
 
@@ -90,7 +152,10 @@ export const beginBillingEvent = internalMutation({
       .withIndex('by_eventId', (q) => q.eq('eventId', eventId))
       .unique();
     if (existing) {
-      return { duplicate: true as const, status: existing.status };
+      if (isTerminalBillingEventStatus(existing.status)) {
+        return { duplicate: true as const, status: existing.status };
+      }
+      return { duplicate: false as const, status: existing.status, retry: true as const };
     }
     await ctx.db.insert('billingEvents', {
       eventId,
@@ -123,6 +188,29 @@ export const finishBillingEvent = internalMutation({
       status,
       processedAt: Date.now(),
       orgId,
+      error,
+    });
+  },
+});
+
+/** Failure leaves the row retryable: status error, processedAt cleared. */
+export const failBillingEvent = internalMutation({
+  args: {
+    eventId: v.string(),
+    error: v.string(),
+  },
+  handler: async (ctx, { eventId, error }) => {
+    const row = await ctx.db
+      .query('billingEvents')
+      .withIndex('by_eventId', (q) => q.eq('eventId', eventId))
+      .unique();
+    if (!row) return;
+    await ctx.db.replace(row._id, {
+      eventId: row.eventId,
+      type: row.type,
+      receivedAt: row.receivedAt,
+      status: 'error',
+      ...(row.orgId ? { orgId: row.orgId } : {}),
       error,
     });
   },
