@@ -26,9 +26,19 @@ main {
   min-height: 100dvh;
 }
 
-/* Figma back glyph is paper (#fdfdfe). Light theme draws it as ink. */
-html.light .nav-back-glyph {
+/* Figma back glyph and wordmark are paper (#fdfdfe). Light theme draws them as ink. */
+html.light .nav-back-glyph,
+html.light .portal-wordmark,
+html.light .dock-menu-glyph {
   filter: brightness(0);
+}
+
+/* Dock tab glyphs ship as muted strokes. The active pill needs ink (dark) or paper (light). */
+.dock-tab-icon-active {
+  filter: brightness(0);
+}
+html.light .dock-tab-icon-active {
+  filter: brightness(0) invert(1);
 }
 
 

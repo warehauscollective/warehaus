@@ -65,7 +65,7 @@ export function PortalWorkspace({
               </p>
             )}
             <h1
-              className="type-display truncate"
+              className="type-display truncate normal-case"
               style={{
                 fontSize: 'clamp(1.5rem, 1.2rem + 1vw, 2rem)',
                 marginTop: breadcrumb ? 10 : '0.35rem',
@@ -229,7 +229,12 @@ export function PortalStatGrid({
           </p>
           <p
             className="ds-mono"
-            style={{ fontSize: 'var(--t-2xl)', marginTop: 'var(--s-2)', color: 'var(--fg)' }}
+            style={{
+              fontSize: stat.value.length > 4 ? 'var(--t-md)' : 'var(--t-2xl)',
+              marginTop: 'var(--s-2)',
+              color: 'var(--fg)',
+              whiteSpace: 'nowrap',
+            }}
           >
             {stat.value}
           </p>

@@ -196,7 +196,7 @@ export function ProjectsContent() {
   return (
     <PortalWorkspace
       eyebrow={tenantEyebrow(data.tenant, 'Projects')}
-      title={SECTION_TITLE[activeSection] ?? 'Projects'}
+      title={activeSection === 'all' ? 'Projects' : (SECTION_TITLE[activeSection] ?? 'Projects')}
     >
       <PortalTilePane>
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" data-testid="projects-list">

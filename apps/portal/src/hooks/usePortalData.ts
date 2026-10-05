@@ -30,11 +30,12 @@ const EMPTY: PortalSnapshot = {
   tenant: EMPTY_TENANT,
 };
 
+/** Tab-root eyebrow. Staff reads `● PORTAL · {section} · ADMIN`. */
 export function tenantEyebrow(tenant: PortalTenantMeta, section: string): string {
   if (tenant.mode === 'client' && tenant.clientName) {
-    return `${tenant.clientName} · ${section}`;
+    return `● PORTAL · ${section} · ${tenant.clientName}`;
   }
-  return `Team · ${section}`;
+  return `● PORTAL · ${section} · ADMIN`;
 }
 
 export { type PortalSnapshot, type PortalTenantMeta } from '@/lib/data/view-models';
