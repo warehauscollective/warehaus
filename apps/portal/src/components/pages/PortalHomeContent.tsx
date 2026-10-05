@@ -13,6 +13,7 @@ import { activityToneVar, tenantEyebrow, usePortalData } from '@/hooks/usePortal
 import {
   TASK_BOARD_COLUMNS,
   formatPortalDate,
+  pickActiveProject,
   projectStatusColor,
   taskBoardColumnKey,
   taskStatusColor,
@@ -20,6 +21,9 @@ import {
   type PortalProject,
   type PortalTask,
 } from '@/lib/data/view-models';
+import { usePortalAuth } from '@/hooks/usePortalAuth';
+import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
+import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import type { TenantMode } from '@/lib/auth/tenancy';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
@@ -59,25 +63,36 @@ function pickRecentTask(list: PortalTask[]): PortalTask | null {
 export function PortalHomeContent() {
   const { sectionFor, openDetail } = usePortalView();
   const { data, loading, error } = usePortalData();
+  const { portalSession } = usePortalAuth();
+  const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
+  const isStaff = Boolean(portalSession?.isStaff);
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
+  const staff = useStaffCrossOrg(configured && isStaff && !fixtures, hostSlug);
   const billingState = useSafeQuery<PortalBillingSummary>(
     api.billing.getSummary,
     configured && data.tenant.ok ? { hostSlug } : 'skip',
   );
   const billingSummary = billingState.data;
   const activeSection = sectionFor('dashboard');
-  const projects = data.projects;
+  const staffProjects = (staff.projects ?? []) as PortalProject[];
+  const projects =
+    isStaff && !fixtures && !staff.projectsLoading && staff.projects != null
+      ? staffProjects
+      : data.projects;
   const tasks = data.tasks;
   const activity = data.activity;
   const title = SECTION_TITLE[activeSection] ?? 'Overview';
+  const projectsLoading = loading || (isStaff && !fixtures && staff.projectsLoading && projects.length === 0);
 
-  // Dashboard is single-project: the client's current engagement.
-  const featured = projects[0] ?? null;
+  // Staff hero uses the same published list as the Projects tab.
+  const featured = pickActiveProject(projects);
   const projectTasks = featured
     ? tasks.filter((t) => t.projectId === featured.id)
     : [];
+  const countsKnown =
+    !featured || projectTasks.length > 0 || data.projects.some((project) => project.id === featured.id);
   const projectActivity = featured
     ? activity.filter((a) => a.projectId === featured.id)
     : [];
@@ -96,8 +111,9 @@ export function PortalHomeContent() {
   const rail = (
     <DashboardRail
       activity={projectActivity}
-      loading={loading}
+      loading={projectsLoading}
       phase={featured?.status ?? '—'}
+      countsKnown={countsKnown}
       openTasks={openTasks}
       doingTasks={doingTasks}
       blocked={blocked}
@@ -141,7 +157,9 @@ export function PortalHomeContent() {
       {activeSection === 'overview' && (
         <PortalTilePane>
           <div className="flex h-full min-h-0 flex-col" style={{ gap: PORTAL_PANEL_GAP_VAR }}>
-            <StatusCounts tasks={tasks} loading={loading} />
+            {projectsLoading || countsKnown ? (
+              <StatusCounts tasks={projectTasks} loading={projectsLoading} />
+            ) : null}
             {/* Preview: ambient blur bleeds outside; device clips inside the bevel */}
             <div
               className="relative min-h-0 shrink-0"
@@ -198,7 +216,7 @@ export function PortalHomeContent() {
                         maxWidth: '18ch',
                       }}
                     >
-                      {featured?.name ?? (loading ? 'Loading…' : 'No active project')}
+                      {featured?.name ?? (projectsLoading ? 'Loading…' : 'No active project')}
                     </h2>
                   </div>
                   {featured ? <Pill color={projectStatusColor(featured.status)}>{featured.status}</Pill> : null}
@@ -272,18 +290,24 @@ export function PortalHomeContent() {
                   </p>
                 </div>
                 <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                  {loading
+                  {projectsLoading
                     ? '…'
-                    : `${projectTasks.length} task${projectTasks.length === 1 ? '' : 's'}`}
+                    : countsKnown
+                      ? `${projectTasks.length} task${projectTasks.length === 1 ? '' : 's'}`
+                      : 'Tasks not in this view'}
                 </span>
               </div>
               <div
                 className="min-h-0 flex-1 overflow-y-auto"
                 style={{ padding: 'var(--s-4) var(--s-5)' }}
               >
-                {!featured && !loading ? (
+                {!featured && !projectsLoading ? (
                   <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
                     No active project yet.
+                  </p>
+                ) : featured && !projectsLoading && projectTasks.length === 0 ? (
+                  <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+                    No tasks in this view.
                   </p>
                 ) : (
                   <div className="flex h-full min-h-0 flex-col gap-4 lg:flex-row">
@@ -470,6 +494,7 @@ function DashboardRail({
   activity,
   loading,
   phase,
+  countsKnown,
   openTasks,
   doingTasks,
   blocked,
@@ -490,6 +515,7 @@ function DashboardRail({
   }[];
   loading: boolean;
   phase: string;
+  countsKnown: boolean;
   openTasks: number;
   doingTasks: number;
   blocked: number;
@@ -510,16 +536,25 @@ function DashboardRail({
       style={{ gap: PORTAL_PANEL_GAP_VAR }}
     >
       <RailModule title="Status">
-        <div className="grid grid-cols-2 gap-2">
-          <StatusCell label="Phase" value={loading ? '…' : phase} />
-          <StatusCell label="Open tasks" value={String(openTasks)} />
-          <StatusCell label="In progress" value={String(doingTasks)} />
-          <StatusCell
-            label="Blocked"
-            value={String(blocked)}
-            tone={blocked > 0 ? 'var(--danger)' : undefined}
-          />
-        </div>
+        {countsKnown ? (
+          <div className="grid grid-cols-2 gap-2">
+            <StatusCell label="Phase" value={loading ? '…' : phase} />
+            <StatusCell label="Open tasks" value={String(openTasks)} />
+            <StatusCell label="In progress" value={String(doingTasks)} />
+            <StatusCell
+              label="Blocked"
+              value={String(blocked)}
+              tone={blocked > 0 ? 'var(--danger)' : undefined}
+            />
+          </div>
+        ) : (
+          <div className="flex flex-col gap-2">
+            <StatusCell label="Phase" value={loading ? '…' : phase} />
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+              Task counts for this project are not in this view.
+            </p>
+          </div>
+        )}
         <p
           className="ds-mono"
           style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', marginTop: 10 }}

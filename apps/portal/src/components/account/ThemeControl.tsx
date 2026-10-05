@@ -36,7 +36,7 @@ export function ThemeControl() {
 
   return (
     <div data-testid="account-theme">
-    <Surface style={{ padding: 'var(--s-5)', maxWidth: 560 }}>
+    <Surface style={{ padding: 'var(--s-5)' }}>
       <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
         Appearance
       </p>

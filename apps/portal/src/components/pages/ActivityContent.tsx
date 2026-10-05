@@ -8,7 +8,7 @@ import {
 } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { activityToneVar, tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
-import type { PortalActivity } from '@/lib/data/view-models';
+import { pullSyncWords, type PortalActivity } from '@/lib/data/view-models';
 
 const SECTION_TITLE: Record<string, string> = {
   all: 'All activity',
@@ -73,6 +73,7 @@ export function ActivityContent() {
   const watching = feed.filter(isWatching);
   const attention = exceptions.length ? exceptions : watching;
   const syncMeta = data.syncMeta;
+  const pull = pullSyncWords(syncMeta);
   const isTeam = data.tenant.mode === 'team';
 
   return (
@@ -97,12 +98,8 @@ export function ActivityContent() {
                   ? [
                       {
                         label: 'Sync',
-                        value: syncMeta.lastError
-                          ? 'Error'
-                          : syncMeta.lastSyncedAt
-                            ? 'OK'
-                            : 'Idle',
-                        hint: 'Convex pull',
+                        value: pull.value,
+                        hint: pull.hint,
                       },
                     ]
                   : [
@@ -225,8 +222,10 @@ export function ActivityContent() {
                     <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
                       {isTeam
                         ? syncMeta.lastError
-                          ? 'Sync reported an error — see banner above.'
-                          : 'No exceptions. Convex sync looks healthy.'
+                          ? 'The Notion pull failed. See the note above.'
+                          : pull.value === 'In sync'
+                            ? 'No exceptions. The Notion pull is in sync.'
+                            : 'No exceptions. The Notion pull is still syncing.'
                         : 'Nothing needs attention right now.'}
                     </p>
                   )}

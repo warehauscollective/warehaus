@@ -9,7 +9,7 @@ import { ProjectsContent } from '@/components/pages/ProjectsContent';
 import { ResourcesContent } from '@/components/pages/ResourcesContent';
 import { ActivityContent } from '@/components/pages/ActivityContent';
 import { AccountContent } from '@/components/pages/AccountContent';
-import { PORTAL_PANEL_GAP_VAR } from '@/lib/design/portal-chrome';
+import { PORTAL_EDGE_SAFE, PORTAL_PANEL_GAP_VAR } from '@/lib/design/portal-chrome';
 import { PortalPanelBoundary } from './PortalPanelBoundary';
 import { PortalTabSidebar } from './PortalSidebar';
 
@@ -40,7 +40,7 @@ function TabPanelShell({
       className="box-border flex h-full min-h-0 flex-col overflow-hidden pb-28 pt-3 lg:flex-row lg:pt-[var(--portal-panel-gap,1.25rem)]"
       style={{
         paddingLeft: PORTAL_PANEL_GAP_VAR,
-        paddingRight: PORTAL_PANEL_GAP_VAR,
+        paddingRight: `max(${PORTAL_PANEL_GAP_VAR}, ${PORTAL_EDGE_SAFE})`,
         gap: PORTAL_PANEL_GAP_VAR,
         touchAction: 'pan-x pan-y',
       }}

@@ -1,5 +1,5 @@
 import { Pill } from '@/components/ui/primitives';
-import { rowSyncChip, rowSyncLabel, type RowSyncState } from '@/lib/data/view-models';
+import { rowHasSyncFields, rowSyncChip, rowSyncLabel, type RowSyncState } from '@/lib/data/view-models';
 
 const TONE: Record<RowSyncState, string> = {
   synced: 'var(--success)',
@@ -21,6 +21,7 @@ export function SyncChip({
   retryNote?: string | null;
 }) {
   const row = { notionPageId, syncHidden, syncState };
+  if (!rowHasSyncFields(row)) return null;
   const state = rowSyncChip(row);
   return (
     <span className="inline-flex flex-wrap items-center gap-2">

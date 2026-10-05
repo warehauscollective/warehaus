@@ -175,9 +175,10 @@ export function PortalTilePane({
 }) {
   return (
     <div
-      className={className}
+      className={className ? `min-w-0 ${className}` : 'min-w-0'}
       style={{
         height: '100%',
+        width: '100%',
         minHeight: 0,
         overflowX: 'hidden',
         overflowY: 'auto',

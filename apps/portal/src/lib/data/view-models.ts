@@ -171,6 +171,18 @@ export function taskBoardColumnKey(
 
 export type RowSyncState = 'syncing' | 'synced' | 'failed';
 
+/**
+ * True only when the payload actually carries sync fields.
+ * A deployed list that omits them is unknown — not "Syncing".
+ */
+export function rowHasSyncFields(row: {
+  notionPageId?: string | null;
+  syncHidden?: boolean;
+  syncState?: RowSyncState | null;
+}): boolean {
+  return row.notionPageId !== undefined || row.syncHidden !== undefined || row.syncState != null;
+}
+
 /** Pulled rows with a real Notion page id read as synced. Local or hidden rows never do. */
 export function rowSyncChip(row: {
   notionPageId?: string | null;
@@ -195,6 +207,77 @@ export function rowSyncLabel(row: {
   if (chip === 'failed') return row.syncHidden && row.syncState !== 'failed' ? 'Hidden' : 'Failed';
   if (chip === 'synced') return 'In sync';
   return 'Syncing';
+}
+
+/** Same words as a row chip, for the Activity pull tile. */
+export function pullSyncWords(meta: {
+  lastSyncedAt?: string | null;
+  lastError?: string | null;
+}): { value: 'Failed' | 'In sync' | 'Syncing'; hint: string } {
+  if (meta.lastError) return { value: 'Failed', hint: 'Notion pull' };
+  if (meta.lastSyncedAt) return { value: 'In sync', hint: 'Notion pull' };
+  return { value: 'Syncing', hint: 'Notion pull' };
+}
+
+/** Prefer an in-progress project. Shipped work is the fallback, not the hero. */
+export function pickActiveProject<T extends { status: string; internal?: boolean }>(
+  projects: readonly T[],
+): T | null {
+  const visible = projects.filter((project) => !project.internal);
+  const pool = visible.length > 0 ? visible : projects;
+  const open = pool.filter((project) => !/ship|done/i.test(project.status));
+  return open.find((project) => /progress/i.test(project.status)) ?? open[0] ?? pool[0] ?? null;
+}
+
+/**
+ * Copy a Notion id from a snapshot row onto a staff list row that omitted it.
+ * Rows with no matching id stay unmarked so the chip stays hidden.
+ */
+export function attachKnownSync<
+  T extends { id: string; notionPageId?: string | null; syncHidden?: boolean },
+>(
+  rows: readonly T[],
+  known: ReadonlyArray<{ id: string; notionPageId?: string | null; syncHidden?: boolean }>,
+): Array<T & { notionPageId?: string | null; syncHidden?: boolean }> {
+  const byId = new Map(known.map((row) => [row.id, row]));
+  return rows.map((row) => {
+    if (row.notionPageId !== undefined || row.syncHidden !== undefined) return row;
+    const match = byId.get(row.id);
+    if (!match || (match.notionPageId === undefined && match.syncHidden === undefined)) return row;
+    return { ...row, notionPageId: match.notionPageId ?? null, syncHidden: match.syncHidden };
+  });
+}
+
+function countLabel(count: number, singular: string, plural: string): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
+/**
+ * Client list subtitle from fields the deployed directory actually returns.
+ * A missing people count is omitted. It is not drawn as a dash.
+ */
+export function clientDirectoryMeta(client: {
+  contactCount?: number | null;
+  projectCount?: number | null;
+  openTaskCount?: number | null;
+  resourceCount?: number | null;
+  status?: string | null;
+}): string {
+  const parts: string[] = [];
+  if (typeof client.contactCount === 'number') {
+    parts.push(countLabel(client.contactCount, 'person', 'people'));
+  }
+  if (typeof client.projectCount === 'number') {
+    parts.push(client.projectCount === 0 ? 'No projects yet' : countLabel(client.projectCount, 'project', 'projects'));
+  }
+  if (typeof client.openTaskCount === 'number' && client.openTaskCount > 0) {
+    parts.push(countLabel(client.openTaskCount, 'open item', 'open items'));
+  }
+  if (typeof client.resourceCount === 'number' && client.resourceCount > 0) {
+    parts.push(countLabel(client.resourceCount, 'resource', 'resources'));
+  }
+  if (parts.length === 0 && client.status) parts.push(client.status);
+  return parts.length > 0 ? parts.join(' · ') : 'No projects yet';
 }
 
 export function taskStatusColor(status: string, isDone = false): string {

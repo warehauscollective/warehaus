@@ -25,7 +25,7 @@ import { useFixturePreview } from '@/components/providers/FixturePreviewProvider
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { isMissingConvexFunction, staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
-import { taskStatusColor } from '@/lib/data/view-models';
+import { clientDirectoryMeta, taskStatusColor } from '@/lib/data/view-models';
 
 const SECTION_TITLE: Record<string, string> = {
   clients: 'Clients',
@@ -196,7 +196,7 @@ export function AccountContent() {
                       ) : null}
                     </div>
                     <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 8 }}>
-                      {client.contactCount ?? '—'} people · {client.projectCount} projects · {client.openTaskCount} open items · Awaiting go —
+                      {clientDirectoryMeta(client)}
                     </p>
                   </Surface>
                 </button>
@@ -209,7 +209,7 @@ export function AccountContent() {
       {activeSection === 'profile' && (
         <PortalTilePane>
           <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
-            <Surface style={{ padding: 'var(--s-5)', maxWidth: 560 }}>
+            <Surface style={{ padding: 'var(--s-5)' }}>
               <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
                 Profile
               </p>
@@ -258,7 +258,7 @@ export function AccountContent() {
 
       {isStaff && activeSection === 'team' && (
         <PortalTilePane>
-          <Surface style={{ padding: 'var(--s-5)', maxWidth: 560 }}>
+          <Surface style={{ padding: 'var(--s-5)' }}>
             <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
               Team & invites
             </p>
@@ -421,7 +421,7 @@ function NotificationSettings({ staff }: { staff: boolean }) {
   ];
 
   return (
-    <Surface style={{ padding: 'var(--s-5)', maxWidth: 560 }}>
+    <Surface style={{ padding: 'var(--s-5)' }}>
       <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
         Notifications
       </p>

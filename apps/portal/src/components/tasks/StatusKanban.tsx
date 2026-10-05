@@ -8,7 +8,7 @@ import {
   type PortalTask,
 } from '@/lib/data/view-models';
 import { Bevel } from '@warehaus/ui';
-import { PORTAL_PANEL_GAP_VAR, PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
+import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 
 export function StatusKanban({
   tasks,
@@ -21,11 +21,9 @@ export function StatusKanban({
 }) {
   const unmatched = tasks.filter((task) => taskBoardColumnKey(task) == null);
   return (
-    <div className="flex h-full min-h-0 flex-col gap-3" data-testid="status-kanban">
-      <div
-        className="flex h-full min-h-0 gap-3 overflow-x-auto pb-1"
-        style={{ gap: PORTAL_PANEL_GAP_VAR }}
-      >
+    <div className="flex h-full min-h-0 min-w-0 flex-col gap-3" data-testid="status-kanban">
+      <div className="h-full min-h-0 min-w-0 w-full overflow-x-auto pb-1">
+        <div className="grid h-full min-h-[16rem] w-full gap-[var(--portal-panel-gap,1.25rem)] [grid-template-columns:repeat(5,minmax(9.25rem,1fr))] max-lg:w-max max-lg:min-w-full lg:w-full lg:[grid-template-columns:repeat(5,minmax(0,1fr))]">
         {TASK_BOARD_COLUMNS.map((col) => {
           const items = tasks.filter((task) => taskBoardColumnKey(task) === col.key);
           return (
@@ -37,7 +35,7 @@ export function StatusKanban({
               shoulder={0.55}
               fill="var(--surface)"
               stroke="var(--border)"
-              className="flex min-h-0 w-[min(240px,78vw)] shrink-0 flex-col"
+              className="flex min-h-0 min-w-0 flex-col"
               style={{ padding: 0 }}
             >
               <div
@@ -97,6 +95,7 @@ export function StatusKanban({
             </Bevel>
           );
         })}
+        </div>
       </div>
       {!loading && unmatched.length > 0 ? (
         <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>

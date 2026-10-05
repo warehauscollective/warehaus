@@ -14,6 +14,7 @@ import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { api } from '@convex/_generated/api';
 import { FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_TASKS } from '@/lib/data/fixtures';
 import {
+  attachKnownSync,
   formatPortalDate,
   projectStatusColor,
   taskStatusColor,
@@ -69,11 +70,12 @@ export function ProjectsContent() {
     !fixtures && configured && !isStaff && data.tenant.ok ? { hostSlug } : 'skip',
   );
 
-  const projects = useMemo(
-    () =>
-      (fixtures ? FIXTURE_PROJECTS : isStaff ? staff.projects ?? [] : data.projects) as ProjectRow[],
-    [fixtures, isStaff, staff.projects, data.projects],
-  );
+  const projects = useMemo(() => {
+    const rows = (
+      fixtures ? FIXTURE_PROJECTS : isStaff ? staff.projects ?? [] : data.projects
+    ) as ProjectRow[];
+    return attachKnownSync(rows, data.projects);
+  }, [fixtures, isStaff, staff.projects, data.projects]);
   const tasks = (
     fixtures ? FIXTURE_TASKS : isStaff ? staff.tasks ?? data.tasks : data.tasks
   ) as PortalTask[];
@@ -115,7 +117,7 @@ export function ProjectsContent() {
         }
       >
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
+          <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto">
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
