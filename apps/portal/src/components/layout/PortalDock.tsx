@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ListTodo, Menu } from 'lucide-react';
+import { ListTodo } from 'lucide-react';
 import { getPortalTabsForMode, type PortalTab } from '@warehaus/logic/portal';
 import { PORTAL_TAB_ICONS } from '@/lib/data/tabIcons';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
@@ -13,6 +13,7 @@ import { usePortalData } from '@/hooks/usePortalData';
  * so left/right swipe and dock clicks stay one continuous surface.
  *
  * Below `lg`: icon-only tabs. `lg+`: full word labels.
+ * Menu trigger lives in PortalMobileTopBar (mobile) — not in this dock.
  * Client portals relabel the projects tab as Tasks. Chatroom is out of scope.
  */
 export function PortalDock() {
@@ -78,20 +79,6 @@ export function PortalDock() {
       style={{ bottom: '1.25rem' }}
       aria-label="Portal navigation"
     >
-      <button
-        type="button"
-        aria-label="Open menu"
-        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl backdrop-blur-2xl sm:h-12 sm:w-12 lg:h-14 lg:w-14 lg:rounded-3xl"
-        style={{
-          background: 'var(--nav-bg)',
-          borderColor: 'var(--nav-border)',
-          borderWidth: 1,
-          color: 'var(--nav-text)',
-        }}
-      >
-        <Menu className="h-5 w-5" />
-      </button>
-
       <div
         ref={containerRef}
         role="tablist"
@@ -181,7 +168,6 @@ export function PortalDock() {
           })}
         </div>
       </div>
-
     </nav>
   );
 }

@@ -142,7 +142,7 @@ export function AccountContent() {
       )}
       {activeSection === 'overview' && (
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4">
+          <div className="flex max-lg:h-auto lg:h-full lg:min-h-0 flex-col gap-4">
             <PortalStatGrid
               items={
                 isClient
@@ -189,7 +189,7 @@ export function AccountContent() {
                     ]
               }
             />
-            <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
+            <div className="grid max-lg:flex-none lg:min-h-0 lg:flex-1 gap-3 lg:grid-cols-2">
               <Surface style={{ padding: 'var(--s-5)' }}>
                 <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
                   {isClient ? 'Your organization' : 'Tenant'}
@@ -286,7 +286,7 @@ export function AccountContent() {
 
       {activeSection === 'profile' && (
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4">
+          <div className="flex max-lg:h-auto lg:h-full lg:min-h-0 flex-col gap-4">
             <Surface style={{ padding: 'var(--s-5)', maxWidth: 480 }}>
               <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
                 Session
@@ -361,7 +361,7 @@ export function AccountContent() {
 
       {activeSection === 'billing' && (
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4">
+          <div className="flex max-lg:h-auto lg:h-full lg:min-h-0 flex-col gap-4">
             {billing === undefined && (
               <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading billing…</p>
             )}
@@ -395,15 +395,13 @@ export function AccountContent() {
             )}
             {billing && billing.invoices.length > 0 && (
               <div
+                className="max-lg:overflow-x-auto lg:min-h-0 lg:flex-1 lg:overflow-hidden"
                 style={{
                   border: '1px solid var(--border)',
                   borderRadius: 'var(--radius)',
-                  overflow: 'hidden',
-                  flex: 1,
-                  minHeight: 0,
                 }}
               >
-                <div className="h-full overflow-auto">
+                <div className="max-lg:h-auto max-lg:overflow-x-auto max-lg:overflow-y-visible lg:h-full lg:overflow-auto">
                   <table className="ds-data" style={{ minWidth: 640 }}>
                     <thead>
                       <tr>
@@ -459,14 +457,13 @@ export function AccountContent() {
       {!isClient && activeSection === 'team' && (
         <PortalTilePane>
           <div
+            className="max-lg:overflow-x-auto lg:h-full lg:overflow-hidden"
             style={{
               border: '1px solid var(--border)',
               borderRadius: 'var(--radius)',
-              overflow: 'hidden',
-              height: '100%',
             }}
           >
-            <div className="h-full overflow-auto">
+            <div className="max-lg:h-auto max-lg:overflow-x-auto max-lg:overflow-y-visible lg:h-full lg:overflow-auto">
               {directory === undefined && (
                 <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', padding: 'var(--s-5)' }}>
                   Loading clients…

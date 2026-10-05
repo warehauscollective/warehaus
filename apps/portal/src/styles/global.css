@@ -26,6 +26,33 @@ main {
   min-height: 100dvh;
 }
 
+/*
+ * Swipe panels default to overflow-y: auto (inline) so mobile pages scroll as
+ * one document behind the floating dock. Desktop keeps the fixed tile workspace
+ * (nested PortalTilePane scroll) — lock the panel itself.
+ */
+@media (min-width: 1024px) {
+  .portal-tab-panel {
+    overflow-y: hidden !important;
+  }
+}
+
+/* Mobile: kill flex height locks so tab content grows with the document. */
+@media (max-width: 1023px) {
+  .portal-tab-shell,
+  .portal-tab-content,
+  .portal-workspace {
+    display: block !important;
+    height: auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+
+  .portal-tab-shell {
+    min-height: 100% !important;
+  }
+}
+
 
 /* Local preference: compact density (Account → Preferences) */
 html[data-density='compact'] {

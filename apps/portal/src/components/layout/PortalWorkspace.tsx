@@ -8,10 +8,10 @@ import { PORTAL_PANEL_GAP_VAR, PORTAL_SURFACE_RADIUS } from '@/lib/design/portal
 
 /**
  * Desktop portal chrome for a single tab: fixed above-the-fold workspace.
- * - No page scroll — the main tile region fills the viewport
+ * - Desktop: no page scroll — the main tile region fills the viewport
  * - Optional persistent right rail (`aside`)
  * - Optional detail inspector (replaces rail while open)
- * - Mobile keeps a simpler stacked scroll (lg: and below)
+ * - Mobile: document flow so the parent tab panel scrolls as one page
  */
 export function PortalWorkspace({
   eyebrow,
@@ -35,17 +35,19 @@ export function PortalWorkspace({
   const showRight = detailOpen || Boolean(aside);
 
   return (
-    <div className="flex h-full min-h-0 flex-col lg:overflow-hidden">
+    <div className="portal-workspace max-lg:block lg:flex lg:h-full lg:min-h-0 lg:flex-col lg:overflow-hidden">
       {!hideHeader ? (
         <header
-          className="flex shrink-0 flex-wrap items-end justify-between gap-3"
+          className={`shrink-0 flex-wrap items-end justify-between gap-3 ${
+            actions ? 'flex' : 'hidden lg:flex'
+          }`}
           style={{
-            paddingTop: 'var(--s-5)',
-            paddingBottom: 'var(--s-4)',
+            paddingTop: 'var(--s-3)',
+            paddingBottom: 'var(--s-3)',
             borderBottom: '1px solid var(--border)',
           }}
         >
-          <div className="min-w-0">
+          <div className="hidden min-w-0 lg:block">
             <p
               className="ds-mono"
               style={{
@@ -68,19 +70,23 @@ export function PortalWorkspace({
               {title}
             </h1>
           </div>
-          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+          {actions ? (
+            <div className="flex w-full flex-wrap items-center gap-2 lg:ml-auto lg:w-auto">
+              {actions}
+            </div>
+          ) : null}
         </header>
       ) : null}
 
       <div
-        className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:overflow-hidden${hideHeader ? '' : ' pt-4'}`}
+        className={`max-lg:block lg:flex lg:min-h-0 lg:flex-1 lg:flex-row lg:overflow-hidden${hideHeader ? '' : ' pt-3 lg:pt-4'}`}
         style={{ gap: PORTAL_PANEL_GAP_VAR }}
       >
-        <div className="min-h-0 min-w-0 flex-1 lg:overflow-hidden">{children}</div>
+        <div className="min-w-0 max-lg:block lg:min-h-0 lg:flex-1 lg:overflow-hidden">{children}</div>
 
         {showRight ? (
           <aside
-            className="flex w-full shrink-0 flex-col lg:w-[min(300px,32%)] lg:overflow-hidden"
+            className="flex w-full shrink-0 flex-col max-lg:mt-3 lg:mt-0 lg:w-[min(300px,32%)] lg:overflow-hidden"
             aria-label={detailOpen ? 'Details' : 'Sidebar'}
           >
             {detailOpen && detail ? (
@@ -91,7 +97,7 @@ export function PortalWorkspace({
                 shoulder={0.75}
                 fill="var(--surface)"
                 stroke="var(--border)"
-                className="flex h-full min-h-0 flex-col"
+                className="flex flex-col max-lg:min-h-[50vh] lg:h-full lg:min-h-0"
                 style={{ padding: 0, overflow: 'hidden' }}
               >
                 <div
@@ -164,8 +170,11 @@ export function PortalWorkspace({
   );
 }
 
-/** Scrollable tile/list region that stays inside the workspace (not the page).
- *  Vertical-only overflow so horizontal tab swipes chain to the snap track. */
+/**
+ * Tile/list region inside a workspace.
+ * Mobile: natural flow (parent tab panel scrolls as one page).
+ * Desktop: nested vertical scroll inside the fixed tile viewport.
+ */
 export function PortalTilePane({
   children,
   className,
@@ -175,14 +184,12 @@ export function PortalTilePane({
 }) {
   return (
     <div
-      className={className}
+      className={
+        className
+          ? `max-lg:h-auto max-lg:overflow-visible lg:h-full lg:min-h-0 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain ${className}`
+          : 'max-lg:h-auto max-lg:overflow-visible lg:h-full lg:min-h-0 lg:overflow-x-hidden lg:overflow-y-auto lg:overscroll-y-contain'
+      }
       style={{
-        height: '100%',
-        minHeight: 0,
-        overflowX: 'hidden',
-        overflowY: 'auto',
-        overscrollBehaviorX: 'none',
-        overscrollBehaviorY: 'contain',
         touchAction: 'pan-x pan-y',
         paddingBottom: '0.25rem',
       }}

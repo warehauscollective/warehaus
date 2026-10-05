@@ -114,13 +114,11 @@ export function PortalHomeContent() {
     >
       {activeSection === 'overview' && (
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col" style={{ gap: PORTAL_PANEL_GAP_VAR }}>
+          <div className="flex max-lg:h-auto lg:h-full lg:min-h-0 flex-col" style={{ gap: PORTAL_PANEL_GAP_VAR }}>
             {/* Preview: ambient blur bleeds outside; device clips inside the bevel */}
             <div
-              className="relative min-h-0 shrink-0"
+              className="relative min-h-0 shrink-0 max-lg:min-h-[220px] lg:min-h-[42%] lg:flex-[1.35_1_0%]"
               style={{
-                flex: '1.35 1 0',
-                minHeight: '42%',
                 // Allow glow to leak past the tile; device still clips inside Bevel.
                 overflow: 'visible',
               }}
@@ -226,8 +224,8 @@ export function PortalHomeContent() {
               shoulder={0.75}
               fill="var(--surface)"
               stroke="var(--border)"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden"
-              style={{ padding: 0, minHeight: '28%' }}
+              className="flex flex-col max-lg:overflow-visible lg:min-h-0 lg:flex-1 lg:overflow-hidden"
+              style={{ padding: 0 }}
             >
               <div
                 className="flex shrink-0 items-center justify-between gap-3"
@@ -251,7 +249,7 @@ export function PortalHomeContent() {
                 </span>
               </div>
               <div
-                className="min-h-0 flex-1 overflow-y-auto"
+                className="max-lg:overflow-visible lg:min-h-0 lg:flex-1 lg:overflow-y-auto"
                 style={{ padding: 'var(--s-4) var(--s-5)' }}
               >
                 {!featured && !loading ? (
@@ -259,7 +257,7 @@ export function PortalHomeContent() {
                     No active project yet.
                   </p>
                 ) : (
-                  <div className="flex h-full min-h-0 flex-col gap-4 lg:flex-row">
+                  <div className="flex max-lg:h-auto lg:h-full lg:min-h-0 flex-col gap-4 lg:flex-row">
                     <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
                       <p
                         className="ds-mono shrink-0"
@@ -272,7 +270,7 @@ export function PortalHomeContent() {
                       >
                         Tasks
                       </p>
-                      <div className="flex min-h-0 flex-col gap-2 overflow-y-auto">
+                      <div className="flex flex-col gap-2 max-lg:overflow-visible lg:min-h-0 lg:overflow-y-auto">
                         {projectTasks.map((t) => (
                           <button
                             key={t.id}
@@ -479,7 +477,7 @@ function DashboardRail({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col overflow-y-auto lg:overflow-hidden"
+      className="flex max-lg:h-auto lg:h-full lg:min-h-0 flex-col max-lg:overflow-visible lg:overflow-hidden"
       style={{ gap: PORTAL_PANEL_GAP_VAR }}
     >
       <RailModule title="Status">
@@ -509,7 +507,7 @@ function DashboardRail({
       </RailModule>
 
       <RailModule title="Activity" className="min-h-0 flex-1">
-        <div className="flex min-h-0 flex-col gap-2 overflow-y-auto">
+        <div className="flex flex-col gap-2 max-lg:overflow-visible lg:min-h-0 lg:overflow-y-auto">
           {activity.slice(0, 5).map((item) => (
             <div key={item.id} className="flex gap-2">
               <span

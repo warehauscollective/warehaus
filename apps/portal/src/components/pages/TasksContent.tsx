@@ -137,7 +137,7 @@ function KanbanBoard({
 }) {
   return (
     <div
-      className="flex h-full min-h-0 gap-3 overflow-x-auto pb-1"
+      className="flex max-lg:h-auto lg:h-full lg:min-h-0 gap-3 overflow-x-auto pb-1"
       style={{ gap: PORTAL_PANEL_GAP_VAR }}
     >
       {TASK_BOARD_COLUMNS.map((col) => {
@@ -253,7 +253,7 @@ function TaskListView({
       shoulder={0.6}
       fill="var(--surface)"
       stroke="var(--border)"
-      className="flex h-full min-h-0 flex-col overflow-hidden"
+      className="flex max-lg:h-auto max-lg:overflow-visible lg:h-full lg:min-h-0 flex-col lg:overflow-hidden"
       style={{ padding: 0 }}
     >
       <div
@@ -377,7 +377,7 @@ function TaskResponseSheet({ task }: { task: PortalTask }) {
   const needsBody = type === 'comment' || type === 'request-change';
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-5">
+    <div className="flex max-lg:h-auto lg:h-full lg:min-h-0 flex-col gap-5">
       <div className="flex flex-col gap-1">
         {props.map((row) => (
           <div

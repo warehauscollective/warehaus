@@ -75,7 +75,7 @@ export function ActivityContent() {
     <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Activity')} title={title}>
       {activeSection === 'overview' && (
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4">
+          <div className="flex max-lg:h-auto lg:h-full lg:min-h-0 flex-col gap-4">
             <PortalStatGrid
               items={[
                 { label: 'Events', value: loading ? '…' : String(feed.length), hint: 'Feed' },
@@ -118,7 +118,7 @@ export function ActivityContent() {
                 <p style={{ fontSize: 'var(--t-sm)', marginTop: 4 }}>{syncMeta.lastError}</p>
               </Surface>
             )}
-            <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
+            <div className="grid max-lg:flex-none lg:min-h-0 lg:flex-1 gap-3 lg:grid-cols-2">
               <Surface style={{ padding: 'var(--s-4)', minHeight: 0 }}>
                 <p className="ds-mono mb-3" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
                   Latest
@@ -293,14 +293,13 @@ export function ActivityContent() {
       {activeSection === 'exceptions' && (
         <PortalTilePane>
           <div
+            className="max-lg:overflow-x-auto lg:h-full lg:overflow-hidden"
             style={{
               border: '1px solid var(--border)',
               borderRadius: 'var(--radius)',
-              overflow: 'hidden',
-              height: '100%',
             }}
           >
-            <div className="h-full overflow-auto">
+            <div className="max-lg:h-auto max-lg:overflow-x-auto max-lg:overflow-y-visible lg:h-full lg:overflow-auto">
               {!attention.length ? (
                 <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', padding: 'var(--s-5)' }}>
                   No exceptions or warnings in the current feed.
