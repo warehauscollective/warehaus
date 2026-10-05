@@ -1,8 +1,8 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
+import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { Pill, PrimaryButton, Surface } from '@/components/ui/primitives';
 import {
   PortalTilePane,
@@ -62,10 +62,11 @@ export function PortalHomeContent() {
   const configured = isConvexConfigured();
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
-  const billingSummary = useQuery(
+  const billingState = useSafeQuery<PortalBillingSummary>(
     api.billing.getSummary,
     configured && data.tenant.ok ? { hostSlug } : 'skip',
   );
+  const billingSummary = billingState.data;
   const activeSection = sectionFor('dashboard');
   const projects = data.projects;
   const tasks = data.tasks;
@@ -104,8 +105,8 @@ export function PortalHomeContent() {
       projectName={featured?.name ?? null}
       tenantMode={data.tenant.mode}
       clientName={data.tenant.clientName}
-      billing={billingSummary as PortalBillingSummary | undefined}
-      billingLoading={billingSummary === undefined}
+      billing={billingSummary}
+      billingLoading={billingState.loading}
     />
   );
 

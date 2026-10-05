@@ -8,7 +8,6 @@ import {
 } from '@convex-dev/better-auth/react';
 import { authClient } from '@/lib/auth-client';
 import { getConvexClient, isConvexConfigured } from '@/lib/convex/client';
-import { portalFixturesEnabled } from '@/lib/data/portalFixtures';
 
 let fixtureClient: ConvexReactClient | null = null;
 
@@ -26,11 +25,14 @@ function getFixtureClient() {
 export function ConvexClientProvider({
   children,
   initialToken,
+  fixtureTransport = false,
 }: {
   children: ReactNode;
   initialToken?: string | null;
+  /** Local fixture preview only, when Convex URL is unset. Never used in production. */
+  fixtureTransport?: boolean;
 }) {
-  if (portalFixturesEnabled()) {
+  if (fixtureTransport) {
     return <ConvexProvider client={getFixtureClient()}>{children}</ConvexProvider>;
   }
 

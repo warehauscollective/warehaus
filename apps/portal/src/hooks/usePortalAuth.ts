@@ -1,13 +1,15 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { useMutation, useQuery } from 'convex/react';
+import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import { authClient } from '@/lib/auth-client';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { VERIFY_EMAIL_PATH, isCantRegisterError } from '@convex/_lib/registration';
-import { FIXTURE_SESSION, portalFixturesEnabled } from '@/lib/data/portalFixtures';
+import { FIXTURE_SESSION } from '@/lib/data/portalFixtures';
+import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
+import { useSafeQuery } from '@/hooks/useSafeQuery';
 
 export type PortalSessionView = {
   contactId: string;
@@ -26,18 +28,23 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 export function usePortalAuth() {
-  const fixtures = portalFixturesEnabled();
+  const fixtures = useFixturePreview();
   const configured = isConvexConfigured() && !fixtures;
   const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() : null;
   const { data: session, isPending: sessionPending, refetch } = authClient.useSession();
   const linkSession = useMutation(api.contacts.linkSession);
-  const linkStatus = useQuery(api.contacts.getLinkStatus, configured ? {} : 'skip');
-  const portalSession = useQuery(
+  const linkState = useSafeQuery<{ state: string }>(
+    api.contacts.getLinkStatus,
+    configured ? {} : 'skip',
+  );
+  const linkStatus = linkState.data;
+  const portalState = useSafeQuery<PortalSessionView>(
     api.me.getPortalSession,
     configured && linkStatus?.state === 'linked'
       ? { hostSlug: hostSlug ?? undefined }
       : 'skip',
   );
+  const portalSession = portalState.data;
 
   const [joinError, setJoinError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
@@ -69,14 +76,17 @@ export function usePortalAuth() {
   useEffect(() => {
     if (!configured) return;
     if (sessionPending) return;
+    if (linkState.error) return;
     if (!session?.user) {
       setJoinError(null);
       return;
     }
     if (linkStatus?.state === 'unlinked') {
-      void ensureLinked();
+      void ensureLinked().catch((err) => {
+        setJoinError(errorMessage(err, 'Could not link portal contact'));
+      });
     }
-  }, [configured, sessionPending, session?.user, linkStatus?.state, ensureLinked]);
+  }, [configured, sessionPending, session?.user, linkStatus?.state, linkState.error, ensureLinked]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {
@@ -133,6 +143,7 @@ export function usePortalAuth() {
         name: FIXTURE_SESSION.name,
       },
       linkStatus: 'linked' as const,
+      linkQueryError: null,
       portalSession: FIXTURE_SESSION,
       signIn,
       signUp,
@@ -148,8 +159,11 @@ export function usePortalAuth() {
     joining,
     joinError,
     authUser: session?.user ?? null,
-    linkStatus: linkStatus?.state ?? (configured ? 'loading' : 'disabled'),
-    portalSession: (portalSession as PortalSessionView | undefined) ?? null,
+    linkStatus: linkState.error
+      ? ('error' as const)
+      : (linkStatus?.state ?? (configured ? 'loading' : 'disabled')),
+    linkQueryError: linkState.error ?? portalState.error,
+    portalSession: portalSession ?? null,
     signIn,
     signUp,
     signOut,

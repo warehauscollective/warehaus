@@ -10,6 +10,7 @@ import { ResourcesContent } from '@/components/pages/ResourcesContent';
 import { ActivityContent } from '@/components/pages/ActivityContent';
 import { AccountContent } from '@/components/pages/AccountContent';
 import { PORTAL_PANEL_GAP_VAR } from '@/lib/design/portal-chrome';
+import { PortalPanelBoundary } from './PortalPanelBoundary';
 import { PortalTabSidebar } from './PortalSidebar';
 
 function renderPortalPanel(tab: PortalTab) {
@@ -77,7 +78,7 @@ export function PortalSwipeWorkspace() {
         panelStyle={{ overflowY: 'hidden', touchAction: 'pan-x pan-y' }}
         renderPanel={(tab) => (
           <TabPanelShell tab={tab}>
-            {renderPortalPanel(tab)}
+            <PortalPanelBoundary label={tab}>{renderPortalPanel(tab)}</PortalPanelBoundary>
           </TabPanelShell>
         )}
       />

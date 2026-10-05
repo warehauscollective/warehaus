@@ -1,12 +1,20 @@
-import { notFound } from 'next/navigation';
+import { redirect } from 'next/navigation';
 import { PortalShell } from '@/components/layout/PortalShell';
+import { FixturePreviewProvider } from '@/components/providers/FixturePreviewProvider';
+import { fixturePreviewAllowed } from '@/lib/data/fixturePreviewGate';
 
-/** Local fixture preview. Refuses to render unless the fixture flag is on. */
+/**
+ * Unsigned fixture preview. Middleware and this page both fail closed
+ * unless the fixtures flag is on and the runtime is not production.
+ * There is no password. The mock session lives only under this provider.
+ */
 export default function PortalFixturePreview() {
-  if (process.env.NEXT_PUBLIC_PORTAL_FIXTURES !== '1') notFound();
+  if (!fixturePreviewAllowed()) redirect('/login');
   return (
-    <PortalShell>
-      <span className="sr-only">Fixture preview</span>
-    </PortalShell>
+    <FixturePreviewProvider>
+      <PortalShell>
+        <span className="sr-only">Fixture preview</span>
+      </PortalShell>
+    </FixturePreviewProvider>
   );
 }

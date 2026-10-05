@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { GhostButton, Pill, Surface } from '@/components/ui/primitives';
@@ -22,7 +21,10 @@ import {
   FIXTURE_PROJECTS,
   FIXTURE_TASKS,
 } from '@/lib/data/fixtures';
-import { portalFixturesEnabled } from '@/lib/data/portalFixtures';
+import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
+import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
+import { isMissingConvexFunction, staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
 import { taskStatusColor } from '@/lib/data/view-models';
 
 const SECTION_TITLE: Record<string, string> = {
@@ -36,7 +38,7 @@ type DirectoryRow = (typeof FIXTURE_CLIENTS)[number];
 
 export function AccountContent() {
   const router = useRouter();
-  const fixtures = portalFixturesEnabled();
+  const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
   const { sectionFor, setSectionFor } = usePortalView();
   const { data, error } = usePortalData();
@@ -62,36 +64,29 @@ export function AccountContent() {
     }
   }, [isClient, activeSection, setSectionFor]);
 
-  const directory = useQuery(
+  const directoryState = useSafeQuery<DirectoryRow[]>(
     api.clients.listDirectory,
     !fixtures && configured && isStaff ? { hostSlug } : 'skip',
   );
-  const staffProjects = useQuery(
-    api.projects.listForStaff,
-    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
-  );
-  const staffTasks = useQuery(
-    api.tasks.listForStaff,
-    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
-  );
-  const staffDocs = useQuery(
-    api.clientDocs.listForStaff,
-    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
-  );
-  const people = useQuery(
+  const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
+  const roster = staffRosterQueriesDeployed();
+  const peopleState = useSafeQuery<Array<(typeof FIXTURE_CONTACTS)[number]>>(
     api.contacts.listForOrg,
-    !fixtures && configured && isStaff && clientId
+    !fixtures && configured && isStaff && roster && clientId
       ? { orgId: clientId as Id<'clients'>, hostSlug }
       : 'skip',
   );
+  const peopleMissing = isMissingConvexFunction(peopleState.error);
 
-  const clients = (fixtures ? FIXTURE_CLIENTS : directory ?? []) as DirectoryRow[];
-  const projects = fixtures ? FIXTURE_PROJECTS : staffProjects ?? [];
-  const tasks = fixtures ? FIXTURE_TASKS : staffTasks ?? [];
-  const docs = (fixtures ? FIXTURE_DOCS : staffDocs ?? []) as DocRow[];
+  const clients = (fixtures ? FIXTURE_CLIENTS : directoryState.data ?? []) as DirectoryRow[];
+  const projects = (fixtures ? FIXTURE_PROJECTS : staff.projects ?? []) as typeof FIXTURE_PROJECTS;
+  const tasks = (fixtures ? FIXTURE_TASKS : staff.tasks ?? data.tasks) as typeof FIXTURE_TASKS;
+  const docs = (fixtures ? FIXTURE_DOCS : staff.docs ?? []) as DocRow[];
   const contacts = fixtures
     ? FIXTURE_CONTACTS.filter((contact) => contact.orgId === clientId)
-    : people ?? [];
+    : peopleMissing
+      ? []
+      : peopleState.data ?? [];
 
   const title = SECTION_TITLE[activeSection] ?? 'Account';
   const selected = clients.find((client) => client.id === clientId) ?? null;
@@ -134,6 +129,9 @@ export function AccountContent() {
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
               Warehaus is the client when none applies.
             </p>
+            {directoryState.error ? (
+              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>{directoryState.error}</p>
+            ) : null}
             <div className="flex flex-wrap gap-2">
               {(['all', 'active', 'internal', 'sync'] as const).map((key) => (
                 <button
@@ -156,7 +154,7 @@ export function AccountContent() {
                 </button>
               ))}
             </div>
-            {directory === undefined && !fixtures ? (
+            {directoryState.loading && !fixtures ? (
               <div className="flex flex-col gap-2" aria-busy="true">
                 {[0, 1, 2].map((i) => (
                   <div
@@ -184,19 +182,21 @@ export function AccountContent() {
                     <div className="flex flex-wrap items-center gap-2">
                       <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{client.name}</h3>
                       {client.internal ? <PublishChip published={false} /> : null}
-                      <SyncChip
-                        notionPageId={client.notionPageId}
-                        syncHidden={client.syncHidden}
-                        onRetry={
-                          client.syncHidden
-                            ? () => setRetryNote('Write-back is off. Retry does not call Notion.')
-                            : undefined
-                        }
-                        retryNote={client.syncHidden ? retryNote : null}
-                      />
+                      {client.notionPageId != null || client.syncHidden != null ? (
+                        <SyncChip
+                          notionPageId={client.notionPageId}
+                          syncHidden={client.syncHidden}
+                          onRetry={
+                            client.syncHidden
+                              ? () => setRetryNote('Write-back is off. Retry does not call Notion.')
+                              : undefined
+                          }
+                          retryNote={client.syncHidden ? retryNote : null}
+                        />
+                      ) : null}
                     </div>
                     <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 8 }}>
-                      {client.contactCount} people · {client.projectCount} projects · {client.openTaskCount} open items · Awaiting go —
+                      {client.contactCount ?? '—'} people · {client.projectCount} projects · {client.openTaskCount} open items · Awaiting go —
                     </p>
                   </Surface>
                 </button>

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { useMutation, useQuery } from 'convex/react';
+import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { Pill, PrimaryButton } from '@/components/ui/primitives';
@@ -12,7 +12,8 @@ import {
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
-import { portalFixturesEnabled } from '@/lib/data/portalFixtures';
+import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
+import { useSafeQuery } from '@/hooks/useSafeQuery';
 import {
   TASK_BOARD_COLUMNS,
   formatPortalDate,
@@ -327,11 +328,13 @@ function TaskListView({
 }
 
 export function TaskResponseSheet({ task }: { task: PortalTask }) {
-  const fixtures = portalFixturesEnabled();
+  const fixtures = useFixturePreview();
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const createResponse = useMutation(api.taskResponses.create);
-  const responses = useQuery(
+  const responseState = useSafeQuery<
+    Array<{ id: string; type: string; body: string | null; createdAt: number; contactName: string }>
+  >(
     api.taskResponses.listForTask,
     fixtures
       ? 'skip'
@@ -340,6 +343,7 @@ export function TaskResponseSheet({ task }: { task: PortalTask }) {
           hostSlug,
         },
   );
+  const responses = responseState.data;
 
   const [type, setType] = useState<TaskResponseType>('comment');
   const [body, setBody] = useState('');

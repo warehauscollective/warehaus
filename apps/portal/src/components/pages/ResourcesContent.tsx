@@ -1,7 +1,5 @@
 'use client';
 
-import { useQuery } from 'convex/react';
-import { api } from '@convex/_generated/api';
 import { Pill, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
@@ -10,7 +8,10 @@ import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { FIXTURE_RESOURCES } from '@/lib/data/fixtures';
-import { portalFixturesEnabled } from '@/lib/data/portalFixtures';
+import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
+import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
+import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { api } from '@convex/_generated/api';
 import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
 
 const SECTION_TITLE: Record<string, string> = {
@@ -26,7 +27,7 @@ function isMeeting(type: string | null): boolean {
 }
 
 export function ResourcesContent() {
-  const fixtures = portalFixturesEnabled();
+  const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
   const { sectionFor, openDetail } = usePortalView();
   const { data, error } = usePortalData();
@@ -37,17 +38,16 @@ export function ResourcesContent() {
   const isStaff = Boolean(portalSession?.isStaff);
   const title = SECTION_TITLE[activeSection] ?? 'Resources';
 
-  const staffRows = useQuery(
-    api.sharedResources.listForStaff,
-    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
-  );
-  const clientRows = useQuery(
+  const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
+  const clientRows = useSafeQuery<ResourceRow[]>(
     api.sharedResources.listForClient,
     !fixtures && configured && !isStaff && data.tenant.ok ? { hostSlug } : 'skip',
   );
 
-  const rows = (fixtures ? FIXTURE_RESOURCES : isStaff ? staffRows ?? [] : clientRows ?? []) as ResourceRow[];
-  const loading = !fixtures && (isStaff ? staffRows === undefined : clientRows === undefined);
+  const rows = (
+    fixtures ? FIXTURE_RESOURCES : isStaff ? staff.resources ?? [] : clientRows.data ?? []
+  ) as ResourceRow[];
+  const loading = !fixtures && (isStaff ? staff.resourcesLoading : clientRows.loading);
   const visible = rows.filter((row) => {
     if (activeSection === 'meeting-notes') return isMeeting(row.type);
     if (activeSection === 'files-links') return !isMeeting(row.type);
@@ -58,9 +58,9 @@ export function ResourcesContent() {
     <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Resources')} title={title}>
       <PortalTilePane>
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" data-testid="resources-list">
-          {error ? (
+          {error || staff.resourcesError ? (
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>
-              {isStaff ? error : 'We could not load your resources'}
+              {isStaff ? error || staff.resourcesError : 'We could not load your resources'}
             </p>
           ) : null}
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>

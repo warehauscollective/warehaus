@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import { DM_Sans, Geist, Geist_Mono } from 'next/font/google';
 import { ConvexClientProvider } from '@/components/providers/ConvexClientProvider';
+import { fixturePreviewAllowed } from '@/lib/data/fixturePreviewGate';
 import '@/styles/global.css';
 
 const eurostile = localFont({
@@ -84,6 +85,8 @@ const themeInitScript = `
 `.trim();
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
+  const fixtureTransport =
+    fixturePreviewAllowed() && !process.env.NEXT_PUBLIC_CONVEX_URL?.trim();
   return (
     <html
       lang="en"
@@ -94,7 +97,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="bg-background text-foreground font-body antialiased" suppressHydrationWarning>
-        <ConvexClientProvider>{children}</ConvexClientProvider>
+        <ConvexClientProvider fixtureTransport={fixtureTransport}>{children}</ConvexClientProvider>
       </body>
     </html>
   );

@@ -1,8 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useQuery } from 'convex/react';
-import { api } from '@convex/_generated/api';
 import { Pill, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
@@ -10,7 +8,10 @@ import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
-import { portalFixturesEnabled } from '@/lib/data/portalFixtures';
+import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
+import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
+import { api } from '@convex/_generated/api';
 import { FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_TASKS } from '@/lib/data/fixtures';
 import {
   formatPortalDate,
@@ -43,7 +44,7 @@ function isShipped(status: string): boolean {
 }
 
 export function ProjectsContent() {
-  const fixtures = portalFixturesEnabled();
+  const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
   const { sectionFor, openDetail } = usePortalView();
   const { data, loading, error } = usePortalData();
@@ -62,31 +63,24 @@ export function ProjectsContent() {
     if (project) setOpenId(project);
   }, []);
 
-  const staffProjects = useQuery(
-    api.projects.listForStaff,
-    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
-  );
-  const staffTasks = useQuery(
-    api.tasks.listForStaff,
-    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
-  );
-  const staffDocs = useQuery(
-    api.clientDocs.listForStaff,
-    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
-  );
-  const clientDocs = useQuery(
+  const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
+  const clientDocsState = useSafeQuery<DocRow[]>(
     api.clientDocs.listForClient,
     !fixtures && configured && !isStaff && data.tenant.ok ? { hostSlug } : 'skip',
   );
 
   const projects = useMemo(
     () =>
-      (fixtures ? FIXTURE_PROJECTS : isStaff ? staffProjects ?? [] : data.projects) as ProjectRow[],
-    [fixtures, isStaff, staffProjects, data.projects],
+      (fixtures ? FIXTURE_PROJECTS : isStaff ? staff.projects ?? [] : data.projects) as ProjectRow[],
+    [fixtures, isStaff, staff.projects, data.projects],
   );
-  const tasks = (fixtures ? FIXTURE_TASKS : isStaff ? staffTasks ?? [] : data.tasks) as PortalTask[];
-  const docs = (fixtures ? FIXTURE_DOCS : isStaff ? staffDocs ?? [] : clientDocs ?? []) as DocRow[];
-  const projectsLoading = !fixtures && (loading || (isStaff && staffProjects === undefined));
+  const tasks = (
+    fixtures ? FIXTURE_TASKS : isStaff ? staff.tasks ?? data.tasks : data.tasks
+  ) as PortalTask[];
+  const docs = (
+    fixtures ? FIXTURE_DOCS : isStaff ? staff.docs ?? [] : clientDocsState.data ?? []
+  ) as DocRow[];
+  const projectsLoading = !fixtures && (loading || (isStaff && staff.projectsLoading));
 
   const visible = useMemo(() => {
     return projects.filter((project) => {
@@ -100,9 +94,9 @@ export function ProjectsContent() {
 
   const openProject = visible.find((project) => project.id === openId) ?? projects.find((p) => p.id === openId) ?? null;
 
-  const loadError = error
+  const loadError = error || staff.projectsError
     ? isStaff
-      ? error
+      ? error || staff.projectsError
       : 'We could not load your projects'
     : null;
 
