@@ -1,6 +1,6 @@
 import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
-import { clientQuery } from './_lib/wrappers';
+import { adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
 
 /** CLIENT serializer — never leak Notion hosts or draft rows. */
@@ -14,6 +14,8 @@ function toClientDoc(row: {
   order?: number;
   body?: string;
   status: string;
+  notionPageId: string;
+  lastSyncedAt: number;
 }) {
   return {
     id: row._id,
@@ -24,6 +26,8 @@ function toClientDoc(row: {
     docType: row.docType,
     order: row.order ?? null,
     body: row.body ?? null,
+    notionPageId: row.notionPageId,
+    lastSyncedAt: row.lastSyncedAt,
   };
 }
 
@@ -60,5 +64,23 @@ export const getForClient = clientQuery({
       throw new PortalAuthError('Doc not found', 'FORBIDDEN');
     }
     return toClientDoc(row);
+  },
+});
+
+/** Staff docs, including drafts. Filtered in the UI by client or project. */
+export const listForStaff = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query('clientDocs').collect();
+    return rows
+      .map((row) => ({
+        ...toClientDoc(row),
+        status: row.status,
+        publishToWarehaus: row.publishToWarehaus,
+        notionPageId: row.notionPageId,
+        lastSyncedAt: row.lastSyncedAt,
+        syncHidden: row.syncHiddenAt != null,
+      }))
+      .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.title.localeCompare(b.title));
   },
 });

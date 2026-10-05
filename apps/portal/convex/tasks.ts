@@ -1,6 +1,6 @@
 import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
-import { clientQuery } from './_lib/wrappers';
+import { adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
 
 /** CLIENT serializer — never emit Priority, Estimate, Owner, Description. */
@@ -75,5 +75,33 @@ export const getForClient = clientQuery({
       projectStatus: project.status,
       projectEndDate: project.endDate ?? null,
     };
+  },
+});
+
+/** Staff tasks across orgs, including unpublished. Hidden rows stay flagged. */
+export const listForStaff = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const projects = await ctx.db.query('projects').collect();
+    const projectById = new Map(projects.map((p) => [p._id, p] as const));
+    const rows = await ctx.db.query('tasks').collect();
+    return rows
+      .map((row) => {
+        const project = projectById.get(row.projectId);
+        return {
+          ...toClientTask(row),
+          projectName: project?.name ?? null,
+          projectStatus: project?.status ?? null,
+          projectEndDate: project?.endDate ?? null,
+          publishToWarehaus: row.publishToWarehaus,
+          estimate: row.estimate ?? null,
+          priority: row.priority ?? null,
+          source: row.source ?? null,
+          notionPageId: row.notionPageId,
+          lastSyncedAt: row.lastSyncedAt,
+          syncHidden: row.syncHiddenAt != null,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
   },
 });

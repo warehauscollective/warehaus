@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect } from 'react';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { BevelFrame, WarehausLogo } from '@warehaus/ui';
 import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
@@ -18,8 +19,13 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
   const sections = getPortalSidebarSections(tab, data.tenant.mode);
   const activeSection = sectionFor(tab);
 
-  /** Client Tasks tab owns Board/List in-page — no left rail. */
-  if (data.tenant.mode === 'client' && tab === 'projects') return null;
+  useEffect(() => {
+    if (sections.length > 0 && !sections.some((section) => section.key === activeSection)) {
+      const first = sections[0]?.key;
+      if (first) setSectionFor(tab, first);
+    }
+  }, [sections, activeSection, setSectionFor, tab]);
+
   if (sections.length === 0) return null;
 
   return (

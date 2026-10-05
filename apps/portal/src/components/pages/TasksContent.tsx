@@ -12,6 +12,7 @@ import {
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
+import { portalFixturesEnabled } from '@/lib/data/portalFixtures';
 import {
   TASK_BOARD_COLUMNS,
   formatPortalDate,
@@ -325,14 +326,20 @@ function TaskListView({
   );
 }
 
-function TaskResponseSheet({ task }: { task: PortalTask }) {
+export function TaskResponseSheet({ task }: { task: PortalTask }) {
+  const fixtures = portalFixturesEnabled();
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const createResponse = useMutation(api.taskResponses.create);
-  const responses = useQuery(api.taskResponses.listForTask, {
-    taskId: task.id as Id<'tasks'>,
-    hostSlug,
-  });
+  const responses = useQuery(
+    api.taskResponses.listForTask,
+    fixtures
+      ? 'skip'
+      : {
+          taskId: task.id as Id<'tasks'>,
+          hostSlug,
+        },
+  );
 
   const [type, setType] = useState<TaskResponseType>('comment');
   const [body, setBody] = useState('');
@@ -358,6 +365,11 @@ function TaskResponseSheet({ task }: { task: PortalTask }) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
+    if (fixtures) {
+      setError('Responses need a live session. Nothing was sent.');
+      setSubmitting(false);
+      return;
+    }
     try {
       await createResponse({
         taskId: task.id as Id<'tasks'>,

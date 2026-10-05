@@ -1,381 +1,136 @@
 'use client';
 
-import { useRef, useState } from 'react';
-import { useMutation, useQuery } from 'convex/react';
+import { useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
-import type { Id } from '@convex/_generated/dataModel';
-import { GhostButton, Pill, PrimaryButton, Surface } from '@/components/ui/primitives';
-import {
-  PortalTilePane,
-  PortalWorkspace,
-} from '@/components/layout/PortalWorkspace';
+import { Pill, Surface } from '@/components/ui/primitives';
+import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
+import { FIXTURE_RESOURCES } from '@/lib/data/fixtures';
+import { portalFixturesEnabled } from '@/lib/data/portalFixtures';
+import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
 
 const SECTION_TITLE: Record<string, string> = {
-  overview: 'Resources',
-  uploads: 'Your uploads',
-  review: 'Review queue',
+  all: 'All resources',
+  'meeting-notes': 'Meeting notes',
+  'files-links': 'Files & links',
 };
 
-function formatBytes(n: number | null | undefined): string {
-  if (n == null || n <= 0) return '—';
-  if (n < 1024) return `${n} B`;
-  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
-  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+type ResourceRow = (typeof FIXTURE_RESOURCES)[number];
+
+function isMeeting(type: string | null): boolean {
+  return /meeting|recap|notes/i.test(type ?? '');
 }
 
-function scanTone(status: string): string {
-  switch (status) {
-    case 'clean':
-      return 'var(--success)';
-    case 'infected':
-      return 'var(--danger)';
-    case 'error':
-      return 'var(--warn)';
-    default:
-      return 'var(--muted)';
-  }
-}
-
-/**
- * Unified Resources tab — Notion Shared Resources as a table (Library),
- * plus Convex-native client uploads / staff review under the same tab.
- */
 export function ResourcesContent() {
+  const fixtures = portalFixturesEnabled();
   const configured = isConvexConfigured();
-  const { sectionFor, setSectionFor } = usePortalView();
-  const { data } = usePortalData();
+  const { sectionFor, openDetail } = usePortalView();
+  const { data, error } = usePortalData();
   const { portalSession } = usePortalAuth();
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const activeSection = sectionFor('resources');
-  const title = SECTION_TITLE[activeSection] ?? 'Resources';
   const isStaff = Boolean(portalSession?.isStaff);
+  const title = SECTION_TITLE[activeSection] ?? 'Resources';
 
-  const resources = useQuery(
+  const staffRows = useQuery(
+    api.sharedResources.listForStaff,
+    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
+  );
+  const clientRows = useQuery(
     api.sharedResources.listForClient,
-    configured && data.tenant.ok ? { hostSlug } : 'skip',
-  );
-  const uploads = useQuery(
-    api.clientUploads.listMine,
-    configured && data.tenant.ok ? { hostSlug } : 'skip',
-  );
-  const review = useQuery(
-    api.clientUploads.listNeedsReview,
-    configured && isStaff && activeSection === 'review' ? { hostSlug } : 'skip',
+    !fixtures && configured && !isStaff && data.tenant.ok ? { hostSlug } : 'skip',
   );
 
-  const generateUploadUrl = useMutation(api.clientUploads.generateUploadUrl);
-  const finalizeUpload = useMutation(api.clientUploads.finalizeUpload);
-  const approveUpload = useMutation(api.clientUploads.approveUpload);
-  const rejectUpload = useMutation(api.clientUploads.rejectUpload);
-
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
-
-  const onPickFile = async (file: File | null) => {
-    if (!file) return;
-    setUploading(true);
-    setUploadError(null);
-    try {
-      const { uploadUrl, intentId } = await generateUploadUrl({ hostSlug });
-      const res = await fetch(uploadUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': file.type || 'application/octet-stream' },
-        body: file,
-      });
-      if (!res.ok) throw new Error(`Upload failed (${res.status})`);
-      const { storageId } = (await res.json()) as { storageId: Id<'_storage'> };
-      await finalizeUpload({
-        intentId,
-        storageId,
-        filename: file.name,
-        mimeType: file.type || undefined,
-        byteSize: file.size,
-        hostSlug,
-      });
-      setSectionFor('resources', 'uploads');
-    } catch (err) {
-      setUploadError(err instanceof Error ? err.message : 'Upload failed');
-    } finally {
-      setUploading(false);
-      if (inputRef.current) inputRef.current.value = '';
-    }
-  };
+  const rows = (fixtures ? FIXTURE_RESOURCES : isStaff ? staffRows ?? [] : clientRows ?? []) as ResourceRow[];
+  const loading = !fixtures && (isStaff ? staffRows === undefined : clientRows === undefined);
+  const visible = rows.filter((row) => {
+    if (activeSection === 'meeting-notes') return isMeeting(row.type);
+    if (activeSection === 'files-links') return !isMeeting(row.type);
+    return true;
+  });
 
   return (
-    <PortalWorkspace
-      eyebrow={tenantEyebrow(data.tenant, 'Resources')}
-      title={title}
-      actions={
-        activeSection !== 'overview' ? (
-          <>
-            <input
-              ref={inputRef}
-              type="file"
-              className="hidden"
-              onChange={(e) => void onPickFile(e.target.files?.[0] ?? null)}
-            />
-            <PrimaryButton
-              disabled={uploading}
-              onClick={() => inputRef.current?.click()}
-            >
-              {uploading ? 'Uploading…' : 'Upload file'}
-            </PrimaryButton>
-          </>
-        ) : undefined
-      }
-    >
+    <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Resources')} title={title}>
       <PortalTilePane>
-        <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto">
-          {uploadError && (
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>{uploadError}</p>
-          )}
-
-          {activeSection === 'overview' && (
-            <ResourcesTable rows={resources} loading={resources === undefined} />
-          )}
-
-          {activeSection === 'uploads' && (
-            <>
-              {uploads === undefined && (
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading…</p>
-              )}
-              {uploads?.length === 0 && (
-                <Surface style={{ padding: 'var(--s-5)' }}>
-                  <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                    No uploads yet. Files you send stay in Convex storage and wait for team
-                    review.
-                  </p>
-                </Surface>
-              )}
-              {uploads?.map((file) => (
-                <Surface key={file.id} style={{ padding: 'var(--s-4)' }}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <Pill color={scanTone(file.scanStatus)}>{file.scanStatus}</Pill>
-                    <Pill color={file.needsReview ? 'var(--warn)' : 'var(--success)'}>
-                      {file.needsReview ? 'In review' : 'Approved'}
-                    </Pill>
-                  </div>
-                  <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>
-                    {file.filename}
-                  </h3>
-                  <p
-                    className="ds-mono"
-                    style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', marginTop: 6 }}
-                  >
-                    {formatBytes(file.byteSize)} ·{' '}
-                    {new Date(file.createdAt).toLocaleString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      hour: '2-digit',
-                      minute: '2-digit',
-                    })}
-                  </p>
-                  {file.downloadUrl && (
-                    <div className="mt-3">
-                      <GhostButton
-                        onClick={() =>
-                          window.open(file.downloadUrl!, '_blank', 'noopener,noreferrer')
-                        }
-                      >
-                        Open
-                      </GhostButton>
-                    </div>
-                  )}
-                </Surface>
+        <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" data-testid="resources-list">
+          {error ? (
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>
+              {isStaff ? error : 'We could not load your resources'}
+            </p>
+          ) : null}
+          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+            {isStaff
+              ? 'Full notes stay in Notion. This list is the live Shared Resource fields.'
+              : 'You only see what is shared with you. A recap, not a transcript.'}
+          </p>
+          {loading ? (
+            <div className="flex flex-col gap-2" aria-busy="true">
+              {[0, 1, 2].map((i) => (
+                <div key={i} className="animate-pulse" style={{ height: 56, borderRadius: 12, background: 'var(--bg)' }} />
               ))}
-            </>
-          )}
-
-          {activeSection === 'review' && isStaff && (
-            <>
-              {review === undefined && (
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading…</p>
-              )}
-              {review?.length === 0 && (
-                <Surface style={{ padding: 'var(--s-5)' }}>
-                  <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                    Review queue is empty.
-                  </p>
-                </Surface>
-              )}
-              {review?.map((file) => (
-                <Surface key={file.id} style={{ padding: 'var(--s-4)' }}>
+            </div>
+          ) : visible.length === 0 ? (
+            <Surface style={{ padding: 'var(--s-5)' }}>
+              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+                {isStaff ? 'No resources match these filters.' : 'Nothing shared yet.'}
+              </p>
+            </Surface>
+          ) : (
+            visible.map((row) => (
+              <button
+                key={row.id}
+                type="button"
+                className="text-left"
+                onClick={() =>
+                  openDetail({
+                    id: row.id,
+                    title: row.name,
+                    subtitle: row.type ?? 'Resource',
+                    body: (
+                      <div className="flex flex-col gap-2">
+                        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+                          {row.description ?? '—'}
+                        </p>
+                        <p style={{ fontSize: 'var(--t-sm)' }}>Type {row.type ?? '—'}</p>
+                        <p style={{ fontSize: 'var(--t-sm)' }}>Project {row.projectName ?? '—'}</p>
+                        {isStaff && row.publishToWarehaus != null ? (
+                          <PublishChip published={row.publishToWarehaus} />
+                        ) : null}
+                        <SyncChip notionPageId={row.notionPageId} syncHidden={row.syncHidden} />
+                        {row.url ? (
+                          <a href={row.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+                            Open
+                          </a>
+                        ) : null}
+                      </div>
+                    ),
+                  })
+                }
+              >
+                <Surface style={{ padding: 'var(--s-4)' }}>
                   <div className="flex flex-wrap items-center gap-2">
-                    <Pill color={scanTone(file.scanStatus)}>{file.scanStatus}</Pill>
-                    <Pill color="var(--warn)">Needs review</Pill>
+                    <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, overflowWrap: 'anywhere' }}>{row.name}</h3>
+                    {row.type ? <Pill>{row.type}</Pill> : null}
+                    {isStaff && row.publishToWarehaus != null ? (
+                      <PublishChip published={row.publishToWarehaus} />
+                    ) : null}
+                    <SyncChip notionPageId={row.notionPageId} syncHidden={row.syncHidden} />
                   </div>
-                  <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>
-                    {file.filename}
-                  </h3>
-                  <p
-                    className="ds-mono"
-                    style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', marginTop: 6 }}
-                  >
-                    {formatBytes(file.byteSize)}
+                  <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>
+                    {row.projectName ?? '—'}
+                    {row.description ? ` · ${row.description}` : ''}
                   </p>
-                  <div className="mt-3 flex flex-wrap gap-2">
-                    {file.downloadUrl && (
-                      <GhostButton
-                        onClick={() =>
-                          window.open(file.downloadUrl!, '_blank', 'noopener,noreferrer')
-                        }
-                      >
-                        Open
-                      </GhostButton>
-                    )}
-                    <PrimaryButton
-                      onClick={() =>
-                        void approveUpload({
-                          uploadId: file.id as Id<'clientUploads'>,
-                          hostSlug,
-                        })
-                      }
-                    >
-                      Approve
-                    </PrimaryButton>
-                    <GhostButton
-                      onClick={() =>
-                        void rejectUpload({
-                          uploadId: file.id as Id<'clientUploads'>,
-                          hostSlug,
-                        })
-                      }
-                    >
-                      Reject
-                    </GhostButton>
-                  </div>
                 </Surface>
-              ))}
-            </>
+              </button>
+            ))
           )}
         </div>
       </PortalTilePane>
     </PortalWorkspace>
-  );
-}
-
-type ResourceRow = {
-  id: string;
-  name: string;
-  description: string | null;
-  type: string | null;
-  url: string | null;
-  projectName: string | null;
-  mimeType: string | null;
-  byteSize: number | null;
-  hasFile: boolean;
-};
-
-function ResourcesTable({
-  rows,
-  loading,
-}: {
-  rows: ResourceRow[] | undefined;
-  loading: boolean;
-}) {
-  if (loading) {
-    return <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading resources…</p>;
-  }
-
-  if (!rows?.length) {
-    return (
-      <Surface style={{ padding: 'var(--s-5)' }}>
-        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-          No published resources yet. Shared Resources with Publish to Warehaus appear here.
-        </p>
-      </Surface>
-    );
-  }
-
-  return (
-    <Surface style={{ padding: 0, overflow: 'hidden' }}>
-      <div className="overflow-x-auto">
-        <table className="w-full border-collapse text-left" style={{ minWidth: 640 }}>
-          <thead>
-            <tr
-              className="ds-mono"
-              style={{
-                fontSize: 'var(--t-xs)',
-                color: 'var(--faint)',
-                borderBottom: '1px solid var(--border)',
-              }}
-            >
-              <th className="px-4 py-3 font-medium">Name</th>
-              <th className="px-4 py-3 font-medium">Type</th>
-              <th className="hidden px-4 py-3 font-medium md:table-cell">Description</th>
-              <th className="hidden px-4 py-3 font-medium lg:table-cell">Project</th>
-              <th className="px-4 py-3 font-medium">Link</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((row) => (
-              <tr
-                key={row.id}
-                style={{
-                  borderBottom: '1px solid var(--border)',
-                  fontSize: 'var(--t-sm)',
-                }}
-              >
-                <td className="px-4 py-3 align-top">
-                  <div style={{ fontWeight: 600 }}>{row.name}</div>
-                  {row.hasFile && (
-                    <div
-                      className="ds-mono mt-1"
-                      style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}
-                    >
-                      {row.mimeType ?? 'file'} · {formatBytes(row.byteSize)}
-                    </div>
-                  )}
-                </td>
-                <td className="px-4 py-3 align-top">
-                  {row.type ? <Pill>{row.type}</Pill> : <span style={{ color: 'var(--faint)' }}>—</span>}
-                </td>
-                <td
-                  className="hidden px-4 py-3 align-top md:table-cell"
-                  style={{ color: 'var(--muted)', maxWidth: 280 }}
-                >
-                  {row.description ?? '—'}
-                </td>
-                <td
-                  className="hidden px-4 py-3 align-top lg:table-cell"
-                  style={{ color: 'var(--muted)' }}
-                >
-                  {row.projectName ?? '—'}
-                </td>
-                <td className="px-4 py-3 align-top">
-                  {row.url ? (
-                    <a
-                      href={row.url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="ds-mono"
-                      style={{
-                        fontSize: 'var(--t-xs)',
-                        color: 'var(--accent)',
-                        textDecoration: 'underline',
-                        textUnderlineOffset: 3,
-                      }}
-                    >
-                      Open
-                    </a>
-                  ) : (
-                    <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                      —
-                    </span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </Surface>
   );
 }

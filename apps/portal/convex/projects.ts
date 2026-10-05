@@ -110,6 +110,51 @@ export const listPublishedForStaff = adminQuery({
   },
 });
 
+function isInternalClient(client: { slug: string; companyName: string } | undefined): boolean {
+  if (!client) return false;
+  return (
+    client.slug === 'warehaus' ||
+    client.slug.startsWith('warehaus-') ||
+    client.companyName.startsWith('Warehaus')
+  );
+}
+
+/**
+ * Staff project roster, including unpublished and internal rows.
+ * Soft-hidden rows stay in the result with `syncHidden` so the UI cannot
+ * paint them as saved. Client queries keep using the publish gate.
+ */
+export const listForStaff = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const clients = await ctx.db.query('clients').collect();
+    const clientById = new Map(clients.map((c) => [c._id, c] as const));
+    const tasks = await ctx.db.query('tasks').collect();
+    const taskCount = new Map<string, number>();
+    for (const task of tasks) {
+      if (task.syncHiddenAt != null) continue;
+      taskCount.set(task.projectId, (taskCount.get(task.projectId) ?? 0) + 1);
+    }
+    const rows = await ctx.db.query('projects').collect();
+    return rows
+      .map((row) => {
+        const client = clientById.get(row.orgId);
+        return {
+          ...toClientProject(row),
+          clientName: client?.companyName ?? null,
+          clientSlug: client?.slug ?? null,
+          publishToWarehaus: row.publishToWarehaus,
+          internal: row.type.includes('Internal') || isInternalClient(client),
+          notionPageId: row.notionPageId,
+          lastSyncedAt: row.lastSyncedAt,
+          syncHidden: row.syncHiddenAt != null,
+          taskCount: taskCount.get(row._id) ?? 0,
+        };
+      })
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
 /**
  * Staff creates a Convex-native project (Notion bridge later via synthetic page id).
  * Marks publishToWarehaus so it surfaces in the portal immediately.

@@ -7,6 +7,7 @@ import { authClient } from '@/lib/auth-client';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { VERIFY_EMAIL_PATH, isCantRegisterError } from '@convex/_lib/registration';
+import { FIXTURE_SESSION, portalFixturesEnabled } from '@/lib/data/portalFixtures';
 
 export type PortalSessionView = {
   contactId: string;
@@ -25,7 +26,8 @@ function errorMessage(err: unknown, fallback: string): string {
 }
 
 export function usePortalAuth() {
-  const configured = isConvexConfigured();
+  const fixtures = portalFixturesEnabled();
+  const configured = isConvexConfigured() && !fixtures;
   const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() : null;
   const { data: session, isPending: sessionPending, refetch } = authClient.useSession();
   const linkSession = useMutation(api.contacts.linkSession);
@@ -117,6 +119,27 @@ export function usePortalAuth() {
     setJoinError(null);
     await authClient.signOut();
   }, []);
+
+  if (fixtures) {
+    return {
+      configured: false,
+      hostSlug,
+      sessionPending: false,
+      joining: false,
+      joinError: null,
+      authUser: {
+        id: FIXTURE_SESSION.contactId,
+        email: FIXTURE_SESSION.email,
+        name: FIXTURE_SESSION.name,
+      },
+      linkStatus: 'linked' as const,
+      portalSession: FIXTURE_SESSION,
+      signIn,
+      signUp,
+      signOut,
+      ensureLinked,
+    };
+  }
 
   return {
     configured,

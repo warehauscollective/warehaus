@@ -6,21 +6,18 @@ import type { PortalTab } from '@warehaus/logic/portal';
 import { isPortalTab, usePortalTab } from '@/components/providers/PortalTabProvider';
 import { PortalHomeContent } from '@/components/pages/PortalHomeContent';
 import { ProjectsContent } from '@/components/pages/ProjectsContent';
-import { TasksContent } from '@/components/pages/TasksContent';
 import { ResourcesContent } from '@/components/pages/ResourcesContent';
 import { ActivityContent } from '@/components/pages/ActivityContent';
 import { AccountContent } from '@/components/pages/AccountContent';
-import { usePortalData } from '@/hooks/usePortalData';
-import type { TenantMode } from '@/lib/auth/tenancy';
 import { PORTAL_PANEL_GAP_VAR } from '@/lib/design/portal-chrome';
 import { PortalTabSidebar } from './PortalSidebar';
 
-function renderPortalPanel(tab: PortalTab, mode: TenantMode) {
+function renderPortalPanel(tab: PortalTab) {
   switch (tab) {
     case 'dashboard':
       return <PortalHomeContent />;
     case 'projects':
-      return mode === 'client' ? <TasksContent /> : <ProjectsContent />;
+      return <ProjectsContent />;
     case 'resources':
       return <ResourcesContent />;
     case 'activity':
@@ -61,7 +58,6 @@ function TabPanelShell({
  */
 export function PortalSwipeWorkspace() {
   const { tabs, activeTab, setActiveTab, panelRefs } = usePortalTab();
-  const { data } = usePortalData();
 
   const scrollRef = useSwipeTabs({
     tabs,
@@ -81,7 +77,7 @@ export function PortalSwipeWorkspace() {
         panelStyle={{ overflowY: 'hidden', touchAction: 'pan-x pan-y' }}
         renderPanel={(tab) => (
           <TabPanelShell tab={tab}>
-            {renderPortalPanel(tab, data.tenant.mode)}
+            {renderPortalPanel(tab)}
           </TabPanelShell>
         )}
       />

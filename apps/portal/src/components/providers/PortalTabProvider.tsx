@@ -45,6 +45,11 @@ export function PortalTabProvider({ children }: { children: ReactNode }) {
 
   // Deep links / back-forward: keep tab state aligned with the path.
   useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('tab');
+    if (requested && isPortalTab(requested)) {
+      setActiveTabState(requested);
+      return;
+    }
     setActiveTabState(getPortalTabForPath(pathname));
   }, [pathname]);
 

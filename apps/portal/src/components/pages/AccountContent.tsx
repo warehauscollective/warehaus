@@ -4,292 +4,214 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
-import { GhostButton, Pill, PrimaryButton, Surface } from '@/components/ui/primitives';
-import {
-  PortalStatGrid,
-  PortalTilePane,
-  PortalWorkspace,
-} from '@/components/layout/PortalWorkspace';
+import type { Id } from '@convex/_generated/dataModel';
+import { GhostButton, Pill, Surface } from '@/components/ui/primitives';
+import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
+import { ThemeControl } from '@/components/account/ThemeControl';
+import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
+import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
+import {
+  FIXTURE_CLIENTS,
+  FIXTURE_CONTACTS,
+  FIXTURE_DOCS,
+  FIXTURE_PROJECTS,
+  FIXTURE_TASKS,
+} from '@/lib/data/fixtures';
+import { portalFixturesEnabled } from '@/lib/data/portalFixtures';
+import { taskStatusColor } from '@/lib/data/view-models';
 
 const SECTION_TITLE: Record<string, string> = {
-  overview: 'Account',
+  clients: 'Clients',
   profile: 'Profile',
-  billing: 'Billing',
-  team: 'Clients',
-  preferences: 'Preferences',
+  notifications: 'Notifications',
+  team: 'Team & invites',
 };
 
-const CLIENT_SECTION_TITLE: Record<string, string> = {
-  overview: 'Organization',
-  profile: 'Profile',
-  billing: 'Billing',
-  preferences: 'Preferences',
-};
-
-function formatRelative(ts: number | null): string {
-  if (ts == null) return '—';
-  const diff = Date.now() - ts;
-  const mins = Math.floor(diff / 60_000);
-  if (mins < 1) return 'just now';
-  if (mins < 60) return `${mins}m ago`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 48) return `${hours}h ago`;
-  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-}
-
-function formatBillingDate(ts: number | null | undefined): string {
-  if (ts == null) return '—';
-  return new Date(ts).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
-}
-
-function invoiceStatusColor(status: string): string {
-  switch (status) {
-    case 'paid':
-      return 'var(--success)';
-    case 'open':
-    case 'draft':
-      return 'var(--warn)';
-    case 'uncollectible':
-    case 'void':
-      return 'var(--danger)';
-    default:
-      return 'var(--muted)';
-  }
-}
-
-function subscriptionStatusColor(status: string): string {
-  switch (status) {
-    case 'active':
-    case 'trialing':
-      return 'var(--success)';
-    case 'past_due':
-    case 'unpaid':
-      return 'var(--danger)';
-    case 'canceled':
-    case 'incomplete_expired':
-      return 'var(--muted)';
-    default:
-      return 'var(--warn)';
-  }
-}
+type DirectoryRow = (typeof FIXTURE_CLIENTS)[number];
 
 export function AccountContent() {
   const router = useRouter();
+  const fixtures = portalFixturesEnabled();
   const configured = isConvexConfigured();
-  const { sectionFor, setSectionFor, openDetail } = usePortalView();
-  const { data, loading, error } = usePortalData();
+  const { sectionFor, setSectionFor } = usePortalView();
+  const { data, error } = usePortalData();
   const { portalSession, signOut } = usePortalAuth();
   const activeSection = sectionFor('account');
-  const isClient = data.tenant.mode === 'client';
   const isStaff = Boolean(portalSession?.isStaff);
-
-  const [density, setDensity] = useState<'comfortable' | 'compact'>('comfortable');
-  const [savedDensity, setSavedDensity] = useState<'comfortable' | 'compact'>('comfortable');
-  const [prefsSaved, setPrefsSaved] = useState(false);
-  const prefsDirty = density !== savedDensity;
+  const isClient = !isStaff;
+  const hostSlug =
+    typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
+  const [filter, setFilter] = useState<'all' | 'active' | 'internal' | 'sync'>('all');
+  const [clientId, setClientId] = useState<string | null>(null);
+  const [retryNote, setRetryNote] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem('warehaus-density');
-      const next = raw === 'compact' ? 'compact' : 'comfortable';
-      setDensity(next);
-      setSavedDensity(next);
-      document.documentElement.dataset.density = next;
-    } catch {
-      /* ignore */
-    }
+    const params = new URLSearchParams(window.location.search);
+    const client = params.get('client');
+    if (client) setClientId(client);
   }, []);
 
   useEffect(() => {
-    setPrefsSaved(false);
-  }, [density]);
-
-  const titles = isClient ? CLIENT_SECTION_TITLE : SECTION_TITLE;
-  const title = titles[activeSection] ?? (isClient ? 'Organization' : 'Account');
-  const primary = data.clients[0];
-  const tenant = data.tenant;
-  const hostSlug =
-    typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
+    if (isClient && (activeSection === 'clients' || activeSection === 'team')) {
+      setSectionFor('account', 'profile');
+    }
+  }, [isClient, activeSection, setSectionFor]);
 
   const directory = useQuery(
     api.clients.listDirectory,
-    configured && isStaff && !isClient ? { hostSlug } : 'skip',
+    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
   );
-  const teamStats = useQuery(
-    api.clients.getTeamStats,
-    configured && isStaff && !isClient ? { hostSlug } : 'skip',
+  const staffProjects = useQuery(
+    api.projects.listForStaff,
+    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
   );
-  const billing = useQuery(
-    api.billing.listForClient,
-    configured && data.tenant.ok && (activeSection === 'billing' || activeSection === 'overview')
-      ? { hostSlug }
+  const staffTasks = useQuery(
+    api.tasks.listForStaff,
+    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
+  );
+  const staffDocs = useQuery(
+    api.clientDocs.listForStaff,
+    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
+  );
+  const people = useQuery(
+    api.contacts.listForOrg,
+    !fixtures && configured && isStaff && clientId
+      ? { orgId: clientId as Id<'clients'>, hostSlug }
       : 'skip',
   );
 
-  useEffect(() => {
-    if (isClient && activeSection === 'team') setSectionFor('account', 'overview');
-  }, [isClient, activeSection, setSectionFor]);
+  const clients = (fixtures ? FIXTURE_CLIENTS : directory ?? []) as DirectoryRow[];
+  const projects = fixtures ? FIXTURE_PROJECTS : staffProjects ?? [];
+  const tasks = fixtures ? FIXTURE_TASKS : staffTasks ?? [];
+  const docs = (fixtures ? FIXTURE_DOCS : staffDocs ?? []) as DocRow[];
+  const contacts = fixtures
+    ? FIXTURE_CONTACTS.filter((contact) => contact.orgId === clientId)
+    : people ?? [];
+
+  const title = SECTION_TITLE[activeSection] ?? 'Account';
+  const selected = clients.find((client) => client.id === clientId) ?? null;
+  const filtered = clients.filter((client) => {
+    if (filter === 'internal') return client.internal;
+    if (filter === 'sync') return client.syncHidden;
+    if (filter === 'active') return client.status.toLowerCase() === 'active' && !client.syncHidden;
+    return true;
+  });
 
   return (
-    <PortalWorkspace eyebrow={tenantEyebrow(tenant, isClient ? 'Organization' : 'Account')} title={title}>
-      {error && (
+    <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Account')} title={title}>
+      {error && isStaff ? (
         <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)', marginBottom: 12 }}>{error}</p>
-      )}
-      {activeSection === 'overview' && (
+      ) : null}
+      {error && isClient ? (
+        <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)', marginBottom: 12 }}>
+          We could not load your company
+        </p>
+      ) : null}
+
+      {isStaff && activeSection === 'clients' && selected ? (
+        <ClientDetail
+          client={selected}
+          projects={projects.filter((project) => project.orgId === selected.id)}
+          tasks={tasks.filter((task) => task.orgId === selected.id)}
+          docs={docs.filter((doc) => doc.orgId === selected.id)}
+          contacts={contacts}
+          onBack={() => setClientId(null)}
+          retryNote={retryNote}
+          onRetry={() =>
+            setRetryNote('Write-back is off. Retry does not call Notion.')
+          }
+        />
+      ) : null}
+
+      {isStaff && activeSection === 'clients' && !selected ? (
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            <PortalStatGrid
-              items={
-                isClient
-                  ? [
-                      { label: 'Org', value: primary?.slug ?? tenant.slug ?? '—' },
-                      { label: 'Projects', value: loading ? '…' : String(data.projects.length) },
-                      { label: 'Tasks', value: loading ? '…' : String(data.tasks.length) },
-                    ]
-                  : [
-                      {
-                        label: 'Clients',
-                        value:
-                          teamStats === undefined
-                            ? '…'
-                            : String(teamStats.clientCount),
-                        hint:
-                          teamStats != null
-                            ? `${teamStats.portalEnabled} portal on`
-                            : undefined,
-                      },
-                      {
-                        label: 'Projects',
-                        value:
-                          teamStats === undefined
-                            ? '…'
-                            : String(teamStats.projectCount),
-                        hint: 'Published',
-                      },
-                      {
-                        label: 'Open tasks',
-                        value:
-                          teamStats === undefined
-                            ? '…'
-                            : String(teamStats.openTaskCount),
-                      },
-                      {
-                        label: 'Review',
-                        value:
-                          teamStats === undefined
-                            ? '…'
-                            : String(teamStats.uploadNeedsReview),
-                        hint: 'Uploads',
-                      },
-                    ]
-              }
-            />
-            <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
-              <Surface style={{ padding: 'var(--s-5)' }}>
-                <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                  {isClient ? 'Your organization' : 'Tenant'}
-                </p>
-                <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>
-                  {isClient
-                    ? (primary?.name ?? tenant.clientName ?? 'Unknown client')
-                    : 'Warehaus team'}
-                </h3>
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
-                  {isClient
-                    ? `Portal: ${tenant.slug ?? '—'}.localhost`
-                    : 'Host: portal.* · cross-org admin via session'}
-                </p>
-                <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', marginTop: 8 }}>
-                  {isClient
-                    ? `${tenant.slug ?? '—'} · ${tenant.clientExternalId ?? '—'}`
-                    : `staff · ${teamStats?.clientCount ?? '—'} clients`}
-                </p>
-              </Surface>
-              <Surface style={{ padding: 'var(--s-5)' }}>
-                <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                  {isClient ? 'Visibility' : 'Clients snapshot'}
-                </p>
-                {isClient ? (
-                  <div className="mt-3 flex flex-col gap-2">
-                    <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                      This portal only shows projects and activity tied to your client ID.
-                      Warehaus-internal and other-client work is never included.
-                    </p>
-                    <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                      Scoped to {tenant.clientExternalId ?? '—'}
-                    </p>
-                  </div>
-                ) : (
-                  <div className="mt-3 flex flex-col gap-2">
-                    {(directory ?? []).slice(0, 6).map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() =>
-                          openDetail({
-                            id: m.id,
-                            title: m.name,
-                            subtitle: m.slug ?? 'Client',
-                            body: (
-                              <div className="flex flex-col gap-2">
-                                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                                  {m.projectCount} projects · {m.openTaskCount} open tasks ·{' '}
-                                  {m.resourceCount} resources
-                                </p>
-                                {m.uploadNeedsReview > 0 && (
-                                  <Pill color="var(--warn)">
-                                    {m.uploadNeedsReview} upload
-                                    {m.uploadNeedsReview === 1 ? '' : 's'} in review
-                                  </Pill>
-                                )}
-                              </div>
-                            ),
-                          })
-                        }
-                        className="flex w-full items-center justify-between text-left"
-                        style={{
-                          padding: '0.45rem 0',
-                          borderBottom: '1px solid var(--border)',
-                          background: 'none',
-                          borderLeft: 0,
-                          borderRight: 0,
-                          borderTop: 0,
-                          cursor: 'pointer',
-                        }}
-                      >
-                        <span style={{ fontSize: 'var(--t-sm)', fontWeight: 600 }}>{m.name}</span>
-                        <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                          {m.projectCount}p · {m.openTaskCount}t
-                        </span>
-                      </button>
-                    ))}
-                    {directory === undefined && (
-                      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading…</p>
-                    )}
-                    {directory?.length === 0 && (
-                      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                        No clients synced yet.
-                      </p>
-                    )}
-                  </div>
-                )}
-              </Surface>
+          <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" data-testid="account-clients">
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+              Warehaus is the client when none applies.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {(['all', 'active', 'internal', 'sync'] as const).map((key) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => setFilter(key)}
+                  aria-pressed={filter === key}
+                  className="ds-mono"
+                  style={{
+                    fontSize: 'var(--t-xs)',
+                    padding: '0.35rem 0.7rem',
+                    borderRadius: 999,
+                    border: '1px solid var(--border)',
+                    background: filter === key ? 'var(--fg)' : 'transparent',
+                    color: filter === key ? 'var(--bg)' : 'var(--muted)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {key === 'sync' ? 'Sync problem' : key[0].toUpperCase() + key.slice(1)}
+                </button>
+              ))}
             </div>
+            {directory === undefined && !fixtures ? (
+              <div className="flex flex-col gap-2" aria-busy="true">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="animate-pulse"
+                    style={{ height: 64, borderRadius: 12, background: 'var(--bg)' }}
+                  />
+                ))}
+              </div>
+            ) : filtered.length === 0 ? (
+              <Surface style={{ padding: 'var(--s-5)' }}>
+                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+                  No clients match these filters.
+                </p>
+              </Surface>
+            ) : (
+              filtered.map((client) => (
+                <button
+                  key={client.id}
+                  type="button"
+                  onClick={() => setClientId(client.id)}
+                  className="text-left"
+                >
+                  <Surface style={{ padding: 'var(--s-4)' }}>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{client.name}</h3>
+                      {client.internal ? <PublishChip published={false} /> : null}
+                      <SyncChip
+                        notionPageId={client.notionPageId}
+                        syncHidden={client.syncHidden}
+                        onRetry={
+                          client.syncHidden
+                            ? () => setRetryNote('Write-back is off. Retry does not call Notion.')
+                            : undefined
+                        }
+                        retryNote={client.syncHidden ? retryNote : null}
+                      />
+                    </div>
+                    <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 8 }}>
+                      {client.contactCount} people · {client.projectCount} projects · {client.openTaskCount} open items · Awaiting go —
+                    </p>
+                  </Surface>
+                </button>
+              ))
+            )}
           </div>
         </PortalTilePane>
-      )}
+      ) : null}
 
       {activeSection === 'profile' && (
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            <Surface style={{ padding: 'var(--s-5)', maxWidth: 480 }}>
+          <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
+            <Surface style={{ padding: 'var(--s-5)', maxWidth: 560 }}>
               <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                Session
+                Profile
               </p>
               <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>
                 {portalSession?.name ?? '—'}
@@ -297,17 +219,12 @@ export function AccountContent() {
               <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
                 {portalSession?.email ?? '—'}
               </p>
-              <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', marginTop: 8 }}>
-                {portalSession
-                  ? `${portalSession.role} · ${portalSession.orgSlug}`
-                  : 'Not linked'}
-              </p>
               <div className="mt-5 flex justify-end">
                 <GhostButton
                   onClick={() => {
                     void (async () => {
                       await signOut();
-                      router.replace('/login');
+                      if (!fixtures) router.replace('/login');
                     })();
                   }}
                 >
@@ -315,305 +232,216 @@ export function AccountContent() {
                 </GhostButton>
               </div>
             </Surface>
-            <Surface style={{ padding: 'var(--s-5)', maxWidth: 640 }}>
-              <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                Profile
-              </p>
-              <div className="mt-4 grid gap-4 md:grid-cols-2">
-                <label className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
-                  <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
-                    Display name
-                  </span>
-                  <input
-                    className="ds-input"
-                    defaultValue={portalSession?.name ?? ''}
-                    readOnly
-                  />
-                </label>
-                <label className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
-                  <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
-                    Email
-                  </span>
-                  <input
-                    className="ds-input"
-                    defaultValue={portalSession?.email ?? ''}
-                    readOnly
-                  />
-                </label>
-                <label className="flex flex-col md:col-span-2" style={{ gap: 'var(--s-2)' }}>
-                  <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500, color: 'var(--muted)' }}>
-                    {isClient ? 'Client ID' : 'Home org'}
-                  </span>
-                  <input
-                    className="ds-input"
-                    value={primary?.id ?? tenant.clientExternalId ?? '—'}
-                    readOnly
-                  />
-                </label>
-              </div>
-              <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 'var(--s-4)' }}>
-                Profile edits sync from Notion Contacts. Use Notion to change name or email.
-              </p>
-            </Surface>
-          </div>
-        </PortalTilePane>
-      )}
-
-      {activeSection === 'billing' && (
-        <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            {billing === undefined && (
-              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading billing…</p>
-            )}
-            {billing && !billing.subscription && billing.invoices.length === 0 && (
+            <ThemeControl />
+            {isClient ? (
               <Surface style={{ padding: 'var(--s-5)' }}>
+                <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
+                  Your contact
+                </p>
+                <p style={{ fontSize: 'var(--t-sm)', marginTop: 8 }}>
+                  {portalSession?.name ?? data.tenant.clientName ?? '—'}
+                </p>
                 <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                  No billing on file.
+                  {data.tenant.clientName ?? 'Your company'}
                 </p>
               </Surface>
-            )}
-            {billing?.subscription && (
-              <Surface style={{ padding: 'var(--s-5)' }}>
-                <div className="flex flex-wrap items-start justify-between gap-3">
-                  <div>
-                    <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                      Plan
-                    </p>
-                    <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>
-                      {billing.subscription.planName}
-                    </h3>
-                    <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
-                      Period ends {formatBillingDate(billing.subscription.currentPeriodEnd)}
-                      {billing.subscription.cancelAtPeriodEnd ? ' · Cancels at period end' : ''}
-                    </p>
-                  </div>
-                  <Pill color={subscriptionStatusColor(billing.subscription.status)}>
-                    {billing.subscription.status}
-                  </Pill>
-                </div>
-              </Surface>
-            )}
-            {billing && billing.invoices.length > 0 && (
-              <div
-                style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: 'var(--radius)',
-                  overflow: 'hidden',
-                  flex: 1,
-                  minHeight: 0,
-                }}
-              >
-                <div className="h-full overflow-auto">
-                  <table className="ds-data" style={{ minWidth: 640 }}>
-                    <thead>
-                      <tr>
-                        <th>Date</th>
-                        <th>Number</th>
-                        <th>Amount</th>
-                        <th>Status</th>
-                        <th>Link</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {billing.invoices.map((inv) => (
-                        <tr key={inv.id}>
-                          <td className="ds-mono">{formatBillingDate(inv.createdAt)}</td>
-                          <td className="ds-mono">{inv.number ?? '—'}</td>
-                          <td>{inv.amountLabel}</td>
-                          <td>
-                            <Pill color={invoiceStatusColor(inv.status)}>{inv.status}</Pill>
-                          </td>
-                          <td>
-                            {inv.hostedInvoiceUrl || inv.invoicePdf ? (
-                              <a
-                                href={inv.hostedInvoiceUrl ?? inv.invoicePdf ?? '#'}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="ds-mono"
-                                style={{
-                                  fontSize: 'var(--t-xs)',
-                                  color: 'var(--accent)',
-                                  textDecoration: 'underline',
-                                  textUnderlineOffset: 3,
-                                }}
-                              >
-                                Open
-                              </a>
-                            ) : (
-                              <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                                —
-                              </span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-            )}
+            ) : null}
           </div>
         </PortalTilePane>
       )}
 
-      {!isClient && activeSection === 'team' && (
+      {activeSection === 'notifications' && (
         <PortalTilePane>
-          <div
-            style={{
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius)',
-              overflow: 'hidden',
-              height: '100%',
-            }}
-          >
-            <div className="h-full overflow-auto">
-              {directory === undefined && (
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', padding: 'var(--s-5)' }}>
-                  Loading clients…
-                </p>
-              )}
-              {directory?.length === 0 && (
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', padding: 'var(--s-5)' }}>
-                  No clients in Convex yet. Run a Notion pull.
-                </p>
-              )}
-              {directory && directory.length > 0 && (
-                <table className="ds-data" style={{ minWidth: 720 }}>
-                  <thead>
-                    <tr>
-                      <th>Client</th>
-                      <th>Slug</th>
-                      <th>Portal</th>
-                      <th>Projects</th>
-                      <th>Open tasks</th>
-                      <th>Resources</th>
-                      <th>Review</th>
-                      <th>Activity</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {directory.map((m) => (
-                      <tr
-                        key={m.id}
-                        onClick={() =>
-                          openDetail({
-                            id: m.id,
-                            title: m.name,
-                            subtitle: m.slug ?? 'Client',
-                            body: (
-                              <div className="flex flex-col gap-3">
-                                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                                  Status {m.status} · Portal {m.portalAccess}
-                                </p>
-                                <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                                  {m.projectCount} projects · {m.openTaskCount} open tasks ·{' '}
-                                  {m.resourceCount} resources
-                                  {m.uploadNeedsReview
-                                    ? ` · ${m.uploadNeedsReview} uploads awaiting review`
-                                    : ''}
-                                </p>
-                              </div>
-                            ),
-                          })
-                        }
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <td>{m.name}</td>
-                        <td className="ds-mono" style={{ fontSize: 'var(--t-sm)' }}>
-                          {m.slug ?? '—'}
-                        </td>
-                        <td>
-                          <Pill
-                            color={
-                              m.portalAccess === 'Enabled' ? 'var(--success)' : 'var(--muted)'
-                            }
-                          >
-                            {m.portalAccess}
-                          </Pill>
-                        </td>
-                        <td className="ds-mono">{m.projectCount}</td>
-                        <td className="ds-mono">{m.openTaskCount}</td>
-                        <td className="ds-mono">{m.resourceCount}</td>
-                        <td className="ds-mono">
-                          {m.uploadNeedsReview > 0 ? (
-                            <Pill color="var(--warn)">{m.uploadNeedsReview}</Pill>
-                          ) : (
-                            '0'
-                          )}
-                        </td>
-                        <td className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                          {formatRelative(m.lastActivityAt)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
+          <NotificationSettings staff={isStaff} />
         </PortalTilePane>
       )}
 
-      {activeSection === 'preferences' && (
+      {isStaff && activeSection === 'team' && (
         <PortalTilePane>
           <Surface style={{ padding: 'var(--s-5)', maxWidth: 560 }}>
             <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-              Preferences
+              Team & invites
             </p>
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>
-              Density is stored in this browser. Profile name and email stay Notion-sourced.
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>
+              Invites stay on this screen. Sending them waits for a later batch, so this page does not
+              create or revoke invites.
             </p>
-            <label className="mt-4 flex flex-col gap-1">
-              <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Workspace density</span>
-              <select
-                value={density}
-                onChange={(e) => setDensity(e.target.value as 'comfortable' | 'compact')}
-                style={{
-                  border: '1px solid var(--border)',
-                  borderRadius: 8,
-                  background: 'var(--bg)',
-                  color: 'var(--fg)',
-                  padding: '0.55rem 0.7rem',
-                  fontSize: 'var(--t-sm)',
-                }}
-              >
-                <option value="comfortable">Comfortable</option>
-                <option value="compact">Compact</option>
-              </select>
-            </label>
-            {!isClient && (
-              <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 'var(--s-4)' }}>
-                Sync mode: {data.syncMeta.mode}
-                {data.syncMeta.lastSyncedAt
-                  ? ` · last sync ${new Date(data.syncMeta.lastSyncedAt).toLocaleString()}`
-                  : ' · not synced yet'}
-              </p>
-            )}
-            {prefsSaved ? (
-              <p style={{ fontSize: 'var(--t-xs)', color: 'var(--success)', marginTop: 12 }}>
-                Saved for this browser.
-              </p>
-            ) : null}
-            <div className="mt-5 flex justify-end">
-              <PrimaryButton
-                disabled={!prefsDirty}
-                onClick={() => {
-                  try {
-                    localStorage.setItem('warehaus-density', density);
-                    document.documentElement.dataset.density = density;
-                    setSavedDensity(density);
-                    setPrefsSaved(true);
-                  } catch {
-                    /* ignore quota / private mode */
-                  }
-                }}
-              >
-                Save preferences
-              </PrimaryButton>
-            </div>
           </Surface>
         </PortalTilePane>
       )}
     </PortalWorkspace>
+  );
+}
+
+function ClientDetail({
+  client,
+  projects,
+  tasks,
+  docs,
+  contacts,
+  onBack,
+  retryNote,
+  onRetry,
+}: {
+  client: DirectoryRow;
+  projects: Array<{ id: string; name: string; status: string }>;
+  tasks: Array<{
+    id: string;
+    name: string;
+    status: string;
+    isDone: boolean;
+    notionPageId?: string | null;
+    syncHidden?: boolean;
+  }>;
+  docs: DocRow[];
+  contacts: Array<{
+    id: string;
+    name: string;
+    email: string;
+    role: string;
+    portalAccess: 'Enabled' | 'Disabled';
+    notionPageId?: string | null;
+    syncHidden?: boolean;
+  }>;
+  onBack: () => void;
+  retryNote: string | null;
+  onRetry: () => void;
+}) {
+  const clientDocs = docs;
+  return (
+    <PortalTilePane>
+      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
+        <button
+          type="button"
+          onClick={onBack}
+          className="ds-mono self-start"
+          style={{ fontSize: 'var(--t-xs)', color: 'var(--accent)', background: 'none', border: 0, cursor: 'pointer' }}
+        >
+          All clients
+        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          <h2 style={{ fontSize: 'var(--t-lg)', fontWeight: 600 }}>{client.name}</h2>
+          <SyncChip
+            notionPageId={client.notionPageId}
+            syncHidden={client.syncHidden}
+            onRetry={client.syncHidden ? onRetry : undefined}
+            retryNote={client.syncHidden ? retryNote : null}
+          />
+        </div>
+        <section>
+          <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>Projects</p>
+          {projects.length === 0 ? (
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>No projects.</p>
+          ) : (
+            projects.map((project) => (
+              <p key={project.id} style={{ fontSize: 'var(--t-sm)', marginTop: 6 }}>
+                {project.name} · {project.status}
+              </p>
+            ))
+          )}
+        </section>
+        <section>
+          <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>People</p>
+          <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 4 }}>
+            Contacts with portal access.
+          </p>
+          {contacts.length === 0 ? (
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>No contacts.</p>
+          ) : (
+            contacts.map((contact) => (
+              <div key={contact.id} className="mt-2 flex flex-wrap items-center gap-2">
+                <span style={{ fontSize: 'var(--t-sm)', fontWeight: 600 }}>{contact.name}</span>
+                <span style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>{contact.email}</span>
+                <Pill>{contact.role}</Pill>
+                <Pill color={contact.portalAccess === 'Enabled' ? 'var(--success)' : 'var(--muted)'}>
+                  {contact.portalAccess === 'Enabled' ? 'Portal access' : 'No portal access'}
+                </Pill>
+                <SyncChip notionPageId={contact.notionPageId} syncHidden={contact.syncHidden} />
+              </div>
+            ))
+          )}
+        </section>
+        <section>
+          <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>Items</p>
+          {tasks.length === 0 ? (
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>No tasks.</p>
+          ) : (
+            tasks.map((task) => (
+              <div key={task.id} className="mt-2 flex flex-wrap items-center gap-2">
+                <span style={{ fontSize: 'var(--t-sm)', overflowWrap: 'anywhere' }}>{task.name}</span>
+                <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
+                <SyncChip notionPageId={task.notionPageId} syncHidden={task.syncHidden} />
+              </div>
+            ))
+          )}
+        </section>
+        <DocsBlock docs={clientDocs} staff />
+      </div>
+    </PortalTilePane>
+  );
+}
+
+function NotificationSettings({ staff }: { staff: boolean }) {
+  const [flags, setFlags] = useState({
+    awaitingGo: true,
+    syncProblems: true,
+    draftRecaps: false,
+    inviteNotices: true,
+  });
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('warehaus-notifications');
+      if (raw) setFlags(JSON.parse(raw) as typeof flags);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  const save = (next: typeof flags) => {
+    setFlags(next);
+    try {
+      localStorage.setItem('warehaus-notifications', JSON.stringify(next));
+      setError(null);
+    } catch {
+      setError('Could not save your settings');
+    }
+  };
+
+  const rows: Array<[keyof typeof flags, string]> = [
+    ['awaitingGo', 'Awaiting go'],
+    ...(staff
+      ? ([
+          ['syncProblems', 'Sync problems'],
+          ['draftRecaps', 'Draft recaps'],
+          ['inviteNotices', 'Invite notices'],
+        ] as Array<[keyof typeof flags, string]>)
+      : []),
+  ];
+
+  return (
+    <Surface style={{ padding: 'var(--s-5)', maxWidth: 560 }}>
+      <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
+        Notifications
+      </p>
+      <div className="mt-4 flex flex-col gap-3">
+        {rows.map(([key, label]) => (
+          <label key={key} className="flex items-center justify-between gap-3">
+            <span style={{ fontSize: 'var(--t-sm)' }}>{label}</span>
+            <input
+              type="checkbox"
+              checked={flags[key]}
+              onChange={(event) => save({ ...flags, [key]: event.target.checked })}
+            />
+          </label>
+        ))}
+      </div>
+      {error ? (
+        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)', marginTop: 12 }}>
+          {error}. Try again.
+        </p>
+      ) : null}
+    </Surface>
   );
 }

@@ -15,7 +15,7 @@ import {
   decideSelfServeRegistration,
   staffManualLinkError,
 } from './_lib/registration';
-import { adminMutation } from './_lib/wrappers';
+import { adminMutation, adminQuery } from './_lib/wrappers';
 
 type DbCtx = QueryCtx | MutationCtx;
 
@@ -335,5 +335,28 @@ export const scheduleAuthBackfill = adminMutation({
       scheduled += 1;
     }
     return { scheduled, totalContacts: all.length };
+  },
+});
+
+/** People on a client, staff only. Does not expose auth user ids. */
+export const listForOrg = adminQuery({
+  args: { orgId: v.id('clients') },
+  handler: async (ctx, { orgId }) => {
+    const rows = await ctx.db
+      .query('contacts')
+      .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+      .collect();
+    return rows
+      .map((row) => ({
+        id: row._id,
+        name: row.name,
+        email: row.email,
+        role: row.role,
+        portalAccess: row.portalAccess,
+        notionPageId: row.notionPageId,
+        lastSyncedAt: row.lastSyncedAt,
+        syncHidden: row.syncHiddenAt != null,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   },
 });

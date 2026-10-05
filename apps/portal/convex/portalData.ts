@@ -98,6 +98,8 @@ export const getSnapshot = clientQuery({
         figmaLink: p.figmaLink ?? null,
         docsUrl: p.docsUrl ?? null,
         stack: p.stack ?? [],
+        notionPageId: p.notionPageId,
+        lastSyncedAt: p.lastSyncedAt,
       })),
       tasks: tasks
         .filter((t) => isClientSurfaceVisible(t) && t.publishToWarehaus && publishedProjectIds.has(t.projectId))
@@ -113,6 +115,8 @@ export const getSnapshot = clientQuery({
             projectName: project?.name ?? null,
             projectStatus: project?.status ?? null,
             projectEndDate: project?.endDate ?? null,
+            notionPageId: t.notionPageId,
+            lastSyncedAt: t.lastSyncedAt,
           };
         }),
       activity: [

@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import { useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
-import { Pill, PrimaryButton } from '@/components/ui/primitives';
+import { Pill, PrimaryButton, Surface } from '@/components/ui/primitives';
 import {
   PortalTilePane,
   PortalWorkspace,
@@ -11,8 +11,10 @@ import {
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { activityToneVar, tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import {
+  TASK_BOARD_COLUMNS,
   formatPortalDate,
   projectStatusColor,
+  taskBoardColumnKey,
   taskStatusColor,
   type PortalBillingSummary,
   type PortalProject,
@@ -26,6 +28,8 @@ import { PORTAL_PANEL_GAP_VAR, PORTAL_SURFACE_RADIUS } from '@/lib/design/portal
 
 const SECTION_TITLE: Record<string, string> = {
   overview: 'Overview',
+  'awaiting-go': 'Awaiting go',
+  'sync-health': 'Sync health',
 };
 
 const formatDue = formatPortalDate;
@@ -54,7 +58,7 @@ function pickRecentTask(list: PortalTask[]): PortalTask | null {
 
 export function PortalHomeContent() {
   const { sectionFor, openDetail } = usePortalView();
-  const { data, loading } = usePortalData();
+  const { data, loading, error } = usePortalData();
   const configured = isConvexConfigured();
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
@@ -112,9 +116,31 @@ export function PortalHomeContent() {
       hideHeader
       aside={rail}
     >
+      {error && data.tenant.mode === 'client' ? (
+        <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)' }}>
+          We could not load your dashboard
+        </p>
+      ) : null}
+      {activeSection === 'awaiting-go' && (
+        <PortalTilePane>
+          <SurfaceAwaiting tasks={tasks} loading={loading} />
+        </PortalTilePane>
+      )}
+
+      {activeSection === 'sync-health' && data.tenant.mode === 'team' && (
+        <PortalTilePane>
+          <SyncHealth
+            lastSyncedAt={data.syncMeta.lastSyncedAt}
+            lastError={data.syncMeta.lastError}
+            loading={loading}
+          />
+        </PortalTilePane>
+      )}
+
       {activeSection === 'overview' && (
         <PortalTilePane>
           <div className="flex h-full min-h-0 flex-col" style={{ gap: PORTAL_PANEL_GAP_VAR }}>
+            <StatusCounts tasks={tasks} loading={loading} />
             {/* Preview: ambient blur bleeds outside; device clips inside the bevel */}
             <div
               className="relative min-h-0 shrink-0"
@@ -185,7 +211,7 @@ export function PortalHomeContent() {
                               ? ` · ${formatProgress(featured.progress)}`
                               : ''
                           }`
-                        : 'Create a project to populate this preview.'}
+                        : 'Projects show up here after a Notion pull.'}
                     </p>
                     {featured ? (
                       <p
@@ -894,6 +920,71 @@ function DeviceMockup({
           }}
         />
       </div>
+    </div>
+  );
+}
+
+function StatusCounts({ tasks, loading }: { tasks: PortalTask[]; loading: boolean }) {
+  return (
+    <div className="flex flex-wrap gap-3">
+      {TASK_BOARD_COLUMNS.map((col) => (
+        <span key={col.key} className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
+          {col.label}{' '}
+          {loading ? '…' : tasks.filter((task) => taskBoardColumnKey(task) === col.key).length}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+function SurfaceAwaiting({ tasks, loading }: { tasks: PortalTask[]; loading: boolean }) {
+  return (
+    <Surface style={{ padding: 'var(--s-5)' }}>
+      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+        Awaiting go is a Stage. Stage is not on live Tasks, so this list stays empty. Counts below
+        use Status only.
+      </p>
+      <div className="mt-4">
+        <StatusCounts tasks={tasks} loading={loading} />
+      </div>
+    </Surface>
+  );
+}
+
+function SyncHealth({
+  lastSyncedAt,
+  lastError,
+  loading,
+}: {
+  lastSyncedAt: string | null;
+  lastError: string | null;
+  loading: boolean;
+}) {
+  return (
+    <div className="flex flex-col gap-3" data-testid="sync-health">
+      <Surface style={{ padding: 'var(--s-5)' }}>
+        <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
+          Notion → portal
+        </p>
+        <p style={{ fontSize: 'var(--t-sm)', marginTop: 8, color: lastError ? 'var(--danger)' : 'var(--fg)' }}>
+          {loading
+            ? 'Loading…'
+            : lastError
+              ? `Failed. ${lastError}`
+              : lastSyncedAt
+                ? `In sync · ${new Date(lastSyncedAt).toLocaleString()}`
+                : 'Syncing'}
+        </p>
+      </Surface>
+      <Surface style={{ padding: 'var(--s-5)' }}>
+        <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
+          Portal → Notion
+        </p>
+        <p style={{ fontSize: 'var(--t-sm)', marginTop: 8 }}>
+          Write-back is off. The outbox from pull request 23 is not on this branch, so nothing here
+          is marked synced.
+        </p>
+      </Surface>
     </div>
   );
 }

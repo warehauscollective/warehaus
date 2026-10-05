@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ListTodo, Menu } from 'lucide-react';
+import { Menu } from 'lucide-react';
 import { getPortalTabsForMode, type PortalTab } from '@warehaus/logic/portal';
 import { PORTAL_TAB_ICONS } from '@/lib/data/tabIcons';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
@@ -13,7 +13,7 @@ import { usePortalData } from '@/hooks/usePortalData';
  * so left/right swipe and dock clicks stay one continuous surface.
  *
  * Below `lg`: icon-only tabs. `lg+`: full word labels.
- * Client portals relabel the projects tab as Tasks. Chatroom is out of scope.
+ * Five tabs for staff and client. Chatroom is out of scope.
  */
 export function PortalDock() {
   const { activeTab, setActiveTab } = usePortalTab();
@@ -148,10 +148,7 @@ export function PortalDock() {
 
           {dockTabs.map(({ label, value }) => {
             const isActive = value === activeTab;
-            const Icon =
-              value === 'projects' && data.tenant.mode === 'client'
-                ? ListTodo
-                : PORTAL_TAB_ICONS[value];
+            const Icon = PORTAL_TAB_ICONS[value];
             return (
               <button
                 key={value}

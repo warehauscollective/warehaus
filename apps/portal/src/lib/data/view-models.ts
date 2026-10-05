@@ -37,6 +37,15 @@ export type PortalProject = {
   figmaLink: string | null;
   docsUrl: string | null;
   stack: string[];
+  notionPageId?: string | null;
+  lastSyncedAt?: number | null;
+  syncHidden?: boolean;
+  publishToWarehaus?: boolean;
+  internal?: boolean;
+  taskCount?: number;
+  orgId?: string;
+  clientName?: string | null;
+  clientSlug?: string | null;
 };
 
 /** CLIENT task fields only — no Priority, Estimate, Owner, Description. */
@@ -50,6 +59,15 @@ export type PortalTask = {
   projectName: string | null;
   projectStatus: string | null;
   projectEndDate: string | null;
+  notionPageId?: string | null;
+  lastSyncedAt?: number | null;
+  syncHidden?: boolean;
+  publishToWarehaus?: boolean;
+  estimate?: string | null;
+  priority?: string | null;
+  source?: string | null;
+  orgId?: string;
+  syncState?: 'syncing' | 'synced' | 'failed' | null;
 };
 
 export type PortalActivity = {
@@ -123,40 +141,60 @@ export type PortalBillingInvoice = {
   createdAt: number;
 };
 
-/** Notion Status → board column (CLIENT-facing). */
+/**
+ * Live Notion Status only. Order matches the Status Kanban.
+ * Unmatched statuses return null — they are not filed under Inbox.
+ */
+export const LIVE_TASK_STATUSES = ['Inbox', 'To Do', 'Blocked', 'In Progress', 'Done'] as const;
+
 export const TASK_BOARD_COLUMNS = [
-  { key: 'inbox', label: 'Inbox', match: (s: string, done: boolean) => !done && /^inbox$/i.test(s) },
-  {
-    key: 'todo',
-    label: 'To do',
-    match: (s: string, done: boolean) =>
-      !done && (/^to\s*do$/i.test(s) || /^todo$/i.test(s) || /^planned$/i.test(s)),
-  },
-  {
-    key: 'in_progress',
-    label: 'In progress',
-    match: (s: string, done: boolean) =>
-      !done && (/progress/i.test(s) || /^doing$/i.test(s)),
-  },
-  {
-    key: 'blocked',
-    label: 'Blocked',
-    match: (s: string, done: boolean) => !done && /block/i.test(s),
-  },
-  {
-    key: 'done',
-    label: 'Done',
-    match: (s: string, done: boolean) => done || /^done$/i.test(s),
-  },
+  { key: 'inbox', label: 'Inbox', match: (s: string) => /^inbox$/i.test(s) },
+  { key: 'todo', label: 'To Do', match: (s: string) => /^to\s*do$/i.test(s) || /^todo$/i.test(s) },
+  { key: 'blocked', label: 'Blocked', match: (s: string) => /^blocked$/i.test(s) },
+  { key: 'in_progress', label: 'In Progress', match: (s: string) => /^in\s*progress$/i.test(s) },
+  { key: 'done', label: 'Done', match: (s: string) => /^done$/i.test(s) },
 ] as const;
 
 export type TaskBoardColumnKey = (typeof TASK_BOARD_COLUMNS)[number]['key'];
 
-export function taskBoardColumnKey(task: Pick<PortalTask, 'status' | 'isDone'>): TaskBoardColumnKey {
+export function taskBoardColumnKey(
+  task: Pick<PortalTask, 'status' | 'isDone'>,
+): TaskBoardColumnKey | null {
+  if (task.isDone || /^done$/i.test(task.status.trim())) return 'done';
+  const status = task.status.trim();
   for (const col of TASK_BOARD_COLUMNS) {
-    if (col.match(task.status, task.isDone)) return col.key;
+    if (col.key === 'done') continue;
+    if (col.match(status)) return col.key;
   }
-  return task.isDone ? 'done' : 'todo';
+  return null;
+}
+
+export type RowSyncState = 'syncing' | 'synced' | 'failed';
+
+/** Pulled rows with a real Notion page id read as synced. Local or hidden rows never do. */
+export function rowSyncChip(row: {
+  notionPageId?: string | null;
+  syncHidden?: boolean;
+  syncState?: RowSyncState | null;
+}): RowSyncState {
+  if (row.syncState === 'failed' || row.syncHidden) return 'failed';
+  if (row.syncState === 'syncing') return 'syncing';
+  const id = row.notionPageId?.trim() ?? '';
+  const confirmed =
+    id.length > 0 && !id.startsWith('portal:') && !id.startsWith('pending:');
+  if (!confirmed) return 'syncing';
+  return 'synced';
+}
+
+export function rowSyncLabel(row: {
+  notionPageId?: string | null;
+  syncHidden?: boolean;
+  syncState?: RowSyncState | null;
+}): string {
+  const chip = rowSyncChip(row);
+  if (chip === 'failed') return row.syncHidden && row.syncState !== 'failed' ? 'Hidden' : 'Failed';
+  if (chip === 'synced') return 'In sync';
+  return 'Syncing';
 }
 
 export function taskStatusColor(status: string, isDone = false): string {

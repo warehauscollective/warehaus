@@ -10,6 +10,8 @@ import {
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
+import { FIXTURE_SNAPSHOT } from '@/lib/data/fixtures';
+import { portalFixturesEnabled } from '@/lib/data/portalFixtures';
 
 const EMPTY_TENANT: PortalTenantMeta = {
   mode: 'team',
@@ -42,7 +44,8 @@ export { type PortalSnapshot, type PortalTenantMeta } from '@/lib/data/view-mode
  * Requires `NEXT_PUBLIC_CONVEX_URL` + signed-in linked Contact.
  */
 export function usePortalData() {
-  const configured = isConvexConfigured();
+  const fixtures = portalFixturesEnabled();
+  const configured = isConvexConfigured() && !fixtures;
   const { portalSession, linkStatus, sessionPending, joining } = usePortalAuth();
   const ready = Boolean(portalSession) && linkStatus === 'linked';
   const hostSlug =
@@ -54,6 +57,9 @@ export function usePortalData() {
   );
 
   return useMemo(() => {
+    if (fixtures) {
+      return { data: FIXTURE_SNAPSHOT, loading: false, error: null };
+    }
     if (!configured) {
       return {
         data: EMPTY,
@@ -79,7 +85,7 @@ export function usePortalData() {
       loading: false,
       error: convexSnapshot.syncMeta.lastError,
     };
-  }, [configured, ready, sessionPending, joining, linkStatus, convexSnapshot]);
+  }, [fixtures, configured, ready, sessionPending, joining, linkStatus, convexSnapshot]);
 }
 
 export function activityToneVar(tone: string): string {

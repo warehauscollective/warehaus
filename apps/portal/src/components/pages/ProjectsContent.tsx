@@ -1,603 +1,385 @@
 'use client';
 
-import { useMemo, useState, type CSSProperties, type FormEvent } from 'react';
-import { useMutation, useQuery } from 'convex/react';
+import { useEffect, useMemo, useState } from 'react';
+import { useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
-import type { Id } from '@convex/_generated/dataModel';
-import { GhostButton, Pill, PrimaryButton, Surface } from '@/components/ui/primitives';
-import {
-  PortalStatGrid,
-  PortalTilePane,
-  PortalWorkspace,
-} from '@/components/layout/PortalWorkspace';
+import { Pill, Surface } from '@/components/ui/primitives';
+import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
+import { portalFixturesEnabled } from '@/lib/data/portalFixtures';
+import { FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_TASKS } from '@/lib/data/fixtures';
 import {
   formatPortalDate,
   projectStatusColor,
+  taskStatusColor,
   type PortalProject,
   type PortalTask,
 } from '@/lib/data/view-models';
+import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
+import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
+import { NewTaskControl } from '@/components/tasks/NewTaskControl';
+import { StatusKanban, StatusTable } from '@/components/tasks/StatusKanban';
+import { TaskResponseSheet } from '@/components/pages/TasksContent';
 
 const SECTION_TITLE: Record<string, string> = {
-  overview: 'Projects',
-  active: 'In flight',
-  pipeline: 'Pipeline',
+  all: 'All projects',
+  active: 'Active',
+  shipped: 'Shipped',
 };
 
-const PIPELINE_COLUMNS: {
-  key: 'inbox' | 'planned' | 'progress' | 'done';
-  n: string;
-  h: string;
-}[] = [
-  { key: 'inbox', n: '01', h: 'Inbox' },
-  { key: 'planned', n: '02', h: 'Planned' },
-  { key: 'progress', n: '03', h: 'In progress' },
-  { key: 'done', n: '04', h: 'Done' },
-];
-
-const STATUS_OPTIONS = ['Inbox', 'Planned', 'In progress', 'Done'] as const;
-
-type StaffProject = PortalProject & {
-  orgId?: string;
+type ProjectRow = PortalProject & {
   clientName?: string | null;
-  clientSlug?: string | null;
+  internal?: boolean;
+  taskCount?: number;
+  publishToWarehaus?: boolean;
 };
 
-function statusBucket(status: string): 'progress' | 'planned' | 'inbox' | 'done' {
-  const s = status.toLowerCase();
-  if (s.includes('done') || s.includes('ship')) return 'done';
-  if (s.includes('progress')) return 'progress';
-  if (s.includes('plan')) return 'planned';
-  return 'inbox';
+function isShipped(status: string): boolean {
+  return /ship|done/i.test(status);
+}
+
+export function ProjectsContent() {
+  const fixtures = portalFixturesEnabled();
+  const configured = isConvexConfigured();
+  const { sectionFor, openDetail } = usePortalView();
+  const { data, loading, error } = usePortalData();
+  const { portalSession } = usePortalAuth();
+  const hostSlug =
+    typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
+  const activeSection = sectionFor('projects');
+  const isStaff = Boolean(portalSession?.isStaff);
+  const [internalOnly, setInternalOnly] = useState(false);
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [taskView, setTaskView] = useState<'board' | 'table'>('board');
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const project = params.get('project');
+    if (project) setOpenId(project);
+  }, []);
+
+  const staffProjects = useQuery(
+    api.projects.listForStaff,
+    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
+  );
+  const staffTasks = useQuery(
+    api.tasks.listForStaff,
+    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
+  );
+  const staffDocs = useQuery(
+    api.clientDocs.listForStaff,
+    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
+  );
+  const clientDocs = useQuery(
+    api.clientDocs.listForClient,
+    !fixtures && configured && !isStaff && data.tenant.ok ? { hostSlug } : 'skip',
+  );
+
+  const projects = useMemo(
+    () =>
+      (fixtures ? FIXTURE_PROJECTS : isStaff ? staffProjects ?? [] : data.projects) as ProjectRow[],
+    [fixtures, isStaff, staffProjects, data.projects],
+  );
+  const tasks = (fixtures ? FIXTURE_TASKS : isStaff ? staffTasks ?? [] : data.tasks) as PortalTask[];
+  const docs = (fixtures ? FIXTURE_DOCS : isStaff ? staffDocs ?? [] : clientDocs ?? []) as DocRow[];
+  const projectsLoading = !fixtures && (loading || (isStaff && staffProjects === undefined));
+
+  const visible = useMemo(() => {
+    return projects.filter((project) => {
+      if (!isStaff && project.internal) return false;
+      if (internalOnly && !project.internal) return false;
+      if (activeSection === 'shipped') return isShipped(project.status);
+      if (activeSection === 'active') return !isShipped(project.status);
+      return true;
+    });
+  }, [projects, isStaff, internalOnly, activeSection]);
+
+  const openProject = visible.find((project) => project.id === openId) ?? projects.find((p) => p.id === openId) ?? null;
+
+  const loadError = error
+    ? isStaff
+      ? error
+      : 'We could not load your projects'
+    : null;
+
+  if (openProject) {
+    const projectTasks = tasks.filter((task) => task.projectId === openProject.id);
+    const projectDocs = docs.filter((doc) => doc.projectId === openProject.id);
+    return (
+      <PortalWorkspace
+        eyebrow={tenantEyebrow(data.tenant, 'Project')}
+        title={openProject.name}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            <ViewToggle view={taskView} onChange={setTaskView} />
+            {isStaff ? <NewTaskControl projectName={openProject.name} /> : null}
+          </div>
+        }
+      >
+        <PortalTilePane>
+          <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setOpenId(null)}
+                className="ds-mono"
+                style={{
+                  fontSize: 'var(--t-xs)',
+                  color: 'var(--accent)',
+                  background: 'none',
+                  border: 0,
+                  cursor: 'pointer',
+                }}
+              >
+                All projects
+              </button>
+              {openProject.clientName ? <Pill>{openProject.clientName}</Pill> : null}
+              <Pill color={projectStatusColor(openProject.status)}>{openProject.status}</Pill>
+              <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
+                Progress {formatProgress(openProject.progress)}
+              </span>
+              {isStaff && openProject.publishToWarehaus != null ? (
+                <PublishChip published={openProject.publishToWarehaus} />
+              ) : null}
+              <SyncChip
+                notionPageId={openProject.notionPageId}
+                syncHidden={openProject.syncHidden}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-3">
+              <h2 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>Tasks</h2>
+            </div>
+            {taskView === 'board' ? (
+              <StatusKanban
+                tasks={projectTasks}
+                loading={projectsLoading}
+                onOpen={(task) =>
+                  openDetail({
+                    id: task.id,
+                    title: task.name,
+                    subtitle: task.status,
+                    body: isStaff ? (
+                      <StaffTaskFields task={task} />
+                    ) : (
+                      <TaskResponseSheet task={task} />
+                    ),
+                  })
+                }
+              />
+            ) : (
+              <StatusTable
+                tasks={projectTasks}
+                loading={projectsLoading}
+                onOpen={(task) =>
+                  openDetail({
+                    id: task.id,
+                    title: task.name,
+                    subtitle: task.status,
+                    body: isStaff ? <StaffTaskFields task={task} /> : <TaskResponseSheet task={task} />,
+                  })
+                }
+              />
+            )}
+            <DocsBlock docs={projectDocs} staff={isStaff} />
+          </div>
+        </PortalTilePane>
+      </PortalWorkspace>
+    );
+  }
+
+  return (
+    <PortalWorkspace
+      eyebrow={tenantEyebrow(data.tenant, 'Projects')}
+      title={SECTION_TITLE[activeSection] ?? 'Projects'}
+    >
+      <PortalTilePane>
+        <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" data-testid="projects-list">
+          {loadError ? (
+            <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)' }}>{loadError}</p>
+          ) : null}
+          {!isStaff ? (
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+              You only see what is shared with you.
+            </p>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            {isStaff ? (
+              <FilterChip active={internalOnly} onClick={() => setInternalOnly((value) => !value)}>
+                Internal
+              </FilterChip>
+            ) : null}
+          </div>
+          {projectsLoading ? (
+            <div className="flex flex-col gap-2" aria-busy="true">
+              {[0, 1, 2].map((i) => (
+                <div
+                  key={i}
+                  className="animate-pulse"
+                  style={{ height: 72, borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--border)' }}
+                />
+              ))}
+            </div>
+          ) : visible.length === 0 ? (
+            <Surface style={{ padding: 'var(--s-5)' }}>
+              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+                {isStaff
+                  ? 'No projects match these filters.'
+                  : 'Nothing shared yet. Warehaus will publish projects here when they are ready for you.'}
+              </p>
+            </Surface>
+          ) : (
+            visible.map((project) => (
+              <button
+                key={project.id}
+                type="button"
+                onClick={() => {
+                  setTaskView('board');
+                  setOpenId(project.id);
+                }}
+                className="text-left"
+              >
+                <Surface style={{ padding: 'var(--s-4)' }}>
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, overflowWrap: 'anywhere' }}>
+                      {project.name}
+                    </h3>
+                    <Pill color={projectStatusColor(project.status)}>{project.status}</Pill>
+                  </div>
+                  <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>
+                    {project.clientName ?? data.tenant.clientName ?? '—'}
+                    {project.description ? ` · ${project.description}` : ''}
+                    {project.stack?.length ? ` · ${project.stack.join(', ')}` : ''}
+                  </p>
+                  <div className="mt-3 flex flex-wrap items-center gap-2">
+                    <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
+                      {formatProgress(project.progress)} · {project.taskCount ?? tasks.filter((t) => t.projectId === project.id).length} tasks · End {formatPortalDate(project.endDate)}
+                    </span>
+                    {isStaff && project.publishToWarehaus != null ? (
+                      <PublishChip published={project.publishToWarehaus} />
+                    ) : null}
+                    <SyncChip notionPageId={project.notionPageId} syncHidden={project.syncHidden} />
+                  </div>
+                </Surface>
+              </button>
+            ))
+          )}
+        </div>
+      </PortalTilePane>
+    </PortalWorkspace>
+  );
+}
+
+function StaffTaskFields({ task }: { task: PortalTask }) {
+  const rows: [string, string][] = [
+    ['Status', task.status],
+    ['Date', formatPortalDate(task.date)],
+    ['Project', task.projectName ?? '—'],
+    ['Estimate', task.estimate ?? '—'],
+    ['Priority', task.priority ?? '—'],
+    ['Source', task.source ?? '—'],
+    ['Done', task.isDone ? 'Yes' : 'No'],
+  ];
+  return (
+    <div className="flex flex-col gap-3">
+      {rows.map(([label, value]) => (
+        <div key={label}>
+          <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
+            {label}
+          </p>
+          <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600, marginTop: 2, overflowWrap: 'anywhere' }}>
+            {label === 'Status' ? (
+              <Pill color={taskStatusColor(task.status, task.isDone)}>{value}</Pill>
+            ) : (
+              value
+            )}
+          </p>
+        </div>
+      ))}
+      {task.publishToWarehaus != null ? <PublishChip published={task.publishToWarehaus} /> : null}
+      <SyncChip notionPageId={task.notionPageId} syncHidden={task.syncHidden} syncState={task.syncState} />
+    </div>
+  );
+}
+
+function ViewToggle({
+  view,
+  onChange,
+}: {
+  view: 'board' | 'table';
+  onChange: (view: 'board' | 'table') => void;
+}) {
+  return (
+    <div role="tablist" aria-label="Task view" className="inline-flex" style={{ padding: 3, borderRadius: 12, border: '1px solid var(--border)' }}>
+      {([
+        ['board', 'Board'],
+        ['table', 'Table'],
+      ] as const).map(([key, label]) => {
+        const active = view === key;
+        return (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChange(key)}
+            className="ds-mono"
+            style={{
+              fontSize: 'var(--t-xs)',
+              letterSpacing: '0.08em',
+              textTransform: 'uppercase',
+              padding: '0.45rem 0.85rem',
+              borderRadius: 9,
+              border: 0,
+              cursor: 'pointer',
+              fontWeight: key === 'table' ? 500 : 600,
+              color: active ? 'var(--fg)' : 'var(--muted)',
+              background: active ? 'color-mix(in oklab, var(--fg) 10%, transparent)' : 'transparent',
+            }}
+          >
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function FilterChip({
+  active,
+  onClick,
+  children,
+}: {
+  active: boolean;
+  onClick: () => void;
+  children: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="ds-mono"
+      style={{
+        fontSize: 'var(--t-xs)',
+        padding: '0.35rem 0.7rem',
+        borderRadius: 999,
+        border: '1px solid var(--border)',
+        background: active ? 'var(--fg)' : 'transparent',
+        color: active ? 'var(--bg)' : 'var(--muted)',
+        cursor: 'pointer',
+      }}
+    >
+      {children}
+    </button>
+  );
 }
 
 function formatProgress(value: number | null | undefined): string {
   if (value == null) return '—';
   const pct = value <= 1 ? Math.round(value * 100) : Math.round(value);
   return `${Math.min(100, Math.max(0, pct))}%`;
-}
-
-const inputStyle: CSSProperties = {
-  width: '100%',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
-  background: 'var(--bg)',
-  color: 'var(--fg)',
-  padding: '0.55rem 0.7rem',
-  fontSize: 'var(--t-sm)',
-  fontFamily: 'var(--font-body)',
-};
-
-export function ProjectsContent() {
-  const configured = isConvexConfigured();
-  const { sectionFor, setSectionFor, openDetail } = usePortalView();
-  const { data, loading } = usePortalData();
-  const { portalSession } = usePortalAuth();
-  const hostSlug =
-    typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
-  const activeSection = sectionFor('projects');
-  const isTeam = data.tenant.mode === 'team';
-  const isStaff = Boolean(portalSession?.isStaff);
-
-  const staffProjects = useQuery(
-    api.projects.listPublishedForStaff,
-    configured && isTeam && isStaff ? { hostSlug } : 'skip',
-  );
-
-  const projects: StaffProject[] = useMemo(() => {
-    if (isTeam && isStaff && staffProjects) return staffProjects;
-    return data.projects;
-  }, [isTeam, isStaff, staffProjects, data.projects]);
-
-  const projectsLoading =
-    loading || (isTeam && isStaff && staffProjects === undefined);
-
-  const title =
-    !isTeam && activeSection === 'active'
-      ? 'Your projects'
-      : (SECTION_TITLE[activeSection] ?? 'Projects');
-
-  const inProgress = projects.filter((p) => statusBucket(p.status) === 'progress').length;
-  const planned = projects.filter((p) => statusBucket(p.status) === 'planned').length;
-  const inbox = projects.filter((p) => statusBucket(p.status) === 'inbox').length;
-
-  const [dialogOpen, setDialogOpen] = useState(false);
-
-  const openProject = (p: StaffProject) => {
-    openDetail({
-      id: p.id,
-      title: p.name,
-      subtitle: p.clientName ? `${p.status} · ${p.clientName}` : p.status,
-      body: (
-        <ProjectDetail
-          project={p}
-          tasks={data.tasks.filter((t) => t.projectId === p.id)}
-          clientName={p.clientName ?? data.tenant.clientName}
-        />
-      ),
-    });
-  };
-
-  return (
-    <PortalWorkspace
-      eyebrow={tenantEyebrow(data.tenant, 'Projects')}
-      title={title}
-      actions={
-        isTeam && isStaff ? (
-          <PrimaryButton onClick={() => setDialogOpen(true)}>New project</PrimaryButton>
-        ) : undefined
-      }
-    >
-      {activeSection === 'overview' && (
-        <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4">
-            <PortalStatGrid
-              items={[
-                { label: 'Active', value: projectsLoading ? '…' : String(projects.length) },
-                { label: 'In progress', value: String(inProgress) },
-                { label: 'Planned', value: String(planned) },
-                { label: 'Inbox', value: String(inbox) },
-              ]}
-            />
-            {!projectsLoading && projects.length === 0 ? (
-              <Surface style={{ padding: 'var(--s-5)' }}>
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                  No published projects yet. Projects with Publish to Warehaus appear here.
-                </p>
-              </Surface>
-            ) : (
-              <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-2">
-                {projects.slice(0, 4).map((p) => (
-                  <button
-                    key={p.id}
-                    type="button"
-                    onClick={() => openProject(p)}
-                    className="text-left"
-                  >
-                    <Surface style={{ padding: 'var(--s-4)', height: '100%' }}>
-                      <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{p.name}</h3>
-                      <div className="mt-3 flex flex-wrap items-center gap-2">
-                        <Pill color={projectStatusColor(p.status)}>{p.status}</Pill>
-                        <span style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                          End {formatPortalDate(p.endDate)}
-                        </span>
-                      </div>
-                      {p.clientName ? (
-                        <p
-                          className="ds-mono mt-2"
-                          style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}
-                        >
-                          {p.clientName}
-                        </p>
-                      ) : null}
-                      {p.progress != null ? (
-                        <p
-                          className="ds-mono mt-2"
-                          style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}
-                        >
-                          Progress {formatProgress(p.progress)}
-                        </p>
-                      ) : null}
-                    </Surface>
-                  </button>
-                ))}
-              </div>
-            )}
-            <button
-              type="button"
-              onClick={() => setSectionFor('projects', 'active')}
-              className="ds-mono self-start"
-              style={{
-                fontSize: 'var(--t-xs)',
-                color: 'var(--accent)',
-                background: 'none',
-                border: 0,
-                cursor: 'pointer',
-              }}
-            >
-              Open full list →
-            </button>
-          </div>
-        </PortalTilePane>
-      )}
-
-      {activeSection === 'active' && (
-        <PortalTilePane>
-          <div
-            style={{
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--radius)',
-              overflow: 'hidden',
-              height: '100%',
-            }}
-          >
-            <div className="h-full overflow-auto">
-              {!projectsLoading && projects.length === 0 ? (
-                <p
-                  style={{
-                    fontSize: 'var(--t-sm)',
-                    color: 'var(--muted)',
-                    padding: 'var(--s-5)',
-                  }}
-                >
-                  No published projects in this workspace.
-                </p>
-              ) : (
-                <table className="ds-data" style={{ minWidth: 520 }}>
-                  <thead>
-                    <tr>
-                      <th>Name</th>
-                      {isTeam ? <th>Client</th> : null}
-                      <th>Status</th>
-                      <th className="num">Progress</th>
-                      <th className="num">End</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {projects.map((p) => (
-                      <tr
-                        key={p.id}
-                        onClick={() => openProject(p)}
-                        style={{ cursor: 'pointer' }}
-                      >
-                        <td>{p.name}</td>
-                        {isTeam ? (
-                          <td style={{ color: 'var(--muted)' }}>{p.clientName ?? '—'}</td>
-                        ) : null}
-                        <td>
-                          <Pill color={projectStatusColor(p.status)}>{p.status}</Pill>
-                        </td>
-                        <td className="num">{formatProgress(p.progress)}</td>
-                        <td className="num">{formatPortalDate(p.endDate)}</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              )}
-            </div>
-          </div>
-        </PortalTilePane>
-      )}
-
-      {activeSection === 'pipeline' && (
-        <PortalTilePane>
-          {!projectsLoading && projects.length === 0 ? (
-            <Surface style={{ padding: 'var(--s-5)' }}>
-              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                Pipeline is empty until published projects exist.
-              </p>
-            </Surface>
-          ) : (
-            <div
-              className="grid h-full gap-3"
-              style={{
-                gridTemplateColumns: 'repeat(auto-fit, minmax(min(180px, 100%), 1fr))',
-                alignContent: 'start',
-              }}
-            >
-              {PIPELINE_COLUMNS.map((col) => {
-                const bucket = projects.filter((p) => statusBucket(p.status) === col.key);
-                return (
-                  <Surface key={col.key} style={{ padding: 'var(--s-5)' }}>
-                    <span
-                      className="ds-mono"
-                      style={{ fontSize: 'var(--t-xs)', color: 'var(--accent)' }}
-                    >
-                      {col.n}
-                    </span>
-                    <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 6 }}>
-                      {col.h}
-                    </h3>
-                    <p
-                      className="ds-mono"
-                      style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', marginTop: 4 }}
-                    >
-                      {bucket.length} project{bucket.length === 1 ? '' : 's'}
-                    </p>
-                    <div className="mt-3 flex flex-col gap-2">
-                      {bucket.slice(0, 4).map((p) => (
-                        <button
-                          key={p.id}
-                          type="button"
-                          onClick={() => openProject(p)}
-                          className="text-left"
-                          style={{
-                            padding: '0.45rem 0.55rem',
-                            borderRadius: 8,
-                            border: '1px solid var(--border)',
-                            background: 'var(--bg)',
-                            cursor: 'pointer',
-                          }}
-                        >
-                          <span style={{ fontSize: 'var(--t-sm)', fontWeight: 600 }}>
-                            {p.name}
-                          </span>
-                          {p.clientName ? (
-                            <span
-                              className="ds-mono block"
-                              style={{
-                                fontSize: 'var(--t-xs)',
-                                color: 'var(--faint)',
-                                marginTop: 2,
-                              }}
-                            >
-                              {p.clientName}
-                            </span>
-                          ) : null}
-                        </button>
-                      ))}
-                      {bucket.length === 0 ? (
-                        <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>None</p>
-                      ) : null}
-                    </div>
-                  </Surface>
-                );
-              })}
-            </div>
-          )}
-        </PortalTilePane>
-      )}
-
-      {dialogOpen ? (
-        <NewProjectDialog
-          hostSlug={hostSlug}
-          defaultOrgId={data.clients[0]?.id}
-          onClose={() => setDialogOpen(false)}
-          onCreated={(project) => {
-            setDialogOpen(false);
-            setSectionFor('projects', 'active');
-            openProject(project);
-          }}
-        />
-      ) : null}
-    </PortalWorkspace>
-  );
-}
-
-function ProjectDetail({
-  project,
-  tasks,
-  clientName,
-}: {
-  project: StaffProject;
-  tasks: PortalTask[];
-  clientName: string | null;
-}) {
-  const rows: [string, string][] = [
-    ['Status', project.status],
-    ['Progress', formatProgress(project.progress)],
-    ['Start', formatPortalDate(project.startDate)],
-    ['End', formatPortalDate(project.endDate)],
-  ];
-  if (clientName) rows.push(['Client', clientName]);
-  if (project.stack.length) rows.push(['Stack', project.stack.join(', ')]);
-  if (project.liveUrl) rows.push(['Live', project.liveUrl]);
-
-  const openTasks = tasks.filter((t) => !t.isDone);
-
-  return (
-    <div className="flex flex-col gap-4">
-      {project.description ? (
-        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', lineHeight: 1.5 }}>
-          {project.description}
-        </p>
-      ) : null}
-      <div className="grid grid-cols-2 gap-3">
-        {rows.map(([k, v]) => (
-          <div key={k}>
-            <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-              {k}
-            </p>
-            <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600, marginTop: 2 }}>{v}</p>
-          </div>
-        ))}
-      </div>
-      <div>
-        <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-          Open tasks
-        </p>
-        {openTasks.length === 0 ? (
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>
-            No open published tasks on this project.
-          </p>
-        ) : (
-          <ul className="mt-2 flex flex-col gap-2">
-            {openTasks.slice(0, 8).map((t) => (
-              <li
-                key={t.id}
-                style={{
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  gap: 8,
-                  fontSize: 'var(--t-sm)',
-                }}
-              >
-                <span>{t.name}</span>
-                <Pill color={projectStatusColor(t.status)}>{t.status}</Pill>
-              </li>
-            ))}
-          </ul>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function NewProjectDialog({
-  hostSlug,
-  defaultOrgId,
-  onClose,
-  onCreated,
-}: {
-  hostSlug?: string;
-  defaultOrgId?: string;
-  onClose: () => void;
-  onCreated: (project: StaffProject) => void;
-}) {
-  const directory = useQuery(api.clients.listDirectory, { hostSlug });
-  const createProject = useMutation(api.projects.createForStaff);
-
-  const [orgId, setOrgId] = useState(defaultOrgId ?? '');
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [status, setStatus] = useState<string>('Inbox');
-  const [endDate, setEndDate] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const resolvedOrgId =
-    orgId ||
-    defaultOrgId ||
-    directory?.find((c) => c.portalAccess === 'Enabled')?.id ||
-    directory?.[0]?.id ||
-    '';
-
-  const onSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!resolvedOrgId || !name.trim()) {
-      setError('Name and client are required.');
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const result = await createProject({
-        orgId: resolvedOrgId as Id<'clients'>,
-        name: name.trim(),
-        description: description.trim() || undefined,
-        status,
-        endDate: endDate || undefined,
-        hostSlug,
-      });
-      const client = directory?.find((c) => c.id === resolvedOrgId);
-      onCreated({
-        id: result.id,
-        name: name.trim(),
-        description: description.trim() || null,
-        status,
-        progress: 0,
-        startDate: null,
-        endDate: endDate || null,
-        liveUrl: null,
-        figmaLink: null,
-        docsUrl: null,
-        stack: [],
-        orgId: resolvedOrgId,
-        clientName: client?.name ?? null,
-        clientSlug: client?.slug ?? null,
-      });
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not create project');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-label="New project"
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 80,
-        background: 'color-mix(in oklab, var(--bg) 55%, transparent)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: 16,
-      }}
-    >
-      <div onClick={(e) => e.stopPropagation()} style={{ width: 'min(100%, 480px)' }}>
-        <Surface style={{ padding: 'var(--s-5)' }}>
-          <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-            New project
-          </p>
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>
-            Creates a published portal project in Convex. It appears immediately; Notion can claim
-            it later via the synthetic page id.
-          </p>
-          <form className="mt-4 flex flex-col gap-3" onSubmit={(e) => void onSubmit(e)}>
-            <label className="flex flex-col gap-1">
-              <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Client</span>
-              <select
-                style={inputStyle}
-                value={resolvedOrgId}
-                onChange={(e) => setOrgId(e.target.value)}
-                required
-              >
-                {directory === undefined ? <option value="">Loading clients…</option> : null}
-                {directory?.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.name}
-                    {c.portalAccess === 'Enabled' ? '' : ' (portal off)'}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex flex-col gap-1">
-              <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Name</span>
-              <input
-                style={inputStyle}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Project name"
-                required
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Description</span>
-              <textarea
-                style={inputStyle}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                rows={3}
-                placeholder="Optional"
-              />
-            </label>
-            <div className="grid grid-cols-2 gap-3">
-              <label className="flex flex-col gap-1">
-                <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Status</span>
-                <select
-                  style={inputStyle}
-                  value={status}
-                  onChange={(e) => setStatus(e.target.value)}
-                >
-                  {STATUS_OPTIONS.map((s) => (
-                    <option key={s} value={s}>
-                      {s}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <label className="flex flex-col gap-1">
-                <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>End date</span>
-                <input
-                  style={inputStyle}
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                />
-              </label>
-            </div>
-            {error ? (
-              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>{error}</p>
-            ) : null}
-            <div className="mt-2 flex justify-end gap-2">
-              <GhostButton onClick={onClose}>Cancel</GhostButton>
-              <PrimaryButton type="submit" disabled={saving || !resolvedOrgId}>
-                {saving ? 'Creating…' : 'Create project'}
-              </PrimaryButton>
-            </div>
-          </form>
-        </Surface>
-      </div>
-    </div>
-  );
 }

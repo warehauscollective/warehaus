@@ -11,9 +11,9 @@ import { activityToneVar, tenantEyebrow, usePortalData } from '@/hooks/usePortal
 import type { PortalActivity } from '@/lib/data/view-models';
 
 const SECTION_TITLE: Record<string, string> = {
-  overview: 'Activity',
-  feed: 'Feed',
-  exceptions: 'Exceptions',
+  all: 'All activity',
+  tasks: 'Tasks',
+  sync: 'Sync',
 };
 
 function formatTime(iso: string): string {
@@ -64,7 +64,11 @@ export function ActivityContent() {
   const activeSection = sectionFor('activity');
   const title = SECTION_TITLE[activeSection] ?? 'Activity';
 
-  const feed = data.activity;
+  const feed = data.activity.filter((item) => {
+    if (activeSection === 'tasks') return item.type === 'task';
+    if (activeSection === 'sync') return item.type === 'sync' || item.type === 'exception';
+    return true;
+  });
   const exceptions = feed.filter(isException);
   const watching = feed.filter(isWatching);
   const attention = exceptions.length ? exceptions : watching;
@@ -73,7 +77,7 @@ export function ActivityContent() {
 
   return (
     <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Activity')} title={title}>
-      {activeSection === 'overview' && (
+      {activeSection === 'all' && (
         <PortalTilePane>
           <div className="flex h-full min-h-0 flex-col gap-4">
             <PortalStatGrid
@@ -233,7 +237,7 @@ export function ActivityContent() {
         </PortalTilePane>
       )}
 
-      {activeSection === 'feed' && (
+      {(activeSection === 'tasks' || activeSection === 'sync') && (
         <PortalTilePane>
           <div className="flex flex-col gap-2">
             {loading && (
