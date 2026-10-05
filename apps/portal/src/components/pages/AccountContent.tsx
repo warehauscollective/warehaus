@@ -42,7 +42,7 @@ export function AccountContent() {
   const router = useRouter();
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
-  const { sectionFor, setSectionFor } = usePortalView();
+  const { sectionFor, setSectionFor, linkedClientId, clearLinkedClient } = usePortalView();
   const { data, error } = usePortalData();
   const { portalSession, signOut } = usePortalAuth();
   const activeSection = sectionFor('account');
@@ -59,6 +59,13 @@ export function AccountContent() {
     const client = params.get('client');
     if (client) setClientId(client);
   }, []);
+
+  useEffect(() => {
+    if (!linkedClientId) return;
+    setClientId(linkedClientId);
+    setSectionFor('account', 'clients');
+    clearLinkedClient();
+  }, [linkedClientId, setSectionFor, clearLinkedClient]);
 
   useEffect(() => {
     if (isClient && (activeSection === 'clients' || activeSection === 'team')) {

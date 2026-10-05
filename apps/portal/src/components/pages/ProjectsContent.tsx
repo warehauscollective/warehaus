@@ -22,6 +22,7 @@ import {
   type PortalTask,
 } from '@/lib/data/view-models';
 import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
+import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
@@ -49,7 +50,7 @@ function isShipped(status: string): boolean {
 export function ProjectsContent() {
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
-  const { sectionFor, openDetail } = usePortalView();
+  const { sectionFor, openDetail, openLinkedClient } = usePortalView();
   const { data, loading, error } = usePortalData();
   const { portalSession } = usePortalAuth();
   const hostSlug =
@@ -134,7 +135,11 @@ export function ProjectsContent() {
         <PortalTilePane>
           <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="project-detail">
             <div className="flex flex-wrap items-center gap-2">
-              {openProject.clientName ? <Pill>{openProject.clientName}</Pill> : null}
+              <ClientLink
+                name={openProject.clientName}
+                orgId={openProject.orgId}
+                onOpen={openLinkedClient}
+              />
               <Pill color={projectStatusColor(openProject.status)}>{openProject.status}</Pill>
               <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
                 Progress {formatProgress(openProject.progress)}
