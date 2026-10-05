@@ -1,6 +1,6 @@
 import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
-import { clientQuery } from './_lib/wrappers';
+import { adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
 
 /**
@@ -21,6 +21,7 @@ function toClientResource(
     blobUrl?: string;
     externalId?: string;
     lastSyncedAt: number;
+    notionPageId: string;
   },
   projectName: string | null,
 ) {
@@ -40,6 +41,7 @@ function toClientResource(
     byteSize: row.byteSize ?? null,
     externalId: row.externalId ?? null,
     lastSyncedAt: row.lastSyncedAt,
+    notionPageId: row.notionPageId,
   };
 }
 
@@ -73,5 +75,29 @@ export const getForClient = clientQuery({
     }
     const project = row.projectId ? await ctx.db.get(row.projectId) : null;
     return toClientResource(row, project?.name ?? null);
+  },
+});
+
+/** Staff resource list. Unpublished rows stay visible with a publish flag. */
+export const listForStaff = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const clients = await ctx.db.query('clients').collect();
+    const clientById = new Map(clients.map((c) => [c._id, c] as const));
+    const rows = await ctx.db.query('sharedResources').collect();
+    const out = [];
+    for (const row of rows) {
+      const project = row.projectId ? await ctx.db.get(row.projectId) : null;
+      const client = clientById.get(row.orgId);
+      out.push({
+        ...toClientResource(row, project?.name ?? null),
+        clientName: client?.companyName ?? null,
+        publishToWarehaus: row.publishToWarehaus,
+        notionPageId: row.notionPageId,
+        lastSyncedAt: row.lastSyncedAt,
+        syncHidden: row.syncHiddenAt != null,
+      });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
   },
 });

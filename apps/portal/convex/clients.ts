@@ -12,6 +12,11 @@ export type ClientDirectoryRow = {
   resourceCount: number;
   uploadNeedsReview: number;
   lastActivityAt: number | null;
+  contactCount: number;
+  syncHidden: boolean;
+  notionPageId: string;
+  lastSyncedAt: number;
+  internal: boolean;
 };
 
 /**
@@ -29,25 +34,19 @@ export const listDirectory = adminQuery({
         .query('projects')
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
-      const publishedProjects = projects.filter(
-        (p) => isClientSurfaceVisible(p) && p.publishToWarehaus && !p.archive && !p.type.includes('Internal'),
-      );
+      const staffProjects = projects.filter((p) => p.syncHiddenAt == null);
 
       const tasks = await ctx.db
         .query('tasks')
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
-      const openTaskCount = tasks.filter(
-        (t) => isClientSurfaceVisible(t) && t.publishToWarehaus && !t.isDone,
-      ).length;
+      const openTaskCount = tasks.filter((t) => t.syncHiddenAt == null && !t.isDone).length;
 
       const resources = await ctx.db
         .query('sharedResources')
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
-      const resourceCount = resources.filter(
-        (r) => isClientSurfaceVisible(r) && r.publishToWarehaus && !r.archive,
-      ).length;
+      const resourceCount = resources.filter((r) => r.syncHiddenAt == null && !r.archive).length;
 
       const uploads = await ctx.db
         .query('clientUploads')
@@ -61,17 +60,30 @@ export const listDirectory = adminQuery({
         .order('desc')
         .take(1);
 
+      const contacts = await ctx.db
+        .query('contacts')
+        .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
+        .collect();
+
       out.push({
         id: client._id,
         name: client.companyName,
         slug: client.slug,
         status: client.status,
         portalAccess: client.portalAccess,
-        projectCount: publishedProjects.length,
+        projectCount: staffProjects.length,
         openTaskCount,
         resourceCount,
         uploadNeedsReview,
         lastActivityAt: latestActivity[0]?.timestamp ?? null,
+        contactCount: contacts.filter((c) => c.syncHiddenAt == null).length,
+        syncHidden: client.syncHiddenAt != null,
+        notionPageId: client.notionPageId,
+        lastSyncedAt: client.lastSyncedAt,
+        internal:
+          client.slug === 'warehaus' ||
+          client.slug.startsWith('warehaus-') ||
+          client.companyName.startsWith('Warehaus'),
       });
     }
 

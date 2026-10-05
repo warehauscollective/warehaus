@@ -8,12 +8,12 @@ import {
 } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { activityToneVar, tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
-import type { PortalActivity } from '@/lib/data/view-models';
+import { pullSyncWords, type PortalActivity } from '@/lib/data/view-models';
 
 const SECTION_TITLE: Record<string, string> = {
-  overview: 'Activity',
-  feed: 'Feed',
-  exceptions: 'Exceptions',
+  all: 'All activity',
+  tasks: 'Tasks',
+  sync: 'Sync',
 };
 
 function formatTime(iso: string): string {
@@ -64,16 +64,21 @@ export function ActivityContent() {
   const activeSection = sectionFor('activity');
   const title = SECTION_TITLE[activeSection] ?? 'Activity';
 
-  const feed = data.activity;
+  const feed = data.activity.filter((item) => {
+    if (activeSection === 'tasks') return item.type === 'task';
+    if (activeSection === 'sync') return item.type === 'sync' || item.type === 'exception';
+    return true;
+  });
   const exceptions = feed.filter(isException);
   const watching = feed.filter(isWatching);
   const attention = exceptions.length ? exceptions : watching;
   const syncMeta = data.syncMeta;
+  const pull = pullSyncWords(syncMeta);
   const isTeam = data.tenant.mode === 'team';
 
   return (
     <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Activity')} title={title}>
-      {activeSection === 'overview' && (
+      {activeSection === 'all' && (
         <PortalTilePane>
           <div className="flex h-full min-h-0 flex-col gap-4">
             <PortalStatGrid
@@ -93,12 +98,8 @@ export function ActivityContent() {
                   ? [
                       {
                         label: 'Sync',
-                        value: syncMeta.lastError
-                          ? 'Error'
-                          : syncMeta.lastSyncedAt
-                            ? 'OK'
-                            : 'Idle',
-                        hint: 'Convex pull',
+                        value: pull.value,
+                        hint: pull.hint,
                       },
                     ]
                   : [
@@ -221,8 +222,10 @@ export function ActivityContent() {
                     <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
                       {isTeam
                         ? syncMeta.lastError
-                          ? 'Sync reported an error — see banner above.'
-                          : 'No exceptions. Convex sync looks healthy.'
+                          ? 'The Notion pull failed. See the note above.'
+                          : pull.value === 'In sync'
+                            ? 'No exceptions. The Notion pull is in sync.'
+                            : 'No exceptions. The Notion pull is still syncing.'
                         : 'Nothing needs attention right now.'}
                     </p>
                   )}
@@ -233,7 +236,7 @@ export function ActivityContent() {
         </PortalTilePane>
       )}
 
-      {activeSection === 'feed' && (
+      {(activeSection === 'tasks' || activeSection === 'sync') && (
         <PortalTilePane>
           <div className="flex flex-col gap-2">
             {loading && (

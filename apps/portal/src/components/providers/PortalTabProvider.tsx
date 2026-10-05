@@ -45,12 +45,24 @@ export function PortalTabProvider({ children }: { children: ReactNode }) {
 
   // Deep links / back-forward: keep tab state aligned with the path.
   useEffect(() => {
+    const requested = new URLSearchParams(window.location.search).get('tab');
+    if (requested && isPortalTab(requested)) {
+      setActiveTabState(requested);
+      return;
+    }
     setActiveTabState(getPortalTabForPath(pathname));
   }, [pathname]);
 
   const setActiveTab = useCallback(
     (tab: PortalTab) => {
       setActiveTabState(tab);
+      // Fixture preview is one page. A dock click must not leave it for /projects.
+      if (pathname === '/preview' || pathname.startsWith('/preview/')) {
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', tab);
+        window.history.replaceState(window.history.state, '', url);
+        return;
+      }
       const href = PORTAL_TABS.find((t) => t.value === tab)?.href ?? '/';
       if (getPortalTabForPath(pathname) !== tab) {
         router.replace(href);

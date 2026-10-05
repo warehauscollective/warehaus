@@ -19,8 +19,15 @@ describe('taskBoardColumnKey', () => {
   it('maps Notion statuses to board columns', () => {
     assert.equal(taskBoardColumnKey(task({ status: 'Inbox', isDone: false })), 'inbox');
     assert.equal(taskBoardColumnKey(task({ status: 'To Do', isDone: false })), 'todo');
+    assert.equal(taskBoardColumnKey(task({ status: 'Blocked', isDone: false })), 'blocked');
     assert.equal(taskBoardColumnKey(task({ status: 'In Progress', isDone: false })), 'in_progress');
     assert.equal(taskBoardColumnKey(task({ status: 'Done', isDone: false })), 'done');
     assert.equal(taskBoardColumnKey(task({ status: 'To Do', isDone: true })), 'done');
+  });
+
+  it('does not file a missing status under Inbox', () => {
+    assert.equal(taskBoardColumnKey(task({ status: 'Planning', isDone: false })), null);
+    assert.equal(taskBoardColumnKey(task({ status: 'In review', isDone: false })), null);
+    assert.equal(taskBoardColumnKey(task({ status: 'Planned', isDone: false })), null);
   });
 });

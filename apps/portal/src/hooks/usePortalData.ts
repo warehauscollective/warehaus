@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useQuery } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import {
   type PortalSnapshot,
@@ -10,6 +9,9 @@ import {
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
+import { FIXTURE_SNAPSHOT } from '@/lib/data/fixtures';
+import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
+import { useSafeQuery } from '@/hooks/useSafeQuery';
 
 const EMPTY_TENANT: PortalTenantMeta = {
   mode: 'team',
@@ -42,18 +44,23 @@ export { type PortalSnapshot, type PortalTenantMeta } from '@/lib/data/view-mode
  * Requires `NEXT_PUBLIC_CONVEX_URL` + signed-in linked Contact.
  */
 export function usePortalData() {
-  const configured = isConvexConfigured();
+  const fixtures = useFixturePreview();
+  const configured = isConvexConfigured() && !fixtures;
   const { portalSession, linkStatus, sessionPending, joining } = usePortalAuth();
   const ready = Boolean(portalSession) && linkStatus === 'linked';
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() : null;
 
-  const convexSnapshot = useQuery(
+  const snapshotState = useSafeQuery<PortalSnapshot>(
     api.portalData.getSnapshot,
     configured && ready ? { hostSlug: hostSlug ?? undefined } : 'skip',
   );
+  const convexSnapshot = snapshotState.data;
 
   return useMemo(() => {
+    if (fixtures) {
+      return { data: FIXTURE_SNAPSHOT, loading: false, error: null };
+    }
     if (!configured) {
       return {
         data: EMPTY,
@@ -70,6 +77,10 @@ export function usePortalData() {
       };
     }
 
+    if (snapshotState.error) {
+      return { data: EMPTY, loading: false, error: snapshotState.error };
+    }
+
     if (convexSnapshot === undefined) {
       return { data: EMPTY, loading: true, error: null };
     }
@@ -79,7 +90,16 @@ export function usePortalData() {
       loading: false,
       error: convexSnapshot.syncMeta.lastError,
     };
-  }, [configured, ready, sessionPending, joining, linkStatus, convexSnapshot]);
+  }, [
+    fixtures,
+    configured,
+    ready,
+    sessionPending,
+    joining,
+    linkStatus,
+    convexSnapshot,
+    snapshotState.error,
+  ]);
 }
 
 export function activityToneVar(tone: string): string {

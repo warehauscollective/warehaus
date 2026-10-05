@@ -1,12 +1,22 @@
 'use client';
 
 import { type ReactNode } from 'react';
+import { ConvexProvider, ConvexReactClient } from 'convex/react';
 import {
   ConvexBetterAuthProvider,
   type AuthClient,
 } from '@convex-dev/better-auth/react';
 import { authClient } from '@/lib/auth-client';
 import { getConvexClient, isConvexConfigured } from '@/lib/convex/client';
+
+let fixtureClient: ConvexReactClient | null = null;
+
+function getFixtureClient() {
+  if (!fixtureClient) {
+    fixtureClient = new ConvexReactClient('https://fixture-not-deployed.convex.cloud');
+  }
+  return fixtureClient;
+}
 
 /**
  * Wraps the portal when NEXT_PUBLIC_CONVEX_URL is set.
@@ -15,10 +25,17 @@ import { getConvexClient, isConvexConfigured } from '@/lib/convex/client';
 export function ConvexClientProvider({
   children,
   initialToken,
+  fixtureTransport = false,
 }: {
   children: ReactNode;
   initialToken?: string | null;
+  /** Local fixture preview only, when Convex URL is unset. Never used in production. */
+  fixtureTransport?: boolean;
 }) {
+  if (fixtureTransport) {
+    return <ConvexProvider client={getFixtureClient()}>{children}</ConvexProvider>;
+  }
+
   const client = getConvexClient();
   if (!isConvexConfigured() || !client) {
     return <>{children}</>;

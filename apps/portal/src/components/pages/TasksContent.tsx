@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, type FormEvent, type ReactNode } from 'react';
-import { useMutation, useQuery } from 'convex/react';
+import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { Pill, PrimaryButton } from '@/components/ui/primitives';
@@ -12,6 +12,8 @@ import {
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
+import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
+import { useSafeQuery } from '@/hooks/useSafeQuery';
 import {
   TASK_BOARD_COLUMNS,
   formatPortalDate,
@@ -325,14 +327,23 @@ function TaskListView({
   );
 }
 
-function TaskResponseSheet({ task }: { task: PortalTask }) {
+export function TaskResponseSheet({ task }: { task: PortalTask }) {
+  const fixtures = useFixturePreview();
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const createResponse = useMutation(api.taskResponses.create);
-  const responses = useQuery(api.taskResponses.listForTask, {
-    taskId: task.id as Id<'tasks'>,
-    hostSlug,
-  });
+  const responseState = useSafeQuery<
+    Array<{ id: string; type: string; body: string | null; createdAt: number; contactName: string }>
+  >(
+    api.taskResponses.listForTask,
+    fixtures
+      ? 'skip'
+      : {
+          taskId: task.id as Id<'tasks'>,
+          hostSlug,
+        },
+  );
+  const responses = responseState.data;
 
   const [type, setType] = useState<TaskResponseType>('comment');
   const [body, setBody] = useState('');
@@ -358,6 +369,11 @@ function TaskResponseSheet({ task }: { task: PortalTask }) {
     e.preventDefault();
     setSubmitting(true);
     setError(null);
+    if (fixtures) {
+      setError('Responses need a live session. Nothing was sent.');
+      setSubmitting(false);
+      return;
+    }
     try {
       await createResponse({
         taskId: task.id as Id<'tasks'>,

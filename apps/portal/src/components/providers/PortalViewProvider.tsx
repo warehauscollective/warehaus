@@ -9,7 +9,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { PORTAL_TABS, type PortalTab } from '@warehaus/logic/portal';
+import { PORTAL_TABS, isPortalTab, type PortalTab } from '@warehaus/logic/portal';
 import { PORTAL_SIDEBAR_SECTIONS } from '@/lib/data/sidebarSections';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 
@@ -49,6 +49,15 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setDetail(null);
   }, [activeTab]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    const section = params.get('section');
+    if (tab && section && isPortalTab(tab)) {
+      setSectionsByTab((prev) => ({ ...prev, [tab]: section }));
+    }
+  }, []);
 
   const sectionFor = useCallback(
     (tab: PortalTab) =>

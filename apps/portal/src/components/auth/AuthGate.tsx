@@ -22,6 +22,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     linkStatus,
     portalSession,
     joinError,
+    linkQueryError,
     ensureLinked,
     signOut,
   } = usePortalAuth();
@@ -75,7 +76,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
     Boolean(authUser) &&
     linkStatus === 'linked' &&
     Boolean(portalSession) &&
-    !joinError;
+    !joinError &&
+    !linkQueryError;
 
   if (!ready) {
     return (
@@ -86,8 +88,12 @@ export function AuthGate({ children }: { children: ReactNode }) {
             'radial-gradient(1200px 600px at 50% -10%, color-mix(in oklab, var(--accent) 12%, transparent), transparent), var(--background)',
         }}
       >
-        <p className="ds-mono" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-          {joinError ? 'Access denied — redirecting…' : 'Checking access…'}
+        <p className="ds-mono" style={{ fontSize: 'var(--t-sm)', color: linkQueryError ? 'var(--danger)' : 'var(--muted)' }}>
+          {joinError
+            ? 'Access denied — redirecting…'
+            : linkQueryError
+              ? 'Could not reach the portal session. Refresh to try again.'
+              : 'Checking access…'}
         </p>
       </div>
     );

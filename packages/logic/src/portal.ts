@@ -3,9 +3,9 @@
  * Consumed by `apps/portal` (and later `apps/native`). Keep marketing tab sets
  * out of this module so the website does not ship into the portal bundle.
  *
- * Client dock: Dashboard · Tasks · Resources · Activity · Account
- * Resources = Notion Shared Resources (files + docs as resource rows).
- * Chatroom is out of scope (D-H).
+ * Dock: Dashboard · Projects · Resources · Activity · Account.
+ * Clients live under Account. Tasks live on project detail.
+ * Resources = Notion Shared Resources. Chatroom is out of scope.
  *
  * Team surface: `portal.{root}`. Client surfaces: `{slug}.{root}`
  * (see docs/portal-multi-tenant.md). Home tab is `/` (not `/dashboard`).
@@ -37,16 +37,13 @@ export const PORTAL_TABS: PortalNavTab[] = [
 ];
 
 /**
- * Dock labels by tenant. Client portals surface tasks (not the project roster)
- * on the shared `projects` tab value / `/projects` route.
+ * Dock labels are the same for staff and client. Tasks are not a dock tab.
+ * `mode` stays in the signature so callers do not branch the tab set.
  */
 export function getPortalTabsForMode(
-  mode: 'team' | 'client' = 'team',
+  _mode: 'team' | 'client' = 'team',
 ): PortalNavTab[] {
-  if (mode !== 'client') return PORTAL_TABS;
-  return PORTAL_TABS.map((tab) =>
-    tab.value === 'projects' ? { ...tab, label: 'TASKS' } : tab,
-  );
+  return PORTAL_TABS;
 }
 
 export function getPortalTabForPath(pathname: string): PortalTab {

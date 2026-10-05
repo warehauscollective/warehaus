@@ -11,48 +11,48 @@ export interface PortalSidebarSection {
 }
 
 const TEAM_SECTIONS: Record<PortalTab, PortalSidebarSection[]> = {
-  dashboard: [{ key: 'overview', label: 'Overview' }],
-  projects: [
+  dashboard: [
     { key: 'overview', label: 'Overview' },
+    { key: 'awaiting-go', label: 'Awaiting go' },
+    { key: 'sync-health', label: 'Sync health' },
+  ],
+  projects: [
+    { key: 'all', label: 'All projects' },
     { key: 'active', label: 'Active' },
-    { key: 'pipeline', label: 'Pipeline' },
+    { key: 'shipped', label: 'Shipped' },
   ],
   resources: [
-    { key: 'overview', label: 'Library' },
-    { key: 'uploads', label: 'Uploads' },
-    { key: 'review', label: 'Review' },
+    { key: 'all', label: 'All resources' },
+    { key: 'meeting-notes', label: 'Meeting notes' },
+    { key: 'files-links', label: 'Files & links' },
   ],
   activity: [
-    { key: 'overview', label: 'Overview' },
-    { key: 'feed', label: 'Feed' },
-    { key: 'exceptions', label: 'Exceptions' },
+    { key: 'all', label: 'All activity' },
+    { key: 'tasks', label: 'Tasks' },
+    { key: 'sync', label: 'Sync' },
   ],
   account: [
-    { key: 'overview', label: 'Overview' },
+    { key: 'clients', label: 'Clients' },
     { key: 'profile', label: 'Profile' },
-    { key: 'billing', label: 'Billing' },
-    { key: 'team', label: 'Clients' },
-    { key: 'preferences', label: 'Preferences' },
+    { key: 'notifications', label: 'Notifications' },
+    { key: 'team', label: 'Team & invites' },
   ],
 };
 
-/** Client portal: no cross-client admin surfaces; no upload review queue. */
+/** Client portal: no cross-client directory, no sync-admin rails. */
 const CLIENT_SECTIONS: Record<PortalTab, PortalSidebarSection[]> = {
   ...TEAM_SECTIONS,
-  dashboard: [{ key: 'overview', label: 'Overview' }],
-  projects: [
-    { key: 'overview', label: 'Board' },
-    { key: 'list', label: 'List' },
+  dashboard: [
+    { key: 'overview', label: 'Overview' },
+    { key: 'awaiting-go', label: 'Awaiting go' },
   ],
-  resources: [
-    { key: 'overview', label: 'Library' },
-    { key: 'uploads', label: 'Your uploads' },
+  activity: [
+    { key: 'all', label: 'All activity' },
+    { key: 'tasks', label: 'Tasks' },
   ],
   account: [
-    { key: 'overview', label: 'Organization' },
     { key: 'profile', label: 'Profile' },
-    { key: 'billing', label: 'Billing' },
-    { key: 'preferences', label: 'Preferences' },
+    { key: 'notifications', label: 'Notifications' },
   ],
 };
 
