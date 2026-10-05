@@ -19,6 +19,7 @@ export function PortalWorkspace({
   actions,
   aside,
   hideHeader = false,
+  breadcrumb,
   children,
 }: {
   eyebrow: string;
@@ -28,6 +29,8 @@ export function PortalWorkspace({
   aside?: ReactNode;
   /** When true, skip the eyebrow/title/actions header bar. */
   hideHeader?: boolean;
+  /** Nested-route trail. Replaces the eyebrow when set. */
+  breadcrumb?: ReactNode;
   children: ReactNode;
 }) {
   const { detail, closeDetail } = usePortalView();
@@ -46,22 +49,26 @@ export function PortalWorkspace({
           }}
         >
           <div className="min-w-0">
-            <p
-              className="ds-mono"
-              style={{
-                fontSize: 'var(--t-xs)',
-                textTransform: 'uppercase',
-                letterSpacing: '0.16em',
-                color: 'var(--muted)',
-              }}
-            >
-              {eyebrow}
-            </p>
+            {breadcrumb ? (
+              breadcrumb
+            ) : (
+              <p
+                className="ds-mono"
+                style={{
+                  fontSize: 'var(--t-xs)',
+                  textTransform: 'uppercase',
+                  letterSpacing: '0.16em',
+                  color: 'var(--muted)',
+                }}
+              >
+                {eyebrow}
+              </p>
+            )}
             <h1
               className="type-display truncate"
               style={{
                 fontSize: 'clamp(1.5rem, 1.2rem + 1vw, 2rem)',
-                marginTop: '0.35rem',
+                marginTop: breadcrumb ? 10 : '0.35rem',
                 lineHeight: 1.1,
               }}
             >

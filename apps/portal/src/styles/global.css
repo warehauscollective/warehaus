@@ -26,6 +26,11 @@ main {
   min-height: 100dvh;
 }
 
+/* Figma back glyph is paper (#fdfdfe). Light theme draws it as ink. */
+html.light .nav-back-glyph {
+  filter: brightness(0);
+}
+
 
 /* Local preference: compact density (Account → Preferences) */
 html[data-density='compact'] {

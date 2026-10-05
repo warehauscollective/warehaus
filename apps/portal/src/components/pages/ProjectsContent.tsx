@@ -22,6 +22,8 @@ import {
   type PortalTask,
 } from '@/lib/data/view-models';
 import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
+import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
+import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewTaskControl } from '@/components/tasks/NewTaskControl';
 import { StatusKanban, StatusTable } from '@/components/tasks/StatusKanban';
@@ -96,6 +98,11 @@ export function ProjectsContent() {
 
   const openProject = visible.find((project) => project.id === openId) ?? projects.find((p) => p.id === openId) ?? null;
 
+  const closeProject = () => {
+    setOpenId(null);
+    clearSearchParam('project');
+  };
+
   const loadError = error || staff.projectsError
     ? isStaff
       ? error || staff.projectsError
@@ -109,6 +116,14 @@ export function ProjectsContent() {
       <PortalWorkspace
         eyebrow={tenantEyebrow(data.tenant, 'Project')}
         title={openProject.name}
+        breadcrumb={
+          <NavBreadcrumb
+            back="always"
+            onBack={closeProject}
+            parent={{ label: 'Projects', onClick: closeProject }}
+            current={openProject.name}
+          />
+        }
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ViewToggle view={taskView} onChange={setTaskView} />
@@ -117,22 +132,8 @@ export function ProjectsContent() {
         }
       >
         <PortalTilePane>
-          <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto">
+          <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="project-detail">
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => setOpenId(null)}
-                className="ds-mono"
-                style={{
-                  fontSize: 'var(--t-xs)',
-                  color: 'var(--accent)',
-                  background: 'none',
-                  border: 0,
-                  cursor: 'pointer',
-                }}
-              >
-                All projects
-              </button>
               {openProject.clientName ? <Pill>{openProject.clientName}</Pill> : null}
               <Pill color={projectStatusColor(openProject.status)}>{openProject.status}</Pill>
               <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
