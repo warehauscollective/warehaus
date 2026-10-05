@@ -1,7 +1,7 @@
 import { clientQuery } from './_lib/wrappers';
 import { isStaff } from './_lib/identity';
 import { staffQuarantineActivity } from './_lib/quarantineActivity';
-import { isClientVisibleActivityType } from '@warehaus/portal-sync';
+import { isClientSurfaceVisible, isClientVisibleActivityType, isOrgVisibleToClients } from '@warehaus/portal-sync';
 
 function isActivityVisible(type: string, staff: boolean): boolean {
   if (type === 'shipment') return false;
@@ -57,8 +57,9 @@ export const getSnapshot = clientQuery({
         )
       : [];
 
-    const publishedProjects = projects
-      .filter((p) => p.publishToWarehaus && !p.archive && !p.type.includes('Internal'))
+    const orgOpen = isOrgVisibleToClients(client);
+    const publishedProjects = (orgOpen ? projects : [])
+      .filter((p) => isClientSurfaceVisible(p) && p.publishToWarehaus && !p.archive && !p.type.includes('Internal'))
       .sort((a, b) => {
         // Active / in-progress first, then highest progress, then name.
         const score = (p: (typeof projects)[number]) => {
@@ -99,7 +100,7 @@ export const getSnapshot = clientQuery({
         stack: p.stack ?? [],
       })),
       tasks: tasks
-        .filter((t) => t.publishToWarehaus && publishedProjectIds.has(t.projectId))
+        .filter((t) => isClientSurfaceVisible(t) && t.publishToWarehaus && publishedProjectIds.has(t.projectId))
         .map((t) => {
           const project = projectById.get(t.projectId);
           return {

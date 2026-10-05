@@ -1,7 +1,26 @@
+import {
+  isApprovedInternalWarehausProject,
+  isWarehausInternalClient,
+  projectCountsForTaskGate,
+} from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import { matchingQuarantineId } from '../_lib/quarantineRow';
+
+const hiddenReasonArg = v.optional(
+  v.union(v.literal('gate'), v.literal('ancestor'), v.literal('trashed')),
+);
+
+function visibilityStamp(
+  hiddenReason: 'gate' | 'ancestor' | 'trashed' | undefined,
+  now: number,
+  existing: boolean,
+) {
+  if (hiddenReason) return { syncHiddenAt: now, syncHiddenReason: hiddenReason };
+  if (existing) return { syncHiddenAt: undefined, syncHiddenReason: undefined };
+  return {};
+}
 
 export const upsertClient = internalMutation({
   args: {
@@ -14,15 +33,19 @@ export const upsertClient = internalMutation({
     phone: v.optional(v.string()),
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
+    hiddenReason: hiddenReasonArg,
   },
   handler: async (ctx, args) => {
+    const { hiddenReason, ...fields } = args;
     const existing = await ctx.db
       .query('clients')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
       .unique();
+    const now = Date.now();
     const patch = {
-      ...args,
-      lastSyncedAt: Date.now(),
+      ...fields,
+      ...visibilityStamp(hiddenReason, now, Boolean(existing)),
+      lastSyncedAt: now,
     };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
@@ -52,13 +75,20 @@ export const upsertProject = internalMutation({
     priority: v.optional(v.string()),
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
+    hiddenReason: hiddenReasonArg,
   },
   handler: async (ctx, args) => {
+    const { hiddenReason, ...fields } = args;
     const existing = await ctx.db
       .query('projects')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
       .unique();
-    const patch = { ...args, lastSyncedAt: Date.now() };
+    const now = Date.now();
+    const patch = {
+      ...fields,
+      ...visibilityStamp(hiddenReason, now, Boolean(existing)),
+      lastSyncedAt: now,
+    };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
       return existing._id;
@@ -81,13 +111,20 @@ export const upsertTask = internalMutation({
     priority: v.optional(v.string()),
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
+    hiddenReason: hiddenReasonArg,
   },
   handler: async (ctx, args) => {
+    const { hiddenReason, ...fields } = args;
     const existing = await ctx.db
       .query('tasks')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
       .unique();
-    const patch = { ...args, lastSyncedAt: Date.now() };
+    const now = Date.now();
+    const patch = {
+      ...fields,
+      ...visibilityStamp(hiddenReason, now, Boolean(existing)),
+      lastSyncedAt: now,
+    };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
       return existing._id;
@@ -112,8 +149,10 @@ export const upsertContact = internalMutation({
     phone: v.optional(v.string()),
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
+    hiddenReason: hiddenReasonArg,
   },
   handler: async (ctx, args) => {
+    const { hiddenReason, ...fields } = args;
     const byNotion = await ctx.db
       .query('contacts')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
@@ -123,14 +162,16 @@ export const upsertContact = internalMutation({
       .withIndex('by_email', (q) => q.eq('email', args.email.toLowerCase()))
       .unique();
     const existing = byNotion ?? byEmail;
-    const email = args.email.toLowerCase();
+    const email = fields.email.toLowerCase();
     // Preserve locally linked authUserId if Notion field empty
-    const authUserId = args.authUserId || existing?.authUserId;
+    const authUserId = fields.authUserId || existing?.authUserId;
+    const now = Date.now();
     const patch = {
-      ...args,
+      ...fields,
       email,
       authUserId,
-      lastSyncedAt: Date.now(),
+      ...visibilityStamp(hiddenReason, now, Boolean(existing)),
+      lastSyncedAt: now,
     };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
@@ -159,22 +200,26 @@ export const upsertSharedResource = internalMutation({
     archive: v.boolean(),
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
+    hiddenReason: hiddenReasonArg,
   },
   handler: async (ctx, args) => {
+    const { hiddenReason, ...fields } = args;
     const existing = await ctx.db
       .query('sharedResources')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
       .unique();
+    const now = Date.now();
     // Preserve Blob metadata when this pull did not re-copy (undefined args).
     const patch = {
-      ...args,
-      mimeType: args.mimeType ?? existing?.mimeType,
-      byteSize: args.byteSize ?? existing?.byteSize,
-      checksum: args.checksum ?? existing?.checksum,
-      blobPathname: args.blobPathname ?? existing?.blobPathname,
-      blobUrl: args.blobUrl ?? existing?.blobUrl,
-      sourceNotionUrl: args.sourceNotionUrl ?? existing?.sourceNotionUrl,
-      lastSyncedAt: Date.now(),
+      ...fields,
+      mimeType: fields.mimeType ?? existing?.mimeType,
+      byteSize: fields.byteSize ?? existing?.byteSize,
+      checksum: fields.checksum ?? existing?.checksum,
+      blobPathname: fields.blobPathname ?? existing?.blobPathname,
+      blobUrl: fields.blobUrl ?? existing?.blobUrl,
+      sourceNotionUrl: fields.sourceNotionUrl ?? existing?.sourceNotionUrl,
+      ...visibilityStamp(hiddenReason, now, Boolean(existing)),
+      lastSyncedAt: now,
     };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
@@ -198,13 +243,20 @@ export const upsertClientDoc = internalMutation({
     publishToWarehaus: v.boolean(),
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
+    hiddenReason: hiddenReasonArg,
   },
   handler: async (ctx, args) => {
+    const { hiddenReason, ...fields } = args;
     const existing = await ctx.db
       .query('clientDocs')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
       .unique();
-    const patch = { ...args, lastSyncedAt: Date.now() };
+    const now = Date.now();
+    const patch = {
+      ...fields,
+      ...visibilityStamp(hiddenReason, now, Boolean(existing)),
+      lastSyncedAt: now,
+    };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
       return existing._id;
@@ -343,15 +395,65 @@ export const resolveIds = internalMutation({
   handler: async (ctx) => {
     const clients = await ctx.db.query('clients').collect();
     const projects = await ctx.db.query('projects').collect();
+    const clientEnabledByNotion: Record<string, boolean> = {};
+    const warehausInternalByNotion: Record<string, boolean> = {};
+    const enabledClientIds = new Set<Id<'clients'>>();
+    const warehausInternalOrgIds = new Set<Id<'clients'>>();
+    for (const client of clients) {
+      const enabled = client.portalAccess === 'Enabled' && client.syncHiddenAt == null;
+      clientEnabledByNotion[client.notionPageId] = enabled;
+      if (enabled) enabledClientIds.add(client._id);
+      const internal = isWarehausInternalClient({
+        slug: client.slug,
+        externalId: client.externalId,
+      });
+      warehausInternalByNotion[client.notionPageId] = internal;
+      if (internal) warehausInternalOrgIds.add(client._id);
+    }
     return {
       clientByNotion: Object.fromEntries(
         clients.map((c) => [c.notionPageId, c._id as Id<'clients'>]),
       ),
+      clientEnabledByNotion,
+      warehausInternalByNotion,
       projectByNotion: Object.fromEntries(
         projects.map((p) => [p.notionPageId, p._id as Id<'projects'>]),
       ),
       projectOrgByNotion: Object.fromEntries(
         projects.map((p) => [p.notionPageId, p.orgId as Id<'clients'>]),
+      ),
+      projectVisibleByNotion: Object.fromEntries(
+        projects.map((p) => [
+          p.notionPageId,
+          p.publishToWarehaus &&
+            !p.archive &&
+            !p.type.includes('Internal') &&
+            p.syncHiddenAt == null &&
+            enabledClientIds.has(p.orgId),
+        ]),
+      ),
+      projectTaskParentByNotion: Object.fromEntries(
+        projects.map((p) => {
+          const visibleToClients =
+            p.publishToWarehaus &&
+            !p.archive &&
+            !p.type.includes('Internal') &&
+            p.syncHiddenAt == null &&
+            enabledClientIds.has(p.orgId);
+          return [
+            p.notionPageId,
+            projectCountsForTaskGate({
+              visibleToClients,
+              approvedInternal: isApprovedInternalWarehausProject({
+                types: p.type,
+                publishToWarehaus: p.publishToWarehaus,
+                archive: p.archive,
+                clientIsWarehausInternal: warehausInternalOrgIds.has(p.orgId),
+              }),
+              hiddenReason: p.syncHiddenReason ?? null,
+            }),
+          ];
+        }),
       ),
     };
   },

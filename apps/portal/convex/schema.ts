@@ -13,6 +13,14 @@ const notionSyncFields = {
   notionPageId: v.string(),
   externalId: v.optional(v.string()),
   lastSyncedAt: v.number(),
+  /**
+   * Set while the row must not be shown to clients.
+   * Cleared when a later pull shows the row again. The Convex copy stays.
+   */
+  syncHiddenAt: v.optional(v.number()),
+  syncHiddenReason: v.optional(
+    v.union(v.literal('gate'), v.literal('ancestor'), v.literal('trashed')),
+  ),
 };
 
 export default defineSchema({
