@@ -26,6 +26,7 @@ import {
   type SelfServeDecision,
 } from './_lib/registration';
 import { VERIFICATION_EXPIRES_IN_SECONDS } from './_lib/resendCooldown';
+import { portalSessionConfig } from './_lib/sessionLifetime';
 
 /**
  * Better Auth on the portal Convex deployment (separate from Motoko).
@@ -189,6 +190,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
       'http://portal.localhost:3100',
       'http://client-portal.localhost:3100',
     ].filter(Boolean),
+    session: portalSessionConfig(),
     emailAndPassword: {
       enabled: true,
       requireEmailVerification: true,
