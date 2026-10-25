@@ -11,6 +11,7 @@
     "dev": "turbo run dev --filter=@warehaus/web",
     "dev:web": "turbo run dev --filter=@warehaus/web",
     "dev:portal": "turbo run dev --filter=@warehaus/portal",
+    "dev:portal:local": "NEXT_PUBLIC_PORTAL_FIXTURES=1 npm run dev:portal",
     "build": "turbo run build",
     "build:web": "turbo run build --filter=@warehaus/web",
     "build:portal": "turbo run build --filter=@warehaus/portal",
