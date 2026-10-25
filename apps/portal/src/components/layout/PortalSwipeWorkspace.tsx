@@ -54,8 +54,9 @@ function TabPanelShell({
 }
 
 /**
- * Portal product surface — swipe tabs at the shell level; each tab is a
- * fixed-height panel workspace with its own in-flow sidebar.
+ * Portal product surface — dock clicks move between tabs. Horizontal swipe
+ * between those tabs is off. Each tab is a fixed-height panel workspace
+ * with its own in-flow sidebar.
  */
 export function PortalSwipeWorkspace() {
   const { tabs, activeTab, setActiveTab, panelRefs } = usePortalTab();
@@ -67,11 +68,13 @@ export function PortalSwipeWorkspace() {
     panelRefs,
     isValidTab: isPortalTab,
     urlSync: 'none',
+    gestures: false,
   });
 
   return (
     <main className="h-[100dvh] w-full overflow-hidden">
       <SwipeTabView
+        gestures={false}
         tabs={tabs}
         scrollRef={scrollRef}
         panelRefs={panelRefs}

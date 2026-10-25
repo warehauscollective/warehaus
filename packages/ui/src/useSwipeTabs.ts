@@ -35,6 +35,12 @@ export interface UseSwipeTabsOptions<T extends string> {
   urlSync?: 'query' | 'none';
   /** Min horizontal drag (px) to change tabs. Default 64. */
   swipeThresholdPx?: number;
+  /**
+   * When false, dock and other programmatic tab changes still scroll to the
+   * panel. Wheel, pointer, touch, and native scroll-snap do not change tabs.
+   * Default true.
+   */
+  gestures?: boolean;
 }
 
 function clamp(n: number, min: number, max: number) {
@@ -59,6 +65,7 @@ export function useSwipeTabs<T extends string>({
   settleMs = 90,
   urlSync = 'query',
   swipeThresholdPx = 64,
+  gestures = true,
 }: UseSwipeTabsOptions<T>): RefObject<HTMLDivElement | null> {
   const scrollRef = useRef<HTMLDivElement>(null);
   const isProgScrolling = useRef(false);
@@ -101,6 +108,7 @@ export function useSwipeTabs<T extends string>({
   // Commit the active tab only once native scroll-snap settles (debounced).
   // Always clamp to ±1 from the current tab so momentum can't skip panels.
   useEffect(() => {
+    if (!gestures) return;
     const el = scrollRef.current;
     if (!el) return;
     let settle: ReturnType<typeof setTimeout>;
@@ -132,10 +140,11 @@ export function useSwipeTabs<T extends string>({
       el.removeEventListener('scroll', onScroll);
       clearTimeout(settle);
     };
-  }, [settleMs]);
+  }, [settleMs, gestures]);
 
   // Trackpad / mouse-wheel horizontal swipe → exactly one adjacent tab.
   useEffect(() => {
+    if (!gestures) return;
     const el = scrollRef.current;
     if (!el) return;
 
@@ -224,10 +233,11 @@ export function useSwipeTabs<T extends string>({
       clearTimeout(resetTimer);
       resetGesture();
     };
-  }, [swipeThresholdPx]);
+  }, [swipeThresholdPx, gestures]);
 
   // Pointer + mouse + touch: swipe → exactly one adjacent tab.
   useEffect(() => {
+    if (!gestures) return;
     const el = scrollRef.current;
     if (!el) return;
 
@@ -411,7 +421,7 @@ export function useSwipeTabs<T extends string>({
       document.body.style.removeProperty('user-select');
       document.body.style.removeProperty('cursor');
     };
-  }, [swipeThresholdPx]);
+  }, [swipeThresholdPx, gestures]);
 
   // Tab change → scroll to slide (skipped when swipe-driven), then pin every
   // off-screen panel to the top so the destination always starts at the top.
