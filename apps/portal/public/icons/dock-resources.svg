@@ -1,0 +1,7 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Icon">
+<path id="Ellipse" d="M8 3.16504C9.32619 3.16504 10.4982 3.35465 11.3154 3.64062C11.7271 3.78471 12.0138 3.94052 12.1836 4.08105C12.2909 4.16986 12.3218 4.22775 12.3311 4.25C12.3218 4.27225 12.2909 4.33014 12.1836 4.41895C12.0138 4.55948 11.7271 4.71529 11.3154 4.85938C10.4982 5.14535 9.32619 5.33496 8 5.33496C6.67381 5.33496 5.50178 5.14535 4.68457 4.85938C4.27289 4.71529 3.98624 4.55948 3.81641 4.41895C3.70857 4.32967 3.67703 4.272 3.66797 4.25C3.67703 4.228 3.70857 4.17033 3.81641 4.08105C3.98624 3.94052 4.27289 3.78471 4.68457 3.64062C5.50178 3.35465 6.67381 3.16504 8 3.16504Z" stroke="#A4A4A4" stroke-width="1.33" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="Vector" d="M3 4.2V11.8C3 13 5.2 14 8 14C10.8 14 13 13 13 11.8V4.2" stroke="#A4A4A4" stroke-width="1.33" stroke-linecap="round" stroke-linejoin="round"/>
+<path id="Vector_2" d="M3 8C3 9.2 5.2 10 8 10C10.8 10 13 9.2 13 8" stroke="#A4A4A4" stroke-width="1.33" stroke-linecap="round" stroke-linejoin="round"/>
+</g>
+</svg>

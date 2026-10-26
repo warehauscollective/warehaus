@@ -65,7 +65,16 @@ export function PortalTabProvider({ children }: { children: ReactNode }) {
       }
       const href = PORTAL_TABS.find((t) => t.value === tab)?.href ?? '/';
       if (getPortalTabForPath(pathname) !== tab) {
-        router.replace(href);
+        const next = new URL(href, window.location.origin);
+        if (tab === 'account') {
+          const current = new URL(window.location.href);
+          const client = current.searchParams.get('client');
+          const section = current.searchParams.get('section');
+          if (client) next.searchParams.set('client', client);
+          if (section) next.searchParams.set('section', section);
+        }
+        const qs = next.searchParams.toString();
+        router.replace(`${next.pathname}${qs ? `?${qs}` : ''}`);
       }
     },
     [pathname, router],
