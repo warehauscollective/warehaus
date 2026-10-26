@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "node ../../scripts/dev-app.mjs portal",
     "dev:webpack": "node ../../scripts/ensure-port.mjs ${PORTAL_PORT:-3100} @warehaus/portal && next dev --port ${PORTAL_PORT:-3100}",
-    "dev:convex": "convex dev",
+    "dev:convex": "node ../../scripts/preflight-portal-dev.mjs --push && convex dev",
     "prebuild": "npm run tokens -w @warehaus/tokens",
     "build": "next build",
     "start": "next start --port ${PORTAL_PORT:-3100}",

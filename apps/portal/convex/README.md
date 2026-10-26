@@ -5,23 +5,13 @@ this deployment with Motoko / agent memory.
 
 ## First-time setup
 
-From `apps/portal`:
+Two Convex environments only: production `unique-turtle-383`, and one shared dev deployment for Peter's Mac and cloud agents. Do not create a second dev deployment.
 
-```bash
-npm run dev:convex
-```
+The one-time Mac setup (Convex login, the shared dev deployment, read-only Notion token, first pull, staff login) and the deploy policy are in `LOCAL_DEV.md` at the repo root.
 
-That creates/links a Convex project, writes `CONVEX_DEPLOYMENT` +
-`NEXT_PUBLIC_CONVEX_URL` into `.env.local`, and generates `convex/_generated/`.
+`npm run dev:convex` runs the preflight, then `convex dev`, which pushes functions to the shared dev deployment already named in `.env.local`. Cloud agents do not run it unless the PR changes `convex/`. When they do, the PR says so.
 
-Then set Convex env vars:
-
-```bash
-npx convex env set SITE_URL http://localhost:3100
-npx convex env set BETTER_AUTH_SECRET "$(openssl rand -base64 32)"
-```
-
-Copy the public Convex URLs into `.env.local` (see `../.env.example`).
+Set `SITE_URL` and `BETTER_AUTH_SECRET` on that shared dev deployment with `npx convex env set` from `apps/portal`. Do not commit the values. Names are in `../.env.example`.
 
 ## Auth model
 
@@ -36,7 +26,7 @@ is provisioned; Contact.orgId is already the portal ACL source of truth.
 
 ## Login + Contact join
 
-1. Start Convex: `npm run dev:convex`
+1. On a Mac, start Convex: `npm run dev:convex` (pushes to the shared dev deployment; cloud agents skip this unless the PR changes `convex/` functions)
 2. Seed demo tenants (internal — CLI only, not the browser): `npx convex run seed:seedDemoTenants`
 3. Open **`/login`** (portal UI is gated — unauthenticated users cannot enter)
 4. **Create password** for an enabled client contact such as `demo@northbay.test`.
