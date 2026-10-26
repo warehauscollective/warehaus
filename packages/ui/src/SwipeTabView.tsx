@@ -14,6 +14,12 @@ export interface SwipeTabViewProps<T extends string> {
   panelClassName?: string;
   /** Merge into each panel's inline style (e.g. portal locks page scroll). */
   panelStyle?: CSSProperties;
+  /**
+   * When false, the track does not scroll-snap or accept a horizontal pan.
+   * Programmatic scroll from `useSwipeTabs` still moves between panels.
+   * Default true.
+   */
+  gestures?: boolean;
 }
 
 const trackStyle: CSSProperties = {
@@ -62,9 +68,21 @@ export function SwipeTabView<T extends string>({
   className,
   panelClassName,
   panelStyle: panelStyleOverride,
+  gestures = true,
 }: SwipeTabViewProps<T>) {
+  const style: CSSProperties = gestures
+    ? trackStyle
+    : {
+        ...trackStyle,
+        overflowX: 'hidden',
+        scrollSnapType: 'none',
+        overscrollBehaviorX: 'none',
+        touchAction: 'pan-y',
+        willChange: 'auto',
+      };
+
   return (
-    <div ref={scrollRef} className={cn(className)} style={trackStyle}>
+    <div ref={scrollRef} className={cn(className)} style={style}>
       {tabs.map((tab) => (
         <div
           key={tab}
