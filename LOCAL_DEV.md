@@ -4,41 +4,89 @@ Prerequisite: **Node 22**. From the repo root, run `npm install` once.
 
 The portal is [http://localhost:3100](http://localhost:3100).
 
+Two Convex environments, and no third:
+
+- Production is `unique-turtle-383`. Local dev and cloud agents never use it.
+- One shared dev deployment. Peter's Mac and cloud agents both use that deployment. Do not create a Mac-only deployment or a separate cloud-agent deployment.
+
 ## Env names
 
-Copy `apps/portal/.env.example` to `apps/portal/.env.local`. Commit names only, never values.
+Copy `apps/portal/.env.example` to `apps/portal/.env.local`. Commit names only, never values. Mac and cloud `.env.local` files point at the same shared dev deployment.
 
-Dev Convex:
-
-- `CONVEX_DEPLOYMENT`
+- `CONVEX_DEPLOYMENT` (`dev:<shared-dev-name>`, never `unique-turtle-383`)
 - `NEXT_PUBLIC_CONVEX_URL`
 - `NEXT_PUBLIC_CONVEX_SITE_URL`
 - `NEXT_PUBLIC_SITE_URL`
 - `SITE_URL`
 - `BETTER_AUTH_SECRET`
+- `CONVEX_DEPLOY_KEY` (name only; see Cloud agents)
 
 Fixture preview:
 
 - `NEXT_PUBLIC_PORTAL_FIXTURES`
 
-Leave `NOTION_WRITEBACK_ENABLED` and `NOTION_PROJECT_CREATE_ENABLED` unset. Point Convex URLs at a **dev** deployment, not production.
+Leave `NOTION_WRITEBACK_ENABLED` and `NOTION_PROJECT_CREATE_ENABLED` unset.
 
-## Start Convex dev and the portal
+## One-time Mac setup
 
-Two terminals, repo root:
+Do this once, on Peter's Mac. It creates the single shared dev deployment. Do not repeat it on a cloud agent. Do not run it again in an empty checkout: `npx convex dev` with no `.env.local` creates another deployment.
+
+1. Install Node 22. From the repo root, run `npm install`.
+2. From `apps/portal`, run `npx convex login`, then `npx convex dev`. Create one dev deployment when asked. Wait until it writes `apps/portal/.env.local` with `CONVEX_DEPLOYMENT` starting `dev:`. That deployment is the shared one. Stop the process after the file is written.
+3. From `apps/portal`, set a read-only Notion token on that deployment: `npx convex env set NOTION_WAREHAUS_TOKEN`. The CLI prompts for the value. Do not commit it. Leave the write-back flags unset.
+4. First pull, from `apps/portal`, with Convex dev running: `npx convex run sync/pull:pullAll`. `sync/trigger:schedulePull` needs a staff user, which a new deployment does not have, so the first pull is this action.
+5. Still from `apps/portal`: `npx convex run staffProvision:provisionStaffUser`. The JSON keys are `email`, `password`, and optional `name`. Use the staff contact email from the pull. Choose the password in a private shell. Do not commit it. Do not pass `--prod`.
+
+After `.env.local` exists, day-to-day Mac work is `npm run dev:local` from the repo root. `npm run dev:convex` refuses to start until that file exists and names the shared `dev:` deployment.
+
+## Cloud agents
+
+Cloud agents use the shared dev deployment. They run Next against it. They do not push functions.
 
 ```bash
-npm run dev:convex -w @warehaus/portal
 npm run dev:portal
 ```
 
-`dev:convex` links a dev deployment and writes `apps/portal/.env.local` (`CONVEX_DEPLOYMENT`, `NEXT_PUBLIC_CONVEX_URL`). A fresh deployment has no rows. Use Option A or Option B, then open http://localhost:3100.
+That runs the preflight, then the portal on port 3100. It does not run `convex dev`.
 
-Run dev `npx convex` commands from `apps/portal`, with `dev:convex` still running, so they use that dev `CONVEX_DEPLOYMENT`. Do not pass `--prod` on those commands. Never run `npx convex dev --prod` or `npx convex deploy`. Both target production.
+`convex dev` pushes functions to the shared dev deployment. Cloud agents do not run `npm run dev:local`, `npm run dev:convex`, or `npx convex dev` unless the PR changes files under `convex/`. When a PR does push functions there, the PR body and the handoff report must say so, so Peter can pull that branch before he tests on his Mac.
+
+The cloud agent needs a dev deploy key. The name is `CONVEX_DEPLOY_KEY`, scoped to the shared dev deployment, not production. Peter creates that key. Do not create a key in a PR. Do not put the value in the repo, a doc, or chat.
+
+## Deploy policy
+
+Standing rule (Peter, Oct 25): build and test the portal on localhost. Nothing deploys to Vercel or production Convex `unique-turtle-383` without Peter's explicit yes for that one deploy.
+
+`apps/portal/vercel.json` sets `git.deploymentEnabled` to false for Vercel project `warehaus-portal` (root directory `apps/portal`). Pushes, pull requests, and merges to `main` start no portal builds. This does not change the Vercel dashboard. It applies once this file is on the branch Vercel reads.
+
+`warehaus-portal` does not build the marketing site. Marketing is `apps/web`, with its own `apps/web/vercel.json` (`@warehaus/web`). This guard does not turn marketing builds off. A separate Vercel project named `portal` expects `.next` at the repo root. That project is not the portal. Leave it alone.
+
+The only approved Vercel production path is a manual `vercel deploy --prod` from `apps/portal` after Peter approves that deploy. Do not run `npx convex deploy` or `npx convex dev --prod`. Both target production `unique-turtle-383`.
+
+## Start on a Mac
+
+From the repo root:
+
+```bash
+npm run dev:local
+```
+
+That runs the preflight, then `convex dev` in `apps/portal` (pushes functions to the shared dev deployment) and the portal on port 3100.
+
+Two terminals, same checks:
+
+```bash
+npm run dev:convex
+npm run dev:portal
+```
+
+`dev:convex` pushes. `dev:portal` is Next only.
+
+Run other dev `npx convex` commands from `apps/portal` while Convex dev is running, so they use the shared `CONVEX_DEPLOYMENT`. Do not pass `--prod`. Use Option A or Option B, then open http://localhost:3100.
 
 ## Option A: Notion pull
 
-The pull reads Notion with `NOTION_WAREHAUS_TOKEN` on the dev deployment. That token is a read-only Notion integration. Set it with `npx convex env set` from `apps/portal`. Do not commit the value.
+The pull reads Notion with `NOTION_WAREHAUS_TOKEN` on the shared dev deployment. That token is a read-only Notion integration. Set it with `npx convex env set` from `apps/portal`. Do not commit the value.
 
 `BLOB_READ_WRITE_TOKEN` is optional. Leave it unset for a read-only pull: file copy is skipped, and the pull does not patch Notion page URLs.
 
@@ -55,7 +103,7 @@ A later full rescan is `npx convex run sync/pull:pullAll '{"forceFull":true}'`.
 
 ## Option B: copy production data into dev
 
-This reads production once, then writes only to the dev deployment.
+This reads production once, then writes only to the shared dev deployment.
 
 From `apps/portal`, export is read-only on prod `unique-turtle-383`:
 
@@ -66,7 +114,7 @@ npx convex export --prod --path portal-dev-import.zip
 
 The zip holds client rows and Better Auth tables (sessions and password hashes). Keep it out of the repo. Delete it after import.
 
-Before import, confirm `CONVEX_DEPLOYMENT` in `apps/portal/.env.local` is the dev deployment, not `unique-turtle-383`. Stop if it is not `dev:` or if the name contains `unique-turtle-383`:
+Before import, confirm `CONVEX_DEPLOYMENT` in `apps/portal/.env.local` is the shared dev deployment, not `unique-turtle-383` and not a newly created deployment. Stop if it is not `dev:` or if the name contains `unique-turtle-383`:
 
 ```bash
 cd apps/portal
@@ -84,14 +132,14 @@ case "$name" in
 esac
 ```
 
-Import into that dev deployment only. Do not pass `--prod`:
+Import into the shared dev deployment only. Do not pass `--prod`:
 
 ```bash
 npx convex import --replace portal-dev-import.zip
 rm portal-dev-import.zip
 ```
 
-`convex import` has no exclude flag, and the zip should stay intact. After import, wipe auth tables on the dev deployment with an empty file (this replaces every row in that table):
+`convex import` has no exclude flag, and the zip should stay intact. After import, wipe auth tables on the shared dev deployment with an empty file (this replaces every row in that table):
 
 ```bash
 touch /tmp/empty.jsonl
@@ -112,7 +160,7 @@ Wiping `account` removes the hashes, so those passwords stop working. Use the st
 
 Use this after Option A, or after Option B if you wiped `account`. A Warehaus Staff contact with portal access enabled can sign in. Staff cannot self-register. `staffProvision:provisionStaffUser` creates the verified user and links that contact. It does not send mail.
 
-Names already on the dev deployment: `SITE_URL`, `BETTER_AUTH_SECRET`. Do not pass `BETTER_AUTH_SECRET` into the function.
+Names already on the shared dev deployment: `SITE_URL`, `BETTER_AUTH_SECRET`. Do not pass `BETTER_AUTH_SECRET` into the function.
 
 From `apps/portal`, run `npx convex run staffProvision:provisionStaffUser`. The JSON argument keys are `email`, `password`, and optional `name`. Use the staff contact’s email from the pull. Choose the password in a private shell: 12+ characters, mixed case, and a number or symbol. Do not commit it. Do not pass `--prod`.
 
@@ -120,13 +168,13 @@ Then sign in at http://localhost:3100/login.
 
 ## Fixture preview
 
-When you do not have a dev Convex deployment:
+When you are not using Convex, and you have no `.env.local`:
 
 ```bash
 npm run dev:portal:local
 ```
 
-That sets `NEXT_PUBLIC_PORTAL_FIXTURES` and starts the portal on port 3100. Open http://localhost:3100/preview (unsigned fixture session). http://localhost:3100/login is the signed-out screen. Do not run this with `VERCEL_ENV=production`.
+That does not run the preflight. It sets `NEXT_PUBLIC_PORTAL_FIXTURES` and starts the portal on port 3100. Open http://localhost:3100/preview (unsigned fixture session). http://localhost:3100/login is the signed-out screen. Do not run this with `VERCEL_ENV=production`.
 
 ## Cursor
 

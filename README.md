@@ -47,7 +47,9 @@ npm install
 
 # Run each in its own terminal (pinned ports, fail if busy):
 npm run dev:web        # website → http://localhost:3000
-npm run dev:portal     # portal  → http://localhost:3100
+npm run dev:local      # Mac portal: preflight, shared dev Convex, :3100
+npm run dev:portal     # portal Next only → http://localhost:3100
+npm run dev:portal:local  # fixture /preview, no Convex
 
 # If :3000 is taken by another project on your machine:
 WEB_PORT=3020 npm run dev:web
@@ -76,10 +78,10 @@ Package manager: **npm workspaces**. Orchestration: **Turborepo**.
 
 ## Deploy
 
-Two Vercel projects from this repo (recommended):
+Two Vercel projects from this repo:
 
-- Website → root directory `apps/web`
-- Portal → root directory `apps/portal`
+- Website (marketing) → root directory `apps/web`. Its config is `apps/web/vercel.json`. The portal guard does not change it.
+- Portal → project `warehaus-portal`, root directory `apps/portal`. `apps/portal/vercel.json` turns off automatic Git deploys. See `LOCAL_DEV.md`.
 
 ## Brand
 
