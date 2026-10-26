@@ -154,6 +154,24 @@ export {
 } from './pull-cursor';
 
 export {
+  NOTION_PROJECT_CREATE_ENV,
+  PROJECT_CREATE_CONVEX_STATUS,
+  isNotionProjectCreateEnabled,
+  projectCreateStaffAllowed,
+  isNotionPageId,
+  createProjectExternalId,
+  buildProjectCreateProperties,
+  toNotionProjectCreateProperties,
+  projectCreatePageRequest,
+  projectCreateSearchFilter,
+  projectCreateConvexFields,
+  decideProjectCreateDedupe,
+  type ProjectCreateProperties,
+  type ProjectCreateBuild,
+  type ProjectCreateDedupe,
+} from './projectCreate';
+
+export {
   mapNotionClient,
   mapNotionProject,
   mapNotionTask,

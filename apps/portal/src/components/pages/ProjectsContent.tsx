@@ -12,7 +12,7 @@ import { useFixturePreview } from '@/components/providers/FixturePreviewProvider
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { api } from '@convex/_generated/api';
-import { FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_TASKS } from '@/lib/data/fixtures';
+import { FIXTURE_CLIENTS, FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_TASKS } from '@/lib/data/fixtures';
 import {
   attachKnownSync,
   formatPortalDate,
@@ -26,6 +26,7 @@ import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
+import { NewProjectControl } from '@/components/projects/NewProjectControl';
 import { NewTaskControl } from '@/components/tasks/NewTaskControl';
 import { StatusKanban, StatusTable } from '@/components/tasks/StatusKanban';
 import { TaskResponseSheet } from '@/components/pages/TasksContent';
@@ -68,6 +69,10 @@ export function ProjectsContent() {
   }, []);
 
   const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
+  const directory = useSafeQuery<Array<{ id: string; name: string }>>(
+    api.clients.listDirectory,
+    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
+  );
   const clientDocsState = useSafeQuery<DocRow[]>(
     api.clientDocs.listForClient,
     !fixtures && configured && !isStaff && data.tenant.ok ? { hostSlug } : 'skip',
@@ -197,6 +202,18 @@ export function ProjectsContent() {
     <PortalWorkspace
       eyebrow={tenantEyebrow(data.tenant, 'Projects')}
       title={activeSection === 'all' ? 'Projects' : (SECTION_TITLE[activeSection] ?? 'Projects')}
+      actions={
+        isStaff ? (
+          <NewProjectControl
+            clients={(fixtures ? FIXTURE_CLIENTS : directory.data ?? []).map((client) => ({
+              id: client.id,
+              name: client.name,
+            }))}
+            fixtures={fixtures}
+            hostSlug={hostSlug}
+          />
+        ) : null
+      }
     >
       <PortalTilePane>
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" data-testid="projects-list">

@@ -156,8 +156,9 @@ export const listForStaff = adminQuery({
 });
 
 /**
- * Staff creates a Convex-native project (Notion bridge later via synthetic page id).
- * Marks publishToWarehaus so it surfaces in the portal immediately.
+ * Convex-only stand-in from before Notion project create.
+ * The projects list does not call this. It does not write Notion, and the
+ * synthetic page id is not a relation target for later tasks.
  */
 export const createForStaff = adminMutation({
   args: {
