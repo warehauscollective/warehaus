@@ -9,6 +9,7 @@ import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorks
 import { ThemeControl } from '@/components/account/ThemeControl';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
+import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
@@ -26,6 +27,7 @@ import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { isMissingConvexFunction, staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
 import { clientDirectoryMeta, taskStatusColor } from '@/lib/data/view-models';
+import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 
 const SECTION_TITLE: Record<string, string> = {
   clients: 'Clients',
@@ -40,7 +42,7 @@ export function AccountContent() {
   const router = useRouter();
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
-  const { sectionFor, setSectionFor } = usePortalView();
+  const { sectionFor, setSectionFor, linkedClientId, clearLinkedClient } = usePortalView();
   const { data, error } = usePortalData();
   const { portalSession, signOut } = usePortalAuth();
   const activeSection = sectionFor('account');
@@ -57,6 +59,13 @@ export function AccountContent() {
     const client = params.get('client');
     if (client) setClientId(client);
   }, []);
+
+  useEffect(() => {
+    if (!linkedClientId) return;
+    setClientId(linkedClientId);
+    setSectionFor('account', 'clients');
+    clearLinkedClient();
+  }, [linkedClientId, setSectionFor, clearLinkedClient]);
 
   useEffect(() => {
     if (isClient && (activeSection === 'clients' || activeSection === 'team')) {
@@ -88,8 +97,46 @@ export function AccountContent() {
       ? []
       : peopleState.data ?? [];
 
-  const title = SECTION_TITLE[activeSection] ?? 'Account';
   const selected = clients.find((client) => client.id === clientId) ?? null;
+  const clientOpen = Boolean(isStaff && activeSection === 'clients' && selected);
+  const title = clientOpen && selected ? selected.name : SECTION_TITLE[activeSection] ?? 'Account';
+
+  const leaveClient = () => {
+    setClientId(null);
+    clearSearchParam('client');
+  };
+  const goAccountRoot = () => {
+    leaveClient();
+    setSectionFor('account', isStaff ? 'clients' : 'profile');
+  };
+  const goClients = () => {
+    leaveClient();
+    setSectionFor('account', 'clients');
+  };
+
+  const breadcrumb = clientOpen && selected ? (
+    <NavBreadcrumb
+      back="always"
+      onBack={goAccountRoot}
+      parent={{ label: 'Account', onClick: goAccountRoot }}
+      middle={{ label: 'Clients', onClick: goClients }}
+      current={selected.name}
+    />
+  ) : isStaff && activeSection === 'clients' ? (
+    <NavBreadcrumb
+      back="mobile"
+      onBack={goAccountRoot}
+      parent={{ label: 'Account', onClick: goAccountRoot }}
+      current="Clients"
+    />
+  ) : activeSection === 'profile' ? (
+    <NavBreadcrumb
+      back="mobile"
+      onBack={goAccountRoot}
+      parent={{ label: 'Account', onClick: goAccountRoot }}
+      current="Profile"
+    />
+  ) : null;
   const filtered = clients.filter((client) => {
     if (filter === 'internal') return client.internal;
     if (filter === 'sync') return client.syncHidden;
@@ -98,7 +145,11 @@ export function AccountContent() {
   });
 
   return (
-    <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Account')} title={title}>
+    <PortalWorkspace
+      eyebrow={tenantEyebrow(data.tenant, 'Account')}
+      title={title}
+      breadcrumb={breadcrumb ?? undefined}
+    >
       {error && isStaff ? (
         <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)', marginBottom: 12 }}>{error}</p>
       ) : null}
@@ -115,7 +166,6 @@ export function AccountContent() {
           tasks={tasks.filter((task) => task.orgId === selected.id)}
           docs={docs.filter((doc) => doc.orgId === selected.id)}
           contacts={contacts}
-          onBack={() => setClientId(null)}
           retryNote={retryNote}
           onRetry={() =>
             setRetryNote('Write-back is off. Retry does not call Notion.')
@@ -208,7 +258,7 @@ export function AccountContent() {
 
       {activeSection === 'profile' && (
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto">
+          <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="account-profile">
             <Surface style={{ padding: 'var(--s-5)' }}>
               <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
                 Profile
@@ -279,7 +329,6 @@ function ClientDetail({
   tasks,
   docs,
   contacts,
-  onBack,
   retryNote,
   onRetry,
 }: {
@@ -303,7 +352,6 @@ function ClientDetail({
     notionPageId?: string | null;
     syncHidden?: boolean;
   }>;
-  onBack: () => void;
   retryNote: string | null;
   onRetry: () => void;
 }) {
@@ -311,14 +359,6 @@ function ClientDetail({
   return (
     <PortalTilePane>
       <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
-        <button
-          type="button"
-          onClick={onBack}
-          className="ds-mono self-start"
-          style={{ fontSize: 'var(--t-xs)', color: 'var(--accent)', background: 'none', border: 0, cursor: 'pointer' }}
-        >
-          All clients
-        </button>
         <div className="flex flex-wrap items-center gap-2">
           <h2 style={{ fontSize: 'var(--t-lg)', fontWeight: 600 }}>{client.name}</h2>
           <SyncChip
