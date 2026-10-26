@@ -22,6 +22,9 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 
+# Convex snapshot exports (client data, sessions, password hashes)
+*.zip
+
 # macOS-specific files
 .DS_Store
 
