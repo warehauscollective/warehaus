@@ -119,7 +119,7 @@ export const enqueue = internalMutation({
       orgId: args.orgId,
       database: args.database,
       payload: args.payload,
-      actor: 'staff',
+      actor: args.actor,
       status: 'queued',
       attempts: 0,
       nextAttemptAt: now,

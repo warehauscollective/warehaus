@@ -26,6 +26,7 @@ import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
 import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
+import { resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
@@ -66,10 +67,8 @@ export function ProjectsContent() {
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
   const [creating, setCreating] = useState(false);
   const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
-  const pathname = usePathname();
+  const pathname = usePathname() || '';
   const router = useRouter();
-  const pathTaskId = pathname.match(/^\/tasks\/([^/]+)/)?.[1] ?? null;
-  const routeTaskId = fixtures ? fixtureTaskId : pathTaskId;
   const moveStatus = useMutation(api.tasks.moveStatus);
   const moveStage = useMutation(api.tasks.moveStage);
   const createTask = useMutation(api.tasks.createTask);
@@ -108,12 +107,6 @@ export function ProjectsContent() {
   ) as DocRow[];
   const projectsLoading = !fixtures && (loading || (isStaff && staff.projectsLoading));
 
-  useEffect(() => {
-    if (!routeTaskId) return;
-    const match = tasks.find((task) => task.id === routeTaskId);
-    if (match?.projectId) setOpenId(match.projectId);
-  }, [routeTaskId, tasks]);
-
   const visible = useMemo(() => {
     return projects.filter((project) => {
       if (!isStaff && project.internal) return false;
@@ -124,12 +117,67 @@ export function ProjectsContent() {
     });
   }, [projects, isStaff, internalOnly, activeSection]);
 
-  const openProject = visible.find((project) => project.id === openId) ?? projects.find((p) => p.id === openId) ?? null;
+  const accessibleProjectIds = useMemo(
+    () => projects.filter((project) => isStaff || !project.internal).map((project) => project.id),
+    [projects, isStaff],
+  );
+  const route = resolveBoardRoute({
+    pathname: fixtures && fixtureTaskId ? `/tasks/${fixtureTaskId}` : pathname,
+    tasks,
+    visibleProjectIds: accessibleProjectIds,
+  });
+  const selectedId = route.view === 'board' ? route.projectId : openId;
+  const openProject = selectedId ? projects.find((project) => project.id === selectedId) ?? null : null;
+  const routeTaskId = route.view === 'board' ? route.taskId : null;
 
   const closeProject = () => {
     setOpenId(null);
+    setFixtureTaskId(null);
     clearSearchParam('project');
+    if (!fixtures && (/^\/projects\/[^/]+/.test(pathname) || pathname.startsWith('/tasks/'))) {
+      router.push('/projects');
+    }
   };
+
+  const closeTask = () => {
+    if (fixtures) {
+      setFixtureTaskId(null);
+      return;
+    }
+    if (openProject) router.push(`/projects/${openProject.id}`);
+    else router.push('/projects');
+  };
+
+  const deepLink = /^\/(?:projects|tasks)\/[^/]+/.test(pathname);
+  if (!fixtures && projectsLoading && deepLink) {
+    return (
+      <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Projects')} title="Projects">
+        <PortalTilePane>
+          <div className="flex flex-col gap-2" aria-busy="true">
+            {[0, 1, 2].map((i) => (
+              <div
+                key={i}
+                className="animate-pulse"
+                style={{ height: 72, borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--border)' }}
+              />
+            ))}
+          </div>
+        </PortalTilePane>
+      </PortalWorkspace>
+    );
+  }
+
+  if (route.view === 'unavailable') {
+    return (
+      <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Projects')} title="Projects">
+        <PortalTilePane>
+          <Surface style={{ padding: 'var(--s-5)' }}>
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>{route.message}</p>
+          </Surface>
+        </PortalTilePane>
+      </PortalWorkspace>
+    );
+  }
 
   const loadError = error || staff.projectsError
     ? isStaff
@@ -260,10 +308,7 @@ export function ProjectsContent() {
             hostSlug={hostSlug}
             fixtures={fixtures}
             resources={(staff.resources ?? []) as ResourceOption[]}
-            onClose={() => {
-              if (fixtures) setFixtureTaskId(null);
-              else router.push(`/projects?project=${openProject.id}`);
-            }}
+            onClose={closeTask}
             onOpenTask={(id) => {
               if (fixtures) setFixtureTaskId(id);
               else router.push(`/tasks/${id}`);
@@ -382,10 +427,7 @@ export function ProjectsContent() {
           hostSlug={hostSlug}
           fixtures={fixtures}
           resources={(staff.resources ?? []) as ResourceOption[]}
-          onClose={() => {
-            if (fixtures) setFixtureTaskId(null);
-            else router.push('/projects');
-          }}
+          onClose={closeTask}
           onOpenTask={(id) => {
             if (fixtures) setFixtureTaskId(id);
             else router.push(`/tasks/${id}`);

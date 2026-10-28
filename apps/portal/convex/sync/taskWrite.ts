@@ -1,7 +1,8 @@
 /**
  * B1 calls this internal mutation from an adminMutation.
- * Staff-only: the public wrapper must be adminMutation, and this enqueue
- * records actor staff. It does not change the task row and it does not call Notion.
+ * Staff-only: the public wrapper must be adminMutation.
+ * A stage row stores the actor passed into enqueueStage.
+ * It does not change the task row and it does not call Notion.
  * The outbox worker does that after the row is queued.
  */
 
@@ -9,6 +10,8 @@ import {
   planTaskCreate,
   planTaskResourceWrite,
   planTaskStageWrite,
+  stageOutboxActor,
+  taskCreateProjectGate,
   taskStatusIdempotencyKey,
   validateTaskStatusUpdate,
   type MoveActor,
@@ -88,7 +91,7 @@ export const enqueueStage = internalMutation({
       notionPageId: task.notionPageId,
       expectedLastEditedTime: args.expectedLastEditedTime,
       payload: JSON.stringify({ properties: planned.properties }),
-      actor: 'staff' as const,
+      actor: stageOutboxActor(actor),
       actorId: args.actorId,
       schedule: true,
     });
@@ -107,6 +110,12 @@ export const enqueueCreate = internalMutation({
     actorId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<EnqueueStatusResult> => {
+    const project = await ctx.db
+      .query('projects')
+      .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.projectNotionId))
+      .unique();
+    const projectGate = taskCreateProjectGate(project, args.orgId);
+    if (!projectGate.ok) return { ok: false as const, error: projectGate.error };
     const planned = planTaskCreate({
       actor: 'staff',
       name: args.name,

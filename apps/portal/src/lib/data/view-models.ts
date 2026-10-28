@@ -303,7 +303,10 @@ export function projectStatusColor(status: string): string {
 
 export function formatPortalDate(value?: string | null): string {
   if (!value) return '—';
-  const d = new Date(value);
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const d = dateOnly
+    ? new Date(Date.UTC(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])))
+    : new Date(value);
   if (Number.isNaN(d.getTime())) return value;
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }

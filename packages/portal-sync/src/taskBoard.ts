@@ -1,6 +1,7 @@
 /**
  * Projects and Tasks v2. Stage, parent, and resource links are not in Notion yet.
- * Missing values are tolerated. Unknown values and cross-org links fail closed.
+ * Missing values are tolerated. An unknown stage is stored as no stage and noted.
+ * Unknown parents and cross-org links fail closed.
  */
 
 export type TaskWriteProperties = Record<string, string | boolean | string[]>;
@@ -25,6 +26,8 @@ export type LiveTaskStatus = (typeof LIVE_TASK_STATUSES)[number];
 export const WAREHAUS_STUDIO_PROJECT_NAME = 'warehaus.studio';
 
 export const TASK_UNAVAILABLE = 'This task is not available.';
+
+export const PROJECT_UNAVAILABLE = 'This project is not available.';
 
 export const STAGE_LOCK_REASONS = {
   Building: 'Building is set in Notion when Peter says go.',
@@ -58,13 +61,36 @@ export function isPullRequestLink(value: string): boolean {
   return PULL_REQUEST.test(value.trim());
 }
 
-/** Select missing or empty is fine. Any other name is rejected. */
-export function readOptionalStage(raw: string | null | undefined):
-  | { ok: true; stage: TaskStage | null }
-  | { ok: false; reason: string } {
+/**
+ * Select missing or empty is fine. An unknown name is not a stage: the task
+ * stays on the board in the No stage lane, and the caller logs `notice`.
+ */
+export function readOptionalStage(raw: string | null | undefined): {
+  ok: true;
+  stage: TaskStage | null;
+  notice?: string;
+} {
   if (raw == null || raw.trim() === '') return { ok: true, stage: null };
-  if (!isTaskStage(raw)) return { ok: false, reason: `Stage ${JSON.stringify(raw)} is not a portal stage` };
+  if (!isTaskStage(raw)) {
+    return { ok: true, stage: null, notice: `Stage ${JSON.stringify(raw)} is not a portal stage` };
+  }
   return { ok: true, stage: raw };
+}
+
+/** Outbox actor for a stage move. Clients are recorded as client admins. */
+export function stageOutboxActor(actor: MoveActor): 'staff' | 'clientAdmin' {
+  return actor === 'client' ? 'clientAdmin' : 'staff';
+}
+
+/** createTask may only target a project that already belongs to this client. */
+export function taskCreateProjectGate(
+  project: { orgId: string } | null | undefined,
+  orgId: string,
+): { ok: true } | { ok: false; error: string } {
+  if (!project || project.orgId !== orgId) {
+    return { ok: false, error: 'Project is not in this client' };
+  }
+  return { ok: true };
 }
 
 /** Self-relation. Empty is fine. More than one parent fails closed. */
@@ -302,21 +328,12 @@ export function boardColumns<T extends { status: string; isDone: boolean; stage?
       label: stage,
       tasks: sorted.filter((task) => task.stage === stage),
     }));
-    const extras = new Map<string, T[]>();
-    for (const task of sorted) {
-      if (task.stage && isTaskStage(task.stage)) continue;
-      const label = task.stage?.trim() || 'No stage';
-      const list = extras.get(label) ?? [];
-      list.push(task);
-      extras.set(label, list);
-    }
+    const unstaged = sorted.filter((task) => !task.stage || !isTaskStage(task.stage));
     return [
       ...known,
-      ...[...extras.entries()].map(([label, columnTasks]) => ({
-        key: `unknown-stage:${label}`,
-        label,
-        tasks: columnTasks,
-      })),
+      ...(unstaged.length > 0
+        ? [{ key: 'unknown-stage:No stage', label: 'No stage', tasks: unstaged }]
+        : []),
     ];
   }
   const known = LIVE_TASK_STATUSES.map((status) => ({

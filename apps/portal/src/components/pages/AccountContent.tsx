@@ -222,15 +222,17 @@ export function AccountContent() {
               </Surface>
             ) : (
               filtered.map((client) => (
-                <button
-                  key={client.id}
-                  type="button"
-                  onClick={() => setClientId(client.id)}
-                  className="text-left"
-                >
+                <div key={client.id}>
                   <Surface style={{ padding: 'var(--s-4)' }}>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{client.name}</h3>
+                      <button
+                        type="button"
+                        onClick={() => setClientId(client.id)}
+                        className="text-left"
+                        style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer' }}
+                      >
+                        <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{client.name}</h3>
+                      </button>
                       {client.internal ? <PublishChip published={false} /> : null}
                       {client.notionPageId != null || client.syncHidden != null ? (
                         <SyncChip
@@ -245,11 +247,24 @@ export function AccountContent() {
                         />
                       ) : null}
                     </div>
-                    <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 8 }}>
+                    <button
+                      type="button"
+                      onClick={() => setClientId(client.id)}
+                      className="ds-mono text-left"
+                      style={{
+                        fontSize: 'var(--t-xs)',
+                        color: 'var(--muted)',
+                        marginTop: 8,
+                        background: 'none',
+                        border: 0,
+                        padding: 0,
+                        cursor: 'pointer',
+                      }}
+                    >
                       {clientDirectoryMeta(client)}
-                    </p>
+                    </button>
                   </Surface>
-                </button>
+                </div>
               ))
             )}
           </div>

@@ -147,6 +147,8 @@ export type MappedRow =
 export type MapResult = SyncDisposition & {
   droppedProperties: string[];
   row?: MappedRow;
+  /** Tolerated values, such as an unknown stage. The row is still mapped. */
+  notices?: string[];
 };
 
 function dropUnknown(database: SyncInCollectionKey, properties: Record<string, unknown>): string[] {
@@ -240,12 +242,10 @@ export function mapNotionTask(
   const status = extractStatus(properties.Status) || extractSelect(properties.Status) || 'Inbox';
   const formulaDone = extractFormulaBoolean(properties['Is Done']);
   const stage = readOptionalStage(extractSelect(properties.Stage));
-  if (!stage.ok) {
-    return { disposition: 'quarantine', reason: stage.reason, droppedProperties };
-  }
+  const notices = stage.notice ? [stage.notice] : undefined;
   const parent = readParentItem(extractRelationIds(properties['Parent item']));
   if (!parent.ok) {
-    return { disposition: 'quarantine', reason: parent.reason, droppedProperties };
+    return { disposition: 'quarantine', reason: parent.reason, droppedProperties, notices };
   }
   const row: MappedTask = {
     database: 'tasks',
@@ -271,8 +271,8 @@ export function mapNotionTask(
     projectRelationIds: row.projectNotionIds,
     parentProjectPassesGate,
   });
-  if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties, row };
-  return { disposition: 'upsert', droppedProperties, row };
+  if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties, row, notices };
+  return { disposition: 'upsert', droppedProperties, row, notices };
 }
 
 export function mapNotionContact(

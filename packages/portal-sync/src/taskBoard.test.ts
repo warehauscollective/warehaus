@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { classifyProperty } from './tiers';
 import { findUnmappedProperties } from './tiers';
 import { LIVE_TASK_PROPERTY_NAMES } from './fixtures/sugar-shark';
+import { mapNotionTask } from './mappers';
 import {
   boardColumns,
   clientMaySeeTask,
@@ -14,6 +15,8 @@ import {
   planTaskStatusWrite,
   readOptionalStage,
   readParentItem,
+  stageOutboxActor,
+  taskCreateProjectGate,
   resolveParentLink,
   stageMoveRule,
   visibleChildIds,
@@ -39,14 +42,56 @@ describe('task property tiers', () => {
     assert.deepEqual(findUnmappedProperties('tasks', LIVE_TASK_PROPERTY_NAMES), []);
   });
 
-  it('tolerates a missing stage and parent and rejects unknown values', () => {
+  it('tolerates a missing stage and parent and keeps an unknown stage on the task', () => {
     assert.deepEqual(readOptionalStage(null), { ok: true, stage: null });
     assert.deepEqual(readOptionalStage('Idea'), { ok: true, stage: 'Idea' });
-    const unknown = readOptionalStage('Brainstorm');
-    assert.equal(unknown.ok, false);
+    assert.deepEqual(readOptionalStage('Brainstorm'), {
+      ok: true,
+      stage: null,
+      notice: 'Stage "Brainstorm" is not a portal stage',
+    });
     assert.deepEqual(readParentItem([]), { ok: true, parentNotionId: null });
     assert.deepEqual(readParentItem(['parent-1']), { ok: true, parentNotionId: 'parent-1' });
     assert.equal(readParentItem(['a', 'b']).ok, false);
+    assert.equal(stageOutboxActor('staff'), 'staff');
+    assert.equal(stageOutboxActor('client'), 'clientAdmin');
+    assert.deepEqual(taskCreateProjectGate(null, 'org-1'), { ok: false, error: 'Project is not in this client' });
+    assert.deepEqual(taskCreateProjectGate({ orgId: 'org-2' }, 'org-1'), {
+      ok: false,
+      error: 'Project is not in this client',
+    });
+    assert.deepEqual(taskCreateProjectGate({ orgId: 'org-1' }, 'org-1'), { ok: true });
+  });
+
+  it('maps an unknown stage onto the task and leaves a notice', () => {
+    const mapped = mapNotionTask(
+      'page-1',
+      {
+        Name: { type: 'title', title: [{ plain_text: 'Odd stage' }] },
+        Projects: { type: 'relation', relation: [{ id: 'prj' }] },
+        'Publish to Warehaus': { type: 'checkbox', checkbox: true },
+        Status: { type: 'status', status: { name: 'To Do' } },
+        Stage: { type: 'select', select: { name: 'Brainstorm' } },
+      },
+      true,
+    );
+    assert.equal(mapped.disposition, 'upsert');
+    assert.equal(mapped.row && 'stage' in mapped.row ? mapped.row.stage : 'missing', undefined);
+    assert.deepEqual(mapped.notices, ['Stage "Brainstorm" is not a portal stage']);
+    const quarantined = mapNotionTask(
+      'page-2',
+      {
+        Name: { type: 'title', title: [{ plain_text: 'Two parents' }] },
+        Projects: { type: 'relation', relation: [{ id: 'prj' }] },
+        'Publish to Warehaus': { type: 'checkbox', checkbox: true },
+        Status: { type: 'status', status: { name: 'To Do' } },
+        Stage: { type: 'select', select: { name: 'Brainstorm' } },
+        'Parent item': { type: 'relation', relation: [{ id: 'a' }, { id: 'b' }] },
+      },
+      true,
+    );
+    assert.equal(quarantined.disposition, 'quarantine');
+    assert.deepEqual(quarantined.notices, ['Stage "Brainstorm" is not a portal stage']);
   });
 });
 
@@ -255,5 +300,20 @@ describe('board sort', () => {
     assert.deepEqual(todo?.tasks.map((task) => task.name), ['Edited', 'Soon', 'Later']);
     assert.equal(columns.some((column) => column.key === 'unknown:Planning' && column.tasks.length === 1), true);
     assert.equal(compareBoardCards({ name: 'a', date: '2026-01-01' }, { name: 'b', date: '2026-02-01' }) < 0, true);
+    const stages = boardColumns(
+      [
+        { name: 'Idea task', status: 'To Do', isDone: false, stage: 'Idea' },
+        { name: 'Blank', status: 'To Do', isDone: false, stage: null },
+        { name: 'Odd', status: 'To Do', isDone: false, stage: 'Brainstorm' },
+      ],
+      'stage',
+    );
+    assert.equal(stages.find((column) => column.key === 'Idea')?.tasks.length, 1);
+    assert.deepEqual(
+      stages.find((column) => column.key === 'unknown-stage:No stage')?.tasks.map((task) => task.name).sort(),
+      ['Blank', 'Odd'],
+    );
+    assert.equal(stages.filter((column) => column.key.startsWith('unknown-stage:')).length, 1);
+    assert.equal(stages.find((column) => column.label === 'No stage')?.label, 'No stage');
   });
 });
