@@ -1,4 +1,4 @@
-import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { clientMaySeeProject, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
@@ -37,12 +37,20 @@ function toClientProject(row: {
 }
 
 function isPublishedProject(row: {
+  name: string;
   publishToWarehaus: boolean;
   archive: boolean;
   type: string[];
   syncHiddenAt?: number;
 }) {
-  return isClientSurfaceVisible(row) && row.publishToWarehaus && !row.archive && !row.type.includes('Internal');
+  return clientMaySeeProject({
+    name: row.name,
+    types: row.type,
+    publishToWarehaus: row.publishToWarehaus,
+    archive: row.archive,
+    hidden: row.syncHiddenAt != null,
+    orgVisible: true,
+  });
 }
 
 /** List published projects for the caller's org. */

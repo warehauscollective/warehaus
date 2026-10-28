@@ -6,8 +6,12 @@
  */
 
 import {
+  planTaskCreate,
+  planTaskResourceWrite,
+  planTaskStageWrite,
   taskStatusIdempotencyKey,
   validateTaskStatusUpdate,
+  type MoveActor,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internal } from '../_generated/api';
@@ -48,6 +52,109 @@ export const enqueueStatus = internalMutation({
       notionPageId: task.notionPageId,
       expectedLastEditedTime: args.expectedLastEditedTime,
       payload: JSON.stringify({ properties: { Status: args.status } }),
+      actor: 'staff' as const,
+      actorId: args.actorId,
+      schedule: true,
+    });
+  },
+});
+
+export const enqueueStage = internalMutation({
+  args: {
+    taskId: v.id('tasks'),
+    stage: v.string(),
+    pullRequestLink: v.optional(v.string()),
+    expectedLastEditedTime: v.string(),
+    actorId: v.optional(v.string()),
+    actor: v.optional(v.union(v.literal('staff'), v.literal('client'))),
+  },
+  handler: async (ctx, args): Promise<EnqueueStatusResult> => {
+    const actor: MoveActor = args.actor === 'client' ? 'client' : 'staff';
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { ok: false as const, error: 'Task not found' };
+    const planned = planTaskStageWrite({
+      actor,
+      stage: args.stage,
+      pullRequestLink: args.pullRequestLink,
+      notionPageId: task.notionPageId,
+      expectedLastEditedTime: args.expectedLastEditedTime,
+    });
+    if (!planned.ok) return { ok: false as const, error: planned.error };
+    return ctx.runMutation(internal.sync.outbox.enqueue, {
+      idempotencyKey: planned.idempotencyKey,
+      kind: 'task-stage',
+      orgId: task.orgId,
+      database: 'tasks',
+      notionPageId: task.notionPageId,
+      expectedLastEditedTime: args.expectedLastEditedTime,
+      payload: JSON.stringify({ properties: planned.properties }),
+      actor: 'staff' as const,
+      actorId: args.actorId,
+      schedule: true,
+    });
+  },
+});
+
+export const enqueueCreate = internalMutation({
+  args: {
+    orgId: v.id('clients'),
+    name: v.string(),
+    status: v.string(),
+    projectNotionId: v.string(),
+    externalId: v.string(),
+    date: v.optional(v.string()),
+    stage: v.optional(v.string()),
+    actorId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<EnqueueStatusResult> => {
+    const planned = planTaskCreate({
+      actor: 'staff',
+      name: args.name,
+      status: args.status,
+      projectNotionId: args.projectNotionId,
+      externalId: args.externalId,
+      date: args.date,
+      stage: args.stage,
+    });
+    if (!planned.ok) return { ok: false as const, error: planned.error };
+    return ctx.runMutation(internal.sync.outbox.enqueue, {
+      idempotencyKey: planned.idempotencyKey,
+      kind: 'create',
+      orgId: args.orgId,
+      database: 'tasks',
+      payload: JSON.stringify({ properties: planned.properties }),
+      actor: 'staff' as const,
+      actorId: args.actorId,
+      schedule: true,
+    });
+  },
+});
+
+export const enqueueResources = internalMutation({
+  args: {
+    taskId: v.id('tasks'),
+    resourceNotionIds: v.array(v.string()),
+    expectedLastEditedTime: v.string(),
+    actorId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<EnqueueStatusResult> => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { ok: false as const, error: 'Task not found' };
+    const planned = planTaskResourceWrite({
+      actor: 'staff',
+      resourceNotionIds: args.resourceNotionIds,
+      notionPageId: task.notionPageId,
+      expectedLastEditedTime: args.expectedLastEditedTime,
+    });
+    if (!planned.ok) return { ok: false as const, error: planned.error };
+    return ctx.runMutation(internal.sync.outbox.enqueue, {
+      idempotencyKey: planned.idempotencyKey,
+      kind: 'update',
+      orgId: task.orgId,
+      database: 'tasks',
+      notionPageId: task.notionPageId,
+      expectedLastEditedTime: args.expectedLastEditedTime,
+      payload: JSON.stringify({ properties: planned.properties }),
       actor: 'staff' as const,
       actorId: args.actorId,
       schedule: true,

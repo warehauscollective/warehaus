@@ -3,7 +3,7 @@
  * Missing required fields on a create are rejected. This module never fills a silent default.
  * Writable names are the keys of the tier maps (the allowlist). Unknown names are rejected.
  * That includes NEVER-tier names that exist in Notion, such as Publish to Warehaus.
- * Names that are not in the map, including Stage, Parent item, and Resources, are not writable.
+ * Stage, Parent item, and Resources are on the task map. Building and Shipped cannot be set here.
  */
 
 export const WRITEBACK_OFF_ERROR = 'Write-back is off. Nothing was sent to Notion.';
@@ -21,6 +21,7 @@ import {
   SHARED_RESOURCE_PROPERTY_TIERS,
   TASK_PROPERTY_TIERS,
 } from './tiers';
+import { isPullRequestLink, isTaskStage, stageMoveRule } from './taskBoard';
 
 export const NOTION_WRITE_VERSION = '2025-09-03';
 
@@ -159,6 +160,15 @@ export function validatePropertyPatch(input: {
   if (input.database === 'tasks' && 'Status' in input.properties) {
     requireOneOf(input.properties, 'Status', TASK_STATUSES, errors);
   }
+  if (input.database === 'tasks' && 'Stage' in input.properties) {
+    const stage = input.properties.Stage;
+    const rule = typeof stage === 'string' ? stageMoveRule('staff', stage) : { kind: 'denied' as const, reason: 'Stage must be one of the portal stages' };
+    if (rule.kind === 'denied' || rule.kind === 'locked') errors.push(rule.reason);
+    if (rule.kind === 'needs') {
+      const link = input.properties['GitHub Issue/PR'];
+      if (typeof link !== 'string' || !isPullRequestLink(link)) errors.push(rule.reason);
+    }
+  }
   if (input.database === 'projects' && 'Status' in input.properties) {
     requireOneOf(input.properties, 'Status', PROJECT_STATUSES, errors);
   }
@@ -227,7 +237,20 @@ function validateProject(props: WriteProperties, errors: string[]) {
 function validateTask(props: WriteProperties, errors: string[]) {
   requireSafeText(props, 'Name', errors);
   requireOneOf(props, 'Status', TASK_STATUSES, errors);
-  requireText(props, 'Date', errors);
+  if ('Date' in props) requireText(props, 'Date', errors);
+  if ('Stage' in props) {
+    const stage = props.Stage;
+    if (typeof stage !== 'string' || !isTaskStage(stage)) {
+      errors.push('Stage must be one of the portal stages');
+    } else {
+      const rule = stageMoveRule('staff', stage);
+      if (rule.kind !== 'allowed') errors.push(rule.kind === 'needs' ? rule.reason : rule.reason);
+    }
+  }
+  if ('Parent item' in props) requireRelation(props, 'Parent item', 1, errors);
+  if ('Resources' in props && !Array.isArray(props.Resources)) {
+    errors.push('Resources must be a list of pages');
+  }
   requirePrefix(props, 'External ID', 'wh_tsk_', errors);
   requireSource(props, errors);
   requireExact(props, 'Publish to Warehaus', false, errors);
@@ -398,6 +421,7 @@ export function decideCreateDedupe(existing: readonly ExistingPageHit[]): Dedupe
 
 const SELECT_PROPS = new Set([
   'Status',
+  'Stage',
   'Role',
   'Type',
   'Doc Type',
@@ -410,6 +434,8 @@ const RELATION_PROPS = new Set([
   'Client Company',
   'Project',
   'Projects',
+  'Parent item',
+  'Resources',
 ]);
 
 /** Shape a validated plain payload into a 2025-09-03 page property map. */
@@ -429,7 +455,7 @@ export function toNotionProperties(
       out[name] = { email: value };
       continue;
     }
-    if (name === 'URL' && typeof value === 'string') {
+    if ((name === 'URL' || name === 'GitHub Issue/PR') && typeof value === 'string') {
       out[name] = { url: value };
       continue;
     }

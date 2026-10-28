@@ -79,3 +79,38 @@ export const LIVE_PROJECT_PROPERTY_NAMES = [
   'Publish to Warehaus',
   'Promote to Brain',
 ] as const;
+
+/**
+ * Live Tasks property names plus Stage, Parent item, and Resources.
+ * Those three are not in Notion yet. The drift check still requires them on the map.
+ */
+export const LIVE_TASK_PROPERTY_NAMES = [
+  'Name',
+  'Status',
+  'Stage',
+  'Is Done',
+  'Date',
+  'Projects',
+  'Parent item',
+  'Resources',
+  'External ID',
+  'Estimate',
+  'Priority',
+  'Source',
+  'LastBridgedAt',
+  'Description',
+  'Next Action',
+  'Owner / DRI',
+  'Blocked by',
+  'Blocking',
+  'GitHub Issue/PR',
+  'Repo Branch',
+  'Figma Frame',
+  'URL',
+  'Legacy Complete',
+  'BridgeDirection',
+  'BrainPageId',
+  'WarehausPageId',
+  'Publish to Warehaus',
+  'Promote to Brain',
+] as const;

@@ -51,6 +51,9 @@ export function getPortalTabForPath(pathname: string): PortalTab {
   // startsWith('/') or every path matches.
   if (pathname === '/' || pathname === '/portal') return 'dashboard';
 
+  // Task detail is a modal over that task's project board.
+  if (pathname === '/tasks' || pathname.startsWith('/tasks/')) return 'projects';
+
   // Legacy Docs/Files deep links → Resources
   if (
     pathname === '/docs' ||

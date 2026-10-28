@@ -11,6 +11,7 @@ import { FIXTURE_RESOURCES } from '@/lib/data/fixtures';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
+import type { Id } from '@convex/_generated/dataModel';
 import { api } from '@convex/_generated/api';
 import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
 
@@ -102,6 +103,15 @@ export function ResourcesContent() {
                           <PublishChip published={row.publishToWarehaus} />
                         ) : null}
                         <SyncChip notionPageId={row.notionPageId} syncHidden={row.syncHidden} />
+                        {isStaff && !fixtures ? (
+                          <UsedInTasks
+                            resourceId={row.id}
+                            hostSlug={hostSlug}
+                            onOpenTask={(taskId) => {
+                              window.location.assign(`/tasks/${taskId}`);
+                            }}
+                          />
+                        ) : null}
                         {row.url ? (
                           <a href={row.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
                             Open
@@ -132,5 +142,42 @@ export function ResourcesContent() {
         </div>
       </PortalTilePane>
     </PortalWorkspace>
+  );
+}
+
+function UsedInTasks({
+  resourceId,
+  hostSlug,
+  onOpenTask,
+}: {
+  resourceId: string;
+  hostSlug?: string;
+  onOpenTask: (taskId: string) => void;
+}) {
+  const rows = useSafeQuery<Array<{ id: string; name: string; status: string; stage: string | null }>>(
+    api.sharedResources.usedInTasks,
+    { hostSlug, resourceId: resourceId as Id<'sharedResources'> },
+  );
+  return (
+    <section className="mt-3">
+      <h3 className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>USED IN TASKS</h3>
+      {rows.loading ? <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)' }}>Loading tasks…</p> : null}
+      {!rows.loading && (rows.data ?? []).length === 0 ? (
+        <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)' }}>Not used in any task yet.</p>
+      ) : (
+        <ul className="mt-2 flex flex-col gap-2">
+          {(rows.data ?? []).map((task) => (
+            <li key={task.id}>
+              <button type="button" onClick={() => onOpenTask(task.id)} className="text-left" style={{ color: 'var(--fg)' }}>
+                {task.name}
+                <span className="ds-mono" style={{ marginLeft: 8, color: 'var(--muted)', fontSize: 'var(--t-xs)' }}>
+                  {task.stage ?? 'No stage'} · {task.status}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
   );
 }

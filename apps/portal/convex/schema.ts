@@ -80,6 +80,16 @@ export default defineSchema({
     status: v.string(),
     isDone: v.boolean(),
     date: v.optional(v.string()),
+    /** CLIENT select. Missing until Notion has the property. */
+    stage: v.optional(v.union(v.string(), v.null())),
+    /** SERVER self-relation, one level deep. */
+    parentNotionPageId: v.optional(v.union(v.string(), v.null())),
+    parentTaskId: v.optional(v.id('tasks')),
+    /** SERVER notion ids until the join rows are resolved. */
+    resourceNotionIds: v.optional(v.array(v.string())),
+    /** SERVER. Never returned to a client. */
+    pullRequestUrl: v.optional(v.union(v.string(), v.null())),
+    lastEditedTime: v.optional(v.union(v.string(), v.null())),
     publishToWarehaus: v.boolean(),
     estimate: v.optional(v.string()),
     priority: v.optional(v.string()),
@@ -89,6 +99,18 @@ export default defineSchema({
     .index('by_orgId_projectId', ['orgId', 'projectId'])
     .index('by_notionPageId', ['notionPageId'])
     .index('by_externalId', ['externalId']),
+
+  /**
+   * Task → Shared Resource. Only a link whose resource org matches the task org.
+   * Client queries never read this table. They use sharedResources.listForClient.
+   */
+  taskResources: defineTable({
+    orgId: v.id('clients'),
+    taskId: v.id('tasks'),
+    resourceId: v.id('sharedResources'),
+  })
+    .index('by_orgId_taskId', ['orgId', 'taskId'])
+    .index('by_orgId_resourceId', ['orgId', 'resourceId']),
 
   contacts: defineTable({
     orgId: v.id('clients'),

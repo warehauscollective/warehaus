@@ -1,4 +1,4 @@
-import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { clientMaySeeTask, isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
@@ -96,6 +96,99 @@ export const listForStaff = adminQuery({
         notionPageId: row.notionPageId,
         lastSyncedAt: row.lastSyncedAt,
         syncHidden: row.syncHiddenAt != null,
+      });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+/** Published resources linked to a task. Same gate as listForClient, one row at a time. */
+export const listAttachedForClient = clientQuery({
+  args: { taskId: v.id('tasks') },
+  handler: async (ctx, { taskId }) => {
+    const task = await ctx.db.get(taskId);
+    const org = await ctx.db.get(ctx.orgId);
+    const project = task ? await ctx.db.get(task.projectId) : null;
+    const visible =
+      task &&
+      task.orgId === ctx.orgId &&
+      clientMaySeeTask({
+        publishToWarehaus: task.publishToWarehaus,
+        hidden: task.syncHiddenAt != null,
+        project: {
+          name: project?.name,
+          types: project?.type,
+          publishToWarehaus: project?.publishToWarehaus ?? false,
+          archive: project?.archive ?? false,
+          hidden: project?.syncHiddenAt != null,
+          orgVisible: isOrgVisibleToClients(org),
+        },
+      });
+    if (!visible || !task) return [];
+    const links = await ctx.db
+      .query('taskResources')
+      .withIndex('by_orgId_taskId', (q) => q.eq('orgId', ctx.orgId).eq('taskId', task._id))
+      .collect();
+    const out = [];
+    for (const link of links) {
+      if (link.orgId !== task.orgId) continue;
+      const row = await ctx.db.get(link.resourceId);
+      if (!row || row.orgId !== task.orgId || row.archive || !row.publishToWarehaus || !isClientSurfaceVisible(row)) {
+        continue;
+      }
+      const resourceProject = row.projectId ? await ctx.db.get(row.projectId) : null;
+      out.push(toClientResource(row, resourceProject?.name ?? null));
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+export const listAttachedForStaff = adminQuery({
+  args: { taskId: v.id('tasks') },
+  handler: async (ctx, { taskId }) => {
+    const task = await ctx.db.get(taskId);
+    if (!task) return [];
+    const links = await ctx.db
+      .query('taskResources')
+      .withIndex('by_orgId_taskId', (q) => q.eq('orgId', task.orgId).eq('taskId', task._id))
+      .collect();
+    const out = [];
+    for (const link of links) {
+      if (link.orgId !== task.orgId) continue;
+      const row = await ctx.db.get(link.resourceId);
+      if (!row || row.orgId !== task.orgId) continue;
+      const project = row.projectId ? await ctx.db.get(row.projectId) : null;
+      out.push({
+        ...toClientResource(row, project?.name ?? null),
+        publishToWarehaus: row.publishToWarehaus,
+        notionPageId: row.notionPageId,
+      });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+/** Staff-only. Tasks that link this resource. */
+export const usedInTasks = adminQuery({
+  args: { resourceId: v.id('sharedResources') },
+  handler: async (ctx, { resourceId }) => {
+    const resource = await ctx.db.get(resourceId);
+    if (!resource) return [];
+    const links = await ctx.db
+      .query('taskResources')
+      .withIndex('by_orgId_resourceId', (q) => q.eq('orgId', resource.orgId).eq('resourceId', resource._id))
+      .collect();
+    const out = [];
+    for (const link of links) {
+      if (link.orgId !== resource.orgId) continue;
+      const task = await ctx.db.get(link.taskId);
+      if (!task || task.orgId !== resource.orgId) continue;
+      out.push({
+        id: task._id,
+        name: task.name,
+        status: task.status,
+        stage: task.stage ?? null,
+        projectId: task.projectId,
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
