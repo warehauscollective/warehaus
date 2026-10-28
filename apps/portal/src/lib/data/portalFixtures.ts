@@ -12,3 +12,13 @@ export const FIXTURE_SESSION = {
   email: 'alex@warehaus.co',
   isStaff: true,
 };
+
+export const FIXTURE_CLIENT_SESSION = {
+  contactId: 'ct-ada',
+  orgId: 'c-north',
+  orgSlug: 'northwind',
+  role: 'Client Admin',
+  name: 'Ada North',
+  email: 'ada@northwind.example',
+  isStaff: false,
+};

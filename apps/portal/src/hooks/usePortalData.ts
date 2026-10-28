@@ -9,8 +9,8 @@ import {
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
-import { FIXTURE_SNAPSHOT } from '@/lib/data/fixtures';
-import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
+import { FIXTURE_CLIENT_SNAPSHOT, FIXTURE_SNAPSHOT } from '@/lib/data/fixtures';
+import { useFixtureAudience, useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 
 const EMPTY_TENANT: PortalTenantMeta = {
@@ -46,6 +46,7 @@ export { type PortalSnapshot, type PortalTenantMeta } from '@/lib/data/view-mode
  */
 export function usePortalData() {
   const fixtures = useFixturePreview();
+  const audience = useFixtureAudience();
   const configured = isConvexConfigured() && !fixtures;
   const { portalSession, linkStatus, sessionPending, joining } = usePortalAuth();
   const ready = Boolean(portalSession) && linkStatus === 'linked';
@@ -60,7 +61,11 @@ export function usePortalData() {
 
   return useMemo(() => {
     if (fixtures) {
-      return { data: FIXTURE_SNAPSHOT, loading: false, error: null };
+      return {
+        data: audience === 'client' ? FIXTURE_CLIENT_SNAPSHOT : FIXTURE_SNAPSHOT,
+        loading: false,
+        error: null,
+      };
     }
     if (!configured) {
       return {
@@ -93,6 +98,7 @@ export function usePortalData() {
     };
   }, [
     fixtures,
+    audience,
     configured,
     ready,
     sessionPending,

@@ -1,5 +1,5 @@
 import type { PortalSnapshot } from '@/lib/data/view-models';
-import { FIXTURE_SESSION } from '@/lib/data/portalFixtures';
+import { FIXTURE_CLIENT_SESSION, FIXTURE_SESSION } from '@/lib/data/portalFixtures';
 
 const SYNCED_AT = Date.parse('2026-10-05T15:00:00Z');
 
@@ -128,9 +128,9 @@ export const FIXTURE_PROJECTS = [
 
 export const FIXTURE_TASKS = [
   task('t-inbox', 'p-site', 'Capture homepage notes', 'Inbox', false),
-  task('t-todo', 'p-site', 'Write the launch checklist', 'To Do', false),
-  task('t-blocked', 'p-site', 'Waiting on photography', 'Blocked', false),
-  task('t-doing', 'p-site', 'Build the project page', 'In Progress', false),
+  task('t-todo', 'p-site', 'Write the launch checklist', 'To Do', false, { stage: 'Awaiting Go' }),
+  task('t-blocked', 'p-site', 'Waiting on photography', 'Blocked', false, { stage: 'Building' }),
+  task('t-doing', 'p-site', 'Build the project page', 'In Progress', false, { stage: 'Building' }),
   task('t-done', 'p-site', 'Approve the type ramp', 'Done', true),
   task('t-hidden', 'p-site', 'Row the pull hid', 'To Do', false, { syncHidden: true }),
   task('t-local', 'p-site', 'Not confirmed yet', 'To Do', false, { notionPageId: 'portal:task:local' }),
@@ -230,6 +230,7 @@ export const FIXTURE_CONTACTS = [
     email: 'sam@northwind.example',
     role: 'Client Member',
     portalAccess: 'Disabled' as const,
+    invitePending: true,
     notionPageId: 'notion-contact-sam',
     lastSyncedAt: SYNCED_AT,
     syncHidden: false,
@@ -271,6 +272,7 @@ export const FIXTURE_SNAPSHOT: PortalSnapshot = {
       notionPageId: t.notionPageId,
       lastSyncedAt: t.lastSyncedAt,
       publishToWarehaus: true,
+      stage: t.stage,
     }),
   ),
   activity: [
@@ -307,13 +309,52 @@ export const FIXTURE_SNAPSHOT: PortalSnapshot = {
   },
 };
 
+export const FIXTURE_CLIENT_SNAPSHOT: PortalSnapshot = {
+  ...FIXTURE_SNAPSHOT,
+  activity: FIXTURE_SNAPSHOT.activity.filter((item) => item.type !== 'sync'),
+  tenant: {
+    mode: 'client',
+    slug: FIXTURE_CLIENT_SESSION.orgSlug,
+    clientExternalId: FIXTURE_CLIENT_SESSION.orgId,
+    clientName: 'Northwind',
+    ok: true,
+  },
+};
+
+export const FIXTURE_NOTICES = [
+  {
+    id: 'notice-conflict',
+    message: 'Notion write task-status:homepage conflicted with a newer edit',
+    createdAt: SYNCED_AT,
+    readAt: null,
+    edgeCase: 'conflict',
+    unread: true,
+  },
+  {
+    id: 'notice-stage',
+    message: 'Homepage: Stage "Brainstorm" is not a portal stage',
+    createdAt: SYNCED_AT - 60_000,
+    readAt: null,
+    edgeCase: 'unknown-stage:page-1',
+    unread: true,
+  },
+  {
+    id: 'notice-invite',
+    message: 'Invite email already belongs to another client',
+    createdAt: SYNCED_AT - 120_000,
+    readAt: null,
+    edgeCase: 'invite-state',
+    unread: true,
+  },
+];
+
 function task(
   id: string,
   projectId: string,
   name: string,
   status: string,
   isDone: boolean,
-  extra: { syncHidden?: boolean; notionPageId?: string } = {},
+  extra: { syncHidden?: boolean; notionPageId?: string; stage?: string | null } = {},
 ) {
   const project = FIXTURE_PROJECTS.find((p) => p.id === projectId);
   return {
@@ -326,6 +367,7 @@ function task(
     name,
     status,
     isDone,
+    stage: extra.stage ?? null,
     date: '2026-10-20',
     publishToWarehaus: true,
     estimate: null,

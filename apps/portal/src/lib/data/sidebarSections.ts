@@ -52,6 +52,7 @@ const CLIENT_SECTIONS: Record<PortalTab, PortalSidebarSection[]> = {
     { key: 'tasks', label: 'Tasks' },
   ],
   account: [
+    { key: 'clients', label: 'Clients' },
     { key: 'profile', label: 'Profile' },
     { key: 'notifications', label: 'Notifications' },
   ],

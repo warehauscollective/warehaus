@@ -42,11 +42,11 @@ export function DocsBlock({
             <div className="flex flex-wrap items-center gap-2">
               <strong style={{ fontSize: 'var(--t-sm)', overflowWrap: 'anywhere' }}>{doc.title}</strong>
               <Pill>{doc.docType}</Pill>
-              {doc.status ? <Pill>{doc.status}</Pill> : null}
+              {staff && doc.status ? <Pill>{doc.status}</Pill> : null}
               {staff && doc.publishToWarehaus != null ? (
                 <PublishChip published={doc.publishToWarehaus} />
               ) : null}
-              <SyncChip notionPageId={doc.notionPageId} syncHidden={doc.syncHidden} />
+              {staff ? <SyncChip notionPageId={doc.notionPageId} syncHidden={doc.syncHidden} /> : null}
             </div>
             <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 4 }}>
               {doc.summary ?? '—'}

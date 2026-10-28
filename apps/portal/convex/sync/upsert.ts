@@ -4,6 +4,7 @@ import {
   isWarehausInternalClient,
   projectCountsForTaskGate,
   resolveParentLink,
+  taskTouchesIncrementalSet,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
@@ -508,15 +509,32 @@ export const resolveIds = internalMutation({
   },
 });
 
-/** Resolve parent links and resource joins after a pull. Mismatches are quarantined. */
+/**
+ * Resolve parent links and resource joins after a pull. Mismatches are quarantined.
+ * A full pull visits every task. An incremental pull passes the Notion ids it
+ * touched and skips tasks that cannot see those ids.
+ */
 export const resolveTaskGraph = internalMutation({
-  args: {},
-  handler: async (ctx) => {
+  args: { notionPageIds: v.optional(v.array(v.string())) },
+  handler: async (ctx, { notionPageIds }) => {
+    const touched = notionPageIds ? new Set(notionPageIds) : null;
     const tasks = await ctx.db.query('tasks').collect();
     const resources = await ctx.db.query('sharedResources').collect();
     const byNotion = new Map(tasks.map((task) => [task.notionPageId, task]));
     const resourceByNotion = new Map(resources.map((row) => [row.notionPageId, row]));
     for (const task of tasks) {
+      if (
+        !taskTouchesIncrementalSet(
+          {
+            notionPageId: task.notionPageId,
+            parentNotionPageId: task.parentNotionPageId,
+            resourceNotionIds: task.resourceNotionIds,
+          },
+          touched,
+        )
+      ) {
+        continue;
+      }
       const parentNotionId = task.parentNotionPageId ?? null;
       const parent = parentNotionId ? byNotion.get(parentNotionId) ?? null : null;
       const decision = resolveParentLink({

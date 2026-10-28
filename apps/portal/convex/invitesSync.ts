@@ -13,6 +13,7 @@ import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from
 import { adminMutation, adminQuery } from './_lib/wrappers';
 import { asClientInviteRole } from './_lib/inviteFlow';
 import { revertAllowed, REVERT_WINDOW_MS } from './_lib/revertLimit';
+import { isDuplicateNotice } from './_lib/noticeDedupe';
 import { isNotionWritebackEnabled } from './_lib/writeAuthz';
 
 const inviteStatus = v.union(
@@ -144,33 +145,52 @@ export const markAllNoticesRead = adminMutation({
   },
 });
 
-/** Staff inbox row. The same unread edge case is not inserted twice. */
+type StaffNoticeInput = {
+  orgId: Id<'clients'>;
+  message: string;
+  edgeCase?: string;
+  contactNotionPageId?: string;
+};
+
+/** Insert only when this audience, edge, contact, and message are new. Read state is ignored. */
+export async function insertStaffNotice(ctx: MutationCtx, args: StaffNoticeInput): Promise<boolean> {
+  const existing = await ctx.db
+    .query('notices')
+    .withIndex('by_orgId', (q) => q.eq('orgId', args.orgId))
+    .collect();
+  if (
+    isDuplicateNotice(existing, {
+      audience: 'staff',
+      orgId: args.orgId,
+      message: args.message,
+      edgeCase: args.edgeCase ?? null,
+      contactNotionPageId: args.contactNotionPageId ?? null,
+    })
+  ) {
+    return false;
+  }
+  await ctx.db.insert('notices', {
+    orgId: args.orgId,
+    audience: 'staff',
+    message: args.message,
+    createdAt: Date.now(),
+    ...(args.edgeCase ? { edgeCase: args.edgeCase } : {}),
+    ...(args.contactNotionPageId ? { contactNotionPageId: args.contactNotionPageId } : {}),
+  });
+  return true;
+}
+
+/** Staff inbox row. Sync, conflict, unknown Stage, and invite state share one rule. */
 export const recordStaffNotice = internalMutation({
   args: {
     orgId: v.id('clients'),
     message: v.string(),
     edgeCase: v.optional(v.string()),
+    contactNotionPageId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query('notices')
-      .withIndex('by_orgId', (q) => q.eq('orgId', args.orgId))
-      .collect();
-    const open = existing.some(
-      (row) =>
-        row.audience === 'staff' &&
-        row.readAt == null &&
-        row.edgeCase === args.edgeCase &&
-        row.message === args.message,
-    );
-    if (open) return;
-    await ctx.db.insert('notices', {
-      orgId: args.orgId,
-      audience: 'staff',
-      message: args.message,
-      createdAt: Date.now(),
-      ...(args.edgeCase ? { edgeCase: args.edgeCase } : {}),
-    });
+    const inserted = await insertStaffNotice(ctx, args);
+    return { inserted };
   },
 });
 
@@ -219,13 +239,11 @@ export const applyContactRead = internalMutation({
     if (!selfWrite && orgId) {
       for (const action of actions) {
         if (action.type === 'notice') {
-          await ctx.db.insert('notices', {
+          await insertStaffNotice(ctx, {
             orgId,
-            audience: 'staff',
             message: action.message,
             contactNotionPageId: args.notionPageId,
             edgeCase: String(action.caseId),
-            createdAt: now,
           });
         }
         await ctx.db.insert('auditEvents', {

@@ -339,12 +339,10 @@ export const applyOutcome = internalMutation({
     const now = Date.now();
     const notify = async (message: string, edgeCase: string) => {
       if (row.staffNotifiedAt != null) return;
-      await ctx.db.insert('notices', {
+      await ctx.runMutation(internal.invitesSync.recordStaffNotice, {
         orgId: row.orgId,
-        audience: 'staff',
         message,
         edgeCase,
-        createdAt: now,
       });
       await ctx.db.insert('auditEvents', {
         orgId: row.orgId,

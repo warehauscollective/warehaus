@@ -19,6 +19,7 @@ import {
   taskCreateProjectGate,
   resolveParentLink,
   stageMoveRule,
+  taskTouchesIncrementalSet,
   visibleChildIds,
   WAREHAUS_STUDIO_PROJECT_NAME,
 } from './taskBoard';
@@ -315,5 +316,25 @@ describe('board sort', () => {
     );
     assert.equal(stages.filter((column) => column.key.startsWith('unknown-stage:')).length, 1);
     assert.equal(stages.find((column) => column.label === 'No stage')?.label, 'No stage');
+  });
+});
+
+describe('incremental task graph', () => {
+  const child = {
+    notionPageId: 'child',
+    parentNotionPageId: 'parent',
+    resourceNotionIds: ['res-1'],
+  };
+
+  it('resolves every task when the pull is full', () => {
+    assert.equal(taskTouchesIncrementalSet(child, null), true);
+  });
+
+  it('resolves a task when it, its parent, or a resource was in this pull', () => {
+    assert.equal(taskTouchesIncrementalSet(child, new Set(['child'])), true);
+    assert.equal(taskTouchesIncrementalSet(child, new Set(['parent'])), true);
+    assert.equal(taskTouchesIncrementalSet(child, new Set(['res-1'])), true);
+    assert.equal(taskTouchesIncrementalSet(child, new Set(['other'])), false);
+    assert.equal(taskTouchesIncrementalSet({ notionPageId: 'solo' }, new Set()), false);
   });
 });

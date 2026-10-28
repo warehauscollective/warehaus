@@ -296,6 +296,7 @@ export {
   planTaskResourceWrite,
   createTaskExternalId,
   compareBoardCards,
+  taskTouchesIncrementalSet,
   boardColumns,
   type TaskStage,
   type LiveTaskStatus,

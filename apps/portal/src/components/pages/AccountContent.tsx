@@ -5,11 +5,19 @@ import { useRouter } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TeamInvites } from '@/components/pages/TeamInvites';
-import { GhostButton, Pill, Surface } from '@/components/ui/primitives';
+import { GhostButton, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { ThemeControl } from '@/components/account/ThemeControl';
-import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
-import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
+import { type DocRow } from '@/components/docs/DocsBlock';
+import {
+  ClientCompany,
+  ClientDetail,
+  ClientDirectory,
+  type ClientPersonRow,
+  type ClientProjectRow,
+  type ClientTaskRow,
+  type DirectoryClient,
+} from '@/components/clients/ClientScreens';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
@@ -27,7 +35,7 @@ import { useFixturePreview } from '@/components/providers/FixturePreviewProvider
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { isMissingConvexFunction, staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
-import { clientDirectoryMeta, taskStatusColor } from '@/lib/data/view-models';
+import { type ClientListFilter } from '@/lib/data/clientList';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 
 const SECTION_TITLE: Record<string, string> = {
@@ -51,14 +59,15 @@ export function AccountContent() {
   const isClient = !isStaff;
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
-  const [filter, setFilter] = useState<'all' | 'active' | 'internal' | 'sync'>('all');
+  const [filter, setFilter] = useState<ClientListFilter>('all');
   const [clientId, setClientId] = useState<string | null>(null);
-  const [retryNote, setRetryNote] = useState<string | null>(null);
+  const [showTeam, setShowTeam] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const client = params.get('client');
     if (client) setClientId(client);
+    if (params.get('team') === '1') setShowTeam(true);
   }, []);
 
   useEffect(() => {
@@ -69,7 +78,7 @@ export function AccountContent() {
   }, [linkedClientId, setSectionFor, clearLinkedClient]);
 
   useEffect(() => {
-    if (isClient && (activeSection === 'clients' || activeSection === 'team')) {
+    if (isClient && activeSection === 'team') {
       setSectionFor('account', 'profile');
     }
   }, [isClient, activeSection, setSectionFor]);
@@ -87,20 +96,50 @@ export function AccountContent() {
       : 'skip',
   );
   const peopleMissing = isMissingConvexFunction(peopleState.error);
+  const clientPeopleState = useSafeQuery<ClientPersonRow[]>(
+    api.contacts.listForClient,
+    !fixtures && configured && isClient ? { hostSlug } : 'skip',
+  );
+  const clientDocsState = useSafeQuery<DocRow[]>(
+    api.clientDocs.listForClient,
+    !fixtures && configured && isClient ? { hostSlug } : 'skip',
+  );
 
   const clients = (fixtures ? FIXTURE_CLIENTS : directoryState.data ?? []) as DirectoryRow[];
-  const projects = (fixtures ? FIXTURE_PROJECTS : staff.projects ?? []) as typeof FIXTURE_PROJECTS;
+  const projects = (
+    fixtures ? FIXTURE_PROJECTS : isStaff ? staff.projects ?? [] : data.projects
+  ) as typeof FIXTURE_PROJECTS;
   const tasks = (fixtures ? FIXTURE_TASKS : staff.tasks ?? data.tasks) as typeof FIXTURE_TASKS;
-  const docs = (fixtures ? FIXTURE_DOCS : staff.docs ?? []) as DocRow[];
+  const docs = (
+    fixtures ? FIXTURE_DOCS : isStaff ? staff.docs ?? [] : clientDocsState.data ?? []
+  ) as DocRow[];
   const contacts = fixtures
-    ? FIXTURE_CONTACTS.filter((contact) => contact.orgId === clientId)
-    : peopleMissing
-      ? []
-      : peopleState.data ?? [];
+    ? FIXTURE_CONTACTS.filter((contact) => contact.orgId === (isStaff ? clientId : portalSession?.orgId))
+    : isStaff
+      ? peopleMissing
+        ? []
+        : peopleState.data ?? []
+      : clientPeopleState.data ?? [];
 
   const selected = clients.find((client) => client.id === clientId) ?? null;
+  const directory: DirectoryClient[] = clients.map((client) => {
+    const row = client as DirectoryClient;
+    return {
+      ...row,
+      awaitingGoCount:
+        row.awaitingGoCount ??
+        tasks.filter((task) => task.orgId === client.id && !task.isDone && task.stage === 'Awaiting Go').length,
+    };
+  });
   const clientOpen = Boolean(isStaff && activeSection === 'clients' && selected);
-  const title = clientOpen && selected ? selected.name : SECTION_TITLE[activeSection] ?? 'Account';
+  const companyOpen = Boolean(isClient && activeSection === 'clients');
+  const title = clientOpen && selected
+    ? selected.name
+    : companyOpen
+      ? showTeam
+        ? 'Your team'
+        : data.tenant.clientName ?? 'Clients'
+      : SECTION_TITLE[activeSection] ?? 'Account';
 
   const leaveClient = () => {
     setClientId(null);
@@ -108,7 +147,8 @@ export function AccountContent() {
   };
   const goAccountRoot = () => {
     leaveClient();
-    setSectionFor('account', isStaff ? 'clients' : 'profile');
+    setShowTeam(false);
+    setSectionFor('account', 'clients');
   };
   const goClients = () => {
     leaveClient();
@@ -122,6 +162,18 @@ export function AccountContent() {
       parent={{ label: 'Account', onClick: goAccountRoot }}
       middle={{ label: 'Clients', onClick: goClients }}
       current={selected.name}
+    />
+  ) : companyOpen ? (
+    <NavBreadcrumb
+      back={showTeam ? 'always' : 'mobile'}
+      onBack={showTeam ? () => setShowTeam(false) : goAccountRoot}
+      parent={{ label: 'Account', onClick: goAccountRoot }}
+      middle={
+        showTeam
+          ? { label: data.tenant.clientName ?? 'Clients', onClick: () => setShowTeam(false) }
+          : undefined
+      }
+      current={showTeam ? 'Your team' : 'Clients'}
     />
   ) : isStaff && activeSection === 'clients' ? (
     <NavBreadcrumb
@@ -138,13 +190,6 @@ export function AccountContent() {
       current="Profile"
     />
   ) : null;
-  const filtered = clients.filter((client) => {
-    if (filter === 'internal') return client.internal;
-    if (filter === 'sync') return client.syncHidden;
-    if (filter === 'active') return client.status.toLowerCase() === 'active' && !client.syncHidden;
-    return true;
-  });
-
   return (
     <PortalWorkspace
       eyebrow={tenantEyebrow(data.tenant, 'Account')}
@@ -161,114 +206,56 @@ export function AccountContent() {
       ) : null}
 
       {isStaff && activeSection === 'clients' && selected ? (
-        <ClientDetail
-          client={selected}
-          projects={projects.filter((project) => project.orgId === selected.id)}
-          tasks={tasks.filter((task) => task.orgId === selected.id)}
-          docs={docs.filter((doc) => doc.orgId === selected.id)}
-          contacts={contacts}
-          retryNote={retryNote}
-          onRetry={() =>
-            setRetryNote('Write-back is off. Retry does not call Notion.')
-          }
-        />
+        <PortalTilePane>
+          <ClientDetail
+            client={directory.find((client) => client.id === selected.id) ?? (selected as DirectoryClient)}
+            projects={projects.filter((project) => project.orgId === selected.id) as ClientProjectRow[]}
+            tasks={tasks.filter((task) => task.orgId === selected.id) as ClientTaskRow[]}
+            docs={docs.filter((doc) => doc.orgId === selected.id)}
+            contacts={contacts as ClientPersonRow[]}
+          />
+        </PortalTilePane>
       ) : null}
 
       {isStaff && activeSection === 'clients' && !selected ? (
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" data-testid="account-clients">
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-              Warehaus is the client when none applies.
-            </p>
-            {directoryState.error ? (
-              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>{directoryState.error}</p>
-            ) : null}
-            <div className="flex flex-wrap gap-2">
-              {(['all', 'active', 'internal', 'sync'] as const).map((key) => (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setFilter(key)}
-                  aria-pressed={filter === key}
-                  className="ds-mono"
-                  style={{
-                    fontSize: 'var(--t-xs)',
-                    padding: '0.35rem 0.7rem',
-                    borderRadius: 999,
-                    border: '1px solid var(--border)',
-                    background: filter === key ? 'var(--fg)' : 'transparent',
-                    color: filter === key ? 'var(--bg)' : 'var(--muted)',
-                    cursor: 'pointer',
-                  }}
-                >
-                  {key === 'sync' ? 'Sync problem' : key[0].toUpperCase() + key.slice(1)}
-                </button>
-              ))}
-            </div>
-            {directoryState.loading && !fixtures ? (
-              <div className="flex flex-col gap-2" aria-busy="true">
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="animate-pulse"
-                    style={{ height: 64, borderRadius: 12, background: 'var(--bg)' }}
-                  />
-                ))}
-              </div>
-            ) : filtered.length === 0 ? (
-              <Surface style={{ padding: 'var(--s-5)' }}>
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                  No clients match these filters.
-                </p>
-              </Surface>
-            ) : (
-              filtered.map((client) => (
-                <div key={client.id}>
-                  <Surface style={{ padding: 'var(--s-4)' }}>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setClientId(client.id)}
-                        className="text-left"
-                        style={{ background: 'none', border: 0, padding: 0, cursor: 'pointer' }}
-                      >
-                        <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{client.name}</h3>
-                      </button>
-                      {client.internal ? <PublishChip published={false} /> : null}
-                      {client.notionPageId != null || client.syncHidden != null ? (
-                        <SyncChip
-                          notionPageId={client.notionPageId}
-                          syncHidden={client.syncHidden}
-                          onRetry={
-                            client.syncHidden
-                              ? () => setRetryNote('Write-back is off. Retry does not call Notion.')
-                              : undefined
-                          }
-                          retryNote={client.syncHidden ? retryNote : null}
-                        />
-                      ) : null}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => setClientId(client.id)}
-                      className="ds-mono text-left"
-                      style={{
-                        fontSize: 'var(--t-xs)',
-                        color: 'var(--muted)',
-                        marginTop: 8,
-                        background: 'none',
-                        border: 0,
-                        padding: 0,
-                        cursor: 'pointer',
-                      }}
-                    >
-                      {clientDirectoryMeta(client)}
-                    </button>
-                  </Surface>
-                </div>
-              ))
-            )}
-          </div>
+          <ClientDirectory
+            clients={directory}
+            filter={filter}
+            onFilter={setFilter}
+            onOpen={(id) => setClientId(id)}
+            loading={directoryState.loading && !fixtures}
+            error={directoryState.error}
+          />
+        </PortalTilePane>
+      ) : null}
+
+      {companyOpen ? (
+        <PortalTilePane>
+          <ClientCompany
+            name={data.tenant.clientName ?? portalSession?.name ?? 'Your company'}
+            contactName={portalSession?.name ?? '—'}
+            contactEmail={portalSession?.email ?? '—'}
+            projects={
+              projects.filter((project) => {
+                if (project.internal || project.publishToWarehaus === false) return false;
+                return !portalSession?.orgId || project.orgId === portalSession.orgId;
+              }) as ClientProjectRow[]
+            }
+            tasks={
+              tasks.filter((task) => {
+                if (task.syncHidden || task.publishToWarehaus === false) return false;
+                const project = projects.find((item) => item.id === task.projectId);
+                if (!project || project.internal || project.publishToWarehaus === false) return false;
+                return !portalSession?.orgId || task.orgId === portalSession.orgId || !task.orgId;
+              }) as ClientTaskRow[]
+            }
+            docs={docs.filter((doc) => doc.publishToWarehaus !== false && doc.status !== 'Draft')}
+            people={contacts as ClientPersonRow[]}
+            showTeam={showTeam}
+            onShowTeam={() => setShowTeam(true)}
+            onBack={() => setShowTeam(false)}
+          />
         </PortalTilePane>
       ) : null}
 
@@ -323,107 +310,9 @@ export function AccountContent() {
       )}
 
       {isStaff && activeSection === 'team' && (
-        <TeamInvites hostSlug={hostSlug} configured={configured && !fixtures} />
+        <TeamInvites hostSlug={hostSlug} configured={configured && !fixtures} fixtures={fixtures} />
       )}
     </PortalWorkspace>
-  );
-}
-
-function ClientDetail({
-  client,
-  projects,
-  tasks,
-  docs,
-  contacts,
-  retryNote,
-  onRetry,
-}: {
-  client: DirectoryRow;
-  projects: Array<{ id: string; name: string; status: string }>;
-  tasks: Array<{
-    id: string;
-    name: string;
-    status: string;
-    isDone: boolean;
-    notionPageId?: string | null;
-    syncHidden?: boolean;
-  }>;
-  docs: DocRow[];
-  contacts: Array<{
-    id: string;
-    name: string;
-    email: string;
-    role: string;
-    portalAccess: 'Enabled' | 'Disabled';
-    notionPageId?: string | null;
-    syncHidden?: boolean;
-  }>;
-  retryNote: string | null;
-  onRetry: () => void;
-}) {
-  const clientDocs = docs;
-  return (
-    <PortalTilePane>
-      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
-        <div className="flex flex-wrap items-center gap-2">
-          <h2 style={{ fontSize: 'var(--t-lg)', fontWeight: 600 }}>{client.name}</h2>
-          <SyncChip
-            notionPageId={client.notionPageId}
-            syncHidden={client.syncHidden}
-            onRetry={client.syncHidden ? onRetry : undefined}
-            retryNote={client.syncHidden ? retryNote : null}
-          />
-        </div>
-        <section>
-          <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>Projects</p>
-          {projects.length === 0 ? (
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>No projects.</p>
-          ) : (
-            projects.map((project) => (
-              <p key={project.id} style={{ fontSize: 'var(--t-sm)', marginTop: 6 }}>
-                {project.name} · {project.status}
-              </p>
-            ))
-          )}
-        </section>
-        <section>
-          <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>People</p>
-          <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 4 }}>
-            Contacts with portal access.
-          </p>
-          {contacts.length === 0 ? (
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>No contacts.</p>
-          ) : (
-            contacts.map((contact) => (
-              <div key={contact.id} className="mt-2 flex flex-wrap items-center gap-2">
-                <span style={{ fontSize: 'var(--t-sm)', fontWeight: 600 }}>{contact.name}</span>
-                <span style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>{contact.email}</span>
-                <Pill>{contact.role}</Pill>
-                <Pill color={contact.portalAccess === 'Enabled' ? 'var(--success)' : 'var(--muted)'}>
-                  {contact.portalAccess === 'Enabled' ? 'Portal access' : 'No portal access'}
-                </Pill>
-                <SyncChip notionPageId={contact.notionPageId} syncHidden={contact.syncHidden} />
-              </div>
-            ))
-          )}
-        </section>
-        <section>
-          <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>Items</p>
-          {tasks.length === 0 ? (
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>No tasks.</p>
-          ) : (
-            tasks.map((task) => (
-              <div key={task.id} className="mt-2 flex flex-wrap items-center gap-2">
-                <span style={{ fontSize: 'var(--t-sm)', overflowWrap: 'anywhere' }}>{task.name}</span>
-                <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
-                <SyncChip notionPageId={task.notionPageId} syncHidden={task.syncHidden} />
-              </div>
-            ))
-          )}
-        </section>
-        <DocsBlock docs={clientDocs} staff />
-      </div>
-    </PortalTilePane>
   );
 }
 

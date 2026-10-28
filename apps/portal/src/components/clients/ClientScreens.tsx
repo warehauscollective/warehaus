@@ -1,0 +1,551 @@
+'use client';
+
+import type { ReactNode } from 'react';
+import { Pill } from '@/components/ui/primitives';
+import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
+import { clientInitials, clientListStats, clientMatchesFilter, singleOrAcross, type ClientListFilter, type ClientListRow } from '@/lib/data/clientList';
+import { taskStatusColor } from '@/lib/data/view-models';
+
+export type DirectoryClient = ClientListRow & {
+  slug?: string | null;
+  portalAccess?: 'Enabled' | 'Disabled';
+  notionPageId?: string | null;
+  lastSyncedAt?: number | null;
+};
+
+export type ClientProjectRow = {
+  id: string;
+  name: string;
+  status: string;
+  progress?: number | null;
+  description?: string | null;
+  publishToWarehaus?: boolean;
+  internal?: boolean;
+  endDate?: string | null;
+};
+
+export type ClientTaskRow = {
+  id: string;
+  name: string;
+  status: string;
+  isDone: boolean;
+  stage?: string | null;
+  date?: string | null;
+  projectName?: string | null;
+};
+
+export type ClientPersonRow = {
+  id: string;
+  name: string;
+  email: string;
+  role?: string;
+  portalAccess?: 'Enabled' | 'Disabled';
+  invitePending?: boolean;
+};
+
+const FILTERS: Array<{ key: ClientListFilter; label: string }> = [
+  { key: 'all', label: 'All' },
+  { key: 'active', label: 'Active' },
+  { key: 'internal', label: 'Internal' },
+  { key: 'sync', label: 'Sync problem' },
+];
+
+function Panel({ children, testId }: { children: ReactNode; testId?: string }) {
+  return (
+    <section
+      data-testid={testId}
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 28,
+        padding: '1.25rem',
+      }}
+    >
+      {children}
+    </section>
+  );
+}
+
+function Stat({ label, value, hint, tone }: { label: string; value: string; hint: string; tone?: string }) {
+  return (
+    <div
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 22,
+        padding: '1rem 1.1rem',
+        minHeight: 112,
+      }}
+    >
+      <p className="ds-mono" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--faint)' }}>
+        {label}
+      </p>
+      <p style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', lineHeight: 1.1, marginTop: 8 }}>{value}</p>
+      <p style={{ fontSize: 'var(--t-sm)', color: tone ?? 'var(--muted)', marginTop: 6 }}>{hint}</p>
+    </div>
+  );
+}
+
+function Mark({ name }: { name: string }) {
+  return (
+    <span
+      className="ds-mono inline-flex shrink-0 items-center justify-center"
+      style={{
+        width: 36,
+        height: 36,
+        borderRadius: 10,
+        background: 'var(--bg)',
+        border: '1px solid var(--border)',
+        fontSize: 12,
+        color: 'var(--muted)',
+      }}
+    >
+      {clientInitials(name)}
+    </span>
+  );
+}
+
+function Dot({ tone, children }: { tone: 'on' | 'bad' | 'off'; children: ReactNode }) {
+  const color = tone === 'bad' ? 'var(--danger)' : tone === 'off' ? 'var(--muted)' : 'var(--fg)';
+  return (
+    <span className="inline-flex items-center gap-1.5 whitespace-nowrap" style={{ color, fontSize: 13 }}>
+      <span
+        aria-hidden
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 99,
+          background: tone === 'off' ? 'transparent' : color,
+          border: tone === 'off' ? '1.5px solid var(--muted)' : '0',
+          display: 'inline-block',
+        }}
+      />
+      {children}
+    </span>
+  );
+}
+
+function Chevron() {
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img alt="" src="/icons/client-chev.svg" width={16} height={16} className="shrink-0 opacity-70" />
+  );
+}
+
+function DisabledAction({ label }: { label: string }) {
+  return (
+    <button
+      type="button"
+      disabled
+      aria-disabled="true"
+      title="Not available yet"
+      className="ds-mono"
+      style={{
+        fontSize: 'var(--t-xs)',
+        letterSpacing: '0.06em',
+        textTransform: 'uppercase',
+        padding: '0.45rem 0.8rem',
+        borderRadius: 999,
+        border: '1px solid var(--border)',
+        background: 'transparent',
+        color: 'var(--muted)',
+        cursor: 'not-allowed',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function percent(value: number | null | undefined): number {
+  if (value == null) return 0;
+  const pct = value <= 1 ? value * 100 : value;
+  return Math.min(100, Math.max(0, Math.round(pct)));
+}
+
+export function ClientDirectory({
+  clients,
+  filter,
+  onFilter,
+  onOpen,
+  loading,
+  error,
+}: {
+  clients: DirectoryClient[];
+  filter: ClientListFilter;
+  onFilter: (filter: ClientListFilter) => void;
+  onOpen: (id: string) => void;
+  loading: boolean;
+  error: string | null;
+}) {
+  const stats = clientListStats(clients);
+  const shown = clients.filter((client) => clientMatchesFilter(client, filter));
+  const counts: Record<ClientListFilter, number> = {
+    all: stats.total,
+    active: stats.active,
+    internal: stats.internal,
+    sync: stats.sync,
+  };
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="account-clients">
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+        <Stat label="CLIENTS" value={String(stats.total)} hint={`${stats.active} active · ${stats.internal} internal`} />
+        <Stat label="ACTIVE PROJECTS" value={String(stats.projects)} hint={stats.withProjects === 1 ? 'Across 1 client' : `Across ${stats.withProjects} clients`} />
+        <Stat
+          label="AWAITING GO"
+          value={String(stats.awaiting)}
+          hint={singleOrAcross(stats.awaitingNames, 'None waiting')}
+          tone={stats.awaiting > 0 ? 'var(--danger)' : undefined}
+        />
+        <Stat
+          label="SYNC PROBLEMS"
+          value={String(stats.sync)}
+          hint={singleOrAcross(stats.syncNames, 'None')}
+          tone={stats.sync > 0 ? 'var(--danger)' : undefined}
+        />
+      </div>
+
+      <Panel>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>All clients</h2>
+          <DisabledAction label="New client" />
+        </div>
+        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
+          Each client sees only what is published to them.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {FILTERS.map((item) => {
+            const active = filter === item.key;
+            return (
+              <button
+                key={item.key}
+                type="button"
+                aria-pressed={active}
+                onClick={() => onFilter(item.key)}
+                className="ds-mono"
+                style={{
+                  fontSize: 'var(--t-xs)',
+                  padding: '0.35rem 0.75rem',
+                  borderRadius: 999,
+                  border: '1px solid var(--border)',
+                  background: active ? 'var(--fg)' : 'transparent',
+                  color: active ? 'var(--bg)' : 'var(--muted)',
+                  cursor: 'pointer',
+                }}
+              >
+                {item.label} {counts[item.key]}
+              </button>
+            );
+          })}
+        </div>
+        {error ? <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)', marginTop: 12 }}>{error}</p> : null}
+        {loading ? (
+          <div className="mt-4 flex flex-col gap-2" aria-busy="true">
+            {[0, 1, 2].map((i) => (
+              <div key={i} className="animate-pulse" style={{ height: 64, borderRadius: 12, background: 'var(--bg)' }} />
+            ))}
+          </div>
+        ) : shown.length === 0 ? (
+          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 16 }}>No clients match these filters.</p>
+        ) : (
+          <ul className="mt-2">
+            {shown.map((client) => (
+              <li key={client.id} style={{ borderTop: '1px solid var(--border)' }}>
+                <button
+                  type="button"
+                  onClick={() => onOpen(client.id)}
+                  className="flex w-full items-center gap-3 text-left"
+                  style={{ background: 'none', border: 0, padding: '0.9rem 0.2rem', cursor: 'pointer', color: 'inherit' }}
+                >
+                  <Mark name={client.name} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block" style={{ fontWeight: 600 }}>
+                      {client.internal ? `${client.name} (internal)` : client.name}
+                    </span>
+                    <span className="ds-mono block" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                      {client.internal
+                        ? `${client.contactCount} staff · admin-only`
+                        : `${client.contactCount} ${client.contactCount === 1 ? 'person' : 'people'}`}
+                    </span>
+                  </span>
+                  <span className="hidden flex-wrap items-center justify-end gap-x-4 gap-y-1 md:flex">
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.projectCount} projects</span>
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.openTaskCount} open</span>
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.awaitingGoCount ?? 0} awaiting go</span>
+                    <Dot tone={client.syncHidden ? 'bad' : 'on'}>{client.syncHidden ? 'Sync problem' : 'In sync'}</Dot>
+                    <Dot tone={client.internal ? 'off' : 'on'}>{client.internal ? 'Not published' : 'Published'}</Dot>
+                  </span>
+                  <Chevron />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div
+          className="mt-3 flex gap-3"
+          style={{ background: 'var(--bg)', borderRadius: 16, padding: '0.85rem 1rem' }}
+        >
+          <span aria-hidden style={{ color: 'var(--muted)' }}>ⓘ</span>
+          <span>
+            <strong style={{ fontSize: 'var(--t-sm)' }}>Warehaus is the client when none applies</strong>
+            <span className="mt-1 block" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+              Work with no client or project sits under the internal Warehaus project. Internal items are admin-only and never appear in client views.
+            </span>
+          </span>
+        </div>
+      </Panel>
+    </div>
+  );
+}
+
+export function ClientDetail({
+  client,
+  projects,
+  tasks,
+  docs,
+  contacts,
+}: {
+  client: DirectoryClient;
+  projects: ClientProjectRow[];
+  tasks: ClientTaskRow[];
+  docs: DocRow[];
+  contacts: ClientPersonRow[];
+}) {
+  const awaiting = tasks.filter((task) => !task.isDone && task.stage === 'Awaiting Go').length;
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
+      <Panel>
+        <div className="flex items-center gap-4">
+          <Mark name={client.name} />
+          <div className="min-w-0 flex-1">
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>{client.name}</h2>
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
+              {client.contactCount} {client.contactCount === 1 ? 'person' : 'people'}
+              {client.internal ? ' · admin-only' : ''}
+            </p>
+          </div>
+          <DisabledAction label="Edit client" />
+        </div>
+        <div className="mt-4 flex flex-wrap gap-4">
+          <Dot tone={client.internal ? 'off' : 'on'}>{client.internal ? 'Not published' : 'Published'}</Dot>
+          <Dot tone={client.syncHidden ? 'bad' : 'on'}>{client.syncHidden ? 'Sync problem' : 'In sync'}</Dot>
+        </div>
+      </Panel>
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+        <Stat label="PROJECTS" value={String(projects.length)} hint={projects.length === 1 ? '1 on this client' : `${projects.length} on this client`} />
+        <Stat label="PEOPLE" value={String(contacts.length)} hint="Contacts with portal access" />
+        <Stat label="OPEN ITEMS" value={String(tasks.filter((task) => !task.isDone).length)} hint={awaiting > 0 ? `${awaiting} awaiting go` : 'None awaiting go'} tone={awaiting > 0 ? 'var(--danger)' : undefined} />
+      </div>
+      <Panel>
+        <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Projects</h3>
+        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Brand is not stored on the project yet.</p>
+        {projects.length === 0 ? (
+          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No projects.</p>
+        ) : (
+          <ul className="mt-2">
+            {projects.map((project) => {
+              const pct = percent(project.progress);
+              return (
+                <li key={project.id} className="flex flex-wrap items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
+                  <Mark name={project.name} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block" style={{ fontWeight: 600 }}>{project.name}</span>
+                    <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{project.status}</span>
+                  </span>
+                  <span className="flex items-center gap-2" style={{ minWidth: 140 }}>
+                    <span style={{ height: 4, width: 88, borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
+                      <span style={{ display: 'block', height: '100%', width: `${pct}%`, background: 'var(--fg)' }} />
+                    </span>
+                    <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{pct}%</span>
+                  </span>
+                  <Dot tone={project.internal || project.publishToWarehaus === false ? 'off' : 'on'}>
+                    {project.internal || project.publishToWarehaus === false ? 'Not published' : 'Published'}
+                  </Dot>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Panel>
+      <Panel>
+        <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>People</h3>
+        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
+          Contacts with portal access. Invites stay on Account → Team.
+        </p>
+        {contacts.length === 0 ? (
+          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No contacts.</p>
+        ) : (
+          <ul className="mt-2">
+            {contacts.map((person) => (
+              <li key={person.id} className="flex flex-wrap items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
+                <Mark name={person.name} />
+                <span className="min-w-0 flex-1">
+                  <span className="block" style={{ fontWeight: 600 }}>{person.name}</span>
+                  <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
+                </span>
+                {person.role ? <span style={{ fontSize: 13, color: 'var(--muted)' }}>{person.role}</span> : null}
+                <span style={{ fontSize: 13, color: person.invitePending ? 'var(--warn)' : 'var(--muted)' }}>
+                  {person.invitePending ? 'Invite pending' : person.portalAccess === 'Enabled' ? 'Active' : 'No portal access'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+      <Panel>
+        <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Tasks</h3>
+        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Published and unpublished, live Status.</p>
+        {tasks.length === 0 ? (
+          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No tasks.</p>
+        ) : (
+          <ul className="mt-2">
+            {tasks.map((task) => (
+              <li key={task.id} className="flex flex-wrap items-center gap-2" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
+                <span className="min-w-0 flex-1" style={{ fontWeight: 600 }}>{task.name}</span>
+                {task.stage === 'Awaiting Go' ? <Pill color="var(--danger)">Awaiting Go</Pill> : null}
+                <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
+              </li>
+            ))}
+          </ul>
+        )}
+      </Panel>
+      <Panel testId="client-docs">
+        <DocsBlock docs={docs} staff />
+      </Panel>
+    </div>
+  );
+}
+
+export function ClientCompany({
+  name,
+  contactName,
+  contactEmail,
+  projects,
+  tasks,
+  docs,
+  people,
+  showTeam,
+  onShowTeam,
+  onBack,
+}: {
+  name: string;
+  contactName: string;
+  contactEmail: string;
+  projects: ClientProjectRow[];
+  tasks: ClientTaskRow[];
+  docs: DocRow[];
+  people: ClientPersonRow[];
+  showTeam: boolean;
+  onShowTeam: () => void;
+  onBack: () => void;
+}) {
+  const open = tasks.filter((task) => !task.isDone);
+  const awaiting = open.filter((task) => task.stage === 'Awaiting Go');
+  if (showTeam) {
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-team">
+        <button type="button" onClick={onBack} className="ds-mono text-left" style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>
+          ← Company
+        </button>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>Your team</h2>
+        <Panel>
+          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Your team</h3>
+          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
+            People at {name} with portal access.
+          </p>
+          {people.length === 0 ? (
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No people shared yet.</p>
+          ) : (
+            <ul className="mt-2">
+              {people.map((person) => (
+                <li key={person.id} className="flex items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
+                  <Mark name={person.name} />
+                  <span>
+                    <span className="block" style={{ fontWeight: 600 }}>{person.name}</span>
+                    <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>
+            Client admins invite teammates from Account → Team. Role and invite status stay with staff.
+          </p>
+        </Panel>
+        <Panel>
+          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Waiting on you</h3>
+          {awaiting.length === 0 ? (
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>Nothing is waiting on your approval.</p>
+          ) : (
+            <ul className="mt-2">
+              {awaiting.map((task) => (
+                <li key={task.id} className="flex flex-wrap items-center gap-2" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
+                  <span className="min-w-0 flex-1">
+                    <span className="block" style={{ fontWeight: 600 }}>{task.name}</span>
+                    <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{task.projectName ?? name}</span>
+                  </span>
+                  <Pill color="var(--danger)">Awaiting Go</Pill>
+                  <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Panel>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company">
+      <Panel>
+        <div className="flex items-center gap-4">
+          <Mark name={name} />
+          <div>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>{name}</h2>
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
+              {people.length} {people.length === 1 ? 'person' : 'people'}
+            </p>
+          </div>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>YOUR CONTACT</span>
+          <span style={{ fontSize: 'var(--t-sm)' }}>{contactName} · {contactEmail}</span>
+        </div>
+        <button type="button" onClick={onShowTeam} className="mt-4" style={{ background: 'none', border: 0, padding: 0, color: 'var(--accent)', cursor: 'pointer' }}>
+          Your team
+        </button>
+      </Panel>
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+        <Stat label="ACTIVE PROJECTS" value={String(projects.length)} hint={projects[0] ? projects[0].name : 'None shared yet'} />
+        <Stat label="OPEN ITEMS" value={String(open.length)} hint={`${open.filter((task) => /progress/i.test(task.status)).length} in progress`} />
+        <Stat label="NEEDS YOUR ATTENTION" value={String(awaiting.length)} hint={awaiting.length > 0 ? 'Waiting on your approval' : 'Nothing waiting'} tone={awaiting.length > 0 ? 'var(--danger)' : undefined} />
+      </div>
+      <Panel>
+        <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Your projects</h3>
+        {projects.length === 0 ? (
+          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>Nothing shared yet.</p>
+        ) : (
+          <ul className="mt-2">
+            {projects.map((project) => {
+              const pct = percent(project.progress);
+              return (
+                <li key={project.id} className="flex flex-wrap items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
+                  <Mark name={project.name} />
+                  <span className="min-w-0 flex-1">
+                    <span className="block" style={{ fontWeight: 600 }}>{project.name}</span>
+                    <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{project.status}</span>
+                  </span>
+                  <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{pct}% of items</span>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Panel>
+      <Panel testId="client-docs">
+        <DocsBlock docs={docs} staff={false} />
+      </Panel>
+    </div>
+  );
+}
