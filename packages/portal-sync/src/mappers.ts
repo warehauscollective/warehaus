@@ -10,6 +10,7 @@ import {
   sharedResourceRowPassesGate,
   taskRowPassesGate,
 } from './gates';
+import { readOptionalStage, readParentItem } from './taskBoard';
 import {
   extractCheckbox,
   extractDateStart,
@@ -79,6 +80,10 @@ export type MappedTask = {
   status: string;
   isDone: boolean;
   date?: string;
+  stage?: string;
+  parentNotionId?: string;
+  resourceNotionIds: string[];
+  pullRequestUrl?: string;
   publishToWarehaus: boolean;
   estimate?: string;
   priority?: string;
@@ -234,6 +239,14 @@ export function mapNotionTask(
   const droppedProperties = dropUnknown('tasks', properties);
   const status = extractStatus(properties.Status) || extractSelect(properties.Status) || 'Inbox';
   const formulaDone = extractFormulaBoolean(properties['Is Done']);
+  const stage = readOptionalStage(extractSelect(properties.Stage));
+  if (!stage.ok) {
+    return { disposition: 'quarantine', reason: stage.reason, droppedProperties };
+  }
+  const parent = readParentItem(extractRelationIds(properties['Parent item']));
+  if (!parent.ok) {
+    return { disposition: 'quarantine', reason: parent.reason, droppedProperties };
+  }
   const row: MappedTask = {
     database: 'tasks',
     notionPageId,
@@ -242,6 +255,10 @@ export function mapNotionTask(
     status,
     isDone: formulaDone ?? status === 'Done',
     date: extractDateStart(properties.Date) ?? undefined,
+    stage: stage.stage ?? undefined,
+    parentNotionId: parent.parentNotionId ?? undefined,
+    resourceNotionIds: extractRelationIds(properties.Resources),
+    pullRequestUrl: extractUrl(properties['GitHub Issue/PR']) ?? undefined,
     publishToWarehaus: extractCheckbox(properties['Publish to Warehaus']),
     estimate: extractSelect(properties.Estimate) ?? undefined,
     priority: extractSelect(properties.Priority) ?? undefined,

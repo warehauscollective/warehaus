@@ -193,20 +193,24 @@ describe('search before create', () => {
   });
 
   it('rejects properties that are not on the tier map', () => {
-    for (const name of ['Stage', 'Parent item', 'Resources', 'Invite Secret']) {
-      const result = validatePropertyPatch({
-        database: 'tasks',
-        properties: { Status: 'Done', [name]: 'nope' },
-      });
-      assert.equal(result.ok, false, name);
-      if (!result.ok) assert.match(result.errors.join(' '), new RegExp(`Unknown property ${name}`));
-    }
+    const result = validatePropertyPatch({
+      database: 'tasks',
+      properties: { Status: 'Done', 'Invite Secret': 'nope' },
+    });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.match(result.errors.join(' '), /Unknown property Invite Secret/);
     const create = validateWriteback({
       database: 'tasks',
       properties: { ...task, Stage: 'Planning' },
       actor: 'staff',
     });
-    assert.equal(create.ok, false);
+    assert.equal(create.ok, true);
+    const locked = validateWriteback({
+      database: 'tasks',
+      properties: { ...task, Stage: 'Building' },
+      actor: 'staff',
+    });
+    assert.equal(locked.ok, false);
   });
 
   it('accepts a task Status patch and rejects a status that is not live', () => {

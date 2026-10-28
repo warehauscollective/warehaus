@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@convex-dev/better-auth": "^0.12.5",
+    "@dnd-kit/core": "^6.3.1",
     "@notionhq/client": "^5.23.2",
     "@tailwindcss/postcss": "^4.1.18",
     "@vercel/blob": "^2.6.1",

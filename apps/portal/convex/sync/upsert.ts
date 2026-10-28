@@ -1,7 +1,9 @@
 import {
+  decideResourceLink,
   isApprovedInternalWarehausProject,
   isWarehausInternalClient,
   projectCountsForTaskGate,
+  resolveParentLink,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
@@ -106,6 +108,11 @@ export const upsertTask = internalMutation({
     status: v.string(),
     isDone: v.boolean(),
     date: v.optional(v.string()),
+    stage: v.optional(v.union(v.string(), v.null())),
+    parentNotionPageId: v.optional(v.union(v.string(), v.null())),
+    resourceNotionIds: v.optional(v.array(v.string())),
+    pullRequestUrl: v.optional(v.union(v.string(), v.null())),
+    lastEditedTime: v.optional(v.union(v.string(), v.null())),
     publishToWarehaus: v.boolean(),
     estimate: v.optional(v.string()),
     priority: v.optional(v.string()),
@@ -456,5 +463,79 @@ export const resolveIds = internalMutation({
         }),
       ),
     };
+  },
+});
+
+/** Resolve parent links and resource joins after a pull. Mismatches are quarantined. */
+export const resolveTaskGraph = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const tasks = await ctx.db.query('tasks').collect();
+    const resources = await ctx.db.query('sharedResources').collect();
+    const byNotion = new Map(tasks.map((task) => [task.notionPageId, task]));
+    const resourceByNotion = new Map(resources.map((row) => [row.notionPageId, row]));
+    for (const task of tasks) {
+      const parentNotionId = task.parentNotionPageId ?? null;
+      const parent = parentNotionId ? byNotion.get(parentNotionId) ?? null : null;
+      const decision = resolveParentLink({
+        parentNotionId,
+        taskOrgId: task.orgId,
+        parent: parent
+          ? { orgId: parent.orgId, hasParent: Boolean(parent.parentNotionPageId) }
+          : null,
+      });
+      if (decision.quarantine) {
+        const notionPageId = `${task.notionPageId}:parent`;
+        const prior = await ctx.db
+          .query('quarantine')
+          .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+          .collect();
+        if (prior.length === 0) {
+          await ctx.db.insert('quarantine', {
+            orgId: task.orgId,
+            notionPageId,
+            database: 'tasks',
+            reason: decision.quarantine,
+            createdAt: Date.now(),
+          });
+        }
+      }
+      const parentTaskId = decision.link && parent ? parent._id : undefined;
+      if ((task.parentTaskId ?? undefined) !== parentTaskId) {
+        await ctx.db.patch(task._id, { parentTaskId });
+      }
+      if (task.resourceNotionIds == null) continue;
+      const existing = await ctx.db
+        .query('taskResources')
+        .withIndex('by_orgId_taskId', (q) => q.eq('orgId', task.orgId).eq('taskId', task._id))
+        .collect();
+      for (const link of existing) await ctx.db.delete(link._id);
+      for (const notionId of task.resourceNotionIds) {
+        const resource = resourceByNotion.get(notionId) ?? null;
+        const choice = decideResourceLink(task.orgId, resource ? String(resource.orgId) : null);
+        if (choice === 'store' && resource && resource.orgId === task.orgId) {
+          await ctx.db.insert('taskResources', {
+            orgId: task.orgId,
+            taskId: task._id,
+            resourceId: resource._id,
+          });
+        } else if (choice === 'quarantine') {
+          const notionPageId = `${task.notionPageId}:resource:${notionId}`;
+          const prior = await ctx.db
+            .query('quarantine')
+            .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+            .collect();
+          if (prior.length === 0) {
+            await ctx.db.insert('quarantine', {
+              orgId: task.orgId,
+              notionPageId,
+              database: 'taskResources',
+              reason: 'Resource belongs to another client',
+              createdAt: Date.now(),
+            });
+          }
+        }
+      }
+    }
   },
 });

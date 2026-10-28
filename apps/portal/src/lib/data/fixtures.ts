@@ -105,7 +105,7 @@ export const FIXTURE_PROJECTS = [
   {
     id: 'p-internal',
     orgId: 'c-warehaus',
-    name: 'Warehaus ops',
+    name: 'warehaus.studio',
     description: 'Internal',
     status: 'In Progress',
     progress: 0.2,

@@ -67,9 +67,15 @@ export const PROJECT_PROPERTY_TIERS = {
 export const TASK_PROPERTY_TIERS = {
   Name: 'CLIENT',
   Status: 'CLIENT',
+  /** Not in Notion yet. Missing is tolerated. Unknown names fail closed. */
+  Stage: 'CLIENT',
   'Is Done': 'CLIENT',
   Date: 'CLIENT',
   Projects: 'SERVER',
+  /** Self-relation, one level deep. Not in Notion yet. */
+  'Parent item': 'SERVER',
+  /** One-way relation to Shared Resources. Not in Notion yet. Join table only. */
+  Resources: 'SERVER',
   'External ID': 'SERVER',
   Estimate: 'SERVER',
   Priority: 'SERVER',

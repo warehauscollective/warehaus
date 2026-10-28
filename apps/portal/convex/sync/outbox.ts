@@ -154,6 +154,18 @@ function validateEnqueueKind(input: {
     if (!input.expectedLastEditedTime) return 'Updates require the last read time';
     return null;
   }
+  if (input.kind === 'task-stage') {
+    const validated = validatePropertyPatch({ database: 'tasks', properties: input.properties });
+    if (!validated.ok) return validated.errors.join('; ');
+    const allowed = new Set(['Stage', 'GitHub Issue/PR']);
+    for (const name of Object.keys(input.properties)) {
+      if (!allowed.has(name)) return 'Stage moves cannot change Status';
+    }
+    if (typeof input.properties.Stage !== 'string') return 'Stage is required';
+    if (!input.notionPageId) return 'Updates require a Notion page';
+    if (!input.expectedLastEditedTime) return 'Updates require the last read time';
+    return null;
+  }
   if (input.kind === 'update') {
     const validated = validatePropertyPatch({ database: input.database, properties: input.properties });
     if (!validated.ok) return validated.errors.join('; ');

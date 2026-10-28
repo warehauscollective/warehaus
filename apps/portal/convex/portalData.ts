@@ -1,7 +1,7 @@
 import { clientQuery } from './_lib/wrappers';
 import { isStaff } from './_lib/identity';
 import { staffQuarantineActivity } from './_lib/quarantineActivity';
-import { isClientSurfaceVisible, isClientVisibleActivityType, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { clientMaySeeProject, clientMaySeeTask, isClientVisibleActivityType, isOrgVisibleToClients } from '@warehaus/portal-sync';
 
 function isActivityVisible(type: string, staff: boolean): boolean {
   if (type === 'shipment') return false;
@@ -59,7 +59,16 @@ export const getSnapshot = clientQuery({
 
     const orgOpen = isOrgVisibleToClients(client);
     const publishedProjects = (orgOpen ? projects : [])
-      .filter((p) => isClientSurfaceVisible(p) && p.publishToWarehaus && !p.archive && !p.type.includes('Internal'))
+      .filter((p) =>
+        clientMaySeeProject({
+          name: p.name,
+          types: p.type,
+          publishToWarehaus: p.publishToWarehaus,
+          archive: p.archive,
+          hidden: p.syncHiddenAt != null,
+          orgVisible: true,
+        }),
+      )
       .sort((a, b) => {
         // Active / in-progress first, then highest progress, then name.
         const score = (p: (typeof projects)[number]) => {
@@ -73,7 +82,6 @@ export const getSnapshot = clientQuery({
         if (byStatus !== 0) return byStatus;
         return (b.progress ?? 0) - (a.progress ?? 0) || a.name.localeCompare(b.name);
       });
-    const publishedProjectIds = new Set(publishedProjects.map((p) => p._id));
     const projectById = new Map(publishedProjects.map((p) => [p._id, p] as const));
 
     return {
@@ -102,7 +110,22 @@ export const getSnapshot = clientQuery({
         lastSyncedAt: p.lastSyncedAt,
       })),
       tasks: tasks
-        .filter((t) => isClientSurfaceVisible(t) && t.publishToWarehaus && publishedProjectIds.has(t.projectId))
+        .filter((t) => {
+          const project = projectById.get(t.projectId);
+          if (!project) return false;
+          return clientMaySeeTask({
+            publishToWarehaus: t.publishToWarehaus,
+            hidden: t.syncHiddenAt != null,
+            project: {
+              name: project.name,
+              types: project.type,
+              publishToWarehaus: project.publishToWarehaus,
+              archive: project.archive,
+              hidden: project.syncHiddenAt != null,
+              orgVisible: true,
+            },
+          });
+        })
         .map((t) => {
           const project = projectById.get(t.projectId);
           return {
@@ -111,6 +134,8 @@ export const getSnapshot = clientQuery({
             status: t.status,
             isDone: t.isDone,
             date: t.date ?? null,
+            stage: t.publishToWarehaus ? (t.stage ?? null) : null,
+            lastEditedTime: t.lastEditedTime ?? null,
             projectId: t.projectId,
             projectName: project?.name ?? null,
             projectStatus: project?.status ?? null,

@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
+import { useMutation } from 'convex/react';
 import { Pill, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
@@ -17,7 +19,6 @@ import {
   attachKnownSync,
   formatPortalDate,
   projectStatusColor,
-  taskStatusColor,
   type PortalProject,
   type PortalTask,
 } from '@/lib/data/view-models';
@@ -27,9 +28,11 @@ import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
-import { NewTaskControl } from '@/components/tasks/NewTaskControl';
-import { StatusKanban, StatusTable } from '@/components/tasks/StatusKanban';
-import { TaskResponseSheet } from '@/components/pages/TasksContent';
+import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
+import { TaskCreateDialog, TaskDetailModal } from '@/components/tasks/TaskDetailModal';
+import { StatusTable } from '@/components/tasks/StatusKanban';
+import { createTaskExternalId } from '@warehaus/portal-sync';
+import type { Id } from '@convex/_generated/dataModel';
 
 const SECTION_TITLE: Record<string, string> = {
   all: 'All projects',
@@ -51,7 +54,7 @@ function isShipped(status: string): boolean {
 export function ProjectsContent() {
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
-  const { sectionFor, openDetail, openLinkedClient } = usePortalView();
+  const { sectionFor, openLinkedClient } = usePortalView();
   const { data, loading, error } = usePortalData();
   const { portalSession } = usePortalAuth();
   const hostSlug =
@@ -61,6 +64,19 @@ export function ProjectsContent() {
   const [internalOnly, setInternalOnly] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
+  const [creating, setCreating] = useState(false);
+  const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
+  const pathname = usePathname();
+  const router = useRouter();
+  const pathTaskId = pathname.match(/^\/tasks\/([^/]+)/)?.[1] ?? null;
+  const routeTaskId = fixtures ? fixtureTaskId : pathTaskId;
+  const moveStatus = useMutation(api.tasks.moveStatus);
+  const moveStage = useMutation(api.tasks.moveStage);
+  const createTask = useMutation(api.tasks.createTask);
+  const rules = useSafeQuery<BoardRules>(
+    api.tasks.moveRules,
+    !fixtures && configured ? { hostSlug } : 'skip',
+  );
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -91,6 +107,12 @@ export function ProjectsContent() {
     fixtures ? FIXTURE_DOCS : isStaff ? staff.docs ?? [] : clientDocsState.data ?? []
   ) as DocRow[];
   const projectsLoading = !fixtures && (loading || (isStaff && staff.projectsLoading));
+
+  useEffect(() => {
+    if (!routeTaskId) return;
+    const match = tasks.find((task) => task.id === routeTaskId);
+    if (match?.projectId) setOpenId(match.projectId);
+  }, [routeTaskId, tasks]);
 
   const visible = useMemo(() => {
     return projects.filter((project) => {
@@ -133,23 +155,29 @@ export function ProjectsContent() {
         actions={
           <div className="flex flex-wrap items-center gap-2">
             <ViewToggle view={taskView} onChange={setTaskView} />
-            {isStaff ? <NewTaskControl projectName={openProject.name} /> : null}
+            {isStaff ? (
+              <button type="button" onClick={() => setCreating(true)} style={newTaskButton}>
+                New task
+              </button>
+            ) : null}
           </div>
         }
       >
         <PortalTilePane>
           <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="project-detail">
             <div className="flex flex-wrap items-center gap-2">
-              <ClientLink
-                name={openProject.clientName}
-                orgId={openProject.orgId}
-                onOpen={openLinkedClient}
-              />
+              {openProject.internal ? <InternalTag /> : (
+                <ClientLink
+                  name={openProject.clientName}
+                  orgId={openProject.orgId}
+                  onOpen={openLinkedClient}
+                />
+              )}
               <Pill color={projectStatusColor(openProject.status)}>{openProject.status}</Pill>
               <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
                 Progress {formatProgress(openProject.progress)}
               </span>
-              {isStaff && openProject.publishToWarehaus != null ? (
+              {isStaff && !openProject.internal && openProject.publishToWarehaus != null ? (
                 <PublishChip published={openProject.publishToWarehaus} />
               ) : null}
               <SyncChip
@@ -161,39 +189,96 @@ export function ProjectsContent() {
               <h2 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>Tasks</h2>
             </div>
             {taskView === 'board' ? (
-              <StatusKanban
+              <TaskBoard
                 tasks={projectTasks}
+                staff={isStaff}
                 loading={projectsLoading}
-                onOpen={(task) =>
-                  openDetail({
-                    id: task.id,
-                    title: task.name,
-                    subtitle: task.status,
-                    body: isStaff ? (
-                      <StaffTaskFields task={task} />
-                    ) : (
-                      <TaskResponseSheet task={task} />
-                    ),
-                  })
-                }
+                rules={rules.data ?? (isStaff ? null : clientDeniedRules)}
+                onOpen={(task) => {
+                  setOpenId(openProject.id);
+                  if (fixtures) setFixtureTaskId(task.id);
+                  else router.push(`/tasks/${task.id}`);
+                }}
+                onMove={async (request) => {
+                  if (fixtures || !request.task.lastEditedTime) {
+                    if (!fixtures && !request.task.lastEditedTime) {
+                      return { ok: false, error: 'This task has no Notion edit time yet. Nothing was sent.' };
+                    }
+                    return { ok: true };
+                  }
+                  const result = request.mode === 'stage'
+                    ? await moveStage({
+                        hostSlug,
+                        taskId: request.task.id as Id<'tasks'>,
+                        stage: request.value,
+                        expectedLastEditedTime: request.task.lastEditedTime,
+                        pullRequestLink: request.pullRequestLink,
+                      })
+                    : await moveStatus({
+                        hostSlug,
+                        taskId: request.task.id as Id<'tasks'>,
+                        status: request.value,
+                        expectedLastEditedTime: request.task.lastEditedTime,
+                      });
+                  return result.ok ? { ok: true } : { ok: false, error: result.error };
+                }}
+                onQuickAdd={async ({ name, status, stage }) => {
+                  if (fixtures) return { ok: false, error: 'Fixture preview does not send tasks to Notion.' };
+                  if (!openProject.notionPageId || !openProject.orgId) {
+                    return { ok: false, error: 'This project is not in Notion yet. Nothing was sent.' };
+                  }
+                  const result = await createTask({
+                    hostSlug,
+                    orgId: openProject.orgId as Id<'clients'>,
+                    name,
+                    status,
+                    stage,
+                    projectNotionId: openProject.notionPageId,
+                    externalId: createTaskExternalId(`${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`),
+                  });
+                  return result.ok ? { ok: true } : { ok: false, error: result.error };
+                }}
               />
             ) : (
               <StatusTable
                 tasks={projectTasks}
                 loading={projectsLoading}
-                onOpen={(task) =>
-                  openDetail({
-                    id: task.id,
-                    title: task.name,
-                    subtitle: task.status,
-                    body: isStaff ? <StaffTaskFields task={task} /> : <TaskResponseSheet task={task} />,
-                  })
-                }
+                onOpen={(task) => {
+                  if (fixtures) setFixtureTaskId(task.id);
+                  else router.push(`/tasks/${task.id}`);
+                }}
               />
             )}
             <DocsBlock docs={projectDocs} staff={isStaff} />
           </div>
         </PortalTilePane>
+        {routeTaskId ? (
+          <ProjectTaskOverlay
+            taskId={routeTaskId}
+            tasks={tasks}
+            staff={isStaff}
+            hostSlug={hostSlug}
+            fixtures={fixtures}
+            resources={(staff.resources ?? []) as ResourceOption[]}
+            onClose={() => {
+              if (fixtures) setFixtureTaskId(null);
+              else router.push(`/projects?project=${openProject.id}`);
+            }}
+            onOpenTask={(id) => {
+              if (fixtures) setFixtureTaskId(id);
+              else router.push(`/tasks/${id}`);
+            }}
+          />
+        ) : null}
+        {creating ? (
+          <TaskCreateDialog
+            projectName={openProject.name}
+            projectNotionId={openProject.notionPageId ?? null}
+            orgId={openProject.orgId ?? null}
+            hostSlug={hostSlug}
+            onClose={() => setCreating(false)}
+          />
+        ) : null}
       </PortalWorkspace>
     );
   }
@@ -203,7 +288,7 @@ export function ProjectsContent() {
       eyebrow={tenantEyebrow(data.tenant, 'Projects')}
       title={activeSection === 'all' ? 'Projects' : (SECTION_TITLE[activeSection] ?? 'Projects')}
       actions={
-        isStaff ? (
+        isStaff && process.env.NODE_ENV !== 'production' ? (
           <NewProjectControl
             clients={(fixtures ? FIXTURE_CLIENTS : directory.data ?? []).map((client) => ({
               id: client.id,
@@ -263,13 +348,14 @@ export function ProjectsContent() {
               >
                 <Surface style={{ padding: 'var(--s-4)' }}>
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, overflowWrap: 'anywhere' }}>
+                    <h3 className="flex min-w-0 flex-wrap items-center gap-2" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', fontWeight: 600, overflowWrap: 'anywhere' }}>
                       {project.name}
+                      {project.internal ? <InternalTag /> : null}
                     </h3>
                     <Pill color={projectStatusColor(project.status)}>{project.status}</Pill>
                   </div>
                   <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>
-                    {project.clientName ?? data.tenant.clientName ?? '—'}
+                    {project.internal ? null : (project.clientName ?? data.tenant.clientName ?? '—')}
                     {project.description ? ` · ${project.description}` : ''}
                     {project.stack?.length ? ` · ${project.stack.join(', ')}` : ''}
                   </p>
@@ -277,7 +363,7 @@ export function ProjectsContent() {
                     <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
                       {formatProgress(project.progress)} · {project.taskCount ?? tasks.filter((t) => t.projectId === project.id).length} tasks · End {formatPortalDate(project.endDate)}
                     </span>
-                    {isStaff && project.publishToWarehaus != null ? (
+                    {isStaff && !project.internal && project.publishToWarehaus != null ? (
                       <PublishChip published={project.publishToWarehaus} />
                     ) : null}
                     <SyncChip notionPageId={project.notionPageId} syncHidden={project.syncHidden} />
@@ -288,39 +374,114 @@ export function ProjectsContent() {
           )}
         </div>
       </PortalTilePane>
+      {routeTaskId ? (
+        <ProjectTaskOverlay
+          taskId={routeTaskId}
+          tasks={tasks}
+          staff={isStaff}
+          hostSlug={hostSlug}
+          fixtures={fixtures}
+          resources={(staff.resources ?? []) as ResourceOption[]}
+          onClose={() => {
+            if (fixtures) setFixtureTaskId(null);
+            else router.push('/projects');
+          }}
+          onOpenTask={(id) => {
+            if (fixtures) setFixtureTaskId(id);
+            else router.push(`/tasks/${id}`);
+          }}
+        />
+      ) : null}
     </PortalWorkspace>
   );
 }
 
-function StaffTaskFields({ task }: { task: PortalTask }) {
-  const rows: [string, string][] = [
-    ['Status', task.status],
-    ['Date', formatPortalDate(task.date)],
-    ['Project', task.projectName ?? '—'],
-    ['Estimate', task.estimate ?? '—'],
-    ['Priority', task.priority ?? '—'],
-    ['Source', task.source ?? '—'],
-    ['Done', task.isDone ? 'Yes' : 'No'],
-  ];
+type ResourceOption = {
+  id: string;
+  name: string;
+  type: string | null;
+  projectId?: string | null;
+  notionPageId?: string | null;
+  publishToWarehaus?: boolean;
+};
+
+const clientDeniedRules: BoardRules = { actor: 'client', statuses: [], stages: [] };
+
+const newTaskButton = {
+  border: '1px solid var(--border)',
+  borderRadius: 12,
+  background: 'var(--fg)',
+  color: 'var(--bg)',
+  padding: '0.55rem 0.9rem',
+  fontFamily: 'var(--font-display)',
+} as const;
+
+function InternalTag() {
   return (
-    <div className="flex flex-col gap-3">
-      {rows.map(([label, value]) => (
-        <div key={label}>
-          <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-            {label}
-          </p>
-          <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600, marginTop: 2, overflowWrap: 'anywhere' }}>
-            {label === 'Status' ? (
-              <Pill color={taskStatusColor(task.status, task.isDone)}>{value}</Pill>
-            ) : (
-              value
-            )}
-          </p>
-        </div>
-      ))}
-      {task.publishToWarehaus != null ? <PublishChip published={task.publishToWarehaus} /> : null}
-      <SyncChip notionPageId={task.notionPageId} syncHidden={task.syncHidden} syncState={task.syncState} />
-    </div>
+    <span className="ds-mono inline-flex items-center gap-1" style={{ fontSize: 'var(--t-xs)', letterSpacing: '0.08em', color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 999, padding: '0.15rem 0.45rem' }}>
+      <span aria-hidden>◌</span> INTERNAL
+    </span>
+  );
+}
+
+function ProjectTaskOverlay({
+  taskId,
+  tasks,
+  staff,
+  hostSlug,
+  fixtures,
+  resources,
+  onClose,
+  onOpenTask,
+}: {
+  taskId: string;
+  tasks: PortalTask[];
+  staff: boolean;
+  hostSlug?: string;
+  fixtures: boolean;
+  resources: ResourceOption[];
+  onClose: () => void;
+  onOpenTask: (id: string) => void;
+}) {
+  const task = tasks.find((item) => item.id === taskId) ?? null;
+  const taskKey = !fixtures && task ? (task.id as Id<'tasks'>) : null;
+  const clientSubs = useSafeQuery<PortalTask[]>(
+    api.tasks.listSubtasksForClient,
+    taskKey && !staff ? { hostSlug, taskId: taskKey } : 'skip',
+  );
+  const staffAttached = useSafeQuery<ResourceOption[]>(
+    api.sharedResources.listAttachedForStaff,
+    taskKey && staff ? { hostSlug, taskId: taskKey } : 'skip',
+  );
+  const clientAttached = useSafeQuery<ResourceOption[]>(
+    api.sharedResources.listAttachedForClient,
+    taskKey && !staff ? { hostSlug, taskId: taskKey } : 'skip',
+  );
+  const [phone, setPhone] = useState(false);
+  useEffect(() => {
+    const media = window.matchMedia('(max-width: 767px)');
+    const apply = () => setPhone(media.matches);
+    apply();
+    media.addEventListener('change', apply);
+    return () => media.removeEventListener('change', apply);
+  }, []);
+  const subtasks = staff
+    ? tasks.filter((item) => item.parentTaskId === taskId)
+    : (clientSubs.data ?? []).filter((item) => item.publishToWarehaus !== false);
+  const attached = staff ? staffAttached.data ?? [] : clientAttached.data ?? [];
+  return (
+    <TaskDetailModal
+      task={task}
+      staff={staff}
+      phone={phone}
+      unavailable={!task}
+      subtasks={subtasks}
+      resources={attached}
+      projectResources={resources.filter((resource) => !task?.projectId || resource.projectId === task.projectId)}
+      hostSlug={hostSlug}
+      onClose={onClose}
+      onOpenTask={onOpenTask}
+    />
   );
 }
 

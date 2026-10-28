@@ -678,6 +678,11 @@ export const pullAll = internalAction({
           status: mapped.row.status,
           isDone: mapped.row.isDone,
           date: mapped.row.date,
+          stage: mapped.row.stage ?? null,
+          parentNotionPageId: mapped.row.parentNotionId ?? null,
+          resourceNotionIds: mapped.row.resourceNotionIds,
+          pullRequestUrl: mapped.row.pullRequestUrl ?? null,
+          lastEditedTime: page.lastEdited || null,
           publishToWarehaus: mapped.row.publishToWarehaus,
           estimate: mapped.row.estimate,
           priority: mapped.row.priority,
@@ -869,6 +874,7 @@ export const pullAll = internalAction({
         });
       }
       await hideMissingOnFullPull('sharedResources', resourceLoaded.pages, resourceLoaded.archivedOk);
+      await ctx.runMutation(internal.sync.upsert.resolveTaskGraph, {});
 
       // --- Client Docs (properties + allowlisted body) ---
       const docLoaded = await loadSourcePages(

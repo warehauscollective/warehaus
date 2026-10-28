@@ -55,6 +55,10 @@ export type PortalTask = {
   status: string;
   isDone: boolean;
   date: string | null;
+  stage?: string | null;
+  lastEditedTime?: string | null;
+  parentTaskId?: string | null;
+  pullRequestUrl?: string | null;
   projectId: string | null;
   projectName: string | null;
   projectStatus: string | null;
