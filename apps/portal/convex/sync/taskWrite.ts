@@ -8,6 +8,7 @@
 
 import {
   planTaskCreate,
+  planTaskDescriptionWrite,
   planTaskResourceWrite,
   planTaskStageWrite,
   stageOutboxActor,
@@ -131,6 +132,41 @@ export const enqueueCreate = internalMutation({
       kind: 'create',
       orgId: args.orgId,
       database: 'tasks',
+      payload: JSON.stringify({ properties: planned.properties }),
+      actor: 'staff' as const,
+      actorId: args.actorId,
+      schedule: true,
+    });
+  },
+});
+
+export const enqueueDescription = internalMutation({
+  args: {
+    taskId: v.id('tasks'),
+    description: v.string(),
+    expectedLastEditedTime: v.string(),
+    actorId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<EnqueueStatusResult> => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { ok: false as const, error: 'Task not found' };
+    if (task.descriptionSource === 'body') {
+      return { ok: false as const, error: 'Edit in Notion' };
+    }
+    const planned = planTaskDescriptionWrite({
+      actor: 'staff',
+      description: args.description,
+      notionPageId: task.notionPageId,
+      expectedLastEditedTime: args.expectedLastEditedTime,
+    });
+    if (!planned.ok) return { ok: false as const, error: planned.error };
+    return ctx.runMutation(internal.sync.outbox.enqueue, {
+      idempotencyKey: planned.idempotencyKey,
+      kind: 'task-description',
+      orgId: task.orgId,
+      database: 'tasks',
+      notionPageId: task.notionPageId,
+      expectedLastEditedTime: args.expectedLastEditedTime,
       payload: JSON.stringify({ properties: planned.properties }),
       actor: 'staff' as const,
       actorId: args.actorId,

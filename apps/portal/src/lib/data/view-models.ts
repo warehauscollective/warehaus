@@ -48,7 +48,7 @@ export type PortalProject = {
   clientSlug?: string | null;
 };
 
-/** CLIENT task fields only — no Priority, Estimate, Owner, Description. */
+/** CLIENT task fields. `description` is present only when the tier allows it. */
 export type PortalTask = {
   id: string;
   name: string;
@@ -70,6 +70,10 @@ export type PortalTask = {
   estimate?: string | null;
   priority?: string | null;
   source?: string | null;
+  /** Omitted for clients while Description is SERVER. */
+  description?: string | null;
+  /** `body` is read-only. Property, none, or empty can be edited in the portal. */
+  descriptionSource?: 'body' | 'property' | 'none' | null;
   orgId?: string;
   syncState?: 'syncing' | 'synced' | 'failed' | null;
   /** Staff only. Set when Notion Stage is not a portal stage. */
@@ -84,6 +88,7 @@ export type PortalActivity = {
   timestamp: string;
   tone: string;
   projectId: string | null;
+  taskId?: string | null;
 };
 
 export type TaskResponseType = 'approve' | 'request-change' | 'comment';

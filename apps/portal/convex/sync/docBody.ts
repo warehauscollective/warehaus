@@ -3,7 +3,7 @@
  * Notion-hosted images are copied to Vercel Blob before storage.
  */
 
-import { classifyDocBlock, sanitizeInlineText } from '@warehaus/portal-sync';
+import { classifyDocBlock, plainTextFromNotionBlocks, sanitizeInlineText } from '@warehaus/portal-sync';
 import { copyNotionFileToBlob } from './blob';
 import { notionToken } from './notionApi';
 
@@ -159,4 +159,36 @@ export async function fetchSafeDocBody(
 
   if (blocks.length) result.body = JSON.stringify(blocks);
   return result;
+}
+
+const PLAIN_BODY_PAGE_LIMIT = 20;
+
+/** Every block page as plain text. Empty when Notion has no readable text. */
+export async function fetchPlainPageBody(pageId: string): Promise<string> {
+  const blocks: unknown[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 0; page < PLAIN_BODY_PAGE_LIMIT; page += 1) {
+    const url = new URL(`https://api.notion.com/v1/blocks/${pageId}/children`);
+    url.searchParams.set('page_size', '100');
+    if (cursor) url.searchParams.set('start_cursor', cursor);
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${notionToken()}`,
+        'Notion-Version': '2025-09-03',
+      },
+    });
+    if (!res.ok) break;
+    const json = (await res.json()) as {
+      results?: unknown[];
+      has_more?: boolean;
+      next_cursor?: string | null;
+    };
+    blocks.push(...(json.results ?? []));
+    const next = json.has_more ? json.next_cursor : null;
+    if (!next || seenCursors.has(next)) break;
+    seenCursors.add(next);
+    cursor = next;
+  }
+  return plainTextFromNotionBlocks(blocks);
 }

@@ -256,6 +256,19 @@ export {
 } from './mappers';
 
 export {
+  TASK_DESCRIPTION_MAX,
+  taskDescriptionTier,
+  clientMaySeeTaskDescription,
+  plainTextFromNotionBlocks,
+  resolveTaskDescription,
+  shouldRefetchTaskBody,
+  taskDescriptionEditMode,
+  planTaskDescriptionWrite,
+  type TaskDescriptionSource,
+  type ResolvedTaskDescription,
+} from './taskDescription';
+
+export {
   TASK_STAGES,
   LIVE_TASK_STATUSES,
   WAREHAUS_STUDIO_PROJECT_NAME,

@@ -99,6 +99,22 @@ export const upsertProject = internalMutation({
   },
 });
 
+/** Stored edit time and description source, so a pull can skip unchanged page bodies. */
+export const taskEditStamp = internalQuery({
+  args: { notionPageId: v.string() },
+  handler: async (ctx, { notionPageId }) => {
+    const row = await ctx.db
+      .query('tasks')
+      .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+      .unique();
+    if (!row) return null;
+    return {
+      lastEditedTime: row.lastEditedTime ?? null,
+      descriptionSource: row.descriptionSource ?? null,
+    };
+  },
+});
+
 export const upsertTask = internalMutation({
   args: {
     notionPageId: v.string(),
@@ -118,20 +134,40 @@ export const upsertTask = internalMutation({
     priority: v.optional(v.string()),
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
+    description: v.optional(v.union(v.string(), v.null())),
+    descriptionSource: v.optional(
+      v.union(v.literal('body'), v.literal('property'), v.literal('none'), v.null()),
+    ),
     hiddenReason: hiddenReasonArg,
     syncNotice: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
-    const { hiddenReason, syncNotice, ...fields } = args;
+    const { hiddenReason, syncNotice, description, descriptionSource, ...fields } = args;
     const existing = await ctx.db
       .query('tasks')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
       .unique();
     const now = Date.now();
+    const descriptionPatch =
+      description === undefined && descriptionSource === undefined
+        ? {}
+        : description
+          ? {
+              description,
+              descriptionSource:
+                descriptionSource === 'body' || descriptionSource === 'property'
+                  ? descriptionSource
+                  : undefined,
+            }
+          : {
+              description: undefined,
+              descriptionSource: descriptionSource === 'none' ? ('none' as const) : undefined,
+            };
     const patch = {
       ...fields,
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
+      ...descriptionPatch,
       ...(syncNotice
         ? { syncNotice }
         : syncNotice === null && existing

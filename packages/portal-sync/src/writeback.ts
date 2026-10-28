@@ -501,6 +501,10 @@ export function toNotionProperties(
       out[name] = { files: [{ name: 'file', external: { url: value } }] };
       continue;
     }
+    if (name === 'Description' && typeof value === 'string') {
+      out[name] = { rich_text: [{ type: 'text', text: { content: value } }] };
+      continue;
+    }
     if (typeof value === 'string') {
       out[name] = { rich_text: [{ type: 'text', text: { content: value } }] };
     }

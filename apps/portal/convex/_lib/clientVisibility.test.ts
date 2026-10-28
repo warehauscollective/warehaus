@@ -1,14 +1,20 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { TASK_UNAVAILABLE } from '@warehaus/portal-sync';
-import { getSnapshot } from '../portalData';
+import { getSnapshot, listActivityForClient, listActivityForStaff } from '../portalData';
 import {
   listForClient as listProjectsForClient,
   listForOrgAdmin,
   listForStaff,
   listPublishedForStaff,
 } from '../projects';
-import { getForClient, listForClient as listTasksForClient } from '../tasks';
+import {
+  activityForClient,
+  activityForStaff,
+  getForClient,
+  listForClient as listTasksForClient,
+  listForStaff as listTasksForStaff,
+} from '../tasks';
 import { PortalAuthError } from './identity';
 
 type Row = Record<string, unknown> & { _id: string };
@@ -60,8 +66,8 @@ function memoryDb(tables: Record<string, Row[]>) {
     query(table: string) {
       const rows = tables[table] ?? [];
       return {
-        withIndex(_name: string, build: (q: EqBuilder) => EqBuilder) {
-          const matched = rows.filter((row) => build(new EqBuilder()).matches(row));
+        withIndex(_name: string, build?: (q: EqBuilder) => EqBuilder) {
+          const matched = build ? rows.filter((row) => build(new EqBuilder()).matches(row)) : rows;
           return new MemoryIndex(matched);
         },
         collect: async () => rows,
@@ -91,6 +97,17 @@ const tables: Record<string, Row[]> = {
       role: 'Client Member',
       portalAccess: 'Enabled',
       notionPageId: 'contact-notion',
+      lastSyncedAt: 1,
+    },
+    {
+      _id: 'contact-staff',
+      orgId: org._id,
+      name: 'Peter',
+      email: 'peter@warehaus.test',
+      authUserId: 'auth-staff',
+      role: 'Warehaus Staff',
+      portalAccess: 'Enabled',
+      notionPageId: 'staff-notion',
       lastSyncedAt: 1,
     },
   ],
@@ -133,6 +150,7 @@ const tables: Record<string, Row[]> = {
       publishToWarehaus: true,
       notionPageId: 'task-public-notion',
       lastSyncedAt: 1,
+      description: 'Staff only task copy',
     },
     {
       _id: 'task-internal',
@@ -199,6 +217,52 @@ const tables: Record<string, Row[]> = {
     },
   ],
   syncMeta: [],
+  auditEvents: [
+    {
+      _id: 'audit-public',
+      orgId: org._id,
+      action: 'outbox.confirmed',
+      actorKind: 'staff',
+      notionPageId: 'task-public-notion',
+      after: JSON.stringify({ properties: { Status: 'To Do' } }),
+      createdAt: 40,
+    },
+    {
+      _id: 'audit-description',
+      orgId: org._id,
+      action: 'outbox.confirmed',
+      actorKind: 'staff',
+      notionPageId: 'task-public-notion',
+      after: JSON.stringify({ properties: { Description: 'Staff only task copy' } }),
+      createdAt: 35,
+    },
+    {
+      _id: 'audit-internal',
+      orgId: org._id,
+      action: 'outbox.confirmed',
+      actorKind: 'staff',
+      notionPageId: 'task-internal-notion',
+      after: JSON.stringify({ properties: { Status: 'To Do', Name: 'Studio ops' } }),
+      createdAt: 45,
+    },
+  ],
+  notionOutbox: [
+    {
+      _id: 'outbox-internal',
+      orgId: org._id,
+      kind: 'task-description',
+      status: 'conflict',
+      database: 'tasks',
+      notionPageId: 'task-internal-notion',
+      lastError: 'warehaus.studio write conflict',
+      createdAt: 50,
+      idempotencyKey: 'task-description:internal',
+      payload: '{}',
+      actor: 'staff',
+      attempts: 1,
+      nextAttemptAt: 50,
+    },
+  ],
 };
 
 const ctx = {
@@ -216,8 +280,19 @@ type Handler = (
   args: Record<string, unknown>,
 ) => Promise<unknown>;
 
+const staffCtx = {
+  auth: {
+    getUserIdentity: async () => ({ subject: 'auth-staff' }),
+  },
+  db: memoryDb(tables),
+};
+
 function run(fn: object, args: Record<string, unknown> = {}) {
   return (fn as { _handler: Handler })._handler(ctx, args);
+}
+
+function runStaff(fn: object, args: Record<string, unknown> = {}) {
+  return (fn as { _handler: Handler })._handler(staffCtx, args);
 }
 
 function text(value: unknown): string {
@@ -242,6 +317,7 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(bundled.includes('task-internal'), false);
     assert.equal(bundled.includes('project-internal'), false);
     assert.equal(bundled.includes('sync noise'), false);
+    assert.equal(bundled.includes('Staff only task copy'), false);
 
     const snapshotBody = snapshot as {
       projects: Array<{ name: string }>;
@@ -268,6 +344,44 @@ describe('client identity against warehaus.studio', () => {
         return true;
       });
     }
+  });
+
+  it('keeps internal projects, server descriptions, and outbox rows out of the client feed', async () => {
+    const feed = await run(listActivityForClient);
+    const timeline = await run(activityForClient, { taskId: 'task-public' });
+    const bundled = text({ feed, timeline });
+    assert.match(bundled, /Northwind site update/);
+    assert.match(bundled, /Status: To Do/);
+    assert.equal(bundled.includes('warehaus.studio'), false);
+    assert.equal(bundled.includes('Studio ops'), false);
+    assert.equal(bundled.includes('sync noise'), false);
+    assert.equal(bundled.includes('Staff only task copy'), false);
+    assert.equal(bundled.includes('write conflict'), false);
+    assert.equal(bundled.includes('task-internal-notion'), false);
+
+    await assert.rejects(run(activityForClient, { taskId: 'task-internal' }), (err: unknown) => {
+      assert.ok(err instanceof PortalAuthError);
+      assert.equal(err.message, TASK_UNAVAILABLE);
+      return true;
+    });
+    for (const query of [listActivityForStaff, activityForStaff]) {
+      await assert.rejects(run(query, { taskId: 'task-public' }), (err: unknown) => {
+        assert.ok(err instanceof PortalAuthError);
+        assert.equal(err.message, 'Staff role required');
+        return true;
+      });
+    }
+  });
+
+  it('shows internal work and the task description to staff', async () => {
+    const feed = text(await runStaff(listActivityForStaff));
+    const tasks = text(await runStaff(listTasksForStaff));
+    const timeline = text(await runStaff(activityForStaff, { taskId: 'task-internal' }));
+    assert.match(feed, /warehaus.studio/);
+    assert.match(feed, /sync noise/);
+    assert.match(feed, /Staff only task copy/);
+    assert.match(tasks, /Staff only task copy/);
+    assert.match(timeline, /Studio ops/);
   });
 
   it('does not return internal projects from the staff project queries', async () => {

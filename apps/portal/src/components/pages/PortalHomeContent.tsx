@@ -9,6 +9,7 @@ import {
   PortalWorkspace,
 } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
+import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { activityToneVar, tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import {
   TASK_BOARD_COLUMNS,
@@ -82,7 +83,8 @@ export function PortalHomeContent() {
       ? staffProjects
       : data.projects;
   const tasks = data.tasks;
-  const activity = data.activity;
+  const feed = useActivityFeed();
+  const activity = feed.items;
   const title = SECTION_TITLE[activeSection] ?? 'Overview';
   const projectsLoading = loading || (isStaff && !fixtures && staff.projectsLoading && projects.length === 0);
 

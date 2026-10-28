@@ -1,6 +1,7 @@
 'use client';
 
 import { api } from '@convex/_generated/api';
+import { ActivityFeedRow } from '@/components/activity/ActivityFeedRow';
 import { Pill, Surface } from '@/components/ui/primitives';
 import {
   PortalStatGrid,
@@ -8,6 +9,7 @@ import {
   PortalWorkspace,
 } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
+import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { activityToneVar, tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
@@ -65,11 +67,13 @@ function ActivityDetailBody({ item }: { item: PortalActivity }) {
 
 export function ActivityContent() {
   const { sectionFor, openDetail } = usePortalView();
-  const { data, loading } = usePortalData();
+  const { data, loading: snapshotLoading } = usePortalData();
+  const activityFeed = useActivityFeed();
+  const loading = snapshotLoading || activityFeed.loading;
   const activeSection = sectionFor('activity');
   const title = SECTION_TITLE[activeSection] ?? 'Activity';
 
-  const feed = data.activity.filter((item) => {
+  const feed = activityFeed.items.filter((item) => {
     if (activeSection === 'tasks') return item.type === 'task';
     if (activeSection === 'sync') return item.type === 'sync' || item.type === 'exception';
     return true;
@@ -83,7 +87,7 @@ export function ActivityContent() {
   const configured = isConvexConfigured();
   const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const notices = useSafeQuery<
-    Array<{ _id: string; message: string; createdAt: number; edgeCase?: string }>
+    Array<{ id: string; message: string; createdAt: number; edgeCase?: string | null; unread?: boolean }>
   >(
     api.invitesSync.listStaffNotices,
     configured && isTeam && activeSection === 'invite-notices' ? { hostSlug } : 'skip',
@@ -147,10 +151,10 @@ export function ActivityContent() {
                     </p>
                   )}
                   {feed.slice(0, 5).map((item) => (
-                    <button
+                    <ActivityFeedRow
                       key={item.id}
-                      type="button"
-                      onClick={() =>
+                      item={item}
+                      onOpen={() =>
                         openDetail({
                           id: item.id,
                           title: item.name,
@@ -158,40 +162,7 @@ export function ActivityContent() {
                           body: <ActivityDetailBody item={item} />,
                         })
                       }
-                      className="flex w-full gap-3 text-left"
-                      style={{
-                        padding: '0.55rem 0.65rem',
-                        borderRadius: 10,
-                        border: '1px solid var(--border)',
-                        background: 'var(--bg)',
-                      }}
-                    >
-                      <span
-                        className="ds-mono"
-                        style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', minWidth: '3rem' }}
-                      >
-                        {formatTime(item.timestamp)}
-                      </span>
-                      <span>
-                        <span className="flex items-center gap-2">
-                          <span
-                            style={{
-                              width: 7,
-                              height: 7,
-                              borderRadius: 999,
-                              background: activityToneVar(item.tone),
-                            }}
-                          />
-                          <span style={{ fontSize: 'var(--t-sm)', fontWeight: 600 }}>{item.name}</span>
-                        </span>
-                        <span
-                          className="block"
-                          style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 2 }}
-                        >
-                          {item.summary || item.type}
-                        </span>
-                      </span>
-                    </button>
+                    />
                   ))}
                 </div>
               </Surface>
@@ -263,44 +234,18 @@ export function ActivityContent() {
               </Surface>
             )}
             {feed.map((item) => (
-              <Surface key={item.id} style={{ padding: 'var(--s-4)' }}>
-                <button
-                  type="button"
-                  className="flex w-full gap-4 text-left"
-                  onClick={() =>
-                    openDetail({
-                      id: item.id,
-                      title: item.name,
-                      subtitle: item.summary,
-                      body: <ActivityDetailBody item={item} />,
-                    })
-                  }
-                >
-                  <span
-                    className="ds-mono"
-                    style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', minWidth: '3.5rem' }}
-                  >
-                    {formatTime(item.timestamp)}
-                  </span>
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span
-                        style={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: 999,
-                          background: activityToneVar(item.tone),
-                        }}
-                      />
-                      <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{item.name}</h3>
-                      <Pill color={activityPillColor(item)}>{item.type}</Pill>
-                    </div>
-                    <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
-                      {item.summary || '—'}
-                    </p>
-                  </div>
-                </button>
-              </Surface>
+              <ActivityFeedRow
+                key={item.id}
+                item={item}
+                onOpen={() =>
+                  openDetail({
+                    id: item.id,
+                    title: item.name,
+                    subtitle: item.summary,
+                    body: <ActivityDetailBody item={item} />,
+                  })
+                }
+              />
             ))}
           </div>
         </PortalTilePane>
@@ -373,7 +318,7 @@ export function ActivityContent() {
               <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>No invite notices.</p>
             )}
             {notices.data?.map((notice) => (
-              <Surface key={notice._id} style={{ padding: 24 }}>
+              <Surface key={notice.id} style={{ padding: 24 }}>
                 <p style={{ fontSize: 14, lineHeight: '21px', margin: 0 }}>{notice.message}</p>
                 <p className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)', margin: '8px 0 0' }}>
                   {new Date(notice.createdAt).toLocaleString('en-US')}

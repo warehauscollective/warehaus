@@ -169,6 +169,18 @@ function validateEnqueueKind(input: {
     if (!input.expectedLastEditedTime) return 'Updates require the last read time';
     return null;
   }
+  if (input.kind === 'task-description') {
+    const validated = validatePropertyPatch({ database: 'tasks', properties: input.properties });
+    if (!validated.ok) return validated.errors.join('; ');
+    const names = Object.keys(input.properties);
+    if (names.length !== 1 || names[0] !== 'Description') {
+      return 'Task description updates can only set Description';
+    }
+    if (typeof input.properties.Description !== 'string') return 'Description is required';
+    if (!input.notionPageId) return 'Updates require a Notion page';
+    if (!input.expectedLastEditedTime) return 'Updates require the last read time';
+    return null;
+  }
   if (input.kind === 'update') {
     const validated = validatePropertyPatch({ database: input.database, properties: input.properties });
     if (!validated.ok) return validated.errors.join('; ');
@@ -325,12 +337,13 @@ export const applyOutcome = internalMutation({
     const row = await ctx.db.get(args.id);
     if (!row) return;
     const now = Date.now();
-    const notify = async (message: string) => {
+    const notify = async (message: string, edgeCase: string) => {
       if (row.staffNotifiedAt != null) return;
       await ctx.db.insert('notices', {
         orgId: row.orgId,
         audience: 'staff',
         message,
+        edgeCase,
         createdAt: now,
       });
       await ctx.db.insert('auditEvents', {
@@ -353,7 +366,9 @@ export const applyOutcome = internalMutation({
 
     if (args.outcome.kind === 'dead') {
       await ctx.db.patch(row._id, { status: 'dead', lastError: args.outcome.error, claimedAt: undefined });
-      if (args.outcome.notifyStaff) await notify(`Notion write ${row.idempotencyKey} was marked dead after 24h`);
+      if (args.outcome.notifyStaff) {
+        await notify(`Notion write ${row.idempotencyKey} was marked dead after 24h`, 'sync');
+      }
       await releaseHeldInvite();
       return;
     }
@@ -366,7 +381,9 @@ export const applyOutcome = internalMutation({
         lastError: args.outcome.lastError,
         claimedAt: undefined,
       });
-      if (args.outcome.notifyStaff) await notify(`Notion write ${row.idempotencyKey} needs staff attention`);
+      if (args.outcome.notifyStaff) {
+        await notify(`Notion write ${row.idempotencyKey} needs staff attention`, 'sync');
+      }
       return;
     }
 
@@ -406,6 +423,7 @@ export const applyOutcome = internalMutation({
         after: after?.after ?? args.outcome.reason,
         createdAt: now,
       });
+      await notify(`Notion write ${row.idempotencyKey} conflicted with a newer edit`, 'conflict');
       await releaseHeldInvite();
       return;
     }

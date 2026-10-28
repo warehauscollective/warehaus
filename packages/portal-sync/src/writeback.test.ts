@@ -227,6 +227,12 @@ describe('search before create', () => {
     });
   });
 
+  it('shapes task Description as Notion rich text', () => {
+    assert.deepEqual(toNotionProperties('tasks', { Description: 'Staff note' }), {
+      Description: { rich_text: [{ type: 'text', text: { content: 'Staff note' } }] },
+    });
+  });
+
   it('shapes a contact create for Notion 2025-09-03 without adding defaults', () => {
     const shaped = toNotionProperties('contacts', contact);
     assert.deepEqual(shaped.Email, { email: 'ada@example.com' });

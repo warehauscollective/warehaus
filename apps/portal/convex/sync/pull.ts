@@ -12,6 +12,8 @@ import {
   isPortalSelfWrite,
   mapNotionSharedResource,
   mapNotionTask,
+  resolveTaskDescription,
+  shouldRefetchTaskBody,
   isApprovedInternalWarehausProject,
   projectClientIdForResourceGate,
   decideSyncedRowVisibility,
@@ -33,7 +35,7 @@ import { internal } from '../_generated/api';
 import { internalAction } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import { copyNotionFileToBlob } from './blob';
-import { fetchSafeDocBody } from './docBody';
+import { fetchPlainPageBody, fetchSafeDocBody } from './docBody';
 import {
   fetchNotionPage,
   queryAllDataSourcePages,
@@ -739,6 +741,33 @@ export const pullAll = internalAction({
           });
           return;
         }
+        const stamp = await ctx.runQuery(internal.sync.upsert.taskEditStamp, {
+          notionPageId: page.id,
+        });
+        const descriptionFields: {
+          description?: string | null;
+          descriptionSource?: 'body' | 'property' | 'none' | null;
+        } = {};
+        if (
+          shouldRefetchTaskBody({
+            storedLastEditedTime: stamp?.lastEditedTime,
+            storedDescriptionSource: stamp?.descriptionSource,
+            pageLastEditedTime: page.lastEdited || null,
+          })
+        ) {
+          let pageBody = '';
+          try {
+            pageBody = await fetchPlainPageBody(page.id);
+          } catch {
+            pageBody = '';
+          }
+          const resolved = resolveTaskDescription({
+            pageBody,
+            descriptionProperty: mapped.row.description,
+          });
+          descriptionFields.description = resolved?.text ?? null;
+          descriptionFields.descriptionSource = resolved?.source ?? 'none';
+        }
         await ctx.runMutation(internal.sync.upsert.upsertTask, {
           notionPageId: mapped.row.notionPageId,
           orgId,
@@ -757,9 +786,17 @@ export const pullAll = internalAction({
           priority: mapped.row.priority,
           externalId: mapped.row.externalId,
           source: mapped.row.source,
+          ...descriptionFields,
           hiddenReason: decision.action === 'store-hidden' ? 'ancestor' : undefined,
           syncNotice: stageNotice,
         });
+        if (stageNotice) {
+          await ctx.runMutation(internal.invitesSync.recordStaffNotice, {
+            orgId,
+            message: `${mapped.row.name}: ${stageNotice}`,
+            edgeCase: `unknown-stage:${page.id}`,
+          });
+        }
         if (decision.action === 'store-hidden') {
           stats.concealed += 1;
           return;

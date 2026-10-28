@@ -521,6 +521,7 @@ function ProjectTaskOverlay({
       resources={attached}
       projectResources={resources.filter((resource) => !task?.projectId || resource.projectId === task.projectId)}
       hostSlug={hostSlug}
+      live={!fixtures}
       onClose={onClose}
       onOpenTask={onOpenTask}
     />
