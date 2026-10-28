@@ -72,6 +72,8 @@ export type PortalTask = {
   source?: string | null;
   orgId?: string;
   syncState?: 'syncing' | 'synced' | 'failed' | null;
+  /** Staff only. Set when Notion Stage is not a portal stage. */
+  syncNotice?: string | null;
 };
 
 export type PortalActivity = {
@@ -200,6 +202,13 @@ export function rowSyncChip(row: {
     id.length > 0 && !id.startsWith('portal:') && !id.startsWith('pending:');
   if (!confirmed) return 'syncing';
   return 'synced';
+}
+
+/** Staff chip for an unknown Notion stage. Clients never receive the notice. */
+export function staffStageNoticeLabel(notice: string | null | undefined): string | null {
+  if (!notice) return null;
+  if (notice.startsWith('Stage "') && notice.includes('is not a portal stage')) return 'Unknown stage';
+  return null;
 }
 
 export function rowSyncLabel(row: {

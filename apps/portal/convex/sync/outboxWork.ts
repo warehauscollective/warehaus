@@ -281,6 +281,21 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
     },
   });
 
+  if (row.kind === 'createInvite' || row.kind === 'setInviteState') {
+    const issued = await ctx.runMutation(internal.invites.issueTokenAfterConfirm, {
+      outboxId: row._id,
+      notionPageId: outcome.write.notionPageId,
+    });
+    if (issued.issued && issued.raw && issued.to && issued.name) {
+      await ctx.runAction(internal.invites.sendIssuedInvite, {
+        to: issued.to,
+        rawToken: issued.raw,
+        name: issued.name,
+        alreadyHasLogin: issued.alreadyHasLogin === true,
+      });
+    }
+  }
+
   if (row.kind !== 'project-create') {
     return { ok: true, notionPageId: outcome.write.notionPageId, reused: outcome.reused };
   }

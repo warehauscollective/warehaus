@@ -1,5 +1,11 @@
 import { Pill } from '@/components/ui/primitives';
-import { rowHasSyncFields, rowSyncChip, rowSyncLabel, type RowSyncState } from '@/lib/data/view-models';
+import {
+  rowHasSyncFields,
+  rowSyncChip,
+  rowSyncLabel,
+  staffStageNoticeLabel,
+  type RowSyncState,
+} from '@/lib/data/view-models';
 
 const TONE: Record<RowSyncState, string> = {
   synced: 'var(--success)',
@@ -11,21 +17,29 @@ export function SyncChip({
   notionPageId,
   syncHidden,
   syncState,
+  syncNotice,
   onRetry,
   retryNote,
 }: {
   notionPageId?: string | null;
   syncHidden?: boolean;
   syncState?: RowSyncState | null;
+  syncNotice?: string | null;
   onRetry?: () => void;
   retryNote?: string | null;
 }) {
   const row = { notionPageId, syncHidden, syncState };
-  if (!rowHasSyncFields(row)) return null;
-  const state = rowSyncChip(row);
+  const noticeLabel = staffStageNoticeLabel(syncNotice);
+  if (!rowHasSyncFields(row) && !noticeLabel) return null;
+  const state = rowHasSyncFields(row) ? rowSyncChip(row) : null;
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
-      <Pill color={TONE[state]}>{rowSyncLabel(row)}</Pill>
+      {state ? <Pill color={TONE[state]}>{rowSyncLabel(row)}</Pill> : null}
+      {noticeLabel ? (
+        <Pill color="var(--warn)">
+          <span title={syncNotice ?? undefined}>{noticeLabel}</span>
+        </Pill>
+      ) : null}
       {state === 'failed' && onRetry ? (
         <button
           type="button"

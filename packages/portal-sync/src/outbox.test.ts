@@ -94,6 +94,52 @@ describe('outbox attempt', () => {
     assert.equal(called, 0);
   });
 
+  it('patches invite state without the full create payload', async () => {
+    const outcome = await runOutboxAttempt({
+      item: item({
+        kind: 'setInviteState',
+        notionPageId: 'page-1',
+        properties: { 'Portal Access': 'Enabled', 'Invite Status': 'Accepted' },
+      }),
+      nowMs: 0,
+      writebackEnabled: true,
+      actor: 'system',
+      search: async () => {
+        throw new Error('search should not run');
+      },
+      write: async (request) => {
+        assert.equal(request.method, 'update');
+        assert.equal(request.properties['Invite Status'], 'Accepted');
+        return { ok: true, status: 200, notionPageId: 'page-1', lastEditedTime: null };
+      },
+    });
+    assert.equal(outcome.outcome, 'confirmed');
+  });
+
+  it('does not call Notion for an invite state change when write-back is off', async () => {
+    let called = 0;
+    const outcome = await runOutboxAttempt({
+      item: item({
+        kind: 'revert',
+        notionPageId: 'page-1',
+        properties: { 'Portal Access': 'Disabled' },
+      }),
+      nowMs: 0,
+      writebackEnabled: false,
+      actor: 'system',
+      search: async () => {
+        called += 1;
+        return [];
+      },
+      write: async () => {
+        called += 1;
+        return { ok: true, status: 200, notionPageId: 'page-1' };
+      },
+    });
+    assert.deepEqual(outcome, { outcome: 'held', reason: 'writeback-disabled' });
+    assert.equal(called, 0);
+  });
+
   it('searches before create and confirms without granting access itself', async () => {
     const calls: string[] = [];
     const outcome = await runOutboxAttempt({

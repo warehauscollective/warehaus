@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
+import { TeamInvites } from '@/components/pages/TeamInvites';
 import { GhostButton, Pill, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { ThemeControl } from '@/components/account/ThemeControl';
@@ -322,17 +323,7 @@ export function AccountContent() {
       )}
 
       {isStaff && activeSection === 'team' && (
-        <PortalTilePane>
-          <Surface style={{ padding: 'var(--s-5)' }}>
-            <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-              Team & invites
-            </p>
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>
-              Invites stay on this screen. Sending them waits for a later batch, so this page does not
-              create or revoke invites.
-            </p>
-          </Surface>
-        </PortalTilePane>
+        <TeamInvites hostSlug={hostSlug} configured={configured && !fixtures} />
       )}
     </PortalWorkspace>
   );

@@ -229,6 +229,14 @@ export {
 } from './selfWrite';
 
 export {
+  decideContactSync,
+  type ContactPlacement,
+  type ContactSyncAction,
+  type ContactSyncCase,
+  type ContactSyncDecision,
+} from './contactSync';
+
+export {
   mapNotionClient,
   mapNotionProject,
   mapNotionTask,
@@ -240,6 +248,8 @@ export {
   type MappedClient,
   type MappedProject,
   type MappedTask,
+  asInviteStatus,
+  type InviteStatus,
   type MappedContact,
   type MappedSharedResource,
   type MappedClientDoc,

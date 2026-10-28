@@ -14,6 +14,7 @@ import {
 } from '@dnd-kit/core';
 import { boardColumns, type MoveRule } from '@warehaus/portal-sync';
 import { Pill } from '@/components/ui/primitives';
+import { SyncChip } from '@/components/sync/SyncChip';
 import { formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
 
 export type BoardMode = 'status' | 'stage';
@@ -545,6 +546,7 @@ function TaskCardFace({ task, lifted = false }: { task?: PortalTask; lifted?: bo
       <div className="flex flex-wrap items-center gap-2">
         <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
         {task.stage ? <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>{task.stage}</span> : null}
+        {task.syncNotice ? <SyncChip syncNotice={task.syncNotice} /> : null}
       </div>
       <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>{formatPortalDate(task.date)}</p>
     </div>

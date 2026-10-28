@@ -94,6 +94,8 @@ export default defineSchema({
     estimate: v.optional(v.string()),
     priority: v.optional(v.string()),
     source: v.optional(v.string()),
+    /** Staff-only. Set when Notion Stage is not a portal stage. Cleared on the next clean pull. */
+    syncNotice: v.optional(v.string()),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])
@@ -341,6 +343,59 @@ export default defineSchema({
   })
     .index('by_eventId', ['eventId'])
     .index('by_receivedAt', ['receivedAt']),
+
+  /**
+   * Pending invites only. Login never reads this table.
+   * Rows exist only after a pull decides UPSERT_PENDING_INVITE, or after
+   * Notion confirms a staff invite.
+   */
+  pendingInvites: defineTable({
+    orgId: v.id('clients'),
+    notionPageId: v.string(),
+    name: v.string(),
+    email: v.string(),
+    role: v.union(
+      v.literal('Client Admin'),
+      v.literal('Client Member'),
+      v.literal('Warehaus Staff'),
+    ),
+    inviteStatus: v.union(
+      v.literal('Pending'),
+      v.literal('Accepted'),
+      v.literal('Declined'),
+      v.literal('Expired'),
+      v.literal('Revoked'),
+    ),
+    source: v.optional(v.string()),
+    notionLastEditedTime: v.optional(v.string()),
+    lastSyncedAt: v.number(),
+  })
+    .index('by_orgId', ['orgId'])
+    .index('by_notionPageId', ['notionPageId'])
+    .index('by_email', ['email']),
+
+  /** Raw invite tokens are never stored. Only the SHA-256 hash. */
+  inviteTokens: defineTable({
+    orgId: v.id('clients'),
+    contactNotionPageId: v.string(),
+    clientNotionPageId: v.string(),
+    emailNormalized: v.string(),
+    tokenHash: v.string(),
+    status: v.union(
+      v.literal('live'),
+      v.literal('used'),
+      v.literal('killed'),
+      v.literal('expired'),
+    ),
+    expiresAt: v.number(),
+    createdByContactId: v.optional(v.id('contacts')),
+    createdAt: v.number(),
+    usedAt: v.optional(v.number()),
+  })
+    .index('by_orgId', ['orgId'])
+    .index('by_tokenHash', ['tokenHash'])
+    .index('by_contactNotionPageId', ['contactNotionPageId'])
+    .index('by_status_expiresAt', ['status', 'expiresAt']),
 
   /**
    * Resend cooldown for verification mail. One row per normalized address,
