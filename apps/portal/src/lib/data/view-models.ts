@@ -58,6 +58,8 @@ export type PortalTask = {
   stage?: string | null;
   lastEditedTime?: string | null;
   parentTaskId?: string | null;
+  assigneeName?: string | null;
+  resourceCount?: number | null;
   pullRequestUrl?: string | null;
   projectId: string | null;
   projectName: string | null;

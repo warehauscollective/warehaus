@@ -116,6 +116,17 @@ const tables: Record<string, Row[]> = {
       notionPageId: 'staff-notion',
       lastSyncedAt: 1,
     },
+    {
+      _id: 'contact-studio-mail',
+      orgId: org._id,
+      name: 'Sam Studio',
+      email: 'sam@warehaus.studio',
+      authUserId: 'auth-studio-mail',
+      role: 'Client Member',
+      portalAccess: 'Enabled',
+      notionPageId: 'studio-mail-notion',
+      lastSyncedAt: 1,
+    },
   ],
   projects: [
     {
@@ -275,6 +286,31 @@ const tables: Record<string, Row[]> = {
       notionPageId: 'doc-internal-notion',
       lastSyncedAt: 1,
     },
+    {
+      _id: 'doc-orphan',
+      orgId: org._id,
+      projectId: 'proj-gone',
+      title: 'Orphan doc',
+      summary: 'Missing project',
+      docType: 'Note',
+      order: 3,
+      status: 'Published',
+      publishToWarehaus: true,
+      notionPageId: 'doc-orphan-notion',
+      lastSyncedAt: 1,
+    },
+    {
+      _id: 'doc-org',
+      orgId: org._id,
+      title: 'Org guide',
+      summary: 'No project',
+      docType: 'Guide',
+      order: 0,
+      status: 'Published',
+      publishToWarehaus: true,
+      notionPageId: 'doc-org-notion',
+      lastSyncedAt: 1,
+    },
   ],
   sharedResources: [
     {
@@ -310,6 +346,25 @@ const tables: Record<string, Row[]> = {
       publishToWarehaus: true,
       archive: false,
       notionPageId: 'res-internal-notion',
+      lastSyncedAt: 1,
+    },
+    {
+      _id: 'res-orphan',
+      orgId: org._id,
+      projectId: 'proj-gone',
+      title: 'Orphan file',
+      publishToWarehaus: true,
+      archive: false,
+      notionPageId: 'res-orphan-notion',
+      lastSyncedAt: 1,
+    },
+    {
+      _id: 'res-org',
+      orgId: org._id,
+      title: 'Org file',
+      publishToWarehaus: true,
+      archive: false,
+      notionPageId: 'res-org-notion',
       lastSyncedAt: 1,
     },
   ],
@@ -427,6 +482,22 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(bundled.includes('Draft file'), false);
     assert.equal(bundled.includes('Studio file'), false);
     assert.equal(bundled.includes('maya@warehaus.studio'), false);
+    assert.equal(bundled.includes('sam@warehaus.studio'), false);
+    assert.equal(bundled.includes('Ada Client'), true);
+    assert.equal(bundled.includes('Orphan doc'), false);
+    assert.equal(bundled.includes('Org guide'), true);
+    assert.equal(bundled.includes('Orphan file'), false);
+    assert.equal(bundled.includes('Org file'), true);
+    assert.equal(text(docs).includes('notionPageId'), false);
+    assert.equal(text(docs).includes('"order"'), false);
+    assert.equal(text(docs).includes('publishToWarehaus'), false);
+    assert.equal(text(docs).includes('lastSyncedAt'), false);
+    assert.equal(text(docs).includes('syncHidden'), false);
+    assert.equal(text(docs).includes('syncState'), false);
+    assert.equal(text(docs).includes('"status"'), false);
+    assert.equal(text(resources).includes('notionPageId'), false);
+    const docTitles = (docs as Array<{ title: string }>).map((doc) => doc.title);
+    assert.deepEqual(docTitles.slice(0, 2), ['Org guide', 'Public brief']);
     assert.equal(bundled.includes('Warehaus Staff'), false);
     assert.equal(bundled.includes('estimate-secret'), false);
     assert.equal(bundled.includes('priority-high'), false);
@@ -439,7 +510,13 @@ describe('client identity against warehaus.studio', () => {
 
     const publicDoc = await run(getDocForClient, { docId: 'doc-public' });
     assert.equal((publicDoc as { title: string }).title, 'Public brief');
-    for (const docId of ['doc-draft', 'doc-unpub', 'doc-internal', 'doc-missing']) {
+    assert.equal('notionPageId' in (publicDoc as object), false);
+    assert.equal('order' in (publicDoc as object), false);
+    assert.equal('publishToWarehaus' in (publicDoc as object), false);
+    assert.equal('syncState' in (publicDoc as object), false);
+    assert.equal('lastSyncedAt' in (publicDoc as object), false);
+    assert.equal('status' in (publicDoc as object), false);
+    for (const docId of ['doc-draft', 'doc-unpub', 'doc-internal', 'doc-orphan', 'doc-missing']) {
       await assert.rejects(run(getDocForClient, { docId }), (err: unknown) => {
         assert.ok(err instanceof PortalAuthError);
         assert.equal(err.message, 'Doc not found');
@@ -448,7 +525,10 @@ describe('client identity against warehaus.studio', () => {
     }
     const publicResource = await run(getResourceForClient, { resourceId: 'res-public' });
     assert.equal((publicResource as { name: string }).name, 'Kickoff notes');
-    for (const resourceId of ['res-draft', 'res-internal', 'res-missing']) {
+    assert.equal('notionPageId' in (publicResource as object), false);
+    const orgResource = await run(getResourceForClient, { resourceId: 'res-org' });
+    assert.equal((orgResource as { name: string }).name, 'Org file');
+    for (const resourceId of ['res-draft', 'res-internal', 'res-orphan', 'res-missing']) {
       await assert.rejects(run(getResourceForClient, { resourceId }), (err: unknown) => {
         assert.ok(err instanceof PortalAuthError);
         assert.equal(err.message, 'Resource not found');

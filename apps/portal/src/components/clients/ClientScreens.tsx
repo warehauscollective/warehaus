@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { Pill } from '@/components/ui/primitives';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
+import { SyncChip } from '@/components/sync/SyncChip';
 import { clientInitials, clientListStats, clientMatchesFilter, singleOrAcross, type ClientListFilter, type ClientListRow } from '@/lib/data/clientList';
 import { taskStatusColor } from '@/lib/data/view-models';
 
@@ -255,7 +256,7 @@ export function ClientDirectory({
                 <button
                   type="button"
                   onClick={() => onOpen(client.id)}
-                  className="flex w-full items-center gap-3 text-left"
+                  className="flex w-full flex-wrap items-center gap-3 text-left"
                   style={{ background: 'none', border: 0, padding: '0.9rem 0.2rem', cursor: 'pointer', color: 'inherit' }}
                 >
                   <Mark name={client.name} />
@@ -269,14 +270,18 @@ export function ClientDirectory({
                         : `${client.contactCount} ${client.contactCount === 1 ? 'person' : 'people'}`}
                     </span>
                   </span>
-                  <span className="hidden flex-wrap items-center justify-end gap-x-4 gap-y-1 md:flex">
-                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.projectCount} projects</span>
+                  <Chevron />
+                  <span className="grid w-full basis-full grid-cols-2 gap-x-4 gap-y-1 md:flex md:w-auto md:basis-auto md:flex-wrap md:items-center md:justify-end">
+                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.projectCount} {client.projectCount === 1 ? 'project' : 'projects'}</span>
                     <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.openTaskCount} open</span>
                     <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.awaitingGoCount ?? 0} awaiting go</span>
-                    <Dot tone={client.syncHidden ? 'bad' : 'on'}>{client.syncHidden ? 'Sync problem' : 'In sync'}</Dot>
+                    <SyncChip
+                      notionPageId={client.notionPageId}
+                      syncHidden={client.syncHidden}
+                      syncState={client.syncHidden ? 'failed' : undefined}
+                    />
                     <Dot tone={client.internal ? 'off' : 'on'}>{client.internal ? 'Not published' : 'Published'}</Dot>
                   </span>
-                  <Chevron />
                 </button>
               </li>
             ))}
@@ -329,10 +334,14 @@ export function ClientDetail({
         </div>
         <div className="mt-4 flex flex-wrap gap-4">
           <Dot tone={client.internal ? 'off' : 'on'}>{client.internal ? 'Not published' : 'Published'}</Dot>
-          <Dot tone={client.syncHidden ? 'bad' : 'on'}>{client.syncHidden ? 'Sync problem' : 'In sync'}</Dot>
+          <SyncChip
+            notionPageId={client.notionPageId}
+            syncHidden={client.syncHidden}
+            syncState={client.syncHidden ? 'failed' : undefined}
+          />
         </div>
       </Panel>
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+      <div className="grid w-full grid-cols-2 gap-3 md:grid-cols-3">
         <Stat label="PROJECTS" value={String(projects.length)} hint={projects.length === 1 ? '1 on this client' : `${projects.length} on this client`} />
         <Stat label="PEOPLE" value={String(contacts.length)} hint="Contacts with portal access" />
         <Stat label="OPEN ITEMS" value={String(tasks.filter((task) => !task.isDone).length)} hint={awaiting > 0 ? `${awaiting} awaiting go` : 'None awaiting go'} tone={awaiting > 0 ? 'var(--danger)' : undefined} />
@@ -410,9 +419,9 @@ export function ClientDetail({
           </ul>
         )}
       </Panel>
-      <Panel testId="client-docs">
+      <div data-testid="client-docs">
         <DocsBlock docs={docs} staff />
-      </Panel>
+      </div>
     </div>
   );
 }
@@ -427,7 +436,6 @@ export function ClientCompany({
   people,
   showTeam,
   onShowTeam,
-  onBack,
 }: {
   name: string;
   contactName: string;
@@ -445,13 +453,8 @@ export function ClientCompany({
   if (showTeam) {
     return (
       <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-team">
-        <button type="button" onClick={onBack} className="ds-mono text-left" style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>
-          ← Company
-        </button>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>Your team</h2>
         <Panel>
-          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Your team</h3>
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
+          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
             People at {name} with portal access.
           </p>
           {people.length === 0 ? (
@@ -469,9 +472,6 @@ export function ClientCompany({
               ))}
             </ul>
           )}
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>
-            Client admins invite teammates from Account → Team. Role and invite status stay with staff.
-          </p>
         </Panel>
         <Panel>
           <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Waiting on you</h3>
@@ -512,11 +512,30 @@ export function ClientCompany({
           <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>YOUR CONTACT</span>
           <span style={{ fontSize: 'var(--t-sm)' }}>{contactName} · {contactEmail}</span>
         </div>
-        <button type="button" onClick={onShowTeam} className="mt-4" style={{ background: 'none', border: 0, padding: 0, color: 'var(--accent)', cursor: 'pointer' }}>
-          Your team
-        </button>
+        <div className="mt-4">
+          <p className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>YOUR TEAM</p>
+          {people.length === 0 ? (
+            <button type="button" onClick={onShowTeam} style={{ background: 'none', border: 0, padding: 0, color: 'var(--accent)', cursor: 'pointer', marginTop: 8 }}>
+              Your team
+            </button>
+          ) : (
+            <ul className="mt-2">
+              {people.map((person) => (
+                <li key={person.id}>
+                  <button type="button" onClick={onShowTeam} className="flex w-full items-center gap-3 text-left" style={{ background: 'none', border: 0, padding: '0.45rem 0', color: 'inherit', cursor: 'pointer' }}>
+                    <Mark name={person.name} />
+                    <span>
+                      <span className="block" style={{ fontWeight: 600 }}>{person.name}</span>
+                      <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
+                    </span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       </Panel>
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+      <div className="grid w-full grid-cols-2 gap-3 md:grid-cols-3">
         <Stat label="ACTIVE PROJECTS" value={String(projects.length)} hint={projects[0] ? projects[0].name : 'None shared yet'} />
         <Stat label="OPEN ITEMS" value={String(open.length)} hint={`${open.filter((task) => /progress/i.test(task.status)).length} in progress`} />
         <Stat label="NEEDS YOUR ATTENTION" value={String(awaiting.length)} hint={awaiting.length > 0 ? 'Waiting on your approval' : 'Nothing waiting'} tone={awaiting.length > 0 ? 'var(--danger)' : undefined} />
@@ -543,9 +562,9 @@ export function ClientCompany({
           </ul>
         )}
       </Panel>
-      <Panel testId="client-docs">
+      <div data-testid="client-docs">
         <DocsBlock docs={docs} staff={false} />
-      </Panel>
+      </div>
     </div>
   );
 }

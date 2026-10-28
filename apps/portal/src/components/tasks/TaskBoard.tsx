@@ -12,8 +12,8 @@ import {
   type DragEndEvent,
   type DragOverEvent,
 } from '@dnd-kit/core';
-import { boardColumns, type MoveRule } from '@warehaus/portal-sync';
-import { Pill } from '@/components/ui/primitives';
+import { boardColumns, isTaskStage, unstagedMoveAllowed, type MoveRule } from '@warehaus/portal-sync';
+import { OutlineButton, Pill, PrimaryButton } from '@/components/ui/primitives';
 import { SyncChip } from '@/components/sync/SyncChip';
 import { formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
 
@@ -89,7 +89,10 @@ export function TaskBoard({
       }),
     [tasks, overrides],
   );
-  const columns = useMemo(() => boardColumns(viewTasks, mode), [viewTasks, mode]);
+  const columns = useMemo(
+    () => boardColumns(viewTasks.filter((task) => !task.parentTaskId), mode, staff ? 'staff' : 'client'),
+    [viewTasks, mode, staff],
+  );
   const activeTab = tab && columns.some((column) => column.key === tab) ? tab : columns[0]?.key ?? null;
   const shown = phone ? columns.filter((column) => column.key === activeTab) : columns;
   const canDrag = staff && !phone && rules?.actor === 'staff';
@@ -143,6 +146,7 @@ export function TaskBoard({
     setActiveId(null);
     setOverKey(null);
     const task = tasks.find((item) => item.id === String(event.active.id));
+    const viewed = viewTasks.find((item) => item.id === String(event.active.id));
     const over = event.over ? String(event.over.id) : '';
     if (!task || !over.startsWith('column:')) return;
     const value = over.slice('column:'.length);
@@ -150,7 +154,13 @@ export function TaskBoard({
       setLive('That column is not a destination.');
       return;
     }
-    const current = mode === 'stage' ? task.stage : task.status;
+    if (mode === 'stage' && !isTaskStage(viewed?.stage ?? '') && !unstagedMoveAllowed(value)) {
+      const message = 'Tasks with no stage can move to Idea or Planning.';
+      setLive(message);
+      setToast({ message });
+      return;
+    }
+    const current = mode === 'stage' ? viewed?.stage ?? task.stage : task.status;
     if (current === value) return;
     const rule = ruleFor(value);
     if (rule.kind === 'locked' || rule.kind === 'denied') {
@@ -171,7 +181,7 @@ export function TaskBoard({
   };
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 flex-col gap-3" data-testid="task-board">
+    <div className="flex min-w-0 flex-col gap-3" data-testid="task-board">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <GroupToggle mode={mode} onChange={chooseMode} />
         <p className="sr-only" aria-live="polite">{live}</p>
@@ -212,12 +222,7 @@ export function TaskBoard({
         }}
       >
         <div
-          className={mode === 'stage' && !phone ? 'flex h-full min-h-0 gap-4 overflow-x-auto pb-2' : 'grid h-full min-h-0 gap-4 overflow-x-auto pb-2'}
-          style={
-            mode === 'stage' && !phone
-              ? undefined
-              : { gridTemplateColumns: phone ? 'minmax(0, 1fr)' : `repeat(${Math.max(shown.length, 1)}, minmax(9.25rem, 1fr))` }
-          }
+          className="flex items-start gap-3 overflow-x-auto pb-2"
         >
           {shown.map((column) => (
             <Column
@@ -225,7 +230,8 @@ export function TaskBoard({
               columnKey={column.key}
               label={column.label}
               tasks={column.tasks}
-              width={mode === 'stage' && !phone ? 200 : undefined}
+              allTasks={viewTasks}
+              width={phone ? undefined : undefined}
               staff={staff}
               loading={loading}
               canDrag={canDrag}
@@ -253,6 +259,10 @@ export function TaskBoard({
                 const index = columns.findIndex((item) => item.key === column.key);
                 const next = columns[index + direction];
                 if (!next || next.key.startsWith('unknown') || !canDrag) return;
+                if (mode === 'stage' && !isTaskStage(task.stage ?? '') && !unstagedMoveAllowed(next.key)) {
+                  setLive('Tasks with no stage can move to Idea or Planning.');
+                  return;
+                }
                 const rule = ruleFor(next.key);
                 if (rule.kind === 'needs') setNeeds({ task, value: next.key, rule });
                 else if (rule.kind === 'allowed') void commit(task, next.key);
@@ -264,7 +274,7 @@ export function TaskBoard({
         <DragOverlay>
           {activeId ? (
             <div style={{ transform: 'rotate(2deg) scale(1.03)', cursor: 'grabbing' }}>
-              <TaskCardFace task={viewTasks.find((task) => task.id === activeId) ?? tasks[0]} lifted />
+              <TaskCardFace task={viewTasks.find((task) => task.id === activeId) ?? tasks[0]} lifted mode={mode} allTasks={viewTasks} />
             </div>
           ) : null}
         </DragOverlay>
@@ -302,6 +312,7 @@ export function TaskBoard({
           task={moveTask}
           columns={columns.filter((column) => !column.key.startsWith('unknown'))}
           current={mode === 'stage' ? moveTask.stage ?? '' : moveTask.status}
+          fromUnstaged={mode === 'stage' && !isTaskStage(moveTask.stage ?? '')}
           ruleFor={ruleFor}
           onClose={() => setMoveTask(null)}
           onPick={(value, rule) => {
@@ -314,6 +325,7 @@ export function TaskBoard({
       ) : null}
       {needs && needs.rule.kind === 'needs' ? (
         <NeedsDialog
+          taskName={needs.task.name}
           rule={needs.rule}
           onCancel={() => {
             setNeeds(null);
@@ -362,6 +374,7 @@ function Column({
   columnKey,
   label,
   tasks,
+  allTasks,
   width,
   staff,
   loading,
@@ -384,6 +397,7 @@ function Column({
   columnKey: string;
   label: string;
   tasks: PortalTask[];
+  allTasks: PortalTask[];
   width?: number;
   staff: boolean;
   loading: boolean;
@@ -404,35 +418,45 @@ function Column({
   onKeyMove: (task: PortalTask, direction: -1 | 1) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: `column:${columnKey}` });
+  const dashed = columnKey.startsWith('unknown-stage');
   return (
     <section
       ref={setNodeRef}
       aria-label={label}
-      className="flex min-h-0 shrink-0 flex-col"
+      className="flex shrink-0 flex-col"
       style={{
-        width: width ?? (phone ? '100%' : undefined),
-        minWidth: width,
+        width: phone ? '100%' : width,
+        minWidth: phone ? 0 : '12.75rem',
+        flex: phone ? '1 1 auto' : '0 0 auto',
         padding: 12,
         gap: 12,
         borderRadius: 16,
-        border: locked ? '2px dashed var(--danger)' : activeTarget ? '2px solid var(--accent)' : '1px solid var(--border)',
+        border: locked
+          ? '2px dashed var(--danger)'
+          : dashed
+            ? '1px dashed var(--border)'
+            : activeTarget
+              ? '2px solid var(--accent)'
+              : '1px solid var(--border)',
         background: activeTarget ? 'color-mix(in oklab, var(--accent) 12%, var(--bg))' : 'var(--bg)',
       }}
     >
       <header className="flex items-center gap-2">
-        <h3 className="ds-mono" style={{ fontSize: 'var(--t-xs)', letterSpacing: '0.08em' }}>{label.toUpperCase()}</h3>
-        <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', background: 'var(--surface)', borderRadius: 999, padding: '0 0.45rem' }}>{tasks.length}</span>
+        <h3 className="ds-mono whitespace-nowrap" style={{ fontSize: 11, letterSpacing: '0.08em' }}>{label.toUpperCase()}</h3>
+        <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface)', borderRadius: 999, padding: '0 0.45rem' }}>{tasks.length}</span>
         <span className="flex-1" />
         {staff && !columnKey.startsWith('unknown') ? (
           <button type="button" aria-label={`Add task to ${label}`} onClick={onQuick} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>+</button>
         ) : null}
       </header>
-      <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto">
-        {loading ? <div className="animate-pulse" style={{ height: 72, borderRadius: 12, background: 'var(--surface)' }} /> : null}
+      <div className="flex flex-col gap-3">
+        {loading ? <div className="animate-pulse" style={{ height: 72, borderRadius: 18, background: 'var(--surface)' }} /> : null}
         {tasks.map((task) => (
           <BoardCard
             key={task.id}
             task={task}
+            mode={mode}
+            allTasks={allTasks}
             canDrag={canDrag}
             phone={phone}
             error={failed[task.id]}
@@ -443,23 +467,25 @@ function Column({
           />
         ))}
         {quick ? <QuickAdd onClose={onQuickClose} onSave={onQuickAdd} /> : null}
-        {!loading && tasks.length === 0 ? (
+        {!loading && tasks.length === 0 && !dashed ? (
           <p style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', border: '1px dashed var(--border)', borderRadius: 12, padding: '0.75rem' }}>
             {emptyClient ? 'Nothing here yet.' : mode === 'stage' ? 'No tasks at this stage. Drag a card here.' : 'No tasks'}
           </p>
         ) : null}
+        {staff && !columnKey.startsWith('unknown') ? (
+          <button type="button" onClick={onQuick} className="text-left" style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '0.7rem 0.85rem', color: 'var(--muted)', background: 'transparent' }}>
+            + Add task
+          </button>
+        ) : null}
       </div>
-      {staff && !columnKey.startsWith('unknown') ? (
-        <button type="button" onClick={onQuick} className="text-left" style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: '0.7rem 0.85rem', color: 'var(--muted)', background: 'transparent' }}>
-          Add task
-        </button>
-      ) : null}
     </section>
   );
 }
 
 function BoardCard({
   task,
+  mode,
+  allTasks,
   canDrag,
   phone,
   error,
@@ -469,6 +495,8 @@ function BoardCard({
   onKeyMove,
 }: {
   task: PortalTask;
+  mode: BoardMode;
+  allTasks: PortalTask[];
   canDrag: boolean;
   phone: boolean;
   error?: string;
@@ -515,7 +543,7 @@ function BoardCard({
         className="w-full text-left"
         style={{ background: 'transparent', border: 0, padding: 0, cursor: canDrag ? 'grab' : 'pointer' }}
       >
-        <TaskCardFace task={task} />
+        <TaskCardFace task={task} mode={mode} allTasks={allTasks} />
       </button>
       {error ? (
         <p style={{ fontSize: 'var(--t-xs)', color: 'var(--fg)', padding: '0.35rem 0.2rem' }}>
@@ -527,14 +555,32 @@ function BoardCard({
   );
 }
 
-function TaskCardFace({ task, lifted = false }: { task?: PortalTask; lifted?: boolean }) {
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).slice(0, 2);
+  return parts.map((part) => part[0]?.toUpperCase() ?? '').join('');
+}
+
+function TaskCardFace({
+  task,
+  lifted = false,
+  mode = 'status',
+  allTasks = [],
+}: {
+  task?: PortalTask;
+  lifted?: boolean;
+  mode?: BoardMode;
+  allTasks?: PortalTask[];
+}) {
   if (!task) return null;
+  const children = allTasks.filter((item) => item.parentTaskId === task.id);
+  const subLabel = children.length > 0 ? `${children.filter((item) => item.isDone).length}/${children.length}` : null;
+  const resources = task.resourceCount ?? 0;
   return (
     <div
       style={{
-        background: lifted ? 'var(--surface)' : 'var(--surface)',
+        background: 'var(--surface)',
         border: '1px solid var(--border)',
-        borderRadius: 12,
+        borderRadius: 18,
         padding: '14px 12px',
         display: 'flex',
         flexDirection: 'column',
@@ -542,13 +588,48 @@ function TaskCardFace({ task, lifted = false }: { task?: PortalTask; lifted?: bo
         boxShadow: lifted ? '0 16px 32px rgb(0 0 0 / 45%)' : undefined,
       }}
     >
-      <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600, lineHeight: 1.35 }}>{task.name}</p>
+      <p style={{ fontSize: 14, fontWeight: 500, lineHeight: '21px' }}>{task.name}</p>
       <div className="flex flex-wrap items-center gap-2">
-        <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
-        {task.stage ? <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>{task.stage}</span> : null}
+        {mode === 'stage' ? <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill> : null}
+        {mode === 'status' && task.stage ? (
+          <span
+            className="ds-mono inline-flex items-center gap-1"
+            style={{
+              border: '1px solid var(--border)',
+              borderRadius: 999,
+              padding: '2px 8px',
+              fontSize: 11,
+              color: 'var(--fg)',
+            }}
+          >
+            {task.stage}
+          </span>
+        ) : null}
+        {task.assigneeName ? (
+          <span
+            aria-label={task.assigneeName}
+            title={task.assigneeName}
+            className="inline-flex items-center justify-center"
+            style={{
+              width: 24,
+              height: 24,
+              borderRadius: 999,
+              background: 'var(--surface-2, var(--border))',
+              color: 'var(--fg)',
+              fontSize: 10,
+              fontWeight: 600,
+            }}
+          >
+            {initials(task.assigneeName)}
+          </span>
+        ) : null}
         {task.syncNotice ? <SyncChip syncNotice={task.syncNotice} /> : null}
       </div>
-      <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>{formatPortalDate(task.date)}</p>
+      <p className="ds-mono flex flex-wrap items-center gap-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
+        <span>{formatPortalDate(task.date)}</span>
+        {subLabel ? <span>{subLabel}</span> : null}
+        {resources > 0 ? <span>{resources}</span> : null}
+      </p>
     </div>
   );
 }
@@ -596,6 +677,7 @@ function MoveSheet({
   task,
   columns,
   current,
+  fromUnstaged,
   ruleFor,
   onClose,
   onPick,
@@ -603,15 +685,19 @@ function MoveSheet({
   task: PortalTask;
   columns: Array<{ key: string; label: string }>;
   current: string;
+  fromUnstaged: boolean;
   ruleFor: (value: string) => MoveRule;
   onClose: () => void;
   onPick: (value: string, rule: MoveRule) => void;
 }) {
   return (
-    <Sheet title={`Move ${task.name}`} onClose={onClose}>
+    <Sheet title="Move to" onClose={onClose}>
+      <p className="sr-only">{task.name}</p>
       <ul className="flex flex-col gap-2">
         {columns.map((column) => {
-          const rule = ruleFor(column.key);
+          const rule = fromUnstaged && !unstagedMoveAllowed(column.key)
+            ? { kind: 'denied' as const, reason: 'Choose Idea or Planning.' }
+            : ruleFor(column.key);
           const locked = rule.kind === 'locked' || rule.kind === 'denied';
           return (
             <li key={column.key}>
@@ -635,20 +721,24 @@ function MoveSheet({
 }
 
 function NeedsDialog({
+  taskName,
   rule,
   onCancel,
   onSave,
 }: {
+  taskName: string;
   rule: Extract<MoveRule, { kind: 'needs' }>;
   onCancel: () => void;
   onSave: (value: string) => void;
 }) {
   const [value, setValue] = useState('');
+  const [clientNote, setClientNote] = useState('');
   const [error, setError] = useState<string | null>(null);
   const field = rule.fields[0];
   return (
-    <Modal title="Ready to Ship" onClose={onCancel} labelledBy="needs-title">
+    <Modal title="Move to Ready to Ship" onClose={onCancel} labelledBy="needs-title">
       <form
+        className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
           if (!value.trim()) {
@@ -658,20 +748,38 @@ function NeedsDialog({
           onSave(value.trim());
         }}
       >
-        <label htmlFor="pr-link" style={{ fontSize: 'var(--t-sm)' }}>{field?.label ?? 'Pull request link'}</label>
-        <input
-          id="pr-link"
-          autoFocus
-          required
-          value={value}
-          placeholder={field?.placeholder}
-          onChange={(event) => setValue(event.target.value)}
-          style={{ width: '100%', marginTop: 8, border: error ? '2px solid var(--danger)' : '1px solid var(--border)', borderRadius: 8, background: 'var(--bg)', color: 'var(--fg)', padding: '0.6rem 0.7rem' }}
-        />
-        {error ? <p style={{ color: 'var(--fg)', fontSize: 'var(--t-sm)' }}>{error}</p> : null}
-        <div className="mt-4 flex justify-end gap-2">
-          <button type="button" onClick={onCancel}>Cancel</button>
-          <button type="submit">Save</button>
+        <p style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)', margin: 0 }}>
+          “{taskName}” needs a linked pull request before it can be Ready to Ship. Add it now to move it.
+        </p>
+        <label htmlFor="pr-link" className="flex flex-col gap-2" style={{ fontSize: 14 }}>
+          <span>{field?.label ?? 'Pull request link'} <span aria-hidden style={{ color: 'var(--danger)' }}>*</span></span>
+          <span className="flex items-center gap-2" style={{ border: error ? '2px solid var(--danger)' : '2px solid var(--accent)', borderRadius: 18, background: 'var(--surface-2, var(--bg))', padding: '0.7rem 0.85rem' }}>
+            <span aria-hidden style={{ color: 'var(--muted)' }}>🔗</span>
+            <input
+              id="pr-link"
+              autoFocus
+              required
+              value={value}
+              placeholder={field?.placeholder ?? 'github.com/…/pull/123'}
+              onChange={(event) => setValue(event.target.value)}
+              style={{ flex: 1, border: 0, background: 'transparent', color: 'var(--fg)', outline: 'none' }}
+            />
+          </span>
+        </label>
+        <label htmlFor="client-note" className="flex flex-col gap-2" style={{ fontSize: 14 }}>
+          Note for the client
+          <textarea
+            id="client-note"
+            value={clientNote}
+            onChange={(event) => setClientNote(event.target.value)}
+            rows={3}
+            style={{ border: '1px solid var(--border)', borderRadius: 18, background: 'var(--surface-2, var(--bg))', color: 'var(--fg)', padding: '0.7rem 0.85rem' }}
+          />
+        </label>
+        {error ? <p style={{ color: 'var(--danger)', fontSize: 14, margin: 0 }}>{error}</p> : null}
+        <div className="flex justify-end gap-2">
+          <OutlineButton onClick={onCancel}>Cancel</OutlineButton>
+          <PrimaryButton type="submit">Move to Ready to Ship</PrimaryButton>
         </div>
       </form>
     </Modal>

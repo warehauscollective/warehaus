@@ -87,7 +87,7 @@ export function PortalWorkspace({
 
         {showRight ? (
           <aside
-            className="flex w-full shrink-0 flex-col lg:w-[min(300px,32%)] lg:overflow-hidden"
+            className="flex min-h-0 min-w-0 w-full flex-col overflow-y-auto lg:w-[min(300px,32%)]"
             aria-label={detailOpen ? 'Details' : 'Sidebar'}
           >
             {detailOpen && detail ? (

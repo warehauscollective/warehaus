@@ -102,7 +102,11 @@ export function ProjectsContent() {
     return attachKnownSync(rows, data.projects);
   }, [fixtures, isStaff, staff.projects, data.projects]);
   const tasks = (
-    fixtures ? FIXTURE_TASKS : isStaff ? staff.tasks ?? data.tasks : data.tasks
+    fixtures
+      ? FIXTURE_TASKS.filter((task) => isStaff || (task.publishToWarehaus && !task.syncHidden))
+      : isStaff
+        ? staff.tasks ?? data.tasks
+        : data.tasks
   ) as PortalTask[];
   const docs = (
     fixtures ? FIXTURE_DOCS : isStaff ? staff.docs ?? [] : clientDocsState.data ?? []
@@ -189,7 +193,11 @@ export function ProjectsContent() {
 
   if (openProject) {
     const projectTasks = tasks.filter((task) => task.projectId === openProject.id);
-    const projectDocs = docs.filter((doc) => doc.projectId === openProject.id);
+    const projectDocs = docs.filter((doc) => {
+      if (doc.projectId !== openProject.id) return false;
+      if (isStaff) return true;
+      return doc.publishToWarehaus !== false && doc.status !== 'Draft';
+    });
     return (
       <PortalWorkspace
         eyebrow={tenantEyebrow(data.tenant, 'Project')}
@@ -305,7 +313,7 @@ export function ProjectsContent() {
                 }}
               />
             )}
-            <DocsBlock docs={projectDocs} staff={isStaff} />
+            <DocsBlock docs={projectDocs} staff={isStaff} loading={projectsLoading && projectDocs.length === 0} />
           </div>
         </PortalTilePane>
         {routeTaskId ? (
