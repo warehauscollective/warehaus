@@ -12,6 +12,7 @@
     "start": "next start --port ${PORTAL_PORT:-3100}",
     "lint": "next lint",
     "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test convex/_lib/**/*.test.ts src/**/*.test.ts",
     "test:convex-lib": "node --import tsx --test convex/_lib/**/*.test.ts"
   },
   "dependencies": {

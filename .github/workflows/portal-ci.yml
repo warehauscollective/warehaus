@@ -1,0 +1,77 @@
+name: Portal CI
+
+# Typecheck, lint, and unit tests for the portal and portal-sync.
+# No Convex, Notion, or Vercel credentials. This workflow does not deploy.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/portal/**"
+      - "packages/portal-sync/**"
+      - "packages/logic/**"
+      - "packages/tokens/**"
+      - "packages/typescript-config/**"
+      - "packages/ui/**"
+      - "package.json"
+      - "package-lock.json"
+      - "turbo.json"
+      - ".github/workflows/portal-ci.yml"
+  pull_request:
+    paths:
+      - "apps/portal/**"
+      - "packages/portal-sync/**"
+      - "packages/logic/**"
+      - "packages/tokens/**"
+      - "packages/typescript-config/**"
+      - "packages/ui/**"
+      - "package.json"
+      - "package-lock.json"
+      - "turbo.json"
+      - ".github/workflows/portal-ci.yml"
+
+concurrency:
+  group: portal-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  portal-ci:
+    name: Portal typecheck, lint, and tests
+    runs-on: ubuntu-latest
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Skip Convex codegen
+        run: |
+          # `npx convex codegen` exits unless CONVEX_DEPLOYMENT is already
+          # configured, and it refuses a preview deploy key. This job has no
+          # Convex credentials and does not start a deployment. Typecheck uses
+          # the generated files committed under apps/portal/convex/_generated.
+          echo "Skipping npx convex codegen (no deployment configured)."
+          test -f apps/portal/convex/_generated/api.d.ts
+          test -f apps/portal/convex/_generated/api.js
+          test -f apps/portal/convex/_generated/dataModel.d.ts
+          test -f apps/portal/convex/_generated/server.d.ts
+          test -f apps/portal/convex/_generated/server.js
+
+      - name: Typecheck
+        run: |
+          npm run typecheck -w @warehaus/portal
+          npm run typecheck -w @warehaus/portal-sync
+
+      - name: Lint
+        run: npm run lint -w @warehaus/portal
+
+      - name: Test
+        run: |
+          npm run test -w @warehaus/portal
+          npm run test -w @warehaus/portal-sync
