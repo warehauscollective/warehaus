@@ -1,6 +1,10 @@
 import {
   buildProjectCreateProperties,
+  isNotionProjectCreateEnabled,
+  isNotionWritebackEnabled,
+  planProjectCreateDispatch,
   projectCreateConvexFields,
+  projectCreateIdempotencyKey,
   projectCreateStaffAllowed,
   type ProjectCreateProperties,
 } from '@warehaus/portal-sync';
@@ -12,11 +16,11 @@ import {
   assertHostMatchesOrg,
   resolveIdentityFromContact,
 } from './_lib/identity';
-import { writeNotionProject } from './sync/projectCreateWrite';
 
 /**
- * Staff creates one project in the Notion Projects data source, then upserts
- * that page into Convex. No tasks, resources, or activity rows.
+ * Staff creates one project through the Notion outbox, then upserts that page
+ * into Convex. No tasks, resources, or activity rows.
+ * Write-back off, or project-create off, returns before any Notion call.
  */
 export const prepare = internalQuery({
   args: {
@@ -113,12 +117,39 @@ export const createInNotion = action({
     }
     if (!prepared.ok) return prepared;
 
-    const written = await writeNotionProject(prepared.properties);
-    if (!written.ok) return written;
+    const gate = planProjectCreateDispatch({
+      writebackEnabled: isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED),
+      projectCreateEnabled: isNotionProjectCreateEnabled(process.env.NOTION_PROJECT_CREATE_ENABLED),
+    });
+    if (!gate.ok) return gate;
+
+    const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
+      idempotencyKey: projectCreateIdempotencyKey(prepared.properties['External ID']),
+      kind: 'project-create',
+      orgId: prepared.orgId,
+      database: 'projects',
+      payload: JSON.stringify({ properties: prepared.properties }),
+      actor: 'staff',
+      schedule: false,
+    });
+    if (!queued.ok) return queued;
+
+    const processed = await ctx.runAction(internal.sync.outboxWork.processOne, {
+      id: queued.outboxId,
+    });
+    if (!processed.ok) return processed;
+    if (processed.projectId) {
+      return {
+        ok: true,
+        projectId: processed.projectId,
+        notionPageId: processed.notionPageId,
+        reused: processed.reused,
+      };
+    }
 
     const fields = projectCreateConvexFields(prepared.properties);
     const projectId = await ctx.runMutation(internal.sync.upsert.upsertProject, {
-      notionPageId: written.notionPageId,
+      notionPageId: processed.notionPageId,
       orgId: prepared.orgId,
       name: fields.name,
       status: fields.status,
@@ -132,8 +163,8 @@ export const createInNotion = action({
     return {
       ok: true,
       projectId,
-      notionPageId: written.notionPageId,
-      reused: written.reused,
+      notionPageId: processed.notionPageId,
+      reused: processed.reused,
     };
   },
 });

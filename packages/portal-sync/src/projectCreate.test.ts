@@ -3,11 +3,14 @@ import { describe, it } from 'node:test';
 import { PORTAL_COLLECTIONS } from './collections';
 import { projectRowPassesGate } from './gates';
 import { mapNotionProject } from './mappers';
+import { WRITEBACK_OFF_ERROR } from './writeback';
 import {
   buildProjectCreateProperties,
   createProjectExternalId,
   decideProjectCreateDedupe,
   isNotionProjectCreateEnabled,
+  planProjectCreateDispatch,
+  PROJECT_CREATE_OFF_ERROR,
   projectCreateConvexFields,
   projectCreatePageRequest,
   projectCreateSearchFilter,
@@ -134,6 +137,25 @@ describe('project create payload', () => {
     assert.ok(missing.errors.some((error) => error.includes('Name')));
     assert.ok(missing.errors.some((error) => error.includes('Client')));
     assert.ok(missing.errors.some((error) => error.includes('External ID')));
+  });
+
+  it('sends a project only when write-back and project create are both exactly on', () => {
+    assert.deepEqual(
+      planProjectCreateDispatch({ writebackEnabled: false, projectCreateEnabled: true }),
+      { ok: false, error: WRITEBACK_OFF_ERROR },
+    );
+    assert.deepEqual(
+      planProjectCreateDispatch({ writebackEnabled: true, projectCreateEnabled: false }),
+      { ok: false, error: PROJECT_CREATE_OFF_ERROR },
+    );
+    assert.deepEqual(
+      planProjectCreateDispatch({ writebackEnabled: false, projectCreateEnabled: false }),
+      { ok: false, error: WRITEBACK_OFF_ERROR },
+    );
+    assert.deepEqual(
+      planProjectCreateDispatch({ writebackEnabled: true, projectCreateEnabled: true }),
+      { ok: true },
+    );
   });
 
   it('keeps the project-create gate separate from any other flag', () => {

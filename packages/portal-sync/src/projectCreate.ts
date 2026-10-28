@@ -2,8 +2,9 @@
  * Staff project create → the Projects data source the portal already pulls.
  *
  * This path has its own gate, `NOTION_PROJECT_CREATE_ENABLED` === "true".
- * It does not read `NOTION_WRITEBACK_ENABLED` and it does not write contacts,
- * tasks, docs, resources, or activity.
+ * The outbox is the only Notion write. `NOTION_WRITEBACK_ENABLED` must also
+ * be exactly "true" or nothing is queued and nothing is sent.
+ * It does not write contacts, tasks, docs, resources, or activity.
  *
  * Live Projects schema (data source 39947c31-d003-4125-9c32-5e570d4c7e0e):
  * - Name is the title.
@@ -19,6 +20,7 @@
  */
 
 import { normalizeNotionId } from './collections';
+import { WRITEBACK_OFF_ERROR } from './writeback';
 
 export const NOTION_PROJECT_CREATE_ENV = 'NOTION_PROJECT_CREATE_ENABLED';
 
@@ -43,6 +45,25 @@ export type ProjectCreateBuild =
 
 export function isNotionProjectCreateEnabled(value: string | undefined): boolean {
   return value === 'true';
+}
+
+export const PROJECT_CREATE_OFF_ERROR = 'Project create is off. Nothing was sent to Notion.';
+
+/**
+ * Both flags are exact opt-in. Write-back off wins so this path cannot call
+ * Notion while the shared outbox is off.
+ */
+export function planProjectCreateDispatch(flags: {
+  writebackEnabled: boolean;
+  projectCreateEnabled: boolean;
+}): { ok: true } | { ok: false; error: string } {
+  if (!flags.writebackEnabled) {
+    return { ok: false, error: WRITEBACK_OFF_ERROR };
+  }
+  if (!flags.projectCreateEnabled) {
+    return { ok: false, error: PROJECT_CREATE_OFF_ERROR };
+  }
+  return { ok: true };
 }
 
 /** Warehaus Staff only. Client Admin and Client Member are rejected. */
