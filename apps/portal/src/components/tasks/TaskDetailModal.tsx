@@ -6,6 +6,7 @@ import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId } from '@warehaus/portal-sync';
 import { Pill } from '@/components/ui/primitives';
+import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
 
 type ResourceRow = {
@@ -28,6 +29,7 @@ export function TaskDetailModal({
   onOpenTask,
   projectResources,
   hostSlug,
+  live = false,
 }: {
   task: PortalTask | null;
   staff: boolean;
@@ -39,6 +41,8 @@ export function TaskDetailModal({
   onOpenTask: (id: string) => void;
   projectResources: ResourceRow[];
   hostSlug?: string;
+  /** Convex task id. Fixture rows skip the timeline query. */
+  live?: boolean;
 }) {
   const [attach, setAttach] = useState(false);
   const titleRef = useRef<HTMLHeadingElement>(null);
@@ -64,6 +68,8 @@ export function TaskDetailModal({
             <h2 ref={titleRef} tabIndex={-1} style={{ fontFamily: 'var(--font-display)', fontSize: 28, outline: 'none' }}>
               {task.name}
             </h2>
+            <TaskDescription task={task} staff={staff} hostSlug={hostSlug} />
+            <TaskTimeline task={task} staff={staff} hostSlug={hostSlug} live={live} />
             <section>
               <h3 className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>SUB-TASKS</h3>
               {subtasks.length === 0 ? (
@@ -120,6 +126,115 @@ export function TaskDetailModal({
         />
       ) : null}
     </ModalShell>
+  );
+}
+
+type TimelineRow = { id: string; at: string; title: string; detail: string; tone: string };
+
+function TaskDescription({
+  task,
+  staff,
+  hostSlug,
+}: {
+  task: PortalTask;
+  staff: boolean;
+  hostSlug?: string;
+}) {
+  const updateDescription = useMutation(api.tasks.updateDescription);
+  const [draft, setDraft] = useState(task.description ?? '');
+  const [note, setNote] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
+  useEffect(() => {
+    setDraft(task.description ?? '');
+    setNote(null);
+  }, [task.id, task.description]);
+
+  if (!staff && !task.description) return null;
+
+  const save = async () => {
+    if (!task.lastEditedTime) {
+      setNote('This task has not been read from Notion yet. Nothing was sent.');
+      return;
+    }
+    setPending(true);
+    try {
+      const result = await updateDescription({
+        hostSlug,
+        taskId: task.id as Id<'tasks'>,
+        description: draft,
+        expectedLastEditedTime: task.lastEditedTime,
+      });
+      setNote(result.ok ? 'Queued for Notion.' : result.error);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : 'Could not save the description');
+    } finally {
+      setPending(false);
+    }
+  };
+
+  return (
+    <section>
+      <h3 className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>DESCRIPTION</h3>
+      {staff ? (
+        <div className="mt-2 flex flex-col gap-2">
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            rows={4}
+            style={{ ...inputStyle, resize: 'vertical' }}
+          />
+          <div className="flex items-center justify-between gap-2">
+            <button type="button" onClick={() => void save()} disabled={pending}>
+              {pending ? 'Saving…' : 'Save description'}
+            </button>
+            {note ? <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>{note}</p> : null}
+          </div>
+        </div>
+      ) : (
+        <p style={{ marginTop: 8, fontSize: 'var(--t-sm)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{task.description}</p>
+      )}
+    </section>
+  );
+}
+
+function TaskTimeline({
+  task,
+  staff,
+  hostSlug,
+  live,
+}: {
+  task: PortalTask;
+  staff: boolean;
+  hostSlug?: string;
+  live: boolean;
+}) {
+  const rows = useSafeQuery<TimelineRow[]>(
+    staff ? api.tasks.activityForStaff : api.tasks.activityForClient,
+    live ? { hostSlug, taskId: task.id as Id<'tasks'> } : 'skip',
+  );
+  return (
+    <section>
+      <h3 className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>ACTIVITY</h3>
+      {rows.loading ? (
+        <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 8 }}>Loading activity…</p>
+      ) : null}
+      {!rows.loading && (rows.data?.length ?? 0) === 0 ? (
+        <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 8 }}>No activity yet.</p>
+      ) : null}
+      <ul className="mt-2 flex flex-col">
+        {(rows.data ?? []).map((row) => (
+          <li key={row.id} style={{ padding: '0.7rem 0', borderBottom: '1px solid var(--border)' }}>
+            <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600 }}>{row.title}</p>
+            {row.detail ? (
+              <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 4 }}>{row.detail}</p>
+            ) : null}
+            <p className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)', marginTop: 4 }}>
+              {formatPortalDate(row.at)}
+            </p>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

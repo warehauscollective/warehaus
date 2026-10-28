@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { PortalTabProvider } from '@/components/providers/PortalTabProvider';
 import { PortalViewProvider } from '@/components/providers/PortalViewProvider';
 import { PORTAL_PANEL_GAP } from '@/lib/design/portal-chrome';
+import { NoticeBell } from '@/components/notices/NoticeBell';
 import { PortalDock } from './PortalDock';
 import { PortalSwipeWorkspace } from './PortalSwipeWorkspace';
 
@@ -23,6 +24,7 @@ function PortalChrome({ children }: { children: ReactNode }) {
 
   return (
     <div className="ds-scope relative h-[100dvh] overflow-hidden">
+      <NoticeBell />
       <PortalSwipeWorkspace />
       <div className="hidden" aria-hidden>
         {children}

@@ -141,7 +141,7 @@ in this document deserves a comment in the code, it's this one.
 | Priority | SERVER | |
 | Source | SERVER | |
 | LastBridgedAt | SERVER | |
-| Description | NEVER | free text, written for internal readers |
+| Description | SERVER | B4. Was NEVER. Page body, or this property when the body is empty. Staff only. Clients do not receive it. |
 | Next Action | NEVER | free text |
 | Owner / DRI | NEVER | |
 | Blocked by | NEVER | |
@@ -154,10 +154,11 @@ in this document deserves a comment in the code, it's this one.
 | BridgeDirection / BrainPageId / WarehausPageId | NEVER | |
 | Publish to Warehaus / Promote to Brain | NEVER | |
 
-`Description` and `Next Action` are NEVER on purpose. They are the fields most likely
-to contain a sentence written assuming no client will read it. If you want
-client-facing task copy, add a separate `Client Summary` property rather than
-reclassifying these.
+`Description` was NEVER so a sentence written for internal readers would not
+reach a client. B4 stores it as SERVER: staff can read and write it through
+the outbox, and client queries still omit it. `Next Action` stays NEVER.
+Client-facing task copy still needs a separate property before this tier
+becomes CLIENT.
 
 ## Contacts
 

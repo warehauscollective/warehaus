@@ -81,7 +81,12 @@ export const TASK_PROPERTY_TIERS = {
   Priority: 'SERVER',
   Source: 'SERVER',
   LastBridgedAt: 'SERVER',
-  Description: 'NEVER',
+  /**
+   * B4. Was NEVER. SERVER stores the page body (or this property when the
+   * body is empty) for staff. Client queries omit it. A CLIENT tier would
+   * show it only on published tasks.
+   */
+  Description: 'SERVER',
   'Next Action': 'NEVER',
   'Owner / DRI': 'NEVER',
   'Blocked by': 'NEVER',

@@ -1,5 +1,6 @@
-import { clientQuery } from './_lib/wrappers';
+import { clientQuery, adminQuery } from './_lib/wrappers';
 import { isStaff } from './_lib/identity';
+import { buildActivityFeed } from './_lib/activityFeed';
 import { staffQuarantineActivity } from './_lib/quarantineActivity';
 import { clientMaySeeProject, clientMaySeeTask, isClientVisibleActivityType, isOrgVisibleToClients } from '@warehaus/portal-sync';
 
@@ -178,6 +179,58 @@ export const getSnapshot = clientQuery({
         ok: true as const,
       },
     };
+  },
+});
+
+/** Client feed. Internal projects and SERVER task fields stay out. */
+export const listActivityForClient = clientQuery({
+  args: {},
+  handler: async (ctx) => {
+    const orgId = ctx.orgId;
+    const client = await ctx.db.get(orgId);
+    const projects = await ctx.db.query('projects').withIndex('by_orgId', (q) => q.eq('orgId', orgId)).collect();
+    const tasks = await ctx.db.query('tasks').withIndex('by_orgId', (q) => q.eq('orgId', orgId)).collect();
+    const activity = await ctx.db
+      .query('activity')
+      .withIndex('by_orgId_timestamp', (q) => q.eq('orgId', orgId))
+      .order('desc')
+      .take(50);
+    const audits = await ctx.db
+      .query('auditEvents')
+      .withIndex('by_orgId_createdAt', (q) => q.eq('orgId', orgId))
+      .order('desc')
+      .take(50);
+    const outbox = await ctx.db.query('notionOutbox').withIndex('by_orgId', (q) => q.eq('orgId', orgId)).collect();
+    return buildActivityFeed({
+      audience: 'client',
+      orgVisible: isOrgVisibleToClients(client),
+      activity,
+      audits,
+      outbox,
+      projects,
+      tasks,
+    });
+  },
+});
+
+/** Staff feed across orgs, including internal projects and outbox history. */
+export const listActivityForStaff = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const projects = await ctx.db.query('projects').collect();
+    const tasks = await ctx.db.query('tasks').collect();
+    const activity = await ctx.db.query('activity').collect();
+    const audits = await ctx.db.query('auditEvents').collect();
+    const outbox = await ctx.db.query('notionOutbox').collect();
+    return buildActivityFeed({
+      audience: 'staff',
+      orgVisible: true,
+      activity,
+      audits,
+      outbox,
+      projects,
+      tasks,
+    });
   },
 });
 

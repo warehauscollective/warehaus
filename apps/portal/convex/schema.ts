@@ -94,6 +94,11 @@ export default defineSchema({
     estimate: v.optional(v.string()),
     priority: v.optional(v.string()),
     source: v.optional(v.string()),
+    /**
+     * SERVER. Page body, or the Description property when the body is empty.
+     * Client queries omit it while the tier is SERVER.
+     */
+    description: v.optional(v.string()),
     /** Staff-only. Set when Notion Stage is not a portal stage. Cleared on the next clean pull. */
     syncNotice: v.optional(v.string()),
   })

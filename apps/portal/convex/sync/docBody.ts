@@ -3,7 +3,7 @@
  * Notion-hosted images are copied to Vercel Blob before storage.
  */
 
-import { classifyDocBlock, sanitizeInlineText } from '@warehaus/portal-sync';
+import { classifyDocBlock, plainTextFromNotionBlocks, sanitizeInlineText } from '@warehaus/portal-sync';
 import { copyNotionFileToBlob } from './blob';
 import { notionToken } from './notionApi';
 
@@ -159,4 +159,19 @@ export async function fetchSafeDocBody(
 
   if (blocks.length) result.body = JSON.stringify(blocks);
   return result;
+}
+
+/** First page of blocks as plain text. Empty when Notion has no readable text. */
+export async function fetchPlainPageBody(pageId: string): Promise<string> {
+  const url = new URL(`https://api.notion.com/v1/blocks/${pageId}/children`);
+  url.searchParams.set('page_size', '100');
+  const res = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${notionToken()}`,
+      'Notion-Version': '2025-09-03',
+    },
+  });
+  if (!res.ok) return '';
+  const json = (await res.json()) as { results?: unknown[] };
+  return plainTextFromNotionBlocks(json.results ?? []);
 }

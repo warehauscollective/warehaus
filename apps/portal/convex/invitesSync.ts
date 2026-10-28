@@ -9,7 +9,7 @@ import { isPortalSelfWrite, revertIdempotencyKey } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import { internalMutation, internalQuery } from './_generated/server';
-import { adminQuery } from './_lib/wrappers';
+import { adminMutation, adminQuery } from './_lib/wrappers';
 import { asClientInviteRole } from './_lib/inviteFlow';
 import { revertAllowed, REVERT_WINDOW_MS } from './_lib/revertLimit';
 import { isNotionWritebackEnabled } from './_lib/writeAuthz';
@@ -75,11 +75,75 @@ export const contactSyncContext = internalQuery({
 export const listStaffNotices = adminQuery({
   args: {},
   handler: async (ctx) => {
-    return ctx.db
+    const rows = await ctx.db
       .query('notices')
       .withIndex('by_audience_createdAt', (q) => q.eq('audience', 'staff'))
       .order('desc')
       .take(50);
+    return rows.map((row) => ({
+      id: row._id,
+      message: row.message,
+      createdAt: row.createdAt,
+      readAt: row.readAt ?? null,
+      edgeCase: row.edgeCase ?? null,
+      unread: row.readAt == null,
+    }));
+  },
+});
+
+export const markNoticeRead = adminMutation({
+  args: { noticeId: v.id('notices') },
+  handler: async (ctx, { noticeId }) => {
+    const row = await ctx.db.get(noticeId);
+    if (!row || row.audience !== 'staff') return { ok: false as const };
+    if (row.readAt == null) await ctx.db.patch(noticeId, { readAt: Date.now() });
+    return { ok: true as const };
+  },
+});
+
+export const markAllNoticesRead = adminMutation({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db
+      .query('notices')
+      .withIndex('by_audience_createdAt', (q) => q.eq('audience', 'staff'))
+      .order('desc')
+      .take(50);
+    const now = Date.now();
+    for (const row of rows) {
+      if (row.readAt == null) await ctx.db.patch(row._id, { readAt: now });
+    }
+    return { ok: true as const };
+  },
+});
+
+/** Staff inbox row. The same unread edge case is not inserted twice. */
+export const recordStaffNotice = internalMutation({
+  args: {
+    orgId: v.id('clients'),
+    message: v.string(),
+    edgeCase: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query('notices')
+      .withIndex('by_orgId', (q) => q.eq('orgId', args.orgId))
+      .collect();
+    const open = existing.some(
+      (row) =>
+        row.audience === 'staff' &&
+        row.readAt == null &&
+        row.edgeCase === args.edgeCase &&
+        row.message === args.message,
+    );
+    if (open) return;
+    await ctx.db.insert('notices', {
+      orgId: args.orgId,
+      audience: 'staff',
+      message: args.message,
+      createdAt: Date.now(),
+      ...(args.edgeCase ? { edgeCase: args.edgeCase } : {}),
+    });
   },
 });
 
