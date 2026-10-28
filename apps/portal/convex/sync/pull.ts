@@ -8,6 +8,8 @@ import {
   mapNotionClientDoc,
   mapNotionContact,
   mapNotionProject,
+  decideContactSync,
+  isPortalSelfWrite,
   mapNotionSharedResource,
   mapNotionTask,
   isApprovedInternalWarehausProject,
@@ -381,6 +383,69 @@ export const pullAll = internalAction({
         await track(page, 'contacts', async () => {
         const mapped = mapNotionContact(page.id, page.properties);
         const clientNotionId = mapped.row?.database === 'contacts' ? mapped.row.clientNotionIds[0] : undefined;
+        if (mapped.row?.database === 'contacts' && !page.archived && !page.inTrash && mapped.disposition !== 'quarantine') {
+          const syncCtx = await ctx.runQuery(internal.invitesSync.contactSyncContext, {
+            notionPageId: page.id,
+          });
+          const observed = {
+            'Portal Access': mapped.row.portalAccess,
+            'Invite Status': mapped.row.inviteStatus ?? null,
+            'Client Company': mapped.row.clientNotionIds,
+            Source: mapped.row.source ?? null,
+          };
+          const selfWrite = isPortalSelfWrite({
+            observed,
+            lastWritten: syncCtx.lastWritten as typeof observed,
+            fields: Object.keys(syncCtx.lastWritten),
+          });
+          const syncDecision = decideContactSync({
+            portalAccess: mapped.row.portalAccess,
+            inviteStatus: mapped.row.inviteStatus,
+            source: mapped.row.source,
+            clientNotionId,
+            clientEnabled: (id) => (id ? ids.clientEnabledByNotion[id] === true : false),
+            prevInviteStatus: syncCtx.prevInviteStatus,
+            liveToken: syncCtx.liveToken,
+            verifiedAcceptance: syncCtx.verifiedAcceptance,
+            selfWrite,
+          });
+          const effectiveClientId = syncDecision.effective.clientNotionId;
+          const pendingOrgId = effectiveClientId ? ids.clientByNotion[effectiveClientId] : undefined;
+          await ctx.runMutation(internal.invitesSync.applyContactRead, {
+            notionPageId: page.id,
+            orgId: pendingOrgId,
+            name: mapped.row.name,
+            email: mapped.row.email,
+            role: mapped.row.role,
+            source: mapped.row.source,
+            notionLastEditedTime: page.lastEdited || undefined,
+            placement: syncDecision.placement,
+            inviteStatus: syncDecision.effective.inviteStatus,
+            actionsJson: JSON.stringify(syncDecision.actions),
+            observedJson: JSON.stringify(observed),
+          });
+          if (syncDecision.placement === 'UPSERT_PENDING_INVITE') {
+            await conceal('contacts', page.id, {
+              action: 'hide',
+              reason: 'gate',
+              detail: 'Pending invite is not a login',
+              revokeSessions: true,
+              cascade: 'none',
+            });
+            return;
+          }
+          if (syncDecision.placement === 'SKIP_AND_DROP_PENDING') {
+            await conceal('contacts', page.id, {
+              action: 'hide',
+              reason: 'gate',
+              detail: 'Contact is not a login',
+              revokeSessions: true,
+              cascade: 'none',
+            });
+            stats.skipped += 1;
+            return;
+          }
+        }
         const decision = decideSyncedRowVisibility({
           table: 'contacts',
           disposition: mapped.disposition,
@@ -609,6 +674,7 @@ export const pullAll = internalAction({
         })();
         const parentOk = projectIds.some((id) => projectPass.has(id));
         const mapped = mapNotionTask(page.id, page.properties, parentOk);
+        const stageNotice = (mapped.notices ?? []).find((notice) => notice.startsWith('Stage "')) ?? null;
         for (const notice of mapped.notices ?? []) {
           stats.errors.push(`notice tasks ${page.id}: ${notice}`);
         }
@@ -692,6 +758,7 @@ export const pullAll = internalAction({
           externalId: mapped.row.externalId,
           source: mapped.row.source,
           hiddenReason: decision.action === 'store-hidden' ? 'ancestor' : undefined,
+          syncNotice: stageNotice,
         });
         if (decision.action === 'store-hidden') {
           stats.concealed += 1;

@@ -213,6 +213,127 @@ export function passwordResetEmail(args: {
   return { subject, html, text };
 }
 
+export function inviteEmail(args: {
+  name: string;
+  acceptUrl: string;
+}): { subject: string; html: string; text: string } {
+  const subject = 'You’re invited to the Warehaus portal';
+  const text = [
+    `Hi ${args.name},`,
+    '',
+    'You have a Warehaus portal invite.',
+    'Sign in to accept:',
+    args.acceptUrl,
+    '',
+    'If you were not expecting this, you can ignore this email.',
+    '',
+    '— Warehaus',
+  ].join('\n');
+  const html = `<!DOCTYPE html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111; max-width: 520px; margin: 0 auto; padding: 24px;">
+    <p style="font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: #666; margin: 0 0 16px;">Warehaus Portal</p>
+    <p>Hi ${escapeHtml(args.name)},</p>
+    <p>You have a Warehaus portal invite.</p>
+    <p style="margin: 28px 0;">
+      <a href="${escapeHtml(args.acceptUrl)}"
+         style="display: inline-block; background: #111; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 8px; font-weight: 600;">
+        Accept invite
+      </a>
+    </p>
+    <p style="font-size: 14px; color: #555;">Or paste this link into your browser:</p>
+    <p style="font-size: 13px; word-break: break-all; color: #333;">${escapeHtml(args.acceptUrl)}</p>
+  </body>
+</html>`;
+  return { subject, html, text };
+}
+
+export function existingLoginEmail(args: {
+  name: string;
+  acceptUrl: string;
+}): { subject: string; html: string; text: string } {
+  const subject = 'You already have a Warehaus portal login';
+  const text = [
+    `Hi ${args.name},`,
+    '',
+    'You already have a Warehaus portal login. Sign in to accept this invite:',
+    args.acceptUrl,
+    '',
+    '— Warehaus',
+  ].join('\n');
+  const html = `<!DOCTYPE html>
+<html>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111; max-width: 520px; margin: 0 auto; padding: 24px;">
+    <p style="font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: #666; margin: 0 0 16px;">Warehaus Portal</p>
+    <p>Hi ${escapeHtml(args.name)},</p>
+    <p>You already have a Warehaus portal login.</p>
+    <p style="margin: 28px 0;">
+      <a href="${escapeHtml(args.acceptUrl)}"
+         style="display: inline-block; background: #111; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 8px; font-weight: 600;">
+        Sign in to accept
+      </a>
+    </p>
+    <p style="font-size: 14px; color: #555;">Or paste this link into your browser:</p>
+    <p style="font-size: 13px; word-break: break-all; color: #333;">${escapeHtml(args.acceptUrl)}</p>
+  </body>
+</html>`;
+  return { subject, html, text };
+}
+
+export type InviteMailMessage = { to: string; subject: string; html: string; text: string };
+
+export type InviteMailClient = {
+  send: (message: InviteMailMessage) => Promise<void>;
+};
+
+/** Exact opt-in. Unset, empty, and any other value stay off. Independent of write-back. */
+export function isInviteEmailEnabled(flag: string | undefined): boolean {
+  return flag === 'true';
+}
+
+export const INVITE_EMAIL_OFF = 'INVITE_EMAIL_ENABLED is off';
+
+/**
+ * Sends only when INVITE_EMAIL_ENABLED is exactly "true" and a public origin is set.
+ * NOTION_WRITEBACK_ENABLED does not turn this on. Tests pass a mock client.
+ */
+export async function sendIssuedInviteMail(
+  args: { to: string; name: string; rawToken: string; alreadyHasLogin: boolean },
+  env: { INVITE_EMAIL_ENABLED?: string; PORTAL_PUBLIC_URL?: string },
+  client: InviteMailClient,
+): Promise<{ sent: true } | { sent: false; reason: string }> {
+  if (!isInviteEmailEnabled(env.INVITE_EMAIL_ENABLED)) {
+    return { sent: false, reason: INVITE_EMAIL_OFF };
+  }
+  const origin = env.PORTAL_PUBLIC_URL?.replace(/\/$/, '') ?? '';
+  if (!origin) return { sent: false, reason: 'PORTAL_PUBLIC_URL is not set' };
+  const acceptUrl = `${origin}/accept?token=${encodeURIComponent(args.rawToken)}`;
+  await deliverInviteEmail(
+    {
+      to: args.to,
+      name: args.name,
+      acceptUrl,
+      alreadyHasLogin: args.alreadyHasLogin,
+    },
+    client,
+  );
+  return { sent: true };
+}
+
+/**
+ * Hands the built message to the caller. Tests pass a mock client.
+ * This function does not call a provider.
+ */
+export async function deliverInviteEmail(
+  args: { to: string; name: string; acceptUrl: string; alreadyHasLogin: boolean },
+  client: InviteMailClient,
+): Promise<void> {
+  const mail = args.alreadyHasLogin
+    ? existingLoginEmail({ name: args.name, acceptUrl: args.acceptUrl })
+    : inviteEmail({ name: args.name, acceptUrl: args.acceptUrl });
+  await client.send({ to: args.to, ...mail });
+}
+
 function escapeHtml(value: string): string {
   return value
     .replaceAll('&', '&amp;')

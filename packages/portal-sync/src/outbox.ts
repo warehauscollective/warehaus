@@ -196,6 +196,42 @@ export async function runOutboxAttempt(input: {
     return { outcome: 'dead', notifyStaff: plan.notifyStaff, error: 'Outbox item exceeded 24h' };
   }
 
+  const inviteState = input.item.kind === 'setInviteState' || input.item.kind === 'revert';
+  if (inviteState) {
+    const validated = validatePropertyPatch({
+      database: input.item.database,
+      properties: input.item.properties,
+    });
+    if (!validated.ok) return { outcome: 'rejected', reason: validated.errors.join('; ') };
+    if (!input.item.notionPageId) {
+      return { outcome: 'rejected', reason: 'State changes need an existing Notion page' };
+    }
+    if (input.item.expectedLastEditedTime) {
+      return runPatchAttempt({
+        item: input.item,
+        nowMs: input.nowMs,
+        properties: validated.properties,
+        readPage: input.readPage,
+        write: input.write,
+      });
+    }
+    const response = await input.write({
+      method: 'update',
+      notionPageId: input.item.notionPageId,
+      properties: validated.properties,
+    });
+    if (!response.ok || !response.notionPageId) return retryOutcome(input.item, input.nowMs, response);
+    return {
+      outcome: 'confirmed',
+      reused: false,
+      write: {
+        notionPageId: response.notionPageId,
+        lastEditedTime: response.lastEditedTime ?? null,
+        properties: validated.properties,
+      },
+    };
+  }
+
   const isPatch = input.item.kind === 'task-status' || input.item.kind === 'update';
   const validated = isPatch
     ? validatePropertyPatch({

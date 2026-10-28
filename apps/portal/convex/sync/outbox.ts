@@ -77,9 +77,6 @@ export const enqueue = internalMutation({
     schedule: v.boolean(),
   },
   handler: async (ctx, args): Promise<EnqueueResult> => {
-    if (args.actor !== 'staff') {
-      return { ok: false, error: 'Only Warehaus Staff can write to Notion' };
-    }
     const existing = await ctx.db
       .query('notionOutbox')
       .withIndex('by_idempotencyKey', (q) => q.eq('idempotencyKey', args.idempotencyKey))
@@ -92,6 +89,12 @@ export const enqueue = internalMutation({
     if (plan.action === 'reuse') {
       if (!existing) return { ok: false, error: 'Outbox row was missing' };
       return { ok: true, outboxId: existing._id, duplicate: true };
+    }
+
+    const systemInvite =
+      args.actor === 'system' && (args.kind === 'setInviteState' || args.kind === 'revert');
+    if (args.actor !== 'staff' && !systemInvite) {
+      return { ok: false, error: 'Only Warehaus Staff can write to Notion' };
     }
 
     if (args.kind === 'project-create' && !projectCreateOn()) {
@@ -119,7 +122,7 @@ export const enqueue = internalMutation({
       orgId: args.orgId,
       database: args.database,
       payload: args.payload,
-      actor: args.actor,
+      actor: systemInvite ? 'system' : 'staff',
       status: 'queued',
       attempts: 0,
       nextAttemptAt: now,
@@ -199,6 +202,25 @@ function validateEnqueueKind(input: {
     for (const name of Object.keys(input.properties)) {
       if (!allowed.has(name)) return `${name} is not part of project create`;
     }
+    return null;
+  }
+  if (input.kind === 'createInvite') {
+    if (input.database !== 'contacts') return 'Invites only write the Contacts database';
+    const validated = validateWriteback({
+      database: 'contacts',
+      properties: input.properties,
+      actor: 'staff',
+    });
+    if (!validated.ok) return validated.errors.join('; ');
+    if (input.properties['Invite Status'] !== 'Pending') return 'Invite Status must be Pending';
+    if (input.properties['Portal Access'] !== 'Disabled') return 'Portal Access must be Disabled';
+    return null;
+  }
+  if (input.kind === 'setInviteState' || input.kind === 'revert') {
+    if (input.database !== 'contacts') return 'Invites only write the Contacts database';
+    const validated = validatePropertyPatch({ database: 'contacts', properties: input.properties });
+    if (!validated.ok) return validated.errors.join('; ');
+    if (!input.notionPageId) return 'State changes need an existing Notion page';
     return null;
   }
   if (input.kind === 'create') {
@@ -324,9 +346,15 @@ export const applyOutcome = internalMutation({
 
     if (args.outcome.kind === 'wait') return;
 
+    const releaseHeldInvite = async () => {
+      if (row.kind !== 'setInviteState') return;
+      await ctx.runMutation(internal.invites.releaseHeldToken, { outboxId: row._id });
+    };
+
     if (args.outcome.kind === 'dead') {
       await ctx.db.patch(row._id, { status: 'dead', lastError: args.outcome.error, claimedAt: undefined });
       if (args.outcome.notifyStaff) await notify(`Notion write ${row.idempotencyKey} was marked dead after 24h`);
+      await releaseHeldInvite();
       return;
     }
 
@@ -352,6 +380,7 @@ export const applyOutcome = internalMutation({
         after: args.outcome.reason,
         createdAt: now,
       });
+      await releaseHeldInvite();
       return;
     }
 
@@ -377,6 +406,7 @@ export const applyOutcome = internalMutation({
         after: after?.after ?? args.outcome.reason,
         createdAt: now,
       });
+      await releaseHeldInvite();
       return;
     }
 

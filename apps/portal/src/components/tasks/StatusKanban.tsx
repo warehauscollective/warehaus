@@ -82,6 +82,7 @@ export function StatusKanban({
                         notionPageId={task.notionPageId}
                         syncHidden={task.syncHidden}
                         syncState={task.syncState}
+                        syncNotice={task.syncNotice}
                       />
                     </div>
                   </button>
@@ -150,6 +151,7 @@ export function StatusTable({
                   notionPageId={task.notionPageId}
                   syncHidden={task.syncHidden}
                   syncState={task.syncState}
+                  syncNotice={task.syncNotice}
                 />
               </td>
             </tr>

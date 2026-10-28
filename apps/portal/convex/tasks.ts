@@ -199,6 +199,7 @@ export const listForStaff = adminQuery({
           notionPageId: row.notionPageId,
           lastSyncedAt: row.lastSyncedAt,
           syncHidden: row.syncHiddenAt != null,
+          syncNotice: row.syncNotice ?? null,
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));

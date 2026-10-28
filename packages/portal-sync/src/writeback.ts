@@ -427,6 +427,7 @@ const SELECT_PROPS = new Set([
   'Doc Type',
   'Portal access',
   'Portal Access',
+  'Invite Status',
 ]);
 
 const RELATION_PROPS = new Set([
@@ -446,6 +447,10 @@ export function toNotionProperties(
   const title = TITLE_PROPERTY[database];
   const out: Record<string, unknown> = {};
   for (const [name, value] of Object.entries(properties)) {
+    if (name === 'Invite Status' && (value == null || value === '')) {
+      out[name] = { select: null };
+      continue;
+    }
     if (value == null) continue;
     if (name === title && typeof value === 'string') {
       out[name] = { title: [{ type: 'text', text: { content: value } }] };

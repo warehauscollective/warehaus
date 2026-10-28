@@ -9,6 +9,7 @@ import {
   pullSyncWords,
   rowHasSyncFields,
   rowSyncChip,
+  staffStageNoticeLabel,
   taskBoardColumnKey,
   type PortalTask,
 } from '../../src/lib/data/view-models';
@@ -61,6 +62,9 @@ describe('row sync chip', () => {
     assert.equal(rowSyncChip({ syncState: 'syncing', notionPageId: 'notion-1' }), 'syncing');
     assert.equal(rowSyncChip({ notionPageId: null }), 'syncing');
     assert.equal(rowSyncChip({}), 'syncing');
+    assert.equal(staffStageNoticeLabel('Stage "Brainstorm" is not a portal stage'), 'Unknown stage');
+    assert.equal(staffStageNoticeLabel(null), null);
+    assert.equal(staffStageNoticeLabel('Something else'), null);
     assert.equal(rowHasSyncFields({}), false);
     assert.equal(rowHasSyncFields({ notionPageId: null }), true);
     assert.equal(rowHasSyncFields({ syncHidden: false }), true);

@@ -103,7 +103,24 @@ export type MappedContact = {
   phone?: string;
   externalId?: string;
   source?: string;
+  /** Omitted when Invite Status is absent or empty. */
+  inviteStatus?: InviteStatus;
 };
+
+export type InviteStatus = 'Pending' | 'Accepted' | 'Declined' | 'Expired' | 'Revoked';
+
+export function asInviteStatus(value: string | null | undefined): InviteStatus | undefined {
+  if (
+    value === 'Pending' ||
+    value === 'Accepted' ||
+    value === 'Declined' ||
+    value === 'Expired' ||
+    value === 'Revoked'
+  ) {
+    return value;
+  }
+  return undefined;
+}
 
 export type MappedSharedResource = {
   database: 'sharedResources';
@@ -293,6 +310,7 @@ export function mapNotionContact(
     phone: extractPhone(properties.Phone) ?? undefined,
     externalId: extractRichText(properties['External ID']) || undefined,
     source: extractSelect(properties.Source) ?? undefined,
+    inviteStatus: asInviteStatus(extractSelect(properties['Invite Status'])),
   };
 
   const gate = contactRowPassesGate({

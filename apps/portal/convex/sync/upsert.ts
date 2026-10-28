@@ -119,9 +119,10 @@ export const upsertTask = internalMutation({
     externalId: v.optional(v.string()),
     source: v.optional(v.string()),
     hiddenReason: hiddenReasonArg,
+    syncNotice: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
-    const { hiddenReason, ...fields } = args;
+    const { hiddenReason, syncNotice, ...fields } = args;
     const existing = await ctx.db
       .query('tasks')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
@@ -131,6 +132,11 @@ export const upsertTask = internalMutation({
       ...fields,
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
+      ...(syncNotice
+        ? { syncNotice }
+        : syncNotice === null && existing
+          ? { syncNotice: undefined }
+          : {}),
     };
     if (existing) {
       await ctx.db.patch(existing._id, patch);
