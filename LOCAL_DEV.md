@@ -25,7 +25,7 @@ Fixture preview:
 
 - `NEXT_PUBLIC_PORTAL_FIXTURES`
 
-Leave `NOTION_WRITEBACK_ENABLED` and `NOTION_PROJECT_CREATE_ENABLED` unset.
+Leave `NOTION_WRITEBACK_ENABLED` and `NOTION_PROJECT_CREATE_ENABLED` unset. Write-back stays off until the dev-only steps below.
 
 ## One-time Mac setup
 
@@ -41,7 +41,7 @@ After `.env.local` exists, day-to-day Mac work is `npm run dev:local` from the r
 
 ## Cloud agents
 
-Cloud agents use the shared dev deployment. They run Next against it. They do not push functions.
+Cloud agents use the shared dev deployment. They run Next against it.
 
 ```bash
 npm run dev:portal
@@ -49,9 +49,40 @@ npm run dev:portal
 
 That runs the preflight, then the portal on port 3100. It does not run `convex dev`.
 
-`convex dev` pushes functions to the shared dev deployment. Cloud agents do not run `npm run dev:local`, `npm run dev:convex`, or `npx convex dev` unless the PR changes files under `convex/`. When a PR does push functions there, the PR body and the handoff report must say so, so Peter can pull that branch before he tests on his Mac.
+`convex dev` pushes functions to the shared dev deployment. Cloud agents do not run `npm run dev:local`, `npm run dev:convex`, `npx convex dev`, or `npx convex deploy`. They do not push functions unless a PR changes files under `convex/` and Peter has supplied a dev deploy key. A PR that changes `convex/` still does not update the shared dev deployment until Peter pulls that branch and runs `npx convex dev` himself. Production `unique-turtle-383` is never the target. Do not pass `--prod`.
 
-The cloud agent needs a dev deploy key. The name is `CONVEX_DEPLOY_KEY`, scoped to the shared dev deployment, not production. Peter creates that key. Do not create a key in a PR. Do not put the value in the repo, a doc, or chat.
+The dev deploy key name is `CONVEX_DEPLOY_KEY`, scoped to the shared dev deployment, not production. Peter creates that key. Do not create a key in a PR. Do not put the value in the repo, a doc, or chat.
+
+## Write-back in dev only
+
+Leave both flags unset on a normal checkout. The worker and enqueue are no-ops until `NOTION_WRITEBACK_ENABLED` is exactly `true`. Project create also needs `NOTION_PROJECT_CREATE_ENABLED` exactly `true`, and still does nothing while write-back is off.
+
+Turn write-back on only on the shared dev deployment, from `apps/portal`, while Convex dev is running. Do not pass `--prod`. Do not target `unique-turtle-383`.
+
+```bash
+cd apps/portal
+npx convex env set NOTION_WRITEBACK_ENABLED true
+```
+
+The value is the word `true`. That is not a secret. Do not set it on production.
+
+To turn it off again, remove it. Unset is off. The string `false` is also off. Only the exact string `true` is on.
+
+```bash
+npx convex env remove NOTION_WRITEBACK_ENABLED
+```
+
+One manual check, against one test task, after Peter pulls this branch and runs `npx convex dev` so the new tables exist:
+
+1. Confirm `CONVEX_DEPLOYMENT` is the shared `dev:` deployment and does not contain `unique-turtle-383`.
+2. Set `NOTION_WRITEBACK_ENABLED` to `true` on that deployment only.
+3. Read one test task's Notion `last_edited_time`.
+4. From `apps/portal`: `npx convex run sync/taskWrite:enqueueStatus` with JSON keys `taskId`, `status` (`Inbox`, `To Do`, `Blocked`, `In Progress`, or `Done`), and `expectedLastEditedTime` (that ISO time).
+5. The worker runs on the outbox cron, or `npx convex run sync/outboxWork:processDue`.
+6. Confirm the test task's Status in Notion, one `auditEvents` row, and no second write if the same command is run again.
+7. Remove `NOTION_WRITEBACK_ENABLED` when finished. Leave `NOTION_PROJECT_CREATE_ENABLED` unset.
+
+Do not point this at a client row you cannot afford to change. Stage, Parent item, and Resources are not writable.
 
 ## Deploy policy
 
@@ -90,7 +121,7 @@ The pull reads Notion with `NOTION_WAREHAUS_TOKEN` on the shared dev deployment.
 
 `BLOB_READ_WRITE_TOKEN` is optional. Leave it unset for a read-only pull: file copy is skipped, and the pull does not patch Notion page URLs.
 
-Write-back flags stay unset.
+Write-back flags stay unset unless you are on the dev-only steps below. Production `unique-turtle-383` never gets either flag.
 
 `sync/trigger:schedulePull` is a staff mutation. It needs a signed-in Warehaus Staff session, which an empty deployment does not have yet. The CLI pull is the internal action `sync/pull:pullAll` (same pull the staff mutation schedules). With no prior sync cursor, that action does a full scan.
 

@@ -156,7 +156,9 @@ export {
 export {
   NOTION_PROJECT_CREATE_ENV,
   PROJECT_CREATE_CONVEX_STATUS,
+  PROJECT_CREATE_OFF_ERROR,
   isNotionProjectCreateEnabled,
+  planProjectCreateDispatch,
   projectCreateStaffAllowed,
   isNotionPageId,
   createProjectExternalId,
@@ -170,6 +172,61 @@ export {
   type ProjectCreateBuild,
   type ProjectCreateDedupe,
 } from './projectCreate';
+
+export {
+  WRITEBACK_OFF_ERROR,
+  NOTION_WRITE_VERSION,
+  TASK_STATUSES,
+  isNotionWritebackEnabled,
+  validateWriteback,
+  validatePropertyPatch,
+  validateTaskStatusUpdate,
+  searchPlanForCreate,
+  decideCreateDedupe,
+  toNotionProperties,
+  readNotionPlain,
+  type WritebackDatabase,
+  type WriteActor,
+  type WriteValue,
+  type WriteProperties,
+  type WritebackResult,
+  type SearchPlan,
+  type ExistingPageHit,
+  type DedupeDecision,
+} from './writeback';
+
+export {
+  OUTBOX_BACKOFF_MS,
+  OUTBOX_DEAD_AFTER_MS,
+  OUTBOX_STAFF_NOTICE_ATTEMPTS,
+  OUTBOX_STAFF_NOTICE_QUEUED_MS,
+  inviteIdempotencyKey,
+  stateIdempotencyKey,
+  revertIdempotencyKey,
+  taskStatusIdempotencyKey,
+  projectCreateIdempotencyKey,
+  nextBackoffMs,
+  shouldNotifyStaff,
+  isOutboxDead,
+  planOutboxAttempt,
+  planIdempotentEnqueue,
+  runOutboxAttempt,
+  runProjectCreateAttempt,
+  auditEventForOutcome,
+  type OutboxStatus,
+  type OutboxItem,
+  type AttemptPlan,
+  type NotionWriteResponse,
+  type ConfirmedWrite,
+  type AttemptOutcome,
+  type IdempotencyRow,
+  type PageRead,
+} from './outbox';
+
+export {
+  isPortalSelfWrite,
+  observedFromNotionPage,
+} from './selfWrite';
 
 export {
   mapNotionClient,

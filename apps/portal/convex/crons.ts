@@ -14,6 +14,14 @@ crons.interval(
   {},
 );
 
+/** Portal → Notion. No-ops unless NOTION_WRITEBACK_ENABLED is exactly "true". */
+crons.interval(
+  'notion-outbox',
+  { minutes: 1 },
+  internal.sync.outboxWork.processDue,
+  {},
+);
+
 /** Drop Blob copies for unpublished / archived Shared Resources. */
 crons.daily(
   'blob-gc-unpublished-shared',
