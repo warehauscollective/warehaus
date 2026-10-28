@@ -14,7 +14,7 @@ import { useFixturePreview } from '@/components/providers/FixturePreviewProvider
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { api } from '@convex/_generated/api';
-import { FIXTURE_CLIENTS, FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_TASKS } from '@/lib/data/fixtures';
+import { FIXTURE_CLIENTS, FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_RESOURCES, FIXTURE_TASKS } from '@/lib/data/fixtures';
 import {
   attachKnownSync,
   formatPortalDate,
@@ -32,7 +32,7 @@ import { NewProjectControl } from '@/components/projects/NewProjectControl';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
 import { TaskCreateDialog, TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { StatusTable } from '@/components/tasks/StatusKanban';
-import { createTaskExternalId } from '@warehaus/portal-sync';
+import { LIVE_TASK_STATUSES, TASK_STAGES, createTaskExternalId, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
 import type { Id } from '@convex/_generated/dataModel';
 
 const SECTION_TITLE: Record<string, string> = {
@@ -80,8 +80,10 @@ export function ProjectsContent() {
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const project = params.get('project');
+    const task = params.get('task');
     if (project) setOpenId(project);
-  }, []);
+    if (fixtures && task) setFixtureTaskId(task);
+  }, [fixtures]);
 
   const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
   const directory = useSafeQuery<Array<{ id: string; name: string }>>(
@@ -241,7 +243,13 @@ export function ProjectsContent() {
                 tasks={projectTasks}
                 staff={isStaff}
                 loading={projectsLoading}
-                rules={rules.data ?? (isStaff ? null : clientDeniedRules)}
+                rules={
+                  fixtures
+                    ? isStaff
+                      ? fixtureStaffRules
+                      : clientDeniedRules
+                    : rules.data ?? (isStaff ? null : clientDeniedRules)
+                }
                 onOpen={(task) => {
                   setOpenId(openProject.id);
                   if (fixtures) setFixtureTaskId(task.id);
@@ -307,7 +315,7 @@ export function ProjectsContent() {
             staff={isStaff}
             hostSlug={hostSlug}
             fixtures={fixtures}
-            resources={(staff.resources ?? []) as ResourceOption[]}
+            resources={(fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[]}
             onClose={closeTask}
             onOpenTask={(id) => {
               if (fixtures) setFixtureTaskId(id);
@@ -426,7 +434,7 @@ export function ProjectsContent() {
           staff={isStaff}
           hostSlug={hostSlug}
           fixtures={fixtures}
-          resources={(staff.resources ?? []) as ResourceOption[]}
+          resources={(fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[]}
           onClose={closeTask}
           onOpenTask={(id) => {
             if (fixtures) setFixtureTaskId(id);
@@ -448,6 +456,12 @@ type ResourceOption = {
 };
 
 const clientDeniedRules: BoardRules = { actor: 'client', statuses: [], stages: [] };
+
+const fixtureStaffRules: BoardRules = {
+  actor: 'staff',
+  statuses: LIVE_TASK_STATUSES.map((status) => ({ status, rule: statusMoveRule('staff', status) })),
+  stages: TASK_STAGES.map((stage) => ({ stage, rule: stageMoveRule('staff', stage) })),
+};
 
 const newTaskButton = {
   border: '1px solid var(--border)',

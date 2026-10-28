@@ -13,6 +13,7 @@ export type ClientDirectoryRow = {
   uploadNeedsReview: number;
   lastActivityAt: number | null;
   contactCount: number;
+  awaitingGoCount: number;
   syncHidden: boolean;
   notionPageId: string;
   lastSyncedAt: number;
@@ -41,6 +42,9 @@ export const listDirectory = adminQuery({
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
       const openTaskCount = tasks.filter((t) => t.syncHiddenAt == null && !t.isDone).length;
+      const awaitingGoCount = tasks.filter(
+        (t) => t.syncHiddenAt == null && !t.isDone && t.stage === 'Awaiting Go',
+      ).length;
 
       const resources = await ctx.db
         .query('sharedResources')
@@ -77,6 +81,7 @@ export const listDirectory = adminQuery({
         uploadNeedsReview,
         lastActivityAt: latestActivity[0]?.timestamp ?? null,
         contactCount: contacts.filter((c) => c.syncHiddenAt == null).length,
+        awaitingGoCount,
         syncHidden: client.syncHiddenAt != null,
         notionPageId: client.notionPageId,
         lastSyncedAt: client.lastSyncedAt,

@@ -1,4 +1,4 @@
-import { clientMaySeeTask, isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { clientMaySeeProject, clientMaySeeTask, isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
@@ -39,10 +39,30 @@ function toClientResource(
     hasFile: Boolean(row.blobUrl || row.mimeType),
     mimeType: row.mimeType ?? null,
     byteSize: row.byteSize ?? null,
-    externalId: row.externalId ?? null,
     lastSyncedAt: row.lastSyncedAt,
     notionPageId: row.notionPageId,
   };
+}
+
+function projectVisibleToClient(
+  project: {
+    name?: string | null;
+    type?: string[] | null;
+    publishToWarehaus?: boolean;
+    archive?: boolean;
+    syncHiddenAt?: number | null;
+  } | null,
+  orgVisible: boolean,
+): boolean {
+  if (!project) return true;
+  return clientMaySeeProject({
+    name: project.name,
+    types: project.type,
+    publishToWarehaus: project.publishToWarehaus ?? false,
+    archive: project.archive ?? false,
+    hidden: project.syncHiddenAt != null,
+    orgVisible,
+  });
 }
 
 export const listForClient = clientQuery({
@@ -59,6 +79,7 @@ export const listForClient = clientQuery({
     const out = [];
     for (const row of published) {
       const project = row.projectId ? await ctx.db.get(row.projectId) : null;
+      if (!projectVisibleToClient(project, true)) continue;
       out.push(toClientResource(row, project?.name ?? null));
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -74,6 +95,9 @@ export const getForClient = clientQuery({
       throw new PortalAuthError('Resource not found', 'FORBIDDEN');
     }
     const project = row.projectId ? await ctx.db.get(row.projectId) : null;
+    if (!projectVisibleToClient(project, true)) {
+      throw new PortalAuthError('Resource not found', 'FORBIDDEN');
+    }
     return toClientResource(row, project?.name ?? null);
   },
 });
@@ -92,6 +116,7 @@ export const listForStaff = adminQuery({
       out.push({
         ...toClientResource(row, project?.name ?? null),
         clientName: client?.companyName ?? null,
+        externalId: row.externalId ?? null,
         publishToWarehaus: row.publishToWarehaus,
         notionPageId: row.notionPageId,
         lastSyncedAt: row.lastSyncedAt,
@@ -137,6 +162,7 @@ export const listAttachedForClient = clientQuery({
         continue;
       }
       const resourceProject = row.projectId ? await ctx.db.get(row.projectId) : null;
+      if (!projectVisibleToClient(resourceProject, true)) continue;
       out.push(toClientResource(row, resourceProject?.name ?? null));
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

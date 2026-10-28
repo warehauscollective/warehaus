@@ -8,10 +8,16 @@ import { fixturePreviewAllowed } from '@/lib/data/fixturePreviewGate';
  * unless the fixtures flag is on and the runtime is not production.
  * There is no password. The mock session lives only under this provider.
  */
-export default function PortalFixturePreview() {
+export default async function PortalFixturePreview({
+  searchParams,
+}: {
+  searchParams: Promise<{ as?: string | string[] }>;
+}) {
   if (!fixturePreviewAllowed()) redirect('/login');
+  const params = await searchParams;
+  const as = Array.isArray(params.as) ? params.as[0] : params.as;
   return (
-    <FixturePreviewProvider>
+    <FixturePreviewProvider audience={as === 'client' ? 'client' : 'staff'}>
       <PortalShell>
         <span className="sr-only">Fixture preview</span>
       </PortalShell>

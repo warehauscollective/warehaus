@@ -30,12 +30,36 @@ type Confirm =
   | { kind: 'revoke' | 'resend'; notionPageId: string; name: string; email: string }
   | null;
 
+const FIXTURE_TEAM: TeamRow = {
+  canInvite: true,
+  members: [
+    {
+      notionPageId: 'ct-ada',
+      name: 'Ada North',
+      email: 'ada@northwind.example',
+      role: 'Client Admin',
+      portalAccess: 'Enabled',
+    },
+  ],
+  invites: [
+    {
+      notionPageId: 'ct-sam',
+      name: 'Sam North',
+      email: 'sam@northwind.example',
+      role: 'Client Member',
+      inviteStatus: 'Pending',
+    },
+  ],
+};
+
 export function TeamInvites({
   hostSlug,
   configured,
+  fixtures = false,
 }: {
   hostSlug?: string;
   configured: boolean;
+  fixtures?: boolean;
 }) {
   const team = useSafeQuery<TeamRow>(api.invites.listTeam, configured ? { hostSlug } : 'skip');
   const createInvite = useMutation(api.invites.create);
@@ -52,6 +76,11 @@ export function TeamInvites({
     setPending(true);
     setError(null);
     setNotice(null);
+    if (fixtures) {
+      setNotice('Fixture preview does not send email.');
+      setPending(false);
+      return;
+    }
     try {
       const result = await createInvite({
         name: request.name,
@@ -75,6 +104,11 @@ export function TeamInvites({
   }
 
   async function onRevoke(notionPageId: string) {
+    if (fixtures) {
+      setNotice('Fixture preview does not revoke invites.');
+      setConfirm(null);
+      return;
+    }
     setPending(true);
     setError(null);
     try {
@@ -89,13 +123,15 @@ export function TeamInvites({
     }
   }
 
+  const roster = fixtures ? FIXTURE_TEAM : team.data;
+
   return (
     <PortalTilePane>
       <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto">
         {team.loading && (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading team…</p>
         )}
-        {missing && (
+        {fixtures ? null : missing && (
           <Surface style={{ padding: 'var(--s-5)' }}>
             <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
               Team & invites
@@ -106,7 +142,7 @@ export function TeamInvites({
             </p>
           </Surface>
         )}
-        {!missing && team.data && (
+        {(fixtures || (!missing && roster)) && (
           <Surface style={{ padding: 24, maxWidth: 520 }}>
             <p className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
               Invite
@@ -184,7 +220,7 @@ export function TeamInvites({
             </div>
           </Surface>
         )}
-        {team.data && (
+        {roster && (
           <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'auto' }}>
             <table className="ds-data" style={{ minWidth: 640 }}>
               <thead>
@@ -197,7 +233,7 @@ export function TeamInvites({
                 </tr>
               </thead>
               <tbody>
-                {team.data.members.map((member) => (
+                {roster.members.map((member) => (
                   <tr key={member.notionPageId}>
                     <td>{member.name}</td>
                     <td>{member.email}</td>
@@ -219,7 +255,7 @@ export function TeamInvites({
                     </td>
                   </tr>
                 ))}
-                {team.data.invites.map((invite) => (
+                {roster.invites.map((invite) => (
                   <tr key={invite.notionPageId}>
                     <td>{invite.name}</td>
                     <td>{invite.email}</td>
@@ -255,7 +291,7 @@ export function TeamInvites({
                     </td>
                   </tr>
                 ))}
-                {team.data.members.length === 0 && team.data.invites.length === 0 && (
+                {roster.members.length === 0 && roster.invites.length === 0 && (
                   <tr>
                     <td colSpan={5} style={{ color: 'var(--muted)' }}>
                       No teammates yet.

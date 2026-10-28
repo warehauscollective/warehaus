@@ -107,11 +107,10 @@ export const create = adminMutation({
     });
     if (!plan.ok) {
       if (plan.staffMessage) {
-        await ctx.db.insert('notices', {
+        await ctx.runMutation(internal.invitesSync.recordStaffNotice, {
           orgId,
-          audience: 'staff',
           message: plan.staffMessage,
-          createdAt: Date.now(),
+          edgeCase: 'invite-state',
         });
       }
       return { ok: false as const, message: plan.clientMessage };

@@ -310,6 +310,25 @@ export function compareBoardCards(
   return a.name.localeCompare(b.name);
 }
 
+/**
+ * Full resolve passes null and visits every task.
+ * An incremental pull passes the Notion page ids it touched. A task is included
+ * when it was touched, its parent was touched, or one of its resources was.
+ */
+export function taskTouchesIncrementalSet(
+  task: {
+    notionPageId: string;
+    parentNotionPageId?: string | null;
+    resourceNotionIds?: readonly string[] | null;
+  },
+  touched: ReadonlySet<string> | null,
+): boolean {
+  if (!touched) return true;
+  if (touched.has(task.notionPageId)) return true;
+  if (task.parentNotionPageId && touched.has(task.parentNotionPageId)) return true;
+  return (task.resourceNotionIds ?? []).some((id) => touched.has(id));
+}
+
 export type BoardColumn<T> = { key: string; label: string; tasks: T[] };
 
 function columnStatus(task: { status: string; isDone: boolean }): string {

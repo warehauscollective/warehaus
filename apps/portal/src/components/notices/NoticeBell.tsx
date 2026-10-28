@@ -9,6 +9,7 @@ import { usePortalData } from '@/hooks/usePortalData';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
+import { FIXTURE_NOTICES } from '@/lib/data/fixtures';
 
 type NoticeRow = {
   id: Id<'notices'>;
@@ -40,9 +41,28 @@ export function NoticeBell() {
   const markRead = useMutation(api.invitesSync.markNoticeRead);
   const markAll = useMutation(api.invitesSync.markAllNoticesRead);
   const [open, setOpen] = useState(false);
-  if (!enabled) return null;
-  const rows = notices.data ?? [];
+  const [fixtureRows, setFixtureRows] = useState<
+    Array<{ id: string; message: string; createdAt: number; readAt: number | null; edgeCase: string; unread: boolean }>
+  >(FIXTURE_NOTICES);
+  const fixtureStaff = fixtures && staff;
+  if (!enabled && !fixtureStaff) return null;
+  const rows = fixtureStaff ? fixtureRows : notices.data ?? [];
   const unread = rows.filter((row) => row.unread).length;
+  const markOne = (id: string) => {
+    if (fixtureStaff) {
+      setFixtureRows((current) => current.map((row) => (row.id === id ? { ...row, unread: false, readAt: Date.now() } : row)));
+      return;
+    }
+    const noticeId = id as Id<'notices'>;
+    void markRead({ hostSlug, noticeId });
+  };
+  const markEvery = () => {
+    if (fixtureStaff) {
+      setFixtureRows((current) => current.map((row) => ({ ...row, unread: false, readAt: Date.now() })));
+      return;
+    }
+    void markAll({ hostSlug });
+  };
 
   return (
     <div className="fixed z-40" style={{ top: '1.25rem', right: '1.25rem' }}>
@@ -112,7 +132,7 @@ export function NoticeBell() {
               Notices
             </p>
             {unread > 0 ? (
-              <button type="button" onClick={() => void markAll({ hostSlug })} style={{ color: 'var(--accent)', fontSize: 'var(--t-xs)' }}>
+              <button type="button" onClick={markEvery} style={{ color: 'var(--accent)', fontSize: 'var(--t-xs)' }}>
                 Mark all read
               </button>
             ) : null}
@@ -128,7 +148,7 @@ export function NoticeBell() {
               key={row.id}
               type="button"
               onClick={() => {
-                if (row.unread) void markRead({ hostSlug, noticeId: row.id });
+                if (row.unread) markOne(row.id);
               }}
               className="w-full text-left"
               style={{

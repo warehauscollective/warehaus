@@ -15,7 +15,8 @@ import {
   decideSelfServeRegistration,
   staffManualLinkError,
 } from './_lib/registration';
-import { adminMutation, adminQuery } from './_lib/wrappers';
+import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 
 type DbCtx = QueryCtx | MutationCtx;
 
@@ -335,6 +336,31 @@ export const scheduleAuthBackfill = adminMutation({
       scheduled += 1;
     }
     return { scheduled, totalContacts: all.length };
+  },
+});
+
+/**
+ * People the signed-in client may see. Name and email only.
+ * Warehaus Staff contacts stay off this list. Role, portal access, and invite
+ * status are SERVER and are not returned.
+ */
+export const listForClient = clientQuery({
+  args: {},
+  handler: async (ctx) => {
+    const org = await ctx.db.get(ctx.orgId);
+    if (!isOrgVisibleToClients(org)) return [];
+    const rows = await ctx.db
+      .query('contacts')
+      .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
+      .collect();
+    return rows
+      .filter((row) => isClientSurfaceVisible(row) && row.role !== 'Warehaus Staff')
+      .map((row) => ({
+        id: row._id,
+        name: row.name,
+        email: row.email,
+      }))
+      .sort((a, b) => a.name.localeCompare(b.name));
   },
 });
 

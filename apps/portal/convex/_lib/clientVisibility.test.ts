@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { TASK_UNAVAILABLE } from '@warehaus/portal-sync';
+import { getForClient as getDocForClient, listForClient as listDocsForClient } from '../clientDocs';
+import { listForClient as listPeopleForClient } from '../contacts';
 import { getSnapshot, listActivityForClient, listActivityForStaff } from '../portalData';
 import {
   listForClient as listProjectsForClient,
@@ -8,6 +10,10 @@ import {
   listForStaff,
   listPublishedForStaff,
 } from '../projects';
+import {
+  getForClient as getResourceForClient,
+  listForClient as listResourcesForClient,
+} from '../sharedResources';
 import {
   activityForClient,
   activityForStaff,
@@ -102,8 +108,8 @@ const tables: Record<string, Row[]> = {
     {
       _id: 'contact-staff',
       orgId: org._id,
-      name: 'Peter',
-      email: 'peter@warehaus.test',
+      name: 'Maya Internal',
+      email: 'maya@warehaus.studio',
       authUserId: 'auth-staff',
       role: 'Warehaus Staff',
       portalAccess: 'Enabled',
@@ -151,6 +157,9 @@ const tables: Record<string, Row[]> = {
       notionPageId: 'task-public-notion',
       lastSyncedAt: 1,
       description: 'Staff only task copy',
+      estimate: 'estimate-secret',
+      priority: 'priority-high',
+      pullRequestUrl: 'https://github.com/warehaus/secret/pull/1',
     },
     {
       _id: 'task-internal',
@@ -214,6 +223,94 @@ const tables: Record<string, Row[]> = {
       summary: 'General update',
       timestamp: 10,
       tone: 'muted',
+    },
+  ],
+  clientDocs: [
+    {
+      _id: 'doc-public',
+      orgId: org._id,
+      projectId: 'proj-public',
+      title: 'Public brief',
+      summary: 'Shared scope',
+      docType: 'Brief',
+      order: 1,
+      status: 'Published',
+      publishToWarehaus: true,
+      notionPageId: 'doc-public-notion',
+      lastSyncedAt: 1,
+    },
+    {
+      _id: 'doc-draft',
+      orgId: org._id,
+      projectId: 'proj-public',
+      title: 'Secret doc',
+      summary: 'Draft',
+      docType: 'Note',
+      status: 'Draft',
+      publishToWarehaus: false,
+      notionPageId: 'doc-draft-notion',
+      lastSyncedAt: 1,
+    },
+    {
+      _id: 'doc-unpub',
+      orgId: org._id,
+      projectId: 'proj-public',
+      title: 'Unpublished doc',
+      summary: 'Held',
+      docType: 'Note',
+      status: 'Published',
+      publishToWarehaus: false,
+      notionPageId: 'doc-unpub-notion',
+      lastSyncedAt: 1,
+    },
+    {
+      _id: 'doc-internal',
+      orgId: org._id,
+      projectId: 'proj-internal',
+      title: 'Studio doc',
+      summary: 'Internal notes',
+      docType: 'Note',
+      status: 'Published',
+      publishToWarehaus: true,
+      notionPageId: 'doc-internal-notion',
+      lastSyncedAt: 1,
+    },
+  ],
+  sharedResources: [
+    {
+      _id: 'res-public',
+      orgId: org._id,
+      projectId: 'proj-public',
+      title: 'Kickoff notes',
+      description: 'Shared recap',
+      type: 'Meeting notes',
+      url: 'https://example.com/recap',
+      publishToWarehaus: true,
+      archive: false,
+      externalId: 'wh_res_secret',
+      sourceNotionUrl: 'https://www.notion.so/secret-page',
+      notionPageId: 'res-public-notion',
+      lastSyncedAt: 1,
+    },
+    {
+      _id: 'res-draft',
+      orgId: org._id,
+      projectId: 'proj-public',
+      title: 'Draft file',
+      publishToWarehaus: false,
+      archive: false,
+      notionPageId: 'res-draft-notion',
+      lastSyncedAt: 1,
+    },
+    {
+      _id: 'res-internal',
+      orgId: org._id,
+      projectId: 'proj-internal',
+      title: 'Studio file',
+      publishToWarehaus: true,
+      archive: false,
+      notionPageId: 'res-internal-notion',
+      lastSyncedAt: 1,
     },
   ],
   syncMeta: [],
@@ -303,8 +400,11 @@ describe('client identity against warehaus.studio', () => {
   it('returns the shared project and task and none of the internal rows', async () => {
     const projects = await run(listProjectsForClient);
     const tasks = await run(listTasksForClient);
+    const docs = await run(listDocsForClient);
+    const resources = await run(listResourcesForClient);
+    const people = await run(listPeopleForClient);
     const snapshot = await run(getSnapshot);
-    const bundled = text({ projects, tasks, snapshot });
+    const bundled = text({ projects, tasks, docs, resources, people, snapshot });
 
     assert.match(bundled, /Northwind site/);
     assert.match(bundled, /Homepage/);
@@ -318,6 +418,43 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(bundled.includes('project-internal'), false);
     assert.equal(bundled.includes('sync noise'), false);
     assert.equal(bundled.includes('Staff only task copy'), false);
+    assert.equal(bundled.includes('Public brief'), true);
+    assert.equal(bundled.includes('Kickoff notes'), true);
+    assert.equal(bundled.includes('Ada Client'), true);
+    assert.equal(bundled.includes('Secret doc'), false);
+    assert.equal(bundled.includes('Unpublished doc'), false);
+    assert.equal(bundled.includes('Studio doc'), false);
+    assert.equal(bundled.includes('Draft file'), false);
+    assert.equal(bundled.includes('Studio file'), false);
+    assert.equal(bundled.includes('maya@warehaus.studio'), false);
+    assert.equal(bundled.includes('Warehaus Staff'), false);
+    assert.equal(bundled.includes('estimate-secret'), false);
+    assert.equal(bundled.includes('priority-high'), false);
+    assert.equal(bundled.includes('secret/pull/1'), false);
+    assert.equal(bundled.includes('wh_res_secret'), false);
+    assert.equal(bundled.includes('notion.so'), false);
+    assert.equal(bundled.includes('publishToWarehaus'), false);
+    assert.equal(text(docs).includes('"status"'), false);
+    assert.equal(text(people).includes('role'), false);
+
+    const publicDoc = await run(getDocForClient, { docId: 'doc-public' });
+    assert.equal((publicDoc as { title: string }).title, 'Public brief');
+    for (const docId of ['doc-draft', 'doc-unpub', 'doc-internal', 'doc-missing']) {
+      await assert.rejects(run(getDocForClient, { docId }), (err: unknown) => {
+        assert.ok(err instanceof PortalAuthError);
+        assert.equal(err.message, 'Doc not found');
+        return true;
+      });
+    }
+    const publicResource = await run(getResourceForClient, { resourceId: 'res-public' });
+    assert.equal((publicResource as { name: string }).name, 'Kickoff notes');
+    for (const resourceId of ['res-draft', 'res-internal', 'res-missing']) {
+      await assert.rejects(run(getResourceForClient, { resourceId }), (err: unknown) => {
+        assert.ok(err instanceof PortalAuthError);
+        assert.equal(err.message, 'Resource not found');
+        return true;
+      });
+    }
 
     const snapshotBody = snapshot as {
       projects: Array<{ name: string }>;

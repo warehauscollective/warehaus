@@ -1,4 +1,4 @@
-import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { clientMaySeeProject, isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
@@ -31,6 +31,27 @@ function toClientDoc(row: {
   };
 }
 
+function projectVisibleToClient(
+  project: {
+    name: string;
+    type: string[];
+    publishToWarehaus: boolean;
+    archive: boolean;
+    syncHiddenAt?: number;
+  } | null,
+  orgVisible: boolean,
+): boolean {
+  if (!project) return true;
+  return clientMaySeeProject({
+    name: project.name,
+    types: project.type,
+    publishToWarehaus: project.publishToWarehaus,
+    archive: project.archive,
+    hidden: project.syncHiddenAt != null,
+    orgVisible,
+  });
+}
+
 export const listForClient = clientQuery({
   args: {},
   handler: async (ctx) => {
@@ -41,8 +62,14 @@ export const listForClient = clientQuery({
       .withIndex('by_orgId_status', (q) => q.eq('orgId', ctx.orgId).eq('status', 'Published'))
       .collect();
 
-    return rows
-      .filter((r) => isClientSurfaceVisible(r) && r.publishToWarehaus)
+    const visible = [];
+    for (const row of rows) {
+      if (!isClientSurfaceVisible(row) || !row.publishToWarehaus) continue;
+      const project = row.projectId ? await ctx.db.get(row.projectId) : null;
+      if (!projectVisibleToClient(project, true)) continue;
+      visible.push(row);
+    }
+    return visible
       .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.title.localeCompare(b.title))
       .map(toClientDoc);
   },
@@ -53,13 +80,16 @@ export const getForClient = clientQuery({
   handler: async (ctx, { docId }) => {
     const row = await ctx.db.get(docId);
     const org = await ctx.db.get(ctx.orgId);
+    const orgVisible = isOrgVisibleToClients(org);
+    const project = row?.projectId ? await ctx.db.get(row.projectId) : null;
     if (
       !row ||
-      !isOrgVisibleToClients(org) ||
+      !orgVisible ||
       !isClientSurfaceVisible(row) ||
       row.orgId !== ctx.orgId ||
       row.status !== 'Published' ||
-      !row.publishToWarehaus
+      !row.publishToWarehaus ||
+      !projectVisibleToClient(project, orgVisible)
     ) {
       throw new PortalAuthError('Doc not found', 'FORBIDDEN');
     }

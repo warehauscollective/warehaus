@@ -658,6 +658,8 @@ export const pullAll = internalAction({
         if (allows) projectPass.add(notionId);
       }
 
+      const graphTouch: string[] = [];
+
       // --- Tasks ---
       const taskLoaded = await loadSourcePages(
         'tasks',
@@ -670,6 +672,7 @@ export const pullAll = internalAction({
       await noteMissing('tasks', taskLoaded.missingIds);
       for (const page of taskLoaded.pages) {
         await track(page, 'tasks', async () => {
+        graphTouch.push(page.id);
         const projectIds = (() => {
           const rel = page.properties.Projects as { relation?: Array<{ id?: string }> } | undefined;
           return (rel?.relation ?? []).map((r) => r.id ?? '').filter(Boolean);
@@ -822,6 +825,7 @@ export const pullAll = internalAction({
       }
       for (const page of resourceLoaded.pages) {
         await track(page, 'sharedResources', async () => {
+        graphTouch.push(page.id);
         const projectNotionId = (() => {
           const rel = page.properties.Project as { relation?: Array<{ id?: string }> } | undefined;
           return rel?.relation?.[0]?.id ?? null;
@@ -981,7 +985,10 @@ export const pullAll = internalAction({
         });
       }
       await hideMissingOnFullPull('sharedResources', resourceLoaded.pages, resourceLoaded.archivedOk);
-      await ctx.runMutation(internal.sync.upsert.resolveTaskGraph, {});
+      await ctx.runMutation(
+        internal.sync.upsert.resolveTaskGraph,
+        stats.mode === 'incremental' ? { notionPageIds: graphTouch } : {},
+      );
 
       // --- Client Docs (properties + allowlisted body) ---
       const docLoaded = await loadSourcePages(
