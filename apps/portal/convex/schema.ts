@@ -354,11 +354,7 @@ export default defineSchema({
     notionPageId: v.string(),
     name: v.string(),
     email: v.string(),
-    role: v.union(
-      v.literal('Client Admin'),
-      v.literal('Client Member'),
-      v.literal('Warehaus Staff'),
-    ),
+    role: v.union(v.literal('Client Admin'), v.literal('Client Member')),
     inviteStatus: v.union(
       v.literal('Pending'),
       v.literal('Accepted'),
@@ -383,6 +379,8 @@ export default defineSchema({
     tokenHash: v.string(),
     status: v.union(
       v.literal('live'),
+      /** Held by accept, decline, or revoke until Notion confirms or the write dies. */
+      v.literal('pending'),
       v.literal('used'),
       v.literal('killed'),
       v.literal('expired'),
@@ -391,11 +389,14 @@ export default defineSchema({
     createdByContactId: v.optional(v.id('contacts')),
     createdAt: v.number(),
     usedAt: v.optional(v.number()),
+    /** Bumped when a dead write releases the token, so the next enqueue is a new row. */
+    attempt: v.optional(v.number()),
   })
     .index('by_orgId', ['orgId'])
     .index('by_tokenHash', ['tokenHash'])
     .index('by_contactNotionPageId', ['contactNotionPageId'])
-    .index('by_status_expiresAt', ['status', 'expiresAt']),
+    .index('by_status_expiresAt', ['status', 'expiresAt'])
+    .index('by_orgId_createdBy_createdAt', ['orgId', 'createdByContactId', 'createdAt']),
 
   /**
    * Resend cooldown for verification mail. One row per normalized address,

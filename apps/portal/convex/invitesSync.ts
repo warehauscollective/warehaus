@@ -10,6 +10,7 @@ import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import { internalMutation, internalQuery } from './_generated/server';
 import { adminQuery } from './_lib/wrappers';
+import { asClientInviteRole } from './_lib/inviteFlow';
 import { revertAllowed, REVERT_WINDOW_MS } from './_lib/revertLimit';
 import { isNotionWritebackEnabled } from './_lib/writeAuthz';
 
@@ -223,13 +224,14 @@ export const applyContactRead = internalMutation({
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
       .unique();
 
-    if (args.placement === 'UPSERT_PENDING_INVITE' && orgId && args.inviteStatus) {
+    const clientRole = asClientInviteRole(args.role);
+    if (args.placement === 'UPSERT_PENDING_INVITE' && orgId && args.inviteStatus && clientRole) {
       const row = {
         orgId,
         notionPageId: args.notionPageId,
         name: args.name,
         email: args.email,
-        role: args.role,
+        role: clientRole,
         inviteStatus: args.inviteStatus,
         lastSyncedAt: now,
         ...(args.source ? { source: args.source } : {}),

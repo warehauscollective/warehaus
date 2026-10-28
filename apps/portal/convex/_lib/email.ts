@@ -286,6 +286,40 @@ export type InviteMailClient = {
   send: (message: InviteMailMessage) => Promise<void>;
 };
 
+/** Exact opt-in. Unset, empty, and any other value stay off. Independent of write-back. */
+export function isInviteEmailEnabled(flag: string | undefined): boolean {
+  return flag === 'true';
+}
+
+export const INVITE_EMAIL_OFF = 'INVITE_EMAIL_ENABLED is off';
+
+/**
+ * Sends only when INVITE_EMAIL_ENABLED is exactly "true" and a public origin is set.
+ * NOTION_WRITEBACK_ENABLED does not turn this on. Tests pass a mock client.
+ */
+export async function sendIssuedInviteMail(
+  args: { to: string; name: string; rawToken: string; alreadyHasLogin: boolean },
+  env: { INVITE_EMAIL_ENABLED?: string; PORTAL_PUBLIC_URL?: string },
+  client: InviteMailClient,
+): Promise<{ sent: true } | { sent: false; reason: string }> {
+  if (!isInviteEmailEnabled(env.INVITE_EMAIL_ENABLED)) {
+    return { sent: false, reason: INVITE_EMAIL_OFF };
+  }
+  const origin = env.PORTAL_PUBLIC_URL?.replace(/\/$/, '') ?? '';
+  if (!origin) return { sent: false, reason: 'PORTAL_PUBLIC_URL is not set' };
+  const acceptUrl = `${origin}/accept?token=${encodeURIComponent(args.rawToken)}`;
+  await deliverInviteEmail(
+    {
+      to: args.to,
+      name: args.name,
+      acceptUrl,
+      alreadyHasLogin: args.alreadyHasLogin,
+    },
+    client,
+  );
+  return { sent: true };
+}
+
 /**
  * Hands the built message to the caller. Tests pass a mock client.
  * This function does not call a provider.

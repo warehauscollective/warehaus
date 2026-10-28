@@ -97,7 +97,7 @@ export type AcceptPlan =
     };
 
 export function planInviteAccept(input: {
-  tokenStatus: 'live' | 'used' | 'killed' | 'expired' | 'missing';
+  tokenStatus: 'live' | 'pending' | 'used' | 'killed' | 'expired' | 'missing';
   expiresAt: number;
   now: number;
   tokenEmail: string;
@@ -119,6 +119,88 @@ export function inviteStateProperties(target: 'Accepted' | 'Declined' | 'Expired
   if (target === 'Revoked') return { 'Portal Access': 'Disabled', 'Invite Status': 'Revoked' };
   if (target === 'Declined') return { 'Invite Status': 'Declined' };
   return { 'Invite Status': 'Expired' };
+}
+
+export type ClientInviteRole = 'Client Member' | 'Client Admin';
+
+export function asClientInviteRole(role: string): ClientInviteRole | null {
+  if (role === 'Client Member' || role === 'Client Admin') return role;
+  return null;
+}
+
+export type InviteTokenState = {
+  status: 'live' | 'pending' | 'used' | 'killed' | 'expired';
+  attempt: number;
+};
+
+/**
+ * Accept, decline, and revoke all consume a live token in the same mutation.
+ * A second use sees `pending` and is refused.
+ */
+export function claimInviteToken(
+  token: InviteTokenState,
+  action: 'accept' | 'decline' | 'revoke',
+): { ok: true; token: InviteTokenState } | { ok: false; token: InviteTokenState } {
+  const consumes = action === 'accept' || action === 'decline' || action === 'revoke';
+  if (!consumes || token.status !== 'live') return { ok: false, token };
+  return { ok: true, token: { ...token, status: 'pending' } };
+}
+
+/** Notion confirm finalizes the hold. A dead write puts the token back to live. */
+export function finishInviteToken(
+  token: InviteTokenState,
+  outcome: 'confirmed' | 'dead',
+  inviteStatus: 'Accepted' | 'Declined' | 'Revoked' | 'Expired',
+): InviteTokenState {
+  if (token.status !== 'pending') return token;
+  if (outcome === 'dead') return { status: 'live', attempt: token.attempt + 1 };
+  if (inviteStatus === 'Accepted') return { ...token, status: 'used' };
+  if (inviteStatus === 'Expired') return { ...token, status: 'expired' };
+  return { ...token, status: 'killed' };
+}
+
+export type InvitePreview =
+  | { status: 'unusable'; portalName: 'Portal invite' }
+  | { status: 'sign-in'; portalName: string }
+  | { status: 'different-email'; portalName: string; signedInEmail: string }
+  | { status: 'unverified'; portalName: string }
+  | { status: 'ready'; portalName: string };
+
+/**
+ * Unknown, expired, and already-used tokens share one response.
+ * The company name is included only after the token is live and unexpired.
+ */
+export function describeInvitePreview(input: {
+  tokenStatus: 'live' | 'pending' | 'used' | 'killed' | 'expired' | 'missing';
+  expiresAt: number;
+  now: number;
+  companyName: string | null;
+  signedInEmail: string | null;
+  emailVerified: boolean;
+  tokenEmail: string;
+}): InvitePreview {
+  const usable = input.tokenStatus === 'live' && input.expiresAt > input.now;
+  if (!usable) return { status: 'unusable', portalName: 'Portal invite' };
+  const portalName = input.companyName ? `${input.companyName} portal invite` : 'Portal invite';
+  if (!input.signedInEmail) return { status: 'sign-in', portalName };
+  const plan = planInviteAccept({
+    tokenStatus: 'live',
+    expiresAt: input.expiresAt,
+    now: input.now,
+    tokenEmail: input.tokenEmail,
+    signedInEmail: input.signedInEmail,
+    emailVerified: input.emailVerified,
+  });
+  if (!plan.ok && plan.reason === 'mismatch') {
+    return {
+      status: 'different-email',
+      portalName,
+      signedInEmail: plan.signedInEmail ?? normalizeEmail(input.signedInEmail),
+    };
+  }
+  if (!plan.ok && plan.reason === 'unverified') return { status: 'unverified', portalName };
+  if (!plan.ok) return { status: 'unusable', portalName: 'Portal invite' };
+  return { status: 'ready', portalName };
 }
 
 /** Token material is created only when Notion has already confirmed. */

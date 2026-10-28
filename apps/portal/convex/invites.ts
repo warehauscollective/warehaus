@@ -1,8 +1,10 @@
 /**
  * Staff invites. Notion is first, through the shared outbox.
- * A token and an email exist only after Notion confirms.
+ * A token exists only after Notion confirms the create.
+ * Accept and decline hold that token in the same mutation.
  * When NOTION_WRITEBACK_ENABLED is not exactly "true", enqueue is a no-op
  * and these mutations return that result. Nothing is sent.
+ * Invite email also requires INVITE_EMAIL_ENABLED to be exactly "true".
  */
 
 import { inviteIdempotencyKey, stateIdempotencyKey, WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
@@ -12,16 +14,22 @@ import { internal } from './_generated/api';
 import { internalAction, internalMutation, mutation, query, type MutationCtx } from './_generated/server';
 import { adminMutation, adminQuery } from './_lib/wrappers';
 import { authComponent } from './auth';
-import { deliverInviteEmail, sendPortalEmail } from './_lib/email';
+import { sendIssuedInviteMail, sendPortalEmail } from './_lib/email';
 import { normalizeEmail } from './_lib/contactJoin';
 import { PortalAuthError } from './_lib/identity';
 import {
   INVITE_CLIENT_FAILURE,
+  INVITE_DAILY_LIMIT,
+  asClientInviteRole,
+  claimInviteToken,
+  describeInvitePreview,
+  finishInviteToken,
   hashInviteToken,
   inviteStateProperties,
   planInviteAccept,
   planInviteCreate,
   tokenFromConfirmation,
+  type InviteTokenState,
 } from './_lib/inviteFlow';
 
 type EnqueueResult =
@@ -71,13 +79,16 @@ export const create = adminMutation({
     if (!client) throw new PortalAuthError('Client missing', 'NO_CONTACT');
     const emailNormalized = normalizeEmail(args.email);
     const since = Date.now() - 24 * 60 * 60 * 1000;
-    const tokens = await ctx.db
+    const recent = await ctx.db
       .query('inviteTokens')
-      .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
-      .collect();
-    const sentToday = tokens.filter(
-      (token) => token.createdByContactId === ctx.identity.contactId && token.createdAt >= since,
-    ).length;
+      .withIndex('by_orgId_createdBy_createdAt', (q) =>
+        q
+          .eq('orgId', orgId)
+          .eq('createdByContactId', ctx.identity.contactId as Id<'contacts'>)
+          .gte('createdAt', since),
+      )
+      .take(INVITE_DAILY_LIMIT);
+    const sentToday = recent.length;
     const contacts = await ctx.db.query('contacts').withIndex('by_email', (q) => q.eq('email', emailNormalized)).collect();
     const pending = await ctx.db
       .query('pendingInvites')
@@ -135,26 +146,18 @@ export const previewAccept = query({
       .query('inviteTokens')
       .withIndex('by_tokenHash', (q) => q.eq('tokenHash', hashInviteToken(token)))
       .unique();
-    const client = row ? await ctx.db.get(row.orgId) : null;
-    const portalName = client ? `${client.companyName} portal invite` : 'Portal invite';
-    if (!user?.email) return { status: 'sign-in' as const, portalName };
-    const plan = planInviteAccept({
+    const now = Date.now();
+    const usable = row != null && row.status === 'live' && row.expiresAt > now;
+    const client = usable ? await ctx.db.get(row.orgId) : null;
+    return describeInvitePreview({
       tokenStatus: row?.status ?? 'missing',
       expiresAt: row?.expiresAt ?? 0,
-      now: Date.now(),
+      now,
+      companyName: client?.companyName ?? null,
+      signedInEmail: user?.email ?? null,
+      emailVerified: user?.emailVerified === true,
       tokenEmail: row?.emailNormalized ?? '',
-      signedInEmail: user.email,
-      emailVerified: user.emailVerified === true,
     });
-    if (!plan.ok && plan.reason === 'mismatch') {
-      return {
-        status: 'different-email' as const,
-        portalName,
-        signedInEmail: plan.signedInEmail ?? normalizeEmail(user.email),
-      };
-    }
-    if (!plan.ok) return { status: plan.reason, portalName };
-    return { status: 'ready' as const, portalName };
   },
 });
 
@@ -192,6 +195,14 @@ export const listTeam = adminQuery({
   },
 });
 
+function tokenState(row: { status: InviteTokenState['status']; attempt?: number }): InviteTokenState {
+  return { status: row.status, attempt: row.attempt ?? 0 };
+}
+
+function holdKey(row: { _id: Id<'inviteTokens'>; attempt?: number }): string {
+  return `${row._id}:${row.attempt ?? 0}`;
+}
+
 async function lastEditedFor(ctx: MutationCtx, notionPageId: string): Promise<string | undefined> {
   const state = await ctx.db
     .query('notionWriteState')
@@ -224,9 +235,11 @@ export const accept = mutation({
       return { ok: false as const, status: plan.reason };
     }
     if (!row) return { ok: false as const, status: 'unusable' as const };
+    const claimed = claimInviteToken(tokenState(row), 'accept');
+    if (!claimed.ok) return { ok: false as const, status: 'unusable' as const };
     const authUserId = 'id' in user && typeof user.id === 'string' ? user.id : '';
     const queued = await enqueueInvite(ctx, {
-      idempotencyKey: stateIdempotencyKey(row.contactNotionPageId, 'Accepted', row._id),
+      idempotencyKey: stateIdempotencyKey(row.contactNotionPageId, 'Accepted', holdKey(row)),
       kind: 'setInviteState',
       orgId: row.orgId,
       notionPageId: row.contactNotionPageId,
@@ -239,6 +252,7 @@ export const accept = mutation({
       actor: 'system',
     });
     if (!queued.ok) return { ok: false as const, status: 'off' as const, message: offOrError(queued.error) };
+    await ctx.db.patch(row._id, { status: 'pending' });
     return { ok: true as const, status: 'pending' as const };
   },
 });
@@ -246,15 +260,31 @@ export const accept = mutation({
 export const decline = mutation({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
+    const user = await authComponent.getAuthUser(ctx);
+    if (!user?.email) throw new PortalAuthError('Sign in to decline', 'UNAUTHENTICATED');
     const row = await ctx.db
       .query('inviteTokens')
       .withIndex('by_tokenHash', (q) => q.eq('tokenHash', hashInviteToken(token)))
       .unique();
-    if (!row || row.status !== 'live' || row.expiresAt <= Date.now()) {
-      return { ok: false as const, status: 'unusable' as const };
+    const plan = planInviteAccept({
+      tokenStatus: row?.status ?? 'missing',
+      expiresAt: row?.expiresAt ?? 0,
+      now: Date.now(),
+      tokenEmail: row?.emailNormalized ?? '',
+      signedInEmail: user.email,
+      emailVerified: user.emailVerified === true,
+    });
+    if (!plan.ok) {
+      if (plan.reason === 'mismatch') {
+        return { ok: false as const, status: 'different-email' as const, signedInEmail: plan.signedInEmail };
+      }
+      return { ok: false as const, status: plan.reason };
     }
+    if (!row) return { ok: false as const, status: 'unusable' as const };
+    const claimed = claimInviteToken(tokenState(row), 'decline');
+    if (!claimed.ok) return { ok: false as const, status: 'unusable' as const };
     const queued = await enqueueInvite(ctx, {
-      idempotencyKey: stateIdempotencyKey(row.contactNotionPageId, 'Declined', row._id),
+      idempotencyKey: stateIdempotencyKey(row.contactNotionPageId, 'Declined', holdKey(row)),
       kind: 'setInviteState',
       orgId: row.orgId,
       notionPageId: row.contactNotionPageId,
@@ -263,6 +293,7 @@ export const decline = mutation({
       actor: 'system',
     });
     if (!queued.ok) return { ok: false as const, status: 'off' as const, message: offOrError(queued.error) };
+    await ctx.db.patch(row._id, { status: 'pending' });
     return { ok: true as const, status: 'pending' as const };
   },
 });
@@ -275,10 +306,14 @@ export const revoke = adminMutation({
       .query('inviteTokens')
       .withIndex('by_contactNotionPageId', (q) => q.eq('contactNotionPageId', contactNotionPageId))
       .collect();
-    const token = tokens.find((row) => row.orgId === orgId);
+    const token = tokens
+      .filter((row) => row.orgId === orgId && row.status === 'live')
+      .sort((a, b) => b.createdAt - a.createdAt)[0];
     if (!token) return { ok: false as const, message: INVITE_CLIENT_FAILURE };
+    const claimed = claimInviteToken(tokenState(token), 'revoke');
+    if (!claimed.ok) return { ok: false as const, message: INVITE_CLIENT_FAILURE };
     const queued = await enqueueInvite(ctx, {
-      idempotencyKey: stateIdempotencyKey(contactNotionPageId, 'Revoked', token._id),
+      idempotencyKey: stateIdempotencyKey(contactNotionPageId, 'Revoked', holdKey(token)),
       kind: 'setInviteState',
       orgId,
       notionPageId: contactNotionPageId,
@@ -288,6 +323,7 @@ export const revoke = adminMutation({
       actorId: ctx.identity.contactId,
     });
     if (!queued.ok) return { ok: false as const, message: offOrError(queued.error) };
+    await ctx.db.patch(token._id, { status: 'pending' });
     return { ok: true as const, status: 'pending' as const };
   },
 });
@@ -302,7 +338,7 @@ export const issueTokenAfterConfirm = internalMutation({
       invite?: {
         name: string;
         emailNormalized: string;
-        role: 'Client Member' | 'Client Admin' | 'Warehaus Staff';
+        role: 'Client Member' | 'Client Admin';
         createdByContactId?: string;
         clientNotionPageId: string;
       };
@@ -311,7 +347,8 @@ export const issueTokenAfterConfirm = internalMutation({
     };
     if (row.resultJson?.includes('"issued":true')) return empty;
     const now = Date.now();
-    if (row.kind === 'createInvite' && parsed.invite) {
+    const inviteRole = parsed.invite ? asClientInviteRole(parsed.invite.role) : null;
+    if (row.kind === 'createInvite' && parsed.invite && inviteRole) {
       const invite = parsed.invite;
       const issued = tokenFromConfirmation({ confirmed: true, now });
       if (!issued) return empty;
@@ -344,7 +381,7 @@ export const issueTokenAfterConfirm = internalMutation({
         notionPageId: args.notionPageId,
         name: invite.name,
         email: invite.emailNormalized,
-        role: invite.role,
+        role: inviteRole,
         inviteStatus: 'Pending' as const,
         source: 'portal',
         lastSyncedAt: now,
@@ -369,9 +406,13 @@ export const issueTokenAfterConfirm = internalMutation({
     if (row.kind === 'setInviteState' && parsed.tokenId) {
       const token = await ctx.db.get(parsed.tokenId as Id<'inviteTokens'>);
       const status = parsed.properties?.['Invite Status'];
-      if (token && status === 'Accepted') await ctx.db.patch(token._id, { status: 'used', usedAt: now });
-      if (token && (status === 'Declined' || status === 'Revoked' || status === 'Expired')) {
-        await ctx.db.patch(token._id, { status: status === 'Expired' ? 'expired' : 'killed' });
+      if (
+        token &&
+        (status === 'Accepted' || status === 'Declined' || status === 'Revoked' || status === 'Expired')
+      ) {
+        const next = finishInviteToken(tokenState(token), 'confirmed', status);
+        if (next.status === 'used') await ctx.db.patch(token._id, { status: 'used', usedAt: now });
+        else if (next.status !== token.status) await ctx.db.patch(token._id, { status: next.status });
       }
       const pending = await ctx.db
         .query('pendingInvites')
@@ -386,6 +427,26 @@ export const issueTokenAfterConfirm = internalMutation({
   },
 });
 
+export const releaseHeldToken = internalMutation({
+  args: { outboxId: v.id('notionOutbox') },
+  handler: async (ctx, { outboxId }) => {
+    const row = await ctx.db.get(outboxId);
+    if (!row || row.kind !== 'setInviteState') return;
+    let tokenId: string | undefined;
+    try {
+      tokenId = (JSON.parse(row.payload) as { tokenId?: string }).tokenId;
+    } catch {
+      return;
+    }
+    if (!tokenId) return;
+    const token = await ctx.db.get(tokenId as Id<'inviteTokens'>);
+    if (!token) return;
+    const next = finishInviteToken(tokenState(token), 'dead', 'Accepted');
+    if (next.status !== 'live' || next.attempt === (token.attempt ?? 0)) return;
+    await ctx.db.patch(token._id, { status: 'live', attempt: next.attempt });
+  },
+});
+
 export const sendIssuedInvite = internalAction({
   args: {
     to: v.string(),
@@ -394,18 +455,18 @@ export const sendIssuedInvite = internalAction({
     alreadyHasLogin: v.optional(v.boolean()),
   },
   handler: async (_ctx, args) => {
-    const origin = process.env.PORTAL_PUBLIC_URL?.replace(/\/$/, '') ?? '';
-    if (!origin) return { sent: false as const, reason: 'PORTAL_PUBLIC_URL is not set' };
-    const acceptUrl = `${origin}/accept?token=${encodeURIComponent(args.rawToken)}`;
-    await deliverInviteEmail(
+    return sendIssuedInviteMail(
       {
         to: args.to,
         name: args.name,
-        acceptUrl,
+        rawToken: args.rawToken,
         alreadyHasLogin: args.alreadyHasLogin === true,
+      },
+      {
+        INVITE_EMAIL_ENABLED: process.env.INVITE_EMAIL_ENABLED,
+        PORTAL_PUBLIC_URL: process.env.PORTAL_PUBLIC_URL,
       },
       { send: sendPortalEmail },
     );
-    return { sent: true as const };
   },
 });

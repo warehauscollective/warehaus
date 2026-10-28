@@ -346,9 +346,15 @@ export const applyOutcome = internalMutation({
 
     if (args.outcome.kind === 'wait') return;
 
+    const releaseHeldInvite = async () => {
+      if (row.kind !== 'setInviteState') return;
+      await ctx.runMutation(internal.invites.releaseHeldToken, { outboxId: row._id });
+    };
+
     if (args.outcome.kind === 'dead') {
       await ctx.db.patch(row._id, { status: 'dead', lastError: args.outcome.error, claimedAt: undefined });
       if (args.outcome.notifyStaff) await notify(`Notion write ${row.idempotencyKey} was marked dead after 24h`);
+      await releaseHeldInvite();
       return;
     }
 
@@ -374,6 +380,7 @@ export const applyOutcome = internalMutation({
         after: args.outcome.reason,
         createdAt: now,
       });
+      await releaseHeldInvite();
       return;
     }
 
@@ -399,6 +406,7 @@ export const applyOutcome = internalMutation({
         after: after?.after ?? args.outcome.reason,
         createdAt: now,
       });
+      await releaseHeldInvite();
       return;
     }
 
