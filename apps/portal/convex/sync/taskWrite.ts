@@ -150,6 +150,9 @@ export const enqueueDescription = internalMutation({
   handler: async (ctx, args): Promise<EnqueueStatusResult> => {
     const task = await ctx.db.get(args.taskId);
     if (!task) return { ok: false as const, error: 'Task not found' };
+    if (task.descriptionSource === 'body') {
+      return { ok: false as const, error: 'Edit in Notion' };
+    }
     const planned = planTaskDescriptionWrite({
       actor: 'staff',
       description: args.description,

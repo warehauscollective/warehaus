@@ -8,7 +8,8 @@ import type { ContactSyncAction, InviteStatus } from '@warehaus/portal-sync';
 import { isPortalSelfWrite, revertIdempotencyKey } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
-import { internalMutation, internalQuery } from './_generated/server';
+import type { Id } from './_generated/dataModel';
+import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from './_generated/server';
 import { adminMutation, adminQuery } from './_lib/wrappers';
 import { asClientInviteRole } from './_lib/inviteFlow';
 import { revertAllowed, REVERT_WINDOW_MS } from './_lib/revertLimit';
@@ -72,22 +73,47 @@ export const contactSyncContext = internalQuery({
   },
 });
 
+async function noticeReadAt(ctx: QueryCtx, noticeId: Id<'notices'>, contactId: Id<'contacts'>) {
+  const read = await ctx.db
+    .query('noticeReads')
+    .withIndex('by_noticeId_contactId', (q) => q.eq('noticeId', noticeId).eq('contactId', contactId))
+    .unique();
+  return read?.readAt ?? null;
+}
+
+async function markNoticeReadForContact(
+  ctx: MutationCtx,
+  noticeId: Id<'notices'>,
+  contactId: Id<'contacts'>,
+  readAt: number,
+) {
+  const existing = await noticeReadAt(ctx, noticeId, contactId);
+  if (existing != null) return;
+  await ctx.db.insert('noticeReads', { noticeId, contactId, readAt });
+}
+
 export const listStaffNotices = adminQuery({
   args: {},
   handler: async (ctx) => {
+    const contactId = ctx.identity.contactId as Id<'contacts'>;
     const rows = await ctx.db
       .query('notices')
       .withIndex('by_audience_createdAt', (q) => q.eq('audience', 'staff'))
       .order('desc')
       .take(50);
-    return rows.map((row) => ({
-      id: row._id,
-      message: row.message,
-      createdAt: row.createdAt,
-      readAt: row.readAt ?? null,
-      edgeCase: row.edgeCase ?? null,
-      unread: row.readAt == null,
-    }));
+    const listed = [];
+    for (const row of rows) {
+      const readAt = await noticeReadAt(ctx, row._id, contactId);
+      listed.push({
+        id: row._id,
+        message: row.message,
+        createdAt: row.createdAt,
+        readAt,
+        edgeCase: row.edgeCase ?? null,
+        unread: readAt == null,
+      });
+    }
+    return listed;
   },
 });
 
@@ -96,7 +122,7 @@ export const markNoticeRead = adminMutation({
   handler: async (ctx, { noticeId }) => {
     const row = await ctx.db.get(noticeId);
     if (!row || row.audience !== 'staff') return { ok: false as const };
-    if (row.readAt == null) await ctx.db.patch(noticeId, { readAt: Date.now() });
+    await markNoticeReadForContact(ctx, noticeId, ctx.identity.contactId as Id<'contacts'>, Date.now());
     return { ok: true as const };
   },
 });
@@ -104,6 +130,7 @@ export const markNoticeRead = adminMutation({
 export const markAllNoticesRead = adminMutation({
   args: {},
   handler: async (ctx) => {
+    const contactId = ctx.identity.contactId as Id<'contacts'>;
     const rows = await ctx.db
       .query('notices')
       .withIndex('by_audience_createdAt', (q) => q.eq('audience', 'staff'))
@@ -111,7 +138,7 @@ export const markAllNoticesRead = adminMutation({
       .take(50);
     const now = Date.now();
     for (const row of rows) {
-      if (row.readAt == null) await ctx.db.patch(row._id, { readAt: now });
+      await markNoticeReadForContact(ctx, row._id, contactId, now);
     }
     return { ok: true as const };
   },

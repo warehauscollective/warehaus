@@ -261,7 +261,11 @@ export {
   clientMaySeeTaskDescription,
   plainTextFromNotionBlocks,
   resolveTaskDescription,
+  shouldRefetchTaskBody,
+  taskDescriptionEditMode,
   planTaskDescriptionWrite,
+  type TaskDescriptionSource,
+  type ResolvedTaskDescription,
 } from './taskDescription';
 
 export {

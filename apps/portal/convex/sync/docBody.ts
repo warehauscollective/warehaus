@@ -161,17 +161,34 @@ export async function fetchSafeDocBody(
   return result;
 }
 
-/** First page of blocks as plain text. Empty when Notion has no readable text. */
+const PLAIN_BODY_PAGE_LIMIT = 20;
+
+/** Every block page as plain text. Empty when Notion has no readable text. */
 export async function fetchPlainPageBody(pageId: string): Promise<string> {
-  const url = new URL(`https://api.notion.com/v1/blocks/${pageId}/children`);
-  url.searchParams.set('page_size', '100');
-  const res = await fetch(url, {
-    headers: {
-      Authorization: `Bearer ${notionToken()}`,
-      'Notion-Version': '2025-09-03',
-    },
-  });
-  if (!res.ok) return '';
-  const json = (await res.json()) as { results?: unknown[] };
-  return plainTextFromNotionBlocks(json.results ?? []);
+  const blocks: unknown[] = [];
+  const seenCursors = new Set<string>();
+  let cursor: string | undefined;
+  for (let page = 0; page < PLAIN_BODY_PAGE_LIMIT; page += 1) {
+    const url = new URL(`https://api.notion.com/v1/blocks/${pageId}/children`);
+    url.searchParams.set('page_size', '100');
+    if (cursor) url.searchParams.set('start_cursor', cursor);
+    const res = await fetch(url, {
+      headers: {
+        Authorization: `Bearer ${notionToken()}`,
+        'Notion-Version': '2025-09-03',
+      },
+    });
+    if (!res.ok) break;
+    const json = (await res.json()) as {
+      results?: unknown[];
+      has_more?: boolean;
+      next_cursor?: string | null;
+    };
+    blocks.push(...(json.results ?? []));
+    const next = json.has_more ? json.next_cursor : null;
+    if (!next || seenCursors.has(next)) break;
+    seenCursors.add(next);
+    cursor = next;
+  }
+  return plainTextFromNotionBlocks(blocks);
 }

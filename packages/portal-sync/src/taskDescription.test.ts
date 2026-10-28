@@ -6,6 +6,8 @@ import {
   plainTextFromNotionBlocks,
   planTaskDescriptionWrite,
   resolveTaskDescription,
+  shouldRefetchTaskBody,
+  taskDescriptionEditMode,
   taskDescriptionTier,
 } from './taskDescription';
 
@@ -29,23 +31,69 @@ describe('task description', () => {
   });
 
   it('prefers the page body and falls back to the Description property', () => {
-    assert.equal(
+    assert.deepEqual(
       resolveTaskDescription({
         pageBody: 'From the page',
         descriptionProperty: 'From the property',
       }),
-      'From the page',
+      { text: 'From the page', source: 'body' },
     );
-    assert.equal(
+    assert.deepEqual(
       resolveTaskDescription({ pageBody: '  ', descriptionProperty: 'From the property' }),
-      'From the property',
+      { text: 'From the property', source: 'property' },
     );
     assert.equal(resolveTaskDescription({ pageBody: '', descriptionProperty: '' }), undefined);
-    assert.equal(
+    assert.deepEqual(
       resolveTaskDescription({
         pageBody: 'See https://www.notion.so/secret-page for notes',
       }),
-      'See for notes',
+      { text: 'See for notes', source: 'body' },
+    );
+  });
+
+  it('keeps a page-body description read-only so a property edit is not the stored copy', () => {
+    const fromBody = resolveTaskDescription({
+      pageBody: 'From the page',
+      descriptionProperty: 'Edited in the portal',
+    });
+    assert.equal(fromBody?.source, 'body');
+    assert.equal(fromBody?.text, 'From the page');
+    assert.equal(taskDescriptionEditMode(fromBody?.source), 'notion');
+    assert.equal(
+      taskDescriptionEditMode(
+        resolveTaskDescription({ pageBody: '', descriptionProperty: 'From the property' })?.source,
+      ),
+      'portal',
+    );
+    assert.equal(taskDescriptionEditMode(undefined), 'portal');
+    assert.equal(taskDescriptionEditMode(null), 'portal');
+    assert.equal(taskDescriptionEditMode('none'), 'portal');
+  });
+
+  it('refetches task blocks only when last_edited_time changed or the source is unknown', () => {
+    assert.equal(
+      shouldRefetchTaskBody({
+        storedLastEditedTime: '2026-10-01T00:00:00.000Z',
+        storedDescriptionSource: 'body',
+        pageLastEditedTime: '2026-10-01T00:00:00.000Z',
+      }),
+      false,
+    );
+    assert.equal(
+      shouldRefetchTaskBody({
+        storedLastEditedTime: '2026-10-01T00:00:00.000Z',
+        storedDescriptionSource: 'property',
+        pageLastEditedTime: '2026-10-02T00:00:00.000Z',
+      }),
+      true,
+    );
+    assert.equal(
+      shouldRefetchTaskBody({
+        storedLastEditedTime: '2026-10-01T00:00:00.000Z',
+        storedDescriptionSource: null,
+        pageLastEditedTime: '2026-10-01T00:00:00.000Z',
+      }),
+      true,
     );
   });
 
@@ -68,10 +116,18 @@ describe('task description', () => {
     };
     const fromBody = mapNotionTask('page-1', properties, true, 'Body copy');
     assert.equal(fromBody.row && 'description' in fromBody.row && fromBody.row.description, 'Body copy');
+    assert.equal(
+      fromBody.row && 'descriptionSource' in fromBody.row && fromBody.row.descriptionSource,
+      'body',
+    );
     const fromProperty = mapNotionTask('page-1', properties, true, '');
     assert.equal(
       fromProperty.row && 'description' in fromProperty.row && fromProperty.row.description,
       'Property copy',
+    );
+    assert.equal(
+      fromProperty.row && 'descriptionSource' in fromProperty.row && fromProperty.row.descriptionSource,
+      'property',
     );
   });
 

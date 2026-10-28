@@ -72,6 +72,8 @@ export type PortalTask = {
   source?: string | null;
   /** Omitted for clients while Description is SERVER. */
   description?: string | null;
+  /** `body` is read-only. Property, none, or empty can be edited in the portal. */
+  descriptionSource?: 'body' | 'property' | 'none' | null;
   orgId?: string;
   syncState?: 'syncing' | 'synced' | 'failed' | null;
   /** Staff only. Set when Notion Stage is not a portal stage. */

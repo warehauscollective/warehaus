@@ -10,6 +10,13 @@ import { classifyProperty, type FieldTier } from './tiers';
 
 export const TASK_DESCRIPTION_MAX = 4000;
 
+export type TaskDescriptionSource = 'body' | 'property' | 'none';
+
+export type ResolvedTaskDescription = {
+  text: string;
+  source: Exclude<TaskDescriptionSource, 'none'>;
+};
+
 export function taskDescriptionTier(): FieldTier {
   return classifyProperty('tasks', 'Description');
 }
@@ -47,11 +54,34 @@ export function plainTextFromNotionBlocks(blocks: readonly unknown[]): string {
 export function resolveTaskDescription(input: {
   pageBody?: string | null;
   descriptionProperty?: string | null;
-}): string | undefined {
+}): ResolvedTaskDescription | undefined {
   const body = sanitizeInlineText(input.pageBody ?? '');
-  if (body) return body.slice(0, TASK_DESCRIPTION_MAX);
+  if (body) return { text: body.slice(0, TASK_DESCRIPTION_MAX), source: 'body' };
   const property = sanitizeInlineText(input.descriptionProperty ?? '');
-  return property ? property.slice(0, TASK_DESCRIPTION_MAX) : undefined;
+  return property ? { text: property.slice(0, TASK_DESCRIPTION_MAX), source: 'property' } : undefined;
+}
+
+/**
+ * Skip the Notion block fetch when this page was already read at the same
+ * last_edited_time and the source is known. A missing source refetches once
+ * so older rows learn whether the text came from the page body.
+ */
+export function shouldRefetchTaskBody(input: {
+  storedLastEditedTime?: string | null;
+  storedDescriptionSource?: TaskDescriptionSource | null;
+  pageLastEditedTime?: string | null;
+}): boolean {
+  if (!input.pageLastEditedTime) return true;
+  if (input.storedLastEditedTime !== input.pageLastEditedTime) return true;
+  if (!input.storedDescriptionSource) return true;
+  return false;
+}
+
+/** Page body is edited in Notion. A property or an empty description is editable here. */
+export function taskDescriptionEditMode(
+  source: TaskDescriptionSource | null | undefined,
+): 'notion' | 'portal' {
+  return source === 'body' ? 'notion' : 'portal';
 }
 
 export function planTaskDescriptionWrite(input: {

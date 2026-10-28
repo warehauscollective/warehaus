@@ -66,8 +66,8 @@ function memoryDb(tables: Record<string, Row[]>) {
     query(table: string) {
       const rows = tables[table] ?? [];
       return {
-        withIndex(_name: string, build: (q: EqBuilder) => EqBuilder) {
-          const matched = rows.filter((row) => build(new EqBuilder()).matches(row));
+        withIndex(_name: string, build?: (q: EqBuilder) => EqBuilder) {
+          const matched = build ? rows.filter((row) => build(new EqBuilder()).matches(row)) : rows;
           return new MemoryIndex(matched);
         },
         collect: async () => rows,

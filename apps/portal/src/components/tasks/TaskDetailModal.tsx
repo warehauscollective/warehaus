@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
-import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId } from '@warehaus/portal-sync';
+import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEditMode } from '@warehaus/portal-sync';
 import { Pill } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
@@ -150,6 +150,7 @@ function TaskDescription({
   }, [task.id, task.description]);
 
   if (!staff && !task.description) return null;
+  const locked = staff && taskDescriptionEditMode(task.descriptionSource) === 'notion';
 
   const save = async () => {
     if (!task.lastEditedTime) {
@@ -175,7 +176,14 @@ function TaskDescription({
   return (
     <section>
       <h3 className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>DESCRIPTION</h3>
-      {staff ? (
+      {locked ? (
+        <div className="mt-2 flex flex-col gap-2">
+          {task.description ? (
+            <p style={{ fontSize: 'var(--t-sm)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{task.description}</p>
+          ) : null}
+          <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>Edit in Notion</p>
+        </div>
+      ) : staff ? (
         <div className="mt-2 flex flex-col gap-2">
           <textarea
             value={draft}

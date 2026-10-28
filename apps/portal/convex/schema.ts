@@ -99,6 +99,13 @@ export default defineSchema({
      * Client queries omit it while the tier is SERVER.
      */
     description: v.optional(v.string()),
+    /**
+     * Where `description` came from. `body` is read-only in the portal.
+     * `none` means the page was read and both sources were empty.
+     */
+    descriptionSource: v.optional(
+      v.union(v.literal('body'), v.literal('property'), v.literal('none')),
+    ),
     /** Staff-only. Set when Notion Stage is not a portal stage. Cleared on the next clean pull. */
     syncNotice: v.optional(v.string()),
   })
@@ -208,7 +215,8 @@ export default defineSchema({
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_timestamp', ['orgId', 'timestamp'])
-    .index('by_orgId_type', ['orgId', 'type']),
+    .index('by_orgId_type', ['orgId', 'type'])
+    .index('by_timestamp', ['timestamp']),
 
   taskResponses: defineTable({
     orgId: v.id('clients'),
@@ -446,7 +454,9 @@ export default defineSchema({
   })
     .index('by_idempotencyKey', ['idempotencyKey'])
     .index('by_status_nextAttemptAt', ['status', 'nextAttemptAt'])
-    .index('by_orgId', ['orgId']),
+    .index('by_orgId', ['orgId'])
+    .index('by_notionPageId', ['notionPageId'])
+    .index('by_createdAt', ['createdAt']),
 
   /** Last values the portal wrote, plus the response last_edited_time. */
   notionWriteState: defineTable({
@@ -478,7 +488,8 @@ export default defineSchema({
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_createdAt', ['orgId', 'createdAt'])
-    .index('by_notionPageId', ['notionPageId']),
+    .index('by_notionPageId', ['notionPageId'])
+    .index('by_createdAt', ['createdAt']),
 
   /** Portal notices only. No Notion comments in this foundation. */
   notices: defineTable({
@@ -492,4 +503,16 @@ export default defineSchema({
   })
     .index('by_orgId', ['orgId'])
     .index('by_audience_createdAt', ['audience', 'createdAt']),
+
+  /**
+   * Per-staff read receipts. `notices.readAt` stays unused for unread:
+   * one staff member marking read must not clear it for everyone else.
+   */
+  noticeReads: defineTable({
+    noticeId: v.id('notices'),
+    contactId: v.id('contacts'),
+    readAt: v.number(),
+  })
+    .index('by_noticeId_contactId', ['noticeId', 'contactId'])
+    .index('by_contactId', ['contactId']),
 });

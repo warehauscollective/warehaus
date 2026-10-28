@@ -92,6 +92,7 @@ export type MappedTask = {
   source?: string;
   /** Page body, or the Description property when the body is empty. SERVER. */
   description?: string;
+  descriptionSource?: 'body' | 'property';
 };
 
 export type MappedContact = {
@@ -285,10 +286,15 @@ export function mapNotionTask(
     priority: extractSelect(properties.Priority) ?? undefined,
     externalId: extractRichText(properties['External ID']) || undefined,
     source: extractSelect(properties.Source) ?? undefined,
-    description: resolveTaskDescription({
-      pageBody,
-      descriptionProperty: extractRichText(properties.Description),
-    }),
+    ...(() => {
+      const resolved = resolveTaskDescription({
+        pageBody,
+        descriptionProperty: extractRichText(properties.Description),
+      });
+      return resolved
+        ? { description: resolved.text, descriptionSource: resolved.source }
+        : {};
+    })(),
   };
 
   const gate = taskRowPassesGate({

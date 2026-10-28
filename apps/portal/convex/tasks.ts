@@ -209,6 +209,7 @@ export const listForStaff = adminQuery({
           priority: row.priority ?? null,
           source: row.source ?? null,
           description: row.description ?? null,
+          descriptionSource: row.descriptionSource ?? null,
           notionPageId: row.notionPageId,
           lastSyncedAt: row.lastSyncedAt,
           syncHidden: row.syncHiddenAt != null,
@@ -308,17 +309,13 @@ export const activityForClient = clientQuery({
       .query('auditEvents')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', row.notionPageId))
       .collect();
-    const outbox = await ctx.db
-      .query('notionOutbox')
-      .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
-      .collect();
     return buildTaskTimeline({
       audience: 'client',
       task: row,
       project,
       orgVisible,
       audits,
-      outbox,
+      outbox: [],
     });
   },
 });
@@ -335,8 +332,9 @@ export const activityForStaff = adminQuery({
       .collect();
     const outbox = await ctx.db
       .query('notionOutbox')
-      .withIndex('by_orgId', (q) => q.eq('orgId', row.orgId))
-      .collect();
+      .withIndex('by_notionPageId', (q) => q.eq('notionPageId', row.notionPageId))
+      .order('desc')
+      .take(40);
     return buildTaskTimeline({
       audience: 'staff',
       task: row,
