@@ -147,7 +147,12 @@ export const getSnapshot = clientQuery({
       activity: [
         ...quarantineActivity,
         ...activity
-          .filter((a) => isActivityVisible(a.type, staff))
+          .filter((a) => {
+            if (!isActivityVisible(a.type, staff)) return false;
+            if (staff) return true;
+            if (a.projectId && !projectById.has(a.projectId)) return false;
+            return true;
+          })
           .map((a) => ({
             id: a._id,
             name: a.name,

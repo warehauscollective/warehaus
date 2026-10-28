@@ -609,6 +609,9 @@ export const pullAll = internalAction({
         })();
         const parentOk = projectIds.some((id) => projectPass.has(id));
         const mapped = mapNotionTask(page.id, page.properties, parentOk);
+        for (const notice of mapped.notices ?? []) {
+          stats.errors.push(`notice tasks ${page.id}: ${notice}`);
+        }
         const parentClientEnabled = projectIds.length === 0
           ? undefined
           : projectIds.some((id) => {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { taskBoardColumnKey, type PortalTask } from './view-models';
+import { formatPortalDate, taskBoardColumnKey, type PortalTask } from './view-models';
 
 function task(partial: Partial<PortalTask> & Pick<PortalTask, 'status' | 'isDone'>): PortalTask {
   return {
@@ -14,6 +14,14 @@ function task(partial: Partial<PortalTask> & Pick<PortalTask, 'status' | 'isDone
     ...partial,
   };
 }
+
+describe('formatPortalDate', () => {
+  it('formats a calendar date the same way on the server and the client', () => {
+    assert.equal(formatPortalDate('2026-11-20'), 'Nov 20');
+    assert.equal(formatPortalDate('2026-11-20T00:00:00.000Z'), 'Nov 20');
+    assert.equal(formatPortalDate(null), '—');
+  });
+});
 
 describe('taskBoardColumnKey', () => {
   it('maps Notion statuses to board columns', () => {
