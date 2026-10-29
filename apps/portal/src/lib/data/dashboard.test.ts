@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { buildActivityFeed } from '../../../convex/_lib/activityFeed';
 import {
   buildDashboard,
   EMPTY_OUTBOX,
@@ -123,34 +124,6 @@ describe('stage bars and awaiting go', () => {
             timestamp: '2026-10-29T10:00:00Z',
             type: 'project',
             projectId: 'p-site',
-            clientVisible: true,
-          },
-          {
-            id: 'secret',
-            name: 'Internal ops task moved',
-            summary: 'staff only',
-            timestamp: '2026-10-29T09:00:00Z',
-            type: 'task',
-            projectId: 'p-internal',
-            clientVisible: false,
-          },
-          {
-            id: 'pull',
-            name: 'Pull finished',
-            summary: 'outbox idle',
-            timestamp: '2026-10-29T08:00:00Z',
-            type: 'sync',
-            projectId: null,
-            clientVisible: false,
-          },
-          {
-            id: 'draft',
-            name: 'Unpublished recap',
-            summary: 'not shared',
-            timestamp: '2026-10-29T07:00:00Z',
-            type: 'task',
-            projectId: 'p-site',
-            clientVisible: false,
           },
         ],
       }),
@@ -212,7 +185,6 @@ describe('stage bars and awaiting go', () => {
             timestamp: '2026-10-29T10:00:00Z',
             type: 'project',
             projectId: 'p-site',
-            clientVisible: true,
           },
         ],
       }),
@@ -532,21 +504,117 @@ describe('staff activity publish marks', () => {
       clientVisible: item.id === 'site',
     }));
     const staff = buildDashboard(input({ audience: 'staff', projects, tasks, activity: marked }));
-    const client = buildDashboard(input({ audience: 'client', projects, tasks, activity: marked }));
     assert.equal(staff.audience, 'staff');
-    assert.equal(client.audience, 'client');
-    if (staff.audience !== 'staff' || client.audience !== 'client') return;
-    const clientIds = new Set(client.activity.map((row) => row.id));
-    for (const row of staff.activity) {
-      assert.equal(clientIds.has(row.id), row.published, row.name);
-    }
+    if (staff.audience !== 'staff') return;
     assert.equal(staff.activity.find((row) => row.id === 'moved')?.published, false);
     assert.equal(staff.activity.find((row) => row.id === 'site')?.published, true);
     assert.equal(staff.activity.find((row) => row.id === 'draft')?.published, false);
     assert.equal(staff.activity.find((row) => row.id === 'pull')?.published, false);
-    assert.equal(clientIds.has('moved'), false);
-    assert.equal(clientIds.has('site'), true);
-    assert.equal(client.activity.some((row) => 'published' in row), false);
-    assert.equal(JSON.stringify(client).includes('Not published'), false);
+  });
+
+  it('keeps server-filtered client activity that carries no clientVisible flag', () => {
+    const feed = buildActivityFeed({
+      audience: 'client',
+      orgVisible: true,
+      activity: [
+        {
+          _id: 'act-task',
+          name: 'Task moved',
+          summary: 'Build the project page is in progress',
+          type: 'task',
+          timestamp: Date.parse('2026-10-29T11:00:00Z'),
+          projectId: 'proj-public',
+        },
+        {
+          _id: 'act-project',
+          name: 'Site update',
+          summary: 'Shared with the client',
+          type: 'project',
+          timestamp: Date.parse('2026-10-29T10:00:00Z'),
+          projectId: 'proj-public',
+        },
+      ],
+      audits: [
+        {
+          _id: 'audit-public',
+          action: 'task.updated',
+          notionPageId: 'task-public-notion',
+          after: JSON.stringify({ properties: { Status: 'To Do' } }),
+          actorKind: 'sync',
+          createdAt: Date.parse('2026-10-29T09:00:00Z'),
+        },
+      ],
+      outbox: [],
+      projects: [
+        {
+          _id: 'proj-public',
+          name: 'Northwind site',
+          type: [],
+          publishToWarehaus: true,
+          archive: false,
+        },
+      ],
+      tasks: [
+        {
+          _id: 'task-public',
+          name: 'Build the project page',
+          projectId: 'proj-public',
+          notionPageId: 'task-public-notion',
+          publishToWarehaus: true,
+        },
+      ],
+    });
+    assert.equal(feed.some((item) => 'clientVisible' in item), false);
+    assert.deepEqual(
+      feed.map((item) => item.id),
+      ['act-project', 'audit-public'],
+    );
+    const fromFeed = buildDashboard(
+      input({
+        audience: 'client',
+        projects: [project({ id: 'proj-public', name: 'Northwind site' })],
+        activity: feed.map((item) => ({
+          id: item.id,
+          name: item.name,
+          summary: item.summary,
+          timestamp: item.timestamp,
+          type: item.type,
+          projectId: item.projectId,
+        })),
+      }),
+    );
+    assert.equal(fromFeed.audience, 'client');
+    if (fromFeed.audience !== 'client') return;
+    assert.deepEqual(
+      fromFeed.activity.map((row) => row.id),
+      ['act-project', 'audit-public'],
+    );
+    assert.equal(fromFeed.activity.some((row) => 'published' in row), false);
+
+    const snapshotActivity = [
+      {
+        id: 'snap-1',
+        name: 'Public note',
+        type: 'project',
+        summary: 'Northwind site update',
+        timestamp: '2026-10-29T08:00:00Z',
+        tone: 'muted',
+        projectId: 'p-site',
+      },
+    ];
+    const fromSnapshot = buildDashboard(
+      input({
+        audience: 'client',
+        projects: [project({ id: 'p-site', name: 'Website refresh' })],
+        activity: snapshotActivity,
+      }),
+    );
+    assert.equal(fromSnapshot.audience, 'client');
+    if (fromSnapshot.audience !== 'client') return;
+    assert.deepEqual(
+      fromSnapshot.activity.map((row) => row.name),
+      ['Public note'],
+    );
+    assert.equal(fromSnapshot.stats.find((stat) => stat.label === 'Updates this week')?.value, '1');
   });
 });

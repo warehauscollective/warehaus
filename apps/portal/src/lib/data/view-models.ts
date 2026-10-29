@@ -93,7 +93,7 @@ export type PortalActivity = {
   tone: string;
   projectId: string | null;
   taskId?: string | null;
-  /** Staff feed. True when the client feed includes this id. */
+  /** Staff feed only. Client activity is already filtered and omits this flag. */
   clientVisible?: boolean;
 };
 

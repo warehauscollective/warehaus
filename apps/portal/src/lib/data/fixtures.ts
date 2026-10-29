@@ -424,7 +424,13 @@ export const FIXTURE_SNAPSHOT: PortalSnapshot = {
 
 export const FIXTURE_CLIENT_SNAPSHOT: PortalSnapshot = {
   ...FIXTURE_SNAPSHOT,
-  activity: FIXTURE_SNAPSHOT.activity.filter((item) => item.clientVisible === true),
+  activity: FIXTURE_SNAPSHOT.activity
+    .filter((item) => fixtureClientVisible({ type: item.type, projectId: item.projectId }))
+    .map((item) => {
+      const rest = { ...item };
+      delete rest.clientVisible;
+      return rest;
+    }),
   tenant: {
     mode: 'client',
     slug: FIXTURE_CLIENT_SESSION.orgSlug,

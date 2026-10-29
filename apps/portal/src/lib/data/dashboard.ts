@@ -52,7 +52,7 @@ export type DashboardActivity = {
   type?: string;
   projectId?: string | null;
   taskId?: string | null;
-  /** Set by the Convex feed helper. The dashboard does not recompute it. */
+  /** Staff feed only. The publish mark reads this. Client lists omit it. */
   clientVisible?: boolean;
 };
 
@@ -446,9 +446,8 @@ function activityWhen(iso: string, now: number): string {
 }
 
 function visibleActivity(input: DashboardInput): DashboardActivity[] {
-  return [...input.activity]
-    .filter((item) => input.audience === 'staff' || item.clientVisible === true)
-    .sort((a, b) => (parseTime(b.timestamp) ?? 0) - (parseTime(a.timestamp) ?? 0));
+  // Client rows are already filtered by the feed or getSnapshot.
+  return [...input.activity].sort((a, b) => (parseTime(b.timestamp) ?? 0) - (parseTime(a.timestamp) ?? 0));
 }
 
 function progressPercent(project: DashboardProject, tasks: readonly DashboardTask[]): number {

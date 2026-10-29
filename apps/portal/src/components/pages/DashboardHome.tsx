@@ -418,43 +418,75 @@ function AwaitingPanel({
       ) : rows.length === 0 ? (
         <EmptyAwaiting staff={staff} />
       ) : (
-        rows.map((row) => (
-          <button
-            key={row.id}
-            type="button"
-            onClick={() => onOpen(row)}
-            className="flex w-full flex-nowrap items-center gap-3 border-b py-5 text-left"
-            style={{ borderColor: 'var(--border)', background: 'transparent' }}
-          >
-            {staff ? (
-              // eslint-disable-next-line @next/next/no-img-element
+        rows.map((row) =>
+          staff ? (
+            <button
+              key={row.id}
+              type="button"
+              onClick={() => onOpen(row)}
+              className="flex w-full flex-nowrap items-center gap-3 border-b py-5 text-left"
+              style={{ borderColor: 'var(--border)', background: 'transparent' }}
+            >
+              {/* eslint-disable-next-line @next/next/no-img-element */}
               <img alt="" src="/icons/task-check-open.svg" width={20} height={20} className="shrink-0" />
-            ) : null}
-            <span className="min-w-0 flex-1">
-              <span className="block break-words" style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.35 }}>
-                {row.name}
+              <span className="min-w-0 flex-1">
+                <span className="block break-words" style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.35 }}>
+                  {row.name}
+                </span>
+                <span
+                  className="ds-mono block break-words"
+                  style={{ marginTop: 4, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}
+                >
+                  {row.meta}
+                </span>
+                <span className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
+                  <AwaitingBadges row={row} staff />
+                </span>
+              </span>
+              <span className="hidden shrink-0 flex-wrap items-center justify-end gap-2 lg:flex">
+                <AwaitingBadges row={row} staff includeWhen />
+              </span>
+              <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
+            </button>
+          ) : (
+            <button
+              key={row.id}
+              type="button"
+              onClick={() => onOpen(row)}
+              className="flex w-full flex-col border-b py-5 text-left lg:flex-row lg:flex-nowrap lg:items-center lg:gap-3"
+              style={{ borderColor: 'var(--border)', background: 'transparent' }}
+            >
+              <span className="min-w-0 lg:flex-1">
+                <span className="flex items-center gap-3">
+                  <span className="min-w-0 flex-1 truncate" style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.35 }}>
+                    {row.name}
+                  </span>
+                  <ChevronRight className="h-4 w-4 shrink-0 lg:hidden" aria-hidden />
+                </span>
+                <span
+                  className="ds-mono mt-1 hidden truncate lg:block"
+                  style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}
+                >
+                  {row.meta}
+                </span>
               </span>
               <span
-                className="ds-mono block break-words"
-                style={{ marginTop: 4, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}
+                className="ds-mono mt-1 block whitespace-nowrap lg:hidden"
+                data-testid="awaiting-meta"
+                style={{ fontSize: 12, lineHeight: '18px', letterSpacing: '-0.03em', color: 'var(--faint)' }}
               >
-                {row.meta}
-                {!staff && row.when ? (
-                  <span className="mt-1 block lg:hidden" style={{ color: 'var(--faint)' }}>
-                    {row.when}
-                  </span>
-                ) : null}
+                {row.when ? `${row.meta} · ${row.when}` : row.meta}
               </span>
               <span className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
-                <AwaitingBadges row={row} staff={staff} />
+                <AwaitingBadges row={row} staff={false} />
               </span>
-            </span>
-            <span className="hidden shrink-0 flex-wrap items-center justify-end gap-2 lg:flex">
-              <AwaitingBadges row={row} staff={staff} includeWhen />
-            </span>
-            <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
-          </button>
-        ))
+              <span className="hidden shrink-0 flex-wrap items-center justify-end gap-2 lg:flex">
+                <AwaitingBadges row={row} staff={false} includeWhen />
+              </span>
+              <ChevronRight className="hidden h-4 w-4 shrink-0 lg:block" aria-hidden />
+            </button>
+          ),
+        )
       )}
     </Panel>
   );
