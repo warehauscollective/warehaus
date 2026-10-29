@@ -163,6 +163,8 @@ body {
   --faint: oklch(50% 0 0);
   --border-ds: oklch(38% 0 0);
   --border-2: oklch(46% 0 0);
+  /* Keyboard ring from the search spec (portal/ring). */
+  --ring: #404040;
 
   /* Monochrome accent = paper-on-ink (inverts in light) */
   --accent-ds: oklch(99% 0 0);
@@ -203,6 +205,7 @@ body {
   --faint: oklch(66% 0 0);
   --border-ds: oklch(88% 0 0);
   --border-2: oklch(82% 0 0);
+  --ring: #8a8a8a;
 
   --accent-ds: var(--ink);
   --accent-hover: oklch(18% 0 0);

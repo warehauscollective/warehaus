@@ -59,7 +59,9 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
             color: 'var(--nav-text)',
             cursor: 'pointer',
           }}
-          onClick={() => window.dispatchEvent(new Event('wh-open-search'))}
+          onClick={(event) => {
+            window.dispatchEvent(new CustomEvent('wh-open-search', { detail: { trigger: event.currentTarget } }));
+          }}
         >
           <TaskGlyph src="/icons/resource-search.svg" size={16} />
         </button>

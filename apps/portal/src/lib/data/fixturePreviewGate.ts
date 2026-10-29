@@ -1,7 +1,7 @@
 /**
- * Preview fixture gate. Both conditions are required.
- * A missing flag, VERCEL_ENV=production, or an unknown Vercel env fails closed.
- * Local `next dev` is allowed only when the process is not running on Vercel.
+ * Preview fixture gate. True only for local `next dev` with
+ * NEXT_PUBLIC_PORTAL_FIXTURES=1. Any Vercel process fails closed:
+ * VERCEL=1, or any set VERCEL_ENV (production, preview, or development).
  *
  * Read env dynamically so a preview build promoted to production still sees
  * the runtime VERCEL_ENV instead of a value baked at build time.
@@ -19,9 +19,8 @@ export function readRuntimeEnv(name: string): string | undefined {
 
 export function fixturePreviewAllowedFrom(env: FixturePreviewEnv): boolean {
   if (env.fixturesFlag !== '1') return false;
-  if (env.vercelEnv === 'production') return false;
-  if (env.vercelEnv === 'preview' || env.vercelEnv === 'development') return true;
-  if (env.vercel === '1' || (env.vercelEnv != null && env.vercelEnv !== '')) return false;
+  if (env.vercel === '1') return false;
+  if (env.vercelEnv != null && env.vercelEnv !== '') return false;
   return true;
 }
 

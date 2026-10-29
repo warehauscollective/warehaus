@@ -14,6 +14,7 @@ export function searchFixtures(audience: 'staff' | 'client', query: string): Sea
       portalAccess: org?.portalAccess === 'Disabled' ? 'Disabled' : 'Enabled',
       syncHiddenAt: org?.syncHidden ? 1 : null,
     }),
+    orgNames: Object.fromEntries(FIXTURE_CLIENTS.map((client) => [client.id, client.name])),
     projects: FIXTURE_PROJECTS.map((project) => ({
       _id: project.id,
       orgId: project.orgId,
@@ -24,6 +25,8 @@ export function searchFixtures(audience: 'staff' | 'client', query: string): Sea
       archive: false,
       publishToWarehaus: project.publishToWarehaus,
       syncHiddenAt: project.syncHidden ? 1 : null,
+      lastSyncedAt: project.lastSyncedAt,
+      endDate: project.endDate,
     })),
     tasks: FIXTURE_TASKS.map((task) => ({
       _id: task.id,
@@ -32,8 +35,11 @@ export function searchFixtures(audience: 'staff' | 'client', query: string): Sea
       name: task.name,
       description: null,
       status: task.status,
+      stage: task.stage,
+      date: task.date,
       publishToWarehaus: task.publishToWarehaus,
       syncHiddenAt: task.syncHidden ? 1 : null,
+      lastSyncedAt: task.lastSyncedAt,
     })),
     docs: FIXTURE_DOCS.map((doc) => ({
       _id: doc.id,
@@ -45,6 +51,8 @@ export function searchFixtures(audience: 'staff' | 'client', query: string): Sea
       status: doc.status,
       publishToWarehaus: doc.publishToWarehaus,
       syncHiddenAt: doc.syncHidden ? 1 : null,
+      lastSyncedAt: doc.lastSyncedAt,
+      updatedAt: 'updatedAt' in doc ? doc.updatedAt : undefined,
     })),
     resources: FIXTURE_RESOURCES.map((resource) => ({
       _id: resource.id,
@@ -56,6 +64,8 @@ export function searchFixtures(audience: 'staff' | 'client', query: string): Sea
       publishToWarehaus: resource.publishToWarehaus,
       archive: false,
       syncHiddenAt: resource.syncHidden ? 1 : null,
+      lastSyncedAt: resource.lastSyncedAt,
+      updatedAt: resource.updatedAt,
     })),
   });
 }

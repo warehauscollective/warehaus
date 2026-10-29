@@ -23,6 +23,7 @@ export const forClient = clientQuery({
     if (!query) return emptyGroups();
     const org = await ctx.db.get(ctx.orgId);
     const orgVisible = isOrgVisibleToClients(org);
+    const orgNames = org?.companyName ? { [ctx.orgId]: org.companyName } : {};
     const [projects, tasks, docs, resources] = await Promise.all([
       ctx.db.query('projects').withIndex('by_orgId', (row) => row.eq('orgId', ctx.orgId)).collect(),
       ctx.db.query('tasks').withIndex('by_orgId', (row) => row.eq('orgId', ctx.orgId)).collect(),
@@ -34,6 +35,7 @@ export const forClient = clientQuery({
       query,
       orgId: ctx.orgId,
       orgVisible,
+      orgNames,
       projects,
       tasks,
       docs,
@@ -49,16 +51,24 @@ export const forStaff = adminQuery({
     const query = cappedQuery(q);
     if (!query) return emptyGroups();
     const [projects, tasks, docs, resources] = await Promise.all([
-      ctx.db.query('projects').take(STAFF_SCAN),
-      ctx.db.query('tasks').take(STAFF_SCAN),
-      ctx.db.query('clientDocs').take(STAFF_SCAN),
-      ctx.db.query('sharedResources').take(STAFF_SCAN),
+      ctx.db.query('projects').order('desc').take(STAFF_SCAN),
+      ctx.db.query('tasks').order('desc').take(STAFF_SCAN),
+      ctx.db.query('clientDocs').order('desc').take(STAFF_SCAN),
+      ctx.db.query('sharedResources').order('desc').take(STAFF_SCAN),
     ]);
+    const orgNames: Record<string, string> = {};
+    await Promise.all(
+      [...new Set(projects.map((project) => project.orgId))].map(async (orgId) => {
+        const org = await ctx.db.get(orgId);
+        if (org?.companyName) orgNames[orgId] = org.companyName;
+      }),
+    );
     return searchCatalog({
       audience: 'staff',
       query,
       orgId: ctx.identity.orgId,
       orgVisible: true,
+      orgNames,
       projects,
       tasks,
       docs,

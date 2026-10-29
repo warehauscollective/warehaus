@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { getPortalTabsForMode } from '@warehaus/logic/portal';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
@@ -54,6 +55,13 @@ export function PortalDock() {
   const { activeTab, setActiveTab } = usePortalTab();
   const { data } = usePortalData();
   const dockTabs = getPortalTabsForMode(data.tenant.mode);
+  const [shortcut, setShortcut] = useState('⌘K');
+  useEffect(() => {
+    const platform = navigator.platform || '';
+    const agent = navigator.userAgent || '';
+    const mac = /Mac|iPhone|iPad|iPod/.test(platform) || /Mac OS/.test(agent);
+    setShortcut(mac ? '⌘K' : 'Ctrl K');
+  }, []);
 
   return (
     <nav
@@ -65,16 +73,46 @@ export function PortalDock() {
       <button
         type="button"
         aria-label="Search"
-        className="hidden size-14 shrink-0 items-center justify-center rounded-3xl backdrop-blur-2xl lg:flex"
+        aria-keyshortcuts="Meta+K Control+K"
+        aria-describedby="dock-search-tip"
+        className="group relative hidden size-14 shrink-0 items-center justify-center rounded-3xl backdrop-blur-2xl lg:flex"
         style={{
           background: 'var(--nav-bg)',
           border: '1px solid var(--nav-border)',
           color: 'var(--nav-text)',
           cursor: 'pointer',
         }}
-        onClick={() => window.dispatchEvent(new Event('wh-open-search'))}
+        onClick={(event) => {
+          window.dispatchEvent(new CustomEvent('wh-open-search', { detail: { trigger: event.currentTarget } }));
+        }}
       >
         <TaskGlyph src="/icons/resource-search.svg" size={20} />
+        <span
+          id="dock-search-tip"
+          role="tooltip"
+          className="pointer-events-none absolute bottom-[calc(100%+8px)] left-1/2 hidden -translate-x-1/2 items-center gap-2 rounded-xl px-2.5 py-1.5 group-hover:flex group-focus-visible:flex"
+          style={{
+            background: 'var(--surface)',
+            border: '1px solid var(--border)',
+            boxShadow: '0 12px 32px rgb(0 0 0 / 35%)',
+            color: 'var(--fg)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span style={{ fontSize: 13 }}>Search</span>
+          <span
+            className="ds-mono"
+            style={{
+              border: '1px solid var(--border-2)',
+              borderRadius: 6,
+              padding: '2px 7px',
+              fontSize: 11,
+              fontWeight: 500,
+            }}
+          >
+            {shortcut}
+          </span>
+        </span>
       </button>
 
       <div

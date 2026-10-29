@@ -27,9 +27,13 @@ function memoryDb(tables: Record<string, Row[]>) {
     },
     query(table: string) {
       const rows = tables[table] ?? [];
-      return {
+      const chain = (list: Row[]) => ({
+        order(direction: string) {
+          const next = direction === 'desc' ? [...list].reverse() : [...list];
+          return chain(next);
+        },
         withIndex(_name: string, build?: (q: EqBuilder) => EqBuilder) {
-          const matched = build ? rows.filter((row) => build(new EqBuilder()).matches(row)) : rows;
+          const matched = build ? list.filter((row) => build(new EqBuilder()).matches(row)) : list;
           return {
             collect: async () => matched,
             unique: async () => {
@@ -38,9 +42,10 @@ function memoryDb(tables: Record<string, Row[]>) {
             },
           };
         },
-        collect: async () => rows,
-        take: async (n: number) => rows.slice(0, n),
-      };
+        collect: async () => list,
+        take: async (n: number) => list.slice(0, n),
+      });
+      return chain(rows);
     },
   };
 }
@@ -364,5 +369,63 @@ describe('portal search tiers', () => {
       assert.equal(err.message, 'Staff role required');
       return true;
     });
+  });
+
+  it('keeps client tasks that have no stage, and still returns a stage when one is set', async () => {
+    const plain = await run(forClient, { q: 'Homepage' }) as { tasks: Array<Record<string, unknown>> };
+    assert.equal(plain.tasks.length, 1);
+    assert.equal(plain.tasks[0]?.title, 'Homepage');
+    assert.equal('stage' in (plain.tasks[0] ?? {}), false);
+    assert.equal('published' in (plain.tasks[0] ?? {}), false);
+    assert.match(String(plain.tasks[0]?.subtitle), /^Task · /);
+
+    const stagedTables: Record<string, Row[]> = {
+      ...tables,
+      tasks: [
+        ...tables.tasks,
+        {
+          _id: 'task-staged',
+          orgId: north._id,
+          projectId: 'proj-public',
+          name: 'Staged homepage pass',
+          status: 'To Do',
+          stage: 'Planning',
+          date: '2026-10-20',
+          publishToWarehaus: true,
+          notionPageId: 'notion-task-staged',
+          lastSyncedAt: 24,
+        },
+      ],
+    };
+    const staged = await (forClient as unknown as { _handler: Handler })._handler(
+      { auth: clientCtx.auth, db: memoryDb(stagedTables) } as typeof clientCtx,
+      { q: 'Staged homepage' },
+    ) as { tasks: Array<Record<string, unknown>> };
+    assert.equal(staged.tasks[0]?.stage, 'Planning');
+    assert.match(String(staged.tasks[0]?.subtitle), /Task · Oct 20 · Northwind site/);
+  });
+
+  it('scans the newest 200 staff rows', async () => {
+    const projects = Array.from({ length: 250 }, (_, index) => ({
+      _id: `proj-scan-${index}`,
+      orgId: north._id,
+      name: index === 0 ? 'Oldest lighthouse' : index === 249 ? 'Newest lighthouse' : `Filler ${index}`,
+      description: '',
+      status: 'In Progress',
+      type: ['Website'],
+      archive: false,
+      publishToWarehaus: true,
+      notionPageId: `notion-scan-${index}`,
+      lastSyncedAt: index,
+    }));
+    const ctx = {
+      auth: staffCtx.auth,
+      db: memoryDb({ ...tables, projects, tasks: [], clientDocs: [], sharedResources: [] }),
+    };
+    const call = forStaff as unknown as { _handler: Handler };
+    const oldest = JSON.stringify(await call._handler(ctx as typeof clientCtx, { q: 'Oldest lighthouse' }));
+    const newest = JSON.stringify(await call._handler(ctx as typeof clientCtx, { q: 'Newest lighthouse' }));
+    assert.equal(oldest.includes('Oldest lighthouse'), false);
+    assert.match(newest, /Newest lighthouse/);
   });
 });
