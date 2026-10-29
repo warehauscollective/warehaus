@@ -277,7 +277,7 @@ export const listActivityForStaff = adminQuery({
 });
 
 const OUTBOX_STATUSES = ['queued', 'inflight', 'failed', 'dead', 'conflict'] as const;
-/** Per-status cap. The dashboard gets counts, never this many rows. */
+/** Per-status cap. The dashboard gets counts, never this many rows. Display copy for a count at this cap lives in dashboard.ts as the same number. */
 const OUTBOX_HEALTH_LIMIT = 100;
 const FAILED_OUTBOX = new Set<string>(['failed', 'dead', 'conflict']);
 const DAY_MS = 24 * 60 * 60 * 1000;

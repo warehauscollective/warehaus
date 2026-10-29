@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   buildDashboard,
   EMPTY_OUTBOX,
+  OUTBOX_HEALTH_LIMIT,
   summarizeSyncHealth,
   SYNC_PULL_STALE_MS,
   type DashboardInput,
@@ -378,8 +379,38 @@ describe('sync health', () => {
     });
     assert.equal(stale.cardValue, 'Stale');
     assert.notEqual(stale.cardValue, 'OK');
+    assert.equal(stale.rows[0]?.tone, 'warning');
     assert.match(stale.rows[0]?.value ?? '', /^Stale/);
     assert.equal(stale.rows[0]?.value.includes('In sync'), false);
+    const staleDash = buildDashboard(
+      input({
+        audience: 'staff',
+        pull: {
+          lastSyncedAt: new Date(NOW - SYNC_PULL_STALE_MS - 60_000).toISOString(),
+          lastError: null,
+        },
+      }),
+    );
+    assert.equal(staleDash.audience, 'staff');
+    if (staleDash.audience === 'staff') {
+      const stat = staleDash.stats.find((row) => row.label === 'Sync health');
+      assert.equal(stat?.value, 'Stale');
+      assert.equal(stat?.tone, 'warning');
+    }
+
+    const issue = buildDashboard(
+      input({
+        audience: 'staff',
+        pull: { lastSyncedAt: null, lastError: 'Notion sync is behind by 14 minutes' },
+      }),
+    );
+    assert.equal(issue.audience, 'staff');
+    if (issue.audience === 'staff') {
+      const stat = issue.stats.find((row) => row.label === 'Sync health');
+      assert.equal(stat?.value, 'Issue');
+      assert.equal(stat?.tone, 'danger');
+      assert.equal(issue.sync.rows[0]?.tone, 'danger');
+    }
 
     const fresh = summarizeSyncHealth({
       pull: { lastSyncedAt: new Date(NOW - 60_000).toISOString(), lastError: null },
@@ -391,5 +422,105 @@ describe('sync health', () => {
     });
     assert.equal(fresh.cardValue, 'OK');
     assert.match(fresh.rows[0]?.value ?? '', /^In sync · /);
+  });
+
+  it('prints 100+ when one status count reaches the health cap', () => {
+    const pull = { lastSyncedAt: '2026-10-29T11:58:00Z', lastError: null };
+    const cappedQueue = summarizeSyncHealth({
+      pull,
+      outbox: counts({ queued: OUTBOX_HEALTH_LIMIT, inflight: 3 }),
+      writebackEnabled: true,
+      notices: [],
+      tasks: [],
+      now: NOW,
+    });
+    assert.equal(cappedQueue.rows.find((row) => row.key === 'queue')?.value, '100+');
+
+    const under = summarizeSyncHealth({
+      pull,
+      outbox: counts({ queued: OUTBOX_HEALTH_LIMIT - 1 }),
+      writebackEnabled: true,
+      notices: [],
+      tasks: [],
+      now: NOW,
+    });
+    assert.equal(under.rows.find((row) => row.key === 'queue')?.value, '99 waiting');
+
+    const summed = summarizeSyncHealth({
+      pull,
+      outbox: counts({ queued: 60, inflight: 60 }),
+      writebackEnabled: true,
+      notices: [],
+      tasks: [],
+      now: NOW,
+    });
+    assert.equal(summed.rows.find((row) => row.key === 'queue')?.value, '120 waiting');
+
+    const off = summarizeSyncHealth({
+      pull,
+      outbox: counts({ queued: OUTBOX_HEALTH_LIMIT }),
+      writebackEnabled: false,
+      notices: [],
+      tasks: [],
+      now: NOW,
+    });
+    assert.equal(off.rows.find((row) => row.key === 'queue')?.value, 'Off');
+
+    const cappedFailed = summarizeSyncHealth({
+      pull,
+      outbox: counts({ failed: OUTBOX_HEALTH_LIMIT, dead: 5 }),
+      writebackEnabled: true,
+      notices: [],
+      tasks: [],
+      now: NOW,
+    });
+    assert.equal(cappedFailed.rows.find((row) => row.key === 'failed')?.value, '100+');
+    assert.equal(cappedFailed.notice?.title, '100+ writes to Notion failed');
+  });
+});
+
+describe('staff activity publish marks', () => {
+  it('marks every staff row published or not, and leaves clients unmarked', () => {
+    const activity = [
+      {
+        id: 'pub',
+        name: 'Shared update',
+        summary: 'Maya',
+        timestamp: '2026-10-29T10:00:00Z',
+        type: 'task',
+        published: true,
+      },
+      {
+        id: 'unset',
+        name: 'Task moved',
+        summary: 'no flag',
+        timestamp: '2026-10-29T09:00:00Z',
+        type: 'task',
+      },
+      {
+        id: 'draft',
+        name: 'Draft note',
+        summary: 'held',
+        timestamp: '2026-10-29T08:00:00Z',
+        type: 'task',
+        published: false,
+      },
+    ];
+    const staff = buildDashboard(input({ audience: 'staff', activity }));
+    assert.equal(staff.audience, 'staff');
+    if (staff.audience !== 'staff') return;
+    assert.deepEqual(
+      staff.activity.map((row) => [row.name, row.published]),
+      [
+        ['Shared update', true],
+        ['Task moved', false],
+        ['Draft note', false],
+      ],
+    );
+    const client = buildDashboard(input({ audience: 'client', activity }));
+    assert.equal(client.audience, 'client');
+    if (client.audience !== 'client') return;
+    assert.equal(client.activity.some((row) => 'published' in row), false);
+    assert.equal(JSON.stringify(client).includes('Not published'), false);
   });
 });

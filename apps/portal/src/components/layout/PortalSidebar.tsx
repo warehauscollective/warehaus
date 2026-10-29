@@ -36,7 +36,9 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         style={{
           background: 'var(--nav-bg)',
           border: '1px solid var(--nav-border)',
-          // The staff notice bell is fixed at the top-right and covers this row at 390.
+          // The staff notice bell is fixed at the top-right. Keep the pills inside
+          // this box so they cannot paint across the bell, even if a parent unclips.
+          overflow: 'hidden',
           paddingRight: data.tenant.mode === 'team' ? '7.5rem' : undefined,
         }}
       >
@@ -79,8 +81,8 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
           {tab}
         </span>
         <div
-          className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto overscroll-x-contain"
-          style={{ scrollbarWidth: 'none' }}
+          className="section-scroller flex min-w-0 flex-1 items-center gap-1 overscroll-x-contain"
+          style={{ scrollbarWidth: 'none', overflowX: 'auto', overflowY: 'hidden' }}
         >
           {sections.map((s) => {
             const active = activeSection === s.key;

@@ -107,7 +107,7 @@ export type StatCard = {
   label: string;
   value: string;
   note: string;
-  tone: 'danger' | 'default';
+  tone: 'danger' | 'warning' | 'default';
 };
 
 export type StageBar = {
@@ -138,7 +138,7 @@ export type ActivityRow = {
   when: string;
 };
 
-export type StaffActivityRow = ActivityRow & { published: boolean | null };
+export type StaffActivityRow = ActivityRow & { published: boolean };
 
 export type ProjectRow = {
   id: string;
@@ -154,7 +154,7 @@ export type SyncRow = {
   key: 'pull' | 'queue' | 'failed';
   label: string;
   value: string;
-  tone: 'danger' | 'muted' | 'ok';
+  tone: 'danger' | 'warning' | 'muted' | 'ok';
 };
 
 export type SyncHealth = {
@@ -189,6 +189,12 @@ const DAY = 24 * 60 * 60 * 1000;
  * Sync health must not read OK past this age.
  */
 export const SYNC_PULL_STALE_MS = DAY;
+
+/**
+ * Matches `OUTBOX_HEALTH_LIMIT` in convex/portalData.ts. The query stops at
+ * this many rows per status, so a count at the cap is a lower bound.
+ */
+export const OUTBOX_HEALTH_LIMIT = 100;
 
 export const CLIENT_AWAITING_LABEL = 'Pending approval';
 
@@ -352,11 +358,15 @@ function pullIsStale(iso: string | null, now: number): boolean {
   return now - time > SYNC_PULL_STALE_MS;
 }
 
+function hitHealthCap(parts: readonly number[]): boolean {
+  return parts.some((count) => count >= OUTBOX_HEALTH_LIMIT);
+}
+
 function pullValue(pull: PullMeta, now: number): { value: string; tone: SyncRow['tone'] } {
   if (pull.lastError) return { value: 'Failed', tone: 'danger' };
   const ago = relativeTime(pull.lastSyncedAt, now);
   if (pullIsStale(pull.lastSyncedAt, now)) {
-    return { value: ago ? `Stale · ${ago}` : 'Stale', tone: 'danger' };
+    return { value: ago ? `Stale · ${ago}` : 'Stale', tone: 'warning' };
   }
   if (ago) return { value: `In sync · ${ago}`, tone: 'ok' };
   return { value: 'Syncing', tone: 'muted' };
@@ -364,13 +374,18 @@ function pullValue(pull: PullMeta, now: number): { value: string; tone: SyncRow[
 
 function failedWriteNotice(
   failed: number,
+  capped: boolean,
   notices: readonly DashboardNotice[],
   tasks: readonly DashboardTask[],
   pull: PullMeta,
 ): SyncHealth['notice'] {
   const write = notices.find((notice) => notice.edgeCase === 'sync' || notice.edgeCase === 'conflict');
   if (failed > 0) {
-    const title = failed === 1 ? '1 write to Notion failed' : `${failed} writes to Notion failed`;
+    const title = capped
+      ? '100+ writes to Notion failed'
+      : failed === 1
+        ? '1 write to Notion failed'
+        : `${failed} writes to Notion failed`;
     const body = write
       ? noticeDisplayMessage(
           write.message,
@@ -392,10 +407,16 @@ export function summarizeSyncHealth(input: {
   now: number;
 }): SyncHealth {
   const counts = input.outbox.counts;
-  const failed = counts.failed + counts.dead + counts.conflict;
-  const waiting = counts.queued + counts.inflight;
+  const failedParts = [counts.failed, counts.dead, counts.conflict];
+  const queueParts = [counts.queued, counts.inflight];
+  const failed = failedParts.reduce((sum, count) => sum + count, 0);
+  const waiting = queueParts.reduce((sum, count) => sum + count, 0);
+  const failedCapped = hitHealthCap(failedParts);
   const queue = input.writebackEnabled
-    ? { value: waiting === 1 ? '1 waiting' : `${waiting} waiting`, tone: 'muted' as const }
+    ? {
+        value: hitHealthCap(queueParts) ? '100+' : waiting === 1 ? '1 waiting' : `${waiting} waiting`,
+        tone: 'muted' as const,
+      }
     : { value: 'Off', tone: 'muted' as const };
   const pull = pullValue(input.pull, input.now);
   const ago = relativeTime(input.pull.lastSyncedAt, input.now);
@@ -410,11 +431,11 @@ export function summarizeSyncHealth(input: {
       {
         key: 'failed',
         label: 'Failed writes (24h)',
-        value: failed === 0 ? 'None' : failed === 1 ? '1 needs a retry' : `${failed} need a retry`,
+        value: failedCapped ? '100+' : failed === 0 ? 'None' : failed === 1 ? '1 needs a retry' : `${failed} need a retry`,
         tone: failed > 0 ? 'danger' : 'muted',
       },
     ],
-    notice: failedWriteNotice(failed, input.notices, input.tasks, input.pull),
+    notice: failedWriteNotice(failed, failedCapped, input.notices, input.tasks, input.pull),
   };
 }
 
@@ -489,7 +510,7 @@ function buildStaff(input: DashboardInput, projects: DashboardProject[], tasks: 
         label: 'Sync health',
         value: sync.cardValue,
         note: sync.cardNote,
-        tone: sync.cardValue === 'OK' || sync.cardValue === '…' ? 'default' : 'danger',
+        tone: sync.cardValue === 'Stale' ? 'warning' : sync.cardValue === 'OK' || sync.cardValue === '…' ? 'default' : 'danger',
       },
     ],
     stages: bars,
@@ -510,7 +531,7 @@ function buildStaff(input: DashboardInput, projects: DashboardProject[], tasks: 
       name: item.name,
       summary: item.summary,
       when: activityWhen(item.timestamp, input.now),
-      published: item.published === true ? true : item.published === false ? false : null,
+      published: item.published === true,
     })),
   };
 }

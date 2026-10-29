@@ -157,7 +157,7 @@ function displaySync(model: StaffDashboard, preview: DashPreview): SyncHealth {
     cardValue: 'Issue',
     cardNote: STAFF_SYNC_ERROR,
     rows: model.sync.rows.map((row) =>
-      row.key === 'pull' ? { ...row, value: 'Failed', tone: 'danger' } : row,
+      row.key === 'pull' ? { ...row, value: 'Behind · 14m', tone: 'danger' } : row,
     ),
     notice: {
       title: 'Sync problem',
@@ -194,6 +194,12 @@ function Panel({
   );
 }
 
+function toneInk(tone: StatCard['tone'] | SyncHealth['rows'][number]['tone']): string | null {
+  if (tone === 'danger') return 'var(--danger)';
+  if (tone === 'warning') return 'var(--warning)';
+  return null;
+}
+
 function StatGrid({ stats, loading }: { stats: readonly StatCard[]; loading: boolean }) {
   return (
     <div
@@ -223,7 +229,7 @@ function StatGrid({ stats, loading }: { stats: readonly StatCard[]; loading: boo
               fontSize: 'clamp(2.25rem, 4vw, 3.75rem)',
               lineHeight: 1,
               letterSpacing: '-0.03em',
-              color: !loading && stat.tone === 'danger' ? 'var(--danger)' : 'var(--fg)',
+              color: !loading ? (toneInk(stat.tone) ?? 'var(--fg)') : 'var(--fg)',
             }}
           >
             {loading ? '…' : stat.value}
@@ -232,7 +238,7 @@ function StatGrid({ stats, loading }: { stats: readonly StatCard[]; loading: boo
             style={{
               marginTop: 12,
               fontSize: 14,
-              color: !loading && stat.tone === 'danger' ? 'var(--danger)' : 'var(--fg)',
+              color: !loading ? (toneInk(stat.tone) ?? 'var(--fg)') : 'var(--fg)',
             }}
           >
             {loading ? 'Loading' : stat.note}
@@ -289,13 +295,13 @@ function SyncPanel({ health }: { health: SyncHealth }) {
             <span className="flex min-w-0 items-center gap-2" style={{ fontSize: 14 }}>
               <span
                 className="inline-block h-2 w-2 shrink-0 rounded-full"
-                style={{ background: row.tone === 'danger' ? 'var(--danger)' : 'var(--fg)' }}
+                style={{ background: toneInk(row.tone) ?? 'var(--fg)' }}
               />
               <span className="truncate">{row.label}</span>
             </span>
             <span
               className="shrink-0"
-              style={{ fontSize: 13, color: row.tone === 'danger' ? 'var(--danger)' : 'var(--muted)' }}
+              style={{ fontSize: 13, color: toneInk(row.tone) ?? 'var(--muted)' }}
             >
               {row.value}
             </span>
@@ -333,10 +339,10 @@ function ProjectPanel({
             key={project.id}
             type="button"
             onClick={() => onOpen(project)}
-            className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 border-b py-5 text-left"
+            className="flex w-full flex-nowrap items-center gap-3 border-b py-5 text-left"
             style={{ borderColor: 'var(--border)', background: 'transparent' }}
           >
-            <span className="flex min-w-[12rem] flex-1 items-center gap-3">
+            <span className="flex min-w-0 flex-1 items-center gap-3">
               <span
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]"
                 style={{
@@ -349,10 +355,10 @@ function ProjectPanel({
                 {initials(project.name)}
               </span>
               <span className="min-w-0">
-                <span className="block" style={{ fontSize: 16, fontWeight: 500 }}>
+                <span className="block truncate" style={{ fontSize: 16, fontWeight: 500 }}>
                   {project.name}
                 </span>
-                <span className="ds-mono block" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+                <span className="ds-mono block truncate" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
                   {project.brand}
                 </span>
               </span>
@@ -414,12 +420,12 @@ function AwaitingPanel({
             key={row.id}
             type="button"
             onClick={() => onOpen(row)}
-            className="flex w-full flex-col gap-3 border-b py-5 text-left md:flex-row md:items-center"
+            className="flex w-full flex-nowrap items-center gap-3 border-b py-5 text-left"
             style={{ borderColor: 'var(--border)', background: 'transparent' }}
           >
             {staff ? (
               // eslint-disable-next-line @next/next/no-img-element
-              <img alt="" src="/icons/task-check-open.svg" width={20} height={20} className="mt-0.5 shrink-0 self-start" />
+              <img alt="" src="/icons/task-check-open.svg" width={20} height={20} className="shrink-0" />
             ) : null}
             <span className="min-w-0 flex-1">
               <span className="block break-words" style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.35 }}>
@@ -431,30 +437,13 @@ function AwaitingPanel({
               >
                 {row.meta}
               </span>
-              {staff ? (
-                <span className="mt-2 flex flex-wrap items-center gap-2">
-                  <StageBadge label={row.stageLabel} hot />
-                  <StatusBadge status={row.status} />
-                  {row.category ? (
-                    <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                      {row.category}
-                    </span>
-                  ) : null}
-                  {'published' in row ? <PublishMark published={row.published} /> : null}
-                </span>
-              ) : null}
-            </span>
-            {staff ? null : (
-              <span className="flex flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
-                <StageBadge label={row.stageLabel} hot />
-                <StatusBadge status={row.status} />
-                {row.when ? (
-                  <span className="ds-mono" style={{ fontSize: 12, color: 'var(--faint)' }}>
-                    {row.when}
-                  </span>
-                ) : null}
+              <span className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
+                <AwaitingBadges row={row} staff={staff} />
               </span>
-            )}
+            </span>
+            <span className="hidden shrink-0 flex-wrap items-center justify-end gap-2 lg:flex">
+              <AwaitingBadges row={row} staff={staff} />
+            </span>
             <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
           </button>
         ))
@@ -490,8 +479,9 @@ function ActivityPanel({
             className="flex items-center gap-4 border-b py-5"
             style={{ borderColor: 'var(--border)' }}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img alt="" src="/icons/activity-row.svg" width={16} height={16} className="shrink-0" />
+            <span className="shrink-0" style={{ color: 'var(--fg)' }}>
+              <TaskGlyph src="/icons/activity-row.svg" size={16} />
+            </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate" style={{ fontSize: 16, fontWeight: 500 }}>
                 {row.name}
@@ -500,9 +490,7 @@ function ActivityPanel({
                 {row.summary}
               </span>
             </span>
-            {staff && 'published' in row && row.published != null ? (
-              <PublishMark published={row.published} />
-            ) : null}
+            {staff && 'published' in row ? <PublishMark published={row.published} /> : null}
             <span className="ds-mono shrink-0 text-right" style={{ width: 80, fontSize: 12, color: 'var(--faint)' }}>
               {row.when}
             </span>
@@ -623,15 +611,39 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
+function AwaitingBadges({
+  row,
+  staff,
+}: {
+  row: AwaitingRow | StaffAwaitingRow;
+  staff: boolean;
+}) {
+  return (
+    <>
+      <StageBadge label={row.stageLabel} hot />
+      <StatusBadge status={row.status} />
+      {staff && row.category ? (
+        <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
+          {row.category}
+        </span>
+      ) : null}
+      {staff && 'published' in row ? <PublishMark published={row.published} /> : null}
+      {!staff && row.when ? (
+        <span className="ds-mono" style={{ fontSize: 12, color: 'var(--faint)' }}>
+          {row.when}
+        </span>
+      ) : null}
+    </>
+  );
+}
+
 function PublishMark({ published }: { published: boolean }) {
   return (
-    <span className="inline-flex items-center gap-2" data-testid="publish-state">
-      {published ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img alt="" src="/icons/activity-published-dot.svg" width={8} height={8} />
-      ) : (
-        <span className="inline-block h-2 w-2 rounded-full" style={{ background: 'var(--muted)' }} />
-      )}
+    <span className="inline-flex shrink-0 items-center gap-2" data-testid="publish-state">
+      <span
+        className="inline-block h-2 w-2 shrink-0 rounded-full"
+        style={{ background: published ? 'var(--fg)' : 'var(--muted)' }}
+      />
       <span className="ds-mono" style={{ fontSize: 11, letterSpacing: '0.04em', color: published ? 'var(--fg)' : 'var(--muted)' }}>
         {published ? 'Published' : 'Not published'}
       </span>
