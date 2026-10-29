@@ -11,11 +11,10 @@ const {
   TaskCardFace,
   BoardToast,
   DropPlaceholder,
-  MOVE_NOT_SAVED,
   boardColumnTemplate,
+  boardDropKeepsColumn,
   boardMovePersists,
   cardDragPointerDown,
-  flagOffDropMessage,
 } = await import('./TaskBoard');
 
 const task: PortalTask = {
@@ -58,13 +57,13 @@ describe('TaskCardFace client stage card', () => {
     assert.equal(longPress, 1);
   });
 
-  it('reports a flag-off drop as not saved', () => {
+  it('keeps a drop in the new column when Notion write-back is off', () => {
     const off = { ok: false as const, error: 'Write-back is off. Nothing was sent to Notion.' };
     assert.equal(boardMovePersists(off), false);
-    assert.equal(flagOffDropMessage(off), MOVE_NOT_SAVED);
-    assert.equal(MOVE_NOT_SAVED.includes('Undo'), false);
+    assert.equal(boardDropKeepsColumn(off), true);
     assert.equal(boardMovePersists({ ok: true }), true);
-    assert.equal(flagOffDropMessage({ ok: false, error: 'Couldn’t save. Moved back.' }), null);
+    assert.equal(boardDropKeepsColumn({ ok: true }), true);
+    assert.equal(boardDropKeepsColumn({ ok: false, error: 'Couldn’t save. Moved back.' }), false);
   });
 
   it('lifts the card onto surface-2 with the drag grip', () => {
@@ -86,10 +85,10 @@ describe('TaskCardFace client stage card', () => {
     assert.match(html, /--accent-tint/);
   });
 
-  it('places the flag-off toast under the board with no Undo', () => {
-    const html = renderToStaticMarkup(createElement(BoardToast, { message: MOVE_NOT_SAVED, onDismiss: () => undefined }));
-    assert.match(html, /Not saved\. Moving cards to Notion is turned off for now\./);
-    assert.equal(html.includes('Undo'), false);
+  it('places a move toast under the board', () => {
+    const html = renderToStaticMarkup(createElement(BoardToast, { message: 'Moved Homepage to Review', onDismiss: () => undefined }));
+    assert.match(html, /Moved Homepage to Review/);
+    assert.equal(html.includes('Moving cards to Notion is turned off'), false);
     assert.equal(html.includes('position:fixed'), false);
     assert.match(html, /below-board/);
     assert.match(html, /position:relative/);

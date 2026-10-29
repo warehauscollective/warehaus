@@ -64,22 +64,23 @@ export function cardDragPointerDown<E>(
   beginLongPress?.();
 }
 
-export const MOVE_NOT_SAVED = 'Not saved. Moving cards to Notion is turned off for now.';
-
 /** Equal tracks. Emptying a column does not change the template, so the row does not jump. */
 export function boardColumnTemplate(count: number, phone: boolean): string {
   if (phone) return 'minmax(0, 1fr)';
   return `repeat(${Math.max(count, 1)}, minmax(12.75rem, 1fr))`;
 }
 
-/** A drop stays in the new column only when enqueue accepts it. */
+/** Notion accepted the move. Write-back off is not a server save. */
 export function boardMovePersists(result: { ok: boolean }): boolean {
   return result.ok;
 }
 
-export function flagOffDropMessage(result: { ok: boolean; error?: string }): string | null {
-  if (!result.ok && result.error === WRITEBACK_OFF_ERROR) return MOVE_NOT_SAVED;
-  return null;
+/**
+ * The card stays where it was dropped when the move saved, and also when
+ * Notion write-back is off. That flag must not snap the card back.
+ */
+export function boardDropKeepsColumn(result: { ok: boolean; error?: string }): boolean {
+  return result.ok || result.error === WRITEBACK_OFF_ERROR;
 }
 
 export function readBoardMode(): BoardMode {
@@ -183,11 +184,12 @@ export function TaskBoard({
         return next;
       });
     };
-    const notSaved = flagOffDropMessage(result);
-    if (notSaved) {
-      clearOverride();
-      setToast({ message: notSaved });
-      setLive(notSaved);
+    if (boardDropKeepsColumn(result)) {
+      setToast({
+        message: `Moved ${task.name} to ${value}`,
+        undo: () => void commit({ ...task, ...(mode === 'stage' ? { stage: value } : { status: value }) }, previous),
+      });
+      setLive(`Moved ${task.name} to ${value}.`);
       return;
     }
     if (!boardMovePersists(result)) {
@@ -198,13 +200,7 @@ export function TaskBoard({
         retry: () => void commit(task, value, pullRequestLink),
       });
       setLive(`${task.name} moved back. ${result.error ?? 'Couldn’t save.'}`);
-      return;
     }
-    setToast({
-      message: `Moved ${task.name} to ${value}`,
-      undo: () => void commit({ ...task, ...(mode === 'stage' ? { stage: value } : { status: value }) }, previous),
-    });
-    setLive(`Moved ${task.name} to ${value}.`);
   };
 
   const onDragEnd = (event: DragEndEvent) => {
