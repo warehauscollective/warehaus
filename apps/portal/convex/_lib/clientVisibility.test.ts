@@ -901,7 +901,7 @@ describe('client identity against warehaus.studio', () => {
     };
     const db = memoryDb(local);
     const call = (subject: string) =>
-      (listTeamForStaff as { _handler: (ctx: unknown, args: Record<string, unknown>) => Promise<unknown> })._handler(
+      (listTeamForStaff as unknown as { _handler: (ctx: unknown, args: Record<string, unknown>) => Promise<unknown> })._handler(
         { auth: { getUserIdentity: async () => ({ subject }) }, db },
         {},
       );

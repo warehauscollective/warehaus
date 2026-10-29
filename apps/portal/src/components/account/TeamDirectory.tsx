@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { api } from '@convex/_generated/api';
+import { accountRoleName } from '@/components/account/accountRole';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isMissingConvexFunction } from '@/lib/data/staffRoster';
 
@@ -117,6 +118,13 @@ function fromRows(rows: StaffTeamRow[]): TeamPerson[] {
   });
 }
 
+function shownRole(person: TeamPerson, viewerEmail: string): string {
+  if (viewerEmail !== '—' && person.email.toLowerCase() === viewerEmail.toLowerCase()) {
+    return accountRoleName(person.role, true);
+  }
+  return person.role;
+}
+
 function matches(person: TeamPerson, filter: Filter): boolean {
   if (filter === 'all') return true;
   if (filter === 'staff') return person.kind === 'staff';
@@ -127,10 +135,12 @@ function matches(person: TeamPerson, filter: Filter): boolean {
 export function TeamDirectory({
   live,
   hostSlug,
+  viewerEmail,
   onInvite,
 }: {
   live: boolean;
   hostSlug?: string;
+  viewerEmail: string;
   onInvite: () => void;
 }) {
   const remote = useSafeQuery<StaffTeamRow[]>(api.invites.listTeamForStaff, live ? { hostSlug } : 'skip');
@@ -247,11 +257,11 @@ export function TeamDirectory({
                 {person.orgName} · {person.email}
               </p>
               <p className="ds-mono truncate sm:hidden" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                {person.orgName} · {person.role} · {person.status}
+                {shownRole(person, viewerEmail)} · {person.status}
               </p>
             </div>
             <p className="ds-mono hidden sm:block" style={metaStyle}>
-              {person.role}
+              {shownRole(person, viewerEmail)}
             </p>
             <p className="ds-mono hidden sm:block" style={{ ...metaStyle, width: 100 }}>
               {person.status}

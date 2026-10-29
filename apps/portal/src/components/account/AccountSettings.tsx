@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
+import { accountRoleName } from '@/components/account/accountRole';
 import { TeamDirectory } from '@/components/account/TeamDirectory';
 import { ThemeControl } from '@/components/account/ThemeControl';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
@@ -143,7 +144,12 @@ export function AccountSettings({
       />
       {staff ? (
         <div ref={teamRef}>
-          <TeamDirectory live={live} hostSlug={hostSlug} onInvite={() => onInvite?.()} />
+          <TeamDirectory
+            live={live}
+            hostSlug={hostSlug}
+            viewerEmail={email}
+            onInvite={() => onInvite?.()}
+          />
         </div>
       ) : (
         <TeammateNotice />
@@ -175,7 +181,7 @@ function ProfileCard({
   const [passwordNote, setPasswordNote] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSaving, setPasswordSaving] = useState(false);
-  const roleLine = staff ? `${orgLabel} · Owner` : `${orgLabel} · ${role}`;
+  const roleLine = `${orgLabel} · ${accountRoleName(role, staff)}`;
 
   const submitPassword = async () => {
     setPasswordSaving(true);
@@ -250,22 +256,24 @@ function ProfileCard({
         <Field label="Owner lane" value="Dream, Design, Develop" testId="account-areas" />
       ) : null}
       <div className="flex flex-wrap" style={{ gap: 12 }}>
-        <button
-          type="button"
-          data-testid="account-change-password"
-          onClick={() => {
-            setPasswordOpen((open) => !open);
-            setPasswordError(null);
-          }}
-          style={outlineButton}
-        >
-          Change password
-        </button>
+        {staff ? (
+          <button
+            type="button"
+            data-testid="account-change-password"
+            onClick={() => {
+              setPasswordOpen((open) => !open);
+              setPasswordError(null);
+            }}
+            style={outlineButton}
+          >
+            Change password
+          </button>
+        ) : null}
         <button type="button" onClick={onSignOut} data-testid="account-sign-out" style={outlineButton}>
           Sign out
         </button>
       </div>
-      {passwordOpen ? (
+      {staff && passwordOpen ? (
         <form
           data-testid="account-password-form"
           className="flex flex-col"
