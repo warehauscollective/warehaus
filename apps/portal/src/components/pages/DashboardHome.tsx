@@ -453,7 +453,7 @@ function AwaitingPanel({
               key={row.id}
               type="button"
               onClick={() => onOpen(row)}
-              className="flex w-full flex-col border-b py-5 text-left lg:flex-row lg:flex-nowrap lg:items-center lg:gap-3"
+              className="flex w-full min-w-0 flex-col border-b py-5 text-left lg:flex-row lg:flex-nowrap lg:items-center lg:gap-3"
               style={{ borderColor: 'var(--border)', background: 'transparent' }}
             >
               <span className="min-w-0 lg:flex-1">
@@ -471,12 +471,14 @@ function AwaitingPanel({
                 </span>
               </span>
               <span
-                className="ds-mono mt-1 flex min-w-0 lg:hidden"
+                className="ds-mono mt-1 flex w-full min-w-0 flex-nowrap items-baseline overflow-hidden lg:hidden"
                 data-testid="awaiting-meta"
-                style={{ fontSize: 12, lineHeight: '18px', letterSpacing: '-0.03em', color: 'var(--faint)' }}
+                style={{ fontSize: 12, lineHeight: '18px', color: 'var(--faint)' }}
               >
                 <span className="min-w-0 truncate">{row.meta}</span>
-                {row.when ? <span className="shrink-0">{` · ${row.when}`}</span> : null}
+                {row.when ? (
+                  <span className="shrink-0" data-testid="awaiting-meta-when">{` · ${row.when}`}</span>
+                ) : null}
               </span>
               <span className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
                 <AwaitingBadges row={row} staff={false} />

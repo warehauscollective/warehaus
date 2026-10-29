@@ -186,24 +186,61 @@ export const getSnapshot = clientQuery({
   },
 });
 
-/** Client feed. Internal projects and SERVER task fields stay out. */
+const CLIENT_FEED_TAKE = 50;
+
+/**
+ * Client feed. Internal projects and SERVER task fields stay out.
+ * Activity and audits are a bounded take. Projects and tasks are only the
+ * rows those events point at — never a full-table collect.
+ */
 export const listActivityForClient = clientQuery({
   args: {},
   handler: async (ctx) => {
     const orgId = ctx.orgId;
     const client = await ctx.db.get(orgId);
-    const projects = await ctx.db.query('projects').withIndex('by_orgId', (q) => q.eq('orgId', orgId)).collect();
-    const tasks = await ctx.db.query('tasks').withIndex('by_orgId', (q) => q.eq('orgId', orgId)).collect();
     const activity = await ctx.db
       .query('activity')
       .withIndex('by_orgId_timestamp', (q) => q.eq('orgId', orgId))
       .order('desc')
-      .take(50);
+      .take(CLIENT_FEED_TAKE);
     const audits = await ctx.db
       .query('auditEvents')
       .withIndex('by_orgId_createdAt', (q) => q.eq('orgId', orgId))
       .order('desc')
-      .take(50);
+      .take(CLIENT_FEED_TAKE);
+
+    const projectIds = new Set<Id<'projects'>>();
+    for (const row of activity) {
+      if (row.projectId) projectIds.add(row.projectId);
+    }
+    const tasks = [];
+    const seenNotion = new Set<string>();
+    for (const notionPageId of audits
+      .map((row) => row.notionPageId)
+      .filter((id): id is string => Boolean(id))) {
+      if (seenNotion.has(notionPageId)) continue;
+      seenNotion.add(notionPageId);
+      const task = await ctx.db
+        .query('tasks')
+        .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+        .unique();
+      if (task && task.orgId === orgId) {
+        tasks.push(task);
+        projectIds.add(task.projectId);
+        continue;
+      }
+      const project = await ctx.db
+        .query('projects')
+        .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+        .unique();
+      if (project && project.orgId === orgId) projectIds.add(project._id);
+    }
+    const projects = [];
+    for (const projectId of projectIds) {
+      const project = await ctx.db.get(projectId);
+      if (project && project.orgId === orgId) projects.push(project);
+    }
+
     return buildActivityFeed({
       audience: 'client',
       orgVisible: isOrgVisibleToClients(client),
@@ -212,6 +249,7 @@ export const listActivityForClient = clientQuery({
       outbox: [],
       projects,
       tasks,
+      limit: CLIENT_FEED_TAKE,
     });
   },
 });
