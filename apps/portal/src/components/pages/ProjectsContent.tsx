@@ -13,10 +13,14 @@ import {
   projectInitials,
   projectListEmptyCopy,
   projectListKpis,
+  EDIT_PROJECT_WRITEBACK_HINT,
   projectListMeta,
   projectMatchesFilter,
   projectProgress,
   projectProgressCopy,
+  projectSummaryVisibility,
+  projectTaskCount,
+  projectTasksSubtitle,
   shippedKpiCaption,
   showProjectPublish,
   sortProjectsByLastUpdated,
@@ -254,16 +258,7 @@ export function ProjectsContent() {
       if (isStaff) return true;
       return doc.publishToWarehaus !== false && doc.status !== 'Draft';
     });
-    const boardActions = (
-      <>
-        <ViewToggle view={taskView} onChange={setTaskView} />
-        {isStaff ? (
-          <button type="button" className="ds-mono" onClick={() => setCreating(true)} style={newTaskButton}>
-            New task
-          </button>
-        ) : null}
-      </>
-    );
+    const summary = projectSummaryVisibility(isStaff, openProject);
     return (
       <PortalWorkspace
         eyebrow={tenantEyebrow(data.tenant, 'Project')}
@@ -277,14 +272,11 @@ export function ProjectsContent() {
           />
         }
         actions={
-          <div className="flex flex-wrap items-center gap-2">
-            {isStaff ? (
-              <PrimaryButton disabled solidWhenDisabled title={WRITEBACK_OFF_ERROR}>
-                Edit project
-              </PrimaryButton>
-            ) : null}
-            <div className="hidden md:flex md:items-center md:gap-2">{boardActions}</div>
-          </div>
+          summary.showEdit ? (
+            <div className="hidden md:block">
+              <EditProjectButton disabled={summary.editDisabled} />
+            </div>
+          ) : undefined
         }
       >
         <PortalTilePane>
@@ -292,13 +284,12 @@ export function ProjectsContent() {
             <ProjectSummary
               project={openProject}
               tasks={projectTasks}
-              staff={isStaff}
               leadName={leadName}
               onOpenClient={openLinkedClient}
+              summary={summary}
             />
-            <div className="flex flex-wrap items-center gap-2 md:hidden">{boardActions}</div>
             <div
-              className="flex items-center justify-between gap-3"
+              className="flex flex-wrap items-center justify-between gap-3"
               style={{
                 position: 'sticky',
                 top: 0,
@@ -308,11 +299,17 @@ export function ProjectsContent() {
                 paddingBottom: 4,
               }}
             >
-              <div>
+              <div className="min-w-0">
                 <h2 style={{ fontSize: 18, fontWeight: 600, lineHeight: '26px' }}>Tasks</h2>
                 <p style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)' }}>
-                  Board by Status · Notion Status columns
+                  {projectTasksSubtitle(taskView)}
                 </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <ViewToggle view={taskView} onChange={setTaskView} />
+                {isStaff ? (
+                  <PrimaryButton onClick={() => setCreating(true)}>New task</PrimaryButton>
+                ) : null}
               </div>
             </div>
             {taskView === 'board' ? (
@@ -495,7 +492,7 @@ export function ProjectsContent() {
               <ul className="mt-2">
                 {visible.map((project) => {
                   const mine = tasks.filter((task) => task.projectId === project.id);
-                  const count = mine.length > 0 ? mine.length : project.taskCount ?? 0;
+                  const count = projectTaskCount(mine.length, project.taskCount);
                   const progress = projectProgress({
                     projectId: project.id,
                     progress: project.progress,
@@ -628,23 +625,6 @@ const fixtureStaffRules: BoardRules = {
   statuses: LIVE_TASK_STATUSES.map((status) => ({ status, rule: statusMoveRule('staff', status) })),
   stages: TASK_STAGES.map((stage) => ({ stage, rule: stageMoveRule('staff', stage) })),
 };
-
-const newTaskButton = {
-  border: '1px solid var(--border)',
-  borderRadius: 12,
-  background: 'var(--fg)',
-  color: 'var(--bg)',
-  height: 40,
-  boxSizing: 'border-box' as const,
-  display: 'inline-flex',
-  alignItems: 'center',
-  padding: '0 0.85rem',
-  fontSize: 'var(--t-xs)',
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase' as const,
-  fontWeight: 600,
-  lineHeight: 1,
-} as const;
 
 function KpiCard({
   label,
@@ -786,7 +766,12 @@ function ViewToggle({
   onChange: (view: 'board' | 'table') => void;
 }) {
   return (
-    <div role="tablist" aria-label="Task view" className="inline-flex" style={{ padding: 3, borderRadius: 12, border: '1px solid var(--border)' }}>
+    <div
+      role="tablist"
+      aria-label="Task view"
+      className="inline-flex"
+      style={{ padding: 3, borderRadius: 6, background: 'var(--surface-2)' }}
+    >
       {([
         ['board', 'Board'],
         ['table', 'Table'],
@@ -799,18 +784,16 @@ function ViewToggle({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(key)}
-            className="ds-mono"
             style={{
-              fontSize: 'var(--t-xs)',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              padding: '0.45rem 0.85rem',
-              borderRadius: 9,
+              fontFamily: 'var(--font-body)',
+              fontSize: 13,
+              fontWeight: 500,
+              padding: '6px 10px',
+              borderRadius: 4,
               border: 0,
               cursor: 'pointer',
-              fontWeight: key === 'table' ? 500 : 600,
-              color: active ? 'var(--fg)' : 'var(--muted)',
-              background: active ? 'color-mix(in oklab, var(--fg) 10%, transparent)' : 'transparent',
+              color: active ? 'var(--bg)' : 'var(--muted)',
+              background: active ? 'var(--fg)' : 'transparent',
             }}
           >
             {label}
@@ -856,93 +839,154 @@ function FilterChip({
   );
 }
 
+const summaryLabel = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10,
+  fontWeight: 400,
+  letterSpacing: '0.8px',
+  color: 'var(--faint)',
+  textTransform: 'uppercase' as const,
+};
+
+function EditProjectButton({ disabled }: { disabled: boolean }) {
+  const button = (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-disabled={disabled || undefined}
+      data-testid="edit-project"
+      style={{
+        pointerEvents: disabled ? 'none' : undefined,
+        background: 'var(--accent)',
+        color: 'var(--accent-fg)',
+        border: 0,
+        borderRadius: 9,
+        fontFamily: 'var(--font-body)',
+        fontSize: 'var(--t-sm)',
+        fontWeight: 600,
+        padding: '0.65rem 1.1rem',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
+      }}
+    >
+      Edit project
+    </button>
+  );
+  if (!disabled) return button;
+  return (
+    <span title={EDIT_PROJECT_WRITEBACK_HINT} className="inline-flex" style={{ cursor: 'not-allowed' }}>
+      {button}
+    </span>
+  );
+}
+
 function ProjectSummary({
   project,
   tasks,
-  staff,
   leadName,
   onOpenClient,
+  summary,
 }: {
   project: ProjectRow;
   tasks: PortalTask[];
-  staff: boolean;
   leadName: string | null;
   onOpenClient: (orgId: string) => void;
+  summary: ReturnType<typeof projectSummaryVisibility>;
 }) {
   const progress = projectProgress({
     projectId: project.id,
     progress: project.progress,
     tasks,
   });
-  const copy = projectProgressCopy(progress.percent, tasks.length);
-  const showPublish = showProjectPublish(staff, project);
+  const count = projectTaskCount(tasks.length, project.taskCount);
+  const copy = projectProgressCopy(progress.percent, count);
   return (
     <Surface style={{ padding: 'clamp(1.25rem, 3vw, 3rem)', borderRadius: 36 }}>
       <div data-testid="project-summary">
-      <div className="flex items-center gap-6">
-        <span
-          className="inline-flex size-16 shrink-0 items-center justify-center rounded-[10px]"
-          style={{
-            background: 'var(--surface-2)',
-            border: '1px solid var(--border-2, var(--border))',
-            fontSize: 12,
-            fontWeight: 600,
-          }}
-        >
-          {projectInitials(project.name)}
-        </span>
-        <div className="min-w-0">
-          <p style={{ fontSize: 26, lineHeight: '32px', fontWeight: 600 }}>{project.name}</p>
-          <div className="mt-1 flex flex-wrap items-center gap-2">
-            {project.internal ? (
-              <InternalTag />
-            ) : (
-              <ClientLink name={project.clientName} orgId={project.orgId} onOpen={onOpenClient} />
-            )}
-            {leadName ? (
-              <span style={{ fontSize: 14, color: 'var(--muted)' }}>· Lead: {leadName}</span>
-            ) : null}
+        {summary.showEdit ? (
+          <div className="mb-4 md:hidden">
+            <EditProjectButton disabled={summary.editDisabled} />
+          </div>
+        ) : null}
+        <div className="flex items-center gap-6">
+          <span
+            className="inline-flex size-16 shrink-0 items-center justify-center rounded-[10px]"
+            style={{
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border-2, var(--border))',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            {projectInitials(project.name)}
+          </span>
+          <div className="min-w-0">
+            <p style={{ fontSize: 26, lineHeight: '32px', fontWeight: 600 }}>{project.name}</p>
+            <div className="mt-1 flex flex-col items-start gap-2 md:flex-row md:flex-wrap md:items-center">
+              {project.internal ? (
+                <InternalTag />
+              ) : (
+                <ClientLink name={project.clientName} orgId={project.orgId} onOpen={onOpenClient} />
+              )}
+              {leadName ? (
+                <>
+                  <span className="hidden md:inline" style={{ fontSize: 14, color: 'var(--muted)' }}>
+                    · Lead: {leadName}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 md:hidden" data-testid="project-lead-line">
+                    <span style={summaryLabel}>Lead</span>
+                    <span style={{ fontSize: 14, color: 'var(--muted)' }}>{leadName}</span>
+                  </span>
+                </>
+              ) : null}
+            </div>
           </div>
         </div>
-      </div>
-      {showPublish && project.publishToWarehaus != null ? (
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <PublishMark published={project.publishToWarehaus} />
-          {project.notionPageId ? (
+        {summary.showPublish || summary.showSourceNotion ? (
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            {summary.showPublish && project.publishToWarehaus != null ? (
+              <PublishMark published={project.publishToWarehaus} />
+            ) : null}
+            {summary.showSourceNotion ? (
+              <span
+                data-testid="source-notion"
+                className="inline-flex items-center gap-1"
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 10,
+                  padding: '4px 8px',
+                }}
+              >
+                <span className="ds-mono" style={{ fontSize: 10, letterSpacing: '0.8px', color: 'var(--faint)' }}>
+                  SOURCE
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>Notion</span>
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        <div className="mt-6 flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+          <p
+            className="ds-mono shrink-0 md:w-[112px]"
+            style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--faint)' }}
+          >
+            Progress
+          </p>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 md:flex-nowrap">
             <span
-              className="ds-mono"
-              data-testid="source-notion"
-              style={{
-                fontSize: 11,
-                letterSpacing: '0.08em',
-                textTransform: 'uppercase',
-                color: 'var(--muted)',
-                border: '1px solid var(--border)',
-                borderRadius: 999,
-                padding: '4px 8px',
-              }}
+              className="h-1.5 w-full overflow-hidden rounded-full md:w-40 md:shrink-0"
+              style={{ background: 'var(--surface-2)' }}
             >
-              Source Notion
+              <span
+                className="block h-1.5 rounded-full"
+                style={{ width: progress.percent == null ? 0 : `${progress.percent}%`, background: 'var(--fg)' }}
+              />
             </span>
-          ) : null}
+            <span data-testid="project-detail-progress" className="whitespace-nowrap" style={{ fontSize: 13, color: 'var(--muted)' }}>
+              {copy.desktop}
+            </span>
+          </div>
         </div>
-      ) : null}
-      <div className="mt-6 flex flex-col gap-2">
-        <p className="ds-mono" style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--faint)' }}>
-          Progress
-        </p>
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="h-1.5 min-w-40 flex-1 overflow-hidden rounded-full" style={{ background: 'var(--surface-2)' }}>
-            <span
-              className="block h-1.5 rounded-full"
-              style={{ width: progress.percent == null ? 0 : `${progress.percent}%`, background: 'var(--fg)' }}
-            />
-          </span>
-          <span className="ds-mono whitespace-nowrap" data-testid="project-detail-progress" style={{ fontSize: 13, color: 'var(--muted)' }}>
-            {copy.desktop}
-          </span>
-        </div>
-      </div>
       </div>
     </Surface>
   );

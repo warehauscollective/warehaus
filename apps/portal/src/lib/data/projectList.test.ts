@@ -14,6 +14,10 @@ import {
   projectProgress,
   projectProgressCopy,
   shippedKpiCaption,
+  EDIT_PROJECT_WRITEBACK_HINT,
+  projectSummaryVisibility,
+  projectTaskCount,
+  projectTasksSubtitle,
   showProjectPublish,
   sortProjectsByLastUpdated,
 } from './projectList';
@@ -236,6 +240,75 @@ describe('project list empty copy', () => {
       title: 'No projects match these filters.',
       detail: null,
     });
+  });
+});
+
+describe('projectSummaryVisibility', () => {
+  const published = { internal: false, publishToWarehaus: true as boolean | null, notionPageId: 'notion-project-site' };
+
+  it('never shows publish, Source Notion, or Edit to clients', () => {
+    const rows = [
+      published,
+      { internal: true, publishToWarehaus: true, notionPageId: 'notion-project-ops' },
+      { internal: false, publishToWarehaus: false, notionPageId: 'notion-project-brand' },
+      { internal: false, publishToWarehaus: null, notionPageId: null },
+    ];
+    for (const project of rows) {
+      const view = projectSummaryVisibility(false, project);
+      assert.equal(view.showPublish, false);
+      assert.equal(view.showSourceNotion, false);
+      assert.equal(view.showEdit, false);
+      assert.equal(view.editDisabled, false);
+    }
+  });
+
+  it('shows publish, Source Notion, and Edit to staff, and disables Edit while write-back is off', () => {
+    const off = projectSummaryVisibility(true, published);
+    assert.equal(off.showPublish, true);
+    assert.equal(off.showSourceNotion, true);
+    assert.equal(off.showEdit, true);
+    assert.equal(off.editDisabled, true);
+    assert.equal(EDIT_PROJECT_WRITEBACK_HINT, 'Editing turns on with Notion write-back');
+
+    const on = projectSummaryVisibility(true, published, { writebackEnabled: true });
+    assert.equal(on.showEdit, true);
+    assert.equal(on.editDisabled, false);
+  });
+
+  it('hides publish on internal projects and Source Notion when there is no page', () => {
+    const internal = projectSummaryVisibility(true, {
+      internal: true,
+      publishToWarehaus: true,
+      notionPageId: 'notion-project-ops',
+    });
+    assert.equal(internal.showPublish, false);
+    assert.equal(internal.showSourceNotion, true);
+    assert.equal(internal.showEdit, true);
+
+    const unpublished = projectSummaryVisibility(true, {
+      internal: false,
+      publishToWarehaus: null,
+      notionPageId: null,
+    });
+    assert.equal(unpublished.showPublish, false);
+    assert.equal(unpublished.showSourceNotion, false);
+    assert.equal(unpublished.showEdit, true);
+  });
+});
+
+describe('projectTaskCount', () => {
+  it('prefers loaded tasks and falls back to the stored project count', () => {
+    assert.equal(projectTaskCount(4, 1), 4);
+    assert.equal(projectTaskCount(0, 3), 3);
+    assert.equal(projectTaskCount(0, null), 0);
+    assert.equal(projectTaskCount(0, undefined), 0);
+  });
+});
+
+describe('projectTasksSubtitle', () => {
+  it('names the board and the table separately', () => {
+    assert.equal(projectTasksSubtitle('board'), 'Board by Status · Notion Status columns');
+    assert.equal(projectTasksSubtitle('table'), 'Table by Status · All project tasks');
   });
 });
 

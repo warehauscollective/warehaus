@@ -118,6 +118,51 @@ export function showProjectPublish(
   return staff && !project.internal && project.publishToWarehaus != null;
 }
 
+/** Loaded task rows win. An empty load falls back to the stored project count. */
+export function projectTaskCount(loadedCount: number, storedCount?: number | null): number {
+  if (loadedCount > 0) return loadedCount;
+  return storedCount ?? 0;
+}
+
+export const EDIT_PROJECT_WRITEBACK_HINT = 'Editing turns on with Notion write-back';
+
+export type ProjectSummaryVisibility = {
+  showPublish: boolean;
+  showSourceNotion: boolean;
+  showEdit: boolean;
+  /** True while the Edit control is on screen and Notion write-back is off. */
+  editDisabled: boolean;
+};
+
+/**
+ * Detail summary controls. Clients never see publish, Source Notion, or Edit.
+ * Staff see publish on client projects with a flag, Source Notion when a page
+ * id exists, and Edit. Edit stays disabled until write-back is on.
+ */
+export function projectSummaryVisibility(
+  staff: boolean,
+  project: {
+    internal?: boolean;
+    publishToWarehaus?: boolean | null;
+    notionPageId?: string | null;
+  },
+  options?: { writebackEnabled?: boolean },
+): ProjectSummaryVisibility {
+  const showEdit = staff;
+  const writeback = options?.writebackEnabled === true;
+  return {
+    showPublish: showProjectPublish(staff, project),
+    showSourceNotion: staff && Boolean(project.notionPageId),
+    showEdit,
+    editDisabled: showEdit && !writeback,
+  };
+}
+
+export function projectTasksSubtitle(view: 'board' | 'table'): string {
+  if (view === 'table') return 'Table by Status · All project tasks';
+  return 'Board by Status · Notion Status columns';
+}
+
 export type ProjectKpiTask = {
   projectId: string | null;
   status?: string | null;

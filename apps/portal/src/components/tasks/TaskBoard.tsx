@@ -280,7 +280,7 @@ export function TaskBoard({
           label={mode === 'stage' ? 'Stages' : 'Statuses'}
           columns={columns}
           activeTab={activeTab}
-          inset={!staff}
+          inset={false}
           onSelect={setTab}
         />
       ) : null}
