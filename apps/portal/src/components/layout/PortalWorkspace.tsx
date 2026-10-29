@@ -46,6 +46,10 @@ export function PortalWorkspace({
         <header
           className="flex shrink-0 flex-wrap items-end justify-between gap-3"
           style={{
+            position: 'relative',
+            zIndex: 2,
+            background: 'var(--bg)',
+            boxShadow: 'none',
             paddingTop: 'var(--s-5)',
             paddingBottom: 'var(--s-4)',
             borderBottom: '1px solid var(--border)',

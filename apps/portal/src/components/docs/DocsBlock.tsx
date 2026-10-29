@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { compareDocsByOrder } from '@warehaus/portal-sync';
 import { OutlineButton } from '@/components/ui/primitives';
 import { SyncChip } from '@/components/sync/SyncChip';
 import type { RowSyncState } from '@/lib/data/view-models';
@@ -38,12 +39,7 @@ const EMPTY_COPY = {
 
 /** Order ascending, then title. A missing Order sorts after every numbered row and is never shown. */
 export function sortDocRows(docs: readonly DocRow[]): DocRow[] {
-  return [...docs].sort((a, b) => {
-    const left = a.order ?? Number.POSITIVE_INFINITY;
-    const right = b.order ?? Number.POSITIVE_INFINITY;
-    if (left !== right) return left - right;
-    return a.title.localeCompare(b.title);
-  });
+  return [...docs].sort(compareDocsByOrder);
 }
 
 function formatUpdated(value?: number | string | null): string | null {
@@ -194,8 +190,8 @@ export function DocsBlock({
           .docs-row { align-items: flex-start; }
           .docs-main { flex: 1 1 0; min-width: 0; align-items: flex-start; gap: 12px; }
           .docs-chev { order: 2; flex: 0 0 auto; margin-top: 2px; }
-          .docs-badges { order: 3; flex: 1 0 100%; flex-wrap: wrap; overflow: visible; justify-content: flex-start; align-items: center; padding-left: 48px; box-sizing: border-box; }
-          .docs-block { padding: 20px 0 !important; }
+          .docs-badges { order: 3; flex: 1 0 100%; flex-wrap: wrap; overflow: visible; justify-content: flex-start; align-items: center; gap: 6px; padding-left: 48px; box-sizing: border-box; }
+          .docs-block { padding: 20px 16px !important; }
         }
         .docs-row:focus-visible {
           outline: 2px solid var(--accent);

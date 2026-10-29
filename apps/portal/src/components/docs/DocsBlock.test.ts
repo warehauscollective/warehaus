@@ -54,6 +54,8 @@ describe('DocsBlock audience', () => {
     assert.equal(html.includes('>BRIEF<'), false);
     assert.match(html, /\.docs-badges \{ order: 3; flex: 1 0 100%; flex-wrap: wrap;/);
     assert.match(html, /padding-left: 48px/);
+    assert.match(html, /padding: 20px 16px/);
+    assert.equal(html.includes('padding: 20px 0'), false);
     assert.equal(html.includes('padding-left: 52px'), false);
     assert.equal(html.includes('Order'), false);
   });

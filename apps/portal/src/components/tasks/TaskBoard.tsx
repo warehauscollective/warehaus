@@ -366,11 +366,6 @@ export function TaskBoard({
           ) : null}
         </DragOverlay>
       </DndContext>
-      {tasks.length === 0 && !loading ? (
-        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-          {staff ? 'No tasks yet. Add one from a column.' : 'Nothing here yet.'}
-        </p>
-      ) : null}
       {toast ? (
         <BoardToast
           message={toast.message}
