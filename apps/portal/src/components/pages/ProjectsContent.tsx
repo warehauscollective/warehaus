@@ -11,8 +11,11 @@ import {
   awaitingKpiCaption,
   projectFilterCounts,
   projectInitials,
-  projectListEmptyCopy,
   projectListKpis,
+  projectListErrorMode,
+  projectListQueryError,
+  projectListShowsKpis,
+  requestProjectCreate,
   EDIT_PROJECT_WRITEBACK_HINT,
   projectListMeta,
   projectMatchesFilter,
@@ -28,6 +31,8 @@ import {
   type ProjectListFilter,
 } from '@/lib/data/projectList';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
+import { projectsForViewer, viewerIsStaff } from '@/lib/data/portalSnapshotCache';
+import { useRetryPortalData } from '@/components/providers/PortalDataRetry';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
@@ -49,6 +54,14 @@ import { portalNavDetail } from '@/lib/nav/openPortalHref';
 import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
+import { useProjectCreateEnabled } from '@/components/projects/projectCreateFlag';
+import {
+  NewProjectButton,
+  ProjectKpiSkeleton,
+  ProjectListFilters,
+  ProjectListOutcome,
+  ProjectListScreen,
+} from '@/components/projects/ProjectListStates';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
 import { TaskCreateDialog, TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { StatusTable } from '@/components/tasks/StatusKanban';
@@ -72,14 +85,21 @@ export function ProjectsContent() {
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
   const { sectionFor, setSectionFor, openLinkedClient } = usePortalView();
+  const [createOpen, setCreateOpen] = useState(false);
+  const createEnabled = useProjectCreateEnabled();
   const { data, loading, error } = usePortalData();
-  const { portalSession } = usePortalAuth();
+  const retryPortalData = useRetryPortalData();
+  const { portalSession, linkStatus, sessionPending, joining } = usePortalAuth();
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const activeSection = sectionFor('projects');
-  const isStaff = Boolean(portalSession?.isStaff);
+  const settling = !fixtures && (sessionPending || joining || linkStatus === 'loading');
+  const isStaff = viewerIsStaff(portalSession, settling);
   const [filter, setFilter] = useState<ProjectListFilter>('all');
   const [forceEmpty, setForceEmpty] = useState(false);
+  const [forceFiltered, setForceFiltered] = useState(false);
+  const [forceLoading, setForceLoading] = useState(false);
+  const [forceError, setForceError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
   const [creating, setCreating] = useState(false);
@@ -109,14 +129,20 @@ export function ProjectsContent() {
   }, [fixtures]);
 
   useEffect(() => {
+    if (fixtures && new URLSearchParams(window.location.search).get('list') === 'filtered') return;
     if (activeSection === 'all' || activeSection === 'active' || activeSection === 'shipped') {
       setFilter(activeSection);
     }
-  }, [activeSection]);
+  }, [activeSection, fixtures]);
 
   useEffect(() => {
     if (!fixtures) return;
-    setForceEmpty(new URLSearchParams(window.location.search).get('list') === 'empty');
+    const list = new URLSearchParams(window.location.search).get('list');
+    setForceEmpty(list === 'empty' || list === 'error');
+    setForceFiltered(list === 'filtered');
+    setForceLoading(list === 'loading');
+    setForceError(list === 'error' || list === 'refresh' ? 'Network error' : null);
+    if (list === 'filtered') setFilter('shipped');
   }, [fixtures]);
 
   const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
@@ -131,7 +157,13 @@ export function ProjectsContent() {
 
   const projects = useMemo(() => {
     const rows = (
-      fixtures ? FIXTURE_PROJECTS : isStaff ? staff.projects ?? [] : data.projects
+      fixtures
+        ? FIXTURE_PROJECTS
+        : projectsForViewer({
+            isStaff,
+            staffProjects: staff.projects,
+            clientProjects: data.projects,
+          })
     ) as ProjectRow[];
     return attachKnownSync(rows, data.projects);
   }, [fixtures, isStaff, staff.projects, data.projects]);
@@ -145,26 +177,32 @@ export function ProjectsContent() {
   const docs = (
     fixtures ? FIXTURE_DOCS : isStaff ? staff.docs ?? [] : clientDocsState.data ?? []
   ) as DocRow[];
-  const projectsLoading = !fixtures && (loading || (isStaff && staff.projectsLoading));
+  const projectsLoading =
+    forceLoading ||
+    (!fixtures && (settling || (isStaff ? staff.projectsLoading : loading)));
 
-  const filterCounts = useMemo(
-    () => projectFilterCounts(forceEmpty ? [] : projects, isStaff),
-    [projects, isStaff, forceEmpty],
+  const listed = useMemo(
+    () => (forceFiltered ? projects.filter((project) => !projectMatchesFilter(project, 'shipped')) : projects),
+    [projects, forceFiltered],
   );
-  const viewerCount = forceEmpty ? 0 : viewerProjects(projects, isStaff).length;
+  const filterCounts = useMemo(
+    () => projectFilterCounts(forceEmpty ? [] : listed, isStaff),
+    [listed, isStaff, forceEmpty],
+  );
+  const viewerCount = forceEmpty ? 0 : viewerProjects(listed, isStaff).length;
   const kpis = useMemo(
-    () => projectListKpis(forceEmpty ? [] : projects, forceEmpty ? [] : tasks, isStaff),
-    [projects, tasks, isStaff, forceEmpty],
+    () => projectListKpis(forceEmpty ? [] : listed, forceEmpty ? [] : tasks, isStaff),
+    [listed, tasks, isStaff, forceEmpty],
   );
   const awaitingCaption = awaitingKpiCaption(kpis.awaitingGo, kpis.awaitingProjects);
   const visible = useMemo(() => {
     if (forceEmpty) return [];
-    const rows = projects.filter((project) => {
+    const rows = listed.filter((project) => {
       if (!isStaff && project.internal) return false;
       return projectMatchesFilter(project, filter);
     });
     return sortProjectsByLastUpdated(rows);
-  }, [projects, isStaff, filter, forceEmpty]);
+  }, [listed, isStaff, filter, forceEmpty]);
 
   const chooseFilter = (key: ProjectListFilter) => {
     setFilter(key);
@@ -276,11 +314,27 @@ export function ProjectsContent() {
     );
   }
 
-  const loadError = error || staff.projectsError
-    ? isStaff
-      ? error || staff.projectsError
-      : 'We could not load your projects'
-    : null;
+  const loadError = projectListQueryError({
+    snapshotError: forceError ?? error,
+    projectsError: isStaff ? staff.projectsError : null,
+    syncError: data.syncMeta.lastError,
+  });
+  const errorMode = projectsLoading ? 'none' : projectListErrorMode(loadError, viewerCount);
+  const retryQueries = () => {
+    if (fixtures) {
+      setForceError(null);
+      setForceLoading(false);
+      return;
+    }
+    retryPortalData();
+  };
+  const openCreate = () => {
+    requestProjectCreate(createEnabled, () => setCreateOpen(true));
+  };
+  const projectClients = (fixtures ? FIXTURE_CLIENTS : directory.data ?? []).map((client) => ({
+    id: client.id,
+    name: client.name,
+  }));
 
   if (openProject) {
     const projectTasks = tasks.filter((task) => task.projectId === openProject.id);
@@ -440,52 +494,62 @@ export function ProjectsContent() {
       eyebrow={tenantEyebrow(data.tenant, 'Projects')}
       title={activeSection === 'all' ? 'Projects' : (SECTION_TITLE[activeSection] ?? 'Projects')}
       actions={
-        isStaff && process.env.NODE_ENV !== 'production' ? (
-          <NewProjectControl
-            clients={(fixtures ? FIXTURE_CLIENTS : directory.data ?? []).map((client) => ({
-              id: client.id,
-              name: client.name,
-            }))}
-            fixtures={fixtures}
-            hostSlug={hostSlug}
-          />
+        isStaff ? (
+          <>
+            <NewProjectButton variant="primary" enabled={createEnabled} onCreate={openCreate} />
+            {createEnabled ? (
+              <NewProjectControl
+                open={createOpen}
+                onClose={() => setCreateOpen(false)}
+                clients={projectClients}
+                fixtures={fixtures}
+                hostSlug={hostSlug}
+              />
+            ) : null}
+          </>
         ) : null
       }
     >
       <PortalTilePane>
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" data-testid="projects-list">
-          {loadError ? (
-            <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)' }}>{loadError}</p>
+          <ProjectListScreen
+            staff={isStaff}
+            errorMode={errorMode}
+            message={loadError}
+            onRetry={retryQueries}
+          >
+          {projectListShowsKpis(viewerCount, projectsLoading) ? (
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" data-testid="project-kpis">
+              {projectsLoading ? (
+                <>
+                  <ProjectKpiSkeleton />
+                  <ProjectKpiSkeleton />
+                  <ProjectKpiSkeleton />
+                </>
+              ) : (
+                <>
+                  <KpiCard
+                    label="Active"
+                    value={String(kpis.active)}
+                    hint={activeKpiCaption(kpis.active, kpis.buildingNow)}
+                  />
+                  <KpiCard
+                    label="Awaiting Go"
+                    value={String(kpis.awaitingGo)}
+                    hint={awaitingCaption.caption}
+                    tone={awaitingCaption.hot ? 'var(--danger)' : undefined}
+                  />
+                  <KpiCard label="Shipped" value={String(kpis.shipped)} hint={shippedKpiCaption()} />
+                </>
+              )}
+            </div>
           ) : null}
-          {!isStaff ? (
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-              You only see what is shared with you.
-            </p>
-          ) : null}
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" data-testid="project-kpis">
-            <KpiCard
-              label="Active"
-              value={projectsLoading ? '…' : String(kpis.active)}
-              hint={projectsLoading ? 'Loading' : activeKpiCaption(kpis.active, kpis.buildingNow)}
-            />
-            <KpiCard
-              label="Awaiting Go"
-              value={projectsLoading ? '…' : String(kpis.awaitingGo)}
-              hint={projectsLoading ? 'Loading' : awaitingCaption.caption}
-              tone={!projectsLoading && awaitingCaption.hot ? 'var(--danger)' : undefined}
-            />
-            <KpiCard
-              label="Shipped"
-              value={projectsLoading ? '…' : String(kpis.shipped)}
-              hint={projectsLoading ? 'Loading' : shippedKpiCaption()}
-            />
-          </div>
           <Surface style={{ padding: 24 }}>
             <div className="flex flex-col" style={{ gap: 4 }}>
               <h2 style={{ fontSize: 18, lineHeight: '26px', fontWeight: 600 }}>All projects</h2>
               <p style={{ fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>Sorted by last updated</p>
             </div>
-            <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Project filters">
+            <ProjectListFilters loading={projectsLoading} viewerCount={viewerCount}>
               {filterCounts.map((chip) => (
                 <FilterChip
                   key={chip.key}
@@ -496,20 +560,19 @@ export function ProjectsContent() {
                   {chip.label}
                 </FilterChip>
               ))}
-            </div>
-            {projectsLoading ? (
-              <div className="mt-4 flex flex-col" aria-busy="true">
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="animate-pulse border-b last:border-b-0"
-                    style={{ height: 90, background: 'transparent', borderColor: 'var(--border)' }}
-                  />
-                ))}
-              </div>
-            ) : visible.length === 0 ? (
-              <ProjectListEmpty viewerCount={viewerCount} staff={isStaff} />
-            ) : (
+            </ProjectListFilters>
+            <ProjectListOutcome
+              loading={projectsLoading}
+              viewerCount={viewerCount}
+              visibleCount={visible.length}
+              staff={isStaff}
+              onCreate={openCreate}
+              onClear={() => {
+                setForceFiltered(false);
+                chooseFilter('all');
+              }}
+              createEnabled={createEnabled}
+            >
               <ul className="mt-2">
                 {visible.map((project) => {
                   const mine = tasks.filter((task) => task.projectId === project.id);
@@ -599,8 +662,9 @@ export function ProjectsContent() {
                   );
                 })}
               </ul>
-            )}
+            </ProjectListOutcome>
           </Surface>
+          </ProjectListScreen>
         </div>
       </PortalTilePane>
       {routeTaskId ? (
@@ -674,25 +738,6 @@ function KpiCard({
         {value}
       </p>
       {hint ? <p style={{ marginTop: 12, fontSize: 14, color: tone ?? 'var(--muted)' }}>{hint}</p> : null}
-    </div>
-  );
-}
-
-function ProjectListEmpty({ viewerCount, staff }: { viewerCount: number; staff: boolean }) {
-  const copy = projectListEmptyCopy(viewerCount, staff);
-  if (!copy.detail) {
-    return (
-      <p className="mt-4" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-        {copy.title}
-      </p>
-    );
-  }
-  return (
-    <div className="mt-4">
-      <p style={{ fontSize: 16, fontWeight: 500 }}>{copy.title}</p>
-      <p className="mt-1" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-        {copy.detail}
-      </p>
     </div>
   );
 }

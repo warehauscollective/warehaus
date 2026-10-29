@@ -2,6 +2,8 @@
 
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
+import { PortalDataRetryProvider } from '@/components/providers/PortalDataRetry';
+import { ProjectCreateFlagProvider } from '@/components/projects/projectCreateFlag';
 import { PortalTabProvider } from '@/components/providers/PortalTabProvider';
 import { PortalViewProvider } from '@/components/providers/PortalViewProvider';
 import { PORTAL_PANEL_GAP } from '@/lib/design/portal-chrome';
@@ -36,12 +38,22 @@ function PortalChrome({ children }: { children: ReactNode }) {
   );
 }
 
-export function PortalShell({ children }: { children: ReactNode }) {
+export function PortalShell({
+  children,
+  projectCreateEnabled = false,
+}: {
+  children: ReactNode;
+  projectCreateEnabled?: boolean;
+}) {
   return (
-    <PortalTabProvider>
-      <PortalViewProvider>
-        <PortalChrome>{children}</PortalChrome>
-      </PortalViewProvider>
-    </PortalTabProvider>
+    <ProjectCreateFlagProvider enabled={projectCreateEnabled}>
+      <PortalDataRetryProvider>
+        <PortalTabProvider>
+          <PortalViewProvider>
+            <PortalChrome>{children}</PortalChrome>
+          </PortalViewProvider>
+        </PortalTabProvider>
+      </PortalDataRetryProvider>
+    </ProjectCreateFlagProvider>
   );
 }

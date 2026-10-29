@@ -5,14 +5,16 @@ import { PortalShell } from '@/components/layout/PortalShell';
 import { FixturePreviewProvider } from '@/components/providers/FixturePreviewProvider';
 import { fixturePreviewAllowed } from '@/lib/data/fixturePreviewGate';
 import { isAuthenticated } from '@/lib/auth-server';
+import { isNotionProjectCreateEnabled } from '@warehaus/portal-sync';
 
 export default async function PortalLayout({ children }: { children: ReactNode }) {
+  const projectCreateEnabled = isNotionProjectCreateEnabled(process.env.NOTION_PROJECT_CREATE_ENABLED);
   // Same gate as /preview. Deep links such as /docs/:id render in the fixture shell
   // only when the flag is on and this is not production. Production still requires auth.
   if (fixturePreviewAllowed()) {
     return (
       <FixturePreviewProvider>
-        <PortalShell>{children}</PortalShell>
+        <PortalShell projectCreateEnabled={projectCreateEnabled}>{children}</PortalShell>
       </FixturePreviewProvider>
     );
   }
@@ -35,7 +37,7 @@ export default async function PortalLayout({ children }: { children: ReactNode }
 
   return (
     <AuthGate>
-      <PortalShell>{children}</PortalShell>
+      <PortalShell projectCreateEnabled={projectCreateEnabled}>{children}</PortalShell>
     </AuthGate>
   );
 }

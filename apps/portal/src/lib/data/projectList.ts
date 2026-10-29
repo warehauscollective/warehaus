@@ -126,6 +126,16 @@ export function projectTaskCount(loadedCount: number, storedCount?: number | nul
 
 export const EDIT_PROJECT_WRITEBACK_HINT = 'Editing turns on with Notion write-back';
 
+/** Same shape as Edit project. Shown while project create is off. */
+export const PROJECT_CREATE_HINT = 'Creating a project turns on with Notion write-back';
+
+/** Opens the new-project dialog only when project create is on. */
+export function requestProjectCreate(enabled: boolean, open: () => void): boolean {
+  if (!enabled) return false;
+  open();
+  return true;
+}
+
 export type ProjectSummaryVisibility = {
   showPublish: boolean;
   showSourceNotion: boolean;
@@ -239,14 +249,129 @@ export function awaitingKpiCaption(count: number, projectCount: number): { capti
   return { caption: acrossProjectsLabel(projectCount), hot: true };
 }
 
+/**
+ * Chips stay for a filtered-empty list. A true empty set has nothing to filter.
+ * Loading hides them so counts cannot appear before the KPI numbers.
+ */
+export function projectListShowsFilters(viewerCount: number, loading = false): boolean {
+  return viewerCount > 0 && !loading;
+}
+
+/** KPI cards hide only when the viewer total is zero. Loading still shows skeletons. */
+export function projectListShowsKpis(viewerCount: number, loading: boolean): boolean {
+  return loading || viewerCount > 0;
+}
+
+/** Snapshot query failure only. A blank message is not an error. */
+export function portalHookError(snapshotError?: string | null): string | null {
+  const snapshot = snapshotError?.trim() ?? '';
+  return snapshot || null;
+}
+
+/**
+ * One split for the portal hook. `snapshotError` is the query failure.
+ * `syncError` stays on syncMeta for the dashboard sync card and row chips.
+ */
+export function portalFailure(input: {
+  snapshotError?: string | null;
+  syncError?: string | null;
+}): { snapshotError: string | null; syncError: string | null } {
+  return {
+    snapshotError: portalHookError(input.snapshotError),
+    syncError: input.syncError?.trim() || null,
+  };
+}
+
+/** No cached rows: the error card replaces the page. Cached rows: a refresh banner. */
+export function projectListErrorMode(
+  queryError: string | null,
+  cachedCount: number,
+): 'none' | 'empty' | 'refresh' {
+  if (!queryError) return 'none';
+  return cachedCount > 0 ? 'refresh' : 'empty';
+}
+
+/**
+ * Projects load notice. `syncError` is not a query failure: with no snapshot
+ * or staff projects error, the list and empty states stay up.
+ */
+export function projectListQueryError(input: {
+  snapshotError?: string | null;
+  projectsError?: string | null;
+  syncError?: string | null;
+}): string | null {
+  if (input.syncError && !input.snapshotError?.trim() && !input.projectsError?.trim()) return null;
+  const snapshot = input.snapshotError?.trim() ?? '';
+  const projects = input.projectsError?.trim() ?? '';
+  return snapshot || projects || null;
+}
+
 /** Zero projects in the viewer set, versus a filter that hides every row. */
 export function projectListEmptyCopy(viewerCount: number, staff: boolean): { title: string; detail: string | null } {
   if (viewerCount > 0) return { title: 'No projects match these filters.', detail: null };
+  if (!staff) {
+    return {
+      title: 'No projects shared with you yet',
+      detail: 'Warehaus will publish projects here when they are ready.',
+    };
+  }
   return {
     title: 'No projects yet',
-    detail: staff
-      ? 'Create one with New project or in Notion.'
-      : 'Projects Warehaus shares with you will show here.',
+    detail: 'Create a project under a client, or under Warehaus for internal work.',
+  };
+}
+
+export const PROJECT_LIST_CLIENT_LOAD_TITLE = "We couldn't load your projects";
+export const PROJECT_LIST_CLIENT_LOAD_BODY = 'Try again in a moment.';
+export const PROJECT_LIST_STAFF_LOAD_TITLE = "Couldn't load projects";
+export const PROJECT_LIST_CLIENT_REFRESH_TITLE = "We couldn't refresh your projects";
+export const PROJECT_LIST_CLIENT_REFRESH_BODY = 'Showing what was last loaded.';
+export const PROJECT_LIST_STAFF_REFRESH_TITLE = "Couldn't refresh projects";
+
+/**
+ * List load failure. `refresh` is a failed refetch that still has rows.
+ * Both audiences get Try again. The save-queued sentence from the states
+ * frame is not used here: a failed load has nothing queued.
+ * Client title and body live only in the constants above.
+ */
+export function projectListLoadNotice(
+  staff: boolean,
+  message: string,
+  refresh = false,
+): { title: string; body: string; retry: boolean; mono: boolean } {
+  if (refresh) {
+    if (!staff) {
+      return {
+        title: PROJECT_LIST_CLIENT_REFRESH_TITLE,
+        body: PROJECT_LIST_CLIENT_REFRESH_BODY,
+        retry: true,
+        mono: false,
+      };
+    }
+    const detail = message.trim();
+    const mono = Boolean(detail) && detail !== PROJECT_LIST_STAFF_REFRESH_TITLE;
+    return {
+      title: PROJECT_LIST_STAFF_REFRESH_TITLE,
+      body: mono ? detail : PROJECT_LIST_CLIENT_REFRESH_BODY,
+      retry: true,
+      mono,
+    };
+  }
+  if (!staff) {
+    return {
+      title: PROJECT_LIST_CLIENT_LOAD_TITLE,
+      body: PROJECT_LIST_CLIENT_LOAD_BODY,
+      retry: true,
+      mono: false,
+    };
+  }
+  const detail = message.trim();
+  const mono = Boolean(detail) && detail !== PROJECT_LIST_STAFF_LOAD_TITLE && detail !== PROJECT_LIST_CLIENT_LOAD_TITLE;
+  return {
+    title: PROJECT_LIST_STAFF_LOAD_TITLE,
+    body: mono ? detail : PROJECT_LIST_CLIENT_LOAD_BODY,
+    retry: true,
+    mono,
   };
 }
 

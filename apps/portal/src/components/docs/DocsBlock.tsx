@@ -211,8 +211,8 @@ export function DocsBlock({
           <OutlineButton onClick={() => setNote('Add doc is not wired yet. Nothing was sent.')}>Add doc</OutlineButton>
         ) : null}
       </div>
-      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '4px 0 8px' }}>
-        {staff ? 'Synced from Notion · clients see published docs only' : 'Shared by the Warehaus team'}
+      <p style={{ fontSize: 13, color: 'var(--muted)', margin: '4px 0 8px', textWrap: 'pretty' }}>
+        {staff ? 'Synced from Notion · clients see published only' : 'Shared by the Warehaus team'}
       </p>
       {loading ? (
         <div aria-busy="true">
