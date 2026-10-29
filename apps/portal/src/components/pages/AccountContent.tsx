@@ -4,10 +4,9 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
+import { AccountSettings } from '@/components/account/AccountSettings';
 import { TeamInvites } from '@/components/pages/TeamInvites';
-import { GhostButton, PortalCheckbox, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
-import { ThemeControl } from '@/components/account/ThemeControl';
 import { DocsStatesGallery, type DocRow } from '@/components/docs/DocsBlock';
 import {
   ClientCompany,
@@ -229,12 +228,12 @@ export function AccountContent() {
       parent={{ label: 'Account', onClick: goAccountRoot }}
       current="Clients"
     />
-  ) : activeSection === 'profile' ? (
+  ) : activeSection === 'profile' || activeSection === 'notifications' ? (
     <NavBreadcrumb
       back="mobile"
       onBack={goAccountRoot}
       parent={{ label: 'Account', onClick: goAccountRoot }}
-      current="Profile"
+      current={activeSection === 'notifications' ? 'Notifications' : 'Profile'}
     />
   ) : null;
   return (
@@ -323,53 +322,24 @@ export function AccountContent() {
         </PortalTilePane>
       ) : null}
 
-      {activeSection === 'profile' && (
+      {(activeSection === 'profile' || activeSection === 'notifications') && (
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="account-profile">
-            <Surface style={{ padding: 'var(--s-5)' }}>
-              <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                Profile
-              </p>
-              <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>
-                {portalSession?.name ?? '—'}
-              </h3>
-              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
-                {portalSession?.email ?? '—'}
-              </p>
-              <div className="mt-5 flex justify-end">
-                <GhostButton
-                  onClick={() => {
-                    void (async () => {
-                      await signOut();
-                      if (!fixtures) router.replace('/login');
-                    })();
-                  }}
-                >
-                  Sign out
-                </GhostButton>
-              </div>
-            </Surface>
-            <ThemeControl />
-            {isClient ? (
-              <Surface style={{ padding: 'var(--s-5)' }}>
-                <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                  Your contact
-                </p>
-                <p style={{ fontSize: 'var(--t-sm)', marginTop: 8 }}>
-                  {portalSession?.name ?? data.tenant.clientName ?? '—'}
-                </p>
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                  {data.tenant.clientName ?? 'Your company'}
-                </p>
-              </Surface>
-            ) : null}
-          </div>
-        </PortalTilePane>
-      )}
-
-      {activeSection === 'notifications' && (
-        <PortalTilePane>
-          <NotificationSettings staff={isStaff} />
+          <AccountSettings
+            staff={isStaff}
+            name={portalSession?.name ?? '—'}
+            email={portalSession?.email ?? '—'}
+            orgLabel={isStaff ? 'Warehaus' : data.tenant.clientName ?? 'Your company'}
+            role={portalSession?.role ?? (isStaff ? 'Warehaus Staff' : 'Client')}
+            focus={activeSection === 'notifications' ? 'notifications' : 'profile'}
+            live={configured && !fixtures}
+            hostSlug={hostSlug}
+            onSignOut={() => {
+              void (async () => {
+                await signOut();
+                if (!fixtures) router.replace('/login');
+              })();
+            }}
+          />
         </PortalTilePane>
       )}
 
@@ -380,66 +350,3 @@ export function AccountContent() {
   );
 }
 
-function NotificationSettings({ staff }: { staff: boolean }) {
-  const [flags, setFlags] = useState({
-    awaitingGo: true,
-    syncProblems: true,
-    draftRecaps: false,
-    inviteNotices: true,
-  });
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('warehaus-notifications');
-      if (raw) setFlags(JSON.parse(raw) as typeof flags);
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  const save = (next: typeof flags) => {
-    setFlags(next);
-    try {
-      localStorage.setItem('warehaus-notifications', JSON.stringify(next));
-      setError(null);
-    } catch {
-      setError('Could not save your settings');
-    }
-  };
-
-  const rows: Array<[keyof typeof flags, string]> = [
-    ['awaitingGo', 'Awaiting go'],
-    ...(staff
-      ? ([
-          ['syncProblems', 'Sync problems'],
-          ['draftRecaps', 'Draft recaps'],
-          ['inviteNotices', 'Invite notices'],
-        ] as Array<[keyof typeof flags, string]>)
-      : []),
-  ];
-
-  return (
-    <Surface style={{ padding: 'var(--s-5)' }}>
-      <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-        Notifications
-      </p>
-      <div className="mt-4 flex flex-col gap-3">
-        {rows.map(([key, label]) => (
-          <label key={key} className="flex items-center justify-between gap-3">
-            <span style={{ fontSize: 'var(--t-sm)' }}>{label}</span>
-            <PortalCheckbox
-              checked={flags[key]}
-              onChange={(checked) => save({ ...flags, [key]: checked })}
-            />
-          </label>
-        ))}
-      </div>
-      {error ? (
-        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)', marginTop: 12 }}>
-          {error}. Try again.
-        </p>
-      ) : null}
-    </Surface>
-  );
-}

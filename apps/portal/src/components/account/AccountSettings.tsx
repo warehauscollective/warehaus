@@ -1,0 +1,493 @@
+'use client';
+
+import { useEffect, useRef, useState, type RefObject } from 'react';
+import { useMutation } from 'convex/react';
+import { api } from '@convex/_generated/api';
+import { ThemeControl } from '@/components/account/ThemeControl';
+import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { isMissingConvexFunction } from '@/lib/data/staffRoster';
+import {
+  DEFAULT_NOTIFICATION_PREFS,
+  mergeNotificationPrefs,
+  notificationKeysFor,
+  readLegacyNotificationPrefs,
+  type NotificationPrefKey,
+  type NotificationPrefs,
+} from '@convex/_lib/notificationPrefs';
+
+const LEGACY_KEY = 'warehaus-notifications';
+
+const COPY: Record<
+  NotificationPrefKey,
+  { label: string; body: string }
+> = {
+  awaitingGo: {
+    label: 'Awaiting go',
+    body: 'Tell me when an item reaches Awaiting Go',
+  },
+  syncProblems: {
+    label: 'Sync problems',
+    body: 'Tell me when a write to Notion fails',
+  },
+  draftRecaps: {
+    label: 'Draft recaps',
+    body: 'Tell me when a Granola recap is ready to review',
+  },
+  inviteNotices: {
+    label: 'Invite notices',
+    body: 'Staff notices about client invites',
+  },
+  needsAttention: {
+    label: 'Needs your attention',
+    body: 'Tasks waiting for your go-ahead',
+  },
+  sharedRecaps: {
+    label: 'Shared recaps',
+    body: 'When Warehaus shares a meeting recap',
+  },
+  weeklySummary: {
+    label: 'Weekly summary',
+    body: 'A short email every Monday',
+  },
+};
+
+type SavedPrefs = NotificationPrefs & { persisted?: boolean };
+
+function initials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0 || name === '—') return '·';
+  const letters = parts.slice(0, 2).map((part) => part[0]?.toUpperCase() ?? '');
+  return letters.join('') || '·';
+}
+
+function readLegacy(): Partial<NotificationPrefs> | null {
+  try {
+    return readLegacyNotificationPrefs(localStorage.getItem(LEGACY_KEY));
+  } catch {
+    return null;
+  }
+}
+
+function writeLegacy(prefs: NotificationPrefs) {
+  try {
+    localStorage.setItem(LEGACY_KEY, JSON.stringify(prefs));
+  } catch {
+    /* ignore */
+  }
+}
+
+export function AccountSettings({
+  staff,
+  name,
+  email,
+  orgLabel,
+  role,
+  focus,
+  live,
+  hostSlug,
+  onSignOut,
+}: {
+  staff: boolean;
+  name: string;
+  email: string;
+  orgLabel: string;
+  role: string;
+  focus: 'profile' | 'notifications';
+  /** Signed-in Convex session. Fixture preview stays local. */
+  live: boolean;
+  hostSlug?: string;
+  onSignOut: () => void;
+}) {
+  const notificationsRef = useRef<HTMLElement | null>(null);
+
+  useEffect(() => {
+    if (focus !== 'notifications') return;
+    notificationsRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [focus]);
+
+  return (
+    <div className="flex flex-col gap-8 lg:gap-12" data-testid="account-profile">
+      <ProfileCard
+        name={name}
+        email={email}
+        orgLabel={orgLabel}
+        role={role}
+        onSignOut={onSignOut}
+      />
+      <ThemeControl />
+      <NotificationSettings
+        refTarget={notificationsRef}
+        staff={staff}
+        live={live}
+        hostSlug={hostSlug}
+      />
+      {staff ? null : <TeammateNotice />}
+    </div>
+  );
+}
+
+function ProfileCard({
+  name,
+  email,
+  orgLabel,
+  role,
+  onSignOut,
+}: {
+  name: string;
+  email: string;
+  orgLabel: string;
+  role: string;
+  onSignOut: () => void;
+}) {
+  return (
+    <section style={cardStyle} data-testid="account-identity">
+      <header>
+        <h2 style={cardTitle}>Profile</h2>
+        <p style={cardSubtitle}>How you appear in the portal</p>
+      </header>
+      <div className="flex items-center" style={{ gap: 24 }}>
+        <div
+          className="flex shrink-0 items-center justify-center"
+          aria-hidden
+          style={{
+            width: 56,
+            height: 56,
+            borderRadius: 999,
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border-2)',
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          {initials(name)}
+        </div>
+        <div className="min-w-0">
+          <p style={{ fontSize: 20, fontWeight: 600, lineHeight: '24px' }}>{name}</p>
+          <p className="ds-mono" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+            {orgLabel} · {role}
+          </p>
+        </div>
+      </div>
+      <Field label="Display name" value={name} testId="account-display-name" />
+      <Field
+        label="Email"
+        value={email}
+        testId="account-email"
+        help="Your sign-in email. Contact Warehaus to change it."
+      />
+      <button type="button" onClick={onSignOut} data-testid="account-sign-out" style={outlineButton}>
+        Sign out
+      </button>
+    </section>
+  );
+}
+
+function Field({
+  label,
+  value,
+  help,
+  testId,
+}: {
+  label: string;
+  value: string;
+  help?: string;
+  testId: string;
+}) {
+  const id = testId;
+  return (
+    <div className="flex flex-col" style={{ gap: 8 }}>
+      <label htmlFor={id} className="ds-mono" style={fieldLabel}>
+        {label}
+      </label>
+      <input
+        id={id}
+        data-testid={testId}
+        value={value}
+        readOnly
+        type={label === 'Email' ? 'email' : 'text'}
+        autoComplete="off"
+        style={fieldInput}
+      />
+      {help ? <p style={{ fontSize: 12, lineHeight: '16px', color: 'var(--muted)' }}>{help}</p> : null}
+    </div>
+  );
+}
+
+function NotificationSettings({
+  refTarget,
+  staff,
+  live,
+  hostSlug,
+}: {
+  refTarget: RefObject<HTMLElement | null>;
+  staff: boolean;
+  live: boolean;
+  hostSlug?: string;
+}) {
+  const remote = useSafeQuery<SavedPrefs>(
+    api.notificationPrefs.getMine,
+    live ? { hostSlug } : 'skip',
+  );
+  const saveMine = useMutation(api.notificationPrefs.saveMine);
+  const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIFICATION_PREFS);
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const dirty = useRef(false);
+  const hydrated = useRef(false);
+
+  useEffect(() => {
+    if (!live) {
+      const legacy = readLegacy();
+      if (legacy) setPrefs(mergeNotificationPrefs(DEFAULT_NOTIFICATION_PREFS, legacy));
+      return;
+    }
+    if (hydrated.current || dirty.current) return;
+    if (remote.loading) return;
+    if (remote.data) {
+      hydrated.current = true;
+      const { persisted, ...row } = remote.data;
+      if (persisted) {
+        setPrefs(mergeNotificationPrefs(null, row));
+        return;
+      }
+      const legacy = readLegacy();
+      setPrefs(mergeNotificationPrefs(row, legacy ?? {}));
+      return;
+    }
+    if (remote.error && isMissingConvexFunction(remote.error)) {
+      hydrated.current = true;
+      const legacy = readLegacy();
+      if (legacy) setPrefs(mergeNotificationPrefs(DEFAULT_NOTIFICATION_PREFS, legacy));
+    }
+  }, [live, remote.data, remote.error, remote.loading]);
+
+  const keys = notificationKeysFor(staff);
+
+  const save = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      if (live && !isMissingConvexFunction(remote.error)) {
+        const next = await saveMine({ ...prefs, hostSlug });
+        setPrefs(mergeNotificationPrefs(null, next));
+        dirty.current = false;
+      }
+      writeLegacy(prefs);
+    } catch {
+      setError('Could not save your settings');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <section ref={refTarget} id="account-notifications" data-testid="account-notifications" style={cardStyle}>
+      <header>
+        <h2 style={cardTitle}>Notifications</h2>
+        <p style={cardSubtitle}>{staff ? 'Email and in-portal' : 'Choose what reaches your inbox'}</p>
+      </header>
+      {keys.map((key) => {
+        const on = prefs[key];
+        const copy = COPY[key];
+        return (
+          <div key={key} style={settingRow}>
+            <div className="min-w-0 flex-1">
+              <p style={settingTitle}>{copy.label}</p>
+              <p style={settingBody}>{copy.body}</p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={on}
+              aria-label={copy.label}
+              data-testid={`notify-${key}`}
+              onClick={() => {
+                dirty.current = true;
+                setPrefs((current) => ({ ...current, [key]: !current[key] }));
+                setError(null);
+              }}
+              className="relative shrink-0"
+              style={{
+                width: 40,
+                height: 22,
+                borderRadius: 999,
+                border: on ? '1px solid transparent' : '1px solid var(--border-2)',
+                background: on ? 'var(--fg)' : 'var(--surface-2)',
+                padding: 0,
+                cursor: 'pointer',
+              }}
+            >
+              <span
+                aria-hidden
+                style={{
+                  position: 'absolute',
+                  top: 2,
+                  left: on ? 20 : 2,
+                  width: 16,
+                  height: 16,
+                  borderRadius: 999,
+                  background: on ? 'var(--bg)' : 'var(--muted)',
+                }}
+              />
+            </button>
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        onClick={() => {
+          void save();
+        }}
+        disabled={saving}
+        data-testid="account-save-notifications"
+        style={{
+          ...solidButton,
+          opacity: saving ? 0.55 : 1,
+          cursor: saving ? 'not-allowed' : 'pointer',
+        }}
+      >
+        Save changes
+      </button>
+      {error ? <p style={errorStyle}>{error}. Try again.</p> : null}
+      {remote.error && !isMissingConvexFunction(remote.error) ? (
+        <p style={errorStyle}>We could not load your notification settings. Try again.</p>
+      ) : null}
+    </section>
+  );
+}
+
+function TeammateNotice() {
+  return (
+    <div
+      className="flex items-start"
+      data-testid="account-teammate-notice"
+      style={{
+        gap: 12,
+        padding: '16px 24px',
+        borderRadius: 18,
+        background: 'var(--surface-2)',
+        border: '1px solid var(--border)',
+      }}
+    >
+      <span
+        aria-hidden
+        className="flex shrink-0 items-center justify-center"
+        style={{
+          width: 20,
+          height: 20,
+          borderRadius: 999,
+          border: '1.25px solid var(--muted)',
+          color: 'var(--muted)',
+          fontSize: 11,
+          fontWeight: 600,
+          lineHeight: 1,
+        }}
+      >
+        i
+      </span>
+      <div>
+        <p style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>Need to add a teammate?</p>
+        <p style={{ marginTop: 4, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
+          Client Admins can invite Client Members from the Team page.
+        </p>
+      </div>
+    </div>
+  );
+}
+
+const cardStyle = {
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+  borderRadius: '2.25rem',
+  padding: 'clamp(1.5625rem, 2vw, 3rem)',
+  display: 'flex',
+  flexDirection: 'column' as const,
+  gap: 32,
+};
+
+const cardTitle = {
+  fontSize: 20,
+  fontWeight: 600,
+  lineHeight: '26px',
+};
+
+const cardSubtitle = {
+  marginTop: 4,
+  fontSize: 13,
+  lineHeight: '19px',
+  color: 'var(--muted)',
+};
+
+const fieldLabel = {
+  fontSize: 11,
+  letterSpacing: '0.88px',
+  textTransform: 'uppercase' as const,
+  color: 'var(--faint)',
+};
+
+const fieldInput = {
+  width: '100%',
+  background: 'var(--bg-2)',
+  border: '1px solid var(--border)',
+  borderRadius: 18,
+  padding: '12px 16px',
+  fontSize: 15,
+  lineHeight: '20px',
+  color: 'var(--fg)',
+  fontFamily: 'var(--font-body)',
+};
+
+const outlineButton = {
+  alignSelf: 'flex-start' as const,
+  background: 'transparent',
+  color: 'var(--fg)',
+  border: '1px solid var(--border-2)',
+  borderRadius: 9,
+  fontFamily: 'var(--font-body)',
+  fontSize: 14,
+  fontWeight: 500,
+  lineHeight: 'normal',
+  padding: '12px 16px',
+  cursor: 'pointer',
+};
+
+const solidButton = {
+  alignSelf: 'flex-start' as const,
+  background: 'var(--accent)',
+  color: 'var(--accent-fg)',
+  border: 0,
+  borderRadius: 9,
+  fontFamily: 'var(--font-body)',
+  fontSize: 14,
+  fontWeight: 500,
+  lineHeight: 'normal',
+  padding: '12px 16px',
+};
+
+const settingRow = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 24,
+  paddingTop: 24,
+  paddingBottom: 24,
+  borderBottom: '1px solid var(--border)',
+};
+
+const settingTitle = {
+  fontSize: 15,
+  fontWeight: 500,
+  color: 'var(--fg)',
+};
+
+const settingBody = {
+  marginTop: 4,
+  fontSize: 13,
+  lineHeight: '19px',
+  color: 'var(--muted)',
+};
+
+const errorStyle = {
+  fontSize: 13,
+  lineHeight: '19px',
+  color: 'var(--danger)',
+};
