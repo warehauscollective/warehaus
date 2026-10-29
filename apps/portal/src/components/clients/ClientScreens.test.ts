@@ -143,7 +143,17 @@ describe('client team page', () => {
         projects: [{ id: 'p-site', name: 'Northwind site', status: 'In Progress', progress: 0.4, taskCount: 8 }],
         tasks: [
           { id: 'older', name: 'Older checklist', status: 'To Do', isDone: false, date: '2026-09-01' },
-          { id: 'newer', name: 'Newer checklist', status: 'In Progress', isDone: false, date: '2026-10-20', lastEditedTime: '2026-10-28' },
+          {
+            id: 'newer',
+            name: 'Newer checklist',
+            status: 'In Progress',
+            isDone: false,
+            date: '2026-10-20',
+            lastEditedTime: '2026-10-28',
+            stage: 'Building',
+            category: 'Design',
+            publishToWarehaus: true,
+          },
         ],
         docs: [],
         contacts: people,
@@ -175,6 +185,9 @@ describe('client team page', () => {
     assert.equal(detail.includes('md:grid-cols-[minmax(0,1fr)_176px_80px_auto'), false);
     assert.match(detail, /data-testid="client-task-title"[^>]*class="block lg:truncate"/);
     assert.match(detail, /data-testid="client-task-pills"[^>]*class="[^"]*w-full[^"]*lg:w-auto/);
+    assert.match(detail, /data-testid="client-task-publish"[^>]*class="[^"]*inline-flex[^"]*flex-nowrap[^"]*"/);
+    assert.match(detail, /data-testid="client-task-publish"[\s\S]*?>Design<\/span>[\s\S]*?Published/);
+    assert.match(detail, /lg:flex-nowrap/);
     assert.match(detail, /client-chev.svg/);
     assert.match(detail, /class="shrink-0 opacity-70 hidden lg:block"/);
     assert.match(detail, /\.client-detail \{ gap: 16px; \}/);
