@@ -340,9 +340,10 @@ export const scheduleAuthBackfill = adminMutation({
 });
 
 /**
- * People the signed-in client may see. Name and email only.
- * Warehaus Staff contacts stay off this list. Role, portal access, and invite
- * status are SERVER and are not returned.
+ * People the signed-in client may see.
+ * Warehaus Staff contacts stay off this list. Role and portal access come from
+ * the contact. invitePending is true when this org has a Pending invite for
+ * that email. Auth ids and Notion ids stay on the server.
  */
 export const listForClient = clientQuery({
   args: {},
@@ -353,6 +354,15 @@ export const listForClient = clientQuery({
       .query('contacts')
       .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
       .collect();
+    const invites = await ctx.db
+      .query('pendingInvites')
+      .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
+      .collect();
+    const pendingEmails = new Set(
+      invites
+        .filter((invite) => invite.inviteStatus === 'Pending')
+        .map((invite) => normalizeEmail(invite.email)),
+    );
     return rows
       .filter(
         (row) =>
@@ -364,6 +374,9 @@ export const listForClient = clientQuery({
         id: row._id,
         name: row.name,
         email: row.email,
+        role: row.role,
+        portalAccess: row.portalAccess,
+        invitePending: pendingEmails.has(normalizeEmail(row.email)),
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   },

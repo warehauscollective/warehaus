@@ -37,6 +37,7 @@ import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { isMissingConvexFunction, staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
 import { clientTeamCrumbs, clientVisiblePerson, formatClientSince, isStudioProjectName, warehausLead, withoutClientLeaks } from '@/lib/data/clientDetail';
+import { openPortalHref } from '@/lib/nav/openPortalHref';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { type ClientListFilter } from '@/lib/data/clientList';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
@@ -335,6 +336,7 @@ export function AccountContent() {
             people={contacts.filter(clientVisiblePerson).map((person) => withoutClientLeaks(person)) as ClientPersonRow[]}
             showTeam={showTeam}
             onShowTeam={() => setShowTeam(true)}
+            onOpenTask={(taskId) => openPortalHref(`/tasks/${taskId}`)}
             onBack={() => setShowTeam(false)}
             screen={error ? 'error' : clientScreen}
           />

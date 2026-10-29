@@ -1,3 +1,5 @@
+import { formatPortalDate } from '@/lib/data/view-models';
+
 /** Read-only client detail. Brand is the client company — there is no second database. */
 
 const STUDIO_PROJECT = 'warehaus.studio';
@@ -98,6 +100,17 @@ export function clientTeamInviteCopy(
     title: 'Client Admins can invite teammates',
     body: `${who} can invite new Client Members from Account › Team. Invited people only see ${company}.`,
   };
+}
+
+export function clientUpdatedLabel(task: {
+  lastEditedTime?: string | null;
+  date?: string | null;
+}): string | null {
+  const raw = task.lastEditedTime ?? task.date;
+  if (!raw) return null;
+  const label = formatPortalDate(raw);
+  if (!label || label === '—') return null;
+  return `Updated ${label}`;
 }
 
 export function clientDueLabel(date: string | null | undefined): string | null {
