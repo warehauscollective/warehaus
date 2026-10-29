@@ -486,7 +486,7 @@ describe('client identity against warehaus.studio', () => {
 
     assert.match(bundled, /Northwind site/);
     assert.match(bundled, /Homepage/);
-    assert.match(bundled, /Northwind site is ready for your review/);
+    assert.match(bundled, /A task in Northwind site is ready for your review/);
     assert.equal(bundled.includes('Northwind site update'), false);
     assert.equal(bundled.includes('Public note'), false);
     assert.equal(bundled.includes('Awaiting Go'), false);
@@ -580,7 +580,7 @@ describe('client identity against warehaus.studio', () => {
     assert.deepEqual(snapshotBody.tasks.map((task) => task.name), ['Homepage']);
     assert.deepEqual(
       snapshotBody.activity.map((item) => item.name),
-      ['Northwind site is ready for your review', 'Northwind site is ready for your review'],
+      ['A task in Northwind site is ready for your review', 'A task in Northwind site is ready for your review'],
     );
     assert.deepEqual(
       snapshotBody.activity.map((item) => item.summary),
@@ -597,7 +597,7 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(blob.includes('Public note'), false);
     assert.equal(blob.includes('@'), false);
     assert.equal(/invite pending/i.test(blob), false);
-    assert.match(blob, /Northwind site is ready for your review/);
+    assert.match(blob, /A task in Northwind site is ready for your review/);
   });
 
   it('uses the same unavailable message for a hidden task and a missing task', async () => {
@@ -619,7 +619,7 @@ describe('client identity against warehaus.studio', () => {
     const feed = await run(listActivityForClient);
     const timeline = await run(activityForClient, { taskId: 'task-public' });
     const bundled = text({ feed, timeline });
-    assert.match(bundled, /Northwind site is ready for your review/);
+    assert.match(bundled, /A task in Northwind site is ready for your review/);
     assert.match(bundled, /Homepage was updated/);
     assert.equal(bundled.includes('Northwind site update'), false);
     assert.equal(bundled.includes('Public note'), false);

@@ -260,13 +260,17 @@ function knownContactName(summary: string | undefined, contacts: readonly FeedCo
 }
 
 /**
- * Client title and meta. Built only from a project or task title, a fixed
- * phrase, and a contact name. Staff `name` and `summary` are never copied.
+ * Client title and meta. Built only from a project, task, or resource title,
+ * a fixed phrase, and a contact name. Staff `name` and `summary` are never copied.
+ * A linked task or resource keeps its item title. Activity rows have no item
+ * id, so they name the project inside the fallback phrase.
  */
 function clientActivityCopy(input: {
   lane: ActivityLane | undefined;
   /** Project, task, or resource title already checked. Never the raw activity name. */
   title: string | null;
+  /** True when `title` is a loaded task or resource, not the project name. */
+  linkedItem?: boolean;
   type: string;
   tone?: string;
   summary: string | undefined;
@@ -277,19 +281,25 @@ function clientActivityCopy(input: {
   if (input.lane === 'people') {
     return peopleCopy(actor, input.type, input.tone);
   }
-  if (input.lane === 'resources') {
-    return {
-      name: title ? `${title} shared` : 'A file was shared',
-      summary: actor ?? '',
-    };
-  }
   if (input.lane === 'sync') {
     return { name: 'A sync update', summary: '' };
   }
-  return {
-    name: title ? `${title} is ready for your review` : 'An update is ready for your review',
-    summary: actor ?? '',
-  };
+  if (input.lane === 'resources') {
+    const name =
+      input.linkedItem && title
+        ? `${title} shared`
+        : title
+          ? `New file shared in ${title}`
+          : 'A file was shared';
+    return { name, summary: actor ?? '' };
+  }
+  const name =
+    input.linkedItem && title
+      ? `${title} is ready for your review`
+      : title
+        ? `A task in ${title} is ready for your review`
+        : 'An update is ready for your review';
+  return { name, summary: actor ?? '' };
 }
 
 function withLane(item: Omit<ActivityFeedItem, 'lane'>, type: string, tone?: string): ActivityFeedItem {
@@ -348,11 +358,12 @@ function clientAuditItem(
   if (!auditActionIsClientVisible(audit.action)) return null;
   if (!clientAuditHasPublicFields(audit.after)) return null;
   const lane: ActivityLane = resource && !task ? 'resources' : 'tasks';
-  const title =
-    safeClientTitle(task?.name) ?? safeClientTitle(resource?.title) ?? safeClientTitle(project?.name);
+  const itemTitle = safeClientTitle(task?.name) ?? safeClientTitle(resource?.title);
+  const title = itemTitle ?? safeClientTitle(project?.name);
   const copy = clientActivityCopy({
     lane,
     title,
+    linkedItem: itemTitle != null,
     type: lane === 'resources' ? 'resource' : 'task',
     summary: undefined,
     contacts: [],

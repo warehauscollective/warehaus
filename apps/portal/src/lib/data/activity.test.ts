@@ -379,6 +379,14 @@ describe('activity view model', () => {
     assert.equal(chip(client, 'all'), laneSum(client));
     assert.equal(chip(client, 'all'), client.rows.length);
     assert.equal(chip(client, 'people'), client.rows.filter((row) => row.lane === 'people').length);
+    for (const row of client.rows) {
+      if (row.lane === 'tasks') {
+        assert.equal(row.name, 'A task in Northwind site is ready for your review');
+      }
+      if (row.lane === 'resources') {
+        assert.equal(row.name, 'New file shared in Northwind site');
+      }
+    }
     assert.equal(client.filters.some((item) => item.label === 'People'), true);
     assert.equal(client.filters.some((item) => item.key === 'sync' || item.key === 'unpublished'), false);
     const clientPeople = buildActivityView({

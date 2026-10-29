@@ -155,7 +155,7 @@ describe('client activity copy', () => {
 
     const home = feed.find((item) => item.id === 'home');
     assert.equal(home?.lane, 'tasks');
-    assert.equal(home?.name, 'Northwind site is ready for your review');
+    assert.equal(home?.name, 'A task in Northwind site is ready for your review');
     assert.equal(home?.summary, 'Maya Chen');
     const person = feed.find((item) => item.id === 'invite');
     assert.equal(person?.lane, 'people');
@@ -164,7 +164,7 @@ describe('client activity copy', () => {
     assert.equal(person?.name.includes('joined'), false);
     const resource = feed.find((item) => item.id === 'brand');
     assert.equal(resource?.lane, 'resources');
-    assert.equal(resource?.name, 'Northwind site shared');
+    assert.equal(resource?.name, 'New file shared in Northwind site');
     assert.equal(resource?.summary, 'Sam Lee');
     assert.equal(feed.some((item) => item.id === 'out-secret'), false);
     assert.equal(staff.find((item) => item.id === 'home')?.lane, 'tasks');
@@ -336,8 +336,8 @@ describe('client activity copy', () => {
       resources: [brand, hiddenBrand],
       contacts: [{ name: 'Maya Chen' }, { name: 'Sam Lee' }],
     });
-    assert.equal(feed.find((item) => item.id === 'act-home')?.name, 'Northwind site is ready for your review');
-    assert.equal(feed.find((item) => item.id === 'act-brand')?.name, 'Northwind site shared');
+    assert.equal(feed.find((item) => item.id === 'act-home')?.name, 'A task in Northwind site is ready for your review');
+    assert.equal(feed.find((item) => item.id === 'act-brand')?.name, 'New file shared in Northwind site');
     assert.equal(feed.find((item) => item.id === 'audit-wires')?.name, 'Homepage wireframes is ready for your review');
     assert.equal(feed.find((item) => item.id === 'audit-brand')?.name, 'Brand guidelines v2 shared');
     assert.equal(feed.some((item) => item.id === 'audit-secret' || item.id === 'audit-other' || item.id === 'audit-hidden'), false);
