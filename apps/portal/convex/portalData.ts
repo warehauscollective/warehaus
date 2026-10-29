@@ -1,15 +1,10 @@
 import type { Id } from './_generated/dataModel';
 import { clientQuery, adminQuery } from './_lib/wrappers';
 import { isStaff } from './_lib/identity';
-import { buildActivityFeed } from './_lib/activityFeed';
+import { buildActivityFeed, isClientVisibleFeedItem } from './_lib/activityFeed';
 import { staffQuarantineActivity } from './_lib/quarantineActivity';
-import { clientMaySeeProject, clientMaySeeTask, isClientVisibleActivityType, isOrgVisibleToClients } from '@warehaus/portal-sync';
-
-function isActivityVisible(type: string, staff: boolean): boolean {
-  if (type === 'shipment') return false;
-  if (staff) return true;
-  return isClientVisibleActivityType(type);
-}
+import { clientMaySeeProject, clientMaySeeTask, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { isNotionWritebackEnabled } from './_lib/writeAuthz';
 
 /**
  * CLIENT-tier org snapshot for the signed-in portal UI.
@@ -85,6 +80,7 @@ export const getSnapshot = clientQuery({
         return (b.progress ?? 0) - (a.progress ?? 0) || a.name.localeCompare(b.name);
       });
     const projectById = new Map(publishedProjects.map((p) => [p._id, p] as const));
+    const activityProjectById = new Map(projects.map((p) => [p._id, p] as const));
 
     return {
       clients: client
@@ -150,10 +146,17 @@ export const getSnapshot = clientQuery({
         ...quarantineActivity,
         ...activity
           .filter((a) => {
-            if (!isActivityVisible(a.type, staff)) return false;
+            if (a.type === 'shipment') return false;
             if (staff) return true;
-            if (a.projectId && !projectById.has(a.projectId)) return false;
-            return true;
+            // Clients also read this list while the activity query is loading.
+            // Same helper as the feed: type allowlist, project gate, no orphan rows.
+            return isClientVisibleFeedItem({
+              source: 'activity',
+              type: a.type,
+              project: a.projectId ? activityProjectById.get(a.projectId) : undefined,
+              task: undefined,
+              orgVisible: orgOpen,
+            });
           })
           .map((a) => ({
             id: a._id,
@@ -272,6 +275,66 @@ export const listActivityForStaff = adminQuery({
       projects,
       tasks,
     });
+  },
+});
+
+const OUTBOX_STATUSES = ['queued', 'inflight', 'failed', 'dead', 'conflict'] as const;
+/** Per-status cap. The dashboard gets counts, never this many rows. Display copy for a count at this cap lives in dashboard.ts as the same number. */
+const OUTBOX_HEALTH_LIMIT = 100;
+const FAILED_OUTBOX = new Set<string>(['failed', 'dead', 'conflict']);
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Staff sync health for the dashboard. Reads the Notion pull and a bounded
+ * slice of the B0 outbox. Returns per-status counts and the oldest counted
+ * timestamp, not outbox rows. Failed, dead, and conflict counts are the last
+ * 24 hours. The write-back flag is on only when it is exactly "true".
+ * Payloads, tokens, and Granola are not returned. Clients cannot call this.
+ */
+export const getSyncHealth = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const syncMeta = await ctx.db
+      .query('syncMeta')
+      .withIndex('by_key', (q) => q.eq('key', 'notion-pull'))
+      .unique();
+    const now = Date.now();
+    const counts = { queued: 0, inflight: 0, failed: 0, dead: 0, conflict: 0 };
+    let oldestCreatedAt: number | null = null;
+    for (const status of OUTBOX_STATUSES) {
+      const rows = await ctx.db
+        .query('notionOutbox')
+        .withIndex('by_status_nextAttemptAt', (q) => q.eq('status', status))
+        .take(OUTBOX_HEALTH_LIMIT);
+      for (const row of rows) {
+        if (FAILED_OUTBOX.has(status) && now - row.createdAt > DAY_MS) continue;
+        counts[status] += 1;
+        if (oldestCreatedAt == null || row.createdAt < oldestCreatedAt) {
+          oldestCreatedAt = row.createdAt;
+        }
+      }
+    }
+    const notices = await ctx.db
+      .query('notices')
+      .withIndex('by_audience_createdAt', (q) => q.eq('audience', 'staff'))
+      .order('desc')
+      .take(20);
+    return {
+      pull: {
+        lastSyncedAt: syncMeta?.lastSyncedAt ? new Date(syncMeta.lastSyncedAt).toISOString() : null,
+        lastError: syncMeta?.lastError ?? null,
+      },
+      writebackEnabled: isNotionWritebackEnabled(),
+      outbox: { counts, oldestCreatedAt },
+      notices: notices
+        .filter((row) => row.edgeCase === 'sync' || row.edgeCase === 'conflict')
+        .map((row) => ({
+          id: row._id,
+          message: row.message,
+          createdAt: row.createdAt,
+          edgeCase: row.edgeCase ?? null,
+        })),
+    };
   },
 });
 

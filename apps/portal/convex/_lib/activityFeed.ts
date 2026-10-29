@@ -68,6 +68,8 @@ export type ActivityFeedItem = {
   timestamp: string;
   projectId: string | null;
   taskId: string | null;
+  /** Staff feed only. True when the client feed includes this same id. */
+  clientVisible?: boolean;
 };
 
 export type TaskTimelineItem = {
@@ -107,6 +109,33 @@ function clientSeesTask(
     hidden: task.syncHiddenAt != null,
     project: gate(project, orgVisible),
   });
+}
+
+/**
+ * Whether the client feed includes this row.
+ * Activity-table rows must be a client activity type and sit on a project the
+ * client can see. Audits follow the task, or the project when there is no task.
+ * A row with neither a task nor a project is dropped. Outbox rows stay staff-only.
+ * Published-task audits stay visible: the activity-type allowlist applies to
+ * activity-table rows, which have no task link.
+ */
+export function isClientVisibleFeedItem(input: {
+  source: 'activity' | 'audit' | 'outbox';
+  type: string;
+  project: FeedProject | undefined;
+  task: FeedTask | undefined;
+  orgVisible: boolean;
+  audit?: FeedAudit;
+}): boolean {
+  if (input.source === 'outbox') return false;
+  if (!input.task && !input.project) return false;
+  if (input.source === 'activity') {
+    if (!isClientVisibleActivityType(input.type)) return false;
+    return clientSeesProject(input.project, input.orgVisible);
+  }
+  if (input.audit && !clientAuditItem(input.audit, input.task, input.project)) return false;
+  if (input.task) return clientSeesTask(input.task, input.project, input.orgVisible);
+  return clientSeesProject(input.project, input.orgVisible);
 }
 
 function readProperties(after?: string): Record<string, unknown> | null {
@@ -197,10 +226,14 @@ export function buildActivityFeed(input: {
   for (const row of input.activity) {
     if (row.type === 'shipment') continue;
     const project = row.projectId ? projectsById.get(row.projectId) : undefined;
-    if (input.audience === 'client') {
-      if (!isClientVisibleActivityType(row.type)) continue;
-      if (row.projectId && !clientSeesProject(project, input.orgVisible)) continue;
-    }
+    const clientVisible = isClientVisibleFeedItem({
+      source: 'activity',
+      type: row.type,
+      project,
+      task: undefined,
+      orgVisible: input.orgVisible,
+    });
+    if (input.audience === 'client' && !clientVisible) continue;
     items.push({
       id: row._id,
       name: row.name,
@@ -210,6 +243,7 @@ export function buildActivityFeed(input: {
       timestamp: new Date(row.timestamp).toISOString(),
       projectId: row.projectId ?? null,
       taskId: null,
+      ...(input.audience === 'staff' ? { clientVisible } : {}),
     });
   }
 
@@ -218,11 +252,16 @@ export function buildActivityFeed(input: {
     const project =
       (task ? projectsById.get(task.projectId) : undefined) ??
       (audit.notionPageId ? projectsByNotion.get(audit.notionPageId) : undefined);
+    const clientVisible = isClientVisibleFeedItem({
+      source: 'audit',
+      type: 'task',
+      project,
+      task,
+      orgVisible: input.orgVisible,
+      audit,
+    });
     if (input.audience === 'client') {
-      const visible = task
-        ? clientSeesTask(task, project, input.orgVisible)
-        : clientSeesProject(project, input.orgVisible);
-      if (!visible) continue;
+      if (!clientVisible) continue;
       const item = clientAuditItem(audit, task, project);
       if (item) items.push(item);
       continue;
@@ -237,6 +276,7 @@ export function buildActivityFeed(input: {
       timestamp: new Date(audit.createdAt).toISOString(),
       projectId: task?.projectId ?? project?._id ?? null,
       taskId: task?._id ?? null,
+      clientVisible,
     });
   }
 
@@ -253,6 +293,7 @@ export function buildActivityFeed(input: {
         timestamp: new Date(row.createdAt).toISOString(),
         projectId: task?.projectId ?? null,
         taskId: task?._id ?? null,
+        clientVisible: false,
       });
     }
   }

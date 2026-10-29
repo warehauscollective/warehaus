@@ -235,6 +235,16 @@ const tables: Record<string, Row[]> = {
       timestamp: 10,
       tone: 'muted',
     },
+    {
+      _id: 'act-task',
+      orgId: org._id,
+      projectId: 'proj-public',
+      name: 'Task moved',
+      type: 'task',
+      summary: 'Task row for a published task',
+      timestamp: 15,
+      tone: 'muted',
+    },
   ],
   clientDocs: [
     {
@@ -464,7 +474,8 @@ describe('client identity against warehaus.studio', () => {
     assert.match(bundled, /Northwind site/);
     assert.match(bundled, /Homepage/);
     assert.match(bundled, /Northwind site update/);
-    assert.match(bundled, /General update/);
+    assert.equal(bundled.includes('General update'), false);
+    assert.equal(bundled.includes('Task row for a published task'), false);
     assert.equal(bundled.includes('warehaus.studio'), false);
     assert.equal(bundled.includes('Studio ops'), false);
     assert.equal(bundled.includes('Secret draft'), false);
@@ -551,7 +562,7 @@ describe('client identity against warehaus.studio', () => {
     assert.deepEqual(snapshotBody.tasks.map((task) => task.name), ['Homepage']);
     assert.deepEqual(
       snapshotBody.activity.map((item) => item.summary),
-      ['Northwind site update', 'General update'],
+      ['Northwind site update'],
     );
   });
 

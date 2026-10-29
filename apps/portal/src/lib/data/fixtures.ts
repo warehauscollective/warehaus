@@ -1,7 +1,33 @@
 import type { PortalSnapshot } from '@/lib/data/view-models';
 import { FIXTURE_CLIENT_SESSION, FIXTURE_SESSION } from '@/lib/data/portalFixtures';
+import { isClientVisibleFeedItem, type FeedProject } from '@convex/_lib/activityFeed';
 
 const SYNCED_AT = Date.parse('2026-10-05T15:00:00Z');
+
+function fixtureFeedProject(projectId: string | null): FeedProject | undefined {
+  if (!projectId) return undefined;
+  const project = FIXTURE_PROJECTS.find((row) => row.id === projectId);
+  if (!project) return undefined;
+  return {
+    _id: project.id,
+    name: project.name,
+    type: project.internal ? ['Internal'] : [],
+    publishToWarehaus: project.publishToWarehaus,
+    archive: false,
+    syncHiddenAt: project.syncHidden ? 1 : undefined,
+    notionPageId: project.notionPageId,
+  };
+}
+
+function fixtureClientVisible(row: { type: string; projectId: string | null }): boolean {
+  return isClientVisibleFeedItem({
+    source: 'activity',
+    type: row.type,
+    project: fixtureFeedProject(row.projectId),
+    task: undefined,
+    orgVisible: true,
+  });
+}
 
 export const FIXTURE_CLIENTS = [
   {
@@ -368,6 +394,8 @@ export const FIXTURE_SNAPSHOT: PortalSnapshot = {
       timestamp: new Date(SYNCED_AT).toISOString(),
       tone: 'accent',
       projectId: 'p-site',
+      taskId: 't-doing',
+      clientVisible: fixtureClientVisible({ type: 'task', projectId: 'p-site' }),
     },
     {
       id: 'a-2',
@@ -377,6 +405,7 @@ export const FIXTURE_SNAPSHOT: PortalSnapshot = {
       timestamp: new Date(SYNCED_AT - 60_000).toISOString(),
       tone: 'success',
       projectId: null,
+      clientVisible: fixtureClientVisible({ type: 'sync', projectId: null }),
     },
   ],
   syncMeta: {
@@ -395,7 +424,13 @@ export const FIXTURE_SNAPSHOT: PortalSnapshot = {
 
 export const FIXTURE_CLIENT_SNAPSHOT: PortalSnapshot = {
   ...FIXTURE_SNAPSHOT,
-  activity: FIXTURE_SNAPSHOT.activity.filter((item) => item.type !== 'sync'),
+  activity: FIXTURE_SNAPSHOT.activity
+    .filter((item) => fixtureClientVisible({ type: item.type, projectId: item.projectId }))
+    .map((item) => {
+      const rest = { ...item };
+      delete rest.clientVisible;
+      return rest;
+    }),
   tenant: {
     mode: 'client',
     slug: FIXTURE_CLIENT_SESSION.orgSlug,
