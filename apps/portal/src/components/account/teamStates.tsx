@@ -400,13 +400,15 @@ export function TeamPersonIdentity({
       >
         {status}
       </span>
-      <span
-        data-testid="team-person-actions"
-        className="flex flex-nowrap items-center justify-end"
-        style={{ width: 220, flex: '0 0 220px', gap: 8, marginLeft: 'auto' }}
-      >
-        {actions}
-      </span>
+      {actions ? (
+        <span
+          data-testid="team-person-actions"
+          className="flex flex-nowrap items-center justify-end"
+          style={{ width: 220, flex: '0 0 220px', gap: 8, marginLeft: 'auto' }}
+        >
+          {actions}
+        </span>
+      ) : null}
     </div>
   );
 }

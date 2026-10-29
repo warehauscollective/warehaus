@@ -121,7 +121,18 @@ describe('account team states', () => {
     assert.match(row, /data-testid="team-person-role"[^>]*>Client Member</);
     assert.match(row, /data-testid="team-person-role"[^>]*style="[^"]*width:140px/);
     assert.match(row, /data-testid="team-person-status"[^>]*style="[^"]*width:120px/);
-    assert.match(row, /data-testid="team-person-actions"[^>]*style="[^"]*width:220px/);
+    assert.equal(row.includes('team-person-actions'), false);
+    const withActions = renderToStaticMarkup(
+      createElement(TeamPersonIdentity, {
+        name: 'Ada North',
+        email: 'ada@northwind.example',
+        role: 'Client Admin',
+        status: 'Active',
+        actions: createElement('button', { type: 'button' }, 'Remove'),
+      }),
+    );
+    assert.match(withActions, /data-testid="team-person-actions"[^>]*style="[^"]*width:220px/);
+    assert.match(withActions, /Remove/);
     assert.match(row, /text-align:left/);
     assert.match(row, />AM</);
     assert.match(row, />Active</);

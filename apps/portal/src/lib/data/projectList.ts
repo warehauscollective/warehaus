@@ -168,9 +168,10 @@ export function projectSummaryVisibility(
   };
 }
 
-export function projectTasksSubtitle(view: 'board' | 'table'): string {
-  if (view === 'table') return 'Table by Status · All project tasks';
-  return 'Board by Status · Notion Status columns';
+/** Audience line for the project task list. The board/table toggle does not change it. */
+export function projectTasksSubtitle(staff: boolean): string {
+  if (staff) return 'Synced from Notion · clients see published only';
+  return 'Shared with you by the Warehaus team.';
 }
 
 export type ProjectKpiTask = {

@@ -1,0 +1,6 @@
+<svg preserveAspectRatio="none" overflow="visible" style="display: block;" width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+<g id="Stage glyph">
+<path id="Ring" d="M11.25 6C11.25 8.89949 8.89949 11.25 6 11.25C3.10051 11.25 0.75 8.89949 0.75 6C0.75 3.10051 3.10051 0.75 6 0.75C8.89949 0.75 11.25 3.10051 11.25 6Z" stroke-width="1.5" stroke="currentColor"/>
+<path id="Progress" d="M6 2C6.52529 2 7.04543 2.10346 7.53073 2.30448C8.01604 2.5055 8.45699 2.80014 8.82843 3.17157C9.19986 3.54301 9.4945 3.98396 9.69552 4.46927C9.89654 4.95457 10 5.47471 10 6H6L6 2Z" fill="currentColor"/>
+</g>
+</svg>

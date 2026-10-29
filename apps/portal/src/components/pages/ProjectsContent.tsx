@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useMutation } from 'convex/react';
-import { OutlineButton, PrimaryButton, Surface } from '@/components/ui/primitives';
+import { OutlineButton, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import {
@@ -63,9 +63,25 @@ import {
   ProjectListScreen,
 } from '@/components/projects/ProjectListStates';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
-import { TaskCreateDialog, TaskDetailModal } from '@/components/tasks/TaskDetailModal';
+import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
+import {
+  ItemListCard,
+  ItemSaveBanner,
+  ItemStaleBanner,
+  ItemState,
+  NEW_TASK_HINT,
+  NewTaskButton,
+  TasksActionStyle,
+  itemListUsesCard,
+  resolveItemRegion,
+  showTaskListFilters,
+  taskMatchesListFilter,
+  useItemScreen,
+  useTaskListFilter,
+  type TaskListFilter,
+} from '@/components/tasks/itemStates';
 import { StatusTable } from '@/components/tasks/StatusKanban';
-import { LIVE_TASK_STATUSES, PROJECT_UNAVAILABLE, TASK_STAGES, WRITEBACK_OFF_ERROR, createTaskExternalId, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
+import { LIVE_TASK_STATUSES, PROJECT_UNAVAILABLE, TASK_STAGES, WRITEBACK_OFF_ERROR, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
 import type { Id } from '@convex/_generated/dataModel';
 
 const SECTION_TITLE: Record<string, string> = {
@@ -102,17 +118,30 @@ export function ProjectsContent() {
   const [forceError, setForceError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
-  const [creating, setCreating] = useState(false);
   const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
+  const [itemScreen, setItemScreen] = useItemScreen(fixtures);
+  const [taskFilter, setTaskFilter] = useTaskListFilter(fixtures);
+  const [queuedStage, setQueuedStage] = useState<{
+    taskId: string;
+    stage: string;
+    expectedLastEditedTime: string;
+    pullRequestLink?: string;
+    retryAt: number | null;
+  } | null>(null);
   const pathname = usePathname() || '';
   const router = useRouter();
   const moveStatus = useMutation(api.tasks.moveStatus);
   const moveStage = useMutation(api.tasks.moveStage);
-  const createTask = useMutation(api.tasks.createTask);
+  const [stageRetry, setStageRetry] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const rules = useSafeQuery<BoardRules>(
     api.tasks.moveRules,
     !fixtures && configured ? { hostSlug } : 'skip',
   );
+
+  useEffect(() => {
+    setQueuedStage(null);
+    setStageRetry({ busy: false, error: null });
+  }, [openId]);
 
   useEffect(() => {
     const apply = (event?: Event) => {
@@ -335,9 +364,70 @@ export function ProjectsContent() {
     id: client.id,
     name: client.name,
   }));
+  const retryTasks = () => {
+    if (fixtures) {
+      setItemScreen('ready');
+      return;
+    }
+    // The retry boundary remounts this page, so listForStaff in useStaffCrossOrg
+    // subscribes again along with the portal snapshot.
+    retryPortalData();
+  };
+  const clearTaskFilters = () => {
+    setTaskFilter('all');
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('taskFilter')) return;
+    url.searchParams.delete('taskFilter');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  };
+  const retryQueuedStage = async () => {
+    if (!queuedStage || fixtures || stageRetry.busy) return;
+    setStageRetry({ busy: true, error: null });
+    try {
+      const result = await moveStage({
+        hostSlug,
+        taskId: queuedStage.taskId as Id<'tasks'>,
+        stage: queuedStage.stage,
+        expectedLastEditedTime: queuedStage.expectedLastEditedTime,
+        pullRequestLink: queuedStage.pullRequestLink,
+      });
+      if (!result.ok) {
+        setStageRetry({ busy: false, error: result.error });
+        return;
+      }
+      if (!result.pending || !result.outboxId) {
+        setQueuedStage(null);
+        setStageRetry({ busy: false, error: null });
+        return;
+      }
+      setQueuedStage({ ...queuedStage, retryAt: null });
+      setStageRetry({ busy: false, error: null });
+    } catch (err) {
+      setStageRetry({
+        busy: false,
+        error: err instanceof Error ? err.message : 'Could not retry the stage change.',
+      });
+    }
+  };
 
   if (openProject) {
     const projectTasks = tasks.filter((task) => task.projectId === openProject.id);
+    const activeFilter: TaskListFilter = isStaff ? taskFilter : 'all';
+    const visibleTasks = projectTasks.filter((task) => taskMatchesListFilter(task, activeFilter, isStaff));
+    const listLoading = !fixtures && (isStaff ? staff.tasksLoading || loading : loading) && projectTasks.length === 0;
+    const taskFailed = !fixtures && (Boolean(error) || (isStaff && staff.tasksError != null));
+    const itemView = resolveItemRegion({
+      fixtures,
+      screen: itemScreen,
+      staff: isStaff,
+      loading: listLoading,
+      error: taskFailed,
+      count: projectTasks.length,
+      matched: visibleTasks.length,
+      filterActive: activeFilter !== 'all',
+    });
+    const showSave = Boolean(queuedStage) || itemView.save;
     const projectDocs = docs.filter((doc) => {
       if (doc.projectId !== openProject.id) return false;
       if (isStaff) return true;
@@ -376,22 +466,66 @@ export function ProjectsContent() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
                 <h2 style={{ fontSize: 18, fontWeight: 600, lineHeight: '26px' }}>Tasks</h2>
-                <p style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)' }}>
-                  {projectTasksSubtitle(taskView)}
+                <p data-testid="tasks-subtitle" style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)' }}>
+                  {projectTasksSubtitle(isStaff)}
                 </p>
               </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <ViewToggle view={taskView} onChange={setTaskView} />
-                {isStaff ? (
-                  <PrimaryButton onClick={() => setCreating(true)}>New task</PrimaryButton>
-                ) : null}
+              <TasksActionStyle />
+              <div className="tasks-actions">
+                <div className="tasks-view">
+                  <ViewToggle view={taskView} onChange={setTaskView} />
+                </div>
+                {isStaff ? <NewTaskButton /> : null}
               </div>
             </div>
-            {taskView === 'board' ? (
+            {isStaff && showTaskListFilters(itemView.region) ? (
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Task filters" data-testid="task-filters">
+                <TaskFilterChip
+                  label="Awaiting go"
+                  filter="awaiting"
+                  active={activeFilter === 'awaiting'}
+                  count={projectTasks.filter((task) => taskMatchesListFilter(task, 'awaiting', true)).length}
+                  onClick={() => setTaskFilter(activeFilter === 'awaiting' ? 'all' : 'awaiting')}
+                />
+                <TaskFilterChip
+                  label="Not published"
+                  filter="unpublished"
+                  active={activeFilter === 'unpublished'}
+                  count={projectTasks.filter((task) => taskMatchesListFilter(task, 'unpublished', true)).length}
+                  onClick={() => setTaskFilter(activeFilter === 'unpublished' ? 'all' : 'unpublished')}
+                />
+              </div>
+            ) : null}
+            {itemListUsesCard(itemView.region) ? (
+            <ItemListCard>
+              {showSave ? (
+                <div style={{ marginBottom: 16 }}>
+                  <ItemSaveBanner
+                    retryAt={queuedStage?.retryAt ?? null}
+                    busy={stageRetry.busy}
+                    error={stageRetry.error}
+                    onRetry={queuedStage ? () => {
+                      retryQueuedStage().catch((err: unknown) => {
+                        setStageRetry({
+                          busy: false,
+                          error: err instanceof Error ? err.message : 'Could not retry the stage change.',
+                        });
+                      });
+                    } : undefined}
+                  />
+                </div>
+              ) : null}
+              {itemView.stale ? (
+                <div style={{ marginBottom: 16 }}>
+                  <ItemStaleBanner onRetry={retryTasks} />
+                </div>
+              ) : null}
+              {itemView.region === 'board' ? (
+                taskView === 'board' ? (
               <TaskBoard
-                tasks={projectTasks}
+                tasks={visibleTasks}
                 staff={isStaff}
-                loading={projectsLoading}
+                loading={listLoading}
                 rules={
                   fixtures
                     ? isStaff
@@ -427,36 +561,50 @@ export function ProjectsContent() {
                         expectedLastEditedTime: request.task.lastEditedTime,
                       });
                   if (!result.ok) return { ok: false, error: result.error };
+                  if (request.mode === 'stage' && result.pending === true && result.outboxId) {
+                    setQueuedStage({
+                      taskId: request.task.id,
+                      stage: request.value,
+                      expectedLastEditedTime: request.task.lastEditedTime,
+                      pullRequestLink: request.pullRequestLink,
+                      retryAt: null,
+                    });
+                  } else if (request.mode === 'stage') {
+                    setQueuedStage((current) => (current?.taskId === request.task.id ? null : current));
+                  }
                   return { ok: true, pending: result.pending === true };
                 }}
-                onQuickAdd={async ({ name, status, stage }) => {
-                  if (fixtures) return { ok: false, error: 'Fixture preview does not send tasks to Notion.' };
-                  if (!openProject.notionPageId || !openProject.orgId) {
-                    return { ok: false, error: 'This project is not in Notion yet. Nothing was sent.' };
-                  }
-                  const result = await createTask({
-                    hostSlug,
-                    orgId: openProject.orgId as Id<'clients'>,
-                    name,
-                    status,
-                    stage,
-                    projectNotionId: openProject.notionPageId,
-                    externalId: createTaskExternalId(`${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`),
-                  });
-                  return result.ok ? { ok: true } : { ok: false, error: result.error };
-                }}
+                quickAddEnabled={false}
+                onQuickAdd={async () => ({ ok: false, error: NEW_TASK_HINT })}
               />
-            ) : (
+                ) : (
               <StatusTable
-                tasks={projectTasks}
-                loading={projectsLoading}
+                tasks={visibleTasks}
+                loading={listLoading}
                 staff={isStaff}
                 onOpen={(task) => {
                   if (fixtures) setFixtureTaskId(task.id);
                   else router.push(`/tasks/${task.id}`);
                 }}
               />
-            )}
+                )
+              ) : itemView.region === 'loading' || itemView.region === 'long' ? (
+                <ItemState
+                  screen={itemView.region}
+                  staff={isStaff}
+                  onClear={clearTaskFilters}
+                  onRetry={retryTasks}
+                />
+              ) : null}
+            </ItemListCard>
+            ) : itemView.region === 'empty' || itemView.region === 'filtered' || itemView.region === 'error' ? (
+              <ItemState
+                screen={itemView.region}
+                staff={isStaff}
+                onClear={clearTaskFilters}
+                onRetry={retryTasks}
+              />
+            ) : null}
             <DocsBlock docs={projectDocs} staff={isStaff} loading={projectsLoading && projectDocs.length === 0} />
           </div>
         </PortalTilePane>
@@ -474,15 +622,6 @@ export function ProjectsContent() {
               if (fixtures) setFixtureTaskId(id);
               else router.push(`/tasks/${id}`);
             }}
-          />
-        ) : null}
-        {isStaff && creating ? (
-          <TaskCreateDialog
-            projectName={openProject.name}
-            projectNotionId={openProject.notionPageId ?? null}
-            orgId={openProject.orgId ?? null}
-            hostSlug={hostSlug}
-            onClose={() => setCreating(false)}
           />
         ) : null}
       </PortalWorkspace>
@@ -870,6 +1009,44 @@ function ViewToggle({
   );
 }
 
+function TaskFilterChip({
+  label,
+  filter,
+  active,
+  count,
+  onClick,
+}: {
+  label: string;
+  filter: TaskListFilter;
+  active: boolean;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      data-testid="task-filter"
+      data-filter={filter}
+      className="inline-flex items-center gap-2 whitespace-nowrap"
+      style={{
+        fontSize: 13,
+        fontWeight: 500,
+        padding: '8px 16px',
+        borderRadius: 999,
+        border: active ? '1px solid var(--border-2)' : '1px solid var(--border)',
+        background: active ? 'var(--surface-2)' : 'transparent',
+        color: active ? 'var(--fg)' : 'var(--muted)',
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+      <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>{count}</span>
+    </button>
+  );
+}
+
 function FilterChip({
   active,
   count,
@@ -914,7 +1091,7 @@ const summaryLabel = {
   textTransform: 'uppercase' as const,
 };
 
-function EditProjectButton({ disabled, compact = false }: { disabled: boolean; compact?: boolean }) {
+function EditProjectButton({ disabled }: { disabled: boolean }) {
   const hintId = useId();
   const button = (
     <button
@@ -925,14 +1102,14 @@ function EditProjectButton({ disabled, compact = false }: { disabled: boolean; c
       data-testid="edit-project"
       style={{
         pointerEvents: disabled ? 'none' : undefined,
-        background: compact ? 'transparent' : 'var(--accent)',
-        color: compact ? 'var(--fg)' : 'var(--accent-fg)',
-        border: compact ? '1px solid var(--border)' : 0,
+        background: 'transparent',
+        color: 'var(--fg)',
+        border: '1px solid var(--border-2, var(--border))',
         borderRadius: 9,
         fontFamily: 'var(--font-body)',
-        fontSize: compact ? 13 : 'var(--t-sm)',
-        fontWeight: compact ? 500 : 600,
-        padding: compact ? '6px 10px' : '0.65rem 1.1rem',
+        fontSize: 14,
+        fontWeight: 500,
+        padding: '12px 16px',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.4 : 1,
       }}
@@ -944,12 +1121,11 @@ function EditProjectButton({ disabled, compact = false }: { disabled: boolean; c
   return (
     <span
       tabIndex={0}
-      role="group"
       aria-disabled="true"
       aria-describedby={hintId}
       title={EDIT_PROJECT_WRITEBACK_HINT}
       data-testid="edit-project-hint"
-      className="inline-flex"
+      className="item-state-btn inline-flex"
       style={{ cursor: 'not-allowed' }}
     >
       {button}
@@ -1042,7 +1218,7 @@ function ProjectSummary({
         ) : null}
         {summary.showEdit ? (
           <div className="mt-4 flex justify-end md:hidden">
-            <EditProjectButton disabled={summary.editDisabled} compact />
+            <EditProjectButton disabled={summary.editDisabled} />
           </div>
         ) : null}
         <div className="mt-6 flex flex-col gap-2 md:flex-row md:items-center md:gap-3">

@@ -421,9 +421,11 @@ describe('projectTaskCount', () => {
 });
 
 describe('projectTasksSubtitle', () => {
-  it('names the board and the table separately', () => {
-    assert.equal(projectTasksSubtitle('board'), 'Board by Status · Notion Status columns');
-    assert.equal(projectTasksSubtitle('table'), 'Table by Status · All project tasks');
+  it('uses the audience line and keeps the board sentence off the client view', () => {
+    assert.equal(projectTasksSubtitle(true), 'Synced from Notion · clients see published only');
+    assert.equal(projectTasksSubtitle(false), 'Shared with you by the Warehaus team.');
+    assert.equal(projectTasksSubtitle(false).includes('Board by Status'), false);
+    assert.equal(projectTasksSubtitle(false).includes('Notion Status columns'), false);
   });
 });
 
