@@ -541,6 +541,16 @@ function run(fn: object, args: Record<string, unknown> = {}) {
   return (fn as { _handler: Handler })._handler(ctx, args);
 }
 
+function runDb(fn: object, db: ReturnType<typeof memoryDb>, args: Record<string, unknown> = {}) {
+  return (fn as { _handler: Handler })._handler(
+    {
+      auth: { getUserIdentity: async () => ({ subject: 'auth-client' }) },
+      db,
+    },
+    args,
+  );
+}
+
 function runStaff(fn: object, args: Record<string, unknown> = {}) {
   return (fn as { _handler: Handler })._handler(staffCtx, args);
 }
@@ -621,7 +631,25 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(bundled.includes('notion.so'), false);
     assert.equal(bundled.includes('publishToWarehaus'), false);
     assert.equal(text(docs).includes('"status"'), false);
-    assert.equal(text(people).includes('role'), false);
+    const listedPeople = people as Array<{
+      id: string;
+      name: string;
+      email: string;
+      role: string;
+      portalAccess: string;
+      invitePending: boolean;
+    }>;
+    assert.deepEqual(listedPeople.map((person) => person.name), ['Ada Client']);
+    assert.deepEqual(listedPeople[0], {
+      id: 'contact-client',
+      name: 'Ada Client',
+      email: 'ada@northwind.test',
+      role: 'Client Member',
+      portalAccess: 'Enabled',
+      invitePending: false,
+    });
+    assert.equal('authUserId' in listedPeople[0], false);
+    assert.equal('notionPageId' in listedPeople[0], false);
 
     const publicDoc = await run(getDocForClient, { docId: 'doc-public' });
     assert.equal((publicDoc as { title: string }).title, 'Public brief');
@@ -819,6 +847,99 @@ describe('client identity against warehaus.studio', () => {
     assert.match(feed, /Staff only task copy/);
     assert.match(tasks, /Staff only task copy/);
     assert.match(timeline, /Studio ops/);
+  });
+
+  it('returns role and portal access, and derives a pending invite for this org only', async () => {
+    const local: Record<string, Row[]> = {
+      clients: tables.clients,
+      contacts: [
+        ...tables.contacts,
+        {
+          _id: 'contact-admin',
+          orgId: org._id,
+          name: 'Bea Admin',
+          email: 'Bea@Northwind.test',
+          role: 'Client Admin',
+          portalAccess: 'Disabled',
+          notionPageId: 'admin-contact',
+          lastSyncedAt: 1,
+        },
+        {
+          _id: 'contact-other-org',
+          orgId: otherOrg._id,
+          name: 'Quinn Other',
+          email: 'quinn@lumen.test',
+          role: 'Client Admin',
+          portalAccess: 'Enabled',
+          notionPageId: 'other-contact',
+          lastSyncedAt: 1,
+        },
+      ],
+      pendingInvites: [
+        {
+          _id: 'invite-bea',
+          orgId: org._id,
+          email: 'bea@northwind.test',
+          name: 'Bea Admin',
+          role: 'Client Admin',
+          inviteStatus: 'Pending',
+          notionPageId: 'invite-bea',
+          lastSyncedAt: 1,
+        },
+        {
+          _id: 'invite-ada-accepted',
+          orgId: org._id,
+          email: 'ada@northwind.test',
+          name: 'Ada Client',
+          role: 'Client Member',
+          inviteStatus: 'Accepted',
+          notionPageId: 'invite-ada',
+          lastSyncedAt: 1,
+        },
+        {
+          _id: 'invite-foreign',
+          orgId: otherOrg._id,
+          email: 'ada@northwind.test',
+          name: 'Ada Client',
+          role: 'Client Member',
+          inviteStatus: 'Pending',
+          notionPageId: 'invite-foreign',
+          lastSyncedAt: 1,
+        },
+      ],
+    };
+    const people = (await runDb(listPeopleForClient, memoryDb(local))) as Array<{
+      id: string;
+      name: string;
+      email: string;
+      role: string;
+      portalAccess: string;
+      invitePending: boolean;
+    }>;
+    assert.deepEqual(
+      people.map((person) => person.name),
+      ['Ada Client', 'Bea Admin'],
+    );
+    const ada = people[0];
+    const bea = people[1];
+    assert.ok(ada);
+    assert.ok(bea);
+    assert.deepEqual(Object.keys(ada).sort(), ['email', 'id', 'invitePending', 'name', 'portalAccess', 'role']);
+    assert.equal(ada.role, 'Client Member');
+    assert.equal(ada.portalAccess, 'Enabled');
+    assert.equal(ada.invitePending, false);
+    assert.equal(bea.role, 'Client Admin');
+    assert.equal(bea.portalAccess, 'Disabled');
+    assert.equal(bea.invitePending, true);
+    assert.equal(bea.email, 'Bea@Northwind.test');
+    const bundled = text(people);
+    assert.equal(bundled.includes('Maya Internal'), false);
+    assert.equal(bundled.includes('Sam Studio'), false);
+    assert.equal(bundled.includes('Quinn Other'), false);
+    assert.equal(bundled.includes('Warehaus Staff'), false);
+    assert.equal(bundled.includes('authUserId'), false);
+    assert.equal(bundled.includes('notionPageId'), false);
+    assert.equal(bundled.includes('Lumen Dental'), false);
   });
 
   it('does not return internal projects from the staff project queries', async () => {

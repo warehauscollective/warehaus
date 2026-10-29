@@ -71,6 +71,9 @@ export function usePortalData() {
   );
   const convexSnapshot = snapshotState.data;
 
+  // AuthGate unmounts the portal when the session ends, which drops every
+  // usePortalData caller. Sealing and unsealing the snapshot cache is only
+  // a backup if a remember runs before that unmount.
   useEffect(() => {
     if (fixtures || settling || portalSession) return;
     clear();

@@ -36,7 +36,9 @@ import { useFixturePreview } from '@/components/providers/FixturePreviewProvider
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { isMissingConvexFunction, staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
-import { clientVisiblePerson, formatClientSince, isStudioProjectName, warehausLead, withoutClientLeaks } from '@/lib/data/clientDetail';
+import { clientTeamCrumbs, clientVisiblePerson, formatClientSince, isStudioProjectName, warehausLead, withoutClientLeaks } from '@/lib/data/clientDetail';
+import { openPortalHref } from '@/lib/nav/openPortalHref';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { type ClientListFilter } from '@/lib/data/clientList';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 
@@ -102,6 +104,8 @@ export function AccountContent() {
   const [filter, setFilter] = useState<ClientListFilter>('all');
   const [clientId, setClientId] = useState<string | null>(null);
   const [showTeam, setShowTeam] = useState(false);
+  const teamPhone = useMaxWidth(1023);
+  const teamTrail = clientTeamCrumbs(teamPhone);
   const [docsPreview, setDocsPreview] = useState<string | null>(null);
   const [clientScreen, setClientScreen] = useState<ClientScreen>('ready');
 
@@ -216,14 +220,17 @@ export function AccountContent() {
   ) : companyOpen ? (
     <NavBreadcrumb
       back={showTeam ? 'always' : 'mobile'}
-      onBack={showTeam ? () => setShowTeam(false) : goAccountRoot}
-      parent={{ label: 'Account', onClick: goAccountRoot }}
+      onBack={showTeam && teamTrail.back === 'account' ? goAccountRoot : showTeam ? () => setShowTeam(false) : goAccountRoot}
+      parent={{
+        label: showTeam ? teamTrail.parent : 'Account',
+        onClick: showTeam && teamTrail.parent === 'Company' ? () => setShowTeam(false) : goAccountRoot,
+      }}
       middle={
-        showTeam
-          ? { label: data.tenant.clientName ?? 'Your company', onClick: () => setShowTeam(false) }
+        showTeam && teamTrail.middle
+          ? { label: teamTrail.middle, onClick: () => setShowTeam(false) }
           : undefined
       }
-      current={showTeam ? 'Your team' : 'Your company'}
+      current={showTeam ? teamTrail.current : 'Your company'}
     />
   ) : isStaff && activeSection === 'clients' ? (
     <NavBreadcrumb
@@ -329,6 +336,7 @@ export function AccountContent() {
             people={contacts.filter(clientVisiblePerson).map((person) => withoutClientLeaks(person)) as ClientPersonRow[]}
             showTeam={showTeam}
             onShowTeam={() => setShowTeam(true)}
+            onOpenTask={(taskId) => openPortalHref(`/tasks/${taskId}`)}
             onBack={() => setShowTeam(false)}
             screen={error ? 'error' : clientScreen}
           />

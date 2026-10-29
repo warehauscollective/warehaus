@@ -1,7 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { CLIENT_AWAITING_LABEL } from './dashboard';
 import {
+  CLIENT_TEAM_STAGE_LABEL,
   brandLine,
+  clientDueLabel,
+  clientUpdatedLabel,
+  clientPersonStatus,
+  clientTeamCrumbs,
+  clientTeamInviteCopy,
   clientVisiblePerson,
   formatClientSince,
   isStudioEmail,
@@ -55,5 +62,37 @@ describe('client detail', () => {
     assert.equal('syncHidden' in safe, false);
     assert.equal('internal' in safe, false);
     assert.equal(safe.name, 'Northwind site');
+  });
+
+  it('builds the client team trail and invite notice without sending mail', () => {
+    assert.deepEqual(clientTeamCrumbs(false), {
+      parent: 'Account',
+      middle: 'Company',
+      current: 'Your team',
+      back: 'account',
+    });
+    assert.deepEqual(clientTeamCrumbs(true), {
+      parent: 'Company',
+      middle: null,
+      current: 'Your team',
+      back: 'company',
+    });
+    assert.equal(clientPersonStatus({ invitePending: true, portalAccess: 'Disabled' }), 'Invite pending');
+    assert.equal(clientPersonStatus({ portalAccess: 'Enabled' }), 'Active');
+    assert.equal(clientPersonStatus({ portalAccess: 'Disabled' }), 'No portal access');
+    assert.equal(clientDueLabel('2026-10-20'), 'Due Oct 20');
+    assert.equal(clientUpdatedLabel({ lastEditedTime: '2026-10-05' }), 'Updated Oct 5');
+    assert.equal(clientUpdatedLabel({ date: '2026-10-20' }), null);
+    assert.equal(clientUpdatedLabel({}), null);
+    assert.equal(clientDueLabel(null), null);
+    assert.equal(CLIENT_TEAM_STAGE_LABEL, CLIENT_AWAITING_LABEL);
+    const notice = clientTeamInviteCopy('Northwind', [
+      { name: 'Maya Chen', role: 'Warehaus Staff' },
+      { name: 'Ada North', role: 'Client Admin' },
+    ]);
+    assert.equal(notice.title, 'Client Admins can invite teammates');
+    assert.match(notice.body, /^Ada can invite new Client Members/);
+    assert.match(notice.body, /only see Northwind\.$/);
+    assert.equal(notice.body.includes('@'), false);
   });
 });

@@ -1,11 +1,22 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useId, type CSSProperties, type ReactNode } from 'react';
 import { Pill, PortalCheckbox } from '@/components/ui/primitives';
+import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { SyncChip } from '@/components/sync/SyncChip';
-import { brandLine, staffHeaderLine } from '@/lib/data/clientDetail';
+import {
+  brandLine,
+  CLIENT_TEAM_STAGE_LABEL,
+  clientDueLabel,
+  clientPersonStatus,
+  clientTeamInviteCopy,
+  clientUpdatedLabel,
+  clientVisiblePerson,
+  staffHeaderLine,
+} from '@/lib/data/clientDetail';
+import { EDIT_PROJECT_WRITEBACK_HINT } from '@/lib/data/projectList';
 import { clientInitials, clientListStats, clientMatchesFilter, singleOrAcross, type ClientListFilter, type ClientListRow } from '@/lib/data/clientList';
 import { taskStatusColor } from '@/lib/data/view-models';
 
@@ -34,6 +45,7 @@ export type ClientTaskRow = {
   isDone: boolean;
   stage?: string | null;
   date?: string | null;
+  lastEditedTime?: string | null;
   projectName?: string | null;
   publishToWarehaus?: boolean;
   category?: string | null;
@@ -111,6 +123,26 @@ function Stat({
   );
 }
 
+function PersonMark({ name }: { name: string }) {
+  return (
+    <span
+      className="ds-mono inline-flex shrink-0 items-center justify-center"
+      data-testid="person-avatar"
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: 999,
+        background: 'var(--bg)',
+        border: '1px solid var(--border)',
+        fontSize: 11,
+        color: 'var(--muted)',
+      }}
+    >
+      {clientInitials(name)}
+    </span>
+  );
+}
+
 function Mark({ name }: { name: string }) {
   return (
     <span
@@ -154,6 +186,126 @@ function Chevron() {
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img alt="" src="/icons/client-chev.svg" width={16} height={16} className="shrink-0 opacity-70" />
+  );
+}
+
+function personRowStyle(index: number): CSSProperties {
+  return {
+    borderTop: index === 0 ? 'none' : '1px solid var(--border)',
+    padding: '24px 0',
+  };
+}
+
+function TeamPersonRow({
+  person,
+  index,
+  nameWeight = 500,
+  pendingColor = 'var(--muted)',
+}: {
+  person: ClientPersonRow;
+  index: number;
+  nameWeight?: number;
+  pendingColor?: string;
+}) {
+  return (
+    <li className="flex items-center" style={personRowStyle(index)}>
+      <PersonMark name={person.name} />
+      <span className="min-w-0 flex-1" style={{ marginLeft: 12 }}>
+        <span className="block" style={{ fontWeight: nameWeight, overflowWrap: 'break-word' }}>{person.name}</span>
+        <span className="ds-mono hidden lg:block" style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'break-word' }}>{person.email}</span>
+        <span className="ds-mono block lg:hidden" data-testid="client-person-meta" style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'break-word' }}>
+          {[person.email, person.role].filter(Boolean).join(' · ')}
+        </span>
+      </span>
+      <span
+        className="ds-mono hidden shrink-0 lg:block"
+        data-testid="client-person-role"
+        style={{ width: 140, marginLeft: 12, fontSize: 12, color: 'var(--muted)' }}
+      >
+        {person.role ?? ''}
+      </span>
+      <span
+        className="ds-mono shrink-0"
+        data-testid="client-person-status"
+        style={{ marginLeft: 24, fontSize: 12, color: person.invitePending ? pendingColor : 'var(--muted)' }}
+      >
+        {clientPersonStatus(person)}
+      </span>
+    </li>
+  );
+}
+
+function EditClientButton() {
+  const hintId = useId();
+  return (
+    <span
+      tabIndex={0}
+      aria-disabled="true"
+      aria-describedby={hintId}
+      title={EDIT_PROJECT_WRITEBACK_HINT}
+      data-testid="edit-client-hint"
+      className="inline-flex shrink-0"
+      style={{ cursor: 'not-allowed' }}
+    >
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        tabIndex={-1}
+        data-testid="edit-client"
+        style={{
+          pointerEvents: 'none',
+          background: 'transparent',
+          color: 'var(--fg)',
+          border: '1px solid var(--border)',
+          borderRadius: 9,
+          fontFamily: 'var(--font-body)',
+          fontSize: 13,
+          fontWeight: 500,
+          padding: '6px 10px',
+          cursor: 'not-allowed',
+          opacity: 0.4,
+        }}
+      >
+        Edit client
+      </button>
+      <span id={hintId} className="sr-only">
+        {EDIT_PROJECT_WRITEBACK_HINT}
+      </span>
+    </span>
+  );
+}
+
+function FilledStatus({ children }: { children: ReactNode }) {
+  return (
+    <span
+      data-testid="client-team-status"
+      className="ds-mono inline-flex items-center"
+      style={{
+        background: 'var(--surface-2)',
+        color: 'var(--muted)',
+        border: 'none',
+        borderRadius: 999,
+        padding: '4px 12px',
+        fontSize: 11,
+        letterSpacing: '0.44px',
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function StageBadge() {
+  return (
+    <span
+      className="ds-mono inline-flex items-center gap-2"
+      data-testid="client-team-stage"
+      style={{ border: '1px solid var(--danger)', borderRadius: 999, padding: '4px 12px', fontSize: 11, letterSpacing: '0.44px', color: 'var(--danger)' }}
+    >
+      <TaskGlyph src="/icons/task-stage.svg" size={12} />
+      {CLIENT_TEAM_STAGE_LABEL}
+    </span>
   );
 }
 
@@ -431,17 +583,19 @@ export function ClientDetail({
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
       <ClampStyle />
       <Panel>
-        <div className="flex items-center gap-4">
+        <div className="flex items-start gap-4">
           <Mark name={client.name} />
           <div className="min-w-0 flex-1">
-            <h2 className="client-card-title">{client.name}</h2>
+            <div className="flex items-start justify-between gap-3">
+              <h2 className="client-card-title">{client.name}</h2>
+              <EditClientButton />
+            </div>
             {header ? (
-              <p className="clamp-one" data-testid="client-since-lead" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
+              <p className="clamp-two" data-testid="client-since-lead" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
                 {header}
               </p>
             ) : null}
           </div>
-          <DisabledAction label="Edit client" />
         </div>
         <div className="mt-4 flex flex-wrap gap-4">
           <Dot tone={client.internal ? 'off' : 'on'}>{client.internal ? 'Not published' : 'Published'}</Dot>
@@ -453,7 +607,7 @@ export function ClientDetail({
           />
         </div>
       </Panel>
-      <div className="grid w-full grid-cols-1 gap-3 min-[481px]:grid-cols-2 md:grid-cols-3 [&>:last-child]:min-[481px]:col-span-2 [&>:last-child]:md:col-span-1">
+      <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3" data-testid="client-stats">
         <Stat label="PROJECTS" value={String(projectRows.length)} hint={projectRows.length > 0 ? '1 active brand each' : 'No projects yet'} />
         <Stat label="PEOPLE" value={String(contactRows.length)} hint={pending > 0 ? `${pending} invite pending` : 'Contacts with portal access'} />
         <Stat label="OPEN ITEMS" value={String(open.length)} hint={awaiting > 0 ? `${awaiting} awaiting go` : 'None awaiting go'} tone={awaiting > 0 ? 'var(--danger)' : undefined} />
@@ -510,19 +664,9 @@ export function ClientDetail({
         {contactRows.length === 0 ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No contacts.</p>
         ) : (
-          <ul className="mt-2">
-            {contactRows.map((person) => (
-              <li key={person.id} className="flex flex-wrap items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
-                <Mark name={person.name} />
-                <span className="min-w-0 flex-1">
-                  <span className="clamp-one block" style={{ fontWeight: 600 }}>{person.name}</span>
-                  <span className="block truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
-                </span>
-                {person.role ? <span style={{ fontSize: 13, color: 'var(--muted)' }}>{person.role}</span> : null}
-                <span style={{ fontSize: 13, color: person.invitePending ? 'var(--warn)' : 'var(--muted)' }}>
-                  {person.invitePending ? 'Invite pending' : person.portalAccess === 'Enabled' ? 'Active' : 'No portal access'}
-                </span>
-              </li>
+          <ul style={{ marginTop: 16 }}>
+            {contactRows.map((person, index) => (
+              <TeamPersonRow key={person.id} person={person} index={index} nameWeight={600} pendingColor="var(--warn)" />
             ))}
           </ul>
         )}
@@ -579,6 +723,7 @@ export function ClientCompany({
   people,
   showTeam,
   onShowTeam,
+  onOpenTask,
   screen = 'ready',
 }: {
   name: string;
@@ -589,51 +734,97 @@ export function ClientCompany({
   people: ClientPersonRow[];
   showTeam: boolean;
   onShowTeam: () => void;
+  onOpenTask?: (taskId: string) => void;
   onBack: () => void;
   screen?: ClientScreen;
 }) {
   const open = tasks.filter((task) => !task.isDone);
   const awaiting = open.filter((task) => task.stage === 'Awaiting Go');
   if (showTeam) {
+    const visiblePeople = people.filter(clientVisiblePerson);
+    const invite = clientTeamInviteCopy(name, visiblePeople);
     return (
-      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-team">
+      <div className="flex h-full min-h-0 w-full flex-col gap-4 overflow-y-auto" data-testid="client-team">
         <ClampStyle />
-        <Panel>
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-            People at {name} with portal access.
+        <Panel testId="client-team-people">
+          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>Your team</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+            People at {name} with portal access
           </p>
-          {people.length === 0 ? (
+          {visiblePeople.length === 0 ? (
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No people shared yet.</p>
           ) : (
-            <ul className="mt-2">
-              {people.map((person) => (
-                <li key={person.id} className="flex items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
-                  <Mark name={person.name} />
-                  <span className="min-w-0">
-                    <span className="clamp-one block" style={{ fontWeight: 600 }}>{person.name}</span>
-                    <span className="block truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
-                  </span>
-                </li>
+            <ul style={{ marginTop: 16 }}>
+              {visiblePeople.map((person, index) => (
+                <TeamPersonRow key={person.id} person={person} index={index} />
               ))}
             </ul>
           )}
+          <div
+            data-testid="client-team-invite"
+            className="mt-4 flex items-start gap-3"
+            style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 24px' }}
+          >
+            <span aria-hidden className="inline-flex shrink-0 items-center justify-center" style={{ width: 20, height: 20, borderRadius: 999, border: '1.25px solid var(--muted)', color: 'var(--muted)', fontSize: 11, fontWeight: 600 }}>i</span>
+            <span className="min-w-0">
+              <span className="block" style={{ fontSize: 14, fontWeight: 600 }}>{invite.title}</span>
+              <span className="mt-1 block" style={{ fontSize: 13, color: 'var(--muted)' }}>{invite.body}</span>
+            </span>
+          </div>
         </Panel>
-        <Panel>
-          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Waiting on you</h3>
+        <Panel testId="client-team-waiting">
+          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>Waiting on you</h3>
+          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
+            Tasks published to you at Awaiting Go
+          </p>
           {awaiting.length === 0 ? (
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>Nothing is waiting on your approval.</p>
           ) : (
-            <ul className="mt-2">
-              {awaiting.map((task) => (
-                <li key={task.id} className="flex flex-wrap items-center gap-2" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
-                  <span className="min-w-0 flex-1">
-                    <span className="block" style={{ fontWeight: 600 }}>{task.name}</span>
-                    <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{task.projectName ?? name}</span>
-                  </span>
-                  <Pill color="var(--danger)">Awaiting Go</Pill>
-                  <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
-                </li>
-              ))}
+            <ul style={{ marginTop: 16 }}>
+              {awaiting.map((task, index) => {
+                const due = clientDueLabel(task.date);
+                const meta = [task.projectName ?? name, due].filter(Boolean).join(' · ');
+                const updated = clientUpdatedLabel(task);
+                const body = (
+                  <>
+                    <span className="min-w-0 flex-1">
+                      <span className="block" style={{ fontWeight: 500 }}>{task.name}</span>
+                      <span className="ds-mono block" style={{ fontSize: 12, color: 'var(--muted)' }}>{meta}</span>
+                      <span className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
+                        <StageBadge />
+                        <FilledStatus>{task.status}</FilledStatus>
+                      </span>
+                    </span>
+                    <span className="hidden shrink-0 items-center gap-3 lg:flex">
+                      <StageBadge />
+                      <FilledStatus>{task.status}</FilledStatus>
+                      {updated ? (
+                        <span className="ds-mono" data-testid="client-team-updated" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          {updated}
+                        </span>
+                      ) : null}
+                    </span>
+                    {onOpenTask ? <Chevron /> : null}
+                  </>
+                );
+                return (
+                  <li key={task.id} style={personRowStyle(index)}>
+                    {onOpenTask ? (
+                      <button
+                        type="button"
+                        data-testid="client-team-open"
+                        onClick={() => onOpenTask(task.id)}
+                        className="flex w-full items-start gap-3 text-left lg:items-center"
+                        style={{ background: 'none', border: 0, padding: 0, color: 'inherit', cursor: 'pointer' }}
+                      >
+                        {body}
+                      </button>
+                    ) : (
+                      <div className="flex w-full items-start gap-3 lg:items-center">{body}</div>
+                    )}
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Panel>
@@ -698,7 +889,7 @@ export function ClientCompany({
           )}
         </div>
       </Panel>
-      <div className="grid w-full grid-cols-2 gap-3 md:grid-cols-3">
+      <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3" data-testid="client-stats">
         <Stat label="ACTIVE PROJECTS" value={String(projects.length)} hint={projects[0] ? projects[0].name : 'None shared yet'} />
         <Stat label="OPEN ITEMS" value={String(open.length)} hint={`${open.filter((task) => /progress/i.test(task.status)).length} in progress`} />
         <Stat label="NEEDS YOUR ATTENTION" value={String(awaiting.length)} hint={awaiting.length > 0 ? 'Waiting on your approval' : 'Nothing waiting'} tone={awaiting.length > 0 ? 'var(--danger)' : undefined} />
@@ -757,6 +948,10 @@ function ClampStyle() {
       }
       @media (max-width: 480px) {
         .clamp-one { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .clamp-two {
+          white-space: normal;
+          overflow: visible;
+        }
         .client-card-title {
           display: -webkit-box;
           -webkit-box-orient: vertical;

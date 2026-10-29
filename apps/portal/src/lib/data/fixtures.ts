@@ -204,7 +204,11 @@ export const FIXTURE_PROJECTS = [
 
 export const FIXTURE_TASKS = [
   task('t-inbox', 'p-site', 'Capture homepage notes', 'Inbox', false, { category: 'Design' }),
-  task('t-todo', 'p-site', 'Write the launch checklist', 'To Do', false, { stage: 'Awaiting Go', category: 'Design' }),
+  task('t-todo', 'p-site', 'Write the launch checklist', 'To Do', false, {
+    stage: 'Awaiting Go',
+    category: 'Design',
+    lastEditedTime: '2026-10-05',
+  }),
   task('t-blocked', 'p-site', 'Waiting on photography', 'Blocked', false, { stage: 'Building', category: 'Design' }),
   task('t-doing', 'p-site', 'Build the project page', 'In Progress', false, {
     stage: 'Building',
@@ -692,6 +696,7 @@ function task(
     assigneeName?: string;
     resourceCount?: number;
     category?: string | null;
+    lastEditedTime?: string;
   } = {},
 ) {
   const project = FIXTURE_PROJECTS.find((p) => p.id === projectId);
@@ -711,6 +716,7 @@ function task(
     resourceCount: extra.resourceCount,
     category: extra.category ?? null,
     date: '2026-10-20',
+    ...(extra.lastEditedTime ? { lastEditedTime: extra.lastEditedTime } : {}),
     publishToWarehaus: true,
     estimate: null,
     priority: null,
