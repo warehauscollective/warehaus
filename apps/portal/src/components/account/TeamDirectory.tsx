@@ -40,7 +40,7 @@ const FIXTURE_PEOPLE: TeamPerson[] = [
     id: 'staff-alex',
     name: 'Alex Staff',
     email: 'alex@warehaus.co',
-    role: 'Staff',
+    role: 'Warehaus Staff',
     orgName: 'Warehaus',
     status: 'Active',
     kind: 'staff',
@@ -49,7 +49,7 @@ const FIXTURE_PEOPLE: TeamPerson[] = [
     id: 'staff-maya',
     name: 'Maya Chen',
     email: 'maya@warehaus.studio',
-    role: 'Staff',
+    role: 'Warehaus Staff',
     orgName: 'Warehaus',
     status: 'Active',
     kind: 'staff',
@@ -89,11 +89,6 @@ function initials(name: string): string {
   return letters.join('') || '·';
 }
 
-function roleLabel(role: string): string {
-  if (role === 'Warehaus Staff') return 'Staff';
-  return role;
-}
-
 function kindFor(role: string): 'staff' | 'client' {
   if (role === 'Warehaus Staff' || role === 'Staff' || role === 'Owner') return 'staff';
   return 'client';
@@ -110,19 +105,12 @@ function fromRows(rows: StaffTeamRow[]): TeamPerson[] {
       id: `${row.email}-${index}`,
       name: row.name,
       email: row.email,
-      role: roleLabel(row.role),
+      role: accountRoleName(row.role),
       orgName: row.orgName,
       status: pending ? 'Invite pending' : row.status,
       kind: pending ? 'pending' : kindFor(row.role),
     };
   });
-}
-
-function shownRole(person: TeamPerson, viewerEmail: string): string {
-  if (viewerEmail !== '—' && person.email.toLowerCase() === viewerEmail.toLowerCase()) {
-    return accountRoleName(person.role, true);
-  }
-  return person.role;
 }
 
 function matches(person: TeamPerson, filter: Filter): boolean {
@@ -135,12 +123,10 @@ function matches(person: TeamPerson, filter: Filter): boolean {
 export function TeamDirectory({
   live,
   hostSlug,
-  viewerEmail,
   onInvite,
 }: {
   live: boolean;
   hostSlug?: string;
-  viewerEmail: string;
   onInvite: () => void;
 }) {
   const remote = useSafeQuery<StaffTeamRow[]>(api.invites.listTeamForStaff, live ? { hostSlug } : 'skip');
@@ -257,11 +243,11 @@ export function TeamDirectory({
                 {person.orgName} · {person.email}
               </p>
               <p className="ds-mono truncate sm:hidden" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                {shownRole(person, viewerEmail)} · {person.status}
+                {accountRoleName(person.role)} · {person.status}
               </p>
             </div>
             <p className="ds-mono hidden sm:block" style={metaStyle}>
-              {shownRole(person, viewerEmail)}
+              {accountRoleName(person.role)}
             </p>
             <p className="ds-mono hidden sm:block" style={{ ...metaStyle, width: 100 }}>
               {person.status}

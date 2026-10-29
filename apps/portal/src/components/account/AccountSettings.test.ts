@@ -8,6 +8,7 @@ import { describe, it } from 'node:test';
 Object.assign(globalThis, { React });
 
 const { AccountSettings } = await import('./AccountSettings');
+const { accountRoleName } = await import('./accountRole');
 
 const convex = new ConvexReactClient('https://placeholder.convex.cloud');
 
@@ -35,8 +36,11 @@ describe('AccountSettings change password', () => {
     const staff = markup(true);
     assert.match(staff, /data-testid="account-change-password"/);
     assert.match(staff, /Change password/);
+    assert.equal(accountRoleName('Warehaus Staff'), 'Owner');
+    assert.equal(accountRoleName('Client Admin'), 'Client Admin');
     assert.match(staff, /Warehaus · Owner/);
-    assert.match(staff, /Owner/);
+    assert.match(staff, /data-testid="account-team-row-staff-alex"[\s\S]*Owner/);
+    assert.equal(/data-testid="account-team-row-staff-alex"[\s\S]*?>Staff</.test(staff), false);
     assert.equal(staff.includes('Northwind · Client Admin'), false);
     assert.match(staff, /Client Admin · Active/);
 

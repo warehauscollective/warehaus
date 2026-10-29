@@ -144,12 +144,7 @@ export function AccountSettings({
       />
       {staff ? (
         <div ref={teamRef}>
-          <TeamDirectory
-            live={live}
-            hostSlug={hostSlug}
-            viewerEmail={email}
-            onInvite={() => onInvite?.()}
-          />
+          <TeamDirectory live={live} hostSlug={hostSlug} onInvite={() => onInvite?.()} />
         </div>
       ) : (
         <TeammateNotice />
@@ -181,7 +176,7 @@ function ProfileCard({
   const [passwordNote, setPasswordNote] = useState<string | null>(null);
   const [passwordError, setPasswordError] = useState<string | null>(null);
   const [passwordSaving, setPasswordSaving] = useState(false);
-  const roleLine = `${orgLabel} · ${accountRoleName(role, staff)}`;
+  const roleLine = `${orgLabel} · ${accountRoleName(role)}`;
 
   const submitPassword = async () => {
     setPasswordSaving(true);
