@@ -80,7 +80,11 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         >
           {tab}
         </span>
-        <SectionScroller inset={data.tenant.mode === 'team'} activeKey={activeSection}>
+        <SectionScroller
+          inset={data.tenant.mode === 'team'}
+          activeKey={activeSection}
+          endClearance={data.tenant.mode === 'team' && activeSection === sections[sections.length - 1]?.key ? 48 : 0}
+        >
           {sections.map((s) => {
             const active = activeSection === s.key;
             return (
@@ -182,14 +186,24 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
   );
 }
 
-function SectionScroller({ children, inset, activeKey }: { children: ReactNode; inset?: boolean; activeKey: string }) {
+function SectionScroller({
+  children,
+  inset,
+  activeKey,
+  endClearance = 0,
+}: {
+  children: ReactNode;
+  inset?: boolean;
+  activeKey: string;
+  endClearance?: number;
+}) {
   const ref = useRef<HTMLDivElement>(null);
   const [fade, setFade] = useState<EdgeFade>({ leading: 0, trailing: 0 });
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
-    scrollActiveIntoView(node, { inset });
-  }, [activeKey, inset]);
+    scrollActiveIntoView(node, { inset, endClearance });
+  }, [activeKey, inset, endClearance]);
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
@@ -229,6 +243,9 @@ function SectionScroller({ children, inset, activeKey }: { children: ReactNode; 
         }}
       >
         {children}
+        {endClearance > 0 ? (
+          <span aria-hidden data-testid="section-end-spacer" className="shrink-0" style={{ width: endClearance }} />
+        ) : null}
       </div>
       {fade.leading > 0 ? (
         <div

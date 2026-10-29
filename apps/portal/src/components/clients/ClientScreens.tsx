@@ -33,6 +33,7 @@ import {
   type ClientListRow,
 } from '@/lib/data/clientList';
 import { taskStatusColor } from '@/lib/data/view-models';
+import { TEAM_CLIENT_EMPTY, TEAM_ERROR_COPY, TEAM_STALE_COPY, TeamEmpty, TeamOutlineButton, TeamSkeletonRows, TeamStateNotice, clientTeamEmptyBody } from '@/components/account/teamStates';
 
 export type DirectoryClient = ClientListRow & {
   slug?: string | null;
@@ -276,7 +277,7 @@ function TeamPersonRow({
             {status}
           </span>
         </span>
-        <span className="ds-mono hidden lg:block" style={{ fontSize: 12, color: 'var(--muted)' }}>{person.email}</span>
+        <span className="ds-mono hidden lg:block" style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'anywhere' }}>{person.email}</span>
         <span className="ds-mono block lg:hidden" data-testid="client-person-meta" style={{ fontSize: 12, color: 'var(--muted)' }}>
           {person.email ? (
             <span data-testid="client-person-email" style={{ overflowWrap: 'anywhere' }}>{person.email}</span>
@@ -1042,9 +1043,6 @@ export function ClientDetail({
                     {task.publishToWarehaus ? 'Published' : 'Not published'}
                   </Dot>
                 ) : null;
-              // Pair the publish status with the last pill so a wrap keeps them together
-              // when that pair fits on one line.
-              const withStatus = publish ? pills.pop() : null;
               return (
                 <li key={task.id} data-testid="client-task-row" className="client-task-row flex flex-wrap items-center gap-2 lg:flex-nowrap" style={{ borderTop: '1px solid var(--border)' }}>
                   <PortalCheckbox checked={task.isDone} disabled />
@@ -1054,14 +1052,7 @@ export function ClientDetail({
                   </span>
                   <span data-testid="client-task-pills" className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
                     {pills}
-                    {publish ? (
-                      <span data-testid="client-task-publish" className="inline-flex max-w-full shrink-0 flex-nowrap items-center gap-2">
-                        {withStatus}
-                        {publish}
-                      </span>
-                    ) : (
-                      withStatus
-                    )}
+                    {publish ? <span data-testid="client-task-publish">{publish}</span> : null}
                   </span>
                   <Chevron className="hidden lg:block" />
                 </li>
@@ -1090,6 +1081,7 @@ export function ClientCompany({
   loading = false,
   error = null,
   onRetry,
+  viewerRole = null,
 }: {
   name: string;
   leadName?: string | null;
@@ -1104,6 +1096,7 @@ export function ClientCompany({
   loading?: boolean;
   error?: string | null;
   onRetry?: () => void;
+  viewerRole?: string | null;
 }) {
   const open = tasks.filter((task) => !task.isDone);
   const awaiting = open.filter((task) => task.stage === 'Awaiting Go');
@@ -1118,15 +1111,49 @@ export function ClientCompany({
           <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
             People at {name} with portal access
           </p>
-          {visiblePeople.length === 0 ? (
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No people shared yet.</p>
+          {loading ? (
+            <div className="mt-4">
+              <TeamSkeletonRows testId="client-team-loading" />
+            </div>
+          ) : error && visiblePeople.length === 0 ? (
+            <div className="mt-4">
+              <TeamStateNotice
+                title={TEAM_ERROR_COPY.title}
+                body={TEAM_ERROR_COPY.body}
+                testId="client-team-notice"
+                action={
+                  <TeamOutlineButton testId="team-try-again" onClick={onRetry}>
+                    Try again
+                  </TeamOutlineButton>
+                }
+              />
+            </div>
+          ) : visiblePeople.length === 0 ? (
+            <div className="mt-4">
+              <TeamEmpty title={TEAM_CLIENT_EMPTY.title} body={clientTeamEmptyBody(viewerRole)} testId="client-team-empty" />
+            </div>
           ) : (
             <ul style={{ marginTop: 16 }}>
+              {error ? (
+                <li className="mb-4 list-none">
+                  <TeamStateNotice
+                    title={TEAM_STALE_COPY.title}
+                    body={TEAM_STALE_COPY.body}
+                    testId="client-team-notice"
+                    action={
+                      <TeamOutlineButton testId="team-try-again" onClick={onRetry}>
+                        Try again
+                      </TeamOutlineButton>
+                    }
+                  />
+                </li>
+              ) : null}
               {visiblePeople.map((person, index) => (
-                <TeamPersonRow key={person.id} person={person} index={index} />
+                <TeamPersonRow key={person.id} person={person} index={index} pendingColor="var(--warning)" />
               ))}
             </ul>
           )}
+          {loading || (error && visiblePeople.length === 0) ? null : (
           <div
             data-testid="client-team-invite"
             className="mt-4 flex items-start gap-3"
@@ -1138,6 +1165,7 @@ export function ClientCompany({
               <span className="mt-1 block" style={{ fontSize: 13, color: 'var(--muted)' }}>{invite.body}</span>
             </span>
           </div>
+          )}
         </Panel>
         <Panel testId="client-team-waiting">
           <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>Waiting on you</h3>

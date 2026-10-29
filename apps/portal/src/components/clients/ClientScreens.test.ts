@@ -70,6 +70,7 @@ describe('client team page', () => {
     assert.match(html, /data-testid="client-person-email"[^>]*style="[^"]*overflow-wrap:anywhere[^"]*"[^>]*>ada@northwind\.example</);
     assert.match(html, /data-testid="client-person-role-phone"[^>]*style="[^"]*white-space:nowrap[^"]*"[^>]*> · Client Admin</);
     assert.match(html, /Invite pending/);
+    assert.match(html, /color:var\(--warning\)/);
     assert.match(html, /Client Admins can invite teammates/);
     assert.match(html, /Ada can invite new Client Members from Account › Team/);
     assert.equal(html.includes('← Company'), false);
@@ -121,7 +122,97 @@ describe('client team page', () => {
     assert.match(html, /data-testid="client-person-role-phone"[^>]*> · Client Member</);
     assert.match(html, /Active/);
     assert.match(html, /Invite pending/);
+    assert.match(html, /color:var\(--warning\)/);
     assert.equal(html.includes('No portal access'), false);
+  });
+
+  it('shows the client empty, loading, and error states', () => {
+    const empty = teamMarkup([]);
+    assert.match(empty, /data-testid="client-team-empty"/);
+    assert.match(empty, /No teammates yet/);
+    assert.match(empty, /Your Client Admin can invite teammates/);
+    assert.equal(empty.includes('Teammates you invite will show here.'), false);
+    assert.equal(empty.includes('Invite someone'), false);
+    assert.equal(empty.includes('No people shared yet'), false);
+    assert.match(empty, /Client Admins can invite teammates/);
+
+    const admin = renderToStaticMarkup(
+      createElement(ClientCompany, {
+        name: 'Northwind',
+        projects: [],
+        tasks,
+        docs: [],
+        people: [],
+        showTeam: true,
+        onShowTeam: () => {},
+        onOpenTask: () => {},
+        onBack: () => {},
+        viewerRole: 'Client Admin',
+      }),
+    );
+    assert.match(admin, /Teammates you invite will show here/);
+
+    const loading = renderToStaticMarkup(
+      createElement(ClientCompany, {
+        name: 'Northwind',
+        projects: [],
+        tasks,
+        docs: [],
+        people: [],
+        showTeam: true,
+        onShowTeam: () => {},
+        onOpenTask: () => {},
+        onBack: () => {},
+        loading: true,
+      }),
+    );
+    assert.equal(loading.match(/data-testid="team-skeleton-row"/g)?.length, 3);
+    assert.match(loading, /data-testid="client-team-loading"/);
+    assert.match(loading, /role="status"/);
+    assert.match(loading, /Loading team/);
+    assert.equal(loading.includes('aria-busy'), false);
+    assert.equal(loading.includes('client-team-invite'), false);
+
+    const failed = renderToStaticMarkup(
+      createElement(ClientCompany, {
+        name: 'Northwind',
+        projects: [],
+        tasks,
+        docs: [],
+        people: [],
+        showTeam: true,
+        onShowTeam: () => {},
+        onOpenTask: () => {},
+        onBack: () => {},
+        error: 'Could not save your settings',
+        onRetry: () => {},
+      }),
+    );
+    assert.match(failed, /data-testid="client-team-notice"/);
+    assert.match(failed, /We couldn(?:'|&#x27;)t load your team/);
+    assert.match(failed, /Try again in a moment/);
+    assert.match(failed, /data-testid="team-try-again"/);
+    assert.equal(failed.includes('Could not save your settings'), false);
+
+    const stale = renderToStaticMarkup(
+      createElement(ClientCompany, {
+        name: 'Northwind',
+        projects: [],
+        tasks,
+        docs: [],
+        people,
+        showTeam: true,
+        onShowTeam: () => {},
+        onOpenTask: () => {},
+        onBack: () => {},
+        error: 'Network error',
+        onRetry: () => {},
+      }),
+    );
+    assert.match(stale, /Team list is out of date/);
+    assert.match(stale, /Showing the last team we could load/);
+    assert.match(stale, /data-testid="team-try-again"/);
+    assert.match(stale, /Ada North/);
   });
 
   it('stacks company and staff stat cards and keeps project marks square', () => {
@@ -185,8 +276,9 @@ describe('client team page', () => {
     assert.equal(detail.includes('md:grid-cols-[minmax(0,1fr)_176px_80px_auto'), false);
     assert.match(detail, /data-testid="client-task-title"[^>]*class="block lg:truncate"/);
     assert.match(detail, /data-testid="client-task-pills"[^>]*class="[^"]*w-full[^"]*lg:w-auto/);
-    assert.match(detail, /data-testid="client-task-publish"[^>]*class="[^"]*inline-flex[^"]*flex-nowrap[^"]*"/);
-    assert.match(detail, /data-testid="client-task-publish"[\s\S]*?>Design<\/span>[\s\S]*?Published/);
+    assert.match(detail, /data-testid="client-task-publish">/);
+    assert.equal(/data-testid="client-task-publish"[^>]*flex-nowrap/.test(detail), false);
+    assert.match(detail, />Design<\/span>[\s\S]*?data-testid="client-task-publish"[\s\S]*?Published/);
     assert.match(detail, /lg:flex-nowrap/);
     assert.match(detail, /client-chev.svg/);
     assert.match(detail, /class="shrink-0 opacity-70 hidden lg:block"/);

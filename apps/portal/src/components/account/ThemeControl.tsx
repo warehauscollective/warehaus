@@ -82,13 +82,18 @@ export function ThemeControl() {
           Choose light or dark for this device.
         </p>
         <span className="inline-flex shrink-0 items-center" style={{ gap: 12 }}>
-          {resolved ? (
-            <span data-testid="account-theme-label" style={{ fontSize: 15, lineHeight: '18px', fontWeight: 600 }}>
-              {darkOn ? 'Dark' : 'Light'}
+          <span
+            data-testid="account-theme-label"
+            className="inline-grid"
+            style={{ fontSize: 15, lineHeight: '18px', fontWeight: 600 }}
+          >
+            <span aria-hidden style={{ visibility: 'hidden', gridArea: '1 / 1' }}>
+              Light
             </span>
-          ) : (
-            <span data-testid="account-theme-label" style={{ width: 36, height: 18 }} />
-          )}
+            {resolved ? (
+              <span style={{ gridArea: '1 / 1' }}>{darkOn ? 'Dark' : 'Light'}</span>
+            ) : null}
+          </span>
           {resolved ? (
             <button
               type="button"
@@ -98,6 +103,7 @@ export function ThemeControl() {
               data-testid="account-theme-toggle"
               data-theme={resolved}
               data-mode={mode ?? undefined}
+              className="account-theme-toggle inline-flex shrink-0 items-center"
               onClick={() => {
                 try {
                   const next = nextExplicitTheme(resolved);
@@ -109,7 +115,6 @@ export function ThemeControl() {
                   setError('Could not save your settings');
                 }
               }}
-              className="inline-flex shrink-0 items-center"
               style={{
                 width: 64,
                 height: 32,
