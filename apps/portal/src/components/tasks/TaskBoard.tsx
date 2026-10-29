@@ -18,6 +18,7 @@ import {
 } from '@dnd-kit/core';
 import {
   boardColumns,
+  dropSlotIndex,
   resolveBoardDrop,
   WRITEBACK_OFF_ERROR,
   type BoardDropDecision,
@@ -65,6 +66,12 @@ export function cardDragPointerDown<E>(
 
 export const MOVE_NOT_SAVED = 'Not saved. Moving cards to Notion is turned off for now.';
 
+/** Equal tracks. Emptying a column does not change the template, so the row does not jump. */
+export function boardColumnTemplate(count: number, phone: boolean): string {
+  if (phone) return 'minmax(0, 1fr)';
+  return `repeat(${Math.max(count, 1)}, minmax(12.75rem, 1fr))`;
+}
+
 /** A drop stays in the new column only when enqueue accepts it. */
 export function boardMovePersists(result: { ok: boolean }): boolean {
   return result.ok;
@@ -105,6 +112,8 @@ export function TaskBoard({
   const [live, setLive] = useState('');
   const [activeId, setActiveId] = useState<string | null>(null);
   const [overKey, setOverKey] = useState<string | null>(null);
+  const [liftedHeight, setLiftedHeight] = useState<number | null>(null);
+  const liftedHeightRef = useRef<number | null>(null);
   const [tab, setTab] = useState<string | null>(null);
   const [moveTask, setMoveTask] = useState<PortalTask | null>(null);
   const [needs, setNeeds] = useState<{ task: PortalTask; value: string; rule: MoveRule } | null>(null);
@@ -201,6 +210,7 @@ export function TaskBoard({
   const onDragEnd = (event: DragEndEvent) => {
     setActiveId(null);
     setOverKey(null);
+    setLiftedHeight(null);
     const task = tasks.find((item) => item.id === String(event.active.id));
     const viewed = viewTasks.find((item) => item.id === String(event.active.id));
     const over = event.over ? String(event.over.id) : '';
@@ -257,19 +267,25 @@ export function TaskBoard({
       <DndContext
         sensors={sensors}
         collisionDetection={columnCollision}
-        onDragStart={(event) => setActiveId(String(event.active.id))}
+        onDragStart={(event) => {
+          setActiveId(String(event.active.id));
+          setLiftedHeight(liftedHeightRef.current);
+        }}
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
         onDragCancel={() => {
           setActiveId(null);
           setOverKey(null);
+          setLiftedHeight(null);
           setLive('Move cancelled.');
         }}
       >
-        <BoardScroller>
+        <BoardScroller tracks={boardColumnTemplate(shown.length, phone)}>
           {shown.map((column) => {
             const dragging = activeId ? viewTasks.find((task) => task.id === activeId) : undefined;
             const hover = dragging && overKey === column.key ? decide(dragging, column.key) : null;
+            const accepting = hover?.kind === 'move' || hover?.kind === 'needs';
+            const resting = dragging ? column.tasks.filter((task) => task.id !== dragging.id) : column.tasks;
             return (
             <Column
               key={column.key}
@@ -277,16 +293,21 @@ export function TaskBoard({
               label={column.label}
               tasks={column.tasks}
               allTasks={viewTasks}
-              width={phone ? undefined : undefined}
               staff={staff}
               loading={loading}
               canDrag={canDrag}
               failed={failed}
               locked={hover?.kind === 'reject'}
-              activeTarget={hover?.kind === 'move' || hover?.kind === 'needs'}
+              activeTarget={accepting}
+              draggingId={activeId}
+              dropIndex={dragging && accepting ? dropSlotIndex(resting, dragging) : null}
+              dropHeight={liftedHeight}
               phone={phone}
               mode={mode}
               emptyClient={!staff}
+              onLiftSize={(height) => {
+                liftedHeightRef.current = height;
+              }}
               onOpen={onOpen}
               onRetry={(task) => {
                 const value = mode === 'stage' ? task.stage ?? '' : task.status;
@@ -318,9 +339,9 @@ export function TaskBoard({
             );
           })}
         </BoardScroller>
-        <DragOverlay>
+        <DragOverlay dropAnimation={null} style={{ cursor: 'grabbing' }}>
           {activeId ? (
-            <div style={{ transform: 'rotate(2deg) scale(1.03)', cursor: 'grabbing' }}>
+            <div style={{ height: '100%', transform: 'rotate(2deg) scale(1.03)', transformOrigin: 'center center', cursor: 'grabbing' }}>
               <TaskCardFace task={viewTasks.find((task) => task.id === activeId) ?? tasks[0]} lifted mode={mode} allTasks={viewTasks} staff={staff} />
             </div>
           ) : null}
@@ -332,27 +353,12 @@ export function TaskBoard({
         </p>
       ) : null}
       {toast ? (
-        <div
-          role="status"
-          className="fixed bottom-24 left-1/2 z-[70] flex -translate-x-1/2 items-center gap-3"
-          style={{
-            background: 'var(--surface)',
-            color: 'var(--fg)',
-            border: '1px solid var(--border)',
-            borderRadius: 12,
-            padding: '0.75rem 1rem',
-            maxWidth: 'min(36rem, calc(100% - 2rem))',
-          }}
-        >
-          <span style={{ fontSize: 'var(--t-sm)' }}>{toast.message}</span>
-          {toast.retry ? (
-            <button type="button" onClick={toast.retry} style={{ color: 'var(--accent)' }}>Retry</button>
-          ) : null}
-          {toast.undo ? (
-            <button type="button" onClick={() => { toast.undo?.(); setToast(null); }} style={{ color: 'var(--accent)' }}>Undo</button>
-          ) : null}
-          <button type="button" aria-label="Dismiss" onClick={() => setToast(null)} style={{ color: 'var(--muted)' }}>✕</button>
-        </div>
+        <BoardToast
+          message={toast.message}
+          retry={toast.retry}
+          undo={toast.undo ? () => { toast.undo?.(); setToast(null); } : undefined}
+          onDismiss={() => setToast(null)}
+        />
       ) : null}
       {moveTask ? (
         <MoveSheet
@@ -422,16 +428,19 @@ function Column({
   label,
   tasks,
   allTasks,
-  width,
   staff,
   loading,
   canDrag,
   failed,
   locked,
   activeTarget,
+  draggingId,
+  dropIndex,
+  dropHeight,
   phone,
   mode,
   emptyClient,
+  onLiftSize,
   onOpen,
   onRetry,
   onMoveSheet,
@@ -445,16 +454,19 @@ function Column({
   label: string;
   tasks: PortalTask[];
   allTasks: PortalTask[];
-  width?: number;
   staff: boolean;
   loading: boolean;
   canDrag: boolean;
   failed: Record<string, string>;
   locked: boolean;
   activeTarget: boolean;
+  draggingId: string | null;
+  dropIndex: number | null;
+  dropHeight: number | null;
   phone: boolean;
   mode: BoardMode;
   emptyClient: boolean;
+  onLiftSize: (height: number) => void;
   onOpen: (task: PortalTask) => void;
   onRetry: (task: PortalTask) => void;
   onMoveSheet: (task: PortalTask) => void;
@@ -466,15 +478,45 @@ function Column({
 }) {
   const { setNodeRef } = useDroppable({ id: `column:${columnKey}` });
   const dashed = columnKey.startsWith('unknown-stage');
+  const restingCount = tasks.filter((task) => task.id !== draggingId).length;
+  const cards: ReactNode[] = [];
+  let seen = 0;
+  for (const task of tasks) {
+    const collapsed = task.id === draggingId;
+    if (!collapsed && dropIndex === seen) {
+      cards.push(<DropPlaceholder key="drop-here" height={dropHeight} />);
+    }
+    cards.push(
+      <BoardCard
+        key={task.id}
+        task={task}
+        mode={mode}
+        allTasks={allTasks}
+        canDrag={canDrag}
+        phone={phone}
+        staff={staff}
+        collapsed={collapsed}
+        error={failed[task.id]}
+        onLiftSize={onLiftSize}
+        onOpen={() => onOpen(task)}
+        onRetry={() => onRetry(task)}
+        onMoveSheet={() => onMoveSheet(task)}
+        onKeyMove={onKeyMove}
+      />,
+    );
+    if (!collapsed) seen += 1;
+  }
+  if (dropIndex === seen) cards.push(<DropPlaceholder key="drop-here" height={dropHeight} />);
   return (
     <section
       ref={setNodeRef}
       aria-label={label}
-      className="flex shrink-0 flex-col"
+      data-testid="task-column"
+      className="flex min-w-0 w-full flex-col"
       style={{
-        width: phone ? '100%' : width,
-        minWidth: phone ? 0 : '12.75rem',
-        flex: phone ? '1 1 auto' : '0 0 auto',
+        position: 'relative',
+        minWidth: 0,
+        boxSizing: 'border-box',
         padding: 12,
         gap: 12,
         borderRadius: 16,
@@ -485,12 +527,12 @@ function Column({
             : activeTarget
               ? '2px solid var(--accent)'
               : '1px solid var(--border)',
-        background: activeTarget ? 'color-mix(in oklab, var(--accent) 12%, var(--bg))' : 'var(--bg)',
+        background: activeTarget ? 'var(--accent-tint)' : 'var(--bg)',
       }}
     >
       <header className="flex items-center gap-2">
         <h3 className="ds-mono whitespace-nowrap" style={{ fontSize: 11, letterSpacing: '0.08em' }}>{label.toUpperCase()}</h3>
-        <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface)', borderRadius: 999, padding: '0 0.45rem' }}>{tasks.length}</span>
+        <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface)', borderRadius: 999, padding: '0 0.45rem' }}>{restingCount}</span>
         <span className="flex-1" />
         {staff && !columnKey.startsWith('unknown') ? (
           <button type="button" aria-label={`Add task to ${label}`} onClick={onQuick} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>+</button>
@@ -498,24 +540,9 @@ function Column({
       </header>
       <div className="flex flex-col gap-3">
         {loading ? <div className="animate-pulse" style={{ height: 72, borderRadius: 18, background: 'var(--surface)' }} /> : null}
-        {tasks.map((task) => (
-          <BoardCard
-            key={task.id}
-            task={task}
-            mode={mode}
-            allTasks={allTasks}
-            canDrag={canDrag}
-            phone={phone}
-            staff={staff}
-            error={failed[task.id]}
-            onOpen={() => onOpen(task)}
-            onRetry={() => onRetry(task)}
-            onMoveSheet={() => onMoveSheet(task)}
-            onKeyMove={onKeyMove}
-          />
-        ))}
+        {cards}
         {quick ? <QuickAdd onClose={onQuickClose} onSave={onQuickAdd} /> : null}
-        {!loading && tasks.length === 0 && !dashed ? (
+        {!loading && restingCount === 0 && dropIndex == null && !dashed ? (
           <p style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', border: '1px dashed var(--border)', borderRadius: 12, padding: '0.75rem' }}>
             {emptyClient ? 'Nothing here yet.' : mode === 'stage' ? 'No tasks at this stage. Drag a card here.' : 'No tasks'}
           </p>
@@ -530,6 +557,70 @@ function Column({
   );
 }
 
+export function DropPlaceholder({ height }: { height?: number | null }) {
+  return (
+    <div
+      data-testid="drop-placeholder"
+      aria-hidden
+      className="ds-mono flex items-center justify-center"
+      style={{
+        height: height && height > 0 ? height : 112,
+        background: 'var(--accent-tint)',
+        border: '1.5px dashed var(--border-2)',
+        borderRadius: 18,
+        color: 'var(--muted)',
+        fontSize: 12,
+        lineHeight: '18px',
+      }}
+    >
+      Drop here
+    </div>
+  );
+}
+
+export function BoardToast({
+  message,
+  retry,
+  undo,
+  onDismiss,
+}: {
+  message: string;
+  retry?: () => void;
+  undo?: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      data-testid="board-toast"
+      data-placement="below-board"
+      className="mx-auto flex w-fit max-w-full items-center"
+      style={{
+        position: 'relative',
+        marginTop: 16,
+        gap: 12,
+        background: 'var(--surface-2)',
+        color: 'var(--fg)',
+        border: retry ? '1px solid var(--danger)' : '1px solid var(--border-2)',
+        borderRadius: 18,
+        padding: '12px 16px',
+        boxShadow: '0 8px 12px rgb(0 0 0 / 35%)',
+        fontSize: 14,
+        lineHeight: '21px',
+      }}
+    >
+      <span>{message}</span>
+      {retry ? (
+        <button type="button" onClick={retry} style={{ color: 'var(--accent)', background: 'none', border: 0, cursor: 'pointer' }}>Retry</button>
+      ) : null}
+      {undo ? (
+        <button type="button" onClick={undo} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>Undo</button>
+      ) : null}
+      <button type="button" aria-label="Dismiss" onClick={onDismiss} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>✕</button>
+    </div>
+  );
+}
+
 function BoardCard({
   task,
   mode,
@@ -537,7 +628,9 @@ function BoardCard({
   canDrag,
   phone,
   staff,
+  collapsed = false,
   error,
+  onLiftSize,
   onOpen,
   onRetry,
   onMoveSheet,
@@ -549,15 +642,18 @@ function BoardCard({
   canDrag: boolean;
   phone: boolean;
   staff: boolean;
+  collapsed?: boolean;
   error?: string;
+  onLiftSize: (height: number) => void;
   onOpen: () => void;
   onRetry: () => void;
   onMoveSheet: () => void;
   onKeyMove: (task: PortalTask, direction: -1 | 1) => void;
 }) {
-  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id, disabled: !canDrag });
+  const { attributes, listeners, setNodeRef } = useDraggable({ id: task.id, disabled: !canDrag });
   const timer = useRef<number | null>(null);
   const press = useRef<{ x: number; y: number } | null>(null);
+  const origin = useRef<{ top: number; left: number; width: number; height: number } | null>(null);
   const onKeyDown = (event: KeyboardEvent) => {
     if (!canDrag) return;
     if (event.key === 'ArrowRight') {
@@ -570,6 +666,9 @@ function BoardCard({
     }
   };
   const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    origin.current = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
+    onLiftSize(rect.height);
     press.current = { x: event.clientX, y: event.clientY };
     cardDragPointerDown(
       event,
@@ -595,7 +694,17 @@ function BoardCard({
       className="text-left"
       data-testid="task-card"
       data-task-name={task.name}
-      style={{ opacity: isDragging ? 0.35 : 1, border: error ? '2px solid var(--danger)' : undefined, borderRadius: 12 }}
+      style={collapsed ? {
+        position: 'absolute',
+        width: 0,
+        height: 0,
+        overflow: 'visible',
+        pointerEvents: 'none',
+      } : {
+        opacity: 1,
+        border: error ? '2px solid var(--danger)' : undefined,
+        borderRadius: 12,
+      }}
     >
       <button
         ref={setNodeRef}
@@ -611,7 +720,18 @@ function BoardCard({
           if (timer.current) window.clearTimeout(timer.current);
         }}
         className="w-full text-left"
-        style={{
+        style={collapsed && origin.current ? {
+          position: 'fixed',
+          top: origin.current.top,
+          left: origin.current.left,
+          width: origin.current.width,
+          height: origin.current.height,
+          opacity: 0,
+          pointerEvents: 'none',
+          background: 'transparent',
+          border: 0,
+          padding: 0,
+        } : {
           background: 'transparent',
           border: 0,
           padding: 0,
@@ -657,17 +777,27 @@ export function TaskCardFace({
   return (
     <div
       style={{
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
+        background: lifted ? 'var(--surface-2)' : 'var(--surface)',
+        border: `1px solid ${lifted ? 'var(--border-2)' : 'var(--border)'}`,
         borderRadius: 18,
         padding: '14px 12px',
         display: 'flex',
         flexDirection: 'column',
         gap: 10,
         boxShadow: lifted ? '0 16px 32px rgb(0 0 0 / 45%)' : undefined,
+        cursor: lifted ? 'grabbing' : undefined,
       }}
     >
-      <p style={{ fontSize: 14, fontWeight: 500, lineHeight: '21px' }}>{task.name}</p>
+      {lifted ? (
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          <p style={{ flex: '1 1 auto', minWidth: 0, fontSize: 14, fontWeight: 500, lineHeight: '21px' }}>{task.name}</p>
+          <span style={{ color: 'var(--muted)' }}>
+            <TaskGlyph src="/icons/sidebar-menu.svg" size={16} />
+          </span>
+        </div>
+      ) : (
+        <p style={{ fontSize: 14, fontWeight: 500, lineHeight: '21px' }}>{task.name}</p>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         {mode === 'stage' ? <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill> : null}
         {mode === 'status' && task.stage ? (
@@ -935,7 +1065,7 @@ function portalNode(node: ReactNode) {
   return createPortal(node, document.body);
 }
 
-function BoardScroller({ children }: { children: ReactNode }) {
+function BoardScroller({ children, tracks }: { children: ReactNode; tracks: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fade, setFade] = useState(false);
   useEffect(() => {
@@ -960,7 +1090,12 @@ function BoardScroller({ children }: { children: ReactNode }) {
   }, [children]);
   return (
     <div className="relative min-w-0">
-      <div ref={ref} className="flex items-start gap-3 overflow-x-auto pb-2">
+      <div
+        ref={ref}
+        data-testid="task-board-columns"
+        className="grid items-start gap-3 overflow-x-auto pb-2"
+        style={{ gridTemplateColumns: tracks }}
+      >
         {children}
       </div>
       {fade ? (

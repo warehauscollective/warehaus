@@ -231,7 +231,7 @@ export function ProjectsContent() {
         actions={<div className="hidden flex-wrap items-center gap-2 md:flex">{boardActions}</div>}
       >
         <PortalTilePane>
-          <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="project-detail">
+          <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="project-detail" style={{ scrollbarGutter: 'stable' }}>
             <div className="flex flex-col" style={{ gap: 12 }}>
             <div className="flex flex-wrap items-center gap-2">
               {openProject.internal ? <InternalTag /> : (
