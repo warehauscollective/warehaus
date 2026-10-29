@@ -449,10 +449,15 @@ export function ResourcesContent() {
     >
       <PortalTilePane>
         <div className="flex h-full min-h-0 flex-col gap-8 overflow-y-auto" data-testid="resources-list">
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" data-testid="resource-kpis">
+          <div
+            className={`grid grid-cols-1 gap-4 ${isStaff ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}
+            data-testid="resource-kpis"
+          >
             {[
               { label: 'Meeting notes', value: stats.meetings, hint: attachedHint(stats.attached, isStaff) },
-              { label: 'Draft recaps', value: stats.drafts, hint: isStaff ? 'Not visible to clients' : 'Not shared with you' },
+              ...(isStaff
+                ? [{ label: 'Draft recaps', value: stats.drafts, hint: 'Not visible to clients' }]
+                : []),
               { label: 'Published recaps', value: stats.published, hint: isStaff ? 'Client-safe only' : 'Shared with you' },
             ].map((stat) => (
               <div
@@ -467,9 +472,7 @@ export function ResourcesContent() {
                 <p className="ds-mono" style={{ fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>
                   {stat.label}
                 </p>
-                <p style={{ marginTop: 8, fontFamily: 'var(--font-display)', fontWeight: 700, fontSize: 'clamp(48px, 4vw, 60px)', lineHeight: 1, letterSpacing: '-0.03em' }}>
-                  {loading ? '…' : stat.value}
-                </p>
+                <p className="kpi-figure">{loading ? '…' : stat.value}</p>
                 <p style={{ marginTop: 12, fontSize: 14 }}>{loading ? 'Loading' : stat.hint}</p>
               </div>
             ))}

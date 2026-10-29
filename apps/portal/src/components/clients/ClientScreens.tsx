@@ -78,12 +78,15 @@ function Stat({
   hint,
   tone,
   size = 32,
+  display = false,
 }: {
   label: string;
   value: string;
   hint: string;
   tone?: string;
   size?: number;
+  /** List KPIs. Uses the shared `.kpi-figure` display token. */
+  display?: boolean;
 }) {
   return (
     <div
@@ -98,7 +101,11 @@ function Stat({
       <p className="ds-mono" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--faint)' }}>
         {label}
       </p>
-      <p style={{ fontFamily: 'var(--font-display)', fontSize: size, lineHeight: 1, marginTop: 8 }}>{value}</p>
+      {display ? (
+        <p className="kpi-figure">{value}</p>
+      ) : (
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: size, lineHeight: 1, marginTop: 8 }}>{value}</p>
+      )}
       <p style={{ fontSize: 'var(--t-sm)', color: tone ?? 'var(--muted)', marginTop: 6 }}>{hint}</p>
     </div>
   );
@@ -219,17 +226,17 @@ export function ClientDirectory({
         data-testid="client-stats"
         style={{ gridTemplateColumns: phone ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fit, minmax(160px, 1fr))' }}
       >
-        <Stat size={48} label="CLIENTS" value={String(stats.total)} hint={`${stats.active} active · ${stats.internal} internal`} />
-        <Stat size={48} label="ACTIVE PROJECTS" value={String(stats.projects)} hint={stats.withProjects === 1 ? 'Across 1 client' : `Across ${stats.withProjects} clients`} />
+        <Stat display label="CLIENTS" value={String(stats.total)} hint={`${stats.active} active · ${stats.internal} internal`} />
+        <Stat display label="ACTIVE PROJECTS" value={String(stats.projects)} hint={stats.withProjects === 1 ? 'Across 1 client' : `Across ${stats.withProjects} clients`} />
         <Stat
-          size={48}
+          display
           label="AWAITING GO"
           value={String(stats.awaiting)}
           hint={singleOrAcross(stats.awaitingNames, 'None waiting')}
           tone={stats.awaiting > 0 ? 'var(--danger)' : undefined}
         />
         <Stat
-          size={48}
+          display
           label="SYNC PROBLEMS"
           value={String(stats.sync)}
           hint={singleOrAcross(stats.syncNames, 'None')}
@@ -404,7 +411,7 @@ export function ClientDetail({
         <div className="flex items-center gap-4">
           <Mark name={client.name} />
           <div className="min-w-0 flex-1">
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)', overflowWrap: 'anywhere' }}>{client.name}</h2>
+            <h2 className="client-card-title">{client.name}</h2>
             {header ? (
               <p className="clamp-one" data-testid="client-since-lead" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
                 {header}
@@ -711,8 +718,21 @@ export function ClientCompany({
 function ClampStyle() {
   return (
     <style>{`
+      .client-card-title {
+        font-family: var(--font-display);
+        font-size: var(--t-lg);
+        overflow-wrap: normal;
+        word-break: normal;
+        hyphens: manual;
+      }
       @media (max-width: 480px) {
         .clamp-one { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .client-card-title {
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+          overflow: hidden;
+        }
       }
     `}</style>
   );
