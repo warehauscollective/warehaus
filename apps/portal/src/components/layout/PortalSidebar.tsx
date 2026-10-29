@@ -25,6 +25,24 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
     }
   }, [sections, activeSection, setSectionFor, tab]);
 
+  useEffect(() => {
+    const scroller = document.querySelector<HTMLElement>(
+      `nav[aria-label="${tab} sections"] .section-scroller`,
+    );
+    const active = scroller?.querySelector<HTMLElement>('[aria-current="true"]');
+    if (!scroller || !active) return;
+    const reveal = () => {
+      const bounds = scroller.getBoundingClientRect();
+      if (bounds.width < 8) return;
+      const chip = active.getBoundingClientRect();
+      if (chip.left < bounds.left) scroller.scrollLeft -= bounds.left - chip.left;
+      else if (chip.right > bounds.right) scroller.scrollLeft += chip.right - bounds.right;
+    };
+    reveal();
+    const frame = requestAnimationFrame(reveal);
+    return () => cancelAnimationFrame(frame);
+  }, [activeSection, tab, sections]);
+
   if (sections.length === 0) return null;
 
   return (
@@ -37,9 +55,13 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
           background: 'var(--nav-bg)',
           border: '1px solid var(--nav-border)',
           // The staff notice bell is fixed at the top-right of the viewport.
-          // Stop the chip row short of that box so "All activity" is not covered.
+          // Width (not only max-width) keeps the chip row, including Profile,
+          // clear of that box. minWidth 0 lets the row shrink inside the flex shell.
           overflow: 'hidden',
+          minWidth: data.tenant.mode === 'team' ? 0 : undefined,
+          width: data.tenant.mode === 'team' ? 'calc(100% - 4.75rem)' : undefined,
           maxWidth: data.tenant.mode === 'team' ? 'calc(100% - 4.75rem)' : undefined,
+          alignSelf: data.tenant.mode === 'team' ? 'flex-start' : undefined,
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}

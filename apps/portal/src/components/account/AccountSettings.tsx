@@ -3,8 +3,10 @@
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
+import { TeamDirectory } from '@/components/account/TeamDirectory';
 import { ThemeControl } from '@/components/account/ThemeControl';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { authClient } from '@/lib/auth-client';
 import { isMissingConvexFunction } from '@/lib/data/staffRoster';
 import {
   DEFAULT_NOTIFICATION_PREFS,
@@ -53,6 +55,16 @@ const COPY: Record<
 
 type SavedPrefs = NotificationPrefs & { persisted?: boolean };
 
+export type AccountSavePreview = 'success' | 'error' | 'loading' | null;
+
+type PasswordClient = {
+  changePassword: (input: {
+    currentPassword: string;
+    newPassword: string;
+    revokeOtherSessions?: boolean;
+  }) => Promise<{ error: { message?: string } | null }>;
+};
+
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
   if (parts.length === 0 || name === '—') return '·';
@@ -86,32 +98,41 @@ export function AccountSettings({
   live,
   hostSlug,
   onSignOut,
+  onOpenTeam,
+  onInvite,
+  savePreview = null,
 }: {
   staff: boolean;
   name: string;
   email: string;
   orgLabel: string;
   role: string;
-  focus: 'profile' | 'notifications';
+  focus: 'profile' | 'notifications' | 'team';
   /** Signed-in Convex session. Fixture preview stays local. */
   live: boolean;
   hostSlug?: string;
   onSignOut: () => void;
+  onOpenTeam?: () => void;
+  onInvite?: () => void;
+  savePreview?: AccountSavePreview;
 }) {
   const notificationsRef = useRef<HTMLElement | null>(null);
+  const teamRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    if (focus !== 'notifications') return;
-    notificationsRef.current?.scrollIntoView({ block: 'nearest' });
+    const target = focus === 'notifications' ? notificationsRef.current : focus === 'team' ? teamRef.current : null;
+    target?.scrollIntoView({ block: 'nearest' });
   }, [focus]);
 
   return (
     <div className="flex flex-col gap-8 lg:gap-12" data-testid="account-profile">
       <ProfileCard
+        staff={staff}
         name={name}
         email={email}
         orgLabel={orgLabel}
         role={role}
+        live={live}
         onSignOut={onSignOut}
       />
       <ThemeControl />
@@ -120,25 +141,78 @@ export function AccountSettings({
         staff={staff}
         live={live}
         hostSlug={hostSlug}
+        savePreview={savePreview}
       />
-      {staff ? null : <TeammateNotice />}
+      {staff ? (
+        <div ref={teamRef}>
+          <TeamDirectory
+            live={live}
+            hostSlug={hostSlug}
+            self={{ name, email }}
+            onInvite={() => onInvite?.()}
+          />
+        </div>
+      ) : (
+        <TeammateNotice onOpenTeam={() => onOpenTeam?.()} />
+      )}
     </div>
   );
 }
 
 function ProfileCard({
+  staff,
   name,
   email,
   orgLabel,
   role,
+  live,
   onSignOut,
 }: {
+  staff: boolean;
   name: string;
   email: string;
   orgLabel: string;
   role: string;
+  live: boolean;
   onSignOut: () => void;
 }) {
+  const [passwordOpen, setPasswordOpen] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [passwordNote, setPasswordNote] = useState<string | null>(null);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSaving, setPasswordSaving] = useState(false);
+  const roleLine = staff ? `${orgLabel} · Owner` : `${orgLabel} · ${role}`;
+
+  const submitPassword = async () => {
+    setPasswordSaving(true);
+    setPasswordError(null);
+    setPasswordNote(null);
+    try {
+      if (!live) {
+        setPasswordNote('Password changes stay off in this preview.');
+        return;
+      }
+      const { error } = await (authClient as unknown as PasswordClient).changePassword({
+        currentPassword,
+        newPassword,
+        revokeOtherSessions: true,
+      });
+      if (error) {
+        setPasswordError(error.message ?? 'Could not change your password');
+        return;
+      }
+      setCurrentPassword('');
+      setNewPassword('');
+      setPasswordOpen(false);
+      setPasswordNote('Password changed');
+    } catch {
+      setPasswordError('Could not change your password');
+    } finally {
+      setPasswordSaving(false);
+    }
+  };
+
   return (
     <section style={cardStyle} data-testid="account-identity">
       <header>
@@ -163,8 +237,8 @@ function ProfileCard({
         </div>
         <div className="min-w-0">
           <p style={{ fontSize: 20, fontWeight: 600, lineHeight: '24px' }}>{name}</p>
-          <p className="ds-mono" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-            {orgLabel} · {role}
+          <p className="ds-mono" data-testid="account-role-line" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+            {roleLine}
           </p>
         </div>
       </div>
@@ -173,11 +247,75 @@ function ProfileCard({
         label="Email"
         value={email}
         testId="account-email"
-        help="Your sign-in email. Contact Warehaus to change it."
+        help={
+          staff
+            ? 'Your Warehaus sign-in email.'
+            : 'Your sign-in email. Contact Warehaus to change it.'
+        }
       />
-      <button type="button" onClick={onSignOut} data-testid="account-sign-out" style={outlineButton}>
-        Sign out
-      </button>
+      {staff ? (
+        <Field label="Owner lane" value="Dream, Design, Develop" testId="account-areas" />
+      ) : null}
+      <div className="flex flex-wrap" style={{ gap: 12 }}>
+        <button
+          type="button"
+          data-testid="account-change-password"
+          onClick={() => {
+            setPasswordOpen((open) => !open);
+            setPasswordError(null);
+          }}
+          style={outlineButton}
+        >
+          Change password
+        </button>
+        <button type="button" onClick={onSignOut} data-testid="account-sign-out" style={outlineButton}>
+          Sign out
+        </button>
+      </div>
+      {passwordOpen ? (
+        <form
+          data-testid="account-password-form"
+          className="flex flex-col"
+          style={{ gap: 12 }}
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitPassword();
+          }}
+        >
+          <label className="flex flex-col" style={{ gap: 8 }}>
+            <span className="ds-mono" style={fieldLabel}>
+              Current password
+            </span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              value={currentPassword}
+              onChange={(event) => setCurrentPassword(event.target.value)}
+              required
+              style={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col" style={{ gap: 8 }}>
+            <span className="ds-mono" style={fieldLabel}>
+              New password
+            </span>
+            <input
+              type="password"
+              autoComplete="new-password"
+              value={newPassword}
+              onChange={(event) => setNewPassword(event.target.value)}
+              required
+              minLength={8}
+              style={fieldInput}
+            />
+          </label>
+          <button type="submit" disabled={passwordSaving} style={{ ...solidButton, opacity: passwordSaving ? 0.55 : 1 }}>
+            {passwordSaving ? 'Saving…' : 'Update password'}
+          </button>
+        </form>
+      ) : null}
+      {passwordNote ? <p style={{ fontSize: 13, color: 'var(--muted)' }}>{passwordNote}</p> : null}
+      {passwordError ? <p style={errorStyle}>{passwordError}</p> : null}
     </section>
   );
 }
@@ -218,11 +356,13 @@ function NotificationSettings({
   staff,
   live,
   hostSlug,
+  savePreview,
 }: {
   refTarget: RefObject<HTMLElement | null>;
   staff: boolean;
   live: boolean;
   hostSlug?: string;
+  savePreview: AccountSavePreview;
 }) {
   const remote = useSafeQuery<SavedPrefs>(
     api.notificationPrefs.getMine,
@@ -231,6 +371,7 @@ function NotificationSettings({
   const saveMine = useMutation(api.notificationPrefs.saveMine);
   const [prefs, setPrefs] = useState<NotificationPrefs>(DEFAULT_NOTIFICATION_PREFS);
   const [error, setError] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const dirty = useRef(false);
   const hydrated = useRef(false);
@@ -262,18 +403,25 @@ function NotificationSettings({
   }, [live, remote.data, remote.error, remote.loading]);
 
   const keys = notificationKeysFor(staff);
+  const showLoading = savePreview === 'loading' || (live && remote.loading && !remote.data);
+  const showError = savePreview === 'error' || Boolean(error);
+  const showSaved = savePreview === 'success' || saved;
 
   const save = async () => {
     setSaving(true);
     setError(null);
     try {
       if (live && !isMissingConvexFunction(remote.error)) {
-        const next = await saveMine({ ...prefs, hostSlug });
-        setPrefs(mergeNotificationPrefs(null, next));
+        const patch: Partial<NotificationPrefs> = {};
+        for (const key of keys) patch[key] = prefs[key];
+        const next = await saveMine({ ...patch, hostSlug });
+        setPrefs(mergeNotificationPrefs(prefs, next));
         dirty.current = false;
       }
       writeLegacy(prefs);
+      setSaved(true);
     } catch {
+      setSaved(false);
       setError('Could not save your settings');
     } finally {
       setSaving(false);
@@ -286,7 +434,20 @@ function NotificationSettings({
         <h2 style={cardTitle}>Notifications</h2>
         <p style={cardSubtitle}>{staff ? 'Email and in-portal' : 'Choose what reaches your inbox'}</p>
       </header>
-      {keys.map((key) => {
+      {showLoading ? (
+        <div data-testid="account-notifications-loading" className="flex flex-col" style={{ gap: 24 }}>
+          {[0, 1, 2].map((row) => (
+            <div key={row} className="flex items-center" style={{ gap: 16, padding: '12px 0' }}>
+              <span className="min-w-0 flex-1">
+                <span className="animate-pulse block" style={{ height: 12, width: '46%', borderRadius: 999, background: 'var(--surface-2)' }} />
+                <span className="animate-pulse mt-2 block" style={{ height: 10, width: '72%', borderRadius: 999, background: 'var(--surface-2)' }} />
+              </span>
+              <span className="animate-pulse" style={{ width: 40, height: 22, borderRadius: 999, background: 'var(--surface-2)' }} />
+            </div>
+          ))}
+        </div>
+      ) : (
+      keys.map((key) => {
         const on = prefs[key];
         const copy = COPY[key];
         return (
@@ -305,6 +466,7 @@ function NotificationSettings({
                 dirty.current = true;
                 setPrefs((current) => ({ ...current, [key]: !current[key] }));
                 setError(null);
+                setSaved(false);
               }}
               className="relative shrink-0"
               style={{
@@ -332,7 +494,9 @@ function NotificationSettings({
             </button>
           </div>
         );
-      })}
+      })
+      )}
+      {showLoading ? null : (
       <button
         type="button"
         onClick={() => {
@@ -348,15 +512,33 @@ function NotificationSettings({
       >
         Save changes
       </button>
-      {error ? <p style={errorStyle}>{error}. Try again.</p> : null}
-      {remote.error && !isMissingConvexFunction(remote.error) ? (
+      )}
+      {showSaved && !showError ? (
+        <div data-testid="account-save-success" className="flex items-start" style={noticeStyle}>
+          <p style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>Settings saved</p>
+        </div>
+      ) : null}
+      {showError ? (
+        <div data-testid="account-save-error" className="flex flex-col items-start" style={{ gap: 12 }}>
+          <div className="flex items-start" style={noticeStyle}>
+            <div>
+              <p style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>Could not save your settings</p>
+              <p style={{ marginTop: 4, ...errorStyle }}>Try again.</p>
+            </div>
+          </div>
+          <button type="button" onClick={() => void save()} data-testid="account-save-retry" style={outlineButton}>
+            Try again
+          </button>
+        </div>
+      ) : null}
+      {remote.error && !isMissingConvexFunction(remote.error) && savePreview !== 'error' ? (
         <p style={errorStyle}>We could not load your notification settings. Try again.</p>
       ) : null}
     </section>
   );
 }
 
-function TeammateNotice() {
+function TeammateNotice({ onOpenTeam }: { onOpenTeam: () => void }) {
   return (
     <div
       className="flex items-start"
@@ -388,7 +570,24 @@ function TeammateNotice() {
       <div>
         <p style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>Need to add a teammate?</p>
         <p style={{ marginTop: 4, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
-          Client Admins can invite Client Members from the Team page.
+          Client Admins can invite Client Members from the{' '}
+          <button
+            type="button"
+            onClick={onOpenTeam}
+            data-testid="account-open-team"
+            style={{
+              background: 'none',
+              border: 0,
+              padding: 0,
+              color: 'inherit',
+              font: 'inherit',
+              textDecoration: 'underline',
+              cursor: 'pointer',
+            }}
+          >
+            Team page
+          </button>
+          .
         </p>
       </div>
     </div>
@@ -490,4 +689,13 @@ const errorStyle = {
   fontSize: 13,
   lineHeight: '19px',
   color: 'var(--danger)',
+};
+
+const noticeStyle = {
+  gap: 12,
+  width: '100%',
+  padding: '16px 24px',
+  borderRadius: 18,
+  background: 'var(--surface-2)',
+  border: '1px solid var(--border)',
 };

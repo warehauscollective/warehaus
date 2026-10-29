@@ -24,6 +24,7 @@ import {
   listForStaff as listTasksForStaff,
 } from '../tasks';
 import { PortalAuthError } from './identity';
+import { getMine, saveMine } from '../notificationPrefs';
 
 type Row = Record<string, unknown> & { _id: string };
 
@@ -83,6 +84,22 @@ function memoryDb(tables: Record<string, Row[]>) {
         },
         collect: async () => rows,
       };
+    },
+    async insert(table: string, doc: Row) {
+      const rows = (tables[table] ??= []);
+      const row = { ...doc, _id: `${table}-${rows.length + 1}` };
+      rows.push(row);
+      return row._id;
+    },
+    async patch(id: string, fields: Record<string, unknown>) {
+      for (const rows of Object.values(tables)) {
+        const found = rows.find((row) => row._id === id);
+        if (found) {
+          Object.assign(found, fields);
+          return;
+        }
+      }
+      throw new Error(`Missing document ${id}`);
     },
   };
 }
@@ -720,6 +737,91 @@ describe('client identity against warehaus.studio', () => {
     assert.match(feed, /Staff only task copy/);
     assert.match(tasks, /Staff only task copy/);
     assert.match(timeline, /Studio ops/);
+  });
+
+  it('keeps notification prefs on the signed-in contact', async () => {
+    const local: Record<string, Row[]> = {
+      clients: [{ ...org }],
+      contacts: tables.contacts.map((row) => ({ ...row })),
+      notificationPrefs: [],
+    };
+    const db = memoryDb(local);
+    const call = (fn: object, subject: string | null, args: Record<string, unknown> = {}) =>
+      (fn as { _handler: (ctx: unknown, args: Record<string, unknown>) => Promise<unknown> })._handler(
+        {
+          auth: { getUserIdentity: async () => (subject ? { subject } : null) },
+          db,
+        },
+        args,
+      );
+
+    await assert.rejects(call(getMine, null), (err: unknown) => {
+      assert.ok(err instanceof PortalAuthError);
+      assert.equal(err.message, 'Not authenticated');
+      return true;
+    });
+    await assert.rejects(call(saveMine, null, { needsAttention: false }), (err: unknown) => {
+      assert.ok(err instanceof PortalAuthError);
+      assert.equal(err.message, 'Not authenticated');
+      return true;
+    });
+
+    const clientMine = (await call(getMine, 'auth-client')) as {
+      persisted: boolean;
+      awaitingGo: boolean;
+      inviteNotices: boolean;
+      needsAttention: boolean;
+      weeklySummary: boolean;
+    };
+    assert.equal(clientMine.persisted, false);
+    assert.equal(clientMine.awaitingGo, true);
+    assert.equal(clientMine.inviteNotices, false);
+    assert.equal(clientMine.needsAttention, true);
+    assert.equal(clientMine.weeklySummary, false);
+
+    await call(saveMine, 'auth-staff', { awaitingGo: false, syncProblems: false });
+    const staffRows = () => local.notificationPrefs?.filter((row) => row.contactId === 'contact-staff') ?? [];
+    assert.equal(staffRows().length, 1);
+    const staffId = staffRows()[0]?._id;
+    assert.equal(staffRows()[0]?.awaitingGo, false);
+
+    const afterStaffWrite = (await call(getMine, 'auth-client')) as { awaitingGo: boolean; persisted: boolean };
+    assert.equal(afterStaffWrite.persisted, false);
+    assert.equal(afterStaffWrite.awaitingGo, true);
+
+    await assert.rejects(call(saveMine, 'auth-client', { inviteNotices: true, draftRecaps: false }), (err: unknown) => {
+      assert.ok(err instanceof Error);
+      assert.match(err.message, /Clients cannot set staff notification settings/);
+      assert.match(err.message, /inviteNotices/);
+      return true;
+    });
+    assert.equal(local.notificationPrefs?.filter((row) => row.contactId === 'contact-client').length, 0);
+    assert.equal(staffRows()[0]?._id, staffId);
+    assert.equal(staffRows()[0]?.awaitingGo, false);
+
+    await assert.rejects(call(saveMine, 'auth-staff', { needsAttention: false, weeklySummary: true }), (err: unknown) => {
+      assert.ok(err instanceof Error);
+      assert.match(err.message, /Staff cannot set client notification settings/);
+      assert.match(err.message, /needsAttention/);
+      return true;
+    });
+    assert.equal(staffRows().length, 1);
+    assert.equal(staffRows()[0]?.needsAttention, true);
+
+    await call(saveMine, 'auth-client', { needsAttention: false, sharedRecaps: true });
+    const clientRows = () => local.notificationPrefs?.filter((row) => row.contactId === 'contact-client') ?? [];
+    assert.equal(clientRows().length, 1);
+    const clientId = clientRows()[0]?._id;
+    assert.equal(clientRows()[0]?.needsAttention, false);
+    assert.equal(staffRows()[0]?._id, staffId);
+    assert.equal(staffRows()[0]?.awaitingGo, false);
+
+    await call(saveMine, 'auth-client', { weeklySummary: true });
+    assert.equal(clientRows().length, 1);
+    assert.equal(clientRows()[0]?._id, clientId);
+    assert.equal(clientRows()[0]?.weeklySummary, true);
+    assert.equal(clientRows()[0]?.needsAttention, false);
+    assert.equal(staffRows().length, 1);
   });
 
   it('does not return internal projects from the staff project queries', async () => {

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
-import { AccountSettings } from '@/components/account/AccountSettings';
+import { AccountSettings, type AccountSavePreview } from '@/components/account/AccountSettings';
 import { TeamInvites } from '@/components/pages/TeamInvites';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { DocsStatesGallery, type DocRow } from '@/components/docs/DocsBlock';
@@ -101,8 +101,10 @@ export function AccountContent() {
   const [filter, setFilter] = useState<ClientListFilter>('all');
   const [clientId, setClientId] = useState<string | null>(null);
   const [showTeam, setShowTeam] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
   const [docsPreview, setDocsPreview] = useState<string | null>(null);
   const [clientScreen, setClientScreen] = useState<ClientScreen>('ready');
+  const [savePreview, setSavePreview] = useState<AccountSavePreview>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -114,7 +116,12 @@ export function AccountContent() {
     if (clients === 'empty' || clients === 'loading' || clients === 'error' || clients === 'long') {
       setClientScreen(clients);
     }
-  }, []);
+    if (params.get('invite') === '1') setInviteOpen(true);
+    const account = params.get('account');
+    if (fixtures && (account === 'success' || account === 'error' || account === 'loading')) {
+      setSavePreview(account);
+    }
+  }, [fixtures]);
 
   useEffect(() => {
     if (!linkedClientId) return;
@@ -122,12 +129,6 @@ export function AccountContent() {
     setSectionFor('account', 'clients');
     clearLinkedClient();
   }, [linkedClientId, setSectionFor, clearLinkedClient]);
-
-  useEffect(() => {
-    if (isClient && activeSection === 'team') {
-      setSectionFor('account', 'profile');
-    }
-  }, [isClient, activeSection, setSectionFor]);
 
   const directoryState = useSafeQuery<DirectoryRow[]>(
     api.clients.listDirectory,
@@ -178,14 +179,18 @@ export function AccountContent() {
     };
   });
   const clientOpen = Boolean(isStaff && activeSection === 'clients' && selected);
-  const companyOpen = Boolean(isClient && activeSection === 'clients');
+  const clientTeam = Boolean(isClient && activeSection === 'team');
+  const companyOpen = Boolean(isClient && (activeSection === 'clients' || clientTeam));
+  const teamVisible = showTeam || clientTeam;
   const title = clientOpen && selected
     ? selected.name
     : companyOpen
-      ? showTeam
+      ? teamVisible
         ? 'Your team'
         : data.tenant.clientName ?? 'Clients'
-      : SECTION_TITLE[activeSection] ?? 'Account';
+      : inviteOpen
+        ? 'Invite someone'
+        : SECTION_TITLE[activeSection] ?? 'Account';
 
   const leaveClient = () => {
     setClientId(null);
@@ -211,15 +216,36 @@ export function AccountContent() {
     />
   ) : companyOpen ? (
     <NavBreadcrumb
-      back={showTeam ? 'always' : 'mobile'}
-      onBack={showTeam ? () => setShowTeam(false) : goAccountRoot}
+      back={teamVisible ? 'always' : 'mobile'}
+      onBack={teamVisible ? () => { setShowTeam(false); setSectionFor('account', 'clients'); } : goAccountRoot}
       parent={{ label: 'Account', onClick: goAccountRoot }}
       middle={
-        showTeam
-          ? { label: data.tenant.clientName ?? 'Your company', onClick: () => setShowTeam(false) }
+        teamVisible
+          ? { label: data.tenant.clientName ?? 'Your company', onClick: () => { setShowTeam(false); setSectionFor('account', 'clients'); } }
           : undefined
       }
-      current={showTeam ? 'Your team' : 'Your company'}
+      current={teamVisible ? 'Your team' : 'Your company'}
+    />
+  ) : isStaff && inviteOpen ? (
+    <NavBreadcrumb
+      back="always"
+      onBack={() => {
+        setInviteOpen(false);
+        const url = new URL(window.location.href);
+        url.searchParams.delete('invite');
+        window.history.replaceState(window.history.state, '', url);
+      }}
+      parent={{ label: 'Account', onClick: () => { setInviteOpen(false); goAccountRoot(); } }}
+      middle={{
+        label: 'Team & invites',
+        onClick: () => {
+          setInviteOpen(false);
+          const url = new URL(window.location.href);
+          url.searchParams.delete('invite');
+          window.history.replaceState(window.history.state, '', url);
+        },
+      }}
+      current="Invite someone"
     />
   ) : isStaff && activeSection === 'clients' ? (
     <NavBreadcrumb
@@ -228,12 +254,18 @@ export function AccountContent() {
       parent={{ label: 'Account', onClick: goAccountRoot }}
       current="Clients"
     />
-  ) : activeSection === 'profile' || activeSection === 'notifications' ? (
+  ) : activeSection === 'profile' || activeSection === 'notifications' || (isStaff && activeSection === 'team') ? (
     <NavBreadcrumb
       back="mobile"
       onBack={goAccountRoot}
       parent={{ label: 'Account', onClick: goAccountRoot }}
-      current={activeSection === 'notifications' ? 'Notifications' : 'Profile'}
+      current={
+        activeSection === 'notifications'
+          ? 'Notifications'
+          : activeSection === 'team'
+            ? 'Team & invites'
+            : 'Profile'
+      }
     />
   ) : null;
   return (
@@ -314,15 +346,21 @@ export function AccountContent() {
               .filter((doc) => doc.publishToWarehaus !== false && doc.status !== 'Draft')
               .map((doc) => withoutClientLeaks(doc))}
             people={contacts.filter(clientVisiblePerson).map((person) => withoutClientLeaks(person)) as ClientPersonRow[]}
-            showTeam={showTeam}
-            onShowTeam={() => setShowTeam(true)}
-            onBack={() => setShowTeam(false)}
+            showTeam={teamVisible}
+            onShowTeam={() => {
+              setShowTeam(true);
+              setSectionFor('account', 'team');
+            }}
+            onBack={() => {
+              setShowTeam(false);
+              setSectionFor('account', 'clients');
+            }}
             screen={error ? 'error' : clientScreen}
           />
         </PortalTilePane>
       ) : null}
 
-      {(activeSection === 'profile' || activeSection === 'notifications') && (
+      {(activeSection === 'profile' || activeSection === 'notifications' || (isStaff && activeSection === 'team' && !inviteOpen)) && (
         <PortalTilePane>
           <AccountSettings
             staff={isStaff}
@@ -330,9 +368,22 @@ export function AccountContent() {
             email={portalSession?.email ?? '—'}
             orgLabel={isStaff ? 'Warehaus' : data.tenant.clientName ?? 'Your company'}
             role={portalSession?.role ?? (isStaff ? 'Warehaus Staff' : 'Client')}
-            focus={activeSection === 'notifications' ? 'notifications' : 'profile'}
+            focus={
+              activeSection === 'notifications' ? 'notifications' : activeSection === 'team' ? 'team' : 'profile'
+            }
             live={configured && !fixtures}
             hostSlug={hostSlug}
+            savePreview={savePreview}
+            onOpenTeam={() => setSectionFor('account', 'team')}
+            onInvite={() => {
+              setSectionFor('account', 'team');
+              setInviteOpen(true);
+              const url = new URL(window.location.href);
+              url.searchParams.set('tab', 'account');
+              url.searchParams.set('section', 'team');
+              url.searchParams.set('invite', '1');
+              window.history.replaceState(window.history.state, '', url);
+            }}
             onSignOut={() => {
               void (async () => {
                 await signOut();
@@ -343,7 +394,7 @@ export function AccountContent() {
         </PortalTilePane>
       )}
 
-      {isStaff && activeSection === 'team' && (
+      {isStaff && activeSection === 'team' && inviteOpen && (
         <TeamInvites hostSlug={hostSlug} configured={configured && !fixtures} fixtures={fixtures} />
       )}
     </PortalWorkspace>
