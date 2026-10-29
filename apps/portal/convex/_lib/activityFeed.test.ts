@@ -159,8 +159,9 @@ describe('client activity copy', () => {
     assert.equal(home?.summary, 'Maya Chen');
     const person = feed.find((item) => item.id === 'invite');
     assert.equal(person?.lane, 'people');
-    assert.equal(person?.name, 'Dana Okafor joined your team');
+    assert.equal(person?.name, 'Dana Okafor invited a teammate');
     assert.equal(person?.summary, 'Dana Okafor');
+    assert.equal(person?.name.includes('joined'), false);
     const resource = feed.find((item) => item.id === 'brand');
     assert.equal(resource?.lane, 'resources');
     assert.equal(resource?.name, 'Northwind site shared');
@@ -208,9 +209,144 @@ describe('client activity copy', () => {
       tasks: [],
       contacts: [{ name: 'Maya Chen' }],
     });
-    assert.equal(feed[0]?.name, 'A teammate joined your team');
+    assert.equal(feed[0]?.name, 'A teammate was invited');
     assert.equal(feed[0]?.summary, '');
     assert.equal(feed[0]?.lane, 'people');
+  });
+
+  it('says joined only when the type or tone means the invite was accepted', () => {
+    const feed = buildActivityFeed({
+      audience: 'client',
+      orgVisible: true,
+      activity: [
+        {
+          _id: 'pending',
+          name: 'Jordan Rivera invited to Northwind',
+          summary: 'Dana Okafor · invite pending',
+          type: 'project',
+          tone: 'people',
+          timestamp: 30,
+          projectId: 'proj-public',
+        },
+        {
+          _id: 'accepted',
+          name: 'Jordan Rivera joined Northwind',
+          summary: 'Dana Okafor',
+          type: 'project',
+          tone: 'accepted',
+          timestamp: 20,
+          projectId: 'proj-public',
+        },
+      ],
+      audits: [],
+      outbox: [],
+      projects: [project],
+      tasks: [],
+      contacts: [{ name: 'Dana Okafor' }],
+    });
+    assert.equal(feed.find((item) => item.id === 'pending')?.name, 'Dana Okafor invited a teammate');
+    assert.equal(feed.find((item) => item.id === 'accepted')?.name, 'Dana Okafor joined your team');
+    assert.equal(JSON.stringify(feed.find((item) => item.id === 'pending')).includes('joined'), false);
+  });
+
+  it('uses a linked record title and falls back to the project name', () => {
+    const wires = {
+      _id: 'task-wires',
+      name: 'Homepage wireframes',
+      projectId: 'proj-public',
+      notionPageId: 'wires-notion',
+      publishToWarehaus: true,
+      orgId: 'org-northwind',
+    };
+    const secret = {
+      _id: 'task-secret',
+      name: 'Secret draft title',
+      projectId: 'proj-public',
+      notionPageId: 'secret-notion',
+      publishToWarehaus: false,
+      orgId: 'org-northwind',
+    };
+    const otherOrg = {
+      _id: 'task-other',
+      name: 'Other org task',
+      projectId: 'proj-public',
+      notionPageId: 'other-notion',
+      publishToWarehaus: true,
+      orgId: 'org-other',
+    };
+    const brand = {
+      _id: 'res-brand',
+      title: 'Brand guidelines v2',
+      projectId: 'proj-public',
+      notionPageId: 'brand-notion',
+      publishToWarehaus: true,
+      archive: false,
+      orgId: 'org-northwind',
+    };
+    const hiddenBrand = {
+      _id: 'res-hidden',
+      title: 'Hidden brand book',
+      projectId: 'proj-public',
+      notionPageId: 'hidden-brand-notion',
+      publishToWarehaus: false,
+      archive: false,
+      orgId: 'org-northwind',
+    };
+    const linked = (id: string, notionPageId: string, at: number) => ({
+      _id: id,
+      action: 'task.updated',
+      notionPageId,
+      after: JSON.stringify({ properties: { Status: 'To Do' } }),
+      actorKind: 'sync',
+      createdAt: at,
+    });
+    const feed = buildActivityFeed({
+      audience: 'client',
+      orgVisible: true,
+      orgId: 'org-northwind',
+      activity: [
+        {
+          _id: 'act-home',
+          name: 'Homepage wireframes moved to Awaiting Go',
+          summary: 'Maya Chen · Source: Notion',
+          type: 'project',
+          timestamp: 50,
+          projectId: 'proj-public',
+        },
+        {
+          _id: 'act-brand',
+          name: 'Brand guidelines v2 shipped',
+          summary: 'Sam Lee',
+          type: 'project',
+          tone: 'resource',
+          timestamp: 40,
+          projectId: 'proj-public',
+        },
+      ],
+      audits: [
+        linked('audit-wires', 'wires-notion', 35),
+        linked('audit-secret', 'secret-notion', 34),
+        linked('audit-other', 'other-notion', 33),
+        linked('audit-brand', 'brand-notion', 32),
+        linked('audit-hidden', 'hidden-brand-notion', 31),
+      ],
+      outbox: [],
+      projects: [project],
+      tasks: [wires, secret, otherOrg],
+      resources: [brand, hiddenBrand],
+      contacts: [{ name: 'Maya Chen' }, { name: 'Sam Lee' }],
+    });
+    assert.equal(feed.find((item) => item.id === 'act-home')?.name, 'Northwind site is ready for your review');
+    assert.equal(feed.find((item) => item.id === 'act-brand')?.name, 'Northwind site shared');
+    assert.equal(feed.find((item) => item.id === 'audit-wires')?.name, 'Homepage wireframes is ready for your review');
+    assert.equal(feed.find((item) => item.id === 'audit-brand')?.name, 'Brand guidelines v2 shared');
+    assert.equal(feed.some((item) => item.id === 'audit-secret' || item.id === 'audit-other' || item.id === 'audit-hidden'), false);
+    const blob = JSON.stringify(feed);
+    assert.equal(blob.includes('Secret draft title'), false);
+    assert.equal(blob.includes('Other org task'), false);
+    assert.equal(blob.includes('Hidden brand book'), false);
+    assert.equal(blob.includes('Awaiting Go'), false);
+    assert.equal(blob.includes('Brand guidelines v2 shipped'), false);
   });
 });
 
