@@ -121,9 +121,9 @@ describe('stage bars and awaiting go', () => {
             name: 'Homepage wireframes are ready',
             summary: 'Maya Chen',
             timestamp: '2026-10-29T10:00:00Z',
-            type: 'task',
+            type: 'project',
             projectId: 'p-site',
-            published: true,
+            clientVisible: true,
           },
           {
             id: 'secret',
@@ -132,7 +132,7 @@ describe('stage bars and awaiting go', () => {
             timestamp: '2026-10-29T09:00:00Z',
             type: 'task',
             projectId: 'p-internal',
-            published: false,
+            clientVisible: false,
           },
           {
             id: 'pull',
@@ -141,6 +141,7 @@ describe('stage bars and awaiting go', () => {
             timestamp: '2026-10-29T08:00:00Z',
             type: 'sync',
             projectId: null,
+            clientVisible: false,
           },
           {
             id: 'draft',
@@ -149,7 +150,7 @@ describe('stage bars and awaiting go', () => {
             timestamp: '2026-10-29T07:00:00Z',
             type: 'task',
             projectId: 'p-site',
-            published: false,
+            clientVisible: false,
           },
         ],
       }),
@@ -209,9 +210,9 @@ describe('stage bars and awaiting go', () => {
             name: 'Homepage wireframes are ready',
             summary: 'Maya Chen',
             timestamp: '2026-10-29T10:00:00Z',
-            type: 'task',
+            type: 'project',
             projectId: 'p-site',
-            published: true,
+            clientVisible: true,
           },
         ],
       }),
@@ -525,9 +526,13 @@ describe('staff activity publish marks', () => {
     },
   ];
 
-  it('agrees the staff mark with what the client is allowed to see', () => {
-    const staff = buildDashboard(input({ audience: 'staff', projects, tasks, activity }));
-    const client = buildDashboard(input({ audience: 'client', projects, tasks, activity }));
+  it('reads the staff publish mark from clientVisible', () => {
+    const marked = activity.map((item) => ({
+      ...item,
+      clientVisible: item.id === 'site',
+    }));
+    const staff = buildDashboard(input({ audience: 'staff', projects, tasks, activity: marked }));
+    const client = buildDashboard(input({ audience: 'client', projects, tasks, activity: marked }));
     assert.equal(staff.audience, 'staff');
     assert.equal(client.audience, 'client');
     if (staff.audience !== 'staff' || client.audience !== 'client') return;
@@ -535,11 +540,12 @@ describe('staff activity publish marks', () => {
     for (const row of staff.activity) {
       assert.equal(clientIds.has(row.id), row.published, row.name);
     }
-    assert.equal(staff.activity.find((row) => row.id === 'moved')?.published, true);
+    assert.equal(staff.activity.find((row) => row.id === 'moved')?.published, false);
+    assert.equal(staff.activity.find((row) => row.id === 'site')?.published, true);
     assert.equal(staff.activity.find((row) => row.id === 'draft')?.published, false);
     assert.equal(staff.activity.find((row) => row.id === 'pull')?.published, false);
-    assert.equal(clientIds.has('draft'), false);
-    assert.equal(clientIds.has('pull'), false);
+    assert.equal(clientIds.has('moved'), false);
+    assert.equal(clientIds.has('site'), true);
     assert.equal(client.activity.some((row) => 'published' in row), false);
     assert.equal(JSON.stringify(client).includes('Not published'), false);
   });

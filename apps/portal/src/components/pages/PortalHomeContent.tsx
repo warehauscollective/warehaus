@@ -16,6 +16,7 @@ import { FIXTURE_PROJECTS, FIXTURE_TASKS } from '@/lib/data/fixtures';
 import {
   buildDashboard,
   EMPTY_OUTBOX,
+  OUTBOX_HEALTH_LIMIT,
   type DashboardActivity,
   type DashboardNotice,
   type DashboardProject,
@@ -38,7 +39,7 @@ function useDashPreview(fixtures: boolean): DashPreview {
   useEffect(() => {
     if (!fixtures) return;
     const value = new URLSearchParams(window.location.search).get('dash');
-    if (value === 'empty' || value === 'loading' || value === 'error' || value === 'long') {
+    if (value === 'empty' || value === 'loading' || value === 'error' || value === 'long' || value === 'capped') {
       setPreview(value);
     }
   }, [fixtures]);
@@ -85,6 +86,7 @@ export function PortalHomeContent() {
     fixtures ? (isStaff ? FIXTURE_TASKS : data.tasks) : isStaff && staff.tasks ? staff.tasks : data.tasks
   ) as DashboardTask[];
 
+  const capped = preview === 'capped' && isStaff;
   const model = useMemo(
     () =>
       buildDashboard({
@@ -100,12 +102,25 @@ export function PortalHomeContent() {
               lastError: data.syncMeta.lastError,
             }
           : { lastSyncedAt: null, lastError: null },
-        outbox: isStaff ? liveSync.data?.outbox ?? EMPTY_OUTBOX : EMPTY_OUTBOX,
-        writebackEnabled: isStaff && liveSync.data?.writebackEnabled === true,
+        outbox: capped
+          ? {
+              counts: {
+                queued: OUTBOX_HEALTH_LIMIT,
+                inflight: 0,
+                failed: OUTBOX_HEALTH_LIMIT,
+                dead: 0,
+                conflict: 0,
+              },
+              oldestCreatedAt: Date.now(),
+            }
+          : isStaff
+            ? liveSync.data?.outbox ?? EMPTY_OUTBOX
+            : EMPTY_OUTBOX,
+        writebackEnabled: capped || (isStaff && liveSync.data?.writebackEnabled === true),
         notices: isStaff ? liveSync.data?.notices ?? [] : [],
         now: Date.now(),
       }),
-    [isStaff, projects, tasks, feed.items, liveSync.data, data.syncMeta.lastSyncedAt, data.syncMeta.lastError],
+    [isStaff, projects, tasks, feed.items, liveSync.data, data.syncMeta.lastSyncedAt, data.syncMeta.lastError, capped],
   );
 
   const projectsLoading =

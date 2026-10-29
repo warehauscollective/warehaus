@@ -1,16 +1,10 @@
 import type { Id } from './_generated/dataModel';
 import { clientQuery, adminQuery } from './_lib/wrappers';
 import { isStaff } from './_lib/identity';
-import { buildActivityFeed } from './_lib/activityFeed';
+import { buildActivityFeed, isClientVisibleFeedItem } from './_lib/activityFeed';
 import { staffQuarantineActivity } from './_lib/quarantineActivity';
-import { clientMaySeeProject, clientMaySeeTask, isClientVisibleActivityType, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { clientMaySeeProject, clientMaySeeTask, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { isNotionWritebackEnabled } from './_lib/writeAuthz';
-
-function isActivityVisible(type: string, staff: boolean): boolean {
-  if (type === 'shipment') return false;
-  if (staff) return true;
-  return isClientVisibleActivityType(type);
-}
 
 /**
  * CLIENT-tier org snapshot for the signed-in portal UI.
@@ -86,6 +80,7 @@ export const getSnapshot = clientQuery({
         return (b.progress ?? 0) - (a.progress ?? 0) || a.name.localeCompare(b.name);
       });
     const projectById = new Map(publishedProjects.map((p) => [p._id, p] as const));
+    const activityProjectById = new Map(projects.map((p) => [p._id, p] as const));
 
     return {
       clients: client
@@ -151,10 +146,17 @@ export const getSnapshot = clientQuery({
         ...quarantineActivity,
         ...activity
           .filter((a) => {
-            if (!isActivityVisible(a.type, staff)) return false;
+            if (a.type === 'shipment') return false;
             if (staff) return true;
-            if (a.projectId && !projectById.has(a.projectId)) return false;
-            return true;
+            // Clients also read this list while the activity query is loading.
+            // Same helper as the feed: type allowlist, project gate, no orphan rows.
+            return isClientVisibleFeedItem({
+              source: 'activity',
+              type: a.type,
+              project: a.projectId ? activityProjectById.get(a.projectId) : undefined,
+              task: undefined,
+              orgVisible: orgOpen,
+            });
           })
           .map((a) => ({
             id: a._id,

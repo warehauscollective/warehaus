@@ -52,8 +52,8 @@ export type DashboardActivity = {
   type?: string;
   projectId?: string | null;
   taskId?: string | null;
-  /** Event flag. A missing flag is not "not published"; the task decides. */
-  published?: boolean | null;
+  /** Set by the Convex feed helper. The dashboard does not recompute it. */
+  clientVisible?: boolean;
 };
 
 export type DashboardNotice = {
@@ -229,50 +229,6 @@ function clientCanSeeTask(task: DashboardTask, projects: Map<string, DashboardPr
   const project = task.projectId ? projects.get(task.projectId) : undefined;
   if (project && !clientCanSeeProject(project)) return false;
   return true;
-}
-
-/**
- * The task behind an activity row, when we can find one. An explicit task id
- * wins. Otherwise the longest task name mentioned in the row, inside its project.
- */
-function taskForActivity(item: DashboardActivity, tasks: readonly DashboardTask[]): DashboardTask | undefined {
-  if (item.taskId) {
-    const direct = tasks.find((task) => task.id === item.taskId);
-    if (direct) return direct;
-  }
-  const hay = `${item.name}\n${item.summary}`.toLowerCase();
-  const scoped = item.projectId ? tasks.filter((task) => task.projectId === item.projectId) : tasks;
-  let best: DashboardTask | undefined;
-  for (const task of scoped) {
-    const name = task.name.trim().toLowerCase();
-    if (name.length < 3 || !hay.includes(name)) continue;
-    if (!best || name.length > best.name.trim().length) best = task;
-  }
-  return best;
-}
-
-/**
- * Same rule for the staff publish mark and the client feed. A resolved task
- * uses client visibility (publish flag, hidden, internal project). The event's
- * own flag is only a fallback when no task can be resolved. Type `task` with
- * no task is not client-visible; sync, exception, shipment, and team never are.
- */
-function clientMaySeeActivity(
-  item: DashboardActivity,
-  tasks: readonly DashboardTask[],
-  projects: Map<string, DashboardProject>,
-): boolean {
-  if (item.type === 'sync' || item.type === 'exception' || item.type === 'shipment' || item.type === 'team') {
-    return false;
-  }
-  const task = taskForActivity(item, tasks);
-  if (task) return clientCanSeeTask(task, projects);
-  if (item.published === false) return false;
-  if (item.projectId) {
-    const project = projects.get(item.projectId);
-    if (!project || !clientCanSeeProject(project)) return false;
-  }
-  return item.type === 'project' || item.type == null;
 }
 
 function staffCanSeeTask(task: DashboardTask): boolean {
@@ -489,9 +445,9 @@ function activityWhen(iso: string, now: number): string {
   return relativeTime(iso, now) ?? formatPortalDate(iso);
 }
 
-function visibleActivity(input: DashboardInput, projects: Map<string, DashboardProject>): DashboardActivity[] {
+function visibleActivity(input: DashboardInput): DashboardActivity[] {
   return [...input.activity]
-    .filter((item) => input.audience === 'staff' || clientMaySeeActivity(item, input.tasks, projects))
+    .filter((item) => input.audience === 'staff' || item.clientVisible === true)
     .sort((a, b) => (parseTime(b.timestamp) ?? 0) - (parseTime(a.timestamp) ?? 0));
 }
 
@@ -567,12 +523,12 @@ function buildStaff(input: DashboardInput, projects: DashboardProject[], tasks: 
       when: updatedWords(task),
       published: task.publishToWarehaus !== false,
     })),
-    activity: visibleActivity(input, projectById(projects)).slice(0, 6).map((item) => ({
+    activity: visibleActivity(input).slice(0, 6).map((item) => ({
       id: item.id,
       name: item.name,
       summary: item.summary,
       when: activityWhen(item.timestamp, input.now),
-      published: clientMaySeeActivity(item, input.tasks, projectById(input.projects)),
+      published: item.clientVisible === true,
     })),
   };
 }
@@ -581,11 +537,11 @@ function buildClient(input: DashboardInput, projects: DashboardProject[], tasks:
   const awaiting = awaitingSource(tasks);
   const active = activeProjects(projects);
   const weekAgo = input.now - 7 * DAY;
-  const activity = visibleActivity(input, projectById(input.projects)).filter((item) => {
+  const activity = visibleActivity(input).filter((item) => {
     const time = parseTime(item.timestamp);
     return time != null && time >= weekAgo;
   });
-  const latest = visibleActivity(input, projectById(input.projects))[0];
+  const latest = visibleActivity(input)[0];
   const lead = active[0]?.name;
   return {
     audience: 'client',
@@ -634,7 +590,7 @@ function buildClient(input: DashboardInput, projects: DashboardProject[], tasks:
       projectId: task.projectId,
       when: updatedWords(task),
     })),
-    activity: visibleActivity(input, projectById(input.projects)).slice(0, 6).map((item) => ({
+    activity: visibleActivity(input).slice(0, 6).map((item) => ({
       id: item.id,
       name: item.name,
       summary: item.summary,

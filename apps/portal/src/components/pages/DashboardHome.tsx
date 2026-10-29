@@ -17,7 +17,7 @@ import {
   type SyncHealth,
 } from '@/lib/data/dashboard';
 
-export type DashPreview = 'empty' | 'loading' | 'error' | 'long' | null;
+export type DashPreview = 'empty' | 'loading' | 'error' | 'long' | 'capped' | null;
 
 const LONG_NAME =
   'Quarterly seasonal menu photography, packaging and in-store signage rollout for all twelve Northwind Foods locations';
@@ -439,16 +439,16 @@ function AwaitingPanel({
                 style={{ marginTop: 4, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}
               >
                 {row.meta}
+                {!staff && row.when ? (
+                  <span className="mt-1 block lg:hidden" style={{ color: 'var(--faint)' }}>
+                    {row.when}
+                  </span>
+                ) : null}
               </span>
               <span className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
                 <AwaitingBadges row={row} staff={staff} />
               </span>
             </span>
-            {!staff && row.when ? (
-              <span className="ds-mono shrink-0 lg:hidden" style={{ fontSize: 12, color: 'var(--faint)' }}>
-                {row.when}
-              </span>
-            ) : null}
             <span className="hidden shrink-0 flex-wrap items-center justify-end gap-2 lg:flex">
               <AwaitingBadges row={row} staff={staff} includeWhen />
             </span>

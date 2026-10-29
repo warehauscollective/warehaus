@@ -93,6 +93,8 @@ export type PortalActivity = {
   tone: string;
   projectId: string | null;
   taskId?: string | null;
+  /** Staff feed. True when the client feed includes this id. */
+  clientVisible?: boolean;
 };
 
 export type TaskResponseType = 'approve' | 'request-change' | 'comment';
