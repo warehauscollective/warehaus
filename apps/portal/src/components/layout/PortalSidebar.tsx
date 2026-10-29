@@ -6,7 +6,7 @@ import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { usePortalData } from '@/hooks/usePortalData';
-import { sectionEdgeFadePx } from './sectionEdgeFade';
+import { scrollActiveIntoView, sectionEdgeFadePx } from './sectionEdgeFade';
 
 /**
  * In-flow section rail for one swipe tab.
@@ -83,7 +83,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         >
           {tab}
         </span>
-        <SectionScroller inset={data.tenant.mode === 'team'}>
+        <SectionScroller inset={data.tenant.mode === 'team'} activeKey={activeSection}>
           {sections.map((s) => {
             const active = activeSection === s.key;
             return (
@@ -185,9 +185,14 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
   );
 }
 
-function SectionScroller({ children, inset }: { children: ReactNode; inset?: boolean }) {
+function SectionScroller({ children, inset, activeKey }: { children: ReactNode; inset?: boolean; activeKey: string }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fadePx, setFadePx] = useState(0);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    scrollActiveIntoView(node, { inset });
+  }, [activeKey, inset]);
   useEffect(() => {
     const node = ref.current;
     if (!node) return;

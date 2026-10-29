@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { sectionEdgeFadePx, sectionPeekScroll } from './sectionEdgeFade';
+import { activityFilterFadeOnScroll, scrollActiveIntoView, sectionEdgeFadePx, sectionPeekScroll } from './sectionEdgeFade';
 
 describe('sectionPeekScroll', () => {
   it('peeks Meeting notes without sliding All resources out of the strip', () => {
@@ -59,6 +59,7 @@ function fakeChipRow(input: {
   buttons: FakeChip[];
 }): HTMLElement {
   let scrollLeft = input.scrollLeft;
+  const scrollListeners = new Set<() => void>();
   const buttons = input.buttons.map((chip) => ({
     chip,
     getBoundingClientRect() {
@@ -84,6 +85,15 @@ function fakeChipRow(input: {
     },
     querySelectorAll(selector: string) {
       return selector === 'button' ? buttons : [];
+    },
+    addEventListener(type: string, handler: () => void) {
+      if (type === 'scroll') scrollListeners.add(handler);
+    },
+    removeEventListener(type: string, handler: () => void) {
+      if (type === 'scroll') scrollListeners.delete(handler);
+    },
+    dispatchEvent() {
+      for (const handler of scrollListeners) handler();
     },
   } as unknown as HTMLElement;
 }
@@ -126,16 +136,37 @@ describe('sectionEdgeFadePx', () => {
       { left: 400, width: 60 },
     ];
     const node = fakeChipRow({ clientWidth: 200, scrollWidth: 600, scrollLeft: 0, buttons });
-    sectionEdgeFadePx(node, { activeSelector: '[aria-pressed="true"]' });
+    scrollActiveIntoView(node, { activeSelector: '[aria-pressed="true"]' });
     assert.equal(node.scrollLeft, 0);
 
     buttons[0].pressed = false;
     buttons[1].pressed = true;
-    sectionEdgeFadePx(node, { activeSelector: '[aria-pressed="true"]' });
+    scrollActiveIntoView(node, { activeSelector: '[aria-pressed="true"]' });
     const visibleLeft = 400 - node.scrollLeft;
     const visibleRight = visibleLeft + 60;
     assert.ok(visibleLeft >= -1);
     assert.ok(visibleRight <= 201);
     assert.ok(node.scrollLeft > 0);
+  });
+
+  it('leaves a user swipe in place when the fade is remeasured', () => {
+    const node = fakeChipRow({
+      clientWidth: 200,
+      scrollWidth: 600,
+      scrollLeft: 0,
+      buttons: [
+        { left: 0, width: 60, pressed: true },
+        { left: 80, width: 70 },
+        { left: 400, width: 60 },
+      ],
+    });
+    node.scrollLeft = 180;
+    node.addEventListener('scroll', () => {
+      activityFilterFadeOnScroll(node);
+    });
+    node.dispatchEvent(new Event('scroll'));
+    assert.equal(node.scrollLeft, 180);
+    sectionEdgeFadePx(node, { activeSelector: '[aria-pressed="true"]' });
+    assert.equal(node.scrollLeft, 180);
   });
 });

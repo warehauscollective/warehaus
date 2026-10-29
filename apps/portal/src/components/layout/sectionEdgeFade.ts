@@ -33,39 +33,47 @@ export function sectionPeekScroll(input: {
   return Math.min(Math.max(input.scrollLeft, desired), maxScroll);
 }
 
-export function sectionEdgeFadePx(
-  node: HTMLElement,
-  options?: { inset?: boolean; activeSelector?: string },
-): number {
+type EdgeFadeOptions = { inset?: boolean; activeSelector?: string };
+
+/**
+ * Bring the active control fully inside the strip, including its left radius.
+ * Call this on mount and when the active key changes. Never from a scroll listener.
+ */
+export function scrollActiveIntoView(node: HTMLElement, options?: EdgeFadeOptions): void {
   const inset = options?.inset ?? false;
   const activeSelector = options?.activeSelector ?? '[aria-current="true"]';
   const active = node.querySelector<HTMLElement>(activeSelector);
   const pad = inset ? 20 : 0;
-  if (active) {
-    // Scroll this row only. scrollIntoView would move the swipe track.
-    const buttons = [...node.querySelectorAll<HTMLElement>('button')];
-    const edge = node.getBoundingClientRect().left;
-    const contentLeft = (button: HTMLElement) => button.getBoundingClientRect().left - edge + node.scrollLeft;
-    const left = contentLeft(active);
-    const width = active.getBoundingClientRect().width;
-    const right = left + width;
-    const later = buttons.some((button) => contentLeft(button) >= right - 1);
-    const room = node.clientWidth - pad - width;
-    const reserve = later && room >= 8 ? Math.min(16, Math.floor(room)) : 0;
-    let next = node.scrollLeft;
-    if (left - next < pad) next = Math.max(0, left - pad);
-    const limit = node.clientWidth - reserve;
-    if (right - next > limit) next = Math.max(0, right - limit);
-    if (left - next < pad && width <= node.clientWidth - pad - reserve) next = Math.max(0, left - pad);
-    const nextButton = buttons.find((button) => contentLeft(button) >= right - 1);
-    next = sectionPeekScroll({
-      scrollLeft: next,
-      clientWidth: node.clientWidth,
-      activeLeft: left,
-      nextLeft: nextButton ? contentLeft(nextButton) : null,
-    });
-    if (Math.abs(next - node.scrollLeft) > 1) node.scrollLeft = next;
-  }
+  if (!active) return;
+  // Scroll this row only. scrollIntoView would move the swipe track.
+  const buttons = [...node.querySelectorAll<HTMLElement>('button')];
+  const edge = node.getBoundingClientRect().left;
+  const contentLeft = (button: HTMLElement) => button.getBoundingClientRect().left - edge + node.scrollLeft;
+  const left = contentLeft(active);
+  const width = active.getBoundingClientRect().width;
+  const right = left + width;
+  const later = buttons.some((button) => contentLeft(button) >= right - 1);
+  const room = node.clientWidth - pad - width;
+  const reserve = later && room >= 8 ? Math.min(16, Math.floor(room)) : 0;
+  let next = node.scrollLeft;
+  if (left - next < pad) next = Math.max(0, left - pad);
+  const limit = node.clientWidth - reserve;
+  if (right - next > limit) next = Math.max(0, right - limit);
+  if (left - next < pad && width <= node.clientWidth - pad - reserve) next = Math.max(0, left - pad);
+  const nextButton = buttons.find((button) => contentLeft(button) >= right - 1);
+  next = sectionPeekScroll({
+    scrollLeft: next,
+    clientWidth: node.clientWidth,
+    activeLeft: left,
+    nextLeft: nextButton ? contentLeft(nextButton) : null,
+  });
+  if (Math.abs(next - node.scrollLeft) > 1) node.scrollLeft = next;
+}
+
+/** Trailing fade width only. Does not write scrollLeft. */
+export function sectionEdgeFadePx(node: HTMLElement, options?: EdgeFadeOptions): number {
+  const activeSelector = options?.activeSelector ?? '[aria-current="true"]';
+  const active = node.querySelector<HTMLElement>(activeSelector);
   const overflow = node.scrollWidth - node.clientWidth > 1;
   const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 1;
   if (!overflow || atEnd) return 0;
@@ -79,4 +87,9 @@ export function sectionEdgeFadePx(
   const roomAfterActive = activeRight > 0 ? node.clientWidth - activeRight : node.clientWidth;
   const width = laterClipped ? Math.min(20, Math.max(0, roomAfterActive - 8)) : 0;
   return width >= 12 ? Math.round(width) : 0;
+}
+
+/** Scroll listener for the activity filter row. Measures only. */
+export function activityFilterFadeOnScroll(node: HTMLElement): number {
+  return sectionEdgeFadePx(node, { activeSelector: '[aria-pressed="true"]' });
 }

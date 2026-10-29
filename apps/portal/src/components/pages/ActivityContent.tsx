@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityFeedRow } from '@/components/activity/ActivityFeedRow';
-import { sectionEdgeFadePx } from '@/components/layout/sectionEdgeFade';
+import { activityFilterFadeOnScroll, scrollActiveIntoView } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
@@ -195,12 +195,17 @@ function ActivityFilters({
   const [fadePx, setFadePx] = useState(0);
   useEffect(() => {
     const node = scroller.current;
+    if (!node || !narrow) return;
+    scrollActiveIntoView(node, { activeSelector: '[aria-pressed="true"]' });
+  }, [narrow, filter]);
+  useEffect(() => {
+    const node = scroller.current;
     if (!node || !narrow) {
       setFadePx(0);
       return;
     }
     const update = () => {
-      setFadePx(sectionEdgeFadePx(node, { activeSelector: '[aria-pressed="true"]' }));
+      setFadePx(activityFilterFadeOnScroll(node));
     };
     update();
     node.addEventListener('scroll', update, { passive: true });

@@ -28,7 +28,7 @@ import {
 import { OutlineButton, Pill, PrimaryButton } from '@/components/ui/primitives';
 import { SyncChip } from '@/components/sync/SyncChip';
 import { formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
-import { sectionEdgeFadePx } from '@/components/layout/sectionEdgeFade';
+import { scrollActiveIntoView, sectionEdgeFadePx } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from './TaskGlyph';
 
 export type BoardMode = 'status' | 'stage';
@@ -757,6 +757,11 @@ function PhoneColumnTabs({
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [fadePx, setFadePx] = useState(0);
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node || !inset) return;
+    scrollActiveIntoView(node, { inset: true, activeSelector: '[aria-selected="true"]' });
+  }, [activeTab, inset]);
   useEffect(() => {
     const node = scroller.current;
     if (!node || !inset) return;

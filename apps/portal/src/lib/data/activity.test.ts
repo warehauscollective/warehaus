@@ -354,9 +354,10 @@ describe('activity view model', () => {
     assert.match(screen, /useMaxWidth\(480\)/);
     assert.match(screen, /overflowX: 'auto'/);
     assert.match(screen, /flexWrap: 'nowrap'/);
-    assert.match(screen, /sectionEdgeFadePx\(node, \{ activeSelector: '\[aria-pressed="true"\]' \}\)/);
+    assert.match(screen, /scrollActiveIntoView\(node, \{ activeSelector: '\[aria-pressed="true"\]' \}\)/);
+    assert.match(screen, /activityFilterFadeOnScroll\(node\)/);
     assert.match(screen, /data-testid="activity-filter-fade"/);
-    assert.match(screen, /\[narrow, filter, filters\]/);
+    assert.match(screen, /\[narrow, filter\]/);
   });
 
   it('fixture All equals the lane chips and People equals its rows', () => {
