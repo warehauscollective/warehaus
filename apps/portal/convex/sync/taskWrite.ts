@@ -11,6 +11,7 @@ import {
   planTaskDescriptionWrite,
   planTaskResourceWrite,
   isTaskStage,
+  notionOnlyStageReason,
   planTaskStageWrite,
   stageOutboxActor,
   taskCreateProjectGate,
@@ -87,6 +88,8 @@ export const enqueueStage = internalMutation({
     });
     if (!planned.ok) return { ok: false as const, error: planned.error };
     const currentStage = typeof task.stage === 'string' ? task.stage : '';
+    const leavingNotionOnly = notionOnlyStageReason(currentStage);
+    if (leavingNotionOnly) return { ok: false as const, error: leavingNotionOnly };
     if (!isTaskStage(currentStage) && !unstagedMoveAllowed(args.stage)) {
       return { ok: false as const, error: 'Tasks with no stage can move to Idea or Planning.' };
     }

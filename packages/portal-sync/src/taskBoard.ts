@@ -203,6 +203,56 @@ export function unstagedMoveAllowed(destination: string): boolean {
   return destination === 'Idea' || destination === 'Planning';
 }
 
+/** Building and Shipped change only in Notion. Null when the card may leave this stage. */
+export function notionOnlyStageReason(stage: string): string | null {
+  if (stage === 'Building' || stage === 'Shipped') return STAGE_LOCK_REASONS[stage];
+  return null;
+}
+
+export type BoardDropDecision =
+  | { kind: 'ignore' }
+  | { kind: 'reject'; reason: string }
+  | { kind: 'needs'; rule: Extract<MoveRule, { kind: 'needs' }> }
+  | { kind: 'move'; value: string };
+
+/**
+ * What a staff or client drop onto a board column is allowed to do.
+ * `from` and `to` are the column keys (status name, stage name, or an unknown lane).
+ */
+export function resolveBoardDrop(input: {
+  actor: MoveActor;
+  mode: 'status' | 'stage';
+  from: string;
+  to: string;
+}): BoardDropDecision {
+  if (!input.to || input.to.startsWith('unknown')) {
+    return { kind: 'reject', reason: 'That column is not a destination.' };
+  }
+  if (input.from === input.to) return { kind: 'ignore' };
+  if (input.actor !== 'staff') {
+    return { kind: 'reject', reason: 'Clients cannot move tasks.' };
+  }
+  if (input.mode === 'stage') {
+    const leaving = notionOnlyStageReason(input.from);
+    if (leaving) return { kind: 'reject', reason: leaving };
+    if (!isTaskStage(input.from) && !unstagedMoveAllowed(input.to)) {
+      return { kind: 'reject', reason: 'Tasks with no stage can move to Idea or Planning.' };
+    }
+    const rule = stageMoveRule('staff', input.to);
+    if (rule.kind === 'locked' || rule.kind === 'denied') {
+      return { kind: 'reject', reason: rule.reason };
+    }
+    if (rule.kind === 'needs') return { kind: 'needs', rule };
+    return { kind: 'move', value: input.to };
+  }
+  const rule = statusMoveRule('staff', input.to);
+  if (rule.kind !== 'allowed') {
+    const reason = rule.kind === 'denied' || rule.kind === 'locked' ? rule.reason : 'Unknown status';
+    return { kind: 'reject', reason };
+  }
+  return { kind: 'move', value: input.to };
+}
+
 export function statusMoveRule(actor: MoveActor, status: string): MoveRule {
   if (actor !== 'staff') return { kind: 'denied', reason: 'Clients cannot move tasks.' };
   if (!isLiveTaskStatus(status)) return { kind: 'denied', reason: 'Unknown status' };

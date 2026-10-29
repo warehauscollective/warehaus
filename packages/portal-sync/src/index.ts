@@ -290,6 +290,8 @@ export {
   visibleChildIds,
   stageMoveRule,
   unstagedMoveAllowed,
+  notionOnlyStageReason,
+  resolveBoardDrop,
   statusMoveRule,
   planTaskStageWrite,
   planTaskStatusWrite,
@@ -303,6 +305,7 @@ export {
   type LiveTaskStatus,
   type MoveActor,
   type MoveRule,
+  type BoardDropDecision,
   type TaskWriteProperties,
   type BoardColumn,
 } from './taskBoard';

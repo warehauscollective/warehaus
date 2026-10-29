@@ -1,19 +1,29 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   DndContext,
   DragOverlay,
   PointerSensor,
+  pointerWithin,
+  rectIntersection,
   useDraggable,
   useDroppable,
   useSensor,
   useSensors,
+  type CollisionDetection,
   type DragEndEvent,
   type DragOverEvent,
 } from '@dnd-kit/core';
-import { boardColumns, isTaskStage, unstagedMoveAllowed, type MoveRule } from '@warehaus/portal-sync';
+import {
+  boardColumns,
+  resolveBoardDrop,
+  WRITEBACK_OFF_ERROR,
+  type BoardDropDecision,
+  type MoveActor,
+  type MoveRule,
+} from '@warehaus/portal-sync';
 import { OutlineButton, Pill, PrimaryButton } from '@/components/ui/primitives';
 import { SyncChip } from '@/components/sync/SyncChip';
 import { formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
@@ -35,6 +45,35 @@ type MoveRequest = {
 };
 
 const GROUP_KEY = 'wh-task-board-group';
+
+/** The column under the pointer wins. The card rect often still overlaps the source column. */
+const columnCollision: CollisionDetection = (args) => {
+  const pointerHits = pointerWithin(args);
+  if (pointerHits.length > 0) return pointerHits;
+  return rectIntersection(args);
+};
+
+/** A desktop drag must reach dnd-kit. A phone long-press is a separate move sheet. */
+export function cardDragPointerDown<E>(
+  event: E,
+  drag: ((event: E) => void) | undefined,
+  beginLongPress: (() => void) | undefined,
+): void {
+  drag?.(event);
+  beginLongPress?.();
+}
+
+export const MOVE_NOT_SAVED = 'Not saved. Moving cards to Notion is turned off for now.';
+
+/** A drop stays in the new column only when enqueue accepts it. */
+export function boardMovePersists(result: { ok: boolean }): boolean {
+  return result.ok;
+}
+
+export function flagOffDropMessage(result: { ok: boolean; error?: string }): string | null {
+  if (!result.ok && result.error === WRITEBACK_OFF_ERROR) return MOVE_NOT_SAVED;
+  return null;
+}
 
 export function readBoardMode(): BoardMode {
   if (typeof window === 'undefined') return 'status';
@@ -105,11 +144,16 @@ export function TaskBoard({
     window.localStorage.setItem(GROUP_KEY, next);
   };
 
-  const ruleFor = (value: string): MoveRule => {
-    if (!rules || rules.actor !== 'staff') return { kind: 'denied', reason: 'Clients cannot move tasks.' };
-    const list = mode === 'stage' ? rules.stages : rules.statuses;
-    const found = list.find((item) => ('stage' in item ? item.stage : item.status) === value);
-    return found?.rule ?? { kind: 'denied', reason: mode === 'stage' ? 'Unknown stage' : 'Unknown status' };
+  const actor = (): MoveActor => (staff && rules?.actor === 'staff' ? 'staff' : 'client');
+
+  const dropFrom = (task: PortalTask) => (mode === 'stage' ? task.stage ?? '' : task.status);
+
+  const decide = (task: PortalTask, value: string): BoardDropDecision =>
+    resolveBoardDrop({ actor: actor(), mode, from: dropFrom(task), to: value });
+
+  const rejectMove = (reason: string) => {
+    setLive(reason);
+    setToast({ message: reason });
   };
 
   const commit = async (task: PortalTask, value: string, pullRequestLink?: string) => {
@@ -123,12 +167,22 @@ export function TaskBoard({
     });
     setLive(`Moved ${task.name} to ${value}. Saving.`);
     const result = await onMove({ task, mode, value, pullRequestLink });
-    if (!result.ok) {
+    const clearOverride = () => {
       setOverrides((current) => {
         const next = { ...current };
         delete next[task.id];
         return next;
       });
+    };
+    const notSaved = flagOffDropMessage(result);
+    if (notSaved) {
+      clearOverride();
+      setToast({ message: notSaved });
+      setLive(notSaved);
+      return;
+    }
+    if (!boardMovePersists(result)) {
+      clearOverride();
       setFailed((current) => ({ ...current, [task.id]: result.error ?? 'Couldn’t save. Moved back.' }));
       setToast({
         message: result.error ?? 'Couldn’t save. Moved back.',
@@ -150,31 +204,19 @@ export function TaskBoard({
     const task = tasks.find((item) => item.id === String(event.active.id));
     const viewed = viewTasks.find((item) => item.id === String(event.active.id));
     const over = event.over ? String(event.over.id) : '';
-    if (!task || !over.startsWith('column:')) return;
+    if (!task || !viewed || !over.startsWith('column:')) return;
     const value = over.slice('column:'.length);
-    if (value.startsWith('unknown')) {
-      setLive('That column is not a destination.');
+    const decision = decide(viewed, value);
+    if (decision.kind === 'ignore') return;
+    if (decision.kind === 'reject') {
+      rejectMove(decision.reason);
       return;
     }
-    if (mode === 'stage' && !isTaskStage(viewed?.stage ?? '') && !unstagedMoveAllowed(value)) {
-      const message = 'Tasks with no stage can move to Idea or Planning.';
-      setLive(message);
-      setToast({ message });
+    if (decision.kind === 'needs') {
+      setNeeds({ task, value, rule: decision.rule });
       return;
     }
-    const current = mode === 'stage' ? viewed?.stage ?? task.stage : task.status;
-    if (current === value) return;
-    const rule = ruleFor(value);
-    if (rule.kind === 'locked' || rule.kind === 'denied') {
-      setLive(rule.reason);
-      setToast({ message: rule.reason });
-      return;
-    }
-    if (rule.kind === 'needs') {
-      setNeeds({ task, value, rule });
-      return;
-    }
-    void commit(task, value);
+    void commit(viewed, decision.value);
   };
 
   const onDragOver = (event: DragOverEvent) => {
@@ -214,6 +256,7 @@ export function TaskBoard({
       ) : null}
       <DndContext
         sensors={sensors}
+        collisionDetection={columnCollision}
         onDragStart={(event) => setActiveId(String(event.active.id))}
         onDragOver={onDragOver}
         onDragEnd={onDragEnd}
@@ -224,7 +267,10 @@ export function TaskBoard({
         }}
       >
         <BoardScroller>
-          {shown.map((column) => (
+          {shown.map((column) => {
+            const dragging = activeId ? viewTasks.find((task) => task.id === activeId) : undefined;
+            const hover = dragging && overKey === column.key ? decide(dragging, column.key) : null;
+            return (
             <Column
               key={column.key}
               columnKey={column.key}
@@ -236,8 +282,8 @@ export function TaskBoard({
               loading={loading}
               canDrag={canDrag}
               failed={failed}
-              locked={overKey === column.key && ruleFor(column.key).kind === 'locked'}
-              activeTarget={overKey === column.key && ruleFor(column.key).kind === 'allowed'}
+              locked={hover?.kind === 'reject'}
+              activeTarget={hover?.kind === 'move' || hover?.kind === 'needs'}
               phone={phone}
               mode={mode}
               emptyClient={!staff}
@@ -258,18 +304,19 @@ export function TaskBoard({
               onKeyMove={(task, direction) => {
                 const index = columns.findIndex((item) => item.key === column.key);
                 const next = columns[index + direction];
-                if (!next || next.key.startsWith('unknown') || !canDrag) return;
-                if (mode === 'stage' && !isTaskStage(task.stage ?? '') && !unstagedMoveAllowed(next.key)) {
-                  setLive('Tasks with no stage can move to Idea or Planning.');
+                if (!next || !canDrag) return;
+                const decision = decide(task, next.key);
+                if (decision.kind === 'ignore') return;
+                if (decision.kind === 'reject') {
+                  rejectMove(decision.reason);
                   return;
                 }
-                const rule = ruleFor(next.key);
-                if (rule.kind === 'needs') setNeeds({ task, value: next.key, rule });
-                else if (rule.kind === 'allowed') void commit(task, next.key);
-                else setLive(rule.reason);
+                if (decision.kind === 'needs') setNeeds({ task, value: next.key, rule: decision.rule });
+                else void commit(task, decision.value);
               }}
             />
-          ))}
+            );
+          })}
         </BoardScroller>
         <DragOverlay>
           {activeId ? (
@@ -311,15 +358,15 @@ export function TaskBoard({
         <MoveSheet
           task={moveTask}
           columns={columns.filter((column) => !column.key.startsWith('unknown'))}
-          current={mode === 'stage' ? moveTask.stage ?? '' : moveTask.status}
-          fromUnstaged={mode === 'stage' && !isTaskStage(moveTask.stage ?? '')}
-          ruleFor={ruleFor}
+          current={dropFrom(moveTask)}
+          decisionFor={(value) => decide(moveTask, value)}
           onClose={() => setMoveTask(null)}
-          onPick={(value, rule) => {
+          onPick={(value) => {
+            const decision = decide(moveTask, value);
             setMoveTask(null);
-            if (rule.kind === 'needs') setNeeds({ task: moveTask, value, rule });
-            else if (rule.kind === 'allowed') void commit(moveTask, value);
-            else setLive(rule.reason);
+            if (decision.kind === 'needs') setNeeds({ task: moveTask, value, rule: decision.rule });
+            else if (decision.kind === 'move') void commit(moveTask, decision.value);
+            else if (decision.kind === 'reject') rejectMove(decision.reason);
           }}
         />
       ) : null}
@@ -510,6 +557,7 @@ function BoardCard({
 }) {
   const { attributes, listeners, setNodeRef, isDragging } = useDraggable({ id: task.id, disabled: !canDrag });
   const timer = useRef<number | null>(null);
+  const press = useRef<{ x: number; y: number } | null>(null);
   const onKeyDown = (event: KeyboardEvent) => {
     if (!canDrag) return;
     if (event.key === 'ArrowRight') {
@@ -521,22 +569,41 @@ function BoardCard({
       onKeyMove(task, -1);
     }
   };
+  const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
+    press.current = { x: event.clientX, y: event.clientY };
+    cardDragPointerDown(
+      event,
+      canDrag ? (pointer) => listeners?.onPointerDown?.(pointer) : undefined,
+      phone
+        ? () => {
+            timer.current = window.setTimeout(() => onMoveSheet(), 400);
+          }
+        : undefined,
+    );
+  };
+  const onClick = (event: MouseEvent<HTMLButtonElement>) => {
+    const start = press.current;
+    press.current = null;
+    if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) {
+      event.preventDefault();
+      return;
+    }
+    onOpen();
+  };
   return (
     <article
       className="text-left"
+      data-testid="task-card"
+      data-task-name={task.name}
       style={{ opacity: isDragging ? 0.35 : 1, border: error ? '2px solid var(--danger)' : undefined, borderRadius: 12 }}
     >
       <button
         ref={setNodeRef}
         type="button"
         {...(canDrag ? attributes : {})}
-        {...(canDrag ? listeners : {})}
-        onClick={onOpen}
+        onClick={onClick}
         onKeyDown={onKeyDown}
-        onPointerDown={() => {
-          if (!phone) return;
-          timer.current = window.setTimeout(() => onMoveSheet(), 400);
-        }}
+        onPointerDown={onPointerDown}
         onPointerUp={() => {
           if (timer.current) window.clearTimeout(timer.current);
         }}
@@ -544,7 +611,14 @@ function BoardCard({
           if (timer.current) window.clearTimeout(timer.current);
         }}
         className="w-full text-left"
-        style={{ background: 'transparent', border: 0, padding: 0, cursor: canDrag ? 'grab' : 'pointer' }}
+        style={{
+          background: 'transparent',
+          border: 0,
+          padding: 0,
+          cursor: canDrag ? 'grab' : 'pointer',
+          touchAction: canDrag ? 'none' : undefined,
+          userSelect: canDrag ? 'none' : undefined,
+        }}
       >
         <TaskCardFace task={task} mode={mode} allTasks={allTasks} staff={staff} />
       </button>
@@ -696,40 +770,36 @@ function MoveSheet({
   task,
   columns,
   current,
-  fromUnstaged,
-  ruleFor,
+  decisionFor,
   onClose,
   onPick,
 }: {
   task: PortalTask;
   columns: Array<{ key: string; label: string }>;
   current: string;
-  fromUnstaged: boolean;
-  ruleFor: (value: string) => MoveRule;
+  decisionFor: (value: string) => BoardDropDecision;
   onClose: () => void;
-  onPick: (value: string, rule: MoveRule) => void;
+  onPick: (value: string) => void;
 }) {
   return (
     <Sheet title="Move to" onClose={onClose}>
       <p className="sr-only">{task.name}</p>
       <ul className="flex flex-col gap-2">
         {columns.map((column) => {
-          const rule = fromUnstaged && !unstagedMoveAllowed(column.key)
-            ? { kind: 'denied' as const, reason: 'Choose Idea or Planning.' }
-            : ruleFor(column.key);
-          const locked = rule.kind === 'locked' || rule.kind === 'denied';
+          const decision = decisionFor(column.key);
+          const locked = decision.kind !== 'move' && decision.kind !== 'needs';
           return (
             <li key={column.key}>
               <button
                 type="button"
                 disabled={locked}
                 aria-disabled={locked}
-                onClick={() => onPick(column.key, rule)}
+                onClick={() => onPick(column.key)}
                 className="flex w-full items-center justify-between text-left"
                 style={{ minHeight: 44, border: '1px solid var(--border)', borderRadius: 12, padding: '0.7rem 0.85rem', background: 'var(--surface)', color: 'var(--fg)' }}
               >
                 <span>{column.label}{column.key === current ? ' · Current' : ''}</span>
-                {locked ? <span style={{ color: 'var(--muted)', fontSize: 'var(--t-xs)' }}>{rule.reason}</span> : null}
+                {decision.kind === 'reject' ? <span style={{ color: 'var(--muted)', fontSize: 'var(--t-xs)' }}>{decision.reason}</span> : null}
               </button>
             </li>
           );
