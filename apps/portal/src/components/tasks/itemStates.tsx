@@ -1,31 +1,50 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 
 /** Fixture preview only. A live session always stays on the real task list. */
 export const FIXTURE_ITEM_SCREENS = ['empty', 'loading', 'error', 'long'] as const;
 
 export type ItemScreen = (typeof FIXTURE_ITEM_SCREENS)[number] | 'ready';
 
-export const ITEM_STAFF_EMPTY = {
+export type ItemRegion = 'loading' | 'error' | 'empty' | 'filtered' | 'long' | 'board';
+
+export type TaskListFilter = 'all' | 'awaiting' | 'unpublished';
+
+/** Zero tasks and no filter. Clear filters stays off. */
+export const ITEM_TRUE_EMPTY = {
+  title: 'No tasks yet',
+  body: 'Tasks synced from Notion will show here.',
+} as const;
+
+/** Figma filtered cell. Only when a real filter matches nothing. */
+export const ITEM_FILTERED_EMPTY = {
   title: 'No items match these filters',
   body: 'Clear a filter, or create a new item.',
 } as const;
 
 export const ITEM_CLIENT_EMPTY = {
   title: 'Nothing shared yet',
-  body: 'Warehaus will publish items here when they are ready for you.',
+  body: "Warehaus will publish tasks here when they're ready for you.",
 } as const;
 
-export const ITEM_STAFF_ERROR = {
-  title: 'Could not save to Notion',
-  body: 'The Stage change is queued (Source: portal). It will retry at 14:05.',
-} as const;
-
-export const ITEM_CLIENT_ERROR = {
-  title: 'We could not load your items',
+export const ITEM_LOAD_ERROR = {
+  title: "We couldn't load your tasks",
   body: 'Try again in a moment.',
 } as const;
+
+export const ITEM_STALE = {
+  title: 'Tasks are out of date',
+  body: 'Showing the last tasks we could load.',
+} as const;
+
+export const ITEM_SAVE_TITLE = "Couldn't save to Notion";
+
+export const NEW_TASK_HINT = 'Creating a task stays off until write-back is enabled.';
+
+export const ITEM_STAFF_SUBTITLE = 'Synced from Notion · clients see published only';
+
+export const ITEM_CLIENT_SUBTITLE = 'Shared with you by the Warehaus team.';
 
 export const ITEM_LONG_NAME =
   'Quarterly seasonal menu photography, packaging and in-store signage rollout for all twelve Northwind Foods locations';
@@ -44,11 +63,37 @@ export const ITEM_LONG_CLIENT = {
   published: false,
 } as const;
 
-const ITEM_RETRY_NOTE = 'Nothing was sent.';
+/**
+ * Next retry time is not on the client. `getSyncHealth` returns oldestCreatedAt,
+ * not nextAttemptAt, and reading the outbox clock would be a Convex change.
+ * Pass a timestamp only when one is already in hand. Otherwise the clock is omitted.
+ */
+export function stageQueueBody(retryAt: number | null): string {
+  if (retryAt == null || !Number.isFinite(retryAt)) {
+    return 'The stage change is queued and will retry.';
+  }
+  const time = new Intl.DateTimeFormat('en-US', { hour: 'numeric', minute: '2-digit' }).format(new Date(retryAt));
+  return `The stage change is queued and will retry at ${time}.`;
+}
 
 export function readItemScreen(value: string | null, fixtures: boolean): ItemScreen {
   if (!fixtures || !value) return 'ready';
   return (FIXTURE_ITEM_SCREENS as readonly string[]).includes(value) ? (value as ItemScreen) : 'ready';
+}
+
+export function readTaskFilter(value: string | null): TaskListFilter {
+  if (value === 'awaiting' || value === 'unpublished') return value;
+  return 'all';
+}
+
+export function taskMatchesListFilter(
+  task: { stage?: string | null; publishToWarehaus?: boolean | null },
+  filter: TaskListFilter,
+  staff: boolean,
+): boolean {
+  if (filter === 'awaiting') return /awaiting\s*go/i.test(task.stage ?? '');
+  if (filter === 'unpublished') return staff && task.publishToWarehaus === false;
+  return true;
 }
 
 export function useItemScreen(fixtures: boolean): [ItemScreen, (screen: ItemScreen) => void] {
@@ -61,53 +106,107 @@ export function useItemScreen(fixtures: boolean): [ItemScreen, (screen: ItemScre
   return [screen, setScreen];
 }
 
-/** Fixture `?items` wins. A live session ignores that screen and follows the task list. */
+export function useTaskListFilter(fixtures: boolean): [TaskListFilter, (filter: TaskListFilter) => void] {
+  const [filter, setFilter] = useState<TaskListFilter>('all');
+  useEffect(() => {
+    if (!fixtures) return;
+    const params = new URLSearchParams(window.location.search);
+    setFilter(readTaskFilter(params.get('taskFilter')));
+  }, [fixtures]);
+  return [filter, setFilter];
+}
+
+/**
+ * Fixture `?items` wins. A live session ignores that screen.
+ * Staff and clients share the no-data error. A failed load that still has
+ * rows keeps the list and raises `stale`. Filtered empty is a real filter
+ * that matched nothing, never the unfiltered zero-task case.
+ */
 export function resolveItemRegion(input: {
   fixtures: boolean;
   screen: ItemScreen;
-  staff: boolean;
   loading: boolean;
   error: boolean;
   count: number;
-}): Exclude<ItemScreen, 'ready'> | 'board' {
-  if (input.fixtures && input.screen !== 'ready') return input.screen;
-  if (input.loading && input.count === 0) return 'loading';
-  if (!input.staff && input.error && input.count === 0) return 'error';
-  if (input.count === 0 && !input.error) return 'empty';
-  return 'board';
+  matched: number;
+  filterActive: boolean;
+}): { region: ItemRegion; stale: boolean } {
+  if (input.fixtures && input.screen !== 'ready') {
+    return { region: input.screen, stale: false };
+  }
+  if (input.loading && input.count === 0) return { region: 'loading', stale: false };
+  if (input.error && input.count === 0) return { region: 'error', stale: false };
+  if (input.count === 0) return { region: 'empty', stale: false };
+  if (input.filterActive && input.matched === 0) return { region: 'filtered', stale: false };
+  return { region: 'board', stale: input.error };
 }
 
 const ITEM_STATE_CSS = `.item-state-btn:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }`;
+
+const ITEM_CARD_STYLE = {
+  border: '1px solid var(--border)',
+  borderRadius: 18,
+  background: 'var(--surface)',
+  padding: 16,
+} as const;
+
+/** Shared card for empty, loading, the loaded list, and the long row. */
+export function ItemListCard(props: { children?: ReactNode }) {
+  const { children } = props;
+  return (
+    <div data-testid="item-list-card" className="min-w-0" style={ITEM_CARD_STYLE}>
+      <style>{ITEM_STATE_CSS}</style>
+      {children}
+    </div>
+  );
+}
 
 export function ItemState({
   screen,
   staff,
   onClear,
+  onRetry,
 }: {
-  screen: Exclude<ItemScreen, 'ready'>;
+  screen: Exclude<ItemRegion, 'board'>;
   staff: boolean;
   onClear?: () => void;
+  onRetry?: () => void;
 }) {
-  const body =
-    screen === 'loading' ? (
-      <ItemSkeleton />
-    ) : screen === 'error' ? (
-      <ItemError staff={staff} />
-    ) : screen === 'long' ? (
-      <ItemLongRow staff={staff} />
-    ) : (
-      <ItemEmpty staff={staff} onClear={onClear} />
-    );
+  if (screen === 'loading') return <ItemSkeleton />;
+  if (screen === 'error') return <ItemLoadError onRetry={onRetry} />;
+  if (screen === 'long') return <ItemLongRow staff={staff} />;
+  return <ItemEmpty staff={staff} filtered={screen === 'filtered'} onClear={onClear} />;
+}
+
+export function ItemStaleBanner({ onRetry }: { onRetry?: () => void }) {
   return (
-    <>
-      <style>{ITEM_STATE_CSS}</style>
-      {body}
-    </>
+    <ItemDangerCard testId="item-stale" title={ITEM_STALE.title} body={ITEM_STALE.body} actionLabel="Try again" actionTestId="item-try-again" onAction={onRetry} />
   );
 }
 
-function ItemEmpty({ staff, onClear }: { staff: boolean; onClear?: () => void }) {
-  const copy = staff ? ITEM_STAFF_EMPTY : ITEM_CLIENT_EMPTY;
+export function ItemSaveBanner({ retryAt, onRetry }: { retryAt: number | null; onRetry?: () => void }) {
+  return (
+    <ItemDangerCard
+      testId="item-save-banner"
+      title={ITEM_SAVE_TITLE}
+      body={stageQueueBody(retryAt)}
+      actionLabel="Retry now"
+      actionTestId="item-retry-now"
+      onAction={onRetry}
+    />
+  );
+}
+
+function ItemEmpty({
+  staff,
+  filtered,
+  onClear,
+}: {
+  staff: boolean;
+  filtered: boolean;
+  onClear?: () => void;
+}) {
+  const copy = !staff ? ITEM_CLIENT_EMPTY : filtered ? ITEM_FILTERED_EMPTY : ITEM_TRUE_EMPTY;
   return (
     <div
       data-testid="item-empty"
@@ -120,8 +219,7 @@ function ItemEmpty({ staff, onClear }: { staff: boolean; onClear?: () => void })
         padding: '48px 24px',
       }}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img alt="" src="/icons/item-empty.svg" width={28} height={28} />
+      <ItemEmptyIcon />
       <p style={{ margin: 0, fontSize: 16, fontWeight: 500, lineHeight: '19px' }}>{copy.title}</p>
       <p
         style={{
@@ -135,7 +233,7 @@ function ItemEmpty({ staff, onClear }: { staff: boolean; onClear?: () => void })
       >
         {copy.body}
       </p>
-      {staff ? (
+      {staff && filtered ? (
         <ItemOutlineButton testId="item-clear-filters" onClick={onClear}>
           Clear filters
         </ItemOutlineButton>
@@ -144,52 +242,70 @@ function ItemEmpty({ staff, onClear }: { staff: boolean; onClear?: () => void })
   );
 }
 
-function ItemError({ staff }: { staff: boolean }) {
-  const copy = staff ? ITEM_STAFF_ERROR : ITEM_CLIENT_ERROR;
-  const [note, setNote] = useState<string | null>(null);
+function ItemLoadError({ onRetry }: { onRetry?: () => void }) {
   return (
-    <div data-testid="item-error" className="flex flex-col items-start" style={{ gap: 24 }}>
-      <div
-        className="flex w-full items-start"
+    <ItemDangerCard
+      testId="item-error"
+      title={ITEM_LOAD_ERROR.title}
+      body={ITEM_LOAD_ERROR.body}
+      actionLabel="Try again"
+      actionTestId="item-try-again"
+      onAction={onRetry}
+    />
+  );
+}
+
+function ItemDangerCard({
+  testId,
+  title,
+  body,
+  actionLabel,
+  actionTestId,
+  onAction,
+}: {
+  testId: string;
+  title: string;
+  body: string;
+  actionLabel: string;
+  actionTestId: string;
+  onAction?: () => void;
+}) {
+  return (
+    <div
+      role="alert"
+      data-testid={testId}
+      className="flex items-start"
+      style={{
+        gap: 12,
+        border: '1px solid var(--danger)',
+        borderRadius: 18,
+        padding: '16px 24px',
+      }}
+    >
+      <span
+        aria-hidden
+        className="inline-flex shrink-0 items-center justify-center"
         style={{
-          gap: 12,
-          border: '1px solid var(--danger)',
-          borderRadius: 18,
-          padding: '16px 24px',
+          width: 20,
+          height: 20,
+          borderRadius: 999,
+          border: '1.25px solid var(--danger)',
+          color: 'var(--danger)',
+          fontSize: 11,
+          fontWeight: 600,
         }}
       >
-        <span
-          aria-hidden
-          className="inline-flex shrink-0 items-center justify-center"
-          style={{
-            width: 20,
-            height: 20,
-            borderRadius: 999,
-            border: '1.25px solid var(--danger)',
-            color: 'var(--danger)',
-            fontSize: 11,
-            fontWeight: 600,
-          }}
-        >
-          !
-        </span>
-        <span className="min-w-0">
-          <p style={{ margin: 0, color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{copy.title}</p>
-          <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: '19px' }}>{copy.body}</p>
-        </span>
-      </div>
-      {staff ? (
-        <div className="flex flex-col items-start" style={{ gap: 8 }}>
-          <ItemOutlineButton testId="item-retry-now" onClick={() => setNote(ITEM_RETRY_NOTE)}>
-            Retry now
+        !
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col items-start" style={{ gap: 4 }}>
+        <p style={{ margin: 0, color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{title}</p>
+        <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13, lineHeight: '19px' }}>{body}</p>
+        <span style={{ marginTop: 8 }}>
+          <ItemOutlineButton testId={actionTestId} onClick={onAction}>
+            {actionLabel}
           </ItemOutlineButton>
-          {note ? (
-            <p data-testid="item-retry-note" style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
-              {note}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+        </span>
+      </span>
     </div>
   );
 }
@@ -197,7 +313,7 @@ function ItemError({ staff }: { staff: boolean }) {
 function ItemSkeleton() {
   return (
     <div role="status" data-testid="item-loading" className="flex flex-col" style={{ gap: 24 }}>
-      <span className="sr-only">Loading items</span>
+      <span className="sr-only">Loading tasks</span>
       {[0, 1, 2].map((row) => (
         <div key={row} data-testid="item-skeleton-row" className="flex items-center" style={{ gap: 16, minHeight: 36 }}>
           <span className="animate-pulse shrink-0" style={{ width: 36, height: 36, borderRadius: 18, background: 'var(--surface-2, var(--bg))' }} />
@@ -229,8 +345,7 @@ export function ItemLongRow({ staff }: { staff: boolean }) {
             {row.meta}
           </span>
         </span>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img alt="" src="/icons/item-chev.svg" width={16} height={16} className="shrink-0" />
+        <ItemChevronIcon />
       </div>
       <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
         <span
@@ -243,10 +358,10 @@ export function ItemLongRow({ staff }: { staff: boolean }) {
             padding: '4px 12px',
             fontSize: 11,
             letterSpacing: '0.44px',
+            color: 'var(--fg)',
           }}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img alt="" src="/icons/item-stage.svg" width={12} height={12} />
+          <ItemStageIcon />
           {row.stage}
         </span>
         <span
@@ -272,6 +387,51 @@ export function ItemLongRow({ staff }: { staff: boolean }) {
         ) : null}
       </div>
     </div>
+  );
+}
+
+/** Header New task. createTask only enqueues a Notion write, and write-back is off. */
+export function NewTaskButton() {
+  const hintId = useId();
+  return (
+    <span className="inline-flex flex-col items-start" style={{ gap: 6, maxWidth: 280 }}>
+      <style>{ITEM_STATE_CSS}</style>
+      <span
+        tabIndex={0}
+        aria-disabled="true"
+        aria-describedby={hintId}
+        title={NEW_TASK_HINT}
+        data-testid="new-task-hint"
+        className="item-state-btn inline-flex"
+        style={{ cursor: 'not-allowed' }}
+      >
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          tabIndex={-1}
+          data-testid="new-task"
+          style={{
+            pointerEvents: 'none',
+            background: 'transparent',
+            color: 'var(--fg)',
+            border: '1px solid var(--border-2, var(--border))',
+            borderRadius: 9,
+            fontFamily: 'var(--font-body)',
+            fontSize: 14,
+            fontWeight: 500,
+            padding: '12px 16px',
+            cursor: 'not-allowed',
+            opacity: 0.4,
+          }}
+        >
+          New task
+        </button>
+      </span>
+      <span id={hintId} data-testid="new-task-hint-text" style={{ fontSize: 12, lineHeight: '16px', color: 'var(--muted)' }}>
+        {NEW_TASK_HINT}
+      </span>
+    </span>
   );
 }
 
@@ -304,5 +464,36 @@ function ItemOutlineButton({
     >
       {children}
     </button>
+  );
+}
+
+function ItemEmptyIcon() {
+  return (
+    <span aria-hidden style={{ color: 'var(--muted)', display: 'inline-flex' }}>
+      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M5.5 4.5H13.5M5.5 8H13.5M5.5 11.5H13.5M2.5 4.5H3M2.5 8H3M2.5 11.5H3" stroke="currentColor" strokeWidth="1.33" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  );
+}
+
+function ItemChevronIcon() {
+  return (
+    <span aria-hidden className="shrink-0" data-testid="item-chev" style={{ color: 'var(--muted)', display: 'inline-flex' }}>
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M6 3L11 8L6 13" stroke="currentColor" strokeWidth="1.33" strokeLinecap="round" strokeLinejoin="round" />
+      </svg>
+    </span>
+  );
+}
+
+function ItemStageIcon() {
+  return (
+    <span aria-hidden data-testid="item-stage-icon" style={{ color: 'var(--fg)', display: 'inline-flex' }}>
+      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <path d="M11.25 6C11.25 8.89949 8.89949 11.25 6 11.25C3.10051 11.25 0.75 8.89949 0.75 6C0.75 3.10051 3.10051 0.75 6 0.75C8.89949 0.75 11.25 3.10051 11.25 6Z" stroke="currentColor" strokeWidth="1.5" />
+        <path d="M6 2C6.52529 2 7.04543 2.10346 7.53073 2.30448C8.01604 2.5055 8.45699 2.80014 8.82843 3.17157C9.19986 3.54301 9.4945 3.98396 9.69552 4.46927C9.89654 4.95457 10 5.47471 10 6H6L6 2Z" fill="currentColor" />
+      </svg>
+    </span>
   );
 }

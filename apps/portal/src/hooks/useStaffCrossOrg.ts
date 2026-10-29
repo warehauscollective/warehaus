@@ -60,6 +60,8 @@ export function useStaffCrossOrg(enabled: boolean, hostSlug: string | undefined)
     projectsError,
     tasks: roster && !tasksMissing && !newTasks.error ? newTasks.data : undefined,
     tasksLoading: roster && !tasksMissing ? newTasks.loading : false,
+    /** Existing listForStaff error. A missing function falls back and is not a load failure. */
+    tasksError: roster && !tasksMissing ? newTasks.error : null,
     docs: roster && !docsMissing && !newDocs.error ? newDocs.data : undefined,
     resources: roster && !resourcesMissing && !newResources.error ? newResources.data : oldResources.data,
     resourcesLoading:

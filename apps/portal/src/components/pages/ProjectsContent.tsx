@@ -3,7 +3,7 @@
 import { useEffect, useId, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useMutation } from 'convex/react';
-import { OutlineButton, PrimaryButton, Surface } from '@/components/ui/primitives';
+import { OutlineButton, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import {
@@ -63,8 +63,19 @@ import {
   ProjectListScreen,
 } from '@/components/projects/ProjectListStates';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
-import { TaskCreateDialog, TaskDetailModal } from '@/components/tasks/TaskDetailModal';
-import { ItemState, resolveItemRegion, useItemScreen } from '@/components/tasks/itemStates';
+import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
+import {
+  ItemListCard,
+  ItemSaveBanner,
+  ItemStaleBanner,
+  ItemState,
+  NewTaskButton,
+  resolveItemRegion,
+  taskMatchesListFilter,
+  useItemScreen,
+  useTaskListFilter,
+  type TaskListFilter,
+} from '@/components/tasks/itemStates';
 import { StatusTable } from '@/components/tasks/StatusKanban';
 import { LIVE_TASK_STATUSES, PROJECT_UNAVAILABLE, TASK_STAGES, WRITEBACK_OFF_ERROR, createTaskExternalId, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
 import type { Id } from '@convex/_generated/dataModel';
@@ -103,9 +114,16 @@ export function ProjectsContent() {
   const [forceError, setForceError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
-  const [creating, setCreating] = useState(false);
   const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
   const [itemScreen, setItemScreen] = useItemScreen(fixtures);
+  const [taskFilter, setTaskFilter] = useTaskListFilter(fixtures);
+  const [queuedStage, setQueuedStage] = useState<{
+    taskId: string;
+    stage: string;
+    expectedLastEditedTime: string;
+    pullRequestLink?: string;
+    retryAt: number | null;
+  } | null>(null);
   const pathname = usePathname() || '';
   const router = useRouter();
   const moveStatus = useMutation(api.tasks.moveStatus);
@@ -115,6 +133,10 @@ export function ProjectsContent() {
     api.tasks.moveRules,
     !fixtures && configured ? { hostSlug } : 'skip',
   );
+
+  useEffect(() => {
+    setQueuedStage(null);
+  }, [openId]);
 
   useEffect(() => {
     const apply = (event?: Event) => {
@@ -337,16 +359,51 @@ export function ProjectsContent() {
     id: client.id,
     name: client.name,
   }));
+  const retryTasks = () => {
+    if (fixtures) {
+      setItemScreen('ready');
+      return;
+    }
+    retryPortalData();
+  };
+  const clearTaskFilters = () => {
+    setTaskFilter('all');
+    if (typeof window === 'undefined') return;
+    const url = new URL(window.location.href);
+    if (!url.searchParams.has('taskFilter')) return;
+    url.searchParams.delete('taskFilter');
+    window.history.replaceState(null, '', `${url.pathname}${url.search}${url.hash}`);
+  };
+  const retryQueuedStage = async () => {
+    if (!queuedStage || fixtures) return;
+    const result = await moveStage({
+      hostSlug,
+      taskId: queuedStage.taskId as Id<'tasks'>,
+      stage: queuedStage.stage,
+      expectedLastEditedTime: queuedStage.expectedLastEditedTime,
+      pullRequestLink: queuedStage.pullRequestLink,
+    });
+    if (!result.ok || !result.pending || !result.outboxId) {
+      setQueuedStage(null);
+      return;
+    }
+    setQueuedStage({ ...queuedStage, retryAt: null });
+  };
 
   if (openProject) {
     const projectTasks = tasks.filter((task) => task.projectId === openProject.id);
-    const itemRegion = resolveItemRegion({
+    const activeFilter: TaskListFilter = isStaff ? taskFilter : 'all';
+    const visibleTasks = projectTasks.filter((task) => taskMatchesListFilter(task, activeFilter, isStaff));
+    const listLoading = !fixtures && (isStaff ? staff.tasksLoading || loading : loading) && projectTasks.length === 0;
+    const taskFailed = !fixtures && (Boolean(error) || (isStaff && staff.tasksError != null));
+    const itemView = resolveItemRegion({
       fixtures,
       screen: itemScreen,
-      staff: isStaff,
-      loading: projectsLoading,
-      error: Boolean(error),
+      loading: listLoading,
+      error: taskFailed,
       count: projectTasks.length,
+      matched: visibleTasks.length,
+      filterActive: activeFilter !== 'all',
     });
     const projectDocs = docs.filter((doc) => {
       if (doc.projectId !== openProject.id) return false;
@@ -386,28 +443,50 @@ export function ProjectsContent() {
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
                 <h2 style={{ fontSize: 18, fontWeight: 600, lineHeight: '26px' }}>Tasks</h2>
-                <p style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)' }}>
-                  {projectTasksSubtitle(taskView)}
+                <p data-testid="tasks-subtitle" style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)' }}>
+                  {projectTasksSubtitle(isStaff)}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <ViewToggle view={taskView} onChange={setTaskView} />
-                {isStaff ? (
-                  <PrimaryButton onClick={() => setCreating(true)}>New task</PrimaryButton>
-                ) : null}
+                {isStaff ? <NewTaskButton /> : null}
               </div>
             </div>
-            {itemRegion !== 'board' ? (
-              <ItemState
-                screen={itemRegion}
-                staff={isStaff}
-                onClear={() => setItemScreen('ready')}
-              />
-            ) : taskView === 'board' ? (
+            {isStaff ? (
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Task filters" data-testid="task-filters">
+                <TaskFilterChip
+                  label="Awaiting go"
+                  filter="awaiting"
+                  active={activeFilter === 'awaiting'}
+                  count={projectTasks.filter((task) => taskMatchesListFilter(task, 'awaiting', true)).length}
+                  onClick={() => setTaskFilter(activeFilter === 'awaiting' ? 'all' : 'awaiting')}
+                />
+                <TaskFilterChip
+                  label="Not published"
+                  filter="unpublished"
+                  active={activeFilter === 'unpublished'}
+                  count={projectTasks.filter((task) => taskMatchesListFilter(task, 'unpublished', true)).length}
+                  onClick={() => setTaskFilter(activeFilter === 'unpublished' ? 'all' : 'unpublished')}
+                />
+              </div>
+            ) : null}
+            <ItemListCard>
+              {queuedStage ? (
+                <div style={{ marginBottom: 16 }}>
+                  <ItemSaveBanner retryAt={queuedStage.retryAt} onRetry={() => { void retryQueuedStage(); }} />
+                </div>
+              ) : null}
+              {itemView.stale ? (
+                <div style={{ marginBottom: 16 }}>
+                  <ItemStaleBanner onRetry={retryTasks} />
+                </div>
+              ) : null}
+              {itemView.region === 'board' ? (
+                taskView === 'board' ? (
               <TaskBoard
-                tasks={projectTasks}
+                tasks={visibleTasks}
                 staff={isStaff}
-                loading={projectsLoading}
+                loading={listLoading}
                 rules={
                   fixtures
                     ? isStaff
@@ -443,6 +522,17 @@ export function ProjectsContent() {
                         expectedLastEditedTime: request.task.lastEditedTime,
                       });
                   if (!result.ok) return { ok: false, error: result.error };
+                  if (request.mode === 'stage' && result.pending === true && result.outboxId) {
+                    setQueuedStage({
+                      taskId: request.task.id,
+                      stage: request.value,
+                      expectedLastEditedTime: request.task.lastEditedTime,
+                      pullRequestLink: request.pullRequestLink,
+                      retryAt: null,
+                    });
+                  } else if (request.mode === 'stage') {
+                    setQueuedStage((current) => (current?.taskId === request.task.id ? null : current));
+                  }
                   return { ok: true, pending: result.pending === true };
                 }}
                 onQuickAdd={async ({ name, status, stage }) => {
@@ -462,17 +552,26 @@ export function ProjectsContent() {
                   return result.ok ? { ok: true } : { ok: false, error: result.error };
                 }}
               />
-            ) : (
+                ) : (
               <StatusTable
-                tasks={projectTasks}
-                loading={projectsLoading}
+                tasks={visibleTasks}
+                loading={listLoading}
                 staff={isStaff}
                 onOpen={(task) => {
                   if (fixtures) setFixtureTaskId(task.id);
                   else router.push(`/tasks/${task.id}`);
                 }}
               />
-            )}
+                )
+              ) : (
+                <ItemState
+                  screen={itemView.region}
+                  staff={isStaff}
+                  onClear={clearTaskFilters}
+                  onRetry={retryTasks}
+                />
+              )}
+            </ItemListCard>
             <DocsBlock docs={projectDocs} staff={isStaff} loading={projectsLoading && projectDocs.length === 0} />
           </div>
         </PortalTilePane>
@@ -490,15 +589,6 @@ export function ProjectsContent() {
               if (fixtures) setFixtureTaskId(id);
               else router.push(`/tasks/${id}`);
             }}
-          />
-        ) : null}
-        {isStaff && creating ? (
-          <TaskCreateDialog
-            projectName={openProject.name}
-            projectNotionId={openProject.notionPageId ?? null}
-            orgId={openProject.orgId ?? null}
-            hostSlug={hostSlug}
-            onClose={() => setCreating(false)}
           />
         ) : null}
       </PortalWorkspace>
@@ -883,6 +973,44 @@ function ViewToggle({
         );
       })}
     </div>
+  );
+}
+
+function TaskFilterChip({
+  label,
+  filter,
+  active,
+  count,
+  onClick,
+}: {
+  label: string;
+  filter: TaskListFilter;
+  active: boolean;
+  count: number;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      data-testid="task-filter"
+      data-filter={filter}
+      className="inline-flex items-center gap-2 whitespace-nowrap"
+      style={{
+        fontSize: 13,
+        fontWeight: 500,
+        padding: '8px 16px',
+        borderRadius: 999,
+        border: active ? '1px solid var(--border-2)' : '1px solid var(--border)',
+        background: active ? 'var(--surface-2)' : 'transparent',
+        color: active ? 'var(--fg)' : 'var(--muted)',
+        cursor: 'pointer',
+      }}
+    >
+      {label}
+      <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>{count}</span>
+    </button>
   );
 }
 

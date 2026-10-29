@@ -983,13 +983,13 @@ export function TaskCardFace({
     >
       {lifted ? (
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
-          <p style={{ flex: '1 1 auto', minWidth: 0, fontSize: 14, fontWeight: 500, lineHeight: '21px' }}>{task.name}</p>
+          <p style={{ flex: '1 1 auto', minWidth: 0, fontSize: 14, fontWeight: 500, lineHeight: '21px', overflowWrap: 'anywhere' }}>{task.name}</p>
           <span style={{ color: 'var(--muted)' }}>
             <TaskGlyph src="/icons/sidebar-menu.svg" size={16} />
           </span>
         </div>
       ) : (
-        <p style={{ fontSize: 14, fontWeight: 500, lineHeight: '21px' }}>{task.name}</p>
+        <p style={{ minWidth: 0, fontSize: 14, fontWeight: 500, lineHeight: '21px', overflowWrap: 'anywhere' }}>{task.name}</p>
       )}
       <div className="flex flex-wrap items-center gap-2">
         {mode === 'stage' ? <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill> : null}

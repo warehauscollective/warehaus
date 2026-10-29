@@ -130,7 +130,7 @@ export function StatusTable({
   if (tasks.length === 0) {
     return (
       <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-        No items match these filters.
+        No tasks yet
       </p>
     );
   }

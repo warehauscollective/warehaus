@@ -176,6 +176,16 @@ describe('TaskCardFace client stage card', () => {
     assert.equal(html.includes('Undo'), false);
   });
 
+  it('wraps a long task title on the card', () => {
+    const name = 'Quarterly seasonal menu photography, packaging and in-store signage rollout for all twelve Northwind Foods locations';
+    const long = { ...task, name };
+    const html = renderToStaticMarkup(createElement(TaskCardFace, { task: long, mode: 'status', staff: true }));
+    assert.match(html, new RegExp(name));
+    assert.match(html, /overflow-wrap:anywhere/);
+    const lifted = renderToStaticMarkup(createElement(TaskCardFace, { task: long, lifted: true, mode: 'status', staff: true }));
+    assert.match(lifted, /overflow-wrap:anywhere/);
+  });
+
   it('shows Not in Notion yet only on a staff card with stagePending', () => {
     const pending = { ...task, stagePending: true };
     const staff = renderToStaticMarkup(createElement(TaskCardFace, { task: pending, mode: 'stage', staff: true }));
