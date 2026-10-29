@@ -1,64 +1,48 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { api } from '@convex/_generated/api';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
-import { Pill, PrimaryButton, Surface } from '@/components/ui/primitives';
-import {
-  PortalTilePane,
-  PortalWorkspace,
-} from '@/components/layout/PortalWorkspace';
+import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
+import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
-import { activityToneVar, tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
-import {
-  TASK_BOARD_COLUMNS,
-  formatPortalDate,
-  pickActiveProject,
-  projectStatusColor,
-  taskBoardColumnKey,
-  taskStatusColor,
-  type PortalBillingSummary,
-  type PortalProject,
-  type PortalTask,
-} from '@/lib/data/view-models';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
-import type { TenantMode } from '@/lib/auth/tenancy';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
-import { Bevel } from '@warehaus/ui';
-import { PORTAL_PANEL_GAP_VAR, PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
+import { FIXTURE_PROJECTS, FIXTURE_TASKS } from '@/lib/data/fixtures';
+import {
+  buildDashboard,
+  type DashboardActivity,
+  type DashboardNotice,
+  type DashboardProject,
+  type DashboardTask,
+  type OutboxRow,
+  type PullMeta,
+} from '@/lib/data/dashboard';
+import type { PortalBillingSummary } from '@/lib/data/view-models';
+import { NewTaskControl } from '@/components/tasks/NewTaskControl';
+import { DashboardHome, type DashPreview } from '@/components/pages/DashboardHome';
 
-const SECTION_TITLE: Record<string, string> = {
-  overview: 'Overview',
-  'awaiting-go': 'Awaiting go',
-  'sync-health': 'Sync health',
+type SyncHealthPayload = {
+  pull: PullMeta;
+  writebackEnabled: boolean;
+  outbox: OutboxRow[];
+  notices: DashboardNotice[];
 };
 
-const formatDue = formatPortalDate;
-
-/** Notion rollup Progress may be 0–1 or 0–100 depending on formula. */
-function formatProgress(value: number): string {
-  const pct = value <= 1 ? Math.round(value * 100) : Math.round(value);
-  return `${Math.min(100, Math.max(0, pct))}%`;
-}
-
-function formatTime(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso.slice(0, 5);
-  return d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', hour12: false });
-}
-
-function pickRecentTask(list: PortalTask[]): PortalTask | null {
-  return (
-    list.find((t) => /progress/i.test(t.status) && !t.isDone) ??
-    list.find((t) => /block/i.test(t.status) && !t.isDone) ??
-    list.find((t) => !t.isDone) ??
-    list[0] ??
-    null
-  );
+function useDashPreview(fixtures: boolean): DashPreview {
+  const [preview, setPreview] = useState<DashPreview>(null);
+  useEffect(() => {
+    if (!fixtures) return;
+    const value = new URLSearchParams(window.location.search).get('dash');
+    if (value === 'empty' || value === 'loading' || value === 'error' || value === 'long') {
+      setPreview(value);
+    }
+  }, [fixtures]);
+  return preview;
 }
 
 export function PortalHomeContent() {
@@ -68,991 +52,115 @@ export function PortalHomeContent() {
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
   const isStaff = Boolean(portalSession?.isStaff);
-  const hostSlug =
-    typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
+  const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const staff = useStaffCrossOrg(configured && isStaff && !fixtures, hostSlug);
+  const preview = useDashPreview(fixtures);
+  const feed = useActivityFeed();
+
+  // Billing stays loaded for this screen. The rail is not part of the dashboard.
   const billingState = useSafeQuery<PortalBillingSummary>(
     api.billing.getSummary,
     configured && data.tenant.ok ? { hostSlug } : 'skip',
   );
   const billingSummary = billingState.data;
-  const activeSection = sectionFor('dashboard');
-  const staffProjects = (staff.projects ?? []) as PortalProject[];
-  const projects =
-    isStaff && !fixtures && !staff.projectsLoading && staff.projects != null
-      ? staffProjects
-      : data.projects;
-  const tasks = data.tasks;
-  const feed = useActivityFeed();
-  const activity = feed.items;
-  const title = SECTION_TITLE[activeSection] ?? 'Overview';
-  const projectsLoading = loading || (isStaff && !fixtures && staff.projectsLoading && projects.length === 0);
 
-  // Staff hero uses the same published list as the Projects tab.
-  const featured = pickActiveProject(projects);
-  const projectTasks = featured
-    ? tasks.filter((t) => t.projectId === featured.id)
-    : [];
-  const countsKnown =
-    !featured || projectTasks.length > 0 || data.projects.some((project) => project.id === featured.id);
-  const projectActivity = featured
-    ? activity.filter((a) => a.projectId === featured.id)
-    : [];
-  const recentTask = pickRecentTask(projectTasks);
-  const nextMilestone = featured
-    ? {
-        label: featured.status,
-        due: featured.endDate,
-        phase: featured.status,
-      }
-    : null;
-  const openTasks = projectTasks.filter((t) => !t.isDone).length;
-  const doingTasks = projectTasks.filter((t) => /progress/i.test(t.status) && !t.isDone).length;
-  const blocked = projectTasks.filter((t) => /block/i.test(t.status) && !t.isDone).length;
-
-  const rail = (
-    <DashboardRail
-      activity={projectActivity}
-      loading={projectsLoading}
-      phase={featured?.status ?? '—'}
-      countsKnown={countsKnown}
-      openTasks={openTasks}
-      doingTasks={doingTasks}
-      blocked={blocked}
-      milestone={nextMilestone?.label ?? '—'}
-      projectName={featured?.name ?? null}
-      tenantMode={data.tenant.mode}
-      clientName={data.tenant.clientName}
-      billing={billingSummary}
-      billingLoading={billingState.loading}
-    />
+  const liveSync = useSafeQuery<SyncHealthPayload>(
+    api.portalData.getSyncHealth,
+    configured && isStaff && !fixtures && data.tenant.ok ? { hostSlug } : 'skip',
   );
+
+  const section = sectionFor('dashboard');
+  const focus =
+    section === 'sync-health' && isStaff
+      ? 'sync'
+      : section === 'awaiting-go' || section === 'needs-attention'
+        ? 'awaiting'
+        : section === 'updates'
+          ? 'activity'
+          : 'all';
+
+  const projects = (
+    fixtures
+      ? isStaff
+        ? FIXTURE_PROJECTS
+        : data.projects
+      : isStaff && staff.projects
+        ? staff.projects
+        : data.projects
+  ) as DashboardProject[];
+  const tasks = (
+    fixtures ? (isStaff ? FIXTURE_TASKS : data.tasks) : isStaff && staff.tasks ? staff.tasks : data.tasks
+  ) as DashboardTask[];
+
+  const model = useMemo(
+    () =>
+      buildDashboard({
+        audience: isStaff ? 'staff' : 'client',
+        projects,
+        tasks,
+        activity: feed.items as DashboardActivity[],
+        pull: isStaff
+          ? liveSync.data?.pull ?? {
+              lastSyncedAt: data.syncMeta.lastSyncedAt,
+              lastError: data.syncMeta.lastError,
+            }
+          : { lastSyncedAt: null, lastError: null },
+        outbox: isStaff ? liveSync.data?.outbox ?? [] : [],
+        writebackEnabled: isStaff && liveSync.data?.writebackEnabled === true,
+        notices: isStaff ? liveSync.data?.notices ?? [] : [],
+        now: Date.now(),
+      }),
+    [isStaff, projects, tasks, feed.items, liveSync.data, data.syncMeta.lastSyncedAt, data.syncMeta.lastError],
+  );
+
+  const projectsLoading =
+    loading || feed.loading || (isStaff && !fixtures && staff.projectsLoading && projects.length === 0);
+  const eyebrow = isStaff
+    ? tenantEyebrow(data.tenant, 'Dashboard')
+    : `● ${data.tenant.clientName ?? 'Portal'} · Dashboard`;
+  const taskProject = projects.find((project) => !project.internal)?.name ?? 'Dashboard';
 
   return (
     <PortalWorkspace
-      eyebrow={tenantEyebrow(data.tenant, 'Dashboard')}
-      title={title}
-      hideHeader
-      aside={rail}
+      eyebrow={eyebrow}
+      title="Dashboard"
+      actions={isStaff ? <NewTaskControl projectName={taskProject} /> : undefined}
     >
-      {error && data.tenant.mode === 'client' ? (
-        <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)' }}>
-          We could not load your dashboard
-        </p>
-      ) : null}
-      {activeSection === 'awaiting-go' && (
-        <PortalTilePane>
-          <SurfaceAwaiting tasks={tasks} loading={loading} />
-        </PortalTilePane>
-      )}
-
-      {activeSection === 'sync-health' && data.tenant.mode === 'team' && (
-        <PortalTilePane>
-          <SyncHealth
-            lastSyncedAt={data.syncMeta.lastSyncedAt}
-            lastError={data.syncMeta.lastError}
-            loading={loading}
-          />
-        </PortalTilePane>
-      )}
-
-      {activeSection === 'overview' && (
-        <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col" style={{ gap: PORTAL_PANEL_GAP_VAR }}>
-            {projectsLoading || countsKnown ? (
-              <StatusCounts tasks={projectTasks} loading={projectsLoading} />
-            ) : null}
-            {/* Preview: ambient blur bleeds outside; device clips inside the bevel */}
-            <div
-              className="relative min-h-0 shrink-0"
-              style={{
-                flex: '1.35 1 0',
-                minHeight: '42%',
-                // Allow glow to leak past the tile; device still clips inside Bevel.
-                overflow: 'visible',
-              }}
-            >
-              <PreviewAmbientBlur />
-              <Bevel
-                corners="br"
-                radius={PORTAL_SURFACE_RADIUS}
-                cut={2.5}
-                shoulder={0.85}
-                fill="transparent"
-                stroke="var(--border)"
-                className="relative z-[1] h-full min-h-0 overflow-hidden"
-                style={{ padding: 0 }}
-              >
-                <DeviceMockup
-                  title={featured?.name ?? 'Project preview'}
-                  phase={featured?.status}
-                />
-                <div
-                  className="relative z-[1] flex h-full min-h-[220px] flex-col justify-between"
-                  style={{
-                    padding: 'var(--s-6)',
-                    // Soft left scrim keeps type readable over the device
-                    background:
-                      'linear-gradient(90deg, color-mix(in oklab, var(--bg) 72%, transparent) 0%, color-mix(in oklab, var(--bg) 35%, transparent) 42%, transparent 68%)',
-                  }}
-                >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <p
-                      className="ds-mono"
-                      style={{
-                        fontSize: 'var(--t-xs)',
-                        letterSpacing: '0.16em',
-                        textTransform: 'uppercase',
-                        color: 'var(--muted)',
-                      }}
-                    >
-                      Active project
-                    </p>
-                    <h2
-                      className="type-display"
-                      style={{
-                        fontSize: 'clamp(1.75rem, 1.3rem + 1.8vw, 2.75rem)',
-                        lineHeight: 1.05,
-                        marginTop: 10,
-                        maxWidth: '18ch',
-                      }}
-                    >
-                      {featured?.name ?? (projectsLoading ? 'Loading…' : 'No active project')}
-                    </h2>
-                  </div>
-                  {featured ? <Pill color={projectStatusColor(featured.status)}>{featured.status}</Pill> : null}
-                </div>
-                <div className="flex flex-wrap items-end justify-between gap-4">
-                  <div>
-                    <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', maxWidth: 420 }}>
-                      {featured
-                        ? `End ${formatDue(featured.endDate)}${
-                            featured.progress != null
-                              ? ` · ${formatProgress(featured.progress)}`
-                              : ''
-                          }`
-                        : 'Projects show up here after a Notion pull.'}
-                    </p>
-                    {featured ? (
-                      <p
-                        className="ds-mono"
-                        style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', marginTop: 8 }}
-                      >
-                        {featured.status}
-                        {featured.stack.length ? ` · ${featured.stack.join(', ')}` : ''}
-                      </p>
-                    ) : null}
-                  </div>
-                  <div className="flex flex-wrap gap-2">
-                    {featured ? (
-                      <PrimaryButton
-                        onClick={() =>
-                          openDetail({
-                            id: featured.id,
-                            title: featured.name,
-                            subtitle: featured.status,
-                            body: <ProjectDetail project={featured} />,
-                          })
-                        }
-                      >
-                        Open project
-                      </PrimaryButton>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-              </Bevel>
-            </div>
-
-            {/* Project board — tasks / recent / next milestone for the active project */}
-            <Bevel
-              corners="br"
-              radius={PORTAL_SURFACE_RADIUS}
-              cut={2}
-              shoulder={0.75}
-              fill="var(--surface)"
-              stroke="var(--border)"
-              className="flex min-h-0 flex-1 flex-col overflow-hidden"
-              style={{ padding: 0, minHeight: '28%' }}
-            >
-              <div
-                className="flex shrink-0 items-center justify-between gap-3"
-                style={{
-                  padding: 'var(--s-4) var(--s-5)',
-                  borderBottom: '1px solid var(--border)',
-                }}
-              >
-                <div>
-                  <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                    {featured?.status ?? 'Board'}
-                  </p>
-                  <p style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 2 }}>
-                    {featured ? featured.name : 'Project board'}
-                  </p>
-                </div>
-                <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                  {projectsLoading
-                    ? '…'
-                    : countsKnown
-                      ? `${projectTasks.length} task${projectTasks.length === 1 ? '' : 's'}`
-                      : 'Tasks not in this view'}
-                </span>
-              </div>
-              <div
-                className="min-h-0 flex-1 overflow-y-auto"
-                style={{ padding: 'var(--s-4) var(--s-5)' }}
-              >
-                {!featured && !projectsLoading ? (
-                  <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                    No active project yet.
-                  </p>
-                ) : featured && !projectsLoading && projectTasks.length === 0 ? (
-                  <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                    No tasks in this view.
-                  </p>
-                ) : (
-                  <div className="flex h-full min-h-0 flex-col gap-4 lg:flex-row">
-                    <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
-                      <p
-                        className="ds-mono shrink-0"
-                        style={{
-                          fontSize: 'var(--t-xs)',
-                          letterSpacing: '0.12em',
-                          textTransform: 'uppercase',
-                          color: 'var(--muted)',
-                        }}
-                      >
-                        Tasks
-                      </p>
-                      <div className="flex min-h-0 flex-col gap-2 overflow-y-auto">
-                        {projectTasks.map((t) => (
-                          <button
-                            key={t.id}
-                            type="button"
-                            onClick={() =>
-                              openDetail({
-                                id: t.id,
-                                title: t.name,
-                                subtitle: `${t.status}${t.projectName ? ` · ${t.projectName}` : ''}`,
-                                body: (
-                                  <div className="flex flex-col gap-3">
-                                    <Pill color={taskStatusColor(t.status, t.isDone)}>
-                                      {t.status}
-                                    </Pill>
-                                    <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                                      Date {formatDue(t.date)}
-                                      {featured ? ` · ${featured.name}` : ''}
-                                    </p>
-                                  </div>
-                                ),
-                              })
-                            }
-                            className="flex w-full items-center justify-between gap-3 text-left"
-                            style={{
-                              padding: '0.65rem 0.8rem',
-                              borderRadius: 10,
-                              border: '1px solid var(--border)',
-                              background:
-                                recentTask?.id === t.id
-                                  ? 'color-mix(in oklab, var(--accent) 8%, var(--bg))'
-                                  : 'color-mix(in oklab, var(--bg) 55%, transparent)',
-                              cursor: 'pointer',
-                            }}
-                          >
-                            <span className="min-w-0">
-                              <span
-                                className="block truncate"
-                                style={{ fontSize: 'var(--t-sm)', fontWeight: 600 }}
-                              >
-                                {t.name}
-                              </span>
-                              <span
-                                className="ds-mono block"
-                                style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', marginTop: 3 }}
-                              >
-                                {formatDue(t.date)}
-                              </span>
-                            </span>
-                            <Pill color={taskStatusColor(t.status, t.isDone)}>{t.status}</Pill>
-                          </button>
-                        ))}
-                        {!loading && projectTasks.length === 0 && (
-                          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                            No tasks on this project yet.
-                          </p>
-                        )}
-                      </div>
-                    </div>
-
-                    <div
-                      className="flex w-full shrink-0 flex-col gap-3 lg:w-[240px]"
-                      style={{
-                        paddingTop: 2,
-                      }}
-                    >
-                      <div
-                        style={{
-                          padding: '0.85rem 1rem',
-                          borderRadius: 12,
-                          border: '1px solid var(--border)',
-                          background: 'color-mix(in oklab, var(--bg) 50%, transparent)',
-                        }}
-                      >
-                        <p
-                          className="ds-mono"
-                          style={{
-                            fontSize: 'var(--t-xs)',
-                            letterSpacing: '0.12em',
-                            textTransform: 'uppercase',
-                            color: 'var(--muted)',
-                          }}
-                        >
-                          Most recent
-                        </p>
-                        {recentTask ? (
-                          <>
-                            <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600, marginTop: 8 }}>
-                              {recentTask.name}
-                            </p>
-                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                              <Pill color={taskStatusColor(recentTask.status, recentTask.isDone)}>
-                                {recentTask.status}
-                              </Pill>
-                              <span
-                                className="ds-mono"
-                                style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}
-                              >
-                                {formatDue(recentTask.date)}
-                              </span>
-                            </div>
-                          </>
-                        ) : (
-                          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>
-                            No recent task
-                          </p>
-                        )}
-                      </div>
-
-                      <div
-                        style={{
-                          padding: '0.85rem 1rem',
-                          borderRadius: 12,
-                          border: '1px solid var(--border)',
-                          background: 'color-mix(in oklab, var(--bg) 50%, transparent)',
-                          flex: 1,
-                        }}
-                      >
-                        <p
-                          className="ds-mono"
-                          style={{
-                            fontSize: 'var(--t-xs)',
-                            letterSpacing: '0.12em',
-                            textTransform: 'uppercase',
-                            color: 'var(--muted)',
-                          }}
-                        >
-                          Next milestone
-                        </p>
-                        {nextMilestone ? (
-                          <>
-                            <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600, marginTop: 8 }}>
-                              {nextMilestone.label}
-                            </p>
-                            <p
-                              style={{
-                                fontSize: 'var(--t-xs)',
-                                color: 'var(--muted)',
-                                marginTop: 6,
-                              }}
-                            >
-                              From {nextMilestone.phase} · due {formatDue(nextMilestone.due)}
-                            </p>
-                            <div className="mt-3">
-                              <Pill color={projectStatusColor(nextMilestone.label)}>
-                                {nextMilestone.label}
-                              </Pill>
-                            </div>
-                          </>
-                        ) : (
-                          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>
-                            —
-                          </p>
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-              </div>
-            </Bevel>
-          </div>
-        </PortalTilePane>
-      )}
+      <PortalTilePane>
+        <DashboardHome
+          model={model}
+          focus={focus}
+          loading={projectsLoading}
+          preview={preview}
+          showLoadError={!isStaff && Boolean(error)}
+          billingMark={billingSummary?.hasBilling ? 'on-file' : 'none'}
+          onOpenTask={(row) =>
+            openDetail({
+              id: row.id,
+              title: row.name,
+              subtitle: row.meta,
+              body: (
+                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+                  {row.stageLabel}
+                  {row.status ? ` · ${row.status}` : ''}
+                </p>
+              ),
+            })
+          }
+          onOpenProject={(row) =>
+            openDetail({
+              id: row.id,
+              title: row.name,
+              subtitle: row.brand,
+              body: (
+                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+                  {row.percentLabel} · {row.itemsLabel}
+                </p>
+              ),
+            })
+          }
+        />
+      </PortalTilePane>
     </PortalWorkspace>
-  );
-}
-
-function DashboardRail({
-  activity,
-  loading,
-  phase,
-  countsKnown,
-  openTasks,
-  doingTasks,
-  blocked,
-  milestone,
-  projectName,
-  tenantMode,
-  clientName,
-  billing,
-  billingLoading,
-}: {
-  activity: {
-    id: string;
-    name: string;
-    summary: string;
-    timestamp: string;
-    tone: string;
-    projectId?: string | null;
-  }[];
-  loading: boolean;
-  phase: string;
-  countsKnown: boolean;
-  openTasks: number;
-  doingTasks: number;
-  blocked: number;
-  milestone: string;
-  projectName: string | null;
-  tenantMode: TenantMode;
-  clientName: string | null;
-  billing: PortalBillingSummary | undefined;
-  billingLoading: boolean;
-}) {
-  const sub = billing?.subscription;
-  const invoice = billing?.nextInvoice;
-  const billingStatus = sub?.status ?? (billing?.hasBilling ? '—' : null);
-
-  return (
-    <div
-      className="flex h-full min-h-0 flex-col overflow-y-auto lg:overflow-hidden"
-      style={{ gap: PORTAL_PANEL_GAP_VAR }}
-    >
-      <RailModule title="Status">
-        {countsKnown ? (
-          <div className="grid grid-cols-2 gap-2">
-            <StatusCell label="Phase" value={loading ? '…' : phase} />
-            <StatusCell label="Open tasks" value={String(openTasks)} />
-            <StatusCell label="In progress" value={String(doingTasks)} />
-            <StatusCell
-              label="Blocked"
-              value={String(blocked)}
-              tone={blocked > 0 ? 'var(--danger)' : undefined}
-            />
-          </div>
-        ) : (
-          <div className="flex flex-col gap-2">
-            <StatusCell label="Phase" value={loading ? '…' : phase} />
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-              Task counts for this project are not in this view.
-            </p>
-          </div>
-        )}
-        <p
-          className="ds-mono"
-          style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', marginTop: 10 }}
-        >
-          {projectName ? `Project · ${projectName}` : 'No active project'}
-          {tenantMode === 'client' && clientName ? ` · ${clientName}` : ''}
-        </p>
-        <p
-          className="ds-mono"
-          style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 6 }}
-        >
-          Next · {milestone}
-        </p>
-      </RailModule>
-
-      <RailModule title="Activity" className="min-h-0 flex-1">
-        <div className="flex min-h-0 flex-col gap-2 overflow-y-auto">
-          {activity.slice(0, 5).map((item) => (
-            <div key={item.id} className="flex gap-2">
-              <span
-                className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full"
-                style={{ background: activityToneVar(item.tone) }}
-              />
-              <div className="min-w-0">
-                <p style={{ fontSize: 'var(--t-sm)', fontWeight: 500, lineHeight: 1.3 }}>
-                  {item.name}
-                </p>
-                <p
-                  className="ds-mono"
-                  style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', marginTop: 2 }}
-                >
-                  {formatTime(item.timestamp)} · {item.summary}
-                </p>
-              </div>
-            </div>
-          ))}
-          {!loading && activity.length === 0 && (
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>No recent activity.</p>
-          )}
-        </div>
-      </RailModule>
-
-      <RailModule title="Billing">
-        {billingLoading ? (
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading…</p>
-        ) : !billing?.hasBilling ? (
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>No billing on file.</p>
-        ) : (
-          <>
-            <div className="flex items-start justify-between gap-2">
-              <div>
-                <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600 }}>
-                  {sub?.planName ?? (tenantMode === 'client' ? 'Client plan' : 'Workspace')}
-                </p>
-                <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)', marginTop: 4 }}>
-                  {sub?.cancelAtPeriodEnd
-                    ? 'Cancels at period end'
-                    : invoice
-                      ? `${invoice.amountLabel} · ${invoice.status}`
-                      : 'Stripe'}
-                </p>
-              </div>
-              {billingStatus ? (
-                <Pill
-                  color={
-                    billingStatus === 'active' || billingStatus === 'paid'
-                      ? 'var(--success)'
-                      : billingStatus === 'past_due' || billingStatus === 'open'
-                        ? 'var(--warn)'
-                        : 'var(--muted)'
-                  }
-                >
-                  {billingStatus}
-                </Pill>
-              ) : null}
-            </div>
-            <div
-              className="mt-3"
-              style={{
-                paddingTop: 10,
-                borderTop: '1px solid var(--border)',
-              }}
-            >
-              <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                {invoice?.status === 'open' ? 'Next invoice' : 'Latest invoice'}
-              </p>
-              <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600, marginTop: 2 }}>
-                {invoice
-                  ? `${invoice.amountLabel} · ${formatPortalDate(
-                      invoice.periodEnd
-                        ? new Date(invoice.periodEnd).toISOString().slice(0, 10)
-                        : null,
-                    )}`
-                  : '—'}
-              </p>
-            </div>
-          </>
-        )}
-      </RailModule>
-    </div>
-  );
-}
-
-function RailModule({
-  title,
-  children,
-  className,
-}: {
-  title: string;
-  children: ReactNode;
-  className?: string;
-}) {
-  return (
-    <Bevel
-      corners="bl"
-      radius={PORTAL_SURFACE_RADIUS}
-      cut={1.75}
-      shoulder={0.6}
-      fill="var(--surface)"
-      stroke="var(--border)"
-      className={className}
-      style={{
-        padding: 'var(--s-4)',
-        display: 'flex',
-        flexDirection: 'column',
-        minHeight: 0,
-      }}
-    >
-      <p
-        className="ds-mono shrink-0"
-        style={{
-          fontSize: 'var(--t-xs)',
-          letterSpacing: '0.14em',
-          textTransform: 'uppercase',
-          color: 'var(--muted)',
-          marginBottom: 10,
-        }}
-      >
-        {title}
-      </p>
-      <div className="min-h-0 flex-1">{children}</div>
-    </Bevel>
-  );
-}
-
-function StatusCell({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone?: string;
-}) {
-  return (
-    <div
-      style={{
-        padding: '0.55rem 0.65rem',
-        borderRadius: 10,
-        border: '1px solid var(--border)',
-        background: 'color-mix(in oklab, var(--bg) 50%, transparent)',
-      }}
-    >
-      <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-        {label}
-      </p>
-      <p
-        className="ds-mono"
-        style={{ fontSize: 'var(--t-lg)', marginTop: 4, color: tone ?? 'var(--fg)' }}
-      >
-        {value}
-      </p>
-    </div>
-  );
-}
-
-/**
- * Soft atmospheric blur centered on the preview tile.
- * Sits outside the Bevel so it can bleed past the rounded border.
- */
-function PreviewAmbientBlur() {
-  return (
-    <div className="pointer-events-none absolute inset-0 z-0" aria-hidden>
-      <div
-        className="absolute"
-        style={{
-          left: '50%',
-          top: '58%',
-          width: 'min(92%, 560px)',
-          height: 'min(88%, 420px)',
-          transform: 'translate(-50%, -42%)',
-          borderRadius: '50%',
-          background: `
-            radial-gradient(
-              ellipse 70% 65% at 50% 45%,
-              color-mix(in oklab, var(--accent) 38%, transparent) 0%,
-              color-mix(in oklab, var(--info, var(--accent)) 22%, transparent) 35%,
-              color-mix(in oklab, var(--fg) 8%, transparent) 62%,
-              transparent 78%
-            )
-          `,
-          filter: 'blur(42px)',
-          opacity: 0.85,
-        }}
-      />
-      <div
-        className="absolute"
-        style={{
-          left: '50%',
-          top: '62%',
-          width: 'min(70%, 400px)',
-          height: 'min(55%, 280px)',
-          transform: 'translate(-50%, -30%)',
-          borderRadius: '50%',
-          background:
-            'radial-gradient(circle at 50% 40%, color-mix(in oklab, var(--fg) 16%, transparent), transparent 70%)',
-          filter: 'blur(28px)',
-          opacity: 0.55,
-        }}
-      />
-    </div>
-  );
-}
-
-/** Laptop mockup — centered, dropped so the chassis clips at the tile bottom. */
-function DeviceMockup({
-  title,
-  phase,
-}: {
-  title: string;
-  phase?: string;
-}) {
-  return (
-    <div className="pointer-events-none absolute inset-0 z-0 overflow-hidden" aria-hidden>
-      <div
-        className="absolute"
-        style={{
-          left: '50%',
-          // Sit low so the base/hinge is clipped by the tile edge
-          top: '54%',
-          width: 'min(62%, 440px)',
-          transform: 'translate(-50%, -18%) rotate(-5deg)',
-          filter: 'drop-shadow(0 28px 40px color-mix(in oklab, var(--ink, #000) 45%, transparent))',
-        }}
-      >
-        {/* Lid / screen chassis */}
-        <div
-          style={{
-            borderRadius: 14,
-            border: '1px solid color-mix(in oklab, var(--fg) 22%, transparent)',
-            background: 'color-mix(in oklab, var(--fg) 10%, var(--bg))',
-            padding: 8,
-            boxShadow: 'inset 0 0 0 1px color-mix(in oklab, var(--fg) 8%, transparent)',
-          }}
-        >
-          <div
-            style={{
-              borderRadius: 8,
-              overflow: 'hidden',
-              aspectRatio: '16 / 10',
-              background: 'var(--bg)',
-              border: '1px solid color-mix(in oklab, var(--fg) 12%, transparent)',
-              position: 'relative',
-            }}
-          >
-            {/* Fake app chrome */}
-            <div
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 6,
-                padding: '8px 10px',
-                borderBottom: '1px solid color-mix(in oklab, var(--fg) 10%, transparent)',
-                background: 'color-mix(in oklab, var(--surface) 80%, transparent)',
-              }}
-            >
-              <span style={{ width: 7, height: 7, borderRadius: 999, background: 'color-mix(in oklab, var(--danger, #f66) 70%, transparent)' }} />
-              <span style={{ width: 7, height: 7, borderRadius: 999, background: 'color-mix(in oklab, var(--warn, #fc0) 70%, transparent)' }} />
-              <span style={{ width: 7, height: 7, borderRadius: 999, background: 'color-mix(in oklab, var(--success, #6c6) 70%, transparent)' }} />
-              <span
-                className="ds-mono"
-                style={{
-                  marginLeft: 8,
-                  fontSize: 9,
-                  color: 'var(--faint)',
-                  letterSpacing: '0.08em',
-                  textTransform: 'uppercase',
-                }}
-              >
-                warehaus.app
-              </span>
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '72px 1fr', height: 'calc(100% - 33px)' }}>
-              <div
-                style={{
-                  borderRight: '1px solid color-mix(in oklab, var(--fg) 10%, transparent)',
-                  padding: 8,
-                  background: 'color-mix(in oklab, var(--surface) 55%, transparent)',
-                }}
-              >
-                {[1, 2, 3, 4].map((i) => (
-                  <div
-                    key={i}
-                    style={{
-                      height: 8,
-                      borderRadius: 4,
-                      marginBottom: 8,
-                      width: i === 1 ? '88%' : `${55 + i * 8}%`,
-                      background:
-                        i === 1
-                          ? 'color-mix(in oklab, var(--accent) 45%, transparent)'
-                          : 'color-mix(in oklab, var(--fg) 12%, transparent)',
-                    }}
-                  />
-                ))}
-              </div>
-              <div style={{ padding: 10, display: 'flex', flexDirection: 'column', gap: 8 }}>
-                <div
-                  style={{
-                    height: '42%',
-                    borderRadius: 6,
-                    background: `
-                      linear-gradient(135deg,
-                        color-mix(in oklab, var(--accent) 22%, transparent),
-                        color-mix(in oklab, var(--fg) 8%, transparent) 55%,
-                        transparent
-                      ),
-                      color-mix(in oklab, var(--surface) 70%, var(--bg))
-                    `,
-                    border: '1px solid color-mix(in oklab, var(--fg) 10%, transparent)',
-                    padding: 10,
-                    display: 'flex',
-                    flexDirection: 'column',
-                    justifyContent: 'flex-end',
-                  }}
-                >
-                  <span
-                    className="ds-mono"
-                    style={{ fontSize: 8, color: 'var(--muted)', letterSpacing: '0.12em' }}
-                  >
-                    {phase ?? 'PROJECT'}
-                  </span>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      fontWeight: 600,
-                      color: 'var(--fg)',
-                      marginTop: 4,
-                      lineHeight: 1.2,
-                      maxWidth: '16ch',
-                      overflow: 'hidden',
-                      textOverflow: 'ellipsis',
-                      whiteSpace: 'nowrap',
-                    }}
-                  >
-                    {title}
-                  </span>
-                </div>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, flex: 1 }}>
-                  {[1, 2, 3, 4].map((i) => (
-                    <div
-                      key={i}
-                      style={{
-                        borderRadius: 5,
-                        border: '1px solid color-mix(in oklab, var(--fg) 10%, transparent)',
-                        background: 'color-mix(in oklab, var(--surface) 60%, transparent)',
-                        minHeight: 28,
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-        {/* Hinge / base */}
-        <div
-          style={{
-            margin: '0 auto',
-            width: '108%',
-            marginLeft: '-4%',
-            height: 10,
-            borderRadius: '0 0 8px 8px',
-            background:
-              'linear-gradient(180deg, color-mix(in oklab, var(--fg) 18%, var(--bg)), color-mix(in oklab, var(--fg) 8%, var(--bg)))',
-            border: '1px solid color-mix(in oklab, var(--fg) 16%, transparent)',
-            borderTop: 'none',
-          }}
-        />
-        <div
-          style={{
-            margin: '0 auto',
-            width: '118%',
-            marginLeft: '-9%',
-            height: 4,
-            borderRadius: '0 0 3px 3px',
-            background: 'color-mix(in oklab, var(--fg) 14%, var(--bg))',
-            opacity: 0.85,
-          }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function StatusCounts({ tasks, loading }: { tasks: PortalTask[]; loading: boolean }) {
-  return (
-    <div className="flex flex-wrap gap-3">
-      {TASK_BOARD_COLUMNS.map((col) => (
-        <span key={col.key} className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-          {col.label}{' '}
-          {loading ? '…' : tasks.filter((task) => taskBoardColumnKey(task) === col.key).length}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function SurfaceAwaiting({ tasks, loading }: { tasks: PortalTask[]; loading: boolean }) {
-  return (
-    <Surface style={{ padding: 'var(--s-5)' }}>
-      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-        Awaiting go is a Stage. Stage is not on live Tasks, so this list stays empty. Counts below
-        use Status only.
-      </p>
-      <div className="mt-4">
-        <StatusCounts tasks={tasks} loading={loading} />
-      </div>
-    </Surface>
-  );
-}
-
-function SyncHealth({
-  lastSyncedAt,
-  lastError,
-  loading,
-}: {
-  lastSyncedAt: string | null;
-  lastError: string | null;
-  loading: boolean;
-}) {
-  return (
-    <div className="flex flex-col gap-3" data-testid="sync-health">
-      <Surface style={{ padding: 'var(--s-5)' }}>
-        <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-          Notion → portal
-        </p>
-        <p style={{ fontSize: 'var(--t-sm)', marginTop: 8, color: lastError ? 'var(--danger)' : 'var(--fg)' }}>
-          {loading
-            ? 'Loading…'
-            : lastError
-              ? `Failed. ${lastError}`
-              : lastSyncedAt
-                ? `In sync · ${new Date(lastSyncedAt).toLocaleString()}`
-                : 'Syncing'}
-        </p>
-      </Surface>
-      <Surface style={{ padding: 'var(--s-5)' }}>
-        <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-          Portal → Notion
-        </p>
-        <p style={{ fontSize: 'var(--t-sm)', marginTop: 8 }}>
-          Write-back is off. The outbox from pull request 23 is not on this branch, so nothing here
-          is marked synced.
-        </p>
-      </Surface>
-    </div>
-  );
-}
-
-function ProjectDetail({ project }: { project: PortalProject; mode?: TenantMode }) {
-  const rows: [string, string][] = [
-    ['Status', project.status],
-    ['Progress', project.progress != null ? `${Math.round(project.progress * 100)}%` : '—'],
-    ['End', formatDue(project.endDate)],
-    ['Start', formatDue(project.startDate)],
-  ];
-  if (project.stack.length) rows.push(['Stack', project.stack.join(', ')]);
-
-  return (
-    <div className="flex flex-col gap-4">
-      {project.description && (
-        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', lineHeight: 1.5 }}>
-          {project.description}
-        </p>
-      )}
-      <div className="grid grid-cols-2 gap-3">
-        {rows.map(([k, v]) => (
-          <div key={k}>
-            <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-              {k}
-            </p>
-            <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600, marginTop: 2 }}>{v}</p>
-          </div>
-        ))}
-      </div>
-    </div>
   );
 }

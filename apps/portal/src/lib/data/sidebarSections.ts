@@ -45,7 +45,8 @@ const CLIENT_SECTIONS: Record<PortalTab, PortalSidebarSection[]> = {
   ...TEAM_SECTIONS,
   dashboard: [
     { key: 'overview', label: 'Overview' },
-    { key: 'awaiting-go', label: 'Awaiting go' },
+    { key: 'needs-attention', label: 'Needs attention' },
+    { key: 'updates', label: 'Updates' },
   ],
   activity: [
     { key: 'all', label: 'All activity' },

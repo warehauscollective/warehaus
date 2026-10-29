@@ -4,6 +4,7 @@ import { isStaff } from './_lib/identity';
 import { buildActivityFeed } from './_lib/activityFeed';
 import { staffQuarantineActivity } from './_lib/quarantineActivity';
 import { clientMaySeeProject, clientMaySeeTask, isClientVisibleActivityType, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { isNotionWritebackEnabled } from './_lib/writeAuthz';
 
 function isActivityVisible(type: string, staff: boolean): boolean {
   if (type === 'shipment') return false;
@@ -272,6 +273,59 @@ export const listActivityForStaff = adminQuery({
       projects,
       tasks,
     });
+  },
+});
+
+const OPEN_OUTBOX = ['queued', 'inflight', 'failed', 'dead', 'conflict'] as const;
+
+/**
+ * Staff sync health for the dashboard. Reads the Notion pull and the B0
+ * outbox. The write-back flag is reported as on only when it is exactly
+ * "true". Payloads, tokens, and Granola are not returned. Clients cannot
+ * call this query.
+ */
+export const getSyncHealth = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    const syncMeta = await ctx.db
+      .query('syncMeta')
+      .withIndex('by_key', (q) => q.eq('key', 'notion-pull'))
+      .unique();
+    const outbox = [];
+    for (const status of OPEN_OUTBOX) {
+      const rows = await ctx.db
+        .query('notionOutbox')
+        .withIndex('by_status_nextAttemptAt', (q) => q.eq('status', status))
+        .take(500);
+      for (const row of rows) {
+        outbox.push({
+          status: row.status,
+          createdAt: row.createdAt,
+          nextAttemptAt: row.nextAttemptAt,
+        });
+      }
+    }
+    const notices = await ctx.db
+      .query('notices')
+      .withIndex('by_audience_createdAt', (q) => q.eq('audience', 'staff'))
+      .order('desc')
+      .take(20);
+    return {
+      pull: {
+        lastSyncedAt: syncMeta?.lastSyncedAt ? new Date(syncMeta.lastSyncedAt).toISOString() : null,
+        lastError: syncMeta?.lastError ?? null,
+      },
+      writebackEnabled: isNotionWritebackEnabled(),
+      outbox,
+      notices: notices
+        .filter((row) => row.edgeCase === 'sync' || row.edgeCase === 'conflict')
+        .map((row) => ({
+          id: row._id,
+          message: row.message,
+          createdAt: row.createdAt,
+          edgeCase: row.edgeCase ?? null,
+        })),
+    };
   },
 });
 
