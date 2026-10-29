@@ -3,13 +3,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useMutation } from 'convex/react';
-import { Pill, Surface } from '@/components/ui/primitives';
+import { PrimaryButton, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import {
   activeKpiCaption,
   awaitingKpiCaption,
-  formatProgress,
   projectFilterCounts,
   projectInitials,
   projectListEmptyCopy,
@@ -32,14 +31,13 @@ import { useFixturePreview } from '@/components/providers/FixturePreviewProvider
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { api } from '@convex/_generated/api';
-import { FIXTURE_CLIENTS, FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_RESOURCES, FIXTURE_TASKS } from '@/lib/data/fixtures';
+import { FIXTURE_CLIENTS, FIXTURE_CONTACTS, FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_RESOURCES, FIXTURE_TASKS } from '@/lib/data/fixtures';
+import { warehausLead } from '@/lib/data/clientDetail';
 import {
   attachKnownSync,
-  projectStatusColor,
   type PortalProject,
   type PortalTask,
 } from '@/lib/data/view-models';
-import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
 import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
@@ -181,6 +179,17 @@ export function ProjectsContent() {
   const selectedId = route.view === 'board' ? route.projectId : openId;
   const openProject = selectedId ? projects.find((project) => project.id === selectedId) ?? null : null;
   const routeTaskId = route.view === 'board' ? route.taskId : null;
+  const leadPeople = useSafeQuery<Array<{ name: string; role?: string | null }>>(
+    api.contacts.listForOrg,
+    !fixtures && configured && isStaff && openProject?.orgId
+      ? { orgId: openProject.orgId as Id<'clients'>, hostSlug }
+      : 'skip',
+  );
+  const leadName = !isStaff
+    ? data.leadName ?? null
+    : fixtures
+      ? warehausLead(FIXTURE_CONTACTS.filter((contact) => contact.orgId === openProject?.orgId))
+      : warehausLead(leadPeople.data ?? []);
 
   const closeProject = () => {
     setOpenId(null);
@@ -267,34 +276,27 @@ export function ProjectsContent() {
             current={openProject.name}
           />
         }
-        actions={<div className="hidden flex-wrap items-center gap-2 md:flex">{boardActions}</div>}
+        actions={
+          <div className="flex flex-wrap items-center gap-2">
+            {isStaff ? (
+              <PrimaryButton disabled solidWhenDisabled title={WRITEBACK_OFF_ERROR}>
+                Edit project
+              </PrimaryButton>
+            ) : null}
+            <div className="hidden md:flex md:items-center md:gap-2">{boardActions}</div>
+          </div>
+        }
       >
         <PortalTilePane>
           <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="project-detail" style={{ scrollbarGutter: 'stable' }}>
-            <div className="flex flex-col" style={{ gap: 12 }}>
-            <div className="flex flex-wrap items-center gap-2">
-              {openProject.internal ? <InternalTag /> : (
-                <ClientLink
-                  name={openProject.clientName}
-                  orgId={openProject.orgId}
-                  onOpen={openLinkedClient}
-                />
-              )}
-              <Pill color={projectStatusColor(openProject.status)}>{openProject.status}</Pill>
-              <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                Progress {formatProgress(openProject.progress)}
-              </span>
-              {isStaff && !openProject.internal && openProject.publishToWarehaus != null ? (
-                <PublishChip published={openProject.publishToWarehaus} />
-              ) : null}
-              <SyncChip
-                audience={isStaff ? 'staff' : 'client'}
-                notionPageId={openProject.notionPageId}
-                syncHidden={openProject.syncHidden}
-              />
-            </div>
+            <ProjectSummary
+              project={openProject}
+              tasks={projectTasks}
+              staff={isStaff}
+              leadName={leadName}
+              onOpenClient={openLinkedClient}
+            />
             <div className="flex flex-wrap items-center gap-2 md:hidden">{boardActions}</div>
-            </div>
             <div
               className="flex items-center justify-between gap-3"
               style={{
@@ -306,7 +308,12 @@ export function ProjectsContent() {
                 paddingBottom: 4,
               }}
             >
-              <h2 style={{ fontSize: 'var(--t-md)', fontWeight: 600, lineHeight: 1.3 }}>Tasks</h2>
+              <div>
+                <h2 style={{ fontSize: 18, fontWeight: 600, lineHeight: '26px' }}>Tasks</h2>
+                <p style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)' }}>
+                  Board by Status · Notion Status columns
+                </p>
+              </div>
             </div>
             {taskView === 'board' ? (
               <TaskBoard
@@ -441,7 +448,7 @@ export function ProjectsContent() {
             <KpiCard
               label="Active"
               value={projectsLoading ? '…' : String(kpis.active)}
-              hint={projectsLoading ? 'Loading' : activeKpiCaption(kpis.buildingNow)}
+              hint={projectsLoading ? 'Loading' : activeKpiCaption(kpis.active, kpis.buildingNow)}
             />
             <KpiCard
               label="Awaiting Go"
@@ -846,6 +853,98 @@ function FilterChip({
       {children}
       <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>{count}</span>
     </button>
+  );
+}
+
+function ProjectSummary({
+  project,
+  tasks,
+  staff,
+  leadName,
+  onOpenClient,
+}: {
+  project: ProjectRow;
+  tasks: PortalTask[];
+  staff: boolean;
+  leadName: string | null;
+  onOpenClient: (orgId: string) => void;
+}) {
+  const progress = projectProgress({
+    projectId: project.id,
+    progress: project.progress,
+    tasks,
+  });
+  const copy = projectProgressCopy(progress.percent, tasks.length);
+  const showPublish = showProjectPublish(staff, project);
+  return (
+    <Surface style={{ padding: 'clamp(1.25rem, 3vw, 3rem)', borderRadius: 36 }}>
+      <div data-testid="project-summary">
+      <div className="flex items-center gap-6">
+        <span
+          className="inline-flex size-16 shrink-0 items-center justify-center rounded-[10px]"
+          style={{
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border-2, var(--border))',
+            fontSize: 12,
+            fontWeight: 600,
+          }}
+        >
+          {projectInitials(project.name)}
+        </span>
+        <div className="min-w-0">
+          <p style={{ fontSize: 26, lineHeight: '32px', fontWeight: 600 }}>{project.name}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-2">
+            {project.internal ? (
+              <InternalTag />
+            ) : (
+              <ClientLink name={project.clientName} orgId={project.orgId} onOpen={onOpenClient} />
+            )}
+            {leadName ? (
+              <span style={{ fontSize: 14, color: 'var(--muted)' }}>· Lead: {leadName}</span>
+            ) : null}
+          </div>
+        </div>
+      </div>
+      {showPublish && project.publishToWarehaus != null ? (
+        <div className="mt-6 flex flex-wrap items-center gap-3">
+          <PublishMark published={project.publishToWarehaus} />
+          {project.notionPageId ? (
+            <span
+              className="ds-mono"
+              data-testid="source-notion"
+              style={{
+                fontSize: 11,
+                letterSpacing: '0.08em',
+                textTransform: 'uppercase',
+                color: 'var(--muted)',
+                border: '1px solid var(--border)',
+                borderRadius: 999,
+                padding: '4px 8px',
+              }}
+            >
+              Source Notion
+            </span>
+          ) : null}
+        </div>
+      ) : null}
+      <div className="mt-6 flex flex-col gap-2">
+        <p className="ds-mono" style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--faint)' }}>
+          Progress
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <span className="h-1.5 min-w-40 flex-1 overflow-hidden rounded-full" style={{ background: 'var(--surface-2)' }}>
+            <span
+              className="block h-1.5 rounded-full"
+              style={{ width: progress.percent == null ? 0 : `${progress.percent}%`, background: 'var(--fg)' }}
+            />
+          </span>
+          <span className="ds-mono whitespace-nowrap" data-testid="project-detail-progress" style={{ fontSize: 13, color: 'var(--muted)' }}>
+            {copy.desktop}
+          </span>
+        </div>
+      </div>
+      </div>
+    </Surface>
   );
 }
 

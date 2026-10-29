@@ -179,7 +179,8 @@ export function acrossProjectsLabel(count: number): string {
   return `Across ${count} ${count === 1 ? 'project' : 'projects'}`;
 }
 
-export function activeKpiCaption(buildingNow: number): string {
+export function activeKpiCaption(active: number, buildingNow: number): string {
+  if (active <= 0) return 'None building';
   return `${buildingNow} building now`;
 }
 

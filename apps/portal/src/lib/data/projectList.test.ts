@@ -208,9 +208,10 @@ describe('project list KPIs', () => {
     const client = projectListKpis(rows, tasks, false);
     assert.equal(staff.buildingNow, 2);
     assert.equal(client.buildingNow, 1);
-    assert.equal(activeKpiCaption(staff.buildingNow), '2 building now');
-    assert.equal(activeKpiCaption(client.buildingNow), '1 building now');
-    assert.equal(activeKpiCaption(0), '0 building now');
+    assert.equal(activeKpiCaption(staff.active, staff.buildingNow), '2 building now');
+    assert.equal(activeKpiCaption(client.active, client.buildingNow), '1 building now');
+    assert.equal(activeKpiCaption(2, 0), '0 building now');
+    assert.equal(activeKpiCaption(0, 0), 'None building');
     assert.equal(shippedKpiCaption(), 'All time');
     assert.deepEqual(awaitingKpiCaption(0, 0), { caption: 'Nothing awaiting go', hot: false });
     assert.deepEqual(awaitingKpiCaption(client.awaitingGo, client.awaitingProjects), {
