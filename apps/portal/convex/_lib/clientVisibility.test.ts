@@ -379,6 +379,18 @@ const tables: Record<string, Row[]> = {
       notionPageId: 'doc-org-notion',
       lastSyncedAt: 1,
     },
+    {
+      _id: 'doc-unordered',
+      orgId: org._id,
+      projectId: 'proj-public',
+      title: 'Unordered note',
+      summary: 'No Order field',
+      docType: 'Note',
+      status: 'Published',
+      publishToWarehaus: true,
+      notionPageId: 'doc-unordered-notion',
+      lastSyncedAt: 1,
+    },
   ],
   sharedResources: [
     {
@@ -596,7 +608,7 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(listedTasks.some((task) => task.name === 'Homepage' && task.stage === 'Planning'), true);
     assert.equal(listedTasks.some((task) => task.name === 'Secret draft' || task.name === 'Studio ops' || task.name === 'Hidden launch task'), false);
     const docTitles = (docs as Array<{ title: string }>).map((doc) => doc.title);
-    assert.deepEqual(docTitles.slice(0, 2), ['Org guide', 'Public brief']);
+    assert.deepEqual(docTitles, ['Org guide', 'Public brief', 'Unordered note']);
     assert.equal(bundled.includes('Warehaus Staff'), false);
     assert.equal(bundled.includes('estimate-secret'), false);
     assert.equal(bundled.includes('priority-high'), false);

@@ -6,6 +6,12 @@ export const PROJECT_UNAVAILABLE_COPY = {
   detail: "It may have been removed or isn't shared with you.",
 } as const;
 
+/**
+ * H1 and breadcrumb leaf on the unavailable project page.
+ * The card is the only place that says PROJECT_UNAVAILABLE_COPY.title.
+ */
+export const PROJECT_UNAVAILABLE_HEADING = 'Project';
+
 export function projectUnavailableCopy(): { title: string; detail: string } {
   return PROJECT_UNAVAILABLE_COPY;
 }

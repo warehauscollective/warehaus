@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { compareDocsByOrder } from '@warehaus/portal-sync';
 import { OutlineButton } from '@/components/ui/primitives';
 import { SyncChip } from '@/components/sync/SyncChip';
 import type { RowSyncState } from '@/lib/data/view-models';
@@ -36,11 +37,9 @@ const EMPTY_COPY = {
   },
 } as const;
 
-function sortDocs(docs: DocRow[]): DocRow[] {
-  if (!docs.some((doc) => doc.order != null)) return docs;
-  return [...docs].sort(
-    (a, b) => (a.order ?? 999) - (b.order ?? 999) || a.title.localeCompare(b.title),
-  );
+/** Order ascending, then title. A missing Order sorts after every numbered row and is never shown. */
+export function sortDocRows(docs: readonly DocRow[]): DocRow[] {
+  return [...docs].sort(compareDocsByOrder);
 }
 
 function formatUpdated(value?: number | string | null): string | null {
@@ -80,6 +79,7 @@ export function DocTypeTag({ type }: { type: string }) {
         borderRadius: 999,
         padding: '4px 10px',
         fontSize: 11,
+        letterSpacing: '0.44px',
         color: 'var(--fg)',
       }}
     >
@@ -160,7 +160,7 @@ export function DocsBlock({
   loading?: boolean;
 }) {
   const [note, setNote] = useState<string | null>(null);
-  const rows = sortDocs(docs);
+  const rows = sortDocRows(docs);
   const count = rows.length;
   const empty = EMPTY_COPY[staff ? 'staff' : 'client'];
 
@@ -188,10 +188,10 @@ export function DocsBlock({
         @media (max-width: 480px) {
           .docs-clamp { -webkit-line-clamp: 2; }
           .docs-row { align-items: flex-start; }
-          .docs-main { flex: 1 1 0; min-width: 0; align-items: flex-start; }
+          .docs-main { flex: 1 1 0; min-width: 0; align-items: flex-start; gap: 12px; }
           .docs-chev { order: 2; flex: 0 0 auto; margin-top: 2px; }
-          .docs-badges { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow: hidden; justify-content: flex-start; padding-left: 52px; }
-          .docs-block { padding: 20px !important; }
+          .docs-badges { order: 3; flex: 1 0 100%; flex-wrap: wrap; overflow: visible; justify-content: flex-start; align-items: center; gap: 6px; padding-left: 48px; box-sizing: border-box; }
+          .docs-block { padding: 20px 16px !important; }
         }
         .docs-row:focus-visible {
           outline: 2px solid var(--accent);

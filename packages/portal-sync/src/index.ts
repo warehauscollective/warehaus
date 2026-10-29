@@ -268,6 +268,8 @@ export {
   type ResolvedTaskDescription,
 } from './taskDescription';
 
+export { compareDocsByOrder } from './docOrder';
+
 export {
   TASK_STAGES,
   LIVE_TASK_STATUSES,

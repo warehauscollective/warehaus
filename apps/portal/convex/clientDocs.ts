@@ -1,4 +1,4 @@
-import { clientMaySeeProject, isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { clientMaySeeProject, compareDocsByOrder, isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
@@ -69,9 +69,7 @@ export const listForClient = clientQuery({
       if (!projectVisibleToClient(project, orgVisible, row.projectId)) continue;
       visible.push(row);
     }
-    return visible
-      .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.title.localeCompare(b.title))
-      .map(toClientDoc);
+    return visible.sort(compareDocsByOrder).map(toClientDoc);
   },
 });
 
@@ -112,6 +110,6 @@ export const listForStaff = adminQuery({
         lastSyncedAt: row.lastSyncedAt,
         syncHidden: row.syncHiddenAt != null,
       }))
-      .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.title.localeCompare(b.title));
+      .sort(compareDocsByOrder);
   },
 });

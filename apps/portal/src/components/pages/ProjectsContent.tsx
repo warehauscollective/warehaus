@@ -46,7 +46,7 @@ import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
-import { projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
+import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
@@ -238,13 +238,13 @@ export function ProjectsContent() {
     return (
       <PortalWorkspace
         eyebrow={tenantEyebrow(data.tenant, 'Project')}
-        title={copy.title}
+        title={PROJECT_UNAVAILABLE_HEADING}
         breadcrumb={
           <NavBreadcrumb
             back="always"
             onBack={closeProject}
             parent={{ label: 'Projects', onClick: closeProject }}
-            current={copy.title}
+            current={PROJECT_UNAVAILABLE_HEADING}
           />
         }
       >
@@ -319,17 +319,7 @@ export function ProjectsContent() {
               onOpenClient={openLinkedClient}
               summary={summary}
             />
-            <div
-              className="flex flex-wrap items-center justify-between gap-3"
-              style={{
-                position: 'sticky',
-                top: 0,
-                zIndex: 2,
-                background: 'var(--bg)',
-                paddingTop: 12,
-                paddingBottom: 4,
-              }}
-            >
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
                 <h2 style={{ fontSize: 18, fontWeight: 600, lineHeight: '26px' }}>Tasks</h2>
                 <p style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)' }}>
