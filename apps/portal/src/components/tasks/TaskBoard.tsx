@@ -75,7 +75,7 @@ export function stageSavedFeedback(input: {
   onUndo: (request: MoveRequest) => void;
 }): { message: string; undo: () => void } {
   return {
-    message: `Moved ${input.task.name} to ${input.value}`,
+    message: `Moved “${input.task.name}” to ${input.value}`,
     undo: () => {
       const task = {
         ...input.task,
@@ -238,7 +238,7 @@ export function TaskBoard({
       onUndo: (request) => void commit(request.task, request.value, request.pullRequestLink),
     });
     setToast({ message: saved.message, undo: saved.undo });
-    setLive(`Moved ${task.name} to ${value}.`);
+    setLive(`${saved.message}.`);
   };
 
   const onDragEnd = (event: DragEndEvent) => {
@@ -275,28 +275,13 @@ export function TaskBoard({
         <p className="sr-only" aria-live="polite">{live}</p>
       </div>
       {phone ? (
-        <div role="tablist" aria-label={mode === 'stage' ? 'Stages' : 'Statuses'} className="flex gap-2 overflow-x-auto pb-1">
-          {columns.map((column) => (
-            <button
-              key={column.key}
-              type="button"
-              role="tab"
-              aria-selected={column.key === activeTab}
-              onClick={() => setTab(column.key)}
-              className="ds-mono shrink-0"
-              style={{
-                minHeight: 44,
-                padding: '0.4rem 0.75rem',
-                borderRadius: 999,
-                border: '1px solid var(--border)',
-                background: column.key === activeTab ? 'var(--fg)' : 'transparent',
-                color: column.key === activeTab ? 'var(--bg)' : 'var(--muted)',
-              }}
-            >
-              {column.label} {column.tasks.length}
-            </button>
-          ))}
-        </div>
+        <PhoneColumnTabs
+          label={mode === 'stage' ? 'Stages' : 'Statuses'}
+          columns={columns}
+          activeTab={activeTab}
+          inset={!staff}
+          onSelect={setTab}
+        />
       ) : null}
       <DndContext
         sensors={sensors}
@@ -392,6 +377,7 @@ export function TaskBoard({
           retry={toast.retry}
           undo={toast.undo ? () => { toast.undo?.(); setToast(null); } : undefined}
           onDismiss={() => setToast(null)}
+          pinned={!phone}
         />
       ) : null}
       {moveTask ? (
@@ -617,40 +603,138 @@ export function BoardToast({
   retry,
   undo,
   onDismiss,
+  pinned = false,
 }: {
   message: string;
   retry?: () => void;
   undo?: () => void;
   onDismiss: () => void;
+  /** Desktop: fixed, centered, 16px above the dock. Phone stays in the board flow. */
+  pinned?: boolean;
 }) {
-  return (
+  const quiet = {
+    color: 'var(--muted)',
+    background: 'none',
+    border: 0,
+    padding: 0,
+    cursor: 'pointer',
+    fontWeight: 500,
+    fontSize: 14,
+    lineHeight: '21px',
+  } as const;
+  const node = (
     <div
       role="status"
       data-testid="board-toast"
-      data-placement="below-board"
-      className="mx-auto flex w-fit max-w-full items-center"
+      data-placement={pinned ? 'above-dock' : 'below-board'}
+      className="ds-scope mx-auto flex w-fit max-w-full items-center"
       style={{
-        position: 'relative',
-        marginTop: 16,
+        position: pinned ? 'fixed' : 'relative',
+        left: pinned ? '50%' : undefined,
+        bottom: pinned ? 'calc(1.25rem + 3.5rem + 16px)' : undefined,
+        transform: pinned ? 'translateX(-50%)' : undefined,
+        zIndex: pinned ? 45 : undefined,
+        marginTop: pinned ? 0 : 16,
         gap: 12,
         background: 'var(--surface-2)',
         color: 'var(--fg)',
         border: retry ? '1px solid var(--danger)' : '1px solid var(--border-2)',
         borderRadius: 18,
         padding: '12px 16px',
-        boxShadow: '0 8px 12px rgb(0 0 0 / 35%)',
+        boxShadow: pinned ? '0 8px 12px rgb(0 0 0 / 35%)' : 'none',
         fontSize: 14,
         lineHeight: '21px',
+        maxWidth: pinned ? 'calc(100vw - 32px)' : undefined,
       }}
     >
+      {undo ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
       <span>{message}</span>
       {retry ? (
         <button type="button" onClick={retry} style={{ color: 'var(--accent)', background: 'none', border: 0, cursor: 'pointer' }}>Retry</button>
       ) : null}
       {undo ? (
-        <button type="button" onClick={undo} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>Undo</button>
+        <button type="button" onClick={undo} style={quiet}>Undo</button>
       ) : null}
-      <button type="button" aria-label="Dismiss" onClick={onDismiss} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>✕</button>
+      <button type="button" aria-label="Dismiss" onClick={onDismiss} style={quiet}>✕</button>
+    </div>
+  );
+  return pinned ? portalNode(node) : node;
+}
+
+function PhoneColumnTabs({
+  label,
+  columns,
+  activeTab,
+  inset,
+  onSelect,
+}: {
+  label: string;
+  columns: Array<{ key: string; label: string; tasks: unknown[] }>;
+  activeTab: string | null;
+  inset: boolean;
+  onSelect: (key: string) => void;
+}) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [fade, setFade] = useState(false);
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node || !inset) return;
+    const update = () => {
+      const overflow = node.scrollWidth - node.clientWidth > 1;
+      const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 1;
+      setFade(overflow && !atEnd);
+    };
+    update();
+    node.addEventListener('scroll', update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    return () => {
+      node.removeEventListener('scroll', update);
+      observer.disconnect();
+    };
+  }, [columns, activeTab, inset]);
+  return (
+    <div className="relative min-w-0">
+      <div
+        ref={scroller}
+        role="tablist"
+        aria-label={label}
+        className="flex gap-2 overflow-x-auto pb-1"
+        style={{
+          paddingLeft: inset ? 20 : undefined,
+          scrollPaddingLeft: inset ? 20 : undefined,
+          scrollbarWidth: inset ? 'none' : undefined,
+        }}
+      >
+        {columns.map((column) => (
+          <button
+            key={column.key}
+            type="button"
+            role="tab"
+            aria-selected={column.key === activeTab}
+            onClick={() => onSelect(column.key)}
+            className="ds-mono shrink-0"
+            style={{
+              minHeight: 44,
+              padding: '0.4rem 0.75rem',
+              borderRadius: 999,
+              border: '1px solid var(--border)',
+              background: column.key === activeTab ? 'var(--fg)' : 'transparent',
+              color: column.key === activeTab ? 'var(--bg)' : 'var(--muted)',
+            }}
+          >
+            {column.label} {column.tasks.length}
+          </button>
+        ))}
+      </div>
+      {fade ? (
+        <div
+          aria-hidden
+          data-testid="stage-edge-fade"
+          className="pointer-events-none absolute inset-y-0 right-0"
+          style={{ width: 48, background: 'linear-gradient(to right, transparent, var(--bg))' }}
+        />
+      ) : null}
     </div>
   );
 }

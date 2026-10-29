@@ -117,12 +117,18 @@ describe('TaskCardFace client stage card', () => {
       previous: 'Idea',
       onUndo: (request) => moves.push(request.value),
     });
-    assert.equal(saved.message, 'Moved Homepage to Planning');
+    assert.equal(saved.message, 'Moved “Homepage” to Planning');
     const html = renderToStaticMarkup(
       createElement(BoardToast, { message: saved.message, undo: saved.undo, onDismiss: () => undefined }),
     );
-    assert.match(html, /Moved Homepage to Planning/);
+    assert.match(html, /Moved “Homepage” to Planning/);
+    assert.match(html, /docs-check\.svg/);
     assert.match(html, />Undo</);
+    assert.match(html, /data-placement="below-board"/);
+    const pinned = renderToStaticMarkup(
+      createElement(BoardToast, { message: saved.message, undo: saved.undo, onDismiss: () => undefined, pinned: true }),
+    );
+    assert.match(pinned, /data-placement="above-dock"/);
     saved.undo();
     assert.deepEqual(moves, ['Idea']);
   });
