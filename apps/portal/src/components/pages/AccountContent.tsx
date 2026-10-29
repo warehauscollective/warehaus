@@ -293,6 +293,7 @@ export function AccountContent() {
               projects.filter((project) => project.orgId === selected.id).map((project) => project.startDate),
             )}
             brandName={clientScreen === 'long' ? LONG_CLIENT : selected.name}
+            screen={clientScreen}
           />
         </PortalTilePane>
       ) : null}

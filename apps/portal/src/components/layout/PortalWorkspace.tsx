@@ -68,11 +68,13 @@ export function PortalWorkspace({
               </p>
             )}
             <h1
-              className={titleLines === 2 ? 'type-display normal-case' : 'type-display truncate normal-case'}
+              className={titleLines === 2 ? 'portal-page-title type-display normal-case' : 'portal-page-title type-display truncate normal-case'}
               style={{
                 fontSize: 'clamp(1.5rem, 1.2rem + 1vw, 2rem)',
                 marginTop: breadcrumb ? 10 : '0.35rem',
                 lineHeight: 1.15,
+                minWidth: 0,
+                maxWidth: '100%',
                 ...(titleLines === 2
                   ? {
                       display: '-webkit-box',

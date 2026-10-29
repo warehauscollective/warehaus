@@ -488,11 +488,7 @@ export function ResourcesContent() {
           >
             <h2 style={{ fontSize: 20, fontWeight: 600, lineHeight: '26px' }}>All resources</h2>
             <p style={{ marginTop: 4, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
-              {fixtures
-                ? 'Sample data · each resource attaches to one or more items'
-                : isStaff
-                  ? 'Each resource attaches to one or more items'
-                  : 'A published recap, not a transcript.'}
+              Each resource attaches to one or more items.
             </p>
             {resourceScreen !== 'ready' && resourceScreen !== 'long' ? (
               <div className="mt-6">
