@@ -1,6 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { clientInitials, clientListStats, clientMatchesFilter, singleOrAcross } from './clientList';
+import {
+  clientDirectoryErrorMode,
+  clientDirectoryShowsFilters,
+  clientDirectoryShowsKpis,
+  clientInitials,
+  clientListStats,
+  clientMatchesFilter,
+  singleOrAcross,
+} from './clientList';
 
 const rows = [
   { id: '1', name: 'Northwind Foods', status: 'Active', internal: false, syncHidden: false, projectCount: 2, openTaskCount: 12, contactCount: 4, awaitingGoCount: 3 },
@@ -34,5 +42,17 @@ describe('client list filters', () => {
     assert.equal(stats.internal, 1);
     assert.equal(clientInitials('Northwind Foods'), 'NF');
     assert.equal(clientInitials('Warehaus'), 'WA');
+  });
+
+  it('derives empty, loading, and cached-error from the client array', () => {
+    assert.equal(clientDirectoryShowsKpis(0, false), false);
+    assert.equal(clientDirectoryShowsKpis(0, true), true);
+    assert.equal(clientDirectoryShowsKpis(2, false), true);
+    assert.equal(clientDirectoryShowsFilters(0, false), false);
+    assert.equal(clientDirectoryShowsFilters(2, true), false);
+    assert.equal(clientDirectoryShowsFilters(2, false), true);
+    assert.equal(clientDirectoryErrorMode(null, 0), 'none');
+    assert.equal(clientDirectoryErrorMode('Network error', 0), 'empty');
+    assert.equal(clientDirectoryErrorMode('Network error', 3), 'refresh');
   });
 });

@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, type CSSProperties, type ReactNode } from 'react';
-import { Pill, PortalCheckbox } from '@/components/ui/primitives';
+import { OutlineButton, Pill, PortalCheckbox } from '@/components/ui/primitives';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
@@ -17,7 +17,17 @@ import {
   staffHeaderLine,
 } from '@/lib/data/clientDetail';
 import { EDIT_PROJECT_WRITEBACK_HINT } from '@/lib/data/projectList';
-import { clientInitials, clientListStats, clientMatchesFilter, singleOrAcross, type ClientListFilter, type ClientListRow } from '@/lib/data/clientList';
+import {
+  clientDirectoryErrorMode,
+  clientDirectoryShowsFilters,
+  clientDirectoryShowsKpis,
+  clientInitials,
+  clientListStats,
+  clientMatchesFilter,
+  singleOrAcross,
+  type ClientListFilter,
+  type ClientListRow,
+} from '@/lib/data/clientList';
 import { taskStatusColor } from '@/lib/data/view-models';
 
 export type DirectoryClient = ClientListRow & {
@@ -118,7 +128,7 @@ function Stat({
       ) : (
         <p style={{ fontFamily: 'var(--font-display)', fontSize: size, lineHeight: 1, marginTop: 8 }}>{value}</p>
       )}
-      <p style={{ fontSize: 'var(--t-sm)', color: tone ?? 'var(--muted)', marginTop: 6 }}>{hint}</p>
+      <p className="kpi-caption" style={{ fontSize: 'var(--t-sm)', color: tone ?? 'var(--muted)', marginTop: 6 }}>{hint}</p>
     </div>
   );
 }
@@ -207,29 +217,45 @@ function TeamPersonRow({
   nameWeight?: number;
   pendingColor?: string;
 }) {
+  const status = clientPersonStatus(person);
+  const statusColor = person.invitePending ? pendingColor : 'var(--muted)';
   return (
-    <li className="flex items-center" style={personRowStyle(index)}>
+    <li className="flex items-start lg:items-center" style={personRowStyle(index)}>
       <PersonMark name={person.name} />
       <span className="min-w-0 flex-1" style={{ marginLeft: 12 }}>
-        <span className="block" style={{ fontWeight: nameWeight, overflowWrap: 'break-word' }}>{person.name}</span>
-        <span className="ds-mono hidden lg:block" style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'break-word' }}>{person.email}</span>
-        <span className="ds-mono block lg:hidden" data-testid="client-person-meta" style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'break-word' }}>
-          {[person.email, person.role].filter(Boolean).join(' · ')}
+        <span className="flex items-start justify-between gap-3 lg:block">
+          <span className="block min-w-0" style={{ fontWeight: nameWeight, overflowWrap: 'break-word' }}>{person.name}</span>
+          <span
+            className="ds-mono shrink-0 lg:hidden"
+            data-testid="client-person-status"
+            style={{ fontSize: 12, color: statusColor, textAlign: 'left' }}
+          >
+            {status}
+          </span>
+        </span>
+        <span className="ds-mono hidden lg:block" style={{ fontSize: 12, color: 'var(--muted)' }}>{person.email}</span>
+        <span className="ds-mono block lg:hidden" data-testid="client-person-meta" style={{ fontSize: 12, color: 'var(--muted)' }}>
+          {person.email ? (
+            <span data-testid="client-person-email" style={{ overflowWrap: 'anywhere' }}>{person.email}</span>
+          ) : null}
+          {person.role ? (
+            <span data-testid="client-person-role-phone" style={{ whiteSpace: 'nowrap' }}>{` · ${person.role}`}</span>
+          ) : null}
         </span>
       </span>
       <span
         className="ds-mono hidden shrink-0 lg:block"
         data-testid="client-person-role"
-        style={{ width: 140, marginLeft: 12, fontSize: 12, color: 'var(--muted)' }}
+        style={{ width: 140, marginLeft: 12, fontSize: 12, color: 'var(--muted)', textAlign: 'left' }}
       >
         {person.role ?? ''}
       </span>
       <span
-        className="ds-mono shrink-0"
+        className="ds-mono hidden shrink-0 lg:block"
         data-testid="client-person-status"
-        style={{ marginLeft: 24, fontSize: 12, color: person.invitePending ? pendingColor : 'var(--muted)' }}
+        style={{ width: 140, marginLeft: 24, fontSize: 12, color: statusColor, textAlign: 'left' }}
       >
-        {clientPersonStatus(person)}
+        {status}
       </span>
     </li>
   );
@@ -309,28 +335,134 @@ function StageBadge() {
   );
 }
 
-function DisabledAction({ label }: { label: string }) {
+const CLIENT_CREATE_HINT = 'Creating a client turns on with Notion write-back';
+const CLIENT_SYNC_RETRY_HINT = 'Retrying a sync turns on with Notion write-back';
+
+/** Outlined control kept on screen while write-back is off. No role=group. */
+function ClientOutlineAction({ label, hint, testId }: { label: string; hint: string; testId: string }) {
+  const hintId = useId();
   return (
-    <button
-      type="button"
-      disabled
+    <span
+      tabIndex={0}
       aria-disabled="true"
-      title="Not available yet"
-      className="ds-mono"
+      aria-describedby={hintId}
+      title={hint}
+      data-testid={`${testId}-hint`}
+      className="inline-flex"
+      style={{ cursor: 'not-allowed' }}
+    >
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        tabIndex={-1}
+        data-testid={testId}
+        style={{
+          pointerEvents: 'none',
+          background: 'transparent',
+          color: 'var(--fg)',
+          border: '1px solid var(--border-2)',
+          borderRadius: 9,
+          fontFamily: 'var(--font-body)',
+          fontSize: 14,
+          fontWeight: 500,
+          padding: '12px 16px',
+          cursor: 'not-allowed',
+          opacity: 0.4,
+        }}
+      >
+        {label}
+      </button>
+      <span id={hintId} className="sr-only">
+        {hint}
+      </span>
+    </span>
+  );
+}
+
+/** Three list rows: mark, two bars, a short pill. Clients / States (Figma 297:18207). */
+function ClientListSkeleton() {
+  return (
+    <div className="mt-4 flex flex-col" aria-busy="true" data-testid="client-loading" style={{ gap: 24 }}>
+      {[0, 1, 2].map((row) => (
+        <div key={row} className="flex items-center" style={{ gap: 16, minHeight: 36 }}>
+          <span className="animate-pulse shrink-0" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface-2)' }} />
+          <span className="flex min-w-0 flex-1 flex-col" style={{ gap: 8 }}>
+            <span className="animate-pulse" style={{ height: 12, width: '100%', maxWidth: 302, borderRadius: 6, background: 'var(--surface-2)' }} />
+            <span className="animate-pulse" style={{ height: 10, width: 160, maxWidth: '40%', borderRadius: 6, background: 'var(--surface-2)' }} />
+          </span>
+          <span className="animate-pulse shrink-0" style={{ width: 64, height: 22, borderRadius: 999, background: 'var(--surface-2)' }} />
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function NewClientButton() {
+  const hintId = useId();
+  return (
+    <span
+      tabIndex={0}
+      aria-disabled="true"
+      aria-describedby={hintId}
+      title={CLIENT_CREATE_HINT}
+      data-testid="new-client-header"
+      className="inline-flex shrink-0"
+      style={{ cursor: 'not-allowed' }}
+    >
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        tabIndex={-1}
+        style={{
+          pointerEvents: 'none',
+          background: 'var(--accent)',
+          color: 'var(--accent-fg)',
+          border: 0,
+          borderRadius: 9,
+          fontFamily: 'var(--font-body)',
+          fontSize: 'var(--t-sm)',
+          fontWeight: 600,
+          padding: '0.65rem 1.1rem',
+          cursor: 'not-allowed',
+          opacity: 0.4,
+        }}
+      >
+        New client
+      </button>
+      <span id={hintId} className="sr-only">
+        {CLIENT_CREATE_HINT}
+      </span>
+    </span>
+  );
+}
+
+function ClientKpiSkeleton() {
+  return (
+    <div
+      aria-hidden
+      data-testid="client-kpi-skeleton"
       style={{
-        fontSize: 'var(--t-xs)',
-        letterSpacing: '0.06em',
-        textTransform: 'uppercase',
-        padding: '0.45rem 0.8rem',
-        borderRadius: 999,
+        background: 'var(--surface)',
         border: '1px solid var(--border)',
-        background: 'transparent',
-        color: 'var(--muted)',
-        cursor: 'not-allowed',
+        borderRadius: 22,
+        padding: '1rem 1.1rem',
+        minHeight: 112,
       }}
     >
-      {label}
-    </button>
+      <span className="animate-pulse block" style={{ height: 12, width: 72, borderRadius: 6, background: 'var(--surface-2)' }} />
+      <span className="animate-pulse mt-4 block" style={{ height: 28, width: 48, borderRadius: 8, background: 'var(--surface-2)' }} />
+      <span className="animate-pulse mt-3 block" style={{ height: 12, width: 96, borderRadius: 6, background: 'var(--surface-2)' }} />
+    </div>
+  );
+}
+
+function TryAgain({ onRetry }: { onRetry?: () => void }) {
+  return (
+    <OutlineButton onClick={onRetry}>
+      <span data-testid="client-try-again">Try again</span>
+    </OutlineButton>
   );
 }
 
@@ -340,7 +472,7 @@ function percent(value: number | null | undefined): number {
   return Math.min(100, Math.max(0, Math.round(pct)));
 }
 
-export type ClientScreen = 'ready' | 'empty' | 'loading' | 'error' | 'long';
+export type ClientScreen = 'ready' | 'empty' | 'loading' | 'error' | 'long' | 'filtered' | 'refresh';
 
 export function ClientDirectory({
   clients,
@@ -349,7 +481,8 @@ export function ClientDirectory({
   onOpen,
   loading,
   error,
-  screen = 'ready',
+  errorTitle,
+  onRetry,
 }: {
   clients: DirectoryClient[];
   filter: ClientListFilter;
@@ -357,10 +490,15 @@ export function ClientDirectory({
   onOpen: (id: string) => void;
   loading: boolean;
   error: string | null;
-  screen?: ClientScreen;
+  /** Designed sync-problem title. A plain query failure uses the load/refresh titles. */
+  errorTitle?: string;
+  onRetry?: () => void;
 }) {
-  const phone = useMaxWidth(767);
   const narrow = useMaxWidth(480);
+  const count = clients.length;
+  const showKpis = clientDirectoryShowsKpis(count, loading);
+  const showFilters = clientDirectoryShowsFilters(count, loading);
+  const errorMode = loading ? 'none' : clientDirectoryErrorMode(error, count);
   const stats = clientListStats(clients);
   const shown = clients.filter((client) => clientMatchesFilter(client, filter));
   const counts: Record<ClientListFilter, number> = {
@@ -369,91 +507,128 @@ export function ClientDirectory({
     internal: stats.internal,
     sync: stats.sync,
   };
+  const trueEmpty = !loading && errorMode === 'none' && count === 0;
+  const filteredEmpty = !loading && errorMode !== 'empty' && count > 0 && shown.length === 0;
+  const noticeTitle = errorMode === 'refresh'
+    ? "Couldn't refresh clients"
+    : errorTitle ?? "Couldn't load clients";
+  const syncProblem = errorMode === 'empty' && Boolean(errorTitle);
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="account-clients">
       <ClampStyle />
-      <div
-        className="grid w-full gap-3"
-        data-testid="client-stats"
-        style={{ gridTemplateColumns: phone ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fit, minmax(160px, 1fr))' }}
-      >
-        <Stat display label="CLIENTS" value={String(stats.total)} hint={`${stats.active} active · ${stats.internal} internal`} />
-        <Stat display label="ACTIVE PROJECTS" value={String(stats.projects)} hint={stats.withProjects === 1 ? 'Across 1 client' : `Across ${stats.withProjects} clients`} />
-        <Stat
-          display
-          label="AWAITING GO"
-          value={String(stats.awaiting)}
-          hint={singleOrAcross(stats.awaitingNames, 'None waiting')}
-          tone={stats.awaiting > 0 ? 'var(--danger)' : undefined}
-        />
-        <Stat
-          display
-          label="SYNC PROBLEMS"
-          value={String(stats.sync)}
-          hint={singleOrAcross(stats.syncNames, 'None')}
-          tone={stats.sync > 0 ? 'var(--danger)' : undefined}
-        />
-      </div>
+      {showKpis ? (
+        <div className="client-directory-kpis grid w-full gap-3" data-testid="client-stats">
+          {loading ? (
+            [0, 1, 2, 3].map((item) => <ClientKpiSkeleton key={item} />)
+          ) : (
+            <>
+              <Stat display label="CLIENTS" value={String(stats.total)} hint={`${stats.active} active · ${stats.internal} internal`} />
+              <Stat display label="ACTIVE PROJECTS" value={String(stats.projects)} hint={stats.withProjects === 1 ? 'Across 1 client' : `Across ${stats.withProjects} clients`} />
+              <Stat
+                display
+                label="AWAITING GO"
+                value={String(stats.awaiting)}
+                hint={singleOrAcross(stats.awaitingNames, 'None waiting')}
+                tone={stats.awaiting > 0 ? 'var(--danger)' : undefined}
+              />
+              <Stat
+                display
+                label="SYNC PROBLEMS"
+                value={String(stats.sync)}
+                hint={singleOrAcross(stats.syncNames, 'None')}
+                tone={stats.sync > 0 ? 'var(--danger)' : undefined}
+              />
+            </>
+          )}
+        </div>
+      ) : null}
 
       <Panel>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>All clients</h2>
-        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
-          Each client sees only what is published to them.
-        </p>
-        <div
-          className="mt-4 flex gap-2"
-          data-testid="client-filters"
-          style={
-            narrow
-              ? { overflowX: 'auto', flexWrap: 'nowrap', scrollbarWidth: 'none' }
-              : { flexWrap: 'wrap' }
-          }
-        >
-          {FILTERS.map((item) => {
-            const active = filter === item.key;
-            return (
-              <button
-                key={item.key}
-                type="button"
-                aria-pressed={active}
-                onClick={() => onFilter(item.key)}
-                className="ds-mono shrink-0"
-                style={{
-                  fontSize: 'var(--t-xs)',
-                  padding: '0.35rem 0.75rem',
-                  borderRadius: 999,
-                  border: '1px solid var(--border)',
-                  background: active ? 'var(--fg)' : 'transparent',
-                  color: active ? 'var(--bg)' : 'var(--muted)',
-                  cursor: 'pointer',
-                }}
-              >
-                {item.label} {counts[item.key]}
-              </button>
-            );
-          })}
-        </div>
-        {screen === 'error' || error ? (
-          <StateNotice
-            title="Client list is out of date"
-            body={screen === 'error' ? 'Last synced 22 minutes ago. Lumen Dental has a sync problem.' : error || 'Try again in a moment.'}
-            action={<DisabledAction label="Retry sync" />}
-          />
-        ) : screen === 'loading' || loading ? (
-          <div className="mt-4 flex flex-col gap-2" aria-busy="true" data-testid="client-loading">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="animate-pulse" style={{ height: 64, borderRadius: 12, background: 'var(--bg)' }} />
-            ))}
+        {trueEmpty ? null : (
+          <>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>All clients</h2>
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
+              Each client sees only what is published to them.
+            </p>
+          </>
+        )}
+        {showFilters ? (
+          <div
+            className="mt-4 flex gap-2"
+            data-testid="client-filters"
+            style={
+              narrow
+                ? { overflowX: 'auto', flexWrap: 'nowrap', scrollbarWidth: 'none' }
+                : { flexWrap: 'wrap' }
+            }
+          >
+            {FILTERS.map((item) => {
+              const active = filter === item.key;
+              return (
+                <button
+                  key={item.key}
+                  type="button"
+                  aria-pressed={active}
+                  onClick={() => onFilter(item.key)}
+                  className="ds-mono shrink-0"
+                  style={{
+                    fontSize: 'var(--t-xs)',
+                    padding: '0.35rem 0.75rem',
+                    borderRadius: 999,
+                    border: '1px solid var(--border)',
+                    background: active ? 'var(--fg)' : 'transparent',
+                    color: active ? 'var(--bg)' : 'var(--muted)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  {item.label} {counts[item.key]}
+                </button>
+              );
+            })}
           </div>
-        ) : screen === 'empty' ? (
+        ) : null}
+        {errorMode !== 'none' && error ? (
+          <StateNotice
+            title={noticeTitle}
+            body={error}
+            action={
+              syncProblem ? (
+                <ClientOutlineAction label="Retry sync" hint={CLIENT_SYNC_RETRY_HINT} testId="retry-sync" />
+              ) : (
+                <TryAgain onRetry={onRetry} />
+              )
+            }
+          />
+        ) : null}
+        {errorMode === 'empty' ? null : loading ? (
+          <ClientListSkeleton />
+        ) : trueEmpty ? (
           <EmptyCopy
             title="No clients yet"
             body="Add a client to start a project. Warehaus (internal) always exists."
-            action={<DisabledAction label="New client" />}
+            action={<ClientOutlineAction label="New client" hint={CLIENT_CREATE_HINT} testId="new-client" />}
           />
-        ) : shown.length === 0 ? (
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 16 }}>No clients match these filters.</p>
+        ) : filteredEmpty ? (
+          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 16 }}>
+            No clients match these filters.{' '}
+            <button
+              type="button"
+              data-testid="clear-filters"
+              onClick={() => onFilter('all')}
+              style={{
+                background: 'none',
+                border: 0,
+                padding: 0,
+                color: 'var(--fg)',
+                font: 'inherit',
+                textDecoration: 'underline',
+                cursor: 'pointer',
+              }}
+            >
+              Clear filters
+            </button>
+          </p>
         ) : (
           <ul className="mt-2">
             {shown.map((client) => (
@@ -461,23 +636,23 @@ export function ClientDirectory({
                 <button
                   type="button"
                   onClick={() => onOpen(client.id)}
-                  className="flex w-full items-center gap-3 text-left"
+                  className="flex w-full items-start gap-3 text-left"
                   style={{ background: 'none', border: 0, padding: '0.9rem 0.2rem', cursor: 'pointer', color: 'inherit' }}
                 >
                   <Mark name={client.name} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate" style={{ fontWeight: 600 }}>
+                    <span className="client-row-clamp block" data-testid="client-row-name" style={{ fontWeight: 600, overflowWrap: 'break-word' }}>
                       {client.internal ? `${client.name} (internal)` : client.name}
                     </span>
                     {narrow ? (
                       <>
-                        <span className="block truncate" data-testid="client-row-meta" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
+                        <span className="block" data-testid="client-row-meta" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2, overflowWrap: 'break-word' }}>
                           {client.internal
                             ? `${client.contactCount} staff · admin-only`
                             : `${client.contactCount} ${client.contactCount === 1 ? 'person' : 'people'}`}
                           {` · ${client.projectCount} ${client.projectCount === 1 ? 'project' : 'projects'} · ${client.openTaskCount} open · ${client.awaitingGoCount ?? 0} awaiting go`}
                         </span>
-                        <span className="mt-1 flex items-center gap-2 overflow-hidden">
+                        <span className="mt-1 flex flex-wrap items-center gap-2">
                           <SyncChip
                             audience="staff"
                             notionPageId={client.notionPageId}
@@ -488,7 +663,7 @@ export function ClientDirectory({
                         </span>
                       </>
                     ) : (
-                      <span className="ds-mono block truncate" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                      <span className="ds-mono block" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, overflowWrap: 'break-word' }}>
                         {client.internal
                           ? `${client.contactCount} staff · admin-only`
                           : `${client.contactCount} ${client.contactCount === 1 ? 'person' : 'people'}`}
@@ -562,10 +737,8 @@ export function ClientDetail({
   }
   if (screen === 'loading') {
     return (
-      <div className="flex h-full min-h-0 w-full flex-col gap-3 overflow-y-auto" data-testid="client-detail" aria-busy="true">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="w-full animate-pulse" style={{ height: 72, borderRadius: 18, background: 'var(--surface)' }} />
-        ))}
+      <div className="flex h-full min-h-0 w-full flex-col overflow-y-auto" data-testid="client-detail" aria-busy="true">
+        <ClientListSkeleton />
       </div>
     );
   }
@@ -724,7 +897,9 @@ export function ClientCompany({
   showTeam,
   onShowTeam,
   onOpenTask,
-  screen = 'ready',
+  loading = false,
+  error = null,
+  onRetry,
 }: {
   name: string;
   leadName?: string | null;
@@ -736,7 +911,9 @@ export function ClientCompany({
   onShowTeam: () => void;
   onOpenTask?: (taskId: string) => void;
   onBack: () => void;
-  screen?: ClientScreen;
+  loading?: boolean;
+  error?: string | null;
+  onRetry?: () => void;
 }) {
   const open = tasks.filter((task) => !task.isDone);
   const awaiting = open.filter((task) => task.stage === 'Awaiting Go');
@@ -832,26 +1009,31 @@ export function ClientCompany({
     );
   }
 
-  if (screen === 'error') {
+  if (!loading && error && projects.length === 0) {
     return (
       <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company">
-        <StateNotice title="We could not load your company" body="Try again in a moment." />
-      </div>
-    );
-  }
-  if (screen === 'loading') {
-    return (
-      <div className="flex h-full min-h-0 w-full flex-col gap-3 overflow-y-auto" data-testid="client-company" aria-busy="true">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="w-full animate-pulse" style={{ height: 72, borderRadius: 18, background: 'var(--surface)' }} />
-        ))}
+        <StateNotice
+          title="We couldn't load your company"
+          body="Try again in a moment."
+          action={<TryAgain onRetry={onRetry} />}
+        />
       </div>
     );
   }
 
+  const trueEmpty = !loading && projects.length === 0;
+
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company" aria-busy={loading || undefined}>
       <ClampStyle />
+      {!loading && error ? (
+        <StateNotice
+          title="We couldn't refresh your company"
+          body="Showing what was last loaded."
+          action={<TryAgain onRetry={onRetry} />}
+        />
+      ) : null}
+      {loading ? <CompanyCardSkeleton /> : (
       <Panel>
         <div className="flex items-center gap-4">
           <Mark name={name} />
@@ -877,7 +1059,7 @@ export function ClientCompany({
               {people.map((person) => (
                 <li key={person.id}>
                   <button type="button" onClick={onShowTeam} className="flex w-full items-center gap-3 text-left" style={{ background: 'none', border: 0, padding: '0.45rem 0', color: 'inherit', cursor: 'pointer' }}>
-                    <Mark name={person.name} />
+                    <PersonMark name={person.name} />
                     <span className="min-w-0">
                       <span className="clamp-one block" style={{ fontWeight: 600 }}>{person.name}</span>
                       <span className="block truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
@@ -889,17 +1071,28 @@ export function ClientCompany({
           )}
         </div>
       </Panel>
+      )}
+      {trueEmpty ? null : (
       <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3" data-testid="client-stats">
-        <Stat label="ACTIVE PROJECTS" value={String(projects.length)} hint={projects[0] ? projects[0].name : 'None shared yet'} />
-        <Stat label="OPEN ITEMS" value={String(open.length)} hint={`${open.filter((task) => /progress/i.test(task.status)).length} in progress`} />
-        <Stat label="NEEDS YOUR ATTENTION" value={String(awaiting.length)} hint={awaiting.length > 0 ? 'Waiting on your approval' : 'Nothing waiting'} tone={awaiting.length > 0 ? 'var(--danger)' : undefined} />
+        {loading ? (
+          [0, 1, 2].map((item) => <ClientKpiSkeleton key={item} />)
+        ) : (
+          <>
+            <Stat label="ACTIVE PROJECTS" value={String(projects.length)} hint={projects[0] ? projects[0].name : 'None shared yet'} />
+            <Stat label="OPEN ITEMS" value={String(open.length)} hint={`${open.filter((task) => /progress/i.test(task.status)).length} in progress`} />
+            <Stat label="NEEDS YOUR ATTENTION" value={String(awaiting.length)} hint={awaiting.length > 0 ? 'Waiting on your approval' : 'Nothing waiting'} tone={awaiting.length > 0 ? 'var(--danger)' : undefined} />
+          </>
+        )}
       </div>
+      )}
       <Panel>
         <h3 id="your-brands" data-testid="your-brands" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Your brands</h3>
         <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
           {name} is the brand on each project shared with you.
         </p>
-        {screen === 'empty' || projects.length === 0 ? (
+        {loading ? (
+          <ClientListSkeleton />
+        ) : projects.length === 0 ? (
           <EmptyCopy
             title="No projects shared with you yet"
             body="Warehaus will publish projects here when they are ready."
@@ -922,9 +1115,11 @@ export function ClientCompany({
           </ul>
         )}
       </Panel>
-      <div data-testid="client-docs">
-        <DocsBlock docs={screen === 'empty' ? [] : docs} staff={false} />
-      </div>
+      {loading ? null : (
+        <div data-testid="client-docs">
+          <DocsBlock docs={docs} staff={false} />
+        </div>
+      )}
     </div>
   );
 }
@@ -946,6 +1141,19 @@ function ClampStyle() {
           overflow-wrap: break-word;
         }
       }
+      .kpi-caption {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .client-directory-kpis {
+        grid-template-columns: minmax(0, 1fr);
+      }
+      @media (min-width: 768px) {
+        .client-directory-kpis {
+          grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+        }
+      }
       @media (max-width: 480px) {
         .clamp-one { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .clamp-two {
@@ -958,8 +1166,31 @@ function ClampStyle() {
           -webkit-line-clamp: 2;
           overflow: hidden;
         }
+        .client-row-clamp {
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+          overflow: hidden;
+        }
       }
     `}</style>
+  );
+}
+
+function CompanyCardSkeleton() {
+  return (
+    <section
+      data-testid="client-company-card"
+      style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 28, padding: '1.25rem' }}
+    >
+      <div className="flex items-center" style={{ gap: 16 }}>
+        <span className="animate-pulse shrink-0" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface-2)' }} />
+        <span className="flex min-w-0 flex-1 flex-col" style={{ gap: 8 }}>
+          <span className="animate-pulse" style={{ height: 16, width: '60%', maxWidth: 240, borderRadius: 6, background: 'var(--surface-2)' }} />
+          <span className="animate-pulse" style={{ height: 10, width: 120, borderRadius: 6, background: 'var(--surface-2)' }} />
+        </span>
+      </div>
+    </section>
   );
 }
 
@@ -967,12 +1198,36 @@ function StateNotice({ title, body, action }: { title: string; body: string; act
   return (
     <div
       role="alert"
-      className="mt-4 flex flex-col items-start gap-3"
-      style={{ border: '1px solid var(--danger)', borderRadius: 18, padding: '1rem 1.25rem' }}
+      data-testid="client-state-notice"
+      className="mt-4 flex items-start"
+      style={{
+        gap: 12,
+        border: '1px solid var(--danger)',
+        borderRadius: 18,
+        background: 'var(--surface)',
+        padding: '16px 24px',
+      }}
     >
-      <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 14 }}>{title}</p>
-      <p style={{ color: 'var(--muted)', fontSize: 13 }}>{body}</p>
-      {action}
+      <span
+        aria-hidden
+        className="inline-flex shrink-0 items-center justify-center"
+        style={{
+          width: 20,
+          height: 20,
+          borderRadius: 999,
+          border: '1.25px solid var(--danger)',
+          color: 'var(--danger)',
+          fontSize: 11,
+          fontWeight: 600,
+        }}
+      >
+        !
+      </span>
+      <span className="min-w-0 flex-1">
+        <p style={{ margin: 0, color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{title}</p>
+        <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: '19px' }}>{body}</p>
+        {action ? <span className="mt-2 block">{action}</span> : null}
+      </span>
     </div>
   );
 }
@@ -980,11 +1235,32 @@ function StateNotice({ title, body, action }: { title: string; body: string; act
 function EmptyCopy({ title, body, action }: { title: string; body: string; action?: ReactNode }) {
   return (
     <div
-      className="mt-4 flex flex-col items-center gap-2 text-center"
-      style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '2.5rem 1.25rem' }}
+      className="mt-4 flex flex-col items-center text-center"
+      data-testid="client-empty"
+      style={{
+        gap: 12,
+        border: '1px dashed var(--border)',
+        borderRadius: 18,
+        background: 'var(--bg-2, var(--bg))',
+        padding: '48px 24px',
+      }}
     >
-      <p style={{ fontWeight: 500 }}>{title}</p>
-      <p style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 360 }}>{body}</p>
+      <span style={{ color: 'var(--muted)' }}>
+        <TaskGlyph src="/icons/task-layers.svg" size={28} />
+      </span>
+      <p style={{ margin: 0, fontSize: 16, fontWeight: 500, lineHeight: '19px' }}>{title}</p>
+      <p
+        style={{
+          margin: 0,
+          maxWidth: 440,
+          fontSize: 13,
+          lineHeight: '19px',
+          color: 'var(--muted)',
+          textWrap: 'balance',
+        }}
+      >
+        {body}
+      </p>
       {action}
     </div>
   );
