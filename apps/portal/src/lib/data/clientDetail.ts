@@ -62,6 +62,56 @@ export function clientVisiblePerson(person: { role?: string | null; email?: stri
   return true;
 }
 
+/** Client stage badge. Matches the dashboard awaiting label. */
+export const CLIENT_TEAM_STAGE_LABEL = 'Pending approval';
+
+export function clientPersonStatus(person: {
+  invitePending?: boolean;
+  portalAccess?: string | null;
+}): string {
+  if (person.invitePending) return 'Invite pending';
+  if (person.portalAccess === 'Enabled') return 'Active';
+  return 'No portal access';
+}
+
+/** Desktop trail is Account / Company / Your team. Phone keeps Company, the page you go back to. */
+export function clientTeamCrumbs(phone: boolean): {
+  parent: 'Account' | 'Company';
+  middle: 'Company' | null;
+  current: 'Your team';
+  back: 'account' | 'company';
+} {
+  if (phone) {
+    return { parent: 'Company', middle: null, current: 'Your team', back: 'company' };
+  }
+  return { parent: 'Account', middle: 'Company', current: 'Your team', back: 'account' };
+}
+
+/** Notice only. It does not send an invite. */
+export function clientTeamInviteCopy(
+  company: string,
+  people: Array<{ name: string; role?: string | null }>,
+): { title: string; body: string } {
+  const admin = people.find((person) => person.role === 'Client Admin' && person.name.trim());
+  const who = admin ? admin.name.trim().split(/\s+/)[0] : 'A Client Admin';
+  return {
+    title: 'Client Admins can invite teammates',
+    body: `${who} can invite new Client Members from Account › Team. Invited people only see ${company}.`,
+  };
+}
+
+export function clientDueLabel(date: string | null | undefined): string | null {
+  if (!date) return null;
+  const dueTime = Date.parse(`${date}T00:00:00Z`);
+  if (Number.isNaN(dueTime)) return null;
+  const label = new Intl.DateTimeFormat('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  }).format(new Date(dueTime));
+  return `Due ${label}`;
+}
+
 export function withoutClientLeaks<T extends object>(row: T): T {
   const next = { ...row } as Record<string, unknown>;
   for (const key of CLIENT_LEAK_KEYS) delete next[key];
