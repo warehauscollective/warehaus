@@ -486,7 +486,6 @@ export const applyOutcome = internalMutation({
               stagePendingAt: undefined,
               stagePendingBaseEditedTime: undefined,
               stagePendingPullRequest: undefined,
-              stagePendingActorId: undefined,
               ...(isNewerEditedTime(responseTime, task.lastEditedTime ?? null) && responseTime
                 ? { lastEditedTime: responseTime }
                 : {}),

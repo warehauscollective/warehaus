@@ -171,7 +171,6 @@ export const enqueueStage = internalMutation({
       stagePendingBaseEditedTime: baseEditedTime,
       ...(alreadyPending ? {} : { stageSynced: synced }),
       stagePendingPullRequest: typeof link === 'string' ? link : undefined,
-      ...(args.actorId ? { stagePendingActorId: args.actorId } : {}),
     });
 
     if (args.stage === synced) {
@@ -182,7 +181,6 @@ export const enqueueStage = internalMutation({
           stagePendingAt: undefined,
           stagePendingBaseEditedTime: undefined,
           stagePendingPullRequest: undefined,
-          stagePendingActorId: undefined,
         });
         await deleteUnsentTaskStageRows(ctx, task.notionPageId);
         return { ok: true, pending: false };
@@ -338,7 +336,7 @@ export const drainPendingStages = internalMutation({
         idempotencyKey: planned.idempotencyKey,
         expectedLastEditedTime: base,
         actor: 'staff',
-        actorId: typeof task.stagePendingActorId === 'string' ? task.stagePendingActorId : undefined,
+        // TODO: actorId stays unset until Peter OKs a schema field for who queued the move.
       });
       if (!queued.ok) continue;
       if (queued.duplicate) reused += 1;

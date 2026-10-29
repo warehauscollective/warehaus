@@ -180,7 +180,6 @@ export const upsertTask = internalMutation({
           stagePendingAt: undefined,
           stagePendingBaseEditedTime: undefined,
           stagePendingPullRequest: undefined,
-          stagePendingActorId: undefined,
         }
       : {
           stageSynced: merge.stageSynced,

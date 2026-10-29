@@ -8,15 +8,18 @@
 /** Account at 390 lets Profile show about this much before the short edge fade. */
 export const SECTION_NEXT_PEEK_PX = 44;
 
+/** The active pill's left radius stays this far inside the strip. */
+const ACTIVE_PILL_CLEARANCE_PX = 2;
+
 /**
- * Scroll so the next tab peeks like Account's Profile, without sliding the
- * active label off the left edge. Returns the scroll offset to apply.
+ * Scroll so the next tab peeks like Account's Profile. The active pill,
+ * including its left radius, stays fully inside the strip. Returns the
+ * scroll offset to apply.
  */
 export function sectionPeekScroll(input: {
   scrollLeft: number;
   clientWidth: number;
   activeLeft: number;
-  activeLabelInset: number;
   nextLeft: number | null;
   peekPx?: number;
 }): number {
@@ -24,8 +27,7 @@ export function sectionPeekScroll(input: {
   if (input.nextLeft == null || input.clientWidth <= 0) return input.scrollLeft;
   const visible = input.clientWidth - (input.nextLeft - input.scrollLeft);
   if (visible >= peekPx - 1) return input.scrollLeft;
-  // Pill padding may leave the row. The label itself stays at x >= 0.
-  const maxScroll = input.activeLeft + Math.max(0, input.activeLabelInset);
+  const maxScroll = input.activeLeft - ACTIVE_PILL_CLEARANCE_PX;
   if (maxScroll <= input.scrollLeft + 1) return input.scrollLeft;
   const desired = input.nextLeft - (input.clientWidth - peekPx);
   return Math.min(Math.max(input.scrollLeft, desired), maxScroll);
@@ -56,12 +58,10 @@ export function sectionEdgeFadePx(
     if (right - next > limit) next = Math.max(0, right - limit);
     if (left - next < pad && width <= node.clientWidth - pad - reserve) next = Math.max(0, left - pad);
     const nextButton = buttons.find((button) => contentLeft(button) >= right - 1);
-    const labelInset = Number.parseFloat(getComputedStyle(active).paddingLeft) || 0;
     next = sectionPeekScroll({
       scrollLeft: next,
       clientWidth: node.clientWidth,
       activeLeft: left,
-      activeLabelInset: labelInset,
       nextLeft: nextButton ? contentLeft(nextButton) : null,
     });
     if (Math.abs(next - node.scrollLeft) > 1) node.scrollLeft = next;
@@ -69,8 +69,8 @@ export function sectionEdgeFadePx(
   const overflow = node.scrollWidth - node.clientWidth > 1;
   const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 1;
   if (!overflow || atEnd) return 0;
-  // A short edge fade only. A veil as wide as the leftover gap paints a
-  // faint empty pill where the next tab should stay readable.
+  // Trailing fade only. scrollLeft 0 has no leading fade: the mask stays
+  // opaque from the left edge and only dissolves the clipped tab on the right.
   const edge = node.getBoundingClientRect().left;
   const activeRight = active ? active.getBoundingClientRect().right - edge : 0;
   const laterClipped = Array.from(node.querySelectorAll('button')).some((button) => {

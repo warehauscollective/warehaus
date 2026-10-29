@@ -189,7 +189,6 @@ const tables: Record<string, Row[]> = {
       stageSynced: 'Idea',
       stagePendingBaseEditedTime: '2026-10-28T00:00:00.000Z',
       stagePendingPullRequest: 'pending-pr-secret',
-      stagePendingActorId: 'contact-staff-secret',
       pullRequestUrl: 'https://github.com/warehaus/secret/pull/1',
     },
     {
@@ -745,7 +744,7 @@ describe('client identity against warehaus.studio', () => {
     const clientSnapshot = (await run(getSnapshot)) as { tasks: Array<Record<string, unknown>> };
     const clientSnap = clientSnapshot.tasks.find((task) => task.name === 'Homepage');
     const clientDetail = (await run(getForClient, { taskId: 'task-public' })) as Record<string, unknown>;
-    const hidden = ['stagePending', 'stagePendingAt', 'stageSynced', 'stagePendingBaseEditedTime', 'stagePendingPullRequest', 'stagePendingActorId', 'pullRequestUrl'];
+    const hidden = ['stagePending', 'stagePendingAt', 'stageSynced', 'stagePendingBaseEditedTime', 'stagePendingPullRequest', 'pullRequestUrl'];
     for (const payload of [clientTask, clientSnap, clientDetail]) {
       assert.equal(payload?.stage, 'Planning');
       for (const key of hidden) assert.equal(key in (payload ?? {}), false, key);
@@ -761,7 +760,7 @@ describe('client identity against warehaus.studio', () => {
     const staffTask = staffList.find((task) => task.name === 'Homepage');
     assert.equal(staffTask?.stagePending, true);
     assert.equal(staffTask?.stage, 'Planning');
-    for (const key of ['stagePendingAt', 'stageSynced', 'stagePendingBaseEditedTime', 'stagePendingPullRequest', 'stagePendingActorId']) {
+    for (const key of ['stagePendingAt', 'stageSynced', 'stagePendingBaseEditedTime', 'stagePendingPullRequest']) {
       assert.equal(key in (staffTask ?? {}), false, key);
     }
     const staffSnapshot = (await runStaff(getSnapshot)) as { tasks: Array<Record<string, unknown>> };
@@ -774,8 +773,6 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(JSON.stringify(clientList).includes('pending-pr-secret'), false);
     assert.equal(JSON.stringify(clientSnapshot).includes('pending-pr-secret'), false);
     assert.equal(JSON.stringify(clientDetail).includes('pending-pr-secret'), false);
-    assert.equal(JSON.stringify(clientList).includes('contact-staff-secret'), false);
-    assert.equal(JSON.stringify(clientSnapshot).includes('contact-staff-secret'), false);
   });
 
   it('shows internal work and the task description to staff', async () => {

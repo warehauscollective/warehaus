@@ -3,19 +3,18 @@ import { describe, it } from 'node:test';
 import { sectionPeekScroll } from './sectionEdgeFade';
 
 describe('sectionPeekScroll', () => {
-  it('scrolls Resources at 390 until Meeting notes peeks, keeping All resources readable', () => {
+  it('peeks Meeting notes without sliding All resources out of the strip', () => {
     const scroll = sectionPeekScroll({
       scrollLeft: 0,
       clientWidth: 136,
       activeLeft: 20,
-      activeLabelInset: 11.2,
       nextLeft: 130,
     });
-    assert.equal(scroll, 31.2);
+    assert.equal(scroll, 18);
+    const pillLeft = 20 - scroll;
     const peek = 136 - (130 - scroll);
-    const labelLeft = 20 + 11.2 - scroll;
-    assert.ok(peek >= 36);
-    assert.ok(labelLeft >= 0);
+    assert.ok(pillLeft >= 2);
+    assert.ok(peek > 136 - 130);
   });
 
   it('leaves Account alone when Profile already peeks', () => {
@@ -23,7 +22,6 @@ describe('sectionPeekScroll', () => {
       scrollLeft: 0,
       clientWidth: 136,
       activeLeft: 20,
-      activeLabelInset: 11.2,
       nextLeft: 92,
     });
     assert.equal(scroll, 0);
@@ -34,7 +32,6 @@ describe('sectionPeekScroll', () => {
       scrollLeft: 184,
       clientWidth: 136,
       activeLeft: 20,
-      activeLabelInset: 11.2,
       nextLeft: 220,
     });
     assert.equal(scroll, 184);
@@ -43,13 +40,12 @@ describe('sectionPeekScroll', () => {
   it('does not scroll when there is no later tab', () => {
     assert.equal(
       sectionPeekScroll({
-        scrollLeft: 12,
+        scrollLeft: 0,
         clientWidth: 136,
         activeLeft: 20,
-        activeLabelInset: 11.2,
         nextLeft: null,
       }),
-      12,
+      0,
     );
   });
 });
