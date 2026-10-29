@@ -453,7 +453,7 @@ export function ClientDetail({
           />
         </div>
       </Panel>
-      <div className="grid w-full grid-cols-2 gap-3 md:grid-cols-3">
+      <div className="grid w-full grid-cols-1 gap-3 min-[481px]:grid-cols-2 md:grid-cols-3 [&>:last-child]:min-[481px]:col-span-2 [&>:last-child]:md:col-span-1">
         <Stat label="PROJECTS" value={String(projectRows.length)} hint={projectRows.length > 0 ? '1 active brand each' : 'No projects yet'} />
         <Stat label="PEOPLE" value={String(contactRows.length)} hint={pending > 0 ? `${pending} invite pending` : 'Contacts with portal access'} />
         <Stat label="OPEN ITEMS" value={String(open.length)} hint={awaiting > 0 ? `${awaiting} awaiting go` : 'None awaiting go'} tone={awaiting > 0 ? 'var(--danger)' : undefined} />
