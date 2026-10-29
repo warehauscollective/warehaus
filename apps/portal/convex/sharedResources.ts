@@ -93,6 +93,39 @@ function toClientResource(
   };
 }
 
+function projectIsInternal(project: { name?: string | null; type?: string[] | null } | null): boolean {
+  if (!project) return false;
+  if ((project.name ?? '').trim().toLowerCase() === 'warehaus.studio') return true;
+  return (project.type ?? []).some((item) => item.trim().toLowerCase() === 'internal');
+}
+
+/** Same gate as getForClient: org, publish, archive, sync hide, and the project. */
+function resourceVisibleToClient<
+  T extends {
+    orgId: string;
+    publishToWarehaus?: boolean;
+    archive?: boolean;
+    syncHiddenAt?: number | null;
+    projectId?: string | null;
+  },
+>(
+  row: T | null,
+  project: {
+    name?: string | null;
+    type?: string[] | null;
+    publishToWarehaus?: boolean;
+    archive?: boolean;
+    syncHiddenAt?: number | null;
+  } | null,
+  orgId: string,
+  orgVisible: boolean,
+): row is T {
+  if (!row || row.orgId !== orgId || !orgVisible || !isClientSurfaceVisible(row) || !row.publishToWarehaus || row.archive) {
+    return false;
+  }
+  return projectVisibleToClient(project, orgVisible, row.projectId);
+}
+
 function projectVisibleToClient(
   project: {
     name?: string | null;
@@ -130,7 +163,7 @@ export const listForClient = clientQuery({
     const out = [];
     for (const row of published) {
       const project = row.projectId ? await ctx.db.get(row.projectId) : null;
-      if (!projectVisibleToClient(project, orgVisible, row.projectId)) continue;
+      if (!resourceVisibleToClient(row, project, ctx.orgId, orgVisible)) continue;
       out.push(toClientResource(row, project?.name ?? null));
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -143,11 +176,8 @@ export const getForClient = clientQuery({
     const row = await ctx.db.get(resourceId);
     const org = await ctx.db.get(ctx.orgId);
     const orgVisible = isOrgVisibleToClients(org);
-    if (!row || row.orgId !== ctx.orgId || !orgVisible || !isClientSurfaceVisible(row) || !row.publishToWarehaus || row.archive) {
-      throw new PortalAuthError('Resource not found', 'FORBIDDEN');
-    }
-    const project = row.projectId ? await ctx.db.get(row.projectId) : null;
-    if (!projectVisibleToClient(project, orgVisible, row.projectId)) {
+    const project = row?.projectId ? await ctx.db.get(row.projectId) : null;
+    if (!resourceVisibleToClient(row, project, ctx.orgId, orgVisible)) {
       throw new PortalAuthError('Resource not found', 'FORBIDDEN');
     }
     return toClientResource(row, project?.name ?? null);
@@ -211,11 +241,8 @@ export const listAttachedForClient = clientQuery({
     for (const link of links) {
       if (link.orgId !== task.orgId) continue;
       const row = await ctx.db.get(link.resourceId);
-      if (!row || row.orgId !== task.orgId || row.archive || !row.publishToWarehaus || !isClientSurfaceVisible(row)) {
-        continue;
-      }
-      const resourceProject = row.projectId ? await ctx.db.get(row.projectId) : null;
-      if (!projectVisibleToClient(resourceProject, orgVisible, row.projectId)) continue;
+      const resourceProject = row ? (row.projectId ? await ctx.db.get(row.projectId) : null) : null;
+      if (!resourceVisibleToClient(row, resourceProject, task.orgId, orgVisible)) continue;
       out.push({
         ...toClientResource(row, resourceProject?.name ?? null),
         attachedCount: await clientAttachmentCount(ctx, task.orgId, row._id, orgVisible),
@@ -267,12 +294,63 @@ export const usedInTasks = adminQuery({
       if (link.orgId !== resource.orgId) continue;
       const task = await ctx.db.get(link.taskId);
       if (!task || task.orgId !== resource.orgId) continue;
+      const project = await ctx.db.get(task.projectId);
+      out.push({
+        id: task._id,
+        name: task.name,
+        status: task.status,
+        isDone: task.isDone,
+        stage: task.stage ?? null,
+        projectId: task.projectId,
+        projectName: project?.name ?? null,
+        projectInternal: projectIsInternal(project),
+        date: task.date ?? null,
+        publishToWarehaus: task.publishToWarehaus,
+      });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+/**
+ * Tasks a client may see that link this resource.
+ * Unpublished tasks, warehaus.studio, and sync fields stay off the payload.
+ */
+export const usedInTasksForClient = clientQuery({
+  args: { resourceId: v.id('sharedResources') },
+  handler: async (ctx, { resourceId }) => {
+    const row = await ctx.db.get(resourceId);
+    const org = await ctx.db.get(ctx.orgId);
+    const orgVisible = isOrgVisibleToClients(org);
+    const resourceProject = row?.projectId ? await ctx.db.get(row.projectId) : null;
+    if (!resourceVisibleToClient(row, resourceProject, ctx.orgId, orgVisible)) return [];
+    const links = await attachmentLinks(ctx, ctx.orgId, row._id);
+    const out = [];
+    for (const link of links) {
+      if (link.orgId !== ctx.orgId) continue;
+      const task = await ctx.db.get(link.taskId);
+      if (!task || task.orgId !== ctx.orgId) continue;
+      const project = await ctx.db.get(task.projectId);
+      const visible = clientMaySeeTask({
+        publishToWarehaus: task.publishToWarehaus,
+        hidden: task.syncHiddenAt != null,
+        project: {
+          name: project?.name,
+          types: project?.type,
+          publishToWarehaus: project?.publishToWarehaus ?? false,
+          archive: project?.archive ?? false,
+          hidden: project?.syncHiddenAt != null,
+          orgVisible,
+        },
+      });
+      if (!visible || !project) continue;
       out.push({
         id: task._id,
         name: task.name,
         status: task.status,
         stage: task.stage ?? null,
-        projectId: task.projectId,
+        projectName: project.name,
+        date: task.date ?? null,
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
@@ -80,10 +80,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         >
           {tab}
         </span>
-        <div
-          className="section-scroller flex min-w-0 flex-1 items-center gap-1 overscroll-x-contain"
-          style={{ scrollbarWidth: 'none', overflowX: 'auto', overflowY: 'hidden' }}
-        >
+        <SectionScroller>
           {sections.map((s) => {
             const active = activeSection === s.key;
             return (
@@ -109,7 +106,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
               </button>
             );
           })}
-        </div>
+        </SectionScroller>
       </nav>
 
       {/* Desktop: floating wordmark card (Figma 284:8408). No bar mark, no swoop. */}
@@ -182,6 +179,74 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         </div>
       </nav>
     </>
+  );
+}
+
+function SectionScroller({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [fadePx, setFadePx] = useState(0);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const update = () => {
+      const overflow = node.scrollWidth - node.clientWidth > 1;
+      const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 1;
+      if (!overflow || atEnd) {
+        setFadePx(0);
+        return;
+      }
+      // Fade only the clipped tab. A fixed 72px veil (the board's width) would
+      // paint over a pill that already fits in this narrow row.
+      const edge = node.getBoundingClientRect().left;
+      let lastFull = 0;
+      for (const button of node.querySelectorAll('button')) {
+        const right = button.getBoundingClientRect().right - edge;
+        if (right <= node.clientWidth + 0.5) lastFull = right;
+        else break;
+      }
+      const peek = Math.max(0, node.clientWidth - lastFull);
+      setFadePx(Math.round(Math.min(72, Math.max(peek + 12, 28))));
+    };
+    update();
+    node.addEventListener('scroll', update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    window.addEventListener('resize', update);
+    return () => {
+      node.removeEventListener('scroll', update);
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [children]);
+  const fade = fadePx > 0;
+  return (
+    <div className="relative min-w-0 flex-1">
+      <div
+        ref={ref}
+        className="section-scroller flex min-w-0 items-center gap-1 overscroll-x-contain"
+        style={{
+          scrollbarWidth: 'none',
+          overflowX: 'auto',
+          overflowY: 'hidden',
+          ...(fade
+            ? {
+                maskImage: `linear-gradient(to right, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
+                WebkitMaskImage: `linear-gradient(to right, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
+              }
+            : null),
+        }}
+      >
+        {children}
+      </div>
+      {fade ? (
+        <div
+          aria-hidden
+          data-testid="section-edge-fade"
+          className="pointer-events-none absolute inset-y-0 right-0"
+          style={{ width: fadePx, background: 'linear-gradient(to right, transparent, var(--bg) 45%)' }}
+        />
+      ) : null}
+    </div>
   );
 }
 

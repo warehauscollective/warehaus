@@ -118,6 +118,8 @@ export type PortalSnapshot = {
     lastError: string | null;
     mode: 'convex';
   };
+  /** Client snapshots only. Display name of the Warehaus lead. No email or id. */
+  leadName?: string | null;
   tenant: PortalTenantMeta;
 };
 

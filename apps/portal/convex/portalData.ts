@@ -103,8 +103,9 @@ export const getSnapshot = clientQuery({
         figmaLink: p.figmaLink ?? null,
         docsUrl: p.docsUrl ?? null,
         stack: p.stack ?? [],
-        notionPageId: p.notionPageId,
-        lastSyncedAt: p.lastSyncedAt,
+        ...(staff
+          ? { notionPageId: p.notionPageId, lastSyncedAt: p.lastSyncedAt }
+          : {}),
       })),
       tasks: tasks
         .filter((t) => {
@@ -137,8 +138,9 @@ export const getSnapshot = clientQuery({
             projectName: project?.name ?? null,
             projectStatus: project?.status ?? null,
             projectEndDate: project?.endDate ?? null,
-            notionPageId: t.notionPageId,
-            lastSyncedAt: t.lastSyncedAt,
+            ...(staff
+              ? { notionPageId: t.notionPageId, lastSyncedAt: t.lastSyncedAt }
+              : {}),
           };
         }),
       activity: [
@@ -181,13 +183,26 @@ export const getSnapshot = clientQuery({
               projectId: item.projectId,
             }))),
       ],
-      syncMeta: {
-        lastSyncedAt: syncMeta?.lastSyncedAt
-          ? new Date(syncMeta.lastSyncedAt).toISOString()
-          : null,
-        lastError: syncMeta?.lastError ?? null,
-        mode: 'convex' as const,
-      },
+      syncMeta: staff
+        ? {
+            lastSyncedAt: syncMeta?.lastSyncedAt
+              ? new Date(syncMeta.lastSyncedAt).toISOString()
+              : null,
+            lastError: syncMeta?.lastError ?? null,
+            mode: 'convex' as const,
+          }
+        : { mode: 'convex' as const },
+      ...(staff
+        ? {}
+        : {
+            leadName:
+              (
+                await ctx.db
+                  .query('contacts')
+                  .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+                  .collect()
+              ).find((person) => person.role === 'Warehaus Staff' && person.name.trim())?.name.trim() ?? null,
+          }),
       tenant: {
         mode: staff ? ('team' as const) : ('client' as const),
         slug: client?.slug ?? null,

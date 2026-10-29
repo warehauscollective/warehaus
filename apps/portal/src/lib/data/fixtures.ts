@@ -1,3 +1,4 @@
+import { isStudioProjectName, withoutClientLeaks } from '@/lib/data/clientDetail';
 import type { PortalSnapshot } from '@/lib/data/view-models';
 import { FIXTURE_CLIENT_SESSION, FIXTURE_SESSION } from '@/lib/data/portalFixtures';
 import {
@@ -158,20 +159,21 @@ export const FIXTURE_PROJECTS = [
 ];
 
 export const FIXTURE_TASKS = [
-  task('t-inbox', 'p-site', 'Capture homepage notes', 'Inbox', false),
-  task('t-todo', 'p-site', 'Write the launch checklist', 'To Do', false, { stage: 'Awaiting Go' }),
-  task('t-blocked', 'p-site', 'Waiting on photography', 'Blocked', false, { stage: 'Building' }),
+  task('t-inbox', 'p-site', 'Capture homepage notes', 'Inbox', false, { category: 'Design' }),
+  task('t-todo', 'p-site', 'Write the launch checklist', 'To Do', false, { stage: 'Awaiting Go', category: 'Design' }),
+  task('t-blocked', 'p-site', 'Waiting on photography', 'Blocked', false, { stage: 'Building', category: 'Design' }),
   task('t-doing', 'p-site', 'Build the project page', 'In Progress', false, {
     stage: 'Building',
     assigneeName: 'Alex Bauer',
     resourceCount: 3,
+    category: 'Design',
   }),
   task('t-sub', 'p-site', 'Check the type scale', 'To Do', false, { stage: 'Building', parentTaskId: 't-doing', category: 'Design' }),
-  task('t-done', 'p-site', 'Approve the type ramp', 'Done', true),
-  task('t-hidden', 'p-site', 'Row the pull hid', 'To Do', false, { syncHidden: true }),
-  task('t-local', 'p-site', 'Not confirmed yet', 'To Do', false, { notionPageId: 'portal:task:local' }),
-  task('t-planning', 'p-site', 'Stage is not a status', 'Planning', false),
-  task('t-shipped', 'p-shipped', 'Archive the old deck', 'Done', true),
+  task('t-done', 'p-site', 'Approve the type ramp', 'Done', true, { category: 'Design' }),
+  task('t-hidden', 'p-site', 'Row the pull hid', 'To Do', false, { syncHidden: true, category: 'Design' }),
+  task('t-local', 'p-site', 'Not confirmed yet', 'To Do', false, { notionPageId: 'portal:task:local', category: 'Design' }),
+  task('t-planning', 'p-site', 'Stage is not a status', 'Planning', false, { category: 'Design' }),
+  task('t-shipped', 'p-shipped', 'Archive the old deck', 'Done', true, { category: 'Design' }),
   task('t-internal', 'p-internal', 'Internal ops task', 'Inbox', false),
 ];
 
@@ -247,7 +249,7 @@ export const FIXTURE_DOCS = [
     orgId: 'c-north',
     projectId: 'p-site',
     title: 'Project brief',
-    summary: 'Goals, audience and success measures for the Warehaus Portal.',
+    summary: 'Goals, audience, and how we will know the site is working.',
     docType: 'Brief',
     order: 1,
     status: 'Published',
@@ -263,7 +265,7 @@ export const FIXTURE_DOCS = [
     orgId: 'c-north',
     projectId: 'p-site',
     title: 'Scope of work',
-    summary: 'What is in B1–B7, what is parked, and how changes get approved.',
+    summary: 'What is included, what is parked, and how changes get approved.',
     docType: 'Scope',
     order: 2,
     status: 'Published',
@@ -324,6 +326,17 @@ export const FIXTURE_DOCS = [
 ];
 
 export const FIXTURE_CONTACTS = [
+  {
+    id: 'ct-maya',
+    orgId: 'c-north',
+    name: 'Maya Chen',
+    email: 'maya@warehaus.co',
+    role: 'Warehaus Staff' as const,
+    portalAccess: 'Enabled' as const,
+    notionPageId: 'notion-contact-maya',
+    lastSyncedAt: SYNCED_AT,
+    syncHidden: false,
+  },
   {
     id: 'ct-ada',
     orgId: 'c-north',
@@ -427,8 +440,26 @@ export const FIXTURE_SNAPSHOT: PortalSnapshot = {
   },
 };
 
+/** Tasks linked to a shared resource in the fixture preview. Not a second database. */
+export const FIXTURE_TASK_RESOURCES = [
+  { resourceId: 'r-notes', taskId: 't-todo' },
+  { resourceId: 'r-notes', taskId: 't-doing' },
+  { resourceId: 'r-file', taskId: 't-inbox' },
+  { resourceId: 'r-notes', taskId: 't-internal' },
+];
+
 export const FIXTURE_CLIENT_SNAPSHOT: PortalSnapshot = {
   ...FIXTURE_SNAPSHOT,
+  clients: FIXTURE_SNAPSHOT.clients.filter(
+    (client) => client.slug === 'northwind' && !client.name.startsWith('Warehaus'),
+  ),
+  projects: FIXTURE_SNAPSHOT.projects
+    .filter((project) => !project.internal && !isStudioProjectName(project.name))
+    .map((project) => withoutClientLeaks(project)),
+  tasks: FIXTURE_SNAPSHOT.tasks
+    .filter((task) => task.projectId !== 'p-internal' && task.publishToWarehaus !== false && !task.syncHidden)
+    .map((task) => withoutClientLeaks(task)),
+  syncMeta: { lastSyncedAt: null, lastError: null, mode: 'convex' },
   activity: FIXTURE_SNAPSHOT.activity
     .filter((item) => fixtureClientVisible({ type: item.type, projectId: item.projectId }))
     .map((item) => {
@@ -436,6 +467,7 @@ export const FIXTURE_CLIENT_SNAPSHOT: PortalSnapshot = {
       delete rest.clientVisible;
       return rest;
     }),
+  leadName: 'Maya Chen',
   tenant: {
     mode: 'client',
     slug: FIXTURE_CLIENT_SESSION.orgSlug,

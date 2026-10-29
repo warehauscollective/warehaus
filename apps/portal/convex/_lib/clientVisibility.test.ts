@@ -13,6 +13,8 @@ import {
 import {
   getForClient as getResourceForClient,
   listForClient as listResourcesForClient,
+  usedInTasks,
+  usedInTasksForClient,
 } from '../sharedResources';
 import {
   activityForClient,
@@ -94,8 +96,17 @@ const org = {
   lastSyncedAt: 1,
 };
 
+const otherOrg = {
+  _id: 'org-lumen',
+  companyName: 'Lumen Dental',
+  slug: 'lumen',
+  portalAccess: 'Enabled' as const,
+  notionPageId: 'lumen-notion',
+  lastSyncedAt: 1,
+};
+
 const tables: Record<string, Row[]> = {
-  clients: [org],
+  clients: [org, otherOrg],
   contacts: [
     {
       _id: 'contact-client',
@@ -382,6 +393,18 @@ const tables: Record<string, Row[]> = {
       lastSyncedAt: 1,
     },
     {
+      _id: 'res-foreign',
+      orgId: otherOrg._id,
+      projectId: 'proj-foreign',
+      title: 'Foreign recap',
+      description: 'Another client',
+      type: 'Meeting notes',
+      publishToWarehaus: true,
+      archive: false,
+      notionPageId: 'res-foreign-notion',
+      lastSyncedAt: 1,
+    },
+    {
       _id: 'res-org',
       orgId: org._id,
       title: 'Org file',
@@ -420,6 +443,12 @@ const tables: Record<string, Row[]> = {
       after: JSON.stringify({ properties: { Status: 'To Do', Name: 'Studio ops' } }),
       createdAt: 45,
     },
+  ],
+  taskResources: [
+    { _id: 'link-public', orgId: org._id, resourceId: 'res-public', taskId: 'task-public' },
+    { _id: 'link-draft', orgId: org._id, resourceId: 'res-public', taskId: 'task-draft' },
+    { _id: 'link-internal', orgId: org._id, resourceId: 'res-public', taskId: 'task-internal' },
+    { _id: 'link-foreign', orgId: otherOrg._id, resourceId: 'res-foreign', taskId: 'task-foreign' },
   ],
   notionOutbox: [
     {
@@ -517,6 +546,8 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(bundled.includes('Org guide'), true);
     assert.equal(bundled.includes('Orphan file'), false);
     assert.equal(bundled.includes('Org file'), true);
+    assert.equal(bundled.includes('Foreign recap'), false);
+    assert.equal(bundled.includes('Lumen Dental'), false);
     assert.equal(text(docs).includes('notionPageId'), false);
     assert.equal(text(docs).includes('"order"'), false);
     assert.equal(text(docs).includes('publishToWarehaus'), false);
@@ -586,6 +617,38 @@ describe('client identity against warehaus.studio', () => {
       snapshotBody.activity.map((item) => item.summary),
       ['', ''],
     );
+    const snapshotText = text(snapshot);
+    assert.equal((snapshot as { leadName?: string }).leadName, 'Maya Internal');
+    assert.equal(snapshotText.includes('maya@warehaus.studio'), false);
+    assert.equal(snapshotText.includes('contact-staff'), false);
+    assert.equal(snapshotText.includes('staff-notion'), false);
+    assert.equal(snapshotText.includes('notionPageId'), false);
+    assert.equal(snapshotText.includes('publishToWarehaus'), false);
+    assert.equal(snapshotText.includes('lastSyncedAt'), false);
+    assert.equal(snapshotText.includes('syncHidden'), false);
+    assert.equal(snapshotText.includes('syncState'), false);
+  });
+
+  it('returns used-in-tasks without publish, sync, or warehaus.studio rows', async () => {
+    const visible = (await run(usedInTasksForClient, { resourceId: 'res-public' })) as Array<{ name: string }>;
+    assert.deepEqual(visible.map((task) => task.name), ['Homepage']);
+    const hiddenResource = await run(usedInTasksForClient, { resourceId: 'res-internal' });
+    assert.deepEqual(hiddenResource, []);
+    const draft = await run(usedInTasksForClient, { resourceId: 'res-draft' });
+    assert.deepEqual(draft, []);
+    const foreign = await run(usedInTasksForClient, { resourceId: 'res-foreign' });
+    assert.deepEqual(foreign, []);
+    assert.equal(text(foreign).includes('Foreign recap'), false);
+    assert.equal(text(foreign).includes('Lumen Dental'), false);
+    const body = text(visible);
+    assert.equal(body.includes('notionPageId'), false);
+    assert.equal(body.includes('publishToWarehaus'), false);
+    assert.equal(body.includes('lastSyncedAt'), false);
+    assert.equal(body.includes('warehaus.studio'), false);
+    assert.equal(body.includes('Studio ops'), false);
+    assert.equal(body.includes('Secret draft'), false);
+    const staff = (await runStaff(usedInTasks, { resourceId: 'res-public' })) as Array<{ name: string }>;
+    assert.deepEqual(staff.map((task) => task.name), ['Homepage', 'Secret draft', 'Studio ops']);
   });
 
   it('keeps raw activity text out of the client snapshot', async () => {
