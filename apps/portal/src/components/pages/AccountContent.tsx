@@ -96,7 +96,7 @@ export function AccountContent() {
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
   const { sectionFor, setSectionFor, linkedClientId, clearLinkedClient } = usePortalView();
-  const { data, error } = usePortalData();
+  const { data, error, loading: portalLoading } = usePortalData();
   const retryPortalData = useRetryPortalData();
   const { portalSession, signOut } = usePortalAuth();
   const activeSection = sectionFor('account');
@@ -243,6 +243,11 @@ export function AccountContent() {
       : clientScreen === 'refresh'
         ? 'Network error'
         : error;
+  // Fixture screens set `clientScreen`. Live data uses the snapshot and the
+  // client queries, so a still-loading company cannot render as true-empty.
+  const companyLoading =
+    clientScreen === 'loading' ||
+    (!fixtures && (portalLoading || clientPeopleState.loading || clientDocsState.loading));
 
   const leaveClient = () => {
     setClientId(null);
@@ -381,7 +386,7 @@ export function AccountContent() {
             onShowTeam={() => setShowTeam(true)}
             onOpenTask={(taskId) => openPortalHref(`/tasks/${taskId}`)}
             onBack={() => setShowTeam(false)}
-            loading={clientScreen === 'loading'}
+            loading={companyLoading}
             error={companyError}
             onRetry={retryClientScreen}
           />
