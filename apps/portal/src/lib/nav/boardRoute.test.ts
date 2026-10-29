@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { getPortalTabForPath } from '@warehaus/logic';
 import { PROJECT_UNAVAILABLE, TASK_UNAVAILABLE } from '@warehaus/portal-sync';
-import { resolveBoardRoute } from './boardRoute';
+import { projectUnavailableCopy, resolveBoardRoute } from './boardRoute';
 
 const tasks = [
   { id: 'task-public', projectId: 'proj-public' },
@@ -47,6 +47,10 @@ describe('board deep links', () => {
     });
     assert.deepEqual(hidden, { view: 'unavailable', message: PROJECT_UNAVAILABLE });
     assert.deepEqual(missing, hidden);
+    assert.deepEqual(projectUnavailableCopy(), {
+      title: "This project isn't available",
+      detail: "It may have been removed or isn't shared with you.",
+    });
 
     const hiddenTask = resolveBoardRoute({
       pathname: '/tasks/task-internal',

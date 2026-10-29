@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useMutation } from 'convex/react';
-import { PrimaryButton, Surface } from '@/components/ui/primitives';
+import { OutlineButton, PrimaryButton, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import {
@@ -46,13 +46,13 @@ import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
-import { resolveBoardRoute } from '@/lib/nav/boardRoute';
+import { projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
 import { TaskCreateDialog, TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { StatusTable } from '@/components/tasks/StatusKanban';
-import { LIVE_TASK_STATUSES, TASK_STAGES, WRITEBACK_OFF_ERROR, createTaskExternalId, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
+import { LIVE_TASK_STATUSES, PROJECT_UNAVAILABLE, TASK_STAGES, WRITEBACK_OFF_ERROR, createTaskExternalId, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
 import type { Id } from '@convex/_generated/dataModel';
 
 const SECTION_TITLE: Record<string, string> = {
@@ -233,6 +233,37 @@ export function ProjectsContent() {
     );
   }
 
+  if (route.view === 'unavailable' && route.message === PROJECT_UNAVAILABLE) {
+    const copy = projectUnavailableCopy();
+    return (
+      <PortalWorkspace
+        eyebrow={tenantEyebrow(data.tenant, 'Project')}
+        title={copy.title}
+        breadcrumb={
+          <NavBreadcrumb
+            back="always"
+            onBack={closeProject}
+            parent={{ label: 'Projects', onClick: closeProject }}
+            current={copy.title}
+          />
+        }
+      >
+        <PortalTilePane>
+          <div
+            role="alert"
+            data-testid="project-unavailable"
+            className="flex flex-col items-start gap-3"
+            style={{ border: '1px solid var(--danger)', borderRadius: 18, padding: '1rem 1.25rem' }}
+          >
+            <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 14 }}>{copy.title}</p>
+            <p style={{ color: 'var(--muted)', fontSize: 13 }}>{copy.detail}</p>
+            <OutlineButton onClick={closeProject}>Back to projects</OutlineButton>
+          </div>
+        </PortalTilePane>
+      </PortalWorkspace>
+    );
+  }
+
   if (route.view === 'unavailable') {
     return (
       <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Projects')} title="Projects">
@@ -401,7 +432,7 @@ export function ProjectsContent() {
             }}
           />
         ) : null}
-        {creating ? (
+        {isStaff && creating ? (
           <TaskCreateDialog
             projectName={openProject.name}
             projectNotionId={openProject.notionPageId ?? null}
@@ -848,23 +879,25 @@ const summaryLabel = {
   textTransform: 'uppercase' as const,
 };
 
-function EditProjectButton({ disabled }: { disabled: boolean }) {
+function EditProjectButton({ disabled, compact = false }: { disabled: boolean; compact?: boolean }) {
+  const hintId = useId();
   const button = (
     <button
       type="button"
       disabled={disabled}
       aria-disabled={disabled || undefined}
+      tabIndex={disabled ? -1 : undefined}
       data-testid="edit-project"
       style={{
         pointerEvents: disabled ? 'none' : undefined,
-        background: 'var(--accent)',
-        color: 'var(--accent-fg)',
-        border: 0,
+        background: compact ? 'transparent' : 'var(--accent)',
+        color: compact ? 'var(--fg)' : 'var(--accent-fg)',
+        border: compact ? '1px solid var(--border)' : 0,
         borderRadius: 9,
         fontFamily: 'var(--font-body)',
-        fontSize: 'var(--t-sm)',
-        fontWeight: 600,
-        padding: '0.65rem 1.1rem',
+        fontSize: compact ? 13 : 'var(--t-sm)',
+        fontWeight: compact ? 500 : 600,
+        padding: compact ? '6px 10px' : '0.65rem 1.1rem',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.4 : 1,
       }}
@@ -874,8 +907,20 @@ function EditProjectButton({ disabled }: { disabled: boolean }) {
   );
   if (!disabled) return button;
   return (
-    <span title={EDIT_PROJECT_WRITEBACK_HINT} className="inline-flex" style={{ cursor: 'not-allowed' }}>
+    <span
+      tabIndex={0}
+      role="group"
+      aria-disabled="true"
+      aria-describedby={hintId}
+      title={EDIT_PROJECT_WRITEBACK_HINT}
+      data-testid="edit-project-hint"
+      className="inline-flex"
+      style={{ cursor: 'not-allowed' }}
+    >
       {button}
+      <span id={hintId} className="sr-only">
+        {EDIT_PROJECT_WRITEBACK_HINT}
+      </span>
     </span>
   );
 }
@@ -903,12 +948,7 @@ function ProjectSummary({
   return (
     <Surface style={{ padding: 'clamp(1.25rem, 3vw, 3rem)', borderRadius: 36 }}>
       <div data-testid="project-summary">
-        {summary.showEdit ? (
-          <div className="mb-4 md:hidden">
-            <EditProjectButton disabled={summary.editDisabled} />
-          </div>
-        ) : null}
-        <div className="flex items-center gap-6">
+        <div className="flex items-center gap-4 md:gap-6">
           <span
             className="inline-flex size-16 shrink-0 items-center justify-center rounded-[10px]"
             style={{
@@ -963,6 +1003,11 @@ function ProjectSummary({
                 <span style={{ fontSize: 11, color: 'var(--muted)' }}>Notion</span>
               </span>
             ) : null}
+          </div>
+        ) : null}
+        {summary.showEdit ? (
+          <div className="mt-4 flex justify-end md:hidden">
+            <EditProjectButton disabled={summary.editDisabled} compact />
           </div>
         ) : null}
         <div className="mt-6 flex flex-col gap-2 md:flex-row md:items-center md:gap-3">

@@ -91,7 +91,7 @@ describe('sectionPeekScroll', () => {
   });
 });
 
-type FakeChip = { left: number; width: number; pressed?: boolean; current?: boolean };
+type FakeChip = { left: number; width: number; pressed?: boolean; current?: boolean; selected?: boolean };
 
 function fakeChipRow(input: {
   clientWidth: number;
@@ -125,6 +125,7 @@ function fakeChipRow(input: {
     querySelector(selector: string) {
       if (selector === '[aria-pressed="true"]') return buttons.find((button) => button.chip.pressed) ?? null;
       if (selector === '[aria-current="true"]') return buttons.find((button) => button.chip.current) ?? null;
+      if (selector === '[aria-selected="true"]') return buttons.find((button) => button.chip.selected) ?? null;
       return null;
     },
     querySelectorAll(selector: string) {
@@ -309,5 +310,36 @@ describe('sectionEdgeFadePx', () => {
     assert.ok(node.scrollLeft > 0);
     assert.equal(scrollingElement.scrollLeft, 0);
     assert.equal(node.scrollLeft > 0 && scrollingElement.scrollLeft === 0, true);
+  });
+
+  it('scrolls the client phone status tab into view and shows the edge fades', () => {
+    const source = readFileSync(new URL('../tasks/TaskBoard.tsx', import.meta.url), 'utf8');
+    assert.equal(source.includes('if (!node || !inset)'), false);
+    assert.equal(/paddingLeft:\s*inset/.test(source), false);
+    assert.match(source, /scrollActiveIntoView\(node, \{ activeSelector: '\[aria-selected="true"\]' \}\)/);
+    assert.match(source, /sectionEdgeFades\(node, \{ activeSelector: '\[aria-selected="true"\]' \}\)/);
+
+    const node = fakeChipRow({
+      clientWidth: 280,
+      scrollWidth: 640,
+      scrollLeft: 0,
+      buttons: [
+        { left: 0, width: 88 },
+        { left: 96, width: 80 },
+        { left: 420, width: 96, selected: true },
+        { left: 524, width: 80 },
+      ],
+    });
+    scrollActiveIntoView(node, { activeSelector: '[aria-selected="true"]' });
+    const fade = sectionEdgeFades(node, { activeSelector: '[aria-selected="true"]' });
+    const active = node.querySelector<HTMLElement>('[aria-selected="true"]');
+    assert.ok(active);
+    const edge = node.getBoundingClientRect().left;
+    const left = active.getBoundingClientRect().left - edge;
+    const right = active.getBoundingClientRect().right - edge;
+    assert.ok(node.scrollLeft > 0);
+    assert.ok(left >= -1);
+    assert.ok(right <= node.clientWidth + 1);
+    assert.ok(fade.leading > 0 || fade.trailing > 0);
   });
 });

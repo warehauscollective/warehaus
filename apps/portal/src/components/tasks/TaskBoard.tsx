@@ -280,7 +280,6 @@ export function TaskBoard({
           label={mode === 'stage' ? 'Stages' : 'Statuses'}
           columns={columns}
           activeTab={activeTab}
-          inset={false}
           onSelect={setTab}
         />
       ) : null}
@@ -746,27 +745,25 @@ function PhoneColumnTabs({
   label,
   columns,
   activeTab,
-  inset,
   onSelect,
 }: {
   label: string;
   columns: Array<{ key: string; label: string; tasks: unknown[] }>;
   activeTab: string | null;
-  inset: boolean;
   onSelect: (key: string) => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const [fade, setFade] = useState<EdgeFade>({ leading: 0, trailing: 0 });
   useEffect(() => {
     const node = scroller.current;
-    if (!node || !inset) return;
-    scrollActiveIntoView(node, { inset: true, activeSelector: '[aria-selected="true"]' });
-  }, [activeTab, inset]);
+    if (!node) return;
+    scrollActiveIntoView(node, { activeSelector: '[aria-selected="true"]' });
+  }, [activeTab]);
   useEffect(() => {
     const node = scroller.current;
-    if (!node || !inset) return;
+    if (!node) return;
     const update = () => {
-      setFade(sectionEdgeFades(node, { inset: true, activeSelector: '[aria-selected="true"]' }));
+      setFade(sectionEdgeFades(node, { activeSelector: '[aria-selected="true"]' }));
     };
     update();
     node.addEventListener('scroll', update, { passive: true });
@@ -778,7 +775,7 @@ function PhoneColumnTabs({
       observer.disconnect();
       window.removeEventListener('resize', update);
     };
-  }, [columns, activeTab, inset]);
+  }, [columns, activeTab]);
   const mask = sectionEdgeMask(fade);
   return (
     <div className="relative min-w-0">
@@ -788,9 +785,7 @@ function PhoneColumnTabs({
         aria-label={label}
         className="flex gap-2 overflow-x-auto pb-1"
         style={{
-          paddingLeft: inset ? 20 : undefined,
-          scrollPaddingLeft: inset ? 20 : undefined,
-          scrollbarWidth: inset ? 'none' : undefined,
+          scrollbarWidth: 'none',
           ...(mask
             ? {
                 maskImage: mask,

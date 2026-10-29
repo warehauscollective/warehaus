@@ -1,5 +1,15 @@
 import { PROJECT_UNAVAILABLE, TASK_UNAVAILABLE } from '@warehaus/portal-sync';
 
+/** Same card for a missing project and one the viewer cannot see. */
+export const PROJECT_UNAVAILABLE_COPY = {
+  title: "This project isn't available",
+  detail: "It may have been removed or isn't shared with you.",
+} as const;
+
+export function projectUnavailableCopy(): { title: string; detail: string } {
+  return PROJECT_UNAVAILABLE_COPY;
+}
+
 export type BoardRoute =
   | { view: 'list' }
   | { view: 'board'; projectId: string; taskId: string | null }
