@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   DndContext,
@@ -25,6 +25,7 @@ import {
   type MoveActor,
   type MoveRule,
 } from '@warehaus/portal-sync';
+import { NEW_TASK_HINT } from '@/components/tasks/itemStates';
 import { OutlineButton, Pill, PrimaryButton } from '@/components/ui/primitives';
 import { SyncChip } from '@/components/sync/SyncChip';
 import { formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
@@ -116,6 +117,7 @@ export function TaskBoard({
   onOpen,
   onMove,
   onQuickAdd,
+  quickAddEnabled = true,
 }: {
   tasks: PortalTask[];
   staff: boolean;
@@ -124,6 +126,8 @@ export function TaskBoard({
   onOpen: (task: PortalTask) => void;
   onMove: (request: MoveRequest) => Promise<{ ok: boolean; error?: string; pending?: boolean }>;
   onQuickAdd: (input: { name: string; status: string; stage?: string }) => Promise<{ ok: boolean; error?: string }>;
+  /** When write-back is off the column control stays disabled and never calls onQuickAdd. */
+  quickAddEnabled?: boolean;
 }) {
   const [mode, setMode] = useState<BoardMode>('status');
   const [phone, setPhone] = useState(false);
@@ -334,7 +338,11 @@ export function TaskBoard({
               }}
               onMoveSheet={setMoveTask}
               quick={quick === column.key}
-              onQuick={() => setQuick(column.key)}
+              quickAddEnabled={quickAddEnabled}
+              onQuick={() => {
+                if (!quickAddEnabled) return;
+                setQuick(column.key);
+              }}
               onQuickClose={() => setQuick(null)}
               onQuickAdd={async (name) => {
                 const status = mode === 'status' && !column.key.startsWith('unknown') ? column.label : 'To Do';
@@ -463,6 +471,7 @@ function Column({
   onQuick,
   onQuickClose,
   onQuickAdd,
+  quickAddEnabled,
   onKeyMove,
 }: {
   columnKey: string;
@@ -489,6 +498,7 @@ function Column({
   onQuick: () => void;
   onQuickClose: () => void;
   onQuickAdd: (name: string) => Promise<{ ok: boolean; error?: string }>;
+  quickAddEnabled: boolean;
   onKeyMove: (task: PortalTask, direction: -1 | 1) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: `column:${columnKey}` });
@@ -546,25 +556,82 @@ function Column({
         <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface)', borderRadius: 999, padding: '0 0.45rem' }}>{restingCount}</span>
         <span className="flex-1" />
         {staff && !columnKey.startsWith('unknown') ? (
-          <button type="button" aria-label={`Add task to ${label}`} onClick={onQuick} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>+</button>
+          quickAddEnabled ? (
+            <button type="button" aria-label={`Add task to ${label}`} onClick={onQuick} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>+</button>
+          ) : (
+            <DisabledQuickAdd label="+" testId="column-quick-add" labelText={`Add task to ${label}`} />
+          )
         ) : null}
       </header>
       <div className="flex flex-col gap-3">
         {loading ? <div className="animate-pulse" style={{ height: 72, borderRadius: 18, background: 'var(--surface)' }} /> : null}
         {cards}
-        {quick ? <QuickAdd onClose={onQuickClose} onSave={onQuickAdd} /> : null}
+        {quick && quickAddEnabled ? <QuickAdd onClose={onQuickClose} onSave={onQuickAdd} /> : null}
         {!loading && restingCount === 0 && dropIndex == null && !dashed ? (
           <p style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)', border: '1px dashed var(--border)', borderRadius: 12, padding: '0.75rem' }}>
             {emptyClient ? 'Nothing here yet.' : mode === 'stage' ? 'No tasks at this stage. Drag a card here.' : 'No tasks'}
           </p>
         ) : null}
         {staff && !columnKey.startsWith('unknown') ? (
-          <button type="button" onClick={onQuick} className="text-left" style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '0.7rem 0.85rem', color: 'var(--muted)', background: 'transparent' }}>
-            + Add task
-          </button>
+          quickAddEnabled ? (
+            <button type="button" onClick={onQuick} className="text-left" style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '0.7rem 0.85rem', color: 'var(--muted)', background: 'transparent' }}>
+              + Add task
+            </button>
+          ) : (
+            <DisabledQuickAdd label="+ Add task" testId="column-add-task" block />
+          )
         ) : null}
       </div>
     </section>
+  );
+}
+
+function DisabledQuickAdd({
+  label,
+  testId,
+  block = false,
+  labelText,
+}: {
+  label: string;
+  testId: string;
+  block?: boolean;
+  labelText?: string;
+}) {
+  const hintId = useId();
+  return (
+    <span
+      tabIndex={0}
+      aria-disabled="true"
+      aria-describedby={hintId}
+      title={NEW_TASK_HINT}
+      data-testid={`${testId}-wrap`}
+      className={block ? 'item-state-btn flex' : 'item-state-btn inline-flex'}
+      style={{ cursor: 'not-allowed' }}
+    >
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        aria-label={labelText}
+        tabIndex={-1}
+        data-testid={testId}
+        style={{
+          pointerEvents: 'none',
+          opacity: 0.4,
+          background: 'transparent',
+          color: 'var(--muted)',
+          border: block ? '1px dashed var(--border)' : 0,
+          borderRadius: block ? 18 : 0,
+          padding: block ? '0.7rem 0.85rem' : 0,
+          width: block ? '100%' : undefined,
+          textAlign: 'left',
+          cursor: 'not-allowed',
+        }}
+      >
+        {label}
+      </button>
+      <span id={hintId} className="sr-only">{NEW_TASK_HINT}</span>
+    </span>
   );
 }
 

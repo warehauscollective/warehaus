@@ -32,6 +32,7 @@ describe('StatusTable task names', () => {
     );
     assert.match(html, new RegExp(task.name));
     assert.match(html, /overflow-wrap:anywhere/);
+    assert.match(html, /min-width:0/);
     assert.equal(html.includes('No items match these filters'), false);
   });
 });

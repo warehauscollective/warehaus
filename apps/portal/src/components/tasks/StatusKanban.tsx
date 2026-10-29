@@ -71,9 +71,10 @@ export function StatusKanban({
                       border: '1px solid var(--border)',
                       background: 'color-mix(in oklab, var(--bg) 55%, transparent)',
                       cursor: 'pointer',
+                      minWidth: 0,
                     }}
                   >
-                    <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600, lineHeight: 1.35, overflowWrap: 'anywhere' }}>
+                    <p style={{ fontSize: 'var(--t-sm)', fontWeight: 600, lineHeight: 1.35, overflowWrap: 'anywhere', minWidth: 0 }}>
                       {task.name}
                     </p>
                     <div className="mt-2 flex flex-wrap items-center gap-1.5">
@@ -148,7 +149,7 @@ export function StatusTable({
         <tbody>
           {tasks.map((task) => (
             <tr key={task.id} onClick={() => onOpen(task)} style={{ cursor: 'pointer' }}>
-              <td style={{ overflowWrap: 'anywhere' }}>{task.name}</td>
+              <td style={{ overflowWrap: 'anywhere', minWidth: 0 }}>{task.name}</td>
               <td>
                 <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
               </td>

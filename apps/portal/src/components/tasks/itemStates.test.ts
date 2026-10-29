@@ -21,15 +21,17 @@ const {
   ItemStaleBanner,
   ItemState,
   NewTaskButton,
+  itemListUsesCard,
   readItemScreen,
   readTaskFilter,
   resolveItemRegion,
+  showTaskListFilters,
   stageQueueBody,
   taskMatchesListFilter,
 } = await import('./itemStates');
 
 const noop = () => {};
-const live = { fixtures: false, screen: 'ready' as const, loading: false, error: false, count: 0, matched: 0, filterActive: false };
+const live = { fixtures: false, screen: 'ready' as const, staff: true, loading: false, error: false, count: 0, matched: 0, filterActive: false };
 
 describe('item list states', () => {
   it('keeps a live session off the fixture screen and includes staff in the load error', () => {
@@ -39,33 +41,55 @@ describe('item list states', () => {
     assert.equal(readItemScreen('nope', true), 'ready');
     assert.deepEqual(
       resolveItemRegion({ ...live, screen: 'error', count: 4, matched: 4 }),
-      { region: 'board', stale: false },
+      { region: 'board', stale: false, save: false },
     );
     assert.deepEqual(
       resolveItemRegion({ ...live, fixtures: true, screen: 'error', count: 4, matched: 4 }),
-      { region: 'error', stale: false },
+      { region: 'error', stale: false, save: false },
     );
     assert.deepEqual(
       resolveItemRegion({ ...live, error: true, count: 0 }),
-      { region: 'error', stale: false },
+      { region: 'error', stale: false, save: false },
     );
     assert.deepEqual(
       resolveItemRegion({ ...live, error: true, count: 3, matched: 3 }),
-      { region: 'board', stale: true },
+      { region: 'board', stale: true, save: false },
     );
     assert.deepEqual(
       resolveItemRegion({ ...live, loading: true, count: 0 }),
-      { region: 'loading', stale: false },
+      { region: 'loading', stale: false, save: false },
     );
-    assert.deepEqual(resolveItemRegion(live), { region: 'empty', stale: false });
+    assert.deepEqual(resolveItemRegion(live), { region: 'empty', stale: false, save: false });
     assert.deepEqual(
       resolveItemRegion({ ...live, count: 4, matched: 0, filterActive: true }),
-      { region: 'filtered', stale: false },
+      { region: 'filtered', stale: false, save: false },
     );
     assert.deepEqual(
       resolveItemRegion({ ...live, count: 0, matched: 0, filterActive: true }),
-      { region: 'empty', stale: false },
+      { region: 'empty', stale: false, save: false },
     );
+    assert.deepEqual(
+      resolveItemRegion({ ...live, fixtures: true, screen: 'save', count: 4, matched: 4 }),
+      { region: 'board', stale: false, save: true },
+    );
+    assert.deepEqual(
+      resolveItemRegion({ ...live, fixtures: true, screen: 'save', staff: false, count: 4, matched: 4 }),
+      { region: 'board', stale: false, save: false },
+    );
+    assert.equal(showTaskListFilters('board'), true);
+    assert.equal(showTaskListFilters('filtered'), true);
+    assert.equal(showTaskListFilters('empty'), false);
+    assert.equal(showTaskListFilters('loading'), false);
+    assert.equal(showTaskListFilters('error'), false);
+    assert.equal(showTaskListFilters('long'), false);
+    assert.equal(itemListUsesCard('board'), true);
+    assert.equal(itemListUsesCard('loading'), true);
+    assert.equal(itemListUsesCard('long'), true);
+    assert.equal(itemListUsesCard('empty'), false);
+    assert.equal(itemListUsesCard('error'), false);
+    assert.equal(itemListUsesCard('filtered'), false);
+    assert.equal(readItemScreen('save', true), 'save');
+    assert.equal(readItemScreen('save', false), 'ready');
   });
 
   it('splits true empty from a real filter and keeps the client shared empty', () => {
@@ -78,7 +102,7 @@ describe('item list states', () => {
 
     const filtered = renderToStaticMarkup(createElement(ItemState, { screen: 'filtered', staff: true, onClear: noop }));
     assert.match(filtered, new RegExp(ITEM_FILTERED_EMPTY.title));
-    assert.match(filtered, /Clear a filter, or create a new item\./);
+    assert.match(filtered, /Clear a filter to see more tasks\./);
     assert.match(filtered, /data-testid="item-clear-filters"/);
 
     const client = renderToStaticMarkup(createElement(ItemState, { screen: 'empty', staff: false }));
@@ -121,6 +145,12 @@ describe('item list states', () => {
     const open = renderToStaticMarkup(createElement(ItemSaveBanner, { retryAt: null, onRetry: noop }));
     assert.match(open, /will retry\./);
     assert.equal(open.includes(' at '), false);
+    const busy = renderToStaticMarkup(
+      createElement(ItemSaveBanner, { retryAt: null, onRetry: noop, busy: true, error: 'Notion did not accept the retry.' }),
+    );
+    assert.match(busy, /aria-busy="true"/);
+    assert.match(busy, /disabled=""/);
+    assert.match(busy, /Notion did not accept the retry\./);
   });
 
   it('announces loading inside the shared list card', () => {
@@ -146,6 +176,10 @@ describe('item list states', () => {
     assert.match(staff, /data-testid="item-chev"/);
     assert.match(staff, /width="16"/);
     assert.match(staff, /height="16"/);
+    assert.match(staff, /data-testid="item-pill-group"/);
+    assert.match(staff, /flex-wrap:nowrap/);
+    assert.match(staff, /data-testid="item-pill-group"[\s\S]*In progress[\s\S]*Published/);
+    assert.equal(staff.includes('border-bottom'), false);
 
     const client = renderToStaticMarkup(createElement(ItemLongRow, { staff: false }));
     assert.match(client, /Spring menu launch · Due Oct 6/);

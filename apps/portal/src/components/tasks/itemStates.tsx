@@ -3,7 +3,7 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
 
 /** Fixture preview only. A live session always stays on the real task list. */
-export const FIXTURE_ITEM_SCREENS = ['empty', 'loading', 'error', 'long'] as const;
+export const FIXTURE_ITEM_SCREENS = ['empty', 'loading', 'error', 'long', 'save'] as const;
 
 export type ItemScreen = (typeof FIXTURE_ITEM_SCREENS)[number] | 'ready';
 
@@ -17,10 +17,10 @@ export const ITEM_TRUE_EMPTY = {
   body: 'Tasks synced from Notion will show here.',
 } as const;
 
-/** Figma filtered cell. Only when a real filter matches nothing. */
+/** Filtered cell. Only when a real filter matches nothing. */
 export const ITEM_FILTERED_EMPTY = {
-  title: 'No items match these filters',
-  body: 'Clear a filter, or create a new item.',
+  title: 'No tasks match these filters',
+  body: 'Clear a filter to see more tasks.',
 } as const;
 
 export const ITEM_CLIENT_EMPTY = {
@@ -122,26 +122,50 @@ export function useTaskListFilter(fixtures: boolean): [TaskListFilter, (filter: 
  * rows keeps the list and raises `stale`. Filtered empty is a real filter
  * that matched nothing, never the unfiltered zero-task case.
  */
+/** Chips stay up for the list and for a filter that matched nothing. */
+export function showTaskListFilters(region: ItemRegion): boolean {
+  return region === 'board' || region === 'filtered';
+}
+
+/** Empty and error are their own boxes. Loading, the list, and the long row use the card. */
+export function itemListUsesCard(region: ItemRegion): boolean {
+  return region === 'board' || region === 'loading' || region === 'long';
+}
+
 export function resolveItemRegion(input: {
   fixtures: boolean;
   screen: ItemScreen;
+  staff: boolean;
   loading: boolean;
   error: boolean;
   count: number;
   matched: number;
   filterActive: boolean;
-}): { region: ItemRegion; stale: boolean } {
-  if (input.fixtures && input.screen !== 'ready') {
-    return { region: input.screen, stale: false };
+}): { region: ItemRegion; stale: boolean; save: boolean } {
+  if (input.fixtures && input.screen === 'save') {
+    return { region: 'board', stale: false, save: input.staff };
   }
-  if (input.loading && input.count === 0) return { region: 'loading', stale: false };
-  if (input.error && input.count === 0) return { region: 'error', stale: false };
-  if (input.count === 0) return { region: 'empty', stale: false };
-  if (input.filterActive && input.matched === 0) return { region: 'filtered', stale: false };
-  return { region: 'board', stale: input.error };
+  if (input.fixtures && input.screen !== 'ready' && input.screen !== 'save') {
+    return { region: input.screen, stale: false, save: false };
+  }
+  if (input.loading && input.count === 0) return { region: 'loading', stale: false, save: false };
+  if (input.error && input.count === 0) return { region: 'error', stale: false, save: false };
+  if (input.count === 0) return { region: 'empty', stale: false, save: false };
+  if (input.filterActive && input.matched === 0) return { region: 'filtered', stale: false, save: false };
+  return { region: 'board', stale: input.error, save: false };
 }
 
-const ITEM_STATE_CSS = `.item-state-btn:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }`;
+const ITEM_STATE_CSS = `.item-state-btn:focus-visible { outline: 2px solid var(--fg); outline-offset: 3px; }
+.tasks-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.new-task { display: inline-flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: 280px; }
+.new-task-hint { font-size: 12px; line-height: 16px; color: var(--muted); }
+@media (min-width: 1440px) {
+  .tasks-actions { display: grid; grid-template-columns: auto auto; justify-content: end; justify-items: end; column-gap: 8px; row-gap: 6px; }
+  .tasks-view { grid-column: 1; grid-row: 1; }
+  .new-task { display: contents; max-width: none; }
+  .new-task-control { grid-column: 2; grid-row: 1; }
+  .new-task-hint { grid-column: 1 / -1; grid-row: 2; justify-self: end; white-space: nowrap; text-align: right; max-width: none; }
+}`;
 
 const ITEM_CARD_STYLE = {
   border: '1px solid var(--border)',
@@ -150,7 +174,7 @@ const ITEM_CARD_STYLE = {
   padding: 16,
 } as const;
 
-/** Shared card for empty, loading, the loaded list, and the long row. */
+/** Card for loading, the loaded list, and the long row. Empty and error are the box themselves. */
 export function ItemListCard(props: { children?: ReactNode }) {
   const { children } = props;
   return (
@@ -184,7 +208,17 @@ export function ItemStaleBanner({ onRetry }: { onRetry?: () => void }) {
   );
 }
 
-export function ItemSaveBanner({ retryAt, onRetry }: { retryAt: number | null; onRetry?: () => void }) {
+export function ItemSaveBanner({
+  retryAt,
+  onRetry,
+  busy = false,
+  error = null,
+}: {
+  retryAt: number | null;
+  onRetry?: () => void;
+  busy?: boolean;
+  error?: string | null;
+}) {
   return (
     <ItemDangerCard
       testId="item-save-banner"
@@ -193,6 +227,8 @@ export function ItemSaveBanner({ retryAt, onRetry }: { retryAt: number | null; o
       actionLabel="Retry now"
       actionTestId="item-retry-now"
       onAction={onRetry}
+      busy={busy}
+      error={error}
     />
   );
 }
@@ -262,6 +298,8 @@ function ItemDangerCard({
   actionLabel,
   actionTestId,
   onAction,
+  busy = false,
+  error = null,
 }: {
   testId: string;
   title: string;
@@ -269,16 +307,20 @@ function ItemDangerCard({
   actionLabel: string;
   actionTestId: string;
   onAction?: () => void;
+  busy?: boolean;
+  error?: string | null;
 }) {
   return (
     <div
       role="alert"
       data-testid={testId}
+      aria-busy={busy || undefined}
       className="flex items-start"
       style={{
         gap: 12,
         border: '1px solid var(--danger)',
         borderRadius: 18,
+        background: 'var(--surface)',
         padding: '16px 24px',
       }}
     >
@@ -300,8 +342,11 @@ function ItemDangerCard({
       <span className="flex min-w-0 flex-1 flex-col items-start" style={{ gap: 4 }}>
         <p style={{ margin: 0, color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{title}</p>
         <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13, lineHeight: '19px' }}>{body}</p>
+        {error ? (
+          <p data-testid="item-save-error" style={{ margin: 0, color: 'var(--danger)', fontSize: 13, lineHeight: '19px' }}>{error}</p>
+        ) : null}
         <span style={{ marginTop: 8 }}>
-          <ItemOutlineButton testId={actionTestId} onClick={onAction}>
+          <ItemOutlineButton testId={actionTestId} onClick={onAction} disabled={busy}>
             {actionLabel}
           </ItemOutlineButton>
         </span>
@@ -334,7 +379,7 @@ export function ItemLongRow({ staff }: { staff: boolean }) {
     <div
       data-testid="item-long-row"
       className="flex flex-col"
-      style={{ gap: 8, borderBottom: '1px solid var(--border)', padding: '24px 0' }}
+      style={{ gap: 8, padding: '8px 0' }}
     >
       <div className="flex items-start" style={{ gap: 12 }}>
         <span className="min-w-0 flex-1">
@@ -364,37 +409,32 @@ export function ItemLongRow({ staff }: { staff: boolean }) {
           <ItemStageIcon />
           {row.stage}
         </span>
-        <span
-          data-testid="item-status"
-          className="ds-mono inline-flex items-center"
-          style={{
-            borderRadius: 999,
-            padding: '4px 12px',
-            fontSize: 11,
-            letterSpacing: '0.44px',
-            background: 'var(--accent-tint, rgba(252, 252, 252, 0.12))',
-            color: 'var(--accent, var(--fg))',
-          }}
-        >
-          {row.status}
-        </span>
         {row.published ? (
-          <span data-testid="item-published" className="ds-mono inline-flex items-center" style={{ gap: 8, padding: '4px 8px', fontSize: 11, letterSpacing: '0.44px' }}>
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img alt="" src="/icons/activity-published-dot.svg" width={8} height={8} />
-            Published
+          <span data-testid="item-pill-group" className="inline-flex items-center" style={{ gap: 8, flexWrap: 'nowrap' }}>
+            <ItemStatusPill status={row.status} />
+            <span data-testid="item-published" className="ds-mono inline-flex items-center" style={{ gap: 8, padding: '4px 8px', fontSize: 11, letterSpacing: '0.44px' }}>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img alt="" src="/icons/activity-published-dot.svg" width={8} height={8} />
+              Published
+            </span>
           </span>
-        ) : null}
+        ) : (
+          <ItemStatusPill status={row.status} />
+        )}
       </div>
     </div>
   );
+}
+
+export function TasksActionStyle() {
+  return <style>{ITEM_STATE_CSS}</style>;
 }
 
 /** Header New task. createTask only enqueues a Notion write, and write-back is off. */
 export function NewTaskButton() {
   const hintId = useId();
   return (
-    <span className="inline-flex flex-col items-start" style={{ gap: 6, maxWidth: 280 }}>
+    <span className="new-task">
       <style>{ITEM_STATE_CSS}</style>
       <span
         tabIndex={0}
@@ -402,7 +442,7 @@ export function NewTaskButton() {
         aria-describedby={hintId}
         title={NEW_TASK_HINT}
         data-testid="new-task-hint"
-        className="item-state-btn inline-flex"
+        className="new-task-control item-state-btn inline-flex"
         style={{ cursor: 'not-allowed' }}
       >
         <button
@@ -428,9 +468,28 @@ export function NewTaskButton() {
           New task
         </button>
       </span>
-      <span id={hintId} data-testid="new-task-hint-text" style={{ fontSize: 12, lineHeight: '16px', color: 'var(--muted)' }}>
+      <span id={hintId} data-testid="new-task-hint-text" className="new-task-hint">
         {NEW_TASK_HINT}
       </span>
+    </span>
+  );
+}
+
+function ItemStatusPill({ status }: { status: string }) {
+  return (
+    <span
+      data-testid="item-status"
+      className="ds-mono inline-flex items-center"
+      style={{
+        borderRadius: 999,
+        padding: '4px 12px',
+        fontSize: 11,
+        letterSpacing: '0.44px',
+        background: 'var(--accent-tint, rgba(252, 252, 252, 0.12))',
+        color: 'var(--accent, var(--fg))',
+      }}
+    >
+      {status}
     </span>
   );
 }
@@ -438,17 +497,21 @@ export function NewTaskButton() {
 function ItemOutlineButton({
   testId,
   onClick,
+  disabled = false,
   children,
 }: {
   testId: string;
   onClick?: () => void;
+  disabled?: boolean;
   children: ReactNode;
 }) {
   return (
     <button
       type="button"
       data-testid={testId}
-      onClick={onClick}
+      onClick={disabled ? undefined : onClick}
+      disabled={disabled}
+      aria-disabled={disabled || undefined}
       className="item-state-btn inline-flex items-center justify-center"
       style={{
         background: 'transparent',
@@ -459,7 +522,9 @@ function ItemOutlineButton({
         fontSize: 14,
         fontWeight: 500,
         padding: '12px 16px',
-        cursor: 'pointer',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
+        pointerEvents: disabled ? 'none' : undefined,
       }}
     >
       {children}

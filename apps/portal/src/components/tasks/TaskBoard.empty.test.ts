@@ -34,4 +34,24 @@ describe('empty task board', () => {
     assert.ok(clientLines.length > 0);
     assert.equal(clientLines.length, (client.match(/data-testid="task-column"/g) ?? []).length);
   });
+
+  it('keeps column quick-add disabled and off createTask', () => {
+    const html = renderToStaticMarkup(
+      createElement(TaskBoard, {
+        tasks: [],
+        staff: true,
+        loading: false,
+        rules,
+        quickAddEnabled: false,
+        onOpen: () => {},
+        onMove: async () => ({ ok: true }),
+        onQuickAdd: async () => ({ ok: true }),
+      }),
+    );
+    assert.match(html, /data-testid="column-add-task"/);
+    assert.match(html, /disabled=""/);
+    assert.match(html, /Creating a task stays off until write-back is enabled\./);
+    assert.match(html, /\+ Add task/);
+    assert.equal(html.includes('pointer-events:none'), true);
+  });
 });
