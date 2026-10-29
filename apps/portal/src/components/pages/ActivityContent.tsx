@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityFeedRow } from '@/components/activity/ActivityFeedRow';
-import { activityFilterFadeOnScroll, scrollActiveIntoView } from '@/components/layout/sectionEdgeFade';
+import { activityFilterFadeOnScroll, scrollActiveIntoView, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
@@ -192,7 +192,7 @@ function ActivityFilters({
   onSelect: (key: ActivityFilter) => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
-  const [fadePx, setFadePx] = useState(0);
+  const [fade, setFade] = useState<EdgeFade>({ leading: 0, trailing: 0 });
   useEffect(() => {
     const node = scroller.current;
     if (!node || !narrow) return;
@@ -201,11 +201,11 @@ function ActivityFilters({
   useEffect(() => {
     const node = scroller.current;
     if (!node || !narrow) {
-      setFadePx(0);
+      setFade({ leading: 0, trailing: 0 });
       return;
     }
     const update = () => {
-      setFadePx(activityFilterFadeOnScroll(node));
+      setFade(activityFilterFadeOnScroll(node));
     };
     update();
     node.addEventListener('scroll', update, { passive: true });
@@ -218,7 +218,7 @@ function ActivityFilters({
       window.removeEventListener('resize', update);
     };
   }, [narrow, filter, filters]);
-  const fade = narrow && fadePx > 0;
+  const mask = narrow ? sectionEdgeMask(fade) : null;
   return (
     <div className="relative mt-6 min-w-0">
       <div
@@ -232,10 +232,10 @@ function ActivityFilters({
                 flexWrap: 'nowrap',
                 scrollbarWidth: 'none',
                 maxWidth: '100%',
-                ...(fade
+                ...(mask
                   ? {
-                      maskImage: `linear-gradient(to right, #000 0, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
-                      WebkitMaskImage: `linear-gradient(to right, #000 0, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
+                      maskImage: mask,
+                      WebkitMaskImage: mask,
                     }
                   : null),
               }
@@ -269,12 +269,20 @@ function ActivityFilters({
           );
         })}
       </div>
-      {fade ? (
+      {fade.leading > 0 ? (
+        <div
+          aria-hidden
+          data-testid="activity-filter-fade-leading"
+          className="pointer-events-none absolute inset-y-0 left-0"
+          style={{ width: fade.leading, background: 'linear-gradient(to left, transparent, var(--surface) 70%)' }}
+        />
+      ) : null}
+      {fade.trailing > 0 ? (
         <div
           aria-hidden
           data-testid="activity-filter-fade"
           className="pointer-events-none absolute inset-y-0 right-0"
-          style={{ width: fadePx, background: 'linear-gradient(to right, transparent, var(--surface) 70%)' }}
+          style={{ width: fade.trailing, background: 'linear-gradient(to right, transparent, var(--surface) 70%)' }}
         />
       ) : null}
     </div>

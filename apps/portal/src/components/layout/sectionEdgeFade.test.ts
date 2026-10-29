@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { activityFilterFadeOnScroll, scrollActiveIntoView, sectionEdgeFadePx, sectionPeekScroll } from './sectionEdgeFade';
+import { activityFilterFadeOnScroll, scrollActiveIntoView, sectionEdgeFadePx, sectionEdgeFades, sectionPeekScroll } from './sectionEdgeFade';
 
 describe('sectionPeekScroll', () => {
   it('peeks Meeting notes without sliding All resources out of the strip', () => {
@@ -58,6 +58,7 @@ function fakeChipRow(input: {
   scrollWidth: number;
   scrollLeft: number;
   buttons: FakeChip[];
+  onWrite?: (value: number) => void;
 }): HTMLElement {
   let scrollLeft = input.scrollLeft;
   const scrollListeners = new Set<() => void>();
@@ -76,6 +77,7 @@ function fakeChipRow(input: {
     },
     set scrollLeft(value: number) {
       scrollLeft = value;
+      input.onWrite?.(value);
     },
     getBoundingClientRect() {
       return { left: 0, right: input.clientWidth, width: input.clientWidth, top: 0, bottom: 32, height: 32, x: 0, y: 0 };
@@ -204,5 +206,51 @@ describe('sectionEdgeFadePx', () => {
     for (const handler of handlers) node.addEventListener('scroll', handler);
     node.dispatchEvent(new Event('scroll'));
     assert.equal(node.scrollLeft, 240);
+  });
+
+  it('shows a leading fade only after the strip scrolls and drops the trailing fade at the end', () => {
+    const buttons: FakeChip[] = [
+      { left: 0, width: 70 },
+      { left: 200, width: 60, pressed: true },
+      { left: 520, width: 80 },
+    ];
+    const atStart = fakeChipRow({ clientWidth: 320, scrollWidth: 640, scrollLeft: 0, buttons });
+    assert.deepEqual(sectionEdgeFades(atStart, { activeSelector: '[aria-pressed="true"]' }), {
+      leading: 0,
+      trailing: 20,
+    });
+    const mid = fakeChipRow({ clientWidth: 320, scrollWidth: 640, scrollLeft: 80, buttons });
+    assert.deepEqual(sectionEdgeFades(mid, { activeSelector: '[aria-pressed="true"]' }), {
+      leading: 20,
+      trailing: 20,
+    });
+    const atEnd = fakeChipRow({ clientWidth: 320, scrollWidth: 640, scrollLeft: 320, buttons });
+    const endFade = sectionEdgeFades(atEnd, { activeSelector: '[aria-pressed="true"]' });
+    assert.equal(endFade.trailing, 0);
+    assert.equal(endFade.leading, 20);
+    assert.equal(atEnd.scrollLeft, 320);
+  });
+
+  it('sets only the strip scrollLeft and leaves the page at 0', () => {
+    const source = readFileSync(new URL('./sectionEdgeFade.ts', import.meta.url), 'utf8');
+    assert.equal(/\.scrollIntoView\s*\(/.test(source), false);
+    const scrollingElement = { scrollLeft: 0 };
+    const node = fakeChipRow({
+      clientWidth: 200,
+      scrollWidth: 600,
+      scrollLeft: 0,
+      buttons: [
+        { left: 0, width: 60 },
+        { left: 400, width: 80, pressed: true },
+      ],
+      onWrite: () => {
+        scrollingElement.scrollLeft = 80;
+      },
+    });
+    Object.assign(node, { ownerDocument: { scrollingElement } });
+    scrollActiveIntoView(node, { activeSelector: '[aria-pressed="true"]' });
+    assert.ok(node.scrollLeft > 0);
+    assert.equal(scrollingElement.scrollLeft, 0);
+    assert.equal(node.scrollLeft > 0 && scrollingElement.scrollLeft === 0, true);
   });
 });
