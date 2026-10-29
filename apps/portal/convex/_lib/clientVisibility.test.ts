@@ -13,6 +13,8 @@ import {
 import {
   getForClient as getResourceForClient,
   listForClient as listResourcesForClient,
+  usedInTasks,
+  usedInTasksForClient,
 } from '../sharedResources';
 import {
   activityForClient,
@@ -421,6 +423,11 @@ const tables: Record<string, Row[]> = {
       createdAt: 45,
     },
   ],
+  taskResources: [
+    { _id: 'link-public', orgId: org._id, resourceId: 'res-public', taskId: 'task-public' },
+    { _id: 'link-draft', orgId: org._id, resourceId: 'res-public', taskId: 'task-draft' },
+    { _id: 'link-internal', orgId: org._id, resourceId: 'res-public', taskId: 'task-internal' },
+  ],
   notionOutbox: [
     {
       _id: 'outbox-internal',
@@ -586,6 +593,30 @@ describe('client identity against warehaus.studio', () => {
       snapshotBody.activity.map((item) => item.summary),
       ['', ''],
     );
+    const snapshotText = text(snapshot);
+    assert.equal(snapshotText.includes('notionPageId'), false);
+    assert.equal(snapshotText.includes('publishToWarehaus'), false);
+    assert.equal(snapshotText.includes('lastSyncedAt'), false);
+    assert.equal(snapshotText.includes('syncHidden'), false);
+    assert.equal(snapshotText.includes('syncState'), false);
+  });
+
+  it('returns used-in-tasks without publish, sync, or warehaus.studio rows', async () => {
+    const visible = (await run(usedInTasksForClient, { resourceId: 'res-public' })) as Array<{ name: string }>;
+    assert.deepEqual(visible.map((task) => task.name), ['Homepage']);
+    const hiddenResource = await run(usedInTasksForClient, { resourceId: 'res-internal' });
+    assert.deepEqual(hiddenResource, []);
+    const draft = await run(usedInTasksForClient, { resourceId: 'res-draft' });
+    assert.deepEqual(draft, []);
+    const body = text(visible);
+    assert.equal(body.includes('notionPageId'), false);
+    assert.equal(body.includes('publishToWarehaus'), false);
+    assert.equal(body.includes('lastSyncedAt'), false);
+    assert.equal(body.includes('warehaus.studio'), false);
+    assert.equal(body.includes('Studio ops'), false);
+    assert.equal(body.includes('Secret draft'), false);
+    const staff = (await runStaff(usedInTasks, { resourceId: 'res-public' })) as Array<{ name: string }>;
+    assert.deepEqual(staff.map((task) => task.name), ['Homepage', 'Secret draft', 'Studio ops']);
   });
 
   it('keeps raw activity text out of the client snapshot', async () => {

@@ -94,7 +94,7 @@ export function usePortalData() {
     return {
       data: convexSnapshot as PortalSnapshot,
       loading: false,
-      error: convexSnapshot.syncMeta.lastError,
+      error: convexSnapshot.syncMeta.lastError ?? null,
     };
   }, [
     fixtures,

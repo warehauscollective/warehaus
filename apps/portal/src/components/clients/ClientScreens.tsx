@@ -5,6 +5,7 @@ import { Pill } from '@/components/ui/primitives';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { SyncChip } from '@/components/sync/SyncChip';
+import { brandLine, staffHeaderLine } from '@/lib/data/clientDetail';
 import { clientInitials, clientListStats, clientMatchesFilter, singleOrAcross, type ClientListFilter, type ClientListRow } from '@/lib/data/clientList';
 import { taskStatusColor } from '@/lib/data/view-models';
 
@@ -165,6 +166,8 @@ function percent(value: number | null | undefined): number {
   return Math.min(100, Math.max(0, Math.round(pct)));
 }
 
+export type ClientScreen = 'ready' | 'empty' | 'loading' | 'error' | 'long';
+
 export function ClientDirectory({
   clients,
   filter,
@@ -172,6 +175,7 @@ export function ClientDirectory({
   onOpen,
   loading,
   error,
+  screen = 'ready',
 }: {
   clients: DirectoryClient[];
   filter: ClientListFilter;
@@ -179,6 +183,7 @@ export function ClientDirectory({
   onOpen: (id: string) => void;
   loading: boolean;
   error: string | null;
+  screen?: ClientScreen;
 }) {
   const phone = useMaxWidth(767);
   const stats = clientListStats(clients);
@@ -246,13 +251,24 @@ export function ClientDirectory({
             );
           })}
         </div>
-        {error ? <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)', marginTop: 12 }}>{error}</p> : null}
-        {loading ? (
-          <div className="mt-4 flex flex-col gap-2" aria-busy="true">
+        {screen === 'error' || error ? (
+          <StateNotice
+            title="Client list is out of date"
+            body={screen === 'error' ? 'Last synced 22 minutes ago. Lumen Dental has a sync problem.' : error || 'Try again in a moment.'}
+            action={<DisabledAction label="Retry sync" />}
+          />
+        ) : screen === 'loading' || loading ? (
+          <div className="mt-4 flex flex-col gap-2" aria-busy="true" data-testid="client-loading">
             {[0, 1, 2].map((i) => (
               <div key={i} className="animate-pulse" style={{ height: 64, borderRadius: 12, background: 'var(--bg)' }} />
             ))}
           </div>
+        ) : screen === 'empty' ? (
+          <EmptyCopy
+            title="No clients yet"
+            body="Add a client to start a project. Warehaus (internal) always exists."
+            action={<DisabledAction label="New client" />}
+          />
         ) : shown.length === 0 ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 16 }}>No clients match these filters.</p>
         ) : (
@@ -267,7 +283,7 @@ export function ClientDirectory({
                 >
                   <Mark name={client.name} />
                   <span className="min-w-0 flex-1">
-                    <span className="block" style={{ fontWeight: 600 }}>
+                    <span className="block" style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>
                       {client.internal ? `${client.name} (internal)` : client.name}
                     </span>
                     <span className="ds-mono block" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
@@ -317,25 +333,36 @@ export function ClientDetail({
   tasks,
   docs,
   contacts,
+  leadName = null,
+  clientSince = null,
+  brandName,
 }: {
   client: DirectoryClient;
   projects: ClientProjectRow[];
   tasks: ClientTaskRow[];
   docs: DocRow[];
   contacts: ClientPersonRow[];
+  leadName?: string | null;
+  clientSince?: string | null;
+  brandName?: string | null;
 }) {
   const awaiting = tasks.filter((task) => !task.isDone && task.stage === 'Awaiting Go').length;
+  const pending = contacts.filter((person) => person.invitePending).length;
+  const brand = brandName?.trim() || client.name;
+  const header = staffHeaderLine(clientSince, leadName);
+  const open = tasks.filter((task) => !task.isDone);
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
       <Panel>
         <div className="flex items-center gap-4">
           <Mark name={client.name} />
           <div className="min-w-0 flex-1">
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>{client.name}</h2>
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
-              {client.contactCount} {client.contactCount === 1 ? 'person' : 'people'}
-              {client.internal ? ' · admin-only' : ''}
-            </p>
+            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)', overflowWrap: 'anywhere' }}>{client.name}</h2>
+            {header ? (
+              <p data-testid="client-since-lead" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
+                {header}
+              </p>
+            ) : null}
           </div>
           <DisabledAction label="Edit client" />
         </div>
@@ -350,13 +377,24 @@ export function ClientDetail({
         </div>
       </Panel>
       <div className="grid w-full grid-cols-2 gap-3 md:grid-cols-3">
-        <Stat label="PROJECTS" value={String(projects.length)} hint={projects.length === 1 ? '1 on this client' : `${projects.length} on this client`} />
-        <Stat label="PEOPLE" value={String(contacts.length)} hint="Contacts with portal access" />
-        <Stat label="OPEN ITEMS" value={String(tasks.filter((task) => !task.isDone).length)} hint={awaiting > 0 ? `${awaiting} awaiting go` : 'None awaiting go'} tone={awaiting > 0 ? 'var(--danger)' : undefined} />
+        <Stat label="PROJECTS" value={String(projects.length)} hint={projects.length > 0 ? '1 active brand each' : 'No projects yet'} />
+        <Stat label="PEOPLE" value={String(contacts.length)} hint={pending > 0 ? `${pending} invite pending` : 'Contacts with portal access'} />
+        <Stat label="OPEN ITEMS" value={String(open.length)} hint={awaiting > 0 ? `${awaiting} awaiting go` : 'None awaiting go'} tone={awaiting > 0 ? 'var(--danger)' : undefined} />
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {[
+          ['client-projects', 'Projects', projects.length],
+          ['client-people', 'People', contacts.length],
+          ['client-tasks', 'Tasks', tasks.length],
+        ].map(([id, label, count]) => (
+          <a key={String(id)} href={`#${id}`} className="ds-mono" style={{ fontSize: 13, color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 999, padding: '6px 12px' }}>
+            {label} {count}
+          </a>
+        ))}
       </div>
       <Panel>
-        <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Projects</h3>
-        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Brand is not stored on the project yet.</p>
+        <h3 id="client-projects" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Projects</h3>
+        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Brand is attached to each project</p>
         {projects.length === 0 ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No projects.</p>
         ) : (
@@ -367,8 +405,8 @@ export function ClientDetail({
                 <li key={project.id} className="flex flex-wrap items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
                   <Mark name={project.name} />
                   <span className="min-w-0 flex-1">
-                    <span className="block" style={{ fontWeight: 600 }}>{project.name}</span>
-                    <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{project.status}</span>
+                    <span className="block" style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{project.name}</span>
+                    <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{brandLine(brand)}</span>
                   </span>
                   <span className="flex items-center gap-2" style={{ minWidth: 140 }}>
                     <span style={{ height: 4, width: 88, borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
@@ -386,7 +424,7 @@ export function ClientDetail({
         )}
       </Panel>
       <Panel>
-        <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>People</h3>
+        <h3 id="client-people" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>People</h3>
         <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
           Contacts with portal access. Invites stay on Account → Team.
         </p>
@@ -411,7 +449,7 @@ export function ClientDetail({
         )}
       </Panel>
       <Panel>
-        <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Tasks</h3>
+        <h3 id="client-tasks" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Tasks</h3>
         <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Published and unpublished, live Status.</p>
         {tasks.length === 0 ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No tasks.</p>
@@ -444,6 +482,7 @@ export function ClientCompany({
   people,
   showTeam,
   onShowTeam,
+  screen = 'ready',
 }: {
   name: string;
   contactName: string;
@@ -455,6 +494,7 @@ export function ClientCompany({
   showTeam: boolean;
   onShowTeam: () => void;
   onBack: () => void;
+  screen?: ClientScreen;
 }) {
   const open = tasks.filter((task) => !task.isDone);
   const awaiting = open.filter((task) => task.stage === 'Awaiting Go');
@@ -504,6 +544,23 @@ export function ClientCompany({
     );
   }
 
+  if (screen === 'error') {
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company">
+        <StateNotice title="We could not load your company" body="Try again in a moment." />
+      </div>
+    );
+  }
+  if (screen === 'loading') {
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company" aria-busy="true">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="animate-pulse" style={{ height: 64, borderRadius: 12, background: 'var(--bg)' }} />
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company">
       <Panel>
@@ -549,9 +606,15 @@ export function ClientCompany({
         <Stat label="NEEDS YOUR ATTENTION" value={String(awaiting.length)} hint={awaiting.length > 0 ? 'Waiting on your approval' : 'Nothing waiting'} tone={awaiting.length > 0 ? 'var(--danger)' : undefined} />
       </div>
       <Panel>
-        <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Your projects</h3>
-        {projects.length === 0 ? (
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>Nothing shared yet.</p>
+        <h3 id="your-brands" data-testid="your-brands" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Your brands</h3>
+        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
+          {name} is the brand on each project shared with you.
+        </p>
+        {screen === 'empty' || projects.length === 0 ? (
+          <EmptyCopy
+            title="No projects shared with you yet"
+            body="Warehaus will publish projects here when they are ready."
+          />
         ) : (
           <ul className="mt-2">
             {projects.map((project) => {
@@ -560,8 +623,8 @@ export function ClientCompany({
                 <li key={project.id} className="flex flex-wrap items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
                   <Mark name={project.name} />
                   <span className="min-w-0 flex-1">
-                    <span className="block" style={{ fontWeight: 600 }}>{project.name}</span>
-                    <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{project.status}</span>
+                    <span className="block" style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{project.name}</span>
+                    <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{brandLine(name)}</span>
                   </span>
                   <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{pct}% of items</span>
                 </li>
@@ -571,8 +634,35 @@ export function ClientCompany({
         )}
       </Panel>
       <div data-testid="client-docs">
-        <DocsBlock docs={docs} staff={false} />
+        <DocsBlock docs={screen === 'empty' ? [] : docs} staff={false} />
       </div>
+    </div>
+  );
+}
+
+function StateNotice({ title, body, action }: { title: string; body: string; action?: ReactNode }) {
+  return (
+    <div
+      role="alert"
+      className="mt-4 flex flex-col items-start gap-3"
+      style={{ border: '1px solid var(--danger)', borderRadius: 18, padding: '1rem 1.25rem' }}
+    >
+      <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 14 }}>{title}</p>
+      <p style={{ color: 'var(--muted)', fontSize: 13 }}>{body}</p>
+      {action}
+    </div>
+  );
+}
+
+function EmptyCopy({ title, body, action }: { title: string; body: string; action?: ReactNode }) {
+  return (
+    <div
+      className="mt-4 flex flex-col items-center gap-2 text-center"
+      style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '2.5rem 1.25rem' }}
+    >
+      <p style={{ fontWeight: 500 }}>{title}</p>
+      <p style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 360 }}>{body}</p>
+      {action}
     </div>
   );
 }

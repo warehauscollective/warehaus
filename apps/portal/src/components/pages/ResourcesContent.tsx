@@ -1,15 +1,18 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { Pill, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
+import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
+import { ResourceDetail, type ResourceTaskRow } from '@/components/resources/ResourceDetail';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
-import { FIXTURE_DOCS, FIXTURE_RESOURCES } from '@/lib/data/fixtures';
+import { FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_RESOURCES, FIXTURE_TASKS, FIXTURE_TASK_RESOURCES } from '@/lib/data/fixtures';
+import { isStudioProjectName, withoutClientLeaks } from '@/lib/data/clientDetail';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
@@ -17,7 +20,7 @@ import { useSafeQuery } from '@/hooks/useSafeQuery';
 import type { Id } from '@convex/_generated/dataModel';
 import { api } from '@convex/_generated/api';
 import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
-import { portalNavDetail } from '@/lib/nav/openPortalHref';
+import { openPortalHref, portalNavDetail } from '@/lib/nav/openPortalHref';
 
 const SECTION_TITLE: Record<string, string> = {
   all: 'All resources',
@@ -40,6 +43,37 @@ type DocHit = {
   publishToWarehaus?: boolean;
   syncHidden?: boolean;
 };
+
+function fixtureTasksFor(resourceId: string, staff: boolean): ResourceTaskRow[] {
+  const ids = new Set(
+    FIXTURE_TASK_RESOURCES.filter((link) => link.resourceId === resourceId).map((link) => link.taskId),
+  );
+  return FIXTURE_TASKS.filter((task) => ids.has(task.id)).flatMap((task) => {
+    const project = FIXTURE_PROJECTS.find((item) => item.id === task.projectId);
+    if (!staff) {
+      if (task.syncHidden || task.publishToWarehaus === false) return [];
+      if (!project || project.internal || project.publishToWarehaus === false || isStudioProjectName(project.name)) {
+        return [];
+      }
+    }
+    const row: ResourceTaskRow = {
+      id: task.id,
+      name: task.name,
+      status: task.status,
+      stage: task.stage,
+      projectName: project?.name ?? task.projectName,
+      date: task.date,
+      ...(staff ? { publishToWarehaus: task.publishToWarehaus } : {}),
+    };
+    return [staff ? row : withoutClientLeaks(row)];
+  });
+}
+
+function clientMayOpen(row: ResourceRow): boolean {
+  if (row.publishToWarehaus === false || row.syncHidden) return false;
+  if (isStudioProjectName(row.projectName)) return false;
+  return true;
+}
 
 function pathId(pathname: string, prefix: string): string | null {
   const match = pathname.match(new RegExp(`^${prefix}([^/?#]+)`));
@@ -74,13 +108,36 @@ export function ResourcesContent() {
     !fixtures && configured && !isStaff && data.tenant.ok ? { hostSlug } : 'skip',
   );
 
-  const rows = useMemo(
-    () => (fixtures ? FIXTURE_RESOURCES : isStaff ? staff.resources ?? [] : clientRows.data ?? []) as ResourceRow[],
-    [fixtures, isStaff, staff.resources, clientRows.data],
-  );
+  const rows = useMemo(() => {
+    const source = (fixtures ? FIXTURE_RESOURCES : isStaff ? staff.resources ?? [] : clientRows.data ?? []) as ResourceRow[];
+    if (isStaff) return source;
+    return source.filter(clientMayOpen).map((row) => withoutClientLeaks(row));
+  }, [fixtures, isStaff, staff.resources, clientRows.data]);
   const docs = useMemo(
     () => (fixtures ? FIXTURE_DOCS : isStaff ? staff.docs ?? [] : clientDocs.data ?? []) as DocHit[],
     [fixtures, isStaff, staff.docs, clientDocs.data],
+  );
+  const [openResourceId, setOpenResourceId] = useState<string | null>(null);
+
+  // Preview and deep links pass ?resource= or /resources/:id. The initializer
+  // cannot read window during SSR, so apply the id after mount.
+  useEffect(() => {
+    const id =
+      new URLSearchParams(window.location.search).get('resource') ??
+      pathId(window.location.pathname, '/resources/');
+    if (id) setOpenResourceId(id);
+  }, [pathname]);
+  const staffUsed = useSafeQuery<ResourceTaskRow[]>(
+    api.sharedResources.usedInTasks,
+    !fixtures && configured && isStaff && openResourceId
+      ? { hostSlug, resourceId: openResourceId as Id<'sharedResources'> }
+      : 'skip',
+  );
+  const clientUsed = useSafeQuery<ResourceTaskRow[]>(
+    api.sharedResources.usedInTasksForClient,
+    !fixtures && configured && !isStaff && openResourceId
+      ? { hostSlug, resourceId: openResourceId as Id<'sharedResources'> }
+      : 'skip',
   );
   const loading = !fixtures && (isStaff ? staff.resourcesLoading : clientRows.loading);
   const visible = rows.filter((row) => {
@@ -105,7 +162,8 @@ export function ResourcesContent() {
       const preview = window.location.pathname.startsWith('/preview');
       const docId = detail ? detail.doc : preview ? params.get('doc') : pathId(window.location.pathname, '/docs/');
       const resourceId = detail ? detail.resource : preview ? params.get('resource') : pathId(window.location.pathname, '/resources/');
-      if (!docId && !resourceId) return;
+      if (resourceId) setOpenResourceId(resourceId);
+      if (!docId) return;
       if (docId && !fixtures && !isStaff && clientDocs.loading) return;
       timer = window.setTimeout(() => {
         if (docId) {
@@ -127,28 +185,7 @@ export function ResourcesContent() {
               </div>
             ),
           });
-          return;
         }
-        if (!resourceId) return;
-        const row = rows.find((item) => item.id === resourceId);
-        const allowed = Boolean(row) && (isStaff || (row?.publishToWarehaus !== false && !row?.syncHidden));
-        if (!allowed || !row) {
-          unavailable(resourceId);
-          return;
-        }
-        openDetail({
-          id: row.id,
-          title: row.name,
-          subtitle: row.type ?? 'Resource',
-          body: (
-            <div className="flex flex-col gap-2">
-              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>{row.description ?? '—'}</p>
-              <p style={{ fontSize: 'var(--t-sm)' }}>Type {row.type ?? '—'}</p>
-              <p style={{ fontSize: 'var(--t-sm)' }}>Project {row.projectName ?? '—'}</p>
-              {isStaff && row.publishToWarehaus != null ? <PublishChip published={row.publishToWarehaus} /> : null}
-            </div>
-          ),
-        });
       }, 0);
     };
     const onNav = (event: Event) => {
@@ -192,27 +229,60 @@ export function ResourcesContent() {
     );
   }
 
-  if (pathResourceId) {
-    const row = rows.find((item) => item.id === pathResourceId);
-    const allowed = Boolean(row) && (isStaff || (row?.publishToWarehaus !== false && !row?.syncHidden));
+  const selectedId = pathResourceId || openResourceId;
+  if (selectedId) {
+    const row = rows.find((item) => item.id === selectedId);
+    const allowed = Boolean(row) && (isStaff || clientMayOpen(row as ResourceRow));
+    const taskState = fixtures
+      ? { data: row ? fixtureTasksFor(row.id, isStaff) : [], loading: false }
+      : isStaff
+        ? staffUsed
+        : clientUsed;
+    const closeResource = () => {
+      setOpenResourceId(null);
+      const url = new URL(window.location.href);
+      url.searchParams.delete('resource');
+      window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}`);
+    };
     return (
-      <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Resources')} title={allowed && row ? row.name : 'Resource'}>
+      <PortalWorkspace
+        eyebrow={tenantEyebrow(data.tenant, 'Resources')}
+        title={allowed && row ? row.name : 'Resource'}
+        breadcrumb={
+          <NavBreadcrumb
+            back="always"
+            onBack={closeResource}
+            parent={{ label: 'Resources', onClick: closeResource }}
+            current={allowed && row ? row.name : 'Resource'}
+          />
+        }
+      >
         <PortalTilePane>
-          <article data-testid="focused-resource" className="flex flex-col gap-2">
-            {resourcesPending ? (
-              <p aria-busy="true" style={{ color: 'var(--muted)' }}>Loading…</p>
-            ) : !allowed || !row ? (
-              <p style={{ color: 'var(--muted)' }}>That isn&apos;t available.</p>
-            ) : (
-              <>
-                <h2 style={{ fontSize: 16, fontWeight: 500 }}>{row.name}</h2>
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>{row.description ?? '—'}</p>
-                <p style={{ fontSize: 'var(--t-sm)' }}>Type {row.type ?? '—'}</p>
-                <p style={{ fontSize: 'var(--t-sm)' }}>Project {row.projectName ?? '—'}</p>
-                {isStaff && row.publishToWarehaus != null ? <PublishChip published={row.publishToWarehaus} /> : null}
-              </>
-            )}
-          </article>
+          {resourcesPending ? (
+            <p aria-busy="true" style={{ color: 'var(--muted)' }}>Loading…</p>
+          ) : !allowed || !row ? (
+            <p data-testid="resource-detail" style={{ color: 'var(--muted)' }}>That isn&apos;t available.</p>
+          ) : (
+            <ResourceDetail
+              resource={{
+                id: row.id,
+                name: row.name,
+                description: row.description,
+                type: row.type,
+                url: row.url,
+                projectName: row.projectName,
+                clientName: row.clientName,
+                updatedAt: row.updatedAt ?? row.lastSyncedAt ?? null,
+                staff: isStaff,
+                ...(isStaff
+                  ? { publishToWarehaus: row.publishToWarehaus, notionPageId: row.notionPageId }
+                  : {}),
+              }}
+              tasks={taskState.data ?? []}
+              tasksLoading={taskState.loading}
+              onOpenTask={(taskId) => openPortalHref(`/tasks/${taskId}`)}
+            />
+          )}
         </PortalTilePane>
       </PortalWorkspace>
     );
@@ -250,40 +320,13 @@ export function ResourcesContent() {
                 key={row.id}
                 type="button"
                 className="text-left"
-                onClick={() =>
-                  openDetail({
-                    id: row.id,
-                    title: row.name,
-                    subtitle: row.type ?? 'Resource',
-                    body: (
-                      <div className="flex flex-col gap-2">
-                        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                          {row.description ?? '—'}
-                        </p>
-                        <p style={{ fontSize: 'var(--t-sm)' }}>Type {row.type ?? '—'}</p>
-                        <p style={{ fontSize: 'var(--t-sm)' }}>Project {row.projectName ?? '—'}</p>
-                        {isStaff && row.publishToWarehaus != null ? (
-                          <PublishChip published={row.publishToWarehaus} />
-                        ) : null}
-                        <SyncChip audience={isStaff ? 'staff' : 'client'} notionPageId={row.notionPageId} syncHidden={row.syncHidden} />
-                        {isStaff && !fixtures ? (
-                          <UsedInTasks
-                            resourceId={row.id}
-                            hostSlug={hostSlug}
-                            onOpenTask={(taskId) => {
-                              window.location.assign(`/tasks/${taskId}`);
-                            }}
-                          />
-                        ) : null}
-                        {row.url ? (
-                          <a href={row.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
-                            Open
-                          </a>
-                        ) : null}
-                      </div>
-                    ),
-                  })
-                }
+                onClick={() => {
+                  setOpenResourceId(row.id);
+                  const url = new URL(window.location.href);
+                  url.searchParams.set('tab', 'resources');
+                  url.searchParams.set('resource', row.id);
+                  window.history.replaceState(window.history.state, '', `${url.pathname}?${url.searchParams.toString()}`);
+                }}
               >
                 <Surface style={{ padding: 'var(--s-4)' }}>
                   <div className="flex flex-wrap items-center gap-2">
@@ -292,7 +335,9 @@ export function ResourcesContent() {
                     {isStaff && row.publishToWarehaus != null ? (
                       <PublishChip published={row.publishToWarehaus} />
                     ) : null}
-                    <SyncChip audience={isStaff ? 'staff' : 'client'} notionPageId={row.notionPageId} syncHidden={row.syncHidden} />
+                    {isStaff ? (
+                      <SyncChip audience="staff" notionPageId={row.notionPageId} syncHidden={row.syncHidden} />
+                    ) : null}
                   </div>
                   <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>
                     {row.projectName ?? '—'}
@@ -305,42 +350,5 @@ export function ResourcesContent() {
         </div>
       </PortalTilePane>
     </PortalWorkspace>
-  );
-}
-
-function UsedInTasks({
-  resourceId,
-  hostSlug,
-  onOpenTask,
-}: {
-  resourceId: string;
-  hostSlug?: string;
-  onOpenTask: (taskId: string) => void;
-}) {
-  const rows = useSafeQuery<Array<{ id: string; name: string; status: string; stage: string | null }>>(
-    api.sharedResources.usedInTasks,
-    { hostSlug, resourceId: resourceId as Id<'sharedResources'> },
-  );
-  return (
-    <section className="mt-3">
-      <h3 className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>USED IN TASKS</h3>
-      {rows.loading ? <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)' }}>Loading tasks…</p> : null}
-      {!rows.loading && (rows.data ?? []).length === 0 ? (
-        <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)' }}>Not used in any task yet.</p>
-      ) : (
-        <ul className="mt-2 flex flex-col gap-2">
-          {(rows.data ?? []).map((task) => (
-            <li key={task.id}>
-              <button type="button" onClick={() => onOpenTask(task.id)} className="text-left" style={{ color: 'var(--fg)' }}>
-                {task.name}
-                <span className="ds-mono" style={{ marginLeft: 8, color: 'var(--muted)', fontSize: 'var(--t-xs)' }}>
-                  {task.stage ?? 'No stage'} · {task.status}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }

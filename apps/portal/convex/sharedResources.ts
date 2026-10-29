@@ -267,12 +267,71 @@ export const usedInTasks = adminQuery({
       if (link.orgId !== resource.orgId) continue;
       const task = await ctx.db.get(link.taskId);
       if (!task || task.orgId !== resource.orgId) continue;
+      const project = await ctx.db.get(task.projectId);
       out.push({
         id: task._id,
         name: task.name,
         status: task.status,
         stage: task.stage ?? null,
         projectId: task.projectId,
+        projectName: project?.name ?? null,
+        date: task.date ?? null,
+        publishToWarehaus: task.publishToWarehaus,
+      });
+    }
+    return out.sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+/**
+ * Tasks a client may see that link this resource.
+ * Unpublished tasks, warehaus.studio, and sync fields stay off the payload.
+ */
+export const usedInTasksForClient = clientQuery({
+  args: { resourceId: v.id('sharedResources') },
+  handler: async (ctx, { resourceId }) => {
+    const row = await ctx.db.get(resourceId);
+    const org = await ctx.db.get(ctx.orgId);
+    const orgVisible = isOrgVisibleToClients(org);
+    if (
+      !row ||
+      row.orgId !== ctx.orgId ||
+      !orgVisible ||
+      !isClientSurfaceVisible(row) ||
+      !row.publishToWarehaus ||
+      row.archive
+    ) {
+      return [];
+    }
+    const resourceProject = row.projectId ? await ctx.db.get(row.projectId) : null;
+    if (!projectVisibleToClient(resourceProject, orgVisible, row.projectId)) return [];
+    const links = await attachmentLinks(ctx, ctx.orgId, row._id);
+    const out = [];
+    for (const link of links) {
+      if (link.orgId !== ctx.orgId) continue;
+      const task = await ctx.db.get(link.taskId);
+      if (!task || task.orgId !== ctx.orgId) continue;
+      const project = await ctx.db.get(task.projectId);
+      const visible = clientMaySeeTask({
+        publishToWarehaus: task.publishToWarehaus,
+        hidden: task.syncHiddenAt != null,
+        project: {
+          name: project?.name,
+          types: project?.type,
+          publishToWarehaus: project?.publishToWarehaus ?? false,
+          archive: project?.archive ?? false,
+          hidden: project?.syncHiddenAt != null,
+          orgVisible,
+        },
+      });
+      if (!visible || !project) continue;
+      out.push({
+        id: task._id,
+        name: task.name,
+        status: task.status,
+        stage: task.stage ?? null,
+        projectName: project.name,
+        date: task.date ?? null,
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

@@ -1,3 +1,4 @@
+import { isStudioProjectName, withoutClientLeaks } from '@/lib/data/clientDetail';
 import type { PortalSnapshot } from '@/lib/data/view-models';
 import { FIXTURE_CLIENT_SESSION, FIXTURE_SESSION } from '@/lib/data/portalFixtures';
 import {
@@ -325,6 +326,17 @@ export const FIXTURE_DOCS = [
 
 export const FIXTURE_CONTACTS = [
   {
+    id: 'ct-maya',
+    orgId: 'c-north',
+    name: 'Maya Chen',
+    email: 'maya@warehaus.co',
+    role: 'Warehaus Staff' as const,
+    portalAccess: 'Enabled' as const,
+    notionPageId: 'notion-contact-maya',
+    lastSyncedAt: SYNCED_AT,
+    syncHidden: false,
+  },
+  {
     id: 'ct-ada',
     orgId: 'c-north',
     name: 'Ada North',
@@ -427,8 +439,26 @@ export const FIXTURE_SNAPSHOT: PortalSnapshot = {
   },
 };
 
+/** Tasks linked to a shared resource in the fixture preview. Not a second database. */
+export const FIXTURE_TASK_RESOURCES = [
+  { resourceId: 'r-notes', taskId: 't-todo' },
+  { resourceId: 'r-notes', taskId: 't-doing' },
+  { resourceId: 'r-file', taskId: 't-inbox' },
+  { resourceId: 'r-notes', taskId: 't-internal' },
+];
+
 export const FIXTURE_CLIENT_SNAPSHOT: PortalSnapshot = {
   ...FIXTURE_SNAPSHOT,
+  clients: FIXTURE_SNAPSHOT.clients.filter(
+    (client) => client.slug === 'northwind' && !client.name.startsWith('Warehaus'),
+  ),
+  projects: FIXTURE_SNAPSHOT.projects
+    .filter((project) => !project.internal && !isStudioProjectName(project.name))
+    .map((project) => withoutClientLeaks(project)),
+  tasks: FIXTURE_SNAPSHOT.tasks
+    .filter((task) => task.projectId !== 'p-internal' && task.publishToWarehaus !== false && !task.syncHidden)
+    .map((task) => withoutClientLeaks(task)),
+  syncMeta: { lastSyncedAt: null, lastError: null, mode: 'convex' },
   activity: FIXTURE_SNAPSHOT.activity
     .filter((item) => fixtureClientVisible({ type: item.type, projectId: item.projectId }))
     .map((item) => {

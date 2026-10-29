@@ -15,6 +15,7 @@ import {
   ClientDirectory,
   type ClientPersonRow,
   type ClientProjectRow,
+  type ClientScreen,
   type ClientTaskRow,
   type DirectoryClient,
 } from '@/components/clients/ClientScreens';
@@ -35,8 +36,47 @@ import { useFixturePreview } from '@/components/providers/FixturePreviewProvider
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { isMissingConvexFunction, staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
+import { clientVisiblePerson, formatClientSince, isStudioProjectName, warehausLead, withoutClientLeaks } from '@/lib/data/clientDetail';
 import { type ClientListFilter } from '@/lib/data/clientList';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
+
+const LONG_CLIENT = 'Northwind Foods and Northwind Kitchen Holdings International';
+const LONG_PROJECT = 'Spring menu launch for all Northwind Foods locations';
+
+function staffProjects(rows: ClientProjectRow[], screen: ClientScreen): ClientProjectRow[] {
+  return rows.map((project, index) => (screen === 'long' && index === 0 ? { ...project, name: LONG_PROJECT } : project));
+}
+
+function clientProjects(
+  rows: Array<ClientProjectRow & { orgId?: string }>,
+  orgId: string | undefined,
+  screen: ClientScreen,
+): ClientProjectRow[] {
+  const visible = rows.filter((project) => {
+    if (project.internal || project.publishToWarehaus === false || isStudioProjectName(project.name)) return false;
+    return !orgId || !project.orgId || project.orgId === orgId;
+  });
+  return visible.map((project, index) =>
+    withoutClientLeaks({
+      ...project,
+      name: screen === 'long' && index === 0 ? LONG_PROJECT : project.name,
+    }),
+  );
+}
+
+function clientTasks(
+  rows: Array<ClientTaskRow & { orgId?: string; projectId?: string | null; syncHidden?: boolean; publishToWarehaus?: boolean }>,
+  projects: Array<ClientProjectRow & { id: string; orgId?: string }>,
+  orgId: string | undefined,
+): ClientTaskRow[] {
+  return rows.flatMap((task) => {
+    if (task.syncHidden || task.publishToWarehaus === false) return [];
+    const project = projects.find((item) => item.id === task.projectId);
+    if (!project || project.internal || project.publishToWarehaus === false || isStudioProjectName(project.name)) return [];
+    if (orgId && task.orgId && task.orgId !== orgId) return [];
+    return [withoutClientLeaks(task)];
+  });
+}
 
 const SECTION_TITLE: Record<string, string> = {
   clients: 'Clients',
@@ -63,6 +103,7 @@ export function AccountContent() {
   const [clientId, setClientId] = useState<string | null>(null);
   const [showTeam, setShowTeam] = useState(false);
   const [docsPreview, setDocsPreview] = useState<string | null>(null);
+  const [clientScreen, setClientScreen] = useState<ClientScreen>('ready');
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -70,6 +111,10 @@ export function AccountContent() {
     if (client) setClientId(client);
     if (params.get('team') === '1') setShowTeam(true);
     if (params.get('docs') === 'states') setDocsPreview('states');
+    const clients = params.get('clients');
+    if (clients === 'empty' || clients === 'loading' || clients === 'error' || clients === 'long') {
+      setClientScreen(clients);
+    }
   }, []);
 
   useEffect(() => {
@@ -207,7 +252,7 @@ export function AccountContent() {
       {error && isStaff && docsPreview !== 'states' ? (
         <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)', marginBottom: 12 }}>{error}</p>
       ) : null}
-      {error && isClient ? (
+      {error && isClient && !companyOpen ? (
         <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)', marginBottom: 12 }}>
           We could not load your company
         </p>
@@ -216,11 +261,19 @@ export function AccountContent() {
       {docsPreview !== 'states' && isStaff && activeSection === 'clients' && selected ? (
         <PortalTilePane>
           <ClientDetail
-            client={directory.find((client) => client.id === selected.id) ?? (selected as DirectoryClient)}
-            projects={projects.filter((project) => project.orgId === selected.id) as ClientProjectRow[]}
+            client={{
+              ...(directory.find((client) => client.id === selected.id) ?? (selected as DirectoryClient)),
+              name: clientScreen === 'long' ? LONG_CLIENT : selected.name,
+            }}
+            projects={staffProjects(projects.filter((project) => project.orgId === selected.id), clientScreen) as ClientProjectRow[]}
             tasks={tasks.filter((task) => task.orgId === selected.id) as ClientTaskRow[]}
             docs={docs.filter((doc) => doc.orgId === selected.id)}
             contacts={contacts as ClientPersonRow[]}
+            leadName={warehausLead(contacts)}
+            clientSince={formatClientSince(
+              projects.filter((project) => project.orgId === selected.id).map((project) => project.startDate),
+            )}
+            brandName={clientScreen === 'long' ? LONG_CLIENT : selected.name}
           />
         </PortalTilePane>
       ) : null}
@@ -228,12 +281,17 @@ export function AccountContent() {
       {docsPreview !== 'states' && isStaff && activeSection === 'clients' && !selected ? (
         <PortalTilePane>
           <ClientDirectory
-            clients={directory}
+            clients={
+              clientScreen === 'long'
+                ? directory.map((client, index) => (index === 0 ? { ...client, name: LONG_CLIENT } : client))
+                : directory
+            }
             filter={filter}
             onFilter={setFilter}
             onOpen={(id) => setClientId(id)}
-            loading={directoryState.loading && !fixtures}
-            error={directoryState.error}
+            loading={clientScreen === 'loading' || (directoryState.loading && !fixtures)}
+            error={clientScreen === 'error' ? null : directoryState.error}
+            screen={clientScreen}
           />
         </PortalTilePane>
       ) : null}
@@ -241,28 +299,19 @@ export function AccountContent() {
       {docsPreview !== 'states' && companyOpen ? (
         <PortalTilePane>
           <ClientCompany
-            name={data.tenant.clientName ?? portalSession?.name ?? 'Your company'}
+            name={clientScreen === 'long' ? LONG_CLIENT : data.tenant.clientName ?? portalSession?.name ?? 'Your company'}
             contactName={portalSession?.name ?? '—'}
             contactEmail={portalSession?.email ?? '—'}
-            projects={
-              projects.filter((project) => {
-                if (project.internal || project.publishToWarehaus === false) return false;
-                return !portalSession?.orgId || project.orgId === portalSession.orgId;
-              }) as ClientProjectRow[]
-            }
-            tasks={
-              tasks.filter((task) => {
-                if (task.syncHidden || task.publishToWarehaus === false) return false;
-                const project = projects.find((item) => item.id === task.projectId);
-                if (!project || project.internal || project.publishToWarehaus === false) return false;
-                return !portalSession?.orgId || task.orgId === portalSession.orgId || !task.orgId;
-              }) as ClientTaskRow[]
-            }
-            docs={docs.filter((doc) => doc.publishToWarehaus !== false && doc.status !== 'Draft')}
-            people={contacts as ClientPersonRow[]}
+            projects={clientProjects(projects, portalSession?.orgId, clientScreen)}
+            tasks={clientTasks(tasks, projects, portalSession?.orgId)}
+            docs={docs
+              .filter((doc) => doc.publishToWarehaus !== false && doc.status !== 'Draft')
+              .map((doc) => withoutClientLeaks(doc))}
+            people={contacts.filter(clientVisiblePerson).map((person) => withoutClientLeaks(person)) as ClientPersonRow[]}
             showTeam={showTeam}
             onShowTeam={() => setShowTeam(true)}
             onBack={() => setShowTeam(false)}
+            screen={error ? 'error' : clientScreen}
           />
         </PortalTilePane>
       ) : null}
