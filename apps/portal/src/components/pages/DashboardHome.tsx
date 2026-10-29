@@ -2,7 +2,6 @@
 
 import type { ReactNode } from 'react';
 import { Check, ChevronRight } from 'lucide-react';
-import { Bevel } from '@warehaus/ui';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 import {
@@ -23,13 +22,21 @@ export type DashPreview = 'empty' | 'loading' | 'error' | 'long' | null;
 const LONG_NAME =
   'Quarterly seasonal menu photography, packaging and in-store signage rollout for all twelve Northwind Foods locations';
 
+/** Preview copy. The stat note and the sync notice use this same sentence. */
+const STAFF_SYNC_ERROR = 'Notion sync is behind by 14 minutes';
+
+const cardStyle = {
+  background: 'var(--surface)',
+  border: '1px solid var(--border)',
+} as const;
+
 export function DashboardHome({
   model,
   focus,
   loading,
   preview,
   showLoadError,
-  billingMark,
+  clientName,
   onOpenTask,
   onOpenProject,
 }: {
@@ -38,7 +45,7 @@ export function DashboardHome({
   loading: boolean;
   preview: DashPreview;
   showLoadError: boolean;
-  billingMark: 'on-file' | 'none';
+  clientName?: string | null;
   onOpenTask: (row: AwaitingRow) => void;
   onOpenProject: (row: ProjectRow) => void;
 }) {
@@ -49,7 +56,7 @@ export function DashboardHome({
     preview === 'error' && model.audience === 'staff'
       ? model.stats.map((stat) =>
           stat.label === 'Sync health'
-            ? { ...stat, value: 'Issue', note: 'Pull failed', tone: 'danger' as const }
+            ? { ...stat, value: 'Issue', note: STAFF_SYNC_ERROR, tone: 'danger' as const }
             : stat,
         )
       : model.stats;
@@ -60,7 +67,6 @@ export function DashboardHome({
       className="flex flex-col"
       data-testid="dashboard"
       data-audience={model.audience}
-      data-billing={billingMark}
       data-state={preview ?? (busy ? 'loading' : 'ready')}
       style={{ gap: 32 }}
     >
@@ -69,19 +75,24 @@ export function DashboardHome({
           title="We could not load your dashboard"
           body="Check your connection and try again."
         />
-      ) : null}
-
+      ) : (
+        <>
       {focus === 'all' ? <StatGrid stats={stats} loading={busy} /> : null}
 
       {focus === 'all' && model.audience === 'staff' ? (
-        <div className="grid grid-cols-1 items-start gap-6 lg:grid-cols-2">
+        <div className="grid grid-cols-1 items-stretch gap-6 lg:grid-cols-2">
           <StagePanel stages={model.stages} loading={busy} />
           {sync ? <SyncPanel health={sync} /> : null}
         </div>
       ) : null}
 
       {focus === 'all' && model.audience === 'client' ? (
-        <ProjectPanel projects={model.projects} loading={busy} onOpen={onOpenProject} />
+        <ProjectPanel
+          projects={model.projects}
+          clientName={clientName}
+          loading={busy}
+          onOpen={onOpenProject}
+        />
       ) : null}
 
       {focus === 'sync' && sync ? <SyncPanel health={sync} /> : null}
@@ -98,6 +109,8 @@ export function DashboardHome({
       {focus === 'all' || focus === 'activity' ? (
         <ActivityPanel audience={model.audience} rows={model.activity} loading={busy} />
       ) : null}
+        </>
+      )}
     </div>
   );
 }
@@ -116,6 +129,7 @@ function displayAwaiting(model: DashboardModel, preview: DashPreview): readonly 
     status: 'In review',
     category: model.audience === 'staff' ? 'Design' : null,
     projectId: null,
+    when: 'Updated Oct 6',
     published: true,
   };
   if (model.audience === 'client') {
@@ -128,11 +142,12 @@ function displayAwaiting(model: DashboardModel, preview: DashPreview): readonly 
         status: sample.status,
         category: null,
         projectId: null,
+        when: 'Updated Oct 6',
       },
       ...model.awaiting,
     ];
   }
-  return [sample, ...model.awaiting];
+  return [{ ...sample, when: 'Updated Oct 6' }, ...model.awaiting];
 }
 
 function displaySync(model: StaffDashboard, preview: DashPreview): SyncHealth {
@@ -140,13 +155,13 @@ function displaySync(model: StaffDashboard, preview: DashPreview): SyncHealth {
   return {
     ...model.sync,
     cardValue: 'Issue',
-    cardNote: 'Pull failed',
+    cardNote: STAFF_SYNC_ERROR,
     rows: model.sync.rows.map((row) =>
       row.key === 'pull' ? { ...row, value: 'Failed', tone: 'danger' } : row,
     ),
     notice: {
       title: 'Sync problem',
-      body: 'Notion sync is behind by 14 minutes',
+      body: STAFF_SYNC_ERROR,
     },
   };
 }
@@ -163,40 +178,36 @@ function Panel({
   children: ReactNode;
 }) {
   return (
-    <Bevel
-      corners="br"
-      radius={PORTAL_SURFACE_RADIUS}
-      cut={2}
-      shoulder={0.75}
-      fill="var(--surface)"
-      stroke="var(--border)"
+    <section
       data-testid={testId}
-      style={{ padding: 'clamp(1.25rem, 2vw, 2rem)', position: 'relative' }}
+      className="h-full"
+      style={{
+        ...cardStyle,
+        borderRadius: `${PORTAL_SURFACE_RADIUS}rem`,
+        padding: 'clamp(1.25rem, 2vw, 2rem)',
+      }}
     >
       <h2 style={{ fontSize: 20, fontWeight: 600, lineHeight: '26px' }}>{title}</h2>
       <p style={{ marginTop: 4, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>{subtitle}</p>
       <div style={{ marginTop: 24 }}>{children}</div>
-    </Bevel>
+    </section>
   );
 }
 
 function StatGrid({ stats, loading }: { stats: readonly StatCard[]; loading: boolean }) {
   return (
     <div
-      className="grid gap-4"
+      className={`grid grid-cols-2 gap-4 ${stats.length > 3 ? 'lg:grid-cols-4' : 'lg:grid-cols-3'}`}
       data-testid="dashboard-stats"
-      style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 180px), 1fr))' }}
     >
       {stats.map((stat) => (
-        <Bevel
+        <div
           key={stat.label}
-          corners="br"
-          radius={PORTAL_SURFACE_RADIUS}
-          cut={1.5}
-          shoulder={0.55}
-          fill="var(--surface)"
-          stroke="var(--border)"
-          style={{ padding: 'clamp(1rem, 2vw, 1.5rem)' }}
+          style={{
+            ...cardStyle,
+            borderRadius: '1.75rem',
+            padding: 'clamp(1rem, 2vw, 1.5rem)',
+          }}
         >
           <p
             className="ds-mono"
@@ -205,9 +216,10 @@ function StatGrid({ stats, loading }: { stats: readonly StatCard[]; loading: boo
             {stat.label}
           </p>
           <p
-            className="ds-mono"
             style={{
               marginTop: 8,
+              fontFamily: 'var(--font-display)',
+              fontWeight: 700,
               fontSize: 'clamp(2.25rem, 4vw, 3.75rem)',
               lineHeight: 1,
               letterSpacing: '-0.03em',
@@ -225,7 +237,7 @@ function StatGrid({ stats, loading }: { stats: readonly StatCard[]; loading: boo
           >
             {loading ? 'Loading' : stat.note}
           </p>
-        </Bevel>
+        </div>
       ))}
     </div>
   );
@@ -297,15 +309,20 @@ function SyncPanel({ health }: { health: SyncHealth }) {
 
 function ProjectPanel({
   projects,
+  clientName,
   loading,
   onOpen,
 }: {
   projects: readonly ProjectRow[];
+  clientName?: string | null;
   loading: boolean;
   onOpen: (row: ProjectRow) => void;
 }) {
+  const subtitle = clientName
+    ? `Everything Warehaus is working on for ${clientName}`
+    : 'Everything Warehaus is working on';
   return (
-    <Panel title="Your projects" subtitle="Everything Warehaus is working on" testId="client-projects">
+    <Panel title="Your projects" subtitle={subtitle} testId="client-projects">
       {loading ? (
         <SkeletonRows />
       ) : projects.length === 0 ? (
@@ -316,24 +333,31 @@ function ProjectPanel({
             key={project.id}
             type="button"
             onClick={() => onOpen(project)}
-            className="flex w-full flex-col gap-3 border-b py-5 text-left sm:flex-row sm:items-center"
+            className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 border-b py-5 text-left"
             style={{ borderColor: 'var(--border)', background: 'transparent' }}
           >
-            <span
-              className="ds-mono flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]"
-              style={{ background: 'var(--surface-2, var(--bg))', border: '1px solid var(--border)', fontSize: 11 }}
-            >
-              {initials(project.name)}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block" style={{ fontSize: 16, fontWeight: 500 }}>
-                {project.name}
+            <span className="flex min-w-[12rem] flex-1 items-center gap-3">
+              <span
+                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px]"
+                style={{
+                  background: 'var(--surface-2, var(--bg))',
+                  border: '1px solid var(--border)',
+                  fontSize: 12,
+                  fontWeight: 600,
+                }}
+              >
+                {initials(project.name)}
               </span>
-              <span className="ds-mono block" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                {project.brand}
+              <span className="min-w-0">
+                <span className="block" style={{ fontSize: 16, fontWeight: 500 }}>
+                  {project.name}
+                </span>
+                <span className="ds-mono block" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+                  {project.brand}
+                </span>
               </span>
             </span>
-            <span className="flex min-w-0 flex-1 flex-col gap-2 sm:max-w-[220px]">
+            <span className="hidden min-w-[120px] flex-col gap-2 sm:flex sm:max-w-[220px] sm:flex-1">
               <span className="h-1.5 overflow-hidden rounded-full" style={{ background: 'var(--surface-2, var(--bg))' }}>
                 <span
                   className="block h-1.5 rounded-full"
@@ -344,13 +368,13 @@ function ProjectPanel({
                 {project.percentLabel}
               </span>
             </span>
-            <span className="ds-mono hidden shrink-0 sm:block" style={{ width: 72, fontSize: 12, color: 'var(--muted)' }}>
+            <span className="ds-mono shrink-0" style={{ fontSize: 12, color: 'var(--muted)' }}>
               {project.itemsLabel}
             </span>
-            <span className="ds-mono hidden shrink-0 md:block" style={{ width: 120, fontSize: 12, color: 'var(--muted)' }}>
+            <span className="ds-mono shrink-0" style={{ fontSize: 12, color: 'var(--faint)' }}>
               {project.updatedLabel}
             </span>
-            <ChevronRight className="hidden h-4 w-4 shrink-0 sm:block" aria-hidden />
+            <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
           </button>
         ))
       )}
@@ -390,11 +414,13 @@ function AwaitingPanel({
             key={row.id}
             type="button"
             onClick={() => onOpen(row)}
-            className="flex w-full items-start gap-3 border-b py-5 text-left"
+            className="flex w-full flex-col gap-3 border-b py-5 text-left md:flex-row md:items-center"
             style={{ borderColor: 'var(--border)', background: 'transparent' }}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img alt="" src="/icons/task-check-open.svg" width={20} height={20} className="mt-0.5 shrink-0" />
+            {staff ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img alt="" src="/icons/task-check-open.svg" width={20} height={20} className="mt-0.5 shrink-0 self-start" />
+            ) : null}
             <span className="min-w-0 flex-1">
               <span className="block break-words" style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.35 }}>
                 {row.name}
@@ -405,18 +431,31 @@ function AwaitingPanel({
               >
                 {row.meta}
               </span>
-              <span className="mt-2 flex flex-wrap items-center gap-2">
+              {staff ? (
+                <span className="mt-2 flex flex-wrap items-center gap-2">
+                  <StageBadge label={row.stageLabel} hot />
+                  <StatusBadge status={row.status} />
+                  {row.category ? (
+                    <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      {row.category}
+                    </span>
+                  ) : null}
+                  {'published' in row ? <PublishMark published={row.published} /> : null}
+                </span>
+              ) : null}
+            </span>
+            {staff ? null : (
+              <span className="flex flex-wrap items-center gap-2 md:shrink-0 md:justify-end">
                 <StageBadge label={row.stageLabel} hot />
                 <StatusBadge status={row.status} />
-                {staff && row.category ? (
-                  <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    {row.category}
+                {row.when ? (
+                  <span className="ds-mono" style={{ fontSize: 12, color: 'var(--faint)' }}>
+                    {row.when}
                   </span>
                 ) : null}
-                {staff && 'published' in row ? <PublishMark published={row.published} /> : null}
               </span>
-            </span>
-            <ChevronRight className="mt-1 h-4 w-4 shrink-0" aria-hidden />
+            )}
+            <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
           </button>
         ))
       )}

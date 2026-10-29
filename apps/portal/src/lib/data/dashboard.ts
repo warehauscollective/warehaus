@@ -61,10 +61,29 @@ export type DashboardNotice = {
   edgeCase?: string | null;
 };
 
-export type OutboxRow = {
-  status: string;
-  createdAt: number;
-  nextAttemptAt?: number | null;
+export type OutboxCounts = {
+  queued: number;
+  inflight: number;
+  failed: number;
+  dead: number;
+  conflict: number;
+};
+
+/**
+ * Staff outbox summary. Counts replace the row list so the dashboard never
+ * receives hundreds of outbox payloads. Failed, dead, and conflict counts
+ * are rows created within {@link SYNC_PULL_STALE_MS}. Queued and inflight
+ * are the open queue.
+ */
+export type OutboxHealth = {
+  counts: OutboxCounts;
+  /** Oldest createdAt among the counted rows, or null when the queue is empty. */
+  oldestCreatedAt: number | null;
+};
+
+export const EMPTY_OUTBOX: OutboxHealth = {
+  counts: { queued: 0, inflight: 0, failed: 0, dead: 0, conflict: 0 },
+  oldestCreatedAt: null,
 };
 
 export type PullMeta = {
@@ -78,7 +97,7 @@ export type DashboardInput = {
   tasks: readonly DashboardTask[];
   activity: readonly DashboardActivity[];
   pull: PullMeta;
-  outbox: readonly OutboxRow[];
+  outbox: OutboxHealth;
   writebackEnabled: boolean;
   notices: readonly DashboardNotice[];
   now: number;
@@ -106,6 +125,8 @@ export type AwaitingRow = {
   status: string;
   category: string | null;
   projectId: string | null;
+  /** "Updated Oct 6", or empty when the task has no date. */
+  when: string;
 };
 
 export type StaffAwaitingRow = AwaitingRow & { published: boolean };
@@ -163,8 +184,11 @@ export type ClientDashboard = {
 export type DashboardModel = StaffDashboard | ClientDashboard;
 
 const DAY = 24 * 60 * 60 * 1000;
-const FAILED = new Set(['failed', 'dead', 'conflict']);
-const WAITING = new Set(['queued', 'inflight']);
+/**
+ * A successful Notion pull older than this is stale.
+ * Sync health must not read OK past this age.
+ */
+export const SYNC_PULL_STALE_MS = DAY;
 
 export const CLIENT_AWAITING_LABEL = 'Pending approval';
 
@@ -282,6 +306,13 @@ function awaitingSource(tasks: readonly DashboardTask[]): DashboardTask[] {
     });
 }
 
+function updatedWords(task: DashboardTask): string {
+  const raw = task.lastEditedTime ?? task.date;
+  if (!raw) return '';
+  const label = formatPortalDate(raw);
+  return label ? `Updated ${label}` : '';
+}
+
 function metaLine(task: DashboardTask, audience: DashboardAudience): string {
   const due = task.date ? `Due ${formatPortalDate(task.date)}` : null;
   if (audience === 'client') {
@@ -315,9 +346,18 @@ function clientCount(tasks: readonly DashboardTask[]): number {
   return ids.size;
 }
 
+function pullIsStale(iso: string | null, now: number): boolean {
+  const time = parseTime(iso);
+  if (time == null) return false;
+  return now - time > SYNC_PULL_STALE_MS;
+}
+
 function pullValue(pull: PullMeta, now: number): { value: string; tone: SyncRow['tone'] } {
   if (pull.lastError) return { value: 'Failed', tone: 'danger' };
   const ago = relativeTime(pull.lastSyncedAt, now);
+  if (pullIsStale(pull.lastSyncedAt, now)) {
+    return { value: ago ? `Stale · ${ago}` : 'Stale', tone: 'danger' };
+  }
   if (ago) return { value: `In sync · ${ago}`, tone: 'ok' };
   return { value: 'Syncing', tone: 'muted' };
 }
@@ -345,25 +385,25 @@ function failedWriteNotice(
 
 export function summarizeSyncHealth(input: {
   pull: PullMeta;
-  outbox: readonly OutboxRow[];
+  outbox: OutboxHealth;
   writebackEnabled: boolean;
   notices: readonly DashboardNotice[];
   tasks: readonly DashboardTask[];
   now: number;
 }): SyncHealth {
-  const failed = input.outbox.filter(
-    (row) => FAILED.has(row.status) && input.now - row.createdAt <= DAY,
-  ).length;
-  const waiting = input.outbox.filter((row) => WAITING.has(row.status)).length;
+  const counts = input.outbox.counts;
+  const failed = counts.failed + counts.dead + counts.conflict;
+  const waiting = counts.queued + counts.inflight;
   const queue = input.writebackEnabled
     ? { value: waiting === 1 ? '1 waiting' : `${waiting} waiting`, tone: 'muted' as const }
     : { value: 'Off', tone: 'muted' as const };
   const pull = pullValue(input.pull, input.now);
   const ago = relativeTime(input.pull.lastSyncedAt, input.now);
+  const stale = !input.pull.lastError && pullIsStale(input.pull.lastSyncedAt, input.now);
   const troubled = Boolean(input.pull.lastError) || failed > 0;
   return {
-    cardValue: troubled ? 'Issue' : input.pull.lastSyncedAt ? 'OK' : '…',
-    cardNote: input.pull.lastError ? 'Pull failed' : ago ? `Last sync ${ago}` : 'Not synced yet',
+    cardValue: troubled ? 'Issue' : stale ? 'Stale' : input.pull.lastSyncedAt ? 'OK' : '…',
+    cardNote: input.pull.lastError ?? (ago ? `Last sync ${ago}` : 'Not synced yet'),
     rows: [
       { key: 'pull', label: 'Notion to portal', value: pull.value, tone: pull.tone },
       { key: 'queue', label: 'Portal to Notion queue', value: queue.value, tone: queue.tone },
@@ -449,7 +489,7 @@ function buildStaff(input: DashboardInput, projects: DashboardProject[], tasks: 
         label: 'Sync health',
         value: sync.cardValue,
         note: sync.cardNote,
-        tone: sync.cardValue === 'Issue' ? 'danger' : 'default',
+        tone: sync.cardValue === 'OK' || sync.cardValue === '…' ? 'default' : 'danger',
       },
     ],
     stages: bars,
@@ -462,6 +502,7 @@ function buildStaff(input: DashboardInput, projects: DashboardProject[], tasks: 
       status: task.status,
       category: task.category ?? null,
       projectId: task.projectId,
+      when: updatedWords(task),
       published: task.publishToWarehaus !== false,
     })),
     activity: visibleActivity(input, projectById(projects)).slice(0, 6).map((item) => ({
@@ -529,6 +570,7 @@ function buildClient(input: DashboardInput, projects: DashboardProject[], tasks:
       status: task.status,
       category: null,
       projectId: task.projectId,
+      when: updatedWords(task),
     })),
     activity: visibleActivity(input, projectById(input.projects)).slice(0, 6).map((item) => ({
       id: item.id,

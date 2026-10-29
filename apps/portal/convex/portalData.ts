@@ -276,13 +276,18 @@ export const listActivityForStaff = adminQuery({
   },
 });
 
-const OPEN_OUTBOX = ['queued', 'inflight', 'failed', 'dead', 'conflict'] as const;
+const OUTBOX_STATUSES = ['queued', 'inflight', 'failed', 'dead', 'conflict'] as const;
+/** Per-status cap. The dashboard gets counts, never this many rows. */
+const OUTBOX_HEALTH_LIMIT = 100;
+const FAILED_OUTBOX = new Set<string>(['failed', 'dead', 'conflict']);
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Staff sync health for the dashboard. Reads the Notion pull and the B0
- * outbox. The write-back flag is reported as on only when it is exactly
- * "true". Payloads, tokens, and Granola are not returned. Clients cannot
- * call this query.
+ * Staff sync health for the dashboard. Reads the Notion pull and a bounded
+ * slice of the B0 outbox. Returns per-status counts and the oldest counted
+ * timestamp, not outbox rows. Failed, dead, and conflict counts are the last
+ * 24 hours. The write-back flag is on only when it is exactly "true".
+ * Payloads, tokens, and Granola are not returned. Clients cannot call this.
  */
 export const getSyncHealth = adminQuery({
   args: {},
@@ -291,18 +296,20 @@ export const getSyncHealth = adminQuery({
       .query('syncMeta')
       .withIndex('by_key', (q) => q.eq('key', 'notion-pull'))
       .unique();
-    const outbox = [];
-    for (const status of OPEN_OUTBOX) {
+    const now = Date.now();
+    const counts = { queued: 0, inflight: 0, failed: 0, dead: 0, conflict: 0 };
+    let oldestCreatedAt: number | null = null;
+    for (const status of OUTBOX_STATUSES) {
       const rows = await ctx.db
         .query('notionOutbox')
         .withIndex('by_status_nextAttemptAt', (q) => q.eq('status', status))
-        .take(500);
+        .take(OUTBOX_HEALTH_LIMIT);
       for (const row of rows) {
-        outbox.push({
-          status: row.status,
-          createdAt: row.createdAt,
-          nextAttemptAt: row.nextAttemptAt,
-        });
+        if (FAILED_OUTBOX.has(status) && now - row.createdAt > DAY_MS) continue;
+        counts[status] += 1;
+        if (oldestCreatedAt == null || row.createdAt < oldestCreatedAt) {
+          oldestCreatedAt = row.createdAt;
+        }
       }
     }
     const notices = await ctx.db
@@ -316,7 +323,7 @@ export const getSyncHealth = adminQuery({
         lastError: syncMeta?.lastError ?? null,
       },
       writebackEnabled: isNotionWritebackEnabled(),
-      outbox,
+      outbox: { counts, oldestCreatedAt },
       notices: notices
         .filter((row) => row.edgeCase === 'sync' || row.edgeCase === 'conflict')
         .map((row) => ({

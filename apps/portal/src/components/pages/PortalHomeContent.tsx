@@ -15,21 +15,21 @@ import { isConvexConfigured } from '@/lib/convex/client';
 import { FIXTURE_PROJECTS, FIXTURE_TASKS } from '@/lib/data/fixtures';
 import {
   buildDashboard,
+  EMPTY_OUTBOX,
   type DashboardActivity,
   type DashboardNotice,
   type DashboardProject,
   type DashboardTask,
-  type OutboxRow,
+  type OutboxHealth,
   type PullMeta,
 } from '@/lib/data/dashboard';
-import type { PortalBillingSummary } from '@/lib/data/view-models';
 import { NewTaskControl } from '@/components/tasks/NewTaskControl';
 import { DashboardHome, type DashPreview } from '@/components/pages/DashboardHome';
 
 type SyncHealthPayload = {
   pull: PullMeta;
   writebackEnabled: boolean;
-  outbox: OutboxRow[];
+  outbox: OutboxHealth;
   notices: DashboardNotice[];
 };
 
@@ -56,13 +56,6 @@ export function PortalHomeContent() {
   const staff = useStaffCrossOrg(configured && isStaff && !fixtures, hostSlug);
   const preview = useDashPreview(fixtures);
   const feed = useActivityFeed();
-
-  // Billing stays loaded for this screen. The rail is not part of the dashboard.
-  const billingState = useSafeQuery<PortalBillingSummary>(
-    api.billing.getSummary,
-    configured && data.tenant.ok ? { hostSlug } : 'skip',
-  );
-  const billingSummary = billingState.data;
 
   const liveSync = useSafeQuery<SyncHealthPayload>(
     api.portalData.getSyncHealth,
@@ -101,11 +94,13 @@ export function PortalHomeContent() {
         activity: feed.items as DashboardActivity[],
         pull: isStaff
           ? liveSync.data?.pull ?? {
+              // getSyncHealth loads after the snapshot. Until it arrives, the
+              // pull line falls back to syncMeta so the card is not blank.
               lastSyncedAt: data.syncMeta.lastSyncedAt,
               lastError: data.syncMeta.lastError,
             }
           : { lastSyncedAt: null, lastError: null },
-        outbox: isStaff ? liveSync.data?.outbox ?? [] : [],
+        outbox: isStaff ? liveSync.data?.outbox ?? EMPTY_OUTBOX : EMPTY_OUTBOX,
         writebackEnabled: isStaff && liveSync.data?.writebackEnabled === true,
         notices: isStaff ? liveSync.data?.notices ?? [] : [],
         now: Date.now(),
@@ -133,7 +128,7 @@ export function PortalHomeContent() {
           loading={projectsLoading}
           preview={preview}
           showLoadError={!isStaff && Boolean(error)}
-          billingMark={billingSummary?.hasBilling ? 'on-file' : 'none'}
+          clientName={isStaff ? null : data.tenant.clientName}
           onOpenTask={(row) =>
             openDetail({
               id: row.id,

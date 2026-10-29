@@ -36,6 +36,8 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         style={{
           background: 'var(--nav-bg)',
           border: '1px solid var(--nav-border)',
+          // The staff notice bell is fixed at the top-right and covers this row at 390.
+          paddingRight: data.tenant.mode === 'team' ? '7.5rem' : undefined,
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -147,7 +149,9 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
               textTransform: 'uppercase',
             }}
           >
-            Portal / {tab}
+            {data.tenant.mode === 'client'
+              ? `${data.tenant.clientName ?? 'Portal'} / ${tab}`
+              : `Portal / ${tab}`}
           </p>
           {sections.map((s) => {
             const active = activeSection === s.key;

@@ -2,10 +2,13 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   buildDashboard,
+  EMPTY_OUTBOX,
   summarizeSyncHealth,
+  SYNC_PULL_STALE_MS,
   type DashboardInput,
   type DashboardProject,
   type DashboardTask,
+  type OutboxHealth,
 } from './dashboard';
 
 const NOW = Date.parse('2026-10-29T12:00:00Z');
@@ -41,7 +44,7 @@ function input(partial: Partial<DashboardInput> & Pick<DashboardInput, 'audience
     tasks: [],
     activity: [],
     pull: { lastSyncedAt: '2026-10-29T11:58:00Z', lastError: null },
-    outbox: [],
+    outbox: EMPTY_OUTBOX,
     writebackEnabled: false,
     notices: [],
     now: NOW,
@@ -106,7 +109,10 @@ describe('stage bars and awaiting go', () => {
         audience: 'client',
         projects,
         tasks,
-        outbox: [{ status: 'failed', createdAt: NOW - 1000 }],
+        outbox: {
+          counts: { queued: 0, inflight: 0, failed: 1, dead: 0, conflict: 0 },
+          oldestCreatedAt: NOW - 1000,
+        },
         notices: [{ id: 'n1', message: 'outbox write failed', createdAt: NOW, edgeCase: 'sync' }],
         activity: [
           {
@@ -181,16 +187,127 @@ describe('stage bars and awaiting go', () => {
       false,
     );
   });
+
+  it('gives client rows no published or publish state', () => {
+    const client = buildDashboard(
+      input({
+        audience: 'client',
+        projects: [project({ id: 'p-site', name: 'Website refresh' })],
+        tasks: [
+          task({
+            id: 'go',
+            name: 'Homepage wireframes',
+            status: 'In review',
+            stage: 'Awaiting Go',
+            publishToWarehaus: true,
+          }),
+        ],
+        activity: [
+          {
+            id: 'pub',
+            name: 'Homepage wireframes are ready',
+            summary: 'Maya Chen',
+            timestamp: '2026-10-29T10:00:00Z',
+            type: 'task',
+            projectId: 'p-site',
+            published: true,
+          },
+        ],
+      }),
+    );
+    assert.equal(client.audience, 'client');
+    if (client.audience !== 'client') return;
+    assert.equal('published' in client.awaiting[0]!, false);
+    assert.equal('published' in client.activity[0]!, false);
+    const encoded = JSON.stringify(client);
+    assert.equal(encoded.includes('Published'), false);
+    assert.equal(encoded.includes('publishState'), false);
+    assert.equal(encoded.includes('"published"'), false);
+  });
+
+  it('drops an internal Warehaus project or task even when the server sends one', () => {
+    const client = buildDashboard(
+      input({
+        audience: 'client',
+        projects: [
+          project({ id: 'p-site', name: 'Website refresh' }),
+          project({ id: 'p-internal', name: 'warehaus.studio', clientName: 'Warehaus', orgId: 'c-warehaus' }),
+        ],
+        tasks: [
+          task({ id: 'go', name: 'Homepage wireframes', status: 'In review', stage: 'Awaiting Go' }),
+          task({
+            id: 'ops',
+            name: 'Internal ops task',
+            status: 'To Do',
+            stage: 'Awaiting Go',
+            projectId: 'p-internal',
+            projectName: 'warehaus.studio',
+            clientName: 'Warehaus',
+            orgId: 'c-warehaus',
+          }),
+          task({
+            id: 'flagged',
+            name: 'Staff-only checklist',
+            status: 'To Do',
+            stage: 'Awaiting Go',
+            internal: true,
+          }),
+        ],
+      }),
+    );
+    const encoded = JSON.stringify(client);
+    assert.equal(encoded.includes('warehaus.studio'), false);
+    assert.equal(encoded.includes('Internal ops'), false);
+    assert.equal(encoded.includes('Staff-only'), false);
+    if (client.audience !== 'client') return;
+    assert.deepEqual(
+      client.projects.map((row) => row.name),
+      ['Website refresh'],
+    );
+    assert.deepEqual(
+      client.awaiting.map((row) => row.name),
+      ['Homepage wireframes'],
+    );
+  });
+
+  it('renders no billing, sync, or outbox fields for a client', () => {
+    const client = buildDashboard(
+      input({
+        audience: 'client',
+        projects: [project({ id: 'p-site', name: 'Website refresh' })],
+        outbox: {
+          counts: { queued: 2, inflight: 1, failed: 1, dead: 0, conflict: 0 },
+          oldestCreatedAt: NOW - 1000,
+        },
+        notices: [{ id: 'n1', message: 'outbox write failed', createdAt: NOW, edgeCase: 'sync' }],
+      }),
+    );
+    const encoded = JSON.stringify(client);
+    assert.equal('sync' in client, false);
+    assert.equal(encoded.includes('syncHealth'), false);
+    assert.equal(encoded.includes('outbox'), false);
+    assert.equal(encoded.includes('billing'), false);
+    assert.equal(encoded.includes('hasBilling'), false);
+    assert.equal(encoded.includes('invoice'), false);
+    assert.equal(
+      client.stats.some((stat) => /sync|billing/i.test(stat.label)),
+      false,
+    );
+  });
 });
+
+function counts(partial: Partial<OutboxHealth['counts']> = {}): OutboxHealth {
+  return {
+    counts: { queued: 0, inflight: 0, failed: 0, dead: 0, conflict: 0, ...partial },
+    oldestCreatedAt: NOW - 1000,
+  };
+}
 
 describe('sync health', () => {
   it('shows the write queue as off while write-back is off', () => {
     const health = summarizeSyncHealth({
       pull: { lastSyncedAt: '2026-10-29T11:58:00Z', lastError: null },
-      outbox: [
-        { status: 'queued', createdAt: NOW - 1000 },
-        { status: 'done', createdAt: NOW - 1000 },
-      ],
+      outbox: counts({ queued: 1 }),
       writebackEnabled: false,
       notices: [],
       tasks: [],
@@ -213,7 +330,7 @@ describe('sync health', () => {
   it('counts a real failed outbox row and keeps the pull error on the notice', () => {
     const failed = summarizeSyncHealth({
       pull: { lastSyncedAt: '2026-10-29T11:00:00Z', lastError: null },
-      outbox: [{ status: 'failed', createdAt: NOW - 60 * 60 * 1000 }],
+      outbox: counts({ failed: 1 }),
       writebackEnabled: true,
       notices: [
         {
@@ -234,7 +351,7 @@ describe('sync health', () => {
 
     const pull = summarizeSyncHealth({
       pull: { lastSyncedAt: null, lastError: 'Notion sync is behind by 14 minutes' },
-      outbox: [],
+      outbox: EMPTY_OUTBOX,
       writebackEnabled: false,
       notices: [],
       tasks: [],
@@ -244,5 +361,35 @@ describe('sync health', () => {
     assert.equal(pull.rows[1]?.value, 'Off');
     assert.equal(pull.notice?.title, 'Sync problem');
     assert.equal(pull.notice?.body, 'Notion sync is behind by 14 minutes');
+    assert.equal(pull.cardNote, 'Notion sync is behind by 14 minutes');
+  });
+
+  it('does not read OK when the last successful pull is more than a day old', () => {
+    const stale = summarizeSyncHealth({
+      pull: {
+        lastSyncedAt: new Date(NOW - SYNC_PULL_STALE_MS - 60_000).toISOString(),
+        lastError: null,
+      },
+      outbox: EMPTY_OUTBOX,
+      writebackEnabled: false,
+      notices: [],
+      tasks: [],
+      now: NOW,
+    });
+    assert.equal(stale.cardValue, 'Stale');
+    assert.notEqual(stale.cardValue, 'OK');
+    assert.match(stale.rows[0]?.value ?? '', /^Stale/);
+    assert.equal(stale.rows[0]?.value.includes('In sync'), false);
+
+    const fresh = summarizeSyncHealth({
+      pull: { lastSyncedAt: new Date(NOW - 60_000).toISOString(), lastError: null },
+      outbox: EMPTY_OUTBOX,
+      writebackEnabled: false,
+      notices: [],
+      tasks: [],
+      now: NOW,
+    });
+    assert.equal(fresh.cardValue, 'OK');
+    assert.match(fresh.rows[0]?.value ?? '', /^In sync · /);
   });
 });
