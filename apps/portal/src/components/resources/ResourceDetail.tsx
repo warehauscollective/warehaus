@@ -275,7 +275,10 @@ export function ResourceDetail({
       </Section>
 
       <style>{`
-        .resource-card-title { overflow-wrap: normal; word-break: normal; hyphens: manual; }
+        .resource-card-title { min-width: 0; max-width: 100%; overflow-wrap: normal; word-break: normal; }
+        @media (min-width: 481px) {
+          .resource-card-title { overflow: hidden; overflow-wrap: break-word; }
+        }
         .used-in-title { font-weight: 600; overflow-wrap: break-word; }
         .used-in-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--muted); margin-top: 2px; }
         .where-lives-title { overflow-wrap: break-word; }

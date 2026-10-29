@@ -217,25 +217,16 @@ function SectionScroller({ children, inset }: { children: ReactNode; inset?: boo
         setFadePx(0);
         return;
       }
-      // Fade only the clipped tail. Never paint over the active pill, and
-      // do not force a wide veil when the next pill only peeks.
+      // A short edge fade only. A veil as wide as the leftover gap paints a
+      // faint empty pill where the next tab should stay readable.
       const edge = node.getBoundingClientRect().left;
       const activeRight = active ? active.getBoundingClientRect().right - edge : 0;
-      let lastFull = 0;
-      for (const button of node.querySelectorAll('button')) {
-        const right = button.getBoundingClientRect().right - edge;
-        if (right <= node.clientWidth + 0.5) lastFull = right;
-        else break;
-      }
-      let width = Math.max(0, node.clientWidth - lastFull);
-      if (active && activeRight > 0) {
-        const fadeLeft = node.clientWidth - width;
-        if (activeRight > fadeLeft) width = Math.max(0, node.clientWidth - activeRight);
-      }
       const laterClipped = Array.from(node.querySelectorAll('button')).some((button) => {
         return button.getBoundingClientRect().right - edge > node.clientWidth + 0.5;
       });
-      setFadePx(laterClipped && width >= 8 ? Math.round(Math.min(56, width)) : 0);
+      const roomAfterActive = activeRight > 0 ? node.clientWidth - activeRight : node.clientWidth;
+      const width = laterClipped ? Math.min(20, Math.max(0, roomAfterActive - 8)) : 0;
+      setFadePx(width >= 12 ? Math.round(width) : 0);
     };
     update();
     node.addEventListener('scroll', update, { passive: true });
@@ -276,7 +267,7 @@ function SectionScroller({ children, inset }: { children: ReactNode; inset?: boo
           aria-hidden
           data-testid="section-edge-fade"
           className="pointer-events-none absolute inset-y-0 right-0"
-          style={{ width: fadePx, background: 'linear-gradient(to right, transparent, var(--bg) 45%)' }}
+          style={{ width: fadePx, background: 'linear-gradient(to right, transparent, var(--nav-bg) 70%)' }}
         />
       ) : null}
     </div>

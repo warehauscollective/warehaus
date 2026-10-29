@@ -67,6 +67,13 @@ html[data-density='compact'] .ds-data th {
   }
 }
 
+/* Above 480px, a single unbreakable word may break. Normal phrases still wrap on spaces. */
+@media (min-width: 481px) {
+  .portal-page-title {
+    overflow-wrap: break-word;
+  }
+}
+
 /* One figure for the Clients and Resources list KPIs, so both use the same display weight. */
 .kpi-figure {
   margin-top: 8px;

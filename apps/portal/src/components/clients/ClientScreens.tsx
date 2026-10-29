@@ -389,6 +389,7 @@ export function ClientDetail({
   leadName = null,
   clientSince = null,
   brandName,
+  screen = 'ready',
 }: {
   client: DirectoryClient;
   projects: ClientProjectRow[];
@@ -398,12 +399,34 @@ export function ClientDetail({
   leadName?: string | null;
   clientSince?: string | null;
   brandName?: string | null;
+  screen?: ClientScreen;
 }) {
-  const awaiting = tasks.filter((task) => !task.isDone && task.stage === 'Awaiting Go').length;
-  const pending = contacts.filter((person) => person.invitePending).length;
+  if (screen === 'error') {
+    return (
+      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
+        <StateNotice title="We could not load this client" body="Try again in a moment." />
+      </div>
+    );
+  }
+  if (screen === 'loading') {
+    return (
+      <div className="flex h-full min-h-0 w-full flex-col gap-3 overflow-y-auto" data-testid="client-detail" aria-busy="true">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="w-full animate-pulse" style={{ height: 72, borderRadius: 18, background: 'var(--surface)' }} />
+        ))}
+      </div>
+    );
+  }
+  const blank = screen === 'empty';
+  const projectRows = blank ? [] : projects;
+  const taskRows = blank ? [] : tasks;
+  const contactRows = blank ? [] : contacts;
+  const docRows = blank ? [] : docs;
+  const awaiting = taskRows.filter((task) => !task.isDone && task.stage === 'Awaiting Go').length;
+  const pending = contactRows.filter((person) => person.invitePending).length;
   const brand = brandName?.trim() || client.name;
-  const header = staffHeaderLine(clientSince, leadName);
-  const open = tasks.filter((task) => !task.isDone);
+  const header = staffHeaderLine(blank ? null : clientSince, blank ? null : leadName);
+  const open = taskRows.filter((task) => !task.isDone);
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
       <ClampStyle />
@@ -431,15 +454,15 @@ export function ClientDetail({
         </div>
       </Panel>
       <div className="grid w-full grid-cols-2 gap-3 md:grid-cols-3">
-        <Stat label="PROJECTS" value={String(projects.length)} hint={projects.length > 0 ? '1 active brand each' : 'No projects yet'} />
-        <Stat label="PEOPLE" value={String(contacts.length)} hint={pending > 0 ? `${pending} invite pending` : 'Contacts with portal access'} />
+        <Stat label="PROJECTS" value={String(projectRows.length)} hint={projectRows.length > 0 ? '1 active brand each' : 'No projects yet'} />
+        <Stat label="PEOPLE" value={String(contactRows.length)} hint={pending > 0 ? `${pending} invite pending` : 'Contacts with portal access'} />
         <Stat label="OPEN ITEMS" value={String(open.length)} hint={awaiting > 0 ? `${awaiting} awaiting go` : 'None awaiting go'} tone={awaiting > 0 ? 'var(--danger)' : undefined} />
       </div>
       <div className="flex flex-wrap gap-2">
         {[
-          ['client-projects', 'Projects', projects.length],
-          ['client-people', 'People', contacts.length],
-          ['client-tasks', 'Tasks', tasks.length],
+          ['client-projects', 'Projects', projectRows.length],
+          ['client-people', 'People', contactRows.length],
+          ['client-tasks', 'Tasks', taskRows.length],
         ].map(([id, label, count]) => (
           <a key={String(id)} href={`#${id}`} className="ds-mono" style={{ fontSize: 13, color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 999, padding: '6px 12px' }}>
             {label} {count}
@@ -449,11 +472,11 @@ export function ClientDetail({
       <Panel>
         <h3 id="client-projects" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Projects</h3>
         <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Brand is attached to each project</p>
-        {projects.length === 0 ? (
+        {projectRows.length === 0 ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No projects.</p>
         ) : (
           <ul className="mt-2">
-            {projects.map((project) => {
+            {projectRows.map((project) => {
               const pct = percent(project.progress);
               return (
                 <li key={project.id} className="flex flex-col gap-3 sm:flex-row sm:items-center" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
@@ -484,11 +507,11 @@ export function ClientDetail({
         <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
           Contacts with portal access. Invites stay on Account → Team.
         </p>
-        {contacts.length === 0 ? (
+        {contactRows.length === 0 ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No contacts.</p>
         ) : (
           <ul className="mt-2">
-            {contacts.map((person) => (
+            {contactRows.map((person) => (
               <li key={person.id} className="flex flex-wrap items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
                 <Mark name={person.name} />
                 <span className="min-w-0 flex-1">
@@ -507,11 +530,11 @@ export function ClientDetail({
       <Panel>
         <h3 id="client-tasks" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Tasks</h3>
         <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Published and unpublished, live Status.</p>
-        {tasks.length === 0 ? (
+        {taskRows.length === 0 ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No tasks.</p>
         ) : (
           <ul className="mt-2">
-            {tasks.map((task) => {
+            {taskRows.map((task) => {
               const dueTime = task.date ? Date.parse(`${task.date}T00:00:00Z`) : Number.NaN;
               const due = Number.isNaN(dueTime)
                 ? null
@@ -541,7 +564,7 @@ export function ClientDetail({
         )}
       </Panel>
       <div data-testid="client-docs">
-        <DocsBlock docs={docs} staff />
+        <DocsBlock docs={docRows} staff />
       </div>
     </div>
   );
@@ -641,8 +664,8 @@ export function ClientCompany({
       <Panel>
         <div className="flex items-center gap-4">
           <Mark name={name} />
-          <div>
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>{name}</h2>
+          <div className="min-w-0 flex-1">
+            <h2 className="client-card-title">{name}</h2>
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
               {people.length} {people.length === 1 ? 'person' : 'people'}
             </p>
@@ -719,11 +742,18 @@ function ClampStyle() {
   return (
     <style>{`
       .client-card-title {
+        min-width: 0;
+        max-width: 100%;
         font-family: var(--font-display);
         font-size: var(--t-lg);
         overflow-wrap: normal;
         word-break: normal;
-        hyphens: manual;
+      }
+      @media (min-width: 481px) {
+        .client-card-title {
+          overflow: hidden;
+          overflow-wrap: break-word;
+        }
       }
       @media (max-width: 480px) {
         .clamp-one { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
