@@ -184,7 +184,7 @@ export const FIXTURE_PROJECTS = [
     name: 'Northwind seasonal catering program and kitchen rollout across every location',
     description: 'A long description that stays on one line and ends in an ellipsis when the row runs out of room',
     status: 'In Progress',
-    progress: 0.15,
+    progress: 0,
     startDate: null,
     endDate: null,
     liveUrl: null,

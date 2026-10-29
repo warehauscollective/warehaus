@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  acrossProjectsLabel,
   progressPercent,
   projectFilterCounts,
   projectInitials,
+  projectListEmptyCopy,
+  projectListKpis,
   projectListMeta,
   projectMatchesFilter,
   projectProgress,
+  projectProgressCopy,
   showProjectPublish,
   sortProjectsByLastUpdated,
 } from './projectList';
@@ -68,7 +72,7 @@ describe('progressPercent', () => {
 });
 
 describe('projectProgress', () => {
-  it('labels task math as tasks and Notion progress as shipped', () => {
+  it('uses task math when the project has tasks and Notion progress otherwise', () => {
     const fromTasks = projectProgress({
       projectId: 'p1',
       progress: 0.4,
@@ -77,7 +81,7 @@ describe('projectProgress', () => {
         { projectId: 'p1', isDone: false, stage: 'Building' },
       ],
     });
-    assert.equal(fromTasks.label, '50% of tasks shipped');
+    assert.equal(fromTasks.percent, 50);
     assert.equal(fromTasks.fromTasks, true);
 
     const fromNotion = projectProgress({
@@ -85,12 +89,26 @@ describe('projectProgress', () => {
       progress: 0.4,
       tasks: [],
     });
-    assert.equal(fromNotion.label, '40% shipped');
+    assert.equal(fromNotion.percent, 40);
     assert.equal(fromNotion.fromTasks, false);
 
     const unknown = projectProgress({ projectId: 'p1', progress: null, tasks: [] });
     assert.equal(unknown.percent, null);
-    assert.equal(unknown.label, '— shipped');
+    assert.equal(unknown.fromTasks, false);
+  });
+});
+
+describe('projectProgressCopy', () => {
+  it('uses the desktop and phone sentences, including unknown progress', () => {
+    assert.deepEqual(projectProgressCopy(50, 2), {
+      desktop: '50% of tasks shipped',
+      phone: '50% shipped · 2 tasks',
+    });
+    assert.equal(projectProgressCopy(40, 1).phone, '40% shipped · 1 task');
+    assert.deepEqual(projectProgressCopy(null, 0), {
+      desktop: '— of tasks shipped',
+      phone: '— shipped · 0 tasks',
+    });
   });
 });
 
@@ -129,6 +147,58 @@ describe('project filters', () => {
       sortProjectsByLastUpdated(projects).map((project) => project.name),
       ['Site', 'Brand', 'Ops', 'Old internal ship'],
     );
+  });
+});
+
+describe('project list KPIs', () => {
+  const projects = [
+    { id: 'site', status: 'In Progress', internal: false },
+    { id: 'brand', status: 'Shipped', internal: false },
+    { id: 'ops', status: 'In Progress', internal: true },
+    { id: 'old', status: 'Shipped', internal: true },
+  ];
+  const tasks = [
+    { projectId: 'site', stage: 'Awaiting Go', isDone: false, publishToWarehaus: true },
+    { projectId: 'brand', stage: 'Awaiting Go', isDone: false, publishToWarehaus: true },
+    { projectId: 'site', stage: 'Awaiting Go', isDone: true, publishToWarehaus: true },
+    { projectId: 'ops', stage: 'Awaiting Go', isDone: false, publishToWarehaus: true },
+    { projectId: 'site', stage: 'Awaiting Go', isDone: false, publishToWarehaus: false },
+    { projectId: 'site', stage: 'Awaiting Go', isDone: false, publishToWarehaus: true, syncHidden: true },
+    { projectId: 'missing', stage: 'Awaiting Go', isDone: false, publishToWarehaus: true },
+  ];
+
+  it('counts only projects and tasks the viewer can see', () => {
+    assert.deepEqual(projectListKpis(projects, tasks, true), {
+      active: 1,
+      shipped: 1,
+      awaitingGo: 5,
+      awaitingProjects: 3,
+    });
+    assert.deepEqual(projectListKpis(projects, tasks, false), {
+      active: 1,
+      shipped: 1,
+      awaitingGo: 2,
+      awaitingProjects: 2,
+    });
+    assert.equal(acrossProjectsLabel(1), 'Across 1 project');
+    assert.equal(acrossProjectsLabel(3), 'Across 3 projects');
+  });
+});
+
+describe('project list empty copy', () => {
+  it('uses the zero-project lines and keeps the filter line for a filtered list', () => {
+    assert.deepEqual(projectListEmptyCopy(0, true), {
+      title: 'No projects yet',
+      detail: 'Create one with New project or in Notion.',
+    });
+    assert.deepEqual(projectListEmptyCopy(0, false), {
+      title: 'No projects yet',
+      detail: 'Projects Warehaus shares with you will show here.',
+    });
+    assert.deepEqual(projectListEmptyCopy(4, true), {
+      title: 'No projects match these filters.',
+      detail: null,
+    });
   });
 });
 

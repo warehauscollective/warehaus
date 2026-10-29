@@ -58,16 +58,24 @@ export function projectProgress(input: {
   projectId: string;
   progress: number | null | undefined;
   tasks: readonly ProjectListTask[];
-}): { percent: number | null; label: string; fromTasks: boolean } {
+}): { percent: number | null; fromTasks: boolean } {
   const mine = input.tasks.filter((task) => task.projectId === input.projectId);
   if (mine.length > 0) {
     const shipped = mine.filter((task) => task.stage === 'Shipped' || task.isDone).length;
     const percent = Math.round((shipped / mine.length) * 100);
-    return { percent, label: `${percent}% of tasks shipped`, fromTasks: true };
+    return { percent, fromTasks: true };
   }
-  const percent = progressPercent(input.progress);
-  if (percent == null) return { percent: null, label: '— shipped', fromTasks: false };
-  return { percent, label: `${percent}% shipped`, fromTasks: false };
+  return { percent: progressPercent(input.progress), fromTasks: false };
+}
+
+/** Same sentence at both widths. Unknown progress keeps the em dash in place of N%. */
+export function projectProgressCopy(percent: number | null, taskCount: number): { desktop: string; phone: string } {
+  const pct = percent == null ? '—' : `${percent}%`;
+  const tasks = `${taskCount} ${taskCount === 1 ? 'task' : 'tasks'}`;
+  return {
+    desktop: `${pct} of tasks shipped`,
+    phone: `${pct} shipped · ${tasks}`,
+  };
 }
 
 export function isShippedStatus(status: string): boolean {
@@ -108,6 +116,58 @@ export function showProjectPublish(
   project: { internal?: boolean; publishToWarehaus?: boolean | null },
 ): boolean {
   return staff && !project.internal && project.publishToWarehaus != null;
+}
+
+export type ProjectKpiTask = {
+  projectId: string | null;
+  stage?: string | null;
+  isDone?: boolean;
+  publishToWarehaus?: boolean;
+  syncHidden?: boolean;
+};
+
+/**
+ * List KPIs from rows the viewer is allowed to see.
+ * No DOM. Clients drop internal projects and any task the publish gate would hide,
+ * even if a caller passed those rows in.
+ */
+export function projectListKpis(
+  projects: readonly { id: string; internal?: boolean; status: string }[],
+  tasks: readonly ProjectKpiTask[],
+  staff: boolean,
+): { active: number; shipped: number; awaitingGo: number; awaitingProjects: number } {
+  const visible = viewerProjects(projects, staff);
+  const visibleIds = new Set(visible.map((project) => project.id));
+  const awaitingProjects = new Set<string>();
+  let awaitingGo = 0;
+  for (const task of tasks) {
+    if (task.stage !== 'Awaiting Go' || task.isDone || !task.projectId) continue;
+    if (!visibleIds.has(task.projectId)) continue;
+    if (!staff && (task.publishToWarehaus === false || task.syncHidden === true)) continue;
+    awaitingGo += 1;
+    awaitingProjects.add(task.projectId);
+  }
+  return {
+    active: visible.filter((project) => projectMatchesFilter(project, 'active')).length,
+    shipped: visible.filter((project) => projectMatchesFilter(project, 'shipped')).length,
+    awaitingGo,
+    awaitingProjects: awaitingProjects.size,
+  };
+}
+
+export function acrossProjectsLabel(count: number): string {
+  return `Across ${count} ${count === 1 ? 'project' : 'projects'}`;
+}
+
+/** Zero projects in the viewer set, versus a filter that hides every row. */
+export function projectListEmptyCopy(viewerCount: number, staff: boolean): { title: string; detail: string | null } {
+  if (viewerCount > 0) return { title: 'No projects match these filters.', detail: null };
+  return {
+    title: 'No projects yet',
+    detail: staff
+      ? 'Create one with New project or in Notion.'
+      : 'Projects Warehaus shares with you will show here.',
+  };
 }
 
 export function sortProjectsByLastUpdated<T extends { lastSyncedAt?: number | null; name: string }>(

@@ -57,12 +57,6 @@ export function scrollActiveIntoView(node: HTMLElement, options?: EdgeFadeOption
   const edge = node.getBoundingClientRect().left;
   const contentLeft = (button: HTMLElement) => button.getBoundingClientRect().left - edge + node.scrollLeft;
   const left = contentLeft(active);
-  // The first pill is already on screen at the start. Peeking the next one
-  // scrolls it under the leading fade and cuts its left radius flat.
-  if (buttons[0] === active && node.scrollLeft <= 1 && left - node.scrollLeft >= -0.5) {
-    if (page && page !== node) page.scrollLeft = pageLeft;
-    return;
-  }
   const width = active.getBoundingClientRect().width;
   const right = left + width;
   const later = buttons.some((button) => contentLeft(button) >= right - 1);

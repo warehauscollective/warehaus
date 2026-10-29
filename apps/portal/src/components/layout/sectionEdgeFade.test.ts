@@ -38,18 +38,43 @@ describe('sectionPeekScroll', () => {
     assert.equal(scroll, 184);
   });
 
-  it('leaves the first section pill at scrollLeft 0 so the leading fade stays off', () => {
+  it('leaves the first pill parked when the next tab is already on screen', () => {
     const node = fakeChipRow({
-      clientWidth: 110,
-      scrollWidth: 280,
+      clientWidth: 184,
+      scrollWidth: 229,
       scrollLeft: 0,
       buttons: [
-        { left: 20, width: 108, current: true },
-        { left: 140, width: 72 },
+        { left: 0, width: 90, current: true },
+        { left: 94, width: 60 },
+        { left: 158, width: 71 },
       ],
     });
     scrollActiveIntoView(node, { inset: true });
     assert.equal(node.scrollLeft, 0);
+    assert.equal(sectionEdgeFades(node, { inset: true }).leading, 0);
+    const shipped = node.querySelectorAll<HTMLElement>('button')[2];
+    const peek = node.clientWidth - shipped.getBoundingClientRect().left;
+    assert.ok(peek > 0 && peek < shipped.getBoundingClientRect().width);
+  });
+
+  it('peeks the next section tab while the first pill stays clear of the leading fade', () => {
+    const node = fakeChipRow({
+      clientWidth: 160,
+      scrollWidth: 280,
+      scrollLeft: 0,
+      buttons: [
+        { left: 20, width: 100, current: true },
+        { left: 132, width: 72 },
+      ],
+    });
+    scrollActiveIntoView(node, { inset: true });
+    assert.ok(node.scrollLeft > 1);
+    const active = node.querySelector<HTMLElement>('[aria-current="true"]');
+    assert.ok(active);
+    assert.ok(active.getBoundingClientRect().left >= 2);
+    const next = node.querySelectorAll<HTMLElement>('button')[1];
+    const peek = node.clientWidth - (next.getBoundingClientRect().left - node.getBoundingClientRect().left);
+    assert.ok(peek >= 20);
     assert.equal(sectionEdgeFades(node, { inset: true }).leading, 0);
   });
 

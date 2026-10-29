@@ -37,12 +37,9 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         style={{
           background: 'var(--nav-bg)',
           border: '1px solid var(--nav-border)',
-          // The staff notice bell is fixed at the top-right (42px, 1.25rem inset).
-          // Leave a gap before it, and keep enough of the chip row for the
-          // 20px leading inset plus a fade that does not cover the active pill.
+          // Same width as the client strip. The staff bell overlays the trailing
+          // peek; shortening the bar left the active pill with empty space after it.
           overflow: 'hidden',
-          width: data.tenant.mode === 'team' ? '100%' : undefined,
-          maxWidth: data.tenant.mode === 'team' ? 'calc(100% - 3rem)' : undefined,
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -221,8 +218,8 @@ function SectionScroller({ children, inset, activeKey }: { children: ReactNode; 
           scrollbarWidth: 'none',
           overflowX: 'auto',
           overflowY: 'hidden',
-          paddingLeft: inset ? 20 : 0,
-          scrollPaddingLeft: inset ? 20 : 0,
+          paddingLeft: 0,
+          scrollPaddingLeft: 0,
           ...(mask
             ? {
                 maskImage: mask,
