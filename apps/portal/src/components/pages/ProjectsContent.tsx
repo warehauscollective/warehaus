@@ -1,23 +1,26 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useMutation } from 'convex/react';
-import { Pill, Surface } from '@/components/ui/primitives';
+import { OutlineButton, PrimaryButton, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import {
   activeKpiCaption,
   awaitingKpiCaption,
-  formatProgress,
   projectFilterCounts,
   projectInitials,
   projectListEmptyCopy,
   projectListKpis,
+  EDIT_PROJECT_WRITEBACK_HINT,
   projectListMeta,
   projectMatchesFilter,
   projectProgress,
   projectProgressCopy,
+  projectSummaryVisibility,
+  projectTaskCount,
+  projectTasksSubtitle,
   shippedKpiCaption,
   showProjectPublish,
   sortProjectsByLastUpdated,
@@ -32,25 +35,24 @@ import { useFixturePreview } from '@/components/providers/FixturePreviewProvider
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { api } from '@convex/_generated/api';
-import { FIXTURE_CLIENTS, FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_RESOURCES, FIXTURE_TASKS } from '@/lib/data/fixtures';
+import { FIXTURE_CLIENTS, FIXTURE_CONTACTS, FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_RESOURCES, FIXTURE_TASKS } from '@/lib/data/fixtures';
+import { warehausLead } from '@/lib/data/clientDetail';
 import {
   attachKnownSync,
-  projectStatusColor,
   type PortalProject,
   type PortalTask,
 } from '@/lib/data/view-models';
-import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
 import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
-import { resolveBoardRoute } from '@/lib/nav/boardRoute';
+import { projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
 import { TaskCreateDialog, TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { StatusTable } from '@/components/tasks/StatusKanban';
-import { LIVE_TASK_STATUSES, TASK_STAGES, WRITEBACK_OFF_ERROR, createTaskExternalId, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
+import { LIVE_TASK_STATUSES, PROJECT_UNAVAILABLE, TASK_STAGES, WRITEBACK_OFF_ERROR, createTaskExternalId, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
 import type { Id } from '@convex/_generated/dataModel';
 
 const SECTION_TITLE: Record<string, string> = {
@@ -181,6 +183,17 @@ export function ProjectsContent() {
   const selectedId = route.view === 'board' ? route.projectId : openId;
   const openProject = selectedId ? projects.find((project) => project.id === selectedId) ?? null : null;
   const routeTaskId = route.view === 'board' ? route.taskId : null;
+  const leadPeople = useSafeQuery<Array<{ name: string; role?: string | null }>>(
+    api.contacts.listForOrg,
+    !fixtures && configured && isStaff && openProject?.orgId
+      ? { orgId: openProject.orgId as Id<'clients'>, hostSlug }
+      : 'skip',
+  );
+  const leadName = !isStaff
+    ? data.leadName ?? null
+    : fixtures
+      ? warehausLead(FIXTURE_CONTACTS.filter((contact) => contact.orgId === openProject?.orgId))
+      : warehausLead(leadPeople.data ?? []);
 
   const closeProject = () => {
     setOpenId(null);
@@ -220,6 +233,37 @@ export function ProjectsContent() {
     );
   }
 
+  if (route.view === 'unavailable' && route.message === PROJECT_UNAVAILABLE) {
+    const copy = projectUnavailableCopy();
+    return (
+      <PortalWorkspace
+        eyebrow={tenantEyebrow(data.tenant, 'Project')}
+        title={copy.title}
+        breadcrumb={
+          <NavBreadcrumb
+            back="always"
+            onBack={closeProject}
+            parent={{ label: 'Projects', onClick: closeProject }}
+            current={copy.title}
+          />
+        }
+      >
+        <PortalTilePane>
+          <div
+            role="alert"
+            data-testid="project-unavailable"
+            className="flex flex-col items-start gap-3"
+            style={{ border: '1px solid var(--danger)', borderRadius: 18, padding: '1rem 1.25rem' }}
+          >
+            <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 14 }}>{copy.title}</p>
+            <p style={{ color: 'var(--muted)', fontSize: 13 }}>{copy.detail}</p>
+            <OutlineButton onClick={closeProject}>Back to projects</OutlineButton>
+          </div>
+        </PortalTilePane>
+      </PortalWorkspace>
+    );
+  }
+
   if (route.view === 'unavailable') {
     return (
       <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Projects')} title="Projects">
@@ -245,16 +289,7 @@ export function ProjectsContent() {
       if (isStaff) return true;
       return doc.publishToWarehaus !== false && doc.status !== 'Draft';
     });
-    const boardActions = (
-      <>
-        <ViewToggle view={taskView} onChange={setTaskView} />
-        {isStaff ? (
-          <button type="button" className="ds-mono" onClick={() => setCreating(true)} style={newTaskButton}>
-            New task
-          </button>
-        ) : null}
-      </>
-    );
+    const summary = projectSummaryVisibility(isStaff, openProject);
     return (
       <PortalWorkspace
         eyebrow={tenantEyebrow(data.tenant, 'Project')}
@@ -267,36 +302,25 @@ export function ProjectsContent() {
             current={openProject.name}
           />
         }
-        actions={<div className="hidden flex-wrap items-center gap-2 md:flex">{boardActions}</div>}
+        actions={
+          summary.showEdit ? (
+            <div className="hidden md:block">
+              <EditProjectButton disabled={summary.editDisabled} />
+            </div>
+          ) : undefined
+        }
       >
         <PortalTilePane>
           <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="project-detail" style={{ scrollbarGutter: 'stable' }}>
-            <div className="flex flex-col" style={{ gap: 12 }}>
-            <div className="flex flex-wrap items-center gap-2">
-              {openProject.internal ? <InternalTag /> : (
-                <ClientLink
-                  name={openProject.clientName}
-                  orgId={openProject.orgId}
-                  onOpen={openLinkedClient}
-                />
-              )}
-              <Pill color={projectStatusColor(openProject.status)}>{openProject.status}</Pill>
-              <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                Progress {formatProgress(openProject.progress)}
-              </span>
-              {isStaff && !openProject.internal && openProject.publishToWarehaus != null ? (
-                <PublishChip published={openProject.publishToWarehaus} />
-              ) : null}
-              <SyncChip
-                audience={isStaff ? 'staff' : 'client'}
-                notionPageId={openProject.notionPageId}
-                syncHidden={openProject.syncHidden}
-              />
-            </div>
-            <div className="flex flex-wrap items-center gap-2 md:hidden">{boardActions}</div>
-            </div>
+            <ProjectSummary
+              project={openProject}
+              tasks={projectTasks}
+              leadName={leadName}
+              onOpenClient={openLinkedClient}
+              summary={summary}
+            />
             <div
-              className="flex items-center justify-between gap-3"
+              className="flex flex-wrap items-center justify-between gap-3"
               style={{
                 position: 'sticky',
                 top: 0,
@@ -306,7 +330,18 @@ export function ProjectsContent() {
                 paddingBottom: 4,
               }}
             >
-              <h2 style={{ fontSize: 'var(--t-md)', fontWeight: 600, lineHeight: 1.3 }}>Tasks</h2>
+              <div className="min-w-0">
+                <h2 style={{ fontSize: 18, fontWeight: 600, lineHeight: '26px' }}>Tasks</h2>
+                <p style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)' }}>
+                  {projectTasksSubtitle(taskView)}
+                </p>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <ViewToggle view={taskView} onChange={setTaskView} />
+                {isStaff ? (
+                  <PrimaryButton onClick={() => setCreating(true)}>New task</PrimaryButton>
+                ) : null}
+              </div>
             </div>
             {taskView === 'board' ? (
               <TaskBoard
@@ -397,7 +432,7 @@ export function ProjectsContent() {
             }}
           />
         ) : null}
-        {creating ? (
+        {isStaff && creating ? (
           <TaskCreateDialog
             projectName={openProject.name}
             projectNotionId={openProject.notionPageId ?? null}
@@ -441,7 +476,7 @@ export function ProjectsContent() {
             <KpiCard
               label="Active"
               value={projectsLoading ? '…' : String(kpis.active)}
-              hint={projectsLoading ? 'Loading' : activeKpiCaption(kpis.buildingNow)}
+              hint={projectsLoading ? 'Loading' : activeKpiCaption(kpis.active, kpis.buildingNow)}
             />
             <KpiCard
               label="Awaiting Go"
@@ -488,7 +523,7 @@ export function ProjectsContent() {
               <ul className="mt-2">
                 {visible.map((project) => {
                   const mine = tasks.filter((task) => task.projectId === project.id);
-                  const count = mine.length > 0 ? mine.length : project.taskCount ?? 0;
+                  const count = projectTaskCount(mine.length, project.taskCount);
                   const progress = projectProgress({
                     projectId: project.id,
                     progress: project.progress,
@@ -621,23 +656,6 @@ const fixtureStaffRules: BoardRules = {
   statuses: LIVE_TASK_STATUSES.map((status) => ({ status, rule: statusMoveRule('staff', status) })),
   stages: TASK_STAGES.map((stage) => ({ stage, rule: stageMoveRule('staff', stage) })),
 };
-
-const newTaskButton = {
-  border: '1px solid var(--border)',
-  borderRadius: 12,
-  background: 'var(--fg)',
-  color: 'var(--bg)',
-  height: 40,
-  boxSizing: 'border-box' as const,
-  display: 'inline-flex',
-  alignItems: 'center',
-  padding: '0 0.85rem',
-  fontSize: 'var(--t-xs)',
-  letterSpacing: '0.08em',
-  textTransform: 'uppercase' as const,
-  fontWeight: 600,
-  lineHeight: 1,
-} as const;
 
 function KpiCard({
   label,
@@ -779,7 +797,12 @@ function ViewToggle({
   onChange: (view: 'board' | 'table') => void;
 }) {
   return (
-    <div role="tablist" aria-label="Task view" className="inline-flex" style={{ padding: 3, borderRadius: 12, border: '1px solid var(--border)' }}>
+    <div
+      role="tablist"
+      aria-label="Task view"
+      className="inline-flex"
+      style={{ padding: 3, borderRadius: 6, background: 'var(--surface-2)' }}
+    >
       {([
         ['board', 'Board'],
         ['table', 'Table'],
@@ -792,18 +815,16 @@ function ViewToggle({
             role="tab"
             aria-selected={active}
             onClick={() => onChange(key)}
-            className="ds-mono"
             style={{
-              fontSize: 'var(--t-xs)',
-              letterSpacing: '0.08em',
-              textTransform: 'uppercase',
-              padding: '0.45rem 0.85rem',
-              borderRadius: 9,
+              fontFamily: 'var(--font-body)',
+              fontSize: 13,
+              fontWeight: 500,
+              padding: '6px 10px',
+              borderRadius: 4,
               border: 0,
               cursor: 'pointer',
-              fontWeight: key === 'table' ? 500 : 600,
-              color: active ? 'var(--fg)' : 'var(--muted)',
-              background: active ? 'color-mix(in oklab, var(--fg) 10%, transparent)' : 'transparent',
+              color: active ? 'var(--bg)' : 'var(--muted)',
+              background: active ? 'var(--fg)' : 'transparent',
             }}
           >
             {label}
@@ -846,6 +867,173 @@ function FilterChip({
       {children}
       <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>{count}</span>
     </button>
+  );
+}
+
+const summaryLabel = {
+  fontFamily: 'var(--font-mono)',
+  fontSize: 10,
+  fontWeight: 400,
+  letterSpacing: '0.8px',
+  color: 'var(--faint)',
+  textTransform: 'uppercase' as const,
+};
+
+function EditProjectButton({ disabled, compact = false }: { disabled: boolean; compact?: boolean }) {
+  const hintId = useId();
+  const button = (
+    <button
+      type="button"
+      disabled={disabled}
+      aria-disabled={disabled || undefined}
+      tabIndex={disabled ? -1 : undefined}
+      data-testid="edit-project"
+      style={{
+        pointerEvents: disabled ? 'none' : undefined,
+        background: compact ? 'transparent' : 'var(--accent)',
+        color: compact ? 'var(--fg)' : 'var(--accent-fg)',
+        border: compact ? '1px solid var(--border)' : 0,
+        borderRadius: 9,
+        fontFamily: 'var(--font-body)',
+        fontSize: compact ? 13 : 'var(--t-sm)',
+        fontWeight: compact ? 500 : 600,
+        padding: compact ? '6px 10px' : '0.65rem 1.1rem',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
+      }}
+    >
+      Edit project
+    </button>
+  );
+  if (!disabled) return button;
+  return (
+    <span
+      tabIndex={0}
+      role="group"
+      aria-disabled="true"
+      aria-describedby={hintId}
+      title={EDIT_PROJECT_WRITEBACK_HINT}
+      data-testid="edit-project-hint"
+      className="inline-flex"
+      style={{ cursor: 'not-allowed' }}
+    >
+      {button}
+      <span id={hintId} className="sr-only">
+        {EDIT_PROJECT_WRITEBACK_HINT}
+      </span>
+    </span>
+  );
+}
+
+function ProjectSummary({
+  project,
+  tasks,
+  leadName,
+  onOpenClient,
+  summary,
+}: {
+  project: ProjectRow;
+  tasks: PortalTask[];
+  leadName: string | null;
+  onOpenClient: (orgId: string) => void;
+  summary: ReturnType<typeof projectSummaryVisibility>;
+}) {
+  const progress = projectProgress({
+    projectId: project.id,
+    progress: project.progress,
+    tasks,
+  });
+  const count = projectTaskCount(tasks.length, project.taskCount);
+  const copy = projectProgressCopy(progress.percent, count);
+  return (
+    <Surface style={{ padding: 'clamp(1.25rem, 3vw, 3rem)', borderRadius: 36 }}>
+      <div data-testid="project-summary">
+        <div className="flex items-center gap-4 md:gap-6">
+          <span
+            className="inline-flex size-16 shrink-0 items-center justify-center rounded-[10px]"
+            style={{
+              background: 'var(--surface-2)',
+              border: '1px solid var(--border-2, var(--border))',
+              fontSize: 12,
+              fontWeight: 600,
+            }}
+          >
+            {projectInitials(project.name)}
+          </span>
+          <div className="min-w-0">
+            <p style={{ fontSize: 26, lineHeight: '32px', fontWeight: 600 }}>{project.name}</p>
+            <div className="mt-1 flex flex-col items-start gap-2 md:flex-row md:flex-wrap md:items-center">
+              {project.internal ? (
+                <InternalTag />
+              ) : (
+                <ClientLink name={project.clientName} orgId={project.orgId} onOpen={onOpenClient} />
+              )}
+              {leadName ? (
+                <>
+                  <span className="hidden md:inline" style={{ fontSize: 14, color: 'var(--muted)' }}>
+                    · Lead: {leadName}
+                  </span>
+                  <span className="inline-flex items-center gap-1.5 md:hidden" data-testid="project-lead-line">
+                    <span style={summaryLabel}>Lead</span>
+                    <span style={{ fontSize: 14, color: 'var(--muted)' }}>{leadName}</span>
+                  </span>
+                </>
+              ) : null}
+            </div>
+          </div>
+        </div>
+        {summary.showPublish || summary.showSourceNotion ? (
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            {summary.showPublish && project.publishToWarehaus != null ? (
+              <PublishMark published={project.publishToWarehaus} />
+            ) : null}
+            {summary.showSourceNotion ? (
+              <span
+                data-testid="source-notion"
+                className="inline-flex items-center gap-1"
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 10,
+                  padding: '4px 8px',
+                }}
+              >
+                <span className="ds-mono" style={{ fontSize: 10, letterSpacing: '0.8px', color: 'var(--faint)' }}>
+                  SOURCE
+                </span>
+                <span style={{ fontSize: 11, color: 'var(--muted)' }}>Notion</span>
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {summary.showEdit ? (
+          <div className="mt-4 flex justify-end md:hidden">
+            <EditProjectButton disabled={summary.editDisabled} compact />
+          </div>
+        ) : null}
+        <div className="mt-6 flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+          <p
+            className="ds-mono shrink-0 md:w-[112px]"
+            style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--faint)' }}
+          >
+            Progress
+          </p>
+          <div className="flex min-w-0 flex-1 flex-wrap items-center gap-3 md:flex-nowrap">
+            <span
+              className="h-1.5 w-full overflow-hidden rounded-full md:w-40 md:shrink-0"
+              style={{ background: 'var(--surface-2)' }}
+            >
+              <span
+                className="block h-1.5 rounded-full"
+                style={{ width: progress.percent == null ? 0 : `${progress.percent}%`, background: 'var(--fg)' }}
+              />
+            </span>
+            <span data-testid="project-detail-progress" className="whitespace-nowrap" style={{ fontSize: 13, color: 'var(--muted)' }}>
+              {copy.desktop}
+            </span>
+          </div>
+        </div>
+      </div>
+    </Surface>
   );
 }
 
