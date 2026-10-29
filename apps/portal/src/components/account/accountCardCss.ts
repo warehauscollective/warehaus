@@ -10,21 +10,18 @@ export const ACCOUNT_CARD_CSS = `
   flex-direction: column;
   gap: 32px;
 }
-.account-field {
+.account-sign-out {
   width: 100%;
   box-sizing: border-box;
-  background: var(--bg-2);
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 18px;
-  padding: 12px 16px;
-  font-family: var(--font-body);
-  font-size: 15px;
-  line-height: 20px;
 }
-.account-field:focus { outline: none; }
+.account-password-hint:focus-visible,
+.account-sign-out:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+}
 @media (min-width: 768px) {
   .account-profile { gap: 48px; }
   .account-card { padding: 48px; }
+  .account-sign-out { width: auto; }
 }
 `;

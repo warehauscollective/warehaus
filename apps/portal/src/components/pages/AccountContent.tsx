@@ -400,7 +400,7 @@ export function AccountContent() {
             name={portalSession?.name ?? ''}
             email={portalSession?.email ?? ''}
             role={portalSession?.role}
-            orgName={data.tenant.clientName}
+            orgName={isStaff ? 'Warehaus' : data.tenant.clientName}
             ownerLane={fixtures && isStaff ? 'Dream, Design, Develop' : null}
             onSignOut={() => {
               void (async () => {

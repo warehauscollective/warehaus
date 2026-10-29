@@ -1,15 +1,22 @@
 'use client';
 
-import { useId, type ReactNode } from 'react';
+import { useId } from 'react';
 import { clientInitials } from '@/lib/data/clientList';
 import { ACCOUNT_CARD_CSS } from '@/components/account/accountCardCss';
 import { ThemeControl } from '@/components/account/ThemeControl';
 
-const PASSWORD_HINT = 'Changing your password is not available here yet.';
+const PASSWORD_HINT =
+  'Password changes are coming soon. Use Forgot password on the sign-in page for now.';
+
+/** Drop a leading "Warehaus" so the org prefix is not repeated in the role. */
+export function profileRoleLabel(role: string | null | undefined): string {
+  const text = role?.trim() ?? '';
+  return text.replace(/^Warehaus\s+/i, '').trim();
+}
 
 export function profileRoleLine(orgName: string | null | undefined, role: string | null | undefined): string | null {
   const org = orgName?.trim() ?? '';
-  const roleText = role?.trim() ?? '';
+  const roleText = profileRoleLabel(role);
   if (org && roleText) return `${org} · ${roleText}`;
   return org || roleText || null;
 }
@@ -72,72 +79,61 @@ export function AccountProfile({
           </div>
         </div>
         <div className="flex flex-col" style={{ gap: 32 }}>
-          <ReadOnlyField id="account-display-name" label="Display name" value={displayName} testId="account-display-name" />
+          <ReadOnlyField label="Display name" value={displayName} testId="account-display-name" help="Set by Warehaus." />
           <ReadOnlyField
-            id="account-email"
             label="Email"
             value={displayEmail}
             testId="account-email"
             help="Your sign-in email. Contact Warehaus to change it."
           />
-          {lane ? <ReadOnlyField id="account-owner-lane" label="Owner lane" value={lane} testId="account-owner-lane" /> : null}
+          {lane ? <ReadOnlyField label="Owner lane" value={lane} testId="account-owner-lane" /> : null}
         </div>
         <PasswordButton />
       </section>
       <ThemeControl />
-      <div className="flex justify-end">
-        <button
-          type="button"
-          data-testid="account-sign-out"
-          onClick={onSignOut}
-          className="inline-flex items-center justify-center"
-          style={{
-            background: 'transparent',
-            color: 'var(--muted)',
-            border: '1px solid var(--border)',
-            borderRadius: 9,
-            fontFamily: 'var(--font-body)',
-            fontSize: 'var(--t-sm)',
-            padding: '0.65rem 1.1rem',
-            cursor: 'pointer',
-          }}
-        >
-          Sign out
-        </button>
-      </div>
+      <button
+        type="button"
+        data-testid="account-sign-out"
+        onClick={onSignOut}
+        className="account-sign-out inline-flex items-center justify-center self-start"
+        style={{
+          background: 'transparent',
+          color: 'var(--fg)',
+          border: '1px solid var(--border-2)',
+          borderRadius: 9,
+          fontFamily: 'var(--font-body)',
+          fontSize: 14,
+          fontWeight: 500,
+          padding: '12px 16px',
+          cursor: 'pointer',
+        }}
+      >
+        Sign out
+      </button>
     </div>
   );
 }
 
-function FieldLabel({ htmlFor, children }: { htmlFor: string; children: ReactNode }) {
-  return (
-    <label
-      htmlFor={htmlFor}
-      className="ds-mono"
-      style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}
-    >
-      {children}
-    </label>
-  );
-}
-
 function ReadOnlyField({
-  id,
   label,
   value,
   help,
   testId,
 }: {
-  id: string;
   label: string;
   value: string;
   help?: string;
   testId: string;
 }) {
   return (
-    <div className="flex flex-col" style={{ gap: 8 }}>
-      <FieldLabel htmlFor={id}>{label}</FieldLabel>
-      <input id={id} className="account-field" readOnly value={value} data-testid={testId} aria-readonly="true" />
+    <div className="flex flex-col" data-testid={testId} style={{ gap: 8 }}>
+      <p
+        className="ds-mono"
+        style={{ fontSize: 11, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)', margin: 0 }}
+      >
+        {label}
+      </p>
+      <p style={{ fontFamily: 'var(--font-body)', fontSize: 15, lineHeight: '20px', margin: 0 }}>{value}</p>
       {help ? (
         <p style={{ fontSize: 13, lineHeight: '16px', color: 'var(--muted)', margin: 0 }}>{help}</p>
       ) : null}
@@ -148,40 +144,41 @@ function ReadOnlyField({
 function PasswordButton() {
   const hintId = useId();
   return (
-    <span
-      tabIndex={0}
-      aria-disabled="true"
-      aria-describedby={hintId}
-      title={PASSWORD_HINT}
-      data-testid="account-change-password-hint"
-      className="inline-flex self-start"
-      style={{ cursor: 'not-allowed' }}
-    >
-      <button
-        type="button"
-        disabled
+    <div className="flex flex-col items-start" style={{ gap: 8 }}>
+      <span
+        tabIndex={0}
         aria-disabled="true"
-        tabIndex={-1}
-        data-testid="account-change-password"
-        style={{
-          pointerEvents: 'none',
-          background: 'transparent',
-          color: 'var(--fg)',
-          border: '1px solid var(--border-2)',
-          borderRadius: 9,
-          fontFamily: 'var(--font-body)',
-          fontSize: 14,
-          fontWeight: 500,
-          padding: '12px 16px',
-          cursor: 'not-allowed',
-          opacity: 0.4,
-        }}
+        aria-describedby={hintId}
+        title={PASSWORD_HINT}
+        className="account-password-hint inline-flex"
+        style={{ cursor: 'not-allowed', borderRadius: 9 }}
       >
-        Change password
-      </button>
-      <span id={hintId} className="sr-only">
-        {PASSWORD_HINT}
+        <button
+          type="button"
+          disabled
+          aria-disabled="true"
+          tabIndex={-1}
+          data-testid="account-change-password"
+          style={{
+            pointerEvents: 'none',
+            background: 'transparent',
+            color: 'var(--fg)',
+            border: '1px solid var(--border-2)',
+            borderRadius: 9,
+            fontFamily: 'var(--font-body)',
+            fontSize: 14,
+            fontWeight: 500,
+            padding: '12px 16px',
+            cursor: 'not-allowed',
+            opacity: 0.4,
+          }}
+        >
+          Change password
+        </button>
       </span>
-    </span>
+      <p id={hintId} data-testid="account-change-password-hint" style={{ fontSize: 13, lineHeight: '16px', color: 'var(--muted)', margin: 0 }}>
+        {PASSWORD_HINT}
+      </p>
+    </div>
   );
 }

@@ -53,8 +53,8 @@ function ThemeIcon({ theme }: { theme: ResolvedTheme }) {
 
 /** Account Appearance only. No other screen mounts a theme control. */
 export function ThemeControl() {
-  const [mode, setMode] = useState<ThemeMode>('auto');
-  const [resolved, setResolved] = useState<ResolvedTheme>('dark');
+  const [mode, setMode] = useState<ThemeMode | null>(null);
+  const [resolved, setResolved] = useState<ResolvedTheme | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -65,7 +65,8 @@ export function ThemeControl() {
       setMode(nextMode);
       setResolved(resolveTheme(nextMode, prefersDark));
     } catch {
-      /* ignore */
+      setMode('auto');
+      setResolved('dark');
     }
   }, []);
 
@@ -73,67 +74,83 @@ export function ThemeControl() {
 
   return (
     <section className="account-card" data-testid="account-theme">
-      <header>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, lineHeight: '26px', fontWeight: 700, margin: 0 }}>
-          Appearance
-        </h2>
-        <p style={{ fontSize: 15, lineHeight: '19px', color: 'var(--muted)', margin: '4px 0 0' }}>
-          Theme for this device
+      <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 22, lineHeight: '26px', fontWeight: 700, margin: 0 }}>
+        Appearance
+      </h2>
+      <div className="flex items-center justify-between gap-4">
+        <p className="min-w-0" style={{ fontSize: 15, lineHeight: '19px', color: 'var(--muted)', margin: 0 }}>
+          Choose light or dark for this device.
         </p>
-      </header>
-      <div className="flex items-center justify-between gap-4" style={{ minHeight: 64 }}>
-        <div className="min-w-0">
-          <p style={{ fontSize: 15, lineHeight: '18px', fontWeight: 600, margin: 0 }}>Theme</p>
-          <p style={{ fontSize: 15, lineHeight: '19px', color: 'var(--muted)', margin: '4px 0 0' }}>
-            Light or dark. Lives only in Account — not on other screens.
-          </p>
-        </div>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={darkOn}
-          aria-label="Theme"
-          data-testid="account-theme-toggle"
-          data-theme={resolved}
-          data-mode={mode}
-          onClick={() => {
-            try {
-              const next = nextExplicitTheme(resolved);
-              applyTheme(next);
-              setMode(next);
-              setResolved(next);
-              setError(null);
-            } catch {
-              setError('Could not save your settings');
-            }
-          }}
-          className="inline-flex shrink-0 items-center"
-          style={{
-            width: 64,
-            height: 32,
-            boxSizing: 'border-box',
-            borderRadius: 999,
-            border: '1px solid var(--border)',
-            background: 'var(--bg)',
-            padding: 4,
-            justifyContent: darkOn ? 'flex-end' : 'flex-start',
-            cursor: 'pointer',
-          }}
-        >
-          <span
-            aria-hidden
-            className="inline-flex items-center justify-center"
-            style={{
-              width: 24,
-              height: 24,
-              borderRadius: 999,
-              background: 'var(--fg)',
-              color: 'var(--bg)',
-            }}
-          >
-            <ThemeIcon theme={resolved} />
-          </span>
-        </button>
+        <span className="inline-flex shrink-0 items-center" style={{ gap: 12 }}>
+          {resolved ? (
+            <span data-testid="account-theme-label" style={{ fontSize: 15, lineHeight: '18px', fontWeight: 600 }}>
+              {darkOn ? 'Dark' : 'Light'}
+            </span>
+          ) : (
+            <span data-testid="account-theme-label" style={{ width: 36, height: 18 }} />
+          )}
+          {resolved ? (
+            <button
+              type="button"
+              role="switch"
+              aria-checked={darkOn}
+              aria-label={`Theme, ${darkOn ? 'Dark' : 'Light'}`}
+              data-testid="account-theme-toggle"
+              data-theme={resolved}
+              data-mode={mode ?? undefined}
+              onClick={() => {
+                try {
+                  const next = nextExplicitTheme(resolved);
+                  applyTheme(next);
+                  setMode(next);
+                  setResolved(next);
+                  setError(null);
+                } catch {
+                  setError('Could not save your settings');
+                }
+              }}
+              className="inline-flex shrink-0 items-center"
+              style={{
+                width: 64,
+                height: 32,
+                boxSizing: 'border-box',
+                borderRadius: 999,
+                border: '1px solid var(--border)',
+                background: 'var(--bg)',
+                padding: 4,
+                justifyContent: darkOn ? 'flex-end' : 'flex-start',
+                cursor: 'pointer',
+              }}
+            >
+              <span
+                aria-hidden
+                className="inline-flex items-center justify-center"
+                style={{
+                  width: 24,
+                  height: 24,
+                  borderRadius: 999,
+                  background: 'var(--fg)',
+                  color: 'var(--bg)',
+                }}
+              >
+                <ThemeIcon theme={resolved} />
+              </span>
+            </button>
+          ) : (
+            <span
+              data-testid="account-theme-pending"
+              aria-hidden
+              className="inline-flex shrink-0"
+              style={{
+                width: 64,
+                height: 32,
+                boxSizing: 'border-box',
+                borderRadius: 999,
+                border: '1px solid var(--border)',
+              }}
+            />
+          )}
+        </span>
       </div>
       {error ? (
         <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)', margin: 0 }}>
