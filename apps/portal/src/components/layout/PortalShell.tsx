@@ -6,6 +6,7 @@ import { PortalTabProvider } from '@/components/providers/PortalTabProvider';
 import { PortalViewProvider } from '@/components/providers/PortalViewProvider';
 import { PORTAL_PANEL_GAP } from '@/lib/design/portal-chrome';
 import { NoticeBell } from '@/components/notices/NoticeBell';
+import { PortalSearch } from '@/components/search/PortalSearch';
 import { PortalDock } from './PortalDock';
 import { PortalSwipeWorkspace } from './PortalSwipeWorkspace';
 
@@ -30,6 +31,7 @@ function PortalChrome({ children }: { children: ReactNode }) {
         {children}
       </div>
       <PortalDock />
+      <PortalSearch />
     </div>
   );
 }

@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
+import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { usePortalData } from '@/hooks/usePortalData';
 
 /**
@@ -45,6 +46,23 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
           height={12.4073}
           className="portal-wordmark shrink-0"
         />
+        <button
+          type="button"
+          aria-label="Search"
+          className="inline-flex shrink-0 items-center justify-center"
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 999,
+            border: '1px solid var(--nav-border)',
+            background: 'transparent',
+            color: 'var(--nav-text)',
+            cursor: 'pointer',
+          }}
+          onClick={() => window.dispatchEvent(new Event('wh-open-search'))}
+        >
+          <TaskGlyph src="/icons/resource-search.svg" size={16} />
+        </button>
         <span
           className="ds-mono hidden shrink-0 sm:inline"
           style={{

@@ -563,7 +563,7 @@ function initials(name: string): string {
   return parts.map((part) => part[0]?.toUpperCase() ?? '').join('');
 }
 
-function TaskCardFace({
+export function TaskCardFace({
   task,
   lifted = false,
   mode = 'status',
