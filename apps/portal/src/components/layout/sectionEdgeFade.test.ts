@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { activityFilterFadeOnScroll, scrollActiveIntoView, sectionEdgeFadePx, sectionEdgeFades, sectionPeekScroll } from './sectionEdgeFade';
+import { activityFilterFadeOnScroll, scrollActiveIntoView, sectionEdgeFadePx, sectionEdgeFades, sectionEdgeMask, sectionPeekScroll } from './sectionEdgeFade';
 
 describe('sectionPeekScroll', () => {
   it('peeks Meeting notes without sliding All resources out of the strip', () => {
@@ -229,6 +229,22 @@ describe('sectionEdgeFadePx', () => {
     assert.equal(endFade.trailing, 0);
     assert.equal(endFade.leading, 20);
     assert.equal(atEnd.scrollLeft, 320);
+  });
+
+  it('keeps the leading mask transparent through the same outer band as the trailing mask', () => {
+    const lead = 20;
+    const trail = 20;
+    const outer = Math.round(lead * 0.45);
+    const leadingOnly = sectionEdgeMask({ leading: lead, trailing: 0 });
+    const trailingOnly = sectionEdgeMask({ leading: 0, trailing: trail });
+    const both = sectionEdgeMask({ leading: lead, trailing: trail });
+    assert.equal(leadingOnly, `linear-gradient(to right, transparent 0, transparent ${outer}px, #000 ${lead}px, #000 100%)`);
+    assert.equal(
+      trailingOnly,
+      `linear-gradient(to right, #000 0, #000 calc(100% - ${trail}px), transparent calc(100% - ${outer}px))`,
+    );
+    assert.match(both ?? '', new RegExp(`transparent ${outer}px, #000 ${lead}px`));
+    assert.match(both ?? '', new RegExp(`transparent calc\\(100% - ${outer}px\\)`));
   });
 
   it('sets only the strip scrollLeft and leaves the page at 0', () => {

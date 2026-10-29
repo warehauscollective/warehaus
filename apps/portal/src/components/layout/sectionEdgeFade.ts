@@ -129,7 +129,7 @@ export function sectionEdgeMask(fade: EdgeFade): string | null {
     return `linear-gradient(to right, #000 0, #000 calc(100% - ${trail}px), transparent calc(100% - ${Math.round(trail * 0.45)}px))`;
   }
   if (trail <= 0) {
-    return `linear-gradient(to right, transparent 0, #000 ${Math.round(lead * 0.45)}px, #000 ${lead}px, #000 100%)`;
+    return `linear-gradient(to right, transparent 0, transparent ${Math.round(lead * 0.45)}px, #000 ${lead}px, #000 100%)`;
   }
-  return `linear-gradient(to right, transparent 0, #000 ${Math.round(lead * 0.45)}px, #000 ${lead}px, #000 calc(100% - ${trail}px), transparent calc(100% - ${Math.round(trail * 0.45)}px))`;
+  return `linear-gradient(to right, transparent 0, transparent ${Math.round(lead * 0.45)}px, #000 ${lead}px, #000 calc(100% - ${trail}px), transparent calc(100% - ${Math.round(trail * 0.45)}px))`;
 }

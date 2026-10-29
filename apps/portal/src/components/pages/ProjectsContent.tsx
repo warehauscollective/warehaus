@@ -17,7 +17,6 @@ import { api } from '@convex/_generated/api';
 import { FIXTURE_CLIENTS, FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_RESOURCES, FIXTURE_TASKS } from '@/lib/data/fixtures';
 import {
   attachKnownSync,
-  formatPortalDate,
   projectStatusColor,
   type PortalProject,
   type PortalTask,
@@ -406,15 +405,17 @@ export function ProjectsContent() {
             ) : null}
           </div>
           {projectsLoading ? (
-            <div className="flex flex-col gap-2" aria-busy="true">
-              {[0, 1, 2].map((i) => (
-                <div
-                  key={i}
-                  className="animate-pulse"
-                  style={{ height: 72, borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--border)' }}
-                />
-              ))}
-            </div>
+            <Surface style={{ padding: 24 }}>
+              <div className="flex flex-col" aria-busy="true">
+                {[0, 1, 2].map((i) => (
+                  <div
+                    key={i}
+                    className="animate-pulse border-b last:border-b-0"
+                    style={{ height: 90, background: 'transparent', borderColor: 'var(--border)' }}
+                  />
+                ))}
+              </div>
+            </Surface>
           ) : visible.length === 0 ? (
             <Surface style={{ padding: 'var(--s-5)' }}>
               <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
@@ -424,41 +425,72 @@ export function ProjectsContent() {
               </p>
             </Surface>
           ) : (
-            visible.map((project) => (
-              <button
-                key={project.id}
-                type="button"
-                onClick={() => {
-                  setTaskView('board');
-                  setOpenId(project.id);
-                }}
-                className="text-left"
-              >
-                <Surface style={{ padding: 'var(--s-4)' }}>
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <h3 className="flex min-w-0 flex-wrap items-center gap-2" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', fontWeight: 600, overflowWrap: 'anywhere' }}>
-                      {project.name}
-                      {project.internal ? <InternalTag /> : null}
-                    </h3>
-                    <Pill color={projectStatusColor(project.status)}>{project.status}</Pill>
-                  </div>
-                  <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>
-                    {project.internal ? null : (project.clientName ?? data.tenant.clientName ?? '—')}
-                    {project.description ? ` · ${project.description}` : ''}
-                    {project.stack?.length ? ` · ${project.stack.join(', ')}` : ''}
-                  </p>
-                  <div className="mt-3 flex flex-wrap items-center gap-2">
-                    <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>
-                      {formatProgress(project.progress)} · {project.taskCount ?? tasks.filter((t) => t.projectId === project.id).length} tasks · End {formatPortalDate(project.endDate)}
-                    </span>
-                    {isStaff && !project.internal && project.publishToWarehaus != null ? (
-                      <PublishChip published={project.publishToWarehaus} />
-                    ) : null}
-                    <SyncChip audience={isStaff ? 'staff' : 'client'} notionPageId={project.notionPageId} syncHidden={project.syncHidden} />
-                  </div>
-                </Surface>
-              </button>
-            ))
+            <Surface style={{ padding: '8px 24px' }}>
+              <ul>
+                {visible.map((project) => {
+                  const count = project.taskCount ?? tasks.filter((task) => task.projectId === project.id).length;
+                  const pct = progressPercent(project.progress);
+                  const taskLabel = `${count} ${count === 1 ? 'task' : 'tasks'}`;
+                  return (
+                    <li key={project.id} className="border-b last:border-b-0" style={{ borderColor: 'var(--border)' }}>
+                      <button
+                        type="button"
+                        data-testid="project-row"
+                        onClick={() => {
+                          setTaskView('board');
+                          setOpenId(project.id);
+                        }}
+                        className="flex w-full flex-col gap-2 py-6 text-left md:min-h-[90px] md:flex-row md:items-center md:gap-4"
+                        style={{ background: 'transparent', color: 'inherit' }}
+                      >
+                        <span className="flex min-w-0 flex-1 items-center gap-4">
+                          <span
+                            className="inline-flex size-9 shrink-0 items-center justify-center rounded-[10px]"
+                            style={{
+                              background: 'var(--surface-2)',
+                              border: '1px solid var(--border-2, var(--border))',
+                              fontSize: 12,
+                              fontWeight: 600,
+                            }}
+                          >
+                            {projectInitials(project.name)}
+                          </span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate" style={{ fontSize: 16, fontWeight: 500 }}>
+                              {project.name}
+                            </span>
+                            <span className="ds-mono mt-1 block truncate" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                              {projectListMeta(project, data.tenant.clientName)}
+                            </span>
+                          </span>
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img alt="" src="/icons/client-chev.svg" width={16} height={16} className="shrink-0 opacity-70 md:hidden" />
+                        </span>
+                        <span className="flex min-w-0 items-center gap-3 md:w-[150px] md:shrink-0 md:flex-col md:items-start md:gap-2">
+                          <span className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full md:w-full md:flex-none" style={{ background: 'var(--surface-2)' }}>
+                            <span className="block h-1.5 rounded-full" style={{ width: `${pct}%`, background: 'var(--fg)' }} />
+                          </span>
+                          <span className="ds-mono shrink-0" style={{ fontSize: 11, color: 'var(--muted)' }}>
+                            <span className="md:hidden">{pct}% shipped · {taskLabel}</span>
+                            <span className="hidden md:inline">{pct}% of tasks shipped</span>
+                          </span>
+                        </span>
+                        <span className="ds-mono hidden w-[90px] shrink-0 md:block" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                          {taskLabel}
+                        </span>
+                        {isStaff && !project.internal && project.publishToWarehaus != null ? (
+                          <span className="shrink-0 md:w-[120px]">
+                            <PublishChip published={project.publishToWarehaus} />
+                          </span>
+                        ) : null}
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img alt="" src="/icons/client-chev.svg" width={16} height={16} className="hidden shrink-0 opacity-70 md:block" />
+                      </button>
+                    </li>
+                  );
+                })}
+              </ul>
+            </Surface>
           )}
         </div>
       </PortalTilePane>
@@ -678,8 +710,28 @@ function FilterChip({
   );
 }
 
+function progressPercent(value: number | null | undefined): number {
+  if (value == null) return 0;
+  const pct = value <= 1 ? Math.round(value * 100) : Math.round(value);
+  return Math.min(100, Math.max(0, pct));
+}
+
 function formatProgress(value: number | null | undefined): string {
   if (value == null) return '—';
-  const pct = value <= 1 ? Math.round(value * 100) : Math.round(value);
-  return `${Math.min(100, Math.max(0, pct))}%`;
+  return `${progressPercent(value)}%`;
+}
+
+function projectInitials(name: string): string {
+  const parts = name.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return '·';
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
+}
+
+function projectListMeta(project: PortalProject, fallbackClient: string | null | undefined): string {
+  if (project.internal) return 'Warehaus (internal)';
+  const client = project.clientName ?? fallbackClient ?? '';
+  const detail = project.description?.trim() || (project.stack?.length ? project.stack.join(', ') : '');
+  if (client && detail) return `${client} · ${detail}`;
+  return client || detail || '—';
 }
