@@ -51,6 +51,8 @@ export type DashboardActivity = {
   timestamp: string;
   type?: string;
   projectId?: string | null;
+  taskId?: string | null;
+  /** Event flag. A missing flag is not "not published"; the task decides. */
   published?: boolean | null;
 };
 
@@ -227,6 +229,50 @@ function clientCanSeeTask(task: DashboardTask, projects: Map<string, DashboardPr
   const project = task.projectId ? projects.get(task.projectId) : undefined;
   if (project && !clientCanSeeProject(project)) return false;
   return true;
+}
+
+/**
+ * The task behind an activity row, when we can find one. An explicit task id
+ * wins. Otherwise the longest task name mentioned in the row, inside its project.
+ */
+function taskForActivity(item: DashboardActivity, tasks: readonly DashboardTask[]): DashboardTask | undefined {
+  if (item.taskId) {
+    const direct = tasks.find((task) => task.id === item.taskId);
+    if (direct) return direct;
+  }
+  const hay = `${item.name}\n${item.summary}`.toLowerCase();
+  const scoped = item.projectId ? tasks.filter((task) => task.projectId === item.projectId) : tasks;
+  let best: DashboardTask | undefined;
+  for (const task of scoped) {
+    const name = task.name.trim().toLowerCase();
+    if (name.length < 3 || !hay.includes(name)) continue;
+    if (!best || name.length > best.name.trim().length) best = task;
+  }
+  return best;
+}
+
+/**
+ * Same rule for the staff publish mark and the client feed. A resolved task
+ * uses client visibility (publish flag, hidden, internal project). The event's
+ * own flag is only a fallback when no task can be resolved. Type `task` with
+ * no task is not client-visible; sync, exception, shipment, and team never are.
+ */
+function clientMaySeeActivity(
+  item: DashboardActivity,
+  tasks: readonly DashboardTask[],
+  projects: Map<string, DashboardProject>,
+): boolean {
+  if (item.type === 'sync' || item.type === 'exception' || item.type === 'shipment' || item.type === 'team') {
+    return false;
+  }
+  const task = taskForActivity(item, tasks);
+  if (task) return clientCanSeeTask(task, projects);
+  if (item.published === false) return false;
+  if (item.projectId) {
+    const project = projects.get(item.projectId);
+    if (!project || !clientCanSeeProject(project)) return false;
+  }
+  return item.type === 'project' || item.type == null;
 }
 
 function staffCanSeeTask(task: DashboardTask): boolean {
@@ -414,7 +460,7 @@ export function summarizeSyncHealth(input: {
   const failedCapped = hitHealthCap(failedParts);
   const queue = input.writebackEnabled
     ? {
-        value: hitHealthCap(queueParts) ? '100+' : waiting === 1 ? '1 waiting' : `${waiting} waiting`,
+        value: hitHealthCap(queueParts) ? '100+ waiting' : waiting === 1 ? '1 waiting' : `${waiting} waiting`,
         tone: 'muted' as const,
       }
     : { value: 'Off', tone: 'muted' as const };
@@ -431,7 +477,7 @@ export function summarizeSyncHealth(input: {
       {
         key: 'failed',
         label: 'Failed writes (24h)',
-        value: failedCapped ? '100+' : failed === 0 ? 'None' : failed === 1 ? '1 needs a retry' : `${failed} need a retry`,
+        value: failedCapped ? '100+ need a retry' : failed === 0 ? 'None' : failed === 1 ? '1 needs a retry' : `${failed} need a retry`,
         tone: failed > 0 ? 'danger' : 'muted',
       },
     ],
@@ -444,14 +490,9 @@ function activityWhen(iso: string, now: number): string {
 }
 
 function visibleActivity(input: DashboardInput, projects: Map<string, DashboardProject>): DashboardActivity[] {
-  return [...input.activity].filter((item) => {
-    if (input.audience === 'staff') return true;
-    if (item.type === 'sync' || item.type === 'exception' || item.type === 'shipment') return false;
-    if (item.published === false) return false;
-    const project = item.projectId ? projects.get(item.projectId) : undefined;
-    if (project && !clientCanSeeProject(project)) return false;
-    return true;
-  }).sort((a, b) => (parseTime(b.timestamp) ?? 0) - (parseTime(a.timestamp) ?? 0));
+  return [...input.activity]
+    .filter((item) => input.audience === 'staff' || clientMaySeeActivity(item, input.tasks, projects))
+    .sort((a, b) => (parseTime(b.timestamp) ?? 0) - (parseTime(a.timestamp) ?? 0));
 }
 
 function progressPercent(project: DashboardProject, tasks: readonly DashboardTask[]): number {
@@ -531,7 +572,7 @@ function buildStaff(input: DashboardInput, projects: DashboardProject[], tasks: 
       name: item.name,
       summary: item.summary,
       when: activityWhen(item.timestamp, input.now),
-      published: item.published === true,
+      published: clientMaySeeActivity(item, input.tasks, projectById(input.projects)),
     })),
   };
 }

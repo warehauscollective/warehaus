@@ -434,7 +434,7 @@ describe('sync health', () => {
       tasks: [],
       now: NOW,
     });
-    assert.equal(cappedQueue.rows.find((row) => row.key === 'queue')?.value, '100+');
+    assert.equal(cappedQueue.rows.find((row) => row.key === 'queue')?.value, '100+ waiting');
 
     const under = summarizeSyncHealth({
       pull,
@@ -474,52 +474,72 @@ describe('sync health', () => {
       tasks: [],
       now: NOW,
     });
-    assert.equal(cappedFailed.rows.find((row) => row.key === 'failed')?.value, '100+');
+    assert.equal(cappedFailed.rows.find((row) => row.key === 'failed')?.value, '100+ need a retry');
     assert.equal(cappedFailed.notice?.title, '100+ writes to Notion failed');
   });
 });
 
 describe('staff activity publish marks', () => {
-  it('marks every staff row published or not, and leaves clients unmarked', () => {
-    const activity = [
-      {
-        id: 'pub',
-        name: 'Shared update',
-        summary: 'Maya',
-        timestamp: '2026-10-29T10:00:00Z',
-        type: 'task',
-        published: true,
-      },
-      {
-        id: 'unset',
-        name: 'Task moved',
-        summary: 'no flag',
-        timestamp: '2026-10-29T09:00:00Z',
-        type: 'task',
-      },
-      {
-        id: 'draft',
-        name: 'Draft note',
-        summary: 'held',
-        timestamp: '2026-10-29T08:00:00Z',
-        type: 'task',
-        published: false,
-      },
-    ];
-    const staff = buildDashboard(input({ audience: 'staff', activity }));
+  const projects = [
+    project({ id: 'p-site', name: 'Website refresh' }),
+    project({ id: 'p-internal', name: 'warehaus.studio', internal: true, clientName: 'Warehaus' }),
+  ];
+  const tasks = [
+    task({ id: 't-doing', name: 'Build the project page', status: 'In Progress', projectId: 'p-site', publishToWarehaus: true }),
+    task({ id: 't-draft', name: 'Draft estimate', status: 'To Do', projectId: 'p-site', publishToWarehaus: false }),
+  ];
+  const activity = [
+    {
+      id: 'moved',
+      name: 'Task moved',
+      summary: 'Build the project page is in progress',
+      timestamp: '2026-10-29T10:00:00Z',
+      type: 'task',
+      projectId: 'p-site',
+      taskId: 't-doing',
+    },
+    {
+      id: 'draft',
+      name: 'Draft estimate updated',
+      summary: 'Draft estimate held back',
+      timestamp: '2026-10-29T09:00:00Z',
+      type: 'task',
+      projectId: 'p-site',
+      taskId: 't-draft',
+    },
+    {
+      id: 'pull',
+      name: 'Pull finished',
+      summary: 'Notion pull completed',
+      timestamp: '2026-10-29T08:00:00Z',
+      type: 'sync',
+      projectId: null,
+    },
+    {
+      id: 'site',
+      name: 'Site update',
+      summary: 'Shared with the client',
+      timestamp: '2026-10-29T07:00:00Z',
+      type: 'project',
+      projectId: 'p-site',
+    },
+  ];
+
+  it('agrees the staff mark with what the client is allowed to see', () => {
+    const staff = buildDashboard(input({ audience: 'staff', projects, tasks, activity }));
+    const client = buildDashboard(input({ audience: 'client', projects, tasks, activity }));
     assert.equal(staff.audience, 'staff');
-    if (staff.audience !== 'staff') return;
-    assert.deepEqual(
-      staff.activity.map((row) => [row.name, row.published]),
-      [
-        ['Shared update', true],
-        ['Task moved', false],
-        ['Draft note', false],
-      ],
-    );
-    const client = buildDashboard(input({ audience: 'client', activity }));
     assert.equal(client.audience, 'client');
-    if (client.audience !== 'client') return;
+    if (staff.audience !== 'staff' || client.audience !== 'client') return;
+    const clientIds = new Set(client.activity.map((row) => row.id));
+    for (const row of staff.activity) {
+      assert.equal(clientIds.has(row.id), row.published, row.name);
+    }
+    assert.equal(staff.activity.find((row) => row.id === 'moved')?.published, true);
+    assert.equal(staff.activity.find((row) => row.id === 'draft')?.published, false);
+    assert.equal(staff.activity.find((row) => row.id === 'pull')?.published, false);
+    assert.equal(clientIds.has('draft'), false);
+    assert.equal(clientIds.has('pull'), false);
     assert.equal(client.activity.some((row) => 'published' in row), false);
     assert.equal(JSON.stringify(client).includes('Not published'), false);
   });

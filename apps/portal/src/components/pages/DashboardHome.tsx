@@ -361,6 +361,9 @@ function ProjectPanel({
                 <span className="ds-mono block truncate" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
                   {project.brand}
                 </span>
+                <span className="ds-mono mt-1 block truncate lg:hidden" style={{ fontSize: 12, color: 'var(--faint)' }}>
+                  {project.itemsLabel} · {project.updatedLabel}
+                </span>
               </span>
             </span>
             <span className="hidden min-w-[120px] flex-col gap-2 sm:flex sm:max-w-[220px] sm:flex-1">
@@ -374,10 +377,10 @@ function ProjectPanel({
                 {project.percentLabel}
               </span>
             </span>
-            <span className="ds-mono shrink-0" style={{ fontSize: 12, color: 'var(--muted)' }}>
+            <span className="ds-mono hidden shrink-0 lg:inline" style={{ fontSize: 12, color: 'var(--muted)' }}>
               {project.itemsLabel}
             </span>
-            <span className="ds-mono shrink-0" style={{ fontSize: 12, color: 'var(--faint)' }}>
+            <span className="ds-mono hidden shrink-0 lg:inline" style={{ fontSize: 12, color: 'var(--faint)' }}>
               {project.updatedLabel}
             </span>
             <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
@@ -441,8 +444,13 @@ function AwaitingPanel({
                 <AwaitingBadges row={row} staff={staff} />
               </span>
             </span>
+            {!staff && row.when ? (
+              <span className="ds-mono shrink-0 lg:hidden" style={{ fontSize: 12, color: 'var(--faint)' }}>
+                {row.when}
+              </span>
+            ) : null}
             <span className="hidden shrink-0 flex-wrap items-center justify-end gap-2 lg:flex">
-              <AwaitingBadges row={row} staff={staff} />
+              <AwaitingBadges row={row} staff={staff} includeWhen />
             </span>
             <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
           </button>
@@ -489,8 +497,17 @@ function ActivityPanel({
               <span className="ds-mono block truncate" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
                 {row.summary}
               </span>
+              {staff && 'published' in row ? (
+                <span className="mt-2 flex lg:hidden">
+                  <PublishMark published={row.published} />
+                </span>
+              ) : null}
             </span>
-            {staff && 'published' in row ? <PublishMark published={row.published} /> : null}
+            {staff && 'published' in row ? (
+              <span className="hidden lg:flex">
+                <PublishMark published={row.published} />
+              </span>
+            ) : null}
             <span className="ds-mono shrink-0 text-right" style={{ width: 80, fontSize: 12, color: 'var(--faint)' }}>
               {row.when}
             </span>
@@ -614,9 +631,11 @@ function StatusBadge({ status }: { status: string }) {
 function AwaitingBadges({
   row,
   staff,
+  includeWhen = false,
 }: {
   row: AwaitingRow | StaffAwaitingRow;
   staff: boolean;
+  includeWhen?: boolean;
 }) {
   return (
     <>
@@ -628,7 +647,7 @@ function AwaitingBadges({
         </span>
       ) : null}
       {staff && 'published' in row ? <PublishMark published={row.published} /> : null}
-      {!staff && row.when ? (
+      {!staff && includeWhen && row.when ? (
         <span className="ds-mono" style={{ fontSize: 12, color: 'var(--faint)' }}>
           {row.when}
         </span>

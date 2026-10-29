@@ -176,6 +176,8 @@ body {
   /* Status — the only hue, kept scarce */
   --success: oklch(70% 0.16 150);
   --warn: oklch(80% 0.15 85);
+  /* Amber on ink. Light theme overrides this; #f59e0b fails AA on white. */
+  --warning: #f59e0b;
   --danger: oklch(64% 0.2 25);
 
   /* Body font (Geist) is now set globally on :root; the scope inherits it. */
@@ -212,6 +214,8 @@ body {
   --accent-press: oklch(32% 0 0);
   --accent-fg: var(--paper);
   --accent-tint: oklch(25% 0 0 / 0.1);
+  /* Amber-700. 5.02:1 on white, 4.94:1 on paper. Small stale text needs 4.5:1. */
+  --warning: #b45309;
 }
 
 /* Rail width reserved for the style-guide sub-nav on desktop.

@@ -368,6 +368,7 @@ export const FIXTURE_SNAPSHOT: PortalSnapshot = {
       timestamp: new Date(SYNCED_AT).toISOString(),
       tone: 'accent',
       projectId: 'p-site',
+      taskId: 't-doing',
     },
     {
       id: 'a-2',
