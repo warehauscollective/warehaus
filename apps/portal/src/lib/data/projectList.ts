@@ -120,11 +120,16 @@ export function showProjectPublish(
 
 export type ProjectKpiTask = {
   projectId: string | null;
+  status?: string | null;
   stage?: string | null;
   isDone?: boolean;
   publishToWarehaus?: boolean;
   syncHidden?: boolean;
 };
+
+function isInProgressStatus(status: string | null | undefined): boolean {
+  return /^in\s*progress$/i.test(status ?? '');
+}
 
 /**
  * List KPIs from rows the viewer is allowed to see.
@@ -135,28 +140,57 @@ export function projectListKpis(
   projects: readonly { id: string; internal?: boolean; status: string }[],
   tasks: readonly ProjectKpiTask[],
   staff: boolean,
-): { active: number; shipped: number; awaitingGo: number; awaitingProjects: number } {
+): {
+  active: number;
+  shipped: number;
+  awaitingGo: number;
+  awaitingProjects: number;
+  buildingNow: number;
+} {
   const visible = viewerProjects(projects, staff);
   const visibleIds = new Set(visible.map((project) => project.id));
+  const activeIds = new Set(
+    visible.filter((project) => projectMatchesFilter(project, 'active')).map((project) => project.id),
+  );
   const awaitingProjects = new Set<string>();
+  const buildingProjects = new Set<string>();
   let awaitingGo = 0;
   for (const task of tasks) {
-    if (task.stage !== 'Awaiting Go' || task.isDone || !task.projectId) continue;
-    if (!visibleIds.has(task.projectId)) continue;
+    if (!task.projectId || !visibleIds.has(task.projectId)) continue;
     if (!staff && (task.publishToWarehaus === false || task.syncHidden === true)) continue;
-    awaitingGo += 1;
-    awaitingProjects.add(task.projectId);
+    if (task.stage === 'Awaiting Go' && !task.isDone) {
+      awaitingGo += 1;
+      awaitingProjects.add(task.projectId);
+    }
+    if (activeIds.has(task.projectId) && isInProgressStatus(task.status)) {
+      buildingProjects.add(task.projectId);
+    }
   }
   return {
-    active: visible.filter((project) => projectMatchesFilter(project, 'active')).length,
+    active: activeIds.size,
     shipped: visible.filter((project) => projectMatchesFilter(project, 'shipped')).length,
     awaitingGo,
     awaitingProjects: awaitingProjects.size,
+    buildingNow: buildingProjects.size,
   };
 }
 
 export function acrossProjectsLabel(count: number): string {
   return `Across ${count} ${count === 1 ? 'project' : 'projects'}`;
+}
+
+export function activeKpiCaption(buildingNow: number): string {
+  return `${buildingNow} building now`;
+}
+
+export function shippedKpiCaption(): string {
+  return 'All time';
+}
+
+/** Red only while something is waiting. Zero is a muted line and a neutral number. */
+export function awaitingKpiCaption(count: number, projectCount: number): { caption: string; hot: boolean } {
+  if (count <= 0) return { caption: 'Nothing awaiting go', hot: false };
+  return { caption: acrossProjectsLabel(projectCount), hot: true };
 }
 
 /** Zero projects in the viewer set, versus a filter that hides every row. */

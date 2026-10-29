@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
+  activeKpiCaption,
   acrossProjectsLabel,
+  awaitingKpiCaption,
   progressPercent,
   projectFilterCounts,
   projectInitials,
@@ -11,6 +13,7 @@ import {
   projectMatchesFilter,
   projectProgress,
   projectProgressCopy,
+  shippedKpiCaption,
   showProjectPublish,
   sortProjectsByLastUpdated,
 } from './projectList';
@@ -173,15 +176,48 @@ describe('project list KPIs', () => {
       shipped: 1,
       awaitingGo: 5,
       awaitingProjects: 3,
+      buildingNow: 0,
     });
     assert.deepEqual(projectListKpis(projects, tasks, false), {
       active: 1,
       shipped: 1,
       awaitingGo: 2,
       awaitingProjects: 2,
+      buildingNow: 0,
     });
     assert.equal(acrossProjectsLabel(1), 'Across 1 project');
     assert.equal(acrossProjectsLabel(3), 'Across 3 projects');
+  });
+
+  it('captions building projects the viewer can see, and stays neutral at zero', () => {
+    const rows = [
+      { id: 'site', status: 'In Progress', internal: false },
+      { id: 'menu', status: 'In Progress', internal: false },
+      { id: 'brand', status: 'Shipped', internal: false },
+      { id: 'ops', status: 'In Progress', internal: true },
+    ];
+    const tasks = [
+      { projectId: 'site', status: 'In Progress', publishToWarehaus: true, isDone: false },
+      { projectId: 'menu', status: 'To Do', publishToWarehaus: true, isDone: false },
+      { projectId: 'brand', status: 'In Progress', publishToWarehaus: true, isDone: false },
+      { projectId: 'ops', status: 'In Progress', publishToWarehaus: true, isDone: false },
+      { projectId: 'site', status: 'In Progress', publishToWarehaus: false, isDone: false },
+      { projectId: 'menu', status: 'In Progress', publishToWarehaus: true, syncHidden: true, isDone: false },
+    ];
+    const staff = projectListKpis(rows, tasks, true);
+    const client = projectListKpis(rows, tasks, false);
+    assert.equal(staff.buildingNow, 2);
+    assert.equal(client.buildingNow, 1);
+    assert.equal(activeKpiCaption(staff.buildingNow), '2 building now');
+    assert.equal(activeKpiCaption(client.buildingNow), '1 building now');
+    assert.equal(activeKpiCaption(0), '0 building now');
+    assert.equal(shippedKpiCaption(), 'All time');
+    assert.deepEqual(awaitingKpiCaption(0, 0), { caption: 'Nothing awaiting go', hot: false });
+    assert.deepEqual(awaitingKpiCaption(client.awaitingGo, client.awaitingProjects), {
+      caption: 'Nothing awaiting go',
+      hot: false,
+    });
+    assert.deepEqual(awaitingKpiCaption(2, 1), { caption: 'Across 1 project', hot: true });
   });
 });
 

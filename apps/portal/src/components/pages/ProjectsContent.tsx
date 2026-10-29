@@ -7,7 +7,8 @@ import { Pill, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import {
-  acrossProjectsLabel,
+  activeKpiCaption,
+  awaitingKpiCaption,
   formatProgress,
   projectFilterCounts,
   projectInitials,
@@ -17,6 +18,7 @@ import {
   projectMatchesFilter,
   projectProgress,
   projectProgressCopy,
+  shippedKpiCaption,
   showProjectPublish,
   sortProjectsByLastUpdated,
   viewerProjects,
@@ -152,6 +154,7 @@ export function ProjectsContent() {
     () => projectListKpis(forceEmpty ? [] : projects, forceEmpty ? [] : tasks, isStaff),
     [projects, tasks, isStaff, forceEmpty],
   );
+  const awaitingCaption = awaitingKpiCaption(kpis.awaitingGo, kpis.awaitingProjects);
   const visible = useMemo(() => {
     if (forceEmpty) return [];
     const rows = projects.filter((project) => {
@@ -434,18 +437,23 @@ export function ProjectsContent() {
               You only see what is shared with you.
             </p>
           ) : null}
-          <div
-            className="grid grid-cols-2 gap-4 md:grid-cols-3 md:gap-8"
-            data-testid="project-kpis"
-          >
-            <KpiCard label="Active" value={projectsLoading ? '…' : String(kpis.active)} />
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" data-testid="project-kpis">
+            <KpiCard
+              label="Active"
+              value={projectsLoading ? '…' : String(kpis.active)}
+              hint={projectsLoading ? 'Loading' : activeKpiCaption(kpis.buildingNow)}
+            />
             <KpiCard
               label="Awaiting Go"
               value={projectsLoading ? '…' : String(kpis.awaitingGo)}
-              hint={projectsLoading ? 'Loading' : acrossProjectsLabel(kpis.awaitingProjects)}
-              tone="var(--danger)"
+              hint={projectsLoading ? 'Loading' : awaitingCaption.caption}
+              tone={!projectsLoading && awaitingCaption.hot ? 'var(--danger)' : undefined}
             />
-            <KpiCard label="Shipped" value={projectsLoading ? '…' : String(kpis.shipped)} />
+            <KpiCard
+              label="Shipped"
+              value={projectsLoading ? '…' : String(kpis.shipped)}
+              hint={projectsLoading ? 'Loading' : shippedKpiCaption()}
+            />
           </div>
           <Surface style={{ padding: 24 }}>
             <div className="flex flex-col" style={{ gap: 4 }}>

@@ -103,9 +103,9 @@ export const getSnapshot = clientQuery({
         figmaLink: p.figmaLink ?? null,
         docsUrl: p.docsUrl ?? null,
         stack: p.stack ?? [],
-        ...(staff
-          ? { notionPageId: p.notionPageId, lastSyncedAt: p.lastSyncedAt }
-          : {}),
+        // Sync time only. Clients need it to sort "last updated". Not a Notion id.
+        lastSyncedAt: p.lastSyncedAt,
+        ...(staff ? { notionPageId: p.notionPageId } : {}),
       })),
       tasks: tasks
         .filter((t) => {
