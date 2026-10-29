@@ -1,7 +1,7 @@
 import type { Id } from './_generated/dataModel';
 import { clientQuery, adminQuery } from './_lib/wrappers';
 import { isStaff } from './_lib/identity';
-import { buildActivityFeed, isClientVisibleFeedItem } from './_lib/activityFeed';
+import { buildActivityFeed } from './_lib/activityFeed';
 import { staffQuarantineActivity } from './_lib/quarantineActivity';
 import { clientMaySeeProject, clientMaySeeTask, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { isNotionWritebackEnabled } from './_lib/writeAuthz';
@@ -80,7 +80,6 @@ export const getSnapshot = clientQuery({
         return (b.progress ?? 0) - (a.progress ?? 0) || a.name.localeCompare(b.name);
       });
     const projectById = new Map(publishedProjects.map((p) => [p._id, p] as const));
-    const activityProjectById = new Map(projects.map((p) => [p._id, p] as const));
 
     return {
       clients: client
@@ -144,29 +143,43 @@ export const getSnapshot = clientQuery({
         }),
       activity: [
         ...quarantineActivity,
-        ...activity
-          .filter((a) => {
-            if (a.type === 'shipment') return false;
-            if (staff) return true;
-            // Clients also read this list while the activity query is loading.
-            // Same helper as the feed: type allowlist, project gate, no orphan rows.
-            return isClientVisibleFeedItem({
-              source: 'activity',
-              type: a.type,
-              project: a.projectId ? activityProjectById.get(a.projectId) : undefined,
-              task: undefined,
+        ...(staff
+          ? activity
+              .filter((a) => a.type !== 'shipment')
+              .map((a) => ({
+                id: a._id,
+                name: a.name,
+                type: a.type,
+                summary: a.summary ?? '',
+                timestamp: new Date(a.timestamp).toISOString(),
+                tone: a.tone ?? 'muted',
+                projectId: a.projectId ?? null,
+              }))
+          : buildActivityFeed({
+              audience: 'client',
               orgVisible: orgOpen,
-            });
-          })
-          .map((a) => ({
-            id: a._id,
-            name: a.name,
-            type: a.type,
-            summary: a.summary ?? '',
-            timestamp: new Date(a.timestamp).toISOString(),
-            tone: a.tone ?? 'muted',
-            projectId: a.projectId ?? null,
-          })),
+              activity,
+              audits: [],
+              outbox: [],
+              projects,
+              tasks,
+              contacts: (
+                await ctx.db
+                  .query('contacts')
+                  .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+                  .take(50)
+              ).map((contact) => ({ name: contact.name })),
+              orgId,
+              limit: 50,
+            }).map((item) => ({
+              id: item.id,
+              name: item.name,
+              type: item.type,
+              summary: item.summary,
+              timestamp: item.timestamp,
+              tone: item.tone,
+              projectId: item.projectId,
+            }))),
       ],
       syncMeta: {
         lastSyncedAt: syncMeta?.lastSyncedAt
@@ -186,24 +199,75 @@ export const getSnapshot = clientQuery({
   },
 });
 
-/** Client feed. Internal projects and SERVER task fields stay out. */
+const CLIENT_FEED_TAKE = 50;
+
+/**
+ * Client feed. Internal projects and SERVER task fields stay out.
+ * Activity and audits are a bounded take. Projects and tasks are only the
+ * rows those events point at — never a full-table collect.
+ */
 export const listActivityForClient = clientQuery({
   args: {},
   handler: async (ctx) => {
     const orgId = ctx.orgId;
     const client = await ctx.db.get(orgId);
-    const projects = await ctx.db.query('projects').withIndex('by_orgId', (q) => q.eq('orgId', orgId)).collect();
-    const tasks = await ctx.db.query('tasks').withIndex('by_orgId', (q) => q.eq('orgId', orgId)).collect();
     const activity = await ctx.db
       .query('activity')
       .withIndex('by_orgId_timestamp', (q) => q.eq('orgId', orgId))
       .order('desc')
-      .take(50);
+      .take(CLIENT_FEED_TAKE);
     const audits = await ctx.db
       .query('auditEvents')
       .withIndex('by_orgId_createdAt', (q) => q.eq('orgId', orgId))
       .order('desc')
-      .take(50);
+      .take(CLIENT_FEED_TAKE);
+
+    const projectIds = new Set<Id<'projects'>>();
+    for (const row of activity) {
+      if (row.projectId) projectIds.add(row.projectId);
+    }
+    const tasks = [];
+    const resources = [];
+    const seenNotion = new Set<string>();
+    for (const notionPageId of audits
+      .map((row) => row.notionPageId)
+      .filter((id): id is string => Boolean(id))) {
+      if (seenNotion.has(notionPageId)) continue;
+      seenNotion.add(notionPageId);
+      const task = await ctx.db
+        .query('tasks')
+        .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+        .unique();
+      if (task && task.orgId === orgId) {
+        tasks.push(task);
+        projectIds.add(task.projectId);
+        continue;
+      }
+      const resource = await ctx.db
+        .query('sharedResources')
+        .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+        .unique();
+      if (resource && resource.orgId === orgId) {
+        resources.push(resource);
+        if (resource.projectId) projectIds.add(resource.projectId);
+        continue;
+      }
+      const project = await ctx.db
+        .query('projects')
+        .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+        .unique();
+      if (project && project.orgId === orgId) projectIds.add(project._id);
+    }
+    const projects = [];
+    for (const projectId of projectIds) {
+      const project = await ctx.db.get(projectId);
+      if (project && project.orgId === orgId) projects.push(project);
+    }
+    const contacts = await ctx.db
+      .query('contacts')
+      .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+      .take(CLIENT_FEED_TAKE);
+
     return buildActivityFeed({
       audience: 'client',
       orgVisible: isOrgVisibleToClients(client),
@@ -212,6 +276,10 @@ export const listActivityForClient = clientQuery({
       outbox: [],
       projects,
       tasks,
+      resources,
+      contacts: contacts.map((contact) => ({ name: contact.name })),
+      orgId,
+      limit: CLIENT_FEED_TAKE,
     });
   },
 });

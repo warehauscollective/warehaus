@@ -1,6 +1,11 @@
 import type { PortalSnapshot } from '@/lib/data/view-models';
 import { FIXTURE_CLIENT_SESSION, FIXTURE_SESSION } from '@/lib/data/portalFixtures';
-import { isClientVisibleFeedItem, type FeedProject } from '@convex/_lib/activityFeed';
+import {
+  buildActivityFeed,
+  isClientVisibleFeedItem,
+  type FeedActivity,
+  type FeedProject,
+} from '@convex/_lib/activityFeed';
 
 const SYNCED_AT = Date.parse('2026-10-05T15:00:00Z');
 
@@ -439,6 +444,127 @@ export const FIXTURE_CLIENT_SNAPSHOT: PortalSnapshot = {
     ok: true,
   },
 };
+
+const PAGE_HOUR = 60 * 60 * 1000;
+const pageNow = Date.now();
+const pageDay = Date.UTC(
+  new Date(pageNow).getUTCFullYear(),
+  new Date(pageNow).getUTCMonth(),
+  new Date(pageNow).getUTCDate(),
+);
+/** Stay on today's UTC date even when the clock is only a few hours past midnight. */
+function pageToday(slot: number): number {
+  const elapsed = Math.max(pageNow - pageDay, 15 * 60 * 1000);
+  const fraction = slot <= 2 ? 0.2 : slot === 4 ? 0.45 : 0.75;
+  const lookback = Math.min(Math.max(Math.round(elapsed * fraction), 60 * 1000), elapsed - 30 * 1000);
+  return pageNow - lookback;
+}
+
+/** Activity page preview. Built by the shared feed so publish marks match the client list. */
+const PAGE_ACTIVITY_CONTACTS = [
+  { name: 'Maya Chen' },
+  { name: 'Sam Lee' },
+  { name: 'Dana Okafor' },
+];
+
+const PAGE_ACTIVITY: FeedActivity[] = [
+  {
+    _id: 'act-wire',
+    name: 'Homepage wireframes moved to Awaiting Go',
+    summary: 'Maya Chen · Northwind · Source: Notion',
+    type: 'project',
+    timestamp: pageToday(2),
+    projectId: 'p-site',
+  },
+  {
+    _id: 'act-recap',
+    name: 'Recap drafted: Kickoff call',
+    summary: 'Meeting notes · Northwind site',
+    type: 'resource',
+    timestamp: pageToday(4),
+    projectId: 'p-site',
+  },
+  {
+    _id: 'act-sync',
+    name: 'Sync retry queued for Lumen Dental',
+    summary: 'System · 1 write to Notion failed',
+    type: 'sync',
+    timestamp: pageToday(5),
+    projectId: 'p-site',
+  },
+  {
+    _id: 'act-brand',
+    name: 'Brand guidelines v2 shipped',
+    summary: 'Sam Lee · Northwind site',
+    type: 'project',
+    tone: 'resource',
+    timestamp: pageDay - 12 * PAGE_HOUR,
+    projectId: 'p-site',
+  },
+  {
+    _id: 'act-intake',
+    name: 'Intake form copy added',
+    summary: 'Priya Shah · Northwind site · Source: portal',
+    type: 'task',
+    timestamp: pageDay - 36 * PAGE_HOUR,
+    projectId: 'p-site',
+  },
+  {
+    _id: 'act-checklist',
+    name: 'Warehaus: intake checklist updated',
+    summary: 'Peter · internal',
+    type: 'project',
+    timestamp: pageDay - 40 * PAGE_HOUR,
+    projectId: 'p-internal',
+  },
+  {
+    _id: 'act-review',
+    name: 'Wireframe review recap published',
+    summary: 'Maya Chen · Northwind',
+    type: 'resource',
+    timestamp: pageDay - 60 * PAGE_HOUR,
+    projectId: 'p-site',
+  },
+  {
+    _id: 'act-invite',
+    name: 'Jordan Rivera invited to Northwind',
+    summary: 'Dana Okafor · invite pending',
+    type: 'project',
+    tone: 'people',
+    timestamp: pageDay - 48 * PAGE_HOUR,
+    projectId: 'p-site',
+  },
+];
+
+function pageActivity(audience: 'staff' | 'client') {
+  const projects = ['p-site', 'p-internal']
+    .map((id) => fixtureFeedProject(id))
+    .filter((project): project is FeedProject => project != null);
+  return buildActivityFeed({
+    audience,
+    orgVisible: true,
+    activity: PAGE_ACTIVITY,
+    audits: [],
+    outbox: [],
+    projects,
+    tasks: [],
+    contacts: PAGE_ACTIVITY_CONTACTS,
+  }).map((item) => ({
+    id: item.id,
+    name: item.name,
+    type: item.type,
+    summary: item.summary,
+    timestamp: item.timestamp,
+    tone: item.tone,
+    projectId: item.projectId,
+    taskId: item.taskId,
+    ...(item.lane ? { lane: item.lane } : {}),
+    ...(audience === 'staff' ? { clientVisible: item.clientVisible === true } : {}),
+  }));
+}
+
+export const FIXTURE_STAFF_ACTIVITY_PAGE = pageActivity('staff');
+export const FIXTURE_CLIENT_ACTIVITY_PAGE = pageActivity('client');
 
 export const FIXTURE_NOTICES = [
   {

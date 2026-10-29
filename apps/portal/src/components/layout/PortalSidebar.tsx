@@ -36,10 +36,10 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         style={{
           background: 'var(--nav-bg)',
           border: '1px solid var(--nav-border)',
-          // The staff notice bell is fixed at the top-right. Keep the pills inside
-          // this box so they cannot paint across the bell, even if a parent unclips.
+          // The staff notice bell is fixed at the top-right of the viewport.
+          // Stop the chip row short of that box so "All activity" is not covered.
           overflow: 'hidden',
-          paddingRight: data.tenant.mode === 'team' ? '7.5rem' : undefined,
+          maxWidth: data.tenant.mode === 'team' ? 'calc(100% - 4.75rem)' : undefined,
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}

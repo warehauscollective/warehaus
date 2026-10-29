@@ -51,6 +51,9 @@ class MemoryIndex {
       collect: async () => sorted,
     };
   }
+  async take(n: number) {
+    return this.rows.slice(0, n);
+  }
   async collect() {
     return this.rows;
   }
@@ -224,6 +227,16 @@ const tables: Record<string, Row[]> = {
       type: 'project',
       summary: 'Northwind site update',
       timestamp: 20,
+      tone: 'muted',
+    },
+    {
+      _id: 'act-leaky',
+      orgId: org._id,
+      projectId: 'proj-public',
+      name: 'Homepage wireframes moved to Awaiting Go',
+      type: 'project',
+      summary: 'Maya Chen · Source: Notion · ada@northwind.test · invite pending',
+      timestamp: 40,
       tone: 'muted',
     },
     {
@@ -473,7 +486,12 @@ describe('client identity against warehaus.studio', () => {
 
     assert.match(bundled, /Northwind site/);
     assert.match(bundled, /Homepage/);
-    assert.match(bundled, /Northwind site update/);
+    assert.match(bundled, /A task in Northwind site is ready for your review/);
+    assert.equal(bundled.includes('Northwind site update'), false);
+    assert.equal(bundled.includes('Public note'), false);
+    assert.equal(bundled.includes('Awaiting Go'), false);
+    assert.equal(bundled.includes('Maya Chen'), false);
+    assert.equal(bundled.includes('invite pending'), false);
     assert.equal(bundled.includes('General update'), false);
     assert.equal(bundled.includes('Task row for a published task'), false);
     assert.equal(bundled.includes('warehaus.studio'), false);
@@ -556,14 +574,30 @@ describe('client identity against warehaus.studio', () => {
     const snapshotBody = snapshot as {
       projects: Array<{ name: string }>;
       tasks: Array<{ name: string }>;
-      activity: Array<{ summary: string }>;
+      activity: Array<{ name: string; summary: string }>;
     };
     assert.deepEqual(snapshotBody.projects.map((project) => project.name), ['Northwind site']);
     assert.deepEqual(snapshotBody.tasks.map((task) => task.name), ['Homepage']);
     assert.deepEqual(
-      snapshotBody.activity.map((item) => item.summary),
-      ['Northwind site update'],
+      snapshotBody.activity.map((item) => item.name),
+      ['A task in Northwind site is ready for your review', 'A task in Northwind site is ready for your review'],
     );
+    assert.deepEqual(
+      snapshotBody.activity.map((item) => item.summary),
+      ['', ''],
+    );
+  });
+
+  it('keeps raw activity text out of the client snapshot', async () => {
+    const snapshot = (await run(getSnapshot)) as { activity: Array<{ name: string; summary: string }> };
+    const blob = text(snapshot.activity);
+    assert.equal(blob.includes('Source'), false);
+    assert.equal(blob.includes('Awaiting Go'), false);
+    assert.equal(blob.includes('Maya Chen'), false);
+    assert.equal(blob.includes('Public note'), false);
+    assert.equal(blob.includes('@'), false);
+    assert.equal(/invite pending/i.test(blob), false);
+    assert.match(blob, /A task in Northwind site is ready for your review/);
   });
 
   it('uses the same unavailable message for a hidden task and a missing task', async () => {
@@ -585,8 +619,14 @@ describe('client identity against warehaus.studio', () => {
     const feed = await run(listActivityForClient);
     const timeline = await run(activityForClient, { taskId: 'task-public' });
     const bundled = text({ feed, timeline });
-    assert.match(bundled, /Northwind site update/);
-    assert.match(bundled, /Status: To Do/);
+    assert.match(bundled, /A task in Northwind site is ready for your review/);
+    assert.match(bundled, /Homepage was updated/);
+    assert.equal(bundled.includes('Northwind site update'), false);
+    assert.equal(bundled.includes('Public note'), false);
+    assert.equal(bundled.includes('Status:'), false);
+    assert.equal(bundled.includes('To Do'), false);
+    assert.equal(bundled.includes('ada@northwind.test'), false);
+    assert.equal(bundled.includes('maya@warehaus.studio'), false);
     assert.equal(bundled.includes('warehaus.studio'), false);
     assert.equal(bundled.includes('Studio ops'), false);
     assert.equal(bundled.includes('sync noise'), false);

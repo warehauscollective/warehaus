@@ -9,7 +9,7 @@ import { isConvexConfigured } from '@/lib/convex/client';
 import type { PortalActivity } from '@/lib/data/view-models';
 
 /** Staff feed includes internal work. The client feed uses the same item gates as the board. */
-export function useActivityFeed(): { items: PortalActivity[]; loading: boolean } {
+export function useActivityFeed(): { items: PortalActivity[]; loading: boolean; error: string | null } {
   const { data, loading } = usePortalData();
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
@@ -28,5 +28,6 @@ export function useActivityFeed(): { items: PortalActivity[]; loading: boolean }
   return {
     items: query.data ?? data.activity,
     loading: loading || (live && query.loading && query.data == null),
+    error: live ? query.error : null,
   };
 }
