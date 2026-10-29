@@ -7,14 +7,21 @@ import { Pill, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import {
+  activeKpiCaption,
+  awaitingKpiCaption,
   formatProgress,
   projectFilterCounts,
   projectInitials,
+  projectListEmptyCopy,
+  projectListKpis,
   projectListMeta,
   projectMatchesFilter,
   projectProgress,
+  projectProgressCopy,
+  shippedKpiCaption,
   showProjectPublish,
   sortProjectsByLastUpdated,
+  viewerProjects,
   type ProjectListFilter,
 } from '@/lib/data/projectList';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
@@ -142,6 +149,12 @@ export function ProjectsContent() {
     () => projectFilterCounts(forceEmpty ? [] : projects, isStaff),
     [projects, isStaff, forceEmpty],
   );
+  const viewerCount = forceEmpty ? 0 : viewerProjects(projects, isStaff).length;
+  const kpis = useMemo(
+    () => projectListKpis(forceEmpty ? [] : projects, forceEmpty ? [] : tasks, isStaff),
+    [projects, tasks, isStaff, forceEmpty],
+  );
+  const awaitingCaption = awaitingKpiCaption(kpis.awaitingGo, kpis.awaitingProjects);
   const visible = useMemo(() => {
     if (forceEmpty) return [];
     const rows = projects.filter((project) => {
@@ -424,6 +437,24 @@ export function ProjectsContent() {
               You only see what is shared with you.
             </p>
           ) : null}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" data-testid="project-kpis">
+            <KpiCard
+              label="Active"
+              value={projectsLoading ? '…' : String(kpis.active)}
+              hint={projectsLoading ? 'Loading' : activeKpiCaption(kpis.buildingNow)}
+            />
+            <KpiCard
+              label="Awaiting Go"
+              value={projectsLoading ? '…' : String(kpis.awaitingGo)}
+              hint={projectsLoading ? 'Loading' : awaitingCaption.caption}
+              tone={!projectsLoading && awaitingCaption.hot ? 'var(--danger)' : undefined}
+            />
+            <KpiCard
+              label="Shipped"
+              value={projectsLoading ? '…' : String(kpis.shipped)}
+              hint={projectsLoading ? 'Loading' : shippedKpiCaption()}
+            />
+          </div>
           <Surface style={{ padding: 24 }}>
             <div className="flex flex-col" style={{ gap: 4 }}>
               <h2 style={{ fontSize: 18, lineHeight: '26px', fontWeight: 600 }}>All projects</h2>
@@ -452,11 +483,7 @@ export function ProjectsContent() {
                 ))}
               </div>
             ) : visible.length === 0 ? (
-              <p className="mt-4" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                {isStaff
-                  ? 'No projects match these filters.'
-                  : 'Nothing shared yet. Warehaus will publish projects here when they are ready for you.'}
-              </p>
+              <ProjectListEmpty viewerCount={viewerCount} staff={isStaff} />
             ) : (
               <ul className="mt-2">
                 {visible.map((project) => {
@@ -468,7 +495,7 @@ export function ProjectsContent() {
                     tasks,
                   });
                   const taskLabel = `${count} ${count === 1 ? 'task' : 'tasks'}`;
-                  const phoneProgress = progress.percent == null ? progress.label : `${progress.label} · ${taskLabel}`;
+                  const progressCopy = projectProgressCopy(progress.percent, count);
                   const showPublish = showProjectPublish(isStaff, project);
                   return (
                     <li key={project.id} className="border-b last:border-b-0" style={{ borderColor: 'var(--border)' }}>
@@ -523,8 +550,8 @@ export function ProjectsContent() {
                             />
                           </span>
                           <span className="ds-mono shrink-0 whitespace-nowrap" data-testid="project-progress" style={{ fontSize: 11, color: 'var(--muted)' }}>
-                            <span className="md:hidden">{phoneProgress}</span>
-                            <span className="hidden md:inline">{progress.label}</span>
+                            <span className="md:hidden">{progressCopy.phone}</span>
+                            <span className="hidden md:inline">{progressCopy.desktop}</span>
                           </span>
                         </span>
                         <span className="ds-mono hidden w-[90px] shrink-0 whitespace-nowrap md:block" style={{ fontSize: 12, color: 'var(--muted)' }}>
@@ -611,6 +638,56 @@ const newTaskButton = {
   fontWeight: 600,
   lineHeight: 1,
 } as const;
+
+function KpiCard({
+  label,
+  value,
+  hint,
+  tone,
+}: {
+  label: string;
+  value: string;
+  hint?: string;
+  tone?: string;
+}) {
+  return (
+    <div
+      style={{
+        background: 'var(--surface)',
+        border: '1px solid var(--border)',
+        borderRadius: 28,
+        padding: 'clamp(1.25rem, 2vw, 2rem)',
+      }}
+    >
+      <p className="ds-mono" style={{ fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+        {label}
+      </p>
+      <p className="kpi-figure" style={tone ? { color: tone } : undefined}>
+        {value}
+      </p>
+      {hint ? <p style={{ marginTop: 12, fontSize: 14, color: tone ?? 'var(--muted)' }}>{hint}</p> : null}
+    </div>
+  );
+}
+
+function ProjectListEmpty({ viewerCount, staff }: { viewerCount: number; staff: boolean }) {
+  const copy = projectListEmptyCopy(viewerCount, staff);
+  if (!copy.detail) {
+    return (
+      <p className="mt-4" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+        {copy.title}
+      </p>
+    );
+  }
+  return (
+    <div className="mt-4">
+      <p style={{ fontSize: 16, fontWeight: 500 }}>{copy.title}</p>
+      <p className="mt-1" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+        {copy.detail}
+      </p>
+    </div>
+  );
+}
 
 function InternalTag() {
   return (

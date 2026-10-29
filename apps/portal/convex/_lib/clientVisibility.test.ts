@@ -24,6 +24,7 @@ import {
   listForStaff as listTasksForStaff,
 } from '../tasks';
 import { PortalAuthError } from './identity';
+import { sortProjectsByLastUpdated } from '../../src/lib/data/projectList';
 
 type Row = Record<string, unknown> & { _id: string };
 
@@ -154,6 +155,19 @@ const tables: Record<string, Row[]> = {
       notionPageId: 'project-public',
       lastSyncedAt: 1,
       description: 'Public site',
+      stack: [],
+    },
+    {
+      _id: 'proj-zebra',
+      orgId: org._id,
+      name: 'Zebra refresh',
+      status: 'In Progress',
+      type: ['Website'],
+      archive: false,
+      publishToWarehaus: true,
+      notionPageId: 'project-zebra',
+      lastSyncedAt: 80,
+      description: 'Newer shared project',
       stack: [],
     },
     {
@@ -628,11 +642,20 @@ describe('client identity against warehaus.studio', () => {
     }
 
     const snapshotBody = snapshot as {
-      projects: Array<{ name: string }>;
+      projects: Array<{ name: string; lastSyncedAt?: number }>;
       tasks: Array<{ name: string }>;
       activity: Array<{ name: string; summary: string }>;
     };
-    assert.deepEqual(snapshotBody.projects.map((project) => project.name), ['Northwind site']);
+    assert.deepEqual(snapshotBody.projects.map((project) => project.name), ['Northwind site', 'Zebra refresh']);
+    assert.deepEqual(
+      snapshotBody.projects.map((project) => project.lastSyncedAt),
+      [1, 80],
+    );
+    assert.equal(snapshotBody.tasks.some((task) => 'lastSyncedAt' in task), false);
+    assert.deepEqual(
+      sortProjectsByLastUpdated(snapshotBody.projects).map((project) => project.name),
+      ['Zebra refresh', 'Northwind site'],
+    );
     assert.deepEqual(snapshotBody.tasks.map((task) => task.name), ['Homepage']);
     assert.deepEqual(
       snapshotBody.activity.map((item) => item.name),
@@ -649,7 +672,7 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(snapshotText.includes('staff-notion'), false);
     assert.equal(snapshotText.includes('notionPageId'), false);
     assert.equal(snapshotText.includes('publishToWarehaus'), false);
-    assert.equal(snapshotText.includes('lastSyncedAt'), false);
+    assert.equal(snapshotText.includes('lastSyncedAt'), true);
     assert.equal(snapshotText.includes('syncHidden'), false);
     assert.equal(snapshotText.includes('syncState'), false);
   });
