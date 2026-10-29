@@ -1022,6 +1022,29 @@ export function ClientDetail({
               const meta = [task.projectName, due ? `Due ${due}` : null]
                 .filter(Boolean)
                 .join(' · ');
+              const pills: ReactNode[] = [];
+              if (task.stage) {
+                pills.push(
+                  <Pill key="stage" color={task.stage === 'Awaiting Go' ? 'var(--danger)' : undefined}>
+                    {task.stage}
+                  </Pill>,
+                );
+              }
+              pills.push(
+                <Pill key="status" color={taskStatusColor(task.status, task.isDone)}>
+                  {task.status}
+                </Pill>,
+              );
+              if (task.category) pills.push(<Pill key="category">{task.category}</Pill>);
+              const publish =
+                task.publishToWarehaus != null && !task.projectInternal ? (
+                  <Dot tone={task.publishToWarehaus ? 'on' : 'off'}>
+                    {task.publishToWarehaus ? 'Published' : 'Not published'}
+                  </Dot>
+                ) : null;
+              // Pair the publish status with the last pill so a wrap keeps them together
+              // when that pair fits on one line.
+              const withStatus = publish ? pills.pop() : null;
               return (
                 <li key={task.id} data-testid="client-task-row" className="client-task-row flex flex-wrap items-center gap-2 lg:flex-nowrap" style={{ borderTop: '1px solid var(--border)' }}>
                   <PortalCheckbox checked={task.isDone} disabled />
@@ -1030,12 +1053,15 @@ export function ClientDetail({
                     {meta ? <span className="block lg:truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{meta}</span> : null}
                   </span>
                   <span data-testid="client-task-pills" className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
-                    {task.stage ? <Pill color={task.stage === 'Awaiting Go' ? 'var(--danger)' : undefined}>{task.stage}</Pill> : null}
-                    <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
-                    {task.category ? <Pill>{task.category}</Pill> : null}
-                    {task.publishToWarehaus != null && !task.projectInternal ? (
-                      <Dot tone={task.publishToWarehaus ? 'on' : 'off'}>{task.publishToWarehaus ? 'Published' : 'Not published'}</Dot>
-                    ) : null}
+                    {pills}
+                    {publish ? (
+                      <span data-testid="client-task-publish" className="inline-flex max-w-full shrink-0 flex-nowrap items-center gap-2">
+                        {withStatus}
+                        {publish}
+                      </span>
+                    ) : (
+                      withStatus
+                    )}
                   </span>
                   <Chevron className="hidden lg:block" />
                 </li>

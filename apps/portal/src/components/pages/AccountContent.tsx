@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TeamInvites } from '@/components/pages/TeamInvites';
-import { GhostButton, PortalCheckbox, Surface } from '@/components/ui/primitives';
+import { PortalCheckbox, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
-import { ThemeControl } from '@/components/account/ThemeControl';
+import { AccountProfile } from '@/components/account/AccountProfile';
 import { DocsStatesGallery, type DocRow } from '@/components/docs/DocsBlock';
 import {
   ClientCompany,
@@ -396,45 +396,19 @@ export function AccountContent() {
 
       {activeSection === 'profile' && (
         <PortalTilePane>
-          <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="account-profile">
-            <Surface style={{ padding: 'var(--s-5)' }}>
-              <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                Profile
-              </p>
-              <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, marginTop: 8 }}>
-                {portalSession?.name ?? '—'}
-              </h3>
-              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
-                {portalSession?.email ?? '—'}
-              </p>
-              <div className="mt-5 flex justify-end">
-                <GhostButton
-                  onClick={() => {
-                    void (async () => {
-                      await signOut();
-                      if (!fixtures) router.replace('/login');
-                    })();
-                  }}
-                >
-                  Sign out
-                </GhostButton>
-              </div>
-            </Surface>
-            <ThemeControl />
-            {isClient ? (
-              <Surface style={{ padding: 'var(--s-5)' }}>
-                <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-                  Your contact
-                </p>
-                <p style={{ fontSize: 'var(--t-sm)', marginTop: 8 }}>
-                  {portalSession?.name ?? data.tenant.clientName ?? '—'}
-                </p>
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                  {data.tenant.clientName ?? 'Your company'}
-                </p>
-              </Surface>
-            ) : null}
-          </div>
+          <AccountProfile
+            name={portalSession?.name ?? ''}
+            email={portalSession?.email ?? ''}
+            role={portalSession?.role}
+            orgName={isStaff ? 'Warehaus' : data.tenant.clientName}
+            ownerLane={fixtures && isStaff ? 'Dream, Design, Develop' : null}
+            onSignOut={() => {
+              void (async () => {
+                await signOut();
+                if (!fixtures) router.replace('/login');
+              })();
+            }}
+          />
         </PortalTilePane>
       )}
 
