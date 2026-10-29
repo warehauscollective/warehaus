@@ -10,6 +10,7 @@ import { VERIFY_EMAIL_PATH, isCantRegisterError } from '@convex/_lib/registratio
 import { FIXTURE_CLIENT_SESSION, FIXTURE_SESSION } from '@/lib/data/portalFixtures';
 import { clearSearchRecents } from '@/lib/search/recents';
 import { useFixtureAudience, useFixturePreview } from '@/components/providers/FixturePreviewProvider';
+import { usePortalSnapshotCache } from '@/components/providers/PortalDataRetry';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 
 export type PortalSessionView = {
@@ -31,6 +32,7 @@ function errorMessage(err: unknown, fallback: string): string {
 export function usePortalAuth() {
   const fixtures = useFixturePreview();
   const audience = useFixtureAudience();
+  const clearSnapshot = usePortalSnapshotCache().signOut;
   const configured = isConvexConfigured() && !fixtures;
   const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() : null;
   const { data: session, isPending: sessionPending, refetch } = authClient.useSession();
@@ -128,6 +130,7 @@ export function usePortalAuth() {
   }, []);
 
   const signOut = useCallback(async () => {
+    clearSnapshot();
     setJoinError(null);
     if (typeof window !== 'undefined') {
       const userId = fixtures
@@ -136,7 +139,7 @@ export function usePortalAuth() {
       if (userId) clearSearchRecents(window.localStorage, userId);
     }
     await authClient.signOut();
-  }, [audience, fixtures, session?.user?.id]);
+  }, [audience, clearSnapshot, fixtures, session?.user?.id]);
 
   if (fixtures) {
     const session = audience === 'client' ? FIXTURE_CLIENT_SESSION : FIXTURE_SESSION;

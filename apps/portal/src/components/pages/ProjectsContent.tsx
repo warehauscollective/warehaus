@@ -31,6 +31,7 @@ import {
   type ProjectListFilter,
 } from '@/lib/data/projectList';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
+import { projectsForViewer, viewerIsStaff } from '@/lib/data/portalSnapshotCache';
 import { useRetryPortalData } from '@/components/providers/PortalDataRetry';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
@@ -80,10 +81,6 @@ type ProjectRow = PortalProject & {
   publishToWarehaus?: boolean;
 };
 
-/** Last staff list. Survives the Try again remount that resubscribes getSnapshot. */
-let cachedStaffProjects: ProjectRow[] | null = null;
-let cachedViewerIsStaff = false;
-
 export function ProjectsContent() {
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
@@ -92,13 +89,12 @@ export function ProjectsContent() {
   const createEnabled = useProjectCreateEnabled();
   const { data, loading, error } = usePortalData();
   const retryPortalData = useRetryPortalData();
-  const { portalSession, linkStatus, sessionPending } = usePortalAuth();
+  const { portalSession, linkStatus, sessionPending, joining } = usePortalAuth();
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const activeSection = sectionFor('projects');
-  const sessionStaff = Boolean(portalSession?.isStaff);
-  if (portalSession) cachedViewerIsStaff = sessionStaff;
-  const isStaff = portalSession ? sessionStaff : linkStatus === 'loading' && cachedViewerIsStaff;
+  const settling = !fixtures && (sessionPending || joining || linkStatus === 'loading');
+  const isStaff = viewerIsStaff(portalSession, settling);
   const [filter, setFilter] = useState<ProjectListFilter>('all');
   const [forceEmpty, setForceEmpty] = useState(false);
   const [forceFiltered, setForceFiltered] = useState(false);
@@ -149,13 +145,7 @@ export function ProjectsContent() {
     if (list === 'filtered') setFilter('shipped');
   }, [fixtures]);
 
-  useEffect(() => {
-    if (sessionPending || linkStatus === 'loading' || linkStatus === 'linked') return;
-    cachedStaffProjects = null;
-    cachedViewerIsStaff = false;
-  }, [sessionPending, linkStatus]);
-
-  const staff = useStaffCrossOrg(!fixtures && configured && sessionStaff, hostSlug);
+  const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
   const directory = useSafeQuery<Array<{ id: string; name: string }>>(
     api.clients.listDirectory,
     !fixtures && configured && isStaff ? { hostSlug } : 'skip',
@@ -166,16 +156,15 @@ export function ProjectsContent() {
   );
 
   const projects = useMemo(() => {
-    let staffRows: ProjectRow[] = [];
-    if (isStaff && !fixtures) {
-      if (Array.isArray(staff.projects)) {
-        cachedStaffProjects = staff.projects as ProjectRow[];
-        staffRows = cachedStaffProjects;
-      } else {
-        staffRows = cachedStaffProjects ?? [];
-      }
-    }
-    const rows = (fixtures ? FIXTURE_PROJECTS : isStaff ? staffRows : data.projects) as ProjectRow[];
+    const rows = (
+      fixtures
+        ? FIXTURE_PROJECTS
+        : projectsForViewer({
+            isStaff,
+            staffProjects: staff.projects,
+            clientProjects: data.projects,
+          })
+    ) as ProjectRow[];
     return attachKnownSync(rows, data.projects);
   }, [fixtures, isStaff, staff.projects, data.projects]);
   const tasks = (
@@ -190,7 +179,7 @@ export function ProjectsContent() {
   ) as DocRow[];
   const projectsLoading =
     forceLoading ||
-    (!fixtures && (isStaff ? staff.projectsLoading && cachedStaffProjects == null : loading));
+    (!fixtures && (settling || (isStaff ? staff.projectsLoading : loading)));
 
   const listed = useMemo(
     () => (forceFiltered ? projects.filter((project) => !projectMatchesFilter(project, 'shipped')) : projects),
