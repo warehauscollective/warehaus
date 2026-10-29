@@ -4,6 +4,11 @@ import { CLIENT_AWAITING_LABEL } from './dashboard';
 import {
   CLIENT_TEAM_STAGE_LABEL,
   brandLine,
+  clientBrandMeta,
+  inSyncLine,
+  projectItemCount,
+  sortTasksNewestFirst,
+  syncLine,
   clientDueLabel,
   clientUpdatedLabel,
   clientPersonStatus,
@@ -34,6 +39,37 @@ describe('client detail', () => {
 
   it('uses the company as the only brand', () => {
     assert.equal(brandLine('Northwind Foods'), 'Brand: Northwind Foods');
+    assert.equal(clientBrandMeta('Northwind Foods'), null);
+    assert.equal(clientBrandMeta('Northwind Foods', 'northwind foods'), null);
+    assert.equal(clientBrandMeta('Northwind Foods', 'Northwind Kitchen'), 'Brand: Northwind Kitchen');
+    const synced = Date.parse('2026-10-05T15:00:00Z');
+    const day = 24 * 60 * 60 * 1000;
+    assert.equal(inSyncLine(synced, synced + 2 * 60000), 'In sync · 2 min ago');
+    assert.equal(inSyncLine(null), 'In sync');
+    assert.equal(syncLine(synced, synced + 2 * 60000).stale, false);
+    assert.equal(inSyncLine(synced, synced + day), 'In sync · 24h ago');
+    assert.equal(syncLine(synced, synced + day).stale, false);
+    assert.equal(inSyncLine(synced, synced + day + 60_000), 'Last synced 1d ago');
+    assert.equal(inSyncLine(synced, synced + 24 * day), 'Last synced 24d ago');
+    assert.equal(syncLine(synced, synced + 24 * day).stale, true);
+    assert.equal(inSyncLine(synced, synced + 24 * day).startsWith('In sync'), false);
+    assert.deepEqual(
+      sortTasksNewestFirst([
+        { id: 'old', date: '2026-10-01' },
+        { id: 'mid', date: '2026-10-20', lastEditedTime: '2026-10-18' },
+        { id: 'new', date: '2026-10-20', lastEditedTime: '2026-10-28T15:00:00Z' },
+        { id: 'tie', date: '2026-10-20', lastEditedTime: '2026-10-28T15:00:00Z' },
+      ]).map((task) => task.id),
+      ['new', 'tie', 'mid', 'old'],
+    );
+    assert.equal(projectItemCount({ id: 'p-site', name: 'Site', taskCount: 8 }, []), 8);
+    assert.equal(
+      projectItemCount(
+        { id: 'p-site', name: 'Site', taskCount: 8 },
+        [{ projectId: 'p-site' }, { projectId: 'other', projectName: 'Site' }, { projectName: 'Site' }],
+      ),
+      2,
+    );
     assert.equal(warehausLead([
       { name: 'Ada North', role: 'Client Admin' },
       { name: 'Maya Chen', role: 'Warehaus Staff' },

@@ -50,7 +50,10 @@ export const FIXTURE_CLIENTS = [
     contactCount: 2,
     syncHidden: false,
     notionPageId: 'notion-client-north',
-    lastSyncedAt: SYNCED_AT,
+    // Happy-path staff detail. Read at render so a long-lived preview stays "2 min ago".
+    get lastSyncedAt() {
+      return Date.now() - 2 * 60 * 1000;
+    },
     internal: false,
   },
   {

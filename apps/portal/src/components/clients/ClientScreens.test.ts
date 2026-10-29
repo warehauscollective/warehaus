@@ -5,7 +5,7 @@ import { describe, it } from 'node:test';
 import type { ClientPersonRow, ClientTaskRow, DirectoryClient } from './ClientScreens';
 
 Object.assign(globalThis, { React });
-const { ClientCompany, ClientDetail, ClientDirectory } = await import('./ClientScreens');
+const { ClientCompany, ClientDetail, ClientDirectory, EditClientButton, NewClientButton } = await import('./ClientScreens');
 
 const people: ClientPersonRow[] = [
   { id: 'maya', name: 'Maya Chen', email: 'maya@warehaus.co', role: 'Warehaus Staff', portalAccess: 'Enabled' },
@@ -140,8 +140,11 @@ describe('client team page', () => {
     const detail = renderToStaticMarkup(
       createElement(ClientDetail, {
         client: staffClient,
-        projects: [{ id: 'p-site', name: 'Northwind site', status: 'In Progress', progress: 0.4 }],
-        tasks: [],
+        projects: [{ id: 'p-site', name: 'Northwind site', status: 'In Progress', progress: 0.4, taskCount: 8 }],
+        tasks: [
+          { id: 'older', name: 'Older checklist', status: 'To Do', isDone: false, date: '2026-09-01' },
+          { id: 'newer', name: 'Newer checklist', status: 'In Progress', isDone: false, date: '2026-10-20', lastEditedTime: '2026-10-28' },
+        ],
         docs: [],
         contacts: people,
         leadName: 'Maya Chen',
@@ -150,18 +153,62 @@ describe('client team page', () => {
     );
     assert.match(company, /grid-cols-1/);
     assert.equal(company.includes('col-span-2'), false);
-    assert.match(company, /border-radius:10px/);
-    assert.match(detail, /grid-cols-1/);
-    assert.equal(detail.includes('col-span-2'), false);
+    assert.match(company, /data-testid="company-mark"[^>]*style="[^"]*width:64px[^"]*border-radius:10px[^"]*background:var\(--surface-2\)/);
+    assert.equal(company.includes('border-radius:999px'), true);
+    assert.match(detail, /class="client-detail-kpis grid w-full grid-cols-1 md:grid-cols-3" data-testid="client-stats"/);
+    assert.equal(detail.includes('col-span-2 flex'), true);
+    assert.equal(detail.includes('md:col-span-1'), true);
     assert.match(detail, /data-testid="person-avatar"/);
     assert.match(detail, /border-radius:10px/);
     assert.match(detail, /class="clamp-two"/);
     assert.match(detail, /Client since March 2026/);
-    assert.match(detail, /data-testid="edit-client"/);
+    assert.match(detail, /data-testid="client-header-mark"[^>]*style="[^"]*width:64px[^"]*border-radius:10px[^"]*background:var\(--surface-2\)/);
+    assert.match(detail, /data-testid="client-sync-line"[^>]*data-sync="fresh"[^>]*style="[^"]*color:var\(--muted\)"/);
+    assert.match(detail, />In sync</);
+    assert.match(detail, /class="kpi-figure"/);
+    assert.match(detail, /data-testid="client-section-jump"[^>]*aria-current="true"[^>]*>Projects/);
     assert.match(detail, /font-family:var\(--font-body\)/);
-    assert.match(detail, /opacity:0.4/);
-    assert.match(detail, /Editing turns on with Notion write-back/);
-    assert.equal(detail.includes('role="group"'), false);
+    assert.equal(detail.includes('class="ds-mono" style="font-size:13px'), false);
+    assert.match(detail, /40% of items shipped/);
+    assert.match(detail, /data-testid="client-project-count"[^>]*class="[^"]*hidden[^"]*md:block[^"]*md:w-\[80px\][^"]*"[^>]*>8 items</);
+    assert.match(detail, /md:grid-cols-\[minmax\(0,1fr\)_176px_80px_140px_16px\]/);
+    assert.equal(detail.includes('md:grid-cols-[minmax(0,1fr)_176px_80px_auto'), false);
+    assert.match(detail, /data-testid="client-task-title"[^>]*class="block lg:truncate"/);
+    assert.match(detail, /data-testid="client-task-pills"[^>]*class="[^"]*w-full[^"]*lg:w-auto/);
+    assert.match(detail, /client-chev.svg/);
+    assert.match(detail, /class="shrink-0 opacity-70 hidden lg:block"/);
+    assert.match(detail, /\.client-detail \{ gap: 16px; \}/);
+    assert.match(detail, /\.client-detail-card \{ padding: 20px 16px; \}/);
+    assert.match(detail, /\.client-detail \{ gap: 32px; \}/);
+    assert.match(detail, /\.client-detail-card \{ padding: 32px; \}/);
+    assert.match(detail, /min-height: 96px/);
+    assert.ok(detail.indexOf('Newer checklist') < detail.indexOf('Older checklist'));
+    assert.match(detail, /Invites are managed by the client/);
+    assert.match(detail, /newest first/);
+    const stale = renderToStaticMarkup(
+      createElement(ClientDetail, {
+        client: { ...staffClient, lastSyncedAt: Date.parse('2026-10-05T15:00:00Z') },
+        projects: [],
+        tasks: [],
+        docs: [],
+        contacts: [],
+      }),
+    );
+    assert.match(stale, /Last synced \d+d ago/);
+    assert.match(stale, /data-sync="stale"[^>]*style="[^"]*color:var\(--warning\)/);
+    assert.equal(stale.includes('In sync'), false);
+    assert.equal(detail.includes('data-testid="edit-client"'), false);
+    const edit = renderToStaticMarkup(createElement(EditClientButton));
+    const headerNew = renderToStaticMarkup(createElement(NewClientButton));
+    assert.match(edit, /data-testid="edit-client"/);
+    assert.match(edit, /font-family:var\(--font-body\)/);
+    assert.match(edit, /opacity:0.4/);
+    assert.match(edit, /Editing turns on with Notion write-back/);
+    assert.equal(edit.includes('role="group"'), false);
+    assert.match(headerNew, /background:transparent/);
+    assert.match(headerNew, /border:1px solid var\(--border-2\)/);
+    assert.match(headerNew, /opacity:0.4/);
+    assert.equal(headerNew.includes('var(--accent)'), false);
     assert.match(detail, /Sam North/);
     assert.match(detail, /data-testid="client-person-email"[^>]*>sam@northwind\.example</);
     assert.match(detail, /data-testid="client-person-role-phone"[^>]*> · Client Member</);
@@ -248,25 +295,43 @@ describe('client states', () => {
   it('replaces the list when an error has no cached clients', () => {
     const html = directoryMarkup({
       clients: [],
+      error: 'Network error',
+    });
+    assert.match(html, /We couldn(?:'|&#x27;)t load clients/);
+    assert.match(html, /Try again in a moment\./);
+    assert.match(html, /data-testid="client-state-notice"[\s\S]*data-testid="client-try-again"/);
+    assert.equal(html.includes('Client list is out of date'), false);
+    assert.equal(html.includes('data-testid="retry-sync"'), false);
+    assert.equal(html.includes('data-testid="client-stats"'), false);
+    assert.equal(html.includes('data-testid="client-row-name"'), false);
+    assert.equal(html.includes('No clients yet'), false);
+  });
+
+  it('keeps cached rows under the out-of-date banner', () => {
+    const html = directoryMarkup({
       error: 'Last synced 22 minutes ago. Lumen Dental has a sync problem.',
       errorTitle: 'Client list is out of date',
     });
     assert.match(html, /Client list is out of date/);
     assert.match(html, /Last synced 22 minutes ago\. Lumen Dental has a sync problem\./);
     assert.match(html, /data-testid="client-state-notice"[\s\S]*data-testid="retry-sync"/);
-    assert.equal(html.includes('data-testid="client-stats"'), false);
-    assert.equal(html.includes('data-testid="client-row-name"'), false);
-    assert.equal(html.includes('No clients yet'), false);
-  });
-
-  it('keeps cached rows under a refresh banner', () => {
-    const html = directoryMarkup({ error: 'Network error' });
-    assert.match(html, /Couldn(?:'|&#x27;)t refresh clients/);
-    assert.match(html, /Network error/);
-    assert.match(html, /data-testid="client-try-again"/);
     assert.match(html, /data-testid="client-row-name"[^>]*>Northwind</);
     assert.match(html, /data-testid="client-stats"/);
     assert.equal(html.includes('No clients yet'), false);
+    assert.equal(/We couldn(?:'|&#x27;)t load clients/.test(html), false);
+  });
+
+  it('hides a raw live refetch error behind friendly copy and a retry', () => {
+    const html = directoryMarkup({
+      error: 'ConvexError: [Request ID: abc] Server Error',
+    });
+    assert.match(html, /Client list is out of date/);
+    assert.match(html, /Try again in a moment\./);
+    assert.match(html, /data-testid="client-state-notice"[\s\S]*data-testid="client-try-again"/);
+    assert.equal(html.includes('ConvexError'), false);
+    assert.equal(html.includes('Request ID'), false);
+    assert.equal(html.includes('data-testid="retry-sync"'), false);
+    assert.match(html, /data-testid="client-row-name"[^>]*>Northwind</);
   });
 
   it('clamps a long directory name to two lines on a phone', () => {
@@ -351,7 +416,24 @@ describe('client states', () => {
     assert.match(long, new RegExp(longProject));
     assert.match(long, /45% of items/);
     assert.match(long, /class="kpi-caption"/);
-    assert.match(long, /-webkit-line-clamp: 2/);
+    assert.match(long, /class="brand-row-name block"/);
+    assert.match(long, /\.brand-row-name \{[^}]*-webkit-line-clamp: 2/);
+    assert.match(long, /\.brand-row-meta \{[^}]*text-overflow: ellipsis/);
+    assert.equal(long.includes('data-testid="brand-row-meta"'), false);
     assert.equal(long.includes('45% shipped'), false);
+
+    const branded = renderToStaticMarkup(
+      createElement(ClientCompany, {
+        name: 'Northwind',
+        projects: [{ id: 'p-long', name: longProject, status: 'In Progress', progress: 0.45, brand: 'Northwind Kitchen' }],
+        tasks: [],
+        docs: [],
+        people: [],
+        showTeam: false,
+        onShowTeam: () => {},
+        onBack: () => {},
+      }),
+    );
+    assert.match(branded, /data-testid="brand-row-meta"[^>]*>Brand: Northwind Kitchen</);
   });
 });
