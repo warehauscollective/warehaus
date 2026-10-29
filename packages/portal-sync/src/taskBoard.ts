@@ -1,7 +1,10 @@
 /**
- * Projects and Tasks v2. Stage, parent, and resource links are not in Notion yet.
- * Missing values are tolerated. An unknown stage is stored as no stage and noted.
- * Unknown parents and cross-org links fail closed.
+ * Projects and Tasks v2. Stage, Parent item, and Resources are on the Notion
+ * Tasks database. Resources is a one-way relation to the database titled
+ * Resources (collection 7215c759-…). There is no reverse field: the sync reads
+ * page ids from the task and joins them locally. Missing values are tolerated.
+ * An unknown stage is stored as no stage and noted. Unknown parents and
+ * cross-org links fail closed.
  */
 
 export type TaskWriteProperties = Record<string, string | boolean | string[]>;
@@ -62,8 +65,8 @@ export function isPullRequestLink(value: string): boolean {
 }
 
 /**
- * Select missing or empty is fine. An unknown name is not a stage: the task
- * stays on the board in the No stage lane, and the caller logs `notice`.
+ * Select missing or empty is fine. An unknown name is not a stage: staff see
+ * the task in the "No stage yet" lane, and the caller logs `notice`.
  */
 export function readOptionalStage(raw: string | null | undefined): {
   ok: true;
@@ -193,6 +196,11 @@ export function stageMoveRule(actor: MoveActor, stage: string): MoveRule {
     };
   }
   return { kind: 'allowed' };
+}
+
+/** An unstaged task can be filed into Idea or Planning. Other stages stay blocked. */
+export function unstagedMoveAllowed(destination: string): boolean {
+  return destination === 'Idea' || destination === 'Planning';
 }
 
 export function statusMoveRule(actor: MoveActor, status: string): MoveRule {
@@ -339,6 +347,7 @@ function columnStatus(task: { status: string; isDone: boolean }): string {
 export function boardColumns<T extends { status: string; isDone: boolean; stage?: string | null; date?: string | null; lastEditedTime?: string | null; name: string }>(
   tasks: readonly T[],
   mode: 'status' | 'stage',
+  audience: 'staff' | 'client' = 'staff',
 ): BoardColumn<T>[] {
   const sorted = [...tasks].sort(compareBoardCards);
   if (mode === 'stage') {
@@ -347,13 +356,9 @@ export function boardColumns<T extends { status: string; isDone: boolean; stage?
       label: stage,
       tasks: sorted.filter((task) => task.stage === stage),
     }));
+    if (audience === 'client') return known;
     const unstaged = sorted.filter((task) => !task.stage || !isTaskStage(task.stage));
-    return [
-      ...known,
-      ...(unstaged.length > 0
-        ? [{ key: 'unknown-stage:No stage', label: 'No stage', tasks: unstaged }]
-        : []),
-    ];
+    return [{ key: 'unknown-stage:No stage yet', label: 'No stage yet', tasks: unstaged }, ...known];
   }
   const known = LIVE_TASK_STATUSES.map((status) => ({
     key: status,

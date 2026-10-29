@@ -25,6 +25,7 @@ export const PORTAL_COLLECTIONS = {
   projects: '39947c31-d003-4125-9c32-5e570d4c7e0e',
   tasks: 'f418e8e8-6470-4e12-8207-b45b8ae6d8a5',
   contacts: 'b8e25824-c184-448f-a4fd-32fbf03b3c8a',
+  /** Notion title is "Resources". One-way from Tasks. No reverse property. */
   sharedResources: '7215c759-e91b-4fd3-b90d-ac834e5435fc',
   activity: 'd9e9c053-dec7-415b-bb06-ff3f6b71538f',
   clientDocs: '50f364f7-9162-4226-9a01-53464052fd19',

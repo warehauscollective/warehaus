@@ -19,6 +19,7 @@ import { v } from 'convex/values';
 import { internal } from '../_generated/api';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
+import type { MutationCtx } from '../_generated/server';
 
 const INFLIGHT_MS = 120_000;
 
@@ -304,6 +305,29 @@ export const release = internalMutation({
   },
 });
 
+/** Task name for a staff notice. Never falls back to the idempotency key. */
+async function noticeSubject(
+  ctx: MutationCtx,
+  row: { notionPageId?: string; payload: string; database: string },
+): Promise<string> {
+  if (row.notionPageId) {
+    const found = await ctx.db
+      .query('tasks')
+      .withIndex('by_notionPageId', (q) => q.eq('notionPageId', row.notionPageId!))
+      .take(1);
+    const name = found[0]?.name?.trim();
+    if (name) return name;
+  }
+  try {
+    const parsed = JSON.parse(row.payload) as { properties?: { Name?: unknown } };
+    const name = parsed.properties?.Name;
+    if (typeof name === 'string' && name.trim() && !name.includes(':')) return name.trim();
+  } catch {
+    // Payload is not a task name.
+  }
+  return row.database === 'tasks' ? 'This task' : 'A task';
+}
+
 export const applyOutcome = internalMutation({
   args: {
     id: v.id('notionOutbox'),
@@ -365,7 +389,7 @@ export const applyOutcome = internalMutation({
     if (args.outcome.kind === 'dead') {
       await ctx.db.patch(row._id, { status: 'dead', lastError: args.outcome.error, claimedAt: undefined });
       if (args.outcome.notifyStaff) {
-        await notify(`Notion write ${row.idempotencyKey} was marked dead after 24h`, 'sync');
+        await notify(`${await noticeSubject(ctx, row)} could not be saved to Notion`, 'sync');
       }
       await releaseHeldInvite();
       return;
@@ -380,7 +404,7 @@ export const applyOutcome = internalMutation({
         claimedAt: undefined,
       });
       if (args.outcome.notifyStaff) {
-        await notify(`Notion write ${row.idempotencyKey} needs staff attention`, 'sync');
+        await notify(`${await noticeSubject(ctx, row)} needs staff attention`, 'sync');
       }
       return;
     }
@@ -421,7 +445,7 @@ export const applyOutcome = internalMutation({
         after: after?.after ?? args.outcome.reason,
         createdAt: now,
       });
-      await notify(`Notion write ${row.idempotencyKey} conflicted with a newer edit`, 'conflict');
+      await notify(`${await noticeSubject(ctx, row)} conflicted with a newer edit`, 'conflict');
       await releaseHeldInvite();
       return;
     }

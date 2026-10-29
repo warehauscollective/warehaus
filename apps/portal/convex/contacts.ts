@@ -354,7 +354,12 @@ export const listForClient = clientQuery({
       .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
       .collect();
     return rows
-      .filter((row) => isClientSurfaceVisible(row) && row.role !== 'Warehaus Staff')
+      .filter(
+        (row) =>
+          isClientSurfaceVisible(row) &&
+          row.role !== 'Warehaus Staff' &&
+          !row.email.trim().toLowerCase().endsWith('@warehaus.studio'),
+      )
       .map((row) => ({
         id: row._id,
         name: row.name,

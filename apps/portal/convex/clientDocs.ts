@@ -3,7 +3,10 @@ import { v } from 'convex/values';
 import { adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
 
-/** CLIENT serializer — never leak Notion hosts or draft rows. */
+/**
+ * CLIENT serializer. Order, publish state, sync status, and notionPageId stay
+ * on the staff payload. `updatedAt` is the display date only.
+ */
 function toClientDoc(row: {
   _id: string;
   orgId: string;
@@ -11,10 +14,7 @@ function toClientDoc(row: {
   title: string;
   summary?: string;
   docType: string;
-  order?: number;
   body?: string;
-  status: string;
-  notionPageId: string;
   lastSyncedAt: number;
 }) {
   return {
@@ -24,10 +24,8 @@ function toClientDoc(row: {
     title: row.title,
     summary: row.summary ?? null,
     docType: row.docType,
-    order: row.order ?? null,
     body: row.body ?? null,
-    notionPageId: row.notionPageId,
-    lastSyncedAt: row.lastSyncedAt,
+    updatedAt: row.lastSyncedAt,
   };
 }
 
@@ -40,8 +38,9 @@ function projectVisibleToClient(
     syncHiddenAt?: number;
   } | null,
   orgVisible: boolean,
+  projectId?: string | null,
 ): boolean {
-  if (!project) return true;
+  if (!project) return !projectId;
   return clientMaySeeProject({
     name: project.name,
     types: project.type,
@@ -56,7 +55,8 @@ export const listForClient = clientQuery({
   args: {},
   handler: async (ctx) => {
     const org = await ctx.db.get(ctx.orgId);
-    if (!isOrgVisibleToClients(org)) return [];
+    const orgVisible = isOrgVisibleToClients(org);
+    if (!orgVisible) return [];
     const rows = await ctx.db
       .query('clientDocs')
       .withIndex('by_orgId_status', (q) => q.eq('orgId', ctx.orgId).eq('status', 'Published'))
@@ -66,7 +66,7 @@ export const listForClient = clientQuery({
     for (const row of rows) {
       if (!isClientSurfaceVisible(row) || !row.publishToWarehaus) continue;
       const project = row.projectId ? await ctx.db.get(row.projectId) : null;
-      if (!projectVisibleToClient(project, true)) continue;
+      if (!projectVisibleToClient(project, orgVisible, row.projectId)) continue;
       visible.push(row);
     }
     return visible
@@ -89,7 +89,7 @@ export const getForClient = clientQuery({
       row.orgId !== ctx.orgId ||
       row.status !== 'Published' ||
       !row.publishToWarehaus ||
-      !projectVisibleToClient(project, orgVisible)
+      !projectVisibleToClient(project, orgVisible, row?.projectId)
     ) {
       throw new PortalAuthError('Doc not found', 'FORBIDDEN');
     }
@@ -105,6 +105,7 @@ export const listForStaff = adminQuery({
     return rows
       .map((row) => ({
         ...toClientDoc(row),
+        order: row.order ?? null,
         status: row.status,
         publishToWarehaus: row.publishToWarehaus,
         notionPageId: row.notionPageId,

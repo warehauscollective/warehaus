@@ -92,7 +92,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
       <nav
         aria-label={`${tab} sections`}
         data-testid="portal-sidebar"
-        className="hidden w-[244px] shrink-0 flex-col self-start lg:flex"
+        className="hidden max-h-full min-h-0 w-[244px] shrink-0 flex-col overflow-y-auto lg:flex"
         style={{
           background: 'var(--surface)',
           border: '1px solid var(--border)',

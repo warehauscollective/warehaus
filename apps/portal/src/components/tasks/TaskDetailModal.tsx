@@ -1,13 +1,15 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEditMode } from '@warehaus/portal-sync';
-import { Pill } from '@/components/ui/primitives';
+import { OutlineButton, Pill, PortalCheckbox, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
+import { TaskGlyph } from './TaskGlyph';
 
 type ResourceRow = {
   id: string;
@@ -16,6 +18,8 @@ type ResourceRow = {
   notionPageId?: string | null;
   publishToWarehaus?: boolean;
   projectId?: string | null;
+  updatedAt?: number | null;
+  lastSyncedAt?: number | null;
 };
 
 export function TaskDetailModal({
@@ -28,6 +32,7 @@ export function TaskDetailModal({
   onClose,
   onOpenTask,
   projectResources,
+  clientName = null,
   hostSlug,
   live = false,
 }: {
@@ -40,11 +45,15 @@ export function TaskDetailModal({
   onClose: () => void;
   onOpenTask: (id: string) => void;
   projectResources: ResourceRow[];
+  clientName?: string | null;
   hostSlug?: string;
   /** Convex task id. Fixture rows skip the timeline query. */
   live?: boolean;
 }) {
   const [attach, setAttach] = useState(false);
+  const [asideNote, setAsideNote] = useState<string | null>(null);
+  const moveStage = useMutation(api.tasks.moveStage);
+  const moveStatus = useMutation(api.tasks.moveStatus);
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     titleRef.current?.focus();
@@ -60,38 +69,83 @@ export function TaskDetailModal({
           <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)' }}>
             This task is not available.
           </p>
-          <button type="button" onClick={onClose}>Back to board</button>
+          <OutlineButton onClick={onClose}>Back to board</OutlineButton>
         </div>
       ) : (
-        <div className={phone ? 'flex flex-col gap-4' : 'grid gap-8'} style={phone ? undefined : { gridTemplateColumns: 'minmax(0, 1fr) 296px' }}>
-          <div className="flex min-w-0 flex-col gap-4">
-            <h2 ref={titleRef} tabIndex={-1} style={{ fontFamily: 'var(--font-display)', fontSize: 28, outline: 'none' }}>
+        <>
+        <div className="mb-4 flex items-center gap-3">
+          <p className="min-w-0 flex-1 truncate" style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
+            {task.projectName ?? 'Project'}
+            <span> / </span>
+            <span style={{ color: 'var(--fg)' }}>{task.name}</span>
+          </p>
+          <button
+            type="button"
+            onClick={() => {
+              void navigator.clipboard?.writeText(window.location.href);
+            }}
+            style={{ background: 'none', border: 0, color: 'var(--muted)', cursor: 'pointer', fontSize: 13 }}
+          >
+            Copy link
+          </button>
+          <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>Esc</span>
+          <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
+        </div>
+        <div className={phone ? 'flex flex-col' : 'grid gap-8'} style={phone ? { gap: 24 } : { gridTemplateColumns: 'minmax(0, 1fr) 296px' }}>
+          <div className={phone ? undefined : 'flex min-w-0 flex-col gap-4'} style={phone ? { display: 'contents' } : undefined}>
+            <h2 ref={titleRef} tabIndex={-1} style={{ fontFamily: 'var(--font-display)', fontSize: phone ? 20 : 28, lineHeight: phone ? '30px' : undefined, outline: 'none', order: phone ? 2 : undefined }}>
               {task.name}
             </h2>
-            <TaskDescription task={task} staff={staff} hostSlug={hostSlug} />
-            <TaskTimeline task={task} staff={staff} hostSlug={hostSlug} live={live} />
-            <section>
+            <div style={{ order: phone ? 5 : undefined }}>
+              <TaskDescription task={task} staff={staff} hostSlug={hostSlug} live={live} />
+            </div>
+            <div style={{ order: phone ? 8 : undefined }}>
+              <TaskTimeline task={task} staff={staff} hostSlug={hostSlug} live={live} />
+            </div>
+            <section style={{ order: phone ? 6 : undefined }}>
               <h3 className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>SUB-TASKS</h3>
               {subtasks.length === 0 ? (
-                <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 8 }}>{staff ? 'No sub-tasks yet.' : 'No sub-tasks yet.'}</p>
+                <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 8 }}>No sub-tasks yet.</p>
               ) : (
-                <ul className="mt-2 flex flex-col gap-2">
+                <ul className="mt-2 flex flex-col">
                   {subtasks.map((child) => (
-                    <li key={child.id}>
-                      <button type="button" onClick={() => onOpenTask(child.id)} className="w-full text-left" style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '0.7rem 0.85rem', background: 'var(--bg)' }}>
-                        <span style={{ fontWeight: 600 }}>{child.name}</span>
-                        <span className="ds-mono" style={{ marginLeft: 8, color: 'var(--muted)', fontSize: 'var(--t-xs)' }}>{child.stage ?? 'No stage'} · {child.status}</span>
+                    <li key={child.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenTask(child.id)}
+                        className="flex w-full items-center gap-3 text-left"
+                        style={{ background: 'transparent', border: 0, padding: '16px 0', color: 'inherit', cursor: 'pointer' }}
+                      >
+                        <span style={{ color: 'var(--muted)' }}>
+                          <TaskGlyph src={child.isDone ? '/icons/task-check.svg' : '/icons/task-check-open.svg'} size={20} />
+                        </span>
+                        <span style={{ flex: '1 1 auto', minWidth: 0, fontWeight: 400, fontSize: 15 }}>{child.name}</span>
+                        <span className="inline-flex shrink-0 items-center gap-3">
+                          <Pill color={taskStatusColor(child.status, child.isDone)}>{child.status}</Pill>
+                          {child.category ? (
+                            <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{child.category}</span>
+                          ) : null}
+                        </span>
                       </button>
                     </li>
                   ))}
                 </ul>
               )}
+              {staff ? (
+                <button
+                  type="button"
+                  className="mt-3 flex w-full items-center gap-2 text-left"
+                  style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '10px 12px', color: 'var(--muted)', background: 'transparent' }}
+                >
+                  + Add sub-task
+                </button>
+              ) : null}
             </section>
-            <section>
+            <section style={{ order: phone ? 7 : undefined }}>
               <div className="flex items-center justify-between gap-2">
                 <h3 className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>RESOURCES</h3>
                 {staff ? (
-                  <button type="button" onClick={() => setAttach(true)} style={{ color: 'var(--accent)' }}>Attach</button>
+                  <OutlineButton onClick={() => setAttach(true)}>Attach</OutlineButton>
                 ) : null}
               </div>
               {resources.length === 0 ? (
@@ -108,13 +162,130 @@ export function TaskDetailModal({
               )}
             </section>
           </div>
-          <aside className="flex flex-col gap-3" style={{ background: 'var(--bg)', borderRadius: 12, padding: 16 }}>
-            <Field label="Status"><Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill></Field>
-            <Field label="Stage">{task.stage ?? '—'}</Field>
-            {staff ? <Field label="Due">{formatPortalDate(task.date)}</Field> : null}
-            {staff ? <Field label="Project">{task.projectName ?? '—'}</Field> : null}
+          <aside className={phone ? undefined : 'flex flex-col gap-4'} style={phone ? { display: 'contents' } : undefined}>
+            {staff ? (
+              <p style={{ margin: 0, order: phone ? 1 : undefined, background: 'var(--surface-2)', borderRadius: 18, padding: '8px 12px', fontSize: 14, fontWeight: 500 }}>
+                Staff only · hidden from clients
+              </p>
+            ) : null}
+            <div className="flex flex-col gap-1" style={{ order: phone ? 3 : undefined }}>
+            <Field label="Status" row={phone}>
+              {staff ? (
+                <StatusMenu
+                  value={task.status}
+                  onChange={(status) => {
+                    if (!live || !task.lastEditedTime) return;
+                    void moveStatus({
+                      hostSlug,
+                      taskId: task.id as Id<'tasks'>,
+                      status,
+                      expectedLastEditedTime: task.lastEditedTime,
+                    }).then((result) => {
+                      if (!result.ok) setAsideNote(result.error);
+                    });
+                  }}
+                />
+              ) : (
+                <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
+              )}
+            </Field>
+            {task.assigneeName ? <Field label="Assignee" row={phone}>{task.assigneeName}</Field> : staff ? <Field label="Assignee" row={phone}>Unassigned</Field> : null}
+            <Field label="Due date" row={phone}>
+              <span className="inline-flex items-center gap-2" style={{ color: 'var(--fg)' }}>
+                <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-calendar.svg" size={16} /></span>
+                {formatPortalDate(task.date)}
+              </span>
+            </Field>
+            <Field label="Project" row={phone}>
+              <span className="inline-flex flex-wrap items-center gap-2">
+                <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-layers.svg" size={16} /></span>
+                {task.projectName ?? '—'}
+                {clientName ? (
+                  <span className="ds-mono inline-flex items-center gap-1.5" style={{ border: '1px solid var(--border-2, var(--border))', borderRadius: 999, padding: '2px 8px', fontSize: 12, color: 'var(--fg)' }}>
+                    <TaskGlyph src="/icons/task-building.svg" size={12} />
+                    {clientName}
+                  </span>
+                ) : null}
+              </span>
+            </Field>
+            </div>
+            {staff ? (
+              <div className="flex flex-col gap-3" style={{ order: phone ? 4 : undefined }}>
+                <div className="flex items-center gap-2">
+                  <h3 className="ds-mono" style={{ fontSize: 12, letterSpacing: '2.64px', color: 'var(--fg)', margin: 0 }}>STAGE</h3>
+                  <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>visible to client</span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {TASK_STAGES.map((stage) => {
+                    const visualLock = stage !== 'Idea' && stage !== 'Planning';
+                    const current = task.stage === stage;
+                    return (
+                      <button
+                        key={stage}
+                        type="button"
+                        disabled={visualLock && !current}
+                        aria-pressed={current}
+                        onClick={() => {
+                          if (visualLock) return;
+                          if (!live || !task.lastEditedTime) return;
+                          void moveStage({
+                            hostSlug,
+                            taskId: task.id as Id<'tasks'>,
+                            stage,
+                            expectedLastEditedTime: task.lastEditedTime,
+                          }).then((result) => {
+                            if (!result.ok) setAsideNote(result.error);
+                          });
+                        }}
+                        className="ds-mono"
+                        style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          border: current
+                            ? '1px solid var(--fg)'
+                            : visualLock
+                              ? '1px dashed var(--border)'
+                              : '1px solid var(--border-2, var(--border))',
+                          borderRadius: 999,
+                          padding: '8px 12px',
+                          background: current ? 'var(--fg)' : 'transparent',
+                          color: current ? 'var(--bg)' : visualLock ? 'var(--faint, #636363)' : 'var(--fg)',
+                          opacity: visualLock && !current ? 0.72 : 1,
+                          cursor: visualLock && !current ? 'not-allowed' : 'pointer',
+                          fontSize: 13,
+                        }}
+                      >
+                        {stage}
+                        {visualLock && !current ? <TaskGlyph src="/icons/task-lock.svg" size={8} /> : null}
+                      </button>
+                    );
+                  })}
+                </div>
+                <p style={{ fontSize: 12, lineHeight: '17px', color: 'var(--muted)', margin: 0 }}>
+                  Admin can set Idea or Planning here. Later stages are set in Notion by staff and shown read-only.
+                </p>
+              </div>
+            ) : (
+              <div style={{ order: phone ? 4 : undefined }}>
+                <Field label="Stage" row={phone}>{task.stage ?? '—'}</Field>
+              </div>
+            )}
+            {staff ? (
+              <button
+                type="button"
+                disabled
+                aria-disabled="true"
+                title="Coming soon"
+                style={{ order: phone ? 9 : undefined, background: 'transparent', border: 0, color: 'var(--muted)', textAlign: 'left', cursor: 'not-allowed', padding: 0 }}
+              >
+                Archive task
+              </button>
+            ) : null}
+            {asideNote && asideNote !== 'Nothing was sent.' ? <p role="status" style={{ order: phone ? 10 : undefined, fontSize: 13, color: 'var(--muted)', margin: 0 }}>{asideNote}</p> : null}
           </aside>
         </div>
+        </>
       )}
       {attach && task ? (
         <AttachPicker
@@ -135,15 +306,18 @@ function TaskDescription({
   task,
   staff,
   hostSlug,
+  live,
 }: {
   task: PortalTask;
   staff: boolean;
   hostSlug?: string;
+  live: boolean;
 }) {
   const updateDescription = useMutation(api.tasks.updateDescription);
   const [draft, setDraft] = useState(task.description ?? '');
   const [note, setNote] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const [editing, setEditing] = useState(false);
   useEffect(() => {
     setDraft(task.description ?? '');
     setNote(null);
@@ -153,8 +327,9 @@ function TaskDescription({
   const locked = staff && taskDescriptionEditMode(task.descriptionSource) === 'notion';
 
   const save = async () => {
-    if (!task.lastEditedTime) {
-      setNote('This task has not been read from Notion yet. Nothing was sent.');
+    if (!live || !task.lastEditedTime) {
+      setEditing(false);
+      setNote('Nothing was sent.');
       return;
     }
     setPending(true);
@@ -183,7 +358,7 @@ function TaskDescription({
           ) : null}
           <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>Edit in Notion</p>
         </div>
-      ) : staff ? (
+      ) : staff && editing ? (
         <div className="mt-2 flex flex-col gap-2">
           <textarea
             value={draft}
@@ -192,12 +367,24 @@ function TaskDescription({
             style={{ ...inputStyle, resize: 'vertical' }}
           />
           <div className="flex items-center justify-between gap-2">
-            <button type="button" onClick={() => void save()} disabled={pending}>
+            <PrimaryButton onClick={() => void save()} disabled={pending}>
               {pending ? 'Saving…' : 'Save description'}
-            </button>
+            </PrimaryButton>
             {note ? <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>{note}</p> : null}
           </div>
         </div>
+      ) : staff ? (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          className="mt-2 w-full text-left"
+          style={{ background: 'transparent', border: 0, padding: 0, color: 'inherit', cursor: 'text' }}
+        >
+          <p style={{ fontSize: 'var(--t-sm)', lineHeight: 1.5, whiteSpace: 'pre-wrap', margin: 0 }}>
+            {task.description?.trim() ? task.description : 'Add a description'}
+          </p>
+          {note ? <p style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>{note}</p> : null}
+        </button>
       ) : (
         <p style={{ marginTop: 8, fontSize: 'var(--t-sm)', lineHeight: 1.5, whiteSpace: 'pre-wrap' }}>{task.description}</p>
       )}
@@ -246,7 +433,75 @@ function TaskTimeline({
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function StatusMenu({ value, onChange }: { value: string; onChange: (status: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Status"
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full items-center justify-between gap-2"
+        style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', color: 'var(--fg)', padding: '0.45rem 0.7rem' }}
+      >
+        <Pill color={taskStatusColor(value, value === 'Done')}>{value}</Pill>
+        <TaskGlyph src="/icons/task-chev-down.svg" />
+      </button>
+      {open ? (
+        <ul
+          role="listbox"
+          aria-label="Status"
+          className="absolute z-10 mt-1 w-full"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 4, boxShadow: '0 12px 32px rgb(0 0 0 / 35%)' }}
+        >
+          {LIVE_TASK_STATUSES.map((status) => (
+            <li key={status} role="option" aria-selected={status === value}>
+              <button
+                type="button"
+                className="w-full text-left"
+                style={{
+                  padding: '0.45rem 0.6rem',
+                  background: status === value ? 'var(--bg)' : 'transparent',
+                  color: 'var(--fg)',
+                  border: 0,
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                }}
+                onClick={() => {
+                  onChange(status);
+                  setOpen(false);
+                }}
+              >
+                {status}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
+}
+
+function Field({ label, children, row = false }: { label: string; children: React.ReactNode; row?: boolean }) {
+  if (row) {
+    return (
+      <div className="flex items-center gap-3" style={{ minHeight: 40 }}>
+        <p className="ds-mono" style={{ width: 104, flex: '0 0 auto', fontSize: 12, color: 'var(--muted)', margin: 0 }}>{label}</p>
+        <div style={{ fontSize: 14, minWidth: 0 }}>{children}</div>
+      </div>
+    );
+  }
   return (
     <div>
       <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>{label}</p>
@@ -344,12 +599,27 @@ export function TaskCreateDialog({
         </div>
         {note ? <p role="status" style={{ color: 'var(--fg)' }}>{note}</p> : null}
         <div className="flex justify-end gap-2">
-          <button type="button" onClick={onClose}>Cancel</button>
-          <button type="submit" disabled={pending || !name.trim()}>{pending ? 'Creating…' : 'Create task'}</button>
+          <OutlineButton onClick={onClose}>Cancel</OutlineButton>
+          <PrimaryButton type="submit" disabled={pending || !name.trim()}>{pending ? 'Creating…' : 'Create task'}</PrimaryButton>
         </div>
       </form>
     </ModalShell>
   );
+}
+
+function resourceKind(type: string | null): { label: string; icon: string } {
+  const value = (type ?? '').toLowerCase();
+  if (/granola|meeting|note/.test(value)) return { label: 'Granola', icon: '/icons/resource-mic.svg' };
+  if (/link|url/.test(value)) return { label: 'Link', icon: '/icons/resource-link.svg' };
+  return { label: /file|pdf|article/.test(value) || !type ? 'Doc' : type, icon: '/icons/resource-doc.svg' };
+}
+
+function resourceMeta(resource: ResourceRow): string {
+  const kind = resourceKind(resource.type);
+  const stamp = resource.updatedAt ?? resource.lastSyncedAt;
+  const when = stamp ? formatPortalDate(new Date(stamp).toISOString()) : null;
+  const visibility = resource.publishToWarehaus === false ? 'Internal' : 'Client-visible';
+  return [kind.label, when && when !== '—' ? when : null, visibility].filter(Boolean).join(' · ');
 }
 
 function AttachPicker({
@@ -367,6 +637,7 @@ function AttachPicker({
 }) {
   const setResources = useMutation(api.tasks.setResources);
   const [query, setQuery] = useState('');
+  const [searchFocused, setSearchFocused] = useState(true);
   const [filter, setFilter] = useState<'All' | 'Granola' | 'Docs' | 'Links'>('All');
   const [picked, setPicked] = useState<string[]>(attachedIds);
   const [note, setNote] = useState<string | null>(null);
@@ -417,8 +688,31 @@ function AttachPicker({
   return (
     <div role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div role="dialog" aria-modal="true" aria-label="Attach resources" onClick={(event) => event.stopPropagation()} style={{ width: 'min(100%, 560px)', maxHeight: '80dvh', overflow: 'auto', background: 'var(--surface)', borderRadius: 16, padding: 20 }}>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Attach resources</h2>
-        <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search" aria-label="Search resources" style={{ ...inputStyle, marginTop: 12 }} />
+        <div className="mt-3 flex items-center justify-between">
+          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>Attach resources</h2>
+          <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
+        </div>
+        <label
+          className="mt-3 flex items-center gap-2"
+          style={{
+            borderRadius: 18,
+            border: `2px solid ${searchFocused ? 'var(--accent)' : 'var(--border)'}`,
+            background: 'var(--surface-2)',
+            padding: '10px 12px',
+          }}
+        >
+          <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/resource-search.svg" size={16} /></span>
+          <input
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            placeholder="Search this project's resources"
+            aria-label="Search this project's resources"
+            style={{ flex: 1, border: 0, background: 'transparent', color: 'var(--fg)', outline: 'none', fontSize: 14 }}
+          />
+        </label>
         <div className="mt-3 flex flex-wrap gap-2">
           {(['All', 'Granola', 'Docs', 'Links'] as const).map((chip) => (
             <button key={chip} type="button" aria-pressed={filter === chip} onClick={() => setFilter(chip)} style={{ borderRadius: 999, border: '1px solid var(--border)', padding: '0.3rem 0.7rem', background: filter === chip ? 'var(--fg)' : 'transparent', color: filter === chip ? 'var(--bg)' : 'var(--muted)' }}>
@@ -432,16 +726,22 @@ function AttachPicker({
           <ul className="mt-3 flex flex-col gap-2">
             {visible.map((resource) => {
               const checked = picked.includes(resource.id);
+              const kind = resourceKind(resource.type);
               return (
                 <li key={resource.id}>
-                  <label className="flex items-center gap-2" style={{ minHeight: 44 }}>
-                    <input
-                      type="checkbox"
+                  <label className="flex items-center gap-3" style={{ borderRadius: 18, padding: '10px 12px', background: checked ? 'var(--surface-2)' : 'transparent', cursor: 'pointer' }}>
+                    <PortalCheckbox
                       checked={checked}
                       onChange={() => setPicked((current) => checked ? current.filter((id) => id !== resource.id) : [...current, resource.id])}
                     />
-                    <span>{resource.name}</span>
-                    {attachedIds.includes(resource.id) ? <span className="ds-mono" style={{ color: 'var(--muted)', fontSize: 'var(--t-xs)' }}>Attached</span> : null}
+                    <span className="inline-flex shrink-0 items-center justify-center" style={{ width: 32, height: 32, borderRadius: 18, background: 'var(--surface-2)', color: 'var(--muted)' }}>
+                      <TaskGlyph src={kind.icon} size={16} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block" style={{ fontSize: 14, fontWeight: 500 }}>{resource.name}</span>
+                      <span className="ds-mono block" style={{ fontSize: 12, color: 'var(--muted)' }}>{resourceMeta(resource)}</span>
+                    </span>
+                    {attachedIds.includes(resource.id) ? <span className="ds-mono shrink-0" style={{ color: 'var(--muted)', fontSize: 12 }}>Attached</span> : null}
                   </label>
                 </li>
               );
@@ -449,11 +749,15 @@ function AttachPicker({
           </ul>
         )}
         {note ? <p role="status">{note}</p> : null}
-        <div className="mt-4 flex items-center justify-between">
-          <span className="ds-mono" style={{ color: 'var(--muted)', fontSize: 'var(--t-xs)' }}>{dirty ? 'Unsaved changes' : 'No changes'}</span>
+        <div className="mt-4 flex items-center justify-between gap-3" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+          <span className="ds-mono" style={{ color: 'var(--muted)', fontSize: 12 }}>
+            {picked.length} selected · {picked.filter((id) => !attachedIds.includes(id)).length} new, {picked.filter((id) => attachedIds.includes(id)).length} already attached
+          </span>
           <div className="flex gap-2">
-            <button type="button" onClick={onClose}>Cancel</button>
-            <button type="button" disabled={!dirty} onClick={() => void onSave()}>Save</button>
+            <OutlineButton onClick={onClose}>Cancel</OutlineButton>
+            <PrimaryButton disabled={!dirty} onClick={() => void onSave()}>
+              {`Save (attach ${picked.filter((id) => !attachedIds.includes(id)).length})`}
+            </PrimaryButton>
           </div>
         </div>
       </div>
@@ -478,7 +782,7 @@ function ModalShell({
   useEffect(() => {
     const node = ref.current;
     const previous = document.activeElement as HTMLElement | null;
-    node?.focus();
+    node?.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose();
@@ -491,20 +795,20 @@ function ModalShell({
       const last = focusable[focusable.length - 1];
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
-        last.focus();
+        last.focus({ preventScroll: true });
       } else if (!event.shiftKey && document.activeElement === last) {
         event.preventDefault();
-        first.focus();
+        first.focus({ preventScroll: true });
       }
     };
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
-      previous?.focus();
+      previous?.focus({ preventScroll: true });
     };
   }, [onClose]);
-  return (
-    <div role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: phone ? 'stretch' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
+  const dialog = (
+    <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: phone ? 'stretch' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
       <div
         ref={ref}
         role="dialog"
@@ -518,16 +822,15 @@ function ModalShell({
           overflow: 'auto',
           background: 'var(--surface)',
           borderRadius: phone ? 0 : 16,
-          padding: phone ? 16 : 24,
+          padding: phone ? 20 : 24,
         }}
       >
-        <div className="mb-3 flex justify-end">
-          <button type="button" aria-label="Close" onClick={onClose}>✕</button>
-        </div>
         {children}
       </div>
     </div>
   );
+  if (typeof document === 'undefined') return dialog;
+  return createPortal(dialog, document.body);
 }
 
 const inputStyle = {

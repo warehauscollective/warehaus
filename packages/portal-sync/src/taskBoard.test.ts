@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { PORTAL_COLLECTIONS } from './collections';
+import { extractRelationIds } from './extract';
 import { classifyProperty } from './tiers';
 import { findUnmappedProperties } from './tiers';
 import { LIVE_TASK_PROPERTY_NAMES } from './fixtures/sugar-shark';
@@ -19,6 +21,7 @@ import {
   taskCreateProjectGate,
   resolveParentLink,
   stageMoveRule,
+  unstagedMoveAllowed,
   taskTouchesIncrementalSet,
   visibleChildIds,
   WAREHAUS_STUDIO_PROJECT_NAME,
@@ -286,6 +289,20 @@ describe('move rules and outbox enqueue', () => {
   });
 });
 
+describe('Resources relation', () => {
+  it('reads the Resources database by page id and does not need a reverse field', () => {
+    assert.equal(PORTAL_COLLECTIONS.sharedResources, '7215c759-e91b-4fd3-b90d-ac834e5435fc');
+    assert.equal(classifyProperty('tasks', 'Resources'), 'SERVER');
+    assert.equal(classifyProperty('tasks', 'Stage'), 'CLIENT');
+    assert.equal(classifyProperty('tasks', 'Parent item'), 'SERVER');
+    assert.deepEqual(
+      extractRelationIds({ type: 'relation', relation: [{ id: 'page-a' }, { id: 'page-b' }] }),
+      ['page-a', 'page-b'],
+    );
+    assert.equal(decideResourceLink('org-1', null), 'skip');
+  });
+});
+
 describe('board sort', () => {
   it('sorts by due date, then last edited, and gives unknown statuses a lane', () => {
     const columns = boardColumns(
@@ -309,13 +326,66 @@ describe('board sort', () => {
       ],
       'stage',
     );
+    assert.equal(stages[0]?.key, 'unknown-stage:No stage yet');
+    assert.equal(stages[0]?.label, 'No stage yet');
+    assert.equal(stages[1]?.key, 'Idea');
     assert.equal(stages.find((column) => column.key === 'Idea')?.tasks.length, 1);
     assert.deepEqual(
-      stages.find((column) => column.key === 'unknown-stage:No stage')?.tasks.map((task) => task.name).sort(),
+      stages.find((column) => column.key === 'unknown-stage:No stage yet')?.tasks.map((task) => task.name).sort(),
       ['Blank', 'Odd'],
     );
     assert.equal(stages.filter((column) => column.key.startsWith('unknown-stage:')).length, 1);
-    assert.equal(stages.find((column) => column.label === 'No stage')?.label, 'No stage');
+    const staffEmpty = boardColumns(
+      [{ name: 'Idea task', status: 'To Do', isDone: false, stage: 'Idea' }],
+      'stage',
+      'staff',
+    );
+    assert.equal(staffEmpty[0]?.label, 'No stage yet');
+    assert.equal(staffEmpty[0]?.tasks.length, 0);
+    const clientStages = boardColumns(
+      [
+        { name: 'Idea task', status: 'To Do', isDone: false, stage: 'Idea' },
+        { name: 'Blank', status: 'To Do', isDone: false, stage: null },
+        { name: 'Odd', status: 'To Do', isDone: false, stage: 'Brainstorm' },
+      ],
+      'stage',
+      'client',
+    );
+    assert.equal(clientStages.some((column) => column.key.startsWith('unknown-stage')), false);
+    assert.deepEqual(
+      clientStages.flatMap((column) => column.tasks.map((task) => task.name)),
+      ['Idea task'],
+    );
+    assert.equal(unstagedMoveAllowed('Idea'), true);
+    assert.equal(unstagedMoveAllowed('Planning'), true);
+    assert.equal(unstagedMoveAllowed('Parked'), false);
+    assert.equal(unstagedMoveAllowed('Building'), false);
+  });
+
+  it('keeps a task with no stage on the client status board and hides it on the client stage board', () => {
+    const tasks = [
+      { name: 'Blank', status: 'To Do', isDone: false, stage: null },
+      { name: 'Idea task', status: 'In Progress', isDone: false, stage: 'Idea' },
+    ];
+    const status = boardColumns(tasks, 'status', 'client');
+    assert.deepEqual(
+      status.flatMap((column) => column.tasks.map((task) => task.name)).sort(),
+      ['Blank', 'Idea task'],
+    );
+    const stage = boardColumns(tasks, 'stage', 'client');
+    assert.deepEqual(
+      stage.flatMap((column) => column.tasks.map((task) => task.name)),
+      ['Idea task'],
+    );
+    assert.equal(stage.some((column) => column.label === 'No stage yet'), false);
+    assert.equal(
+      clientMaySeeTask({
+        publishToWarehaus: true,
+        hidden: false,
+        project: clientProject,
+      }),
+      true,
+    );
   });
 });
 

@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
-import { GhostButton, PrimaryButton, Surface } from '@/components/ui/primitives';
+import { GhostButton, PortalRadio, PrimaryButton, Surface } from '@/components/ui/primitives';
 import { PortalTilePane } from '@/components/layout/PortalWorkspace';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isMissingConvexFunction } from '@/lib/data/staffRoster';
@@ -176,12 +176,15 @@ export function TeamInvites({
               </label>
               <fieldset className="flex flex-col gap-2" style={{ border: 0, margin: 0, padding: 0 }}>
                 <legend style={{ fontSize: 14, color: 'var(--muted)' }}>Role</legend>
-                <label style={{ fontSize: 14 }}>
-                  <input type="radio" name="role" checked readOnly /> Client Member
+                <label className="flex items-center gap-2" style={{ fontSize: 14 }}>
+                  <PortalRadio name="role" checked /> Client Member
                 </label>
-                <label style={{ fontSize: 14, color: 'var(--muted)' }}>
-                  <input type="radio" name="role" disabled /> Client Admin
-                  <span style={{ display: 'block', fontSize: 13 }}>Only Warehaus can add admins for now</span>
+                <label className="flex items-start gap-2" style={{ fontSize: 14, color: 'var(--muted)' }}>
+                  <PortalRadio name="role" disabled />
+                  <span>
+                    Client Admin
+                    <span style={{ display: 'block', fontSize: 13 }}>Only Warehaus can add admins for now</span>
+                  </span>
                 </label>
               </fieldset>
               <PrimaryButton type="submit" disabled={pending}>

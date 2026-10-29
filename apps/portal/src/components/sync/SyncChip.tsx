@@ -1,19 +1,22 @@
 import { Pill } from '@/components/ui/primitives';
 import {
-  rowHasSyncFields,
-  rowSyncChip,
   rowSyncLabel,
   staffStageNoticeLabel,
+  syncChipForAudience,
   type RowSyncState,
 } from '@/lib/data/view-models';
 
-const TONE: Record<RowSyncState, string> = {
-  synced: 'var(--success)',
-  syncing: 'var(--warn)',
-  failed: 'var(--danger)',
-};
+function pillLabel(row: {
+  notionPageId?: string | null;
+  syncHidden?: boolean;
+  syncState?: RowSyncState | null;
+}): string {
+  const label = rowSyncLabel(row);
+  return label === 'Failed' ? 'Sync problem' : label;
+}
 
 export function SyncChip({
+  audience,
   notionPageId,
   syncHidden,
   syncState,
@@ -21,6 +24,7 @@ export function SyncChip({
   onRetry,
   retryNote,
 }: {
+  audience: 'staff' | 'client';
   notionPageId?: string | null;
   syncHidden?: boolean;
   syncState?: RowSyncState | null;
@@ -29,32 +33,60 @@ export function SyncChip({
   retryNote?: string | null;
 }) {
   const row = { notionPageId, syncHidden, syncState };
-  const noticeLabel = staffStageNoticeLabel(syncNotice);
-  if (!rowHasSyncFields(row) && !noticeLabel) return null;
-  const state = rowHasSyncFields(row) ? rowSyncChip(row) : null;
+  const noticeLabel = audience === 'staff' ? staffStageNoticeLabel(syncNotice) : null;
+  const state = syncChipForAudience(audience, row);
+  if (!state && !noticeLabel) return null;
+  const problem = state === 'failed';
   return (
     <span className="inline-flex flex-wrap items-center gap-2">
-      {state ? <Pill color={TONE[state]}>{rowSyncLabel(row)}</Pill> : null}
+      {state ? (
+        <span
+          className="ds-mono inline-flex items-center gap-1.5 whitespace-nowrap"
+          style={{
+            border: `1px solid ${problem ? 'var(--danger)' : 'var(--border)'}`,
+            borderRadius: 999,
+            padding: '4px 10px',
+            fontSize: 11,
+            color: problem ? 'var(--danger)' : 'var(--muted)',
+          }}
+        >
+          {state === 'synced' ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src="/icons/docs-check.svg" alt="" width={12} height={12} />
+          ) : null}
+          {problem ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src="/icons/docs-alert.svg" alt="" width={12} height={12} />
+          ) : null}
+          {pillLabel(row)}
+        </span>
+      ) : null}
       {noticeLabel ? (
         <Pill color="var(--warn)">
           <span title={syncNotice ?? undefined}>{noticeLabel}</span>
         </Pill>
       ) : null}
-      {state === 'failed' && onRetry ? (
+      {problem && onRetry ? (
         <button
           type="button"
-          onClick={onRetry}
-          className="ds-mono"
+          onClick={(event) => {
+            event.preventDefault();
+            event.stopPropagation();
+            onRetry();
+          }}
           style={{
-            fontSize: 'var(--t-xs)',
-            color: 'var(--danger)',
-            background: 'none',
+            fontFamily: 'var(--font-body)',
+            fontSize: 14,
+            fontWeight: 500,
+            color: 'var(--muted)',
+            background: 'transparent',
             border: 0,
+            borderRadius: 9,
+            padding: '0.65rem 0.4rem',
             cursor: 'pointer',
-            textDecoration: 'underline',
           }}
         >
-          Retry
+          Retry sync
         </button>
       ) : null}
       {retryNote ? (

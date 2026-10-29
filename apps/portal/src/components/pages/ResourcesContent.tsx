@@ -102,7 +102,7 @@ export function ResourcesContent() {
                         {isStaff && row.publishToWarehaus != null ? (
                           <PublishChip published={row.publishToWarehaus} />
                         ) : null}
-                        <SyncChip notionPageId={row.notionPageId} syncHidden={row.syncHidden} />
+                        <SyncChip audience={isStaff ? 'staff' : 'client'} notionPageId={row.notionPageId} syncHidden={row.syncHidden} />
                         {isStaff && !fixtures ? (
                           <UsedInTasks
                             resourceId={row.id}
@@ -129,7 +129,7 @@ export function ResourcesContent() {
                     {isStaff && row.publishToWarehaus != null ? (
                       <PublishChip published={row.publishToWarehaus} />
                     ) : null}
-                    <SyncChip notionPageId={row.notionPageId} syncHidden={row.syncHidden} />
+                    <SyncChip audience={isStaff ? 'staff' : 'client'} notionPageId={row.notionPageId} syncHidden={row.syncHidden} />
                   </div>
                   <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>
                     {row.projectName ?? '—'}

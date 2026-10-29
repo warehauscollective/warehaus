@@ -58,6 +58,8 @@ export type PortalTask = {
   stage?: string | null;
   lastEditedTime?: string | null;
   parentTaskId?: string | null;
+  assigneeName?: string | null;
+  resourceCount?: number | null;
   pullRequestUrl?: string | null;
   projectId: string | null;
   projectName: string | null;
@@ -70,6 +72,8 @@ export type PortalTask = {
   estimate?: string | null;
   priority?: string | null;
   source?: string | null;
+  /** Sub-task row category, shown to the right of the status tag when set. */
+  category?: string | null;
   /** Omitted for clients while Description is SERVER. */
   description?: string | null;
   /** `body` is read-only. Property, none, or empty can be edited in the portal. */
@@ -313,6 +317,41 @@ export function projectStatusColor(status: string): string {
   if (s.includes('plan')) return 'var(--info, var(--accent))';
   if (s.includes('inbox')) return 'var(--warn)';
   return 'var(--muted)';
+}
+
+/**
+ * Idempotency keys can contain spaces (status "In Progress", a description).
+ * `\S*` would stop at the first space and leave the rest of the key in the bell.
+ * Consume through those spaces, and stop before the sentence that follows the key.
+ */
+const RAW_NOTICE_KEY =
+  /task-\w+:([^:\s]+)(?:(?! was marked| needs staff| conflicted with)[\s\S])*?(?= was marked| needs staff| conflicted with|$)/g;
+
+/**
+ * Older notice rows still contain the outbox idempotency key inside a sentence.
+ * Swap the whole key for the task name. An unknown page keeps a neutral label.
+ */
+export function noticeDisplayMessage(
+  message: string,
+  tasks: ReadonlyArray<{ name: string; notionPageId?: string | null }>,
+): string {
+  return message.replace(RAW_NOTICE_KEY, (_, pageId: string) => {
+    const name = tasks.find((task) => task.notionPageId === pageId)?.name?.trim();
+    return name || 'a task';
+  });
+}
+
+/** Sync pills are staff-only. A client audience never receives one. */
+export function syncChipForAudience(
+  audience: 'staff' | 'client',
+  row: {
+    notionPageId?: string | null;
+    syncHidden?: boolean;
+    syncState?: RowSyncState | null;
+  },
+): RowSyncState | null {
+  if (audience !== 'staff' || !rowHasSyncFields(row)) return null;
+  return rowSyncChip(row);
 }
 
 export function formatPortalDate(value?: string | null): string {

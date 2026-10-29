@@ -10,10 +10,12 @@ import {
   planTaskCreate,
   planTaskDescriptionWrite,
   planTaskResourceWrite,
+  isTaskStage,
   planTaskStageWrite,
   stageOutboxActor,
   taskCreateProjectGate,
   taskStatusIdempotencyKey,
+  unstagedMoveAllowed,
   validateTaskStatusUpdate,
   type MoveActor,
 } from '@warehaus/portal-sync';
@@ -84,6 +86,10 @@ export const enqueueStage = internalMutation({
       expectedLastEditedTime: args.expectedLastEditedTime,
     });
     if (!planned.ok) return { ok: false as const, error: planned.error };
+    const currentStage = typeof task.stage === 'string' ? task.stage : '';
+    if (!isTaskStage(currentStage) && !unstagedMoveAllowed(args.stage)) {
+      return { ok: false as const, error: 'Tasks with no stage can move to Idea or Planning.' };
+    }
     return ctx.runMutation(internal.sync.outbox.enqueue, {
       idempotencyKey: planned.idempotencyKey,
       kind: 'task-stage',

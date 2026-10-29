@@ -102,7 +102,11 @@ export function ProjectsContent() {
     return attachKnownSync(rows, data.projects);
   }, [fixtures, isStaff, staff.projects, data.projects]);
   const tasks = (
-    fixtures ? FIXTURE_TASKS : isStaff ? staff.tasks ?? data.tasks : data.tasks
+    fixtures
+      ? FIXTURE_TASKS.filter((task) => isStaff || (task.publishToWarehaus && !task.syncHidden))
+      : isStaff
+        ? staff.tasks ?? data.tasks
+        : data.tasks
   ) as PortalTask[];
   const docs = (
     fixtures ? FIXTURE_DOCS : isStaff ? staff.docs ?? [] : clientDocsState.data ?? []
@@ -189,7 +193,21 @@ export function ProjectsContent() {
 
   if (openProject) {
     const projectTasks = tasks.filter((task) => task.projectId === openProject.id);
-    const projectDocs = docs.filter((doc) => doc.projectId === openProject.id);
+    const projectDocs = docs.filter((doc) => {
+      if (doc.projectId !== openProject.id) return false;
+      if (isStaff) return true;
+      return doc.publishToWarehaus !== false && doc.status !== 'Draft';
+    });
+    const boardActions = (
+      <>
+        <ViewToggle view={taskView} onChange={setTaskView} />
+        {isStaff ? (
+          <button type="button" className="ds-mono" onClick={() => setCreating(true)} style={newTaskButton}>
+            New task
+          </button>
+        ) : null}
+      </>
+    );
     return (
       <PortalWorkspace
         eyebrow={tenantEyebrow(data.tenant, 'Project')}
@@ -202,19 +220,11 @@ export function ProjectsContent() {
             current={openProject.name}
           />
         }
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <ViewToggle view={taskView} onChange={setTaskView} />
-            {isStaff ? (
-              <button type="button" onClick={() => setCreating(true)} style={newTaskButton}>
-                New task
-              </button>
-            ) : null}
-          </div>
-        }
+        actions={<div className="hidden flex-wrap items-center gap-2 md:flex">{boardActions}</div>}
       >
         <PortalTilePane>
           <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="project-detail">
+            <div className="flex flex-col" style={{ gap: 12 }}>
             <div className="flex flex-wrap items-center gap-2">
               {openProject.internal ? <InternalTag /> : (
                 <ClientLink
@@ -231,9 +241,12 @@ export function ProjectsContent() {
                 <PublishChip published={openProject.publishToWarehaus} />
               ) : null}
               <SyncChip
+                audience={isStaff ? 'staff' : 'client'}
                 notionPageId={openProject.notionPageId}
                 syncHidden={openProject.syncHidden}
               />
+            </div>
+            <div className="flex flex-wrap items-center gap-2 md:hidden">{boardActions}</div>
             </div>
             <div className="flex items-center justify-between gap-3">
               <h2 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>Tasks</h2>
@@ -299,13 +312,14 @@ export function ProjectsContent() {
               <StatusTable
                 tasks={projectTasks}
                 loading={projectsLoading}
+                staff={isStaff}
                 onOpen={(task) => {
                   if (fixtures) setFixtureTaskId(task.id);
                   else router.push(`/tasks/${task.id}`);
                 }}
               />
             )}
-            <DocsBlock docs={projectDocs} staff={isStaff} />
+            <DocsBlock docs={projectDocs} staff={isStaff} loading={projectsLoading && projectDocs.length === 0} />
           </div>
         </PortalTilePane>
         {routeTaskId ? (
@@ -315,6 +329,7 @@ export function ProjectsContent() {
             staff={isStaff}
             hostSlug={hostSlug}
             fixtures={fixtures}
+            clientName={openProject.internal ? null : openProject.clientName ?? null}
             resources={(fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[]}
             onClose={closeTask}
             onOpenTask={(id) => {
@@ -419,7 +434,7 @@ export function ProjectsContent() {
                     {isStaff && !project.internal && project.publishToWarehaus != null ? (
                       <PublishChip published={project.publishToWarehaus} />
                     ) : null}
-                    <SyncChip notionPageId={project.notionPageId} syncHidden={project.syncHidden} />
+                    <SyncChip audience={isStaff ? 'staff' : 'client'} notionPageId={project.notionPageId} syncHidden={project.syncHidden} />
                   </div>
                 </Surface>
               </button>
@@ -434,6 +449,11 @@ export function ProjectsContent() {
           staff={isStaff}
           hostSlug={hostSlug}
           fixtures={fixtures}
+          clientName={(() => {
+            const openTask = tasks.find((item) => item.id === routeTaskId);
+            const project = projects.find((item) => item.id === openTask?.projectId);
+            return project && !project.internal ? project.clientName ?? null : null;
+          })()}
           resources={(fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[]}
           onClose={closeTask}
           onOpenTask={(id) => {
@@ -453,6 +473,8 @@ type ResourceOption = {
   projectId?: string | null;
   notionPageId?: string | null;
   publishToWarehaus?: boolean;
+  updatedAt?: number | null;
+  lastSyncedAt?: number | null;
 };
 
 const clientDeniedRules: BoardRules = { actor: 'client', statuses: [], stages: [] };
@@ -468,8 +490,16 @@ const newTaskButton = {
   borderRadius: 12,
   background: 'var(--fg)',
   color: 'var(--bg)',
-  padding: '0.55rem 0.9rem',
-  fontFamily: 'var(--font-display)',
+  height: 40,
+  boxSizing: 'border-box' as const,
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '0 0.85rem',
+  fontSize: 'var(--t-xs)',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase' as const,
+  fontWeight: 600,
+  lineHeight: 1,
 } as const;
 
 function InternalTag() {
@@ -487,6 +517,7 @@ function ProjectTaskOverlay({
   hostSlug,
   fixtures,
   resources,
+  clientName = null,
   onClose,
   onOpenTask,
 }: {
@@ -496,6 +527,7 @@ function ProjectTaskOverlay({
   hostSlug?: string;
   fixtures: boolean;
   resources: ResourceOption[];
+  clientName?: string | null;
   onClose: () => void;
   onOpenTask: (id: string) => void;
 }) {
@@ -524,7 +556,12 @@ function ProjectTaskOverlay({
   const subtasks = staff
     ? tasks.filter((item) => item.parentTaskId === taskId)
     : (clientSubs.data ?? []).filter((item) => item.publishToWarehaus !== false);
-  const attached = staff ? staffAttached.data ?? [] : clientAttached.data ?? [];
+  const fixtureAttached = fixtures && task
+    ? resources.filter((resource) => resource.projectId === task.projectId).slice(0, 1)
+    : [];
+  const attached = staff
+    ? fixtures ? fixtureAttached : staffAttached.data ?? []
+    : clientAttached.data ?? [];
   return (
     <TaskDetailModal
       task={task}
@@ -534,6 +571,7 @@ function ProjectTaskOverlay({
       subtasks={subtasks}
       resources={attached}
       projectResources={resources.filter((resource) => !task?.projectId || resource.projectId === task.projectId)}
+      clientName={clientName}
       hostSlug={hostSlug}
       live={!fixtures}
       onClose={onClose}

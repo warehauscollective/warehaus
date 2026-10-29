@@ -289,6 +289,7 @@ export {
   clientMaySeeTask,
   visibleChildIds,
   stageMoveRule,
+  unstagedMoveAllowed,
   statusMoveRule,
   planTaskStageWrite,
   planTaskStatusWrite,

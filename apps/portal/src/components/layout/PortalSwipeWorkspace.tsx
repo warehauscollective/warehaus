@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { SwipeTabView, useSwipeTabs } from '@warehaus/ui';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { isPortalTab, usePortalTab } from '@/components/providers/PortalTabProvider';
@@ -9,7 +9,8 @@ import { ProjectsContent } from '@/components/pages/ProjectsContent';
 import { ResourcesContent } from '@/components/pages/ResourcesContent';
 import { ActivityContent } from '@/components/pages/ActivityContent';
 import { AccountContent } from '@/components/pages/AccountContent';
-import { PORTAL_EDGE_SAFE, PORTAL_PANEL_GAP_VAR } from '@/lib/design/portal-chrome';
+import { PORTAL_PANEL_GAP_VAR } from '@/lib/design/portal-chrome';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { PortalPanelBoundary } from './PortalPanelBoundary';
 import { PortalTabSidebar } from './PortalSidebar';
 
@@ -35,12 +36,13 @@ function TabPanelShell({
   tab: PortalTab;
   children: ReactNode;
 }) {
+  const phone = useMaxWidth(767);
   return (
     <div
-      className="box-border flex h-full min-h-0 flex-col overflow-hidden pb-28 pt-3 lg:flex-row lg:pt-[var(--portal-panel-gap,1.25rem)]"
+      className="portal-tab-shell box-border flex h-full min-h-0 flex-col overflow-hidden pb-28 pt-3 lg:flex-row lg:pt-[var(--portal-panel-gap,1.25rem)]"
       style={{
-        paddingLeft: PORTAL_PANEL_GAP_VAR,
-        paddingRight: `max(${PORTAL_PANEL_GAP_VAR}, ${PORTAL_EDGE_SAFE})`,
+        paddingLeft: '1.25rem',
+        paddingRight: phone ? '1.25rem' : '4.5rem',
         gap: PORTAL_PANEL_GAP_VAR,
         touchAction: 'pan-x pan-y',
       }}
@@ -70,6 +72,29 @@ export function PortalSwipeWorkspace() {
     urlSync: 'none',
     gestures: false,
   });
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    const panel = panelRefs[activeTab]?.current;
+    if (!el || !panel) return;
+    let pinning = false;
+    const pin = () => {
+      if (pinning) return;
+      const left = panel.offsetLeft;
+      if (Math.abs(el.scrollLeft - left) <= 0.5) return;
+      pinning = true;
+      el.scrollLeft = left;
+      pinning = false;
+    };
+    pin();
+    const observer = new ResizeObserver(pin);
+    observer.observe(el);
+    el.addEventListener('scroll', pin, { passive: true });
+    return () => {
+      observer.disconnect();
+      el.removeEventListener('scroll', pin);
+    };
+  }, [activeTab, panelRefs, scrollRef]);
 
   return (
     <main className="h-[100dvh] w-full overflow-hidden">

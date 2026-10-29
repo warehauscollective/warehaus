@@ -13,10 +13,12 @@ import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 export function StatusKanban({
   tasks,
   loading,
+  staff,
   onOpen,
 }: {
   tasks: PortalTask[];
   loading: boolean;
+  staff: boolean;
   onOpen: (task: PortalTask) => void;
 }) {
   const unmatched = tasks.filter((task) => taskBoardColumnKey(task) == null);
@@ -78,12 +80,15 @@ export function StatusKanban({
                       <span className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
                         {formatPortalDate(task.date)}
                       </span>
-                      <SyncChip
-                        notionPageId={task.notionPageId}
-                        syncHidden={task.syncHidden}
-                        syncState={task.syncState}
-                        syncNotice={task.syncNotice}
-                      />
+                      {staff ? (
+                        <SyncChip
+                          audience="staff"
+                          notionPageId={task.notionPageId}
+                          syncHidden={task.syncHidden}
+                          syncState={task.syncState}
+                          syncNotice={task.syncNotice}
+                        />
+                      ) : null}
                     </div>
                   </button>
                 ))}
@@ -111,10 +116,12 @@ export function StatusKanban({
 export function StatusTable({
   tasks,
   loading,
+  staff,
   onOpen,
 }: {
   tasks: PortalTask[];
   loading: boolean;
+  staff: boolean;
   onOpen: (task: PortalTask) => void;
 }) {
   if (loading) {
@@ -135,7 +142,7 @@ export function StatusTable({
             <th>Task</th>
             <th>Status</th>
             <th>Date</th>
-            <th>Sync</th>
+            {staff ? <th>Sync</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -146,14 +153,17 @@ export function StatusTable({
                 <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
               </td>
               <td>{formatPortalDate(task.date)}</td>
-              <td>
-                <SyncChip
-                  notionPageId={task.notionPageId}
-                  syncHidden={task.syncHidden}
-                  syncState={task.syncState}
-                  syncNotice={task.syncNotice}
-                />
-              </td>
+              {staff ? (
+                <td>
+                  <SyncChip
+                    audience="staff"
+                    notionPageId={task.notionPageId}
+                    syncHidden={task.syncHidden}
+                    syncState={task.syncState}
+                    syncNotice={task.syncNotice}
+                  />
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>

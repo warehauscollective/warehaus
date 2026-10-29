@@ -6,6 +6,7 @@ import { PortalAuthError } from './_lib/identity';
 /**
  * CLIENT serializer for Notion Shared Resources.
  * Never emit sourceNotionUrl — only Blob URL or curated URL field.
+ * Client payloads use `updatedAt` (the sync time), matching docs, and omit `lastSyncedAt`.
  */
 function toClientResource(
   row: {
@@ -39,8 +40,7 @@ function toClientResource(
     hasFile: Boolean(row.blobUrl || row.mimeType),
     mimeType: row.mimeType ?? null,
     byteSize: row.byteSize ?? null,
-    lastSyncedAt: row.lastSyncedAt,
-    notionPageId: row.notionPageId,
+    updatedAt: row.lastSyncedAt,
   };
 }
 
@@ -53,8 +53,9 @@ function projectVisibleToClient(
     syncHiddenAt?: number | null;
   } | null,
   orgVisible: boolean,
+  projectId?: string | null,
 ): boolean {
-  if (!project) return true;
+  if (!project) return !projectId;
   return clientMaySeeProject({
     name: project.name,
     types: project.type,
@@ -69,7 +70,8 @@ export const listForClient = clientQuery({
   args: {},
   handler: async (ctx) => {
     const org = await ctx.db.get(ctx.orgId);
-    if (!isOrgVisibleToClients(org)) return [];
+    const orgVisible = isOrgVisibleToClients(org);
+    if (!orgVisible) return [];
     const rows = await ctx.db
       .query('sharedResources')
       .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
@@ -79,7 +81,7 @@ export const listForClient = clientQuery({
     const out = [];
     for (const row of published) {
       const project = row.projectId ? await ctx.db.get(row.projectId) : null;
-      if (!projectVisibleToClient(project, true)) continue;
+      if (!projectVisibleToClient(project, orgVisible, row.projectId)) continue;
       out.push(toClientResource(row, project?.name ?? null));
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -91,11 +93,12 @@ export const getForClient = clientQuery({
   handler: async (ctx, { resourceId }) => {
     const row = await ctx.db.get(resourceId);
     const org = await ctx.db.get(ctx.orgId);
-    if (!row || row.orgId !== ctx.orgId || !isOrgVisibleToClients(org) || !isClientSurfaceVisible(row) || !row.publishToWarehaus || row.archive) {
+    const orgVisible = isOrgVisibleToClients(org);
+    if (!row || row.orgId !== ctx.orgId || !orgVisible || !isClientSurfaceVisible(row) || !row.publishToWarehaus || row.archive) {
       throw new PortalAuthError('Resource not found', 'FORBIDDEN');
     }
     const project = row.projectId ? await ctx.db.get(row.projectId) : null;
-    if (!projectVisibleToClient(project, true)) {
+    if (!projectVisibleToClient(project, orgVisible, row.projectId)) {
       throw new PortalAuthError('Resource not found', 'FORBIDDEN');
     }
     return toClientResource(row, project?.name ?? null);
@@ -162,7 +165,7 @@ export const listAttachedForClient = clientQuery({
         continue;
       }
       const resourceProject = row.projectId ? await ctx.db.get(row.projectId) : null;
-      if (!projectVisibleToClient(resourceProject, true)) continue;
+      if (!projectVisibleToClient(resourceProject, isOrgVisibleToClients(org), row.projectId)) continue;
       out.push(toClientResource(row, resourceProject?.name ?? null));
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -188,6 +191,7 @@ export const listAttachedForStaff = adminQuery({
         ...toClientResource(row, project?.name ?? null),
         publishToWarehaus: row.publishToWarehaus,
         notionPageId: row.notionPageId,
+        lastSyncedAt: row.lastSyncedAt,
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

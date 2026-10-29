@@ -5,10 +5,10 @@ import { useRouter } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TeamInvites } from '@/components/pages/TeamInvites';
-import { GhostButton, Surface } from '@/components/ui/primitives';
+import { GhostButton, PortalCheckbox, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { ThemeControl } from '@/components/account/ThemeControl';
-import { type DocRow } from '@/components/docs/DocsBlock';
+import { DocsStatesGallery, type DocRow } from '@/components/docs/DocsBlock';
 import {
   ClientCompany,
   ClientDetail,
@@ -62,12 +62,14 @@ export function AccountContent() {
   const [filter, setFilter] = useState<ClientListFilter>('all');
   const [clientId, setClientId] = useState<string | null>(null);
   const [showTeam, setShowTeam] = useState(false);
+  const [docsPreview, setDocsPreview] = useState<string | null>(null);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const client = params.get('client');
     if (client) setClientId(client);
     if (params.get('team') === '1') setShowTeam(true);
+    if (params.get('docs') === 'states') setDocsPreview('states');
   }, []);
 
   useEffect(() => {
@@ -170,10 +172,10 @@ export function AccountContent() {
       parent={{ label: 'Account', onClick: goAccountRoot }}
       middle={
         showTeam
-          ? { label: data.tenant.clientName ?? 'Clients', onClick: () => setShowTeam(false) }
+          ? { label: data.tenant.clientName ?? 'Your company', onClick: () => setShowTeam(false) }
           : undefined
       }
-      current={showTeam ? 'Your team' : 'Clients'}
+      current={showTeam ? 'Your team' : 'Your company'}
     />
   ) : isStaff && activeSection === 'clients' ? (
     <NavBreadcrumb
@@ -196,7 +198,13 @@ export function AccountContent() {
       title={title}
       breadcrumb={breadcrumb ?? undefined}
     >
-      {error && isStaff ? (
+      {fixtures && docsPreview === 'states' ? (
+        <PortalTilePane>
+          <DocsStatesGallery />
+        </PortalTilePane>
+      ) : null}
+
+      {error && isStaff && docsPreview !== 'states' ? (
         <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)', marginBottom: 12 }}>{error}</p>
       ) : null}
       {error && isClient ? (
@@ -205,7 +213,7 @@ export function AccountContent() {
         </p>
       ) : null}
 
-      {isStaff && activeSection === 'clients' && selected ? (
+      {docsPreview !== 'states' && isStaff && activeSection === 'clients' && selected ? (
         <PortalTilePane>
           <ClientDetail
             client={directory.find((client) => client.id === selected.id) ?? (selected as DirectoryClient)}
@@ -217,7 +225,7 @@ export function AccountContent() {
         </PortalTilePane>
       ) : null}
 
-      {isStaff && activeSection === 'clients' && !selected ? (
+      {docsPreview !== 'states' && isStaff && activeSection === 'clients' && !selected ? (
         <PortalTilePane>
           <ClientDirectory
             clients={directory}
@@ -230,7 +238,7 @@ export function AccountContent() {
         </PortalTilePane>
       ) : null}
 
-      {companyOpen ? (
+      {docsPreview !== 'states' && companyOpen ? (
         <PortalTilePane>
           <ClientCompany
             name={data.tenant.clientName ?? portalSession?.name ?? 'Your company'}
@@ -364,10 +372,9 @@ function NotificationSettings({ staff }: { staff: boolean }) {
         {rows.map(([key, label]) => (
           <label key={key} className="flex items-center justify-between gap-3">
             <span style={{ fontSize: 'var(--t-sm)' }}>{label}</span>
-            <input
-              type="checkbox"
+            <PortalCheckbox
               checked={flags[key]}
-              onChange={(event) => save({ ...flags, [key]: event.target.checked })}
+              onChange={(checked) => save({ ...flags, [key]: checked })}
             />
           </label>
         ))}
