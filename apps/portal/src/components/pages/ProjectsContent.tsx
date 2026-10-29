@@ -6,6 +6,17 @@ import { useMutation } from 'convex/react';
 import { Pill, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
+import {
+  formatProgress,
+  projectFilterCounts,
+  projectInitials,
+  projectListMeta,
+  projectMatchesFilter,
+  projectProgress,
+  showProjectPublish,
+  sortProjectsByLastUpdated,
+  type ProjectListFilter,
+} from '@/lib/data/projectList';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
@@ -48,21 +59,18 @@ type ProjectRow = PortalProject & {
   publishToWarehaus?: boolean;
 };
 
-function isShipped(status: string): boolean {
-  return /ship|done/i.test(status);
-}
-
 export function ProjectsContent() {
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
-  const { sectionFor, openLinkedClient } = usePortalView();
+  const { sectionFor, setSectionFor, openLinkedClient } = usePortalView();
   const { data, loading, error } = usePortalData();
   const { portalSession } = usePortalAuth();
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const activeSection = sectionFor('projects');
   const isStaff = Boolean(portalSession?.isStaff);
-  const [internalOnly, setInternalOnly] = useState(false);
+  const [filter, setFilter] = useState<ProjectListFilter>('all');
+  const [forceEmpty, setForceEmpty] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
   const [creating, setCreating] = useState(false);
@@ -89,6 +97,17 @@ export function ProjectsContent() {
     apply();
     window.addEventListener('wh-portal-nav', apply);
     return () => window.removeEventListener('wh-portal-nav', apply);
+  }, [fixtures]);
+
+  useEffect(() => {
+    if (activeSection === 'all' || activeSection === 'active' || activeSection === 'shipped') {
+      setFilter(activeSection);
+    }
+  }, [activeSection]);
+
+  useEffect(() => {
+    if (!fixtures) return;
+    setForceEmpty(new URLSearchParams(window.location.search).get('list') === 'empty');
   }, [fixtures]);
 
   const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
@@ -119,15 +138,23 @@ export function ProjectsContent() {
   ) as DocRow[];
   const projectsLoading = !fixtures && (loading || (isStaff && staff.projectsLoading));
 
+  const filterCounts = useMemo(
+    () => projectFilterCounts(forceEmpty ? [] : projects, isStaff),
+    [projects, isStaff, forceEmpty],
+  );
   const visible = useMemo(() => {
-    return projects.filter((project) => {
+    if (forceEmpty) return [];
+    const rows = projects.filter((project) => {
       if (!isStaff && project.internal) return false;
-      if (internalOnly && !project.internal) return false;
-      if (activeSection === 'shipped') return isShipped(project.status);
-      if (activeSection === 'active') return !isShipped(project.status);
-      return true;
+      return projectMatchesFilter(project, filter);
     });
-  }, [projects, isStaff, internalOnly, activeSection]);
+    return sortProjectsByLastUpdated(rows);
+  }, [projects, isStaff, filter, forceEmpty]);
+
+  const chooseFilter = (key: ProjectListFilter) => {
+    setFilter(key);
+    if (key !== 'internal') setSectionFor('projects', key);
+  };
 
   const accessibleProjectIds = useMemo(
     () => projects.filter((project) => isStaff || !project.internal).map((project) => project.id),
@@ -397,16 +424,25 @@ export function ProjectsContent() {
               You only see what is shared with you.
             </p>
           ) : null}
-          <div className="flex flex-wrap gap-2">
-            {isStaff ? (
-              <FilterChip active={internalOnly} onClick={() => setInternalOnly((value) => !value)}>
-                Internal
-              </FilterChip>
-            ) : null}
-          </div>
-          {projectsLoading ? (
-            <Surface style={{ padding: 24 }}>
-              <div className="flex flex-col" aria-busy="true">
+          <Surface style={{ padding: 24 }}>
+            <div className="flex flex-col" style={{ gap: 4 }}>
+              <h2 style={{ fontSize: 18, lineHeight: '26px', fontWeight: 600 }}>All projects</h2>
+              <p style={{ fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>Sorted by last updated</p>
+            </div>
+            <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Project filters">
+              {filterCounts.map((chip) => (
+                <FilterChip
+                  key={chip.key}
+                  active={filter === chip.key}
+                  count={chip.count}
+                  onClick={() => chooseFilter(chip.key)}
+                >
+                  {chip.label}
+                </FilterChip>
+              ))}
+            </div>
+            {projectsLoading ? (
+              <div className="mt-4 flex flex-col" aria-busy="true">
                 {[0, 1, 2].map((i) => (
                   <div
                     key={i}
@@ -415,22 +451,25 @@ export function ProjectsContent() {
                   />
                 ))}
               </div>
-            </Surface>
-          ) : visible.length === 0 ? (
-            <Surface style={{ padding: 'var(--s-5)' }}>
-              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+            ) : visible.length === 0 ? (
+              <p className="mt-4" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
                 {isStaff
                   ? 'No projects match these filters.'
                   : 'Nothing shared yet. Warehaus will publish projects here when they are ready for you.'}
               </p>
-            </Surface>
-          ) : (
-            <Surface style={{ padding: '8px 24px' }}>
-              <ul>
+            ) : (
+              <ul className="mt-2">
                 {visible.map((project) => {
-                  const count = project.taskCount ?? tasks.filter((task) => task.projectId === project.id).length;
-                  const pct = progressPercent(project.progress);
+                  const mine = tasks.filter((task) => task.projectId === project.id);
+                  const count = mine.length > 0 ? mine.length : project.taskCount ?? 0;
+                  const progress = projectProgress({
+                    projectId: project.id,
+                    progress: project.progress,
+                    tasks,
+                  });
                   const taskLabel = `${count} ${count === 1 ? 'task' : 'tasks'}`;
+                  const phoneProgress = progress.percent == null ? progress.label : `${progress.label} · ${taskLabel}`;
+                  const showPublish = showProjectPublish(isStaff, project);
                   return (
                     <li key={project.id} className="border-b last:border-b-0" style={{ borderColor: 'var(--border)' }}>
                       <button
@@ -440,10 +479,10 @@ export function ProjectsContent() {
                           setTaskView('board');
                           setOpenId(project.id);
                         }}
-                        className="flex w-full flex-col gap-2 py-6 text-left md:min-h-[90px] md:flex-row md:items-center md:gap-4"
+                        className="grid w-full grid-cols-1 items-center gap-2 py-6 text-left md:min-h-[90px] md:grid-cols-[minmax(0,1fr)_150px_90px_120px_16px] md:gap-4"
                         style={{ background: 'transparent', color: 'inherit' }}
                       >
-                        <span className="flex min-w-0 flex-1 items-center gap-4">
+                        <span className="flex min-w-0 items-center gap-4">
                           <span
                             className="inline-flex size-9 shrink-0 items-center justify-center rounded-[10px]"
                             style={{
@@ -456,31 +495,49 @@ export function ProjectsContent() {
                             {projectInitials(project.name)}
                           </span>
                           <span className="min-w-0 flex-1">
-                            <span className="block truncate" style={{ fontSize: 16, fontWeight: 500 }}>
-                              {project.name}
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span className="truncate" style={{ fontSize: 16, fontWeight: 500 }}>
+                                {project.name}
+                              </span>
+                              {project.internal ? (
+                                <span className="md:hidden">
+                                  <InternalTag />
+                                </span>
+                              ) : null}
                             </span>
-                            <span className="ds-mono mt-1 block truncate" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                            <span className="ds-mono mt-1 block truncate md:hidden" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                              {projectListMeta(project, data.tenant.clientName, { phone: true })}
+                            </span>
+                            <span className="ds-mono mt-1 hidden truncate md:block" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
                               {projectListMeta(project, data.tenant.clientName)}
                             </span>
                           </span>
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img alt="" src="/icons/client-chev.svg" width={16} height={16} className="shrink-0 opacity-70 md:hidden" />
                         </span>
-                        <span className="flex min-w-0 items-center gap-3 md:w-[150px] md:shrink-0 md:flex-col md:items-start md:gap-2">
+                        <span className="flex min-w-0 items-center gap-3 md:w-[150px] md:flex-col md:items-start md:gap-2">
                           <span className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full md:w-full md:flex-none" style={{ background: 'var(--surface-2)' }}>
-                            <span className="block h-1.5 rounded-full" style={{ width: `${pct}%`, background: 'var(--fg)' }} />
+                            <span
+                              className="block h-1.5 rounded-full"
+                              style={{ width: progress.percent == null ? 0 : `${progress.percent}%`, background: 'var(--fg)' }}
+                            />
                           </span>
-                          <span className="ds-mono shrink-0" style={{ fontSize: 11, color: 'var(--muted)' }}>
-                            <span className="md:hidden">{pct}% shipped · {taskLabel}</span>
-                            <span className="hidden md:inline">{pct}% of tasks shipped</span>
+                          <span className="ds-mono shrink-0 whitespace-nowrap" data-testid="project-progress" style={{ fontSize: 11, color: 'var(--muted)' }}>
+                            <span className="md:hidden">{phoneProgress}</span>
+                            <span className="hidden md:inline">{progress.label}</span>
                           </span>
                         </span>
-                        <span className="ds-mono hidden w-[90px] shrink-0 md:block" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                        <span className="ds-mono hidden w-[90px] shrink-0 whitespace-nowrap md:block" style={{ fontSize: 12, color: 'var(--muted)' }}>
                           {taskLabel}
                         </span>
-                        {isStaff && !project.internal && project.publishToWarehaus != null ? (
-                          <span className="shrink-0 md:w-[120px]">
-                            <PublishChip published={project.publishToWarehaus} />
+                        <span className="hidden w-[120px] shrink-0 items-center md:flex">
+                          {showPublish && project.publishToWarehaus != null ? (
+                            <PublishMark published={project.publishToWarehaus} />
+                          ) : null}
+                        </span>
+                        {showPublish && project.publishToWarehaus != null ? (
+                          <span className="md:hidden">
+                            <PublishMark published={project.publishToWarehaus} />
                           </span>
                         ) : null}
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -490,8 +547,8 @@ export function ProjectsContent() {
                   );
                 })}
               </ul>
-            </Surface>
-          )}
+            )}
+          </Surface>
         </div>
       </PortalTilePane>
       {routeTaskId ? (
@@ -682,10 +739,12 @@ function ViewToggle({
 
 function FilterChip({
   active,
+  count,
   onClick,
   children,
 }: {
   active: boolean;
+  count: number;
   onClick: () => void;
   children: string;
 }) {
@@ -694,44 +753,45 @@ function FilterChip({
       type="button"
       onClick={onClick}
       aria-pressed={active}
-      className="ds-mono"
+      data-testid="project-filter"
+      className="inline-flex items-center gap-2 whitespace-nowrap"
       style={{
-        fontSize: 'var(--t-xs)',
-        padding: '0.35rem 0.7rem',
+        fontSize: 13,
+        fontWeight: 500,
+        padding: '8px 16px',
         borderRadius: 999,
-        border: '1px solid var(--border)',
-        background: active ? 'var(--fg)' : 'transparent',
-        color: active ? 'var(--bg)' : 'var(--muted)',
+        border: active ? '1px solid var(--border-2)' : '1px solid var(--border)',
+        background: active ? 'var(--surface-2)' : 'transparent',
+        color: active ? 'var(--fg)' : 'var(--muted)',
         cursor: 'pointer',
       }}
     >
       {children}
+      <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>{count}</span>
     </button>
   );
 }
 
-function progressPercent(value: number | null | undefined): number {
-  if (value == null) return 0;
-  const pct = value <= 1 ? Math.round(value * 100) : Math.round(value);
-  return Math.min(100, Math.max(0, pct));
-}
-
-function formatProgress(value: number | null | undefined): string {
-  if (value == null) return '—';
-  return `${progressPercent(value)}%`;
-}
-
-function projectInitials(name: string): string {
-  const parts = name.trim().split(/\s+/).filter(Boolean);
-  if (parts.length === 0) return '·';
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
-}
-
-function projectListMeta(project: PortalProject, fallbackClient: string | null | undefined): string {
-  if (project.internal) return 'Warehaus (internal)';
-  const client = project.clientName ?? fallbackClient ?? '';
-  const detail = project.description?.trim() || (project.stack?.length ? project.stack.join(', ') : '');
-  if (client && detail) return `${client} · ${detail}`;
-  return client || detail || '—';
+function PublishMark({ published }: { published: boolean }) {
+  return (
+    <span
+      className="inline-flex max-w-full items-center gap-2 whitespace-nowrap"
+      data-testid="publish-state"
+      style={{ fontSize: 11, letterSpacing: '0.44px', color: 'var(--muted)' }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 999,
+          boxSizing: 'border-box',
+          flex: '0 0 auto',
+          background: published ? 'var(--fg)' : 'transparent',
+          border: `1px solid ${published ? 'var(--fg)' : 'var(--muted)'}`,
+        }}
+      />
+      {published ? 'Published' : 'Not published'}
+    </span>
+  );
 }

@@ -38,6 +38,21 @@ describe('sectionPeekScroll', () => {
     assert.equal(scroll, 184);
   });
 
+  it('leaves the first section pill at scrollLeft 0 so the leading fade stays off', () => {
+    const node = fakeChipRow({
+      clientWidth: 110,
+      scrollWidth: 280,
+      scrollLeft: 0,
+      buttons: [
+        { left: 20, width: 108, current: true },
+        { left: 140, width: 72 },
+      ],
+    });
+    scrollActiveIntoView(node, { inset: true });
+    assert.equal(node.scrollLeft, 0);
+    assert.equal(sectionEdgeFades(node, { inset: true }).leading, 0);
+  });
+
   it('does not scroll when there is no later tab', () => {
     assert.equal(
       sectionPeekScroll({
@@ -51,7 +66,7 @@ describe('sectionPeekScroll', () => {
   });
 });
 
-type FakeChip = { left: number; width: number; pressed?: boolean };
+type FakeChip = { left: number; width: number; pressed?: boolean; current?: boolean };
 
 function fakeChipRow(input: {
   clientWidth: number;
@@ -83,8 +98,9 @@ function fakeChipRow(input: {
       return { left: 0, right: input.clientWidth, width: input.clientWidth, top: 0, bottom: 32, height: 32, x: 0, y: 0 };
     },
     querySelector(selector: string) {
-      if (selector !== '[aria-pressed="true"]') return null;
-      return buttons.find((button) => button.chip.pressed) ?? null;
+      if (selector === '[aria-pressed="true"]') return buttons.find((button) => button.chip.pressed) ?? null;
+      if (selector === '[aria-current="true"]') return buttons.find((button) => button.chip.current) ?? null;
+      return null;
     },
     querySelectorAll(selector: string) {
       return selector === 'button' ? buttons : [];
