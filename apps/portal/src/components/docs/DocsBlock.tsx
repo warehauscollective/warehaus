@@ -36,11 +36,14 @@ const EMPTY_COPY = {
   },
 } as const;
 
-function sortDocs(docs: DocRow[]): DocRow[] {
-  if (!docs.some((doc) => doc.order != null)) return docs;
-  return [...docs].sort(
-    (a, b) => (a.order ?? 999) - (b.order ?? 999) || a.title.localeCompare(b.title),
-  );
+/** Order ascending, then title. A missing Order sorts after every numbered row and is never shown. */
+export function sortDocRows(docs: readonly DocRow[]): DocRow[] {
+  return [...docs].sort((a, b) => {
+    const left = a.order ?? Number.POSITIVE_INFINITY;
+    const right = b.order ?? Number.POSITIVE_INFINITY;
+    if (left !== right) return left - right;
+    return a.title.localeCompare(b.title);
+  });
 }
 
 function formatUpdated(value?: number | string | null): string | null {
@@ -80,6 +83,8 @@ export function DocTypeTag({ type }: { type: string }) {
         borderRadius: 999,
         padding: '4px 10px',
         fontSize: 11,
+        letterSpacing: '0.44px',
+        textTransform: 'uppercase',
         color: 'var(--fg)',
       }}
     >
@@ -160,7 +165,7 @@ export function DocsBlock({
   loading?: boolean;
 }) {
   const [note, setNote] = useState<string | null>(null);
-  const rows = sortDocs(docs);
+  const rows = sortDocRows(docs);
   const count = rows.length;
   const empty = EMPTY_COPY[staff ? 'staff' : 'client'];
 
@@ -190,7 +195,7 @@ export function DocsBlock({
           .docs-row { align-items: flex-start; }
           .docs-main { flex: 1 1 0; min-width: 0; align-items: flex-start; }
           .docs-chev { order: 2; flex: 0 0 auto; margin-top: 2px; }
-          .docs-badges { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow: hidden; justify-content: flex-start; padding-left: 52px; }
+          .docs-badges { order: 3; flex: 1 0 100%; flex-wrap: wrap; overflow: visible; justify-content: flex-start; padding-left: 52px; }
           .docs-block { padding: 20px !important; }
         }
         .docs-row:focus-visible {

@@ -46,7 +46,7 @@ import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
-import { projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
+import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
@@ -238,13 +238,13 @@ export function ProjectsContent() {
     return (
       <PortalWorkspace
         eyebrow={tenantEyebrow(data.tenant, 'Project')}
-        title={copy.title}
+        title={PROJECT_UNAVAILABLE_HEADING}
         breadcrumb={
           <NavBreadcrumb
             back="always"
             onBack={closeProject}
             parent={{ label: 'Projects', onClick: closeProject }}
-            current={copy.title}
+            current={PROJECT_UNAVAILABLE_HEADING}
           />
         }
       >
