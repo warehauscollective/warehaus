@@ -20,6 +20,7 @@ import {
   stageOutboxActor,
   taskCreateProjectGate,
   resolveParentLink,
+  resolveBoardDrop,
   stageMoveRule,
   unstagedMoveAllowed,
   taskTouchesIncrementalSet,
@@ -360,6 +361,67 @@ describe('board sort', () => {
     assert.equal(unstagedMoveAllowed('Planning'), true);
     assert.equal(unstagedMoveAllowed('Parked'), false);
     assert.equal(unstagedMoveAllowed('Building'), false);
+  });
+
+  it('moves a dragged card into the next column', () => {
+    const tasks = [{ name: 'Checklist', status: 'To Do', isDone: false, stage: 'Idea' }];
+    const before = boardColumns(tasks, 'status').find((column) =>
+      column.tasks.some((task) => task.name === 'Checklist'),
+    )?.key;
+    const drop = resolveBoardDrop({ actor: 'staff', mode: 'status', from: 'To Do', to: 'In Progress' });
+    assert.equal(drop.kind, 'move');
+    if (drop.kind !== 'move') return;
+    const after = boardColumns(
+      tasks.map((task) => ({ ...task, status: drop.value, isDone: drop.value === 'Done' })),
+      'status',
+    ).find((column) => column.tasks.some((task) => task.name === 'Checklist'))?.key;
+    assert.equal(before, 'To Do');
+    assert.equal(after, 'In Progress');
+
+    const stageDrop = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Idea', to: 'Planning' });
+    assert.deepEqual(stageDrop, { kind: 'move', value: 'Planning' });
+    const staged = boardColumns(
+      [{ name: 'Checklist', status: 'To Do', isDone: false, stage: 'Planning' }],
+      'stage',
+    );
+    assert.equal(staged.find((column) => column.key === 'Idea')?.tasks.length, 0);
+    assert.equal(staged.find((column) => column.key === 'Planning')?.tasks.length, 1);
+  });
+
+  it('blocks drags into and out of Building and Shipped', () => {
+    for (const locked of ['Building', 'Shipped'] as const) {
+      const into = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Idea', to: locked });
+      assert.equal(into.kind, 'reject');
+      if (into.kind === 'reject') assert.match(into.reason, new RegExp(locked));
+      const out = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: locked, to: 'Planning' });
+      assert.equal(out.kind, 'reject');
+      if (out.kind === 'reject') assert.match(out.reason, new RegExp(locked));
+      assert.equal(
+        resolveBoardDrop({ actor: 'staff', mode: 'stage', from: locked, to: locked }).kind,
+        'ignore',
+      );
+    }
+    assert.equal(resolveBoardDrop({ actor: 'client', mode: 'status', from: 'To Do', to: 'Done' }).kind, 'reject');
+    assert.equal(resolveBoardDrop({ actor: 'client', mode: 'stage', from: 'Idea', to: 'Planning' }).kind, 'reject');
+  });
+
+  it('still lets a No stage yet card drop only on Idea or Planning', () => {
+    assert.equal(resolveBoardDrop({ actor: 'staff', mode: 'stage', from: '', to: 'Idea' }).kind, 'move');
+    assert.equal(resolveBoardDrop({ actor: 'staff', mode: 'stage', from: '', to: 'Planning' }).kind, 'move');
+    const parked = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: '', to: 'Parked' });
+    assert.deepEqual(parked, {
+      kind: 'reject',
+      reason: 'Tasks with no stage can move to Idea or Planning.',
+    });
+    const unknown = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Brainstorm', to: 'Awaiting Go' });
+    assert.equal(unknown.kind, 'reject');
+    const back = resolveBoardDrop({
+      actor: 'staff',
+      mode: 'stage',
+      from: 'Idea',
+      to: 'unknown-stage:No stage yet',
+    });
+    assert.equal(back.kind, 'reject');
   });
 
   it('keeps a task with no stage on the client status board and hides it on the client stage board', () => {
