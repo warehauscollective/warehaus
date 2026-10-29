@@ -126,6 +126,32 @@ describe('enqueueStage actor', () => {
     assert.equal(calls.length, 0);
   });
 
+  it('queues Idea or Planning from No stage yet and refuses every other stage', async () => {
+    const calls: string[] = [];
+    const ctx = {
+      db: { get: async () => task },
+      runMutation: async (_ref: unknown, args: { payload?: string }) => {
+        calls.push(args.payload ?? '');
+        return { ok: true, outboxId: 'out-1', duplicate: false };
+      },
+    };
+    const base = {
+      taskId: 'task-1',
+      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
+      actor: 'staff' as const,
+      actorId: 'contact-staff',
+    };
+    const parked = await run(enqueueStage, ctx, { ...base, stage: 'Parked' });
+    assert.deepEqual(parked, { ok: false, error: 'Tasks with no stage can move to Idea or Planning.' });
+    const unknown = await run(enqueueStage, { ...ctx, db: { get: async () => ({ ...task, stage: 'Brainstorm' }) } }, { ...base, stage: 'Awaiting Go' });
+    assert.equal(unknown.ok, false);
+    const planning = await run(enqueueStage, ctx, { ...base, stage: 'Planning' });
+    assert.equal(planning.ok, true);
+    const filed = await run(enqueueStage, { ...ctx, db: { get: async () => ({ ...task, stage: 'Idea' }) } }, { ...base, stage: 'Parked' });
+    assert.equal(filed.ok, true);
+    assert.equal(calls.length, 2);
+  });
+
   it('stores the actor argument on the outbox row', async () => {
     const previous = process.env.NOTION_WRITEBACK_ENABLED;
     process.env.NOTION_WRITEBACK_ENABLED = 'true';

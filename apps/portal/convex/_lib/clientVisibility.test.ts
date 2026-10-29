@@ -496,6 +496,10 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(text(docs).includes('syncState'), false);
     assert.equal(text(docs).includes('"status"'), false);
     assert.equal(text(resources).includes('notionPageId'), false);
+    assert.equal(text(resources).includes('lastSyncedAt'), false);
+    assert.equal(text(resources).includes('updatedAt'), true);
+    const listedTasks = tasks as Array<{ name: string; stage: string | null }>;
+    assert.equal(listedTasks.some((task) => task.name === 'Homepage' && task.stage == null), true);
     const docTitles = (docs as Array<{ title: string }>).map((doc) => doc.title);
     assert.deepEqual(docTitles.slice(0, 2), ['Org guide', 'Public brief']);
     assert.equal(bundled.includes('Warehaus Staff'), false);
@@ -526,6 +530,8 @@ describe('client identity against warehaus.studio', () => {
     const publicResource = await run(getResourceForClient, { resourceId: 'res-public' });
     assert.equal((publicResource as { name: string }).name, 'Kickoff notes');
     assert.equal('notionPageId' in (publicResource as object), false);
+    assert.equal('lastSyncedAt' in (publicResource as object), false);
+    assert.equal(typeof (publicResource as { updatedAt: number }).updatedAt, 'number');
     const orgResource = await run(getResourceForClient, { resourceId: 'res-org' });
     assert.equal((orgResource as { name: string }).name, 'Org file');
     for (const resourceId of ['res-draft', 'res-internal', 'res-orphan', 'res-missing']) {
@@ -552,6 +558,7 @@ describe('client identity against warehaus.studio', () => {
   it('uses the same unavailable message for a hidden task and a missing task', async () => {
     const visible = await run(getForClient, { taskId: 'task-public' });
     assert.equal((visible as { name: string }).name, 'Homepage');
+    assert.equal((visible as { stage: string | null }).stage, null);
 
     for (const taskId of ['task-internal', 'task-missing', 'task-draft']) {
       await assert.rejects(run(getForClient, { taskId }), (err: unknown) => {

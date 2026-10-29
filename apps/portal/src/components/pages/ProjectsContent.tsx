@@ -198,6 +198,16 @@ export function ProjectsContent() {
       if (isStaff) return true;
       return doc.publishToWarehaus !== false && doc.status !== 'Draft';
     });
+    const boardActions = (
+      <>
+        <ViewToggle view={taskView} onChange={setTaskView} />
+        {isStaff ? (
+          <button type="button" onClick={() => setCreating(true)} style={newTaskButton}>
+            New task
+          </button>
+        ) : null}
+      </>
+    );
     return (
       <PortalWorkspace
         eyebrow={tenantEyebrow(data.tenant, 'Project')}
@@ -210,19 +220,11 @@ export function ProjectsContent() {
             current={openProject.name}
           />
         }
-        actions={
-          <div className="flex flex-wrap items-center gap-2">
-            <ViewToggle view={taskView} onChange={setTaskView} />
-            {isStaff ? (
-              <button type="button" onClick={() => setCreating(true)} style={newTaskButton}>
-                New task
-              </button>
-            ) : null}
-          </div>
-        }
+        actions={<div className="hidden flex-wrap items-center gap-2 md:flex">{boardActions}</div>}
       >
         <PortalTilePane>
           <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="project-detail">
+            <div className="flex flex-col" style={{ gap: 12 }}>
             <div className="flex flex-wrap items-center gap-2">
               {openProject.internal ? <InternalTag /> : (
                 <ClientLink
@@ -242,6 +244,8 @@ export function ProjectsContent() {
                 notionPageId={openProject.notionPageId}
                 syncHidden={openProject.syncHidden}
               />
+            </div>
+            <div className="flex flex-wrap items-center gap-2 md:hidden">{boardActions}</div>
             </div>
             <div className="flex items-center justify-between gap-3">
               <h2 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>Tasks</h2>

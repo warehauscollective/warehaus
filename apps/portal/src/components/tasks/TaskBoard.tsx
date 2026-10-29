@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import {
   DndContext,
   DragOverlay,
@@ -16,6 +17,7 @@ import { boardColumns, isTaskStage, unstagedMoveAllowed, type MoveRule } from '@
 import { OutlineButton, Pill, PrimaryButton } from '@/components/ui/primitives';
 import { SyncChip } from '@/components/sync/SyncChip';
 import { formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
+import { TaskGlyph } from './TaskGlyph';
 
 export type BoardMode = 'status' | 'stage';
 
@@ -221,9 +223,7 @@ export function TaskBoard({
           setLive('Move cancelled.');
         }}
       >
-        <div
-          className="flex items-start gap-3 overflow-x-auto pb-2"
-        >
+        <BoardScroller>
           {shown.map((column) => (
             <Column
               key={column.key}
@@ -270,7 +270,7 @@ export function TaskBoard({
               }}
             />
           ))}
-        </div>
+        </BoardScroller>
         <DragOverlay>
           {activeId ? (
             <div style={{ transform: 'rotate(2deg) scale(1.03)', cursor: 'grabbing' }}>
@@ -602,6 +602,7 @@ function TaskCardFace({
               color: 'var(--fg)',
             }}
           >
+            <TaskGlyph src="/icons/task-stage.svg" size={12} />
             {task.stage}
           </span>
         ) : null}
@@ -626,9 +627,22 @@ function TaskCardFace({
         {task.syncNotice ? <SyncChip syncNotice={task.syncNotice} /> : null}
       </div>
       <p className="ds-mono flex flex-wrap items-center gap-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
-        <span>{formatPortalDate(task.date)}</span>
-        {subLabel ? <span>{subLabel}</span> : null}
-        {resources > 0 ? <span>{resources}</span> : null}
+        <span className="inline-flex items-center gap-1">
+          <TaskGlyph src="/icons/task-calendar.svg" />
+          {formatPortalDate(task.date)}
+        </span>
+        {subLabel ? (
+          <span className="inline-flex items-center gap-1">
+            <TaskGlyph src="/icons/task-list.svg" />
+            {subLabel}
+          </span>
+        ) : null}
+        {resources > 0 ? (
+          <span className="inline-flex items-center gap-1">
+            <TaskGlyph src="/icons/task-link.svg" />
+            {resources}
+          </span>
+        ) : null}
       </p>
     </div>
   );
@@ -787,8 +801,8 @@ function NeedsDialog({
 }
 
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: 'flex-end' }}>
+  return portalNode(
+    <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: 'flex-end' }}>
       <div role="dialog" aria-modal="true" aria-label={title} onClick={(event) => event.stopPropagation()} style={{ width: '100%', background: 'var(--surface)', borderRadius: '16px 16px 0 0', padding: 16, maxHeight: '80dvh', overflow: 'auto' }}>
         <div className="mb-3 flex items-center justify-between">
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>{title}</h2>
@@ -831,12 +845,57 @@ function Modal({ title, onClose, labelledBy, children }: { title: string; onClos
       previous?.focus();
     };
   }, [onClose]);
-  return (
-    <div role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 85, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+  return portalNode(
+    <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 85, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
       <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={labelledBy} onClick={(event) => event.stopPropagation()} style={{ width: 'min(100%, 480px)', background: 'var(--surface)', borderRadius: 16, padding: 24 }}>
         <h2 id={labelledBy} style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', marginBottom: 12 }}>{title}</h2>
         {children}
       </div>
+    </div>,
+  );
+}
+
+function portalNode(node: ReactNode) {
+  if (typeof document === 'undefined') return node;
+  return createPortal(node, document.body);
+}
+
+function BoardScroller({ children }: { children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [fade, setFade] = useState(false);
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    const update = () => {
+      const wide = window.matchMedia('(min-width: 1024px)').matches;
+      const overflow = node.scrollWidth - node.clientWidth > 1;
+      const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 1;
+      setFade(wide && overflow && !atEnd);
+    };
+    update();
+    node.addEventListener('scroll', update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    window.addEventListener('resize', update);
+    return () => {
+      node.removeEventListener('scroll', update);
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [children]);
+  return (
+    <div className="relative min-w-0">
+      <div ref={ref} className="flex items-start gap-3 overflow-x-auto pb-2">
+        {children}
+      </div>
+      {fade ? (
+        <div
+          aria-hidden
+          data-testid="board-edge-fade"
+          className="pointer-events-none absolute inset-y-0 right-0"
+          style={{ width: 72, background: 'linear-gradient(to right, transparent, var(--bg))' }}
+        />
+      ) : null}
     </div>
   );
 }

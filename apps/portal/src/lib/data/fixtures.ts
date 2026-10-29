@@ -382,6 +382,14 @@ export const FIXTURE_CLIENT_SNAPSHOT: PortalSnapshot = {
 
 export const FIXTURE_NOTICES = [
   {
+    id: 'notice-raw-key',
+    message: 'task-stage:notion-t-doing:Building::2026-10-28T00:00:00.000Z',
+    createdAt: SYNCED_AT,
+    readAt: null,
+    edgeCase: 'sync',
+    unread: true,
+  },
+  {
     id: 'notice-conflict',
     message: 'Homepage conflicted with a newer edit',
     createdAt: SYNCED_AT,

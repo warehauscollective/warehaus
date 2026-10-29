@@ -6,6 +6,7 @@ import { PortalAuthError } from './_lib/identity';
 /**
  * CLIENT serializer for Notion Shared Resources.
  * Never emit sourceNotionUrl — only Blob URL or curated URL field.
+ * Client payloads use `updatedAt` (the sync time), matching docs, and omit `lastSyncedAt`.
  */
 function toClientResource(
   row: {
@@ -39,7 +40,7 @@ function toClientResource(
     hasFile: Boolean(row.blobUrl || row.mimeType),
     mimeType: row.mimeType ?? null,
     byteSize: row.byteSize ?? null,
-    lastSyncedAt: row.lastSyncedAt,
+    updatedAt: row.lastSyncedAt,
   };
 }
 
@@ -190,6 +191,7 @@ export const listAttachedForStaff = adminQuery({
         ...toClientResource(row, project?.name ?? null),
         publishToWarehaus: row.publishToWarehaus,
         notionPageId: row.notionPageId,
+        lastSyncedAt: row.lastSyncedAt,
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

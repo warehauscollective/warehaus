@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { Pill } from '@/components/ui/primitives';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { SyncChip } from '@/components/sync/SyncChip';
 import { clientInitials, clientListStats, clientMatchesFilter, singleOrAcross, type ClientListFilter, type ClientListRow } from '@/lib/data/clientList';
@@ -179,6 +180,7 @@ export function ClientDirectory({
   loading: boolean;
   error: string | null;
 }) {
+  const phone = useMaxWidth(767);
   const stats = clientListStats(clients);
   const shown = clients.filter((client) => clientMatchesFilter(client, filter));
   const counts: Record<ClientListFilter, number> = {
@@ -190,7 +192,11 @@ export function ClientDirectory({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="account-clients">
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+      <div
+        className="grid w-full gap-3"
+        data-testid="client-stats"
+        style={{ gridTemplateColumns: phone ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fit, minmax(160px, 1fr))' }}
+      >
         <Stat label="CLIENTS" value={String(stats.total)} hint={`${stats.active} active · ${stats.internal} internal`} />
         <Stat label="ACTIVE PROJECTS" value={String(stats.projects)} hint={stats.withProjects === 1 ? 'Across 1 client' : `Across ${stats.withProjects} clients`} />
         <Stat

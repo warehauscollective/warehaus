@@ -317,6 +317,22 @@ export function projectStatusColor(status: string): string {
   return 'var(--muted)';
 }
 
+const RAW_NOTICE_KEY = /^task-(?:stage|status|description|resources):([^:\s]+)/;
+
+/**
+ * Older notice rows stored the outbox idempotency key as the message.
+ * When that key still names a task page, show the task name.
+ */
+export function noticeDisplayMessage(
+  message: string,
+  tasks: ReadonlyArray<{ name: string; notionPageId?: string | null }>,
+): string {
+  const match = RAW_NOTICE_KEY.exec(message.trim());
+  if (!match?.[1]) return message;
+  const name = tasks.find((task) => task.notionPageId === match[1])?.name?.trim();
+  return name || message;
+}
+
 export function formatPortalDate(value?: string | null): string {
   if (!value) return '—';
   const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);

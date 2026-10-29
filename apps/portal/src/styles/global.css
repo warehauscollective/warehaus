@@ -55,3 +55,26 @@ html[data-density='compact'] .ds-data td,
 html[data-density='compact'] .ds-data th {
   padding-block: 0.45rem;
 }
+
+/* Phone panels use 20px side margins. The notice bell is a fixed overlay and does not reserve a column. */
+.portal-tab-shell {
+  padding-left: var(--portal-panel-gap, 1.25rem);
+  padding-right: var(--portal-panel-gap, 1.25rem);
+}
+@media (min-width: 768px) {
+  .portal-tab-shell {
+    padding-right: max(var(--portal-panel-gap, 1.25rem), 4.5rem);
+  }
+}
+
+/* Client directory stats: 2×2 on a phone, auto columns once each card can be 160px. */
+.client-stat-grid {
+  display: grid;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+@media (max-width: 767px) {
+  .client-stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

@@ -361,6 +361,32 @@ describe('board sort', () => {
     assert.equal(unstagedMoveAllowed('Parked'), false);
     assert.equal(unstagedMoveAllowed('Building'), false);
   });
+
+  it('keeps a task with no stage on the client status board and hides it on the client stage board', () => {
+    const tasks = [
+      { name: 'Blank', status: 'To Do', isDone: false, stage: null },
+      { name: 'Idea task', status: 'In Progress', isDone: false, stage: 'Idea' },
+    ];
+    const status = boardColumns(tasks, 'status', 'client');
+    assert.deepEqual(
+      status.flatMap((column) => column.tasks.map((task) => task.name)).sort(),
+      ['Blank', 'Idea task'],
+    );
+    const stage = boardColumns(tasks, 'stage', 'client');
+    assert.deepEqual(
+      stage.flatMap((column) => column.tasks.map((task) => task.name)),
+      ['Idea task'],
+    );
+    assert.equal(stage.some((column) => column.label === 'No stage yet'), false);
+    assert.equal(
+      clientMaySeeTask({
+        publishToWarehaus: true,
+        hidden: false,
+        project: clientProject,
+      }),
+      true,
+    );
+  });
 });
 
 describe('incremental task graph', () => {

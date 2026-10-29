@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -8,6 +9,7 @@ import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, stageMoveRule, tas
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
+import { TaskGlyph } from './TaskGlyph';
 
 type ResourceRow = {
   id: string;
@@ -95,19 +97,37 @@ export function TaskDetailModal({
             <section>
               <h3 className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>SUB-TASKS</h3>
               {subtasks.length === 0 ? (
-                <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 8 }}>{staff ? 'No sub-tasks yet.' : 'No sub-tasks yet.'}</p>
+                <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 8 }}>No sub-tasks yet.</p>
               ) : (
-                <ul className="mt-2 flex flex-col gap-2">
+                <ul className="mt-2 flex flex-col">
                   {subtasks.map((child) => (
-                    <li key={child.id}>
-                      <button type="button" onClick={() => onOpenTask(child.id)} className="w-full text-left" style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '0.7rem 0.85rem', background: 'var(--bg)' }}>
-                        <span style={{ fontWeight: 600 }}>{child.name}</span>
-                        <span className="ds-mono" style={{ marginLeft: 8, color: 'var(--muted)', fontSize: 'var(--t-xs)' }}>{child.stage ?? 'No stage'} · {child.status}</span>
+                    <li key={child.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <button
+                        type="button"
+                        onClick={() => onOpenTask(child.id)}
+                        className="flex w-full items-center gap-3 text-left"
+                        style={{ background: 'transparent', border: 0, padding: '16px 0', color: 'inherit', cursor: 'pointer' }}
+                      >
+                        <span style={{ color: 'var(--muted)' }}>
+                          <TaskGlyph src={child.isDone ? '/icons/task-check.svg' : '/icons/task-check-open.svg'} size={20} />
+                        </span>
+                        <span style={{ flex: '1 1 auto', minWidth: 0, fontWeight: 400, fontSize: 15 }}>{child.name}</span>
+                        <Pill color={taskStatusColor(child.status, child.isDone)}>{child.status}</Pill>
                       </button>
                     </li>
                   ))}
                 </ul>
               )}
+              {staff ? (
+                <button
+                  type="button"
+                  onClick={() => setAsideNote('Add sub-task does not create a task. Nothing was sent.')}
+                  className="mt-3 flex w-full items-center gap-2 text-left"
+                  style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '10px 12px', color: 'var(--muted)', background: 'transparent' }}
+                >
+                  + Add sub-task
+                </button>
+              ) : null}
             </section>
             <section>
               <div className="flex items-center justify-between gap-2">
@@ -128,16 +148,6 @@ export function TaskDetailModal({
                   ))}
                 </ul>
               )}
-              {staff ? (
-                <button
-                  type="button"
-                  onClick={() => setAsideNote('Add sub-task does not create a task. Nothing was sent.')}
-                  className="text-left"
-                  style={{ border: '1px dashed var(--border)', borderRadius: 12, padding: '0.7rem 0.85rem', color: 'var(--muted)', background: 'transparent' }}
-                >
-                  + Add sub-task
-                </button>
-              ) : null}
             </section>
           </div>
           <aside className="flex flex-col gap-4">
@@ -148,11 +158,9 @@ export function TaskDetailModal({
             ) : null}
             <Field label="Status">
               {staff ? (
-                <select
-                  aria-label="Status"
+                <StatusMenu
                   value={task.status}
-                  onChange={(event) => {
-                    const status = event.target.value;
+                  onChange={(status) => {
                     if (!live || !task.lastEditedTime) {
                       setAsideNote('Nothing was sent.');
                       return;
@@ -166,17 +174,19 @@ export function TaskDetailModal({
                       if (!result.ok) setAsideNote(result.error);
                     });
                   }}
-                  style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', color: 'var(--fg)', padding: '0.55rem 0.7rem' }}
-                >
-                  {LIVE_TASK_STATUSES.map((status) => (
-                    <option key={status} value={status}>{status}</option>
-                  ))}
-                </select>
+                />
               ) : (
                 <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
               )}
             </Field>
             {task.assigneeName ? <Field label="Assignee">{task.assigneeName}</Field> : staff ? <Field label="Assignee">Unassigned</Field> : null}
+            <Field label="Due date">
+              <span className="inline-flex items-center gap-2" style={{ color: 'var(--fg)' }}>
+                <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-calendar.svg" size={16} /></span>
+                {formatPortalDate(task.date)}
+              </span>
+            </Field>
+            <Field label="Project">{task.projectName ?? '—'}</Field>
             {staff ? (
               <Field label="Stage">
                 <div className="flex flex-wrap gap-2">
@@ -188,7 +198,7 @@ export function TaskDetailModal({
                       <button
                         key={stage}
                         type="button"
-                        disabled={visualLock}
+                        disabled={visualLock && !current}
                         aria-pressed={current}
                         onClick={() => {
                           if (visualLock) return;
@@ -210,13 +220,13 @@ export function TaskDetailModal({
                           border: current ? '1px solid var(--fg)' : '1px solid var(--border)',
                           borderRadius: 999,
                           padding: '4px 10px',
-                          background: 'transparent',
-                          color: visualLock ? 'var(--muted)' : 'var(--fg)',
-                          cursor: visualLock ? 'not-allowed' : 'pointer',
+                          background: current ? 'var(--fg)' : 'transparent',
+                          color: current ? 'var(--bg)' : visualLock ? 'var(--muted)' : 'var(--fg)',
+                          cursor: visualLock && !current ? 'not-allowed' : 'pointer',
                           fontSize: 11,
                         }}
                       >
-                        {visualLock ? '🔒 ' : ''}{stage}
+                        {visualLock && !current ? '🔒 ' : ''}{stage}
                       </button>
                     );
                   })}
@@ -382,6 +392,66 @@ function TaskTimeline({
         ))}
       </ul>
     </section>
+  );
+}
+
+function StatusMenu({ value, onChange }: { value: string; onChange: (status: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (event: MouseEvent) => {
+      if (!ref.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, [open]);
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label="Status"
+        onClick={() => setOpen((current) => !current)}
+        className="flex w-full items-center justify-between gap-2"
+        style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', color: 'var(--fg)', padding: '0.45rem 0.7rem' }}
+      >
+        <Pill color={taskStatusColor(value, value === 'Done')}>{value}</Pill>
+        <TaskGlyph src="/icons/task-chev-down.svg" />
+      </button>
+      {open ? (
+        <ul
+          role="listbox"
+          aria-label="Status"
+          className="absolute z-10 mt-1 w-full"
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 4, boxShadow: '0 12px 32px rgb(0 0 0 / 35%)' }}
+        >
+          {LIVE_TASK_STATUSES.map((status) => (
+            <li key={status} role="option" aria-selected={status === value}>
+              <button
+                type="button"
+                className="w-full text-left"
+                style={{
+                  padding: '0.45rem 0.6rem',
+                  background: status === value ? 'var(--bg)' : 'transparent',
+                  color: 'var(--fg)',
+                  border: 0,
+                  borderRadius: 8,
+                  cursor: 'pointer',
+                }}
+                onClick={() => {
+                  onChange(status);
+                  setOpen(false);
+                }}
+              >
+                {status}
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
   );
 }
 
@@ -651,8 +721,8 @@ function ModalShell({
       previous?.focus();
     };
   }, [onClose]);
-  return (
-    <div role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: phone ? 'stretch' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
+  const dialog = (
+    <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: phone ? 'stretch' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
       <div
         ref={ref}
         role="dialog"
@@ -666,13 +736,15 @@ function ModalShell({
           overflow: 'auto',
           background: 'var(--surface)',
           borderRadius: phone ? 0 : 16,
-          padding: phone ? 16 : 24,
+          padding: phone ? 20 : 24,
         }}
       >
         {children}
       </div>
     </div>
   );
+  if (typeof document === 'undefined') return dialog;
+  return createPortal(dialog, document.body);
 }
 
 const inputStyle = {

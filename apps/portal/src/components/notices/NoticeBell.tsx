@@ -9,7 +9,8 @@ import { usePortalData } from '@/hooks/usePortalData';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
-import { FIXTURE_NOTICES } from '@/lib/data/fixtures';
+import { FIXTURE_NOTICES, FIXTURE_TASKS } from '@/lib/data/fixtures';
+import { noticeDisplayMessage } from '@/lib/data/view-models';
 
 type NoticeRow = {
   id: Id<'notices'>;
@@ -47,6 +48,7 @@ export function NoticeBell() {
   const fixtureStaff = fixtures && staff;
   if (!enabled && !fixtureStaff) return null;
   const rows = fixtureStaff ? fixtureRows : notices.data ?? [];
+  const tasks = fixtures ? FIXTURE_TASKS : data.tasks;
   const unread = rows.filter((row) => row.unread).length;
   const markOne = (id: string) => {
     if (fixtureStaff) {
@@ -163,7 +165,7 @@ export function NoticeBell() {
                 {row.unread ? ' · Unread' : ' · Read'}
               </span>
               <span className="mt-1 block" style={{ fontSize: 14, lineHeight: '21px' }}>
-                {row.message}
+                {noticeDisplayMessage(row.message, tasks)}
               </span>
             </button>
           ))}
