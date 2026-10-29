@@ -249,9 +249,12 @@ export function awaitingKpiCaption(count: number, projectCount: number): { capti
   return { caption: acrossProjectsLabel(projectCount), hot: true };
 }
 
-/** Chips stay for a filtered-empty list. A true empty set has nothing to filter. */
-export function projectListShowsFilters(viewerCount: number): boolean {
-  return viewerCount > 0;
+/**
+ * Chips stay for a filtered-empty list. A true empty set has nothing to filter.
+ * Loading hides them so counts cannot appear before the KPI numbers.
+ */
+export function projectListShowsFilters(viewerCount: number, loading = false): boolean {
+  return viewerCount > 0 && !loading;
 }
 
 /** KPI cards hide only when the viewer total is zero. Loading still shows skeletons. */
@@ -259,16 +262,33 @@ export function projectListShowsKpis(viewerCount: number, loading: boolean): boo
   return loading || viewerCount > 0;
 }
 
+/** Snapshot query failure only. A blank message is not an error. */
+export function portalHookError(snapshotError?: string | null): string | null {
+  const snapshot = snapshotError?.trim() ?? '';
+  return snapshot || null;
+}
+
 /**
- * Snapshot query failure only. A Notion pull error stays on syncMeta
- * for the dashboard sync card and the row sync chip.
+ * One split for the portal hook. `snapshotError` is the query failure.
+ * `syncError` stays on syncMeta for the dashboard sync card and row chips.
  */
-export function portalHookError(input: {
+export function portalFailure(input: {
   snapshotError?: string | null;
   syncError?: string | null;
-}): string | null {
-  if (!input.snapshotError?.trim()) return null;
-  return input.snapshotError.trim();
+}): { snapshotError: string | null; syncError: string | null } {
+  return {
+    snapshotError: portalHookError(input.snapshotError),
+    syncError: input.syncError?.trim() || null,
+  };
+}
+
+/** No cached rows: the error card replaces the page. Cached rows: a refresh banner. */
+export function projectListErrorMode(
+  queryError: string | null,
+  cachedCount: number,
+): 'none' | 'empty' | 'refresh' {
+  if (!queryError) return 'none';
+  return cachedCount > 0 ? 'refresh' : 'empty';
 }
 
 /**
@@ -304,16 +324,39 @@ export function projectListEmptyCopy(viewerCount: number, staff: boolean): { tit
 export const PROJECT_LIST_CLIENT_LOAD_TITLE = "We couldn't load your projects";
 export const PROJECT_LIST_CLIENT_LOAD_BODY = 'Try again in a moment.';
 export const PROJECT_LIST_STAFF_LOAD_TITLE = "Couldn't load projects";
+export const PROJECT_LIST_CLIENT_REFRESH_TITLE = "We couldn't refresh your projects";
+export const PROJECT_LIST_CLIENT_REFRESH_BODY = 'Showing what was last loaded.';
+export const PROJECT_LIST_STAFF_REFRESH_TITLE = "Couldn't refresh projects";
 
 /**
- * List load failure. Both audiences get Try again. The save-queued sentence
- * from the states frame is not used here: a failed load has nothing queued.
+ * List load failure. `refresh` is a failed refetch that still has rows.
+ * Both audiences get Try again. The save-queued sentence from the states
+ * frame is not used here: a failed load has nothing queued.
  * Client title and body live only in the constants above.
  */
 export function projectListLoadNotice(
   staff: boolean,
   message: string,
+  refresh = false,
 ): { title: string; body: string; retry: boolean; mono: boolean } {
+  if (refresh) {
+    if (!staff) {
+      return {
+        title: PROJECT_LIST_CLIENT_REFRESH_TITLE,
+        body: PROJECT_LIST_CLIENT_REFRESH_BODY,
+        retry: true,
+        mono: false,
+      };
+    }
+    const detail = message.trim();
+    const mono = Boolean(detail) && detail !== PROJECT_LIST_STAFF_REFRESH_TITLE;
+    return {
+      title: PROJECT_LIST_STAFF_REFRESH_TITLE,
+      body: mono ? detail : PROJECT_LIST_CLIENT_REFRESH_BODY,
+      retry: true,
+      mono,
+    };
+  }
   if (!staff) {
     return {
       title: PROJECT_LIST_CLIENT_LOAD_TITLE,

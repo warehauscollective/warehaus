@@ -12,8 +12,13 @@ import {
   PROJECT_CREATE_HINT,
   PROJECT_LIST_CLIENT_LOAD_BODY,
   PROJECT_LIST_CLIENT_LOAD_TITLE,
+  PROJECT_LIST_CLIENT_REFRESH_BODY,
+  PROJECT_LIST_CLIENT_REFRESH_TITLE,
   PROJECT_LIST_STAFF_LOAD_TITLE,
+  PROJECT_LIST_STAFF_REFRESH_TITLE,
+  portalFailure,
   portalHookError,
+  projectListErrorMode,
   projectListLoadNotice,
   projectListQueryError,
   projectListShowsFilters,
@@ -261,6 +266,12 @@ describe('project list chrome', () => {
     assert.equal(projectListShowsKpis(0, true), true);
     assert.equal(projectListShowsKpis(1, false), true);
   });
+
+  it('hides filter chips while loading so counts cannot appear before the KPIs', () => {
+    assert.equal(projectListShowsFilters(5, true), false);
+    assert.equal(projectListShowsFilters(5, false), true);
+    assert.equal(projectListShowsFilters(0, true), false);
+  });
 });
 
 describe('project list load notice', () => {
@@ -282,12 +293,37 @@ describe('project list load notice', () => {
     assert.equal(staff.body.includes('14:05'), false);
   });
 
+  it('uses refresh copy when cached rows survive the failure', () => {
+    assert.equal(projectListErrorMode(null, 3), 'none');
+    assert.equal(projectListErrorMode('Network error', 0), 'empty');
+    assert.equal(projectListErrorMode('Network error', 2), 'refresh');
+    const staff = projectListLoadNotice(true, 'Network error', true);
+    assert.equal(staff.title, PROJECT_LIST_STAFF_REFRESH_TITLE);
+    assert.equal(PROJECT_LIST_STAFF_REFRESH_TITLE, "Couldn't refresh projects");
+    assert.equal(staff.body, 'Network error');
+    assert.equal(staff.mono, true);
+    assert.equal(staff.retry, true);
+    const client = projectListLoadNotice(false, 'Network error', true);
+    assert.equal(client.title, PROJECT_LIST_CLIENT_REFRESH_TITLE);
+    assert.equal(PROJECT_LIST_CLIENT_REFRESH_TITLE, "We couldn't refresh your projects");
+    assert.equal(client.body, PROJECT_LIST_CLIENT_REFRESH_BODY);
+    assert.equal(PROJECT_LIST_CLIENT_REFRESH_BODY, 'Showing what was last loaded.');
+    assert.equal(client.mono, false);
+    assert.equal(client.retry, true);
+  });
+
   it('keeps a sync error off the load notice', () => {
-    assert.equal(
-      portalHookError({ snapshotError: null, syncError: 'Notion sync is behind' }),
-      null,
+    assert.equal(portalHookError(null), null);
+    assert.equal(portalHookError('  '), null);
+    assert.equal(portalHookError('snapshot down'), 'snapshot down');
+    assert.deepEqual(portalFailure({ snapshotError: null, syncError: 'Notion sync is behind' }), {
+      snapshotError: null,
+      syncError: 'Notion sync is behind',
+    });
+    assert.deepEqual(
+      portalFailure({ snapshotError: ' snapshot down ', syncError: '  Notion sync is behind  ' }),
+      { snapshotError: 'snapshot down', syncError: 'Notion sync is behind' },
     );
-    assert.equal(portalHookError({ snapshotError: 'snapshot down', syncError: 'Notion sync is behind' }), 'snapshot down');
     assert.equal(
       projectListQueryError({
         snapshotError: null,

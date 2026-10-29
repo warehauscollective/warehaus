@@ -7,7 +7,7 @@ import {
   PROJECT_CREATE_HINT,
   projectListEmptyCopy,
   projectListLoadNotice,
-  projectListQueryError,
+  projectListShowsFilters,
 } from '@/lib/data/projectList';
 
 /** Dashed empty card from Projects / States (Figma 297:18354). */
@@ -15,11 +15,13 @@ export function ProjectListEmptyState({
   viewerCount,
   staff,
   onCreate,
+  onClear,
   createEnabled = false,
 }: {
   viewerCount: number;
   staff: boolean;
   onCreate?: () => void;
+  onClear?: () => void;
   createEnabled?: boolean;
 }) {
   const copy = projectListEmptyCopy(viewerCount, staff);
@@ -27,6 +29,27 @@ export function ProjectListEmptyState({
     return (
       <p className="mt-4" data-testid="projects-empty" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
         {copy.title}
+        {onClear ? (
+          <>
+            {' '}
+            <button
+              type="button"
+              data-testid="clear-filters"
+              onClick={onClear}
+              style={{
+                background: 'none',
+                border: 0,
+                padding: 0,
+                color: 'var(--fg)',
+                font: 'inherit',
+                textDecoration: 'underline',
+                cursor: 'pointer',
+              }}
+            >
+              Clear filters
+            </button>
+          </>
+        ) : null}
       </p>
     );
   }
@@ -117,7 +140,6 @@ export function NewProjectButton({
   return (
     <span
       tabIndex={0}
-      role="group"
       aria-disabled="true"
       aria-describedby={hintId}
       title={PROJECT_CREATE_HINT}
@@ -171,16 +193,35 @@ export function ProjectKpiSkeleton() {
   );
 }
 
+export function ProjectListFilters({
+  loading,
+  viewerCount,
+  children,
+}: {
+  loading: boolean;
+  viewerCount: number;
+  children?: ReactNode;
+}) {
+  if (!projectListShowsFilters(viewerCount, loading)) return null;
+  return (
+    <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Project filters" data-testid="project-filters">
+      {children}
+    </div>
+  );
+}
+
 export function ProjectListLoadNotice({
   staff,
   message,
   onRetry,
+  cached = false,
 }: {
   staff: boolean;
   message: string;
   onRetry: () => void;
+  cached?: boolean;
 }) {
-  const copy = projectListLoadNotice(staff, message);
+  const copy = projectListLoadNotice(staff, message, cached);
   return (
     <div
       role="alert"
@@ -236,44 +277,65 @@ export function ProjectListLoadNotice({
 }
 
 /**
- * Card body for the projects list. A sync error alone never becomes the load notice.
+ * Page body under the projects header. A no-data error replaces the KPIs and the list.
+ * A refresh error keeps `children` and changes the notice copy.
  */
+export function ProjectListScreen({
+  staff,
+  errorMode,
+  message,
+  onRetry,
+  children,
+}: {
+  staff: boolean;
+  errorMode: 'none' | 'empty' | 'refresh';
+  message: string | null;
+  onRetry: () => void;
+  children?: ReactNode;
+}) {
+  return (
+    <>
+      {!staff ? (
+        <p data-testid="projects-client-line" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+          You only see what is shared with you.
+        </p>
+      ) : null}
+      {errorMode !== 'none' && message ? (
+        <ProjectListLoadNotice staff={staff} message={message} cached={errorMode === 'refresh'} onRetry={onRetry} />
+      ) : null}
+      {errorMode === 'empty' ? null : children}
+    </>
+  );
+}
+
+/** Card body for the projects list. Query failures are handled by ProjectListScreen. */
 export function ProjectListOutcome({
-  snapshotError,
-  projectsError,
-  syncError,
   loading,
   viewerCount,
   visibleCount,
   staff,
-  onRetry,
   onCreate,
+  onClear,
   createEnabled,
   children,
 }: {
-  snapshotError: string | null;
-  projectsError: string | null;
-  syncError: string | null;
   loading: boolean;
   viewerCount: number;
   visibleCount: number;
   staff: boolean;
-  onRetry: () => void;
   onCreate: () => void;
+  onClear?: () => void;
   createEnabled: boolean;
   children?: ReactNode;
 }) {
-  const queryError = projectListQueryError({ snapshotError, projectsError, syncError });
   if (loading) return <ProjectListSkeleton />;
-  if (queryError && visibleCount === 0) {
-    return <ProjectListLoadNotice staff={staff} message={queryError} onRetry={onRetry} />;
-  }
   if (visibleCount === 0) {
     return (
       <ProjectListEmptyState
         viewerCount={viewerCount}
         staff={staff}
         onCreate={onCreate}
+        onClear={onClear}
         createEnabled={createEnabled}
       />
     );

@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { useEffect } from 'react';
+import { PortalDataRetryProvider } from '@/components/providers/PortalDataRetry';
 import { ProjectCreateFlagProvider } from '@/components/projects/projectCreateFlag';
 import { PortalTabProvider } from '@/components/providers/PortalTabProvider';
 import { PortalViewProvider } from '@/components/providers/PortalViewProvider';
@@ -46,11 +47,13 @@ export function PortalShell({
 }) {
   return (
     <ProjectCreateFlagProvider enabled={projectCreateEnabled}>
-      <PortalTabProvider>
-        <PortalViewProvider>
-          <PortalChrome>{children}</PortalChrome>
-        </PortalViewProvider>
-      </PortalTabProvider>
+      <PortalDataRetryProvider>
+        <PortalTabProvider>
+          <PortalViewProvider>
+            <PortalChrome>{children}</PortalChrome>
+          </PortalViewProvider>
+        </PortalTabProvider>
+      </PortalDataRetryProvider>
     </ProjectCreateFlagProvider>
   );
 }

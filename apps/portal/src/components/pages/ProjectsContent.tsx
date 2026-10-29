@@ -12,8 +12,8 @@ import {
   projectFilterCounts,
   projectInitials,
   projectListKpis,
+  projectListErrorMode,
   projectListQueryError,
-  projectListShowsFilters,
   projectListShowsKpis,
   requestProjectCreate,
   EDIT_PROJECT_WRITEBACK_HINT,
@@ -31,6 +31,7 @@ import {
   type ProjectListFilter,
 } from '@/lib/data/projectList';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
+import { useRetryPortalData } from '@/components/providers/PortalDataRetry';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
@@ -56,8 +57,9 @@ import { useProjectCreateEnabled } from '@/components/projects/projectCreateFlag
 import {
   NewProjectButton,
   ProjectKpiSkeleton,
-  ProjectListLoadNotice,
+  ProjectListFilters,
   ProjectListOutcome,
+  ProjectListScreen,
 } from '@/components/projects/ProjectListStates';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
 import { TaskCreateDialog, TaskDetailModal } from '@/components/tasks/TaskDetailModal';
@@ -78,19 +80,25 @@ type ProjectRow = PortalProject & {
   publishToWarehaus?: boolean;
 };
 
+/** Last staff list. Survives the Try again remount that resubscribes getSnapshot. */
+let cachedStaffProjects: ProjectRow[] | null = null;
+let cachedViewerIsStaff = false;
+
 export function ProjectsContent() {
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
   const { sectionFor, setSectionFor, openLinkedClient } = usePortalView();
-  const [suspendQueries, setSuspendQueries] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const createEnabled = useProjectCreateEnabled();
-  const { data, loading, error } = usePortalData({ suspend: suspendQueries });
-  const { portalSession } = usePortalAuth();
+  const { data, loading, error } = usePortalData();
+  const retryPortalData = useRetryPortalData();
+  const { portalSession, linkStatus, sessionPending } = usePortalAuth();
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const activeSection = sectionFor('projects');
-  const isStaff = Boolean(portalSession?.isStaff);
+  const sessionStaff = Boolean(portalSession?.isStaff);
+  if (portalSession) cachedViewerIsStaff = sessionStaff;
+  const isStaff = portalSession ? sessionStaff : linkStatus === 'loading' && cachedViewerIsStaff;
   const [filter, setFilter] = useState<ProjectListFilter>('all');
   const [forceEmpty, setForceEmpty] = useState(false);
   const [forceFiltered, setForceFiltered] = useState(false);
@@ -134,20 +142,20 @@ export function ProjectsContent() {
   useEffect(() => {
     if (!fixtures) return;
     const list = new URLSearchParams(window.location.search).get('list');
-    setForceEmpty(list === 'empty');
+    setForceEmpty(list === 'empty' || list === 'error');
     setForceFiltered(list === 'filtered');
     setForceLoading(list === 'loading');
-    setForceError(list === 'error' ? 'Network error' : null);
+    setForceError(list === 'error' || list === 'refresh' ? 'Network error' : null);
     if (list === 'filtered') setFilter('shipped');
   }, [fixtures]);
 
   useEffect(() => {
-    if (!suspendQueries) return;
-    const id = window.setTimeout(() => setSuspendQueries(false), 0);
-    return () => window.clearTimeout(id);
-  }, [suspendQueries]);
+    if (sessionPending || linkStatus === 'loading' || linkStatus === 'linked') return;
+    cachedStaffProjects = null;
+    cachedViewerIsStaff = false;
+  }, [sessionPending, linkStatus]);
 
-  const staff = useStaffCrossOrg(!fixtures && configured && isStaff && !suspendQueries, hostSlug);
+  const staff = useStaffCrossOrg(!fixtures && configured && sessionStaff, hostSlug);
   const directory = useSafeQuery<Array<{ id: string; name: string }>>(
     api.clients.listDirectory,
     !fixtures && configured && isStaff ? { hostSlug } : 'skip',
@@ -158,9 +166,16 @@ export function ProjectsContent() {
   );
 
   const projects = useMemo(() => {
-    const rows = (
-      fixtures ? FIXTURE_PROJECTS : isStaff ? staff.projects ?? [] : data.projects
-    ) as ProjectRow[];
+    let staffRows: ProjectRow[] = [];
+    if (isStaff && !fixtures) {
+      if (Array.isArray(staff.projects)) {
+        cachedStaffProjects = staff.projects as ProjectRow[];
+        staffRows = cachedStaffProjects;
+      } else {
+        staffRows = cachedStaffProjects ?? [];
+      }
+    }
+    const rows = (fixtures ? FIXTURE_PROJECTS : isStaff ? staffRows : data.projects) as ProjectRow[];
     return attachKnownSync(rows, data.projects);
   }, [fixtures, isStaff, staff.projects, data.projects]);
   const tasks = (
@@ -173,7 +188,9 @@ export function ProjectsContent() {
   const docs = (
     fixtures ? FIXTURE_DOCS : isStaff ? staff.docs ?? [] : clientDocsState.data ?? []
   ) as DocRow[];
-  const projectsLoading = forceLoading || (!fixtures && (loading || (isStaff && staff.projectsLoading)));
+  const projectsLoading =
+    forceLoading ||
+    (!fixtures && (isStaff ? staff.projectsLoading && cachedStaffProjects == null : loading));
 
   const listed = useMemo(
     () => (forceFiltered ? projects.filter((project) => !projectMatchesFilter(project, 'shipped')) : projects),
@@ -313,13 +330,14 @@ export function ProjectsContent() {
     projectsError: isStaff ? staff.projectsError : null,
     syncError: data.syncMeta.lastError,
   });
+  const errorMode = projectsLoading ? 'none' : projectListErrorMode(loadError, viewerCount);
   const retryQueries = () => {
     if (fixtures) {
       setForceError(null);
       setForceLoading(false);
       return;
     }
-    setSuspendQueries(true);
+    retryPortalData();
   };
   const openCreate = () => {
     requestProjectCreate(createEnabled, () => setCreateOpen(true));
@@ -505,14 +523,12 @@ export function ProjectsContent() {
     >
       <PortalTilePane>
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" data-testid="projects-list">
-          {loadError && !(visible.length === 0 && !projectsLoading) ? (
-            <ProjectListLoadNotice staff={isStaff} message={loadError} onRetry={retryQueries} />
-          ) : null}
-          {!isStaff ? (
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-              You only see what is shared with you.
-            </p>
-          ) : null}
+          <ProjectListScreen
+            staff={isStaff}
+            errorMode={errorMode}
+            message={loadError}
+            onRetry={retryQueries}
+          >
           {projectListShowsKpis(viewerCount, projectsLoading) ? (
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3" data-testid="project-kpis">
               {projectsLoading ? (
@@ -544,30 +560,28 @@ export function ProjectsContent() {
               <h2 style={{ fontSize: 18, lineHeight: '26px', fontWeight: 600 }}>All projects</h2>
               <p style={{ fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>Sorted by last updated</p>
             </div>
-            {projectListShowsFilters(viewerCount) ? (
-              <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Project filters" data-testid="project-filters">
-                {filterCounts.map((chip) => (
-                  <FilterChip
-                    key={chip.key}
-                    active={filter === chip.key}
-                    count={chip.count}
-                    onClick={() => chooseFilter(chip.key)}
-                  >
-                    {chip.label}
-                  </FilterChip>
-                ))}
-              </div>
-            ) : null}
+            <ProjectListFilters loading={projectsLoading} viewerCount={viewerCount}>
+              {filterCounts.map((chip) => (
+                <FilterChip
+                  key={chip.key}
+                  active={filter === chip.key}
+                  count={chip.count}
+                  onClick={() => chooseFilter(chip.key)}
+                >
+                  {chip.label}
+                </FilterChip>
+              ))}
+            </ProjectListFilters>
             <ProjectListOutcome
-              snapshotError={forceError ?? error}
-              projectsError={isStaff ? staff.projectsError : null}
-              syncError={data.syncMeta.lastError}
               loading={projectsLoading}
               viewerCount={viewerCount}
               visibleCount={visible.length}
               staff={isStaff}
-              onRetry={retryQueries}
               onCreate={openCreate}
+              onClear={() => {
+                setForceFiltered(false);
+                chooseFilter('all');
+              }}
               createEnabled={createEnabled}
             >
               <ul className="mt-2">
@@ -661,6 +675,7 @@ export function ProjectsContent() {
               </ul>
             </ProjectListOutcome>
           </Surface>
+          </ProjectListScreen>
         </div>
       </PortalTilePane>
       {routeTaskId ? (
