@@ -18,7 +18,7 @@ import { isStaff, PortalAuthError } from './_lib/identity';
 
 type TaskWriteResult =
   | { ok: false; error: string }
-  | { ok: true; outboxId: Id<'notionOutbox'>; duplicate: boolean };
+  | { ok: true; pending?: boolean; outboxId?: Id<'notionOutbox'>; duplicate?: boolean };
 
 /** CLIENT serializer — never emit Priority, Estimate, Owner, parent, resources, or a SERVER description. */
 function descriptionForClient(row: { description?: string | null; publishToWarehaus: boolean }): string | null {
@@ -214,6 +214,7 @@ export const listForStaff = adminQuery({
           lastSyncedAt: row.lastSyncedAt,
           syncHidden: row.syncHiddenAt != null,
           syncNotice: row.syncNotice ?? null,
+          ...(row.stagePendingAt != null ? { stagePending: true as const } : {}),
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));

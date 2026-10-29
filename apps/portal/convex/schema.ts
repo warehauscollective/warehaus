@@ -82,6 +82,20 @@ export default defineSchema({
     date: v.optional(v.string()),
     /** CLIENT select. Missing until Notion has the property. */
     stage: v.optional(v.union(v.string(), v.null())),
+    /**
+     * Last Stage from Notion, or the Stage a task-stage write confirmed.
+     * Null means Notion had no stage.
+     */
+    stageSynced: v.optional(v.union(v.string(), v.null())),
+    /** Set while stage is a staff move Notion has not confirmed. Staff-only. */
+    stagePendingAt: v.optional(v.number()),
+    /**
+     * tasks.lastEditedTime the unsent move is based on.
+     * Outbox expectedLastEditedTime. Not a wall clock.
+     */
+    stagePendingBaseEditedTime: v.optional(v.string()),
+    /** Ready to Ship link for the unsent move. Not pullRequestUrl. */
+    stagePendingPullRequest: v.optional(v.string()),
     /** SERVER self-relation, one level deep. */
     parentNotionPageId: v.optional(v.union(v.string(), v.null())),
     parentTaskId: v.optional(v.id('tasks')),

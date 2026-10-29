@@ -259,6 +259,116 @@ export function statusMoveRule(actor: MoveActor, status: string): MoveRule {
   return { kind: 'allowed' };
 }
 
+export type PulledStageMerge = {
+  stage: string | null;
+  stageSynced: string | null;
+  clearPending: boolean;
+  /** Set when a newer Notion edit left Stage itself unchanged. */
+  stagePendingBaseEditedTime?: string;
+  lastEditedTime: string | null;
+  deleteUnsent: boolean;
+  notice: { message: string; edgeCase: string } | null;
+};
+
+function stageLabel(stage: string | null): string {
+  return stage ?? 'no stage';
+}
+
+function normStage(stage: string | null | undefined): string | null {
+  if (stage == null) return null;
+  const trimmed = stage.trim();
+  return trimmed === '' ? null : trimmed;
+}
+
+/** True when `next` is a later Notion ISO edit than `current`. Missing current counts as older. */
+export function isNewerEditedTime(
+  next: string | null | undefined,
+  current: string | null | undefined,
+): boolean {
+  if (next == null || next.trim() === '') return false;
+  const nextMs = Date.parse(next);
+  if (Number.isNaN(nextMs)) return false;
+  if (current == null || current.trim() === '') return true;
+  const currentMs = Date.parse(current);
+  if (Number.isNaN(currentMs)) return true;
+  return nextMs > currentMs;
+}
+
+/**
+ * Notion pull vs a staff stage that is not confirmed yet.
+ * A local move does not change tasks.lastEditedTime. Compare Notion's
+ * last_edited_time to stagePendingBaseEditedTime.
+ */
+export function mergePulledStage(input: {
+  notionStage: string | null;
+  notionLastEditedTime: string | null;
+  localStage: string | null;
+  localLastEditedTime: string | null;
+  stageSynced: string | null;
+  pending: boolean;
+  stagePendingBaseEditedTime: string | null;
+  name: string;
+  notionPageId: string;
+}): PulledStageMerge {
+  const notionStage = normStage(input.notionStage);
+  const localStage = normStage(input.localStage);
+  const stageSynced = normStage(input.stageSynced);
+  const notionTime = input.notionLastEditedTime?.trim() ? input.notionLastEditedTime : null;
+  if (!input.pending) {
+    return {
+      stage: notionStage,
+      stageSynced: notionStage,
+      clearPending: false,
+      lastEditedTime: notionTime,
+      deleteUnsent: false,
+      notice: null,
+    };
+  }
+  const newer = isNewerEditedTime(notionTime, input.stagePendingBaseEditedTime);
+  if (!newer) {
+    return {
+      stage: localStage,
+      stageSynced: notionStage,
+      clearPending: false,
+      lastEditedTime: input.localLastEditedTime,
+      deleteUnsent: false,
+      notice: null,
+    };
+  }
+  if (notionStage === localStage) {
+    return {
+      stage: localStage,
+      stageSynced: notionStage,
+      clearPending: true,
+      lastEditedTime: notionTime,
+      deleteUnsent: true,
+      notice: null,
+    };
+  }
+  if (notionStage === stageSynced) {
+    return {
+      stage: localStage,
+      stageSynced: notionStage,
+      clearPending: false,
+      stagePendingBaseEditedTime: notionTime ?? undefined,
+      lastEditedTime: notionTime,
+      deleteUnsent: true,
+      notice: null,
+    };
+  }
+  return {
+    stage: notionStage,
+    stageSynced: notionStage,
+    clearPending: true,
+    lastEditedTime: notionTime,
+    deleteUnsent: true,
+    notice: {
+      edgeCase: `stage-superseded:${input.notionPageId}`,
+      message: `${input.name} stage in Notion changed to ${stageLabel(notionStage)} after a portal move to ${stageLabel(localStage)}.`,
+    },
+  };
+}
+
 export function planTaskStageWrite(input: {
   actor: MoveActor;
   stage: string;

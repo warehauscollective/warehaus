@@ -82,6 +82,8 @@ export type PortalTask = {
   syncState?: 'syncing' | 'synced' | 'failed' | null;
   /** Staff only. Set when Notion Stage is not a portal stage. */
   syncNotice?: string | null;
+  /** Staff only. True while a saved stage move is still waiting on Notion. */
+  stagePending?: boolean;
 };
 
 export type PortalActivity = {

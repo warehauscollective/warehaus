@@ -2,14 +2,29 @@ import {
   decideResourceLink,
   isApprovedInternalWarehausProject,
   isWarehausInternalClient,
+  mergePulledStage,
   projectCountsForTaskGate,
   resolveParentLink,
   taskTouchesIncrementalSet,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
-import { internalMutation, internalQuery } from '../_generated/server';
+import { internal } from '../_generated/api';
+import { internalMutation, internalQuery, type MutationCtx } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import { matchingQuarantineId } from '../_lib/quarantineRow';
+
+/** Queued or failed task-stage rows only. Inflight, done, and conflict stay. */
+async function deleteUnsentTaskStageRows(ctx: MutationCtx, notionPageId: string): Promise<void> {
+  const rows = await ctx.db
+    .query('notionOutbox')
+    .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+    .collect();
+  for (const row of rows) {
+    if (row.kind !== 'task-stage') continue;
+    if (row.status !== 'queued' && row.status !== 'failed') continue;
+    await ctx.db.delete(row._id);
+  }
+}
 
 const hiddenReasonArg = v.optional(
   v.union(v.literal('gate'), v.literal('ancestor'), v.literal('trashed')),
@@ -148,6 +163,30 @@ export const upsertTask = internalMutation({
       .query('tasks')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
       .unique();
+    const merge = mergePulledStage({
+      notionStage: fields.stage ?? null,
+      notionLastEditedTime: fields.lastEditedTime ?? null,
+      localStage: existing?.stage ?? null,
+      localLastEditedTime: existing?.lastEditedTime ?? null,
+      stageSynced: existing?.stageSynced ?? null,
+      pending: existing?.stagePendingAt != null,
+      stagePendingBaseEditedTime: existing?.stagePendingBaseEditedTime ?? null,
+      name: fields.name,
+      notionPageId: args.notionPageId,
+    });
+    const pendingPatch = merge.clearPending
+      ? {
+          stageSynced: merge.stageSynced,
+          stagePendingAt: undefined,
+          stagePendingBaseEditedTime: undefined,
+          stagePendingPullRequest: undefined,
+        }
+      : {
+          stageSynced: merge.stageSynced,
+          ...(merge.stagePendingBaseEditedTime
+            ? { stagePendingBaseEditedTime: merge.stagePendingBaseEditedTime }
+            : {}),
+        };
     const now = Date.now();
     const descriptionPatch =
       description === undefined && descriptionSource === undefined
@@ -166,6 +205,9 @@ export const upsertTask = internalMutation({
             };
     const patch = {
       ...fields,
+      stage: merge.stage,
+      lastEditedTime: merge.lastEditedTime,
+      ...pendingPatch,
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
       ...descriptionPatch,
@@ -175,11 +217,18 @@ export const upsertTask = internalMutation({
           ? { syncNotice: undefined }
           : {}),
     };
-    if (existing) {
-      await ctx.db.patch(existing._id, patch);
-      return existing._id;
+    const taskId = existing
+      ? (await ctx.db.patch(existing._id, patch), existing._id)
+      : await ctx.db.insert('tasks', patch);
+    if (merge.deleteUnsent) await deleteUnsentTaskStageRows(ctx, args.notionPageId);
+    if (merge.notice) {
+      await ctx.runMutation(internal.invitesSync.recordStaffNotice, {
+        orgId: args.orgId,
+        message: merge.notice.message,
+        edgeCase: merge.notice.edgeCase,
+      });
     }
-    return ctx.db.insert('tasks', patch);
+    return taskId;
   },
 });
 

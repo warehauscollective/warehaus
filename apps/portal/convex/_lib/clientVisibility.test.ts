@@ -184,6 +184,11 @@ const tables: Record<string, Row[]> = {
       description: 'Staff only task copy',
       estimate: 'estimate-secret',
       priority: 'priority-high',
+      stage: 'Planning',
+      stagePendingAt: 99,
+      stageSynced: 'Idea',
+      stagePendingBaseEditedTime: '2026-10-28T00:00:00.000Z',
+      stagePendingPullRequest: 'pending-pr-secret',
       pullRequestUrl: 'https://github.com/warehaus/secret/pull/1',
     },
     {
@@ -193,6 +198,7 @@ const tables: Record<string, Row[]> = {
       name: 'Studio ops',
       status: 'To Do',
       isDone: false,
+      stage: 'Shipped',
       publishToWarehaus: true,
       notionPageId: 'task-internal-notion',
       lastSyncedAt: 1,
@@ -204,9 +210,23 @@ const tables: Record<string, Row[]> = {
       name: 'Secret draft',
       status: 'Inbox',
       isDone: false,
+      stage: 'Parked',
       publishToWarehaus: false,
       notionPageId: 'task-draft-notion',
       lastSyncedAt: 1,
+    },
+    {
+      _id: 'task-hidden',
+      orgId: org._id,
+      projectId: 'proj-public',
+      name: 'Hidden launch task',
+      status: 'To Do',
+      isDone: false,
+      stage: 'Awaiting Go',
+      publishToWarehaus: true,
+      notionPageId: 'task-hidden-notion',
+      lastSyncedAt: 1,
+      syncHiddenAt: 5,
     },
   ],
   activity: [
@@ -559,13 +579,18 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(text(resources).includes('lastSyncedAt'), false);
     assert.equal(text(resources).includes('updatedAt'), true);
     const listedTasks = tasks as Array<{ name: string; stage: string | null }>;
-    assert.equal(listedTasks.some((task) => task.name === 'Homepage' && task.stage == null), true);
+    assert.equal(listedTasks.some((task) => task.name === 'Homepage' && task.stage === 'Planning'), true);
+    assert.equal(listedTasks.some((task) => task.name === 'Secret draft' || task.name === 'Studio ops' || task.name === 'Hidden launch task'), false);
     const docTitles = (docs as Array<{ title: string }>).map((doc) => doc.title);
     assert.deepEqual(docTitles.slice(0, 2), ['Org guide', 'Public brief']);
     assert.equal(bundled.includes('Warehaus Staff'), false);
     assert.equal(bundled.includes('estimate-secret'), false);
     assert.equal(bundled.includes('priority-high'), false);
     assert.equal(bundled.includes('secret/pull/1'), false);
+    assert.equal(bundled.includes('pending-pr-secret'), false);
+    assert.equal(bundled.includes('stagePending'), false);
+    assert.equal(bundled.includes('stageSynced'), false);
+    assert.equal(bundled.includes('stagePendingAt'), false);
     assert.equal(bundled.includes('wh_res_secret'), false);
     assert.equal(bundled.includes('notion.so'), false);
     assert.equal(bundled.includes('publishToWarehaus'), false);
@@ -666,7 +691,9 @@ describe('client identity against warehaus.studio', () => {
   it('uses the same unavailable message for a hidden task and a missing task', async () => {
     const visible = await run(getForClient, { taskId: 'task-public' });
     assert.equal((visible as { name: string }).name, 'Homepage');
-    assert.equal((visible as { stage: string | null }).stage, null);
+    assert.equal((visible as { stage: string | null }).stage, 'Planning');
+    assert.equal('stagePending' in (visible as object), false);
+    assert.equal('pullRequestUrl' in (visible as object), false);
 
     for (const taskId of ['task-internal', 'task-missing', 'task-draft']) {
       await assert.rejects(run(getForClient, { taskId }), (err: unknown) => {
@@ -709,6 +736,43 @@ describe('client identity against warehaus.studio', () => {
         return true;
       });
     }
+  });
+
+  it('shows a saved stage to clients and stagePending only to staff', async () => {
+    const clientList = (await run(listTasksForClient)) as Array<Record<string, unknown>>;
+    const clientTask = clientList.find((task) => task.name === 'Homepage');
+    const clientSnapshot = (await run(getSnapshot)) as { tasks: Array<Record<string, unknown>> };
+    const clientSnap = clientSnapshot.tasks.find((task) => task.name === 'Homepage');
+    const clientDetail = (await run(getForClient, { taskId: 'task-public' })) as Record<string, unknown>;
+    const hidden = ['stagePending', 'stagePendingAt', 'stageSynced', 'stagePendingBaseEditedTime', 'stagePendingPullRequest', 'pullRequestUrl'];
+    for (const payload of [clientTask, clientSnap, clientDetail]) {
+      assert.equal(payload?.stage, 'Planning');
+      for (const key of hidden) assert.equal(key in (payload ?? {}), false, key);
+    }
+    const names = clientList.map((task) => task.name);
+    assert.equal(names.includes('Secret draft'), false);
+    assert.equal(names.includes('Studio ops'), false);
+    assert.equal(names.includes('Hidden launch task'), false);
+    assert.equal(JSON.stringify(clientSnapshot).includes('Parked'), false);
+    assert.equal(JSON.stringify(clientSnapshot).includes('Hidden launch task'), false);
+
+    const staffList = (await runStaff(listTasksForStaff)) as Array<Record<string, unknown>>;
+    const staffTask = staffList.find((task) => task.name === 'Homepage');
+    assert.equal(staffTask?.stagePending, true);
+    assert.equal(staffTask?.stage, 'Planning');
+    for (const key of ['stagePendingAt', 'stageSynced', 'stagePendingBaseEditedTime', 'stagePendingPullRequest']) {
+      assert.equal(key in (staffTask ?? {}), false, key);
+    }
+    const staffSnapshot = (await runStaff(getSnapshot)) as { tasks: Array<Record<string, unknown>> };
+    const staffSnap = staffSnapshot.tasks.find((task) => task.name === 'Homepage');
+    assert.equal(staffSnap?.stagePending, true);
+    assert.equal(staffSnap?.stage, 'Planning');
+    for (const key of hidden.filter((key) => key !== 'stagePending')) {
+      assert.equal(key in (staffSnap ?? {}), false, key);
+    }
+    assert.equal(JSON.stringify(clientList).includes('pending-pr-secret'), false);
+    assert.equal(JSON.stringify(clientSnapshot).includes('pending-pr-secret'), false);
+    assert.equal(JSON.stringify(clientDetail).includes('pending-pr-secret'), false);
   });
 
   it('shows internal work and the task description to staff', async () => {

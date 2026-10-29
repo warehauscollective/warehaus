@@ -16,6 +16,7 @@ const {
   boardMovePersists,
   cardDragPointerDown,
   flagOffDropMessage,
+  stageSavedFeedback,
 } = await import('./TaskBoard');
 
 const task: PortalTask = {
@@ -105,5 +106,42 @@ describe('TaskCardFace client stage card', () => {
     assert.equal(boardColumnTemplate(before.length, false), boardColumnTemplate(after.length, false));
     assert.equal(boardColumnTemplate(5, false), 'repeat(5, minmax(12.75rem, 1fr))');
     assert.equal(boardColumnTemplate(1, true), 'minmax(0, 1fr)');
+  });
+
+  it('toasts a saved stage move with Undo back to the previous stage', () => {
+    const moves: string[] = [];
+    const saved = stageSavedFeedback({
+      task: { ...task, name: 'Homepage', stage: 'Idea' },
+      mode: 'stage',
+      value: 'Planning',
+      previous: 'Idea',
+      onUndo: (request) => moves.push(request.value),
+    });
+    assert.equal(saved.message, 'Moved Homepage to Planning');
+    const html = renderToStaticMarkup(
+      createElement(BoardToast, { message: saved.message, undo: saved.undo, onDismiss: () => undefined }),
+    );
+    assert.match(html, /Moved Homepage to Planning/);
+    assert.match(html, />Undo</);
+    saved.undo();
+    assert.deepEqual(moves, ['Idea']);
+  });
+
+  it('keeps a flag-off status drop on the not-saved toast without Undo', () => {
+    const off = { ok: false as const, error: 'Write-back is off. Nothing was sent to Notion.' };
+    assert.equal(flagOffDropMessage(off), MOVE_NOT_SAVED);
+    const html = renderToStaticMarkup(createElement(BoardToast, { message: MOVE_NOT_SAVED, onDismiss: () => undefined }));
+    assert.match(html, /Not saved/);
+    assert.equal(html.includes('Undo'), false);
+  });
+
+  it('shows Not in Notion yet only on a staff card with stagePending', () => {
+    const pending = { ...task, stagePending: true };
+    const staff = renderToStaticMarkup(createElement(TaskCardFace, { task: pending, mode: 'stage', staff: true }));
+    assert.match(staff, /Not in Notion yet/);
+    assert.match(staff, /Unknown stage/);
+    const client = renderToStaticMarkup(createElement(TaskCardFace, { task: pending, mode: 'stage', staff: false }));
+    assert.equal(client.includes('Not in Notion yet'), false);
+    assert.equal(client.includes('stagePending'), false);
   });
 });

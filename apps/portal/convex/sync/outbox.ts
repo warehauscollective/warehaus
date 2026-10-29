@@ -6,6 +6,7 @@
 import {
   auditEventForOutcome,
   isNotionProjectCreateEnabled,
+  isNewerEditedTime,
   isNotionWritebackEnabled,
   planIdempotentEnqueue,
   validatePropertyPatch,
@@ -451,15 +452,53 @@ export const applyOutcome = internalMutation({
     }
 
     const propertiesJson = args.outcome.propertiesJson;
+    const properties = JSON.parse(propertiesJson) as WriteProperties;
     const audit = auditEventForOutcome({
       outcome: 'confirmed',
       reused: args.outcome.reused,
       write: {
         notionPageId: args.outcome.notionPageId,
         lastEditedTime: args.outcome.lastEditedTime,
-        properties: JSON.parse(propertiesJson) as WriteProperties,
+        properties,
       },
     });
+    if (row.kind === 'task-stage') {
+      const fromPayload = (() => {
+        try {
+          const parsed = JSON.parse(row.payload) as { properties?: { Stage?: unknown } };
+          return typeof parsed.properties?.Stage === 'string' ? parsed.properties.Stage : null;
+        } catch {
+          return null;
+        }
+      })();
+      const written = typeof properties.Stage === 'string' ? properties.Stage : fromPayload;
+      if (written && row.notionPageId) {
+        const task = await ctx.db
+          .query('tasks')
+          .withIndex('by_notionPageId', (q) => q.eq('notionPageId', row.notionPageId!))
+          .unique();
+        if (task) {
+          if (task.stage === written) {
+            const responseTime = args.outcome.lastEditedTime;
+            const pr = properties['GitHub Issue/PR'];
+            await ctx.db.patch(task._id, {
+              stageSynced: written,
+              stagePendingAt: undefined,
+              stagePendingBaseEditedTime: undefined,
+              stagePendingPullRequest: undefined,
+              ...(isNewerEditedTime(responseTime, task.lastEditedTime ?? null) && responseTime
+                ? { lastEditedTime: responseTime }
+                : {}),
+              ...(typeof pr === 'string' ? { pullRequestUrl: pr } : {}),
+            });
+          } else if (args.outcome.lastEditedTime) {
+            await ctx.db.patch(task._id, {
+              stagePendingBaseEditedTime: args.outcome.lastEditedTime,
+            });
+          }
+        }
+      }
+    }
     await ctx.db.patch(row._id, {
       status: 'done',
       notionPageId: args.outcome.notionPageId,

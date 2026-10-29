@@ -14,6 +14,7 @@ import {
   decideResourceLink,
   planTaskCreate,
   planTaskResourceWrite,
+  mergePulledStage,
   planTaskStageWrite,
   planTaskStatusWrite,
   readOptionalStage,
@@ -497,5 +498,110 @@ describe('incremental task graph', () => {
     assert.equal(taskTouchesIncrementalSet(child, new Set(['res-1'])), true);
     assert.equal(taskTouchesIncrementalSet(child, new Set(['other'])), false);
     assert.equal(taskTouchesIncrementalSet({ notionPageId: 'solo' }, new Set()), false);
+  });
+});
+
+describe('mergePulledStage', () => {
+  const base = {
+    localStage: 'Planning' as string | null,
+    localLastEditedTime: '2026-10-28T00:00:00.000Z',
+    stageSynced: 'Idea' as string | null,
+    stagePendingBaseEditedTime: '2026-10-28T00:00:00.000Z',
+    name: 'Homepage',
+    notionPageId: 'page-1',
+  };
+  const newer = '2026-10-29T00:00:00.000Z';
+
+  it('follows each pull row', () => {
+    const won = mergePulledStage({
+      ...base,
+      pending: false,
+      notionStage: 'Parked',
+      notionLastEditedTime: newer,
+    });
+    assert.equal(won.stage, 'Parked');
+    assert.equal(won.stageSynced, 'Parked');
+    assert.equal(won.clearPending, false);
+    assert.equal(won.deleteUnsent, false);
+    assert.equal(won.notice, null);
+
+    const equal = mergePulledStage({
+      ...base,
+      pending: true,
+      notionStage: 'Idea',
+      notionLastEditedTime: base.stagePendingBaseEditedTime,
+    });
+    assert.equal(equal.stage, 'Planning');
+    assert.equal(equal.stageSynced, 'Idea');
+    assert.equal(equal.clearPending, false);
+    assert.equal(equal.deleteUnsent, false);
+    assert.equal(equal.lastEditedTime, base.localLastEditedTime);
+
+    const older = mergePulledStage({
+      ...base,
+      pending: true,
+      notionStage: 'Parked',
+      notionLastEditedTime: '2026-10-27T00:00:00.000Z',
+    });
+    assert.equal(older.stage, 'Planning');
+    assert.equal(older.stageSynced, 'Parked');
+    assert.equal(older.clearPending, false);
+    assert.equal(older.deleteUnsent, false);
+
+    const caughtUp = mergePulledStage({
+      ...base,
+      pending: true,
+      notionStage: 'Planning',
+      notionLastEditedTime: newer,
+    });
+    assert.equal(caughtUp.stage, 'Planning');
+    assert.equal(caughtUp.stageSynced, 'Planning');
+    assert.equal(caughtUp.clearPending, true);
+    assert.equal(caughtUp.deleteUnsent, true);
+    assert.equal(caughtUp.notice, null);
+
+    const unchanged = mergePulledStage({
+      ...base,
+      pending: true,
+      notionStage: 'Idea',
+      notionLastEditedTime: newer,
+    });
+    assert.equal(unchanged.stage, 'Planning');
+    assert.equal(unchanged.clearPending, false);
+    assert.equal(unchanged.stagePendingBaseEditedTime, newer);
+    assert.equal(unchanged.lastEditedTime, newer);
+    assert.equal(unchanged.deleteUnsent, true);
+    assert.equal(unchanged.notice, null);
+
+    const superseded = mergePulledStage({
+      ...base,
+      pending: true,
+      notionStage: 'Parked',
+      notionLastEditedTime: newer,
+    });
+    assert.equal(superseded.stage, 'Parked');
+    assert.equal(superseded.stageSynced, 'Parked');
+    assert.equal(superseded.clearPending, true);
+    assert.equal(superseded.deleteUnsent, true);
+    assert.equal(superseded.notice?.edgeCase, 'stage-superseded:page-1');
+    assert.equal(
+      superseded.notice?.message,
+      'Homepage stage in Notion changed to Parked after a portal move to Planning.',
+    );
+  });
+
+  it('keeps the local stage when Notion has no timestamp', () => {
+    const missing = mergePulledStage({
+      ...base,
+      pending: true,
+      notionStage: 'Parked',
+      notionLastEditedTime: null,
+    });
+    assert.equal(missing.stage, 'Planning');
+    assert.equal(missing.stageSynced, 'Parked');
+    assert.equal(missing.clearPending, false);
+    assert.equal(missing.deleteUnsent, false);
+    assert.equal(missing.lastEditedTime, base.localLastEditedTime);
+    assert.equal(missing.notice, null);
   });
 });

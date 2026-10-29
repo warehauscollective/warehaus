@@ -66,6 +66,26 @@ export function cardDragPointerDown<E>(
 
 export const MOVE_NOT_SAVED = 'Not saved. Moving cards to Notion is turned off for now.';
 
+/** Success toast for a drop that patched. Undo sends the previous column value. */
+export function stageSavedFeedback(input: {
+  task: PortalTask;
+  mode: BoardMode;
+  value: string;
+  previous: string;
+  onUndo: (request: MoveRequest) => void;
+}): { message: string; undo: () => void } {
+  return {
+    message: `Moved ${input.task.name} to ${input.value}`,
+    undo: () => {
+      const task = {
+        ...input.task,
+        ...(input.mode === 'stage' ? { stage: input.value } : { status: input.value }),
+      };
+      input.onUndo({ task, mode: input.mode, value: input.previous });
+    },
+  };
+}
+
 /** Equal tracks. Emptying a column does not change the template, so the row does not jump. */
 export function boardColumnTemplate(count: number, phone: boolean): string {
   if (phone) return 'minmax(0, 1fr)';
@@ -101,12 +121,12 @@ export function TaskBoard({
   loading: boolean;
   rules: BoardRules | null;
   onOpen: (task: PortalTask) => void;
-  onMove: (request: MoveRequest) => Promise<{ ok: boolean; error?: string }>;
+  onMove: (request: MoveRequest) => Promise<{ ok: boolean; error?: string; pending?: boolean }>;
   onQuickAdd: (input: { name: string; status: string; stage?: string }) => Promise<{ ok: boolean; error?: string }>;
 }) {
   const [mode, setMode] = useState<BoardMode>('status');
   const [phone, setPhone] = useState(false);
-  const [overrides, setOverrides] = useState<Record<string, { mode: BoardMode; value: string }>>({});
+  const [overrides, setOverrides] = useState<Record<string, { mode: BoardMode; value: string; pending?: boolean }>>({});
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ message: string; retry?: () => void; undo?: () => void } | null>(null);
   const [live, setLive] = useState('');
@@ -135,7 +155,11 @@ export function TaskBoard({
         const override = overrides[task.id];
         if (!override) return task;
         if (override.mode === 'status') return { ...task, status: override.value, isDone: override.value === 'Done' };
-        return { ...task, stage: override.value };
+        return {
+          ...task,
+          stage: override.value,
+          stagePending: override.pending === true ? true : override.pending === false ? false : task.stagePending,
+        };
       }),
     [tasks, overrides],
   );
@@ -200,10 +224,20 @@ export function TaskBoard({
       setLive(`${task.name} moved back. ${result.error ?? 'Couldn’t save.'}`);
       return;
     }
-    setToast({
-      message: `Moved ${task.name} to ${value}`,
-      undo: () => void commit({ ...task, ...(mode === 'stage' ? { stage: value } : { status: value }) }, previous),
+    if (mode === 'stage') {
+      setOverrides((current) => ({
+        ...current,
+        [task.id]: { mode, value, pending: result.pending !== false },
+      }));
+    }
+    const saved = stageSavedFeedback({
+      task,
+      mode,
+      value,
+      previous,
+      onUndo: (request) => void commit(request.task, request.value, request.pullRequestLink),
     });
+    setToast({ message: saved.message, undo: saved.undo });
     setLive(`Moved ${task.name} to ${value}.`);
   };
 
@@ -831,6 +865,21 @@ export function TaskCardFace({
             }}
           >
             {initials(task.assigneeName)}
+          </span>
+        ) : null}
+        {staff && task.stagePending ? (
+          <span
+            className="ds-mono"
+            data-testid="stage-pending"
+            style={{
+              border: '1px solid var(--border)',
+              borderRadius: 999,
+              padding: '2px 8px',
+              fontSize: 11,
+              color: 'var(--warn)',
+            }}
+          >
+            Not in Notion yet
           </span>
         ) : null}
         {staff && task.syncNotice ? <SyncChip audience="staff" syncNotice={task.syncNotice} /> : null}
