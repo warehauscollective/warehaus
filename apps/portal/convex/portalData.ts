@@ -195,12 +195,15 @@ export const getSnapshot = clientQuery({
       ...(staff
         ? {}
         : {
+            // leadName only exists when a Warehaus Staff contact is stored on
+            // this client org. There is no lead column. The first match in
+            // by_orgId index order (creation order) within this cap wins.
             leadName:
               (
                 await ctx.db
                   .query('contacts')
                   .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
-                  .collect()
+                  .take(50)
               ).find((person) => person.role === 'Warehaus Staff' && person.name.trim())?.name.trim() ?? null,
           }),
       tenant: {

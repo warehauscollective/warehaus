@@ -215,7 +215,7 @@ export function ResourceDetail({
                 }}
               >
                 <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)', width: 72 }}>ITEM</span>
-                <span className="min-w-0 flex-1" style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{task.name}</span>
+                <span className="where-lives-title min-w-0 flex-1" style={{ fontWeight: 600 }}>{task.name}</span>
               </button>
             </li>
           ))}
@@ -225,7 +225,7 @@ export function ResourceDetail({
           >
             <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)', width: 72 }}>RESOURCE</span>
             <span className="min-w-0 flex-1">
-              <span className="block" style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{resource.name}</span>
+              <span className="where-lives-title block" style={{ fontWeight: 600 }}>{resource.name}</span>
               <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{resource.type ?? 'Shared resource'}</span>
             </span>
           </li>
@@ -236,7 +236,7 @@ export function ResourceDetail({
             >
               <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)', width: 72 }}>FULL NOTES</span>
               <span className="min-w-0 flex-1">
-                <span className="block" style={{ fontWeight: 600 }}>Notion page</span>
+                <span className="where-lives-title block" style={{ fontWeight: 600 }}>Notion page</span>
                 <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>
                   {notesHref ? 'Open the page in Notion' : 'No Notion page on this resource'}
                 </span>
@@ -272,18 +272,15 @@ export function ResourceDetail({
             </div>
           ))}
         </div>
-        {resource.url ? (
-          <a href={resource.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--fg)', fontSize: 14, display: 'inline-block', marginTop: 12 }}>
-            Open
-          </a>
-        ) : null}
       </Section>
 
       <style>{`
         .used-in-title { font-weight: 600; overflow-wrap: break-word; }
         .used-in-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--muted); margin-top: 2px; }
+        .where-lives-title { overflow-wrap: break-word; }
         @media (max-width: 480px) {
           .used-in-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+          .where-lives-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
         }
       `}</style>
       <Section title="Used in tasks" subtitle={tasksLoading ? 'Loading tasks…' : usedInTasksSubtitle(tasks.length)} testId="used-in-tasks">
