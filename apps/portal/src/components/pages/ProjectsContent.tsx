@@ -64,6 +64,7 @@ import {
 } from '@/components/projects/ProjectListStates';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
 import { TaskCreateDialog, TaskDetailModal } from '@/components/tasks/TaskDetailModal';
+import { ItemState, resolveItemRegion, useItemScreen } from '@/components/tasks/itemStates';
 import { StatusTable } from '@/components/tasks/StatusKanban';
 import { LIVE_TASK_STATUSES, PROJECT_UNAVAILABLE, TASK_STAGES, WRITEBACK_OFF_ERROR, createTaskExternalId, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
 import type { Id } from '@convex/_generated/dataModel';
@@ -104,6 +105,7 @@ export function ProjectsContent() {
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
   const [creating, setCreating] = useState(false);
   const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
+  const [itemScreen, setItemScreen] = useItemScreen(fixtures);
   const pathname = usePathname() || '';
   const router = useRouter();
   const moveStatus = useMutation(api.tasks.moveStatus);
@@ -338,6 +340,14 @@ export function ProjectsContent() {
 
   if (openProject) {
     const projectTasks = tasks.filter((task) => task.projectId === openProject.id);
+    const itemRegion = resolveItemRegion({
+      fixtures,
+      screen: itemScreen,
+      staff: isStaff,
+      loading: projectsLoading,
+      error: Boolean(error),
+      count: projectTasks.length,
+    });
     const projectDocs = docs.filter((doc) => {
       if (doc.projectId !== openProject.id) return false;
       if (isStaff) return true;
@@ -387,7 +397,13 @@ export function ProjectsContent() {
                 ) : null}
               </div>
             </div>
-            {taskView === 'board' ? (
+            {itemRegion !== 'board' ? (
+              <ItemState
+                screen={itemRegion}
+                staff={isStaff}
+                onClear={() => setItemScreen('ready')}
+              />
+            ) : taskView === 'board' ? (
               <TaskBoard
                 tasks={projectTasks}
                 staff={isStaff}
