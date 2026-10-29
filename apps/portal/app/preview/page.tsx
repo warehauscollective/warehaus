@@ -5,7 +5,8 @@ import { fixturePreviewAllowed } from '@/lib/data/fixturePreviewGate';
 
 /**
  * Unsigned fixture preview. Middleware and this page both fail closed
- * unless the fixtures flag is on and the runtime is not production.
+ * unless this is local next dev with the fixtures flag. Any Vercel
+ * process (VERCEL=1 or a set VERCEL_ENV) redirects to login.
  * There is no password. The mock session lives only under this provider.
  */
 export default async function PortalFixturePreview({

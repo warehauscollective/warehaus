@@ -8,6 +8,7 @@ import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { VERIFY_EMAIL_PATH, isCantRegisterError } from '@convex/_lib/registration';
 import { FIXTURE_CLIENT_SESSION, FIXTURE_SESSION } from '@/lib/data/portalFixtures';
+import { clearSearchRecents } from '@/lib/search/recents';
 import { useFixtureAudience, useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 
@@ -128,8 +129,14 @@ export function usePortalAuth() {
 
   const signOut = useCallback(async () => {
     setJoinError(null);
+    if (typeof window !== 'undefined') {
+      const userId = fixtures
+        ? (audience === 'client' ? FIXTURE_CLIENT_SESSION.contactId : FIXTURE_SESSION.contactId)
+        : session?.user?.id;
+      if (userId) clearSearchRecents(window.localStorage, userId);
+    }
     await authClient.signOut();
-  }, []);
+  }, [audience, fixtures, session?.user?.id]);
 
   if (fixtures) {
     const session = audience === 'client' ? FIXTURE_CLIENT_SESSION : FIXTURE_SESSION;

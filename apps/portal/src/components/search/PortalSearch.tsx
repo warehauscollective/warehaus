@@ -17,6 +17,11 @@ import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 import { openPortalHref } from '@/lib/nav/openPortalHref';
 import { SEARCH_NO_RESULTS_COPY } from '@/lib/search/noResultsCopy';
 import { searchFixtures } from '@/lib/search/fixtureSearch';
+import {
+  readSearchRecents,
+  writeSearchRecent,
+  type SearchRecentScope,
+} from '@/lib/search/recents';
 
 const GROUPS: Array<{ key: keyof SearchGroups; label: string }> = [
   { key: 'projects', label: 'Projects' },
@@ -42,8 +47,8 @@ const QUICK_LINKS: Array<{ id: string; label: string; tab: PortalTab; icon: 'gri
 
 const EMPTY: SearchGroups = { projects: [], tasks: [], docs: [], resources: [] };
 const GROUP_CAP = 5;
-const RECENTS_KEY = 'wh-portal-search-recents';
 const FIXTURE_DELAY_KEY = 'wh-search-preview-delay';
+const META_SEP = ' · ';
 
 type Scope = 'all' | keyof SearchGroups;
 type Intent = 'active' | 'keyboard' | 'hover';
@@ -55,8 +60,8 @@ function blankGroups(): SearchGroups {
   return { projects: [], tasks: [], docs: [], resources: [] };
 }
 
-function fixturePreviewDelay(): number {
-  if (typeof window === 'undefined') return 0;
+function fixturePreviewDelay(fixtures: boolean): number {
+  if (!fixtures || typeof window === 'undefined') return 0;
   try {
     const raw = window.sessionStorage.getItem(FIXTURE_DELAY_KEY);
     const value = raw ? Number(raw) : 0;
@@ -65,43 +70,6 @@ function fixturePreviewDelay(): number {
   } catch {
     return 0;
   }
-}
-
-function readRecents(): SearchHit[] {
-  try {
-    const raw = window.localStorage.getItem(RECENTS_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as SearchHit[];
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .filter((hit) => hit && typeof hit.id === 'string' && typeof hit.title === 'string' && typeof hit.href === 'string')
-      .slice(0, GROUP_CAP);
-  } catch {
-    return [];
-  }
-}
-
-function writeRecent(hit: SearchHit, staff: boolean) {
-  const stored: SearchHit = staff
-    ? hit
-    : {
-        id: hit.id,
-        kind: hit.kind,
-        title: hit.title,
-        subtitle: hit.subtitle,
-        href: hit.href,
-        metaType: hit.metaType,
-        ...(hit.metaWhen ? { metaWhen: hit.metaWhen } : {}),
-        ...(hit.metaProject ? { metaProject: hit.metaProject } : {}),
-        ...(hit.stage ? { stage: hit.stage } : {}),
-      };
-  const next = [stored, ...readRecents().filter((item) => item.id !== stored.id || item.kind !== stored.kind)].slice(0, GROUP_CAP);
-  try {
-    window.localStorage.setItem(RECENTS_KEY, JSON.stringify(next));
-  } catch {
-    // Recents are a convenience. A full or blocked store still opens the hit.
-  }
-  return next;
 }
 
 function forAudience(hit: SearchHit, staff: boolean): SearchHit {
@@ -121,7 +89,7 @@ function forAudience(hit: SearchHit, staff: boolean): SearchHit {
 
 function hitIcon(hit: SearchHit): string {
   if (hit.kind === 'project' || hit.metaType === 'Project') return '/icons/task-layers.svg';
-  if (hit.kind === 'task' || hit.metaType === 'Task') return '/icons/task-check.svg';
+  if (hit.kind === 'task' || hit.metaType === 'Task') return '/icons/docs-check.svg';
   if (hit.metaType === 'Granola') return '/icons/resource-mic.svg';
   if (hit.metaType === 'Link') return '/icons/resource-link.svg';
   return '/icons/resource-doc.svg';
@@ -208,7 +176,7 @@ function rowChrome(selected: boolean, intent: Intent): CSSProperties {
   if (!selected) return { background: 'transparent' };
   if (intent === 'hover') return { background: 'var(--surface-2)' };
   if (intent === 'keyboard') {
-    return { background: 'var(--surface-2)', boxShadow: 'inset 0 0 0 2px var(--border)' };
+    return { background: 'var(--surface-2)', boxShadow: 'inset 0 0 0 2px var(--ring, #404040)' };
   }
   return { background: 'var(--surface-2)', boxShadow: 'inset 0 0 0 1px var(--border-2)' };
 }
@@ -218,8 +186,15 @@ export function PortalSearch() {
   const { setActiveTab } = usePortalTab();
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
-  const { portalSession } = usePortalAuth();
+  const { portalSession, authUser } = usePortalAuth();
   const isStaff = Boolean(portalSession?.isStaff);
+  const recentScope: SearchRecentScope = {
+    authUserId: authUser?.id ?? '',
+    tier: isStaff ? 'staff' : 'client',
+    orgId: portalSession?.orgId ?? '',
+  };
+  const recentScopeRef = useRef(recentScope);
+  recentScopeRef.current = recentScope;
   const roster = staffRosterQueriesDeployed();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -270,7 +245,7 @@ export function PortalSearch() {
       setPendingSince(null);
       return;
     }
-    const delay = fixturePreviewDelay();
+    const delay = fixturePreviewDelay(fixtures);
     if (delay <= 0) {
       setKept(searchFixtures(isStaff ? 'staff' : 'client', needle));
       setPendingSince(null);
@@ -332,12 +307,17 @@ export function PortalSearch() {
     window.requestAnimationFrame(() => trigger?.focus());
   }, []);
 
+  const loadRecents = useCallback(() => {
+    if (typeof window === 'undefined') return [];
+    return readSearchRecents(window.localStorage, recentScopeRef.current);
+  }, []);
+
   const openSearch = useCallback((trigger: HTMLElement | null) => {
     triggerRef.current = trigger;
     setScope('all');
     setOpen(true);
-    setRecents(readRecents());
-  }, []);
+    setRecents(loadRecents());
+  }, [loadRecents]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -363,7 +343,7 @@ export function PortalSearch() {
           }
           triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
           setScope('all');
-          setRecents(readRecents());
+          setRecents(loadRecents());
           return true;
         });
       }
@@ -374,14 +354,20 @@ export function PortalSearch() {
       window.removeEventListener('wh-open-search', onOpen);
       window.removeEventListener('keydown', onKey);
     };
-  }, [openSearch]);
+  }, [loadRecents, openSearch]);
+
+  useEffect(() => {
+    setRecents(loadRecents());
+  }, [loadRecents, recentScope.authUserId, recentScope.tier, recentScope.orgId]);
 
   const choose = useCallback((hit: SearchHit) => {
-    setRecents(writeRecent(hit, isStaff));
+    if (typeof window !== 'undefined') {
+      setRecents(writeSearchRecent(window.localStorage, recentScopeRef.current, hit));
+    }
     setOpen(false);
     clearSearchParam('q');
     openPortalHref(hit.href, (next) => router.replace(next, { scroll: false }));
-  }, [isStaff, router]);
+  }, [router]);
 
   const chooseLink = useCallback((tab: PortalTab) => {
     setOpen(false);
@@ -485,7 +471,7 @@ export function PortalSearch() {
 
   if (!open) return null;
 
-  const countLabel = !needle ? 'Recent' : showSkeleton ? 'Searching' : `${resultCount} result${resultCount === 1 ? '' : 's'}`;
+  const countLabel = !needle ? 'Recent' : showSkeleton ? 'Searching…' : `${resultCount} result${resultCount === 1 ? '' : 's'}`;
   let cursor = -1;
 
   const activate = (index: number, from: Intent) => {
@@ -547,7 +533,7 @@ export function PortalSearch() {
               value={query}
               maxLength={100}
               onChange={(event) => setQuery(event.target.value.slice(0, 100))}
-              placeholder="Search projects, tasks, docs, resources"
+              placeholder={narrow ? 'Search' : 'Search projects, tasks, docs, resources'}
               aria-label="Search projects, tasks, docs, resources"
               aria-controls="portal-search-results"
               aria-activedescendant={items[active] ? `search-hit-${active}` : undefined}
@@ -899,8 +885,8 @@ function ResultRow({
           </span>
           <span className="ds-mono flex min-w-0" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
             <span className="shrink-0">{hit.metaType || hit.subtitle}</span>
-            {hit.metaWhen ? <span className="shrink-0">{` · ${hit.metaWhen}`}</span> : null}
-            {hit.metaProject ? <span className="min-w-0 truncate">{` · ${hit.metaProject}`}</span> : null}
+            {hit.metaWhen ? <span className="shrink-0">{`${META_SEP}${hit.metaWhen}`}</span> : null}
+            {hit.metaProject ? <span className="min-w-0 truncate">{`${META_SEP}${hit.metaProject}`}</span> : null}
           </span>
           {narrow && marks ? <span className="mt-1 flex flex-wrap">{marks}</span> : null}
         </span>

@@ -7,42 +7,34 @@ import {
 } from '../../src/lib/data/staffRoster';
 
 describe('fixture preview gate', () => {
-  it('requires the fixtures flag and a non-production Vercel env', () => {
+  it('is false on any Vercel runtime, even with the fixtures flag', () => {
     assert.equal(
       fixturePreviewAllowedFrom({ fixturesFlag: '1', vercelEnv: 'preview', vercel: '1' }),
-      true,
+      false,
     );
+    assert.equal(fixturePreviewAllowedFrom({ fixturesFlag: '1', vercelEnv: 'development' }), false);
+    assert.equal(fixturePreviewAllowedFrom({ fixturesFlag: '1', vercel: '1' }), false);
     assert.equal(
       fixturePreviewAllowedFrom({ fixturesFlag: '1', vercelEnv: 'development', vercel: '1' }),
-      true,
+      false,
     );
     assert.equal(
       fixturePreviewAllowedFrom({ fixturesFlag: '1', vercelEnv: 'production', vercel: '1' }),
       false,
     );
     assert.equal(fixturePreviewAllowedFrom({ vercelEnv: 'preview', vercel: '1' }), false);
+    assert.equal(fixturePreviewAllowedFrom({ vercelEnv: 'preview' }), false);
     assert.equal(
       fixturePreviewAllowedFrom({ fixturesFlag: '1', vercelEnv: '', vercel: '1' }),
       false,
     );
-    assert.equal(fixturePreviewAllowedFrom({ fixturesFlag: '1', vercel: '1' }), false);
   });
 
-  it('allows local next dev only when the process is not on Vercel', () => {
+  it('is true only for local next dev with the fixtures flag', () => {
     assert.equal(fixturePreviewAllowedFrom({ fixturesFlag: '1' }), true);
+    assert.equal(fixturePreviewAllowedFrom({ fixturesFlag: '1', vercelEnv: '' }), true);
     assert.equal(fixturePreviewAllowedFrom({}), false);
-  });
-
-  it('is false in production, false on preview without the flag, and true for local fixtures', () => {
-    assert.equal(
-      fixturePreviewAllowedFrom({ fixturesFlag: '1', vercelEnv: 'production', vercel: '1' }),
-      false,
-    );
     assert.equal(fixturePreviewAllowedFrom({ vercelEnv: 'production', vercel: '1' }), false);
-    assert.equal(fixturePreviewAllowedFrom({ vercelEnv: 'preview', vercel: '1' }), false);
-    assert.equal(fixturePreviewAllowedFrom({ vercelEnv: 'preview' }), false);
-    assert.equal(fixturePreviewAllowedFrom({ fixturesFlag: '1' }), true);
-    assert.equal(fixturePreviewAllowedFrom({}), false);
   });
 });
 
