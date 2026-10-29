@@ -242,11 +242,31 @@ export function awaitingKpiCaption(count: number, projectCount: number): { capti
 /** Zero projects in the viewer set, versus a filter that hides every row. */
 export function projectListEmptyCopy(viewerCount: number, staff: boolean): { title: string; detail: string | null } {
   if (viewerCount > 0) return { title: 'No projects match these filters.', detail: null };
+  if (!staff) {
+    return {
+      title: 'No projects shared with you yet',
+      detail: 'Warehaus will publish projects here when they are ready.',
+    };
+  }
   return {
     title: 'No projects yet',
-    detail: staff
-      ? 'Create one with New project or in Notion.'
-      : 'Projects Warehaus shares with you will show here.',
+    detail: 'Create a project under a client, or under Warehaus for internal work.',
+  };
+}
+
+/**
+ * List load failure. Staff get Retry now. The save-queued sentence from the
+ * states frame is not used here: a failed load has nothing queued.
+ */
+export function projectListLoadNotice(staff: boolean, message: string): { title: string; body: string; retry: boolean } {
+  if (!staff) {
+    return { title: 'We could not load your projects', body: 'Try again in a moment.', retry: false };
+  }
+  const detail = message.trim();
+  return {
+    title: 'Could not load projects',
+    body: detail && detail !== 'Could not load projects' ? detail : 'Try again in a moment.',
+    retry: true,
   };
 }
 

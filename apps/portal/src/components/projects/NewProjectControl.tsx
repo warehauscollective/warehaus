@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { useAction } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -41,6 +41,14 @@ export function NewProjectControl({
     );
     setOpen(true);
   };
+
+  const openDialogRef = useRef(openDialog);
+  openDialogRef.current = openDialog;
+  useEffect(() => {
+    const open = () => openDialogRef.current();
+    window.addEventListener('wh-open-new-project', open);
+    return () => window.removeEventListener('wh-open-new-project', open);
+  }, []);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();

@@ -49,6 +49,8 @@ describe('DocsBlock audience', () => {
     assert.equal(publishedCount(html), 1);
     assert.match(html, /In sync/);
     assert.match(html, /Add doc/);
+    assert.match(html, /Synced from Notion · clients see published only/);
+    assert.equal(html.includes('published docs only'), false);
     assert.equal(html.includes('text-transform:uppercase'), false);
     assert.match(html, />Brief</);
     assert.equal(html.includes('>BRIEF<'), false);

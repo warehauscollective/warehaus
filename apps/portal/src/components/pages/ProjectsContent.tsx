@@ -11,7 +11,6 @@ import {
   awaitingKpiCaption,
   projectFilterCounts,
   projectInitials,
-  projectListEmptyCopy,
   projectListKpis,
   EDIT_PROJECT_WRITEBACK_HINT,
   projectListMeta,
@@ -49,6 +48,7 @@ import { portalNavDetail } from '@/lib/nav/openPortalHref';
 import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
+import { ProjectListEmptyState, ProjectListLoadNotice, ProjectListSkeleton } from '@/components/projects/ProjectListStates';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
 import { TaskCreateDialog, TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { StatusTable } from '@/components/tasks/StatusKanban';
@@ -454,8 +454,8 @@ export function ProjectsContent() {
     >
       <PortalTilePane>
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" data-testid="projects-list">
-          {loadError ? (
-            <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)' }}>{loadError}</p>
+          {loadError && !(visible.length === 0 && !projectsLoading) ? (
+            <ProjectListLoadNotice staff={isStaff} message={loadError} />
           ) : null}
           {!isStaff ? (
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
@@ -498,17 +498,19 @@ export function ProjectsContent() {
               ))}
             </div>
             {projectsLoading ? (
-              <div className="mt-4 flex flex-col" aria-busy="true">
-                {[0, 1, 2].map((i) => (
-                  <div
-                    key={i}
-                    className="animate-pulse border-b last:border-b-0"
-                    style={{ height: 90, background: 'transparent', borderColor: 'var(--border)' }}
-                  />
-                ))}
-              </div>
+              <ProjectListSkeleton />
+            ) : loadError && visible.length === 0 ? (
+              <ProjectListLoadNotice staff={isStaff} message={loadError} />
             ) : visible.length === 0 ? (
-              <ProjectListEmpty viewerCount={viewerCount} staff={isStaff} />
+              <ProjectListEmptyState
+                viewerCount={viewerCount}
+                staff={isStaff}
+                onCreate={
+                  isStaff && process.env.NODE_ENV !== 'production'
+                    ? () => window.dispatchEvent(new CustomEvent('wh-open-new-project'))
+                    : undefined
+                }
+              />
             ) : (
               <ul className="mt-2">
                 {visible.map((project) => {
@@ -674,25 +676,6 @@ function KpiCard({
         {value}
       </p>
       {hint ? <p style={{ marginTop: 12, fontSize: 14, color: tone ?? 'var(--muted)' }}>{hint}</p> : null}
-    </div>
-  );
-}
-
-function ProjectListEmpty({ viewerCount, staff }: { viewerCount: number; staff: boolean }) {
-  const copy = projectListEmptyCopy(viewerCount, staff);
-  if (!copy.detail) {
-    return (
-      <p className="mt-4" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-        {copy.title}
-      </p>
-    );
-  }
-  return (
-    <div className="mt-4">
-      <p style={{ fontSize: 16, fontWeight: 500 }}>{copy.title}</p>
-      <p className="mt-1" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-        {copy.detail}
-      </p>
     </div>
   );
 }

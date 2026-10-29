@@ -9,6 +9,7 @@ import {
   projectInitials,
   projectListEmptyCopy,
   projectListKpis,
+  projectListLoadNotice,
   projectListMeta,
   projectMatchesFilter,
   projectProgress,
@@ -230,16 +231,31 @@ describe('project list empty copy', () => {
   it('uses the zero-project lines and keeps the filter line for a filtered list', () => {
     assert.deepEqual(projectListEmptyCopy(0, true), {
       title: 'No projects yet',
-      detail: 'Create one with New project or in Notion.',
+      detail: 'Create a project under a client, or under Warehaus for internal work.',
     });
     assert.deepEqual(projectListEmptyCopy(0, false), {
-      title: 'No projects yet',
-      detail: 'Projects Warehaus shares with you will show here.',
+      title: 'No projects shared with you yet',
+      detail: 'Warehaus will publish projects here when they are ready.',
     });
     assert.deepEqual(projectListEmptyCopy(4, true), {
       title: 'No projects match these filters.',
       detail: null,
     });
+  });
+});
+
+describe('project list load notice', () => {
+  it('uses the client load copy and a staff retry without a queued clock', () => {
+    assert.deepEqual(projectListLoadNotice(false, 'We could not load your projects'), {
+      title: 'We could not load your projects',
+      body: 'Try again in a moment.',
+      retry: false,
+    });
+    const staff = projectListLoadNotice(true, 'Network error');
+    assert.equal(staff.title, 'Could not load projects');
+    assert.equal(staff.body, 'Network error');
+    assert.equal(staff.retry, true);
+    assert.equal(staff.body.includes('14:05'), false);
   });
 });
 
