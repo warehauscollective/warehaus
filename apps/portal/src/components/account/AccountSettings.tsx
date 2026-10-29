@@ -98,7 +98,6 @@ export function AccountSettings({
   live,
   hostSlug,
   onSignOut,
-  onOpenTeam,
   onInvite,
   savePreview = null,
 }: {
@@ -112,7 +111,6 @@ export function AccountSettings({
   live: boolean;
   hostSlug?: string;
   onSignOut: () => void;
-  onOpenTeam?: () => void;
   onInvite?: () => void;
   savePreview?: AccountSavePreview;
 }) {
@@ -145,15 +143,10 @@ export function AccountSettings({
       />
       {staff ? (
         <div ref={teamRef}>
-          <TeamDirectory
-            live={live}
-            hostSlug={hostSlug}
-            self={{ name, email }}
-            onInvite={() => onInvite?.()}
-          />
+          <TeamDirectory live={live} hostSlug={hostSlug} onInvite={() => onInvite?.()} />
         </div>
       ) : (
-        <TeammateNotice onOpenTeam={() => onOpenTeam?.()} />
+        <TeammateNotice />
       )}
     </div>
   );
@@ -403,7 +396,8 @@ function NotificationSettings({
   }, [live, remote.data, remote.error, remote.loading]);
 
   const keys = notificationKeysFor(staff);
-  const showLoading = savePreview === 'loading' || (live && remote.loading && !remote.data);
+  const initialLoading = savePreview == null && live && remote.loading && !remote.data;
+  const savingNow = savePreview === 'loading' || saving;
   const showError = savePreview === 'error' || Boolean(error);
   const showSaved = savePreview === 'success' || saved;
 
@@ -434,7 +428,7 @@ function NotificationSettings({
         <h2 style={cardTitle}>Notifications</h2>
         <p style={cardSubtitle}>{staff ? 'Email and in-portal' : 'Choose what reaches your inbox'}</p>
       </header>
-      {showLoading ? (
+      {initialLoading ? (
         <div data-testid="account-notifications-loading" className="flex flex-col" style={{ gap: 24 }}>
           {[0, 1, 2].map((row) => (
             <div key={row} className="flex items-center" style={{ gap: 16, padding: '12px 0' }}>
@@ -460,9 +454,12 @@ function NotificationSettings({
               type="button"
               role="switch"
               aria-checked={on}
+              aria-disabled={savingNow}
+              disabled={savingNow}
               aria-label={copy.label}
               data-testid={`notify-${key}`}
               onClick={() => {
+                if (savingNow) return;
                 dirty.current = true;
                 setPrefs((current) => ({ ...current, [key]: !current[key] }));
                 setError(null);
@@ -476,7 +473,8 @@ function NotificationSettings({
                 border: on ? '1px solid transparent' : '1px solid var(--border-2)',
                 background: on ? 'var(--fg)' : 'var(--surface-2)',
                 padding: 0,
-                cursor: 'pointer',
+                cursor: savingNow ? 'not-allowed' : 'pointer',
+                opacity: savingNow ? 0.55 : 1,
               }}
             >
               <span
@@ -496,21 +494,21 @@ function NotificationSettings({
         );
       })
       )}
-      {showLoading ? null : (
+      {initialLoading ? null : (
       <button
         type="button"
         onClick={() => {
           void save();
         }}
-        disabled={saving}
+        disabled={savingNow}
         data-testid="account-save-notifications"
         style={{
           ...solidButton,
-          opacity: saving ? 0.55 : 1,
-          cursor: saving ? 'not-allowed' : 'pointer',
+          opacity: savingNow ? 0.55 : 1,
+          cursor: savingNow ? 'not-allowed' : 'pointer',
         }}
       >
-        Save changes
+        {savingNow ? 'Saving…' : 'Save changes'}
       </button>
       )}
       {showSaved && !showError ? (
@@ -521,10 +519,7 @@ function NotificationSettings({
       {showError ? (
         <div data-testid="account-save-error" className="flex flex-col items-start" style={{ gap: 12 }}>
           <div className="flex items-start" style={noticeStyle}>
-            <div>
-              <p style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>Could not save your settings</p>
-              <p style={{ marginTop: 4, ...errorStyle }}>Try again.</p>
-            </div>
+            <p style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>Could not save your settings</p>
           </div>
           <button type="button" onClick={() => void save()} data-testid="account-save-retry" style={outlineButton}>
             Try again
@@ -538,7 +533,7 @@ function NotificationSettings({
   );
 }
 
-function TeammateNotice({ onOpenTeam }: { onOpenTeam: () => void }) {
+function TeammateNotice() {
   return (
     <div
       className="flex items-start"
@@ -567,29 +562,7 @@ function TeammateNotice({ onOpenTeam }: { onOpenTeam: () => void }) {
       >
         i
       </span>
-      <div>
-        <p style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>Need to add a teammate?</p>
-        <p style={{ marginTop: 4, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
-          Client Admins can invite Client Members from the{' '}
-          <button
-            type="button"
-            onClick={onOpenTeam}
-            data-testid="account-open-team"
-            style={{
-              background: 'none',
-              border: 0,
-              padding: 0,
-              color: 'inherit',
-              font: 'inherit',
-              textDecoration: 'underline',
-              cursor: 'pointer',
-            }}
-          >
-            Team page
-          </button>
-          .
-        </p>
-      </div>
+      <p style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>Ask Warehaus to add teammates.</p>
     </div>
   );
 }

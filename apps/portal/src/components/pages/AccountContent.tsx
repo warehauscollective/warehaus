@@ -374,7 +374,6 @@ export function AccountContent() {
             live={configured && !fixtures}
             hostSlug={hostSlug}
             savePreview={savePreview}
-            onOpenTeam={() => setSectionFor('account', 'team')}
             onInvite={() => {
               setSectionFor('account', 'team');
               setInviteOpen(true);

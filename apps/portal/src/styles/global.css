@@ -26,6 +26,17 @@ main {
   min-height: 100dvh;
 }
 
+/* The shell is 100dvh. Body uses the same ink or paper as .ds-scope
+   (--ink #0a0a0b / --paper #fdfdfe), not the token background
+   (#050505 / #ededed), so the page does not change shade above the dock.
+   :has() is dropped by the CSS compiler, so this beats .bg-background directly. */
+body.bg-background {
+  background: #0a0a0b;
+}
+html.light body.bg-background {
+  background: #fdfdfe;
+}
+
 /* Figma back glyph and wordmark are paper (#fdfdfe). Light theme draws them as ink. */
 html.light .nav-back-glyph,
 html.light .portal-wordmark,

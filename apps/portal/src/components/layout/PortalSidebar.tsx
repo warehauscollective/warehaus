@@ -35,12 +35,35 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
       const bounds = scroller.getBoundingClientRect();
       if (bounds.width < 8) return;
       const chip = active.getBoundingClientRect();
-      if (chip.left < bounds.left) scroller.scrollLeft -= bounds.left - chip.left;
-      else if (chip.right > bounds.right) scroller.scrollLeft += chip.right - bounds.right;
+      const leftInset = 20;
+      const rightInset = 20;
+      const maxScroll = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+      let next = scroller.scrollLeft;
+      if (chip.left < bounds.left + leftInset) next += chip.left - (bounds.left + leftInset);
+      else if (chip.right > bounds.right - rightInset) next += chip.right - (bounds.right - rightInset);
+      let chipLeftAfter = chip.left - (next - scroller.scrollLeft);
+      if (chipLeftAfter < bounds.left + leftInset) {
+        next = scroller.scrollLeft + (chip.left - (bounds.left + leftInset));
+        chipLeftAfter = bounds.left + leftInset;
+      }
+      const previous = active.previousElementSibling;
+      if (previous instanceof HTMLElement) {
+        const prevRight = previous.getBoundingClientRect().right - (next - scroller.scrollLeft);
+        const tail = prevRight - (bounds.left + leftInset);
+        const room = chipLeftAfter - (bounds.left + leftInset);
+        if (tail > 0 && room > 0) next += Math.min(tail, room);
+      }
+      scroller.scrollLeft = Math.max(0, Math.min(maxScroll, next));
     };
     reveal();
     const frame = requestAnimationFrame(reveal);
-    return () => cancelAnimationFrame(frame);
+    const observer = new ResizeObserver(reveal);
+    observer.observe(scroller);
+    observer.observe(active);
+    return () => {
+      cancelAnimationFrame(frame);
+      observer.disconnect();
+    };
   }, [activeSection, tab, sections]);
 
   if (sections.length === 0) return null;
@@ -54,13 +77,13 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         style={{
           background: 'var(--nav-bg)',
           border: '1px solid var(--nav-border)',
-          // The staff notice bell is fixed at the top-right of the viewport.
-          // Width (not only max-width) keeps the chip row, including Profile,
-          // clear of that box. minWidth 0 lets the row shrink inside the flex shell.
+          // The staff notice bell is 42px, fixed 20px from the viewport edge.
+          // The page already insets 20px, so reserve the overlap plus a small gap
+          // (3.125rem) instead of a wider cut that squeezes the chip row.
           overflow: 'hidden',
           minWidth: data.tenant.mode === 'team' ? 0 : undefined,
-          width: data.tenant.mode === 'team' ? 'calc(100% - 4.75rem)' : undefined,
-          maxWidth: data.tenant.mode === 'team' ? 'calc(100% - 4.75rem)' : undefined,
+          width: data.tenant.mode === 'team' ? 'calc(100% - 3.125rem)' : undefined,
+          maxWidth: data.tenant.mode === 'team' ? 'calc(100% - 3.125rem)' : undefined,
           alignSelf: data.tenant.mode === 'team' ? 'flex-start' : undefined,
         }}
       >
@@ -206,28 +229,16 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
 
 function SectionScroller({ children }: { children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [fadePx, setFadePx] = useState(0);
+  const [edges, setEdges] = useState({ left: false, right: false });
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
     const update = () => {
-      const overflow = node.scrollWidth - node.clientWidth > 1;
-      const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 1;
-      if (!overflow || atEnd) {
-        setFadePx(0);
-        return;
-      }
-      // Fade only the clipped tab. A fixed 72px veil (the board's width) would
-      // paint over a pill that already fits in this narrow row.
-      const edge = node.getBoundingClientRect().left;
-      let lastFull = 0;
-      for (const button of node.querySelectorAll('button')) {
-        const right = button.getBoundingClientRect().right - edge;
-        if (right <= node.clientWidth + 0.5) lastFull = right;
-        else break;
-      }
-      const peek = Math.max(0, node.clientWidth - lastFull);
-      setFadePx(Math.round(Math.min(72, Math.max(peek + 12, 28))));
+      const hiddenRight = node.scrollWidth - node.scrollLeft - node.clientWidth;
+      setEdges({
+        left: node.scrollLeft > 1,
+        right: hiddenRight > 16,
+      });
     };
     update();
     node.addEventListener('scroll', update, { passive: true });
@@ -240,7 +251,9 @@ function SectionScroller({ children }: { children: ReactNode }) {
       window.removeEventListener('resize', update);
     };
   }, [children]);
-  const fade = fadePx > 0;
+  const mask = `linear-gradient(to right, ${
+    edges.left ? 'transparent 0px, transparent 18px, #000 20px' : '#000 0px'
+  }, ${edges.right ? '#000 calc(100% - 28px), transparent' : '#000 100%'})`;
   return (
     <div className="relative min-w-0 flex-1">
       <div
@@ -250,23 +263,20 @@ function SectionScroller({ children }: { children: ReactNode }) {
           scrollbarWidth: 'none',
           overflowX: 'auto',
           overflowY: 'hidden',
-          ...(fade
-            ? {
-                maskImage: `linear-gradient(to right, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
-                WebkitMaskImage: `linear-gradient(to right, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
-              }
-            : null),
+          paddingLeft: 20,
+          scrollPaddingLeft: 20,
+          scrollPaddingRight: 28,
+          maskImage: mask,
+          WebkitMaskImage: mask,
         }}
       >
         {children}
       </div>
-      {fade ? (
-        <div
-          aria-hidden
-          data-testid="section-edge-fade"
-          className="pointer-events-none absolute inset-y-0 right-0"
-          style={{ width: fadePx, background: 'linear-gradient(to right, transparent, var(--bg) 45%)' }}
-        />
+      {edges.left ? (
+        <div aria-hidden data-testid="section-edge-fade-left" className="pointer-events-none absolute inset-y-0 left-0 w-5" />
+      ) : null}
+      {edges.right ? (
+        <div aria-hidden data-testid="section-edge-fade" className="pointer-events-none absolute inset-y-0 right-0 w-7" />
       ) : null}
     </div>
   );

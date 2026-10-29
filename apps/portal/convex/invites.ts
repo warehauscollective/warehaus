@@ -16,7 +16,7 @@ import { adminMutation, adminQuery } from './_lib/wrappers';
 import { authComponent } from './auth';
 import { sendIssuedInviteMail, sendPortalEmail } from './_lib/email';
 import { normalizeEmail } from './_lib/contactJoin';
-import { PortalAuthError } from './_lib/identity';
+import { PortalAuthError, isStaff } from './_lib/identity';
 import {
   INVITE_CLIENT_FAILURE,
   INVITE_DAILY_LIMIT,
@@ -191,6 +191,67 @@ export const listTeam = adminQuery({
         inviteStatus: invite.inviteStatus,
       })),
     };
+  },
+});
+
+const TEAM_DIRECTORY_CAP = 200;
+
+/**
+ * Staff directory across orgs. `listTeam` stays org-scoped for its callers.
+ * This query does not filter on the staff contact's org.
+ */
+export const listTeamForStaff = adminQuery({
+  args: {},
+  handler: async (ctx) => {
+    if (!isStaff(ctx.identity)) {
+      throw new PortalAuthError('Staff role required', 'FORBIDDEN');
+    }
+    const clients = await ctx.db.query('clients').take(TEAM_DIRECTORY_CAP);
+    const rows: Array<{
+      name: string;
+      email: string;
+      role: string;
+      orgName: string;
+      status: string;
+      invitedAt: number | null;
+    }> = [];
+    for (const client of clients) {
+      if (rows.length >= TEAM_DIRECTORY_CAP) break;
+      const contacts = await ctx.db
+        .query('contacts')
+        .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
+        .take(TEAM_DIRECTORY_CAP);
+      for (const contact of contacts) {
+        if (rows.length >= TEAM_DIRECTORY_CAP) break;
+        if (contact.syncHiddenAt) continue;
+        rows.push({
+          name: contact.name,
+          email: contact.email,
+          role: contact.role,
+          orgName: client.companyName,
+          status: contact.portalAccess === 'Enabled' ? 'Active' : 'Paused',
+          invitedAt: null,
+        });
+      }
+      if (rows.length >= TEAM_DIRECTORY_CAP) break;
+      const invites = await ctx.db
+        .query('pendingInvites')
+        .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
+        .take(TEAM_DIRECTORY_CAP);
+      for (const invite of invites) {
+        if (rows.length >= TEAM_DIRECTORY_CAP) break;
+        if (invite.inviteStatus !== 'Pending') continue;
+        rows.push({
+          name: invite.name,
+          email: invite.email,
+          role: invite.role,
+          orgName: client.companyName,
+          status: 'Pending',
+          invitedAt: invite.lastSyncedAt,
+        });
+      }
+    }
+    return rows;
   },
 });
 

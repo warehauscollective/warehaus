@@ -12,25 +12,18 @@ type TeamPerson = {
   name: string;
   email: string;
   role: string;
+  orgName: string;
   status: string;
-  kind: 'staff' | 'client';
+  kind: 'staff' | 'client' | 'pending';
 };
 
-type TeamPayload = {
-  members: Array<{
-    notionPageId: string;
-    name: string;
-    email: string;
-    role: string;
-    portalAccess: string;
-  }>;
-  invites: Array<{
-    notionPageId: string;
-    name: string;
-    email: string;
-    role: string;
-    inviteStatus: string;
-  }>;
+type StaffTeamRow = {
+  name: string;
+  email: string;
+  role: string;
+  orgName: string;
+  status: string;
+  invitedAt: number | null;
 };
 
 const FILTERS: Array<{ key: Filter; label: string }> = [
@@ -40,13 +33,14 @@ const FILTERS: Array<{ key: Filter; label: string }> = [
   { key: 'pending', label: 'Pending' },
 ];
 
-/** Fixture stand-in for listTeam. No email is sent. */
+/** Fixture stand-in for listTeamForStaff. No email is sent. */
 const FIXTURE_PEOPLE: TeamPerson[] = [
   {
     id: 'staff-alex',
     name: 'Alex Staff',
     email: 'alex@warehaus.co',
-    role: 'Owner',
+    role: 'Staff',
+    orgName: 'Warehaus',
     status: 'Active',
     kind: 'staff',
   },
@@ -55,6 +49,7 @@ const FIXTURE_PEOPLE: TeamPerson[] = [
     name: 'Maya Chen',
     email: 'maya@warehaus.studio',
     role: 'Staff',
+    orgName: 'Warehaus',
     status: 'Active',
     kind: 'staff',
   },
@@ -63,24 +58,27 @@ const FIXTURE_PEOPLE: TeamPerson[] = [
     name: 'Ada North',
     email: 'ada@northwind.example',
     role: 'Client Admin',
+    orgName: 'Northwind',
     status: 'Active',
     kind: 'client',
   },
   {
     id: 'ct-sam',
-    name: 'Sam North',
-    email: 'sam@northwind.example',
+    name: 'Sam Lumen',
+    email: 'sam@lumen.example',
     role: 'Client Member',
-    status: 'Invite pending',
+    orgName: 'Lumen Dental',
+    status: 'Active',
     kind: 'client',
   },
   {
-    id: 'ct-paused',
+    id: 'ct-pending',
     name: 'Jules Park',
     email: 'jules@northwind.example',
     role: 'Client Member',
-    status: 'Paused',
-    kind: 'client',
+    orgName: 'Northwind',
+    status: 'Invite pending',
+    kind: 'pending',
   },
 ];
 
@@ -100,53 +98,23 @@ function kindFor(role: string): 'staff' | 'client' {
   return 'client';
 }
 
-function memberStatus(portalAccess: string): string {
-  return portalAccess === 'Enabled' ? 'Active' : 'Paused';
-}
-
-function inviteStatusLabel(status: string): string {
-  if (status === 'Pending') return 'Invite pending';
-  if (status === 'Paused') return 'Paused';
-  return status;
-}
-
 function isPending(person: TeamPerson): boolean {
-  return person.status === 'Invite pending' || person.status === 'Pending';
+  return person.kind === 'pending' || person.status === 'Invite pending' || person.status === 'Pending';
 }
 
-function fromPayload(payload: TeamPayload, self: { name: string; email: string }): TeamPerson[] {
-  const people: TeamPerson[] = [
-    {
-      id: 'self',
-      name: self.name,
-      email: self.email,
-      role: 'Owner',
-      status: 'Active',
-      kind: 'staff',
-    },
-  ];
-  for (const member of payload.members) {
-    if (member.email.trim().toLowerCase() === self.email.trim().toLowerCase()) continue;
-    people.push({
-      id: member.notionPageId,
-      name: member.name,
-      email: member.email,
-      role: roleLabel(member.role),
-      status: memberStatus(member.portalAccess),
-      kind: kindFor(member.role),
-    });
-  }
-  for (const invite of payload.invites) {
-    people.push({
-      id: invite.notionPageId,
-      name: invite.name,
-      email: invite.email,
-      role: roleLabel(invite.role),
-      status: inviteStatusLabel(invite.inviteStatus),
-      kind: 'client',
-    });
-  }
-  return people;
+function fromRows(rows: StaffTeamRow[]): TeamPerson[] {
+  return rows.map((row, index) => {
+    const pending = row.status === 'Pending';
+    return {
+      id: `${row.email}-${index}`,
+      name: row.name,
+      email: row.email,
+      role: roleLabel(row.role),
+      orgName: row.orgName,
+      status: pending ? 'Invite pending' : row.status,
+      kind: pending ? 'pending' : kindFor(row.role),
+    };
+  });
 }
 
 function matches(person: TeamPerson, filter: Filter): boolean {
@@ -159,23 +127,21 @@ function matches(person: TeamPerson, filter: Filter): boolean {
 export function TeamDirectory({
   live,
   hostSlug,
-  self,
   onInvite,
 }: {
   live: boolean;
   hostSlug?: string;
-  self: { name: string; email: string };
   onInvite: () => void;
 }) {
-  const remote = useSafeQuery<TeamPayload>(api.invites.listTeam, live ? { hostSlug } : 'skip');
+  const remote = useSafeQuery<StaffTeamRow[]>(api.invites.listTeamForStaff, live ? { hostSlug } : 'skip');
   const [filter, setFilter] = useState<Filter>('all');
   const missing = isMissingConvexFunction(remote.error);
 
   const people = useMemo(() => {
     if (!live) return FIXTURE_PEOPLE;
     if (!remote.data) return [];
-    return fromPayload(remote.data, self);
-  }, [live, remote.data, self]);
+    return fromRows(remote.data);
+  }, [live, remote.data]);
 
   const counts: Record<Filter, number> = {
     all: people.length,
@@ -184,21 +150,25 @@ export function TeamDirectory({
     pending: people.filter(isPending).length,
   };
   const shown = people.filter((person) => matches(person, filter));
-  const paused = people.some((person) => person.status === 'Paused');
   const loading = live && remote.loading && !remote.data;
 
   return (
     <section id="account-team" data-testid="account-team" style={cardStyle}>
       <header className="flex flex-wrap items-start justify-between" style={{ gap: 16 }}>
         <div className="min-w-0 flex-1">
-          <h2 style={cardTitle}>Team and invites</h2>
+          <h2 className="truncate" style={cardTitle}>Team and invites</h2>
           <p style={cardSubtitle}>Staff and client contacts. Full invite screens are in Client invites.</p>
         </div>
         <button type="button" onClick={onInvite} data-testid="account-invite" style={outlineButton}>
           Invite someone
         </button>
       </header>
-      <div className="flex flex-wrap" style={{ gap: 8 }} role="tablist" aria-label="Team filters">
+      <div
+        className="flex flex-nowrap overflow-x-auto"
+        style={{ gap: 8, scrollbarWidth: 'none' }}
+        role="tablist"
+        aria-label="Team filters"
+      >
         {FILTERS.map((item) => {
           const on = filter === item.key;
           return (
@@ -209,7 +179,7 @@ export function TeamDirectory({
               aria-selected={on}
               data-testid={`account-team-filter-${item.key}`}
               onClick={() => setFilter(item.key)}
-              className="inline-flex items-center"
+              className="inline-flex shrink-0 items-center"
               style={{
                 gap: 8,
                 padding: '8px 16px',
@@ -273,11 +243,11 @@ export function TeamDirectory({
             </span>
             <div className="min-w-0 flex-1">
               <p style={{ fontSize: 16, fontWeight: 500, lineHeight: 'normal' }}>{person.name}</p>
-              <p className="ds-mono" style={{ marginTop: 4, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-                {person.email}
+              <p className="ds-mono truncate" style={{ marginTop: 4, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                {person.orgName} · {person.email}
               </p>
-              <p className="ds-mono sm:hidden" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                {person.role} · {person.status}
+              <p className="ds-mono truncate sm:hidden" style={{ marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
+                {person.orgName} · {person.role} · {person.status}
               </p>
             </div>
             <p className="ds-mono hidden sm:block" style={metaStyle}>
@@ -291,15 +261,6 @@ export function TeamDirectory({
             </span>
           </div>
         ))}
-      {paused ? (
-        <div data-testid="account-team-paused" className="flex items-start" style={noticeStyle}>
-          <InfoMark />
-          <div>
-            <p style={noticeTitle}>Paused</p>
-            <p style={noticeBody}>This invite is paused. No email is sent.</p>
-          </div>
-        </div>
-      ) : null}
       <div data-testid="account-team-reused" className="flex items-start" style={noticeStyle}>
         <InfoMark />
         <div>
@@ -350,6 +311,9 @@ const cardTitle = {
   fontSize: 20,
   fontWeight: 600,
   lineHeight: '26px',
+  whiteSpace: 'nowrap' as const,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
 };
 
 const cardSubtitle = {

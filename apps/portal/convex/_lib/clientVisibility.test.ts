@@ -24,6 +24,7 @@ import {
   listForStaff as listTasksForStaff,
 } from '../tasks';
 import { PortalAuthError } from './identity';
+import { listTeamForStaff } from '../invites';
 import { getMine, saveMine } from '../notificationPrefs';
 
 type Row = Record<string, unknown> & { _id: string };
@@ -83,6 +84,7 @@ function memoryDb(tables: Record<string, Row[]>) {
           return new MemoryIndex(matched);
         },
         collect: async () => rows,
+        take: async (n: number) => rows.slice(0, n),
       };
     },
     async insert(table: string, doc: Row) {
@@ -822,6 +824,115 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(clientRows()[0]?.weeklySummary, true);
     assert.equal(clientRows()[0]?.needsAttention, false);
     assert.equal(staffRows().length, 1);
+  });
+
+  it('lists the staff directory across client orgs', async () => {
+    const warehaus = {
+      _id: 'org-warehaus',
+      companyName: 'Warehaus',
+      slug: 'warehaus',
+      portalAccess: 'Enabled' as const,
+    };
+    const north = {
+      _id: 'org-north',
+      companyName: 'Northwind',
+      slug: 'northwind',
+      portalAccess: 'Enabled' as const,
+    };
+    const lumen = {
+      _id: 'org-lumen',
+      companyName: 'Lumen Dental',
+      slug: 'lumen',
+      portalAccess: 'Enabled' as const,
+    };
+    const local: Record<string, Row[]> = {
+      clients: [warehaus, north, lumen],
+      contacts: [
+        {
+          _id: 'contact-directory-staff',
+          orgId: warehaus._id,
+          name: 'Alex Staff',
+          email: 'alex@warehaus.co',
+          authUserId: 'auth-directory-staff',
+          role: 'Warehaus Staff',
+          portalAccess: 'Enabled',
+        },
+        {
+          _id: 'contact-directory-client',
+          orgId: north._id,
+          name: 'Ada North',
+          email: 'ada@northwind.example',
+          authUserId: 'auth-directory-client',
+          role: 'Client Admin',
+          portalAccess: 'Enabled',
+        },
+        {
+          _id: 'contact-directory-lumen',
+          orgId: lumen._id,
+          name: 'Sam Lumen',
+          email: 'sam@lumen.example',
+          authUserId: 'auth-directory-lumen',
+          role: 'Client Member',
+          portalAccess: 'Enabled',
+        },
+      ],
+      pendingInvites: [
+        {
+          _id: 'invite-open',
+          orgId: north._id,
+          name: 'Jules Park',
+          email: 'jules@northwind.example',
+          role: 'Client Member',
+          inviteStatus: 'Pending',
+          notionPageId: 'notion-invite-open',
+          lastSyncedAt: 50,
+        },
+        {
+          _id: 'invite-closed',
+          orgId: lumen._id,
+          name: 'Closed Invite',
+          email: 'closed@lumen.example',
+          role: 'Client Member',
+          inviteStatus: 'Accepted',
+          notionPageId: 'notion-invite-closed',
+          lastSyncedAt: 40,
+        },
+      ],
+    };
+    const db = memoryDb(local);
+    const call = (subject: string) =>
+      (listTeamForStaff as { _handler: (ctx: unknown, args: Record<string, unknown>) => Promise<unknown> })._handler(
+        { auth: { getUserIdentity: async () => ({ subject }) }, db },
+        {},
+      );
+
+    await assert.rejects(call('auth-directory-client'), (err: unknown) => {
+      assert.ok(err instanceof PortalAuthError);
+      assert.equal(err.message, 'Staff role required');
+      return true;
+    });
+
+    const rows = (await call('auth-directory-staff')) as Array<{
+      name: string;
+      email: string;
+      role: string;
+      orgName: string;
+      status: string;
+      invitedAt: number | null;
+    }>;
+    const staffRow = rows.find((row) => row.email === 'alex@warehaus.co');
+    const northRow = rows.find((row) => row.email === 'ada@northwind.example');
+    const lumenRow = rows.find((row) => row.email === 'sam@lumen.example');
+    const pending = rows.filter((row) => row.status === 'Pending');
+    assert.equal(staffRow?.role, 'Warehaus Staff');
+    assert.equal(staffRow?.orgName, 'Warehaus');
+    assert.equal(northRow?.orgName, 'Northwind');
+    assert.equal(lumenRow?.orgName, 'Lumen Dental');
+    assert.equal(pending.length, 1);
+    assert.equal(pending[0]?.email, 'jules@northwind.example');
+    assert.equal(pending[0]?.invitedAt, 50);
+    assert.equal(rows.some((row) => row.email === 'closed@lumen.example'), false);
+    assert.equal(JSON.stringify(rows).includes('notion'), false);
   });
 
   it('does not return internal projects from the staff project queries', async () => {
