@@ -1,9 +1,8 @@
 import { Pill } from '@/components/ui/primitives';
 import {
-  rowHasSyncFields,
-  rowSyncChip,
   rowSyncLabel,
   staffStageNoticeLabel,
+  syncChipForAudience,
   type RowSyncState,
 } from '@/lib/data/view-models';
 
@@ -17,6 +16,7 @@ function pillLabel(row: {
 }
 
 export function SyncChip({
+  audience,
   notionPageId,
   syncHidden,
   syncState,
@@ -24,6 +24,7 @@ export function SyncChip({
   onRetry,
   retryNote,
 }: {
+  audience: 'staff' | 'client';
   notionPageId?: string | null;
   syncHidden?: boolean;
   syncState?: RowSyncState | null;
@@ -32,9 +33,9 @@ export function SyncChip({
   retryNote?: string | null;
 }) {
   const row = { notionPageId, syncHidden, syncState };
-  const noticeLabel = staffStageNoticeLabel(syncNotice);
-  if (!rowHasSyncFields(row) && !noticeLabel) return null;
-  const state = rowHasSyncFields(row) ? rowSyncChip(row) : null;
+  const noticeLabel = audience === 'staff' ? staffStageNoticeLabel(syncNotice) : null;
+  const state = syncChipForAudience(audience, row);
+  if (!state && !noticeLabel) return null;
   const problem = state === 'failed';
   return (
     <span className="inline-flex flex-wrap items-center gap-2">

@@ -274,7 +274,7 @@ export function TaskBoard({
         <DragOverlay>
           {activeId ? (
             <div style={{ transform: 'rotate(2deg) scale(1.03)', cursor: 'grabbing' }}>
-              <TaskCardFace task={viewTasks.find((task) => task.id === activeId) ?? tasks[0]} lifted mode={mode} allTasks={viewTasks} />
+              <TaskCardFace task={viewTasks.find((task) => task.id === activeId) ?? tasks[0]} lifted mode={mode} allTasks={viewTasks} staff={staff} />
             </div>
           ) : null}
         </DragOverlay>
@@ -459,6 +459,7 @@ function Column({
             allTasks={allTasks}
             canDrag={canDrag}
             phone={phone}
+            staff={staff}
             error={failed[task.id]}
             onOpen={() => onOpen(task)}
             onRetry={() => onRetry(task)}
@@ -488,6 +489,7 @@ function BoardCard({
   allTasks,
   canDrag,
   phone,
+  staff,
   error,
   onOpen,
   onRetry,
@@ -499,6 +501,7 @@ function BoardCard({
   allTasks: PortalTask[];
   canDrag: boolean;
   phone: boolean;
+  staff: boolean;
   error?: string;
   onOpen: () => void;
   onRetry: () => void;
@@ -543,7 +546,7 @@ function BoardCard({
         className="w-full text-left"
         style={{ background: 'transparent', border: 0, padding: 0, cursor: canDrag ? 'grab' : 'pointer' }}
       >
-        <TaskCardFace task={task} mode={mode} allTasks={allTasks} />
+        <TaskCardFace task={task} mode={mode} allTasks={allTasks} staff={staff} />
       </button>
       {error ? (
         <p style={{ fontSize: 'var(--t-xs)', color: 'var(--fg)', padding: '0.35rem 0.2rem' }}>
@@ -565,11 +568,13 @@ function TaskCardFace({
   lifted = false,
   mode = 'status',
   allTasks = [],
+  staff = false,
 }: {
   task?: PortalTask;
   lifted?: boolean;
   mode?: BoardMode;
   allTasks?: PortalTask[];
+  staff?: boolean;
 }) {
   if (!task) return null;
   const children = allTasks.filter((item) => item.parentTaskId === task.id);
@@ -624,7 +629,7 @@ function TaskCardFace({
             {initials(task.assigneeName)}
           </span>
         ) : null}
-        {task.syncNotice ? <SyncChip syncNotice={task.syncNotice} /> : null}
+        {staff && task.syncNotice ? <SyncChip audience="staff" syncNotice={task.syncNotice} /> : null}
       </div>
       <p className="ds-mono flex flex-wrap items-center gap-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
         <span className="inline-flex items-center gap-1">

@@ -301,6 +301,7 @@ function DocListRow({ doc, staff }: { doc: DocRow; staff: boolean }) {
         {staff && doc.publishToWarehaus != null ? <PublishedMark published={doc.publishToWarehaus} /> : null}
         {staff ? (
           <SyncChip
+            audience="staff"
             notionPageId={doc.notionPageId}
             syncHidden={doc.syncHidden}
             syncState={doc.syncState}

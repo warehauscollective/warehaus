@@ -274,12 +274,15 @@ export function TaskDetailModal({
             {staff ? (
               <button
                 type="button"
-                style={{ order: phone ? 9 : undefined, background: 'transparent', border: 0, color: 'var(--muted)', textAlign: 'left', cursor: 'pointer', padding: 0 }}
+                disabled
+                aria-disabled="true"
+                title="Coming soon"
+                style={{ order: phone ? 9 : undefined, background: 'transparent', border: 0, color: 'var(--muted)', textAlign: 'left', cursor: 'not-allowed', padding: 0 }}
               >
                 Archive task
               </button>
             ) : null}
-            {asideNote && !asideNote.includes('Nothing was sent') ? <p role="status" style={{ order: phone ? 10 : undefined, fontSize: 13, color: 'var(--muted)', margin: 0 }}>{asideNote}</p> : null}
+            {asideNote && asideNote !== 'Nothing was sent.' ? <p role="status" style={{ order: phone ? 10 : undefined, fontSize: 13, color: 'var(--muted)', margin: 0 }}>{asideNote}</p> : null}
           </aside>
         </div>
         </>
@@ -326,6 +329,7 @@ function TaskDescription({
   const save = async () => {
     if (!live || !task.lastEditedTime) {
       setEditing(false);
+      setNote('Nothing was sent.');
       return;
     }
     setPending(true);

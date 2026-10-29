@@ -241,6 +241,7 @@ export function ProjectsContent() {
                 <PublishChip published={openProject.publishToWarehaus} />
               ) : null}
               <SyncChip
+                audience={isStaff ? 'staff' : 'client'}
                 notionPageId={openProject.notionPageId}
                 syncHidden={openProject.syncHidden}
               />
@@ -311,6 +312,7 @@ export function ProjectsContent() {
               <StatusTable
                 tasks={projectTasks}
                 loading={projectsLoading}
+                staff={isStaff}
                 onOpen={(task) => {
                   if (fixtures) setFixtureTaskId(task.id);
                   else router.push(`/tasks/${task.id}`);
@@ -432,7 +434,7 @@ export function ProjectsContent() {
                     {isStaff && !project.internal && project.publishToWarehaus != null ? (
                       <PublishChip published={project.publishToWarehaus} />
                     ) : null}
-                    <SyncChip notionPageId={project.notionPageId} syncHidden={project.syncHidden} />
+                    <SyncChip audience={isStaff ? 'staff' : 'client'} notionPageId={project.notionPageId} syncHidden={project.syncHidden} />
                   </div>
                 </Surface>
               </button>

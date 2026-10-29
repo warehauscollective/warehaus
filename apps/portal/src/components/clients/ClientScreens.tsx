@@ -282,6 +282,7 @@ export function ClientDirectory({
                     <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.openTaskCount} open</span>
                     <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.awaitingGoCount ?? 0} awaiting go</span>
                     <SyncChip
+                      audience="staff"
                       notionPageId={client.notionPageId}
                       syncHidden={client.syncHidden}
                       syncState={client.syncHidden ? 'failed' : undefined}
@@ -341,6 +342,7 @@ export function ClientDetail({
         <div className="mt-4 flex flex-wrap gap-4">
           <Dot tone={client.internal ? 'off' : 'on'}>{client.internal ? 'Not published' : 'Published'}</Dot>
           <SyncChip
+            audience="staff"
             notionPageId={client.notionPageId}
             syncHidden={client.syncHidden}
             syncState={client.syncHidden ? 'failed' : undefined}

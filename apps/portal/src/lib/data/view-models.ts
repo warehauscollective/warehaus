@@ -319,21 +319,39 @@ export function projectStatusColor(status: string): string {
   return 'var(--muted)';
 }
 
-const RAW_NOTICE_KEY = /task-\w+:[^:\s]+/g;
+/**
+ * Idempotency keys can contain spaces (status "In Progress", a description).
+ * `\S*` would stop at the first space and leave the rest of the key in the bell.
+ * Consume through those spaces, and stop before the sentence that follows the key.
+ */
+const RAW_NOTICE_KEY =
+  /task-\w+:([^:\s]+)(?:(?! was marked| needs staff| conflicted with)[\s\S])*?(?= was marked| needs staff| conflicted with|$)/g;
 
 /**
  * Older notice rows still contain the outbox idempotency key inside a sentence.
- * Swap only that key for the task name. An unknown page keeps a neutral label.
+ * Swap the whole key for the task name. An unknown page keeps a neutral label.
  */
 export function noticeDisplayMessage(
   message: string,
   tasks: ReadonlyArray<{ name: string; notionPageId?: string | null }>,
 ): string {
-  return message.replace(RAW_NOTICE_KEY, (key) => {
-    const pageId = key.slice(key.indexOf(':') + 1);
+  return message.replace(RAW_NOTICE_KEY, (_, pageId: string) => {
     const name = tasks.find((task) => task.notionPageId === pageId)?.name?.trim();
     return name || 'a task';
   });
+}
+
+/** Sync pills are staff-only. A client audience never receives one. */
+export function syncChipForAudience(
+  audience: 'staff' | 'client',
+  row: {
+    notionPageId?: string | null;
+    syncHidden?: boolean;
+    syncState?: RowSyncState | null;
+  },
+): RowSyncState | null {
+  if (audience !== 'staff' || !rowHasSyncFields(row)) return null;
+  return rowSyncChip(row);
 }
 
 export function formatPortalDate(value?: string | null): string {
