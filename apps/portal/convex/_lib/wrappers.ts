@@ -116,6 +116,6 @@ export const adminMutation = customMutation(mutation, {
     if (!isStaff(identity)) {
       throw new PortalAuthError('Staff role required', 'FORBIDDEN');
     }
-    return { ctx: { ...ctx, identity, orgId: identity.orgId as Id<'clients'> }, args: {} };
+    return { ctx: { ...ctx, identity }, args: {} };
   },
 });
