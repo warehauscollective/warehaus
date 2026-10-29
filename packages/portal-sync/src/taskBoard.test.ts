@@ -10,6 +10,7 @@ import {
   boardColumns,
   clientMaySeeTask,
   compareBoardCards,
+  dropSlotIndex,
   decideResourceLink,
   planTaskCreate,
   planTaskResourceWrite,
@@ -378,6 +379,23 @@ describe('board sort', () => {
     assert.equal(before, 'To Do');
     assert.equal(after, 'In Progress');
 
+    const slot = [
+      { name: 'Early', date: '2026-11-01', lastEditedTime: '2026-10-01T00:00:00.000Z' },
+      { name: 'Late', date: '2026-11-20', lastEditedTime: '2026-10-02T00:00:00.000Z' },
+    ];
+    assert.equal(dropSlotIndex(slot, { name: 'Before', date: '2026-10-01', lastEditedTime: '' }), 0);
+    assert.equal(dropSlotIndex(slot, { name: 'Mid', date: '2026-11-10', lastEditedTime: '' }), 1);
+    assert.equal(dropSlotIndex(slot, { name: 'After', date: '2026-12-01', lastEditedTime: '' }), 2);
+    assert.equal(dropSlotIndex([], { name: 'Only', date: '2026-11-04', lastEditedTime: '' }), 0);
+    const sameDay = [
+      { name: 'Newer', date: '2026-11-04', lastEditedTime: '2026-10-08T00:00:00.000Z' },
+      { name: 'Older', date: '2026-11-04', lastEditedTime: '2026-10-01T00:00:00.000Z' },
+    ];
+    assert.equal(
+      dropSlotIndex(sameDay, { name: 'Middle', date: '2026-11-04', lastEditedTime: '2026-10-04T00:00:00.000Z' }),
+      1,
+    );
+
     const stageDrop = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Idea', to: 'Planning' });
     assert.deepEqual(stageDrop, { kind: 'move', value: 'Planning' });
     const staged = boardColumns(
@@ -386,6 +404,17 @@ describe('board sort', () => {
     );
     assert.equal(staged.find((column) => column.key === 'Idea')?.tasks.length, 0);
     assert.equal(staged.find((column) => column.key === 'Planning')?.tasks.length, 1);
+
+    const withInbox = boardColumns(
+      [{ name: 'Capture homepage notes', status: 'Inbox', isDone: false }],
+      'status',
+    );
+    const emptied = boardColumns([], 'status');
+    assert.equal(withInbox.length, emptied.length);
+    assert.deepEqual(
+      withInbox.map((column) => column.key),
+      emptied.map((column) => column.key),
+    );
   });
 
   it('blocks drags into and out of Building and Shipped', () => {

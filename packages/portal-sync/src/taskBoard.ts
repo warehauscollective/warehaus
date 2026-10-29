@@ -368,6 +368,15 @@ export function compareBoardCards(
   return a.name.localeCompare(b.name);
 }
 
+/** Where a lifted card lands in a column. Same order as the board: due date, then last edited, then name. */
+export function dropSlotIndex<T extends { date?: string | null; lastEditedTime?: string | null; name: string }>(
+  columnTasks: readonly T[],
+  card: T,
+): number {
+  const index = columnTasks.findIndex((task) => compareBoardCards(card, task) < 0);
+  return index === -1 ? columnTasks.length : index;
+}
+
 /**
  * Full resolve passes null and visits every task.
  * An incremental pull passes the Notion page ids it touched. A task is included

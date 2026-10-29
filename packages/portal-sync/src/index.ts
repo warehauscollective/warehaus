@@ -299,6 +299,7 @@ export {
   planTaskResourceWrite,
   createTaskExternalId,
   compareBoardCards,
+  dropSlotIndex,
   taskTouchesIncrementalSet,
   boardColumns,
   type TaskStage,
