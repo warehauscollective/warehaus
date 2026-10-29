@@ -22,6 +22,110 @@ import { api } from '@convex/_generated/api';
 import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
 import { openPortalHref, portalNavDetail } from '@/lib/nav/openPortalHref';
 
+type ResourceScreen = 'ready' | 'empty' | 'loading' | 'error' | 'long';
+
+const LONG_RESOURCE_STAFF =
+  'Kickoff and wireframe review with the full Northwind Foods marketing and operations team · Sep 22';
+const LONG_RESOURCE_CLIENT =
+  'Kickoff and wireframe review with the full Northwind Foods team · Sep 22';
+
+function LockedStateButton({ label }: { label: string }) {
+  return (
+    <button
+      type="button"
+      disabled
+      aria-disabled="true"
+      style={{
+        fontSize: 14,
+        fontWeight: 500,
+        padding: '12px 16px',
+        borderRadius: 9,
+        border: '1px solid var(--border)',
+        background: 'transparent',
+        color: 'var(--muted)',
+        cursor: 'not-allowed',
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+function ResourcePreviewState({ screen, staff }: { screen: Exclude<ResourceScreen, 'ready'>; staff: boolean }) {
+  if (screen === 'loading') {
+    return (
+      <div className="flex flex-col gap-3" aria-busy="true" data-testid="resource-state-loading">
+        {[0, 1, 2].map((i) => (
+          <div key={i} className="flex items-center gap-3">
+            <div className="animate-pulse" style={{ width: 36, height: 36, borderRadius: 18, background: 'var(--bg)' }} />
+            <div className="flex min-w-0 flex-1 flex-col gap-2">
+              <div className="animate-pulse" style={{ height: 12, borderRadius: 99, background: 'var(--bg)' }} />
+              <div className="animate-pulse" style={{ height: 10, width: 160, borderRadius: 99, background: 'var(--bg)' }} />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (screen === 'error') {
+    return (
+      <div role="alert" data-testid="resource-state-error" style={{ border: '1px solid var(--danger)', borderRadius: 18, padding: '1rem 1.25rem' }}>
+        <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 14 }}>
+          {staff ? 'Granola import failed' : 'We could not load your resources'}
+        </p>
+        <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 4 }}>
+          {staff ? 'The last import did not finish. Existing notes are unchanged.' : 'Try again in a moment.'}
+        </p>
+        {staff ? (
+          <div className="mt-3">
+            <LockedStateButton label="Retry import" />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+  if (screen === 'empty') {
+    return (
+      <div
+        data-testid="resource-state-empty"
+        className="flex flex-col items-center text-center"
+        style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '3rem 1.5rem' }}
+      >
+        <p style={{ fontWeight: 600 }}>{staff ? 'No recap published yet' : 'Nothing shared yet'}</p>
+        <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8, maxWidth: 420 }}>
+          {staff
+            ? 'This meeting note is a draft recap. Publish it to share summary, decisions and action items with the client.'
+            : 'When Warehaus shares a meeting recap or file, it will appear here.'}
+        </p>
+        {staff ? (
+          <div className="mt-3">
+            <LockedStateButton label="Review draft recap" />
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+  const title = staff ? LONG_RESOURCE_STAFF : LONG_RESOURCE_CLIENT;
+  return (
+    <div data-testid="resource-state-long">
+    <Surface style={{ padding: 'var(--s-4)' }}>
+      <h3 style={{ fontSize: 16, fontWeight: 600, overflowWrap: 'break-word' }}>{title}</h3>
+      <p className="truncate" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
+        {staff ? 'Granola · Homepage wireframes +3' : 'Meeting recap · Homepage wireframes'}
+      </p>
+      {staff ? (
+        <div className="mt-3 flex flex-nowrap items-center gap-2 overflow-hidden">
+          <span className="ds-mono shrink-0 whitespace-nowrap" style={{ border: '1px dashed var(--border)', borderRadius: 999, padding: '4px 10px', fontSize: 11, color: 'var(--muted)' }}>
+            Draft recap
+          </span>
+          <PublishChip published={false} />
+        </div>
+      ) : null}
+    </Surface>
+    </div>
+  );
+}
+
 const SECTION_TITLE: Record<string, string> = {
   all: 'All resources',
   'meeting-notes': 'Meeting notes',
@@ -60,8 +164,11 @@ function fixtureTasksFor(resourceId: string, staff: boolean): ResourceTaskRow[] 
       id: task.id,
       name: task.name,
       status: task.status,
+      isDone: task.isDone,
       stage: task.stage,
+      category: task.category,
       projectName: project?.name ?? task.projectName,
+      projectInternal: Boolean(project?.internal || isStudioProjectName(project?.name)),
       date: task.date,
       ...(staff ? { publishToWarehaus: task.publishToWarehaus } : {}),
     };
@@ -118,14 +225,20 @@ export function ResourcesContent() {
     [fixtures, isStaff, staff.docs, clientDocs.data],
   );
   const [openResourceId, setOpenResourceId] = useState<string | null>(null);
+  const [resourceScreen, setResourceScreen] = useState<ResourceScreen>('ready');
 
   // Preview and deep links pass ?resource= or /resources/:id. The initializer
   // cannot read window during SSR, so apply the id after mount.
   useEffect(() => {
-    const id =
-      new URLSearchParams(window.location.search).get('resource') ??
-      pathId(window.location.pathname, '/resources/');
-    if (id) setOpenResourceId(id);
+    const params = new URLSearchParams(window.location.search);
+    const screen = params.get('resources');
+    if (screen === 'empty' || screen === 'loading' || screen === 'error' || screen === 'long') {
+      setResourceScreen(screen);
+    }
+    const id = params.get('resource') ?? pathId(window.location.pathname, '/resources/');
+    if (id && screen !== 'empty' && screen !== 'loading' && screen !== 'error' && screen !== 'long') {
+      setOpenResourceId(id);
+    }
   }, [pathname]);
   const staffUsed = useSafeQuery<ResourceTaskRow[]>(
     api.sharedResources.usedInTasks,
@@ -275,7 +388,11 @@ export function ResourcesContent() {
                 updatedAt: row.updatedAt ?? row.lastSyncedAt ?? null,
                 staff: isStaff,
                 ...(isStaff
-                  ? { publishToWarehaus: row.publishToWarehaus, notionPageId: row.notionPageId }
+                  ? {
+                      publishToWarehaus: row.publishToWarehaus,
+                      notionPageId: row.notionPageId,
+                      syncHidden: row.syncHidden,
+                    }
                   : {}),
               }}
               tasks={taskState.data ?? []}
@@ -292,30 +409,37 @@ export function ResourcesContent() {
     <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Resources')} title={title}>
       <PortalTilePane>
         <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" data-testid="resources-list">
-          {error || staff.resourcesError ? (
+          {resourceScreen !== 'ready' ? (
+            <ResourcePreviewState screen={resourceScreen} staff={isStaff} />
+          ) : null}
+          {resourceScreen === 'ready' && (error || staff.resourcesError) ? (
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>
               {isStaff ? error || staff.resourcesError : 'We could not load your resources'}
             </p>
           ) : null}
+          {resourceScreen === 'ready' ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
             {isStaff
               ? 'Full notes stay in Notion. This list is the live Shared Resource fields.'
               : 'You only see what is shared with you. A recap, not a transcript.'}
           </p>
-          {loading ? (
+          ) : null}
+          {resourceScreen === 'ready' && loading ? (
             <div className="flex flex-col gap-2" aria-busy="true">
               {[0, 1, 2].map((i) => (
                 <div key={i} className="animate-pulse" style={{ height: 56, borderRadius: 12, background: 'var(--bg)' }} />
               ))}
             </div>
-          ) : visible.length === 0 ? (
+          ) : null}
+          {resourceScreen === 'ready' && !loading && visible.length === 0 ? (
             <Surface style={{ padding: 'var(--s-5)' }}>
               <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
                 {isStaff ? 'No resources match these filters.' : 'Nothing shared yet.'}
               </p>
             </Surface>
-          ) : (
-            visible.map((row) => (
+          ) : null}
+          {resourceScreen === 'ready' && !loading && visible.length > 0
+            ? visible.map((row) => (
               <button
                 key={row.id}
                 type="button"
@@ -330,7 +454,7 @@ export function ResourcesContent() {
               >
                 <Surface style={{ padding: 'var(--s-4)' }}>
                   <div className="flex flex-wrap items-center gap-2">
-                    <h3 style={{ fontSize: 'var(--t-md)', fontWeight: 600, overflowWrap: 'anywhere' }}>{row.name}</h3>
+                    <h3 className="min-w-0 flex-1 truncate" style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{row.name}</h3>
                     {row.type ? <Pill>{row.type}</Pill> : null}
                     {isStaff && row.publishToWarehaus != null ? (
                       <PublishChip published={row.publishToWarehaus} />
@@ -346,7 +470,7 @@ export function ResourcesContent() {
                 </Surface>
               </button>
             ))
-          )}
+            : null}
         </div>
       </PortalTilePane>
     </PortalWorkspace>

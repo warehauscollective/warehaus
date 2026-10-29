@@ -266,7 +266,15 @@ export function AccountContent() {
               name: clientScreen === 'long' ? LONG_CLIENT : selected.name,
             }}
             projects={staffProjects(projects.filter((project) => project.orgId === selected.id), clientScreen) as ClientProjectRow[]}
-            tasks={tasks.filter((task) => task.orgId === selected.id) as ClientTaskRow[]}
+            tasks={tasks
+              .filter((task) => task.orgId === selected.id)
+              .map((task) => {
+                const project = projects.find((item) => item.id === task.projectId);
+                return {
+                  ...task,
+                  projectInternal: Boolean(project?.internal || isStudioProjectName(project?.name ?? task.projectName)),
+                };
+              })}
             docs={docs.filter((doc) => doc.orgId === selected.id)}
             contacts={contacts as ClientPersonRow[]}
             leadName={warehausLead(contacts)}
@@ -300,8 +308,7 @@ export function AccountContent() {
         <PortalTilePane>
           <ClientCompany
             name={clientScreen === 'long' ? LONG_CLIENT : data.tenant.clientName ?? portalSession?.name ?? 'Your company'}
-            contactName={portalSession?.name ?? '—'}
-            contactEmail={portalSession?.email ?? '—'}
+            leadName={data.leadName ?? null}
             projects={clientProjects(projects, portalSession?.orgId, clientScreen)}
             tasks={clientTasks(tasks, projects, portalSession?.orgId)}
             docs={docs

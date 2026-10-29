@@ -190,7 +190,7 @@ export function DocsBlock({
           .docs-row { align-items: flex-start; }
           .docs-main { flex: 1 1 0; min-width: 0; align-items: flex-start; }
           .docs-chev { order: 2; flex: 0 0 auto; margin-top: 2px; }
-          .docs-badges { order: 3; flex: 1 0 100%; justify-content: flex-start; padding-left: 52px; }
+          .docs-badges { order: 3; flex: 1 0 100%; flex-wrap: nowrap; overflow: hidden; justify-content: flex-start; padding-left: 52px; }
           .docs-block { padding: 20px !important; }
         }
         .docs-row:focus-visible {

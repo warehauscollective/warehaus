@@ -192,6 +192,17 @@ export const getSnapshot = clientQuery({
             mode: 'convex' as const,
           }
         : { mode: 'convex' as const },
+      ...(staff
+        ? {}
+        : {
+            leadName:
+              (
+                await ctx.db
+                  .query('contacts')
+                  .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+                  .collect()
+              ).find((person) => person.role === 'Warehaus Staff' && person.name.trim())?.name.trim() ?? null,
+          }),
       tenant: {
         mode: staff ? ('team' as const) : ('client' as const),
         slug: client?.slug ?? null,

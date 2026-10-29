@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Pill } from '@/components/ui/primitives';
+import { Pill, PortalCheckbox } from '@/components/ui/primitives';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { SyncChip } from '@/components/sync/SyncChip';
@@ -35,6 +35,9 @@ export type ClientTaskRow = {
   stage?: string | null;
   date?: string | null;
   projectName?: string | null;
+  publishToWarehaus?: boolean;
+  category?: string | null;
+  projectInternal?: boolean;
 };
 
 export type ClientPersonRow = {
@@ -283,7 +286,7 @@ export function ClientDirectory({
                 >
                   <Mark name={client.name} />
                   <span className="min-w-0 flex-1">
-                    <span className="block" style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>
+                    <span className="block" style={{ fontWeight: 600, overflowWrap: 'break-word' }}>
                       {client.internal ? `${client.name} (internal)` : client.name}
                     </span>
                     <span className="ds-mono block" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
@@ -402,21 +405,23 @@ export function ClientDetail({
             {projects.map((project) => {
               const pct = percent(project.progress);
               return (
-                <li key={project.id} className="flex flex-wrap items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
-                  <Mark name={project.name} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block" style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{project.name}</span>
-                    <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{brandLine(brand)}</span>
-                  </span>
-                  <span className="flex items-center gap-2" style={{ minWidth: 140 }}>
+                <li key={project.id} className="flex flex-col gap-3 sm:flex-row sm:items-center" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
+                  <div className="flex w-full min-w-0 items-center gap-3 sm:flex-1">
+                    <Mark name={project.name} />
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate" style={{ fontWeight: 600 }}>{project.name}</span>
+                      <span className="block truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{brandLine(brand)}</span>
+                    </span>
+                  </div>
+                  <span className="flex items-center gap-2">
                     <span style={{ height: 4, width: 88, borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
                       <span style={{ display: 'block', height: '100%', width: `${pct}%`, background: 'var(--fg)' }} />
                     </span>
                     <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{pct}%</span>
+                    <Dot tone={project.internal || project.publishToWarehaus === false ? 'off' : 'on'}>
+                      {project.internal || project.publishToWarehaus === false ? 'Not published' : 'Published'}
+                    </Dot>
                   </span>
-                  <Dot tone={project.internal || project.publishToWarehaus === false ? 'off' : 'on'}>
-                    {project.internal || project.publishToWarehaus === false ? 'Not published' : 'Published'}
-                  </Dot>
                 </li>
               );
             })}
@@ -455,13 +460,32 @@ export function ClientDetail({
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No tasks.</p>
         ) : (
           <ul className="mt-2">
-            {tasks.map((task) => (
-              <li key={task.id} className="flex flex-wrap items-center gap-2" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
-                <span className="min-w-0 flex-1" style={{ fontWeight: 600 }}>{task.name}</span>
-                {task.stage === 'Awaiting Go' ? <Pill color="var(--danger)">Awaiting Go</Pill> : null}
-                <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
-              </li>
-            ))}
+            {tasks.map((task) => {
+              const dueTime = task.date ? Date.parse(`${task.date}T00:00:00Z`) : Number.NaN;
+              const due = Number.isNaN(dueTime)
+                ? null
+                : new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(dueTime);
+              const meta = [task.projectName, due ? `Due ${due}` : null]
+                .filter(Boolean)
+                .join(' · ');
+              return (
+                <li key={task.id} className="flex flex-wrap items-center gap-2" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
+                  <PortalCheckbox checked={task.isDone} disabled />
+                  <span className="min-w-0 flex-1 basis-40">
+                    <span className="block truncate" style={{ fontWeight: 600 }}>{task.name}</span>
+                    {meta ? <span className="block truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{meta}</span> : null}
+                  </span>
+                  <span className="flex max-w-full flex-wrap items-center gap-2">
+                    {task.stage ? <Pill color={task.stage === 'Awaiting Go' ? 'var(--danger)' : undefined}>{task.stage}</Pill> : null}
+                    <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
+                    {task.category ? <Pill>{task.category}</Pill> : null}
+                    {task.publishToWarehaus != null && !task.projectInternal ? (
+                      <Dot tone={task.publishToWarehaus ? 'on' : 'off'}>{task.publishToWarehaus ? 'Published' : 'Not published'}</Dot>
+                    ) : null}
+                  </span>
+                </li>
+              );
+            })}
           </ul>
         )}
       </Panel>
@@ -474,8 +498,7 @@ export function ClientDetail({
 
 export function ClientCompany({
   name,
-  contactName,
-  contactEmail,
+  leadName,
   projects,
   tasks,
   docs,
@@ -485,8 +508,7 @@ export function ClientCompany({
   screen = 'ready',
 }: {
   name: string;
-  contactName: string;
-  contactEmail: string;
+  leadName?: string | null;
   projects: ClientProjectRow[];
   tasks: ClientTaskRow[];
   docs: DocRow[];
@@ -575,7 +597,7 @@ export function ClientCompany({
         </div>
         <div className="mt-4 flex flex-wrap items-center gap-3">
           <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>YOUR CONTACT</span>
-          <span style={{ fontSize: 'var(--t-sm)' }}>{contactName} · {contactEmail}</span>
+          <span data-testid="your-contact" style={{ fontSize: 'var(--t-sm)' }}>{leadName?.trim() || '—'}</span>
         </div>
         <div className="mt-4">
           <p className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>YOUR TEAM</p>
@@ -623,7 +645,7 @@ export function ClientCompany({
                 <li key={project.id} className="flex flex-wrap items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
                   <Mark name={project.name} />
                   <span className="min-w-0 flex-1">
-                    <span className="block" style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{project.name}</span>
+                    <span className="block" style={{ fontWeight: 600, overflowWrap: 'break-word' }}>{project.name}</span>
                     <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{brandLine(name)}</span>
                   </span>
                   <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{pct}% of items</span>

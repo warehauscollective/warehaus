@@ -1,17 +1,20 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Pill, Surface } from '@/components/ui/primitives';
-import { PublishChip } from '@/components/sync/SyncChip';
-import { notionNotesHref, resourceMeta, usedInTasksSubtitle } from '@/lib/data/resourceDetail';
+import { Pill, PortalCheckbox, Surface } from '@/components/ui/primitives';
+import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
+import { notionNotesHref, recapSections, resourceMeta, usedInTasksSubtitle } from '@/lib/data/resourceDetail';
 import { taskStatusColor } from '@/lib/data/view-models';
 
 export type ResourceTaskRow = {
   id: string;
   name: string;
   status: string;
+  isDone?: boolean;
   stage?: string | null;
+  category?: string | null;
   projectName?: string | null;
+  projectInternal?: boolean;
   date?: string | null;
   publishToWarehaus?: boolean;
 };
@@ -28,6 +31,7 @@ export type ResourceDetailModel = {
   staff: boolean;
   publishToWarehaus?: boolean;
   notionPageId?: string | null;
+  syncHidden?: boolean;
 };
 
 function LockedButton({ label, testId }: { label: string; testId: string }) {
@@ -96,14 +100,16 @@ export function ResourceDetail({
 }) {
   const notesHref = resource.staff ? notionNotesHref(resource.notionPageId) : null;
   const published = resource.publishToWarehaus === true;
-  const recap = resource.description?.trim() || null;
+  const sections = recapSections(resource.description);
+  const recapKind = /meeting|recap|notes/i.test(resource.type ?? '');
+  const recapMark = recapKind ? (published ? 'Recap published' : 'Draft recap') : null;
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-6 overflow-y-auto" data-testid="resource-detail">
       <Surface style={{ padding: '2rem', borderRadius: '2.25rem' }}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h2 style={{ fontSize: 26, fontWeight: 600, lineHeight: '32px', overflowWrap: 'anywhere' }}>{resource.name}</h2>
+            <h2 style={{ fontSize: 26, fontWeight: 600, lineHeight: '32px', overflowWrap: 'break-word' }}>{resource.name}</h2>
             <p style={{ fontSize: 14, color: 'var(--muted)', marginTop: 6 }}>
               {resourceMeta(resource.type, resource.updatedAt)}
               {resource.projectName ? ` · ${resource.projectName}` : ''}
@@ -111,9 +117,29 @@ export function ResourceDetail({
           </div>
           {resource.staff ? <LockedButton label="Edit recap" testId="edit-recap" /> : null}
         </div>
-        {resource.staff && resource.publishToWarehaus != null ? (
-          <div className="mt-4">
-            <PublishChip published={published} />
+        {resource.staff ? (
+          <div className="mt-4 flex flex-wrap items-center gap-2">
+            {recapMark ? (
+              <span
+                data-testid="recap-published"
+                className="ds-mono inline-flex items-center whitespace-nowrap"
+                style={{
+                  border: '1px solid var(--border)',
+                  borderRadius: 999,
+                  padding: '4px 10px',
+                  fontSize: 11,
+                  color: 'var(--muted)',
+                }}
+              >
+                {recapMark}
+              </span>
+            ) : null}
+            {resource.publishToWarehaus != null ? <PublishChip published={published} /> : null}
+            <SyncChip
+              audience="staff"
+              notionPageId={resource.notionPageId}
+              syncHidden={resource.syncHidden}
+            />
           </div>
         ) : null}
         {!resource.staff ? (
@@ -219,9 +245,7 @@ export function ResourceDetail({
                 <a href={notesHref} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--fg)', fontSize: 14 }}>
                   Open full notes in Notion
                 </a>
-              ) : (
-                <LockedButton label="Open full notes in Notion" testId="open-notes" />
-              )}
+              ) : null}
             </li>
           ) : null}
         </ul>
@@ -232,9 +256,22 @@ export function ResourceDetail({
         subtitle={resource.staff ? 'This is exactly what the client can open' : 'A recap, not a transcript'}
         testId="client-safe-recap"
       >
-        <p style={{ fontSize: 14, lineHeight: '22px', overflowWrap: 'anywhere', color: recap ? 'var(--fg)' : 'var(--muted)' }}>
-          {recap ?? 'No recap yet.'}
-        </p>
+        <div className="flex flex-col gap-4">
+          {(
+            [
+              ['Summary', sections.summary],
+              ['Decisions', sections.decisions],
+              ['Action items', sections.actionItems],
+            ] as const
+          ).map(([label, text]) => (
+            <div key={label}>
+              <p className="ds-mono" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--faint)' }}>{label.toUpperCase()}</p>
+              <p style={{ fontSize: 14, lineHeight: '22px', marginTop: 6, overflowWrap: 'break-word', color: text ? 'var(--fg)' : 'var(--muted)' }}>
+                {text ?? 'Not in this recap.'}
+              </p>
+            </div>
+          ))}
+        </div>
         {resource.url ? (
           <a href={resource.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--fg)', fontSize: 14, display: 'inline-block', marginTop: 12 }}>
             Open
@@ -242,6 +279,13 @@ export function ResourceDetail({
         ) : null}
       </Section>
 
+      <style>{`
+        .used-in-title { font-weight: 600; overflow-wrap: break-word; }
+        .used-in-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--muted); margin-top: 2px; }
+        @media (max-width: 480px) {
+          .used-in-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+        }
+      `}</style>
       <Section title="Used in tasks" subtitle={tasksLoading ? 'Loading tasks…' : usedInTasksSubtitle(tasks.length)} testId="used-in-tasks">
         {tasksLoading ? null : tasks.length === 0 ? (
           <div
@@ -270,17 +314,21 @@ export function ResourceDetail({
                     className="flex w-full flex-wrap items-center gap-2 text-left"
                     style={{ background: 'none', border: 0, padding: '1rem 0', color: 'inherit', cursor: 'pointer' }}
                   >
-                    <span className="min-w-0 flex-1">
-                      <span className="block" style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{task.name}</span>
-                      <span className="block" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
+                    {resource.staff ? <PortalCheckbox checked={task.isDone === true} disabled /> : null}
+                    <span className="min-w-0 flex-1 basis-40">
+                      <span className="used-in-title block">{task.name}</span>
+                      <span className="used-in-meta">
                         {[task.projectName, due ? `Due ${due}` : null].filter(Boolean).join(' · ') || 'Task'}
                       </span>
                     </span>
-                    {task.stage === 'Awaiting Go' ? <Pill color="var(--danger)">Awaiting Go</Pill> : task.stage ? <Pill>{task.stage}</Pill> : null}
-                    <Pill color={taskStatusColor(task.status, false)}>{task.status}</Pill>
-                    {resource.staff && task.publishToWarehaus != null ? (
-                      <PublishChip published={task.publishToWarehaus} />
-                    ) : null}
+                    <span className="used-in-chips flex max-w-full flex-wrap items-center gap-2">
+                      {task.stage === 'Awaiting Go' ? <Pill color="var(--danger)">Awaiting Go</Pill> : task.stage ? <Pill>{task.stage}</Pill> : null}
+                      <Pill color={taskStatusColor(task.status, task.isDone === true)}>{task.status}</Pill>
+                      {resource.staff && task.category ? <Pill>{task.category}</Pill> : null}
+                      {resource.staff && task.publishToWarehaus != null && !task.projectInternal ? (
+                        <PublishChip published={task.publishToWarehaus} />
+                      ) : null}
+                    </span>
                   </button>
                 </li>
               );

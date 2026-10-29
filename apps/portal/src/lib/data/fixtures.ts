@@ -159,20 +159,21 @@ export const FIXTURE_PROJECTS = [
 ];
 
 export const FIXTURE_TASKS = [
-  task('t-inbox', 'p-site', 'Capture homepage notes', 'Inbox', false),
-  task('t-todo', 'p-site', 'Write the launch checklist', 'To Do', false, { stage: 'Awaiting Go' }),
-  task('t-blocked', 'p-site', 'Waiting on photography', 'Blocked', false, { stage: 'Building' }),
+  task('t-inbox', 'p-site', 'Capture homepage notes', 'Inbox', false, { category: 'Design' }),
+  task('t-todo', 'p-site', 'Write the launch checklist', 'To Do', false, { stage: 'Awaiting Go', category: 'Design' }),
+  task('t-blocked', 'p-site', 'Waiting on photography', 'Blocked', false, { stage: 'Building', category: 'Design' }),
   task('t-doing', 'p-site', 'Build the project page', 'In Progress', false, {
     stage: 'Building',
     assigneeName: 'Alex Bauer',
     resourceCount: 3,
+    category: 'Design',
   }),
   task('t-sub', 'p-site', 'Check the type scale', 'To Do', false, { stage: 'Building', parentTaskId: 't-doing', category: 'Design' }),
-  task('t-done', 'p-site', 'Approve the type ramp', 'Done', true),
-  task('t-hidden', 'p-site', 'Row the pull hid', 'To Do', false, { syncHidden: true }),
-  task('t-local', 'p-site', 'Not confirmed yet', 'To Do', false, { notionPageId: 'portal:task:local' }),
-  task('t-planning', 'p-site', 'Stage is not a status', 'Planning', false),
-  task('t-shipped', 'p-shipped', 'Archive the old deck', 'Done', true),
+  task('t-done', 'p-site', 'Approve the type ramp', 'Done', true, { category: 'Design' }),
+  task('t-hidden', 'p-site', 'Row the pull hid', 'To Do', false, { syncHidden: true, category: 'Design' }),
+  task('t-local', 'p-site', 'Not confirmed yet', 'To Do', false, { notionPageId: 'portal:task:local', category: 'Design' }),
+  task('t-planning', 'p-site', 'Stage is not a status', 'Planning', false, { category: 'Design' }),
+  task('t-shipped', 'p-shipped', 'Archive the old deck', 'Done', true, { category: 'Design' }),
   task('t-internal', 'p-internal', 'Internal ops task', 'Inbox', false),
 ];
 
@@ -248,7 +249,7 @@ export const FIXTURE_DOCS = [
     orgId: 'c-north',
     projectId: 'p-site',
     title: 'Project brief',
-    summary: 'Goals, audience and success measures for the Warehaus Portal.',
+    summary: 'Goals, audience, and how we will know the site is working.',
     docType: 'Brief',
     order: 1,
     status: 'Published',
@@ -264,7 +265,7 @@ export const FIXTURE_DOCS = [
     orgId: 'c-north',
     projectId: 'p-site',
     title: 'Scope of work',
-    summary: 'What is in B1–B7, what is parked, and how changes get approved.',
+    summary: 'What is included, what is parked, and how changes get approved.',
     docType: 'Scope',
     order: 2,
     status: 'Published',
@@ -466,6 +467,7 @@ export const FIXTURE_CLIENT_SNAPSHOT: PortalSnapshot = {
       delete rest.clientVisible;
       return rest;
     }),
+  leadName: 'Maya Chen',
   tenant: {
     mode: 'client',
     slug: FIXTURE_CLIENT_SESSION.orgSlug,
