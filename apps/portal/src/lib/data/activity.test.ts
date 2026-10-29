@@ -349,6 +349,15 @@ describe('activity view model', () => {
     const view = readFileSync(new URL('./activity.ts', import.meta.url), 'utf8');
     assert.equal(view.includes('isClientVisibleFeedItem'), false);
     assert.equal(view.includes('clientMaySee'), false);
+    const screen = readFileSync(new URL('../../components/pages/ActivityContent.tsx', import.meta.url), 'utf8');
+    assert.match(screen, /data-testid="activity-filters"/);
+    assert.match(screen, /useMaxWidth\(480\)/);
+    assert.match(screen, /overflowX: 'auto'/);
+    assert.match(screen, /flexWrap: 'nowrap'/);
+    assert.match(screen, /scrollActiveIntoView\(node, \{ activeSelector: '\[aria-pressed="true"\]' \}\)/);
+    assert.match(screen, /activityFilterFadeOnScroll\(node\)/);
+    assert.match(screen, /data-testid="activity-filter-fade"/);
+    assert.match(screen, /\[narrow, filter\]/);
   });
 
   it('fixture All equals the lane chips and People equals its rows', () => {

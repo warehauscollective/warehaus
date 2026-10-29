@@ -28,7 +28,7 @@ import {
 import { OutlineButton, Pill, PrimaryButton } from '@/components/ui/primitives';
 import { SyncChip } from '@/components/sync/SyncChip';
 import { formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
-import { sectionEdgeFadePx } from '@/components/layout/sectionEdgeFade';
+import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from './TaskGlyph';
 
 export type BoardMode = 'status' | 'stage';
@@ -756,12 +756,17 @@ function PhoneColumnTabs({
   onSelect: (key: string) => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
-  const [fadePx, setFadePx] = useState(0);
+  const [fade, setFade] = useState<EdgeFade>({ leading: 0, trailing: 0 });
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node || !inset) return;
+    scrollActiveIntoView(node, { inset: true, activeSelector: '[aria-selected="true"]' });
+  }, [activeTab, inset]);
   useEffect(() => {
     const node = scroller.current;
     if (!node || !inset) return;
     const update = () => {
-      setFadePx(sectionEdgeFadePx(node, { inset: true, activeSelector: '[aria-selected="true"]' }));
+      setFade(sectionEdgeFades(node, { inset: true, activeSelector: '[aria-selected="true"]' }));
     };
     update();
     node.addEventListener('scroll', update, { passive: true });
@@ -774,7 +779,7 @@ function PhoneColumnTabs({
       window.removeEventListener('resize', update);
     };
   }, [columns, activeTab, inset]);
-  const fade = fadePx > 0;
+  const mask = sectionEdgeMask(fade);
   return (
     <div className="relative min-w-0">
       <div
@@ -786,10 +791,10 @@ function PhoneColumnTabs({
           paddingLeft: inset ? 20 : undefined,
           scrollPaddingLeft: inset ? 20 : undefined,
           scrollbarWidth: inset ? 'none' : undefined,
-          ...(fade
+          ...(mask
             ? {
-                maskImage: `linear-gradient(to right, #000 0, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
-                WebkitMaskImage: `linear-gradient(to right, #000 0, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
+                maskImage: mask,
+                WebkitMaskImage: mask,
               }
             : null),
         }}
@@ -815,12 +820,20 @@ function PhoneColumnTabs({
           </button>
         ))}
       </div>
-      {fade ? (
+      {fade.leading > 0 ? (
+        <div
+          aria-hidden
+          data-testid="stage-edge-fade-leading"
+          className="pointer-events-none absolute inset-y-0 left-0"
+          style={{ width: fade.leading, background: 'linear-gradient(to left, transparent, var(--bg) 45%)' }}
+        />
+      ) : null}
+      {fade.trailing > 0 ? (
         <div
           aria-hidden
           data-testid="stage-edge-fade"
           className="pointer-events-none absolute inset-y-0 right-0"
-          style={{ width: fadePx, background: 'linear-gradient(to right, transparent, var(--bg) 45%)' }}
+          style={{ width: fade.trailing, background: 'linear-gradient(to right, transparent, var(--bg) 45%)' }}
         />
       ) : null}
     </div>

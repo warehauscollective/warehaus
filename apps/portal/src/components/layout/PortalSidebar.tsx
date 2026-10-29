@@ -6,7 +6,7 @@ import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { usePortalData } from '@/hooks/usePortalData';
-import { sectionEdgeFadePx } from './sectionEdgeFade';
+import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from './sectionEdgeFade';
 
 /**
  * In-flow section rail for one swipe tab.
@@ -83,7 +83,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         >
           {tab}
         </span>
-        <SectionScroller inset={data.tenant.mode === 'team'}>
+        <SectionScroller inset={data.tenant.mode === 'team'} activeKey={activeSection}>
           {sections.map((s) => {
             const active = activeSection === s.key;
             return (
@@ -185,14 +185,19 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
   );
 }
 
-function SectionScroller({ children, inset }: { children: ReactNode; inset?: boolean }) {
+function SectionScroller({ children, inset, activeKey }: { children: ReactNode; inset?: boolean; activeKey: string }) {
   const ref = useRef<HTMLDivElement>(null);
-  const [fadePx, setFadePx] = useState(0);
+  const [fade, setFade] = useState<EdgeFade>({ leading: 0, trailing: 0 });
+  useEffect(() => {
+    const node = ref.current;
+    if (!node) return;
+    scrollActiveIntoView(node, { inset });
+  }, [activeKey, inset]);
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
     const update = () => {
-      setFadePx(sectionEdgeFadePx(node, { inset }));
+      setFade(sectionEdgeFades(node, { inset }));
     };
     update();
     node.addEventListener('scroll', update, { passive: true });
@@ -205,7 +210,7 @@ function SectionScroller({ children, inset }: { children: ReactNode; inset?: boo
       window.removeEventListener('resize', update);
     };
   }, [children, inset]);
-  const fade = fadePx > 0;
+  const mask = sectionEdgeMask(fade);
   return (
     <div className="relative min-w-0 flex-1">
       <div
@@ -218,22 +223,30 @@ function SectionScroller({ children, inset }: { children: ReactNode; inset?: boo
           overflowY: 'hidden',
           paddingLeft: inset ? 20 : 0,
           scrollPaddingLeft: inset ? 20 : 0,
-          ...(fade
+          ...(mask
             ? {
-                maskImage: `linear-gradient(to right, #000 0, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
-                WebkitMaskImage: `linear-gradient(to right, #000 0, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
+                maskImage: mask,
+                WebkitMaskImage: mask,
               }
             : null),
         }}
       >
         {children}
       </div>
-      {fade ? (
+      {fade.leading > 0 ? (
+        <div
+          aria-hidden
+          data-testid="section-edge-fade-leading"
+          className="pointer-events-none absolute inset-y-0 left-0"
+          style={{ width: fade.leading, background: 'linear-gradient(to left, transparent, var(--nav-bg) 70%)' }}
+        />
+      ) : null}
+      {fade.trailing > 0 ? (
         <div
           aria-hidden
           data-testid="section-edge-fade"
           className="pointer-events-none absolute inset-y-0 right-0"
-          style={{ width: fadePx, background: 'linear-gradient(to right, transparent, var(--nav-bg) 70%)' }}
+          style={{ width: fade.trailing, background: 'linear-gradient(to right, transparent, var(--nav-bg) 70%)' }}
         />
       ) : null}
     </div>

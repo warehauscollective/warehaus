@@ -1,7 +1,8 @@
 'use client';
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityFeedRow } from '@/components/activity/ActivityFeedRow';
+import { activityFilterFadeOnScroll, scrollActiveIntoView, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
@@ -18,6 +19,7 @@ import {
 } from '@/lib/data/activity';
 import { FIXTURE_CLIENT_ACTIVITY_PAGE, FIXTURE_STAFF_ACTIVITY_PAGE } from '@/lib/data/fixtures';
 import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
 
 type ActivityPreview = 'empty' | 'loading' | 'error' | 'long' | null;
 
@@ -47,6 +49,7 @@ export function ActivityContent() {
   const feed = useActivityFeed();
   const preview = useActivityPreview(fixtures);
   const staff = data.tenant.mode === 'team';
+  const narrow = useMaxWidth(480);
   const section = sectionFor('activity');
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [retryNote, setRetryNote] = useState<string | null>(null);
@@ -112,39 +115,17 @@ export function ActivityContent() {
                 <p style={{ marginTop: 4, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
                   {model.subtitle}
                 </p>
-                <div className="mt-6 flex flex-wrap gap-2">
-                  {shown.filters.map((chip) => {
-                    const active = chip.key === filter;
-                    return (
-                      <button
-                        key={chip.key}
-                        type="button"
-                        aria-pressed={active}
-                        onClick={() => {
-                          setFilter(chip.key);
-                          if (chip.key === 'all' || chip.key === 'tasks' || (staff && chip.key === 'sync') || (!staff && chip.key === 'resources')) {
-                            setSectionFor('activity', chip.key === 'all' ? 'all' : chip.key);
-                          }
-                        }}
-                        className="inline-flex items-center gap-2"
-                        style={{
-                          borderRadius: 999,
-                          padding: '8px 16px',
-                          border: `1px solid ${active ? 'var(--border-2)' : 'var(--border)'}`,
-                          background: active ? 'var(--surface-2)' : 'transparent',
-                          color: active ? 'var(--fg)' : 'var(--muted)',
-                          fontSize: 13,
-                          fontWeight: 500,
-                        }}
-                      >
-                        {chip.label}
-                        <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>
-                          {chip.count}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
+                <ActivityFilters
+                  narrow={narrow}
+                  filter={filter}
+                  filters={shown.filters}
+                  onSelect={(key) => {
+                    setFilter(key);
+                    if (key === 'all' || key === 'tasks' || (staff && key === 'sync') || (!staff && key === 'resources')) {
+                      setSectionFor('activity', key === 'all' ? 'all' : key);
+                    }
+                  }}
+                />
                 <div className="mt-8 flex flex-col gap-8">
                   {groups.map((group) => (
                     <div key={group.key}>
@@ -196,6 +177,115 @@ export function ActivityContent() {
           </section>
       </PortalTilePane>
     </PortalWorkspace>
+  );
+}
+
+function ActivityFilters({
+  narrow,
+  filter,
+  filters,
+  onSelect,
+}: {
+  narrow: boolean;
+  filter: ActivityFilter;
+  filters: Array<{ key: ActivityFilter; label: string; count: number }>;
+  onSelect: (key: ActivityFilter) => void;
+}) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const [fade, setFade] = useState<EdgeFade>({ leading: 0, trailing: 0 });
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node || !narrow) return;
+    scrollActiveIntoView(node, { activeSelector: '[aria-pressed="true"]' });
+  }, [narrow, filter]);
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node || !narrow) {
+      setFade({ leading: 0, trailing: 0 });
+      return;
+    }
+    const update = () => {
+      setFade(activityFilterFadeOnScroll(node));
+    };
+    update();
+    node.addEventListener('scroll', update, { passive: true });
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    window.addEventListener('resize', update);
+    return () => {
+      node.removeEventListener('scroll', update);
+      observer.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [narrow, filter, filters]);
+  const mask = narrow ? sectionEdgeMask(fade) : null;
+  return (
+    <div className="relative mt-6 min-w-0">
+      <div
+        ref={scroller}
+        className="flex min-w-0 gap-2"
+        data-testid="activity-filters"
+        style={
+          narrow
+            ? {
+                overflowX: 'auto',
+                flexWrap: 'nowrap',
+                scrollbarWidth: 'none',
+                maxWidth: '100%',
+                ...(mask
+                  ? {
+                      maskImage: mask,
+                      WebkitMaskImage: mask,
+                    }
+                  : null),
+              }
+            : { flexWrap: 'wrap' }
+        }
+      >
+        {filters.map((chip) => {
+          const active = chip.key === filter;
+          return (
+            <button
+              key={chip.key}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onSelect(chip.key)}
+              className="inline-flex shrink-0 items-center gap-2"
+              style={{
+                borderRadius: 999,
+                padding: '8px 16px',
+                border: `1px solid ${active ? 'var(--border-2)' : 'var(--border)'}`,
+                background: active ? 'var(--surface-2)' : 'transparent',
+                color: active ? 'var(--fg)' : 'var(--muted)',
+                fontSize: 13,
+                fontWeight: 500,
+              }}
+            >
+              {chip.label}
+              <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>
+                {chip.count}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      {fade.leading > 0 ? (
+        <div
+          aria-hidden
+          data-testid="activity-filter-fade-leading"
+          className="pointer-events-none absolute inset-y-0 left-0"
+          style={{ width: fade.leading, background: 'linear-gradient(to left, transparent, var(--surface) 70%)' }}
+        />
+      ) : null}
+      {fade.trailing > 0 ? (
+        <div
+          aria-hidden
+          data-testid="activity-filter-fade"
+          className="pointer-events-none absolute inset-y-0 right-0"
+          style={{ width: fade.trailing, background: 'linear-gradient(to right, transparent, var(--surface) 70%)' }}
+        />
+      ) : null}
+    </div>
   );
 }
 
