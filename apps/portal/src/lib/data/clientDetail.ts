@@ -106,9 +106,8 @@ export function clientUpdatedLabel(task: {
   lastEditedTime?: string | null;
   date?: string | null;
 }): string | null {
-  const raw = task.lastEditedTime ?? task.date;
-  if (!raw) return null;
-  const label = formatPortalDate(raw);
+  if (!task.lastEditedTime) return null;
+  const label = formatPortalDate(task.lastEditedTime);
   if (!label || label === '—') return null;
   return `Updated ${label}`;
 }

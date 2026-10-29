@@ -196,12 +196,50 @@ function personRowStyle(index: number): CSSProperties {
   };
 }
 
+function TeamPersonRow({
+  person,
+  index,
+  nameWeight = 500,
+  pendingColor = 'var(--muted)',
+}: {
+  person: ClientPersonRow;
+  index: number;
+  nameWeight?: number;
+  pendingColor?: string;
+}) {
+  return (
+    <li className="flex items-center" style={personRowStyle(index)}>
+      <PersonMark name={person.name} />
+      <span className="min-w-0 flex-1" style={{ marginLeft: 12 }}>
+        <span className="block" style={{ fontWeight: nameWeight, overflowWrap: 'break-word' }}>{person.name}</span>
+        <span className="ds-mono hidden lg:block" style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'break-word' }}>{person.email}</span>
+        <span className="ds-mono block lg:hidden" data-testid="client-person-meta" style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'break-word' }}>
+          {[person.email, person.role].filter(Boolean).join(' · ')}
+        </span>
+      </span>
+      <span
+        className="ds-mono hidden shrink-0 lg:block"
+        data-testid="client-person-role"
+        style={{ width: 140, marginLeft: 12, fontSize: 12, color: 'var(--muted)' }}
+      >
+        {person.role ?? ''}
+      </span>
+      <span
+        className="ds-mono shrink-0"
+        data-testid="client-person-status"
+        style={{ marginLeft: 24, fontSize: 12, color: person.invitePending ? pendingColor : 'var(--muted)' }}
+      >
+        {clientPersonStatus(person)}
+      </span>
+    </li>
+  );
+}
+
 function EditClientButton() {
   const hintId = useId();
   return (
     <span
       tabIndex={0}
-      role="group"
       aria-disabled="true"
       aria-describedby={hintId}
       title={EDIT_PROJECT_WRITEBACK_HINT}
@@ -628,17 +666,7 @@ export function ClientDetail({
         ) : (
           <ul style={{ marginTop: 16 }}>
             {contactRows.map((person, index) => (
-              <li key={person.id} className="flex flex-wrap items-center gap-3" style={personRowStyle(index)}>
-                <PersonMark name={person.name} />
-                <span className="min-w-0 flex-1">
-                  <span className="clamp-one block" style={{ fontWeight: 600 }}>{person.name}</span>
-                  <span className="block truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
-                </span>
-                {person.role ? <span style={{ fontSize: 13, color: 'var(--muted)' }}>{person.role}</span> : null}
-                <span style={{ fontSize: 13, color: person.invitePending ? 'var(--warn)' : 'var(--muted)' }}>
-                  {person.invitePending ? 'Invite pending' : person.portalAccess === 'Enabled' ? 'Active' : 'No portal access'}
-                </span>
-              </li>
+              <TeamPersonRow key={person.id} person={person} index={index} nameWeight={600} pendingColor="var(--warn)" />
             ))}
           </ul>
         )}
@@ -728,24 +756,7 @@ export function ClientCompany({
           ) : (
             <ul style={{ marginTop: 16 }}>
               {visiblePeople.map((person, index) => (
-                <li key={person.id} className="flex items-center gap-3" style={personRowStyle(index)}>
-                  <PersonMark name={person.name} />
-                  <span className="min-w-0 flex-1">
-                    <span className="clamp-one block" style={{ fontWeight: 500 }}>{person.name}</span>
-                    <span className="ds-mono hidden lg:block" style={{ fontSize: 12, color: 'var(--muted)' }}>{person.email}</span>
-                    <span className="ds-mono block lg:hidden" data-testid="client-person-meta" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                      {[person.email, person.role].filter(Boolean).join(' · ')}
-                    </span>
-                  </span>
-                  {person.role ? (
-                    <span className="ds-mono hidden shrink-0 lg:block" data-testid="client-person-role" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                      {person.role}
-                    </span>
-                  ) : null}
-                  <span className="ds-mono shrink-0" data-testid="client-person-status" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                    {clientPersonStatus(person)}
-                  </span>
-                </li>
+                <TeamPersonRow key={person.id} person={person} index={index} />
               ))}
             </ul>
           )}

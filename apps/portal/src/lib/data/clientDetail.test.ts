@@ -81,8 +81,8 @@ describe('client detail', () => {
     assert.equal(clientPersonStatus({ portalAccess: 'Enabled' }), 'Active');
     assert.equal(clientPersonStatus({ portalAccess: 'Disabled' }), 'No portal access');
     assert.equal(clientDueLabel('2026-10-20'), 'Due Oct 20');
-    assert.equal(clientUpdatedLabel({ lastEditedTime: '2026-10-05', date: '2026-10-20' }), 'Updated Oct 5');
-    assert.equal(clientUpdatedLabel({ date: '2026-10-20' }), 'Updated Oct 20');
+    assert.equal(clientUpdatedLabel({ lastEditedTime: '2026-10-05' }), 'Updated Oct 5');
+    assert.equal(clientUpdatedLabel({ date: '2026-10-20' }), null);
     assert.equal(clientUpdatedLabel({}), null);
     assert.equal(clientDueLabel(null), null);
     assert.equal(CLIENT_TEAM_STAGE_LABEL, CLIENT_AWAITING_LABEL);

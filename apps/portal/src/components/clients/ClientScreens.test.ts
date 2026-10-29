@@ -81,7 +81,9 @@ describe('client team page', () => {
     assert.equal(html.includes('>Awaiting Go<'), false);
     assert.match(html, /data-testid="client-team-open"/);
     assert.match(html, /Updated Oct 5/);
-    assert.match(html, /data-testid="client-person-role"/);
+    assert.match(html, /data-testid="client-person-role"[^>]*style="[^"]*width:140px/);
+    assert.match(html, /margin-left:24px/);
+    assert.equal(html.includes('class="clamp-one"'), false);
     assert.match(html, /border-radius:999px/);
     assert.equal(html.includes('ds-pill'), false);
     assert.equal(html.includes('client-chev.svg'), true);
@@ -156,6 +158,11 @@ describe('client team page', () => {
     assert.match(detail, /font-family:var\(--font-body\)/);
     assert.match(detail, /opacity:0.4/);
     assert.match(detail, /Editing turns on with Notion write-back/);
+    assert.equal(detail.includes('role="group"'), false);
+    assert.match(detail, /Sam North/);
+    assert.match(detail, /sam@northwind\.example · Client Member/);
+    assert.match(detail, /width:140px/);
+    assert.equal(detail.includes('class="clamp-one"'), false);
     assert.equal(detail.includes('···'), false);
     assert.equal(detail.includes('Not available yet'), false);
   });
