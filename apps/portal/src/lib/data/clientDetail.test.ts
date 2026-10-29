@@ -4,6 +4,8 @@ import { CLIENT_AWAITING_LABEL } from './dashboard';
 import {
   CLIENT_TEAM_STAGE_LABEL,
   brandLine,
+  clientBrandMeta,
+  inSyncLine,
   clientDueLabel,
   clientUpdatedLabel,
   clientPersonStatus,
@@ -34,6 +36,12 @@ describe('client detail', () => {
 
   it('uses the company as the only brand', () => {
     assert.equal(brandLine('Northwind Foods'), 'Brand: Northwind Foods');
+    assert.equal(clientBrandMeta('Northwind Foods'), null);
+    assert.equal(clientBrandMeta('Northwind Foods', 'northwind foods'), null);
+    assert.equal(clientBrandMeta('Northwind Foods', 'Northwind Kitchen'), 'Brand: Northwind Kitchen');
+    const synced = Date.parse('2026-10-05T15:00:00Z');
+    assert.equal(inSyncLine(synced, synced + 2 * 60000), 'In sync · 2 min ago');
+    assert.equal(inSyncLine(null), 'In sync');
     assert.equal(warehausLead([
       { name: 'Ada North', role: 'Client Admin' },
       { name: 'Maya Chen', role: 'Warehaus Staff' },

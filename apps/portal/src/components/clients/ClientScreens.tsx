@@ -8,6 +8,8 @@ import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { SyncChip } from '@/components/sync/SyncChip';
 import {
   brandLine,
+  clientBrandMeta,
+  inSyncLine,
   CLIENT_TEAM_STAGE_LABEL,
   clientDueLabel,
   clientPersonStatus,
@@ -46,6 +48,8 @@ export type ClientProjectRow = {
   publishToWarehaus?: boolean;
   internal?: boolean;
   endDate?: string | null;
+  /** Set only when a project brand differs from the company. There is no brand table. */
+  brand?: string | null;
 };
 
 export type ClientTaskRow = {
@@ -153,13 +157,14 @@ function PersonMark({ name }: { name: string }) {
   );
 }
 
-function Mark({ name }: { name: string }) {
+function Mark({ name, size = 36, testId }: { name: string; size?: number; testId?: string }) {
   return (
     <span
       className="ds-mono inline-flex shrink-0 items-center justify-center"
+      data-testid={testId}
       style={{
-        width: 36,
-        height: 36,
+        width: size,
+        height: size,
         borderRadius: 10,
         background: 'var(--bg)',
         border: '1px solid var(--border)',
@@ -168,6 +173,19 @@ function Mark({ name }: { name: string }) {
       }}
     >
       {clientInitials(name)}
+    </span>
+  );
+}
+
+function SourceChip() {
+  return (
+    <span
+      className="ds-mono inline-flex items-center gap-1"
+      data-testid="client-source"
+      style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '4px 8px', fontSize: 11 }}
+    >
+      <span style={{ fontSize: 10, letterSpacing: '0.8px', color: 'var(--faint)' }}>SOURCE</span>
+      <span style={{ color: 'var(--muted)' }}>Notion</span>
     </span>
   );
 }
@@ -261,7 +279,7 @@ function TeamPersonRow({
   );
 }
 
-function EditClientButton() {
+export function EditClientButton() {
   const hintId = useId();
   return (
     <span
@@ -415,16 +433,17 @@ export function NewClientButton() {
         disabled
         aria-disabled="true"
         tabIndex={-1}
+        data-testid="new-client-header-button"
         style={{
           pointerEvents: 'none',
-          background: 'var(--accent)',
-          color: 'var(--accent-fg)',
-          border: 0,
+          background: 'transparent',
+          color: 'var(--fg)',
+          border: '1px solid var(--border-2)',
           borderRadius: 9,
           fontFamily: 'var(--font-body)',
-          fontSize: 'var(--t-sm)',
-          fontWeight: 600,
-          padding: '0.65rem 1.1rem',
+          fontSize: 14,
+          fontWeight: 500,
+          padding: '12px 16px',
           cursor: 'not-allowed',
           opacity: 0.4,
         }}
@@ -510,9 +529,10 @@ export function ClientDirectory({
   const trueEmpty = !loading && errorMode === 'none' && count === 0;
   const filteredEmpty = !loading && errorMode !== 'empty' && count > 0 && shown.length === 0;
   const noticeTitle = errorMode === 'refresh'
-    ? "Couldn't refresh clients"
-    : errorTitle ?? "Couldn't load clients";
-  const syncProblem = errorMode === 'empty' && Boolean(errorTitle);
+    ? errorTitle ?? 'Client list is out of date'
+    : "We couldn't load clients";
+  const noticeBody = errorMode === 'empty' ? 'Try again in a moment.' : error ?? '';
+  const syncProblem = errorMode === 'refresh' && Boolean(errorTitle);
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="account-clients">
@@ -591,7 +611,7 @@ export function ClientDirectory({
         {errorMode !== 'none' && error ? (
           <StateNotice
             title={noticeTitle}
-            body={error}
+            body={noticeBody}
             action={
               syncProblem ? (
                 <ClientOutlineAction label="Retry sync" hint={CLIENT_SYNC_RETRY_HINT} testId="retry-sync" />
@@ -756,13 +776,10 @@ export function ClientDetail({
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
       <ClampStyle />
       <Panel>
-        <div className="flex items-start gap-4">
-          <Mark name={client.name} />
+        <div className="flex items-center gap-6">
+          <Mark name={client.name} size={64} testId="client-header-mark" />
           <div className="min-w-0 flex-1">
-            <div className="flex items-start justify-between gap-3">
-              <h2 className="client-card-title">{client.name}</h2>
-              <EditClientButton />
-            </div>
+            <h2 className="client-card-title">{client.name}</h2>
             {header ? (
               <p className="clamp-two" data-testid="client-since-lead" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
                 {header}
@@ -770,14 +787,21 @@ export function ClientDetail({
             ) : null}
           </div>
         </div>
-        <div className="mt-4 flex flex-wrap gap-4">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
           <Dot tone={client.internal ? 'off' : 'on'}>{client.internal ? 'Not published' : 'Published'}</Dot>
-          <SyncChip
-            audience="staff"
-            notionPageId={client.notionPageId}
-            syncHidden={client.syncHidden}
-            syncState={client.syncHidden ? 'failed' : undefined}
-          />
+          {client.notionPageId ? <SourceChip /> : null}
+          {client.syncHidden ? (
+            <SyncChip
+              audience="staff"
+              notionPageId={client.notionPageId}
+              syncHidden={client.syncHidden}
+              syncState="failed"
+            />
+          ) : (
+            <span data-testid="client-sync-line" style={{ fontSize: 13, color: 'var(--muted)' }}>
+              {inSyncLine(client.lastSyncedAt)}
+            </span>
+          )}
         </div>
       </Panel>
       <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3" data-testid="client-stats">
@@ -832,7 +856,7 @@ export function ClientDetail({
       <Panel>
         <h3 id="client-people" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>People</h3>
         <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
-          Contacts with portal access. Invites stay on Account → Team.
+          Contacts with portal access. Invites are managed by the client&apos;s admins.
         </p>
         {contactRows.length === 0 ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No contacts.</p>
@@ -846,7 +870,7 @@ export function ClientDetail({
       </Panel>
       <Panel>
         <h3 id="client-tasks" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Tasks</h3>
-        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Published and unpublished, live Status.</p>
+        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Published and unpublished, newest first.</p>
         {taskRows.length === 0 ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No tasks.</p>
         ) : (
@@ -1036,7 +1060,7 @@ export function ClientCompany({
       {loading ? <CompanyCardSkeleton /> : (
       <Panel>
         <div className="flex items-center gap-4">
-          <Mark name={name} />
+          <Mark name={name} size={64} testId="company-mark" />
           <div className="min-w-0 flex-1">
             <h2 className="client-card-title">{name}</h2>
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
@@ -1105,8 +1129,12 @@ export function ClientCompany({
                 <li key={project.id} className="flex flex-wrap items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
                   <Mark name={project.name} />
                   <span className="min-w-0 flex-1">
-                    <span className="block" style={{ fontWeight: 600, overflowWrap: 'break-word' }}>{project.name}</span>
-                    <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{brandLine(name)}</span>
+                    <span className="brand-row-name block" data-testid="brand-row-name" style={{ fontWeight: 600, overflowWrap: 'break-word' }}>{project.name}</span>
+                    {clientBrandMeta(name, project.brand) ? (
+                      <span className="brand-row-meta block" data-testid="brand-row-meta" style={{ fontSize: 13, color: 'var(--muted)' }}>
+                        {clientBrandMeta(name, project.brand)}
+                      </span>
+                    ) : null}
                   </span>
                   <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{pct}% of items</span>
                 </li>
@@ -1172,6 +1200,17 @@ function ClampStyle() {
           -webkit-line-clamp: 2;
           overflow: hidden;
         }
+        .brand-row-name {
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+          overflow: hidden;
+        }
+        .brand-row-meta {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
       }
     `}</style>
   );
@@ -1184,7 +1223,7 @@ function CompanyCardSkeleton() {
       style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 28, padding: '1.25rem' }}
     >
       <div className="flex items-center" style={{ gap: 16 }}>
-        <span className="animate-pulse shrink-0" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface-2)' }} />
+        <span className="animate-pulse shrink-0" style={{ width: 64, height: 64, borderRadius: 10, background: 'var(--surface-2)' }} />
         <span className="flex min-w-0 flex-1 flex-col" style={{ gap: 8 }}>
           <span className="animate-pulse" style={{ height: 16, width: '60%', maxWidth: 240, borderRadius: 6, background: 'var(--surface-2)' }} />
           <span className="animate-pulse" style={{ height: 10, width: 120, borderRadius: 6, background: 'var(--surface-2)' }} />

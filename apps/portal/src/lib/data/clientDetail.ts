@@ -50,6 +50,26 @@ export function brandLine(brand: string): string {
   return name ? `Brand: ${name}` : 'Brand: —';
 }
 
+/** Your brands meta. Hidden when the brand is the company itself. */
+export function clientBrandMeta(companyName: string, brand?: string | null): string | null {
+  const company = companyName.trim();
+  const value = (brand ?? company).trim();
+  if (!value || value.localeCompare(company, undefined, { sensitivity: 'accent' }) === 0) return null;
+  return `Brand: ${value}`;
+}
+
+/** Calm sync line on the staff client card. A missing time stays "In sync". */
+export function inSyncLine(lastSyncedAt: number | null | undefined, now = Date.now()): string {
+  if (lastSyncedAt == null || Number.isNaN(lastSyncedAt)) return 'In sync';
+  const minutes = Math.max(0, Math.round((now - lastSyncedAt) / 60000));
+  if (minutes < 1) return 'In sync · just now';
+  if (minutes < 60) return `In sync · ${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `In sync · ${hours}h ago`;
+  const days = Math.round(hours / 24);
+  return `In sync · ${days}d ago`;
+}
+
 export function warehausLead(
   people: Array<{ name: string; role?: string | null }>,
 ): string | null {

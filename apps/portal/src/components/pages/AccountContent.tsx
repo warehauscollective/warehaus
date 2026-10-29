@@ -13,6 +13,7 @@ import {
   ClientCompany,
   ClientDetail,
   ClientDirectory,
+  EditClientButton,
   NewClientButton,
   type ClientPersonRow,
   type ClientProjectRow,
@@ -223,9 +224,9 @@ export function AccountContent() {
           : directory;
   const directoryError =
     clientScreen === 'error'
-      ? 'Last synced 22 minutes ago. Lumen Dental has a sync problem.'
+      ? 'Try again in a moment.'
       : clientScreen === 'refresh'
-        ? 'Network error'
+        ? 'Last synced 22 minutes ago. Lumen Dental has a sync problem.'
         : directoryState.error;
   const companyProjects =
     clientScreen === 'empty' || clientScreen === 'error'
@@ -308,7 +309,7 @@ export function AccountContent() {
       titleLines={titleLines}
       breadcrumb={breadcrumb ?? undefined}
       actions={
-        showNewClient ? <NewClientButton /> : undefined
+        showNewClient ? <NewClientButton /> : clientOpen ? <EditClientButton /> : undefined
       }
     >
       {fixtures && docsPreview === 'states' ? (
@@ -367,7 +368,7 @@ export function AccountContent() {
             onOpen={(id) => setClientId(id)}
             loading={clientScreen === 'loading' || (directoryState.loading && !fixtures)}
             error={directoryError}
-            errorTitle={clientScreen === 'error' ? 'Client list is out of date' : undefined}
+            errorTitle={clientScreen === 'refresh' ? 'Client list is out of date' : undefined}
             onRetry={retryClientScreen}
           />
         </PortalTilePane>
