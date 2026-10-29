@@ -471,11 +471,12 @@ function AwaitingPanel({
                 </span>
               </span>
               <span
-                className="ds-mono mt-1 block whitespace-nowrap lg:hidden"
+                className="ds-mono mt-1 flex min-w-0 lg:hidden"
                 data-testid="awaiting-meta"
                 style={{ fontSize: 12, lineHeight: '18px', letterSpacing: '-0.03em', color: 'var(--faint)' }}
               >
-                {row.when ? `${row.meta} · ${row.when}` : row.meta}
+                <span className="min-w-0 truncate">{row.meta}</span>
+                {row.when ? <span className="shrink-0">{` · ${row.when}`}</span> : null}
               </span>
               <span className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
                 <AwaitingBadges row={row} staff={false} />

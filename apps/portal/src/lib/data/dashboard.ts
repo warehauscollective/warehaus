@@ -93,6 +93,7 @@ export type PullMeta = {
   lastError: string | null;
 };
 
+/** Client activity must already be server-filtered. The dashboard does not drop those rows. */
 export type DashboardInput = {
   audience: DashboardAudience;
   projects: readonly DashboardProject[];
