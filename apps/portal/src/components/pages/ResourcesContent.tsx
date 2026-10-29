@@ -453,15 +453,17 @@ export function ResourcesContent() {
                 }}
               >
                 <Surface style={{ padding: 'var(--s-4)' }}>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h3 className="min-w-0 flex-1 truncate" style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{row.name}</h3>
-                    {row.type ? <Pill>{row.type}</Pill> : null}
-                    {isStaff && row.publishToWarehaus != null ? (
-                      <PublishChip published={row.publishToWarehaus} />
-                    ) : null}
-                    {isStaff ? (
-                      <SyncChip audience="staff" notionPageId={row.notionPageId} syncHidden={row.syncHidden} />
-                    ) : null}
+                  <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                    <h3 className="w-full min-w-0 truncate sm:w-auto sm:flex-1" style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>{row.name}</h3>
+                    <div className="flex flex-wrap items-center gap-2">
+                      {row.type ? <Pill>{row.type}</Pill> : null}
+                      {isStaff && row.publishToWarehaus != null ? (
+                        <PublishChip published={row.publishToWarehaus} />
+                      ) : null}
+                      {isStaff ? (
+                        <SyncChip audience="staff" notionPageId={row.notionPageId} syncHidden={row.syncHidden} />
+                      ) : null}
+                    </div>
                   </div>
                   <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 6 }}>
                     {row.projectName ?? '—'}
