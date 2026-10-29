@@ -57,6 +57,12 @@ export function scrollActiveIntoView(node: HTMLElement, options?: EdgeFadeOption
   const edge = node.getBoundingClientRect().left;
   const contentLeft = (button: HTMLElement) => button.getBoundingClientRect().left - edge + node.scrollLeft;
   const left = contentLeft(active);
+  // The first pill is already on screen at the start. Peeking the next one
+  // scrolls it under the leading fade and cuts its left radius flat.
+  if (buttons[0] === active && node.scrollLeft <= 1 && left - node.scrollLeft >= -0.5) {
+    if (page && page !== node) page.scrollLeft = pageLeft;
+    return;
+  }
   const width = active.getBoundingClientRect().width;
   const right = left + width;
   const later = buttons.some((button) => contentLeft(button) >= right - 1);
@@ -129,7 +135,7 @@ export function sectionEdgeMask(fade: EdgeFade): string | null {
     return `linear-gradient(to right, #000 0, #000 calc(100% - ${trail}px), transparent calc(100% - ${Math.round(trail * 0.45)}px))`;
   }
   if (trail <= 0) {
-    return `linear-gradient(to right, transparent 0, #000 ${Math.round(lead * 0.45)}px, #000 ${lead}px, #000 100%)`;
+    return `linear-gradient(to right, transparent 0, transparent ${Math.round(lead * 0.45)}px, #000 ${lead}px, #000 100%)`;
   }
-  return `linear-gradient(to right, transparent 0, #000 ${Math.round(lead * 0.45)}px, #000 ${lead}px, #000 calc(100% - ${trail}px), transparent calc(100% - ${Math.round(trail * 0.45)}px))`;
+  return `linear-gradient(to right, transparent 0, transparent ${Math.round(lead * 0.45)}px, #000 ${lead}px, #000 calc(100% - ${trail}px), transparent calc(100% - ${Math.round(trail * 0.45)}px))`;
 }
