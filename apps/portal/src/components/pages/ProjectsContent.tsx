@@ -319,17 +319,7 @@ export function ProjectsContent() {
               onOpenClient={openLinkedClient}
               summary={summary}
             />
-            <div
-              className="flex flex-wrap items-center justify-between gap-3"
-              style={{
-                position: 'sticky',
-                top: 0,
-                zIndex: 2,
-                background: 'var(--bg)',
-                paddingTop: 12,
-                paddingBottom: 4,
-              }}
-            >
+            <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
                 <h2 style={{ fontSize: 18, fontWeight: 600, lineHeight: '26px' }}>Tasks</h2>
                 <p style={{ marginTop: 4, fontSize: 13, color: 'var(--muted)' }}>

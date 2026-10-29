@@ -49,10 +49,13 @@ describe('DocsBlock audience', () => {
     assert.equal(publishedCount(html), 1);
     assert.match(html, /In sync/);
     assert.match(html, /Add doc/);
-    assert.match(html, /text-transform:uppercase/);
+    assert.equal(html.includes('text-transform:uppercase'), false);
+    assert.match(html, />Brief</);
+    assert.equal(html.includes('>BRIEF<'), false);
     assert.match(html, /\.docs-badges \{ order: 3; flex: 1 0 100%; flex-wrap: wrap;/);
+    assert.match(html, /padding-left: 48px/);
+    assert.equal(html.includes('padding-left: 52px'), false);
     assert.equal(html.includes('Order'), false);
-    assert.match(html, /Brief/);
   });
 
   it('hides publish, sync, Add doc, and Order from a client row', () => {

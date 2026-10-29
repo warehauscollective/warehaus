@@ -84,7 +84,6 @@ export function DocTypeTag({ type }: { type: string }) {
         padding: '4px 10px',
         fontSize: 11,
         letterSpacing: '0.44px',
-        textTransform: 'uppercase',
         color: 'var(--fg)',
       }}
     >
@@ -193,10 +192,10 @@ export function DocsBlock({
         @media (max-width: 480px) {
           .docs-clamp { -webkit-line-clamp: 2; }
           .docs-row { align-items: flex-start; }
-          .docs-main { flex: 1 1 0; min-width: 0; align-items: flex-start; }
+          .docs-main { flex: 1 1 0; min-width: 0; align-items: flex-start; gap: 12px; }
           .docs-chev { order: 2; flex: 0 0 auto; margin-top: 2px; }
-          .docs-badges { order: 3; flex: 1 0 100%; flex-wrap: wrap; overflow: visible; justify-content: flex-start; padding-left: 52px; }
-          .docs-block { padding: 20px !important; }
+          .docs-badges { order: 3; flex: 1 0 100%; flex-wrap: wrap; overflow: visible; justify-content: flex-start; align-items: center; padding-left: 48px; box-sizing: border-box; }
+          .docs-block { padding: 20px 0 !important; }
         }
         .docs-row:focus-visible {
           outline: 2px solid var(--accent);

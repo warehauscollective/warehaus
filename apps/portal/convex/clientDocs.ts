@@ -29,6 +29,17 @@ function toClientDoc(row: {
   };
 }
 
+/** Missing Order sorts last. No numeric stand-in, so an Order of 1000 stays before a blank one. */
+function byOrderThenTitle(
+  a: { order?: number | null; title: string },
+  b: { order?: number | null; title: string },
+) {
+  const left = a.order ?? Number.POSITIVE_INFINITY;
+  const right = b.order ?? Number.POSITIVE_INFINITY;
+  if (left !== right) return left - right;
+  return a.title.localeCompare(b.title);
+}
+
 function projectVisibleToClient(
   project: {
     name: string;
@@ -69,9 +80,7 @@ export const listForClient = clientQuery({
       if (!projectVisibleToClient(project, orgVisible, row.projectId)) continue;
       visible.push(row);
     }
-    return visible
-      .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.title.localeCompare(b.title))
-      .map(toClientDoc);
+    return visible.sort(byOrderThenTitle).map(toClientDoc);
   },
 });
 
@@ -112,6 +121,6 @@ export const listForStaff = adminQuery({
         lastSyncedAt: row.lastSyncedAt,
         syncHidden: row.syncHiddenAt != null,
       }))
-      .sort((a, b) => (a.order ?? 999) - (b.order ?? 999) || a.title.localeCompare(b.title));
+      .sort(byOrderThenTitle);
   },
 });
