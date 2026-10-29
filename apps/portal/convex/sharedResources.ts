@@ -5,12 +5,51 @@ import type { QueryCtx } from './_generated/server';
 import { adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
 
-async function attachmentCount(ctx: QueryCtx, orgId: Id<'clients'>, resourceId: Id<'sharedResources'>) {
-  const links = await ctx.db
+async function attachmentLinks(ctx: QueryCtx, orgId: Id<'clients'>, resourceId: Id<'sharedResources'>) {
+  return ctx.db
     .query('taskResources')
     .withIndex('by_orgId_resourceId', (q) => q.eq('orgId', orgId).eq('resourceId', resourceId))
     .collect();
+}
+
+/** Staff count: every link in the org, including hidden and unpublished tasks. */
+async function attachmentCount(ctx: QueryCtx, orgId: Id<'clients'>, resourceId: Id<'sharedResources'>) {
+  const links = await attachmentLinks(ctx, orgId, resourceId);
   return links.length;
+}
+
+/**
+ * Client count: only links whose task the client may see, including that task's project gate.
+ * A hidden or unpublished task must not change the number a client sees.
+ */
+async function clientAttachmentCount(
+  ctx: QueryCtx,
+  orgId: Id<'clients'>,
+  resourceId: Id<'sharedResources'>,
+  orgVisible: boolean,
+) {
+  const links = await attachmentLinks(ctx, orgId, resourceId);
+  let count = 0;
+  for (const link of links) {
+    if (link.orgId !== orgId) continue;
+    const linked = await ctx.db.get(link.taskId);
+    if (!linked || linked.orgId !== orgId) continue;
+    const project = linked.projectId ? await ctx.db.get(linked.projectId) : null;
+    const visible = clientMaySeeTask({
+      publishToWarehaus: linked.publishToWarehaus,
+      hidden: linked.syncHiddenAt != null,
+      project: {
+        name: project?.name,
+        types: project?.type,
+        publishToWarehaus: project?.publishToWarehaus ?? false,
+        archive: project?.archive ?? false,
+        hidden: project?.syncHiddenAt != null,
+        orgVisible,
+      },
+    });
+    if (visible) count += 1;
+  }
+  return count;
 }
 
 /**
@@ -146,6 +185,7 @@ export const listAttachedForClient = clientQuery({
   handler: async (ctx, { taskId }) => {
     const task = await ctx.db.get(taskId);
     const org = await ctx.db.get(ctx.orgId);
+    const orgVisible = isOrgVisibleToClients(org);
     const project = task ? await ctx.db.get(task.projectId) : null;
     const visible =
       task &&
@@ -159,7 +199,7 @@ export const listAttachedForClient = clientQuery({
           publishToWarehaus: project?.publishToWarehaus ?? false,
           archive: project?.archive ?? false,
           hidden: project?.syncHiddenAt != null,
-          orgVisible: isOrgVisibleToClients(org),
+          orgVisible,
         },
       });
     if (!visible || !task) return [];
@@ -175,10 +215,10 @@ export const listAttachedForClient = clientQuery({
         continue;
       }
       const resourceProject = row.projectId ? await ctx.db.get(row.projectId) : null;
-      if (!projectVisibleToClient(resourceProject, isOrgVisibleToClients(org), row.projectId)) continue;
+      if (!projectVisibleToClient(resourceProject, orgVisible, row.projectId)) continue;
       out.push({
         ...toClientResource(row, resourceProject?.name ?? null),
-        attachedCount: await attachmentCount(ctx, task.orgId, row._id),
+        attachedCount: await clientAttachmentCount(ctx, task.orgId, row._id, orgVisible),
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

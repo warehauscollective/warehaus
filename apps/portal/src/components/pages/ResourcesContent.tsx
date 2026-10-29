@@ -12,6 +12,7 @@ import { isConvexConfigured } from '@/lib/convex/client';
 import { FIXTURE_DOCS, FIXTURE_RESOURCES } from '@/lib/data/fixtures';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
+import { staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import type { Id } from '@convex/_generated/dataModel';
 import { api } from '@convex/_generated/api';
@@ -150,13 +151,72 @@ export function ResourcesContent() {
         });
       }, 0);
     };
-    openFromLocation();
-    window.addEventListener('wh-portal-nav', openFromLocation);
+    const onNav = (event: Event) => {
+      if (!portalNavDetail(event)) return;
+      openFromLocation(event);
+    };
+    window.addEventListener('wh-portal-nav', onNav);
     return () => {
       window.clearTimeout(timer);
-      window.removeEventListener('wh-portal-nav', openFromLocation);
+      window.removeEventListener('wh-portal-nav', onNav);
     };
   }, [docs, rows, isStaff, openDetail, pathname, fixtures, clientDocs.loading]);
+
+  const pathDocId = pathId(pathname, '/docs/');
+  const pathResourceId = pathId(pathname, '/resources/');
+  const docsPending = !fixtures && (isStaff ? staffRosterQueriesDeployed() && staff.docs == null : clientDocs.loading);
+  const resourcesPending = !fixtures && (isStaff ? staff.resourcesLoading : clientRows.loading);
+
+  if (pathDocId) {
+    const doc = docs.find((item) => item.id === pathDocId);
+    const allowed = Boolean(doc) && (isStaff || (doc?.publishToWarehaus !== false && doc?.status !== 'Draft' && !doc?.syncHidden));
+    return (
+      <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Docs')} title={allowed && doc ? doc.title : 'Doc'}>
+        <PortalTilePane>
+          <article data-testid="focused-doc" className="flex flex-col gap-2">
+            {docsPending ? (
+              <p aria-busy="true" style={{ color: 'var(--muted)' }}>Loading…</p>
+            ) : !allowed || !doc ? (
+              <p style={{ color: 'var(--muted)' }}>That isn&apos;t available.</p>
+            ) : (
+              <>
+                <h2 style={{ fontSize: 16, fontWeight: 500 }}>{doc.title}</h2>
+                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>{doc.summary ?? '—'}</p>
+                <p style={{ fontSize: 'var(--t-sm)' }}>Type {doc.docType ?? '—'}</p>
+                {isStaff && doc.publishToWarehaus != null ? <PublishChip published={doc.publishToWarehaus} /> : null}
+              </>
+            )}
+          </article>
+        </PortalTilePane>
+      </PortalWorkspace>
+    );
+  }
+
+  if (pathResourceId) {
+    const row = rows.find((item) => item.id === pathResourceId);
+    const allowed = Boolean(row) && (isStaff || (row?.publishToWarehaus !== false && !row?.syncHidden));
+    return (
+      <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Resources')} title={allowed && row ? row.name : 'Resource'}>
+        <PortalTilePane>
+          <article data-testid="focused-resource" className="flex flex-col gap-2">
+            {resourcesPending ? (
+              <p aria-busy="true" style={{ color: 'var(--muted)' }}>Loading…</p>
+            ) : !allowed || !row ? (
+              <p style={{ color: 'var(--muted)' }}>That isn&apos;t available.</p>
+            ) : (
+              <>
+                <h2 style={{ fontSize: 16, fontWeight: 500 }}>{row.name}</h2>
+                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>{row.description ?? '—'}</p>
+                <p style={{ fontSize: 'var(--t-sm)' }}>Type {row.type ?? '—'}</p>
+                <p style={{ fontSize: 'var(--t-sm)' }}>Project {row.projectName ?? '—'}</p>
+                {isStaff && row.publishToWarehaus != null ? <PublishChip published={row.publishToWarehaus} /> : null}
+              </>
+            )}
+          </article>
+        </PortalTilePane>
+      </PortalWorkspace>
+    );
+  }
 
   return (
     <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Resources')} title={title}>

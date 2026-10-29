@@ -39,23 +39,31 @@ export function PortalSearch() {
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
   const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
-  const needle = query.trim();
-  const live = open && !fixtures && configured && roster && needle.length > 0;
+  const needle = query.trim().slice(0, 100);
+  const [liveNeedle, setLiveNeedle] = useState('');
+  useEffect(() => {
+    const id = window.setTimeout(() => setLiveNeedle(needle), 200);
+    return () => window.clearTimeout(id);
+  }, [needle]);
+  const live = open && !fixtures && configured && roster && liveNeedle.length > 0 && needle.length > 0;
   const staffState = useSafeQuery<SearchGroups>(
     api.search.forStaff,
-    live && isStaff ? { q: needle, hostSlug } : 'skip',
+    live && isStaff ? { q: liveNeedle, hostSlug } : 'skip',
   );
   const clientState = useSafeQuery<SearchGroups>(
     api.search.forClient,
-    live && portalSession && !isStaff ? { q: needle, hostSlug } : 'skip',
+    live && portalSession && !isStaff ? { q: liveNeedle, hostSlug } : 'skip',
   );
 
   const groups = useMemo(() => {
-    if (!needle) return blankGroups();
-    if (fixtures) return searchFixtures(isStaff ? 'staff' : 'client', needle);
+    if (fixtures) {
+      if (!needle) return blankGroups();
+      return searchFixtures(isStaff ? 'staff' : 'client', needle);
+    }
+    if (!needle || !liveNeedle) return blankGroups();
     if (!roster) return EMPTY;
     return (isStaff ? staffState.data : clientState.data) ?? EMPTY;
-  }, [needle, fixtures, isStaff, roster, staffState.data, clientState.data]);
+  }, [needle, liveNeedle, fixtures, isStaff, roster, staffState.data, clientState.data]);
 
   const flat = useMemo(
     () => GROUPS.flatMap((group) => groups[group.key].map((hit) => hit)),
@@ -182,7 +190,8 @@ export function PortalSearch() {
           <input
             autoFocus
             value={query}
-            onChange={(event) => setQuery(event.target.value)}
+            maxLength={100}
+            onChange={(event) => setQuery(event.target.value.slice(0, 100))}
             placeholder="Search projects, tasks, and docs"
             aria-label="Search projects, tasks, and docs"
             aria-controls="portal-search-results"

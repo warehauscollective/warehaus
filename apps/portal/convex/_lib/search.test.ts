@@ -39,6 +39,7 @@ function memoryDb(tables: Record<string, Row[]>) {
           };
         },
         collect: async () => rows,
+        take: async (n: number) => rows.slice(0, n),
       };
     },
   };
@@ -318,6 +319,11 @@ describe('portal search tiers', () => {
     const external = await run(forClient, { q: 'wh_res_secret' });
     assert.equal(JSON.stringify(external).includes('Kickoff'), false);
 
+    const blank = await run(forClient, { q: '   ' });
+    assert.deepEqual(blank, { projects: [], tasks: [], docs: [], resources: [] });
+    const capped = JSON.stringify(await run(forClient, { q: `${'x'.repeat(100)}site` }));
+    assert.equal(capped.includes('Northwind'), false);
+
     const docs = await run(forClient, { q: 'brief' });
     const docText = JSON.stringify(docs);
     assert.match(docText, /Public brief/);
@@ -327,6 +333,11 @@ describe('portal search tiers', () => {
   });
 
   it('gives staff full access across orgs, including unpublished rows', async () => {
+    const blank = await runStaff(forStaff, { q: ' \n ' });
+    assert.deepEqual(blank, { projects: [], tasks: [], docs: [], resources: [] });
+    const capped = JSON.stringify(await runStaff(forStaff, { q: `${'x'.repeat(100)}lighthouse` }));
+    assert.equal(capped.includes('Lighthouse'), false);
+
     const lighthouse = JSON.stringify(await runStaff(forStaff, { q: 'lighthouse' }));
     assert.match(lighthouse, /Lighthouse site/);
     assert.equal(lighthouse.includes('Northwind'), false);

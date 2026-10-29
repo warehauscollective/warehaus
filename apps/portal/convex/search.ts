@@ -1,12 +1,26 @@
 import { isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { adminQuery, clientQuery } from './_lib/wrappers';
-import { searchCatalog } from './_lib/portalSearch';
+import { searchCatalog, type SearchGroups } from './_lib/portalSearch';
+
+const SEARCH_QUERY_MAX = 100;
+/** Bound the staff table scan until a search index exists. Not a schema change. */
+const STAFF_SCAN = 200;
+
+function cappedQuery(q: string): string {
+  return q.trim().slice(0, SEARCH_QUERY_MAX);
+}
+
+function emptyGroups(): SearchGroups {
+  return { projects: [], tasks: [], docs: [], resources: [] };
+}
 
 /** Client search. Own org, published surface only. */
 export const forClient = clientQuery({
   args: { q: v.string() },
   handler: async (ctx, args) => {
+    const query = cappedQuery(args.q);
+    if (!query) return emptyGroups();
     const org = await ctx.db.get(ctx.orgId);
     const orgVisible = isOrgVisibleToClients(org);
     const [projects, tasks, docs, resources] = await Promise.all([
@@ -17,7 +31,7 @@ export const forClient = clientQuery({
     ]);
     return searchCatalog({
       audience: 'client',
-      query: args.q,
+      query,
       orgId: ctx.orgId,
       orgVisible,
       projects,
@@ -32,15 +46,17 @@ export const forClient = clientQuery({
 export const forStaff = adminQuery({
   args: { q: v.string() },
   handler: async (ctx, { q }) => {
+    const query = cappedQuery(q);
+    if (!query) return emptyGroups();
     const [projects, tasks, docs, resources] = await Promise.all([
-      ctx.db.query('projects').collect(),
-      ctx.db.query('tasks').collect(),
-      ctx.db.query('clientDocs').collect(),
-      ctx.db.query('sharedResources').collect(),
+      ctx.db.query('projects').take(STAFF_SCAN),
+      ctx.db.query('tasks').take(STAFF_SCAN),
+      ctx.db.query('clientDocs').take(STAFF_SCAN),
+      ctx.db.query('sharedResources').take(STAFF_SCAN),
     ]);
     return searchCatalog({
       audience: 'staff',
-      query: q,
+      query,
       orgId: ctx.identity.orgId,
       orgVisible: true,
       projects,

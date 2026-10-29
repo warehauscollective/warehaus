@@ -157,7 +157,7 @@ export function searchCatalog(input: {
   const projectHits = projects
     .filter((project) => visibleProject(project))
     .filter((project) =>
-      matches(needle, staff ? [project.name, project.description, project.status] : [project.name, project.description, project.status]),
+      matches(needle, [project.name, project.description, project.status]),
     )
     .slice(0, LIMIT)
     .map((project) => {
