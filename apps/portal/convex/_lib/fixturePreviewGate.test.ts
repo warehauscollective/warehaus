@@ -32,6 +32,18 @@ describe('fixture preview gate', () => {
     assert.equal(fixturePreviewAllowedFrom({ fixturesFlag: '1' }), true);
     assert.equal(fixturePreviewAllowedFrom({}), false);
   });
+
+  it('is false in production, false on preview without the flag, and true for local fixtures', () => {
+    assert.equal(
+      fixturePreviewAllowedFrom({ fixturesFlag: '1', vercelEnv: 'production', vercel: '1' }),
+      false,
+    );
+    assert.equal(fixturePreviewAllowedFrom({ vercelEnv: 'production', vercel: '1' }), false);
+    assert.equal(fixturePreviewAllowedFrom({ vercelEnv: 'preview', vercel: '1' }), false);
+    assert.equal(fixturePreviewAllowedFrom({ vercelEnv: 'preview' }), false);
+    assert.equal(fixturePreviewAllowedFrom({ fixturesFlag: '1' }), true);
+    assert.equal(fixturePreviewAllowedFrom({}), false);
+  });
 });
 
 describe('staff roster queries', () => {
