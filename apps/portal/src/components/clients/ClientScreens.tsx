@@ -207,29 +207,45 @@ function TeamPersonRow({
   nameWeight?: number;
   pendingColor?: string;
 }) {
+  const status = clientPersonStatus(person);
+  const statusColor = person.invitePending ? pendingColor : 'var(--muted)';
   return (
-    <li className="flex items-center" style={personRowStyle(index)}>
+    <li className="flex items-start lg:items-center" style={personRowStyle(index)}>
       <PersonMark name={person.name} />
       <span className="min-w-0 flex-1" style={{ marginLeft: 12 }}>
-        <span className="block" style={{ fontWeight: nameWeight, overflowWrap: 'break-word' }}>{person.name}</span>
-        <span className="ds-mono hidden lg:block" style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'break-word' }}>{person.email}</span>
-        <span className="ds-mono block lg:hidden" data-testid="client-person-meta" style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'break-word' }}>
-          {[person.email, person.role].filter(Boolean).join(' · ')}
+        <span className="flex items-start justify-between gap-3 lg:block">
+          <span className="block min-w-0" style={{ fontWeight: nameWeight, overflowWrap: 'break-word' }}>{person.name}</span>
+          <span
+            className="ds-mono shrink-0 lg:hidden"
+            data-testid="client-person-status"
+            style={{ fontSize: 12, color: statusColor, textAlign: 'left' }}
+          >
+            {status}
+          </span>
+        </span>
+        <span className="ds-mono hidden lg:block" style={{ fontSize: 12, color: 'var(--muted)' }}>{person.email}</span>
+        <span className="ds-mono block lg:hidden" data-testid="client-person-meta" style={{ fontSize: 12, color: 'var(--muted)' }}>
+          {person.email ? (
+            <span data-testid="client-person-email" style={{ whiteSpace: 'nowrap' }}>{person.email}</span>
+          ) : null}
+          {person.role ? (
+            <span data-testid="client-person-role-phone" style={{ whiteSpace: 'nowrap' }}>{` · ${person.role}`}</span>
+          ) : null}
         </span>
       </span>
       <span
         className="ds-mono hidden shrink-0 lg:block"
         data-testid="client-person-role"
-        style={{ width: 140, marginLeft: 12, fontSize: 12, color: 'var(--muted)' }}
+        style={{ width: 140, marginLeft: 12, fontSize: 12, color: 'var(--muted)', textAlign: 'left' }}
       >
         {person.role ?? ''}
       </span>
       <span
-        className="ds-mono shrink-0"
+        className="ds-mono hidden shrink-0 lg:block"
         data-testid="client-person-status"
-        style={{ marginLeft: 24, fontSize: 12, color: person.invitePending ? pendingColor : 'var(--muted)' }}
+        style={{ marginLeft: 24, fontSize: 12, color: statusColor, textAlign: 'left' }}
       >
-        {clientPersonStatus(person)}
+        {status}
       </span>
     </li>
   );
@@ -309,28 +325,66 @@ function StageBadge() {
   );
 }
 
-function DisabledAction({ label }: { label: string }) {
+const CLIENT_CREATE_HINT = 'Creating a client turns on with Notion write-back';
+const CLIENT_SYNC_RETRY_HINT = 'Retrying a sync turns on with Notion write-back';
+
+/** Outlined control kept on screen while write-back is off. No role=group. */
+function ClientOutlineAction({ label, hint, testId }: { label: string; hint: string; testId: string }) {
+  const hintId = useId();
   return (
-    <button
-      type="button"
-      disabled
+    <span
+      tabIndex={0}
       aria-disabled="true"
-      title="Not available yet"
-      className="ds-mono"
-      style={{
-        fontSize: 'var(--t-xs)',
-        letterSpacing: '0.06em',
-        textTransform: 'uppercase',
-        padding: '0.45rem 0.8rem',
-        borderRadius: 999,
-        border: '1px solid var(--border)',
-        background: 'transparent',
-        color: 'var(--muted)',
-        cursor: 'not-allowed',
-      }}
+      aria-describedby={hintId}
+      title={hint}
+      data-testid={`${testId}-hint`}
+      className="inline-flex"
+      style={{ cursor: 'not-allowed' }}
     >
-      {label}
-    </button>
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        tabIndex={-1}
+        data-testid={testId}
+        style={{
+          pointerEvents: 'none',
+          background: 'transparent',
+          color: 'var(--fg)',
+          border: '1px solid var(--border-2)',
+          borderRadius: 9,
+          fontFamily: 'var(--font-body)',
+          fontSize: 14,
+          fontWeight: 500,
+          padding: '12px 16px',
+          cursor: 'not-allowed',
+          opacity: 0.4,
+        }}
+      >
+        {label}
+      </button>
+      <span id={hintId} className="sr-only">
+        {hint}
+      </span>
+    </span>
+  );
+}
+
+/** Three list rows: mark, two bars, a short pill. Clients / States (Figma 297:18207). */
+function ClientListSkeleton() {
+  return (
+    <div className="mt-4 flex flex-col" aria-busy="true" data-testid="client-loading" style={{ gap: 24 }}>
+      {[0, 1, 2].map((row) => (
+        <div key={row} className="flex items-center" style={{ gap: 16, minHeight: 36 }}>
+          <span className="animate-pulse shrink-0" style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface-2)' }} />
+          <span className="flex min-w-0 flex-1 flex-col" style={{ gap: 8 }}>
+            <span className="animate-pulse" style={{ height: 12, width: '100%', maxWidth: 302, borderRadius: 6, background: 'var(--surface-2)' }} />
+            <span className="animate-pulse" style={{ height: 10, width: 160, maxWidth: '40%', borderRadius: 6, background: 'var(--surface-2)' }} />
+          </span>
+          <span className="animate-pulse shrink-0" style={{ width: 64, height: 22, borderRadius: 999, background: 'var(--surface-2)' }} />
+        </div>
+      ))}
+    </div>
   );
 }
 
@@ -435,22 +489,22 @@ export function ClientDirectory({
           })}
         </div>
         {screen === 'error' || error ? (
-          <StateNotice
-            title="Client list is out of date"
-            body={screen === 'error' ? 'Last synced 22 minutes ago. Lumen Dental has a sync problem.' : error || 'Try again in a moment.'}
-            action={<DisabledAction label="Retry sync" />}
-          />
+          <>
+            <StateNotice
+              title="Client list is out of date"
+              body={screen === 'error' ? 'Last synced 22 minutes ago. Lumen Dental has a sync problem.' : error || 'Try again in a moment.'}
+            />
+            <div className="mt-3">
+              <ClientOutlineAction label="Retry sync" hint={CLIENT_SYNC_RETRY_HINT} testId="retry-sync" />
+            </div>
+          </>
         ) : screen === 'loading' || loading ? (
-          <div className="mt-4 flex flex-col gap-2" aria-busy="true" data-testid="client-loading">
-            {[0, 1, 2].map((i) => (
-              <div key={i} className="animate-pulse" style={{ height: 64, borderRadius: 12, background: 'var(--bg)' }} />
-            ))}
-          </div>
+          <ClientListSkeleton />
         ) : screen === 'empty' ? (
           <EmptyCopy
             title="No clients yet"
             body="Add a client to start a project. Warehaus (internal) always exists."
-            action={<DisabledAction label="New client" />}
+            action={<ClientOutlineAction label="New client" hint={CLIENT_CREATE_HINT} testId="new-client" />}
           />
         ) : shown.length === 0 ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 16 }}>No clients match these filters.</p>
@@ -461,23 +515,23 @@ export function ClientDirectory({
                 <button
                   type="button"
                   onClick={() => onOpen(client.id)}
-                  className="flex w-full items-center gap-3 text-left"
+                  className="flex w-full items-start gap-3 text-left"
                   style={{ background: 'none', border: 0, padding: '0.9rem 0.2rem', cursor: 'pointer', color: 'inherit' }}
                 >
                   <Mark name={client.name} />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate" style={{ fontWeight: 600 }}>
+                    <span className="block" data-testid="client-row-name" style={{ fontWeight: 600, overflowWrap: 'break-word' }}>
                       {client.internal ? `${client.name} (internal)` : client.name}
                     </span>
                     {narrow ? (
                       <>
-                        <span className="block truncate" data-testid="client-row-meta" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
+                        <span className="block" data-testid="client-row-meta" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2, overflowWrap: 'break-word' }}>
                           {client.internal
                             ? `${client.contactCount} staff · admin-only`
                             : `${client.contactCount} ${client.contactCount === 1 ? 'person' : 'people'}`}
                           {` · ${client.projectCount} ${client.projectCount === 1 ? 'project' : 'projects'} · ${client.openTaskCount} open · ${client.awaitingGoCount ?? 0} awaiting go`}
                         </span>
-                        <span className="mt-1 flex items-center gap-2 overflow-hidden">
+                        <span className="mt-1 flex flex-wrap items-center gap-2">
                           <SyncChip
                             audience="staff"
                             notionPageId={client.notionPageId}
@@ -488,7 +542,7 @@ export function ClientDirectory({
                         </span>
                       </>
                     ) : (
-                      <span className="ds-mono block truncate" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                      <span className="ds-mono block" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2, overflowWrap: 'break-word' }}>
                         {client.internal
                           ? `${client.contactCount} staff · admin-only`
                           : `${client.contactCount} ${client.contactCount === 1 ? 'person' : 'people'}`}
@@ -562,10 +616,8 @@ export function ClientDetail({
   }
   if (screen === 'loading') {
     return (
-      <div className="flex h-full min-h-0 w-full flex-col gap-3 overflow-y-auto" data-testid="client-detail" aria-busy="true">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="w-full animate-pulse" style={{ height: 72, borderRadius: 18, background: 'var(--surface)' }} />
-        ))}
+      <div className="flex h-full min-h-0 w-full flex-col overflow-y-auto" data-testid="client-detail" aria-busy="true">
+        <ClientListSkeleton />
       </div>
     );
   }
@@ -841,10 +893,8 @@ export function ClientCompany({
   }
   if (screen === 'loading') {
     return (
-      <div className="flex h-full min-h-0 w-full flex-col gap-3 overflow-y-auto" data-testid="client-company" aria-busy="true">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="w-full animate-pulse" style={{ height: 72, borderRadius: 18, background: 'var(--surface)' }} />
-        ))}
+      <div className="flex h-full min-h-0 w-full flex-col overflow-y-auto" data-testid="client-company" aria-busy="true">
+        <ClientListSkeleton />
       </div>
     );
   }
@@ -963,16 +1013,39 @@ function ClampStyle() {
   );
 }
 
-function StateNotice({ title, body, action }: { title: string; body: string; action?: ReactNode }) {
+function StateNotice({ title, body }: { title: string; body: string }) {
   return (
     <div
       role="alert"
-      className="mt-4 flex flex-col items-start gap-3"
-      style={{ border: '1px solid var(--danger)', borderRadius: 18, padding: '1rem 1.25rem' }}
+      data-testid="client-state-notice"
+      className="mt-4 flex items-start"
+      style={{
+        gap: 12,
+        border: '1px solid var(--danger)',
+        borderRadius: 18,
+        background: 'var(--surface)',
+        padding: '16px 24px',
+      }}
     >
-      <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 14 }}>{title}</p>
-      <p style={{ color: 'var(--muted)', fontSize: 13 }}>{body}</p>
-      {action}
+      <span
+        aria-hidden
+        className="inline-flex shrink-0 items-center justify-center"
+        style={{
+          width: 20,
+          height: 20,
+          borderRadius: 999,
+          border: '1.25px solid var(--danger)',
+          color: 'var(--danger)',
+          fontSize: 11,
+          fontWeight: 600,
+        }}
+      >
+        !
+      </span>
+      <span className="min-w-0 flex-1">
+        <p style={{ margin: 0, color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{title}</p>
+        <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: '19px' }}>{body}</p>
+      </span>
     </div>
   );
 }
@@ -980,11 +1053,32 @@ function StateNotice({ title, body, action }: { title: string; body: string; act
 function EmptyCopy({ title, body, action }: { title: string; body: string; action?: ReactNode }) {
   return (
     <div
-      className="mt-4 flex flex-col items-center gap-2 text-center"
-      style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '2.5rem 1.25rem' }}
+      className="mt-4 flex flex-col items-center text-center"
+      data-testid="client-empty"
+      style={{
+        gap: 12,
+        border: '1px dashed var(--border)',
+        borderRadius: 18,
+        background: 'var(--bg-2, var(--bg))',
+        padding: '48px 24px',
+      }}
     >
-      <p style={{ fontWeight: 500 }}>{title}</p>
-      <p style={{ fontSize: 13, color: 'var(--muted)', maxWidth: 360 }}>{body}</p>
+      <span style={{ color: 'var(--muted)' }}>
+        <TaskGlyph src="/icons/task-layers.svg" size={28} />
+      </span>
+      <p style={{ margin: 0, fontSize: 16, fontWeight: 500, lineHeight: '19px' }}>{title}</p>
+      <p
+        style={{
+          margin: 0,
+          maxWidth: 440,
+          fontSize: 13,
+          lineHeight: '19px',
+          color: 'var(--muted)',
+          textWrap: 'balance',
+        }}
+      >
+        {body}
+      </p>
       {action}
     </div>
   );
