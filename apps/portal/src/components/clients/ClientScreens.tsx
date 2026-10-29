@@ -1,6 +1,6 @@
 'use client';
 
-import { useId, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { OutlineButton, Pill, PortalCheckbox } from '@/components/ui/primitives';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
@@ -9,7 +9,9 @@ import { SyncChip } from '@/components/sync/SyncChip';
 import {
   brandLine,
   clientBrandMeta,
-  inSyncLine,
+  projectItemCount,
+  sortTasksNewestFirst,
+  syncLine,
   CLIENT_TEAM_STAGE_LABEL,
   clientDueLabel,
   clientPersonStatus,
@@ -50,6 +52,7 @@ export type ClientProjectRow = {
   endDate?: string | null;
   /** Set only when a project brand differs from the company. There is no brand table. */
   brand?: string | null;
+  taskCount?: number | null;
 };
 
 export type ClientTaskRow = {
@@ -64,6 +67,7 @@ export type ClientTaskRow = {
   publishToWarehaus?: boolean;
   category?: string | null;
   projectInternal?: boolean;
+  projectId?: string | null;
 };
 
 export type ClientPersonRow = {
@@ -82,15 +86,26 @@ const FILTERS: Array<{ key: ClientListFilter; label: string }> = [
   { key: 'sync', label: 'Sync problem' },
 ];
 
-function Panel({ children, testId }: { children: ReactNode; testId?: string }) {
+function Panel({
+  children,
+  testId,
+  className,
+  padded = true,
+}: {
+  children: ReactNode;
+  testId?: string;
+  className?: string;
+  padded?: boolean;
+}) {
   return (
     <section
       data-testid={testId}
+      className={className}
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
         borderRadius: 28,
-        padding: '1.25rem',
+        ...(padded ? { padding: '1.25rem' } : {}),
       }}
     >
       {children}
@@ -157,7 +172,17 @@ function PersonMark({ name }: { name: string }) {
   );
 }
 
-function Mark({ name, size = 36, testId }: { name: string; size?: number; testId?: string }) {
+function Mark({
+  name,
+  size = 36,
+  testId,
+  raised = false,
+}: {
+  name: string;
+  size?: number;
+  testId?: string;
+  raised?: boolean;
+}) {
   return (
     <span
       className="ds-mono inline-flex shrink-0 items-center justify-center"
@@ -166,8 +191,8 @@ function Mark({ name, size = 36, testId }: { name: string; size?: number; testId
         width: size,
         height: size,
         borderRadius: 10,
-        background: 'var(--bg)',
-        border: '1px solid var(--border)',
+        background: raised ? 'var(--surface-2)' : 'var(--bg)',
+        border: raised ? '1px solid var(--border-2, var(--border))' : '1px solid var(--border)',
         fontSize: 12,
         color: 'var(--muted)',
       }}
@@ -210,10 +235,10 @@ function Dot({ tone, children }: { tone: 'on' | 'bad' | 'off'; children: ReactNo
   );
 }
 
-function Chevron() {
+function Chevron({ className = '' }: { className?: string }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
-    <img alt="" src="/icons/client-chev.svg" width={16} height={16} className="shrink-0 opacity-70" />
+    <img alt="" src="/icons/client-chev.svg" width={16} height={16} className={`shrink-0 opacity-70 ${className}`.trim()} />
   );
 }
 
@@ -531,7 +556,10 @@ export function ClientDirectory({
   const noticeTitle = errorMode === 'refresh'
     ? errorTitle ?? 'Client list is out of date'
     : "We couldn't load clients";
-  const noticeBody = errorMode === 'empty' ? 'Try again in a moment.' : error ?? '';
+  const noticeBody =
+    errorMode === 'empty' || (errorMode === 'refresh' && !errorTitle)
+      ? 'Try again in a moment.'
+      : error ?? '';
   const syncProblem = errorMode === 'refresh' && Boolean(errorTitle);
 
   return (
@@ -727,6 +755,55 @@ export function ClientDirectory({
   );
 }
 
+const DETAIL_SECTIONS = ['client-projects', 'client-people', 'client-tasks'] as const;
+
+function useDetailSection(screen: string) {
+  const scrollerRef = useRef<HTMLDivElement>(null);
+  const pinned = useRef<string | null>(null);
+  const expectedTop = useRef<number | null>(null);
+  const [active, setActive] = useState<string>(DETAIL_SECTIONS[0]);
+
+  useEffect(() => {
+    const root = scrollerRef.current;
+    if (!root) return;
+    const read = () => {
+      if (pinned.current) {
+        const max = Math.max(0, root.scrollHeight - root.clientHeight);
+        const landed = expectedTop.current == null ? root.scrollTop : Math.min(expectedTop.current, max);
+        if (Math.abs(root.scrollTop - landed) <= 2) {
+          setActive(pinned.current);
+          return;
+        }
+        pinned.current = null;
+      }
+      const top = root.getBoundingClientRect().top;
+      const probe = top + Math.max(72, root.clientHeight * 0.28);
+      let current: string = DETAIL_SECTIONS[0];
+      for (const id of DETAIL_SECTIONS) {
+        const node = document.getElementById(id);
+        if (node && node.getBoundingClientRect().top <= probe) current = id;
+      }
+      setActive(current);
+    };
+    read();
+    root.addEventListener('scroll', read, { passive: true });
+    return () => root.removeEventListener('scroll', read);
+  }, [screen]);
+
+  const choose = (id: string) => {
+    pinned.current = id;
+    setActive(id);
+    const root = scrollerRef.current;
+    const node = document.getElementById(id);
+    if (!root || !node) return;
+    const top = node.getBoundingClientRect().top - root.getBoundingClientRect().top + root.scrollTop - 8;
+    expectedTop.current = Math.max(0, top);
+    root.scrollTo({ top: expectedTop.current });
+  };
+
+  return { scrollerRef, active, choose };
+}
+
 export function ClientDetail({
   client,
   projects,
@@ -748,6 +825,7 @@ export function ClientDetail({
   brandName?: string | null;
   screen?: ClientScreen;
 }) {
+  const { scrollerRef, active, choose } = useDetailSection(screen);
   if (screen === 'error') {
     return (
       <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
@@ -764,7 +842,7 @@ export function ClientDetail({
   }
   const blank = screen === 'empty';
   const projectRows = blank ? [] : projects;
-  const taskRows = blank ? [] : tasks;
+  const taskRows = blank ? [] : sortTasksNewestFirst(tasks);
   const contactRows = blank ? [] : contacts;
   const docRows = blank ? [] : docs;
   const awaiting = taskRows.filter((task) => !task.isDone && task.stage === 'Awaiting Go').length;
@@ -772,12 +850,18 @@ export function ClientDetail({
   const brand = brandName?.trim() || client.name;
   const header = staffHeaderLine(blank ? null : clientSince, blank ? null : leadName);
   const open = taskRows.filter((task) => !task.isDone);
+  const synced = syncLine(client.lastSyncedAt);
+  const jumps = [
+    ['client-projects', 'Projects', projectRows.length],
+    ['client-people', 'People', contactRows.length],
+    ['client-tasks', 'Tasks', taskRows.length],
+  ] as const;
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
+    <div ref={scrollerRef} className="client-detail flex h-full min-h-0 flex-col overflow-y-auto" data-testid="client-detail">
       <ClampStyle />
-      <Panel>
+      <Panel padded={false} className="client-detail-card">
         <div className="flex items-center gap-6">
-          <Mark name={client.name} size={64} testId="client-header-mark" />
+          <Mark name={client.name} size={64} testId="client-header-mark" raised />
           <div className="min-w-0 flex-1">
             <h2 className="client-card-title">{client.name}</h2>
             {header ? (
@@ -798,30 +882,57 @@ export function ClientDetail({
               syncState="failed"
             />
           ) : (
-            <span data-testid="client-sync-line" style={{ fontSize: 13, color: 'var(--muted)' }}>
-              {inSyncLine(client.lastSyncedAt)}
+            <span
+              data-testid="client-sync-line"
+              data-sync={synced.stale ? 'stale' : 'fresh'}
+              style={{ fontSize: 13, color: synced.stale ? 'var(--warning)' : 'var(--muted)' }}
+            >
+              {synced.text}
             </span>
           )}
         </div>
       </Panel>
-      <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3" data-testid="client-stats">
-        <Stat label="PROJECTS" value={String(projectRows.length)} hint={projectRows.length > 0 ? '1 active brand each' : 'No projects yet'} />
-        <Stat label="PEOPLE" value={String(contactRows.length)} hint={pending > 0 ? `${pending} invite pending` : 'Contacts with portal access'} />
-        <Stat label="OPEN ITEMS" value={String(open.length)} hint={awaiting > 0 ? `${awaiting} awaiting go` : 'None awaiting go'} tone={awaiting > 0 ? 'var(--danger)' : undefined} />
+      <div className="client-detail-kpis grid w-full grid-cols-1 md:grid-cols-3" data-testid="client-stats">
+        <Stat display label="PROJECTS" value={String(projectRows.length)} hint={projectRows.length > 0 ? '1 active brand each' : 'No projects yet'} />
+        <Stat display label="PEOPLE" value={String(contactRows.length)} hint={pending > 0 ? `${pending} invite pending` : 'Contacts with portal access'} />
+        <Stat display label="OPEN ITEMS" value={String(open.length)} hint={awaiting > 0 ? `${awaiting} awaiting go` : 'None awaiting go'} tone={awaiting > 0 ? 'var(--danger)' : undefined} />
       </div>
-      <div className="flex flex-wrap gap-2">
-        {[
-          ['client-projects', 'Projects', projectRows.length],
-          ['client-people', 'People', contactRows.length],
-          ['client-tasks', 'Tasks', taskRows.length],
-        ].map(([id, label, count]) => (
-          <a key={String(id)} href={`#${id}`} className="ds-mono" style={{ fontSize: 13, color: 'var(--muted)', border: '1px solid var(--border)', borderRadius: 999, padding: '6px 12px' }}>
-            {label} {count}
-          </a>
-        ))}
+      <div className="flex flex-wrap gap-2" data-testid="client-jumps">
+        {jumps.map(([id, label, count]) => {
+          const on = active === id;
+          return (
+            <a
+              key={id}
+              href={`#${id}`}
+              data-testid="client-section-jump"
+              aria-current={on ? 'true' : undefined}
+              onClick={(event) => {
+                event.preventDefault();
+                choose(id);
+              }}
+              className="inline-flex items-center"
+              style={{
+                gap: 6,
+                fontFamily: 'var(--font-body)',
+                fontSize: 14,
+                fontWeight: 500,
+                lineHeight: '20px',
+                borderRadius: 999,
+                padding: '6px 12px',
+                border: on ? '1px solid var(--fg)' : '1px solid var(--border)',
+                background: on ? 'var(--fg)' : 'transparent',
+                color: on ? 'var(--bg)' : 'var(--fg)',
+                textDecoration: 'none',
+              }}
+            >
+              {label}
+              <span style={{ color: on ? 'var(--bg)' : 'var(--muted)', opacity: on ? 0.72 : 1 }}>{count}</span>
+            </a>
+          );
+        })}
       </div>
-      <Panel>
-        <h3 id="client-projects" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Projects</h3>
+      <Panel padded={false} className="client-detail-card">
+        <h3 id="client-projects" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', scrollMarginTop: 8 }}>Projects</h3>
         <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Brand is attached to each project</p>
         {projectRows.length === 0 ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No projects.</p>
@@ -829,32 +940,47 @@ export function ClientDetail({
           <ul className="mt-2">
             {projectRows.map((project) => {
               const pct = percent(project.progress);
+              const items = projectItemCount(project, taskRows);
+              const unpublished = project.internal || project.publishToWarehaus === false;
               return (
-                <li key={project.id} className="flex flex-col gap-3 sm:flex-row sm:items-center" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
-                  <div className="flex w-full min-w-0 items-center gap-3 sm:flex-1">
+                <li
+                  key={project.id}
+                  data-testid="client-project-row"
+                  className="client-project-row grid grid-cols-[minmax(0,1fr)_16px] items-center gap-x-3 gap-y-2 md:grid-cols-[minmax(0,1fr)_168px_72px_auto_16px] md:gap-4"
+                  style={{ borderTop: '1px solid var(--border)' }}
+                >
+                  <div className="col-span-2 flex min-w-0 items-center gap-3 md:col-span-1">
                     <Mark name={project.name} />
                     <span className="min-w-0 flex-1">
                       <span className="block truncate" style={{ fontWeight: 600 }}>{project.name}</span>
                       <span className="block truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{brandLine(brand)}</span>
                     </span>
                   </div>
-                  <span className="flex items-center gap-2">
-                    <span style={{ height: 4, width: 88, borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
+                  <span className="col-span-2 flex min-w-0 flex-col gap-1.5 md:col-span-1">
+                    <span style={{ height: 4, width: '100%', borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
                       <span style={{ display: 'block', height: '100%', width: `${pct}%`, background: 'var(--fg)' }} />
                     </span>
-                    <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)' }}>{pct}%</span>
-                    <Dot tone={project.internal || project.publishToWarehaus === false ? 'off' : 'on'}>
-                      {project.internal || project.publishToWarehaus === false ? 'Not published' : 'Published'}
-                    </Dot>
+                    <span data-testid="client-project-caption" style={{ fontSize: 12, color: 'var(--muted)' }}>
+                      {pct}% of items shipped
+                    </span>
                   </span>
+                  <span
+                    data-testid="client-project-count"
+                    className="hidden whitespace-nowrap md:block"
+                    style={{ fontSize: 13, color: 'var(--muted)' }}
+                  >
+                    {items} {items === 1 ? 'item' : 'items'}
+                  </span>
+                  <Dot tone={unpublished ? 'off' : 'on'}>{unpublished ? 'Not published' : 'Published'}</Dot>
+                  <Chevron />
                 </li>
               );
             })}
           </ul>
         )}
       </Panel>
-      <Panel>
-        <h3 id="client-people" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>People</h3>
+      <Panel padded={false} className="client-detail-card">
+        <h3 id="client-people" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', scrollMarginTop: 8 }}>People</h3>
         <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
           Contacts with portal access. Invites are managed by the client&apos;s admins.
         </p>
@@ -868,8 +994,8 @@ export function ClientDetail({
           </ul>
         )}
       </Panel>
-      <Panel>
-        <h3 id="client-tasks" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Tasks</h3>
+      <Panel padded={false} className="client-detail-card">
+        <h3 id="client-tasks" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', scrollMarginTop: 8 }}>Tasks</h3>
         <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Published and unpublished, newest first.</p>
         {taskRows.length === 0 ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No tasks.</p>
@@ -884,7 +1010,7 @@ export function ClientDetail({
                 .filter(Boolean)
                 .join(' · ');
               return (
-                <li key={task.id} className="flex flex-wrap items-center gap-2" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
+                <li key={task.id} data-testid="client-task-row" className="client-task-row flex items-center gap-2" style={{ borderTop: '1px solid var(--border)' }}>
                   <PortalCheckbox checked={task.isDone} disabled />
                   <span className="min-w-0 flex-1 basis-40">
                     <span className="block truncate" style={{ fontWeight: 600 }}>{task.name}</span>
@@ -898,6 +1024,7 @@ export function ClientDetail({
                       <Dot tone={task.publishToWarehaus ? 'on' : 'off'}>{task.publishToWarehaus ? 'Published' : 'Not published'}</Dot>
                     ) : null}
                   </span>
+                  <Chevron className="hidden lg:block" />
                 </li>
               );
             })}
@@ -1060,7 +1187,7 @@ export function ClientCompany({
       {loading ? <CompanyCardSkeleton /> : (
       <Panel>
         <div className="flex items-center gap-4">
-          <Mark name={name} size={64} testId="company-mark" />
+          <Mark name={name} size={64} testId="company-mark" raised />
           <div className="min-w-0 flex-1">
             <h2 className="client-card-title">{name}</h2>
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
@@ -1174,8 +1301,20 @@ function ClampStyle() {
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+      .client-detail { gap: 16px; }
+      .client-detail-card { padding: 20px 16px; }
+      .client-detail-kpis { gap: 16px; }
+      .client-project-row { padding: 12px 0; }
+      .client-task-row { padding: 14px 0; }
       .client-directory-kpis {
         grid-template-columns: minmax(0, 1fr);
+      }
+      @media (min-width: 768px) {
+        .client-detail { gap: 32px; }
+        .client-detail-card { padding: 32px; }
+        .client-detail-kpis { gap: 32px; }
+        .client-project-row { min-height: 96px; padding: 16px 0; }
+        .client-task-row { padding: 20px 0; }
       }
       @media (min-width: 768px) {
         .client-directory-kpis {

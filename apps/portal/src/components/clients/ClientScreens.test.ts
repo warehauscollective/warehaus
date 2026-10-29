@@ -140,8 +140,11 @@ describe('client team page', () => {
     const detail = renderToStaticMarkup(
       createElement(ClientDetail, {
         client: staffClient,
-        projects: [{ id: 'p-site', name: 'Northwind site', status: 'In Progress', progress: 0.4 }],
-        tasks: [],
+        projects: [{ id: 'p-site', name: 'Northwind site', status: 'In Progress', progress: 0.4, taskCount: 8 }],
+        tasks: [
+          { id: 'older', name: 'Older checklist', status: 'To Do', isDone: false, date: '2026-09-01' },
+          { id: 'newer', name: 'Newer checklist', status: 'In Progress', isDone: false, date: '2026-10-20', lastEditedTime: '2026-10-28' },
+        ],
         docs: [],
         contacts: people,
         leadName: 'Maya Chen',
@@ -150,18 +153,46 @@ describe('client team page', () => {
     );
     assert.match(company, /grid-cols-1/);
     assert.equal(company.includes('col-span-2'), false);
-    assert.match(company, /data-testid="company-mark"[^>]*style="[^"]*width:64px[^"]*border-radius:10px/);
+    assert.match(company, /data-testid="company-mark"[^>]*style="[^"]*width:64px[^"]*border-radius:10px[^"]*background:var\(--surface-2\)/);
     assert.equal(company.includes('border-radius:999px'), true);
-    assert.match(detail, /grid-cols-1/);
-    assert.equal(detail.includes('col-span-2'), false);
+    assert.match(detail, /class="client-detail-kpis grid w-full grid-cols-1 md:grid-cols-3" data-testid="client-stats"/);
+    assert.equal(detail.includes('col-span-2 flex'), true);
+    assert.equal(detail.includes('md:col-span-1'), true);
     assert.match(detail, /data-testid="person-avatar"/);
     assert.match(detail, /border-radius:10px/);
     assert.match(detail, /class="clamp-two"/);
     assert.match(detail, /Client since March 2026/);
-    assert.match(detail, /data-testid="client-header-mark"[^>]*style="[^"]*width:64px[^"]*border-radius:10px/);
-    assert.match(detail, /data-testid="client-sync-line"/);
+    assert.match(detail, /data-testid="client-header-mark"[^>]*style="[^"]*width:64px[^"]*border-radius:10px[^"]*background:var\(--surface-2\)/);
+    assert.match(detail, /data-testid="client-sync-line"[^>]*data-sync="fresh"[^>]*style="[^"]*color:var\(--muted\)"/);
+    assert.match(detail, />In sync</);
+    assert.match(detail, /class="kpi-figure"/);
+    assert.match(detail, /data-testid="client-section-jump"[^>]*aria-current="true"[^>]*>Projects/);
+    assert.match(detail, /font-family:var\(--font-body\)/);
+    assert.equal(detail.includes('class="ds-mono" style="font-size:13px'), false);
+    assert.match(detail, /40% of items shipped/);
+    assert.match(detail, /data-testid="client-project-count"[^>]*class="[^"]*hidden[^"]*md:block[^"]*"[^>]*>8 items</);
+    assert.match(detail, /client-chev.svg/);
+    assert.match(detail, /class="shrink-0 opacity-70 hidden lg:block"/);
+    assert.match(detail, /\.client-detail \{ gap: 16px; \}/);
+    assert.match(detail, /\.client-detail-card \{ padding: 20px 16px; \}/);
+    assert.match(detail, /\.client-detail \{ gap: 32px; \}/);
+    assert.match(detail, /\.client-detail-card \{ padding: 32px; \}/);
+    assert.match(detail, /min-height: 96px/);
+    assert.ok(detail.indexOf('Newer checklist') < detail.indexOf('Older checklist'));
     assert.match(detail, /Invites are managed by the client/);
     assert.match(detail, /newest first/);
+    const stale = renderToStaticMarkup(
+      createElement(ClientDetail, {
+        client: { ...staffClient, lastSyncedAt: Date.parse('2026-10-05T15:00:00Z') },
+        projects: [],
+        tasks: [],
+        docs: [],
+        contacts: [],
+      }),
+    );
+    assert.match(stale, /Last synced \d+d ago/);
+    assert.match(stale, /data-sync="stale"[^>]*style="[^"]*color:var\(--warning\)/);
+    assert.equal(stale.includes('In sync'), false);
     assert.equal(detail.includes('data-testid="edit-client"'), false);
     const edit = renderToStaticMarkup(createElement(EditClientButton));
     const headerNew = renderToStaticMarkup(createElement(NewClientButton));
@@ -284,6 +315,19 @@ describe('client states', () => {
     assert.match(html, /data-testid="client-stats"/);
     assert.equal(html.includes('No clients yet'), false);
     assert.equal(/We couldn(?:'|&#x27;)t load clients/.test(html), false);
+  });
+
+  it('hides a raw live refetch error behind friendly copy and a retry', () => {
+    const html = directoryMarkup({
+      error: 'ConvexError: [Request ID: abc] Server Error',
+    });
+    assert.match(html, /Client list is out of date/);
+    assert.match(html, /Try again in a moment\./);
+    assert.match(html, /data-testid="client-state-notice"[\s\S]*data-testid="client-try-again"/);
+    assert.equal(html.includes('ConvexError'), false);
+    assert.equal(html.includes('Request ID'), false);
+    assert.equal(html.includes('data-testid="retry-sync"'), false);
+    assert.match(html, /data-testid="client-row-name"[^>]*>Northwind</);
   });
 
   it('clamps a long directory name to two lines on a phone', () => {
