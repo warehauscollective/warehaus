@@ -766,6 +766,7 @@ function useDetailSection(screen: string) {
   useEffect(() => {
     const root = scrollerRef.current;
     if (!root) return;
+    let frame = 0;
     const read = () => {
       if (pinned.current) {
         const max = Math.max(0, root.scrollHeight - root.clientHeight);
@@ -785,9 +786,19 @@ function useDetailSection(screen: string) {
       }
       setActive(current);
     };
+    const onScroll = () => {
+      if (frame) return;
+      frame = requestAnimationFrame(() => {
+        frame = 0;
+        read();
+      });
+    };
     read();
-    root.addEventListener('scroll', read, { passive: true });
-    return () => root.removeEventListener('scroll', read);
+    root.addEventListener('scroll', onScroll, { passive: true });
+    return () => {
+      root.removeEventListener('scroll', onScroll);
+      if (frame) cancelAnimationFrame(frame);
+    };
   }, [screen]);
 
   const choose = (id: string) => {
@@ -946,7 +957,7 @@ export function ClientDetail({
                 <li
                   key={project.id}
                   data-testid="client-project-row"
-                  className="client-project-row grid grid-cols-[minmax(0,1fr)_16px] items-center gap-x-3 gap-y-2 md:grid-cols-[minmax(0,1fr)_168px_72px_auto_16px] md:gap-4"
+                  className="client-project-row grid grid-cols-[minmax(0,1fr)_16px] items-center gap-x-3 gap-y-2 md:grid-cols-[minmax(0,1fr)_176px_80px_140px_16px] md:gap-4"
                   style={{ borderTop: '1px solid var(--border)' }}
                 >
                   <div className="col-span-2 flex min-w-0 items-center gap-3 md:col-span-1">
@@ -956,7 +967,7 @@ export function ClientDetail({
                       <span className="block truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{brandLine(brand)}</span>
                     </span>
                   </div>
-                  <span className="col-span-2 flex min-w-0 flex-col gap-1.5 md:col-span-1">
+                  <span className="col-span-2 flex min-w-0 flex-col gap-1.5 md:col-span-1 md:w-[176px]">
                     <span style={{ height: 4, width: '100%', borderRadius: 99, background: 'var(--border)', overflow: 'hidden' }}>
                       <span style={{ display: 'block', height: '100%', width: `${pct}%`, background: 'var(--fg)' }} />
                     </span>
@@ -966,12 +977,14 @@ export function ClientDetail({
                   </span>
                   <span
                     data-testid="client-project-count"
-                    className="hidden whitespace-nowrap md:block"
+                    className="hidden min-w-0 whitespace-nowrap md:block md:w-[80px]"
                     style={{ fontSize: 13, color: 'var(--muted)' }}
                   >
                     {items} {items === 1 ? 'item' : 'items'}
                   </span>
-                  <Dot tone={unpublished ? 'off' : 'on'}>{unpublished ? 'Not published' : 'Published'}</Dot>
+                  <span className="min-w-0 md:w-[140px]">
+                    <Dot tone={unpublished ? 'off' : 'on'}>{unpublished ? 'Not published' : 'Published'}</Dot>
+                  </span>
                   <Chevron />
                 </li>
               );
@@ -1010,13 +1023,13 @@ export function ClientDetail({
                 .filter(Boolean)
                 .join(' · ');
               return (
-                <li key={task.id} data-testid="client-task-row" className="client-task-row flex items-center gap-2" style={{ borderTop: '1px solid var(--border)' }}>
+                <li key={task.id} data-testid="client-task-row" className="client-task-row flex flex-wrap items-center gap-2 lg:flex-nowrap" style={{ borderTop: '1px solid var(--border)' }}>
                   <PortalCheckbox checked={task.isDone} disabled />
-                  <span className="min-w-0 flex-1 basis-40">
-                    <span className="block truncate" style={{ fontWeight: 600 }}>{task.name}</span>
-                    {meta ? <span className="block truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{meta}</span> : null}
+                  <span className="min-w-0 flex-1 basis-[calc(100%-2rem)] lg:basis-40">
+                    <span data-testid="client-task-title" className="block lg:truncate" style={{ fontWeight: 600 }}>{task.name}</span>
+                    {meta ? <span className="block lg:truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{meta}</span> : null}
                   </span>
-                  <span className="flex max-w-full flex-wrap items-center gap-2">
+                  <span data-testid="client-task-pills" className="flex w-full flex-wrap items-center gap-2 lg:w-auto">
                     {task.stage ? <Pill color={task.stage === 'Awaiting Go' ? 'var(--danger)' : undefined}>{task.stage}</Pill> : null}
                     <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
                     {task.category ? <Pill>{task.category}</Pill> : null}
@@ -1315,8 +1328,6 @@ function ClampStyle() {
         .client-detail-kpis { gap: 32px; }
         .client-project-row { min-height: 96px; padding: 16px 0; }
         .client-task-row { padding: 20px 0; }
-      }
-      @media (min-width: 768px) {
         .client-directory-kpis {
           grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
         }

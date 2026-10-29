@@ -170,7 +170,11 @@ describe('client team page', () => {
     assert.match(detail, /font-family:var\(--font-body\)/);
     assert.equal(detail.includes('class="ds-mono" style="font-size:13px'), false);
     assert.match(detail, /40% of items shipped/);
-    assert.match(detail, /data-testid="client-project-count"[^>]*class="[^"]*hidden[^"]*md:block[^"]*"[^>]*>8 items</);
+    assert.match(detail, /data-testid="client-project-count"[^>]*class="[^"]*hidden[^"]*md:block[^"]*md:w-\[80px\][^"]*"[^>]*>8 items</);
+    assert.match(detail, /md:grid-cols-\[minmax\(0,1fr\)_176px_80px_140px_16px\]/);
+    assert.equal(detail.includes('md:grid-cols-[minmax(0,1fr)_176px_80px_auto'), false);
+    assert.match(detail, /data-testid="client-task-title"[^>]*class="block lg:truncate"/);
+    assert.match(detail, /data-testid="client-task-pills"[^>]*class="[^"]*w-full[^"]*lg:w-auto/);
     assert.match(detail, /client-chev.svg/);
     assert.match(detail, /class="shrink-0 opacity-70 hidden lg:block"/);
     assert.match(detail, /\.client-detail \{ gap: 16px; \}/);
