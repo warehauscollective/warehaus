@@ -73,6 +73,7 @@ export function TeamEmpty({
       }}
     >
       {/* Asset root is 28×28. Do not stretch it. */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
       <img alt="" src="/icons/team-empty.svg" width={28} height={28} />
       <p style={{ margin: 0, fontSize: 16, fontWeight: 500, lineHeight: '19px' }}>{title}</p>
       <p

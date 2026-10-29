@@ -31,7 +31,11 @@ describe('account team states', () => {
       createElement(TeamEmpty, {
         title: TEAM_STAFF_EMPTY.title,
         body: TEAM_STAFF_EMPTY.body,
-        action: createElement(TeamOutlineButton, { testId: 'team-invite-someone', children: 'Invite someone' }),
+        // eslint-disable-next-line react/no-children-prop -- children is a declared prop, so the extra createElement argument does not typecheck
+        action: createElement(TeamOutlineButton, {
+          testId: 'team-invite-someone',
+          children: 'Invite someone',
+        }),
       }),
     );
     assert.match(empty, /No pending invites/);
