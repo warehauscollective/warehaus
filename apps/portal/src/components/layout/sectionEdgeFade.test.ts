@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { activityFilterFadeOnScroll, scrollActiveIntoView, sectionEdgeFadePx, sectionPeekScroll } from './sectionEdgeFade';
 
@@ -168,5 +169,40 @@ describe('sectionEdgeFadePx', () => {
     assert.equal(node.scrollLeft, 180);
     sectionEdgeFadePx(node, { activeSelector: '[aria-pressed="true"]' });
     assert.equal(node.scrollLeft, 180);
+  });
+
+  it('keeps a user swipe when ActivityFilters, SectionScroller, and PhoneColumnTabs remeasure', () => {
+    const sources = [
+      readFileSync(new URL('../pages/ActivityContent.tsx', import.meta.url), 'utf8'),
+      readFileSync(new URL('./PortalSidebar.tsx', import.meta.url), 'utf8'),
+      readFileSync(new URL('../tasks/TaskBoard.tsx', import.meta.url), 'utf8'),
+    ];
+    for (const source of sources) {
+      const updates = [...source.matchAll(/const update = \(\) => \{[\s\S]*?\n    \};/g)].map((match) => match[0]);
+      assert.ok(updates.length >= 1);
+      for (const update of updates) {
+        assert.equal(/scrollLeft\s*=/.test(update), false);
+        assert.equal(update.includes('scrollActiveIntoView'), false);
+      }
+    }
+    const node = fakeChipRow({
+      clientWidth: 200,
+      scrollWidth: 600,
+      scrollLeft: 0,
+      buttons: [
+        { left: 0, width: 60, pressed: true },
+        { left: 80, width: 70 },
+        { left: 400, width: 60 },
+      ],
+    });
+    node.scrollLeft = 240;
+    const handlers = [
+      () => activityFilterFadeOnScroll(node),
+      () => sectionEdgeFadePx(node, { inset: true }),
+      () => sectionEdgeFadePx(node, { inset: true, activeSelector: '[aria-selected="true"]' }),
+    ];
+    for (const handler of handlers) node.addEventListener('scroll', handler);
+    node.dispatchEvent(new Event('scroll'));
+    assert.equal(node.scrollLeft, 240);
   });
 });
