@@ -575,9 +575,9 @@ export function ClientCompany({
   }
   if (screen === 'loading') {
     return (
-      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company" aria-busy="true">
+      <div className="flex h-full min-h-0 w-full flex-col gap-3 overflow-y-auto" data-testid="client-company" aria-busy="true">
         {[0, 1, 2].map((i) => (
-          <div key={i} className="animate-pulse" style={{ height: 64, borderRadius: 12, background: 'var(--bg)' }} />
+          <div key={i} className="w-full animate-pulse" style={{ height: 72, borderRadius: 18, background: 'var(--surface)' }} />
         ))}
       </div>
     );
