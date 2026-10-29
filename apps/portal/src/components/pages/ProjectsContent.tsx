@@ -33,7 +33,7 @@ import { NewProjectControl } from '@/components/projects/NewProjectControl';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
 import { TaskCreateDialog, TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { StatusTable } from '@/components/tasks/StatusKanban';
-import { LIVE_TASK_STATUSES, TASK_STAGES, createTaskExternalId, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
+import { LIVE_TASK_STATUSES, TASK_STAGES, WRITEBACK_OFF_ERROR, createTaskExternalId, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
 import type { Id } from '@convex/_generated/dataModel';
 
 const SECTION_TITLE: Record<string, string> = {
@@ -277,11 +277,9 @@ export function ProjectsContent() {
                   else router.push(`/tasks/${task.id}`);
                 }}
                 onMove={async (request) => {
-                  if (fixtures || !request.task.lastEditedTime) {
-                    if (!fixtures && !request.task.lastEditedTime) {
-                      return { ok: false, error: 'This task has no Notion edit time yet. Nothing was sent.' };
-                    }
-                    return { ok: true };
+                  if (fixtures) return { ok: false, error: WRITEBACK_OFF_ERROR };
+                  if (!request.task.lastEditedTime) {
+                    return { ok: false, error: 'This task has no Notion edit time yet. Nothing was sent.' };
                   }
                   const result = request.mode === 'stage'
                     ? await moveStage({

@@ -63,9 +63,16 @@ export function cardDragPointerDown<E>(
   beginLongPress?.();
 }
 
-/** Write-back off still keeps the card in the column it was dropped on. */
-export function boardMovePersists(result: { ok: boolean; error?: string }): boolean {
-  return result.ok || result.error === WRITEBACK_OFF_ERROR;
+export const MOVE_NOT_SAVED = 'Not saved. Moving cards to Notion is turned off for now.';
+
+/** A drop stays in the new column only when enqueue accepts it. */
+export function boardMovePersists(result: { ok: boolean }): boolean {
+  return result.ok;
+}
+
+export function flagOffDropMessage(result: { ok: boolean; error?: string }): string | null {
+  if (!result.ok && result.error === WRITEBACK_OFF_ERROR) return MOVE_NOT_SAVED;
+  return null;
 }
 
 export function readBoardMode(): BoardMode {
@@ -160,12 +167,22 @@ export function TaskBoard({
     });
     setLive(`Moved ${task.name} to ${value}. Saving.`);
     const result = await onMove({ task, mode, value, pullRequestLink });
-    if (!boardMovePersists(result)) {
+    const clearOverride = () => {
       setOverrides((current) => {
         const next = { ...current };
         delete next[task.id];
         return next;
       });
+    };
+    const notSaved = flagOffDropMessage(result);
+    if (notSaved) {
+      clearOverride();
+      setToast({ message: notSaved });
+      setLive(notSaved);
+      return;
+    }
+    if (!boardMovePersists(result)) {
+      clearOverride();
       setFailed((current) => ({ ...current, [task.id]: result.error ?? 'Couldn’t save. Moved back.' }));
       setToast({
         message: result.error ?? 'Couldn’t save. Moved back.',
@@ -174,12 +191,11 @@ export function TaskBoard({
       setLive(`${task.name} moved back. ${result.error ?? 'Couldn’t save.'}`);
       return;
     }
-    const localOnly = !result.ok && result.error === WRITEBACK_OFF_ERROR;
     setToast({
-      message: localOnly ? WRITEBACK_OFF_ERROR : `Moved ${task.name} to ${value}`,
+      message: `Moved ${task.name} to ${value}`,
       undo: () => void commit({ ...task, ...(mode === 'stage' ? { stage: value } : { status: value }) }, previous),
     });
-    setLive(localOnly ? WRITEBACK_OFF_ERROR : `Moved ${task.name} to ${value}.`);
+    setLive(`Moved ${task.name} to ${value}.`);
   };
 
   const onDragEnd = (event: DragEndEvent) => {

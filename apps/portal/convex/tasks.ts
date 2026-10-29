@@ -231,6 +231,7 @@ export const moveStatus = adminMutation({
       taskId: args.taskId,
       status: args.status,
       expectedLastEditedTime: args.expectedLastEditedTime,
+      orgId: ctx.orgId,
       actorId: ctx.identity.contactId,
     });
   },
@@ -249,6 +250,7 @@ export const moveStage = adminMutation({
       stage: args.stage,
       expectedLastEditedTime: args.expectedLastEditedTime,
       pullRequestLink: args.pullRequestLink,
+      orgId: ctx.orgId,
       actor: 'staff',
       actorId: ctx.identity.contactId,
     });

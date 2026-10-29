@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { enqueue } from '../sync/outbox';
-import { enqueueCreate, enqueueStage } from '../sync/taskWrite';
+import { enqueueCreate, enqueueStage, enqueueStatus } from '../sync/taskWrite';
+import { moveStage, moveStatus } from '../tasks';
+import { PortalAuthError } from './identity';
 
 type Handler = (ctx: unknown, args: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>;
 
@@ -93,6 +95,7 @@ describe('enqueueStage actor', () => {
       {
         taskId: 'task-1',
         stage: 'Idea',
+        orgId: 'org-northwind',
         expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
         actor: 'staff',
         actorId: 'contact-staff',
@@ -117,6 +120,7 @@ describe('enqueueStage actor', () => {
       {
         taskId: 'task-1',
         stage: 'Idea',
+        orgId: 'org-northwind',
         expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
         actor: 'client',
         actorId: 'contact-client',
@@ -137,6 +141,7 @@ describe('enqueueStage actor', () => {
     };
     const base = {
       taskId: 'task-1',
+      orgId: 'org-northwind',
       expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
       actor: 'staff' as const,
       actorId: 'contact-staff',
@@ -163,6 +168,7 @@ describe('enqueueStage actor', () => {
     });
     const base = {
       taskId: 'task-1',
+      orgId: 'org-northwind',
       expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
       actor: 'staff' as const,
       actorId: 'contact-staff',
@@ -222,5 +228,131 @@ describe('enqueueStage actor', () => {
       if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
       else process.env.NOTION_WRITEBACK_ENABLED = previous;
     }
+  });
+});
+
+describe('move org gate', () => {
+  const task = {
+    _id: 'task-1',
+    orgId: 'org-northwind',
+    notionPageId: 'page-1',
+    stage: 'Idea',
+  };
+
+  function gateCtx(found: typeof task | null) {
+    const calls: unknown[] = [];
+    return {
+      calls,
+      ctx: {
+        db: { get: async () => found },
+        runMutation: async (_ref: unknown, args: unknown) => {
+          calls.push(args);
+          return { ok: true, outboxId: 'out-1', duplicate: false };
+        },
+      },
+    };
+  }
+
+  it('rejects a missing or wrong-org task before enqueue', async () => {
+    const missing = gateCtx(null);
+    const statusMissing = await run(enqueueStatus, missing.ctx, {
+      taskId: 'task-1',
+      status: 'To Do',
+      orgId: 'org-northwind',
+      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
+    });
+    assert.deepEqual(statusMissing, { ok: false, error: 'Task not found' });
+    const stageMissing = await run(enqueueStage, missing.ctx, {
+      taskId: 'task-1',
+      stage: 'Idea',
+      orgId: 'org-northwind',
+      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
+      actor: 'staff',
+    });
+    assert.deepEqual(stageMissing, { ok: false, error: 'Task not found' });
+
+    const foreign = gateCtx(task);
+    const statusForeign = await run(enqueueStatus, foreign.ctx, {
+      taskId: 'task-1',
+      status: 'To Do',
+      orgId: 'org-other',
+      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
+    });
+    assert.deepEqual(statusForeign, { ok: false, error: 'Task not found' });
+    const stageForeign = await run(enqueueStage, foreign.ctx, {
+      taskId: 'task-1',
+      stage: 'Planning',
+      orgId: 'org-other',
+      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
+      actor: 'staff',
+    });
+    assert.deepEqual(stageForeign, { ok: false, error: 'Task not found' });
+    assert.equal(missing.calls.length, 0);
+    assert.equal(foreign.calls.length, 0);
+  });
+
+  it('rejects a client caller at adminMutation and does not enqueue', async () => {
+    const calls: unknown[] = [];
+    const client = {
+      _id: 'org-northwind',
+      slug: 'northwind',
+      portalAccess: 'Enabled' as const,
+    };
+    const contact = {
+      _id: 'contact-client',
+      orgId: client._id,
+      name: 'Ada Client',
+      email: 'ada@northwind.test',
+      authUserId: 'auth-client',
+      role: 'Client Admin' as const,
+      portalAccess: 'Enabled' as const,
+    };
+    const ctx = {
+      auth: { getUserIdentity: async () => ({ subject: 'auth-client' }) },
+      runMutation: async (_ref: unknown, args: unknown) => {
+        calls.push(args);
+        return { ok: true, outboxId: 'out-1', duplicate: false };
+      },
+      db: {
+        async get(id: string) {
+          if (id === client._id) return client;
+          return null;
+        },
+        query(table: string) {
+          return {
+            withIndex(_name: string, build: (q: { eq: (field: string, value: string) => unknown }) => unknown) {
+              const recorder = {
+                pairs: [] as Array<[string, string]>,
+                eq(field: string, value: string) {
+                  this.pairs.push([field, value]);
+                  return this;
+                },
+              };
+              build(recorder);
+              const rows = table === 'contacts' ? [contact] : [];
+              const matched = rows.filter((row) =>
+                recorder.pairs.every(([field, value]) => (row as Record<string, string>)[field] === value),
+              );
+              return { unique: async () => matched[0] ?? null };
+            },
+          };
+        },
+      },
+    };
+    const args = {
+      taskId: 'task-1',
+      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
+    };
+    await assert.rejects(run(moveStatus, ctx, { ...args, status: 'To Do' }), (err: unknown) => {
+      assert.ok(err instanceof PortalAuthError);
+      assert.equal(err.message, 'Staff role required');
+      return true;
+    });
+    await assert.rejects(run(moveStage, ctx, { ...args, stage: 'Idea' }), (err: unknown) => {
+      assert.ok(err instanceof PortalAuthError);
+      assert.equal(err.message, 'Staff role required');
+      return true;
+    });
+    assert.equal(calls.length, 0);
   });
 });

@@ -6,7 +6,7 @@ import type { PortalTask } from '@/lib/data/view-models';
 
 // tsx compiles JSX with the classic runtime. The portal build uses the automatic runtime.
 Object.assign(globalThis, { React });
-const { TaskCardFace, boardMovePersists, cardDragPointerDown } = await import('./TaskBoard');
+const { TaskCardFace, MOVE_NOT_SAVED, boardMovePersists, cardDragPointerDown, flagOffDropMessage } = await import('./TaskBoard');
 
 const task: PortalTask = {
   id: 't-stage',
@@ -48,12 +48,12 @@ describe('TaskCardFace client stage card', () => {
     assert.equal(longPress, 1);
   });
 
-  it('keeps the card in the new column when write-back is off', () => {
+  it('reports a flag-off drop as not saved', () => {
+    const off = { ok: false as const, error: 'Write-back is off. Nothing was sent to Notion.' };
+    assert.equal(boardMovePersists(off), false);
+    assert.equal(flagOffDropMessage(off), MOVE_NOT_SAVED);
+    assert.equal(MOVE_NOT_SAVED.includes('Undo'), false);
     assert.equal(boardMovePersists({ ok: true }), true);
-    assert.equal(
-      boardMovePersists({ ok: false, error: 'Write-back is off. Nothing was sent to Notion.' }),
-      true,
-    );
-    assert.equal(boardMovePersists({ ok: false, error: 'Couldn’t save. Moved back.' }), false);
+    assert.equal(flagOffDropMessage({ ok: false, error: 'Couldn’t save. Moved back.' }), null);
   });
 });

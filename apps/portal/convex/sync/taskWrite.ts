@@ -34,6 +34,7 @@ export const enqueueStatus = internalMutation({
     taskId: v.id('tasks'),
     status: v.string(),
     expectedLastEditedTime: v.string(),
+    orgId: v.id('clients'),
     idempotencyKey: v.optional(v.string()),
     actorId: v.optional(v.string()),
   },
@@ -45,7 +46,7 @@ export const enqueueStatus = internalMutation({
     }
 
     const task = await ctx.db.get(args.taskId);
-    if (!task) return { ok: false as const, error: 'Task not found' };
+    if (!task || task.orgId !== args.orgId) return { ok: false as const, error: 'Task not found' };
 
     const idempotencyKey =
       args.idempotencyKey ??
@@ -72,13 +73,14 @@ export const enqueueStage = internalMutation({
     stage: v.string(),
     pullRequestLink: v.optional(v.string()),
     expectedLastEditedTime: v.string(),
+    orgId: v.id('clients'),
     actorId: v.optional(v.string()),
     actor: v.optional(v.union(v.literal('staff'), v.literal('client'))),
   },
   handler: async (ctx, args): Promise<EnqueueStatusResult> => {
     const actor: MoveActor = args.actor === 'client' ? 'client' : 'staff';
     const task = await ctx.db.get(args.taskId);
-    if (!task) return { ok: false as const, error: 'Task not found' };
+    if (!task || task.orgId !== args.orgId) return { ok: false as const, error: 'Task not found' };
     const planned = planTaskStageWrite({
       actor,
       stage: args.stage,
