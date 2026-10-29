@@ -30,6 +30,7 @@ export type FeedTask = {
   syncHiddenAt?: number;
 };
 
+/** Activity row as stored. Lane and client copy are derived, not columns. */
 export type FeedActivity = {
   _id: string;
   name: string;
@@ -38,16 +39,14 @@ export type FeedActivity = {
   tone?: string;
   timestamp: number;
   projectId?: string;
-  /**
-   * Filter lane. Independent of `type`, which is what client visibility checks.
-   * A published project event can still count as a resource or a person.
-   */
-  lane?: 'tasks' | 'resources' | 'people' | 'sync';
-  /** Client title. Staff rows keep `name`. */
-  clientName?: string;
-  /** Client meta. Staff rows keep `summary`. Still passed through the client strip. */
-  clientSummary?: string;
 };
+
+/** Display name only. Email stays off the feed. */
+export type FeedContact = {
+  name: string;
+};
+
+export type ActivityLane = 'tasks' | 'resources' | 'people' | 'sync';
 
 export type FeedAudit = {
   _id: string;
@@ -77,8 +76,8 @@ export type ActivityFeedItem = {
   timestamp: string;
   projectId: string | null;
   taskId: string | null;
-  /** Filter lane. Omitted when the row has no explicit lane. */
-  lane?: 'tasks' | 'resources' | 'people' | 'sync';
+  /** Filter lane derived from type and tone. Visibility stays on `type`. */
+  lane?: ActivityLane;
   /** Staff feed only. True when the client feed includes this same id. */
   clientVisible?: boolean;
 };
@@ -165,18 +164,101 @@ function readProperties(after?: string): Record<string, unknown> | null {
   }
 }
 
-function clientFieldDetail(after?: string): string | null {
+function clientAuditHasPublicFields(after?: string): boolean {
   const props = readProperties(after);
-  if (!props) return null;
-  const shown = CLIENT_FIELDS.filter((key) => {
+  if (!props) return false;
+  return CLIENT_FIELDS.some((key) => {
     const value = props[key];
     return value != null && value !== '';
   });
-  if (shown.length === 0) return null;
-  return shown
-    .map((key) => `${key}: ${sanitizeInlineText(String(props[key]))}`)
-    .filter((line) => line.length > 0)
-    .join(' · ');
+}
+
+const NOTION_PAGE_ID =
+  /\b[0-9a-f]{32}\b|\b[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\b/i;
+const OUTBOX_WORD = /\b(queued|inflight|dead|conflict|failed|outbox)\b/i;
+
+/** Reject text that must never be copied into a client row. */
+function clientTextRejected(value: string): boolean {
+  return (
+    value.includes('@') ||
+    /warehaus\.studio/i.test(value) ||
+    /\binternal\b/i.test(value) ||
+    /\bsource\b/i.test(value) ||
+    NOTION_PAGE_ID.test(value) ||
+    OUTBOX_WORD.test(value)
+  );
+}
+
+function safeClientTitle(value: string | undefined): string | null {
+  const title = value?.trim() ?? '';
+  if (!title || clientTextRejected(title)) return null;
+  return title;
+}
+
+/**
+ * Lane from type, then tone. `type` still decides client visibility.
+ * A published project event can count as a resource or a person.
+ */
+export function activityLane(type: string, tone?: string): ActivityLane | undefined {
+  if (type === 'resource') return 'resources';
+  if (type === 'sync' || type === 'exception') return 'sync';
+  if (type === 'task') return 'tasks';
+  if (type !== 'project') return undefined;
+  const kind = (tone ?? '').trim().toLowerCase();
+  if (kind === 'resource' || kind === 'resources') return 'resources';
+  if (kind === 'people' || kind === 'person' || kind === 'invite') return 'people';
+  return 'tasks';
+}
+
+/** Actor only when a summary segment is exactly a known contact name. */
+function knownContactName(summary: string | undefined, contacts: readonly FeedContact[]): string | null {
+  if (!summary) return null;
+  const byName = new Map(contacts.map((contact) => [contact.name, contact.name]));
+  for (const segment of summary.split(/\s*·\s*/)) {
+    const known = byName.get(segment.trim());
+    if (!known || clientTextRejected(known)) continue;
+    return known;
+  }
+  return null;
+}
+
+/**
+ * Client title and meta. Built only from a project or task title, a fixed
+ * phrase, and a contact name. Staff `name` and `summary` are never copied.
+ */
+function clientActivityCopy(input: {
+  lane: ActivityLane | undefined;
+  project: FeedProject | undefined;
+  task: FeedTask | undefined;
+  summary: string | undefined;
+  contacts: readonly FeedContact[];
+}): { name: string; summary: string } {
+  const actor = knownContactName(input.summary, input.contacts);
+  const title = safeClientTitle(input.task?.name) ?? safeClientTitle(input.project?.name);
+  if (input.lane === 'people') {
+    return {
+      name: actor ? `${actor} joined your team` : 'A teammate joined your team',
+      summary: actor ?? '',
+    };
+  }
+  if (input.lane === 'resources') {
+    return {
+      name: title ? `${title} shared` : 'A file was shared',
+      summary: actor ?? '',
+    };
+  }
+  if (input.lane === 'sync') {
+    return { name: 'A sync update', summary: '' };
+  }
+  return {
+    name: title ? `${title} is ready for your review` : 'An update is ready for your review',
+    summary: actor ?? '',
+  };
+}
+
+function withLane(item: Omit<ActivityFeedItem, 'lane'>, type: string, tone?: string): ActivityFeedItem {
+  const lane = activityLane(type, tone);
+  return lane ? { ...item, lane } : item;
 }
 
 function clientAuditItem(
@@ -193,41 +275,25 @@ function clientAuditItem(
     return null;
   }
   if (!audit.action.startsWith('outbox.') && !audit.action.startsWith('task.')) return null;
-  const detail = clientFieldDetail(audit.after);
-  if (!detail) return null;
+  if (!clientAuditHasPublicFields(audit.after)) return null;
+  const copy = clientActivityCopy({
+    lane: 'tasks',
+    project,
+    task,
+    summary: undefined,
+    contacts: [],
+  });
   return {
     id: audit._id,
-    name: task?.name ? `${task.name} updated` : 'Task updated',
-    summary: detail,
+    name: copy.name,
+    summary: copy.summary,
     type: 'task',
     tone: 'muted',
     timestamp: new Date(audit.createdAt).toISOString(),
     projectId: task?.projectId ?? project?._id ?? null,
     taskId: task?._id ?? null,
+    lane: 'tasks',
   };
-}
-
-/** Client meta keeps the person (or other public segment) and drops internal fields. */
-function clientDetailLeaks(segment: string): boolean {
-  return (
-    /source\s*:/i.test(segment) ||
-    /invite[\s-]*pending/i.test(segment) ||
-    /invite-status/i.test(segment) ||
-    /\blastError\b/i.test(segment) ||
-    /\berror\b/i.test(segment) ||
-    /\bfailed\b/i.test(segment) ||
-    /\bconflict\b/i.test(segment) ||
-    /^system$/i.test(segment) ||
-    /^sync\b/i.test(segment)
-  );
-}
-
-export function clientSafeSummary(summary: string): string {
-  return summary
-    .split(/\s*·\s*/)
-    .map((segment) => segment.trim())
-    .filter((segment) => segment.length > 0 && !clientDetailLeaks(segment))
-    .join(' · ');
 }
 
 function staffDetail(after?: string): string {
@@ -248,6 +314,8 @@ export function buildActivityFeed(input: {
   outbox: readonly FeedOutbox[];
   projects: readonly FeedProject[];
   tasks: readonly FeedTask[];
+  /** Org contacts, name only. Used to allow an actor onto client meta. */
+  contacts?: readonly FeedContact[];
   limit?: number;
 }): ActivityFeedItem[] {
   const projectsById = new Map(input.projects.map((project) => [project._id, project]));
@@ -255,6 +323,7 @@ export function buildActivityFeed(input: {
   const projectsByNotion = new Map(
     input.projects.flatMap((project) => (project.notionPageId ? [[project.notionPageId, project] as const] : [])),
   );
+  const contacts = input.contacts ?? [];
   const items: ActivityFeedItem[] = [];
 
   for (const row of input.activity) {
@@ -268,19 +337,32 @@ export function buildActivityFeed(input: {
       orgVisible: input.orgVisible,
     });
     if (input.audience === 'client' && !clientVisible) continue;
-    const staffSummary = row.summary ?? '';
-    items.push({
-      id: row._id,
-      name: input.audience === 'client' && row.clientName ? row.clientName : row.name,
-      summary: input.audience === 'client' ? clientSafeSummary(row.clientSummary ?? staffSummary) : staffSummary,
-      type: row.type,
-      tone: row.tone ?? 'muted',
-      timestamp: new Date(row.timestamp).toISOString(),
-      projectId: row.projectId ?? null,
-      taskId: null,
-      ...(row.lane ? { lane: row.lane } : {}),
-      ...(input.audience === 'staff' ? { clientVisible } : {}),
+    const lane = activityLane(row.type, row.tone);
+    const clientCopy = clientActivityCopy({
+      lane,
+      project,
+      task: undefined,
+      summary: row.summary,
+      contacts,
     });
+    const staffSummary = row.summary ?? '';
+    items.push(
+      withLane(
+        {
+          id: row._id,
+          name: input.audience === 'client' ? clientCopy.name : row.name,
+          summary: input.audience === 'client' ? clientCopy.summary : staffSummary,
+          type: row.type,
+          tone: row.tone ?? 'muted',
+          timestamp: new Date(row.timestamp).toISOString(),
+          projectId: row.projectId ?? null,
+          taskId: null,
+          ...(input.audience === 'staff' ? { clientVisible } : {}),
+        },
+        row.type,
+        row.tone,
+      ),
+    );
   }
 
   for (const audit of input.audits) {
@@ -299,38 +381,50 @@ export function buildActivityFeed(input: {
     if (input.audience === 'client') {
       if (!clientVisible) continue;
       const item = clientAuditItem(audit, task, project);
-      if (item) items.push({ ...item, summary: clientSafeSummary(item.summary) });
+      if (item) items.push(item);
       continue;
     }
     if (audit.action.startsWith('invite.')) continue;
-    items.push({
-      id: audit._id,
-      name: task?.name ? `${task.name} · ${audit.action}` : audit.action,
-      summary: staffDetail(audit.after),
-      type: audit.action.includes('conflict') ? 'exception' : 'task',
-      tone: audit.action.includes('conflict') ? 'danger' : 'muted',
-      timestamp: new Date(audit.createdAt).toISOString(),
-      projectId: task?.projectId ?? project?._id ?? null,
-      taskId: task?._id ?? null,
-      clientVisible,
-    });
+    const staffType = audit.action.includes('conflict') ? 'exception' : 'task';
+    items.push(
+      withLane(
+        {
+          id: audit._id,
+          name: task?.name ? `${task.name} · ${audit.action}` : audit.action,
+          summary: staffDetail(audit.after),
+          type: staffType,
+          tone: audit.action.includes('conflict') ? 'danger' : 'muted',
+          timestamp: new Date(audit.createdAt).toISOString(),
+          projectId: task?.projectId ?? project?._id ?? null,
+          taskId: task?._id ?? null,
+          clientVisible,
+        },
+        staffType,
+      ),
+    );
   }
 
   if (input.audience === 'staff') {
     for (const row of input.outbox) {
       const task = row.notionPageId ? tasksByNotion.get(row.notionPageId) : undefined;
       const failed = row.status === 'conflict' || row.status === 'dead';
-      items.push({
-        id: row._id,
-        name: failed ? 'Write conflict' : `Notion ${row.kind}`,
-        summary: sanitizeInlineText(row.lastError ?? row.status),
-        type: failed ? 'exception' : 'sync',
-        tone: failed ? 'danger' : 'muted',
-        timestamp: new Date(row.createdAt).toISOString(),
-        projectId: task?.projectId ?? null,
-        taskId: task?._id ?? null,
-        clientVisible: false,
-      });
+      const staffType = failed ? 'exception' : 'sync';
+      items.push(
+        withLane(
+          {
+            id: row._id,
+            name: failed ? 'Write conflict' : `Notion ${row.kind}`,
+            summary: sanitizeInlineText(row.lastError ?? row.status),
+            type: staffType,
+            tone: failed ? 'danger' : 'muted',
+            timestamp: new Date(row.createdAt).toISOString(),
+            projectId: task?.projectId ?? null,
+            taskId: task?._id ?? null,
+            clientVisible: false,
+          },
+          staffType,
+        ),
+      );
     }
   }
 
@@ -354,13 +448,13 @@ export function buildTaskTimeline(input: {
   for (const audit of input.audits) {
     if (audit.notionPageId && audit.notionPageId !== input.task.notionPageId) continue;
     if (input.audience === 'client') {
-      const detail = clientFieldDetail(audit.after);
-      if (!detail || audit.action.startsWith('invite.')) continue;
+      if (!clientAuditHasPublicFields(audit.after) || audit.action.startsWith('invite.')) continue;
+      const title = safeClientTitle(input.task.name);
       items.push({
         id: audit._id,
         at: new Date(audit.createdAt).toISOString(),
         title: 'Task updated',
-        detail,
+        detail: title ? `${title} was updated` : 'This task was updated',
         tone: 'muted',
       });
       continue;

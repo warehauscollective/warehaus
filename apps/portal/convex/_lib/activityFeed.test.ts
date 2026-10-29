@@ -2,7 +2,6 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   buildActivityFeed,
-  clientSafeSummary,
   type FeedActivity,
   type FeedAudit,
   type FeedOutbox,
@@ -74,43 +73,60 @@ const audits: FeedAudit[] = [
 ];
 
 describe('client activity copy', () => {
-  it('strips source, invite status, and error text and keeps client wording', () => {
+  it('derives wording and a lane from a raw activity row', () => {
+    const raw = {
+      _id: 'home',
+      orgId: 'org-northwind',
+      projectId: 'proj-public',
+      name: 'Homepage wireframes moved to Awaiting Go',
+      summary:
+        'Maya Chen · Northwind · Source: Notion · ada@northwind.example · warehaus.studio · internal · 0123456789abcdef0123456789abcdef · queued · conflict',
+      type: 'project',
+      tone: 'accent',
+      timestamp: 50,
+    };
+    assert.deepEqual(Object.keys(raw).sort(), [
+      '_id',
+      'name',
+      'orgId',
+      'projectId',
+      'summary',
+      'timestamp',
+      'tone',
+      'type',
+    ]);
+    const invite = {
+      _id: 'invite',
+      orgId: 'org-northwind',
+      projectId: 'proj-public',
+      name: 'Jordan Rivera invited to Northwind',
+      summary: 'Dana Okafor · invite pending · jordan@client.example',
+      type: 'project',
+      tone: 'people',
+      timestamp: 40,
+    };
+    const brand = {
+      _id: 'brand',
+      orgId: 'org-northwind',
+      projectId: 'proj-public',
+      name: 'Brand guidelines v2 shipped',
+      summary: 'Sam Lee · Source: Notion · lastError: write failed',
+      type: 'project',
+      tone: 'resource',
+      timestamp: 30,
+    };
+    const contacts = [
+      { name: 'Maya Chen' },
+      { name: 'Dana Okafor' },
+      { name: 'Sam Lee' },
+      { name: 'ada@northwind.example' },
+      { name: 'warehaus.studio ops' },
+      { name: 'internal' },
+    ];
     const feed = buildActivityFeed({
       audience: 'client',
       orgVisible: true,
-      activity: [
-        {
-          _id: 'home',
-          name: 'Homepage wireframes moved to Awaiting Go',
-          summary: 'Maya Chen · Northwind · Source: Notion',
-          clientName: 'Homepage wireframes are ready for your review',
-          clientSummary: 'Maya Chen',
-          type: 'project',
-          lane: 'tasks',
-          timestamp: 50,
-          projectId: 'proj-public',
-        },
-        {
-          _id: 'invite',
-          name: 'Jordan Rivera invited to Northwind',
-          summary: 'Dana Okafor · invite pending',
-          clientName: 'Jordan Rivera joined your team',
-          clientSummary: 'Dana Okafor',
-          type: 'project',
-          lane: 'people',
-          timestamp: 40,
-          projectId: 'proj-public',
-        },
-        {
-          _id: 'leaky',
-          name: 'Brand guidelines v2 shipped',
-          summary: 'Sam Lee · Source: Notion · invite-status · lastError: write failed',
-          type: 'project',
-          lane: 'resources',
-          timestamp: 30,
-          projectId: 'proj-public',
-        },
-      ],
+      activity: [raw, invite, brand],
       audits: [],
       outbox: [
         {
@@ -124,19 +140,65 @@ describe('client activity copy', () => {
       ],
       projects: [project],
       tasks: [],
+      contacts,
     });
     const staff = buildActivityFeed({
       audience: 'staff',
       orgVisible: true,
+      activity: [raw],
+      audits: [],
+      outbox: [],
+      projects: [project],
+      tasks: [],
+      contacts,
+    });
+
+    const home = feed.find((item) => item.id === 'home');
+    assert.equal(home?.lane, 'tasks');
+    assert.equal(home?.name, 'Northwind site is ready for your review');
+    assert.equal(home?.summary, 'Maya Chen');
+    const person = feed.find((item) => item.id === 'invite');
+    assert.equal(person?.lane, 'people');
+    assert.equal(person?.name, 'Dana Okafor joined your team');
+    assert.equal(person?.summary, 'Dana Okafor');
+    const resource = feed.find((item) => item.id === 'brand');
+    assert.equal(resource?.lane, 'resources');
+    assert.equal(resource?.name, 'Northwind site shared');
+    assert.equal(resource?.summary, 'Sam Lee');
+    assert.equal(feed.some((item) => item.id === 'out-secret'), false);
+    assert.equal(staff.find((item) => item.id === 'home')?.lane, 'tasks');
+    assert.equal(staff.find((item) => item.id === 'home')?.summary.includes('Source: Notion'), true);
+    assert.equal(staff.find((item) => item.id === 'home')?.name.includes('Awaiting Go'), true);
+
+    const blob = JSON.stringify(feed);
+    assert.equal(blob.includes('@'), false);
+    assert.equal(blob.toLowerCase().includes('warehaus.studio'), false);
+    assert.equal(/\b[0-9a-f]{32}\b/i.test(blob), false);
+    assert.equal(/\binternal\b/i.test(blob), false);
+    assert.equal(/\b(queued|inflight|dead|conflict|failed|outbox)\b/i.test(blob), false);
+    assert.equal(/\bSource\b/.test(blob), false);
+    assert.equal(blob.includes('Awaiting Go'), false);
+    assert.equal(blob.includes('Jordan Rivera'), false);
+    assert.equal(blob.includes('invite pending'), false);
+    for (const item of feed) {
+      for (const key of Object.keys(item)) {
+        assert.equal(/source|invite-status|^error$|lastError/i.test(key), false, key);
+      }
+    }
+  });
+
+  it('uses a fixed people phrase when the actor is not a known contact', () => {
+    const feed = buildActivityFeed({
+      audience: 'client',
+      orgVisible: true,
       activity: [
         {
-          _id: 'home',
-          name: 'Homepage wireframes moved to Awaiting Go',
-          summary: 'Maya Chen · Northwind · Source: Notion',
-          clientName: 'Homepage wireframes are ready for your review',
-          clientSummary: 'Maya Chen',
+          _id: 'invite',
+          name: 'Jordan Rivera invited to Northwind',
+          summary: 'Someone New · invite pending',
           type: 'project',
-          timestamp: 50,
+          tone: 'people',
+          timestamp: 40,
           projectId: 'proj-public',
         },
       ],
@@ -144,27 +206,11 @@ describe('client activity copy', () => {
       outbox: [],
       projects: [project],
       tasks: [],
+      contacts: [{ name: 'Maya Chen' }],
     });
-
-    assert.equal(feed.find((item) => item.id === 'home')?.name, 'Homepage wireframes are ready for your review');
-    assert.equal(feed.find((item) => item.id === 'home')?.summary, 'Maya Chen');
-    assert.equal(feed.find((item) => item.id === 'invite')?.name, 'Jordan Rivera joined your team');
-    assert.equal(feed.find((item) => item.id === 'invite')?.summary, 'Dana Okafor');
-    assert.equal(feed.find((item) => item.id === 'leaky')?.summary, 'Sam Lee');
-    assert.equal(feed.some((item) => item.id === 'out-secret'), false);
-    assert.equal(staff.find((item) => item.id === 'home')?.summary.includes('Source: Notion'), true);
-    assert.equal(staff.find((item) => item.id === 'home')?.name.includes('Awaiting Go'), true);
-
-    const blob = JSON.stringify(feed);
-    assert.equal(/Source:|invite pending|invite-status|lastError/i.test(blob), false);
-    for (const item of feed) {
-      for (const key of Object.keys(item)) {
-        assert.equal(/source|invite-status|^error$|lastError/i.test(key), false, key);
-      }
-    }
-    assert.equal(clientSafeSummary('Maya Chen · Source: Notion'), 'Maya Chen');
-    assert.equal(clientSafeSummary('Dana Okafor · invite pending'), 'Dana Okafor');
-    assert.equal(clientSafeSummary('System · 1 write to Notion failed'), '');
+    assert.equal(feed[0]?.name, 'A teammate joined your team');
+    assert.equal(feed[0]?.summary, '');
+    assert.equal(feed[0]?.lane, 'people');
   });
 });
 

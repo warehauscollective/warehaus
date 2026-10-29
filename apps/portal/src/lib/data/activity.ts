@@ -7,7 +7,7 @@
 
 export type ActivityAudience = 'staff' | 'client';
 
-export type ActivityFilter = 'all' | 'tasks' | 'resources' | 'sync' | 'unpublished';
+export type ActivityFilter = 'all' | 'tasks' | 'resources' | 'people' | 'sync' | 'unpublished';
 
 export type ActivityLane = 'tasks' | 'resources' | 'people' | 'sync';
 
@@ -63,6 +63,7 @@ const FILTER_LABEL: Record<ActivityFilter, string> = {
   all: 'All',
   tasks: 'Tasks',
   resources: 'Resources',
+  people: 'People',
   sync: 'Sync',
   unpublished: 'Not published',
 };
@@ -75,8 +76,8 @@ const GROUP_LABEL: Record<ActivityGroup['key'], string> = {
 };
 
 export function activityFiltersFor(audience: ActivityAudience): ActivityFilter[] {
-  if (audience === 'staff') return ['all', 'tasks', 'resources', 'sync', 'unpublished'];
-  return ['all', 'tasks', 'resources'];
+  if (audience === 'staff') return ['all', 'tasks', 'resources', 'people', 'sync', 'unpublished'];
+  return ['all', 'tasks', 'resources', 'people'];
 }
 
 export function activityEmptyCopy(audience: ActivityAudience): { title: string; body: string } {

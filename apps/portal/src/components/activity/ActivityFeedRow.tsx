@@ -20,7 +20,6 @@ export function ActivityFeedRow({
   when,
   lane = 'other',
   published,
-  stackMark = false,
 }: {
   name: string;
   summary: string;
@@ -28,22 +27,19 @@ export function ActivityFeedRow({
   lane?: string;
   /** Undefined hides the mark. A boolean is the staff publish state. */
   published?: boolean;
-  /** Long title: publish mark sits under the text, as in the states panel. */
-  stackMark?: boolean;
 }) {
   const marked = published != null;
-  const inlineMark = marked && !stackMark;
   return (
     <div
       className={
-        inlineMark
+        marked
           ? 'grid grid-cols-[36px_minmax(0,1fr)_80px] items-start gap-x-4 border-b py-6 lg:grid-cols-[36px_minmax(0,1fr)_130px_80px] lg:items-center'
           : 'grid grid-cols-[36px_minmax(0,1fr)_80px] items-start gap-x-4 border-b py-6'
       }
       style={{ borderColor: 'var(--border)' }}
     >
       <span
-        className={`flex items-center justify-center ${marked ? 'row-span-2 lg:row-span-1' : ''} ${stackMark ? 'lg:row-span-2' : ''}`}
+        className={`flex items-center justify-center ${marked ? 'row-span-2 lg:row-span-1' : ''}`}
         style={{
           width: 36,
           height: 36,
@@ -72,12 +68,12 @@ export function ActivityFeedRow({
         ) : null}
       </span>
       {marked ? (
-        <span className={inlineMark ? 'col-start-2 row-start-2 mt-2 lg:col-start-3 lg:row-start-1 lg:mt-0' : 'col-start-2 row-start-2 mt-2'}>
+        <span className="col-start-2 row-start-2 mt-2 lg:col-start-3 lg:row-start-1 lg:mt-0" data-testid="publish-column">
           <PublishMark published={published} />
         </span>
       ) : null}
       <span
-        className={`ds-mono text-right ${marked ? (stackMark ? 'col-start-3 row-start-1' : 'col-start-3 row-start-1 lg:col-start-4') : ''}`}
+        className={`ds-mono text-right ${marked ? 'col-start-3 row-start-1 lg:col-start-4' : ''}`}
         style={{ fontSize: 12, color: 'var(--faint)' }}
       >
         {when}

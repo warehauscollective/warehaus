@@ -184,7 +184,6 @@ export function ActivityContent() {
                               when={row.when}
                               lane={row.lane}
                               published={row.published}
-                              stackMark={row.id === 'long-text'}
                             />
                           </button>
                         ))}

@@ -10,6 +10,7 @@ import {
   type FeedTask,
 } from '../../../convex/_lib/activityFeed';
 import { buildActivityView, activityFiltersFor, withActivityLongPreview } from './activity';
+import { FIXTURE_CLIENT_ACTIVITY_PAGE, FIXTURE_STAFF_ACTIVITY_PAGE } from './fixtures';
 
 const NOW = Date.parse('2026-10-29T16:00:00Z');
 const HOUR = 60 * 60 * 1000;
@@ -219,10 +220,15 @@ describe('activity view model', () => {
       client.rows.map((row) => row.id),
       clientFeed.map((item) => item.id),
     );
-    assert.deepEqual(
-      activityFiltersFor('client'),
-      ['all', 'tasks', 'resources'],
-    );
+    assert.deepEqual(activityFiltersFor('client'), ['all', 'tasks', 'resources', 'people']);
+    assert.deepEqual(activityFiltersFor('staff'), [
+      'all',
+      'tasks',
+      'resources',
+      'people',
+      'sync',
+      'unpublished',
+    ]);
     assert.equal(client.filters.some((chip) => chip.key === 'sync' || chip.key === 'unpublished'), false);
   });
 
@@ -307,8 +313,20 @@ describe('activity view model', () => {
     assert.deepEqual(resources.rows.map((row) => row.id), ['brand']);
     assert.equal(tasks.rows.some((row) => row.id === 'invite'), false);
     assert.equal(chip(all, 'resources'), 1);
+    const people = buildActivityView({ audience: 'staff', items, filter: 'people', now: NOW, timeZone: 'UTC' });
+    assert.equal(chip(people, 'people'), people.rows.length);
+    assert.deepEqual(
+      people.rows.map((row) => row.id),
+      ['invite'],
+    );
+    const laneSum = (view: typeof all) =>
+      ['tasks', 'resources', 'people', 'sync'].reduce((sum, key) => sum + (chip(view, key) ?? 0), 0);
+    assert.equal(chip(all, 'all'), laneSum(all));
+    assert.equal(chip(all, 'all'), all.rows.length);
     const long = withActivityLongPreview(all, 'all');
     assert.equal(long.filters.find((item) => item.key === 'all')?.count, long.rows.length);
+    assert.equal(long.filters.find((item) => item.key === 'all')?.count, laneSum(long));
+    assert.equal(long.filters.find((item) => item.key === 'people')?.count, chip(all, 'people'));
     assert.equal(
       long.groups.reduce((sum, group) => sum + group.rows.length, 0),
       long.rows.length,
@@ -324,10 +342,53 @@ describe('activity view model', () => {
     const staffBody = portalData.slice(staffStart, staffEnd);
     assert.equal(clientBody.includes('.collect('), false);
     assert.equal(staffBody.includes('.collect('), false);
+    assert.match(clientBody, /query\('contacts'\)/);
+    assert.equal(clientBody.includes('email'), false);
     assert.equal(clientBody.includes('.take('), true);
     assert.equal(staffBody.includes('.take('), true);
     const view = readFileSync(new URL('./activity.ts', import.meta.url), 'utf8');
     assert.equal(view.includes('isClientVisibleFeedItem'), false);
     assert.equal(view.includes('clientMaySee'), false);
+  });
+
+  it('fixture All equals the lane chips and People equals its rows', () => {
+    const now = Date.now();
+    const staff = buildActivityView({
+      audience: 'staff',
+      items: FIXTURE_STAFF_ACTIVITY_PAGE,
+      filter: 'all',
+      now,
+      timeZone: 'UTC',
+    });
+    const client = buildActivityView({
+      audience: 'client',
+      items: FIXTURE_CLIENT_ACTIVITY_PAGE,
+      filter: 'all',
+      now,
+      timeZone: 'UTC',
+    });
+    const chip = (view: typeof staff, key: string) => view.filters.find((item) => item.key === key)?.count ?? 0;
+    const laneSum = (view: typeof staff) =>
+      chip(view, 'tasks') + chip(view, 'resources') + chip(view, 'people') + chip(view, 'sync');
+    assert.equal(chip(staff, 'all'), 8);
+    assert.equal(chip(staff, 'all'), laneSum(staff));
+    assert.equal(chip(staff, 'all'), staff.rows.length);
+    assert.equal(chip(staff, 'people'), staff.rows.filter((row) => row.lane === 'people').length);
+    assert.equal(staff.filters.some((item) => item.label === 'People'), true);
+    assert.equal(chip(client, 'all'), 3);
+    assert.equal(chip(client, 'all'), laneSum(client));
+    assert.equal(chip(client, 'all'), client.rows.length);
+    assert.equal(chip(client, 'people'), client.rows.filter((row) => row.lane === 'people').length);
+    assert.equal(client.filters.some((item) => item.label === 'People'), true);
+    assert.equal(client.filters.some((item) => item.key === 'sync' || item.key === 'unpublished'), false);
+    const clientPeople = buildActivityView({
+      audience: 'client',
+      items: FIXTURE_CLIENT_ACTIVITY_PAGE,
+      filter: 'people',
+      now,
+      timeZone: 'UTC',
+    });
+    assert.equal(clientPeople.rows.length, chip(client, 'people'));
+    assert.equal(clientPeople.rows.every((row) => row.lane === 'people'), true);
   });
 });

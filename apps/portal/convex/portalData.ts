@@ -240,6 +240,10 @@ export const listActivityForClient = clientQuery({
       const project = await ctx.db.get(projectId);
       if (project && project.orgId === orgId) projects.push(project);
     }
+    const contacts = await ctx.db
+      .query('contacts')
+      .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+      .take(CLIENT_FEED_TAKE);
 
     return buildActivityFeed({
       audience: 'client',
@@ -249,6 +253,7 @@ export const listActivityForClient = clientQuery({
       outbox: [],
       projects,
       tasks,
+      contacts: contacts.map((contact) => ({ name: contact.name })),
       limit: CLIENT_FEED_TAKE,
     });
   },

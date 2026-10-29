@@ -51,6 +51,9 @@ class MemoryIndex {
       collect: async () => sorted,
     };
   }
+  async take(n: number) {
+    return this.rows.slice(0, n);
+  }
   async collect() {
     return this.rows;
   }
@@ -585,8 +588,14 @@ describe('client identity against warehaus.studio', () => {
     const feed = await run(listActivityForClient);
     const timeline = await run(activityForClient, { taskId: 'task-public' });
     const bundled = text({ feed, timeline });
-    assert.match(bundled, /Northwind site update/);
-    assert.match(bundled, /Status: To Do/);
+    assert.match(bundled, /Northwind site is ready for your review/);
+    assert.match(bundled, /Homepage was updated/);
+    assert.equal(bundled.includes('Northwind site update'), false);
+    assert.equal(bundled.includes('Public note'), false);
+    assert.equal(bundled.includes('Status:'), false);
+    assert.equal(bundled.includes('To Do'), false);
+    assert.equal(bundled.includes('ada@northwind.test'), false);
+    assert.equal(bundled.includes('maya@warehaus.studio'), false);
     assert.equal(bundled.includes('warehaus.studio'), false);
     assert.equal(bundled.includes('Studio ops'), false);
     assert.equal(bundled.includes('sync noise'), false);
