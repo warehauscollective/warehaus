@@ -5,7 +5,7 @@ import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
-import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, stageMoveRule, taskDescriptionEditMode } from '@warehaus/portal-sync';
+import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEditMode } from '@warehaus/portal-sync';
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
@@ -18,6 +18,8 @@ type ResourceRow = {
   notionPageId?: string | null;
   publishToWarehaus?: boolean;
   projectId?: string | null;
+  updatedAt?: number | null;
+  lastSyncedAt?: number | null;
 };
 
 export function TaskDetailModal({
@@ -30,6 +32,7 @@ export function TaskDetailModal({
   onClose,
   onOpenTask,
   projectResources,
+  clientName = null,
   hostSlug,
   live = false,
 }: {
@@ -42,6 +45,7 @@ export function TaskDetailModal({
   onClose: () => void;
   onOpenTask: (id: string) => void;
   projectResources: ResourceRow[];
+  clientName?: string | null;
   hostSlug?: string;
   /** Convex task id. Fixture rows skip the timeline query. */
   live?: boolean;
@@ -87,14 +91,18 @@ export function TaskDetailModal({
           <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>Esc</span>
           <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
         </div>
-        <div className={phone ? 'flex flex-col gap-4' : 'grid gap-8'} style={phone ? undefined : { gridTemplateColumns: 'minmax(0, 1fr) 296px' }}>
-          <div className="flex min-w-0 flex-col gap-4">
-            <h2 ref={titleRef} tabIndex={-1} style={{ fontFamily: 'var(--font-display)', fontSize: 28, outline: 'none' }}>
+        <div className={phone ? 'flex flex-col' : 'grid gap-8'} style={phone ? { gap: 24 } : { gridTemplateColumns: 'minmax(0, 1fr) 296px' }}>
+          <div className={phone ? undefined : 'flex min-w-0 flex-col gap-4'} style={phone ? { display: 'contents' } : undefined}>
+            <h2 ref={titleRef} tabIndex={-1} style={{ fontFamily: 'var(--font-display)', fontSize: phone ? 20 : 28, lineHeight: phone ? '30px' : undefined, outline: 'none', order: phone ? 2 : undefined }}>
               {task.name}
             </h2>
-            <TaskDescription task={task} staff={staff} hostSlug={hostSlug} live={live} />
-            <TaskTimeline task={task} staff={staff} hostSlug={hostSlug} live={live} />
-            <section>
+            <div style={{ order: phone ? 5 : undefined }}>
+              <TaskDescription task={task} staff={staff} hostSlug={hostSlug} live={live} />
+            </div>
+            <div style={{ order: phone ? 8 : undefined }}>
+              <TaskTimeline task={task} staff={staff} hostSlug={hostSlug} live={live} />
+            </div>
+            <section style={{ order: phone ? 6 : undefined }}>
               <h3 className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>SUB-TASKS</h3>
               {subtasks.length === 0 ? (
                 <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 8 }}>No sub-tasks yet.</p>
@@ -112,7 +120,12 @@ export function TaskDetailModal({
                           <TaskGlyph src={child.isDone ? '/icons/task-check.svg' : '/icons/task-check-open.svg'} size={20} />
                         </span>
                         <span style={{ flex: '1 1 auto', minWidth: 0, fontWeight: 400, fontSize: 15 }}>{child.name}</span>
-                        <Pill color={taskStatusColor(child.status, child.isDone)}>{child.status}</Pill>
+                        <span className="inline-flex shrink-0 items-center gap-3">
+                          <Pill color={taskStatusColor(child.status, child.isDone)}>{child.status}</Pill>
+                          {child.category ? (
+                            <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{child.category}</span>
+                          ) : null}
+                        </span>
                       </button>
                     </li>
                   ))}
@@ -121,7 +134,6 @@ export function TaskDetailModal({
               {staff ? (
                 <button
                   type="button"
-                  onClick={() => setAsideNote('Add sub-task does not create a task. Nothing was sent.')}
                   className="mt-3 flex w-full items-center gap-2 text-left"
                   style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '10px 12px', color: 'var(--muted)', background: 'transparent' }}
                 >
@@ -129,7 +141,7 @@ export function TaskDetailModal({
                 </button>
               ) : null}
             </section>
-            <section>
+            <section style={{ order: phone ? 7 : undefined }}>
               <div className="flex items-center justify-between gap-2">
                 <h3 className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>RESOURCES</h3>
                 {staff ? (
@@ -150,21 +162,19 @@ export function TaskDetailModal({
               )}
             </section>
           </div>
-          <aside className="flex flex-col gap-4">
+          <aside className={phone ? undefined : 'flex flex-col gap-4'} style={phone ? { display: 'contents' } : undefined}>
             {staff ? (
-              <p style={{ margin: 0, border: '1px solid var(--border)', borderRadius: 12, padding: '0.7rem 0.85rem', fontSize: 13 }}>
+              <p style={{ margin: 0, order: phone ? 1 : undefined, background: 'var(--surface-2)', borderRadius: 18, padding: '8px 12px', fontSize: 14, fontWeight: 500 }}>
                 Staff only · hidden from clients
               </p>
             ) : null}
-            <Field label="Status">
+            <div className="flex flex-col gap-1" style={{ order: phone ? 3 : undefined }}>
+            <Field label="Status" row={phone}>
               {staff ? (
                 <StatusMenu
                   value={task.status}
                   onChange={(status) => {
-                    if (!live || !task.lastEditedTime) {
-                      setAsideNote('Nothing was sent.');
-                      return;
-                    }
+                    if (!live || !task.lastEditedTime) return;
                     void moveStatus({
                       hostSlug,
                       taskId: task.id as Id<'tasks'>,
@@ -179,20 +189,35 @@ export function TaskDetailModal({
                 <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
               )}
             </Field>
-            {task.assigneeName ? <Field label="Assignee">{task.assigneeName}</Field> : staff ? <Field label="Assignee">Unassigned</Field> : null}
-            <Field label="Due date">
+            {task.assigneeName ? <Field label="Assignee" row={phone}>{task.assigneeName}</Field> : staff ? <Field label="Assignee" row={phone}>Unassigned</Field> : null}
+            <Field label="Due date" row={phone}>
               <span className="inline-flex items-center gap-2" style={{ color: 'var(--fg)' }}>
                 <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-calendar.svg" size={16} /></span>
                 {formatPortalDate(task.date)}
               </span>
             </Field>
-            <Field label="Project">{task.projectName ?? '—'}</Field>
+            <Field label="Project" row={phone}>
+              <span className="inline-flex flex-wrap items-center gap-2">
+                <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-layers.svg" size={16} /></span>
+                {task.projectName ?? '—'}
+                {clientName ? (
+                  <span className="ds-mono inline-flex items-center gap-1.5" style={{ border: '1px solid var(--border-2, var(--border))', borderRadius: 999, padding: '2px 8px', fontSize: 12, color: 'var(--fg)' }}>
+                    <TaskGlyph src="/icons/task-building.svg" size={12} />
+                    {clientName}
+                  </span>
+                ) : null}
+              </span>
+            </Field>
+            </div>
             {staff ? (
-              <Field label="Stage">
+              <div className="flex flex-col gap-3" style={{ order: phone ? 4 : undefined }}>
+                <div className="flex items-center gap-2">
+                  <h3 className="ds-mono" style={{ fontSize: 12, letterSpacing: '2.64px', color: 'var(--fg)', margin: 0 }}>STAGE</h3>
+                  <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>visible to client</span>
+                </div>
                 <div className="flex flex-wrap gap-2">
                   {TASK_STAGES.map((stage) => {
-                    const rule = stageMoveRule('staff', stage);
-                    const visualLock = stage === 'Awaiting Go' || stage === 'Ready to Ship' || stage === 'Shipped' || rule.kind === 'locked';
+                    const visualLock = stage !== 'Idea' && stage !== 'Planning';
                     const current = task.stage === stage;
                     return (
                       <button
@@ -202,10 +227,7 @@ export function TaskDetailModal({
                         aria-pressed={current}
                         onClick={() => {
                           if (visualLock) return;
-                          if (!live || !task.lastEditedTime) {
-                            setAsideNote('Nothing was sent.');
-                            return;
-                          }
+                          if (!live || !task.lastEditedTime) return;
                           void moveStage({
                             hostSlug,
                             taskId: task.id as Id<'tasks'>,
@@ -217,34 +239,47 @@ export function TaskDetailModal({
                         }}
                         className="ds-mono"
                         style={{
-                          border: current ? '1px solid var(--fg)' : '1px solid var(--border)',
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          gap: 8,
+                          border: current
+                            ? '1px solid var(--fg)'
+                            : visualLock
+                              ? '1px dashed var(--border)'
+                              : '1px solid var(--border-2, var(--border))',
                           borderRadius: 999,
-                          padding: '4px 10px',
+                          padding: '8px 12px',
                           background: current ? 'var(--fg)' : 'transparent',
-                          color: current ? 'var(--bg)' : visualLock ? 'var(--muted)' : 'var(--fg)',
+                          color: current ? 'var(--bg)' : visualLock ? 'var(--faint, #636363)' : 'var(--fg)',
+                          opacity: visualLock && !current ? 0.72 : 1,
                           cursor: visualLock && !current ? 'not-allowed' : 'pointer',
-                          fontSize: 11,
+                          fontSize: 13,
                         }}
                       >
-                        {visualLock && !current ? '🔒 ' : ''}{stage}
+                        {stage}
+                        {visualLock && !current ? <TaskGlyph src="/icons/task-lock.svg" size={8} /> : null}
                       </button>
                     );
                   })}
                 </div>
-              </Field>
+                <p style={{ fontSize: 12, lineHeight: '17px', color: 'var(--muted)', margin: 0 }}>
+                  Admin can set Idea or Planning here. Later stages are set in Notion by staff and shown read-only.
+                </p>
+              </div>
             ) : (
-              <Field label="Stage">{task.stage ?? '—'}</Field>
+              <div style={{ order: phone ? 4 : undefined }}>
+                <Field label="Stage" row={phone}>{task.stage ?? '—'}</Field>
+              </div>
             )}
             {staff ? (
               <button
                 type="button"
-                onClick={() => setAsideNote('Nothing was sent.')}
-                style={{ background: 'transparent', border: 0, color: 'var(--muted)', textAlign: 'left', cursor: 'pointer', padding: 0 }}
+                style={{ order: phone ? 9 : undefined, background: 'transparent', border: 0, color: 'var(--muted)', textAlign: 'left', cursor: 'pointer', padding: 0 }}
               >
                 Archive task
               </button>
             ) : null}
-            {asideNote ? <p role="status" style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>{asideNote}</p> : null}
+            {asideNote && !asideNote.includes('Nothing was sent') ? <p role="status" style={{ order: phone ? 10 : undefined, fontSize: 13, color: 'var(--muted)', margin: 0 }}>{asideNote}</p> : null}
           </aside>
         </div>
         </>
@@ -290,7 +325,6 @@ function TaskDescription({
 
   const save = async () => {
     if (!live || !task.lastEditedTime) {
-      setNote('Nothing was sent.');
       setEditing(false);
       return;
     }
@@ -455,7 +489,15 @@ function StatusMenu({ value, onChange }: { value: string; onChange: (status: str
   );
 }
 
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
+function Field({ label, children, row = false }: { label: string; children: React.ReactNode; row?: boolean }) {
+  if (row) {
+    return (
+      <div className="flex items-center gap-3" style={{ minHeight: 40 }}>
+        <p className="ds-mono" style={{ width: 104, flex: '0 0 auto', fontSize: 12, color: 'var(--muted)', margin: 0 }}>{label}</p>
+        <div style={{ fontSize: 14, minWidth: 0 }}>{children}</div>
+      </div>
+    );
+  }
   return (
     <div>
       <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>{label}</p>
@@ -561,6 +603,21 @@ export function TaskCreateDialog({
   );
 }
 
+function resourceKind(type: string | null): { label: string; icon: string } {
+  const value = (type ?? '').toLowerCase();
+  if (/granola|meeting|note/.test(value)) return { label: 'Granola', icon: '/icons/resource-mic.svg' };
+  if (/link|url/.test(value)) return { label: 'Link', icon: '/icons/resource-link.svg' };
+  return { label: /file|pdf|article/.test(value) || !type ? 'Doc' : type, icon: '/icons/resource-doc.svg' };
+}
+
+function resourceMeta(resource: ResourceRow): string {
+  const kind = resourceKind(resource.type);
+  const stamp = resource.updatedAt ?? resource.lastSyncedAt;
+  const when = stamp ? formatPortalDate(new Date(stamp).toISOString()) : null;
+  const visibility = resource.publishToWarehaus === false ? 'Internal' : 'Client-visible';
+  return [kind.label, when && when !== '—' ? when : null, visibility].filter(Boolean).join(' · ');
+}
+
 function AttachPicker({
   task,
   resources,
@@ -576,6 +633,7 @@ function AttachPicker({
 }) {
   const setResources = useMutation(api.tasks.setResources);
   const [query, setQuery] = useState('');
+  const [searchFocused, setSearchFocused] = useState(true);
   const [filter, setFilter] = useState<'All' | 'Granola' | 'Docs' | 'Links'>('All');
   const [picked, setPicked] = useState<string[]>(attachedIds);
   const [note, setNote] = useState<string | null>(null);
@@ -630,9 +688,26 @@ function AttachPicker({
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>Attach resources</h2>
           <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
         </div>
-        <label className="mt-3 flex items-center gap-2" style={{ ...inputStyle }}>
-          <span aria-hidden>⌕</span>
-          <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search this project's resources" aria-label="Search this project's resources" style={{ flex: 1, border: 0, background: 'transparent', color: 'var(--fg)', outline: 'none' }} />
+        <label
+          className="mt-3 flex items-center gap-2"
+          style={{
+            borderRadius: 18,
+            border: `2px solid ${searchFocused ? 'var(--accent)' : 'var(--border)'}`,
+            background: 'var(--surface-2)',
+            padding: '10px 12px',
+          }}
+        >
+          <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/resource-search.svg" size={16} /></span>
+          <input
+            autoFocus
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            onFocus={() => setSearchFocused(true)}
+            onBlur={() => setSearchFocused(false)}
+            placeholder="Search this project's resources"
+            aria-label="Search this project's resources"
+            style={{ flex: 1, border: 0, background: 'transparent', color: 'var(--fg)', outline: 'none', fontSize: 14 }}
+          />
         </label>
         <div className="mt-3 flex flex-wrap gap-2">
           {(['All', 'Granola', 'Docs', 'Links'] as const).map((chip) => (
@@ -647,15 +722,22 @@ function AttachPicker({
           <ul className="mt-3 flex flex-col gap-2">
             {visible.map((resource) => {
               const checked = picked.includes(resource.id);
+              const kind = resourceKind(resource.type);
               return (
                 <li key={resource.id}>
-                  <label className="flex items-center gap-2" style={{ minHeight: 44 }}>
+                  <label className="flex items-center gap-3" style={{ borderRadius: 18, padding: '10px 12px', background: checked ? 'var(--surface-2)' : 'transparent', cursor: 'pointer' }}>
                     <PortalCheckbox
                       checked={checked}
                       onChange={() => setPicked((current) => checked ? current.filter((id) => id !== resource.id) : [...current, resource.id])}
                     />
-                    <span>{resource.name}</span>
-                    {attachedIds.includes(resource.id) ? <span className="ds-mono" style={{ color: 'var(--muted)', fontSize: 'var(--t-xs)' }}>Attached</span> : null}
+                    <span className="inline-flex shrink-0 items-center justify-center" style={{ width: 32, height: 32, borderRadius: 18, background: 'var(--surface-2)', color: 'var(--muted)' }}>
+                      <TaskGlyph src={kind.icon} size={16} />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block" style={{ fontSize: 14, fontWeight: 500 }}>{resource.name}</span>
+                      <span className="ds-mono block" style={{ fontSize: 12, color: 'var(--muted)' }}>{resourceMeta(resource)}</span>
+                    </span>
+                    {attachedIds.includes(resource.id) ? <span className="ds-mono shrink-0" style={{ color: 'var(--muted)', fontSize: 12 }}>Attached</span> : null}
                   </label>
                 </li>
               );
@@ -696,7 +778,7 @@ function ModalShell({
   useEffect(() => {
     const node = ref.current;
     const previous = document.activeElement as HTMLElement | null;
-    node?.focus();
+    node?.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onClose();
@@ -709,16 +791,16 @@ function ModalShell({
       const last = focusable[focusable.length - 1];
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
-        last.focus();
+        last.focus({ preventScroll: true });
       } else if (!event.shiftKey && document.activeElement === last) {
         event.preventDefault();
-        first.focus();
+        first.focus({ preventScroll: true });
       }
     };
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
-      previous?.focus();
+      previous?.focus({ preventScroll: true });
     };
   }, [onClose]);
   const dialog = (

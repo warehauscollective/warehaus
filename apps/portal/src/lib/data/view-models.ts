@@ -72,6 +72,8 @@ export type PortalTask = {
   estimate?: string | null;
   priority?: string | null;
   source?: string | null;
+  /** Sub-task row category, shown to the right of the status tag when set. */
+  category?: string | null;
   /** Omitted for clients while Description is SERVER. */
   description?: string | null;
   /** `body` is read-only. Property, none, or empty can be edited in the portal. */
@@ -317,20 +319,21 @@ export function projectStatusColor(status: string): string {
   return 'var(--muted)';
 }
 
-const RAW_NOTICE_KEY = /^task-(?:stage|status|description|resources):([^:\s]+)/;
+const RAW_NOTICE_KEY = /task-\w+:[^:\s]+/g;
 
 /**
- * Older notice rows stored the outbox idempotency key as the message.
- * When that key still names a task page, show the task name.
+ * Older notice rows still contain the outbox idempotency key inside a sentence.
+ * Swap only that key for the task name. An unknown page keeps a neutral label.
  */
 export function noticeDisplayMessage(
   message: string,
   tasks: ReadonlyArray<{ name: string; notionPageId?: string | null }>,
 ): string {
-  const match = RAW_NOTICE_KEY.exec(message.trim());
-  if (!match?.[1]) return message;
-  const name = tasks.find((task) => task.notionPageId === match[1])?.name?.trim();
-  return name || message;
+  return message.replace(RAW_NOTICE_KEY, (key) => {
+    const pageId = key.slice(key.indexOf(':') + 1);
+    const name = tasks.find((task) => task.notionPageId === pageId)?.name?.trim();
+    return name || 'a task';
+  });
 }
 
 export function formatPortalDate(value?: string | null): string {

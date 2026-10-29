@@ -202,7 +202,7 @@ export function ProjectsContent() {
       <>
         <ViewToggle view={taskView} onChange={setTaskView} />
         {isStaff ? (
-          <button type="button" onClick={() => setCreating(true)} style={newTaskButton}>
+          <button type="button" className="ds-mono" onClick={() => setCreating(true)} style={newTaskButton}>
             New task
           </button>
         ) : null}
@@ -327,6 +327,7 @@ export function ProjectsContent() {
             staff={isStaff}
             hostSlug={hostSlug}
             fixtures={fixtures}
+            clientName={openProject.internal ? null : openProject.clientName ?? null}
             resources={(fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[]}
             onClose={closeTask}
             onOpenTask={(id) => {
@@ -446,6 +447,11 @@ export function ProjectsContent() {
           staff={isStaff}
           hostSlug={hostSlug}
           fixtures={fixtures}
+          clientName={(() => {
+            const openTask = tasks.find((item) => item.id === routeTaskId);
+            const project = projects.find((item) => item.id === openTask?.projectId);
+            return project && !project.internal ? project.clientName ?? null : null;
+          })()}
           resources={(fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[]}
           onClose={closeTask}
           onOpenTask={(id) => {
@@ -465,6 +471,8 @@ type ResourceOption = {
   projectId?: string | null;
   notionPageId?: string | null;
   publishToWarehaus?: boolean;
+  updatedAt?: number | null;
+  lastSyncedAt?: number | null;
 };
 
 const clientDeniedRules: BoardRules = { actor: 'client', statuses: [], stages: [] };
@@ -480,8 +488,16 @@ const newTaskButton = {
   borderRadius: 12,
   background: 'var(--fg)',
   color: 'var(--bg)',
-  padding: '0.55rem 0.9rem',
-  fontFamily: 'var(--font-display)',
+  height: 40,
+  boxSizing: 'border-box' as const,
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '0 0.85rem',
+  fontSize: 'var(--t-xs)',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase' as const,
+  fontWeight: 600,
+  lineHeight: 1,
 } as const;
 
 function InternalTag() {
@@ -499,6 +515,7 @@ function ProjectTaskOverlay({
   hostSlug,
   fixtures,
   resources,
+  clientName = null,
   onClose,
   onOpenTask,
 }: {
@@ -508,6 +525,7 @@ function ProjectTaskOverlay({
   hostSlug?: string;
   fixtures: boolean;
   resources: ResourceOption[];
+  clientName?: string | null;
   onClose: () => void;
   onOpenTask: (id: string) => void;
 }) {
@@ -536,7 +554,12 @@ function ProjectTaskOverlay({
   const subtasks = staff
     ? tasks.filter((item) => item.parentTaskId === taskId)
     : (clientSubs.data ?? []).filter((item) => item.publishToWarehaus !== false);
-  const attached = staff ? staffAttached.data ?? [] : clientAttached.data ?? [];
+  const fixtureAttached = fixtures && task
+    ? resources.filter((resource) => resource.projectId === task.projectId).slice(0, 1)
+    : [];
+  const attached = staff
+    ? fixtures ? fixtureAttached : staffAttached.data ?? []
+    : clientAttached.data ?? [];
   return (
     <TaskDetailModal
       task={task}
@@ -546,6 +569,7 @@ function ProjectTaskOverlay({
       subtasks={subtasks}
       resources={attached}
       projectResources={resources.filter((resource) => !task?.projectId || resource.projectId === task.projectId)}
+      clientName={clientName}
       hostSlug={hostSlug}
       live={!fixtures}
       onClose={onClose}

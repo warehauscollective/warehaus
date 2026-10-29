@@ -25,21 +25,40 @@ describe('formatPortalDate', () => {
 
 describe('noticeDisplayMessage', () => {
   const tasks = [{ name: 'Build the project page', notionPageId: 'notion-t-doing' }];
+  const key = 'task-stage:notion-t-doing:Building::2026-10-28T00:00:00.000Z';
 
-  it('replaces a stored idempotency key with the task name', () => {
+  it('replaces a stored idempotency key with the task name and keeps the rest', () => {
     assert.equal(
-      noticeDisplayMessage('task-stage:notion-t-doing:Building::2026-10-28T00:00:00.000Z', tasks),
-      'Build the project page',
+      noticeDisplayMessage(key, tasks),
+      'Build the project page:Building::2026-10-28T00:00:00.000Z',
     );
     assert.equal(
       noticeDisplayMessage('task-status:notion-t-doing:In Progress:2026-10-28T00:00:00.000Z', tasks),
-      'Build the project page',
+      'Build the project page:In Progress:2026-10-28T00:00:00.000Z',
     );
   });
 
-  it('leaves a written notice and an unknown key alone', () => {
+  it('rewrites the three stored Notion write sentences', () => {
+    assert.equal(
+      noticeDisplayMessage(`Notion write ${key} was marked dead after 24h`, tasks),
+      'Notion write Build the project page:Building::2026-10-28T00:00:00.000Z was marked dead after 24h',
+    );
+    assert.equal(
+      noticeDisplayMessage(`Notion write ${key} needs staff attention`, tasks),
+      'Notion write Build the project page:Building::2026-10-28T00:00:00.000Z needs staff attention',
+    );
+    assert.equal(
+      noticeDisplayMessage(`Notion write ${key} conflicted with a newer edit`, tasks),
+      'Notion write Build the project page:Building::2026-10-28T00:00:00.000Z conflicted with a newer edit',
+    );
+  });
+
+  it('leaves a written notice alone and uses a neutral label when the task is missing', () => {
     assert.equal(noticeDisplayMessage('Homepage conflicted with a newer edit', tasks), 'Homepage conflicted with a newer edit');
-    assert.equal(noticeDisplayMessage('task-stage:missing:Idea::2026-10-28T00:00:00.000Z', tasks), 'task-stage:missing:Idea::2026-10-28T00:00:00.000Z');
+    assert.equal(
+      noticeDisplayMessage('Notion write task-stage:missing:Idea::2026-10-28T00:00:00.000Z needs staff attention', tasks),
+      'Notion write a task:Idea::2026-10-28T00:00:00.000Z needs staff attention',
+    );
   });
 });
 

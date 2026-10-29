@@ -820,7 +820,7 @@ function Modal({ title, onClose, labelledBy, children }: { title: string; onClos
     const node = ref.current;
     const previous = document.activeElement as HTMLElement | null;
     const focusable = () => [...(node?.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href]') ?? [])];
-    focusable()[0]?.focus();
+    focusable()[0]?.focus({ preventScroll: true });
     const onKey = (event: globalThis.KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.stopPropagation();
@@ -833,16 +833,16 @@ function Modal({ title, onClose, labelledBy, children }: { title: string; onClos
       const last = items[items.length - 1];
       if (event.shiftKey && document.activeElement === first) {
         event.preventDefault();
-        last.focus();
+        last.focus({ preventScroll: true });
       } else if (!event.shiftKey && document.activeElement === last) {
         event.preventDefault();
-        first.focus();
+        first.focus({ preventScroll: true });
       }
     };
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
-      previous?.focus();
+      previous?.focus({ preventScroll: true });
     };
   }, [onClose]);
   return portalNode(

@@ -1,6 +1,6 @@
 'use client';
 
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import { SwipeTabView, useSwipeTabs } from '@warehaus/ui';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { isPortalTab, usePortalTab } from '@/components/providers/PortalTabProvider';
@@ -72,6 +72,29 @@ export function PortalSwipeWorkspace() {
     urlSync: 'none',
     gestures: false,
   });
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    const panel = panelRefs[activeTab]?.current;
+    if (!el || !panel) return;
+    let pinning = false;
+    const pin = () => {
+      if (pinning) return;
+      const left = panel.offsetLeft;
+      if (Math.abs(el.scrollLeft - left) <= 0.5) return;
+      pinning = true;
+      el.scrollLeft = left;
+      pinning = false;
+    };
+    pin();
+    const observer = new ResizeObserver(pin);
+    observer.observe(el);
+    el.addEventListener('scroll', pin, { passive: true });
+    return () => {
+      observer.disconnect();
+      el.removeEventListener('scroll', pin);
+    };
+  }, [activeTab, panelRefs, scrollRef]);
 
   return (
     <main className="h-[100dvh] w-full overflow-hidden">

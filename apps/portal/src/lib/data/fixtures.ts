@@ -135,7 +135,7 @@ export const FIXTURE_TASKS = [
     assigneeName: 'Alex Bauer',
     resourceCount: 3,
   }),
-  task('t-sub', 'p-site', 'Check the type scale', 'To Do', false, { stage: 'Building', parentTaskId: 't-doing' }),
+  task('t-sub', 'p-site', 'Check the type scale', 'To Do', false, { stage: 'Building', parentTaskId: 't-doing', category: 'Design' }),
   task('t-done', 'p-site', 'Approve the type ramp', 'Done', true),
   task('t-hidden', 'p-site', 'Row the pull hid', 'To Do', false, { syncHidden: true }),
   task('t-local', 'p-site', 'Not confirmed yet', 'To Do', false, { notionPageId: 'portal:task:local' }),
@@ -428,6 +428,7 @@ function task(
     parentTaskId?: string;
     assigneeName?: string;
     resourceCount?: number;
+    category?: string | null;
   } = {},
 ) {
   const project = FIXTURE_PROJECTS.find((p) => p.id === projectId);
@@ -445,6 +446,7 @@ function task(
     parentTaskId: extra.parentTaskId,
     assigneeName: extra.assigneeName,
     resourceCount: extra.resourceCount,
+    category: extra.category ?? null,
     date: '2026-10-20',
     publishToWarehaus: true,
     estimate: null,
