@@ -544,7 +544,7 @@ describe('mergePulledStage', () => {
       notionLastEditedTime: '2026-10-27T00:00:00.000Z',
     });
     assert.equal(older.stage, 'Planning');
-    assert.equal(older.stageSynced, 'Parked');
+    assert.equal(older.stageSynced, 'Idea');
     assert.equal(older.clearPending, false);
     assert.equal(older.deleteUnsent, false);
 
@@ -598,7 +598,7 @@ describe('mergePulledStage', () => {
       notionLastEditedTime: null,
     });
     assert.equal(missing.stage, 'Planning');
-    assert.equal(missing.stageSynced, 'Parked');
+    assert.equal(missing.stageSynced, 'Idea');
     assert.equal(missing.clearPending, false);
     assert.equal(missing.deleteUnsent, false);
     assert.equal(missing.lastEditedTime, base.localLastEditedTime);

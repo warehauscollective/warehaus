@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import {
   DndContext,
@@ -28,6 +28,7 @@ import {
 import { OutlineButton, Pill, PrimaryButton } from '@/components/ui/primitives';
 import { SyncChip } from '@/components/sync/SyncChip';
 import { formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
+import { sectionEdgeFadePx } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from './TaskGlyph';
 
 export type BoardMode = 'status' | 'stage';
@@ -499,14 +500,12 @@ function Column({
   const { setNodeRef } = useDroppable({ id: `column:${columnKey}` });
   const dashed = columnKey.startsWith('unknown-stage');
   const restingCount = tasks.filter((task) => task.id !== draggingId).length;
-  const cards: ReactNode[] = [];
-  let seen = 0;
-  for (const task of tasks) {
-    const collapsed = task.id === draggingId;
-    if (!collapsed && dropIndex === seen) {
-      cards.push(<DropPlaceholder key="drop-here" height={dropHeight} />);
-    }
-    cards.push(
+  const cards = boardDropNodes({
+    tasks,
+    draggingId,
+    dropIndex,
+    dropHeight,
+    renderTask: (task, collapsed) => (
       <BoardCard
         key={task.id}
         task={task}
@@ -522,11 +521,9 @@ function Column({
         onRetry={() => onRetry(task)}
         onMoveSheet={() => onMoveSheet(task)}
         onKeyMove={onKeyMove}
-      />,
-    );
-    if (!collapsed) seen += 1;
-  }
-  if (dropIndex === seen) cards.push(<DropPlaceholder key="drop-here" height={dropHeight} />);
+      />
+    ),
+  });
   return (
     <section
       ref={setNodeRef}
@@ -585,8 +582,8 @@ export function DropPlaceholder({ height }: { height?: number | null }) {
       className="ds-mono flex items-center justify-center"
       style={{
         height: height && height > 0 ? height : 112,
-        background: 'var(--accent-tint)',
-        border: '1.5px dashed var(--border-2)',
+        background: 'var(--drop-slot-bg, var(--accent-tint))',
+        border: 'var(--drop-slot-border, 1.5px dashed var(--border-2))',
         borderRadius: 18,
         color: 'var(--muted)',
         fontSize: 12,
@@ -596,6 +593,90 @@ export function DropPlaceholder({ height }: { height?: number | null }) {
       Drop here
     </div>
   );
+}
+
+export type DragOrigin = { top: number; left: number; width: number; height: number };
+
+/** Pointer drags pin the source at the measured rect. KeyboardSensor has no origin. */
+export function collapsedSourceStyle(origin: DragOrigin | null): CSSProperties {
+  if (origin) {
+    return {
+      position: 'fixed',
+      top: origin.top,
+      left: origin.left,
+      width: origin.width,
+      height: origin.height,
+      opacity: 0,
+      pointerEvents: 'none',
+      background: 'transparent',
+      border: 0,
+      padding: 0,
+    };
+  }
+  return {
+    height: 0,
+    overflow: 'hidden',
+    opacity: 0,
+    visibility: 'hidden',
+    pointerEvents: 'none',
+    background: 'transparent',
+    border: 0,
+    padding: 0,
+  };
+}
+
+export function collapsedCardBox(origin: DragOrigin | null): CSSProperties {
+  return {
+    position: 'absolute',
+    width: origin ? 0 : '100%',
+    height: 0,
+    overflow: origin ? 'visible' : 'hidden',
+    pointerEvents: 'none',
+  };
+}
+
+/** Cards plus the Drop here slot. A collapsed source does not count toward the slot index. */
+export function BoardDropStack({
+  tasks,
+  draggingId,
+  dropIndex,
+  dropHeight,
+  renderTask,
+}: {
+  tasks: PortalTask[];
+  draggingId: string | null;
+  dropIndex: number | null;
+  dropHeight?: number | null;
+  renderTask: (task: PortalTask, collapsed: boolean) => ReactNode;
+}) {
+  return <>{boardDropNodes({ tasks, draggingId, dropIndex, dropHeight, renderTask })}</>;
+}
+
+function boardDropNodes({
+  tasks,
+  draggingId,
+  dropIndex,
+  dropHeight,
+  renderTask,
+}: {
+  tasks: PortalTask[];
+  draggingId: string | null;
+  dropIndex: number | null;
+  dropHeight?: number | null;
+  renderTask: (task: PortalTask, collapsed: boolean) => ReactNode;
+}): ReactNode[] {
+  const cards: ReactNode[] = [];
+  let seen = 0;
+  for (const task of tasks) {
+    const collapsed = task.id === draggingId;
+    if (!collapsed && dropIndex === seen) {
+      cards.push(<DropPlaceholder key="drop-here" height={dropHeight} />);
+    }
+    cards.push(renderTask(task, collapsed));
+    if (!collapsed) seen += 1;
+  }
+  if (dropIndex === seen) cards.push(<DropPlaceholder key="drop-here" height={dropHeight} />);
+  return cards;
 }
 
 export function BoardToast({
@@ -675,24 +756,25 @@ function PhoneColumnTabs({
   onSelect: (key: string) => void;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
-  const [fade, setFade] = useState(false);
+  const [fadePx, setFadePx] = useState(0);
   useEffect(() => {
     const node = scroller.current;
     if (!node || !inset) return;
     const update = () => {
-      const overflow = node.scrollWidth - node.clientWidth > 1;
-      const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 1;
-      setFade(overflow && !atEnd);
+      setFadePx(sectionEdgeFadePx(node, { inset: true, activeSelector: '[aria-selected="true"]' }));
     };
     update();
     node.addEventListener('scroll', update, { passive: true });
     const observer = new ResizeObserver(update);
     observer.observe(node);
+    window.addEventListener('resize', update);
     return () => {
       node.removeEventListener('scroll', update);
       observer.disconnect();
+      window.removeEventListener('resize', update);
     };
   }, [columns, activeTab, inset]);
+  const fade = fadePx > 0;
   return (
     <div className="relative min-w-0">
       <div
@@ -704,6 +786,12 @@ function PhoneColumnTabs({
           paddingLeft: inset ? 20 : undefined,
           scrollPaddingLeft: inset ? 20 : undefined,
           scrollbarWidth: inset ? 'none' : undefined,
+          ...(fade
+            ? {
+                maskImage: `linear-gradient(to right, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
+                WebkitMaskImage: `linear-gradient(to right, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
+              }
+            : null),
         }}
       >
         {columns.map((column) => (
@@ -732,7 +820,7 @@ function PhoneColumnTabs({
           aria-hidden
           data-testid="stage-edge-fade"
           className="pointer-events-none absolute inset-y-0 right-0"
-          style={{ width: 48, background: 'linear-gradient(to right, transparent, var(--bg))' }}
+          style={{ width: fadePx, background: 'linear-gradient(to right, transparent, var(--bg) 45%)' }}
         />
       ) : null}
     </div>
@@ -812,13 +900,8 @@ function BoardCard({
       className="text-left"
       data-testid="task-card"
       data-task-name={task.name}
-      style={collapsed ? {
-        position: 'absolute',
-        width: 0,
-        height: 0,
-        overflow: 'visible',
-        pointerEvents: 'none',
-      } : {
+      data-collapsed={collapsed ? (origin.current ? 'origin' : 'fallback') : 'rest'}
+      style={collapsed ? collapsedCardBox(origin.current) : {
         opacity: 1,
         border: error ? '2px solid var(--danger)' : undefined,
         borderRadius: 12,
@@ -838,18 +921,7 @@ function BoardCard({
           if (timer.current) window.clearTimeout(timer.current);
         }}
         className="w-full text-left"
-        style={collapsed && origin.current ? {
-          position: 'fixed',
-          top: origin.current.top,
-          left: origin.current.left,
-          width: origin.current.width,
-          height: origin.current.height,
-          opacity: 0,
-          pointerEvents: 'none',
-          background: 'transparent',
-          border: 0,
-          padding: 0,
-        } : {
+        style={collapsed ? collapsedSourceStyle(origin.current) : {
           background: 'transparent',
           border: 0,
           padding: 0,

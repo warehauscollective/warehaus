@@ -96,6 +96,8 @@ export default defineSchema({
     stagePendingBaseEditedTime: v.optional(v.string()),
     /** Ready to Ship link for the unsent move. Not pullRequestUrl. */
     stagePendingPullRequest: v.optional(v.string()),
+    /** Staff contact that queued the unsent stage move. Not returned to clients. */
+    stagePendingActorId: v.optional(v.string()),
     /** SERVER self-relation, one level deep. */
     parentNotionPageId: v.optional(v.union(v.string(), v.null())),
     parentTaskId: v.optional(v.id('tasks')),

@@ -328,7 +328,8 @@ export function mergePulledStage(input: {
   if (!newer) {
     return {
       stage: localStage,
-      stageSynced: notionStage,
+      // An older pull must not replace the stage we last confirmed or saved.
+      stageSynced,
       clearPending: false,
       lastEditedTime: input.localLastEditedTime,
       deleteUnsent: false,

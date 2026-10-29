@@ -10,7 +10,9 @@ Object.assign(globalThis, { React });
 const {
   TaskCardFace,
   BoardToast,
+  BoardDropStack,
   DropPlaceholder,
+  collapsedSourceStyle,
   MOVE_NOT_SAVED,
   boardColumnTemplate,
   boardMovePersists,
@@ -84,7 +86,40 @@ describe('TaskCardFace client stage card', () => {
     assert.match(html, /Drop here/);
     assert.match(html, /height:134px/);
     assert.match(html, /dashed/);
+    assert.match(html, /--drop-slot-bg/);
     assert.match(html, /--accent-tint/);
+  });
+
+  it('collapses a card with no drag origin and places Drop here at the slot', () => {
+    const second = { ...task, id: 't-next', name: 'Second card' };
+    const fallback = collapsedSourceStyle(null);
+    assert.equal(fallback.position, undefined);
+    assert.equal(fallback.height, 0);
+    assert.equal(fallback.overflow, 'hidden');
+    const pinned = collapsedSourceStyle({ top: 12, left: 16, width: 200, height: 96 });
+    assert.equal(pinned.position, 'fixed');
+    assert.equal(pinned.top, 12);
+    const html = renderToStaticMarkup(createElement(BoardDropStack, {
+      tasks: [task, second],
+      draggingId: task.id,
+      dropIndex: 0,
+      dropHeight: 96,
+      renderTask: (item, collapsed) => createElement('div', {
+        key: item.id,
+        'data-testid': 'task-card',
+        'data-collapsed': collapsed ? 'fallback' : 'rest',
+        style: collapsed ? fallback : undefined,
+      }, item.name),
+    }));
+    assert.match(html, /data-collapsed="fallback"/);
+    assert.match(html, /height:0/);
+    assert.equal(html.includes('position:fixed'), false);
+    const dragged = html.indexOf('Homepage');
+    const drop = html.indexOf('data-testid="drop-placeholder"');
+    const resting = html.indexOf('Second card');
+    assert.ok(dragged !== -1 && drop !== -1 && resting !== -1);
+    assert.ok(dragged < drop && drop < resting);
+    assert.match(html, /height:96px/);
   });
 
   it('places the flag-off toast under the board with no Undo', () => {

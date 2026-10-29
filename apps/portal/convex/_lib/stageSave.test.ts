@@ -144,6 +144,7 @@ describe('taskWriteGuards stage save', () => {
       assert.equal(typeof row.stagePendingAt, 'number');
       assert.equal(row.stageSynced, 'Idea');
       assert.equal(row.stagePendingBaseEditedTime, TIME);
+      assert.equal(row.stagePendingActorId, 'contact-staff');
       assert.equal(row.lastEditedTime, TIME);
       assert.equal(row.pullRequestUrl, 'https://github.com/warehaus/secret/pull/1');
       assert.equal(outboxRows(tables).length, 0);
@@ -429,6 +430,7 @@ describe('drain pending stages', () => {
       stagePendingAt: 10,
       stagePendingBaseEditedTime: TIME,
       stageSynced: 'Idea',
+      stagePendingActorId: 'contact-staff',
     });
     const tables = { tasks: [row], notionOutbox: [] as Row[] };
     const ctx = stageCtx(tables);
@@ -438,6 +440,7 @@ describe('drain pending stages', () => {
       assert.equal(first.reused, 0);
       assert.equal(outboxRows(tables).length, 1);
       assert.equal(outboxRows(tables)[0]?.idempotencyKey, `task-stage:page-1:Planning::${TIME}`);
+      assert.equal(outboxRows(tables)[0]?.actorId, 'contact-staff');
       const second = (await run(drainPendingStages, ctx, {})) as { inserted: number; reused: number; duplicate?: boolean };
       assert.equal(second.inserted, 0);
       assert.equal(second.reused, 1);
