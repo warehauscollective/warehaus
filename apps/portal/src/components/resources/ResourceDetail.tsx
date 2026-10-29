@@ -109,7 +109,7 @@ export function ResourceDetail({
       <Surface style={{ padding: '2rem', borderRadius: '2.25rem' }}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <h2 style={{ fontSize: 26, fontWeight: 600, lineHeight: '32px', overflowWrap: 'break-word' }}>{resource.name}</h2>
+            <h2 className="resource-card-title" style={{ fontSize: 26, fontWeight: 600, lineHeight: '32px' }}>{resource.name}</h2>
             <p style={{ fontSize: 14, color: 'var(--muted)', marginTop: 6 }}>
               {resourceMeta(resource.type, resource.updatedAt)}
               {resource.projectName ? ` · ${resource.projectName}` : ''}
@@ -215,7 +215,7 @@ export function ResourceDetail({
                 }}
               >
                 <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)', width: 72 }}>ITEM</span>
-                <span className="min-w-0 flex-1" style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{task.name}</span>
+                <span className="where-lives-title min-w-0 flex-1" style={{ fontWeight: 600 }}>{task.name}</span>
               </button>
             </li>
           ))}
@@ -225,7 +225,7 @@ export function ResourceDetail({
           >
             <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)', width: 72 }}>RESOURCE</span>
             <span className="min-w-0 flex-1">
-              <span className="block" style={{ fontWeight: 600, overflowWrap: 'anywhere' }}>{resource.name}</span>
+              <span className="where-lives-title block" style={{ fontWeight: 600 }}>{resource.name}</span>
               <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{resource.type ?? 'Shared resource'}</span>
             </span>
           </li>
@@ -236,7 +236,7 @@ export function ResourceDetail({
             >
               <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)', width: 72 }}>FULL NOTES</span>
               <span className="min-w-0 flex-1">
-                <span className="block" style={{ fontWeight: 600 }}>Notion page</span>
+                <span className="where-lives-title block" style={{ fontWeight: 600 }}>Notion page</span>
                 <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>
                   {notesHref ? 'Open the page in Notion' : 'No Notion page on this resource'}
                 </span>
@@ -272,18 +272,17 @@ export function ResourceDetail({
             </div>
           ))}
         </div>
-        {resource.url ? (
-          <a href={resource.url} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--fg)', fontSize: 14, display: 'inline-block', marginTop: 12 }}>
-            Open
-          </a>
-        ) : null}
       </Section>
 
       <style>{`
+        .resource-card-title { overflow-wrap: normal; word-break: normal; hyphens: manual; }
         .used-in-title { font-weight: 600; overflow-wrap: break-word; }
         .used-in-meta { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--muted); margin-top: 2px; }
+        .where-lives-title { overflow-wrap: break-word; }
         @media (max-width: 480px) {
+          .resource-card-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; overflow: hidden; }
           .used-in-title { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; }
+          .where-lives-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; overflow-wrap: normal; }
         }
       `}</style>
       <Section title="Used in tasks" subtitle={tasksLoading ? 'Loading tasks…' : usedInTasksSubtitle(tasks.length)} testId="used-in-tasks">

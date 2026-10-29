@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TeamInvites } from '@/components/pages/TeamInvites';
-import { GhostButton, PortalCheckbox, Surface } from '@/components/ui/primitives';
+import { GhostButton, PortalCheckbox, PrimaryButton, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { ThemeControl } from '@/components/account/ThemeControl';
 import { DocsStatesGallery, type DocRow } from '@/components/docs/DocsBlock';
@@ -180,13 +180,16 @@ export function AccountContent() {
   });
   const clientOpen = Boolean(isStaff && activeSection === 'clients' && selected);
   const companyOpen = Boolean(isClient && activeSection === 'clients');
+  const longClient = clientScreen === 'long' ? LONG_CLIENT : null;
   const title = clientOpen && selected
-    ? selected.name
+    ? longClient ?? selected.name
     : companyOpen
       ? showTeam
         ? 'Your team'
-        : data.tenant.clientName ?? 'Clients'
+        : longClient ?? data.tenant.clientName ?? 'Clients'
       : SECTION_TITLE[activeSection] ?? 'Account';
+  const titleLines = longClient && (clientOpen || (companyOpen && !showTeam)) ? 2 : 1;
+  const showNewClient = isStaff && activeSection === 'clients' && !selected && docsPreview !== 'states';
 
   const leaveClient = () => {
     setClientId(null);
@@ -241,7 +244,15 @@ export function AccountContent() {
     <PortalWorkspace
       eyebrow={tenantEyebrow(data.tenant, 'Account')}
       title={title}
+      titleLines={titleLines}
       breadcrumb={breadcrumb ?? undefined}
+      actions={
+        showNewClient ? (
+          <PrimaryButton disabled solidWhenDisabled title="Creating a client stays off until write-back is enabled">
+            New client
+          </PrimaryButton>
+        ) : undefined
+      }
     >
       {fixtures && docsPreview === 'states' ? (
         <PortalTilePane>

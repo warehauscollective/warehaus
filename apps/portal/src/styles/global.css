@@ -67,6 +67,16 @@ html[data-density='compact'] .ds-data th {
   }
 }
 
+/* One figure for the Clients and Resources list KPIs, so both use the same display weight. */
+.kpi-figure {
+  margin-top: 8px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 48px;
+  line-height: 1;
+  letter-spacing: var(--ls-display);
+}
+
 /* Client directory stats: 2×2 on a phone, auto columns once each card can be 160px. */
 .client-stat-grid {
   display: grid;

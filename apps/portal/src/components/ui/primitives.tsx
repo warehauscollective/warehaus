@@ -87,18 +87,25 @@ export function PrimaryButton({
   onClick,
   disabled,
   className,
+  title,
+  solidWhenDisabled = false,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
   onClick?: () => void;
   disabled?: boolean;
   className?: string;
+  title?: string;
+  /** Keep the primary fill. The control stays disabled; the tooltip explains why. */
+  solidWhenDisabled?: boolean;
 }) {
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
+      aria-disabled={disabled || undefined}
+      title={title}
       className={['inline-flex items-center justify-center gap-2', className].filter(Boolean).join(' ')}
       style={{
         background: 'var(--accent)',
@@ -110,7 +117,7 @@ export function PrimaryButton({
         fontWeight: 600,
         padding: '0.65rem 1.1rem',
         cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.55 : 1,
+        opacity: disabled && !solidWhenDisabled ? 0.55 : 1,
       }}
     >
       {children}

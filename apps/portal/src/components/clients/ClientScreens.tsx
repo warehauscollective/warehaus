@@ -72,7 +72,22 @@ function Panel({ children, testId }: { children: ReactNode; testId?: string }) {
   );
 }
 
-function Stat({ label, value, hint, tone }: { label: string; value: string; hint: string; tone?: string }) {
+function Stat({
+  label,
+  value,
+  hint,
+  tone,
+  size = 32,
+  display = false,
+}: {
+  label: string;
+  value: string;
+  hint: string;
+  tone?: string;
+  size?: number;
+  /** List KPIs. Uses the shared `.kpi-figure` display token. */
+  display?: boolean;
+}) {
   return (
     <div
       style={{
@@ -86,7 +101,11 @@ function Stat({ label, value, hint, tone }: { label: string; value: string; hint
       <p className="ds-mono" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--faint)' }}>
         {label}
       </p>
-      <p style={{ fontFamily: 'var(--font-display)', fontSize: '2rem', lineHeight: 1.1, marginTop: 8 }}>{value}</p>
+      {display ? (
+        <p className="kpi-figure">{value}</p>
+      ) : (
+        <p style={{ fontFamily: 'var(--font-display)', fontSize: size, lineHeight: 1, marginTop: 8 }}>{value}</p>
+      )}
       <p style={{ fontSize: 'var(--t-sm)', color: tone ?? 'var(--muted)', marginTop: 6 }}>{hint}</p>
     </div>
   );
@@ -189,6 +208,7 @@ export function ClientDirectory({
   screen?: ClientScreen;
 }) {
   const phone = useMaxWidth(767);
+  const narrow = useMaxWidth(480);
   const stats = clientListStats(clients);
   const shown = clients.filter((client) => clientMatchesFilter(client, filter));
   const counts: Record<ClientListFilter, number> = {
@@ -200,20 +220,23 @@ export function ClientDirectory({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="account-clients">
+      <ClampStyle />
       <div
         className="grid w-full gap-3"
         data-testid="client-stats"
         style={{ gridTemplateColumns: phone ? 'repeat(2, minmax(0, 1fr))' : 'repeat(auto-fit, minmax(160px, 1fr))' }}
       >
-        <Stat label="CLIENTS" value={String(stats.total)} hint={`${stats.active} active · ${stats.internal} internal`} />
-        <Stat label="ACTIVE PROJECTS" value={String(stats.projects)} hint={stats.withProjects === 1 ? 'Across 1 client' : `Across ${stats.withProjects} clients`} />
+        <Stat display label="CLIENTS" value={String(stats.total)} hint={`${stats.active} active · ${stats.internal} internal`} />
+        <Stat display label="ACTIVE PROJECTS" value={String(stats.projects)} hint={stats.withProjects === 1 ? 'Across 1 client' : `Across ${stats.withProjects} clients`} />
         <Stat
+          display
           label="AWAITING GO"
           value={String(stats.awaiting)}
           hint={singleOrAcross(stats.awaitingNames, 'None waiting')}
           tone={stats.awaiting > 0 ? 'var(--danger)' : undefined}
         />
         <Stat
+          display
           label="SYNC PROBLEMS"
           value={String(stats.sync)}
           hint={singleOrAcross(stats.syncNames, 'None')}
@@ -222,14 +245,19 @@ export function ClientDirectory({
       </div>
 
       <Panel>
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>All clients</h2>
-          <DisabledAction label="New client" />
-        </div>
+        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>All clients</h2>
         <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
           Each client sees only what is published to them.
         </p>
-        <div className="mt-4 flex flex-wrap gap-2">
+        <div
+          className="mt-4 flex gap-2"
+          data-testid="client-filters"
+          style={
+            narrow
+              ? { overflowX: 'auto', flexWrap: 'nowrap', scrollbarWidth: 'none' }
+              : { flexWrap: 'wrap' }
+          }
+        >
           {FILTERS.map((item) => {
             const active = filter === item.key;
             return (
@@ -238,7 +266,7 @@ export function ClientDirectory({
                 type="button"
                 aria-pressed={active}
                 onClick={() => onFilter(item.key)}
-                className="ds-mono"
+                className="ds-mono shrink-0"
                 style={{
                   fontSize: 'var(--t-xs)',
                   padding: '0.35rem 0.75rem',
@@ -281,33 +309,55 @@ export function ClientDirectory({
                 <button
                   type="button"
                   onClick={() => onOpen(client.id)}
-                  className="flex w-full flex-wrap items-center gap-3 text-left"
+                  className="flex w-full items-center gap-3 text-left"
                   style={{ background: 'none', border: 0, padding: '0.9rem 0.2rem', cursor: 'pointer', color: 'inherit' }}
                 >
                   <Mark name={client.name} />
                   <span className="min-w-0 flex-1">
-                    <span className="block" style={{ fontWeight: 600, overflowWrap: 'break-word' }}>
+                    <span className="block truncate" style={{ fontWeight: 600 }}>
                       {client.internal ? `${client.name} (internal)` : client.name}
                     </span>
-                    <span className="ds-mono block" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
-                      {client.internal
-                        ? `${client.contactCount} staff · admin-only`
-                        : `${client.contactCount} ${client.contactCount === 1 ? 'person' : 'people'}`}
+                    {narrow ? (
+                      <>
+                        <span className="block truncate" data-testid="client-row-meta" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 2 }}>
+                          {client.internal
+                            ? `${client.contactCount} staff · admin-only`
+                            : `${client.contactCount} ${client.contactCount === 1 ? 'person' : 'people'}`}
+                          {` · ${client.projectCount} ${client.projectCount === 1 ? 'project' : 'projects'} · ${client.openTaskCount} open · ${client.awaitingGoCount ?? 0} awaiting go`}
+                        </span>
+                        <span className="mt-1 flex items-center gap-2 overflow-hidden">
+                          <SyncChip
+                            audience="staff"
+                            notionPageId={client.notionPageId}
+                            syncHidden={client.syncHidden}
+                            syncState={client.syncHidden ? 'failed' : undefined}
+                          />
+                          <Dot tone={client.internal ? 'off' : 'on'}>{client.internal ? 'Not published' : 'Published'}</Dot>
+                        </span>
+                      </>
+                    ) : (
+                      <span className="ds-mono block truncate" style={{ fontSize: 12, color: 'var(--muted)', marginTop: 2 }}>
+                        {client.internal
+                          ? `${client.contactCount} staff · admin-only`
+                          : `${client.contactCount} ${client.contactCount === 1 ? 'person' : 'people'}`}
+                      </span>
+                    )}
+                  </span>
+                  {narrow ? null : (
+                    <span className="flex shrink-0 flex-wrap items-center justify-end gap-x-4 gap-y-1">
+                      <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.projectCount} {client.projectCount === 1 ? 'project' : 'projects'}</span>
+                      <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.openTaskCount} open</span>
+                      <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.awaitingGoCount ?? 0} awaiting go</span>
+                      <SyncChip
+                        audience="staff"
+                        notionPageId={client.notionPageId}
+                        syncHidden={client.syncHidden}
+                        syncState={client.syncHidden ? 'failed' : undefined}
+                      />
+                      <Dot tone={client.internal ? 'off' : 'on'}>{client.internal ? 'Not published' : 'Published'}</Dot>
                     </span>
-                  </span>
+                  )}
                   <Chevron />
-                  <span className="grid w-full basis-full grid-cols-2 gap-x-4 gap-y-1 md:flex md:w-auto md:basis-auto md:flex-wrap md:items-center md:justify-end">
-                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.projectCount} {client.projectCount === 1 ? 'project' : 'projects'}</span>
-                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.openTaskCount} open</span>
-                    <span style={{ fontSize: 13, color: 'var(--muted)' }}>{client.awaitingGoCount ?? 0} awaiting go</span>
-                    <SyncChip
-                      audience="staff"
-                      notionPageId={client.notionPageId}
-                      syncHidden={client.syncHidden}
-                      syncState={client.syncHidden ? 'failed' : undefined}
-                    />
-                    <Dot tone={client.internal ? 'off' : 'on'}>{client.internal ? 'Not published' : 'Published'}</Dot>
-                  </span>
                 </button>
               </li>
             ))}
@@ -356,13 +406,14 @@ export function ClientDetail({
   const open = tasks.filter((task) => !task.isDone);
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
+      <ClampStyle />
       <Panel>
         <div className="flex items-center gap-4">
           <Mark name={client.name} />
           <div className="min-w-0 flex-1">
-            <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)', overflowWrap: 'anywhere' }}>{client.name}</h2>
+            <h2 className="client-card-title">{client.name}</h2>
             {header ? (
-              <p data-testid="client-since-lead" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
+              <p className="clamp-one" data-testid="client-since-lead" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>
                 {header}
               </p>
             ) : null}
@@ -441,8 +492,8 @@ export function ClientDetail({
               <li key={person.id} className="flex flex-wrap items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
                 <Mark name={person.name} />
                 <span className="min-w-0 flex-1">
-                  <span className="block" style={{ fontWeight: 600 }}>{person.name}</span>
-                  <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
+                  <span className="clamp-one block" style={{ fontWeight: 600 }}>{person.name}</span>
+                  <span className="block truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
                 </span>
                 {person.role ? <span style={{ fontSize: 13, color: 'var(--muted)' }}>{person.role}</span> : null}
                 <span style={{ fontSize: 13, color: person.invitePending ? 'var(--warn)' : 'var(--muted)' }}>
@@ -523,6 +574,7 @@ export function ClientCompany({
   if (showTeam) {
     return (
       <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-team">
+        <ClampStyle />
         <Panel>
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
             People at {name} with portal access.
@@ -534,9 +586,9 @@ export function ClientCompany({
               {people.map((person) => (
                 <li key={person.id} className="flex items-center gap-3" style={{ borderTop: '1px solid var(--border)', padding: '0.85rem 0' }}>
                   <Mark name={person.name} />
-                  <span>
-                    <span className="block" style={{ fontWeight: 600 }}>{person.name}</span>
-                    <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
+                  <span className="min-w-0">
+                    <span className="clamp-one block" style={{ fontWeight: 600 }}>{person.name}</span>
+                    <span className="block truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
                   </span>
                 </li>
               ))}
@@ -585,6 +637,7 @@ export function ClientCompany({
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company">
+      <ClampStyle />
       <Panel>
         <div className="flex items-center gap-4">
           <Mark name={name} />
@@ -611,9 +664,9 @@ export function ClientCompany({
                 <li key={person.id}>
                   <button type="button" onClick={onShowTeam} className="flex w-full items-center gap-3 text-left" style={{ background: 'none', border: 0, padding: '0.45rem 0', color: 'inherit', cursor: 'pointer' }}>
                     <Mark name={person.name} />
-                    <span>
-                      <span className="block" style={{ fontWeight: 600 }}>{person.name}</span>
-                      <span className="block" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
+                    <span className="min-w-0">
+                      <span className="clamp-one block" style={{ fontWeight: 600 }}>{person.name}</span>
+                      <span className="block truncate" style={{ fontSize: 13, color: 'var(--muted)' }}>{person.email}</span>
                     </span>
                   </button>
                 </li>
@@ -659,6 +712,29 @@ export function ClientCompany({
         <DocsBlock docs={screen === 'empty' ? [] : docs} staff={false} />
       </div>
     </div>
+  );
+}
+
+function ClampStyle() {
+  return (
+    <style>{`
+      .client-card-title {
+        font-family: var(--font-display);
+        font-size: var(--t-lg);
+        overflow-wrap: normal;
+        word-break: normal;
+        hyphens: manual;
+      }
+      @media (max-width: 480px) {
+        .clamp-one { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .client-card-title {
+          display: -webkit-box;
+          -webkit-box-orient: vertical;
+          -webkit-line-clamp: 2;
+          overflow: hidden;
+        }
+      }
+    `}</style>
   );
 }
 

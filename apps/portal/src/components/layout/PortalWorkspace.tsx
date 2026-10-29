@@ -20,11 +20,14 @@ export function PortalWorkspace({
   aside,
   hideHeader = false,
   breadcrumb,
+  titleLines = 1,
   children,
 }: {
   eyebrow: string;
   title: string;
   actions?: ReactNode;
+  /** 2 clamps a long title to two lines. The default stays one line. */
+  titleLines?: 1 | 2;
   /** Persistent right rail (e.g. dashboard tasks / activity). */
   aside?: ReactNode;
   /** When true, skip the eyebrow/title/actions header bar. */
@@ -65,11 +68,19 @@ export function PortalWorkspace({
               </p>
             )}
             <h1
-              className="type-display truncate normal-case"
+              className={titleLines === 2 ? 'type-display normal-case' : 'type-display truncate normal-case'}
               style={{
                 fontSize: 'clamp(1.5rem, 1.2rem + 1vw, 2rem)',
                 marginTop: breadcrumb ? 10 : '0.35rem',
-                lineHeight: 1.1,
+                lineHeight: 1.15,
+                ...(titleLines === 2
+                  ? {
+                      display: '-webkit-box',
+                      WebkitLineClamp: 2,
+                      WebkitBoxOrient: 'vertical' as const,
+                      overflow: 'hidden',
+                    }
+                  : {}),
               }}
             >
               {title}

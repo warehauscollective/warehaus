@@ -185,7 +185,8 @@ export const FIXTURE_RESOURCES = [
     projectName: 'Northwind site',
     clientName: 'Northwind',
     name: 'Kickoff recap',
-    description: 'Decisions from the kickoff.',
+    description:
+      'Summary: The team reviewed the three hero, menu and contact wireframes. The structure is agreed; copy placement still needs a second pass.\nDecisions: Keep a single-column menu page. Move bookings to the contact page. Hero image stays photographic.\nAction items: Maya: update menu wireframe by Oct 2. Sam: annotate contact page for build. Dana: confirm opening hours.',
     type: 'Meeting notes',
     url: 'https://example.com/recap',
     hasFile: false,

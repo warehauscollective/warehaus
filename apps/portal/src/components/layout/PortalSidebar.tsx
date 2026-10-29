@@ -36,10 +36,12 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         style={{
           background: 'var(--nav-bg)',
           border: '1px solid var(--nav-border)',
-          // The staff notice bell is fixed at the top-right of the viewport.
-          // Stop the chip row short of that box so "All activity" is not covered.
+          // The staff notice bell is fixed at the top-right (42px, 1.25rem inset).
+          // Leave a gap before it, and keep enough of the chip row for the
+          // 20px leading inset plus a fade that does not cover the active pill.
           overflow: 'hidden',
-          maxWidth: data.tenant.mode === 'team' ? 'calc(100% - 4.75rem)' : undefined,
+          width: data.tenant.mode === 'team' ? '100%' : undefined,
+          maxWidth: data.tenant.mode === 'team' ? 'calc(100% - 3rem)' : undefined,
         }}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -80,7 +82,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         >
           {tab}
         </span>
-        <SectionScroller>
+        <SectionScroller inset={data.tenant.mode === 'team'}>
           {sections.map((s) => {
             const active = activeSection === s.key;
             return (
@@ -182,30 +184,58 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
   );
 }
 
-function SectionScroller({ children }: { children: ReactNode }) {
+function SectionScroller({ children, inset }: { children: ReactNode; inset?: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fadePx, setFadePx] = useState(0);
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
     const update = () => {
+      const active = node.querySelector<HTMLElement>('[aria-current="true"]');
+      const pad = inset ? 20 : 0;
+      if (active) {
+        // Scroll this row only. scrollIntoView would move the swipe track.
+        const buttons = [...node.querySelectorAll('button')];
+        const edge = node.getBoundingClientRect().left;
+        const contentLeft = (button: HTMLElement) => button.getBoundingClientRect().left - edge + node.scrollLeft;
+        const left = contentLeft(active);
+        const width = active.getBoundingClientRect().width;
+        const right = left + width;
+        const later = buttons.some((button) => contentLeft(button) >= right - 1);
+        const room = node.clientWidth - pad - width;
+        const reserve = later && room >= 8 ? Math.min(16, Math.floor(room)) : 0;
+        let next = node.scrollLeft;
+        if (left - next < pad) next = Math.max(0, left - pad);
+        const limit = node.clientWidth - reserve;
+        if (right - next > limit) next = Math.max(0, right - limit);
+        if (left - next < pad && width <= node.clientWidth - pad - reserve) next = Math.max(0, left - pad);
+        if (Math.abs(next - node.scrollLeft) > 1) node.scrollLeft = next;
+      }
       const overflow = node.scrollWidth - node.clientWidth > 1;
       const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 1;
       if (!overflow || atEnd) {
         setFadePx(0);
         return;
       }
-      // Fade only the clipped tab. A fixed 72px veil (the board's width) would
-      // paint over a pill that already fits in this narrow row.
+      // Fade only the clipped tail. Never paint over the active pill, and
+      // do not force a wide veil when the next pill only peeks.
       const edge = node.getBoundingClientRect().left;
+      const activeRight = active ? active.getBoundingClientRect().right - edge : 0;
       let lastFull = 0;
       for (const button of node.querySelectorAll('button')) {
         const right = button.getBoundingClientRect().right - edge;
         if (right <= node.clientWidth + 0.5) lastFull = right;
         else break;
       }
-      const peek = Math.max(0, node.clientWidth - lastFull);
-      setFadePx(Math.round(Math.min(72, Math.max(peek + 12, 28))));
+      let width = Math.max(0, node.clientWidth - lastFull);
+      if (active && activeRight > 0) {
+        const fadeLeft = node.clientWidth - width;
+        if (activeRight > fadeLeft) width = Math.max(0, node.clientWidth - activeRight);
+      }
+      const laterClipped = Array.from(node.querySelectorAll('button')).some((button) => {
+        return button.getBoundingClientRect().right - edge > node.clientWidth + 0.5;
+      });
+      setFadePx(laterClipped && width >= 8 ? Math.round(Math.min(56, width)) : 0);
     };
     update();
     node.addEventListener('scroll', update, { passive: true });
@@ -217,17 +247,20 @@ function SectionScroller({ children }: { children: ReactNode }) {
       observer.disconnect();
       window.removeEventListener('resize', update);
     };
-  }, [children]);
+  }, [children, inset]);
   const fade = fadePx > 0;
   return (
     <div className="relative min-w-0 flex-1">
       <div
         ref={ref}
+        data-testid="section-scroller"
         className="section-scroller flex min-w-0 items-center gap-1 overscroll-x-contain"
         style={{
           scrollbarWidth: 'none',
           overflowX: 'auto',
           overflowY: 'hidden',
+          paddingLeft: inset ? 20 : 0,
+          scrollPaddingLeft: inset ? 20 : 0,
           ...(fade
             ? {
                 maskImage: `linear-gradient(to right, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
