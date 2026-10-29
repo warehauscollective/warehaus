@@ -7,6 +7,21 @@ import { GhostButton, PortalRadio, PrimaryButton, Surface } from '@/components/u
 import { PortalTilePane } from '@/components/layout/PortalWorkspace';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isMissingConvexFunction } from '@/lib/data/staffRoster';
+import {
+  LONG_TEAM_EMAIL,
+  LONG_TEAM_NAME,
+  LONG_TEAM_ROLE,
+  TEAM_ERROR_COPY,
+  TEAM_ROSTER_CSS,
+  TEAM_STAFF_EMPTY,
+  TeamEmpty,
+  TeamOutlineButton,
+  TeamPersonIdentity,
+  TeamSkeletonRows,
+  TeamStateNotice,
+  teamView,
+} from '@/components/account/teamStates';
+import type { TeamScreen } from '@/components/account/teamStates';
 
 type TeamRow = {
   canInvite: boolean;
@@ -52,14 +67,36 @@ const FIXTURE_TEAM: TeamRow = {
   ],
 };
 
+function withLongMember(roster: TeamRow): TeamRow {
+  const [first, ...rest] = roster.members;
+  if (!first) return roster;
+  return {
+    ...roster,
+    members: [
+      {
+        ...first,
+        name: LONG_TEAM_NAME,
+        email: LONG_TEAM_EMAIL,
+        role: LONG_TEAM_ROLE,
+        portalAccess: 'Active',
+      },
+      ...rest,
+    ],
+  };
+}
+
 export function TeamInvites({
   hostSlug,
   configured,
   fixtures = false,
+  screen = 'ready',
+  onRetry,
 }: {
   hostSlug?: string;
   configured: boolean;
   fixtures?: boolean;
+  screen?: TeamScreen;
+  onRetry?: () => void;
 }) {
   const team = useSafeQuery<TeamRow>(api.invites.listTeam, configured ? { hostSlug } : 'skip');
   const createInvite = useMutation(api.invites.create);
@@ -124,13 +161,22 @@ export function TeamInvites({
   }
 
   const roster = fixtures ? FIXTURE_TEAM : team.data;
+  const count = (roster?.members.length ?? 0) + (roster?.invites.length ?? 0);
+  const view = teamView({
+    screen,
+    fixtures,
+    loading: team.loading,
+    missing,
+    failed: Boolean(team.error) && !team.data,
+    count: roster ? count : -1,
+  });
+  const shown = roster && view === 'long' ? withLongMember(roster) : roster;
+  const showForm = view === 'ready' || view === 'long' || view === 'empty';
 
   return (
     <PortalTilePane>
-      <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto">
-        {team.loading && (
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading team…</p>
-        )}
+      <style>{TEAM_ROSTER_CSS}</style>
+      <div className="flex h-full min-h-0 flex-col gap-4 overflow-auto" data-testid="team-invites" data-state={view}>
         {fixtures ? null : missing && (
           <Surface style={{ padding: 'var(--s-5)' }}>
             <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
@@ -142,7 +188,7 @@ export function TeamInvites({
             </p>
           </Surface>
         )}
-        {(fixtures || (!missing && roster)) && (
+        {showForm && (fixtures || (!missing && (roster || view === 'empty'))) && (
           <Surface style={{ padding: 24, maxWidth: 520 }}>
             <p className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)', margin: 0 }}>
               Invite
@@ -162,7 +208,13 @@ export function TeamInvites({
             >
               <label className="flex flex-col gap-1">
                 <span style={{ fontSize: 14, color: 'var(--muted)' }}>Name</span>
-                <input value={name} onChange={(event) => setName(event.target.value)} required style={fieldStyle} />
+                <input
+                  id="team-invite-name"
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  required
+                  style={fieldStyle}
+                />
               </label>
               <label className="flex flex-col gap-1">
                 <span style={{ fontSize: 14, color: 'var(--muted)' }}>Email</span>
@@ -223,87 +275,167 @@ export function TeamInvites({
             </div>
           </Surface>
         )}
-        {roster && (
-          <div style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'auto' }}>
-            <table className="ds-data" style={{ minWidth: 640 }}>
-              <thead>
-                <tr>
-                  <th>Name</th>
-                  <th>Email</th>
-                  <th>Role</th>
-                  <th>Status</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {roster.members.map((member) => (
-                  <tr key={member.notionPageId}>
-                    <td>{member.name}</td>
-                    <td>{member.email}</td>
-                    <td>{member.role}</td>
-                    <td>{member.portalAccess}</td>
-                    <td>
-                      <GhostButton
-                        onClick={() =>
-                          setConfirm({
-                            kind: 'revoke',
-                            notionPageId: member.notionPageId,
-                            name: member.name,
-                            email: member.email,
-                          })
-                        }
-                      >
-                        Remove
-                      </GhostButton>
-                    </td>
+        {view === 'loading' && <TeamSkeletonRows />}
+        {view === 'error' && (
+          <div className="flex flex-col items-start" style={{ gap: 24 }}>
+            <TeamStateNotice title={TEAM_ERROR_COPY.title} body={TEAM_ERROR_COPY.body} />
+            <TeamOutlineButton testId="team-try-again" onClick={onRetry}>
+              Try again
+            </TeamOutlineButton>
+          </div>
+        )}
+        {view === 'empty' && (
+          <TeamEmpty
+            title={TEAM_STAFF_EMPTY.title}
+            body={TEAM_STAFF_EMPTY.body}
+            action={
+              <TeamOutlineButton
+                testId="team-invite-someone"
+                onClick={() => document.getElementById('team-invite-name')?.focus()}
+              >
+                Invite someone
+              </TeamOutlineButton>
+            }
+          />
+        )}
+        {shown && (view === 'ready' || view === 'long') && (
+          <>
+            <div className="team-roster-cards">
+              {shown.members.map((member) => (
+                <div key={member.notionPageId}>
+                  <TeamPersonIdentity
+                    name={member.name}
+                    email={member.email}
+                    role={member.role}
+                    status={member.portalAccess}
+                  />
+                  <div className="flex justify-end" style={{ paddingBottom: 12 }}>
+                    <GhostButton
+                      onClick={() =>
+                        setConfirm({
+                          kind: 'revoke',
+                          notionPageId: member.notionPageId,
+                          name: member.name,
+                          email: member.email,
+                        })
+                      }
+                    >
+                      Remove
+                    </GhostButton>
+                  </div>
+                </div>
+              ))}
+              {shown.invites.map((invite) => (
+                <div key={invite.notionPageId}>
+                  <TeamPersonIdentity
+                    name={invite.name}
+                    email={invite.email}
+                    role={invite.role}
+                    status={invite.inviteStatus}
+                  />
+                  <div className="flex flex-wrap justify-end gap-2" style={{ paddingBottom: 12 }}>
+                    <GhostButton
+                      onClick={() =>
+                        setConfirm({
+                          kind: 'resend',
+                          notionPageId: invite.notionPageId,
+                          name: invite.name,
+                          email: invite.email,
+                        })
+                      }
+                    >
+                      Resend
+                    </GhostButton>
+                    <GhostButton
+                      onClick={() =>
+                        setConfirm({
+                          kind: 'revoke',
+                          notionPageId: invite.notionPageId,
+                          name: invite.name,
+                          email: invite.email,
+                        })
+                      }
+                    >
+                      Revoke
+                    </GhostButton>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <div className="team-roster-table" style={{ border: '1px solid var(--border)', borderRadius: 'var(--radius)', overflow: 'auto' }}>
+              <table className="ds-data" style={{ minWidth: 640, width: '100%' }}>
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Status</th>
+                    <th />
                   </tr>
-                ))}
-                {roster.invites.map((invite) => (
-                  <tr key={invite.notionPageId}>
-                    <td>{invite.name}</td>
-                    <td>{invite.email}</td>
-                    <td>{invite.role}</td>
-                    <td>{invite.inviteStatus}</td>
-                    <td>
-                      <span className="flex flex-wrap gap-2">
-                        <GhostButton
-                          onClick={() =>
-                            setConfirm({
-                              kind: 'resend',
-                              notionPageId: invite.notionPageId,
-                              name: invite.name,
-                              email: invite.email,
-                            })
-                          }
-                        >
-                          Resend
-                        </GhostButton>
+                </thead>
+                <tbody>
+                  {shown.members.map((member) => (
+                    <tr key={member.notionPageId}>
+                      <td style={{ overflowWrap: 'anywhere' }}>{member.name}</td>
+                      <td style={{ overflowWrap: 'anywhere' }}>{member.email}</td>
+                      <td>{member.role}</td>
+                      <td>{member.portalAccess}</td>
+                      <td>
                         <GhostButton
                           onClick={() =>
                             setConfirm({
                               kind: 'revoke',
-                              notionPageId: invite.notionPageId,
-                              name: invite.name,
-                              email: invite.email,
+                              notionPageId: member.notionPageId,
+                              name: member.name,
+                              email: member.email,
                             })
                           }
                         >
-                          Revoke
+                          Remove
                         </GhostButton>
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                {roster.members.length === 0 && roster.invites.length === 0 && (
-                  <tr>
-                    <td colSpan={5} style={{ color: 'var(--muted)' }}>
-                      No teammates yet.
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
+                      </td>
+                    </tr>
+                  ))}
+                  {shown.invites.map((invite) => (
+                    <tr key={invite.notionPageId}>
+                      <td style={{ overflowWrap: 'anywhere' }}>{invite.name}</td>
+                      <td style={{ overflowWrap: 'anywhere' }}>{invite.email}</td>
+                      <td>{invite.role}</td>
+                      <td>{invite.inviteStatus}</td>
+                      <td>
+                        <span className="flex flex-wrap gap-2">
+                          <GhostButton
+                            onClick={() =>
+                              setConfirm({
+                                kind: 'resend',
+                                notionPageId: invite.notionPageId,
+                                name: invite.name,
+                                email: invite.email,
+                              })
+                            }
+                          >
+                            Resend
+                          </GhostButton>
+                          <GhostButton
+                            onClick={() =>
+                              setConfirm({
+                                kind: 'revoke',
+                                notionPageId: invite.notionPageId,
+                                name: invite.name,
+                                email: invite.email,
+                              })
+                            }
+                          >
+                            Revoke
+                          </GhostButton>
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </>
         )}
       </div>
     </PortalTilePane>

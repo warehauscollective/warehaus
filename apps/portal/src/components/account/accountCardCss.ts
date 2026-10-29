@@ -15,7 +15,8 @@ export const ACCOUNT_CARD_CSS = `
   box-sizing: border-box;
 }
 .account-password-hint:focus-visible,
-.account-sign-out:focus-visible {
+.account-sign-out:focus-visible,
+.account-theme-toggle:focus-visible {
   outline: 2px solid var(--fg);
   outline-offset: 3px;
 }

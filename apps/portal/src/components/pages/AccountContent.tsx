@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TeamInvites } from '@/components/pages/TeamInvites';
+import { LONG_TEAM_EMAIL, LONG_TEAM_NAME, LONG_TEAM_ROLE, type TeamScreen } from '@/components/account/teamStates';
 import { PortalCheckbox, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { AccountProfile } from '@/components/account/AccountProfile';
@@ -112,6 +113,8 @@ export function AccountContent() {
   const teamTrail = clientTeamCrumbs(teamPhone);
   const [docsPreview, setDocsPreview] = useState<string | null>(null);
   const [clientScreen, setClientScreen] = useState<ClientScreen>('ready');
+  const [teamScreen, setTeamScreen] = useState<TeamScreen>('ready');
+  const [teamAttempt, setTeamAttempt] = useState(0);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -119,6 +122,15 @@ export function AccountContent() {
     if (client) setClientId(client);
     if (params.get('team') === '1') setShowTeam(true);
     if (params.get('docs') === 'states') setDocsPreview('states');
+    const teamState = params.get('teamState');
+    if (
+      teamState === 'empty' ||
+      teamState === 'loading' ||
+      teamState === 'error' ||
+      teamState === 'long'
+    ) {
+      setTeamScreen(teamState);
+    }
     const clients = params.get('clients');
     if (
       clients === 'empty' ||
@@ -206,6 +218,14 @@ export function AccountContent() {
       : SECTION_TITLE[activeSection] ?? 'Account';
   const titleLines = longClient && (clientOpen || (companyOpen && !showTeam)) ? 2 : 1;
   const showNewClient = isStaff && activeSection === 'clients' && !selected && docsPreview !== 'states';
+  const retryTeam = () => {
+    if (fixtures) {
+      setTeamScreen('ready');
+      return;
+    }
+    setTeamAttempt((attempt) => attempt + 1);
+  };
+  const teamPreview: TeamScreen = showTeam ? teamScreen : 'ready';
   const retryClientScreen = () => {
     if (fixtures) {
       setClientScreen('ready');
@@ -382,13 +402,21 @@ export function AccountContent() {
             projects={companyProjects}
             tasks={clientTasks(tasks, projects, portalSession?.orgId)}
             docs={companyDocs}
-            people={contacts.filter(clientVisiblePerson).map((person) => withoutClientLeaks(person)) as ClientPersonRow[]}
+            people={(
+              teamPreview === 'empty' || teamPreview === 'error'
+                ? []
+                : (contacts.filter(clientVisiblePerson) as ClientPersonRow[])
+            ).map((person, index) =>
+              teamPreview === 'long' && index === 0
+                ? { ...withoutClientLeaks(person), name: LONG_TEAM_NAME, email: LONG_TEAM_EMAIL, role: LONG_TEAM_ROLE }
+                : withoutClientLeaks(person),
+            ) as ClientPersonRow[]}
             showTeam={showTeam}
             onShowTeam={() => setShowTeam(true)}
             onOpenTask={(taskId) => openPortalHref(`/tasks/${taskId}`)}
             onBack={() => setShowTeam(false)}
-            loading={companyLoading}
-            error={companyError}
+            loading={companyLoading || teamPreview === 'loading'}
+            error={teamPreview === 'error' ? 'Could not save your settings' : companyError}
             onRetry={retryClientScreen}
           />
         </PortalTilePane>
@@ -419,7 +447,14 @@ export function AccountContent() {
       )}
 
       {isStaff && activeSection === 'team' && (
-        <TeamInvites hostSlug={hostSlug} configured={configured && !fixtures} fixtures={fixtures} />
+        <TeamInvites
+          key={teamAttempt}
+          hostSlug={hostSlug}
+          configured={configured && !fixtures}
+          fixtures={fixtures}
+          screen={teamScreen}
+          onRetry={retryTeam}
+        />
       )}
     </PortalWorkspace>
   );

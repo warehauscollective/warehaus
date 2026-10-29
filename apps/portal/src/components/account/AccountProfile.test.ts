@@ -40,6 +40,8 @@ describe('profile role line', () => {
     assert.equal(staff.includes('Theme for this device'), false);
     assert.equal(staff.includes('Lives only in Account'), false);
     assert.match(staff, /data-testid="account-theme-pending"/);
+    assert.match(staff, /data-testid="account-theme-label"[\s\S]*?visibility:hidden[\s\S]*?>Light</);
+    assert.match(staff, /\.account-theme-toggle:focus-visible/);
     assert.equal(staff.includes('role="switch"'), false);
     assert.match(staff, /class="account-sign-out[^"]*"/);
     assert.match(staff, /\.account-sign-out \{\s*width: 100%;/);

@@ -124,6 +124,53 @@ describe('client team page', () => {
     assert.equal(html.includes('No portal access'), false);
   });
 
+  it('shows the client empty, loading, and error states without a retry button', () => {
+    const empty = teamMarkup([]);
+    assert.match(empty, /data-testid="client-team-empty"/);
+    assert.match(empty, /No teammates yet/);
+    assert.match(empty, /Client Admins can invite Client Members from the Team page/);
+    assert.equal(empty.includes('Invite someone'), false);
+    assert.equal(empty.includes('No people shared yet'), false);
+
+    const loading = renderToStaticMarkup(
+      createElement(ClientCompany, {
+        name: 'Northwind',
+        projects: [],
+        tasks,
+        docs: [],
+        people: [],
+        showTeam: true,
+        onShowTeam: () => {},
+        onOpenTask: () => {},
+        onBack: () => {},
+        loading: true,
+      }),
+    );
+    assert.equal(loading.match(/data-testid="team-skeleton-row"/g)?.length, 3);
+    assert.match(loading, /data-testid="client-team-loading"/);
+    assert.equal(loading.includes('client-team-invite'), false);
+
+    const failed = renderToStaticMarkup(
+      createElement(ClientCompany, {
+        name: 'Northwind',
+        projects: [],
+        tasks,
+        docs: [],
+        people: [],
+        showTeam: true,
+        onShowTeam: () => {},
+        onOpenTask: () => {},
+        onBack: () => {},
+        error: 'Could not save your settings',
+      }),
+    );
+    assert.match(failed, /data-testid="client-team-notice"/);
+    assert.match(failed, /Could not save your settings/);
+    assert.match(failed, /Check your connection and try again/);
+    assert.equal(failed.includes('Try again'), false);
+    assert.equal(failed.includes('team-try-again'), false);
+  });
+
   it('stacks company and staff stat cards and keeps project marks square', () => {
     const company = renderToStaticMarkup(
       createElement(ClientCompany, {
@@ -185,8 +232,9 @@ describe('client team page', () => {
     assert.equal(detail.includes('md:grid-cols-[minmax(0,1fr)_176px_80px_auto'), false);
     assert.match(detail, /data-testid="client-task-title"[^>]*class="block lg:truncate"/);
     assert.match(detail, /data-testid="client-task-pills"[^>]*class="[^"]*w-full[^"]*lg:w-auto/);
-    assert.match(detail, /data-testid="client-task-publish"[^>]*class="[^"]*inline-flex[^"]*flex-nowrap[^"]*"/);
-    assert.match(detail, /data-testid="client-task-publish"[\s\S]*?>Design<\/span>[\s\S]*?Published/);
+    assert.match(detail, /data-testid="client-task-publish">/);
+    assert.equal(/data-testid="client-task-publish"[^>]*flex-nowrap/.test(detail), false);
+    assert.match(detail, />Design<\/span>[\s\S]*?data-testid="client-task-publish"[\s\S]*?Published/);
     assert.match(detail, /lg:flex-nowrap/);
     assert.match(detail, /client-chev.svg/);
     assert.match(detail, /class="shrink-0 opacity-70 hidden lg:block"/);
