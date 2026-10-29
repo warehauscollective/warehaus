@@ -477,7 +477,7 @@ function AwaitingPanel({
               >
                 <span className="min-w-0 truncate">{row.meta}</span>
                 {row.when ? (
-                  <span className="shrink-0" data-testid="awaiting-meta-when">{` · ${row.when}`}</span>
+                  <span className="shrink-0" data-testid="awaiting-meta-when">{`\u00a0· ${row.when}`}</span>
                 ) : null}
               </span>
               <span className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">

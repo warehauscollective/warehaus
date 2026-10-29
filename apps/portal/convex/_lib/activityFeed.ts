@@ -38,6 +38,15 @@ export type FeedActivity = {
   tone?: string;
   timestamp: number;
   projectId?: string;
+  /**
+   * Filter lane. Independent of `type`, which is what client visibility checks.
+   * A published project event can still count as a resource or a person.
+   */
+  lane?: 'tasks' | 'resources' | 'people' | 'sync';
+  /** Client title. Staff rows keep `name`. */
+  clientName?: string;
+  /** Client meta. Staff rows keep `summary`. Still passed through the client strip. */
+  clientSummary?: string;
 };
 
 export type FeedAudit = {
@@ -68,6 +77,8 @@ export type ActivityFeedItem = {
   timestamp: string;
   projectId: string | null;
   taskId: string | null;
+  /** Filter lane. Omitted when the row has no explicit lane. */
+  lane?: 'tasks' | 'resources' | 'people' | 'sync';
   /** Staff feed only. True when the client feed includes this same id. */
   clientVisible?: boolean;
 };
@@ -196,6 +207,29 @@ function clientAuditItem(
   };
 }
 
+/** Client meta keeps the person (or other public segment) and drops internal fields. */
+function clientDetailLeaks(segment: string): boolean {
+  return (
+    /source\s*:/i.test(segment) ||
+    /invite[\s-]*pending/i.test(segment) ||
+    /invite-status/i.test(segment) ||
+    /\blastError\b/i.test(segment) ||
+    /\berror\b/i.test(segment) ||
+    /\bfailed\b/i.test(segment) ||
+    /\bconflict\b/i.test(segment) ||
+    /^system$/i.test(segment) ||
+    /^sync\b/i.test(segment)
+  );
+}
+
+export function clientSafeSummary(summary: string): string {
+  return summary
+    .split(/\s*·\s*/)
+    .map((segment) => segment.trim())
+    .filter((segment) => segment.length > 0 && !clientDetailLeaks(segment))
+    .join(' · ');
+}
+
 function staffDetail(after?: string): string {
   const props = readProperties(after);
   if (!props) return sanitizeInlineText(after ?? '').slice(0, 180);
@@ -234,15 +268,17 @@ export function buildActivityFeed(input: {
       orgVisible: input.orgVisible,
     });
     if (input.audience === 'client' && !clientVisible) continue;
+    const staffSummary = row.summary ?? '';
     items.push({
       id: row._id,
-      name: row.name,
-      summary: row.summary ?? '',
+      name: input.audience === 'client' && row.clientName ? row.clientName : row.name,
+      summary: input.audience === 'client' ? clientSafeSummary(row.clientSummary ?? staffSummary) : staffSummary,
       type: row.type,
       tone: row.tone ?? 'muted',
       timestamp: new Date(row.timestamp).toISOString(),
       projectId: row.projectId ?? null,
       taskId: null,
+      ...(row.lane ? { lane: row.lane } : {}),
       ...(input.audience === 'staff' ? { clientVisible } : {}),
     });
   }
@@ -263,7 +299,7 @@ export function buildActivityFeed(input: {
     if (input.audience === 'client') {
       if (!clientVisible) continue;
       const item = clientAuditItem(audit, task, project);
-      if (item) items.push(item);
+      if (item) items.push({ ...item, summary: clientSafeSummary(item.summary) });
       continue;
     }
     if (audit.action.startsWith('invite.')) continue;

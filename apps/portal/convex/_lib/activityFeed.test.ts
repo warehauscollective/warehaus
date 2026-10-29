@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   buildActivityFeed,
+  clientSafeSummary,
   type FeedActivity,
   type FeedAudit,
   type FeedOutbox,
@@ -71,6 +72,101 @@ const audits: FeedAudit[] = [
     createdAt: 10,
   },
 ];
+
+describe('client activity copy', () => {
+  it('strips source, invite status, and error text and keeps client wording', () => {
+    const feed = buildActivityFeed({
+      audience: 'client',
+      orgVisible: true,
+      activity: [
+        {
+          _id: 'home',
+          name: 'Homepage wireframes moved to Awaiting Go',
+          summary: 'Maya Chen · Northwind · Source: Notion',
+          clientName: 'Homepage wireframes are ready for your review',
+          clientSummary: 'Maya Chen',
+          type: 'project',
+          lane: 'tasks',
+          timestamp: 50,
+          projectId: 'proj-public',
+        },
+        {
+          _id: 'invite',
+          name: 'Jordan Rivera invited to Northwind',
+          summary: 'Dana Okafor · invite pending',
+          clientName: 'Jordan Rivera joined your team',
+          clientSummary: 'Dana Okafor',
+          type: 'project',
+          lane: 'people',
+          timestamp: 40,
+          projectId: 'proj-public',
+        },
+        {
+          _id: 'leaky',
+          name: 'Brand guidelines v2 shipped',
+          summary: 'Sam Lee · Source: Notion · invite-status · lastError: write failed',
+          type: 'project',
+          lane: 'resources',
+          timestamp: 30,
+          projectId: 'proj-public',
+        },
+      ],
+      audits: [],
+      outbox: [
+        {
+          _id: 'out-secret',
+          kind: 'task-status',
+          status: 'conflict',
+          database: 'tasks',
+          lastError: 'write conflict',
+          createdAt: 10,
+        },
+      ],
+      projects: [project],
+      tasks: [],
+    });
+    const staff = buildActivityFeed({
+      audience: 'staff',
+      orgVisible: true,
+      activity: [
+        {
+          _id: 'home',
+          name: 'Homepage wireframes moved to Awaiting Go',
+          summary: 'Maya Chen · Northwind · Source: Notion',
+          clientName: 'Homepage wireframes are ready for your review',
+          clientSummary: 'Maya Chen',
+          type: 'project',
+          timestamp: 50,
+          projectId: 'proj-public',
+        },
+      ],
+      audits: [],
+      outbox: [],
+      projects: [project],
+      tasks: [],
+    });
+
+    assert.equal(feed.find((item) => item.id === 'home')?.name, 'Homepage wireframes are ready for your review');
+    assert.equal(feed.find((item) => item.id === 'home')?.summary, 'Maya Chen');
+    assert.equal(feed.find((item) => item.id === 'invite')?.name, 'Jordan Rivera joined your team');
+    assert.equal(feed.find((item) => item.id === 'invite')?.summary, 'Dana Okafor');
+    assert.equal(feed.find((item) => item.id === 'leaky')?.summary, 'Sam Lee');
+    assert.equal(feed.some((item) => item.id === 'out-secret'), false);
+    assert.equal(staff.find((item) => item.id === 'home')?.summary.includes('Source: Notion'), true);
+    assert.equal(staff.find((item) => item.id === 'home')?.name.includes('Awaiting Go'), true);
+
+    const blob = JSON.stringify(feed);
+    assert.equal(/Source:|invite pending|invite-status|lastError/i.test(blob), false);
+    for (const item of feed) {
+      for (const key of Object.keys(item)) {
+        assert.equal(/source|invite-status|^error$|lastError/i.test(key), false, key);
+      }
+    }
+    assert.equal(clientSafeSummary('Maya Chen · Source: Notion'), 'Maya Chen');
+    assert.equal(clientSafeSummary('Dana Okafor · invite pending'), 'Dana Okafor');
+    assert.equal(clientSafeSummary('System · 1 write to Notion failed'), '');
+  });
+});
 
 describe('client activity feed', () => {
   it('drops a task-type row and an unpublished task audit', () => {

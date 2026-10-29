@@ -5,11 +5,11 @@
  * flag that helper sets. "Not published" is a staff display filter on that flag.
  */
 
-import { formatPortalDate } from '@/lib/data/view-models';
-
 export type ActivityAudience = 'staff' | 'client';
 
 export type ActivityFilter = 'all' | 'tasks' | 'resources' | 'sync' | 'unpublished';
+
+export type ActivityLane = 'tasks' | 'resources' | 'people' | 'sync';
 
 export type ActivityInputItem = {
   id: string;
@@ -17,6 +17,8 @@ export type ActivityInputItem = {
   summary: string;
   type: string;
   timestamp: string;
+  /** Filter lane from the feed. Visibility stays on `type` / clientVisible. */
+  lane?: ActivityLane;
   /** Staff feed only. Omitted on the client feed. */
   clientVisible?: boolean;
 };
@@ -27,6 +29,7 @@ export type ActivityRow = {
   summary: string;
   when: string;
   type: string;
+  lane: ActivityLane | 'other';
   /** Staff rows only. */
   published?: boolean;
 };
@@ -116,33 +119,69 @@ export const ACTIVITY_LONG_PREVIEW: Record<
   },
 };
 
-function bucket(type: string): 'tasks' | 'resources' | 'sync' | 'other' {
-  if (type === 'task' || type === 'project') return 'tasks';
-  if (type === 'resource') return 'resources';
-  return type === 'sync' || type === 'exception' ? 'sync' : 'other';
+const WEEKDAY: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 };
+
+function laneOf(item: ActivityInputItem): ActivityRow['lane'] {
+  if (item.lane === 'tasks' || item.lane === 'resources' || item.lane === 'people' || item.lane === 'sync') {
+    return item.lane;
+  }
+  if (item.type === 'task' || item.type === 'project') return 'tasks';
+  if (item.type === 'resource') return 'resources';
+  if (item.type === 'sync' || item.type === 'exception') return 'sync';
+  return 'other';
 }
 
-function utcDay(ms: number): number {
-  return Math.floor(ms / DAY);
+function zoneOrUtc(timeZone: string): string {
+  try {
+    Intl.DateTimeFormat('en-US', { timeZone });
+    return timeZone;
+  } catch {
+    return 'UTC';
+  }
 }
 
-function weekStartDay(ms: number): number {
-  return utcDay(ms) - new Date(ms).getUTCDay();
+function viewerZone(timeZone?: string): string {
+  if (timeZone) return zoneOrUtc(timeZone);
+  const local = Intl.DateTimeFormat().resolvedOptions().timeZone;
+  return zoneOrUtc(local || 'UTC');
 }
 
-function groupOf(ms: number, now: number): ActivityGroup['key'] {
-  const day = utcDay(ms);
-  const today = utcDay(now);
-  if (day === today) return 'today';
-  if (day === today - 1) return 'yesterday';
-  if (weekStartDay(ms) === weekStartDay(now)) return 'week';
+/** Calendar day in `timeZone`, not UTC. Weekday is Sunday = 0. */
+function localDay(ms: number, timeZone: string): { index: number; weekday: number } {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    weekday: 'short',
+  }).formatToParts(new Date(ms));
+  const read = (type: Intl.DateTimeFormatPartTypes) => parts.find((part) => part.type === type)?.value ?? '';
+  const year = Number(read('year'));
+  const month = Number(read('month'));
+  const day = Number(read('day'));
+  return {
+    index: Math.floor(Date.UTC(year, month - 1, day) / DAY),
+    weekday: WEEKDAY[read('weekday')] ?? 0,
+  };
+}
+
+function groupOf(ms: number, now: number, timeZone: string): ActivityGroup['key'] {
+  const day = localDay(ms, timeZone);
+  const today = localDay(now, timeZone);
+  if (day.index === today.index) return 'today';
+  if (day.index === today.index - 1) return 'yesterday';
+  if (day.index - day.weekday === today.index - today.weekday) return 'week';
   return 'earlier';
 }
 
-function whenLabel(iso: string, now: number): string {
+function formatLocalDate(ms: number, timeZone: string): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone }).format(new Date(ms));
+}
+
+function whenLabel(iso: string, now: number, timeZone: string): string {
   const time = Date.parse(iso);
   if (Number.isNaN(time)) return '';
-  if (utcDay(time) !== utcDay(now)) return formatPortalDate(iso);
+  if (localDay(time, timeZone).index !== localDay(now, timeZone).index) return formatLocalDate(time, timeZone);
   const minutes = Math.max(0, Math.round((now - time) / 60000));
   if (minutes < 1) return 'now';
   if (minutes < 60) return `${minutes}m ago`;
@@ -170,13 +209,14 @@ function heading(audience: ActivityAudience, filter: ActivityFilter, clientName?
   return { title, subtitle };
 }
 
-function toRow(item: ActivityInputItem, audience: ActivityAudience, now: number): ActivityRow {
+function toRow(item: ActivityInputItem, audience: ActivityAudience, now: number, timeZone: string): ActivityRow {
   const row: ActivityRow = {
     id: item.id,
     name: item.name,
     summary: item.summary,
-    when: whenLabel(item.timestamp, now),
+    when: whenLabel(item.timestamp, now, timeZone),
     type: item.type,
+    lane: laneOf(item),
   };
   if (audience === 'staff') row.published = item.clientVisible === true;
   return row;
@@ -188,7 +228,7 @@ function matches(item: ActivityInputItem, filter: ActivityFilter, audience: Acti
     if (audience !== 'staff') return true;
     return item.clientVisible !== true;
   }
-  return bucket(item.type) === filter;
+  return laneOf(item) === filter;
 }
 
 export function buildActivityView(input: {
@@ -196,8 +236,11 @@ export function buildActivityView(input: {
   items: readonly ActivityInputItem[];
   filter: ActivityFilter;
   now: number;
+  /** IANA zone for Today / Yesterday. Tests pass this so the clock stays fixed. */
+  timeZone?: string;
   clientName?: string | null;
 }): ActivityView {
+  const timeZone = viewerZone(input.timeZone);
   const filter = activityFiltersFor(input.audience).includes(input.filter) ? input.filter : 'all';
   const ordered = [...input.items].sort(
     (a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0),
@@ -209,13 +252,13 @@ export function buildActivityView(input: {
   }));
   const rows = ordered
     .filter((item) => matches(item, filter, input.audience))
-    .map((item) => toRow(item, input.audience, input.now));
+    .map((item) => toRow(item, input.audience, input.now, timeZone));
   const grouped = new Map<ActivityGroup['key'], ActivityRow[]>();
   for (const item of ordered.filter((row) => matches(row, filter, input.audience))) {
     const time = Date.parse(item.timestamp);
-    const key = Number.isNaN(time) ? 'earlier' : groupOf(time, input.now);
+    const key = Number.isNaN(time) ? 'earlier' : groupOf(time, input.now, timeZone);
     const list = grouped.get(key) ?? [];
-    list.push(toRow(item, input.audience, input.now));
+    list.push(toRow(item, input.audience, input.now, timeZone));
     grouped.set(key, list);
   }
   const groups = (['today', 'yesterday', 'week', 'earlier'] as const)
@@ -238,5 +281,35 @@ export function buildActivityView(input: {
     groups,
     rows,
     total: ordered.length,
+  };
+}
+
+/** Long-text preview row. Chip counts stay equal to the rows on screen. */
+export function withActivityLongPreview(view: ActivityView, filter: ActivityFilter): ActivityView {
+  const sample = ACTIVITY_LONG_PREVIEW[view.audience];
+  const row: ActivityRow = {
+    id: 'long-text',
+    name: sample.name,
+    summary: sample.summary,
+    when: '2h ago',
+    type: 'project',
+    lane: 'tasks',
+    ...(view.audience === 'staff' ? { published: sample.published === true } : {}),
+  };
+  const filters = view.filters.map((chip) =>
+    chip.key === 'all' || chip.key === 'tasks' ? { ...chip, count: chip.count + 1 } : chip,
+  );
+  const show = filter === 'all' || filter === 'tasks';
+  if (!show) return { ...view, filters, total: view.total + 1 };
+  const groups = view.groups.map((group) => ({ ...group, rows: [...group.rows] }));
+  const today = groups.find((group) => group.key === 'today');
+  if (today) today.rows = [row, ...today.rows];
+  else groups.unshift({ key: 'today', label: GROUP_LABEL.today, countLabel: '', rows: [row] });
+  return {
+    ...view,
+    filters,
+    groups: groups.map((group) => ({ ...group, countLabel: eventCount(group.rows.length) })),
+    rows: [row, ...view.rows],
+    total: view.total + 1,
   };
 }

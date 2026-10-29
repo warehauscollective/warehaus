@@ -1,26 +1,20 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '@convex/_generated/api';
 import { ActivityFeedRow } from '@/components/activity/ActivityFeedRow';
+import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
-import { Surface } from '@/components/ui/primitives';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
-import { useSafeQuery } from '@/hooks/useSafeQuery';
-import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
-import { isConvexConfigured } from '@/lib/convex/client';
 import {
-  ACTIVITY_LONG_PREVIEW,
   CLIENT_ACTIVITY_ERROR,
   STAFF_ACTIVITY_ERROR,
   activityEmptyCopy,
   buildActivityView,
+  withActivityLongPreview,
   type ActivityFilter,
-  type ActivityGroup,
-  type ActivityRow,
 } from '@/lib/data/activity';
 import { FIXTURE_CLIENT_ACTIVITY_PAGE, FIXTURE_STAFF_ACTIVITY_PAGE } from '@/lib/data/fixtures';
 import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
@@ -46,29 +40,6 @@ function filterForSection(section: string, staff: boolean): ActivityFilter {
   return 'all';
 }
 
-function withLongRow(groups: readonly ActivityGroup[], staff: boolean): ActivityGroup[] {
-  const sample = staff ? ACTIVITY_LONG_PREVIEW.staff : ACTIVITY_LONG_PREVIEW.client;
-  const row: ActivityRow = {
-    id: 'long-text',
-    name: sample.name,
-    summary: sample.summary,
-    when: '2h ago',
-    type: 'project',
-    ...(staff ? { published: sample.published === true } : {}),
-  };
-  const next = groups.map((group) => ({ ...group, rows: [...group.rows] }));
-  const today = next.find((group) => group.key === 'today');
-  if (today) {
-    today.rows.unshift(row);
-    today.countLabel = `${today.rows.length} events`;
-    return next;
-  }
-  return [
-    { key: 'today', label: 'Today', countLabel: '1 event', rows: [row] },
-    ...next,
-  ];
-}
-
 export function ActivityContent() {
   const { sectionFor, setSectionFor, openDetail } = usePortalView();
   const { data } = usePortalData();
@@ -84,15 +55,6 @@ export function ActivityContent() {
     setFilter(filterForSection(section, staff));
   }, [section, staff]);
 
-  const configured = isConvexConfigured();
-  const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
-  const notices = useSafeQuery<
-    Array<{ id: string; message: string; createdAt: number; edgeCase?: string | null }>
-  >(
-    api.invitesSync.listStaffNotices,
-    configured && staff && !fixtures && section === 'invite-notices' ? { hostSlug } : 'skip',
-  );
-
   const source = fixtures
     ? staff
       ? FIXTURE_STAFF_ACTIVITY_PAGE
@@ -107,13 +69,14 @@ export function ActivityContent() {
         items: preview === 'empty' || failed || busy ? [] : source,
         filter,
         now: Date.now(),
+        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         clientName: data.tenant.clientName,
       }),
     [staff, preview, failed, busy, source, filter, data.tenant.clientName],
   );
-  const groups = preview === 'long' ? withLongRow(model.groups, staff) : model.groups;
+  const shown = preview === 'long' ? withActivityLongPreview(model, filter) : model;
+  const groups = shown.groups;
   const empty = activityEmptyCopy(staff ? 'staff' : 'client');
-  const showFeed = section !== 'invite-notices';
   const eyebrow = staff
     ? tenantEyebrow(data.tenant, 'Activity')
     : `● ${data.tenant.clientName ?? 'Portal'} · Activity`;
@@ -121,8 +84,7 @@ export function ActivityContent() {
   return (
     <PortalWorkspace eyebrow={eyebrow} title="Activity">
       <PortalTilePane>
-        {showFeed ? (
-          <section
+        <section
             data-testid="activity-feed"
             data-audience={staff ? 'staff' : 'client'}
             data-state={preview ?? (busy ? 'loading' : failed ? 'error' : groups.length === 0 ? 'empty' : 'ready')}
@@ -151,7 +113,7 @@ export function ActivityContent() {
                   {model.subtitle}
                 </p>
                 <div className="mt-6 flex flex-wrap gap-2">
-                  {model.filters.map((chip) => {
+                  {shown.filters.map((chip) => {
                     const active = chip.key === filter;
                     return (
                       <button
@@ -220,7 +182,9 @@ export function ActivityContent() {
                               name={row.name}
                               summary={row.summary}
                               when={row.when}
+                              lane={row.lane}
                               published={row.published}
+                              stackMark={row.id === 'long-text'}
                             />
                           </button>
                         ))}
@@ -231,23 +195,6 @@ export function ActivityContent() {
               </>
             )}
           </section>
-        ) : (
-          <div className="flex flex-col gap-3">
-            {notices.loading ? <p style={{ fontSize: 14, color: 'var(--muted)' }}>Loading notices…</p> : null}
-            {notices.data?.length === 0 ? (
-              <p style={{ fontSize: 14, color: 'var(--muted)' }}>No invite notices.</p>
-            ) : null}
-            {notices.data?.map((notice) => (
-              <Surface key={notice.id} style={{ padding: 24 }}>
-                <p style={{ fontSize: 14, lineHeight: '21px', margin: 0 }}>{notice.message}</p>
-                <p className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)', margin: '8px 0 0' }}>
-                  {new Date(notice.createdAt).toLocaleString('en-US')}
-                  {notice.edgeCase ? ` · ${notice.edgeCase}` : ''}
-                </p>
-              </Surface>
-            ))}
-          </div>
-        )}
       </PortalTilePane>
     </PortalWorkspace>
   );
@@ -264,11 +211,9 @@ function EmptyState({ title, body }: { title: string; body: string }) {
         background: 'var(--bg)',
       }}
     >
-      <span
-        aria-hidden
-        className="inline-block h-2 w-2 rounded-full"
-        style={{ background: 'var(--muted)' }}
-      />
+      <span aria-hidden className="inline-flex" style={{ color: 'var(--faint)' }}>
+        <TaskGlyph src="/icons/activity-row.svg" size={28} />
+      </span>
       <p style={{ fontSize: 16, fontWeight: 500 }}>{title}</p>
       <p style={{ fontSize: 13, lineHeight: '19px', color: 'var(--muted)', maxWidth: 360 }}>{body}</p>
     </div>

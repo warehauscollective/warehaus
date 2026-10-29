@@ -9,7 +9,7 @@ import {
   type FeedProject,
   type FeedTask,
 } from '../../../convex/_lib/activityFeed';
-import { buildActivityView, activityFiltersFor } from './activity';
+import { buildActivityView, activityFiltersFor, withActivityLongPreview } from './activity';
 
 const NOW = Date.parse('2026-10-29T16:00:00Z');
 const HOUR = 60 * 60 * 1000;
@@ -232,6 +232,7 @@ describe('activity view model', () => {
       items: staffFeed,
       filter: 'all',
       now: NOW,
+      timeZone: 'UTC',
     });
     const today = view.groups.find((group) => group.key === 'today');
     const yesterday = view.groups.find((group) => group.key === 'yesterday');
@@ -240,6 +241,78 @@ describe('activity view model', () => {
     assert.match(today.countLabel, /events/);
     assert.equal(today.rows[0]?.when.endsWith('ago') || today.rows[0]?.when === 'now', true);
     assert.match(yesterday.rows[0]?.when ?? '', /^[A-Z][a-z]{2} \d{1,2}$/);
+  });
+
+  it('keeps 8:30pm America/New_York on that local calendar day', () => {
+    const zone = 'America/New_York';
+    // 00:30Z on Oct 30 is 8:30pm EDT on Oct 29. UTC would already be the next day.
+    const now = Date.parse('2026-10-30T00:30:00.000Z');
+    const afternoon = Date.parse('2026-10-29T19:00:00.000Z');
+    const items = [
+      {
+        id: 'afternoon',
+        name: 'Homepage wireframes are ready for your review',
+        summary: 'Maya Chen',
+        type: 'project',
+        timestamp: new Date(afternoon).toISOString(),
+        clientVisible: true,
+      },
+      {
+        id: 'evening',
+        name: 'Brand guidelines v2 shared',
+        summary: 'Sam Lee',
+        type: 'project',
+        timestamp: new Date(now).toISOString(),
+        clientVisible: true,
+      },
+    ];
+    const local = buildActivityView({
+      audience: 'client',
+      items,
+      filter: 'all',
+      now,
+      timeZone: zone,
+    });
+    assert.deepEqual(
+      local.groups.map((group) => group.key),
+      ['today'],
+    );
+    assert.equal(local.groups[0]?.rows.every((row) => row.when.endsWith('ago') || row.when === 'now'), true);
+    const utc = buildActivityView({
+      audience: 'client',
+      items,
+      filter: 'all',
+      now,
+      timeZone: 'UTC',
+    });
+    assert.equal(utc.groups.some((group) => group.key === 'today' && group.rows.some((row) => row.id === 'afternoon')), false);
+    assert.equal(utc.groups.some((group) => group.key === 'yesterday' && group.rows.some((row) => row.id === 'afternoon')), true);
+  });
+
+  it('counts chips from the same lanes as the rows', () => {
+    const items = [
+      { id: 'task', name: 'Homepage', summary: 'Maya Chen', type: 'project', lane: 'tasks' as const, timestamp: new Date(NOW).toISOString(), clientVisible: true },
+      { id: 'brand', name: 'Brand guidelines v2 shipped', summary: 'Sam Lee', type: 'project', lane: 'resources' as const, timestamp: new Date(NOW - HOUR).toISOString(), clientVisible: true },
+      { id: 'invite', name: 'Jordan Rivera joined your team', summary: 'Dana Okafor', type: 'project', lane: 'people' as const, timestamp: new Date(NOW - 2 * HOUR).toISOString(), clientVisible: true },
+      { id: 'sync', name: 'Sync retry queued', summary: 'System', type: 'sync', lane: 'sync' as const, timestamp: new Date(NOW - 3 * HOUR).toISOString(), clientVisible: false },
+    ];
+    const all = buildActivityView({ audience: 'staff', items, filter: 'all', now: NOW, timeZone: 'UTC' });
+    const tasks = buildActivityView({ audience: 'staff', items, filter: 'tasks', now: NOW, timeZone: 'UTC' });
+    const resources = buildActivityView({ audience: 'staff', items, filter: 'resources', now: NOW, timeZone: 'UTC' });
+    const chip = (view: typeof all, key: string) => view.filters.find((item) => item.key === key)?.count;
+    assert.equal(chip(all, 'all'), all.rows.length);
+    assert.equal(chip(tasks, 'tasks'), tasks.rows.length);
+    assert.equal(chip(resources, 'resources'), resources.rows.length);
+    assert.deepEqual(tasks.rows.map((row) => row.id), ['task']);
+    assert.deepEqual(resources.rows.map((row) => row.id), ['brand']);
+    assert.equal(tasks.rows.some((row) => row.id === 'invite'), false);
+    assert.equal(chip(all, 'resources'), 1);
+    const long = withActivityLongPreview(all, 'all');
+    assert.equal(long.filters.find((item) => item.key === 'all')?.count, long.rows.length);
+    assert.equal(
+      long.groups.reduce((sum, group) => sum + group.rows.length, 0),
+      long.rows.length,
+    );
   });
 
   it('does not collect an unbounded activity table', () => {

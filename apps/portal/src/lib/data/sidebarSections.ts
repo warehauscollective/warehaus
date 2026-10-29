@@ -30,7 +30,6 @@ const TEAM_SECTIONS: Record<PortalTab, PortalSidebarSection[]> = {
     { key: 'all', label: 'All activity' },
     { key: 'tasks', label: 'Tasks' },
     { key: 'sync', label: 'Sync' },
-    { key: 'invite-notices', label: 'Invite notices' },
   ],
   account: [
     { key: 'clients', label: 'Clients' },
