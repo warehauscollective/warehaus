@@ -139,7 +139,11 @@ export const getSnapshot = clientQuery({
             projectStatus: project?.status ?? null,
             projectEndDate: project?.endDate ?? null,
             ...(staff
-              ? { notionPageId: t.notionPageId, lastSyncedAt: t.lastSyncedAt }
+              ? {
+                  notionPageId: t.notionPageId,
+                  lastSyncedAt: t.lastSyncedAt,
+                  ...(t.stagePendingAt != null ? { stagePending: true as const } : {}),
+                }
               : {}),
           };
         }),

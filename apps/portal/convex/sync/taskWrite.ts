@@ -1,15 +1,15 @@
 /**
- * B1 calls this internal mutation from an adminMutation.
- * Staff-only: the public wrapper must be adminMutation.
- * A stage row stores the actor passed into enqueueStage.
- * It does not change the task row and it does not call Notion.
- * The outbox worker does that after the row is queued.
+ * Staff stage moves patch tasks.stage before any Notion write.
+ * notionOutbox is still the only Notion write. enqueueStage does not call Notion.
+ * When NOTION_WRITEBACK_ENABLED is not exactly "true", the stage is saved
+ * and no outbox row is inserted. enqueueStatus does not patch tasks.status.
  */
 
 import {
   planTaskCreate,
   planTaskDescriptionWrite,
   planTaskResourceWrite,
+  isNotionWritebackEnabled,
   isTaskStage,
   notionOnlyStageReason,
   planTaskStageWrite,
@@ -19,15 +19,75 @@ import {
   unstagedMoveAllowed,
   validateTaskStatusUpdate,
   type MoveActor,
+  type TaskWriteProperties,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internal } from '../_generated/api';
 import type { Id } from '../_generated/dataModel';
-import { internalMutation } from '../_generated/server';
+import { internalMutation, type MutationCtx } from '../_generated/server';
 
 type EnqueueStatusResult =
   | { ok: false; error: string }
   | { ok: true; outboxId: Id<'notionOutbox'>; duplicate: boolean };
+
+type StageEnqueueResult =
+  | { ok: false; error: string }
+  | { ok: true; pending: boolean; outboxId?: Id<'notionOutbox'>; duplicate?: boolean };
+
+function writebackOn(): boolean {
+  return isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED);
+}
+
+async function listTaskStageRows(ctx: MutationCtx, notionPageId: string) {
+  return ctx.db
+    .query('notionOutbox')
+    .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+    .collect();
+}
+
+/** Queued or failed task-stage rows. Leaves inflight, done, and conflict. */
+async function deleteUnsentTaskStageRows(
+  ctx: MutationCtx,
+  notionPageId: string,
+  keepKey?: string,
+): Promise<void> {
+  const rows = await listTaskStageRows(ctx, notionPageId);
+  for (const row of rows) {
+    if (row.kind !== 'task-stage') continue;
+    if (row.status !== 'queued' && row.status !== 'failed') continue;
+    if (keepKey && row.idempotencyKey === keepKey) continue;
+    await ctx.db.delete(row._id);
+  }
+}
+
+async function insertStageOutbox(
+  ctx: MutationCtx,
+  input: {
+    orgId: Id<'clients'>;
+    notionPageId: string;
+    properties: TaskWriteProperties;
+    idempotencyKey: string;
+    expectedLastEditedTime: string;
+    actor: MoveActor;
+    actorId?: string;
+  },
+): Promise<StageEnqueueResult> {
+  await deleteUnsentTaskStageRows(ctx, input.notionPageId, input.idempotencyKey);
+  const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
+    idempotencyKey: input.idempotencyKey,
+    kind: 'task-stage',
+    orgId: input.orgId,
+    database: 'tasks',
+    notionPageId: input.notionPageId,
+    expectedLastEditedTime: input.expectedLastEditedTime,
+    payload: JSON.stringify({ properties: input.properties }),
+    actor: stageOutboxActor(input.actor),
+    actorId: input.actorId,
+    schedule: true,
+  });
+  if (!queued.ok) return queued;
+  return { ok: true, pending: true, outboxId: queued.outboxId, duplicate: queued.duplicate };
+}
 
 export const enqueueStatus = internalMutation({
   args: {
@@ -75,16 +135,23 @@ export const enqueueStage = internalMutation({
     actorId: v.optional(v.string()),
     actor: v.optional(v.union(v.literal('staff'), v.literal('client'))),
   },
-  handler: async (ctx, args): Promise<EnqueueStatusResult> => {
+  handler: async (ctx, args): Promise<StageEnqueueResult> => {
     const actor: MoveActor = args.actor === 'client' ? 'client' : 'staff';
     const task = await ctx.db.get(args.taskId);
     if (!task) return { ok: false as const, error: 'Task not found' };
+    if (!args.expectedLastEditedTime) {
+      return { ok: false as const, error: 'Updates require the last read time' };
+    }
+    const baseEditedTime = typeof task.lastEditedTime === 'string' ? task.lastEditedTime : '';
+    if (!baseEditedTime) {
+      return { ok: false as const, error: 'Updates require the last read time' };
+    }
     const planned = planTaskStageWrite({
       actor,
       stage: args.stage,
       pullRequestLink: args.pullRequestLink,
       notionPageId: task.notionPageId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
+      expectedLastEditedTime: baseEditedTime,
     });
     if (!planned.ok) return { ok: false as const, error: planned.error };
     const currentStage = typeof task.stage === 'string' ? task.stage : '';
@@ -93,17 +160,42 @@ export const enqueueStage = internalMutation({
     if (!isTaskStage(currentStage) && !unstagedMoveAllowed(args.stage)) {
       return { ok: false as const, error: 'Tasks with no stage can move to Idea or Planning.' };
     }
-    return ctx.runMutation(internal.sync.outbox.enqueue, {
-      idempotencyKey: planned.idempotencyKey,
-      kind: 'task-stage',
+
+    const alreadyPending = typeof task.stagePendingAt === 'number';
+    const preMove = currentStage || null;
+    const synced = alreadyPending ? (task.stageSynced ?? null) : preMove;
+    const link = planned.properties['GitHub Issue/PR'];
+    await ctx.db.patch(task._id, {
+      stage: args.stage,
+      stagePendingAt: alreadyPending ? task.stagePendingAt : Date.now(),
+      stagePendingBaseEditedTime: baseEditedTime,
+      ...(alreadyPending ? {} : { stageSynced: synced }),
+      stagePendingPullRequest: typeof link === 'string' ? link : undefined,
+    });
+
+    if (args.stage === synced) {
+      const rows = await listTaskStageRows(ctx, task.notionPageId);
+      const inflight = rows.some((row) => row.kind === 'task-stage' && row.status === 'inflight');
+      if (!inflight) {
+        await ctx.db.patch(task._id, {
+          stagePendingAt: undefined,
+          stagePendingBaseEditedTime: undefined,
+          stagePendingPullRequest: undefined,
+        });
+        await deleteUnsentTaskStageRows(ctx, task.notionPageId);
+        return { ok: true, pending: false };
+      }
+    }
+
+    if (!writebackOn()) return { ok: true, pending: true };
+    return insertStageOutbox(ctx, {
       orgId: task.orgId,
-      database: 'tasks',
       notionPageId: task.notionPageId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-      payload: JSON.stringify({ properties: planned.properties }),
-      actor: stageOutboxActor(actor),
+      properties: planned.properties,
+      idempotencyKey: planned.idempotencyKey,
+      expectedLastEditedTime: baseEditedTime,
+      actor,
       actorId: args.actorId,
-      schedule: true,
     });
   },
 });
@@ -213,5 +305,42 @@ export const enqueueResources = internalMutation({
       actorId: args.actorId,
       schedule: true,
     });
+  },
+});
+
+/** Flag off inserts nothing. Flag on queues the latest pending stage once per task. */
+export const drainPendingStages = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    if (!writebackOn()) return { inserted: 0, reused: 0 };
+    const tasks = await ctx.db.query('tasks').collect();
+    let inserted = 0;
+    let reused = 0;
+    for (const task of tasks) {
+      if (typeof task.stagePendingAt !== 'number') continue;
+      const stage = typeof task.stage === 'string' ? task.stage : '';
+      const base = task.stagePendingBaseEditedTime ?? '';
+      if (!stage || !base) continue;
+      const planned = planTaskStageWrite({
+        actor: 'staff',
+        stage,
+        pullRequestLink: task.stagePendingPullRequest,
+        notionPageId: task.notionPageId,
+        expectedLastEditedTime: base,
+      });
+      if (!planned.ok) continue;
+      const queued = await insertStageOutbox(ctx, {
+        orgId: task.orgId,
+        notionPageId: task.notionPageId,
+        properties: planned.properties,
+        idempotencyKey: planned.idempotencyKey,
+        expectedLastEditedTime: base,
+        actor: 'staff',
+      });
+      if (!queued.ok) continue;
+      if (queued.duplicate) reused += 1;
+      else if (queued.outboxId) inserted += 1;
+    }
+    return { inserted, reused };
   },
 });

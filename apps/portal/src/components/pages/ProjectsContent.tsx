@@ -277,7 +277,10 @@ export function ProjectsContent() {
                   else router.push(`/tasks/${task.id}`);
                 }}
                 onMove={async (request) => {
-                  if (fixtures) return { ok: false, error: WRITEBACK_OFF_ERROR };
+                  if (fixtures) {
+                    if (request.mode === 'stage') return { ok: true, pending: true };
+                    return { ok: false, error: WRITEBACK_OFF_ERROR };
+                  }
                   if (!request.task.lastEditedTime) {
                     return { ok: false, error: 'This task has no Notion edit time yet. Nothing was sent.' };
                   }
@@ -295,7 +298,8 @@ export function ProjectsContent() {
                         status: request.value,
                         expectedLastEditedTime: request.task.lastEditedTime,
                       });
-                  return result.ok ? { ok: true } : { ok: false, error: result.error };
+                  if (!result.ok) return { ok: false, error: result.error };
+                  return { ok: true, pending: result.pending === true };
                 }}
                 onQuickAdd={async ({ name, status, stage }) => {
                   if (fixtures) return { ok: false, error: 'Fixture preview does not send tasks to Notion.' };

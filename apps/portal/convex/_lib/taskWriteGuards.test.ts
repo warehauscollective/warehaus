@@ -80,14 +80,21 @@ describe('enqueueStage actor', () => {
     _id: 'task-1',
     orgId: 'org-northwind',
     notionPageId: 'page-1',
+    lastEditedTime: '2026-10-28T00:00:00.000Z',
   };
 
   it('records the staff actor and actor id on the outbox call', async () => {
+    const previous = process.env.NOTION_WRITEBACK_ENABLED;
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
     const calls: Array<{ actor?: string; actorId?: string }> = [];
     const result = await run(
       enqueueStage,
       {
-        db: { get: async () => task },
+        db: {
+          get: async () => task,
+          patch: async () => undefined,
+          query: () => ({ withIndex: () => ({ collect: async () => [] }) }),
+        },
         runMutation: async (_ref: unknown, args: { actor?: string; actorId?: string }) => {
           calls.push(args);
           return { ok: true, outboxId: 'out-1', duplicate: false };
@@ -104,6 +111,8 @@ describe('enqueueStage actor', () => {
     assert.equal(result.ok, true);
     assert.equal(calls[0]?.actor, 'staff');
     assert.equal(calls[0]?.actorId, 'contact-staff');
+    if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+    else process.env.NOTION_WRITEBACK_ENABLED = previous;
   });
 
   it('does not queue a row when the actor is a client', async () => {
@@ -130,9 +139,15 @@ describe('enqueueStage actor', () => {
   });
 
   it('queues Idea or Planning from No stage yet and refuses every other stage', async () => {
+    const previous = process.env.NOTION_WRITEBACK_ENABLED;
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
     const calls: string[] = [];
     const ctx = {
-      db: { get: async () => task },
+      db: {
+        get: async () => task,
+        patch: async () => undefined,
+        query: () => ({ withIndex: () => ({ collect: async () => [] }) }),
+      },
       runMutation: async (_ref: unknown, args: { payload?: string }) => {
         calls.push(args.payload ?? '');
         return { ok: true, outboxId: 'out-1', duplicate: false };
@@ -150,9 +165,22 @@ describe('enqueueStage actor', () => {
     assert.equal(unknown.ok, false);
     const planning = await run(enqueueStage, ctx, { ...base, stage: 'Planning' });
     assert.equal(planning.ok, true);
-    const filed = await run(enqueueStage, { ...ctx, db: { get: async () => ({ ...task, stage: 'Idea' }) } }, { ...base, stage: 'Parked' });
+    const filed = await run(
+      enqueueStage,
+      {
+        ...ctx,
+        db: {
+          get: async () => ({ ...task, stage: 'Idea' }),
+          patch: async () => undefined,
+          query: () => ({ withIndex: () => ({ collect: async () => [] }) }),
+        },
+      },
+      { ...base, stage: 'Parked' },
+    );
     assert.equal(filed.ok, true);
     assert.equal(calls.length, 2);
+    if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+    else process.env.NOTION_WRITEBACK_ENABLED = previous;
   });
 
   it('refuses moves into or out of Building and Shipped', async () => {
@@ -229,11 +257,12 @@ describe('enqueueStage actor', () => {
 });
 
 describe('move authorization', () => {
-  const northwindTask = {
+  const northwindTask: Record<string, unknown> = {
     _id: 'task-north',
     orgId: 'org-northwind',
     notionPageId: 'page-north',
     stage: 'Idea',
+    lastEditedTime: '2026-10-28T00:00:00.000Z',
   };
 
   it('rejects a missing task before any outbox insert', async () => {
@@ -299,6 +328,12 @@ describe('move authorization', () => {
           if (id === northwindTask._id) return northwindTask;
           return null;
         },
+        async patch(_id: string, value: Record<string, unknown>) {
+          for (const [key, field] of Object.entries(value)) {
+            if (field === undefined) delete northwindTask[key];
+            else northwindTask[key] = field;
+          }
+        },
         query(table: string) {
           return {
             withIndex(_name: string, build: (q: { eq: (field: string, value: string) => unknown }) => unknown) {
@@ -338,7 +373,11 @@ describe('move authorization', () => {
         stage: 'Planning',
         expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
       });
-      assert.deepEqual(stage, { ok: false, error: WRITEBACK_OFF_ERROR });
+      assert.equal(stage.ok, true);
+      assert.equal((stage as { pending?: boolean }).pending, true);
+      assert.equal(northwindTask.stage, 'Planning');
+      assert.equal(typeof northwindTask.stagePendingAt, 'number');
+      assert.equal(northwindTask.stageSynced, 'Idea');
       assert.equal(inserted.length, 0);
     } finally {
       if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;

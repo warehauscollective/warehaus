@@ -327,6 +327,7 @@ export const processDue = internalAction({
   args: {},
   handler: async (ctx): Promise<{ processed: number; held: boolean }> => {
     if (!writebackOn()) return { processed: 0, held: true };
+    await ctx.runMutation(internal.sync.taskWrite.drainPendingStages, {});
     const now = Date.now();
     const due = await ctx.runQuery(internal.sync.outbox.listDue, { now });
     let processed = 0;

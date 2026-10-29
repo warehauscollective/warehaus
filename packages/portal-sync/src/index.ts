@@ -293,6 +293,8 @@ export {
   notionOnlyStageReason,
   resolveBoardDrop,
   statusMoveRule,
+  mergePulledStage,
+  isNewerEditedTime,
   planTaskStageWrite,
   planTaskStatusWrite,
   planTaskCreate,
@@ -309,4 +311,5 @@ export {
   type BoardDropDecision,
   type TaskWriteProperties,
   type BoardColumn,
+  type PulledStageMerge,
 } from './taskBoard';
