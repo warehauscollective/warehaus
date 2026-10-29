@@ -18,6 +18,7 @@ import {
 } from '@/lib/data/activity';
 import { FIXTURE_CLIENT_ACTIVITY_PAGE, FIXTURE_STAFF_ACTIVITY_PAGE } from '@/lib/data/fixtures';
 import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
 
 type ActivityPreview = 'empty' | 'loading' | 'error' | 'long' | null;
 
@@ -47,6 +48,7 @@ export function ActivityContent() {
   const feed = useActivityFeed();
   const preview = useActivityPreview(fixtures);
   const staff = data.tenant.mode === 'team';
+  const narrow = useMaxWidth(480);
   const section = sectionFor('activity');
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const [retryNote, setRetryNote] = useState<string | null>(null);
@@ -112,7 +114,15 @@ export function ActivityContent() {
                 <p style={{ marginTop: 4, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
                   {model.subtitle}
                 </p>
-                <div className="mt-6 flex flex-wrap gap-2">
+                <div
+                  className="mt-6 flex min-w-0 gap-2"
+                  data-testid="activity-filters"
+                  style={
+                    narrow
+                      ? { overflowX: 'auto', flexWrap: 'nowrap', scrollbarWidth: 'none', maxWidth: '100%' }
+                      : { flexWrap: 'wrap' }
+                  }
+                >
                   {shown.filters.map((chip) => {
                     const active = chip.key === filter;
                     return (
@@ -126,7 +136,7 @@ export function ActivityContent() {
                             setSectionFor('activity', chip.key === 'all' ? 'all' : chip.key);
                           }
                         }}
-                        className="inline-flex items-center gap-2"
+                        className="inline-flex shrink-0 items-center gap-2"
                         style={{
                           borderRadius: 999,
                           padding: '8px 16px',

@@ -145,7 +145,7 @@ describe('client activity copy', () => {
     const staff = buildActivityFeed({
       audience: 'staff',
       orgVisible: true,
-      activity: [raw],
+      activity: [raw, invite],
       audits: [],
       outbox: [],
       projects: [project],
@@ -160,7 +160,7 @@ describe('client activity copy', () => {
     const person = feed.find((item) => item.id === 'invite');
     assert.equal(person?.lane, 'people');
     assert.equal(person?.name, 'Dana Okafor invited a teammate');
-    assert.equal(person?.summary, 'Dana Okafor');
+    assert.equal(person?.summary, '');
     assert.equal(person?.name.includes('joined'), false);
     const resource = feed.find((item) => item.id === 'brand');
     assert.equal(resource?.lane, 'resources');
@@ -170,6 +170,11 @@ describe('client activity copy', () => {
     assert.equal(staff.find((item) => item.id === 'home')?.lane, 'tasks');
     assert.equal(staff.find((item) => item.id === 'home')?.summary.includes('Source: Notion'), true);
     assert.equal(staff.find((item) => item.id === 'home')?.name.includes('Awaiting Go'), true);
+    assert.equal(staff.find((item) => item.id === 'invite')?.name, 'Jordan Rivera invited to Northwind');
+    assert.equal(
+      staff.find((item) => item.id === 'invite')?.summary,
+      'Dana Okafor · invite pending · jordan@client.example',
+    );
 
     const blob = JSON.stringify(feed);
     assert.equal(blob.includes('@'), false);
@@ -245,7 +250,9 @@ describe('client activity copy', () => {
       contacts: [{ name: 'Dana Okafor' }],
     });
     assert.equal(feed.find((item) => item.id === 'pending')?.name, 'Dana Okafor invited a teammate');
+    assert.equal(feed.find((item) => item.id === 'pending')?.summary, '');
     assert.equal(feed.find((item) => item.id === 'accepted')?.name, 'Dana Okafor joined your team');
+    assert.equal(feed.find((item) => item.id === 'accepted')?.summary, '');
     assert.equal(JSON.stringify(feed.find((item) => item.id === 'pending')).includes('joined'), false);
   });
 

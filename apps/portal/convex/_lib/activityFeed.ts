@@ -233,17 +233,20 @@ function peopleAccepted(type: string, tone?: string): boolean {
   return kind === 'accepted' || kind === 'joined' || rowType === 'accepted' || rowType === 'joined';
 }
 
+/**
+ * The actor is already the title. Meta stays empty so that name is not
+ * repeated on the line under it. Invite-status words stay off the client row.
+ */
 function peopleCopy(actor: string | null, type: string, tone?: string): { name: string; summary: string } {
-  const summary = actor ?? '';
   if (peopleAccepted(type, tone)) {
     return {
       name: actor ? `${actor} joined your team` : 'A teammate joined your team',
-      summary,
+      summary: '',
     };
   }
   return {
     name: actor ? `${actor} invited a teammate` : 'A teammate was invited',
-    summary,
+    summary: '',
   };
 }
 
