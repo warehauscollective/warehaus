@@ -256,8 +256,18 @@ export function ProjectsContent() {
             </div>
             <div className="flex flex-wrap items-center gap-2 md:hidden">{boardActions}</div>
             </div>
-            <div className="flex items-center justify-between gap-3">
-              <h2 style={{ fontSize: 'var(--t-md)', fontWeight: 600 }}>Tasks</h2>
+            <div
+              className="flex items-center justify-between gap-3"
+              style={{
+                position: 'sticky',
+                top: 0,
+                zIndex: 2,
+                background: 'var(--bg)',
+                paddingTop: 12,
+                paddingBottom: 4,
+              }}
+            >
+              <h2 style={{ fontSize: 'var(--t-md)', fontWeight: 600, lineHeight: 1.3 }}>Tasks</h2>
             </div>
             {taskView === 'board' ? (
               <TaskBoard

@@ -6,6 +6,7 @@ import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { usePortalData } from '@/hooks/usePortalData';
+import { sectionEdgeFadePx } from './sectionEdgeFade';
 
 /**
  * In-flow section rail for one swipe tab.
@@ -191,42 +192,7 @@ function SectionScroller({ children, inset }: { children: ReactNode; inset?: boo
     const node = ref.current;
     if (!node) return;
     const update = () => {
-      const active = node.querySelector<HTMLElement>('[aria-current="true"]');
-      const pad = inset ? 20 : 0;
-      if (active) {
-        // Scroll this row only. scrollIntoView would move the swipe track.
-        const buttons = [...node.querySelectorAll('button')];
-        const edge = node.getBoundingClientRect().left;
-        const contentLeft = (button: HTMLElement) => button.getBoundingClientRect().left - edge + node.scrollLeft;
-        const left = contentLeft(active);
-        const width = active.getBoundingClientRect().width;
-        const right = left + width;
-        const later = buttons.some((button) => contentLeft(button) >= right - 1);
-        const room = node.clientWidth - pad - width;
-        const reserve = later && room >= 8 ? Math.min(16, Math.floor(room)) : 0;
-        let next = node.scrollLeft;
-        if (left - next < pad) next = Math.max(0, left - pad);
-        const limit = node.clientWidth - reserve;
-        if (right - next > limit) next = Math.max(0, right - limit);
-        if (left - next < pad && width <= node.clientWidth - pad - reserve) next = Math.max(0, left - pad);
-        if (Math.abs(next - node.scrollLeft) > 1) node.scrollLeft = next;
-      }
-      const overflow = node.scrollWidth - node.clientWidth > 1;
-      const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 1;
-      if (!overflow || atEnd) {
-        setFadePx(0);
-        return;
-      }
-      // A short edge fade only. A veil as wide as the leftover gap paints a
-      // faint empty pill where the next tab should stay readable.
-      const edge = node.getBoundingClientRect().left;
-      const activeRight = active ? active.getBoundingClientRect().right - edge : 0;
-      const laterClipped = Array.from(node.querySelectorAll('button')).some((button) => {
-        return button.getBoundingClientRect().right - edge > node.clientWidth + 0.5;
-      });
-      const roomAfterActive = activeRight > 0 ? node.clientWidth - activeRight : node.clientWidth;
-      const width = laterClipped ? Math.min(20, Math.max(0, roomAfterActive - 8)) : 0;
-      setFadePx(width >= 12 ? Math.round(width) : 0);
+      setFadePx(sectionEdgeFadePx(node, { inset }));
     };
     update();
     node.addEventListener('scroll', update, { passive: true });
@@ -254,8 +220,8 @@ function SectionScroller({ children, inset }: { children: ReactNode; inset?: boo
           scrollPaddingLeft: inset ? 20 : 0,
           ...(fade
             ? {
-                maskImage: `linear-gradient(to right, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
-                WebkitMaskImage: `linear-gradient(to right, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
+                maskImage: `linear-gradient(to right, #000 0, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
+                WebkitMaskImage: `linear-gradient(to right, #000 0, #000 calc(100% - ${fadePx}px), transparent calc(100% - ${Math.round(fadePx * 0.45)}px))`,
               }
             : null),
         }}

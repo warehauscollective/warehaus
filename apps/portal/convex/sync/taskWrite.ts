@@ -336,6 +336,7 @@ export const drainPendingStages = internalMutation({
         idempotencyKey: planned.idempotencyKey,
         expectedLastEditedTime: base,
         actor: 'staff',
+        // TODO: actorId stays unset until Peter OKs a schema field for who queued the move.
       });
       if (!queued.ok) continue;
       if (queued.duplicate) reused += 1;

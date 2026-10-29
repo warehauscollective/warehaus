@@ -438,6 +438,7 @@ describe('drain pending stages', () => {
       assert.equal(first.reused, 0);
       assert.equal(outboxRows(tables).length, 1);
       assert.equal(outboxRows(tables)[0]?.idempotencyKey, `task-stage:page-1:Planning::${TIME}`);
+      assert.equal(outboxRows(tables)[0]?.actorId, undefined);
       const second = (await run(drainPendingStages, ctx, {})) as { inserted: number; reused: number; duplicate?: boolean };
       assert.equal(second.inserted, 0);
       assert.equal(second.reused, 1);
