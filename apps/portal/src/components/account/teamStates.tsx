@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react';
+import { useEffect, useId, useState, type ReactNode } from 'react';
 import { clientInitials } from '@/lib/data/clientList';
 
 /** Fixture long-text row from Account / States (297:18927). Not a schema field. */
@@ -7,8 +7,8 @@ export const LONG_TEAM_EMAIL = 'alexandria.montgomery-featherstonehaugh@northwin
 export const LONG_TEAM_ROLE = 'Client Member';
 
 export const TEAM_STAFF_EMPTY = {
-  title: 'No pending invites',
-  body: 'Invites you send to client contacts will show here.',
+  title: 'No people yet',
+  body: 'People you invite will show here.',
 } as const;
 
 export const TEAM_CLIENT_EMPTY = {
@@ -45,6 +45,26 @@ const FIXTURE_TEAM_SCREENS = ['empty', 'loading', 'error', 'long'] as const;
 export function readTeamScreen(value: string | null, fixtures: boolean): TeamScreen {
   if (!fixtures || !value) return 'ready';
   return (FIXTURE_TEAM_SCREENS as readonly string[]).includes(value) ? (value as TeamScreen) : 'ready';
+}
+
+/**
+ * Fixture preview reads `?teamState`. A live session leaves the screen at
+ * ready so the roster query is what renders.
+ */
+export function useTeamScreen(fixtures: boolean): [TeamScreen, (screen: TeamScreen) => void] {
+  const [screen, setScreen] = useState<TeamScreen>('ready');
+  useEffect(() => {
+    if (!fixtures) return;
+    const params = new URLSearchParams(window.location.search);
+    setScreen(readTeamScreen(params.get('teamState'), true));
+  }, [fixtures]);
+  return [screen, setScreen];
+}
+
+/** Empty and error screens replace the roster. Every other screen keeps it. */
+export function peopleForTeamScreen<T>(screen: TeamScreen, people: T[]): T[] {
+  if (screen === 'empty' || screen === 'error') return [];
+  return people;
 }
 
 /** Empty line depends on the viewer, not on who is already in the list. */
@@ -332,37 +352,39 @@ export function TeamPersonIdentity({
   return (
     <div
       data-testid="team-person-row"
-      className="flex flex-wrap items-center"
+      className="flex flex-wrap items-center lg:flex-nowrap"
       style={{
         gap: 12,
         borderTop: index === 0 ? 'none' : '1px solid var(--border)',
         padding: '16px 0',
       }}
     >
-      <span
-        className="ds-mono inline-flex shrink-0 items-center justify-center"
-        data-testid="team-person-avatar"
-        style={{
-          width: 32,
-          height: 32,
-          borderRadius: 999,
-          background: 'var(--bg)',
-          border: '1px solid var(--border)',
-          fontSize: 11,
-          color: 'var(--muted)',
-        }}
-      >
-        {clientInitials(name)}
-      </span>
-      <span className="min-w-0" style={{ flex: '1 1 180px' }}>
-        <span data-testid="team-person-name" className="block" style={{ fontSize: 16, fontWeight: 500, overflowWrap: 'anywhere' }}>
-          {name}
+      <span className="flex min-w-0 items-center" style={{ flex: '1 1 180px', gap: 12 }}>
+        <span
+          className="ds-mono inline-flex shrink-0 items-center justify-center"
+          data-testid="team-person-avatar"
+          style={{
+            width: 32,
+            height: 32,
+            borderRadius: 999,
+            background: 'var(--bg)',
+            border: '1px solid var(--border)',
+            fontSize: 11,
+            color: 'var(--muted)',
+          }}
+        >
+          {clientInitials(name)}
         </span>
-        {email ? (
-          <span className="ds-mono block" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}>
-            {email}
+        <span className="min-w-0">
+          <span data-testid="team-person-name" className="block" style={{ fontSize: 16, fontWeight: 500, overflowWrap: 'anywhere' }}>
+            {name}
           </span>
-        ) : null}
+          {email ? (
+            <span className="ds-mono block" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}>
+              {email}
+            </span>
+          ) : null}
+        </span>
       </span>
       <span
         data-testid="team-person-role"
@@ -374,15 +396,17 @@ export function TeamPersonIdentity({
       <span
         data-testid="team-person-status"
         className="ds-mono"
-        style={{ fontSize: 12, color: statusColor, textAlign: 'left', whiteSpace: 'nowrap' }}
+        style={{ width: 120, flex: '0 0 120px', fontSize: 12, color: statusColor, textAlign: 'left', whiteSpace: 'nowrap' }}
       >
         {status}
       </span>
-      {actions ? (
-        <span className="flex flex-wrap items-center" style={{ gap: 8, marginLeft: 'auto' }}>
-          {actions}
-        </span>
-      ) : null}
+      <span
+        data-testid="team-person-actions"
+        className="flex flex-nowrap items-center justify-end"
+        style={{ width: 220, flex: '0 0 220px', gap: 8, marginLeft: 'auto' }}
+      >
+        {actions}
+      </span>
     </div>
   );
 }

@@ -11,7 +11,8 @@ import {
   LONG_TEAM_ROLE,
   TEAM_ERROR_COPY,
   TEAM_STALE_COPY,
-  readTeamScreen,
+  peopleForTeamScreen,
+  useTeamScreen,
   type TeamScreen,
 } from '@/components/account/teamStates';
 import type { InviteDraft } from '@/components/pages/TeamInvites';
@@ -122,7 +123,7 @@ export function AccountContent() {
   const teamTrail = clientTeamCrumbs(teamPhone);
   const [docsPreview, setDocsPreview] = useState<string | null>(null);
   const [clientScreen, setClientScreen] = useState<ClientScreen>('ready');
-  const [teamScreen, setTeamScreen] = useState<TeamScreen>('ready');
+  const [teamScreen, setTeamScreen] = useTeamScreen(fixtures);
   const [teamAttempt, setTeamAttempt] = useState(0);
   const [inviteDraft, setInviteDraft] = useState<InviteDraft>({ name: '', email: '' });
   const [clientPeopleCache, setClientPeopleCache] = useState<ClientPersonRow[] | null>(null);
@@ -146,12 +147,6 @@ export function AccountContent() {
       if (clients === 'filtered') setFilter('internal');
     }
   }, []);
-
-  useEffect(() => {
-    if (!fixtures) return;
-    const params = new URLSearchParams(window.location.search);
-    setTeamScreen(readTeamScreen(params.get('teamState'), true));
-  }, [fixtures]);
 
   useEffect(() => {
     if (!linkedClientId) return;
@@ -238,12 +233,11 @@ export function AccountContent() {
   };
   const teamPreview: TeamScreen = showTeam ? teamScreen : 'ready';
   const teamQueryFailed = !fixtures && Boolean(clientPeopleState.error) && !clientPeopleState.data;
-  const clientTeamPeople = (
-    teamPreview === 'empty' || teamPreview === 'error'
-      ? []
-      : fixtures
-        ? contacts.filter(clientVisiblePerson)
-        : (clientPeopleState.data ?? (teamQueryFailed ? clientPeopleCache : null) ?? []).filter(clientVisiblePerson)
+  const clientTeamPeople = peopleForTeamScreen(
+    teamPreview,
+    fixtures
+      ? contacts.filter(clientVisiblePerson)
+      : (clientPeopleState.data ?? (teamQueryFailed ? clientPeopleCache : null) ?? []).filter(clientVisiblePerson),
   ).map((person, index) =>
     fixtures && teamPreview === 'long' && index === 0
       ? { ...withoutClientLeaks(person), name: LONG_TEAM_NAME, email: LONG_TEAM_EMAIL, role: LONG_TEAM_ROLE }
