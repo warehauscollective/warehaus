@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TeamInvites } from '@/components/pages/TeamInvites';
-import { GhostButton, PortalCheckbox, PrimaryButton, Surface } from '@/components/ui/primitives';
+import { GhostButton, PortalCheckbox, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { ThemeControl } from '@/components/account/ThemeControl';
 import { DocsStatesGallery, type DocRow } from '@/components/docs/DocsBlock';
@@ -13,6 +13,7 @@ import {
   ClientCompany,
   ClientDetail,
   ClientDirectory,
+  NewClientButton,
   type ClientPersonRow,
   type ClientProjectRow,
   type ClientScreen,
@@ -20,6 +21,7 @@ import {
   type DirectoryClient,
 } from '@/components/clients/ClientScreens';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
+import { useRetryPortalData } from '@/components/providers/PortalDataRetry';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
@@ -95,6 +97,7 @@ export function AccountContent() {
   const configured = isConvexConfigured();
   const { sectionFor, setSectionFor, linkedClientId, clearLinkedClient } = usePortalView();
   const { data, error } = usePortalData();
+  const retryPortalData = useRetryPortalData();
   const { portalSession, signOut } = usePortalAuth();
   const activeSection = sectionFor('account');
   const isStaff = Boolean(portalSession?.isStaff);
@@ -116,8 +119,16 @@ export function AccountContent() {
     if (params.get('team') === '1') setShowTeam(true);
     if (params.get('docs') === 'states') setDocsPreview('states');
     const clients = params.get('clients');
-    if (clients === 'empty' || clients === 'loading' || clients === 'error' || clients === 'long') {
+    if (
+      clients === 'empty' ||
+      clients === 'loading' ||
+      clients === 'error' ||
+      clients === 'long' ||
+      clients === 'filtered' ||
+      clients === 'refresh'
+    ) {
       setClientScreen(clients);
+      if (clients === 'filtered') setFilter('internal');
     }
   }, []);
 
@@ -194,6 +205,44 @@ export function AccountContent() {
       : SECTION_TITLE[activeSection] ?? 'Account';
   const titleLines = longClient && (clientOpen || (companyOpen && !showTeam)) ? 2 : 1;
   const showNewClient = isStaff && activeSection === 'clients' && !selected && docsPreview !== 'states';
+  const retryClientScreen = () => {
+    if (fixtures) {
+      setClientScreen('ready');
+      setFilter('all');
+      return;
+    }
+    retryPortalData();
+  };
+  const directoryRows: DirectoryClient[] =
+    clientScreen === 'empty' || clientScreen === 'error'
+      ? []
+      : clientScreen === 'filtered'
+        ? directory.filter((client) => !client.internal)
+        : clientScreen === 'long'
+          ? directory.map((client, index) => (index === 0 ? { ...client, name: LONG_CLIENT } : client))
+          : directory;
+  const directoryError =
+    clientScreen === 'error'
+      ? 'Last synced 22 minutes ago. Lumen Dental has a sync problem.'
+      : clientScreen === 'refresh'
+        ? 'Network error'
+        : directoryState.error;
+  const companyProjects =
+    clientScreen === 'empty' || clientScreen === 'error'
+      ? []
+      : clientProjects(projects, portalSession?.orgId, clientScreen);
+  const companyDocs =
+    clientScreen === 'empty'
+      ? []
+      : docs
+          .filter((doc) => doc.publishToWarehaus !== false && doc.status !== 'Draft')
+          .map((doc) => withoutClientLeaks(doc));
+  const companyError =
+    clientScreen === 'error'
+      ? "We couldn't load your company"
+      : clientScreen === 'refresh'
+        ? 'Network error'
+        : error;
 
   const leaveClient = () => {
     setClientId(null);
@@ -254,11 +303,7 @@ export function AccountContent() {
       titleLines={titleLines}
       breadcrumb={breadcrumb ?? undefined}
       actions={
-        showNewClient ? (
-          <PrimaryButton disabled solidWhenDisabled title="Creating a client stays off until write-back is enabled">
-            New client
-          </PrimaryButton>
-        ) : undefined
+        showNewClient ? <NewClientButton /> : undefined
       }
     >
       {fixtures && docsPreview === 'states' ? (
@@ -308,17 +353,17 @@ export function AccountContent() {
       {docsPreview !== 'states' && isStaff && activeSection === 'clients' && !selected ? (
         <PortalTilePane>
           <ClientDirectory
-            clients={
-              clientScreen === 'long'
-                ? directory.map((client, index) => (index === 0 ? { ...client, name: LONG_CLIENT } : client))
-                : directory
-            }
+            clients={directoryRows}
             filter={filter}
-            onFilter={setFilter}
+            onFilter={(next) => {
+              setFilter(next);
+              if (clientScreen === 'filtered' && next === 'all') setClientScreen('ready');
+            }}
             onOpen={(id) => setClientId(id)}
             loading={clientScreen === 'loading' || (directoryState.loading && !fixtures)}
-            error={clientScreen === 'error' ? null : directoryState.error}
-            screen={clientScreen}
+            error={directoryError}
+            errorTitle={clientScreen === 'error' ? 'Client list is out of date' : undefined}
+            onRetry={retryClientScreen}
           />
         </PortalTilePane>
       ) : null}
@@ -328,17 +373,17 @@ export function AccountContent() {
           <ClientCompany
             name={clientScreen === 'long' ? LONG_CLIENT : data.tenant.clientName ?? portalSession?.name ?? 'Your company'}
             leadName={data.leadName ?? null}
-            projects={clientProjects(projects, portalSession?.orgId, clientScreen)}
+            projects={companyProjects}
             tasks={clientTasks(tasks, projects, portalSession?.orgId)}
-            docs={docs
-              .filter((doc) => doc.publishToWarehaus !== false && doc.status !== 'Draft')
-              .map((doc) => withoutClientLeaks(doc))}
+            docs={companyDocs}
             people={contacts.filter(clientVisiblePerson).map((person) => withoutClientLeaks(person)) as ClientPersonRow[]}
             showTeam={showTeam}
             onShowTeam={() => setShowTeam(true)}
             onOpenTask={(taskId) => openPortalHref(`/tasks/${taskId}`)}
             onBack={() => setShowTeam(false)}
-            screen={error ? 'error' : clientScreen}
+            loading={clientScreen === 'loading'}
+            error={companyError}
+            onRetry={retryClientScreen}
           />
         </PortalTilePane>
       ) : null}

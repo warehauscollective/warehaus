@@ -67,7 +67,7 @@ describe('client team page', () => {
     assert.match(html, /Your team/);
     assert.match(html, /People at Northwind with portal access/);
     assert.equal(html.includes('Maya Chen'), false);
-    assert.match(html, /data-testid="client-person-email"[^>]*style="[^"]*white-space:nowrap[^"]*"[^>]*>ada@northwind\.example</);
+    assert.match(html, /data-testid="client-person-email"[^>]*style="[^"]*overflow-wrap:anywhere[^"]*"[^>]*>ada@northwind\.example</);
     assert.match(html, /data-testid="client-person-role-phone"[^>]*style="[^"]*white-space:nowrap[^"]*"[^>]*> · Client Admin</);
     assert.match(html, /Invite pending/);
     assert.match(html, /Client Admins can invite teammates/);
@@ -83,7 +83,7 @@ describe('client team page', () => {
     assert.match(html, /data-testid="client-team-open"/);
     assert.match(html, /Updated Oct 5/);
     assert.match(html, /data-testid="client-person-role"[^>]*style="[^"]*width:140px[^"]*text-align:left/);
-    assert.match(html, /data-testid="client-person-status"[^>]*style="[^"]*margin-left:24px[^"]*text-align:left/);
+    assert.match(html, /data-testid="client-person-status"[^>]*style="[^"]*width:140px;margin-left:24px[^"]*text-align:left/);
     assert.equal(html.includes('class="clamp-one"'), false);
     assert.match(html, /border-radius:999px/);
     assert.equal(html.includes('ds-pill'), false);
@@ -176,109 +176,146 @@ describe('client team page', () => {
 const longName = 'Northwind Foods and Northwind Kitchen Holdings International';
 const longProject = 'Spring menu launch for all Northwind Foods locations';
 
-function directoryMarkup(screen: 'ready' | 'empty' | 'loading' | 'error' | 'long') {
+const northwind: DirectoryClient = {
+  id: 'c-long',
+  name: 'Northwind',
+  status: 'Active',
+  internal: false,
+  syncHidden: false,
+  projectCount: 2,
+  openTaskCount: 12,
+  awaitingGoCount: 3,
+  contactCount: 4,
+};
+
+function directoryMarkup(options: {
+  clients?: DirectoryClient[];
+  loading?: boolean;
+  error?: string | null;
+  errorTitle?: string;
+  filter?: 'all' | 'internal';
+} = {}) {
   return renderToStaticMarkup(
     createElement(ClientDirectory, {
-      clients: [
-        {
-          id: 'c-long',
-          name: screen === 'long' ? longName : 'Northwind',
-          status: 'Active',
-          internal: false,
-          syncHidden: false,
-          projectCount: 2,
-          openTaskCount: 12,
-          awaitingGoCount: 3,
-          contactCount: 4,
-        },
-      ],
-      filter: 'all',
+      clients: options.clients ?? [northwind],
+      filter: options.filter ?? 'all',
       onFilter: () => {},
       onOpen: () => {},
-      loading: false,
-      error: null,
-      screen,
+      loading: options.loading ?? false,
+      error: options.error ?? null,
+      errorTitle: options.errorTitle,
+      onRetry: () => {},
     }),
   );
 }
 
 describe('client states', () => {
-  it('shows the dashed empty card and a disabled New client control', () => {
-    const html = directoryMarkup('empty');
+  it('shows the dashed empty card from an empty client array and hides KPIs and chips', () => {
+    const html = directoryMarkup({ clients: [] });
     assert.match(html, /No clients yet/);
     assert.match(html, /Add a client to start a project\. Warehaus \(internal\) always exists\./);
+    assert.match(html, /Warehaus is the client when none applies/);
     assert.match(html, /task-layers\.svg/);
     assert.match(html, /data-testid="new-client"/);
-    assert.match(html, /font-family:var\(--font-body\)/);
-    assert.match(html, /opacity:0.4/);
-    assert.match(html, /Creating a client turns on with Notion write-back/);
+    assert.match(html, /minmax\(0, 1fr\)/);
+    assert.equal(html.includes('repeat(2'), false);
+    assert.equal(html.includes('data-testid="client-stats"'), false);
+    assert.equal(html.includes('data-testid="client-filters"'), false);
+    assert.equal(html.includes('All clients'), false);
     assert.equal(html.includes('role="group"'), false);
-    assert.equal(html.includes('Not available yet'), false);
-    assert.equal(html.includes('text-transform:uppercase'), false);
   });
 
-  it('renders three skeleton rows while the directory is loading', () => {
-    const html = directoryMarkup('loading');
+  it('keeps KPIs and chips when a filter matches nothing', () => {
+    const html = directoryMarkup({ filter: 'internal' });
+    assert.match(html, /No clients match these filters\./);
+    assert.match(html, /data-testid="clear-filters"/);
+    assert.match(html, /data-testid="client-stats"/);
+    assert.match(html, /data-testid="client-filters"/);
+    assert.match(html, />1</);
+    assert.equal(html.includes('No clients yet'), false);
+  });
+
+  it('renders KPI and row skeletons while loading and hides the chips', () => {
+    const html = directoryMarkup({ loading: true });
     assert.match(html, /data-testid="client-loading"/);
-    assert.equal(html.match(/border-radius:10px/g)?.length, 3);
+    assert.equal(html.match(/data-testid="client-kpi-skeleton"/g)?.length, 4);
     assert.equal(html.match(/width:64px;height:22px/g)?.length, 3);
+    assert.equal(html.includes('data-testid="client-filters"'), false);
     assert.equal(html.includes('data-testid="client-row-name"'), false);
+    assert.equal(html.includes('>2<'), false);
   });
 
-  it('puts Retry sync under the danger notice', () => {
-    const html = directoryMarkup('error');
+  it('replaces the list when an error has no cached clients', () => {
+    const html = directoryMarkup({
+      clients: [],
+      error: 'Last synced 22 minutes ago. Lumen Dental has a sync problem.',
+      errorTitle: 'Client list is out of date',
+    });
     assert.match(html, /Client list is out of date/);
     assert.match(html, /Last synced 22 minutes ago\. Lumen Dental has a sync problem\./);
-    assert.match(html, /data-testid="client-state-notice"/);
-    assert.match(html, /data-testid="retry-sync"/);
-    assert.match(html, /Retrying a sync turns on with Notion write-back/);
-    assert.equal(html.includes('role="group"'), false);
-    const noticeAt = html.indexOf('data-testid="client-state-notice"');
-    const retryAt = html.indexOf('data-testid="retry-sync"');
-    const bang = html.indexOf('!', noticeAt);
-    assert.ok(noticeAt >= 0 && bang > noticeAt && bang < retryAt);
+    assert.match(html, /data-testid="client-state-notice"[\s\S]*data-testid="retry-sync"/);
+    assert.equal(html.includes('data-testid="client-stats"'), false);
+    assert.equal(html.includes('data-testid="client-row-name"'), false);
+    assert.equal(html.includes('No clients yet'), false);
   });
 
-  it('wraps a long client name instead of truncating it', () => {
-    const html = directoryMarkup('long');
-    assert.match(html, /data-testid="client-row-name"[^>]*style="[^"]*overflow-wrap:break-word[^"]*"[^>]*>Northwind Foods and Northwind Kitchen Holdings International</);
+  it('keeps cached rows under a refresh banner', () => {
+    const html = directoryMarkup({ error: 'Network error' });
+    assert.match(html, /Couldn(?:'|&#x27;)t refresh clients/);
+    assert.match(html, /Network error/);
+    assert.match(html, /data-testid="client-try-again"/);
+    assert.match(html, /data-testid="client-row-name"[^>]*>Northwind</);
+    assert.match(html, /data-testid="client-stats"/);
+    assert.equal(html.includes('No clients yet'), false);
+  });
+
+  it('clamps a long directory name to two lines on a phone', () => {
+    const html = directoryMarkup({ clients: [{ ...northwind, name: longName }] });
+    assert.match(html, /class="client-row-clamp block"/);
+    assert.match(html, new RegExp(longName));
+    assert.match(html, /\.client-row-clamp \{[^}]*-webkit-line-clamp: 2/);
+    assert.match(html, /\.kpi-caption \{[^}]*text-overflow: ellipsis/);
     assert.equal(html.includes('class="block truncate"'), false);
   });
 
-  it('uses the same empty, loading, and error treatment on the company page', () => {
+  it('derives the company empty, loading, and error states from the data', () => {
     const empty = renderToStaticMarkup(
       createElement(ClientCompany, {
         name: 'Northwind',
         projects: [],
         tasks: [],
         docs: [],
-        people: [],
+        people,
         showTeam: false,
         onShowTeam: () => {},
         onBack: () => {},
-        screen: 'empty',
       }),
     );
     assert.match(empty, /No projects shared with you yet/);
     assert.match(empty, /Warehaus will publish projects here when they are ready\./);
-    assert.match(empty, /task-layers\.svg/);
+    assert.match(empty, /data-testid="person-avatar"/);
+    assert.match(empty, /border-radius:999px/);
+    assert.equal(empty.includes('data-testid="client-stats"'), false);
     assert.equal(empty.includes('New client'), false);
 
     const loading = renderToStaticMarkup(
       createElement(ClientCompany, {
         name: 'Northwind',
-        projects: [],
+        projects: [{ id: 'p-site', name: 'Northwind site', status: 'In Progress', progress: 0.4 }],
         tasks: [],
         docs: [],
         people: [],
         showTeam: false,
         onShowTeam: () => {},
         onBack: () => {},
-        screen: 'loading',
+        loading: true,
       }),
     );
+    assert.match(loading, /data-testid="client-company-card"/);
     assert.match(loading, /data-testid="client-loading"/);
-    assert.equal(loading.match(/width:64px;height:22px/g)?.length, 3);
+    assert.equal(loading.match(/data-testid="client-kpi-skeleton"/g)?.length, 3);
+    assert.match(loading, /grid-cols-1/);
+    assert.equal(loading.includes('Northwind site'), false);
 
     const error = renderToStaticMarkup(
       createElement(ClientCompany, {
@@ -290,17 +327,18 @@ describe('client states', () => {
         showTeam: false,
         onShowTeam: () => {},
         onBack: () => {},
-        screen: 'error',
+        error: 'Network error',
+        onRetry: () => {},
       }),
     );
-    assert.match(error, /We could not load your company/);
+    assert.match(error, /We couldn(?:'|&#x27;)t load your company/);
     assert.match(error, /Try again in a moment\./);
-    assert.match(error, /data-testid="client-state-notice"/);
-    assert.equal(error.includes('retry-sync'), false);
+    assert.match(error, /data-testid="client-state-notice"[\s\S]*data-testid="client-try-again"/);
+    assert.equal(error.includes('data-testid="client-stats"'), false);
 
     const long = renderToStaticMarkup(
       createElement(ClientCompany, {
-        name: 'Northwind',
+        name: longName,
         projects: [{ id: 'p-long', name: longProject, status: 'In Progress', progress: 0.45 }],
         tasks: [],
         docs: [],
@@ -308,12 +346,12 @@ describe('client states', () => {
         showTeam: false,
         onShowTeam: () => {},
         onBack: () => {},
-        screen: 'long',
       }),
     );
-    assert.match(long, new RegExp(`${longProject}`));
+    assert.match(long, new RegExp(longProject));
     assert.match(long, /45% of items/);
+    assert.match(long, /class="kpi-caption"/);
+    assert.match(long, /-webkit-line-clamp: 2/);
     assert.equal(long.includes('45% shipped'), false);
-    assert.equal(long.includes('class="block truncate"'), false);
   });
 });

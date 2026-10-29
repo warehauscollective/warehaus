@@ -40,6 +40,22 @@ export function singleOrAcross(names: readonly string[], empty: string): string 
   return `Across ${names.length} clients`;
 }
 
+/** KPI cards hide only when the directory total is zero. Loading still shows skeletons. */
+export function clientDirectoryShowsKpis(count: number, loading: boolean): boolean {
+  return loading || count > 0;
+}
+
+/** Chips stay for a filtered-empty list. A true empty set has nothing to filter, and loading hides them. */
+export function clientDirectoryShowsFilters(count: number, loading: boolean): boolean {
+  return count > 0 && !loading;
+}
+
+/** No cached rows: the error card replaces the list. Cached rows: a refresh banner. */
+export function clientDirectoryErrorMode(error: string | null, count: number): 'none' | 'empty' | 'refresh' {
+  if (!error) return 'none';
+  return count > 0 ? 'refresh' : 'empty';
+}
+
 export function clientInitials(name: string): string {
   const words = name.replace(/\(.*?\)/g, '').split(/[^A-Za-z0-9]+/).filter(Boolean);
   if (words.length === 0) return '•';
