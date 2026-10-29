@@ -12,6 +12,7 @@ import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { FIXTURE_CLIENT_SNAPSHOT, FIXTURE_SNAPSHOT } from '@/lib/data/fixtures';
 import { useFixtureAudience, useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { portalHookError } from '@/lib/data/projectList';
 
 const EMPTY_TENANT: PortalTenantMeta = {
   mode: 'team',
@@ -44,7 +45,7 @@ export { type PortalSnapshot, type PortalTenantMeta } from '@/lib/data/view-mode
  * Portal data — Convex reactive snapshot only (Phase 3 cutover).
  * Requires `NEXT_PUBLIC_CONVEX_URL` + signed-in linked Contact.
  */
-export function usePortalData() {
+export function usePortalData(options?: { suspend?: boolean }) {
   const fixtures = useFixturePreview();
   const audience = useFixtureAudience();
   const configured = isConvexConfigured() && !fixtures;
@@ -52,10 +53,11 @@ export function usePortalData() {
   const ready = Boolean(portalSession) && linkStatus === 'linked';
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() : null;
+  const suspend = options?.suspend === true;
 
   const snapshotState = useSafeQuery<PortalSnapshot>(
     api.portalData.getSnapshot,
-    configured && ready ? { hostSlug: hostSlug ?? undefined } : 'skip',
+    configured && ready && !suspend ? { hostSlug: hostSlug ?? undefined } : 'skip',
   );
   const convexSnapshot = snapshotState.data;
 
@@ -84,7 +86,11 @@ export function usePortalData() {
     }
 
     if (snapshotState.error) {
-      return { data: EMPTY, loading: false, error: snapshotState.error };
+      return {
+        data: EMPTY,
+        loading: false,
+        error: portalHookError({ snapshotError: snapshotState.error, syncError: null }),
+      };
     }
 
     if (convexSnapshot === undefined) {
@@ -94,7 +100,11 @@ export function usePortalData() {
     return {
       data: convexSnapshot as PortalSnapshot,
       loading: false,
-      error: convexSnapshot.syncMeta.lastError ?? null,
+      // A loaded snapshot keeps lastError on syncMeta. It is not a query failure.
+      error: portalHookError({
+        snapshotError: null,
+        syncError: convexSnapshot.syncMeta.lastError,
+      }),
     };
   }, [
     fixtures,

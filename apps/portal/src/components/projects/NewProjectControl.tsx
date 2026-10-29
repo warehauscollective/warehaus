@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { useAction } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -13,42 +13,36 @@ export type ProjectClientOption = {
 };
 
 /**
- * New project control on the projects list header.
- * Same button and dialog pattern as New task. Staff pick the client.
- * Publish and Archive are not asked; the server sets them.
+ * New project dialog. The header and empty-state buttons call `onClose` /
+ * the parent's open callback. Publish and Archive are not asked; the server sets them.
  */
 export function NewProjectControl({
+  open,
+  onClose,
   clients,
   fixtures,
   hostSlug,
 }: {
+  open: boolean;
+  onClose: () => void;
   clients: ProjectClientOption[];
   fixtures: boolean;
   hostSlug?: string;
 }) {
   const createInNotion = useAction(api.projectCreate.createInNotion);
-  const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [orgId, setOrgId] = useState('');
   const [externalId, setExternalId] = useState('');
   const [note, setNote] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
-  const openDialog = () => {
+  useEffect(() => {
+    if (!open) return;
     setNote(null);
     setExternalId(
       createProjectExternalId(`${Date.now().toString(36)}${Math.random().toString(36).slice(2, 10)}`),
     );
-    setOpen(true);
-  };
-
-  const openDialogRef = useRef(openDialog);
-  openDialogRef.current = openDialog;
-  useEffect(() => {
-    const open = () => openDialogRef.current();
-    window.addEventListener('wh-open-new-project', open);
-    return () => window.removeEventListener('wh-open-new-project', open);
-  }, []);
+  }, [open]);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -80,7 +74,7 @@ export function NewProjectControl({
       }
       setName('');
       setOrgId('');
-      setOpen(false);
+      onClose();
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Could not create the project';
       setNote(message);
@@ -89,16 +83,15 @@ export function NewProjectControl({
     }
   };
 
+  if (!open) return null;
+
   return (
-    <>
-      <PrimaryButton onClick={openDialog}>New project</PrimaryButton>
-      {open ? (
         <div
           role="dialog"
           aria-modal="true"
           aria-label="New project"
           onClick={() => {
-            if (!pending) setOpen(false);
+            if (!pending) onClose();
           }}
           style={{
             position: 'fixed',
@@ -151,7 +144,7 @@ export function NewProjectControl({
                   </p>
                 ) : null}
                 <div className="mt-2 flex justify-end gap-2">
-                  <GhostButton onClick={() => setOpen(false)}>Close</GhostButton>
+                  <GhostButton onClick={onClose}>Close</GhostButton>
                   <PrimaryButton type="submit" disabled={pending}>
                     {pending ? 'Creating…' : 'Create project'}
                   </PrimaryButton>
@@ -160,8 +153,6 @@ export function NewProjectControl({
             </Surface>
           </div>
         </div>
-      ) : null}
-    </>
   );
 }
 

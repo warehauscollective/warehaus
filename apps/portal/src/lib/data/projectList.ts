@@ -126,6 +126,16 @@ export function projectTaskCount(loadedCount: number, storedCount?: number | nul
 
 export const EDIT_PROJECT_WRITEBACK_HINT = 'Editing turns on with Notion write-back';
 
+/** Same shape as Edit project. Shown while project create is off. */
+export const PROJECT_CREATE_HINT = 'Creating a project turns on with Notion write-back';
+
+/** Opens the new-project dialog only when project create is on. */
+export function requestProjectCreate(enabled: boolean, open: () => void): boolean {
+  if (!enabled) return false;
+  open();
+  return true;
+}
+
 export type ProjectSummaryVisibility = {
   showPublish: boolean;
   showSourceNotion: boolean;
@@ -239,6 +249,43 @@ export function awaitingKpiCaption(count: number, projectCount: number): { capti
   return { caption: acrossProjectsLabel(projectCount), hot: true };
 }
 
+/** Chips stay for a filtered-empty list. A true empty set has nothing to filter. */
+export function projectListShowsFilters(viewerCount: number): boolean {
+  return viewerCount > 0;
+}
+
+/** KPI cards hide only when the viewer total is zero. Loading still shows skeletons. */
+export function projectListShowsKpis(viewerCount: number, loading: boolean): boolean {
+  return loading || viewerCount > 0;
+}
+
+/**
+ * Snapshot query failure only. A Notion pull error stays on syncMeta
+ * for the dashboard sync card and the row sync chip.
+ */
+export function portalHookError(input: {
+  snapshotError?: string | null;
+  syncError?: string | null;
+}): string | null {
+  if (!input.snapshotError?.trim()) return null;
+  return input.snapshotError.trim();
+}
+
+/**
+ * Projects load notice. `syncError` is not a query failure: with no snapshot
+ * or staff projects error, the list and empty states stay up.
+ */
+export function projectListQueryError(input: {
+  snapshotError?: string | null;
+  projectsError?: string | null;
+  syncError?: string | null;
+}): string | null {
+  if (input.syncError && !input.snapshotError?.trim() && !input.projectsError?.trim()) return null;
+  const snapshot = input.snapshotError?.trim() ?? '';
+  const projects = input.projectsError?.trim() ?? '';
+  return snapshot || projects || null;
+}
+
 /** Zero projects in the viewer set, versus a filter that hides every row. */
 export function projectListEmptyCopy(viewerCount: number, staff: boolean): { title: string; detail: string | null } {
   if (viewerCount > 0) return { title: 'No projects match these filters.', detail: null };
@@ -254,19 +301,34 @@ export function projectListEmptyCopy(viewerCount: number, staff: boolean): { tit
   };
 }
 
+export const PROJECT_LIST_CLIENT_LOAD_TITLE = "We couldn't load your projects";
+export const PROJECT_LIST_CLIENT_LOAD_BODY = 'Try again in a moment.';
+export const PROJECT_LIST_STAFF_LOAD_TITLE = "Couldn't load projects";
+
 /**
- * List load failure. Staff get Retry now. The save-queued sentence from the
- * states frame is not used here: a failed load has nothing queued.
+ * List load failure. Both audiences get Try again. The save-queued sentence
+ * from the states frame is not used here: a failed load has nothing queued.
+ * Client title and body live only in the constants above.
  */
-export function projectListLoadNotice(staff: boolean, message: string): { title: string; body: string; retry: boolean } {
+export function projectListLoadNotice(
+  staff: boolean,
+  message: string,
+): { title: string; body: string; retry: boolean; mono: boolean } {
   if (!staff) {
-    return { title: 'We could not load your projects', body: 'Try again in a moment.', retry: false };
+    return {
+      title: PROJECT_LIST_CLIENT_LOAD_TITLE,
+      body: PROJECT_LIST_CLIENT_LOAD_BODY,
+      retry: true,
+      mono: false,
+    };
   }
   const detail = message.trim();
+  const mono = Boolean(detail) && detail !== PROJECT_LIST_STAFF_LOAD_TITLE && detail !== PROJECT_LIST_CLIENT_LOAD_TITLE;
   return {
-    title: 'Could not load projects',
-    body: detail && detail !== 'Could not load projects' ? detail : 'Try again in a moment.',
+    title: PROJECT_LIST_STAFF_LOAD_TITLE,
+    body: mono ? detail : PROJECT_LIST_CLIENT_LOAD_BODY,
     retry: true,
+    mono,
   };
 }
 

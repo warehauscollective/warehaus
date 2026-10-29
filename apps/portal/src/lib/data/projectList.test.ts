@@ -9,7 +9,16 @@ import {
   projectInitials,
   projectListEmptyCopy,
   projectListKpis,
+  PROJECT_CREATE_HINT,
+  PROJECT_LIST_CLIENT_LOAD_BODY,
+  PROJECT_LIST_CLIENT_LOAD_TITLE,
+  PROJECT_LIST_STAFF_LOAD_TITLE,
+  portalHookError,
   projectListLoadNotice,
+  projectListQueryError,
+  projectListShowsFilters,
+  projectListShowsKpis,
+  requestProjectCreate,
   projectListMeta,
   projectMatchesFilter,
   projectProgress,
@@ -244,18 +253,72 @@ describe('project list empty copy', () => {
   });
 });
 
+describe('project list chrome', () => {
+  it('hides filters and KPI cards only when the viewer has no projects', () => {
+    assert.equal(projectListShowsFilters(0), false);
+    assert.equal(projectListShowsFilters(1), true);
+    assert.equal(projectListShowsKpis(0, false), false);
+    assert.equal(projectListShowsKpis(0, true), true);
+    assert.equal(projectListShowsKpis(1, false), true);
+  });
+});
+
 describe('project list load notice', () => {
-  it('uses the client load copy and a staff retry without a queued clock', () => {
-    assert.deepEqual(projectListLoadNotice(false, 'We could not load your projects'), {
-      title: 'We could not load your projects',
-      body: 'Try again in a moment.',
-      retry: false,
+  it('uses one client sentence and a staff error line, both with retry', () => {
+    assert.equal(PROJECT_LIST_CLIENT_LOAD_TITLE, "We couldn't load your projects");
+    assert.equal(PROJECT_LIST_CLIENT_LOAD_BODY, 'Try again in a moment.');
+    assert.deepEqual(projectListLoadNotice(false, 'Network error'), {
+      title: PROJECT_LIST_CLIENT_LOAD_TITLE,
+      body: PROJECT_LIST_CLIENT_LOAD_BODY,
+      retry: true,
+      mono: false,
     });
     const staff = projectListLoadNotice(true, 'Network error');
-    assert.equal(staff.title, 'Could not load projects');
+    assert.equal(staff.title, PROJECT_LIST_STAFF_LOAD_TITLE);
+    assert.equal(PROJECT_LIST_STAFF_LOAD_TITLE, "Couldn't load projects");
     assert.equal(staff.body, 'Network error');
     assert.equal(staff.retry, true);
+    assert.equal(staff.mono, true);
     assert.equal(staff.body.includes('14:05'), false);
+  });
+
+  it('keeps a sync error off the load notice', () => {
+    assert.equal(
+      portalHookError({ snapshotError: null, syncError: 'Notion sync is behind' }),
+      null,
+    );
+    assert.equal(portalHookError({ snapshotError: 'snapshot down', syncError: 'Notion sync is behind' }), 'snapshot down');
+    assert.equal(
+      projectListQueryError({
+        snapshotError: null,
+        projectsError: null,
+        syncError: 'Notion sync is behind',
+      }),
+      null,
+    );
+    assert.equal(
+      projectListQueryError({ snapshotError: 'snapshot down', projectsError: null, syncError: 'Notion sync is behind' }),
+      'snapshot down',
+    );
+    assert.equal(
+      projectListQueryError({ snapshotError: null, projectsError: 'staff query down', syncError: 'Notion sync is behind' }),
+      'staff query down',
+    );
+  });
+});
+
+describe('project create request', () => {
+  it('opens only when project create is enabled', () => {
+    let opened = 0;
+    assert.equal(requestProjectCreate(false, () => {
+      opened += 1;
+    }), false);
+    assert.equal(opened, 0);
+    assert.equal(requestProjectCreate(true, () => {
+      opened += 1;
+    }), true);
+    assert.equal(opened, 1);
+    assert.equal(PROJECT_CREATE_HINT, 'Creating a project turns on with Notion write-back');
   });
 });
 
