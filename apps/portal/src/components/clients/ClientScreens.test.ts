@@ -70,6 +70,7 @@ describe('client team page', () => {
     assert.match(html, /data-testid="client-person-email"[^>]*style="[^"]*overflow-wrap:anywhere[^"]*"[^>]*>ada@northwind\.example</);
     assert.match(html, /data-testid="client-person-role-phone"[^>]*style="[^"]*white-space:nowrap[^"]*"[^>]*> · Client Admin</);
     assert.match(html, /Invite pending/);
+    assert.match(html, /color:var\(--warning\)/);
     assert.match(html, /Client Admins can invite teammates/);
     assert.match(html, /Ada can invite new Client Members from Account › Team/);
     assert.equal(html.includes('← Company'), false);
@@ -121,16 +122,35 @@ describe('client team page', () => {
     assert.match(html, /data-testid="client-person-role-phone"[^>]*> · Client Member</);
     assert.match(html, /Active/);
     assert.match(html, /Invite pending/);
+    assert.match(html, /color:var\(--warning\)/);
     assert.equal(html.includes('No portal access'), false);
   });
 
-  it('shows the client empty, loading, and error states without a retry button', () => {
+  it('shows the client empty, loading, and error states', () => {
     const empty = teamMarkup([]);
     assert.match(empty, /data-testid="client-team-empty"/);
     assert.match(empty, /No teammates yet/);
-    assert.match(empty, /Client Admins can invite Client Members from the Team page/);
+    assert.match(empty, /Your Client Admin can invite teammates/);
+    assert.equal(empty.includes('Teammates you invite will show here.'), false);
     assert.equal(empty.includes('Invite someone'), false);
     assert.equal(empty.includes('No people shared yet'), false);
+    assert.match(empty, /Client Admins can invite teammates/);
+
+    const admin = renderToStaticMarkup(
+      createElement(ClientCompany, {
+        name: 'Northwind',
+        projects: [],
+        tasks,
+        docs: [],
+        people: [],
+        showTeam: true,
+        onShowTeam: () => {},
+        onOpenTask: () => {},
+        onBack: () => {},
+        viewerRole: 'Client Admin',
+      }),
+    );
+    assert.match(admin, /Teammates you invite will show here/);
 
     const loading = renderToStaticMarkup(
       createElement(ClientCompany, {
@@ -148,6 +168,9 @@ describe('client team page', () => {
     );
     assert.equal(loading.match(/data-testid="team-skeleton-row"/g)?.length, 3);
     assert.match(loading, /data-testid="client-team-loading"/);
+    assert.match(loading, /role="status"/);
+    assert.match(loading, /Loading team/);
+    assert.equal(loading.includes('aria-busy'), false);
     assert.equal(loading.includes('client-team-invite'), false);
 
     const failed = renderToStaticMarkup(
@@ -162,13 +185,34 @@ describe('client team page', () => {
         onOpenTask: () => {},
         onBack: () => {},
         error: 'Could not save your settings',
+        onRetry: () => {},
       }),
     );
     assert.match(failed, /data-testid="client-team-notice"/);
-    assert.match(failed, /Could not save your settings/);
-    assert.match(failed, /Check your connection and try again/);
-    assert.equal(failed.includes('Try again'), false);
-    assert.equal(failed.includes('team-try-again'), false);
+    assert.match(failed, /We couldn(?:'|&#x27;)t load your team/);
+    assert.match(failed, /Try again in a moment/);
+    assert.match(failed, /data-testid="team-try-again"/);
+    assert.equal(failed.includes('Could not save your settings'), false);
+
+    const stale = renderToStaticMarkup(
+      createElement(ClientCompany, {
+        name: 'Northwind',
+        projects: [],
+        tasks,
+        docs: [],
+        people,
+        showTeam: true,
+        onShowTeam: () => {},
+        onOpenTask: () => {},
+        onBack: () => {},
+        error: 'Network error',
+        onRetry: () => {},
+      }),
+    );
+    assert.match(stale, /Team list is out of date/);
+    assert.match(stale, /Showing the last team we could load/);
+    assert.match(stale, /data-testid="team-try-again"/);
+    assert.match(stale, /Ada North/);
   });
 
   it('stacks company and staff stat cards and keeps project marks square', () => {

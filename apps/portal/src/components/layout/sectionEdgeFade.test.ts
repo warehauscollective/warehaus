@@ -89,6 +89,22 @@ describe('sectionPeekScroll', () => {
       0,
     );
   });
+
+  it('reserves end clearance for the last pill only when a caller asks', () => {
+    const buttons = [
+      { left: 0, width: 80 },
+      { left: 300, width: 90, current: true },
+    ];
+    const parked = fakeChipRow({ clientWidth: 200, scrollWidth: 440, scrollLeft: 0, buttons });
+    scrollActiveIntoView(parked, { inset: true });
+    const cleared = fakeChipRow({ clientWidth: 200, scrollWidth: 440, scrollLeft: 0, buttons });
+    scrollActiveIntoView(cleared, { inset: true, endClearance: 48 });
+    assert.ok(cleared.scrollLeft > parked.scrollLeft);
+    const active = cleared.querySelector<HTMLElement>('[aria-current="true"]');
+    assert.ok(active);
+    const right = active.getBoundingClientRect().right - cleared.getBoundingClientRect().left;
+    assert.ok(right <= cleared.clientWidth - 48 + 1);
+  });
 });
 
 type FakeChip = { left: number; width: number; pressed?: boolean; current?: boolean; selected?: boolean };

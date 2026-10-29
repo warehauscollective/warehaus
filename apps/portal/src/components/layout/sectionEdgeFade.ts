@@ -42,7 +42,10 @@ export type EdgeFade = { leading: number; trailing: number };
  * Call this on mount and when the active key changes. Never from a scroll listener.
  * Writes `node.scrollLeft` only. Does not scroll the page or any ancestor.
  */
-export function scrollActiveIntoView(node: HTMLElement, options?: EdgeFadeOptions): void {
+export function scrollActiveIntoView(
+  node: HTMLElement,
+  options?: EdgeFadeOptions & { endClearance?: number },
+): void {
   const inset = options?.inset ?? false;
   const activeSelector = options?.activeSelector ?? '[aria-current="true"]';
   const active = node.querySelector<HTMLElement>(activeSelector);
@@ -74,6 +77,13 @@ export function scrollActiveIntoView(node: HTMLElement, options?: EdgeFadeOption
     activeLeft: left,
     nextLeft: nextButton ? contentLeft(nextButton) : null,
   });
+  // Staff bell overlays the last pill. Only callers that pass endClearance
+  // reserve that room, and only when no later button can peek.
+  const endClearance = options?.endClearance ?? 0;
+  if (endClearance > 0 && !later) {
+    const clearLimit = node.clientWidth - endClearance;
+    if (right - next > clearLimit) next = Math.max(0, right - clearLimit);
+  }
   if (Math.abs(next - node.scrollLeft) > 1) node.scrollLeft = next;
   if (page && page !== node) page.scrollLeft = pageLeft;
 }

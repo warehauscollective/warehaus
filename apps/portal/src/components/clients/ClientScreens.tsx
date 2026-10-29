@@ -33,7 +33,7 @@ import {
   type ClientListRow,
 } from '@/lib/data/clientList';
 import { taskStatusColor } from '@/lib/data/view-models';
-import { TEAM_CLIENT_EMPTY, TEAM_ERROR_COPY, TeamEmpty, TeamSkeletonRows, TeamStateNotice } from '@/components/account/teamStates';
+import { TEAM_CLIENT_EMPTY, TEAM_ERROR_COPY, TEAM_STALE_COPY, TeamEmpty, TeamOutlineButton, TeamSkeletonRows, TeamStateNotice, clientTeamEmptyBody } from '@/components/account/teamStates';
 
 export type DirectoryClient = ClientListRow & {
   slug?: string | null;
@@ -1081,6 +1081,7 @@ export function ClientCompany({
   loading = false,
   error = null,
   onRetry,
+  viewerRole = null,
 }: {
   name: string;
   leadName?: string | null;
@@ -1095,6 +1096,7 @@ export function ClientCompany({
   loading?: boolean;
   error?: string | null;
   onRetry?: () => void;
+  viewerRole?: string | null;
 }) {
   const open = tasks.filter((task) => !task.isDone);
   const awaiting = open.filter((task) => task.stage === 'Awaiting Go');
@@ -1115,21 +1117,39 @@ export function ClientCompany({
             </div>
           ) : error && visiblePeople.length === 0 ? (
             <div className="mt-4">
-              <TeamStateNotice title={TEAM_ERROR_COPY.title} body={TEAM_ERROR_COPY.body} testId="client-team-notice" />
+              <TeamStateNotice
+                title={TEAM_ERROR_COPY.title}
+                body={TEAM_ERROR_COPY.body}
+                testId="client-team-notice"
+                action={
+                  <TeamOutlineButton testId="team-try-again" onClick={onRetry}>
+                    Try again
+                  </TeamOutlineButton>
+                }
+              />
             </div>
           ) : visiblePeople.length === 0 ? (
             <div className="mt-4">
-              <TeamEmpty title={TEAM_CLIENT_EMPTY.title} body={TEAM_CLIENT_EMPTY.body} testId="client-team-empty" />
+              <TeamEmpty title={TEAM_CLIENT_EMPTY.title} body={clientTeamEmptyBody(viewerRole)} testId="client-team-empty" />
             </div>
           ) : (
             <ul style={{ marginTop: 16 }}>
               {error ? (
                 <li className="mb-4 list-none">
-                  <TeamStateNotice title={TEAM_ERROR_COPY.title} body={TEAM_ERROR_COPY.body} testId="client-team-notice" />
+                  <TeamStateNotice
+                    title={TEAM_STALE_COPY.title}
+                    body={TEAM_STALE_COPY.body}
+                    testId="client-team-notice"
+                    action={
+                      <TeamOutlineButton testId="team-try-again" onClick={onRetry}>
+                        Try again
+                      </TeamOutlineButton>
+                    }
+                  />
                 </li>
               ) : null}
               {visiblePeople.map((person, index) => (
-                <TeamPersonRow key={person.id} person={person} index={index} />
+                <TeamPersonRow key={person.id} person={person} index={index} pendingColor="var(--warning)" />
               ))}
             </ul>
           )}

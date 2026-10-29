@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 import { clientInitials } from '@/lib/data/clientList';
 
 /** Fixture long-text row from Account / States (297:18927). Not a schema field. */
@@ -13,51 +13,102 @@ export const TEAM_STAFF_EMPTY = {
 
 export const TEAM_CLIENT_EMPTY = {
   title: 'No teammates yet',
-  body: 'Client Admins can invite Client Members from the Team page.',
+  admin: 'Teammates you invite will show here.',
+  member: 'Your Client Admin can invite teammates.',
 } as const;
 
+/** No-data load failure. A cached roster uses TEAM_STALE_COPY instead. */
 export const TEAM_ERROR_COPY = {
-  title: 'Could not save your settings',
-  body: 'Check your connection and try again.',
+  title: "We couldn't load your team",
+  body: 'Try again in a moment.',
 } as const;
 
-export type TeamScreen = 'ready' | 'empty' | 'loading' | 'error' | 'long';
+export const TEAM_STALE_COPY = {
+  title: 'Team list is out of date',
+  body: 'Showing the last team we could load.',
+} as const;
 
-/** Fixture `screen` wins. Live empty, loading, and no-data errors come from the roster. */
+/** INVITE_EMAIL_ENABLED is off. These controls do not call a mutation. */
+export const TEAM_SEND_HINT = 'Invites are coming soon. Ask Warehaus to add someone for now.';
+export const TEAM_RESEND_HINT = 'Resending an invite is coming soon. Ask Warehaus to add someone for now.';
+export const TEAM_REMOVE_HINT = 'Removing someone turns on with Notion write-back.';
+export const TEAM_REVOKE_HINT = 'Revoking an invite turns on with Notion write-back.';
+
+export type TeamScreen = 'ready' | 'empty' | 'loading' | 'error' | 'long' | 'stale';
+
+const FIXTURE_TEAM_SCREENS = ['empty', 'loading', 'error', 'long'] as const;
+
+/**
+ * Fixture preview only. A live session always stays on the real roster,
+ * even when the URL says `?teamState=`.
+ */
+export function readTeamScreen(value: string | null, fixtures: boolean): TeamScreen {
+  if (!fixtures || !value) return 'ready';
+  return (FIXTURE_TEAM_SCREENS as readonly string[]).includes(value) ? (value as TeamScreen) : 'ready';
+}
+
+/** Empty line depends on the viewer, not on who is already in the list. */
+export function clientTeamEmptyBody(role?: string | null): string {
+  return role === 'Client Admin' ? TEAM_CLIENT_EMPTY.admin : TEAM_CLIENT_EMPTY.member;
+}
+
+export function teamMemberStatus(portalAccess: string): { label: string; pending: boolean } {
+  if (portalAccess === 'Enabled' || portalAccess === 'Active') return { label: 'Active', pending: false };
+  return { label: 'No portal access', pending: false };
+}
+
+export function teamInviteStatus(inviteStatus: string): { label: string; pending: boolean } {
+  if (/pending/i.test(inviteStatus)) return { label: 'Invite pending', pending: true };
+  return { label: inviteStatus, pending: false };
+}
+
+/**
+ * Fixture `screen` wins only while fixtures are on.
+ * Live empty, loading, no-data errors, and cached failures come from the roster.
+ */
 export function teamView(input: {
   screen: TeamScreen;
   fixtures: boolean;
   loading: boolean;
   missing: boolean;
   failed: boolean;
+  hasCache: boolean;
   count: number;
 }): TeamScreen {
-  if (input.screen !== 'ready') return input.screen;
-  if (!input.fixtures && input.loading) return 'loading';
+  if (input.fixtures && input.screen !== 'ready') return input.screen;
+  if (!input.fixtures && input.loading && !input.hasCache) return 'loading';
+  if (!input.fixtures && !input.missing && input.failed && input.hasCache) return 'stale';
   if (!input.fixtures && !input.missing && input.failed) return 'error';
   if (input.count === 0 && (input.fixtures || !input.loading)) return 'empty';
   return 'ready';
 }
 
-/** Local to the team roster. Does not change portal chrome or shared scroll. */
-export const TEAM_ROSTER_CSS = `
-.team-roster-cards { display: flex; flex-direction: column; }
-.team-roster-table { display: none; }
+/** Local to the team cards. Does not change portal chrome or shared scroll. */
+export const TEAM_CARD_CSS = `
+.team-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 36px;
+  padding: 25px;
+  width: 100%;
+  box-sizing: border-box;
+}
+.team-disabled-action:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+}
 @media (min-width: 768px) {
-  .team-roster-cards { display: none; }
-  .team-roster-table { display: block; }
+  .team-card { padding: 48px; }
 }
 `;
 
 export function TeamEmpty({
   title,
   body,
-  action,
   testId = 'team-empty',
 }: {
   title: string;
   body: string;
-  action?: ReactNode;
   testId?: string;
 }) {
   return (
@@ -88,19 +139,19 @@ export function TeamEmpty({
       >
         {body}
       </p>
-      {action}
     </div>
   );
 }
 
 export function TeamSkeletonRows({ testId = 'team-loading' }: { testId?: string }) {
   return (
-    <div data-testid={testId} className="flex flex-col" style={{ gap: 24 }} aria-busy="true" aria-hidden>
+    <div data-testid={testId} role="status" className="flex flex-col" style={{ gap: 24 }}>
+      <span className="sr-only">Loading team</span>
       {[0, 1, 2].map((row) => (
         <div key={row} data-testid="team-skeleton-row" className="flex items-center" style={{ gap: 16 }}>
           <span
             className="animate-pulse shrink-0"
-            style={{ width: 36, height: 36, borderRadius: 18, background: 'var(--surface-2)' }}
+            style={{ width: 32, height: 32, borderRadius: 999, background: 'var(--surface-2)' }}
           />
           <span className="flex min-w-0 flex-1 flex-col" style={{ gap: 8 }}>
             <span
@@ -126,43 +177,49 @@ export function TeamStateNotice({
   title,
   body,
   testId = 'team-state-notice',
+  action,
 }: {
   title: string;
   body: string;
   testId?: string;
+  action?: ReactNode;
 }) {
   return (
     <div
       role="alert"
       data-testid={testId}
-      className="flex items-start"
+      className="flex w-full flex-col"
       style={{
-        gap: 12,
+        gap: 16,
         border: '1px solid var(--danger)',
         borderRadius: 18,
         background: 'var(--surface)',
         padding: '16px 24px',
+        boxSizing: 'border-box',
       }}
     >
-      <span
-        aria-hidden
-        className="inline-flex shrink-0 items-center justify-center"
-        style={{
-          width: 20,
-          height: 20,
-          borderRadius: 999,
-          border: '1.25px solid var(--danger)',
-          color: 'var(--danger)',
-          fontSize: 11,
-          fontWeight: 600,
-        }}
-      >
-        !
-      </span>
-      <span className="min-w-0 flex-1">
-        <p style={{ margin: 0, color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{title}</p>
-        <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: '19px' }}>{body}</p>
-      </span>
+      <div className="flex items-start" style={{ gap: 12 }}>
+        <span
+          aria-hidden
+          className="inline-flex shrink-0 items-center justify-center"
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: 999,
+            border: '1.25px solid var(--danger)',
+            color: 'var(--danger)',
+            fontSize: 11,
+            fontWeight: 600,
+          }}
+        >
+          !
+        </span>
+        <span className="min-w-0 flex-1">
+          <p style={{ margin: 0, color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{title}</p>
+          <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: '19px' }}>{body}</p>
+        </span>
+      </div>
+      {action ? <div>{action}</div> : null}
     </div>
   );
 }
@@ -199,51 +256,133 @@ export function TeamOutlineButton({
   );
 }
 
+/** Outline control kept on screen while email or write-back is off. No role=group. */
+export function TeamDisabledAction({
+  label,
+  hint,
+  testId,
+  hintId,
+}: {
+  label: string;
+  hint: string;
+  testId: string;
+  /** When set, the visible hint elsewhere owns this id. */
+  hintId?: string;
+}) {
+  const generated = useId();
+  const describedBy = hintId ?? generated;
+  return (
+    <span
+      tabIndex={0}
+      aria-disabled="true"
+      aria-describedby={describedBy}
+      title={hint}
+      data-testid={`${testId}-wrap`}
+      className="team-disabled-action inline-flex"
+      style={{ cursor: 'not-allowed' }}
+    >
+      <button
+        type="button"
+        disabled
+        aria-disabled="true"
+        tabIndex={-1}
+        data-testid={testId}
+        style={{
+          pointerEvents: 'none',
+          background: 'transparent',
+          color: 'var(--fg)',
+          border: '1px solid var(--border-2, var(--border))',
+          borderRadius: 9,
+          fontSize: 14,
+          fontWeight: 500,
+          padding: '12px 16px',
+          cursor: 'not-allowed',
+          opacity: 0.4,
+        }}
+      >
+        {label}
+      </button>
+      {hintId ? null : (
+        <span id={describedBy} className="sr-only">
+          {hint}
+        </span>
+      )}
+    </span>
+  );
+}
+
 export function TeamPersonIdentity({
   name,
   email,
   role,
   status,
+  pending = false,
+  actions,
+  index = 0,
 }: {
   name: string;
   email: string;
   role: string;
   status: string;
+  pending?: boolean;
+  actions?: ReactNode;
+  index?: number;
 }) {
-  const meta = [email, role].filter(Boolean).join(' · ');
+  const statusColor = pending ? 'var(--warning)' : 'var(--muted)';
   return (
     <div
       data-testid="team-person-row"
-      className="flex items-center"
-      style={{ gap: 12, borderBottom: '1px solid var(--border)', padding: '24px 0' }}
+      className="flex flex-wrap items-center"
+      style={{
+        gap: 12,
+        borderTop: index === 0 ? 'none' : '1px solid var(--border)',
+        padding: '16px 0',
+      }}
     >
       <span
         className="ds-mono inline-flex shrink-0 items-center justify-center"
+        data-testid="team-person-avatar"
         style={{
-          width: 36,
-          height: 36,
+          width: 32,
+          height: 32,
           borderRadius: 999,
-          background: 'var(--surface-2)',
-          border: '1px solid var(--border-2, var(--border))',
-          fontSize: 12,
-          fontWeight: 600,
+          background: 'var(--bg)',
+          border: '1px solid var(--border)',
+          fontSize: 11,
+          color: 'var(--muted)',
         }}
       >
         {clientInitials(name)}
       </span>
-      <span className="min-w-0 flex-1">
+      <span className="min-w-0" style={{ flex: '1 1 180px' }}>
         <span data-testid="team-person-name" className="block" style={{ fontSize: 16, fontWeight: 500, overflowWrap: 'anywhere' }}>
           {name}
         </span>
-        {meta ? (
+        {email ? (
           <span className="ds-mono block" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}>
-            {meta}
+            {email}
           </span>
         ) : null}
       </span>
-      <span className="ds-mono shrink-0" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+      <span
+        data-testid="team-person-role"
+        className="ds-mono"
+        style={{ width: 140, flex: '0 0 140px', fontSize: 12, color: 'var(--muted)', textAlign: 'left' }}
+      >
+        {role}
+      </span>
+      <span
+        data-testid="team-person-status"
+        className="ds-mono"
+        style={{ fontSize: 12, color: statusColor, textAlign: 'left', whiteSpace: 'nowrap' }}
+      >
         {status}
       </span>
+      {actions ? (
+        <span className="flex flex-wrap items-center" style={{ gap: 8, marginLeft: 'auto' }}>
+          {actions}
+        </span>
+      ) : null}
     </div>
   );
 }
