@@ -26,6 +26,7 @@ import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
 import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
+import { portalNavDetail } from '@/lib/nav/openPortalHref';
 import { resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
@@ -78,11 +79,17 @@ export function ProjectsContent() {
   );
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const project = params.get('project');
-    const task = params.get('task');
-    if (project) setOpenId(project);
-    if (fixtures && task) setFixtureTaskId(task);
+    const apply = (event?: Event) => {
+      const detail = event ? portalNavDetail(event) : null;
+      const params = new URLSearchParams(window.location.search);
+      const project = detail ? detail.project : params.get('project');
+      const task = detail ? detail.task : params.get('task');
+      if (project) setOpenId(project);
+      if (fixtures && (detail || task)) setFixtureTaskId(task);
+    };
+    apply();
+    window.addEventListener('wh-portal-nav', apply);
+    return () => window.removeEventListener('wh-portal-nav', apply);
   }, [fixtures]);
 
   const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
@@ -148,6 +155,7 @@ export function ProjectsContent() {
   const closeTask = () => {
     if (fixtures) {
       setFixtureTaskId(null);
+      clearSearchParam('task');
       return;
     }
     if (openProject) router.push(`/projects/${openProject.id}`);
@@ -475,6 +483,7 @@ type ResourceOption = {
   publishToWarehaus?: boolean;
   updatedAt?: number | null;
   lastSyncedAt?: number | null;
+  attachedCount?: number | null;
 };
 
 const clientDeniedRules: BoardRules = { actor: 'client', statuses: [], stages: [] };
@@ -557,7 +566,11 @@ function ProjectTaskOverlay({
     ? tasks.filter((item) => item.parentTaskId === taskId)
     : (clientSubs.data ?? []).filter((item) => item.publishToWarehaus !== false);
   const fixtureAttached = fixtures && task
-    ? resources.filter((resource) => resource.projectId === task.projectId).slice(0, 1)
+    ? resources.filter((resource) => {
+        if (resource.projectId !== task.projectId) return false;
+        if (staff) return true;
+        return resource.publishToWarehaus !== false;
+      })
     : [];
   const attached = staff
     ? fixtures ? fixtureAttached : staffAttached.data ?? []

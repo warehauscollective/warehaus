@@ -9,6 +9,7 @@ import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEdi
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
+import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
 import { TaskGlyph } from './TaskGlyph';
 
 type ResourceRow = {
@@ -20,6 +21,7 @@ type ResourceRow = {
   projectId?: string | null;
   updatedAt?: number | null;
   lastSyncedAt?: number | null;
+  attachedCount?: number | null;
 };
 
 export function TaskDetailModal({
@@ -151,11 +153,10 @@ export function TaskDetailModal({
               {resources.length === 0 ? (
                 <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', marginTop: 8 }}>No resources yet.</p>
               ) : (
-                <ul className="mt-2 flex flex-col gap-2">
+                <ul className="mt-2 flex flex-col">
                   {resources.map((resource) => (
-                    <li key={resource.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '0.7rem 0.85rem' }}>
-                      {resource.name}
-                      {resource.type ? <span className="ds-mono" style={{ marginLeft: 8, color: 'var(--muted)', fontSize: 'var(--t-xs)' }}>{resource.type}</span> : null}
+                    <li key={resource.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                      <AttachedResourceRow resource={resource} staff={staff} phone={phone} />
                     </li>
                   ))}
                 </ul>
@@ -605,13 +606,6 @@ export function TaskCreateDialog({
       </form>
     </ModalShell>
   );
-}
-
-function resourceKind(type: string | null): { label: string; icon: string } {
-  const value = (type ?? '').toLowerCase();
-  if (/granola|meeting|note/.test(value)) return { label: 'Granola', icon: '/icons/resource-mic.svg' };
-  if (/link|url/.test(value)) return { label: 'Link', icon: '/icons/resource-link.svg' };
-  return { label: /file|pdf|article/.test(value) || !type ? 'Doc' : type, icon: '/icons/resource-doc.svg' };
 }
 
 function resourceMeta(resource: ResourceRow): string {

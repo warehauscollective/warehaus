@@ -3,6 +3,7 @@
 import type { PortalTab } from '@warehaus/logic/portal';
 import { getPortalTabsForMode } from '@warehaus/logic/portal';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
+import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { usePortalData } from '@/hooks/usePortalData';
 
 const TAB_ICON: Record<Exclude<PortalTab, 'dashboard'>, string> = {
@@ -61,17 +62,20 @@ export function PortalDock() {
       aria-label="Portal navigation"
       data-testid="portal-dock"
     >
-      <div
+      <button
+        type="button"
+        aria-label="Search"
         className="hidden size-14 shrink-0 items-center justify-center rounded-3xl backdrop-blur-2xl lg:flex"
         style={{
           background: 'var(--nav-bg)',
           border: '1px solid var(--nav-border)',
+          color: 'var(--nav-text)',
+          cursor: 'pointer',
         }}
-        aria-hidden
+        onClick={() => window.dispatchEvent(new Event('wh-open-search'))}
       >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img alt="" src="/icons/dock-menu.svg" width={20} height={20} className="dock-menu-glyph" />
-      </div>
+        <TaskGlyph src="/icons/resource-search.svg" size={20} />
+      </button>
 
       <div
         role="tablist"

@@ -18,6 +18,7 @@ import {
   type PortalTab,
 } from '@warehaus/logic/portal';
 import { createSwipePanelRefs } from '@warehaus/ui';
+import { portalNavDetail } from '@/lib/nav/openPortalHref';
 
 const PORTAL_TAB_VALUES = PORTAL_TABS.map((t) => t.value) as PortalTab[];
 
@@ -44,13 +45,24 @@ export function PortalTabProvider({ children }: { children: ReactNode }) {
   );
 
   // Deep links / back-forward: keep tab state aligned with the path.
+  // Preview search uses pushState, so also listen for wh-portal-nav.
   useEffect(() => {
-    const requested = new URLSearchParams(window.location.search).get('tab');
-    if (requested && isPortalTab(requested)) {
-      setActiveTabState(requested);
-      return;
-    }
-    setActiveTabState(getPortalTabForPath(pathname));
+    const sync = (event?: Event) => {
+      const detail = event ? portalNavDetail(event) : null;
+      const requested = detail?.tab ?? new URLSearchParams(window.location.search).get('tab');
+      if (requested && isPortalTab(requested)) {
+        setActiveTabState(requested);
+        return;
+      }
+      setActiveTabState(getPortalTabForPath(window.location.pathname));
+    };
+    sync();
+    window.addEventListener('wh-portal-nav', sync);
+    window.addEventListener('popstate', sync);
+    return () => {
+      window.removeEventListener('wh-portal-nav', sync);
+      window.removeEventListener('popstate', sync);
+    };
   }, [pathname]);
 
   const setActiveTab = useCallback(

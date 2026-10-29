@@ -1,7 +1,17 @@
 import { clientMaySeeProject, clientMaySeeTask, isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
+import type { Id } from './_generated/dataModel';
+import type { QueryCtx } from './_generated/server';
 import { adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
+
+async function attachmentCount(ctx: QueryCtx, orgId: Id<'clients'>, resourceId: Id<'sharedResources'>) {
+  const links = await ctx.db
+    .query('taskResources')
+    .withIndex('by_orgId_resourceId', (q) => q.eq('orgId', orgId).eq('resourceId', resourceId))
+    .collect();
+  return links.length;
+}
 
 /**
  * CLIENT serializer for Notion Shared Resources.
@@ -166,7 +176,10 @@ export const listAttachedForClient = clientQuery({
       }
       const resourceProject = row.projectId ? await ctx.db.get(row.projectId) : null;
       if (!projectVisibleToClient(resourceProject, isOrgVisibleToClients(org), row.projectId)) continue;
-      out.push(toClientResource(row, resourceProject?.name ?? null));
+      out.push({
+        ...toClientResource(row, resourceProject?.name ?? null),
+        attachedCount: await attachmentCount(ctx, task.orgId, row._id),
+      });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
   },
@@ -192,6 +205,7 @@ export const listAttachedForStaff = adminQuery({
         publishToWarehaus: row.publishToWarehaus,
         notionPageId: row.notionPageId,
         lastSyncedAt: row.lastSyncedAt,
+        attachedCount: await attachmentCount(ctx, task.orgId, row._id),
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

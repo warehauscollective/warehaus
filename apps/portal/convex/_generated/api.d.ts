@@ -33,6 +33,7 @@ import type * as projectCreate from "../projectCreate.js";
 import type * as projects from "../projects.js";
 import type * as registrationGate from "../registrationGate.js";
 import type * as seed from "../seed.js";
+import type * as search from "../search.js";
 import type * as sharedResources from "../sharedResources.js";
 import type * as staffProvision from "../staffProvision.js";
 import type * as sync_blob from "../sync/blob.js";
@@ -86,6 +87,7 @@ declare const fullApi: ApiFromModules<{
   projects: typeof projects;
   registrationGate: typeof registrationGate;
   seed: typeof seed;
+  search: typeof search;
   sharedResources: typeof sharedResources;
   staffProvision: typeof staffProvision;
   "sync/blob": typeof sync_blob;
