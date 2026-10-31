@@ -141,9 +141,10 @@ export const previewAccept = query({
   args: { token: v.string() },
   handler: async (ctx, { token }) => {
     const user = await authComponent.getAuthUser(ctx).catch(() => null);
+    const tokenHash = await hashInviteToken(token);
     const row = await ctx.db
       .query('inviteTokens')
-      .withIndex('by_tokenHash', (q) => q.eq('tokenHash', hashInviteToken(token)))
+      .withIndex('by_tokenHash', (q) => q.eq('tokenHash', tokenHash))
       .unique();
     const now = Date.now();
     const usable = row != null && row.status === 'live' && row.expiresAt > now;
@@ -215,9 +216,10 @@ export const accept = mutation({
   handler: async (ctx, { token }) => {
     const user = await authComponent.getAuthUser(ctx);
     if (!user?.email) throw new PortalAuthError('Sign in to accept', 'UNAUTHENTICATED');
+    const tokenHash = await hashInviteToken(token);
     const row = await ctx.db
       .query('inviteTokens')
-      .withIndex('by_tokenHash', (q) => q.eq('tokenHash', hashInviteToken(token)))
+      .withIndex('by_tokenHash', (q) => q.eq('tokenHash', tokenHash))
       .unique();
     const plan = planInviteAccept({
       tokenStatus: row?.status ?? 'missing',
@@ -261,9 +263,10 @@ export const decline = mutation({
   handler: async (ctx, { token }) => {
     const user = await authComponent.getAuthUser(ctx);
     if (!user?.email) throw new PortalAuthError('Sign in to decline', 'UNAUTHENTICATED');
+    const tokenHash = await hashInviteToken(token);
     const row = await ctx.db
       .query('inviteTokens')
-      .withIndex('by_tokenHash', (q) => q.eq('tokenHash', hashInviteToken(token)))
+      .withIndex('by_tokenHash', (q) => q.eq('tokenHash', tokenHash))
       .unique();
     const plan = planInviteAccept({
       tokenStatus: row?.status ?? 'missing',
@@ -349,7 +352,7 @@ export const issueTokenAfterConfirm = internalMutation({
     const inviteRole = parsed.invite ? asClientInviteRole(parsed.invite.role) : null;
     if (row.kind === 'createInvite' && parsed.invite && inviteRole) {
       const invite = parsed.invite;
-      const issued = tokenFromConfirmation({ confirmed: true, now });
+      const issued = await tokenFromConfirmation({ confirmed: true, now });
       if (!issued) return empty;
       const existing = await ctx.db
         .query('inviteTokens')

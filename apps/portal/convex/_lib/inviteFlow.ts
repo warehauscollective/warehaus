@@ -4,7 +4,6 @@
  * Only Warehaus Staff can plan an invite. Clients cannot.
  */
 
-import { createHash, randomBytes } from 'node:crypto';
 import { normalizeEmail } from './contactJoin';
 import type { PortalRole } from './identity';
 
@@ -12,13 +11,22 @@ export const INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 export const INVITE_DAILY_LIMIT = 20;
 export const INVITE_CLIENT_FAILURE = "We couldn't send this invite";
 
-export function hashInviteToken(raw: string): string {
-  return createHash('sha256').update(raw).digest('hex');
+// Web Crypto only: Convex's default runtime has no node:crypto.
+export async function hashInviteToken(raw: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-export function createInviteToken(): { raw: string; tokenHash: string } {
-  const raw = randomBytes(32).toString('base64url');
-  return { raw, tokenHash: hashInviteToken(raw) };
+function base64url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/, '');
+}
+
+export async function createInviteToken(): Promise<{ raw: string; tokenHash: string }> {
+  const raw = base64url(crypto.getRandomValues(new Uint8Array(32)));
+  return { raw, tokenHash: await hashInviteToken(raw) };
 }
 
 export function inviteEmailsMatch(signedInEmail: string, invitedEmail: string): boolean {
@@ -204,11 +212,11 @@ export function describeInvitePreview(input: {
 }
 
 /** Token material is created only when Notion has already confirmed. */
-export function tokenFromConfirmation(input: {
+export async function tokenFromConfirmation(input: {
   confirmed: boolean;
   now: number;
-}): { raw: string; tokenHash: string; expiresAt: number } | null {
+}): Promise<{ raw: string; tokenHash: string; expiresAt: number } | null> {
   if (!input.confirmed) return null;
-  const created = createInviteToken();
+  const created = await createInviteToken();
   return { ...created, expiresAt: input.now + INVITE_EXPIRY_MS };
 }
