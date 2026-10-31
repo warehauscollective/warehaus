@@ -101,14 +101,14 @@ function run(fn: object, ctx: ReturnType<typeof authCtx>, args: Record<string, u
   return (fn as { _handler: Handler })._handler(ctx, args);
 }
 
-function tokenRow(id: string, raw: string) {
+async function tokenRow(id: string, raw: string) {
   return {
     _id: id,
     orgId: 'org-north',
     contactNotionPageId: 'contact-notion',
     clientNotionPageId: 'client-notion',
     emailNormalized: 'ada@northwind.test',
-    tokenHash: hashInviteToken(raw),
+    tokenHash: await hashInviteToken(raw),
     status: 'live',
     expiresAt: Date.now() + 86_400_000,
     createdAt: 1,
@@ -148,7 +148,7 @@ function baseTables(token: Row): Record<string, Row[]> {
 
 describe('invite accept, decline, and revoke', () => {
   it('holds the token in the same mutation and refuses a second accept', async () => {
-    const tables = baseTables(tokenRow('tok-accept', 'raw-accept'));
+    const tables = baseTables(await tokenRow('tok-accept', 'raw-accept'));
     const enqueues: Array<Record<string, unknown>> = [];
     const ctx = authCtx('user-1', tables, enqueues);
 
@@ -164,7 +164,7 @@ describe('invite accept, decline, and revoke', () => {
   });
 
   it('puts the token back when the write dies, then marks it used when Notion confirms', async () => {
-    const tables = baseTables(tokenRow('tok-accept', 'raw-accept'));
+    const tables = baseTables(await tokenRow('tok-accept', 'raw-accept'));
     const enqueues: Array<Record<string, unknown>> = [];
     const ctx = authCtx('user-1', tables, enqueues);
     await run(accept, ctx, { token: 'raw-accept' });
@@ -190,7 +190,7 @@ describe('invite accept, decline, and revoke', () => {
   });
 
   it('refuses a second decline and kills the token when Notion confirms', async () => {
-    const tables = baseTables(tokenRow('tok-decline', 'raw-decline'));
+    const tables = baseTables(await tokenRow('tok-decline', 'raw-decline'));
     const enqueues: Array<Record<string, unknown>> = [];
     const ctx = authCtx('user-1', tables, enqueues);
 
@@ -211,7 +211,7 @@ describe('invite accept, decline, and revoke', () => {
   });
 
   it('refuses a second revoke and kills the token when Notion confirms', async () => {
-    const tables = baseTables(tokenRow('tok-revoke', 'raw-revoke'));
+    const tables = baseTables(await tokenRow('tok-revoke', 'raw-revoke'));
     const enqueues: Array<Record<string, unknown>> = [];
     const ctx = authCtx('auth-staff', tables, enqueues);
 

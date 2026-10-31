@@ -136,12 +136,21 @@ describe('invite accept email match', () => {
     if (!dead.ok) assert.equal(dead.reason, 'unusable');
   });
 
-  it('creates a token only after Notion confirms', () => {
-    assert.equal(tokenFromConfirmation({ confirmed: false, now: 1 }), null);
-    const issued = tokenFromConfirmation({ confirmed: true, now: 1 });
+  it('creates a token only after Notion confirms', async () => {
+    assert.equal(await tokenFromConfirmation({ confirmed: false, now: 1 }), null);
+    const issued = await tokenFromConfirmation({ confirmed: true, now: 1 });
     assert.ok(issued);
-    assert.equal(issued!.tokenHash, hashInviteToken(issued!.raw));
-    assert.equal(createInviteToken().raw.length > 40, true);
+    assert.equal(issued!.tokenHash, await hashInviteToken(issued!.raw));
+    const { raw } = await createInviteToken();
+    assert.equal(raw.length, 43);
+    assert.match(raw, /^[A-Za-z0-9_-]+$/);
+  });
+
+  it('hashes tokens as hex SHA-256, same as before', async () => {
+    assert.equal(
+      await hashInviteToken('abc'),
+      'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad',
+    );
   });
 
   it('builds the invite email in the portal style', () => {
