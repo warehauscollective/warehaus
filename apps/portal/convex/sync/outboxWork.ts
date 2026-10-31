@@ -159,7 +159,9 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
   const row = await ctx.runQuery(internal.sync.outbox.get, { id });
   if (!row) return { ok: false, error: 'Outbox row was missing' };
 
-  const item = toItem(row);
+  // claim just set the row to inflight. This attempt owns it, so plan it as queued:
+  // the planner waits on inflight rows and would release this one unsent every time.
+  const item: OutboxItem = { ...toItem(row), status: 'queued' };
   const database = item.database;
   let outcome: AttemptOutcome;
   try {
