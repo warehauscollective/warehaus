@@ -529,4 +529,20 @@ export default defineSchema({
   })
     .index('by_noticeId_contactId', ['noticeId', 'contactId'])
     .index('by_contactId', ['contactId']),
+
+  /**
+   * Per-user in-portal notification toggles. One row per contact.
+   * Email delivery stays off — these flags are not a send list.
+   */
+  notificationPrefs: defineTable({
+    contactId: v.id('contacts'),
+    awaitingGo: v.boolean(),
+    syncProblems: v.boolean(),
+    draftRecaps: v.boolean(),
+    inviteNotices: v.boolean(),
+    needsAttention: v.boolean(),
+    sharedRecaps: v.boolean(),
+    weeklySummary: v.boolean(),
+    updatedAt: v.number(),
+  }).index('by_contactId', ['contactId']),
 });

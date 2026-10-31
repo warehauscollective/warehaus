@@ -16,9 +16,9 @@ import {
   type TeamScreen,
 } from '@/components/account/teamStates';
 import type { InviteDraft } from '@/components/pages/TeamInvites';
-import { PortalCheckbox, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { AccountProfile } from '@/components/account/AccountProfile';
+import { NotificationSettings } from '@/components/account/NotificationSettings';
 import { DocsStatesGallery, type DocRow } from '@/components/docs/DocsBlock';
 import {
   ClientCompany,
@@ -479,7 +479,7 @@ export function AccountContent() {
 
       {activeSection === 'notifications' && (
         <PortalTilePane>
-          <NotificationSettings staff={isStaff} />
+          <NotificationSettings staff={isStaff} live={configured && !fixtures} hostSlug={hostSlug} />
         </PortalTilePane>
       )}
 
@@ -496,69 +496,5 @@ export function AccountContent() {
         />
       )}
     </PortalWorkspace>
-  );
-}
-
-function NotificationSettings({ staff }: { staff: boolean }) {
-  const [flags, setFlags] = useState({
-    awaitingGo: true,
-    syncProblems: true,
-    draftRecaps: false,
-    inviteNotices: true,
-  });
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    try {
-      const raw = localStorage.getItem('warehaus-notifications');
-      if (raw) setFlags(JSON.parse(raw) as typeof flags);
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
-  const save = (next: typeof flags) => {
-    setFlags(next);
-    try {
-      localStorage.setItem('warehaus-notifications', JSON.stringify(next));
-      setError(null);
-    } catch {
-      setError('Could not save your settings');
-    }
-  };
-
-  const rows: Array<[keyof typeof flags, string]> = [
-    ['awaitingGo', 'Awaiting go'],
-    ...(staff
-      ? ([
-          ['syncProblems', 'Sync problems'],
-          ['draftRecaps', 'Draft recaps'],
-          ['inviteNotices', 'Invite notices'],
-        ] as Array<[keyof typeof flags, string]>)
-      : []),
-  ];
-
-  return (
-    <Surface style={{ padding: 'var(--s-5)' }}>
-      <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
-        Notifications
-      </p>
-      <div className="mt-4 flex flex-col gap-3">
-        {rows.map(([key, label]) => (
-          <label key={key} className="flex items-center justify-between gap-3">
-            <span style={{ fontSize: 'var(--t-sm)' }}>{label}</span>
-            <PortalCheckbox
-              checked={flags[key]}
-              onChange={(checked) => save({ ...flags, [key]: checked })}
-            />
-          </label>
-        ))}
-      </div>
-      {error ? (
-        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)', marginTop: 12 }}>
-          {error}. Try again.
-        </p>
-      ) : null}
-    </Surface>
   );
 }
