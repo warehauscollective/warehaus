@@ -53,6 +53,7 @@ import type * as sync_trigger from "../sync/trigger.js";
 import type * as sync_upsert from "../sync/upsert.js";
 import type * as sync_taskWrite from "../sync/taskWrite.js";
 import type * as taskResponses from "../taskResponses.js";
+import type * as taskSources from "../taskSources.js";
 import type * as tasks from "../tasks.js";
 import type * as verificationResend from "../verificationResend.js";
 
@@ -108,6 +109,7 @@ declare const fullApi: ApiFromModules<{
   "sync/upsert": typeof sync_upsert;
   "sync/taskWrite": typeof sync_taskWrite;
   taskResponses: typeof taskResponses;
+  taskSources: typeof taskSources;
   tasks: typeof tasks;
   verificationResend: typeof verificationResend;
 }>;
