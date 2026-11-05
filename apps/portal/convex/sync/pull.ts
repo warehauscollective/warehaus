@@ -11,7 +11,6 @@ import {
   decideContactSync,
   isPortalSelfWrite,
   mapNotionSharedResource,
-  mapNotionTask,
   resolveTaskDescription,
   shouldRefetchTaskBody,
   isApprovedInternalWarehausProject,
@@ -43,6 +42,7 @@ import {
   writeSharedResourceUrl,
   type NotionPageRow,
 } from './notionApi';
+import { NOTION_TASKS_DATA_SOURCE, mapNotionTaskPage } from './sources/notion';
 
 export type PullStats = {
   upserted: Record<string, number>;
@@ -661,9 +661,10 @@ export const pullAll = internalAction({
       const graphTouch: string[] = [];
 
       // --- Tasks ---
+      // NotionTaskSource: same data source and mapper as before, named in sources/notion.ts.
       const taskLoaded = await loadSourcePages(
         'tasks',
-        SYNC_SOURCES.tasks,
+        NOTION_TASKS_DATA_SOURCE,
         pageOpts,
         priorRetries,
         now,
@@ -678,7 +679,7 @@ export const pullAll = internalAction({
           return (rel?.relation ?? []).map((r) => r.id ?? '').filter(Boolean);
         })();
         const parentOk = projectIds.some((id) => projectPass.has(id));
-        const mapped = mapNotionTask(page.id, page.properties, parentOk);
+        const mapped = mapNotionTaskPage(page.id, page.properties, parentOk);
         const stageNotice = (mapped.notices ?? []).find((notice) => notice.startsWith('Stage "')) ?? null;
         for (const notice of mapped.notices ?? []) {
           stats.errors.push(`notice tasks ${page.id}: ${notice}`);

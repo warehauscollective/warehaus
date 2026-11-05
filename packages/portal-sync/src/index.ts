@@ -337,3 +337,12 @@ export {
   type StatusMapping,
   type TaskSource,
 } from './taskSource';
+
+export {
+  NOTION_WEBHOOK_PATH,
+  notionTaskSourceCapabilities,
+  mapNotionTaskStatus,
+  neutralTaskFromNotion,
+  notionWebhookEventId,
+  parseNotionWebhook,
+} from './notionTaskSource';
