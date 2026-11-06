@@ -72,6 +72,14 @@ export type IdempotencyRow = {
 /**
  * Flag off inserts nothing. An existing key is reused and is not written again here.
  */
+/** Outbox kinds that update an existing Notion page (re-read, then PATCH). */
+const PATCH_KINDS: ReadonlySet<string> = new Set([
+  'task-status',
+  'task-stage',
+  'task-description',
+  'update',
+]);
+
 export function planIdempotentEnqueue(
   existing: IdempotencyRow | null,
   writebackEnabled: boolean,
@@ -232,7 +240,10 @@ export async function runOutboxAttempt(input: {
     };
   }
 
-  const isPatch = input.item.kind === 'task-status' || input.item.kind === 'update';
+  // Every task write that targets an existing page is a property patch.
+  // task-stage and task-description used to fall through to the create
+  // validator and die with "Name is required…".
+  const isPatch = PATCH_KINDS.has(input.item.kind);
   const validated = isPatch
     ? validatePropertyPatch({
         database: input.item.database,

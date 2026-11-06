@@ -317,6 +317,61 @@ describe('outbox attempt', () => {
     assert.equal(auditEventForOutcome(outcome)?.action, 'outbox.conflict');
   });
 
+  for (const [kind, props] of [
+    ['task-stage', { Stage: 'Idea' }],
+    ['task-stage', { Stage: 'Ready to Ship', 'GitHub Issue/PR': 'https://github.com/o/r/pull/1' }],
+    ['task-description', { Description: 'New copy' }],
+  ] as const) {
+    it(`patches the existing page for ${kind} ${Object.keys(props).join('+')}`, async () => {
+      const expected = '2026-10-31T19:25:00.000Z';
+      const requests: Array<{ method: string; notionPageId?: string; properties: WriteProperties }> = [];
+      const outcome = await runOutboxAttempt({
+        item: item({
+          kind,
+          database: 'tasks',
+          notionPageId: 'page-1',
+          expectedLastEditedTime: expected,
+          properties: { ...props },
+        }),
+        nowMs: 0,
+        writebackEnabled: true,
+        actor: 'staff',
+        search: async () => [],
+        readPage: async () => ({ ok: true, lastEditedTime: expected }),
+        write: async (request) => {
+          requests.push(request);
+          return { ok: true, status: 200, notionPageId: 'page-1', lastEditedTime: expected };
+        },
+      });
+      assert.equal(outcome.outcome, 'confirmed');
+      assert.deepEqual(requests, [{ method: 'update', notionPageId: 'page-1', properties: { ...props } }]);
+    });
+  }
+
+  it('does not write a task-stage patch when Notion changed since the last read', async () => {
+    let wrote = false;
+    const outcome = await runOutboxAttempt({
+      item: item({
+        kind: 'task-stage',
+        database: 'tasks',
+        notionPageId: 'page-1',
+        expectedLastEditedTime: '2026-10-01T00:00:00.000Z',
+        properties: { Stage: 'Idea' },
+      }),
+      nowMs: 0,
+      writebackEnabled: true,
+      actor: 'staff',
+      search: async () => [],
+      readPage: async () => ({ ok: true, lastEditedTime: '2026-10-02T00:00:00.000Z' }),
+      write: async () => {
+        wrote = true;
+        return { ok: true, status: 200, notionPageId: 'page-1' };
+      },
+    });
+    assert.equal(outcome.outcome, 'conflict');
+    assert.equal(wrote, false);
+  });
+
   it('writes a task status when the re-read matches', async () => {
     const outcome = await runOutboxAttempt({
       item: item({
