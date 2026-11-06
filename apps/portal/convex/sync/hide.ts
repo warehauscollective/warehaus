@@ -1,3 +1,4 @@
+import { taskSourceOf } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
@@ -14,6 +15,14 @@ const syncedTable = v.union(
 );
 
 type HideReasonName = 'gate' | 'ancestor' | 'trashed';
+
+/**
+ * A task hide an ancestor hide must not overwrite. `canceled` is only ever set
+ * by a non-Notion source, so for Notion rows this is the old gate/trashed check.
+ */
+function stickyTaskHide(reason: string | undefined): boolean {
+  return reason === 'gate' || reason === 'trashed' || reason === 'canceled';
+}
 
 /**
  * Soft-hide one synced row that already exists. Does not insert.
@@ -132,7 +141,7 @@ export const hideClientChildren = internalMutation({
       .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
       .collect();
     for (const row of tasks) {
-      if (row.syncHiddenReason === 'gate' || row.syncHiddenReason === 'trashed') continue;
+      if (stickyTaskHide(row.syncHiddenReason)) continue;
       await ctx.db.patch(row._id, stamp);
     }
 
@@ -183,7 +192,7 @@ export const hideProjectTasks = internalMutation({
       .withIndex('by_orgId_projectId', (q) => q.eq('orgId', project.orgId).eq('projectId', projectId))
       .collect();
     for (const row of tasks) {
-      if (row.syncHiddenReason === 'gate' || row.syncHiddenReason === 'trashed') continue;
+      if (stickyTaskHide(row.syncHiddenReason)) continue;
       await ctx.db.patch(row._id, {
         syncHiddenAt: now,
         syncHiddenReason: 'ancestor' as const,
@@ -286,6 +295,8 @@ export const hideUnseen = internalMutation({
     if (args.table === 'tasks') {
       const rows = await ctx.db.query('tasks').collect();
       for (const row of rows) {
+        // The Notion full pull only speaks for Notion tasks. Missing taskSource = notion.
+        if (taskSourceOf(row) !== 'notion') continue;
         if (seen.has(row.notionPageId) || row.syncHiddenReason === 'trashed') continue;
         await ctx.db.patch(row._id, stamp);
         concealed += 1;

@@ -315,3 +315,34 @@ export {
   type BoardColumn,
   type PulledStageMerge,
 } from './taskBoard';
+
+export {
+  TASK_SOURCE_IDS,
+  DEFAULT_TASK_SOURCE,
+  isTaskSourceId,
+  taskSourceOf,
+  resolveTaskSourceConfig,
+  SourceError,
+  isSourceError,
+  type TaskSourceId,
+  type TaskSyncDirection,
+  type TaskSourceConfigRow,
+  type ResolvedTaskSourceConfig,
+  type TaskSourceCapabilities,
+  type NeutralTask,
+  type TaskPatch,
+  type UpsertResult,
+  type SourceErrorKind,
+  type ParsedWebhook,
+  type StatusMapping,
+  type TaskSource,
+} from './taskSource';
+
+export {
+  NOTION_WEBHOOK_PATH,
+  notionTaskSourceCapabilities,
+  mapNotionTaskStatus,
+  neutralTaskFromNotion,
+  notionWebhookEventId,
+  parseNotionWebhook,
+} from './notionTaskSource';

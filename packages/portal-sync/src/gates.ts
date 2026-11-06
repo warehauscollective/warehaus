@@ -149,9 +149,9 @@ export function isApprovedInternalWarehausProject(input: {
 export function projectCountsForTaskGate(input: {
   visibleToClients: boolean;
   approvedInternal: boolean;
-  hiddenReason?: 'gate' | 'ancestor' | 'trashed' | null;
+  hiddenReason?: 'gate' | 'ancestor' | 'trashed' | 'canceled' | null;
 }): boolean {
-  if (input.hiddenReason === 'trashed') return false;
+  if (input.hiddenReason === 'trashed' || input.hiddenReason === 'canceled') return false;
   return input.visibleToClients || input.approvedInternal;
 }
 

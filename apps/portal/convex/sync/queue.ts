@@ -1,3 +1,4 @@
+import { notionWebhookEventId } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internal } from '../_generated/api';
 import { httpAction, internalMutation } from '../_generated/server';
@@ -111,8 +112,7 @@ export const notionWebhook = httpAction(async (ctx, req) => {
   const body = decision.body;
 
   const eventId =
-    (typeof body.id === 'string' && body.id) ||
-    (typeof body.event_id === 'string' && body.event_id) ||
+    notionWebhookEventId(body) ??
     `evt_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
 
   const result = await ctx.runMutation(internal.sync.queue.enqueueWebhookEvent, {

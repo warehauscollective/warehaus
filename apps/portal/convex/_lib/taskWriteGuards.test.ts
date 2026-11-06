@@ -48,11 +48,14 @@ describe('createTask project org', () => {
       enqueueCreate,
       {
         db: {
-          query: () => ({
-            withIndex: () => ({
-              unique: async () => ({ _id: 'proj-public', orgId: 'org-northwind', notionPageId: 'notion-proj' }),
-            }),
-          }),
+          query: (table: string) =>
+            table === 'taskSourceConfigs'
+              ? { withIndex: () => ({ first: async () => null }) }
+              : {
+                  withIndex: () => ({
+                    unique: async () => ({ _id: 'proj-public', orgId: 'org-northwind', notionPageId: 'notion-proj' }),
+                  }),
+                },
         },
         runMutation: async (_ref: unknown, args: { actor?: string; orgId?: string }) => {
           calls.push(args);

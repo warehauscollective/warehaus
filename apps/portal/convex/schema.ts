@@ -18,10 +18,21 @@ const notionSyncFields = {
    * Cleared when a later pull shows the row again. The Convex copy stays.
    */
   syncHiddenAt: v.optional(v.number()),
+  /**
+   * `canceled` is written only by a non-Notion task source (a canceled Linear
+   * issue). The Notion pull never sets it.
+   */
   syncHiddenReason: v.optional(
-    v.union(v.literal('gate'), v.literal('ancestor'), v.literal('trashed')),
+    v.union(
+      v.literal('gate'),
+      v.literal('ancestor'),
+      v.literal('trashed'),
+      v.literal('canceled'),
+    ),
   ),
 };
+
+const taskSourceId = v.union(v.literal('notion'), v.literal('linear'));
 
 export default defineSchema({
   /**
@@ -122,11 +133,96 @@ export default defineSchema({
     ),
     /** Staff-only. Set when Notion Stage is not a portal stage. Cleared on the next clean pull. */
     syncNotice: v.optional(v.string()),
+
+    // --- Pluggable task source. All optional: existing rows stay valid. ---
+    /**
+     * Where this task comes from. Missing means `notion` (read with
+     * `taskSourceOf`). Not `source`, which is the Notion Source property.
+     * Linear rows keep `notionPageId` = their Notion context page id.
+     */
+    taskSource: v.optional(taskSourceId),
+    /** Linear issue UUID. Not `externalId`, which is the Notion External ID. */
+    sourceExternalId: v.optional(v.string()),
+    /** Staff-only. e.g. ABC-123. */
+    sourceIdentifier: v.optional(v.string()),
+    /** Staff-only. Link to the issue in the source. */
+    sourceUrl: v.optional(v.string()),
+    /** Source edit stamp (ISO). Upserts skip when not newer. */
+    sourceUpdatedAt: v.optional(v.string()),
+    /** Staff-only. Raw source state type, e.g. Linear `started`. */
+    sourceStateType: v.optional(v.string()),
+    /** Staff-only. Display name only; no source user emails are stored. */
+    assignee: v.optional(v.string()),
+    /** Blocked-by tasks synced in the same org. */
+    dependencyIds: v.optional(v.array(v.id('tasks'))),
+    definitionOfDone: v.optional(v.string()),
+    dueDate: v.optional(v.string()),
+    /** Notion page that holds context and Stage for a non-Notion task. */
+    notionContextPageId: v.optional(v.string()),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])
     .index('by_notionPageId', ['notionPageId'])
-    .index('by_externalId', ['externalId']),
+    .index('by_externalId', ['externalId'])
+    .index('by_taskSource_sourceExternalId', ['taskSource', 'sourceExternalId'])
+    .index('by_orgId_taskSource', ['orgId', 'taskSource']),
+
+  /**
+   * Task source per client (projectId absent) with a per-project override.
+   * No row means Notion. Resolve with `resolveTaskSourceConfig`.
+   * SERVER only — never returned to a client.
+   */
+  taskSourceConfigs: defineTable({
+    orgId: v.id('clients'),
+    /** Absent = this client's default. */
+    projectId: v.optional(v.id('projects')),
+    source: taskSourceId,
+    linear: v.optional(
+      v.object({
+        organizationId: v.string(),
+        teamId: v.string(),
+        projectId: v.optional(v.string()),
+      }),
+    ),
+    credentialId: v.optional(v.id('sourceCredentials')),
+    syncDirection: v.union(v.literal('read'), v.literal('two-way')),
+    enabled: v.boolean(),
+    updatedAt: v.number(),
+    updatedBy: v.optional(v.string()),
+  }).index('by_orgId_projectId', ['orgId', 'projectId']),
+
+  /**
+   * Encrypted per-client task-source credentials. SERVER only: never returned
+   * by any query, never written to Notion, never logged.
+   * AES-GCM with the key in Convex env PORTAL_CRED_KEY.
+   */
+  sourceCredentials: defineTable({
+    orgId: v.id('clients'),
+    provider: v.literal('linear'),
+    kind: v.union(v.literal('oauth'), v.literal('apiKey')),
+    ciphertext: v.string(),
+    scopes: v.array(v.string()),
+    expiresAt: v.optional(v.number()),
+    webhookSecretCiphertext: v.optional(v.string()),
+    revokedAt: v.optional(v.number()),
+    createdAt: v.number(),
+  }).index('by_orgId', ['orgId']),
+
+  /** Non-Notion task-source webhook dedupe / audit. Notion keeps `syncEvents`. */
+  sourceEvents: defineTable({
+    provider: v.literal('linear'),
+    /** Linear-Delivery header. */
+    deliveryId: v.string(),
+    orgId: v.optional(v.id('clients')),
+    receivedAt: v.number(),
+    processedAt: v.optional(v.number()),
+    status: v.union(v.literal('queued'), v.literal('done'), v.literal('error')),
+    payload: v.optional(v.string()),
+    error: v.optional(v.string()),
+  })
+    .index('by_provider_deliveryId', ['provider', 'deliveryId'])
+    .index('by_receivedAt', ['receivedAt'])
+    .index('by_processedAt', ['processedAt']),
 
   /**
    * Task → Shared Resource. Only a link whose resource org matches the task org.
