@@ -136,6 +136,36 @@ export function asClientInviteRole(role: string): ClientInviteRole | null {
   return null;
 }
 
+/** Notion patch that takes portal access away. Invite Status stays as it is. */
+export function memberRemoveProperties(): Record<string, string> {
+  return { 'Portal Access': 'Disabled' };
+}
+
+/**
+ * Staff may remove a client person in their own org.
+ * Warehaus Staff and the signed-in contact are refused. Hidden rows are refused.
+ */
+export function planMemberRemove(input: {
+  role: PortalRole;
+  contactOrgId: string;
+  identityOrgId: string;
+  contactRole: string;
+  contactId: string;
+  actorContactId: string;
+  hidden: boolean;
+}): { ok: true } | { ok: false; clientMessage: string } {
+  if (input.role !== 'Warehaus Staff') {
+    return { ok: false, clientMessage: 'You cannot remove this person' };
+  }
+  if (input.hidden || input.contactOrgId !== input.identityOrgId) {
+    return { ok: false, clientMessage: INVITE_CLIENT_FAILURE };
+  }
+  if (input.contactRole === 'Warehaus Staff' || input.contactId === input.actorContactId) {
+    return { ok: false, clientMessage: 'You cannot remove this person' };
+  }
+  return { ok: true };
+}
+
 export type InviteTokenState = {
   status: 'live' | 'pending' | 'used' | 'killed' | 'expired';
   attempt: number;

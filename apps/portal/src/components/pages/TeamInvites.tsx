@@ -1,8 +1,9 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
-import { PortalRadio, Surface } from '@/components/ui/primitives';
+import { Surface } from '@/components/ui/primitives';
 import { PortalTilePane } from '@/components/layout/PortalWorkspace';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isMissingConvexFunction } from '@/lib/data/staffRoster';
@@ -12,23 +13,28 @@ import {
   LONG_TEAM_ROLE,
   TEAM_CARD_CSS,
   TEAM_ERROR_COPY,
+  TEAM_FIXTURE_HINT,
   TEAM_REMOVE_HINT,
   TEAM_RESEND_HINT,
   TEAM_REVOKE_HINT,
   TEAM_SEND_HINT,
+  TEAM_SEND_READY,
   TEAM_STAFF_EMPTY,
   TEAM_STALE_COPY,
   TeamDisabledAction,
   TeamEmpty,
   TeamOutlineButton,
   TeamPersonIdentity,
+  TeamRolePicker,
   TeamSkeletonRows,
   TeamStateNotice,
+  asTeamInviteRole,
   teamInviteStatus,
   teamMemberStatus,
   teamView,
+  teamWritesLive,
 } from '@/components/account/teamStates';
-import type { TeamScreen } from '@/components/account/teamStates';
+import type { ClientInviteChoice, TeamScreen } from '@/components/account/teamStates';
 
 type TeamRow = {
   canInvite: boolean;
@@ -90,6 +96,12 @@ function withLongMember(roster: TeamRow): TeamRow {
   };
 }
 
+const SEND_OK = 'Invite pending. They get an email after Notion confirms.';
+const RESEND_OK = 'Resend pending. They get a new email after Notion confirms.';
+const REVOKE_OK = 'Revoke pending.';
+const REMOVE_OK = 'Removal pending.';
+const ACTION_FAILURE = "We couldn't send this invite";
+
 export function TeamInvites({
   hostSlug,
   configured,
@@ -107,7 +119,14 @@ export function TeamInvites({
   onDraftChange: (draft: InviteDraft) => void;
   onRetry?: () => void;
 }) {
+  const live = teamWritesLive({ configured, fixtures });
   const team = useSafeQuery<TeamRow>(api.invites.listTeam, configured ? { hostSlug } : 'skip');
+  const createInvite = useMutation(api.invites.create);
+  const revokeInvite = useMutation(api.invites.revoke);
+  const removeMember = useMutation(api.invites.remove);
+  const [role, setRole] = useState<ClientInviteChoice>('Client Member');
+  const [note, setNote] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const [cached, setCached] = useState<TeamRow | null>(null);
   useEffect(() => {
     if (team.data) setCached(team.data);
@@ -132,6 +151,46 @@ export function TeamInvites({
     view === 'stale' ||
     ((view === 'ready' || view === 'long') && Boolean(shown));
 
+  async function runRow(
+    id: string,
+    action: () => Promise<{ ok: boolean; message?: string }>,
+    success: string,
+  ) {
+    if (!live || busy) return;
+    setBusy(id);
+    setNote(null);
+    try {
+      const result = await action();
+      setNote(result.ok ? success : (result.message ?? ACTION_FAILURE));
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : ACTION_FAILURE);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const send = () =>
+    runRow(
+      'send',
+      async () => {
+        if (!draft.name.trim() || !draft.email.trim()) {
+          return { ok: false, message: 'Enter a name and email.' };
+        }
+        const result = await createInvite({
+          hostSlug,
+          name: draft.name,
+          email: draft.email,
+          inviteRole: role,
+          requestId: crypto.randomUUID(),
+        });
+        if (result.ok) onDraftChange({ name: '', email: '' });
+        return result;
+      },
+      SEND_OK,
+    );
+
+  const hint = note ?? (live ? TEAM_SEND_READY : fixtures ? TEAM_FIXTURE_HINT : TEAM_SEND_HINT);
+
   return (
     <PortalTilePane>
       <style>{TEAM_CARD_CSS}</style>
@@ -153,13 +212,14 @@ export function TeamInvites({
               Invite a teammate
             </h2>
             <p style={{ fontSize: 15, lineHeight: '19px', color: 'var(--muted)', margin: '4px 0 0' }}>
-              Name and email for a Client Member.
+              Name and email. Choose Client Member or Client Admin.
             </p>
           </header>
           <form
             className="mt-6 flex flex-col gap-4"
             onSubmit={(event) => {
               event.preventDefault();
+              void send();
             }}
           >
             <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
@@ -182,23 +242,17 @@ export function TeamInvites({
                 />
               </label>
             </div>
-            <fieldset className="flex flex-col gap-2" style={{ border: 0, margin: 0, padding: 0 }}>
-              <legend style={{ fontSize: 14, color: 'var(--muted)' }}>Role</legend>
-              <label className="flex items-center gap-2" style={{ fontSize: 14 }}>
-                <PortalRadio name="role" checked /> Client Member
-              </label>
-              <label className="flex items-start gap-2" style={{ fontSize: 14, color: 'var(--muted)' }}>
-                <PortalRadio name="role" disabled />
-                <span>
-                  Client Admin
-                  <span style={{ display: 'block', fontSize: 13 }}>Only Warehaus can add admins for now</span>
-                </span>
-              </label>
-            </fieldset>
+            <TeamRolePicker role={role} onChange={setRole} />
             <div className="flex flex-col items-start gap-2">
-              <TeamDisabledAction label="Send invite" hint={TEAM_SEND_HINT} testId="team-send-invite" hintId="team-invite-hint" />
-              <p id="team-invite-hint" data-testid="team-invite-hint" style={{ margin: 0, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
-                {TEAM_SEND_HINT}
+              {live ? (
+                <TeamOutlineButton testId="team-send-invite" type="submit" disabled={busy !== null}>
+                  {busy === 'send' ? 'Sending…' : 'Send invite'}
+                </TeamOutlineButton>
+              ) : (
+                <TeamDisabledAction label="Send invite" hint={hint} testId="team-send-invite" hintId="team-invite-hint" />
+              )}
+              <p id="team-invite-hint" data-testid="team-invite-hint" role="status" style={{ margin: 0, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
+                {hint}
               </p>
             </div>
           </form>
@@ -251,11 +305,32 @@ export function TeamInvites({
                       status={status.label}
                       pending={status.pending}
                       actions={
-                        <TeamDisabledAction
-                          label="Remove"
-                          hint={TEAM_REMOVE_HINT}
-                          testId={`team-remove-${member.notionPageId}`}
-                        />
+                        live ? (
+                          <TeamOutlineButton
+                            testId={`team-remove-${member.notionPageId}`}
+                            disabled={busy !== null}
+                            onClick={() => {
+                              void runRow(
+                                member.notionPageId,
+                                () =>
+                                  removeMember({
+                                    hostSlug,
+                                    contactNotionPageId: member.notionPageId,
+                                    requestId: crypto.randomUUID(),
+                                  }),
+                                REMOVE_OK,
+                              );
+                            }}
+                          >
+                            Remove
+                          </TeamOutlineButton>
+                        ) : (
+                          <TeamDisabledAction
+                            label="Remove"
+                            hint={TEAM_REMOVE_HINT}
+                            testId={`team-remove-${member.notionPageId}`}
+                          />
+                        )
                       }
                     />
                   );
@@ -272,18 +347,58 @@ export function TeamInvites({
                       status={status.label}
                       pending={status.pending}
                       actions={
-                        <>
-                          <TeamDisabledAction
-                            label="Resend"
-                            hint={TEAM_RESEND_HINT}
-                            testId={`team-resend-${invite.notionPageId}`}
-                          />
-                          <TeamDisabledAction
-                            label="Revoke"
-                            hint={TEAM_REVOKE_HINT}
-                            testId={`team-revoke-${invite.notionPageId}`}
-                          />
-                        </>
+                        live && asTeamInviteRole(invite.role) ? (
+                          <>
+                            <TeamOutlineButton
+                              testId={`team-resend-${invite.notionPageId}`}
+                              disabled={busy !== null}
+                              onClick={() => {
+                                const inviteRole = asTeamInviteRole(invite.role);
+                                if (!inviteRole) return;
+                                void runRow(
+                                  invite.notionPageId,
+                                  () =>
+                                    createInvite({
+                                      hostSlug,
+                                      name: invite.name,
+                                      email: invite.email,
+                                      inviteRole,
+                                      requestId: crypto.randomUUID(),
+                                    }),
+                                  RESEND_OK,
+                                );
+                              }}
+                            >
+                              Resend
+                            </TeamOutlineButton>
+                            <TeamOutlineButton
+                              testId={`team-revoke-${invite.notionPageId}`}
+                              disabled={busy !== null}
+                              onClick={() => {
+                                void runRow(
+                                  `revoke-${invite.notionPageId}`,
+                                  () => revokeInvite({ hostSlug, contactNotionPageId: invite.notionPageId }),
+                                  REVOKE_OK,
+                                );
+                              }}
+                            >
+                              Revoke
+                            </TeamOutlineButton>
+                          </>
+                        ) : (
+                          <>
+                            <TeamDisabledAction
+                              label="Resend"
+                              hint={TEAM_RESEND_HINT}
+                              testId={`team-resend-${invite.notionPageId}`}
+                            />
+                            <TeamDisabledAction
+                              label="Revoke"
+                              hint={TEAM_REVOKE_HINT}
+                              testId={`team-revoke-${invite.notionPageId}`}
+                            />
+                          </>
+                        )
                       }
                     />
                   );

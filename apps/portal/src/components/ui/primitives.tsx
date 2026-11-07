@@ -212,10 +212,12 @@ export function PortalRadio({
   checked,
   disabled,
   name,
+  onChange,
 }: {
   checked?: boolean;
   disabled?: boolean;
   name?: string;
+  onChange?: () => void;
 }) {
   return (
     <span className="relative inline-flex shrink-0" style={{ width: 18, height: 18 }}>
@@ -224,8 +226,10 @@ export function PortalRadio({
         name={name}
         checked={checked}
         disabled={disabled}
-        readOnly
+        onChange={onChange}
+        readOnly={onChange == null}
         className="absolute inset-0 opacity-0"
+        style={{ cursor: disabled ? 'not-allowed' : 'pointer' }}
       />
       <span
         aria-hidden
