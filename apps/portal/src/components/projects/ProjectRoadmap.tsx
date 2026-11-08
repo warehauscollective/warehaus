@@ -537,6 +537,7 @@ function MilestoneDetail({
   const [editing, setEditing] = useState(false);
   const [more, setMore] = useState(false);
   const [note, setNote] = useState('');
+  const [noteError, setNoteError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const locked = milestone.approval === 'approved';
@@ -566,9 +567,10 @@ function MilestoneDetail({
   const onDecide = (decision: 'approved' | 'changes_requested') => {
     const trimmed = note.trim();
     if (!trimmed) {
-      setError('A note is required.');
+      setNoteError('A note is required.');
       return;
     }
+    setNoteError(null);
     if (fixtures) {
       onFixture({
         approval: decision,
@@ -960,12 +962,12 @@ function MilestoneDetail({
         <ReviewDialog
           milestone={milestone}
           note={note}
-          error={error}
+          error={noteError}
           busy={busy}
           onNote={setNote}
           onClose={() => {
             setReviewOpen(false);
-            setError(null);
+            setNoteError(null);
           }}
           onDecide={onDecide}
         />
