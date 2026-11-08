@@ -290,7 +290,7 @@ describe('move authorization', () => {
     assert.equal(calls.length, 0);
   });
 
-  it('lets Warehaus studio staff reach the outbox for a Northwind task', async () => {
+  it('lets Warehaus studio staff past auth, then write-back off writes nothing', async () => {
     const previous = process.env.NOTION_WRITEBACK_ENABLED;
     delete process.env.NOTION_WRITEBACK_ENABLED;
     const inserted: unknown[] = [];
@@ -373,11 +373,9 @@ describe('move authorization', () => {
         stage: 'Planning',
         expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
       });
-      assert.equal(stage.ok, true);
-      assert.equal((stage as { pending?: boolean }).pending, true);
-      assert.equal(northwindTask.stage, 'Planning');
-      assert.equal(typeof northwindTask.stagePendingAt, 'number');
-      assert.equal(northwindTask.stageSynced, 'Idea');
+      assert.deepEqual(stage, { ok: false, error: WRITEBACK_OFF_ERROR });
+      assert.equal(northwindTask.stage, 'Idea');
+      assert.equal(northwindTask.stagePendingAt, undefined);
       assert.equal(inserted.length, 0);
     } finally {
       if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;

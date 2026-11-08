@@ -55,7 +55,7 @@ import { portalNavDetail } from '@/lib/nav/openPortalHref';
 import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
-import { useProjectCreateEnabled } from '@/components/projects/projectCreateFlag';
+import { useWritebackEnabled } from '@/hooks/useWritebackEnabled';
 import {
   NewProjectButton,
   ProjectKpiSkeleton,
@@ -64,13 +64,12 @@ import {
   ProjectListScreen,
 } from '@/components/projects/ProjectListStates';
 import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
-import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
+import { TaskCreateDialog, TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import {
   ItemListCard,
   ItemSaveBanner,
   ItemStaleBanner,
   ItemState,
-  NEW_TASK_HINT,
   NewTaskButton,
   TasksActionStyle,
   itemListUsesCard,
@@ -82,7 +81,7 @@ import {
   type TaskListFilter,
 } from '@/components/tasks/itemStates';
 import { StatusTable } from '@/components/tasks/StatusKanban';
-import { LIVE_TASK_STATUSES, PROJECT_UNAVAILABLE, TASK_STAGES, WRITEBACK_OFF_ERROR, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
+import { LIVE_TASK_STATUSES, PROJECT_UNAVAILABLE, TASK_STAGES, WRITEBACK_OFF_ERROR, createTaskExternalId, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
 import type { Id } from '@convex/_generated/dataModel';
 
 const SECTION_TITLE: Record<string, string> = {
@@ -103,7 +102,9 @@ export function ProjectsContent() {
   const configured = isConvexConfigured();
   const { sectionFor, setSectionFor, openLinkedClient } = usePortalView();
   const [createOpen, setCreateOpen] = useState(false);
-  const createEnabled = useProjectCreateEnabled();
+  const [taskCreateOpen, setTaskCreateOpen] = useState(false);
+  const writebackEnabled = useWritebackEnabled();
+  const createEnabled = writebackEnabled;
   const { data, loading, error } = usePortalData();
   const retryPortalData = useRetryPortalData();
   const { portalSession, linkStatus, sessionPending, joining } = usePortalAuth();
@@ -133,6 +134,7 @@ export function ProjectsContent() {
   const router = useRouter();
   const moveStatus = useMutation(api.tasks.moveStatus);
   const moveStage = useMutation(api.tasks.moveStage);
+  const createTask = useMutation(api.tasks.createTask);
   const [stageRetry, setStageRetry] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const rules = useSafeQuery<BoardRules>(
     api.tasks.moveRules,
@@ -179,6 +181,10 @@ export function ProjectsContent() {
   const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
   const directory = useSafeQuery<Array<{ id: string; name: string }>>(
     api.clients.listDirectory,
+    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
+  );
+  const staffProjectPages = useSafeQuery<Array<{ id: string; orgId: string; notionPageId?: string | null }>>(
+    api.projects.listForStaff,
     !fixtures && configured && isStaff ? { hostSlug } : 'skip',
   );
   const clientDocsState = useSafeQuery<DocRow[]>(
@@ -505,7 +511,9 @@ export function ProjectsContent() {
                 <div className="tasks-view">
                   <ViewToggle view={taskView} onChange={chooseTaskView} />
                 </div>
-                {isStaff ? <NewTaskButton /> : null}
+                {isStaff ? (
+                  <NewTaskButton enabled={writebackEnabled} onClick={() => setTaskCreateOpen(true)} />
+                ) : null}
               </div>
             </div>
             {isStaff && showTaskListFilters(itemView.region) ? (
@@ -599,8 +607,36 @@ export function ProjectsContent() {
                   }
                   return { ok: true, pending: result.pending === true };
                 }}
-                quickAddEnabled={false}
-                onQuickAdd={async () => ({ ok: false, error: NEW_TASK_HINT })}
+                quickAddEnabled={writebackEnabled}
+                onQuickAdd={async (input) => {
+                  if (!writebackEnabled) return { ok: false, error: WRITEBACK_OFF_ERROR };
+                  const indexed = staffProjectPages.data?.find((row) => row.id === openProject.id);
+                  const notionPageId = openProject.notionPageId ?? indexed?.notionPageId ?? null;
+                  const orgId = openProject.orgId ?? indexed?.orgId ?? null;
+                  if (!notionPageId || !orgId) {
+                    return { ok: false, error: 'This project is not in Notion yet. Nothing was sent.' };
+                  }
+                  try {
+                    const result = await createTask({
+                      hostSlug,
+                      orgId: orgId as Id<'clients'>,
+                      name: input.name,
+                      status: input.status,
+                      projectNotionId: notionPageId,
+                      externalId: createTaskExternalId(
+                        `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+                      ),
+                      ...(input.stage ? { stage: input.stage } : {}),
+                    });
+                    if (!result.ok) return { ok: false, error: result.error };
+                    return { ok: true };
+                  } catch (err) {
+                    return {
+                      ok: false,
+                      error: err instanceof Error ? err.message : 'Could not create the task',
+                    };
+                  }
+                }}
               />
                 ) : (
               <StatusTable
@@ -628,6 +664,23 @@ export function ProjectsContent() {
                 staff={isStaff}
                 onClear={clearTaskFilters}
                 onRetry={retryTasks}
+              />
+            ) : null}
+            {taskCreateOpen ? (
+              <TaskCreateDialog
+                projectName={openProject.name}
+                projectNotionId={
+                  openProject.notionPageId ??
+                  staffProjectPages.data?.find((row) => row.id === openProject.id)?.notionPageId ??
+                  null
+                }
+                orgId={
+                  openProject.orgId ??
+                  staffProjectPages.data?.find((row) => row.id === openProject.id)?.orgId ??
+                  null
+                }
+                hostSlug={hostSlug}
+                onClose={() => setTaskCreateOpen(false)}
               />
             ) : null}
             <DocsBlock docs={projectDocs} staff={isStaff} loading={projectsLoading && projectDocs.length === 0} />

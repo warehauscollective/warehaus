@@ -37,7 +37,7 @@ Notion Warehaus (allowlisted properties)
 
 ## Write-back (flag off)
 
-Portal → Notion goes through one outbox. `sync/projectCreateWrite.ts` no longer calls Notion. Project create enqueues `project-create`. B1 calls `internal.sync.taskWrite.enqueueStatus` for a task Status change. There is no UI on that mutation.
+Portal → Notion goes through one outbox. `sync/projectCreateWrite.ts` no longer calls Notion. Project create enqueues `project-create`. Task status, stage, fields, description, and resources enqueue through `sync/taskWrite`. The portal calls those mutations when write-back is on.
 
 Tables: `notionOutbox`, `notionWriteState`, `auditEvents`, `notices`.
 
@@ -47,7 +47,7 @@ Writable property names are the keys of the tier maps in `packages/portal-sync/s
 
 Updates re-read `last_edited_time` and do not PATCH when it differs from the time passed to enqueue. The same idempotency key does not write twice. Failures back off 30s, 2m, 10m, 30m, then stay at 2h. A longer 429 Retry-After is honored. A row dies after 24h. Each confirmed write inserts an `auditEvents` row.
 
-Project create still requires `NOTION_PROJECT_CREATE_ENABLED` to be exactly `true` as well. Leave that unset. Write-back off blocks it even if the project-create flag is on.
+Project create uses the same `NOTION_WRITEBACK_ENABLED` flag. Write-back off blocks it. There is no second create flag.
 
 Staff only. The B1 caller wraps `enqueueStatus` in `adminMutation`. Client roles cannot write in this batch.
 
@@ -91,14 +91,14 @@ Set on **Convex** (not Next dualStore):
 NOTION_WAREHAUS_TOKEN=
 NOTION_WEBHOOK_SECRET=          # required; Notion verification_token (HMAC). Fail closed if unset.
 NOTION_WRITEBACK_ENABLED=       # exact "true" or off. Leave unset. Dev only, never prod.
-NOTION_PROJECT_CREATE_ENABLED=  # exact "true" or off. Leave unset. Also needs write-back.
+NOTION_PROJECT_CREATE_ENABLED=  # unused. Write-back is the only gate. Leave unset.
 BLOB_READ_WRITE_TOKEN=          # Shared Resource / doc image copy
 STRIPE_WEBHOOK_SECRET=          # Phase 4 (parked until keys)
 NEXT_PUBLIC_CONVEX_URL=
 NEXT_PUBLIC_CONVEX_SITE_URL=
 ```
 
-Names only. Do not put values in this file. Do not set either write flag on production `unique-turtle-383`.
+Names only. Do not put values in this file. Do not set the write-back flag on production `unique-turtle-383`.
 
 Live collection IDs live in `packages/portal-sync/src/collections.ts`.
 

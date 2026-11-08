@@ -1,14 +1,31 @@
 'use client';
 
 import { useState, type FormEvent } from 'react';
+import { useMutation } from 'convex/react';
+import { api } from '@convex/_generated/api';
+import type { Id } from '@convex/_generated/dataModel';
+import { WRITEBACK_OFF_ERROR, createTaskExternalId } from '@warehaus/portal-sync';
 import { GhostButton, PrimaryButton, Surface } from '@/components/ui/primitives';
 import { LIVE_TASK_STATUSES } from '@/lib/data/view-models';
 
 /**
- * New task control from the Tasks header.
- * Write-back is off. Submit does not call Convex or Notion.
+ * Dashboard New task. Calls createTask only when the deployment write-back flag is on.
+ * Otherwise it shows the write-back-off error and does not call Convex.
  */
-export function NewTaskControl({ projectName }: { projectName: string }) {
+export function NewTaskControl({
+  projectName,
+  writebackEnabled = false,
+  orgId = null,
+  projectNotionId = null,
+  hostSlug,
+}: {
+  projectName: string;
+  writebackEnabled?: boolean;
+  orgId?: string | null;
+  projectNotionId?: string | null;
+  hostSlug?: string;
+}) {
+  const createTask = useMutation(api.tasks.createTask);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
   const [showMore, setShowMore] = useState(false);
@@ -16,18 +33,48 @@ export function NewTaskControl({ projectName }: { projectName: string }) {
   const [owner, setOwner] = useState('');
   const [status, setStatus] = useState('');
   const [note, setNote] = useState<string | null>(null);
+  const [pending, setPending] = useState(false);
 
-  const onSubmit = (event: FormEvent) => {
+  const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
     if (!title.trim()) {
       setNote('Title is required. Nothing was sent.');
       return;
     }
-    setNote('Write-back is off. This task was not saved and was not sent to Notion.');
-    setTitle('');
-    setDue('');
-    setOwner('');
-    setStatus('');
+    if (!writebackEnabled) {
+      setNote(WRITEBACK_OFF_ERROR);
+      return;
+    }
+    if (!orgId || !projectNotionId) {
+      setNote('This project is not in Notion yet. Nothing was sent.');
+      return;
+    }
+    setPending(true);
+    setNote(null);
+    try {
+      const result = await createTask({
+        hostSlug,
+        orgId: orgId as Id<'clients'>,
+        name: title.trim(),
+        status: status || 'To Do',
+        projectNotionId,
+        externalId: createTaskExternalId(`${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`),
+        ...(due ? { date: due } : {}),
+      });
+      if (!result.ok) {
+        setNote(result.error);
+        return;
+      }
+      setTitle('');
+      setDue('');
+      setOwner('');
+      setStatus('');
+      setOpen(false);
+    } catch (err) {
+      setNote(err instanceof Error ? err.message : 'Could not create the task');
+    } finally {
+      setPending(false);
+    }
   };
 
   return (
@@ -63,7 +110,7 @@ export function NewTaskControl({ projectName }: { projectName: string }) {
                 New task
               </p>
               <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>
-                {projectName} is already selected. Write-back stays off until it is turned on.
+                {projectName} is already selected.
               </p>
               <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
                 <label className="flex flex-col gap-1">
@@ -135,7 +182,9 @@ export function NewTaskControl({ projectName }: { projectName: string }) {
                 ) : null}
                 <div className="mt-2 flex justify-end gap-2">
                   <GhostButton onClick={() => setOpen(false)}>Close</GhostButton>
-                  <PrimaryButton type="submit">Save task</PrimaryButton>
+                  <PrimaryButton type="submit" disabled={pending}>
+                    {pending ? 'Saving…' : 'Save task'}
+                  </PrimaryButton>
                 </div>
               </form>
             </Surface>

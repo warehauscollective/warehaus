@@ -1,11 +1,13 @@
 /**
  * Staff stage moves patch tasks.stage before any Notion write.
  * notionOutbox is still the only Notion write. enqueueStage does not call Notion.
- * When NOTION_WRITEBACK_ENABLED is not exactly "true", the stage is saved
- * and no outbox row is inserted. enqueueStatus does not patch tasks.status.
+ * When NOTION_WRITEBACK_ENABLED is not exactly "true", a stage move returns
+ * the write-back-off error and does not patch the task or insert an outbox row.
+ * enqueueStatus does not patch tasks.status.
  */
 
 import {
+  WRITEBACK_OFF_ERROR,
   planTaskCreate,
   planTaskDescriptionWrite,
   planTaskLiveFieldsWrite,
@@ -161,6 +163,7 @@ export const enqueueStage = internalMutation({
     if (!isTaskStage(currentStage) && !unstagedMoveAllowed(args.stage)) {
       return { ok: false as const, error: 'Tasks with no stage can move to Idea or Planning.' };
     }
+    if (!writebackOn()) return { ok: false as const, error: WRITEBACK_OFF_ERROR };
 
     const alreadyPending = typeof task.stagePendingAt === 'number';
     const preMove = currentStage || null;
@@ -188,7 +191,6 @@ export const enqueueStage = internalMutation({
       }
     }
 
-    if (!writebackOn()) return { ok: true, pending: true };
     return insertStageOutbox(ctx, {
       orgId: task.orgId,
       notionPageId: task.notionPageId,

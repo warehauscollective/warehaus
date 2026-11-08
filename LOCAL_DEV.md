@@ -55,7 +55,7 @@ The dev deploy key name is `CONVEX_DEPLOY_KEY`, scoped to the shared dev deploym
 
 ## Write-back in dev only
 
-Leave both flags unset on a normal checkout. The worker and enqueue are no-ops until `NOTION_WRITEBACK_ENABLED` is exactly `true`. Project create also needs `NOTION_PROJECT_CREATE_ENABLED` exactly `true`, and still does nothing while write-back is off.
+Leave `NOTION_WRITEBACK_ENABLED` unset on a normal checkout. The worker and enqueue are no-ops until it is exactly `true`. Project create uses that same flag. It does nothing while write-back is off. `NOTION_PROJECT_CREATE_ENABLED` is not a second gate.
 
 Turn write-back on only on the shared dev deployment, from `apps/portal`, while Convex dev is running. Do not pass `--prod`. Do not target `unique-turtle-383`.
 

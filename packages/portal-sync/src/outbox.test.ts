@@ -233,7 +233,6 @@ describe('outbox attempt', () => {
       }),
       nowMs: 0,
       writebackEnabled: false,
-      projectCreateEnabled: true,
       search: async () => {
         called += 1;
         return [];

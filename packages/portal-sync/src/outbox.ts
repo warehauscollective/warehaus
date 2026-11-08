@@ -138,7 +138,7 @@ export type ConfirmedWrite = {
 };
 
 export type AttemptOutcome =
-  | { outcome: 'held'; reason: 'writeback-disabled' | 'project-create-disabled' }
+  | { outcome: 'held'; reason: 'writeback-disabled' }
   | { outcome: 'wait' }
   | { outcome: 'dead'; notifyStaff: boolean; error: string }
   | { outcome: 'retry'; attempts: number; nextAttemptAt: number; lastError: string; notifyStaff: boolean }
@@ -374,7 +374,6 @@ export async function runProjectCreateAttempt(input: {
   item: OutboxItem;
   nowMs: number;
   writebackEnabled: boolean;
-  projectCreateEnabled: boolean;
   search: (
     externalId: string,
   ) => Promise<Array<{ notionPageId: string; clientNotionIds: readonly string[] }>>;
@@ -385,9 +384,6 @@ export async function runProjectCreateAttempt(input: {
   if (plan.action === 'wait') return { outcome: 'wait' };
   if (plan.action === 'dead') {
     return { outcome: 'dead', notifyStaff: plan.notifyStaff, error: 'Outbox item exceeded 24h' };
-  }
-  if (!input.projectCreateEnabled) {
-    return { outcome: 'held', reason: 'project-create-disabled' };
   }
 
   const properties = input.item.properties;
