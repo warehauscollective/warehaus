@@ -3,7 +3,8 @@ import { clientQuery, adminQuery } from './_lib/wrappers';
 import { isStaff } from './_lib/identity';
 import { buildActivityFeed } from './_lib/activityFeed';
 import { staffQuarantineActivity } from './_lib/quarantineActivity';
-import { clientMaySeeProject, clientMaySeeTask, isOrgVisibleToClients, staffGranolaStatus } from '@warehaus/portal-sync';
+import { clientMaySeeProject, clientMaySeeTask, isOrgVisibleToClients, readTaskPlatform, staffGranolaStatus, taskPlatformStatus } from '@warehaus/portal-sync';
+import { linearEnv } from './_lib/taskPlatformRead';
 import { isNotionWritebackEnabled } from './_lib/writeAuthz';
 
 /**
@@ -107,46 +108,67 @@ export const getSnapshot = clientQuery({
         lastSyncedAt: p.lastSyncedAt,
         ...(staff ? { notionPageId: p.notionPageId } : {}),
       })),
-      tasks: tasks
-        .filter((t) => {
-          const project = projectById.get(t.projectId);
-          if (!project) return false;
-          return clientMaySeeTask({
-            publishToWarehaus: t.publishToWarehaus,
-            hidden: t.syncHiddenAt != null,
-            project: {
-              name: project.name,
-              types: project.type,
-              publishToWarehaus: project.publishToWarehaus,
-              archive: project.archive,
-              hidden: project.syncHiddenAt != null,
-              orgVisible: true,
-            },
+      tasks: (() => {
+        const visible = tasks
+          .filter((t) => {
+            const project = projectById.get(t.projectId);
+            if (!project) return false;
+            return clientMaySeeTask({
+              publishToWarehaus: t.publishToWarehaus,
+              hidden: t.syncHiddenAt != null,
+              project: {
+                name: project.name,
+                types: project.type,
+                publishToWarehaus: project.publishToWarehaus,
+                archive: project.archive,
+                hidden: project.syncHiddenAt != null,
+                orgVisible: true,
+              },
+            });
+          })
+          .map((t) => {
+            const project = projectById.get(t.projectId);
+            return {
+              id: t._id,
+              name: t.name,
+              status: t.status,
+              isDone: t.isDone,
+              date: t.date ?? null,
+              stage: t.publishToWarehaus ? (t.stage ?? null) : null,
+              lastEditedTime: t.lastEditedTime ?? null,
+              projectId: t.projectId,
+              projectName: project?.name ?? null,
+              projectStatus: project?.status ?? null,
+              projectEndDate: project?.endDate ?? null,
+              ...(staff
+                ? {
+                    notionPageId: t.notionPageId,
+                    lastSyncedAt: t.lastSyncedAt,
+                    ...(t.stagePendingAt != null ? { stagePending: true as const } : {}),
+                  }
+                : {}),
+            };
           });
-        })
-        .map((t) => {
-          const project = projectById.get(t.projectId);
-          return {
-            id: t._id,
-            name: t.name,
-            status: t.status,
-            isDone: t.isDone,
-            date: t.date ?? null,
-            stage: t.publishToWarehaus ? (t.stage ?? null) : null,
-            lastEditedTime: t.lastEditedTime ?? null,
-            projectId: t.projectId,
-            projectName: project?.name ?? null,
-            projectStatus: project?.status ?? null,
-            projectEndDate: project?.endDate ?? null,
-            ...(staff
-              ? {
-                  notionPageId: t.notionPageId,
-                  lastSyncedAt: t.lastSyncedAt,
-                  ...(t.stagePendingAt != null ? { stagePending: true as const } : {}),
-                }
-              : {}),
-          };
-        }),
+        const read = readTaskPlatform({
+          platform: client?.taskPlatform,
+          tasks: visible,
+          env: linearEnv(),
+        });
+        return read.tasks.ok ? read.tasks.items : [];
+      })(),
+      taskPlatform: (() => {
+        const read = readTaskPlatform({
+          platform: client?.taskPlatform,
+          tasks: tasks.filter((t) => t.syncHiddenAt == null),
+          env: linearEnv(),
+        });
+        return {
+          platform: read.platform,
+          canChange: staff,
+          tasks: taskPlatformStatus(read.tasks),
+          milestones: taskPlatformStatus(read.milestones),
+        };
+      })(),
       activity: [
         ...quarantineActivity,
         ...(staff

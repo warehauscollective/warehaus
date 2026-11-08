@@ -22,6 +22,7 @@ import {
   type PortalTask,
   type TaskResponseType,
 } from '@/lib/data/view-models';
+import { taskPlatformCopy } from '@warehaus/portal-sync';
 import { Bevel } from '@warehaus/ui';
 import { PORTAL_PANEL_GAP_VAR, PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 
@@ -38,6 +39,11 @@ export function TasksContent() {
   const view = activeSection === 'list' ? 'list' : 'overview';
   const title = SECTION_TITLE[view] ?? 'Board';
   const tasks = data.tasks;
+  const platform = data.taskPlatform;
+  const platformNotice =
+    platform && !platform.tasks.ok
+      ? taskPlatformCopy(platform, platform.canChange ? 'staff' : 'client')
+      : null;
 
   const openTask = (task: PortalTask) => {
     openDetail({
@@ -56,6 +62,11 @@ export function TasksContent() {
         <ViewToggle view={view} onChange={(key) => setSectionFor('projects', key)} />
       }
     >
+      {platformNotice ? (
+        <p data-testid="task-platform-read" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginBottom: 12 }}>
+          {platformNotice.body}
+        </p>
+      ) : null}
       {view === 'overview' && (
         <PortalTilePane>
           <KanbanBoard tasks={tasks} loading={loading} onOpen={openTask} />

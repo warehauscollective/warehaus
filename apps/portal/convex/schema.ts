@@ -41,6 +41,11 @@ export default defineSchema({
     source: v.optional(v.string()),
     /** Stripe Customer id — maps webhooks → org (never Notion) */
     stripeCustomerId: v.optional(v.string()),
+    /**
+     * Portal choice for task and milestone reads.
+     * Absent means Notion. Notion sync does not write this field.
+     */
+    taskPlatform: v.optional(v.union(v.literal('notion'), v.literal('linear'))),
   })
     .index('by_slug', ['slug'])
     .index('by_notionPageId', ['notionPageId'])

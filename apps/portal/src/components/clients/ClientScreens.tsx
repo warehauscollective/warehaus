@@ -34,6 +34,7 @@ import {
 } from '@/lib/data/clientList';
 import { taskStatusColor } from '@/lib/data/view-models';
 import { TEAM_CLIENT_EMPTY, TEAM_ERROR_COPY, TEAM_STALE_COPY, TeamEmpty, TeamOutlineButton, TeamSkeletonRows, TeamStateNotice, clientTeamEmptyBody } from '@/components/account/teamStates';
+import { TaskPlatformSetting, type TaskPlatformPanelModel } from '@/components/clients/TaskPlatformSetting';
 
 export type DirectoryClient = ClientListRow & {
   slug?: string | null;
@@ -826,6 +827,7 @@ export function ClientDetail({
   clientSince = null,
   brandName,
   screen = 'ready',
+  taskPlatform = null,
 }: {
   client: DirectoryClient;
   projects: ClientProjectRow[];
@@ -836,6 +838,7 @@ export function ClientDetail({
   clientSince?: string | null;
   brandName?: string | null;
   screen?: ClientScreen;
+  taskPlatform?: TaskPlatformPanelModel | null;
 }) {
   const { scrollerRef, active, choose } = useDetailSection(screen);
   if (screen === 'error') {
@@ -904,6 +907,7 @@ export function ClientDetail({
           )}
         </div>
       </Panel>
+      {taskPlatform ? <TaskPlatformSetting {...taskPlatform} /> : null}
       <div className="client-detail-kpis grid w-full grid-cols-1 md:grid-cols-3" data-testid="client-stats">
         <Stat display label="PROJECTS" value={String(projectRows.length)} hint={projectRows.length > 0 ? '1 active brand each' : 'No projects yet'} />
         <Stat display label="PEOPLE" value={String(contactRows.length)} hint={pending > 0 ? `${pending} invite pending` : 'Contacts with portal access'} />
@@ -1082,6 +1086,7 @@ export function ClientCompany({
   error = null,
   onRetry,
   viewerRole = null,
+  taskPlatform = null,
 }: {
   name: string;
   leadName?: string | null;
@@ -1097,6 +1102,7 @@ export function ClientCompany({
   error?: string | null;
   onRetry?: () => void;
   viewerRole?: string | null;
+  taskPlatform?: TaskPlatformPanelModel | null;
 }) {
   const open = tasks.filter((task) => !task.isDone);
   const awaiting = open.filter((task) => task.stage === 'Awaiting Go');
@@ -1290,6 +1296,9 @@ export function ClientCompany({
         </div>
       </Panel>
       )}
+      {!loading && taskPlatform ? (
+        <TaskPlatformSetting {...taskPlatform} canChange={false} onChange={undefined} />
+      ) : null}
       {trueEmpty ? null : (
       <div className="grid w-full grid-cols-1 gap-3 md:grid-cols-3" data-testid="client-stats">
         {loading ? (

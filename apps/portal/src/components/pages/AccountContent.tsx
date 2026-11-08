@@ -32,6 +32,7 @@ import {
   type ClientTaskRow,
   type DirectoryClient,
 } from '@/components/clients/ClientScreens';
+import { useClientTaskPlatform } from '@/components/clients/useClientTaskPlatform';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { useRetryPortalData } from '@/components/providers/PortalDataRetry';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
@@ -182,6 +183,18 @@ export function AccountContent() {
     api.clientDocs.listForClient,
     !fixtures && configured && isClient ? { hostSlug } : 'skip',
   );
+  const taskPlatform = useClientTaskPlatform({
+    live: configured && !fixtures,
+    fixtures,
+    hostSlug,
+    mode:
+      isStaff && activeSection === 'clients' && clientId
+        ? 'staff'
+        : isClient && activeSection === 'clients'
+          ? 'client'
+          : 'off',
+    clientId,
+  });
   useEffect(() => {
     if (clientPeopleState.data) setClientPeopleCache(clientPeopleState.data);
   }, [clientPeopleState.data]);
@@ -396,6 +409,7 @@ export function AccountContent() {
             )}
             brandName={clientScreen === 'long' ? LONG_CLIENT : selected.name}
             screen={clientScreen}
+            taskPlatform={taskPlatform.panel}
           />
         </PortalTilePane>
       ) : null}
@@ -455,6 +469,7 @@ export function AccountContent() {
                     : retryClientScreen
             }
             viewerRole={portalSession?.role ?? null}
+            taskPlatform={taskPlatform.panel}
           />
         </PortalTilePane>
       ) : null}

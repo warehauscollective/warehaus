@@ -8,11 +8,14 @@ import {
   statusMoveRule,
   visibleChildIds,
   LIVE_TASK_STATUSES,
+  readTaskPlatform,
+  taskPlatformBlockedMessage,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { buildTaskTimeline } from './_lib/activityFeed';
+import { linearEnv, serveTasks, serveTasksByOrg } from './_lib/taskPlatformRead';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 import { isStaff, PortalAuthError } from './_lib/identity';
 
@@ -93,7 +96,7 @@ export const listForClient = clientQuery({
       .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
       .collect();
 
-    return rows
+    const visible = rows
       .filter((task) =>
         clientMaySeeTask({
           publishToWarehaus: task.publishToWarehaus,
@@ -105,6 +108,7 @@ export const listForClient = clientQuery({
         const description = descriptionForClient(task);
         return description == null ? toClientTask(task) : { ...toClientTask(task), description };
       });
+    return serveTasks(org?.taskPlatform, visible);
   },
 });
 
@@ -126,6 +130,10 @@ export const getForClient = clientQuery({
     if (!visible || !row || !project) {
       throw new PortalAuthError(TASK_UNAVAILABLE, 'FORBIDDEN');
     }
+    const blocked = taskPlatformBlockedMessage(
+      readTaskPlatform({ platform: org?.taskPlatform, tasks: [row], env: linearEnv() }),
+    );
+    if (blocked) throw new PortalAuthError(blocked, 'FORBIDDEN');
     const description = descriptionForClient(row);
     return {
       ...toClientTask(row),
@@ -156,6 +164,10 @@ export const listSubtasksForClient = clientQuery({
     ) {
       throw new PortalAuthError(TASK_UNAVAILABLE, 'FORBIDDEN');
     }
+    const blocked = taskPlatformBlockedMessage(
+      readTaskPlatform({ platform: org?.taskPlatform, tasks: [parent], env: linearEnv() }),
+    );
+    if (blocked) throw new PortalAuthError(blocked, 'FORBIDDEN');
     const rows = await ctx.db
       .query('tasks')
       .withIndex('by_orgId_projectId', (q) => q.eq('orgId', ctx.orgId).eq('projectId', parent.projectId))
@@ -192,7 +204,11 @@ export const listForStaff = adminQuery({
   handler: async (ctx) => {
     const projects = await ctx.db.query('projects').collect();
     const projectById = new Map(projects.map((p) => [p._id, p] as const));
-    const rows = await ctx.db.query('tasks').collect();
+    const clients = await ctx.db.query('clients').collect();
+    const platformByOrg = new Map<string, 'notion' | 'linear' | undefined>(
+      clients.map((client) => [client._id, client.taskPlatform]),
+    );
+    const rows = serveTasksByOrg(await ctx.db.query('tasks').collect(), (orgId) => platformByOrg.get(orgId));
     return rows
       .map((row) => {
         const project = projectById.get(row.projectId);

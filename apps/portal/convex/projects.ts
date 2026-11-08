@@ -1,5 +1,6 @@
 import { clientMaySeeProject, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
+import { serveTasksByOrg } from './_lib/taskPlatformRead';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
 import type { Id } from './_generated/dataModel';
@@ -137,10 +138,12 @@ export const listForStaff = adminQuery({
   handler: async (ctx) => {
     const clients = await ctx.db.query('clients').collect();
     const clientById = new Map(clients.map((c) => [c._id, c] as const));
-    const tasks = await ctx.db.query('tasks').collect();
+    const tasks = serveTasksByOrg(
+      (await ctx.db.query('tasks').collect()).filter((task) => task.syncHiddenAt == null),
+      (orgId) => clientById.get(orgId as Id<'clients'>)?.taskPlatform,
+    );
     const taskCount = new Map<string, number>();
     for (const task of tasks) {
-      if (task.syncHiddenAt != null) continue;
       taskCount.set(task.projectId, (taskCount.get(task.projectId) ?? 0) + 1);
     }
     const rows = await ctx.db.query('projects').collect();

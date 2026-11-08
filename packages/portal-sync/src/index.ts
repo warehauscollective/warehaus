@@ -346,3 +346,31 @@ export {
   type BoardColumn,
   type PulledStageMerge,
 } from './taskBoard';
+
+export {
+  TASK_PLATFORMS,
+  LINEAR_API_KEY_ENV,
+  storedTaskPlatform,
+  linearApiKey,
+  adapterFor,
+  readTaskPlatform,
+  taskPlatformStatus,
+  toTaskPlatformView,
+  taskPlatformBlockedMessage,
+  taskPlatformCopy,
+  type TaskPlatform,
+  type TaskPlatformEnv,
+  type MilestoneWorkStatus,
+  type MilestoneApproval,
+  type MilestoneSeam,
+  type PlatformHit,
+  type PlatformMiss,
+  type PlatformRead,
+  type TaskPlatformRead,
+  type TaskPlatformStatus,
+  type TaskPlatformView,
+  type TaskPlatformAdapter,
+} from './taskPlatform';
+
+export { notionTaskPlatform } from './notionTaskPlatform';
+export { linearTaskPlatform } from './linearTaskPlatform';

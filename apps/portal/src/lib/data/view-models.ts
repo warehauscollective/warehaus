@@ -9,6 +9,8 @@
  * - Task board columns derived from `status` + `isDone` (see TASK_BOARD_COLUMNS)
  */
 
+import type { TaskPlatformView } from '@warehaus/portal-sync';
+
 export type PortalTenantMeta = {
   mode: 'team' | 'client';
   slug: string | null;
@@ -122,6 +124,8 @@ export type PortalSnapshot = {
   };
   /** Client snapshots only. Display name of the Warehaus lead. No email or id. */
   leadName?: string | null;
+  /** Live task and milestone read for this org. Missing on fixtures. */
+  taskPlatform?: TaskPlatformView;
   tenant: PortalTenantMeta;
 };
 

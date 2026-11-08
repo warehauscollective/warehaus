@@ -66,6 +66,7 @@ export const upsertClient = internalMutation({
       lastSyncedAt: now,
     };
     if (existing) {
+      // taskPlatform is portal-owned and is not in this patch, so a pull leaves it.
       await ctx.db.patch(existing._id, patch);
       return existing._id;
     }
