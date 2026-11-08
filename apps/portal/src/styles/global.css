@@ -56,15 +56,15 @@ html[data-density='compact'] .ds-data th {
   padding-block: 0.45rem;
 }
 
-/* Light Drop here. The shared accent-tint is a 10% ink wash that reads as a solid
-   grey block. Figma 400:17240 uses a faint wash and a 1px dashed border. */
+/* Light Drop here. Accent-tint is a 10% ink wash, so the slot uses a faint accent
+   wash and a 1px dashed accent (Figma 400:17240). */
 .ds-scope {
   --drop-slot-bg: var(--accent-tint);
   --drop-slot-border: 1.5px dashed var(--border-2);
 }
 :root.light .ds-scope {
   --drop-slot-bg: color-mix(in oklab, var(--accent) 4%, var(--surface));
-  --drop-slot-border: 1px dashed var(--border);
+  --drop-slot-border: 1px dashed var(--accent);
 }
 
 /* Phone panels use 20px side margins. The notice bell is a fixed overlay and does not reserve a column. */

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it } from 'node:test';
@@ -12,6 +13,7 @@ const {
   BoardToast,
   BoardDropStack,
   DropPlaceholder,
+  collapsedCardBox,
   collapsedSourceStyle,
   MOVE_NOT_SAVED,
   boardColumnTemplate,
@@ -90,16 +92,33 @@ describe('TaskCardFace client stage card', () => {
     assert.match(html, /--accent-tint/);
   });
 
+  it('paints light Drop here with a dashed accent', () => {
+    const css = readFileSync(new URL('../../styles/global.css', import.meta.url), 'utf8');
+    const light = css.match(/:root\.light \.ds-scope \{[^}]+\}/)?.[0] ?? '';
+    assert.match(light, /--drop-slot-bg:\s*color-mix\(in oklab, var\(--accent\) 4%, var\(--surface\)\)/);
+    assert.match(light, /--drop-slot-border:\s*1px dashed var\(--accent\)/);
+    assert.equal(light.includes('dashed var(--border)'), false);
+  });
+
   it('collapses a card with no drag origin and places Drop here at the slot', () => {
     const second = { ...task, id: 't-next', name: 'Second card' };
+    const third = { ...task, id: 't-last', name: 'Third card' };
     const fallback = collapsedSourceStyle(null);
     assert.equal(fallback.position, undefined);
     assert.equal(fallback.height, 0);
+    assert.equal(fallback.minHeight, 0);
     assert.equal(fallback.overflow, 'hidden');
+    assert.equal(fallback.margin, 0);
+    const box = collapsedCardBox(null);
+    assert.equal(box.position, 'absolute');
+    assert.equal(box.height, 0);
+    assert.equal(box.minHeight, 0);
+    assert.equal(box.overflow, 'hidden');
+    assert.equal(box.margin, 0);
     const pinned = collapsedSourceStyle({ top: 12, left: 16, width: 200, height: 96 });
     assert.equal(pinned.position, 'fixed');
     assert.equal(pinned.top, 12);
-    const html = renderToStaticMarkup(createElement(BoardDropStack, {
+    const atStart = renderToStaticMarkup(createElement(BoardDropStack, {
       tasks: [task, second],
       draggingId: task.id,
       dropIndex: 0,
@@ -108,27 +127,53 @@ describe('TaskCardFace client stage card', () => {
         key: item.id,
         'data-testid': 'task-card',
         'data-collapsed': collapsed ? 'fallback' : 'rest',
-        style: collapsed ? fallback : undefined,
+        style: collapsed ? { ...box, ...fallback } : undefined,
       }, item.name),
     }));
-    assert.match(html, /data-collapsed="fallback"/);
-    assert.match(html, /height:0/);
-    assert.equal(html.includes('position:fixed'), false);
-    const dragged = html.indexOf('Homepage');
-    const drop = html.indexOf('data-testid="drop-placeholder"');
-    const resting = html.indexOf('Second card');
+    assert.match(atStart, /data-collapsed="fallback"/);
+    assert.match(atStart, /height:0/);
+    assert.match(atStart, /min-height:0/);
+    assert.equal(atStart.includes('position:fixed'), false);
+    const dragged = atStart.indexOf('Homepage');
+    const drop = atStart.indexOf('data-testid="drop-placeholder"');
+    const resting = atStart.indexOf('Second card');
     assert.ok(dragged !== -1 && drop !== -1 && resting !== -1);
     assert.ok(dragged < drop && drop < resting);
-    assert.match(html, /height:96px/);
+    assert.match(atStart, /height:96px/);
+
+    const afterFirst = renderToStaticMarkup(createElement(BoardDropStack, {
+      tasks: [task, second, third],
+      draggingId: second.id,
+      dropIndex: 1,
+      dropHeight: 96,
+      renderTask: (item, collapsed) => createElement('div', {
+        key: item.id,
+        'data-testid': 'task-card',
+        'data-collapsed': collapsed ? 'fallback' : 'rest',
+      }, item.name),
+    }));
+    const first = afterFirst.indexOf('Homepage');
+    const mid = afterFirst.indexOf('Second card');
+    const slot = afterFirst.indexOf('data-testid="drop-placeholder"');
+    const last = afterFirst.indexOf('Third card');
+    assert.ok(first !== -1 && mid !== -1 && slot !== -1 && last !== -1);
+    assert.ok(first < mid && mid < slot && slot < last);
   });
 
-  it('places the flag-off toast under the board with no Undo', () => {
+  it('pins the flag-off toast above the dock with no Undo', () => {
     const html = renderToStaticMarkup(createElement(BoardToast, { message: MOVE_NOT_SAVED, onDismiss: () => undefined }));
     assert.match(html, /Not saved\. Moving cards to Notion is turned off for now\./);
     assert.equal(html.includes('Undo'), false);
-    assert.equal(html.includes('position:fixed'), false);
-    assert.match(html, /below-board/);
-    assert.match(html, /position:relative/);
+    assert.match(html, /data-placement="above-dock"/);
+    assert.match(html, /position:fixed/);
+    assert.match(html, /z-index:60/);
+    assert.match(html, /bottom:calc\(1\.25rem \+ 3\.5rem \+ 16px\)/);
+    const flowing = renderToStaticMarkup(createElement(BoardToast, {
+      message: 'Couldn’t save. Moved back.',
+      onDismiss: () => undefined,
+    }));
+    assert.match(flowing, /data-placement="below-board"/);
+    assert.match(flowing, /position:relative/);
   });
 
   it('keeps equal column tracks when Inbox loses its last card', () => {
