@@ -5,7 +5,6 @@
 
 import {
   auditEventForOutcome,
-  isNotionProjectCreateEnabled,
   isNewerEditedTime,
   isNotionWritebackEnabled,
   planIdempotentEnqueue,
@@ -13,7 +12,6 @@ import {
   validatePropertyPatch,
   validateTaskStatusUpdate,
   validateWriteback,
-  PROJECT_CREATE_OFF_ERROR,
   type WriteProperties,
   type WritebackDatabase,
 } from '@warehaus/portal-sync';
@@ -33,10 +31,6 @@ type EnqueueResult =
 
 function writebackOn(): boolean {
   return isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED);
-}
-
-function projectCreateOn(): boolean {
-  return isNotionProjectCreateEnabled(process.env.NOTION_PROJECT_CREATE_ENABLED);
 }
 
 function parsePayload(payload: string): { properties: WriteProperties } | { error: string } {
@@ -98,10 +92,6 @@ export const enqueue = internalMutation({
       args.actor === 'system' && (args.kind === 'setInviteState' || args.kind === 'revert');
     if (args.actor !== 'staff' && !systemInvite) {
       return { ok: false, error: 'Only Warehaus Staff can write to Notion' };
-    }
-
-    if (args.kind === 'project-create' && !projectCreateOn()) {
-      return { ok: false, error: PROJECT_CREATE_OFF_ERROR };
     }
 
     const parsed = parsePayload(args.payload);

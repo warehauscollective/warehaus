@@ -159,7 +159,6 @@ export function DocsBlock({
   staff: boolean;
   loading?: boolean;
 }) {
-  const [note, setNote] = useState<string | null>(null);
   const rows = sortDocRows(docs);
   const count = rows.length;
   const empty = EMPTY_COPY[staff ? 'staff' : 'client'];
@@ -208,7 +207,9 @@ export function DocsBlock({
           ) : null}
         </div>
         {staff ? (
-          <OutlineButton onClick={() => setNote('Add doc is not wired yet. Nothing was sent.')}>Add doc</OutlineButton>
+          <span title="Adding a doc stays off. There is no Notion write for a doc yet.">
+            <OutlineButton disabled>Add doc</OutlineButton>
+          </span>
         ) : null}
       </div>
       <p style={{ fontSize: 13, color: 'var(--muted)', margin: '4px 0 8px', textWrap: 'pretty' }}>
@@ -249,9 +250,6 @@ export function DocsBlock({
           ))}
         </ul>
       )}
-      {note ? (
-        <p role="status" style={{ fontSize: 13, color: 'var(--muted)', marginTop: 8 }}>{note}</p>
-      ) : null}
     </section>
   );
 }

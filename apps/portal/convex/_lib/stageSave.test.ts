@@ -140,7 +140,7 @@ function outboxRows(tables: Record<string, Row[]>) {
 }
 
 describe('taskWriteGuards stage save', () => {
-  it('patches a flag-off stage move and inserts no outbox row', async () => {
+  it('returns the write-back-off error for a flag-off stage move and writes nothing', async () => {
     const row = task();
     const tables = { tasks: [row], notionOutbox: [] as Row[] };
     await withFlag(false, async () => {
@@ -151,11 +151,11 @@ describe('taskWriteGuards stage save', () => {
         actor: 'staff',
         actorId: 'contact-staff',
       });
-      assert.deepEqual(result, { ok: true, pending: true });
-      assert.equal(row.stage, 'Planning');
-      assert.equal(typeof row.stagePendingAt, 'number');
-      assert.equal(row.stageSynced, 'Idea');
-      assert.equal(row.stagePendingBaseEditedTime, TIME);
+      assert.deepEqual(result, { ok: false, error: WRITEBACK_OFF_ERROR });
+      assert.equal(row.stage, 'Idea');
+      assert.equal(row.stagePendingAt, undefined);
+      assert.equal(row.stageSynced, undefined);
+      assert.equal(row.stagePendingBaseEditedTime, undefined);
       assert.equal(row.lastEditedTime, TIME);
       assert.equal(row.pullRequestUrl, 'https://github.com/warehaus/secret/pull/1');
       assert.equal(outboxRows(tables).length, 0);
@@ -297,12 +297,12 @@ describe('taskWriteGuards stage save', () => {
     });
   });
 
-  it('keeps only the latest stage after two flag-off moves', async () => {
+  it('writes nothing after two flag-off stage moves', async () => {
     const row = task();
     const tables = { tasks: [row], notionOutbox: [] as Row[] };
     const ctx = stageCtx(tables);
     await withFlag(false, async () => {
-      await run(enqueueStage, ctx, {
+      const first = await run(enqueueStage, ctx, {
         taskId: 'task-1',
         stage: 'Planning',
         expectedLastEditedTime: TIME,
@@ -314,10 +314,10 @@ describe('taskWriteGuards stage save', () => {
         expectedLastEditedTime: STALE,
         actor: 'staff',
       });
-      assert.deepEqual(second, { ok: true, pending: true });
-      assert.equal(row.stage, 'Parked');
-      assert.equal(row.stageSynced, 'Idea');
-      assert.equal(typeof row.stagePendingAt, 'number');
+      assert.deepEqual(first, { ok: false, error: WRITEBACK_OFF_ERROR });
+      assert.deepEqual(second, { ok: false, error: WRITEBACK_OFF_ERROR });
+      assert.equal(row.stage, 'Idea');
+      assert.equal(row.stagePendingAt, undefined);
       assert.equal(outboxRows(tables).length, 0);
     });
   });
@@ -388,7 +388,7 @@ describe('taskWriteGuards stage save', () => {
     });
   });
 
-  it('stores a Ready to Ship link on stagePendingPullRequest only', async () => {
+  it('does not store a Ready to Ship link when write-back is off', async () => {
     const row = task();
     const tables = { tasks: [row], notionOutbox: [] as Row[] };
     await withFlag(false, async () => {
@@ -399,8 +399,9 @@ describe('taskWriteGuards stage save', () => {
         expectedLastEditedTime: TIME,
         actor: 'staff',
       });
-      assert.deepEqual(result, { ok: true, pending: true });
-      assert.equal(row.stagePendingPullRequest, 'github.com/warehauscollective/warehaus/pull/38');
+      assert.deepEqual(result, { ok: false, error: WRITEBACK_OFF_ERROR });
+      assert.equal(row.stage, 'Idea');
+      assert.equal(row.stagePendingPullRequest, undefined);
       assert.equal(row.pullRequestUrl, 'https://github.com/warehaus/secret/pull/1');
       assert.equal(outboxRows(tables).length, 0);
     });
@@ -554,22 +555,20 @@ describe('drain pending stages', () => {
     });
   });
 
-  it('sends only the latest stage after two local moves', async () => {
+  it('does not drain a stage that was refused while write-back was off', async () => {
     const row = task();
     const tables = { tasks: [row], notionOutbox: [] as Row[] };
     const ctx = stageCtx(tables);
     await withFlag(false, async () => {
       await run(enqueueStage, ctx, { taskId: 'task-1', stage: 'Planning', expectedLastEditedTime: TIME, actor: 'staff' });
       await run(enqueueStage, ctx, { taskId: 'task-1', stage: 'Parked', expectedLastEditedTime: TIME, actor: 'staff' });
+      assert.equal(row.stage, 'Idea');
       assert.equal(outboxRows(tables).length, 0);
     });
     await withFlag(true, async () => {
       const drained = (await run(drainPendingStages, ctx, {})) as { inserted: number };
-      assert.equal(drained.inserted, 1);
-      assert.equal(outboxRows(tables).length, 1);
-      assert.match(String(outboxRows(tables)[0]?.payload), /"Stage":"Parked"/);
-      assert.equal(String(outboxRows(tables)[0]?.payload).includes('Planning'), false);
-      assert.equal(outboxRows(tables)[0]?.idempotencyKey, `task-stage:page-1:Parked::${TIME}`);
+      assert.equal(drained.inserted, 0);
+      assert.equal(outboxRows(tables).length, 0);
     });
   });
 

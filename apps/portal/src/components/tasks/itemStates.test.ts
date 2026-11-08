@@ -203,6 +203,16 @@ describe('item list states', () => {
     assert.equal(html.includes('role="group"'), false);
   });
 
+  it('enables New task when write-back is on', () => {
+    let opened = 0;
+    const html = renderToStaticMarkup(createElement(NewTaskButton, { enabled: true, onClick: () => { opened += 1; } }));
+    assert.match(html, /data-testid="new-task"/);
+    assert.equal(html.includes('disabled'), false);
+    assert.equal(html.includes(NEW_TASK_HINT), false);
+    assert.equal(html.includes('pointer-events:none'), false);
+    assert.equal(opened, 0);
+  });
+
   it('matches awaiting-go and unpublished filters', () => {
     assert.equal(readTaskFilter('unpublished'), 'unpublished');
     assert.equal(readTaskFilter('nope'), 'all');

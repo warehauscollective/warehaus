@@ -3,8 +3,8 @@
  * That client is gone. `projectCreate.createInNotion` enqueues an outbox row,
  * and `sync/outboxWork` is the only sender.
  *
- * `NOTION_WRITEBACK_ENABLED` and `NOTION_PROJECT_CREATE_ENABLED` must each be
- * exactly "true". Write-back off queues nothing and sends nothing.
+ * `NOTION_WRITEBACK_ENABLED` must be exactly "true". Write-back off queues
+ * nothing and sends nothing. There is no second create flag.
  */
 
 export {

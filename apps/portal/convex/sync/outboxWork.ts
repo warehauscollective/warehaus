@@ -5,9 +5,7 @@
  */
 
 import {
-  PROJECT_CREATE_OFF_ERROR,
   WRITEBACK_OFF_ERROR,
-  isNotionProjectCreateEnabled,
   isNotionWritebackEnabled,
   projectCreateConvexFields,
   readNotionPlain,
@@ -37,10 +35,6 @@ type ProcessResult =
 
 function writebackOn(): boolean {
   return isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED);
-}
-
-function projectCreateOn(): boolean {
-  return isNotionProjectCreateEnabled(process.env.NOTION_PROJECT_CREATE_ENABLED);
 }
 
 function asDatabase(value: string): WritebackDatabase {
@@ -168,7 +162,6 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
         item,
         nowMs: Date.now(),
         writebackEnabled: true,
-        projectCreateEnabled: projectCreateOn(),
         search: (externalId) => searchProjectCreateHits(externalId),
         create: async (properties) => {
           const shaped = asProjectProperties(properties);
@@ -222,7 +215,7 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
     await ctx.runMutation(internal.sync.outbox.release, { id });
     return {
       ok: false,
-      error: outcome.reason === 'project-create-disabled' ? PROJECT_CREATE_OFF_ERROR : WRITEBACK_OFF_ERROR,
+      error: WRITEBACK_OFF_ERROR,
     };
   }
   if (outcome.outcome === 'wait') {

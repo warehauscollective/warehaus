@@ -10,7 +10,6 @@ import {
   decideProjectCreateDedupe,
   isNotionProjectCreateEnabled,
   planProjectCreateDispatch,
-  PROJECT_CREATE_OFF_ERROR,
   projectCreateConvexFields,
   projectCreatePageRequest,
   projectCreateSearchFilter,
@@ -139,26 +138,15 @@ describe('project create payload', () => {
     assert.ok(missing.errors.some((error) => error.includes('External ID')));
   });
 
-  it('sends a project only when write-back and project create are both exactly on', () => {
+  it('sends a project when write-back is exactly on and writes nothing when it is not', () => {
     assert.deepEqual(
-      planProjectCreateDispatch({ writebackEnabled: false, projectCreateEnabled: true }),
+      planProjectCreateDispatch({ writebackEnabled: false }),
       { ok: false, error: WRITEBACK_OFF_ERROR },
     );
-    assert.deepEqual(
-      planProjectCreateDispatch({ writebackEnabled: true, projectCreateEnabled: false }),
-      { ok: false, error: PROJECT_CREATE_OFF_ERROR },
-    );
-    assert.deepEqual(
-      planProjectCreateDispatch({ writebackEnabled: false, projectCreateEnabled: false }),
-      { ok: false, error: WRITEBACK_OFF_ERROR },
-    );
-    assert.deepEqual(
-      planProjectCreateDispatch({ writebackEnabled: true, projectCreateEnabled: true }),
-      { ok: true },
-    );
+    assert.deepEqual(planProjectCreateDispatch({ writebackEnabled: true }), { ok: true });
   });
 
-  it('keeps the project-create gate separate from any other flag', () => {
+  it('still treats the old project-create env string as exact opt-in', () => {
     assert.equal(isNotionProjectCreateEnabled('true'), true);
     assert.equal(isNotionProjectCreateEnabled(undefined), false);
     assert.equal(isNotionProjectCreateEnabled(''), false);

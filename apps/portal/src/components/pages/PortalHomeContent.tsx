@@ -143,12 +143,31 @@ export function PortalHomeContent() {
     ? tenantEyebrow(data.tenant, 'Dashboard')
     : `● ${data.tenant.clientName ?? 'Portal'} · Dashboard`;
   const taskProject = projects.find((project) => !project.internal)?.name ?? 'Dashboard';
+  const staffProjects = (staff.projects ?? []) as Array<{
+    name: string;
+    internal?: boolean;
+    orgId?: string;
+    notionPageId?: string | null;
+  }>;
+  const taskTarget =
+    staffProjects.find((project) => !project.internal && project.orgId && project.notionPageId) ??
+    staffProjects.find((project) => project.orgId && project.notionPageId);
 
   return (
     <PortalWorkspace
       eyebrow={eyebrow}
       title="Dashboard"
-      actions={isStaff ? <NewTaskControl projectName={taskProject} /> : undefined}
+      actions={
+        isStaff ? (
+          <NewTaskControl
+            projectName={taskTarget?.name ?? taskProject}
+            writebackEnabled={liveSync.data?.writebackEnabled === true}
+            orgId={taskTarget?.orgId ?? null}
+            projectNotionId={taskTarget?.notionPageId ?? null}
+            hostSlug={hostSlug}
+          />
+        ) : undefined
+      }
     >
       <PortalTilePane>
         <DashboardHome

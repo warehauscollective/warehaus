@@ -100,6 +100,7 @@ export const listPublishedForStaff = adminQuery({
           ...toClientProject(row),
           clientName: client?.companyName ?? null,
           clientSlug: client?.slug ?? null,
+          notionPageId: row.notionPageId,
         };
       })
       .sort((a, b) => {

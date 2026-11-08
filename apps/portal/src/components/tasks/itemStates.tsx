@@ -430,9 +430,39 @@ export function TasksActionStyle() {
   return <style>{ITEM_STATE_CSS}</style>;
 }
 
-/** Header New task. createTask only enqueues a Notion write, and write-back is off. */
-export function NewTaskButton() {
+const newTaskButtonStyle = {
+  background: 'transparent',
+  color: 'var(--fg)',
+  border: '1px solid var(--border-2, var(--border))',
+  borderRadius: 9,
+  fontFamily: 'var(--font-body)',
+  fontSize: 14,
+  fontWeight: 500,
+  padding: '12px 16px',
+} as const;
+
+/**
+ * Header New task. Enabled only when the deployment write-back flag is on.
+ * The parent then opens the dialog that calls `createTask`.
+ */
+export function NewTaskButton({ enabled = false, onClick }: { enabled?: boolean; onClick?: () => void }) {
   const hintId = useId();
+  if (enabled) {
+    return (
+      <span className="new-task">
+        <style>{ITEM_STATE_CSS}</style>
+        <button
+          type="button"
+          data-testid="new-task"
+          onClick={onClick}
+          className="new-task-control item-state-btn inline-flex"
+          style={{ ...newTaskButtonStyle, cursor: 'pointer', opacity: 1 }}
+        >
+          New task
+        </button>
+      </span>
+    );
+  }
   return (
     <span className="new-task">
       <style>{ITEM_STATE_CSS}</style>
@@ -452,15 +482,8 @@ export function NewTaskButton() {
           tabIndex={-1}
           data-testid="new-task"
           style={{
+            ...newTaskButtonStyle,
             pointerEvents: 'none',
-            background: 'transparent',
-            color: 'var(--fg)',
-            border: '1px solid var(--border-2, var(--border))',
-            borderRadius: 9,
-            fontFamily: 'var(--font-body)',
-            fontSize: 14,
-            fontWeight: 500,
-            padding: '12px 16px',
             cursor: 'not-allowed',
             opacity: 0.4,
           }}

@@ -1,6 +1,5 @@
 import {
   buildProjectCreateProperties,
-  isNotionProjectCreateEnabled,
   isNotionWritebackEnabled,
   planProjectCreateDispatch,
   projectCreateConvexFields,
@@ -20,7 +19,7 @@ import {
 /**
  * Staff creates one project through the Notion outbox, then upserts that page
  * into Convex. No tasks, resources, or activity rows.
- * Write-back off, or project-create off, returns before any Notion call.
+ * Write-back off returns before any Notion call. There is no second create flag.
  */
 export const prepare = internalQuery({
   args: {
@@ -119,7 +118,6 @@ export const createInNotion = action({
 
     const gate = planProjectCreateDispatch({
       writebackEnabled: isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED),
-      projectCreateEnabled: isNotionProjectCreateEnabled(process.env.NOTION_PROJECT_CREATE_ENABLED),
     });
     if (!gate.ok) return gate;
 

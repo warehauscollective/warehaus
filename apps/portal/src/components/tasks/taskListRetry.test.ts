@@ -16,11 +16,13 @@ describe('task list retry and quick-add', () => {
     assert.ok(providerAt >= 0 && chromeAt > providerAt);
   });
 
-  it('does not call createTask from the project task list', () => {
+  it('calls createTask from the project task list when write-back is on', () => {
     const projects = readFileSync(new URL('../pages/ProjectsContent.tsx', import.meta.url), 'utf8');
-    assert.equal(projects.includes('api.tasks.createTask'), false);
-    assert.equal(projects.includes('createTask('), false);
-    assert.match(projects, /quickAddEnabled=\{false\}/);
+    assert.match(projects, /api\.tasks\.createTask/);
+    assert.match(projects, /createTask\(/);
+    assert.match(projects, /quickAddEnabled=\{writebackEnabled\}/);
+    assert.equal(projects.includes('quickAddEnabled={false}'), false);
+    assert.match(projects, /if \(!writebackEnabled\) return \{ ok: false, error: WRITEBACK_OFF_ERROR \}/);
     assert.match(projects, /showTaskListFilters\(itemView\.region\)/);
   });
 
