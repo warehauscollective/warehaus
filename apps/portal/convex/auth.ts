@@ -26,7 +26,7 @@ import {
   type SelfServeDecision,
 } from './_lib/registration';
 import { VERIFICATION_EXPIRES_IN_SECONDS } from './_lib/resendCooldown';
-import { portalSessionConfig } from './_lib/sessionLifetime';
+import { JWT_EXPIRES_IN_SECONDS, portalSessionConfig } from './_lib/sessionLifetime';
 
 /**
  * Better Auth on the portal Convex deployment (separate from Motoko).
@@ -189,6 +189,10 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
       'http://localhost:3100',
       'http://portal.localhost:3100',
       'http://client-portal.localhost:3100',
+      'http://127.0.0.1:3110',
+      'http://localhost:3110',
+      'http://portal.localhost:3110',
+      'http://client-portal.localhost:3110',
     ].filter(Boolean),
     session: portalSessionConfig(),
     emailAndPassword: {
@@ -269,7 +273,12 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
         },
       },
     },
-    plugins: [convex({ authConfig })],
+    plugins: [
+      convex({
+        authConfig,
+        jwt: { expirationSeconds: JWT_EXPIRES_IN_SECONDS },
+      }),
+    ],
   });
 };
 
