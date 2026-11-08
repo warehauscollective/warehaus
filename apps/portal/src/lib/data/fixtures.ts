@@ -218,6 +218,8 @@ export const FIXTURE_TASKS = [
     assigneeName: 'Alex Bauer',
     resourceCount: 3,
     category: 'Design',
+    estimate: '3 days',
+    priority: 'High',
   }),
   task('t-sub', 'p-site', 'Check the type scale', 'To Do', false, { stage: 'Building', parentTaskId: 't-doing', category: 'Design' }),
   task('t-done', 'p-site', 'Approve the type ramp', 'Done', true, { category: 'Design' }),
@@ -700,6 +702,8 @@ function task(
     resourceCount?: number;
     category?: string | null;
     lastEditedTime?: string;
+    estimate?: string | null;
+    priority?: string | null;
   } = {},
 ) {
   const project = FIXTURE_PROJECTS.find((p) => p.id === projectId);
@@ -721,8 +725,8 @@ function task(
     date: '2026-10-20',
     ...(extra.lastEditedTime ? { lastEditedTime: extra.lastEditedTime } : {}),
     publishToWarehaus: true,
-    estimate: null,
-    priority: null,
+    estimate: extra.estimate ?? null,
+    priority: extra.priority ?? null,
     source: 'notion',
     notionPageId: extra.notionPageId ?? `notion-${id}`,
     lastSyncedAt: SYNCED_AT,
