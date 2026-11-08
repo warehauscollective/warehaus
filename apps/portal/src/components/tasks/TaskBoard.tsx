@@ -118,6 +118,8 @@ export function TaskBoard({
   onMove,
   onQuickAdd,
   quickAddEnabled = true,
+  showQuickAdd = true,
+  hideGroupToggle = false,
 }: {
   tasks: PortalTask[];
   staff: boolean;
@@ -128,6 +130,10 @@ export function TaskBoard({
   onQuickAdd: (input: { name: string; status: string; stage?: string }) => Promise<{ ok: boolean; error?: string }>;
   /** When write-back is off the column control stays disabled and never calls onQuickAdd. */
   quickAddEnabled?: boolean;
+  /** Milestone tasks hide column add. The milestone menu is the only create path. */
+  showQuickAdd?: boolean;
+  /** Milestone tasks stay on status columns. */
+  hideGroupToggle?: boolean;
 }) {
   const [mode, setMode] = useState<BoardMode>('status');
   const [phone, setPhone] = useState(false);
@@ -146,13 +152,13 @@ export function TaskBoard({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   useEffect(() => {
-    setMode(readBoardMode());
+    setMode(hideGroupToggle ? 'status' : readBoardMode());
     const media = window.matchMedia('(max-width: 767px)');
     const apply = () => setPhone(media.matches);
     apply();
     media.addEventListener('change', apply);
     return () => media.removeEventListener('change', apply);
-  }, []);
+  }, [hideGroupToggle]);
 
   const viewTasks = useMemo(
     () =>
@@ -276,7 +282,7 @@ export function TaskBoard({
   return (
     <div className="flex min-w-0 flex-col gap-3" data-testid="task-board">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <GroupToggle mode={mode} onChange={chooseMode} />
+        {hideGroupToggle ? null : <GroupToggle mode={mode} onChange={chooseMode} />}
         <p className="sr-only" aria-live="polite">{live}</p>
       </div>
       {phone ? (
@@ -339,6 +345,7 @@ export function TaskBoard({
               onMoveSheet={setMoveTask}
               quick={quick === column.key}
               quickAddEnabled={quickAddEnabled}
+              showQuickAdd={showQuickAdd}
               onQuick={() => {
                 if (!quickAddEnabled) return;
                 setQuick(column.key);
@@ -472,6 +479,7 @@ function Column({
   onQuickClose,
   onQuickAdd,
   quickAddEnabled,
+  showQuickAdd,
   onKeyMove,
 }: {
   columnKey: string;
@@ -499,6 +507,7 @@ function Column({
   onQuickClose: () => void;
   onQuickAdd: (name: string) => Promise<{ ok: boolean; error?: string }>;
   quickAddEnabled: boolean;
+  showQuickAdd: boolean;
   onKeyMove: (task: PortalTask, direction: -1 | 1) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: `column:${columnKey}` });
@@ -555,7 +564,7 @@ function Column({
         <h3 className="ds-mono whitespace-nowrap" style={{ fontSize: 11, letterSpacing: '0.08em' }}>{label.toUpperCase()}</h3>
         <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface)', borderRadius: 999, padding: '0 0.45rem' }}>{restingCount}</span>
         <span className="flex-1" />
-        {staff && !columnKey.startsWith('unknown') ? (
+        {showQuickAdd && staff && !columnKey.startsWith('unknown') ? (
           quickAddEnabled ? (
             <button type="button" aria-label={`Add task to ${label}`} onClick={onQuick} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>+</button>
           ) : (
@@ -572,7 +581,7 @@ function Column({
             {emptyClient ? 'Nothing here yet.' : mode === 'stage' ? 'No tasks at this stage. Drag a card here.' : 'No tasks'}
           </p>
         ) : null}
-        {staff && !columnKey.startsWith('unknown') ? (
+        {showQuickAdd && staff && !columnKey.startsWith('unknown') ? (
           quickAddEnabled ? (
             <button type="button" onClick={onQuick} className="text-left" style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '0.7rem 0.85rem', color: 'var(--muted)', background: 'transparent' }}>
               + Add task

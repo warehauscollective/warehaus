@@ -31,6 +31,7 @@ import {
   viewerProjects,
   type ProjectListFilter,
 } from '@/lib/data/projectList';
+import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { projectsForViewer, viewerIsStaff } from '@/lib/data/portalSnapshotCache';
 import { useRetryPortalData } from '@/components/providers/PortalDataRetry';
@@ -107,6 +108,7 @@ export function ProjectsContent() {
   const writebackEnabled = useWritebackEnabled();
   const createEnabled = writebackEnabled;
   const { data, loading, error } = usePortalData();
+  const activityFeed = useActivityFeed();
   const retryPortalData = useRetryPortalData();
   const { portalSession, linkStatus, sessionPending, joining } = usePortalAuth();
   const hostSlug =
@@ -471,35 +473,18 @@ export function ProjectsContent() {
       return doc.publishToWarehaus !== false && doc.status !== 'Draft';
     });
     const summary = projectSummaryVisibility(isStaff, openProject);
+    const openTask = (task: PortalTask) => {
+      setOpenId(openProject.id);
+      if (fixtures) setFixtureTaskId(task.id);
+      else router.push(`/tasks/${task.id}`);
+    };
+    const resourceChoices = ((fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[])
+      .filter((resource) => !resource.projectId || resource.projectId === openProject.id)
+      .map((resource) => ({ id: resource.id, title: resource.name }));
     return (
-      <PortalWorkspace
-        eyebrow={tenantEyebrow(data.tenant, 'Project')}
-        title={openProject.name}
-        breadcrumb={
-          <NavBreadcrumb
-            back="always"
-            onBack={closeProject}
-            parent={{ label: 'Projects', onClick: closeProject }}
-            current={openProject.name}
-          />
-        }
-        actions={
-          summary.showEdit ? (
-            <div className="hidden md:block">
-              <EditProjectButton disabled={summary.editDisabled} />
-            </div>
-          ) : undefined
-        }
-      >
+      <PortalWorkspace hideHeader eyebrow={tenantEyebrow(data.tenant, 'Project')} title={openProject.name}>
         <PortalTilePane>
-          <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="project-detail" style={{ scrollbarGutter: 'stable' }}>
-            <ProjectSummary
-              project={openProject}
-              tasks={projectTasks}
-              leadName={leadName}
-              onOpenClient={openLinkedClient}
-              summary={summary}
-            />
+          <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="project-detail" data-task-view={taskView} style={{ scrollbarGutter: 'stable' }}>
             <ProjectRoadmap
               project={openProject}
               tasks={projectTasks}
@@ -507,6 +492,82 @@ export function ProjectsContent() {
               fixtures={fixtures}
               live={!fixtures && configured && !settling}
               hostSlug={hostSlug}
+              clientName={openProject.internal ? null : openProject.clientName ?? null}
+              activity={activityFeed.items}
+              onBackToProjects={closeProject}
+              onOpenTask={openTask}
+              onCreateTask={isStaff ? () => setTaskCreateOpen(true) : undefined}
+              resourceChoices={resourceChoices}
+              resourcesExtra={
+                <DocsBlock docs={projectDocs} staff={isStaff} loading={projectsLoading && projectDocs.length === 0} />
+              }
+              renderTasks={(boardTasks) => (
+                <TaskBoard
+                  tasks={boardTasks}
+                  staff={isStaff}
+                  loading={listLoading}
+                  hideGroupToggle
+                  showQuickAdd={false}
+                  onQuickAdd={async () => ({ ok: false, error: 'Add a task from the milestone menu.' })}
+                  rules={
+                    fixtures
+                      ? isStaff
+                        ? fixtureStaffRules
+                        : clientDeniedRules
+                      : rules.data ?? (isStaff ? null : clientDeniedRules)
+                  }
+                  onOpen={openTask}
+                  onMove={async (request) => {
+                    if (fixtures) {
+                      if (request.mode === 'stage') return { ok: true, pending: true };
+                      return { ok: false, error: WRITEBACK_OFF_ERROR };
+                    }
+                    if (!request.task.lastEditedTime) {
+                      return { ok: false, error: 'This task has no Notion edit time yet. Nothing was sent.' };
+                    }
+                    const result = request.mode === 'stage'
+                      ? await moveStage({
+                          hostSlug,
+                          taskId: request.task.id as Id<'tasks'>,
+                          stage: request.value,
+                          expectedLastEditedTime: request.task.lastEditedTime,
+                          pullRequestLink: request.pullRequestLink,
+                        })
+                      : await moveStatus({
+                          hostSlug,
+                          taskId: request.task.id as Id<'tasks'>,
+                          status: request.value,
+                          expectedLastEditedTime: request.task.lastEditedTime,
+                        });
+                    if (!result.ok) return { ok: false, error: result.error };
+                    if (request.mode === 'stage' && result.pending === true && result.outboxId) {
+                      setQueuedStage({
+                        taskId: request.task.id,
+                        stage: request.value,
+                        expectedLastEditedTime: request.task.lastEditedTime,
+                        pullRequestLink: request.pullRequestLink,
+                        retryAt: null,
+                      });
+                    } else if (request.mode === 'stage') {
+                      setQueuedStage((current) => (current?.taskId === request.task.id ? null : current));
+                    }
+                    return { ok: true, pending: result.pending === true };
+                  }}
+                />
+              )}
+              details={
+                <>
+            {summary.showEdit ? (
+              <div className="hidden justify-end md:flex">
+                <EditProjectButton disabled={summary.editDisabled} />
+              </div>
+            ) : null}
+            <ProjectSummary
+              project={openProject}
+              tasks={projectTasks}
+              leadName={leadName}
+              onOpenClient={openLinkedClient}
+              summary={summary}
             />
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">
@@ -675,6 +736,9 @@ export function ProjectsContent() {
                 onRetry={retryTasks}
               />
             ) : null}
+                </>
+              }
+            />
             {taskCreateOpen ? (
               <TaskCreateDialog
                 projectName={openProject.name}
@@ -692,7 +756,6 @@ export function ProjectsContent() {
                 onClose={() => setTaskCreateOpen(false)}
               />
             ) : null}
-            <DocsBlock docs={projectDocs} staff={isStaff} loading={projectsLoading && projectDocs.length === 0} />
           </div>
         </PortalTilePane>
         {routeTaskId ? (
