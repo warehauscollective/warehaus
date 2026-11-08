@@ -221,7 +221,7 @@ export function MilestoneDialog({
 
   return (
     <div
-      className="fixed inset-0 flex items-start justify-center overflow-y-auto px-4 py-8 md:py-16"
+      className="fixed inset-0 flex items-start justify-center overflow-y-auto md:px-4 md:py-16"
       style={{ zIndex: 80, background: 'color-mix(in oklab, var(--bg) 72%, transparent)' }}
     >
       <div
@@ -229,17 +229,21 @@ export function MilestoneDialog({
         aria-modal="true"
         aria-label={title}
         data-testid={testId}
-        className="w-full max-w-[680px]"
+        className="min-h-full w-full rounded-none md:min-h-0 md:max-w-[760px] md:rounded-[var(--panel-radius,12px)]"
         style={{
           background: 'var(--surface)',
           border: '1px solid var(--border)',
-          borderRadius: 'var(--panel-radius, 12px)',
           padding: 24,
         }}
       >
-        <div className="flex items-start justify-between gap-4">
-          <h2 style={{ fontSize: 30, lineHeight: '45px', fontWeight: 600 }}>{title}</h2>
-          <GhostButton onClick={onClose}>Close</GhostButton>
+        <div className="flex items-center justify-between gap-4 md:items-start">
+          <GhostButton testId="milestone-dialog-close" onClick={onClose}>
+            <span className="md:hidden">Cancel</span>
+            <span className="hidden md:inline">Close</span>
+          </GhostButton>
+          <h2 className="md:order-first md:mr-auto" style={{ fontSize: 30, lineHeight: '39px', fontWeight: 600 }}>
+            {title}
+          </h2>
         </div>
         {children}
       </div>

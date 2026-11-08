@@ -420,7 +420,9 @@ function MilestoneListCard({
   const meta =
     milestone.approval === 'approved' && milestone.decidedAt
       ? `Approved ${formatWhen(milestone.decidedAt)}`
-      : WORK_LABEL[milestone.workStatus];
+      : milestone.approval === 'changes_requested'
+        ? APPROVAL_LABEL.changes_requested
+        : null;
   return (
     <article
       data-testid={`milestone-${milestone.id}`}
@@ -466,7 +468,7 @@ function MilestoneListCard({
       </div>
       <div className="flex flex-col items-start gap-3 md:w-[174px] md:items-stretch">
         <StatusChip label={WORK_LABEL[milestone.workStatus]} />
-        <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{meta}</p>
+        {meta ? <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{meta}</p> : null}
         <OutlineButton onClick={onOpen}>Open milestone</OutlineButton>
       </div>
     </article>
@@ -657,7 +659,7 @@ function MilestoneDetail({
                       <span>
                         <span style={{ display: 'block', fontSize: 14, fontWeight: 500 }}>{resource.title}</span>
                         <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                          Shared with client
+                          {milestone.publishToWarehaus ? 'Shared with client' : 'On this milestone'}
                         </span>
                       </span>
                       {resource.url ? (
