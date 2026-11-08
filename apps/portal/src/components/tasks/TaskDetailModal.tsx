@@ -10,6 +10,7 @@ import { OutlineButton, Pill, PortalCheckbox, PrimaryButton } from '@/components
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
 import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
+import { StaffLiveFields } from './StaffLiveFields';
 import { TaskGlyph } from './TaskGlyph';
 
 type ResourceRow = {
@@ -209,6 +210,16 @@ export function TaskDetailModal({
                 ) : null}
               </span>
             </Field>
+            {staff ? (
+              <StaffLiveFields
+                row={phone}
+                estimate={task.estimate}
+                priority={task.priority}
+                source={task.source}
+                published={task.publishToWarehaus}
+                done={task.isDone}
+              />
+            ) : null}
             </div>
             {staff ? (
               <div className="flex flex-col gap-3" style={{ order: phone ? 4 : undefined }}>
