@@ -19,9 +19,15 @@ describe('staff live task fields', () => {
       }),
     );
     assert.match(html, /data-testid="task-estimate"[\s\S]*3 days/);
+    assert.match(html, /data-testid="task-estimate-input"/);
     assert.match(html, /data-testid="task-priority"[\s\S]*High/);
+    assert.match(html, /data-testid="task-priority-input"/);
     assert.match(html, /data-testid="task-source"[\s\S]*notion/);
+    assert.match(html, /data-testid="task-source-input"/);
     assert.match(html, /data-testid="task-publish"[\s\S]*Published/);
+    assert.match(html, /data-testid="task-publish-input"/);
+    assert.match(html, /value="XS"/);
+    assert.match(html, /value="portal"/);
     assert.equal(html.includes('task-done-mark'), false);
     assert.equal(html.includes('Not published'), false);
   });
@@ -41,6 +47,9 @@ describe('staff live task fields', () => {
     assert.equal(html.match(/—/g)?.length, 3);
     assert.match(html, /Not published/);
     assert.match(html, /data-testid="task-done-mark"[\s\S]*Done/);
+    const done = html.slice(html.indexOf('data-testid="task-done-mark"'));
+    assert.equal(done.includes('<select'), false);
+    assert.equal(done.includes('checkbox'), false);
   });
 
   it('omits the publish chip when the flag is missing', () => {
@@ -52,6 +61,8 @@ describe('staff live task fields', () => {
   it('is mounted only for staff on the task detail', () => {
     const source = readFileSync(new URL('./TaskDetailModal.tsx', import.meta.url), 'utf8');
     assert.match(source, /\{staff \? \(\s*<StaffLiveFields/);
+    assert.equal(source.match(/<StaffLiveFields/g)?.length, 1);
+    assert.match(source, /api\.tasks\.updateLiveFields/);
     assert.equal(source.includes('api.tasks.updateEstimate'), false);
   });
 });

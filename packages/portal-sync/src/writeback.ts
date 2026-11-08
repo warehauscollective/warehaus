@@ -428,6 +428,9 @@ const SELECT_PROPS = new Set([
   'Portal access',
   'Portal Access',
   'Invite Status',
+  'Estimate',
+  'Priority',
+  'Source',
 ]);
 
 const RELATION_PROPS = new Set([
@@ -448,6 +451,13 @@ export function toNotionProperties(
   const out: Record<string, unknown> = {};
   for (const [name, value] of Object.entries(properties)) {
     if (name === 'Invite Status' && (value == null || value === '')) {
+      out[name] = { select: null };
+      continue;
+    }
+    if (
+      (name === 'Estimate' || name === 'Priority' || name === 'Source') &&
+      (value == null || value === '')
+    ) {
       out[name] = { select: null };
       continue;
     }

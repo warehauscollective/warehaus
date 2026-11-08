@@ -4,7 +4,7 @@ import { WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
 import { applyOutcome } from '../sync/outbox';
 import { enqueue } from '../sync/outbox';
 import { processDue } from '../sync/outboxWork';
-import { drainPendingStages, enqueueStage, enqueueStatus } from '../sync/taskWrite';
+import { drainPendingStages, enqueueLiveFields, enqueueStage, enqueueStatus } from '../sync/taskWrite';
 import { upsertTask } from '../sync/upsert';
 
 type Row = Record<string, unknown> & { _id: string };
@@ -95,6 +95,18 @@ async function withFlag(on: boolean, fn: () => Promise<void>) {
   }
 }
 
+async function withFlagValue(flag: string | undefined, fn: () => Promise<void>) {
+  const previous = process.env.NOTION_WRITEBACK_ENABLED;
+  if (flag === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+  else process.env.NOTION_WRITEBACK_ENABLED = flag;
+  try {
+    await fn();
+  } finally {
+    if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+    else process.env.NOTION_WRITEBACK_ENABLED = previous;
+  }
+}
+
 function task(extra: Record<string, unknown> = {}): Row {
   return {
     _id: 'task-1',
@@ -163,6 +175,101 @@ describe('taskWriteGuards stage save', () => {
       assert.equal(row.status, 'Inbox');
       assert.equal(row.stagePendingAt, undefined);
       assert.equal(outboxRows(tables).length, 0);
+    });
+  });
+
+  it('returns the write-back-off error and writes nothing when the flag is not exactly true', async () => {
+    for (const flag of [undefined, 'TRUE', 'false', '1']) {
+      const row = task({ estimate: 'S', priority: 'Low', source: 'portal', publishToWarehaus: true });
+      const tables = { tasks: [row], notionOutbox: [] as Row[] };
+      await withFlagValue(flag, async () => {
+        const result = await run(enqueueLiveFields, stageCtx(tables), {
+          taskId: 'task-1',
+          estimate: 'M',
+          priority: 'High',
+          source: 'notion-ui',
+          publishToWarehaus: false,
+          expectedLastEditedTime: TIME,
+        });
+        assert.deepEqual(result, { ok: false, error: WRITEBACK_OFF_ERROR });
+        assert.equal(row.estimate, 'S');
+        assert.equal(row.priority, 'Low');
+        assert.equal(row.source, 'portal');
+        assert.equal(row.publishToWarehaus, true);
+        assert.equal(outboxRows(tables).length, 0);
+      });
+    }
+  });
+
+  it('enqueues Estimate, Priority, Source, and publish without patching the task', async () => {
+    const row = task({ estimate: 'S', priority: 'Low', source: 'portal', publishToWarehaus: true });
+    const tables = { tasks: [row], notionOutbox: [] as Row[] };
+    await withFlag(true, async () => {
+      const result = (await run(enqueueLiveFields, stageCtx(tables), {
+        taskId: 'task-1',
+        estimate: 'M',
+        priority: 'High',
+        source: 'arc',
+        publishToWarehaus: false,
+        expectedLastEditedTime: TIME,
+        actorId: 'contact-staff',
+      })) as { ok: boolean; outboxId?: string };
+      assert.equal(result.ok, true);
+      assert.equal(typeof result.outboxId, 'string');
+      assert.equal(outboxRows(tables).length, 1);
+      const queued = outboxRows(tables)[0];
+      assert.equal(queued?.kind, 'task-fields');
+      assert.equal(queued?.database, 'tasks');
+      assert.equal(queued?.notionPageId, 'page-1');
+      assert.equal(queued?.expectedLastEditedTime, TIME);
+      assert.equal(queued?.actor, 'staff');
+      assert.equal(queued?.actorId, 'contact-staff');
+      assert.deepEqual(JSON.parse(String(queued?.payload)).properties, {
+        Estimate: 'M',
+        Priority: 'High',
+        Source: 'arc',
+        'Publish to Warehaus': false,
+      });
+      assert.equal(row.estimate, 'S');
+      assert.equal(row.priority, 'Low');
+      assert.equal(row.source, 'portal');
+      assert.equal(row.publishToWarehaus, true);
+      assert.equal(row.lastEditedTime, TIME);
+    });
+  });
+
+  it('enqueues a single cleared estimate and refuses an unknown one', async () => {
+    const row = task({ estimate: 'S', publishToWarehaus: false });
+    const tables = { tasks: [row], notionOutbox: [] as Row[] };
+    await withFlag(true, async () => {
+      const cleared = (await run(enqueueLiveFields, stageCtx(tables), {
+        taskId: 'task-1',
+        estimate: null,
+        expectedLastEditedTime: TIME,
+      })) as { ok: boolean };
+      assert.equal(cleared.ok, true);
+      assert.deepEqual(JSON.parse(String(outboxRows(tables)[0]?.payload)).properties, { Estimate: null });
+      const rejected = await run(enqueueLiveFields, stageCtx(tables), {
+        taskId: 'task-1',
+        source: 'notion',
+        expectedLastEditedTime: TIME,
+      });
+      assert.deepEqual(rejected, { ok: false, error: 'Unknown source' });
+      const status = (await run(enqueue, stageCtx(tables), {
+        idempotencyKey: 'task-fields:status',
+        kind: 'task-fields',
+        orgId: 'org-1',
+        database: 'tasks',
+        notionPageId: 'page-1',
+        expectedLastEditedTime: TIME,
+        payload: JSON.stringify({ properties: { Status: 'Done' } }),
+        actor: 'staff',
+        schedule: false,
+      })) as { ok: boolean };
+      assert.equal(status.ok, false);
+      assert.equal(outboxRows(tables).length, 1);
+      assert.equal(row.estimate, 'S');
+      assert.equal(row.publishToWarehaus, false);
     });
   });
 

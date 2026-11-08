@@ -287,6 +287,18 @@ export {
   type ResolvedTaskDescription,
 } from './taskDescription';
 
+export {
+  TASK_ESTIMATES,
+  TASK_PRIORITIES,
+  TASK_SOURCES,
+  planTaskLiveFieldsWrite,
+  taskLiveFieldsWriteError,
+  type TaskEstimate,
+  type TaskPriority,
+  type TaskSource,
+  type TaskLiveFieldInput,
+} from './taskLiveFields';
+
 export { compareDocsByOrder } from './docOrder';
 
 export {
