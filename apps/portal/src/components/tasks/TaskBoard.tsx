@@ -380,7 +380,7 @@ export function TaskBoard({
           retry={toast.retry}
           undo={toast.undo ? () => { toast.undo?.(); setToast(null); } : undefined}
           onDismiss={() => setToast(null)}
-          pinned={!phone}
+          pinned={!phone || toast.message === MOVE_NOT_SAVED}
         />
       ) : null}
       {moveTask ? (
@@ -676,6 +676,7 @@ export function collapsedSourceStyle(origin: DragOrigin | null): CSSProperties {
   }
   return {
     height: 0,
+    minHeight: 0,
     overflow: 'hidden',
     opacity: 0,
     visibility: 'hidden',
@@ -683,6 +684,7 @@ export function collapsedSourceStyle(origin: DragOrigin | null): CSSProperties {
     background: 'transparent',
     border: 0,
     padding: 0,
+    margin: 0,
   };
 }
 
@@ -691,6 +693,8 @@ export function collapsedCardBox(origin: DragOrigin | null): CSSProperties {
     position: 'absolute',
     width: origin ? 0 : '100%',
     height: 0,
+    minHeight: 0,
+    margin: 0,
     overflow: origin ? 'visible' : 'hidden',
     pointerEvents: 'none',
   };
@@ -751,9 +755,11 @@ export function BoardToast({
   retry?: () => void;
   undo?: () => void;
   onDismiss: () => void;
-  /** Desktop: fixed, centered, 16px above the dock. Phone stays in the board flow. */
+  /** Desktop: fixed, centered, 16px above the dock. Phone stays in the board flow.
+   * The flag-off “Not saved” toast is always pinned so the dock cannot cover it. */
   pinned?: boolean;
 }) {
+  const aboveDock = pinned || message === MOVE_NOT_SAVED;
   const quiet = {
     color: 'var(--muted)',
     background: 'none',
@@ -768,25 +774,25 @@ export function BoardToast({
     <div
       role="status"
       data-testid="board-toast"
-      data-placement={pinned ? 'above-dock' : 'below-board'}
+      data-placement={aboveDock ? 'above-dock' : 'below-board'}
       className="ds-scope mx-auto flex w-fit max-w-full items-center"
       style={{
-        position: pinned ? 'fixed' : 'relative',
-        left: pinned ? '50%' : undefined,
-        bottom: pinned ? 'calc(1.25rem + 3.5rem + 16px)' : undefined,
-        transform: pinned ? 'translateX(-50%)' : undefined,
-        zIndex: pinned ? 45 : undefined,
-        marginTop: pinned ? 0 : 16,
+        position: aboveDock ? 'fixed' : 'relative',
+        left: aboveDock ? '50%' : undefined,
+        bottom: aboveDock ? 'calc(1.25rem + 3.5rem + 16px)' : undefined,
+        transform: aboveDock ? 'translateX(-50%)' : undefined,
+        zIndex: aboveDock ? 60 : undefined,
+        marginTop: aboveDock ? 0 : 16,
         gap: 12,
         background: 'var(--surface-2)',
         color: 'var(--fg)',
         border: retry ? '1px solid var(--danger)' : '1px solid var(--border-2)',
         borderRadius: 18,
         padding: '12px 16px',
-        boxShadow: pinned ? '0 8px 12px rgb(0 0 0 / 35%)' : 'none',
+        boxShadow: aboveDock ? '0 8px 12px rgb(0 0 0 / 35%)' : 'none',
         fontSize: 14,
         lineHeight: '21px',
-        maxWidth: pinned ? 'calc(100vw - 32px)' : undefined,
+        maxWidth: aboveDock ? 'calc(100vw - 32px)' : undefined,
       }}
     >
       {undo ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
@@ -800,7 +806,7 @@ export function BoardToast({
       <button type="button" aria-label="Dismiss" onClick={onDismiss} style={quiet}>✕</button>
     </div>
   );
-  return pinned ? portalNode(node) : node;
+  return aboveDock ? portalNode(node) : node;
 }
 
 function PhoneColumnTabs({
