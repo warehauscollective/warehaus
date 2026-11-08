@@ -1,5 +1,8 @@
-import { isClientSurfaceVisible } from '@warehaus/portal-sync';
-import { adminQuery } from './_lib/wrappers';
+import { isClientSurfaceVisible, toTaskPlatformView } from '@warehaus/portal-sync';
+import { v } from 'convex/values';
+import { isStaff } from './_lib/identity';
+import { linearEnv, serveTasks } from './_lib/taskPlatformRead';
+import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 
 export type ClientDirectoryRow = {
   id: string;
@@ -41,10 +44,12 @@ export const listDirectory = adminQuery({
         .query('tasks')
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
-      const openTaskCount = tasks.filter((t) => t.syncHiddenAt == null && !t.isDone).length;
-      const awaitingGoCount = tasks.filter(
-        (t) => t.syncHiddenAt == null && !t.isDone && t.stage === 'Awaiting Go',
-      ).length;
+      const openTasks = serveTasks(
+        client.taskPlatform,
+        tasks.filter((t) => t.syncHiddenAt == null && !t.isDone),
+      );
+      const openTaskCount = openTasks.length;
+      const awaitingGoCount = openTasks.filter((t) => t.stage === 'Awaiting Go').length;
 
       const resources = await ctx.db
         .query('sharedResources')
@@ -119,7 +124,10 @@ export const getTeamStats = adminQuery({
         .query('tasks')
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
-      openTaskCount += tasks.filter((t) => isClientSurfaceVisible(t) && t.publishToWarehaus && !t.isDone).length;
+      openTaskCount += serveTasks(
+        client.taskPlatform,
+        tasks.filter((t) => isClientSurfaceVisible(t) && t.publishToWarehaus && !t.isDone),
+      ).length;
       const uploads = await ctx.db
         .query('clientUploads')
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
@@ -134,5 +142,51 @@ export const getTeamStats = adminQuery({
       openTaskCount,
       uploadNeedsReview,
     };
+  },
+});
+
+/** Signed-in org. Clients can read the choice. Staff can read it for their own org too. */
+export const getMyTaskPlatform = clientQuery({
+  args: {},
+  handler: async (ctx) => {
+    const client = await ctx.db.get(ctx.orgId);
+    return toTaskPlatformView({
+      platform: client?.taskPlatform,
+      tasks: [],
+      canChange: isStaff(ctx.identity),
+      env: linearEnv(),
+    });
+  },
+});
+
+/** Staff read for the client open in Account. */
+export const getTaskPlatform = adminQuery({
+  args: { orgId: v.id('clients') },
+  handler: async (ctx, args) => {
+    const client = await ctx.db.get(args.orgId);
+    if (!client) throw new Error('Client not found');
+    return toTaskPlatformView({
+      platform: client.taskPlatform,
+      tasks: [],
+      canChange: true,
+      env: linearEnv(),
+    });
+  },
+});
+
+/**
+ * Staff set the platform on one client.
+ * The patch is only `taskPlatform`. Task rows stay as they are.
+ */
+export const setTaskPlatform = adminMutation({
+  args: {
+    orgId: v.id('clients'),
+    platform: v.union(v.literal('notion'), v.literal('linear')),
+  },
+  handler: async (ctx, args) => {
+    const client = await ctx.db.get(args.orgId);
+    if (!client) throw new Error('Client not found');
+    await ctx.db.patch(args.orgId, { taskPlatform: args.platform });
+    return { orgId: args.orgId, platform: args.platform };
   },
 });

@@ -1,5 +1,6 @@
 import { isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
+import { serveTasksByOrg } from './_lib/taskPlatformRead';
 import { adminQuery, clientQuery } from './_lib/wrappers';
 import { searchCatalog, type SearchGroups } from './_lib/portalSearch';
 
@@ -37,7 +38,7 @@ export const forClient = clientQuery({
       orgVisible,
       orgNames,
       projects,
-      tasks,
+      tasks: serveTasksByOrg(tasks, () => org?.taskPlatform),
       docs,
       resources,
     });
@@ -57,11 +58,15 @@ export const forStaff = adminQuery({
       ctx.db.query('sharedResources').order('desc').take(STAFF_SCAN),
     ]);
     const orgNames: Record<string, string> = {};
+    const platformByOrg = new Map<string, 'notion' | 'linear' | undefined>();
     await Promise.all(
-      [...new Set(projects.map((project) => project.orgId))].map(async (orgId) => {
-        const org = await ctx.db.get(orgId);
-        if (org?.companyName) orgNames[orgId] = org.companyName;
-      }),
+      [...new Set([...projects.map((project) => project.orgId), ...tasks.map((task) => task.orgId)])].map(
+        async (orgId) => {
+          const org = await ctx.db.get(orgId);
+          if (org?.companyName) orgNames[orgId] = org.companyName;
+          platformByOrg.set(orgId, org?.taskPlatform);
+        },
+      ),
     );
     return searchCatalog({
       audience: 'staff',
@@ -70,7 +75,7 @@ export const forStaff = adminQuery({
       orgVisible: true,
       orgNames,
       projects,
-      tasks,
+      tasks: serveTasksByOrg(tasks, (orgId) => platformByOrg.get(orgId)),
       docs,
       resources,
     });
