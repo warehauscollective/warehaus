@@ -64,7 +64,7 @@ describe('task platform adapter', () => {
     assert.equal(taskPlatformBlockedMessage(read), 'Linear is not configured');
   });
 
-  it('does not call Linear when a key is present', async () => {
+  it('does not fetch from the sync preview when a key is present', async () => {
     const original = globalThis.fetch;
     let calls = 0;
     globalThis.fetch = () => {
@@ -75,17 +75,33 @@ describe('task platform adapter', () => {
       const read = readTaskPlatform({
         platform: 'linear',
         tasks,
-        env: { LINEAR_API_KEY: 'lin_api_test_secret' },
+        env: { LINEAR_API_KEY: 'linear-test-key' },
       });
       assert.equal(calls, 0);
       assert.equal(read.tasks.ok, false);
       if (read.tasks.ok) return;
-      assert.equal(read.tasks.reason, 'not-wired');
-      assert.equal(JSON.stringify(read).includes('lin_api_test_secret'), false);
+      assert.equal(read.tasks.reason, 'remote');
+      assert.equal(read.milestones.ok, false);
+      assert.equal(JSON.stringify(read).includes('linear-test-key'), false);
       assert.deepEqual(tasks, [
         { id: 'task-1', projectId: 'proj-1', name: 'Homepage', notionPageId: 'notion-1' },
       ]);
-      assert.equal(taskPlatformBlockedMessage(read), 'Linear is not called in this version');
+      assert.equal(taskPlatformBlockedMessage(read), 'This client reads tasks from Linear');
+      const view = toTaskPlatformView({
+        platform: 'linear',
+        tasks,
+        canChange: true,
+        env: { LINEAR_API_KEY: 'linear-test-key' },
+      });
+      assert.match(taskPlatformCopy(view, 'staff').body, /Tasks load from Linear/);
+      assert.match(taskPlatformCopy(view, 'client').body, /Only Warehaus staff can change this/);
+      assert.equal(JSON.stringify(view).includes('linear-test-key'), false);
+      const loaded = {
+        platform: 'linear' as const,
+        tasks: { ok: true as const, platform: 'linear' as const, count: 2 },
+      };
+      assert.match(taskPlatformCopy(loaded, 'staff').body, /read from Linear/);
+      assert.equal(taskPlatformCopy(loaded, 'staff').title, 'Linear');
     } finally {
       globalThis.fetch = original;
     }

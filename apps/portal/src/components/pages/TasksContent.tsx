@@ -23,6 +23,7 @@ import {
   type TaskResponseType,
 } from '@/lib/data/view-models';
 import { taskPlatformCopy } from '@warehaus/portal-sync';
+import { LinearMilestoneList } from '@/components/clients/TaskPlatformSetting';
 import { Bevel } from '@warehaus/ui';
 import { PORTAL_PANEL_GAP_VAR, PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 
@@ -65,6 +66,12 @@ export function TasksContent() {
       {platformNotice ? (
         <p data-testid="task-platform-read" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginBottom: 12 }}>
           {platformNotice.body}
+        </p>
+      ) : null}
+      {data.milestones ? <LinearMilestoneList milestones={data.milestones} /> : null}
+      {platform?.tasks.ok && platform.milestones.ok === false && platform.milestones.reason === 'unavailable' ? (
+        <p data-testid="linear-milestones-unavailable" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginBottom: 12 }}>
+          Linear project milestones could not be read.
         </p>
       ) : null}
       {view === 'overview' && (
@@ -343,11 +350,12 @@ export function TaskResponseSheet({ task }: { task: PortalTask }) {
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const createResponse = useMutation(api.taskResponses.create);
+  const linearTask = task.source === 'linear';
   const responseState = useSafeQuery<
     Array<{ id: string; type: string; body: string | null; createdAt: number; contactName: string }>
   >(
     api.taskResponses.listForTask,
-    fixtures
+    fixtures || linearTask
       ? 'skip'
       : {
           taskId: task.id as Id<'tasks'>,
@@ -429,6 +437,12 @@ export function TaskResponseSheet({ task }: { task: PortalTask }) {
         ))}
       </div>
 
+      {linearTask ? (
+        <p data-testid="linear-task-response" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+          Responses stay on stored tasks. This Linear issue is read-only here.
+        </p>
+      ) : (
+      <>
       <form
         onSubmit={onSubmit}
         className="flex flex-col gap-3"
@@ -600,6 +614,8 @@ export function TaskResponseSheet({ task }: { task: PortalTask }) {
           ))}
         </ul>
       </div>
+      </>
+      )}
     </div>
   );
 }
