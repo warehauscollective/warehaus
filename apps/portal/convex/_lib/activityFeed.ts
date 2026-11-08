@@ -5,6 +5,7 @@
  */
 
 import {
+  clientMayOpenGranolaRecap,
   clientMaySeeProject,
   clientMaySeeTask,
   isClientVisibleActivityType,
@@ -42,6 +43,8 @@ export type FeedResource = {
   archive: boolean;
   syncHiddenAt?: number;
   orgId?: string;
+  description?: string | null;
+  source?: string | null;
 };
 
 /** Activity row as stored. Lane and client copy are derived, not columns. */
@@ -346,6 +349,7 @@ function visibleResource(
   if (!orgVisible || !resource.publishToWarehaus || resource.archive || resource.syncHiddenAt != null) {
     return undefined;
   }
+  if (!clientMayOpenGranolaRecap(resource)) return undefined;
   if (!resource.projectId) return resource;
   const project = projectsById.get(resource.projectId);
   if (!project || !clientSeesProject(project, orgVisible)) return undefined;

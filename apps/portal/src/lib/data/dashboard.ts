@@ -5,7 +5,13 @@
  * never synced. Clients do not receive sync, outbox, publish, or internal work.
  */
 
-import { TASK_STAGES, isStaffOnlyProject, type TaskStage } from '@warehaus/portal-sync';
+import {
+  granolaSyncRow,
+  TASK_STAGES,
+  isStaffOnlyProject,
+  type GranolaRunStatus,
+  type TaskStage,
+} from '@warehaus/portal-sync';
 import { formatPortalDate, noticeDisplayMessage } from '@/lib/data/view-models';
 
 export type DashboardAudience = 'staff' | 'client';
@@ -103,6 +109,8 @@ export type DashboardInput = {
   outbox: OutboxHealth;
   writebackEnabled: boolean;
   notices: readonly DashboardNotice[];
+  /** Staff only. Omitted for a client dashboard. */
+  granola?: GranolaRunStatus;
   now: number;
 };
 
@@ -154,10 +162,16 @@ export type ProjectRow = {
 };
 
 export type SyncRow = {
-  key: 'pull' | 'queue' | 'failed';
+  key: 'pull' | 'queue' | 'granola' | 'failed';
   label: string;
   value: string;
   tone: 'danger' | 'warning' | 'muted' | 'ok';
+};
+
+export const GRANOLA_NOT_CONFIGURED: GranolaRunStatus = {
+  configured: false,
+  lastRunAt: null,
+  lastError: null,
 };
 
 export type SyncHealth = {
@@ -407,6 +421,7 @@ export function summarizeSyncHealth(input: {
   writebackEnabled: boolean;
   notices: readonly DashboardNotice[];
   tasks: readonly DashboardTask[];
+  granola?: GranolaRunStatus;
   now: number;
 }): SyncHealth {
   const counts = input.outbox.counts;
@@ -424,13 +439,21 @@ export function summarizeSyncHealth(input: {
   const pull = pullValue(input.pull, input.now);
   const ago = relativeTime(input.pull.lastSyncedAt, input.now);
   const stale = !input.pull.lastError && pullIsStale(input.pull.lastSyncedAt, input.now);
-  const troubled = Boolean(input.pull.lastError) || failed > 0;
+  const granola = granolaSyncRow(input.granola ?? GRANOLA_NOT_CONFIGURED);
+  const granolaFailed = Boolean(input.granola?.lastError);
+  const troubled = Boolean(input.pull.lastError) || failed > 0 || granolaFailed;
   return {
     cardValue: troubled ? 'Issue' : stale ? 'Stale' : input.pull.lastSyncedAt ? 'OK' : '…',
-    cardNote: input.pull.lastError ?? (ago ? `Last sync ${ago}` : 'Not synced yet'),
+    cardNote: input.pull.lastError
+      ?? (granolaFailed
+        ? 'The last import did not finish. Existing notes are unchanged.'
+        : ago
+          ? `Last sync ${ago}`
+          : 'Not synced yet'),
     rows: [
       { key: 'pull', label: 'Notion to portal', value: pull.value, tone: pull.tone },
       { key: 'queue', label: 'Portal to Notion queue', value: queue.value, tone: queue.tone },
+      { key: 'granola', label: granola.label, value: granola.value, tone: granola.tone },
       {
         key: 'failed',
         label: 'Failed writes (24h)',
@@ -479,6 +502,7 @@ function buildStaff(input: DashboardInput, projects: DashboardProject[], tasks: 
     writebackEnabled: input.writebackEnabled,
     notices: input.notices,
     tasks,
+    granola: input.granola,
     now: input.now,
   });
   const clients = clientCount(building);

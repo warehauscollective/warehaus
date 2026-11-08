@@ -1,4 +1,11 @@
-import { clientMaySeeProject, clientMaySeeTask, isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import {
+  clientMayOpenGranolaRecap,
+  clientMaySeeProject,
+  clientMaySeeTask,
+  clientSafeResourceText,
+  isClientSurfaceVisible,
+  isOrgVisibleToClients,
+} from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
 import type { QueryCtx } from './_generated/server';
@@ -93,6 +100,31 @@ function toClientResource(
   };
 }
 
+/** Client payload. Description is the recap, never a transcript block. */
+function clientResourceView(
+  row: {
+    _id: string;
+    orgId: string;
+    projectId?: string;
+    title: string;
+    description?: string;
+    type?: string;
+    url?: string;
+    mimeType?: string;
+    byteSize?: number;
+    blobUrl?: string;
+    externalId?: string;
+    lastSyncedAt: number;
+    notionPageId: string;
+  },
+  projectName: string | null,
+) {
+  return {
+    ...toClientResource(row, projectName),
+    description: clientSafeResourceText(row.description),
+  };
+}
+
 function projectIsInternal(project: { name?: string | null; type?: string[] | null } | null): boolean {
   if (!project) return false;
   if ((project.name ?? '').trim().toLowerCase() === 'warehaus.studio') return true;
@@ -164,7 +196,8 @@ export const listForClient = clientQuery({
     for (const row of published) {
       const project = row.projectId ? await ctx.db.get(row.projectId) : null;
       if (!resourceVisibleToClient(row, project, ctx.orgId, orgVisible)) continue;
-      out.push(toClientResource(row, project?.name ?? null));
+      if (!clientMayOpenGranolaRecap(row)) continue;
+      out.push(clientResourceView(row, project?.name ?? null));
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
   },
@@ -177,10 +210,10 @@ export const getForClient = clientQuery({
     const org = await ctx.db.get(ctx.orgId);
     const orgVisible = isOrgVisibleToClients(org);
     const project = row?.projectId ? await ctx.db.get(row.projectId) : null;
-    if (!resourceVisibleToClient(row, project, ctx.orgId, orgVisible)) {
+    if (!resourceVisibleToClient(row, project, ctx.orgId, orgVisible) || !clientMayOpenGranolaRecap(row)) {
       throw new PortalAuthError('Resource not found', 'FORBIDDEN');
     }
-    return toClientResource(row, project?.name ?? null);
+    return clientResourceView(row, project?.name ?? null);
   },
 });
 
@@ -203,6 +236,7 @@ export const listForStaff = adminQuery({
         notionPageId: row.notionPageId,
         lastSyncedAt: row.lastSyncedAt,
         syncHidden: row.syncHiddenAt != null,
+        sourceNotionUrl: row.sourceNotionUrl ?? null,
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));
@@ -243,8 +277,9 @@ export const listAttachedForClient = clientQuery({
       const row = await ctx.db.get(link.resourceId);
       const resourceProject = row ? (row.projectId ? await ctx.db.get(row.projectId) : null) : null;
       if (!resourceVisibleToClient(row, resourceProject, task.orgId, orgVisible)) continue;
+      if (!clientMayOpenGranolaRecap(row)) continue;
       out.push({
-        ...toClientResource(row, resourceProject?.name ?? null),
+        ...clientResourceView(row, resourceProject?.name ?? null),
         attachedCount: await clientAttachmentCount(ctx, task.orgId, row._id, orgVisible),
       });
     }
@@ -273,6 +308,7 @@ export const listAttachedForStaff = adminQuery({
         notionPageId: row.notionPageId,
         lastSyncedAt: row.lastSyncedAt,
         attachedCount: await attachmentCount(ctx, task.orgId, row._id),
+        sourceNotionUrl: row.sourceNotionUrl ?? null,
       });
     }
     return out.sort((a, b) => a.name.localeCompare(b.name));

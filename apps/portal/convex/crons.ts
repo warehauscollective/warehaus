@@ -14,6 +14,17 @@ crons.interval(
   {},
 );
 
+/**
+ * Granola import. Without GRANOLA_API_KEY this records that the source is
+ * not configured. It does not call Granola and does not write fixture notes.
+ */
+crons.interval(
+  'granola-import',
+  { minutes: 15 },
+  internal.sync.granola.runImport,
+  {},
+);
+
 /** Portal → Notion. No-ops unless NOTION_WRITEBACK_ENABLED is exactly "true". */
 crons.interval(
   'notion-outbox',

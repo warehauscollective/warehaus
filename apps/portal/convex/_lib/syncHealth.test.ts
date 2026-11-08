@@ -168,6 +168,7 @@ describe('getSyncHealth', () => {
         oldestCreatedAt: number | null;
       };
       notices: Array<{ message: string }>;
+      granola: { configured: boolean; lastRunAt: string | null; lastError: string | null };
     };
     assert.equal(result.writebackEnabled, false);
     assert.equal(result.pull.lastError, null);
@@ -177,6 +178,7 @@ describe('getSyncHealth', () => {
     assert.equal(result.outbox.oldestCreatedAt, now - 60 * 60 * 1000);
     assert.equal(result.notices.length, 1);
     assert.match(result.notices[0]?.message ?? '', /Homepage wireframes/);
+    assert.deepEqual(result.granola, { configured: false, lastRunAt: null, lastError: null });
     const encoded = JSON.stringify(result);
     assert.equal(encoded.includes('secret-'), false);
     assert.equal(encoded.includes('payload'), false);
