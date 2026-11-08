@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { validatePropertyPatch } from '@warehaus/portal-sync';
 import { signInToAcceptPath } from './acceptPaths';
 import { deliverInviteEmail, existingLoginEmail, inviteEmail, sendIssuedInviteMail } from './email';
 import {
@@ -12,8 +13,10 @@ import {
   hashInviteToken,
   inviteEmailsMatch,
   inviteStateProperties,
+  memberRemoveProperties,
   planInviteAccept,
   planInviteCreate,
+  planMemberRemove,
   tokenFromConfirmation,
   type InviteTokenState,
 } from './inviteFlow';
@@ -47,6 +50,16 @@ describe('invite create plan', () => {
     if (!admin.ok) assert.equal(admin.clientMessage, 'You cannot send invites');
   });
 
+  it('lets staff invite a Client Admin', () => {
+    const plan = planInviteCreate({ ...base, inviteRole: 'Client Admin', name: 'Bea North', email: 'bea@northwind.example' });
+    assert.equal(plan.ok, true);
+    if (!plan.ok) return;
+    assert.equal(plan.properties.Role, 'Client Admin');
+    assert.equal(plan.properties.Email, 'bea@northwind.example');
+    assert.equal(plan.properties['Invite Status'], 'Pending');
+    assert.equal(plan.properties['Portal Access'], 'Disabled');
+  });
+
   it('hides a cross-client email from the caller and keeps the reason for staff', () => {
     const plan = planInviteCreate({ ...base, emailOwnedByOtherOrg: true });
     assert.equal(plan.ok, false);
@@ -59,6 +72,34 @@ describe('invite create plan', () => {
   it('stops after 20 invites in the window', () => {
     const plan = planInviteCreate({ ...base, sentToday: 20 });
     assert.equal(plan.ok, false);
+  });
+});
+
+describe('member remove', () => {
+  const removeBase = {
+    role: 'Warehaus Staff' as const,
+    contactOrgId: 'org-a',
+    identityOrgId: 'org-a',
+    contactRole: 'Client Admin',
+    contactId: 'contact-bea',
+    actorContactId: 'contact-staff',
+    hidden: false,
+  };
+
+  it('plans a portal-access patch for a client person', () => {
+    assert.deepEqual(planMemberRemove(removeBase), { ok: true });
+    const patch = validatePropertyPatch({ database: 'contacts', properties: memberRemoveProperties() });
+    assert.equal(patch.ok, true);
+    if (!patch.ok) return;
+    assert.equal(patch.properties['Portal Access'], 'Disabled');
+  });
+
+  it('refuses staff, the signed-in contact, another org, and a hidden row', () => {
+    assert.equal(planMemberRemove({ ...removeBase, contactRole: 'Warehaus Staff' }).ok, false);
+    assert.equal(planMemberRemove({ ...removeBase, contactId: 'contact-staff' }).ok, false);
+    assert.equal(planMemberRemove({ ...removeBase, role: 'Client Admin' }).ok, false);
+    assert.equal(planMemberRemove({ ...removeBase, contactOrgId: 'org-b' }).ok, false);
+    assert.equal(planMemberRemove({ ...removeBase, hidden: true }).ok, false);
   });
 });
 

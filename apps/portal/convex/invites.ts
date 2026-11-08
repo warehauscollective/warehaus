@@ -26,8 +26,10 @@ import {
   finishInviteToken,
   hashInviteToken,
   inviteStateProperties,
+  memberRemoveProperties,
   planInviteAccept,
   planInviteCreate,
+  planMemberRemove,
   tokenFromConfirmation,
   type InviteTokenState,
 } from './_lib/inviteFlow';
@@ -327,6 +329,45 @@ export const revoke = adminMutation({
     if (!queued.ok) return { ok: false as const, message: offOrError(queued.error) };
     await ctx.db.patch(token._id, { status: 'pending' });
     return { ok: true as const, status: 'pending' as const };
+  },
+});
+
+/**
+ * Disables portal access on the contact's Notion page.
+ * Enqueue is a no-op while write-back is off, and this returns that error.
+ * The row stays until a later pull sees Portal Access Disabled.
+ */
+export const remove = adminMutation({
+  args: { contactNotionPageId: v.string(), requestId: v.string() },
+  handler: async (ctx, { contactNotionPageId, requestId }) => {
+    const orgId = ctx.identity.orgId as Id<'clients'>;
+    const contact = await ctx.db
+      .query('contacts')
+      .withIndex('by_notionPageId', (q) => q.eq('notionPageId', contactNotionPageId))
+      .unique();
+    if (!contact) return { ok: false as const, message: INVITE_CLIENT_FAILURE };
+    const plan = planMemberRemove({
+      role: ctx.identity.role,
+      contactOrgId: contact.orgId,
+      identityOrgId: orgId,
+      contactRole: contact.role,
+      contactId: contact._id,
+      actorContactId: ctx.identity.contactId,
+      hidden: contact.syncHiddenAt != null,
+    });
+    if (!plan.ok) return { ok: false as const, message: plan.clientMessage };
+    const queued = await enqueueInvite(ctx, {
+      idempotencyKey: stateIdempotencyKey(contactNotionPageId, 'Disabled', requestId),
+      kind: 'setInviteState',
+      orgId,
+      notionPageId: contactNotionPageId,
+      expectedLastEditedTime: await lastEditedFor(ctx, contactNotionPageId),
+      payload: JSON.stringify({ properties: memberRemoveProperties() }),
+      actor: 'staff',
+      actorId: ctx.identity.contactId,
+    });
+    if (!queued.ok) return { ok: false as const, message: offOrError(queued.error) };
+    return { ok: true as const, status: 'pending' as const, message: 'Removal pending' };
   },
 });
 

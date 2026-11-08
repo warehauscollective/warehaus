@@ -12,12 +12,15 @@ import {
   TEAM_STALE_COPY,
   TeamEmpty,
   TeamPersonIdentity,
+  TeamRolePicker,
   TeamSkeletonRows,
   TeamStateNotice,
+  asTeamInviteRole,
   clientTeamEmptyBody,
   peopleForTeamScreen,
   readTeamScreen,
   teamView,
+  teamWritesLive,
   useTeamScreen,
 } from './teamStates';
 
@@ -56,12 +59,22 @@ describe('account team states', () => {
     assert.equal(fixture.includes('Ada North'), false);
 
     const invites = readFileSync(new URL('../pages/TeamInvites.tsx', import.meta.url), 'utf8');
-    assert.equal(invites.includes('useMutation'), false);
+    assert.match(invites, /useMutation/);
+    assert.match(invites, /api\.invites\.create/);
+    assert.match(invites, /api\.invites\.revoke/);
+    assert.match(invites, /api\.invites\.remove/);
+    assert.match(invites, /inviteRole: role/);
+    assert.equal(invites.includes('Only Warehaus can add admins'), false);
     assert.equal(invites.includes('getElementById'), false);
     assert.equal(invites.includes('Invite someone'), false);
     assert.match(invites, /TEAM_SEND_HINT/);
     assert.match(invites, /TEAM_REMOVE_HINT/);
     assert.match(invites, /TEAM_REVOKE_HINT/);
+    assert.equal(teamWritesLive({ configured: true, fixtures: false }), true);
+    assert.equal(teamWritesLive({ configured: true, fixtures: true }), false);
+    assert.equal(teamWritesLive({ configured: false, fixtures: false }), false);
+    assert.equal(asTeamInviteRole('Client Admin'), 'Client Admin');
+    assert.equal(asTeamInviteRole('Warehaus Staff'), null);
   });
 
   it('renders the staff empty card, skeletons, error notice, and a person row', () => {
@@ -104,7 +117,16 @@ describe('account team states', () => {
     assert.equal(clientTeamEmptyBody('Client Admin'), 'Teammates you invite will show here.');
     assert.equal(clientTeamEmptyBody('Client Member'), 'Your Client Admin can invite teammates.');
     assert.equal(clientTeamEmptyBody(null), 'Your Client Admin can invite teammates.');
-    assert.match(TEAM_SEND_HINT, /Invites are coming soon/);
+    assert.match(TEAM_SEND_HINT, /when this portal is connected/);
+    const adminRole = renderToStaticMarkup(createElement(TeamRolePicker, { role: 'Client Admin' }));
+    assert.match(adminRole, /data-testid="team-role-admin"/);
+    assert.match(adminRole, /Client Admin/);
+    assert.equal(adminRole.includes('Only Warehaus can add admins'), false);
+    assert.equal(adminRole.includes('disabled'), false);
+    assert.match(adminRole, /data-testid="team-role-admin"[^]*checked=""/);
+    const memberRole = renderToStaticMarkup(createElement(TeamRolePicker, { role: 'Client Member' }));
+    assert.match(memberRole, /data-testid="team-role-member"[^]*checked=""/);
+    assert.equal(memberRole.includes('data-testid="team-role-admin"[^]*checked'), false);
 
     const row = renderToStaticMarkup(
       createElement(TeamPersonIdentity, {

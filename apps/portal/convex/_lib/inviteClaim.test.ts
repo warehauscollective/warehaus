@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { accept, decline, issueTokenAfterConfirm, releaseHeldToken, revoke } from '../invites';
+import { accept, decline, issueTokenAfterConfirm, releaseHeldToken, remove, revoke } from '../invites';
 import { INVITE_CLIENT_FAILURE, hashInviteToken } from './inviteFlow';
 
 type Row = Record<string, unknown> & { _id: string };
@@ -71,7 +71,12 @@ const user = {
   emailVerified: true,
 };
 
-function authCtx(subject: string, tables: Record<string, Row[]>, enqueues: Array<Record<string, unknown>>) {
+function authCtx(
+  subject: string,
+  tables: Record<string, Row[]>,
+  enqueues: Array<Record<string, unknown>>,
+  enqueueOk = true,
+) {
   const db = memoryDb(tables);
   return {
     auth: { getUserIdentity: async () => ({ subject, sessionId: 'sess-1' }) },
@@ -82,6 +87,9 @@ function authCtx(subject: string, tables: Record<string, Row[]>, enqueues: Array
       return null;
     },
     async runMutation(_ref: unknown, args: Record<string, unknown>) {
+      if (!enqueueOk) {
+        return { ok: false as const, error: 'Write-back is off. Nothing was sent to Notion.' };
+      }
       const outboxId = await db.insert('notionOutbox', {
         status: 'queued',
         kind: args.kind,
@@ -232,5 +240,55 @@ describe('invite accept, decline, and revoke', () => {
     held.payload = JSON.stringify(payload);
     await run(issueTokenAfterConfirm, ctx, { outboxId: held._id, notionPageId: 'contact-notion' });
     assert.equal(tables.inviteTokens?.[0]?.status, 'killed');
+  });
+
+  it('enqueues a portal-access disable for a client person and refuses staff', async () => {
+    const tables = baseTables(await tokenRow('tok-remove', 'raw-remove'));
+    tables.contacts?.push({
+      _id: 'contact-member',
+      orgId: 'org-north',
+      notionPageId: 'member-notion',
+      name: 'Bea North',
+      email: 'bea@northwind.test',
+      role: 'Client Admin',
+      portalAccess: 'Enabled',
+    });
+    const staff = tables.contacts?.find((row) => row._id === 'contact-staff');
+    if (staff) staff.notionPageId = 'staff-notion';
+    const enqueues: Array<Record<string, unknown>> = [];
+    const ctx = authCtx('auth-staff', tables, enqueues);
+
+    const refused = await run(remove, ctx, { contactNotionPageId: 'staff-notion', requestId: 'req-staff' });
+    assert.deepEqual(refused, { ok: false, message: 'You cannot remove this person' });
+    assert.equal(enqueues.length, 0);
+
+    const queued = await run(remove, ctx, { contactNotionPageId: 'member-notion', requestId: 'req-1' });
+    assert.deepEqual(queued, { ok: true, status: 'pending', message: 'Removal pending' });
+    assert.equal(enqueues.length, 1);
+    assert.equal(enqueues[0]?.kind, 'setInviteState');
+    assert.equal(enqueues[0]?.database, 'contacts');
+    assert.equal(enqueues[0]?.notionPageId, 'member-notion');
+    assert.equal(enqueues[0]?.idempotencyKey, 'state:member-notion:Disabled:req-1');
+    const payload = JSON.parse(String(enqueues[0]?.payload)) as { properties?: Record<string, string> };
+    assert.equal(payload.properties?.['Portal Access'], 'Disabled');
+    assert.equal(tables.inviteTokens?.[0]?.status, 'live');
+  });
+
+  it('does not enqueue a removal when write-back is off', async () => {
+    const tables = baseTables(await tokenRow('tok-remove-off', 'raw-remove-off'));
+    tables.contacts?.push({
+      _id: 'contact-member',
+      orgId: 'org-north',
+      notionPageId: 'member-notion',
+      name: 'Bea North',
+      email: 'bea@northwind.test',
+      role: 'Client Member',
+      portalAccess: 'Enabled',
+    });
+    const enqueues: Array<Record<string, unknown>> = [];
+    const ctx = authCtx('auth-staff', tables, enqueues, false);
+    const result = await run(remove, ctx, { contactNotionPageId: 'member-notion', requestId: 'req-off' });
+    assert.deepEqual(result, { ok: false, message: 'Write-back is off. Nothing was sent to Notion.' });
+    assert.equal(enqueues.length, 0);
   });
 });

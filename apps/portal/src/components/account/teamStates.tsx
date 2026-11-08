@@ -1,4 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
+import { PortalRadio } from '@/components/ui/primitives';
 import { clientInitials } from '@/lib/data/clientList';
 
 /** Fixture long-text row from Account / States (297:18927). Not a schema field. */
@@ -28,11 +29,25 @@ export const TEAM_STALE_COPY = {
   body: 'Showing the last team we could load.',
 } as const;
 
-/** INVITE_EMAIL_ENABLED is off. These controls do not call a mutation. */
-export const TEAM_SEND_HINT = 'Invites are coming soon. Ask Warehaus to add someone for now.';
-export const TEAM_RESEND_HINT = 'Resending an invite is coming soon. Ask Warehaus to add someone for now.';
+/** Shown when this screen is not connected to Convex. Live send does not use these. */
+export const TEAM_SEND_HINT = 'Invites send when this portal is connected.';
+export const TEAM_RESEND_HINT = 'Resend sends when this portal is connected.';
 export const TEAM_REMOVE_HINT = 'Removing someone turns on with Notion write-back.';
 export const TEAM_REVOKE_HINT = 'Revoking an invite turns on with Notion write-back.';
+export const TEAM_FIXTURE_HINT = 'Fixture preview does not send invites.';
+export const TEAM_SEND_READY = 'They get an email after Notion confirms.';
+
+export type ClientInviteChoice = 'Client Member' | 'Client Admin';
+
+export function asTeamInviteRole(role: string): ClientInviteChoice | null {
+  if (role === 'Client Member' || role === 'Client Admin') return role;
+  return null;
+}
+
+/** Connected staff portal. Fixture preview stays read-only. */
+export function teamWritesLive(input: { configured: boolean; fixtures: boolean }): boolean {
+  return input.configured && !input.fixtures;
+}
 
 export type TeamScreen = 'ready' | 'empty' | 'loading' | 'error' | 'long' | 'stale';
 
@@ -248,16 +263,21 @@ export function TeamOutlineButton({
   children,
   onClick,
   testId,
+  type = 'button',
+  disabled = false,
 }: {
   children: ReactNode;
   onClick?: () => void;
   testId: string;
+  type?: 'button' | 'submit';
+  disabled?: boolean;
 }) {
   return (
     <button
-      type="button"
+      type={type}
       data-testid={testId}
       onClick={onClick}
+      disabled={disabled}
       className="inline-flex items-center justify-center"
       style={{
         background: 'transparent',
@@ -268,11 +288,42 @@ export function TeamOutlineButton({
         fontWeight: 500,
         lineHeight: '18px',
         padding: '12px 16px',
-        cursor: 'pointer',
+        cursor: disabled ? 'not-allowed' : 'pointer',
+        opacity: disabled ? 0.4 : 1,
       }}
     >
       {children}
     </button>
+  );
+}
+
+export function TeamRolePicker({
+  role,
+  onChange,
+}: {
+  role: ClientInviteChoice;
+  onChange?: (role: ClientInviteChoice) => void;
+}) {
+  return (
+    <fieldset className="flex flex-col gap-2" style={{ border: 0, margin: 0, padding: 0 }} data-testid="team-role">
+      <legend style={{ fontSize: 14, color: 'var(--muted)' }}>Role</legend>
+      <label className="flex items-center gap-2" style={{ fontSize: 14 }} data-testid="team-role-member">
+        <PortalRadio
+          name="role"
+          checked={role === 'Client Member'}
+          onChange={() => onChange?.('Client Member')}
+        />
+        Client Member
+      </label>
+      <label className="flex items-center gap-2" style={{ fontSize: 14 }} data-testid="team-role-admin">
+        <PortalRadio
+          name="role"
+          checked={role === 'Client Admin'}
+          onChange={() => onChange?.('Client Admin')}
+        />
+        Client Admin
+      </label>
+    </fieldset>
   );
 }
 

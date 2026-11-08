@@ -72,6 +72,16 @@ To turn it off again, remove it. Unset is off. The string `false` is also off. O
 npx convex env remove NOTION_WRITEBACK_ENABLED
 ```
 
+Team & invites uses that same write-back flag. Send and resend also need invite email on, and a public origin for the link. Set these on the shared dev deployment only, from `apps/portal`. Do not pass `--prod`. Do not target `unique-turtle-383`. Leave `NOTION_PROJECT_CREATE_ENABLED` unset.
+
+```bash
+npx convex env set NOTION_WRITEBACK_ENABLED true
+npx convex env set INVITE_EMAIL_ENABLED true
+npx convex env set PORTAL_PUBLIC_URL https://your-portal-origin
+```
+
+`PORTAL_PUBLIC_URL` is the origin staff open, with no path. The invite link is `{origin}/accept?token=...`. Unset or any value other than `true` keeps each flag off.
+
 One manual check, against one test task, after Peter pulls this branch and runs `npx convex dev` so the new tables exist:
 
 1. Confirm `CONVEX_DEPLOYMENT` is the shared `dev:` deployment and does not contain `unique-turtle-383`.
