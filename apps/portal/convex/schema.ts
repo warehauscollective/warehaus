@@ -6,7 +6,8 @@ import { v } from 'convex/values';
  * Every tenant-scoped table leads indexes with `orgId`.
  *
  * Synced tables: Notion → allowlisted worker → upsert here.
- * Native tables: activity, taskResponses, clientUploads, billing.
+ * Native tables: milestones, milestoneResources, activity, taskResponses,
+ * clientUploads, billing. There is no Notion milestones database.
  */
 
 const notionSyncFields = {
@@ -127,9 +128,17 @@ export default defineSchema({
     ),
     /** Staff-only. Set when Notion Stage is not a portal stage. Cleared on the next clean pull. */
     syncNotice: v.optional(v.string()),
+    /**
+     * Portal-only link to a milestone on this same project.
+     * Top-level tasks only. Notion sync does not write it.
+     */
+    milestoneId: v.optional(v.id('milestones')),
+    /** Roadmap order while milestoneId is set. Cleared with that link. */
+    milestoneOrder: v.optional(v.number()),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])
+    .index('by_orgId_milestoneId', ['orgId', 'milestoneId'])
     .index('by_notionPageId', ['notionPageId'])
     .index('by_externalId', ['externalId']),
 
@@ -143,6 +152,48 @@ export default defineSchema({
     resourceId: v.id('sharedResources'),
   })
     .index('by_orgId_taskId', ['orgId', 'taskId'])
+    .index('by_orgId_resourceId', ['orgId', 'resourceId']),
+
+  /**
+   * One objective inside one project. Portal only — no notionPageId.
+   * Approval is a human decision. It does not close the milestone's tasks.
+   */
+  milestones: defineTable({
+    orgId: v.id('clients'),
+    projectId: v.id('projects'),
+    name: v.string(),
+    objective: v.string(),
+    /** Ordered outcome lines. Text only — not tasks and not checkboxes. */
+    goals: v.array(v.string()),
+    workStatus: v.union(v.literal('draft'), v.literal('active'), v.literal('ready')),
+    approval: v.union(
+      v.literal('unreviewed'),
+      v.literal('approved'),
+      v.literal('changes_requested'),
+    ),
+    /** Set only when a human approves or requests changes. */
+    note: v.optional(v.string()),
+    approverContactId: v.optional(v.id('contacts')),
+    /** When that human decided. */
+    decidedAt: v.optional(v.number()),
+    /** Clients do not see a milestone until this is true. Inserts stay false. */
+    publishToWarehaus: v.boolean(),
+  })
+    .index('by_orgId', ['orgId'])
+    .index('by_orgId_projectId', ['orgId', 'projectId']),
+
+  /**
+   * Milestone → Shared Resource. Same org only.
+   * A curated set, not the union of every task resource.
+   */
+  milestoneResources: defineTable({
+    orgId: v.id('clients'),
+    milestoneId: v.id('milestones'),
+    resourceId: v.id('sharedResources'),
+    sortOrder: v.number(),
+  })
+    .index('by_orgId', ['orgId'])
+    .index('by_orgId_milestoneId', ['orgId', 'milestoneId'])
     .index('by_orgId_resourceId', ['orgId', 'resourceId']),
 
   contacts: defineTable({
