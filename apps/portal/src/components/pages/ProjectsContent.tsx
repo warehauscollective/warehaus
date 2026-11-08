@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useMemo, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useMutation } from 'convex/react';
 import { OutlineButton, Surface } from '@/components/ui/primitives';
@@ -49,7 +49,8 @@ import {
 } from '@/lib/data/view-models';
 import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
-import { clearSearchParam } from '@/lib/nav/clearSearchParam';
+import { clearSearchParam, setSearchParams } from '@/lib/nav/clearSearchParam';
+import { keepProjectWhileLoading, readTaskListView } from '@/lib/nav/taskListLocation';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
 import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
@@ -143,13 +144,14 @@ export function ProjectsContent() {
     setStageRetry({ busy: false, error: null });
   }, [openId]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const apply = (event?: Event) => {
       const detail = event ? portalNavDetail(event) : null;
       const params = new URLSearchParams(window.location.search);
       const project = detail ? detail.project : params.get('project');
       const task = detail ? detail.task : params.get('task');
       if (project) setOpenId(project);
+      if (params.has('taskView')) setTaskView(readTaskListView(params.get('taskView')));
       if (fixtures && (detail || task)) setFixtureTaskId(task);
     };
     apply();
@@ -266,9 +268,15 @@ export function ProjectsContent() {
     setOpenId(null);
     setFixtureTaskId(null);
     clearSearchParam('project');
+    clearSearchParam('taskView');
     if (!fixtures && (/^\/projects\/[^/]+/.test(pathname) || pathname.startsWith('/tasks/'))) {
       router.push('/projects');
     }
+  };
+
+  const chooseTaskView = (next: 'board' | 'table') => {
+    setTaskView(next);
+    setSearchParams({ taskView: next });
   };
 
   const closeTask = () => {
@@ -281,19 +289,36 @@ export function ProjectsContent() {
     else router.push('/projects');
   };
 
-  const deepLink = /^\/(?:projects|tasks)\/[^/]+/.test(pathname);
-  if (!fixtures && projectsLoading && deepLink) {
+  const holdProject = keepProjectWhileLoading({
+    fixtures,
+    projectsLoading,
+    projectFound: openProject != null,
+    pathname,
+    openId,
+  });
+  if (holdProject) {
     return (
-      <PortalWorkspace eyebrow={tenantEyebrow(data.tenant, 'Projects')} title="Projects">
+      <PortalWorkspace
+        eyebrow={tenantEyebrow(data.tenant, 'Project')}
+        title={PROJECT_UNAVAILABLE_HEADING}
+        breadcrumb={
+          <NavBreadcrumb
+            back="always"
+            onBack={closeProject}
+            parent={{ label: 'Projects', onClick: closeProject }}
+            current={PROJECT_UNAVAILABLE_HEADING}
+          />
+        }
+      >
         <PortalTilePane>
-          <div className="flex flex-col gap-2" aria-busy="true">
-            {[0, 1, 2].map((i) => (
-              <div
-                key={i}
-                className="animate-pulse"
-                style={{ height: 72, borderRadius: 12, background: 'var(--bg)', border: '1px solid var(--border)' }}
-              />
-            ))}
+          <div className="flex h-full min-h-0 min-w-0 flex-col gap-4" data-testid="project-detail" data-task-view={taskView}>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <h2 style={{ fontSize: 18, fontWeight: 600, lineHeight: '26px' }}>Tasks</h2>
+              <ViewToggle view={taskView} onChange={chooseTaskView} />
+            </div>
+            <ItemListCard>
+              <ItemState screen="loading" staff={isStaff} />
+            </ItemListCard>
           </div>
         </PortalTilePane>
       </PortalWorkspace>
@@ -370,7 +395,12 @@ export function ProjectsContent() {
       return;
     }
     // The retry boundary remounts this page, so listForStaff in useStaffCrossOrg
-    // subscribes again along with the portal snapshot.
+    // subscribes again along with the portal snapshot. State does not survive
+    // that remount, so the URL carries the open project and the task view.
+    const projectId = openProject?.id ?? (route.view === 'board' ? route.projectId : openId);
+    const remembered: Record<string, string> = { taskView };
+    if (projectId) remembered.project = projectId;
+    setSearchParams(remembered);
     retryPortalData();
   };
   const clearTaskFilters = () => {
@@ -473,7 +503,7 @@ export function ProjectsContent() {
               <TasksActionStyle />
               <div className="tasks-actions">
                 <div className="tasks-view">
-                  <ViewToggle view={taskView} onChange={setTaskView} />
+                  <ViewToggle view={taskView} onChange={chooseTaskView} />
                 </div>
                 {isStaff ? <NewTaskButton /> : null}
               </div>
@@ -505,12 +535,7 @@ export function ProjectsContent() {
                     busy={stageRetry.busy}
                     error={stageRetry.error}
                     onRetry={queuedStage ? () => {
-                      retryQueuedStage().catch((err: unknown) => {
-                        setStageRetry({
-                          busy: false,
-                          error: err instanceof Error ? err.message : 'Could not retry the stage change.',
-                        });
-                      });
+                      retryQueuedStage();
                     } : undefined}
                   />
                 </div>
@@ -732,6 +757,7 @@ export function ProjectsContent() {
                         onClick={() => {
                           setTaskView('board');
                           setOpenId(project.id);
+                          setSearchParams({ project: project.id, taskView: 'board' });
                         }}
                         className="grid w-full grid-cols-1 items-center gap-2 py-6 text-left md:min-h-[90px] md:grid-cols-[minmax(0,1fr)_150px_90px_120px_16px] md:gap-4"
                         style={{ background: 'transparent', color: 'inherit' }}
