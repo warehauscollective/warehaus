@@ -385,6 +385,119 @@ describe('move authorization', () => {
     }
   });
 
+  it('files a flag-on cross-org move under the task org', async () => {
+    const previous = process.env.NOTION_WRITEBACK_ENABLED;
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
+    const taskOrgId = 'org-northwind';
+    const task: Record<string, unknown> = {
+      _id: 'task-north-flag',
+      orgId: taskOrgId,
+      notionPageId: 'page-north-flag',
+      stage: 'Idea',
+      lastEditedTime: '2026-10-28T00:00:00.000Z',
+    };
+    const inserted: Array<Record<string, unknown>> = [];
+    const studio = {
+      _id: 'org-warehaus',
+      slug: 'warehaus',
+      portalAccess: 'Enabled' as const,
+    };
+    const staff = {
+      _id: 'contact-staff',
+      orgId: studio._id,
+      name: 'Maya Staff',
+      email: 'maya@warehaus.studio',
+      authUserId: 'auth-staff',
+      role: 'Warehaus Staff' as const,
+      portalAccess: 'Enabled' as const,
+    };
+    const outboxCtx = {
+      db: {
+        query: () => ({
+          withIndex: () => ({ unique: async () => null }),
+        }),
+        insert: async (_table: string, row: Record<string, unknown>) => {
+          inserted.push(row);
+          return `outbox-${inserted.length}`;
+        },
+      },
+      scheduler: { runAfter: async () => undefined },
+    };
+    const ctx = {
+      auth: { getUserIdentity: async () => ({ subject: 'auth-staff' }) },
+      db: {
+        async get(id: string) {
+          if (id === studio._id) return studio;
+          if (id === task._id) return task;
+          return null;
+        },
+        async patch(_id: string, value: Record<string, unknown>) {
+          for (const [key, field] of Object.entries(value)) {
+            if (field === undefined) delete task[key];
+            else task[key] = field;
+          }
+        },
+        query(table: string) {
+          return {
+            withIndex(_name: string, build: (q: { eq: (field: string, value: string) => unknown }) => unknown) {
+              const recorder = {
+                pairs: [] as Array<[string, string]>,
+                eq(field: string, value: string) {
+                  this.pairs.push([field, value]);
+                  return this;
+                },
+              };
+              build(recorder);
+              const rows = table === 'contacts' ? [staff] : [];
+              const matched = rows.filter((row) =>
+                recorder.pairs.every(([field, value]) => (row as Record<string, string>)[field] === value),
+              );
+              return {
+                unique: async () => matched[0] ?? null,
+                collect: async () => matched,
+              };
+            },
+          };
+        },
+      },
+      runMutation: async (_ref: unknown, args: Record<string, unknown>) => {
+        if (typeof args.kind === 'string') return run(enqueue, outboxCtx, args);
+        if (typeof args.status === 'string') return run(enqueueStatus, ctx, args);
+        if (typeof args.stage === 'string') return run(enqueueStage, ctx, args);
+        throw new Error('unexpected mutation');
+      },
+    };
+    try {
+      const status = await run(moveStatus, ctx, {
+        taskId: task._id,
+        status: 'To Do',
+        expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
+      });
+      assert.equal(status.ok, true);
+      const stage = await run(moveStage, ctx, {
+        taskId: task._id,
+        stage: 'Planning',
+        expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
+      });
+      assert.equal(stage.ok, true);
+      assert.equal(task.orgId, taskOrgId);
+      assert.equal(inserted.length, 2);
+      assert.deepEqual(
+        inserted.map((row) => row.orgId),
+        [taskOrgId, taskOrgId],
+      );
+      assert.equal(inserted.some((row) => row.orgId === studio._id), false);
+      assert.deepEqual(
+        inserted.map((row) => row.kind),
+        ['task-status', 'task-stage'],
+      );
+      assert.equal(inserted.every((row) => row.actorId === staff._id), true);
+    } finally {
+      if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+      else process.env.NOTION_WRITEBACK_ENABLED = previous;
+    }
+  });
+
   it('rejects a client caller at adminMutation and does not enqueue', async () => {
     const calls: unknown[] = [];
     const client = {
