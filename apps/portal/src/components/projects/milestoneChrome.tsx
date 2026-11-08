@@ -112,7 +112,7 @@ export function PageHeading({
   testId?: string;
 }) {
   return (
-    <div className="flex flex-wrap items-start justify-between gap-4">
+    <div className="flex flex-col items-start gap-4 md:flex-row md:items-start md:justify-between">
       <div className="min-w-0 flex-1">
         <h1 data-testid={testId} style={{ fontSize: 30, lineHeight: '45px', fontWeight: 600, color: 'var(--fg)' }}>{title}</h1>
         <p style={{ marginTop: 4, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>{subtitle}</p>

@@ -308,11 +308,11 @@ export function ProjectRoadmap({
             <>
               <Panel>
                 <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
-                  <div>
+                  <div className="hidden md:block">
                     <FieldLabel>CLIENT</FieldLabel>
                     <FieldValue>{clientName || project.clientName || '—'}</FieldValue>
                   </div>
-                  <div>
+                  <div className="hidden md:block">
                     <FieldLabel>PROJECT STATUS</FieldLabel>
                     <FieldValue>{project.status || '—'}</FieldValue>
                   </div>
@@ -434,6 +434,10 @@ function MilestoneListCard({
         padding: 24,
       }}
     >
+      <div className="flex items-center justify-between gap-3 md:hidden">
+        <StatusChip label={WORK_LABEL[milestone.workStatus]} />
+        {meta ? <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{meta}</p> : null}
+      </div>
       <div className="min-w-0 flex-1">
         <h2 data-testid="milestone-name" style={{ fontSize: 20, lineHeight: '30px', fontWeight: 500 }}>
           {milestone.name}
@@ -441,7 +445,7 @@ function MilestoneListCard({
         <p data-testid="milestone-objective" style={{ marginTop: 12, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
           {milestone.objective}
         </p>
-        <div className="mt-3 flex flex-wrap items-center gap-4">
+        <div className="mt-3 flex flex-col items-start gap-2 md:flex-row md:flex-wrap md:items-center md:gap-4">
           <span
             className="ds-mono"
             style={{
@@ -454,7 +458,7 @@ function MilestoneListCard({
               color: 'var(--muted)',
             }}
           >
-            {milestone.doneCount} / {total} complete
+            {milestone.doneCount} / {total} tasks complete
           </span>
           <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
             {resourceLabel(milestone.resources.length)} · {updatedCopy(milestone.decidedAt)}
@@ -466,9 +470,12 @@ function MilestoneListCard({
           ) : null}
         </div>
       </div>
-      <div className="flex flex-col items-start gap-3 md:w-[174px] md:items-stretch">
+      <div className="hidden flex-col items-start gap-3 md:flex md:w-[174px] md:items-stretch">
         <StatusChip label={WORK_LABEL[milestone.workStatus]} />
         {meta ? <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{meta}</p> : null}
+        <OutlineButton onClick={onOpen}>Open milestone</OutlineButton>
+      </div>
+      <div className="md:hidden">
         <OutlineButton onClick={onOpen}>Open milestone</OutlineButton>
       </div>
     </article>
@@ -580,7 +587,7 @@ function MilestoneDetail({
       <PageHeading
         testId="milestone-name"
         title={milestone.name}
-        subtitle={`Milestone · ${milestone.doneCount} of ${total} tasks complete · ${updatedCopy(milestone.decidedAt)}`}
+        subtitle={`Milestone · ${milestone.doneCount} of ${total} tasks complete`}
         action={<PrimaryButton onClick={() => setReviewOpen(true)}>Review milestone</PrimaryButton>}
       />
       <TabRow
@@ -597,21 +604,62 @@ function MilestoneDetail({
 
       {tab === 'overview' ? (
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
+          <div className="order-first w-full lg:order-last lg:w-[292px] lg:shrink-0">
+            <Panel>
+              <div className="grid grid-cols-2 gap-5 lg:grid-cols-1">
+                <p className="ds-mono col-span-2 lg:col-span-1" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--muted)' }}>
+                  DETAILS
+                </p>
+                <div>
+                  <FieldLabel>STATUS</FieldLabel>
+                  <FieldValue>
+                    <span data-testid="milestone-work-status">{WORK_LABEL[milestone.workStatus]}</span>
+                  </FieldValue>
+                </div>
+                <div>
+                  <FieldLabel>APPROVAL</FieldLabel>
+                  <FieldValue>
+                    <span data-testid="milestone-approval">{APPROVAL_LABEL[milestone.approval]}</span>
+                  </FieldValue>
+                </div>
+                {staff ? (
+                  <div className="col-span-2 lg:col-span-1">
+                    <FieldLabel>VISIBILITY</FieldLabel>
+                    <FieldValue>
+                      <span data-testid="milestone-publish">
+                        {milestone.publishToWarehaus ? 'Shared with client' : 'Not published'}
+                      </span>
+                    </FieldValue>
+                  </div>
+                ) : null}
+                <div className="col-span-2 lg:col-span-1">
+                  <FieldLabel>PROJECT</FieldLabel>
+                  <FieldValue>{project.name}</FieldValue>
+                </div>
+                {milestone.approverName ? (
+                  <div className="col-span-2 lg:col-span-1">
+                    <FieldLabel>LAST REVIEW</FieldLabel>
+                    <FieldValue>{milestone.approverName}</FieldValue>
+                  </div>
+                ) : null}
+              </div>
+            </Panel>
+          </div>
           <div className="flex min-w-0 flex-1 flex-col gap-6">
             <Panel>
-              <h2 style={{ fontSize: 20, lineHeight: '30px', fontWeight: 500 }}>What we’re delivering</h2>
+              <h2 style={{ fontSize: 30, lineHeight: '30px', fontWeight: 500 }}>What we’re delivering</h2>
               <p data-testid="milestone-objective" style={{ marginTop: 16, fontSize: 15, lineHeight: '23px' }}>{milestone.objective}</p>
               <p className="ds-mono" style={{ marginTop: 16, fontSize: 10, lineHeight: '15px', color: 'var(--muted)' }}>
                 DONE WHEN
               </p>
               {milestone.goals.length > 0 ? (
-                <ol data-testid="milestone-goals" className="mt-2 flex list-decimal flex-col gap-1 pl-5">
+                <ul data-testid="milestone-goals" className="mt-2 flex list-none flex-col gap-1">
                   {milestone.goals.map((goal) => (
                     <li key={goal} style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
                       {goal}
                     </li>
                   ))}
-                </ol>
+                </ul>
               ) : (
                 <p data-testid="milestone-goals" className="mt-2" style={{ fontSize: 14, color: 'var(--muted)' }}>
                   No completion lines yet.
@@ -619,7 +667,7 @@ function MilestoneDetail({
               )}
             </Panel>
             <Panel>
-              <div className="flex flex-wrap items-center justify-between gap-4">
+              <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 style={{ fontSize: 18, lineHeight: '27px', fontWeight: 500 }}>
                     {milestone.doneCount} of {total} tasks complete
@@ -788,45 +836,6 @@ function MilestoneDetail({
               </p>
             ) : null}
           </div>
-          <Panel>
-            <div className="flex w-full flex-col gap-5 lg:w-[244px]">
-              <p className="ds-mono" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--muted)' }}>
-                DETAILS
-              </p>
-              <div>
-                <FieldLabel>STATUS</FieldLabel>
-                <FieldValue>
-                  <span data-testid="milestone-work-status">{WORK_LABEL[milestone.workStatus]}</span>
-                </FieldValue>
-              </div>
-              <div>
-                <FieldLabel>APPROVAL</FieldLabel>
-                <FieldValue>
-                  <span data-testid="milestone-approval">{APPROVAL_LABEL[milestone.approval]}</span>
-                </FieldValue>
-              </div>
-              {staff ? (
-                <div>
-                  <FieldLabel>VISIBILITY</FieldLabel>
-                  <FieldValue>
-                    <span data-testid="milestone-publish">
-                      {milestone.publishToWarehaus ? 'Shared with client' : 'Not published'}
-                    </span>
-                  </FieldValue>
-                </div>
-              ) : null}
-              <div>
-                <FieldLabel>PROJECT</FieldLabel>
-                <FieldValue>{project.name}</FieldValue>
-              </div>
-              {milestone.approverName ? (
-                <div>
-                  <FieldLabel>LAST REVIEW</FieldLabel>
-                  <FieldValue>{milestone.approverName}</FieldValue>
-                </div>
-              ) : null}
-            </div>
-          </Panel>
         </div>
       ) : null}
 
@@ -1428,24 +1437,40 @@ function FormFields({
           style={{ ...fieldStyle, resize: 'vertical' }}
         />
       </label>
-      <div>
-        <FieldLabel>RESOURCES</FieldLabel>
-        {choices.length === 0 ? (
-          <p style={{ marginTop: 8, fontSize: 14 }}>No resources attached yet</p>
-        ) : (
-          <select
-            multiple
-            value={resourceIds}
-            onChange={(event) => onResources(Array.from(event.target.selectedOptions).map((option) => option.value))}
-            style={{ ...fieldStyle, marginTop: 8, minHeight: 88 }}
-          >
-            {choices.map((choice) => (
-              <option key={choice.id} value={choice.id}>
-                {choice.title}
-              </option>
-            ))}
-          </select>
-        )}
+      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <div>
+          <FieldLabel>RESOURCES</FieldLabel>
+          <p style={{ marginTop: 8, fontSize: 14 }}>
+            {resourceIds.length === 0
+              ? 'No resources attached yet'
+              : choices
+                  .filter((choice) => resourceIds.includes(choice.id))
+                  .map((choice) => choice.title)
+                  .join(', ')}
+          </p>
+        </div>
+        {choices.some((choice) => !resourceIds.includes(choice.id)) ? (
+          <label className="flex flex-col gap-2" style={{ fontSize: 14 }}>
+            Attach resource
+            <select
+              value=""
+              onChange={(event) => {
+                const id = event.target.value;
+                if (id) onResources([...resourceIds, id]);
+              }}
+              style={fieldStyle}
+            >
+              <option value="">Choose a resource</option>
+              {choices
+                .filter((choice) => !resourceIds.includes(choice.id))
+                .map((choice) => (
+                  <option key={choice.id} value={choice.id}>
+                    {choice.title}
+                  </option>
+                ))}
+            </select>
+          </label>
+        ) : null}
       </div>
     </>
   );
