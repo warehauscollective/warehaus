@@ -8,6 +8,7 @@
 import {
   planTaskCreate,
   planTaskDescriptionWrite,
+  planTaskLiveFieldsWrite,
   planTaskResourceWrite,
   isNotionWritebackEnabled,
   isTaskStage,
@@ -264,6 +265,50 @@ export const enqueueDescription = internalMutation({
     return ctx.runMutation(internal.sync.outbox.enqueue, {
       idempotencyKey: planned.idempotencyKey,
       kind: 'task-description',
+      orgId: task.orgId,
+      database: 'tasks',
+      notionPageId: task.notionPageId,
+      expectedLastEditedTime: args.expectedLastEditedTime,
+      payload: JSON.stringify({ properties: planned.properties }),
+      actor: 'staff' as const,
+      actorId: args.actorId,
+      schedule: true,
+    });
+  },
+});
+
+/**
+ * Staff Estimate, Priority, Source, and Publish to Warehaus.
+ * Enqueues one Notion patch and does not patch the task row.
+ * When NOTION_WRITEBACK_ENABLED is not exactly "true", enqueue returns
+ * the write-back-off error and inserts nothing.
+ */
+export const enqueueLiveFields = internalMutation({
+  args: {
+    taskId: v.id('tasks'),
+    expectedLastEditedTime: v.string(),
+    actorId: v.optional(v.string()),
+    estimate: v.optional(v.union(v.string(), v.null())),
+    priority: v.optional(v.union(v.string(), v.null())),
+    source: v.optional(v.union(v.string(), v.null())),
+    publishToWarehaus: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<EnqueueStatusResult> => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { ok: false as const, error: 'Task not found' };
+    const planned = planTaskLiveFieldsWrite({
+      actor: 'staff',
+      notionPageId: task.notionPageId,
+      expectedLastEditedTime: args.expectedLastEditedTime,
+      ...(args.estimate !== undefined ? { estimate: args.estimate } : {}),
+      ...(args.priority !== undefined ? { priority: args.priority } : {}),
+      ...(args.source !== undefined ? { source: args.source } : {}),
+      ...(args.publishToWarehaus !== undefined ? { publishToWarehaus: args.publishToWarehaus } : {}),
+    });
+    if (!planned.ok) return { ok: false as const, error: planned.error };
+    return ctx.runMutation(internal.sync.outbox.enqueue, {
+      idempotencyKey: planned.idempotencyKey,
+      kind: 'task-fields',
       orgId: task.orgId,
       database: 'tasks',
       notionPageId: task.notionPageId,

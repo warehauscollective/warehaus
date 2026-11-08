@@ -317,6 +317,51 @@ describe('outbox attempt', () => {
     assert.equal(auditEventForOutcome(outcome)?.action, 'outbox.conflict');
   });
 
+  it('holds a task-fields write when write-back is off and patches when it is on', async () => {
+    const fields = item({
+      kind: 'task-fields',
+      database: 'tasks',
+      notionPageId: 'page-1',
+      expectedLastEditedTime: '2026-10-01T00:00:00.000Z',
+      properties: { Estimate: 'M', 'Publish to Warehaus': true },
+    });
+    let writes = 0;
+    const held = await runOutboxAttempt({
+      item: fields,
+      nowMs: 0,
+      writebackEnabled: false,
+      actor: 'staff',
+      search: async () => [],
+      readPage: async () => ({ ok: true, lastEditedTime: '2026-10-01T00:00:00.000Z' }),
+      write: async () => {
+        writes += 1;
+        return { ok: true, status: 200, notionPageId: 'page-1' };
+      },
+    });
+    assert.deepEqual(held, { outcome: 'held', reason: 'writeback-disabled' });
+    assert.equal(writes, 0);
+
+    const sent = await runOutboxAttempt({
+      item: fields,
+      nowMs: 0,
+      writebackEnabled: true,
+      actor: 'staff',
+      search: async () => {
+        throw new Error('search should not run');
+      },
+      readPage: async () => ({ ok: true, lastEditedTime: '2026-10-01T00:00:00.000Z' }),
+      write: async (request) => {
+        writes += 1;
+        assert.equal(request.method, 'update');
+        assert.equal(request.notionPageId, 'page-1');
+        assert.deepEqual(request.properties, { Estimate: 'M', 'Publish to Warehaus': true });
+        return { ok: true, status: 200, notionPageId: 'page-1', lastEditedTime: '2026-10-01T00:01:00.000Z' };
+      },
+    });
+    assert.equal(sent.outcome, 'confirmed');
+    assert.equal(writes, 1);
+  });
+
   it('writes a task status when the re-read matches', async () => {
     const outcome = await runOutboxAttempt({
       item: item({

@@ -233,6 +233,28 @@ describe('search before create', () => {
     });
   });
 
+  it('shapes Estimate, Priority, and Source as selects and publish as a checkbox', () => {
+    assert.deepEqual(
+      toNotionProperties('tasks', {
+        Estimate: 'M',
+        Priority: 'High',
+        Source: 'portal',
+        'Publish to Warehaus': false,
+      }),
+      {
+        Estimate: { select: { name: 'M' } },
+        Priority: { select: { name: 'High' } },
+        Source: { select: { name: 'portal' } },
+        'Publish to Warehaus': { checkbox: false },
+      },
+    );
+    assert.deepEqual(toNotionProperties('tasks', { Estimate: null, Priority: '', Source: null }), {
+      Estimate: { select: null },
+      Priority: { select: null },
+      Source: { select: null },
+    });
+  });
+
   it('shapes a contact create for Notion 2025-09-03 without adding defaults', () => {
     const shaped = toNotionProperties('contacts', contact);
     assert.deepEqual(shaped.Email, { email: 'ada@example.com' });

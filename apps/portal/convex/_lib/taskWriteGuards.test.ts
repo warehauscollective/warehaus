@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
 import { enqueue } from '../sync/outbox';
 import { enqueueCreate, enqueueStage, enqueueStatus } from '../sync/taskWrite';
-import { moveStage, moveStatus } from '../tasks';
+import { moveStage, moveStatus, updateLiveFields } from '../tasks';
 import { PortalAuthError } from './identity';
 
 type Handler = (ctx: unknown, args: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>;
@@ -556,6 +556,11 @@ describe('move authorization', () => {
       return true;
     });
     await assert.rejects(run(moveStage, ctx, { ...args, stage: 'Idea' }), (err: unknown) => {
+      assert.ok(err instanceof PortalAuthError);
+      assert.equal(err.message, 'Staff role required');
+      return true;
+    });
+    await assert.rejects(run(updateLiveFields, ctx, { ...args, estimate: 'M' }), (err: unknown) => {
       assert.ok(err instanceof PortalAuthError);
       assert.equal(err.message, 'Staff role required');
       return true;

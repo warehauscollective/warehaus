@@ -57,6 +57,7 @@ export function TaskDetailModal({
   const [asideNote, setAsideNote] = useState<string | null>(null);
   const moveStage = useMutation(api.tasks.moveStage);
   const moveStatus = useMutation(api.tasks.moveStatus);
+  const updateLiveFields = useMutation(api.tasks.updateLiveFields);
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     titleRef.current?.focus();
@@ -218,6 +219,19 @@ export function TaskDetailModal({
                 source={task.source}
                 published={task.publishToWarehaus}
                 done={task.isDone}
+                onSave={async (patch) => {
+                  if (!live || !task.lastEditedTime) return { ok: false, error: 'Nothing was sent.' };
+                  try {
+                    return await updateLiveFields({
+                      hostSlug,
+                      taskId: task.id as Id<'tasks'>,
+                      expectedLastEditedTime: task.lastEditedTime,
+                      ...patch,
+                    });
+                  } catch (err) {
+                    return { ok: false, error: err instanceof Error ? err.message : 'Could not save' };
+                  }
+                }}
               />
             ) : null}
             </div>

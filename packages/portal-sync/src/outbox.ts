@@ -232,7 +232,10 @@ export async function runOutboxAttempt(input: {
     };
   }
 
-  const isPatch = input.item.kind === 'task-status' || input.item.kind === 'update';
+  const isPatch =
+    input.item.kind === 'task-status' ||
+    input.item.kind === 'update' ||
+    input.item.kind === 'task-fields';
   const validated = isPatch
     ? validatePropertyPatch({
         database: input.item.database,

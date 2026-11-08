@@ -274,6 +274,28 @@ export const createTask = adminMutation({
   },
 });
 
+export const updateLiveFields = adminMutation({
+  args: {
+    taskId: v.id('tasks'),
+    expectedLastEditedTime: v.string(),
+    estimate: v.optional(v.union(v.string(), v.null())),
+    priority: v.optional(v.union(v.string(), v.null())),
+    source: v.optional(v.union(v.string(), v.null())),
+    publishToWarehaus: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<TaskWriteResult> => {
+    return ctx.runMutation(internal.sync.taskWrite.enqueueLiveFields, {
+      taskId: args.taskId,
+      expectedLastEditedTime: args.expectedLastEditedTime,
+      actorId: ctx.identity.contactId,
+      ...(args.estimate !== undefined ? { estimate: args.estimate } : {}),
+      ...(args.priority !== undefined ? { priority: args.priority } : {}),
+      ...(args.source !== undefined ? { source: args.source } : {}),
+      ...(args.publishToWarehaus !== undefined ? { publishToWarehaus: args.publishToWarehaus } : {}),
+    });
+  },
+});
+
 export const updateDescription = adminMutation({
   args: {
     taskId: v.id('tasks'),

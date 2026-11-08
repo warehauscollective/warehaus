@@ -9,6 +9,7 @@ import {
   isNewerEditedTime,
   isNotionWritebackEnabled,
   planIdempotentEnqueue,
+  taskLiveFieldsWriteError,
   validatePropertyPatch,
   validateTaskStatusUpdate,
   validateWriteback,
@@ -179,6 +180,16 @@ function validateEnqueueKind(input: {
       return 'Task description updates can only set Description';
     }
     if (typeof input.properties.Description !== 'string') return 'Description is required';
+    if (!input.notionPageId) return 'Updates require a Notion page';
+    if (!input.expectedLastEditedTime) return 'Updates require the last read time';
+    return null;
+  }
+  if (input.kind === 'task-fields') {
+    if (input.database !== 'tasks') return 'Task field updates only write the Tasks database';
+    const fieldError = taskLiveFieldsWriteError(input.properties);
+    if (fieldError) return fieldError;
+    const validated = validatePropertyPatch({ database: 'tasks', properties: input.properties });
+    if (!validated.ok) return validated.errors.join('; ');
     if (!input.notionPageId) return 'Updates require a Notion page';
     if (!input.expectedLastEditedTime) return 'Updates require the last read time';
     return null;
