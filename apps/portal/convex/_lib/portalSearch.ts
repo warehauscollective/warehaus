@@ -1,7 +1,9 @@
 import {
+  clientMayOpenGranolaRecap,
   clientMaySeeProject,
   clientMaySeeTask,
   clientMaySeeTaskDescription,
+  clientSafeResourceText,
   isClientSurfaceVisible,
 } from '@warehaus/portal-sync';
 
@@ -82,6 +84,8 @@ type ResourceRow = {
   title: string;
   description?: string | null;
   type?: string | null;
+  notionPageId?: string | null;
+  source?: string | null;
   publishToWarehaus: boolean;
   archive?: boolean;
   syncHiddenAt?: number | null;
@@ -300,11 +304,18 @@ export function searchCatalog(input: {
     .filter((resource) => {
       if (staff) return true;
       if (!isClientSurfaceVisible(resource) || resource.archive || !resource.publishToWarehaus) return false;
+      if (!clientMayOpenGranolaRecap(resource)) return false;
       const project = resource.projectId ? projectById.get(resource.projectId) ?? null : null;
       if (resource.projectId && !project) return false;
       return visibleProject(project);
     })
-    .filter((resource) => matches(needle, [resource.title, resource.description, resource.type]))
+    .filter((resource) =>
+      matches(needle, [
+        resource.title,
+        staff ? resource.description : clientSafeResourceText(resource.description),
+        resource.type,
+      ]),
+    )
     .slice(0, LIMIT)
     .map((resource) => {
       const project = resource.projectId ? projectById.get(resource.projectId) ?? null : null;

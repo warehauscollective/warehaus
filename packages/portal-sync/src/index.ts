@@ -74,6 +74,25 @@ export {
 } from './serialize';
 
 export {
+  GRANOLA_IMPORT_FAILED,
+  GRANOLA_PAGE_PREFIX,
+  FIXTURE_GRANOLA_NOTES,
+  granolaPortalPageId,
+  isGranolaPortalPage,
+  readGranolaSource,
+  staffNotesHref,
+  clientSafeResourceText,
+  importGranolaNote,
+  clientMayOpenGranolaRecap,
+  granolaSyncRow,
+  staffGranolaStatus,
+  type GranolaSourceNote,
+  type GranolaRecap,
+  type GranolaImportDraft,
+  type GranolaRunStatus,
+} from './granola';
+
+export {
   blobPathname,
   toSharedResourceClientView,
   toClientUploadClientView,

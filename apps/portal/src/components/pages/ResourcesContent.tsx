@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMutation } from 'convex/react';
 import { usePathname } from 'next/navigation';
 import { PrimaryButton } from '@/components/ui/primitives';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -22,6 +23,7 @@ import { staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import type { Id } from '@convex/_generated/dataModel';
 import { api } from '@convex/_generated/api';
+import { clientMayOpenGranolaRecap, clientSafeResourceText } from '@warehaus/portal-sync';
 import { PublishChip } from '@/components/sync/SyncChip';
 import {
   attachedHint,
@@ -66,7 +68,79 @@ function LockedStateButton({ label }: { label: string }) {
   );
 }
 
-function ResourcePreviewState({ screen, staff }: { screen: Exclude<ResourceScreen, 'ready'>; staff: boolean }) {
+function GranolaFailedNotice({ onRetry, pending }: { onRetry?: () => void; pending?: boolean }) {
+  return (
+    <div data-testid="granola-import-failed">
+      <div
+        role="alert"
+        style={{
+          border: '1px solid var(--danger)',
+          borderRadius: 18,
+          padding: '16px 24px',
+          display: 'flex',
+          gap: 12,
+          alignItems: 'flex-start',
+        }}
+      >
+        <span
+          aria-hidden
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: 999,
+            border: '1.25px solid var(--danger)',
+            color: 'var(--danger)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 11,
+            fontWeight: 600,
+            flex: '0 0 auto',
+          }}
+        >
+          !
+        </span>
+        <span>
+          <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>Granola import failed</p>
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 4, lineHeight: '19px' }}>
+            The last import did not finish. Existing notes are unchanged.
+          </p>
+        </span>
+      </div>
+      <button
+        type="button"
+        onClick={onRetry}
+        disabled={pending}
+        data-testid="retry-granola-import"
+        style={{
+          marginTop: 24,
+          fontSize: 14,
+          fontWeight: 500,
+          padding: '12px 16px',
+          borderRadius: 9,
+          border: '1px solid var(--border-2, var(--border))',
+          background: 'transparent',
+          color: 'var(--fg)',
+          cursor: pending ? 'wait' : 'pointer',
+        }}
+      >
+        Retry import
+      </button>
+    </div>
+  );
+}
+
+function ResourcePreviewState({
+  screen,
+  staff,
+  onRetry,
+  pending,
+}: {
+  screen: Exclude<ResourceScreen, 'ready'>;
+  staff: boolean;
+  onRetry?: () => void;
+  pending?: boolean;
+}) {
   if (screen === 'loading') {
     return (
       <div className="flex flex-col gap-3" aria-busy="true" data-testid="resource-state-loading">
@@ -83,19 +157,31 @@ function ResourcePreviewState({ screen, staff }: { screen: Exclude<ResourceScree
     );
   }
   if (screen === 'error') {
+    if (staff) return <GranolaFailedNotice onRetry={onRetry} pending={pending} />;
     return (
-      <div role="alert" data-testid="resource-state-error" style={{ border: '1px solid var(--danger)', borderRadius: 18, padding: '1rem 1.25rem' }}>
-        <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 14 }}>
-          {staff ? 'Granola import failed' : 'We could not load your resources'}
-        </p>
-        <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 4 }}>
-          {staff ? 'The last import did not finish. Existing notes are unchanged.' : 'Try again in a moment.'}
-        </p>
-        {staff ? (
-          <div className="mt-3">
-            <LockedStateButton label="Retry import" />
-          </div>
-        ) : null}
+      <div role="alert" data-testid="resource-state-error" style={{ border: '1px solid var(--danger)', borderRadius: 18, padding: '16px 24px', display: 'flex', gap: 12 }}>
+        <span
+          aria-hidden
+          style={{
+            width: 20,
+            height: 20,
+            borderRadius: 999,
+            border: '1.25px solid var(--danger)',
+            color: 'var(--danger)',
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: 11,
+            fontWeight: 600,
+            flex: '0 0 auto',
+          }}
+        >
+          !
+        </span>
+        <span>
+          <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>We could not load your resources</p>
+          <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 4, lineHeight: '19px' }}>Try again in a moment.</p>
+        </span>
       </div>
     );
   }
@@ -166,7 +252,13 @@ function fixtureTasksFor(resourceId: string, staff: boolean): ResourceTaskRow[] 
 function clientMayOpen(row: ResourceRow): boolean {
   if (row.publishToWarehaus === false || row.syncHidden) return false;
   if (isStudioProjectName(row.projectName)) return false;
-  return true;
+  const source = row as { notionPageId?: string | null; source?: string | null };
+  return clientMayOpenGranolaRecap({
+    notionPageId: source.notionPageId,
+    source: source.source,
+    publishToWarehaus: row.publishToWarehaus,
+    description: row.description,
+  });
 }
 
 function pathId(pathname: string, prefix: string): string | null {
@@ -200,6 +292,18 @@ export function ResourcesContent() {
     api.clientDocs.listForClient,
     !fixtures && configured && !isStaff && data.tenant.ok ? { hostSlug } : 'skip',
   );
+  const liveSync = useSafeQuery<{ granola?: { lastError: string | null } }>(
+    api.portalData.getSyncHealth,
+    !fixtures && configured && isStaff && data.tenant.ok ? { hostSlug } : 'skip',
+  );
+  const retryImport = useMutation(api.sync.granola.retryImport);
+  const [retrying, setRetrying] = useState(false);
+  const importFailed = isStaff && Boolean(liveSync.data?.granola?.lastError);
+  const onRetryImport = () => {
+    if (!configured || fixtures || retrying) return;
+    setRetrying(true);
+    void retryImport({ hostSlug }).finally(() => setRetrying(false));
+  };
 
   const rows = useMemo(() => {
     const source = (fixtures ? FIXTURE_RESOURCES : isStaff ? staff.resources ?? [] : clientRows.data ?? []) as ResourceRow[];
@@ -386,7 +490,7 @@ export function ResourcesContent() {
               resource={{
                 id: row.id,
                 name: shownName ?? row.name,
-                description: row.description,
+                description: isStaff ? row.description : clientSafeResourceText(row.description),
                 type: row.type,
                 url: row.url,
                 projectName: row.projectName,
@@ -397,6 +501,7 @@ export function ResourcesContent() {
                   ? {
                       publishToWarehaus: row.publishToWarehaus,
                       notionPageId: row.notionPageId,
+                      notesUrl: (row as { sourceNotionUrl?: string | null }).sourceNotionUrl,
                       syncHidden: row.syncHidden,
                     }
                   : {}),
@@ -490,9 +595,19 @@ export function ResourcesContent() {
             <p style={{ marginTop: 4, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
               Each resource attaches to one or more items.
             </p>
+            {importFailed && resourceScreen === 'ready' ? (
+              <div className="mt-6">
+                <GranolaFailedNotice onRetry={onRetryImport} pending={retrying} />
+              </div>
+            ) : null}
             {resourceScreen !== 'ready' && resourceScreen !== 'long' ? (
               <div className="mt-6">
-                <ResourcePreviewState screen={resourceScreen} staff={isStaff} />
+                <ResourcePreviewState
+                  screen={resourceScreen}
+                  staff={isStaff}
+                  onRetry={onRetryImport}
+                  pending={retrying}
+                />
               </div>
             ) : (
               <>

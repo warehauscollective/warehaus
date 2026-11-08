@@ -32,6 +32,11 @@ type SyncHealthPayload = {
   writebackEnabled: boolean;
   outbox: OutboxHealth;
   notices: DashboardNotice[];
+  granola?: {
+    configured: boolean;
+    lastRunAt: string | null;
+    lastError: string | null;
+  };
 };
 
 function useDashPreview(fixtures: boolean): DashPreview {
@@ -118,6 +123,15 @@ export function PortalHomeContent() {
             : EMPTY_OUTBOX,
         writebackEnabled: capped || (isStaff && liveSync.data?.writebackEnabled === true),
         notices: isStaff ? liveSync.data?.notices ?? [] : [],
+        ...(isStaff
+          ? {
+              granola: liveSync.data?.granola ?? {
+                configured: false,
+                lastRunAt: null,
+                lastError: null,
+              },
+            }
+          : {}),
         now: Date.now(),
       }),
     [isStaff, projects, tasks, feed.items, liveSync.data, data.syncMeta.lastSyncedAt, data.syncMeta.lastError, capped],

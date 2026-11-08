@@ -40,6 +40,7 @@ import type * as staffProvision from "../staffProvision.js";
 import type * as sync_blob from "../sync/blob.js";
 import type * as sync_blobGc from "../sync/blobGc.js";
 import type * as sync_docBody from "../sync/docBody.js";
+import type * as sync_granola from "../sync/granola.js";
 import type * as sync_hide from "../sync/hide.js";
 import type * as sync_notionApi from "../sync/notionApi.js";
 import type * as sync_notionWrite from "../sync/notionWrite.js";
@@ -95,6 +96,7 @@ declare const fullApi: ApiFromModules<{
   "sync/blob": typeof sync_blob;
   "sync/blobGc": typeof sync_blobGc;
   "sync/docBody": typeof sync_docBody;
+  "sync/granola": typeof sync_granola;
   "sync/hide": typeof sync_hide;
   "sync/notionApi": typeof sync_notionApi;
   "sync/notionWrite": typeof sync_notionWrite;

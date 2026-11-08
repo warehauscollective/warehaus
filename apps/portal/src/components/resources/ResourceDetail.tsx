@@ -3,6 +3,7 @@
 import type { ReactNode } from 'react';
 import { Pill, PortalCheckbox, Surface } from '@/components/ui/primitives';
 import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
+import { staffNotesHref } from '@warehaus/portal-sync';
 import { notionNotesHref, recapSections, resourceMeta, usedInTasksSubtitle } from '@/lib/data/resourceDetail';
 import { taskStatusColor } from '@/lib/data/view-models';
 
@@ -31,6 +32,8 @@ export type ResourceDetailModel = {
   staff: boolean;
   publishToWarehaus?: boolean;
   notionPageId?: string | null;
+  /** Staff-only Notion link for the full note. Clients do not receive this. */
+  notesUrl?: string | null;
   syncHidden?: boolean;
 };
 
@@ -98,7 +101,9 @@ export function ResourceDetail({
   tasksLoading: boolean;
   onOpenTask: (taskId: string) => void;
 }) {
-  const notesHref = resource.staff ? notionNotesHref(resource.notionPageId) : null;
+  const notesHref = resource.staff
+    ? staffNotesHref(resource.notesUrl) ?? notionNotesHref(resource.notionPageId)
+    : null;
   const published = resource.publishToWarehaus === true;
   const sections = recapSections(resource.description);
   const recapKind = /meeting|recap|notes/i.test(resource.type ?? '');

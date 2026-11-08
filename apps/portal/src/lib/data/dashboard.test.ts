@@ -294,11 +294,52 @@ describe('sync health', () => {
     assert.equal(JSON.stringify(queue).includes('waiting'), false);
     assert.deepEqual(
       health.rows.map((row) => row.label),
-      ['Notion to portal', 'Portal to Notion queue', 'Failed writes (24h)'],
+      ['Notion to portal', 'Portal to Notion queue', 'Granola import', 'Failed writes (24h)'],
     );
-    assert.equal(health.rows.some((row) => /granola/i.test(row.label)), false);
+    assert.equal(health.rows.find((row) => row.key === 'granola')?.value, 'Not configured');
     assert.equal(health.cardValue, 'OK');
     assert.match(health.rows[0]?.value ?? '', /^In sync · /);
+
+    const imported = summarizeSyncHealth({
+      pull: { lastSyncedAt: '2026-10-29T11:58:00Z', lastError: null },
+      outbox: counts(),
+      writebackEnabled: false,
+      notices: [],
+      tasks: [],
+      granola: { configured: true, lastRunAt: '2026-10-29T08:10:00Z', lastError: null },
+      now: NOW,
+    });
+    assert.equal(imported.rows.find((row) => row.key === 'granola')?.value, 'Last run 08:10');
+    assert.equal(imported.cardValue, 'OK');
+
+    const granolaFailed = summarizeSyncHealth({
+      pull: { lastSyncedAt: '2026-10-29T11:58:00Z', lastError: null },
+      outbox: counts(),
+      writebackEnabled: false,
+      notices: [],
+      tasks: [],
+      granola: {
+        configured: true,
+        lastRunAt: '2026-10-29T08:10:00Z',
+        lastError: 'The last import did not finish. Existing notes are unchanged.',
+      },
+      now: NOW,
+    });
+    assert.equal(granolaFailed.rows.find((row) => row.key === 'granola')?.value, 'Failed');
+    assert.equal(granolaFailed.rows.find((row) => row.key === 'granola')?.tone, 'danger');
+    assert.equal(granolaFailed.cardValue, 'Issue');
+    const client = buildDashboard(
+      input({
+        audience: 'client',
+        granola: {
+          configured: true,
+          lastRunAt: '2026-10-29T08:10:00Z',
+          lastError: 'The last import did not finish. Existing notes are unchanged.',
+        },
+      }),
+    );
+    assert.equal(JSON.stringify(client).includes('Granola'), false);
+    assert.equal(JSON.stringify(client).includes('import did not finish'), false);
   });
 
   it('counts a real failed outbox row and keeps the pull error on the notice', () => {

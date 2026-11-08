@@ -3,7 +3,7 @@ import { clientQuery, adminQuery } from './_lib/wrappers';
 import { isStaff } from './_lib/identity';
 import { buildActivityFeed } from './_lib/activityFeed';
 import { staffQuarantineActivity } from './_lib/quarantineActivity';
-import { clientMaySeeProject, clientMaySeeTask, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { clientMaySeeProject, clientMaySeeTask, isOrgVisibleToClients, staffGranolaStatus } from '@warehaus/portal-sync';
 import { isNotionWritebackEnabled } from './_lib/writeAuthz';
 
 /**
@@ -379,7 +379,8 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * slice of the B0 outbox. Returns per-status counts and the oldest counted
  * timestamp, not outbox rows. Failed, dead, and conflict counts are the last
  * 24 hours. The write-back flag is on only when it is exactly "true".
- * Payloads, tokens, and Granola are not returned. Clients cannot call this.
+ * Payloads and tokens are not returned. Granola status is the run, never a
+ * transcript. Clients cannot call this.
  */
 export const getSyncHealth = adminQuery({
   args: {},
@@ -387,6 +388,10 @@ export const getSyncHealth = adminQuery({
     const syncMeta = await ctx.db
       .query('syncMeta')
       .withIndex('by_key', (q) => q.eq('key', 'notion-pull'))
+      .unique();
+    const granolaMeta = await ctx.db
+      .query('syncMeta')
+      .withIndex('by_key', (q) => q.eq('key', 'granola-import'))
       .unique();
     const now = Date.now();
     const counts = { queued: 0, inflight: 0, failed: 0, dead: 0, conflict: 0 };
@@ -416,6 +421,7 @@ export const getSyncHealth = adminQuery({
       },
       writebackEnabled: isNotionWritebackEnabled(),
       outbox: { counts, oldestCreatedAt },
+      granola: staffGranolaStatus(granolaMeta),
       notices: notices
         .filter((row) => row.edgeCase === 'sync' || row.edgeCase === 'conflict')
         .map((row) => ({
