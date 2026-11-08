@@ -15,6 +15,7 @@ import {
   planTaskStageWrite,
   stageOutboxActor,
   taskCreateProjectGate,
+  taskSourceOf,
   taskStatusIdempotencyKey,
   unstagedMoveAllowed,
   validateTaskStatusUpdate,
@@ -25,6 +26,7 @@ import { v } from 'convex/values';
 import { internal } from '../_generated/api';
 import type { Id } from '../_generated/dataModel';
 import { internalMutation, type MutationCtx } from '../_generated/server';
+import { resolveTaskSourceForProject } from '../taskSources';
 
 type EnqueueStatusResult =
   | { ok: false; error: string }
@@ -33,6 +35,17 @@ type EnqueueStatusResult =
 type StageEnqueueResult =
   | { ok: false; error: string }
   | { ok: true; pending: boolean; outboxId?: Id<'notionOutbox'>; duplicate?: boolean };
+
+/**
+ * Task fields belong to the task's source. Only Notion tasks are written from
+ * the portal; a task with no taskSource is a Notion task, so every existing row
+ * passes. Stage is not checked here: it always lives on the Notion page.
+ */
+function readOnlySourceError(task: { taskSource?: string | null }): string | null {
+  const source = taskSourceOf(task);
+  if (source === 'notion') return null;
+  return `This task comes from ${source === 'linear' ? 'Linear' : source}. Edit it there.`;
+}
 
 function writebackOn(): boolean {
   return isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED);
@@ -106,6 +119,8 @@ export const enqueueStatus = internalMutation({
 
     const task = await ctx.db.get(args.taskId);
     if (!task) return { ok: false as const, error: 'Task not found' };
+    const sourceError = readOnlySourceError(task);
+    if (sourceError) return { ok: false as const, error: sourceError };
 
     const idempotencyKey =
       args.idempotencyKey ??
@@ -218,6 +233,11 @@ export const enqueueCreate = internalMutation({
       .unique();
     const projectGate = taskCreateProjectGate(project, args.orgId);
     if (!projectGate.ok) return { ok: false as const, error: projectGate.error };
+    // No config row resolves to notion, so this passes for every project today.
+    const resolved = await resolveTaskSourceForProject(ctx, args.orgId, project?._id ?? null);
+    if (resolved.source !== 'notion') {
+      return { ok: false as const, error: 'This project takes tasks from Linear. Create it there.' };
+    }
     const planned = planTaskCreate({
       actor: 'staff',
       name: args.name,
@@ -251,6 +271,8 @@ export const enqueueDescription = internalMutation({
   handler: async (ctx, args): Promise<EnqueueStatusResult> => {
     const task = await ctx.db.get(args.taskId);
     if (!task) return { ok: false as const, error: 'Task not found' };
+    const sourceError = readOnlySourceError(task);
+    if (sourceError) return { ok: false as const, error: sourceError };
     if (task.descriptionSource === 'body') {
       return { ok: false as const, error: 'Edit in Notion' };
     }
@@ -286,6 +308,8 @@ export const enqueueResources = internalMutation({
   handler: async (ctx, args): Promise<EnqueueStatusResult> => {
     const task = await ctx.db.get(args.taskId);
     if (!task) return { ok: false as const, error: 'Task not found' };
+    const sourceError = readOnlySourceError(task);
+    if (sourceError) return { ok: false as const, error: sourceError };
     const planned = planTaskResourceWrite({
       actor: 'staff',
       resourceNotionIds: args.resourceNotionIds,

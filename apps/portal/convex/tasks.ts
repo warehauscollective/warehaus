@@ -1,4 +1,5 @@
 import {
+  taskSourceOf,
   TASK_STAGES,
   TASK_UNAVAILABLE,
   clientMaySeeTask,
@@ -208,6 +209,8 @@ export const listForStaff = adminQuery({
           estimate: row.estimate ?? null,
           priority: row.priority ?? null,
           source: row.source ?? null,
+          /** Staff-only source badge. Never on a client payload. Missing = notion. */
+          taskSource: taskSourceOf(row),
           description: row.description ?? null,
           descriptionSource: row.descriptionSource ?? null,
           notionPageId: row.notionPageId,

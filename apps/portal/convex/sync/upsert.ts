@@ -205,6 +205,9 @@ export const upsertTask = internalMutation({
             };
     const patch = {
       ...fields,
+      // NotionTaskSource. Missing already reads as notion; this only fills it in.
+      // Never overwrites a row another source owns.
+      ...(existing?.taskSource ? {} : { taskSource: 'notion' as const }),
       stage: merge.stage,
       lastEditedTime: merge.lastEditedTime,
       ...pendingPatch,
