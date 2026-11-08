@@ -197,7 +197,9 @@ describe('item list states', () => {
     assert.match(html, /tabindex="0"/);
     assert.match(html, /opacity:0\.4/);
     assert.match(html, /pointer-events:none/);
+    assert.equal(NEW_TASK_HINT, 'Turns on with Notion write-back.');
     assert.match(html, new RegExp(NEW_TASK_HINT));
+    assert.equal(html.includes('createTask'), false);
     assert.equal(html.includes('role="group"'), false);
   });
 

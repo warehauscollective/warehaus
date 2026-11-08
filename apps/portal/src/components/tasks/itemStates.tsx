@@ -40,7 +40,7 @@ export const ITEM_STALE = {
 
 export const ITEM_SAVE_TITLE = "Couldn't save to Notion";
 
-export const NEW_TASK_HINT = 'Creating a task stays off until write-back is enabled.';
+export const NEW_TASK_HINT = 'Turns on with Notion write-back.';
 
 export const ITEM_STAFF_SUBTITLE = 'Synced from Notion · clients see published only';
 

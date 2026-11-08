@@ -50,7 +50,9 @@ describe('empty task board', () => {
     );
     assert.match(html, /data-testid="column-add-task"/);
     assert.match(html, /disabled=""/);
-    assert.match(html, /Creating a task stays off until write-back is enabled\./);
+    assert.match(html, /Turns on with Notion write-back\./);
+    assert.equal(html.includes('Creating a task stays off'), false);
+    assert.equal(html.includes('createTask'), false);
     assert.match(html, /\+ Add task/);
     assert.equal(html.includes('pointer-events:none'), true);
   });
