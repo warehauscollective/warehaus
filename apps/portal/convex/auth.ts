@@ -1,5 +1,6 @@
 import { createClient, type GenericCtx } from '@convex-dev/better-auth';
 import { convex } from '@convex-dev/better-auth/plugins';
+import { isActionCtx, isMutationCtx } from '@convex-dev/better-auth/utils';
 import { createAuthMiddleware } from '@better-auth/core/api';
 import { APIError } from '@better-auth/core/error';
 import { betterAuth } from 'better-auth/minimal';
@@ -10,6 +11,7 @@ import { query } from './_generated/server';
 import authConfig from './auth.config';
 import {
   blockedSignupDelivery,
+  devMailboxEnabled,
   passwordResetEmail,
   sendPortalEmail,
   verificationEmail,
@@ -49,11 +51,28 @@ type ResendDecision = { allowed: boolean; retryAfterMs: number };
 
 type PortalEmail = { to: string; subject: string; html: string; text: string };
 
+async function captureDevMail(ctx: GenericCtx<DataModel>, message: PortalEmail): Promise<boolean> {
+  if (!devMailboxEnabled()) return false;
+  // Action and mutation contexts both have `runMutation`. Checking
+  // `'runMutation' in ctx` first leaves only the query context, whose
+  // `'scheduler' in ctx` narrows `scheduler` to `unknown`.
+  if (isActionCtx(ctx)) {
+    await ctx.runMutation(anyApi.devMailbox.record, message);
+    return true;
+  }
+  if (isMutationCtx(ctx)) {
+    await ctx.runMutation(anyApi.devMailbox.record, message);
+    return true;
+  }
+  return false;
+}
+
 async function deliverPortalEmail(
   ctx: GenericCtx<DataModel>,
   message: PortalEmail,
   delayMs = 0,
 ): Promise<void> {
+  if (await captureDevMail(ctx, message)) return;
   if ('scheduler' in ctx) {
     await ctx.scheduler.runAfter(delayMs, anyApi.mail.deliver, message);
     return;
@@ -235,12 +254,20 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
           name: user.name,
           resetUrl: url,
         });
-        await sendPortalEmail({
+        const message = {
           to: user.email,
           subject: content.subject,
           html: content.html,
           text: content.text,
-        });
+        };
+        if (devMailboxEnabled()) {
+          const captured = await captureDevMail(ctx, message);
+          if (!captured) {
+            throw new Error('Local dev mailbox is enabled, but this handler cannot store mail');
+          }
+          return;
+        }
+        await sendPortalEmail(message);
       },
     },
     emailVerification: {

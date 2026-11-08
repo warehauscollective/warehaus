@@ -816,4 +816,16 @@ export default defineSchema({
   })
     .index('by_taskId_createdAt', ['taskId', 'createdAt'])
     .index('by_orgId_taskId', ['orgId', 'taskId']),
+
+  /**
+   * Shared-dev inbox for password reset and verification mail when Resend
+   * is not configured. Empty unless DEV_MAILBOX_ENABLED is exactly "true".
+   */
+  devMailbox: defineTable({
+    to: v.string(),
+    subject: v.string(),
+    text: v.string(),
+    html: v.string(),
+    createdAt: v.number(),
+  }).index('by_createdAt', ['createdAt']),
 });
