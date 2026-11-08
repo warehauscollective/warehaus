@@ -9,7 +9,7 @@
  * - Task board columns derived from `status` + `isDone` (see TASK_BOARD_COLUMNS)
  */
 
-import type { TaskPlatformView } from '@warehaus/portal-sync';
+import type { LinearTaskRead, MilestoneSeam, TaskPlatformView } from '@warehaus/portal-sync';
 
 export type PortalTenantMeta = {
   mode: 'team' | 'client';
@@ -126,8 +126,29 @@ export type PortalSnapshot = {
   leadName?: string | null;
   /** Live task and milestone read for this org. Missing on fixtures. */
   taskPlatform?: TaskPlatformView;
+  /** Linear project milestones for this org. Set only after a successful Linear read. */
+  milestones?: MilestoneSeam[];
   tenant: PortalTenantMeta;
 };
+
+export function portalTaskFromLinear(task: LinearTaskRead): PortalTask {
+  return {
+    id: task.id,
+    name: task.name,
+    status: task.status,
+    isDone: task.isDone,
+    date: task.date,
+    stage: null,
+    lastEditedTime: task.lastEditedTime,
+    projectId: task.projectId,
+    projectName: task.projectName,
+    projectStatus: null,
+    projectEndDate: null,
+    description: task.description,
+    orgId: task.orgId,
+    source: task.source,
+  };
+}
 
 /** Stripe → Convex billing summary (CLIENT-safe). */
 export type PortalBillingSummary = {

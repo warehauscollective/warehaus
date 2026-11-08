@@ -1,12 +1,40 @@
 'use client';
 
-import { taskPlatformCopy, type TaskPlatform, type TaskPlatformView } from '@warehaus/portal-sync';
+import {
+  taskPlatformCopy,
+  type MilestoneSeam,
+  type TaskPlatform,
+  type TaskPlatformView,
+} from '@warehaus/portal-sync';
 
 export type TaskPlatformPanelModel = TaskPlatformView & {
   saving: boolean;
   error: string | null;
   onChange?: (next: TaskPlatform) => void;
+  milestonesRead?: readonly MilestoneSeam[] | null;
+  milestonesUnavailable?: boolean;
 };
+
+export function LinearMilestoneList({ milestones }: { milestones: readonly MilestoneSeam[] }) {
+  if (milestones.length === 0) {
+    return (
+      <p data-testid="linear-milestones-empty" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>
+        No Linear project milestones.
+      </p>
+    );
+  }
+  return (
+    <ul data-testid="linear-milestones" style={{ marginTop: 12, paddingLeft: 18 }}>
+      {milestones.map((milestone) => (
+        <li key={milestone.id} style={{ fontSize: 'var(--t-sm)', marginTop: 6 }}>
+          <span>{milestone.name}</span>
+          <span style={{ color: 'var(--muted)' }}>{` · ${milestone.workStatus} · ${milestone.approval}`}</span>
+          {milestone.objective ? <span style={{ display: 'block', color: 'var(--muted)' }}>{milestone.objective}</span> : null}
+        </li>
+      ))}
+    </ul>
+  );
+}
 
 const CHOICES: Array<{ value: TaskPlatform; label: string }> = [
   { value: 'notion', label: 'Notion' },
@@ -21,6 +49,8 @@ export function TaskPlatformSetting({
   saving,
   error,
   onChange,
+  milestonesRead = null,
+  milestonesUnavailable = false,
 }: TaskPlatformPanelModel) {
   const copy = taskPlatformCopy({ platform, tasks }, canChange ? 'staff' : 'client');
   return (
@@ -77,6 +107,12 @@ export function TaskPlatformSetting({
           {copy.title}
         </p>
       )}
+      {platform === 'linear' && milestonesRead ? <LinearMilestoneList milestones={milestonesRead} /> : null}
+      {platform === 'linear' && milestonesUnavailable && tasks.ok ? (
+        <p data-testid="linear-milestones-unavailable" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>
+          Linear project milestones could not be read.
+        </p>
+      ) : null}
       {error ? (
         <p data-testid="task-platform-error" style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)', marginTop: 12 }}>
           {error}

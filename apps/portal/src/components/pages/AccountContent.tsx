@@ -82,11 +82,15 @@ function clientProjects(
 }
 
 function clientTasks(
-  rows: Array<ClientTaskRow & { orgId?: string; projectId?: string | null; syncHidden?: boolean; publishToWarehaus?: boolean }>,
+  rows: Array<ClientTaskRow & { orgId?: string; projectId?: string | null; syncHidden?: boolean; publishToWarehaus?: boolean; source?: string | null }>,
   projects: Array<ClientProjectRow & { id: string; orgId?: string }>,
   orgId: string | undefined,
 ): ClientTaskRow[] {
   return rows.flatMap((task) => {
+    if (task.source === 'linear') {
+      if (orgId && task.orgId && task.orgId !== orgId) return [];
+      return [withoutClientLeaks(task)];
+    }
     if (task.syncHidden || task.publishToWarehaus === false) return [];
     const project = projects.find((item) => item.id === task.projectId);
     if (!project || project.internal || project.publishToWarehaus === false || isStudioProjectName(project.name)) return [];
@@ -392,15 +396,15 @@ export function AccountContent() {
               name: clientScreen === 'long' ? LONG_CLIENT : selected.name,
             }}
             projects={staffProjects(projects.filter((project) => project.orgId === selected.id), clientScreen) as ClientProjectRow[]}
-            tasks={tasks
-              .filter((task) => task.orgId === selected.id)
-              .map((task) => {
-                const project = projects.find((item) => item.id === task.projectId);
-                return {
-                  ...task,
-                  projectInternal: Boolean(project?.internal || isStudioProjectName(project?.name ?? task.projectName)),
-                };
-              })}
+            tasks={(taskPlatform.linearTasks ??
+              tasks.filter((task) => task.orgId === selected.id)
+            ).map((task) => {
+              const project = projects.find((item) => item.id === task.projectId);
+              return {
+                ...task,
+                projectInternal: Boolean(project?.internal || isStudioProjectName(project?.name ?? task.projectName)),
+              };
+            })}
             docs={docs.filter((doc) => doc.orgId === selected.id)}
             contacts={contacts as ClientPersonRow[]}
             leadName={warehausLead(contacts)}

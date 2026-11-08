@@ -183,6 +183,33 @@ describe('client task platform', () => {
         return true;
       });
       assert.equal(task.name, 'Homepage');
+
+      process.env.LINEAR_API_KEY = 'linear-test-key';
+      const originalFetch = globalThis.fetch;
+      let calls = 0;
+      globalThis.fetch = () => {
+        calls += 1;
+        throw new Error('query fetched');
+      };
+      try {
+        const remoteSnapshot = (await run(getSnapshot, 'auth-client')).result as {
+          tasks: unknown[];
+          taskPlatform: { tasks: { ok: boolean; reason?: string } };
+        };
+        assert.equal(calls, 0);
+        assert.deepEqual(remoteSnapshot.tasks, []);
+        assert.equal(remoteSnapshot.taskPlatform.tasks.reason, 'remote');
+        assert.equal(JSON.stringify(remoteSnapshot).includes('linear-test-key'), false);
+        assert.equal(task.name, 'Homepage');
+        assert.equal(task.notionPageId, 'task-public-notion');
+        await assert.rejects(run(getForClient, 'auth-client', { taskId: 'task-public' }), (err: unknown) => {
+          assert.ok(err instanceof PortalAuthError);
+          assert.equal(err.message, 'This client reads tasks from Linear');
+          return true;
+        });
+      } finally {
+        globalThis.fetch = originalFetch;
+      }
     } finally {
       org.taskPlatform = undefined;
       if (previous === undefined) delete process.env.LINEAR_API_KEY;

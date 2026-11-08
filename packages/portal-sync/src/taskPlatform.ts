@@ -1,7 +1,8 @@
 /**
  * One read path for tasks and milestones.
  * Notion and Linear implement the same interface.
- * This module does not call either network.
+ * The sync preview in this file does not call either network.
+ * Linear's readTasks and readMilestones fetch only when LINEAR_API_KEY is set.
  */
 
 import { linearTaskPlatform } from './linearTaskPlatform';
@@ -50,8 +51,67 @@ export type PlatformMiss =
   | {
       ok: false;
       platform: 'linear';
-      reason: 'not-wired';
+      /** Key is set. This sync preview did not fetch. Call the async Linear read. */
+      reason: 'remote';
+    }
+  | {
+      ok: false;
+      platform: 'linear';
+      reason: 'unavailable';
     };
+
+/** Issue fields the portal task board can show. Linear ids are not Warehaus ids. */
+export type PlatformTaskRead = {
+  id: string;
+  name: string;
+  status: string;
+  isDone: boolean;
+  date: string | null;
+  stage: null;
+  lastEditedTime: string | null;
+  projectId: string | null;
+  projectName: string | null;
+  projectStatus: null;
+  projectEndDate: null;
+  description: string | null;
+};
+
+export type LinearTaskRead = PlatformTaskRead & {
+  orgId: string;
+  source: 'linear';
+};
+
+export type LinearOrgRead =
+  | {
+      ok: true;
+      platform: 'linear';
+      orgId: string;
+      tasks: LinearTaskRead[];
+      milestones: MilestoneSeam[];
+      milestonesUnavailable: boolean;
+    }
+  | {
+      ok: true;
+      platform: 'notion';
+      tasks: [];
+      milestones: [];
+      milestonesUnavailable: false;
+    }
+  | {
+      ok: false;
+      platform: 'linear';
+      reason: 'not-configured';
+      env: typeof LINEAR_API_KEY_ENV;
+    }
+  | {
+      ok: false;
+      platform: 'linear';
+      reason: 'unavailable';
+    };
+
+export type LinearIo = {
+  fetch?: typeof fetch;
+};
 
 export type PlatformRead<T> = PlatformHit<T> | PlatformMiss;
 
@@ -74,8 +134,15 @@ export type TaskPlatformView = {
 
 export interface TaskPlatformAdapter {
   readonly platform: TaskPlatform;
-  readTasks<T>(tasks: readonly T[], env: TaskPlatformEnv): PlatformRead<T>;
-  readMilestones(env: TaskPlatformEnv): PlatformRead<MilestoneSeam>;
+  readTasks<T>(
+    tasks: readonly T[],
+    env: TaskPlatformEnv,
+    io?: LinearIo,
+  ): PlatformRead<T> | Promise<PlatformRead<PlatformTaskRead>>;
+  readMilestones(
+    env: TaskPlatformEnv,
+    io?: LinearIo,
+  ): PlatformRead<MilestoneSeam> | Promise<PlatformRead<MilestoneSeam>>;
 }
 
 export function storedTaskPlatform(value: unknown): TaskPlatform {
@@ -93,18 +160,31 @@ export function adapterFor(platform: TaskPlatform): TaskPlatformAdapter {
   return platform === 'linear' ? linearTaskPlatform : notionTaskPlatform;
 }
 
+/** Sync preview. Linear with a key returns remote and does not fetch. */
+export function linearSyncMiss(env: TaskPlatformEnv): PlatformMiss {
+  if (!linearApiKey(env)) {
+    return { ok: false, platform: 'linear', reason: 'not-configured', env: LINEAR_API_KEY_ENV };
+  }
+  return { ok: false, platform: 'linear', reason: 'remote' };
+}
+
 export function readTaskPlatform<T>(input: {
   platform: unknown;
   tasks: readonly T[];
   env: TaskPlatformEnv;
 }): TaskPlatformRead<T> {
   const platform = storedTaskPlatform(input.platform);
+  if (platform === 'linear') {
+    const miss = linearSyncMiss(input.env);
+    return { platform, tasks: miss, milestones: miss };
+  }
   const adapter = adapterFor(platform);
-  return {
-    platform,
-    tasks: adapter.readTasks(input.tasks, input.env),
-    milestones: adapter.readMilestones(input.env),
-  };
+  const tasks = adapter.readTasks(input.tasks, input.env);
+  const milestones = adapter.readMilestones(input.env);
+  if (tasks instanceof Promise || milestones instanceof Promise) {
+    throw new Error('Task platform preview must not fetch');
+  }
+  return { platform, tasks, milestones };
 }
 
 export function taskPlatformStatus<T>(read: PlatformRead<T>): TaskPlatformStatus {
@@ -130,7 +210,8 @@ export function toTaskPlatformView(input: {
 export function taskPlatformBlockedMessage(read: TaskPlatformRead<unknown>): string | null {
   if (read.tasks.ok) return null;
   if (read.tasks.reason === 'not-configured') return 'Linear is not configured';
-  return 'Linear is not called in this version';
+  if (read.tasks.reason === 'unavailable') return 'Linear could not be read';
+  return 'This client reads tasks from Linear';
 }
 
 export function taskPlatformCopy(
@@ -138,12 +219,20 @@ export function taskPlatformCopy(
   audience: 'staff' | 'client',
 ): { title: string; body: string } {
   const staff = audience === 'staff';
-  if (view.platform === 'notion' || view.tasks.ok) {
+  if (view.platform === 'notion') {
     return {
       title: 'Notion',
       body: staff
         ? 'Tasks and milestones for this client are read from Notion. No milestones are stored yet. Changing this leaves Notion tasks as they are.'
         : 'Your tasks are read from Notion. No milestones are stored yet. Only Warehaus staff can change this.',
+    };
+  }
+  if (view.tasks.ok) {
+    return {
+      title: 'Linear',
+      body: staff
+        ? 'Tasks for this client are read from Linear. Notion tasks stay stored. Changing this leaves Notion tasks as they are.'
+        : 'Your tasks are read from Linear. Notion tasks are still stored. Only Warehaus staff can change this.',
     };
   }
   if (view.tasks.reason === 'not-configured') {
@@ -154,10 +243,18 @@ export function taskPlatformCopy(
         : 'Your tasks are set to Linear. Linear is not configured, so tasks and milestones are not shown. Notion tasks are still stored. Only Warehaus staff can change this.',
     };
   }
+  if (view.tasks.reason === 'unavailable') {
+    return {
+      title: 'Linear',
+      body: staff
+        ? 'Linear could not be read. Notion tasks stay stored and are left out of this read.'
+        : 'Linear could not be read, so tasks and milestones are not shown. Notion tasks are still stored. Only Warehaus staff can change this.',
+    };
+  }
   return {
     title: 'Linear',
     body: staff
-      ? 'LINEAR_API_KEY is set. This version does not call Linear, so Linear tasks and milestones are not loaded. Notion tasks stay stored.'
-      : 'Your tasks are set to Linear. This version does not call Linear yet, so tasks and milestones are not shown. Only Warehaus staff can change this.',
+      ? 'LINEAR_API_KEY is set. Tasks load from Linear. Notion tasks stay stored.'
+      : 'Your tasks are read from Linear. Notion tasks are still stored. Only Warehaus staff can change this.',
   };
 }

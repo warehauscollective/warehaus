@@ -358,6 +358,7 @@ export {
   toTaskPlatformView,
   taskPlatformBlockedMessage,
   taskPlatformCopy,
+  linearSyncMiss,
   type TaskPlatform,
   type TaskPlatformEnv,
   type MilestoneWorkStatus,
@@ -370,7 +371,20 @@ export {
   type TaskPlatformStatus,
   type TaskPlatformView,
   type TaskPlatformAdapter,
+  type PlatformTaskRead,
+  type LinearTaskRead,
+  type LinearOrgRead,
+  type LinearIo,
 } from './taskPlatform';
 
 export { notionTaskPlatform } from './notionTaskPlatform';
-export { linearTaskPlatform } from './linearTaskPlatform';
+export {
+  LINEAR_GRAPHQL_URL,
+  linearOrgRead,
+  linearTaskPlatform,
+  mapLinearIssue,
+  mapLinearMilestone,
+  readLinearMilestones,
+  readLinearPlatform,
+  readLinearTasks,
+} from './linearTaskPlatform';

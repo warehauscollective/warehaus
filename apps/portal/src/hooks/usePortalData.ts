@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useAction } from 'convex/react';
 import { api } from '@convex/_generated/api';
+import type { LinearOrgRead } from '@warehaus/portal-sync';
 import {
   type PortalSnapshot,
   type PortalTenantMeta,
@@ -13,6 +15,7 @@ import { FIXTURE_CLIENT_SNAPSHOT, FIXTURE_SNAPSHOT } from '@/lib/data/fixtures';
 import { useFixtureAudience, useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { usePortalSnapshotCache } from '@/components/providers/PortalDataRetry';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { applyLinearRead, loadSharedLinearRead } from '@/lib/data/linearRead';
 import { portalFailure } from '@/lib/data/projectList';
 import {
   heldSnapshotFor,
@@ -70,6 +73,36 @@ export function usePortalData() {
     configured && ready ? { hostSlug: hostSlug ?? undefined } : 'skip',
   );
   const convexSnapshot = snapshotState.data;
+  const readLinear = useAction(api.taskPlatform.readForOrg);
+  const readLinearRef = useRef(readLinear);
+  readLinearRef.current = readLinear;
+  const [linearRead, setLinearRead] = useState<LinearOrgRead | null>(null);
+  const remoteLinear =
+    configured &&
+    ready &&
+    convexSnapshot?.taskPlatform?.platform === 'linear' &&
+    convexSnapshot.taskPlatform.tasks.ok === false &&
+    convexSnapshot.taskPlatform.tasks.reason === 'remote';
+
+  useEffect(() => {
+    if (!remoteLinear) {
+      setLinearRead(null);
+      return;
+    }
+    let cancel = false;
+    void loadSharedLinearRead(`signed-in:${hostSlug ?? ''}`, () =>
+      readLinearRef.current({ hostSlug: hostSlug ?? undefined }),
+    )
+      .then((result) => {
+        if (!cancel) setLinearRead(result);
+      })
+      .catch(() => {
+        if (!cancel) setLinearRead({ ok: false, platform: 'linear', reason: 'unavailable' });
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [remoteLinear, hostSlug]);
 
   // AuthGate unmounts the portal when the session ends, which drops every
   // usePortalData caller. Sealing and unsealing the snapshot cache is only
@@ -146,7 +179,7 @@ export function usePortalData() {
       syncError: loaded.syncMeta.lastError,
     });
     return {
-      data: loaded,
+      data: applyLinearRead(loaded, linearRead),
       loading: false,
       error: failure.snapshotError,
     };
@@ -160,6 +193,7 @@ export function usePortalData() {
     key,
     convexSnapshot,
     snapshotState.error,
+    linearRead,
   ]);
 }
 
