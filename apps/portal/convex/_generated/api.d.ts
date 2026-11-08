@@ -22,6 +22,7 @@ import type * as clientUploads from "../clientUploads.js";
 import type * as clients from "../clients.js";
 import type * as contacts from "../contacts.js";
 import type * as crons from "../crons.js";
+import type * as devMailbox from "../devMailbox.js";
 import type * as http from "../http.js";
 import type * as invites from "../invites.js";
 import type * as invitesSync from "../invitesSync.js";
@@ -81,6 +82,7 @@ declare const fullApi: ApiFromModules<{
   clients: typeof clients;
   contacts: typeof contacts;
   crons: typeof crons;
+  devMailbox: typeof devMailbox;
   http: typeof http;
   invites: typeof invites;
   invitesSync: typeof invitesSync;

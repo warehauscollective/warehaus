@@ -1,6 +1,7 @@
 import { v } from 'convex/values';
+import { anyApi } from 'convex/server';
 import { internalAction } from './_generated/server';
-import { sendPortalEmail } from './_lib/email';
+import { devMailboxEnabled, sendPortalEmail } from './_lib/email';
 
 /** Sends portal mail off the request path so signup does not wait on Resend. */
 export const deliver = internalAction({
@@ -10,7 +11,11 @@ export const deliver = internalAction({
     html: v.string(),
     text: v.string(),
   },
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
+    if (devMailboxEnabled()) {
+      await ctx.runMutation(anyApi.devMailbox.record, args);
+      return;
+    }
     await sendPortalEmail(args);
   },
 });
