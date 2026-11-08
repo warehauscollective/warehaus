@@ -3,6 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useMutation } from 'convex/react';
+import { ProjectRoadmap } from '@/components/projects/ProjectRoadmap';
 import { OutlineButton, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
@@ -492,6 +493,14 @@ export function ProjectsContent() {
               leadName={leadName}
               onOpenClient={openLinkedClient}
               summary={summary}
+            />
+            <ProjectRoadmap
+              project={openProject}
+              tasks={projectTasks}
+              staff={isStaff}
+              fixtures={fixtures}
+              live={!fixtures && configured && !settling}
+              hostSlug={hostSlug}
             />
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div className="min-w-0">

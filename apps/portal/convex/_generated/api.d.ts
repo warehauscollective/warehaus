@@ -27,6 +27,8 @@ import type * as invites from "../invites.js";
 import type * as invitesSync from "../invitesSync.js";
 import type * as mail from "../mail.js";
 import type * as me from "../me.js";
+import type * as _lib_milestones from "../_lib/milestones.js";
+import type * as milestones from "../milestones.js";
 import type * as notificationPrefs from "../notificationPrefs.js";
 import type * as notionAuth from "../notionAuth.js";
 import type * as portalData from "../portalData.js";
@@ -84,6 +86,8 @@ declare const fullApi: ApiFromModules<{
   invitesSync: typeof invitesSync;
   mail: typeof mail;
   me: typeof me;
+  "_lib/milestones": typeof _lib_milestones;
+  milestones: typeof milestones;
   notificationPrefs: typeof notificationPrefs;
   notionAuth: typeof notionAuth;
   portalData: typeof portalData;
