@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -136,6 +136,20 @@ function resourceLabel(count: number): string {
 
 function taskTotal(milestone: MilestoneRoadmapView): number {
   return milestone.openCount + milestone.doneCount;
+}
+
+/** Lane cards are parent tasks. Subtasks stay on the parent card, so they are not a lane. */
+function boardTaskCounts(milestone: MilestoneRoadmapView): { lanes: number; laneDone: number; nested: number } {
+  return {
+    lanes: milestone.rows.length,
+    laneDone: milestone.rows.filter((row) => row.isDone).length,
+    nested: milestone.rows.reduce((sum, row) => sum + row.children.length, 0),
+  };
+}
+
+function nestedCopy(nested: number): string {
+  if (nested === 1) return '1 subtask stays on its parent card, not in its own lane.';
+  return `${nested} subtasks stay on their parent cards, not in their own lanes.`;
 }
 
 function milestoneTasks(tasks: readonly PortalTask[], milestone: MilestoneRoadmapView): PortalTask[] {
@@ -527,6 +541,7 @@ function MilestoneDetail({
   const [busy, setBusy] = useState(false);
   const locked = milestone.approval === 'approved';
   const total = taskTotal(milestone);
+  const board = boardTaskCounts(milestone);
   const shownTasks = milestoneTasks(tasks, milestone);
   const reviews = activity.filter(
     (item) => item.name === milestone.name && item.type.startsWith('milestone.') && item.type !== 'milestone.ready',
@@ -587,7 +602,11 @@ function MilestoneDetail({
       <PageHeading
         testId="milestone-name"
         title={milestone.name}
-        subtitle={`Milestone · ${milestone.doneCount} of ${total} tasks complete`}
+        subtitle={
+          board.nested > 0
+            ? `Milestone · ${board.laneDone} of ${board.lanes} on the board`
+            : `Milestone · ${milestone.doneCount} of ${total} tasks complete`
+        }
         action={<PrimaryButton onClick={() => setReviewOpen(true)}>Review milestone</PrimaryButton>}
       />
       <TabRow
@@ -596,7 +615,7 @@ function MilestoneDetail({
         onChange={(id) => setTab(id as MilestoneTab)}
         tabs={[
           { id: 'overview', label: 'Overview' },
-          { id: 'tasks', label: `Tasks · ${total}` },
+          { id: 'tasks', label: `Tasks · ${board.lanes}` },
           { id: 'reviews', label: `Reviews · ${reviewCount}` },
           { id: 'activity', label: 'Activity' },
         ]}
@@ -670,16 +689,18 @@ function MilestoneDetail({
               <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 style={{ fontSize: 18, lineHeight: '27px', fontWeight: 500 }}>
-                    {milestone.doneCount} of {total} tasks complete
+                    {board.laneDone} of {board.lanes} on the board
                   </h2>
                   <p data-testid="milestone-counts" style={{ marginTop: 8, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
                     <span data-testid="milestone-done-count">{milestone.doneCount}</span>
                     {' complete. '}
                     <span data-testid="milestone-open-count">{milestone.openCount}</span>
-                    {' still open. The open count is not the decision.'}
+                    {' still open.'}
+                    {board.nested > 0 ? ` ${nestedCopy(board.nested)}` : ''}
+                    {' The open count is not the decision.'}
                   </p>
                 </div>
-                <OutlineButton onClick={() => setTab('tasks')}>View tasks · {total}</OutlineButton>
+                <OutlineButton onClick={() => setTab('tasks')}>View tasks · {board.lanes}</OutlineButton>
               </div>
             </Panel>
             <Panel>
@@ -842,8 +863,9 @@ function MilestoneDetail({
       {tab === 'tasks' ? (
         <div className="flex flex-col gap-4">
           <Panel>
-            <p style={{ fontSize: 14, lineHeight: '21px' }}>
-              Tasks come from this milestone. Open a task to see its brief. The open count is not the decision.
+            <p data-testid="milestone-board-count" style={{ fontSize: 14, lineHeight: '21px' }}>
+              {board.lanes} on the board
+              {board.nested > 0 ? `. ${nestedCopy(board.nested)}` : '.'} Open a task to see its brief. The open count is not the decision.
             </p>
           </Panel>
           {total === 0 ? (
@@ -1155,6 +1177,12 @@ function ReviewDialog({
   onDecide: (decision: 'approved' | 'changes_requested') => void;
 }) {
   const [mode, setMode] = useState<'changes_requested' | 'approved'>('changes_requested');
+  const noteRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    if (!error) return;
+    noteRef.current?.focus();
+    noteRef.current?.scrollIntoView({ block: 'nearest' });
+  }, [error]);
   return (
     <MilestoneDialog title="Review milestone" onClose={onClose} testId="milestone-review">
       <p style={{ marginTop: 8, fontSize: 14, color: 'var(--muted)' }}>
@@ -1181,22 +1209,17 @@ function ReviewDialog({
           {mode === 'approved' ? 'Note' : 'What needs to change?'} <span aria-hidden>*</span>
         </span>
         <textarea
+          ref={noteRef}
           data-testid="milestone-note"
           value={note}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? 'milestone-note-error' : undefined}
           onChange={(event) => onNote(event.target.value)}
           rows={4}
           style={{ ...fieldStyle, resize: 'vertical' }}
         />
+        {error ? <FieldError id="milestone-note-error">{error}</FieldError> : null}
       </label>
-      {error ? (
-        <StateCard
-          testId="milestone-error"
-          tone="danger"
-          kicker="SAVE · VALIDATION/ERROR"
-          title="Your changes weren’t saved"
-          body={error}
-        />
-      ) : null}
       <div className="mt-6 flex flex-wrap gap-2">
         <OutlineButton disabled={busy} onClick={onClose}>
           Cancel
@@ -1229,7 +1252,11 @@ function EditDialog({
   const [objective, setObjective] = useState(milestone.objective);
   const [goals, setGoals] = useState(milestone.goals.join('\n'));
   const [resourceIds, setResourceIds] = useState(milestone.resources.map((resource) => resource.id));
+  const [fieldErrors, setFieldErrors] = useState<MilestoneFieldErrors>({});
   const [error, setError] = useState<string | null>(null);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const objectiveRef = useRef<HTMLTextAreaElement>(null);
+  const goalsRef = useRef<HTMLTextAreaElement>(null);
   return (
     <MilestoneDialog title="Edit milestone" onClose={onClose}>
       <form
@@ -1238,10 +1265,15 @@ function EditDialog({
         onSubmit={(event) => {
           event.preventDefault();
           const nextGoals = goals.split('\n').map((line) => line.trim()).filter(Boolean);
-          if (!name.trim() || !objective.trim() || nextGoals.length === 0) {
-            setError('Enter a milestone name, brief, and completion criteria.');
+          const errors = milestoneFieldErrors(name, objective, goals);
+          setFieldErrors(errors);
+          const first = firstInvalidField(errors);
+          if (first) {
+            setError('Enter the missing fields. Nothing was saved.');
+            focusField(first, { name: nameRef, objective: objectiveRef, goals: goalsRef });
             return;
           }
+          setError(null);
           onSave({ name, objective, goals: nextGoals, resourceIds });
         }}
       >
@@ -1251,14 +1283,16 @@ function EditDialog({
           goals={goals}
           resourceIds={resourceIds}
           choices={choices}
+          fieldErrors={fieldErrors}
+          nameRef={nameRef}
+          objectiveRef={objectiveRef}
+          goalsRef={goalsRef}
           onName={setName}
           onObjective={setObjective}
           onGoals={setGoals}
           onResources={setResourceIds}
         />
-        {error ? (
-          <StateCard testId="milestone-error" tone="danger" kicker="SAVE · VALIDATION/ERROR" title="Your changes weren’t saved" body={error} />
-        ) : null}
+        {error ? <FormAlert>{error}</FormAlert> : null}
         <div className="flex flex-wrap gap-2">
           <OutlineButton disabled={busy} onClick={onClose}>
             Cancel
@@ -1292,8 +1326,12 @@ function CreateMilestone({
   const [objective, setObjective] = useState('');
   const [goals, setGoals] = useState('');
   const [resourceIds, setResourceIds] = useState<string[]>([]);
+  const [fieldErrors, setFieldErrors] = useState<MilestoneFieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const objectiveRef = useRef<HTMLTextAreaElement>(null);
+  const goalsRef = useRef<HTMLTextAreaElement>(null);
   return (
     <MilestoneDialog title="New milestone" onClose={onClose}>
       <form
@@ -1302,10 +1340,15 @@ function CreateMilestone({
         onSubmit={(event) => {
           event.preventDefault();
           const nextGoals = goals.split('\n').map((line) => line.trim()).filter(Boolean);
-          if (!name.trim() || !objective.trim() || nextGoals.length === 0) {
-            setError('Enter a milestone name, brief, and completion criteria. If saving fails, keep every field.');
+          const errors = milestoneFieldErrors(name, objective, goals);
+          setFieldErrors(errors);
+          const first = firstInvalidField(errors);
+          if (first) {
+            setError('Enter the missing fields. Nothing was saved.');
+            focusField(first, { name: nameRef, objective: objectiveRef, goals: goalsRef });
             return;
           }
+          setError(null);
           if (fixtures) {
             onFixture({
               id: `m-local-${createdStamp()}`,
@@ -1356,6 +1399,10 @@ function CreateMilestone({
           goals={goals}
           resourceIds={resourceIds}
           choices={resourceChoices}
+          fieldErrors={fieldErrors}
+          nameRef={nameRef}
+          objectiveRef={objectiveRef}
+          goalsRef={goalsRef}
           onName={setName}
           onObjective={setObjective}
           onGoals={setGoals}
@@ -1374,9 +1421,7 @@ function CreateMilestone({
         >
           The milestone is saved first. Its tasks are added on the milestone. A new milestone starts unpublished.
         </p>
-        {error ? (
-          <StateCard testId="milestone-error" tone="danger" kicker="SAVE · VALIDATION/ERROR" title="Your changes weren’t saved" body={error} />
-        ) : null}
+        {error ? <FormAlert>{error}</FormAlert> : null}
         <div className="flex flex-wrap gap-2">
           <OutlineButton disabled={busy} onClick={onClose}>
             Cancel
@@ -1390,12 +1435,63 @@ function CreateMilestone({
   );
 }
 
+type MilestoneFieldErrors = { name?: string; objective?: string; goals?: string };
+type MilestoneField = keyof MilestoneFieldErrors;
+
+function milestoneFieldErrors(name: string, objective: string, goals: string): MilestoneFieldErrors {
+  const errors: MilestoneFieldErrors = {};
+  if (!name.trim()) errors.name = 'Enter a milestone name.';
+  if (!objective.trim()) errors.objective = 'Enter the brief.';
+  if (!goals.split('\n').some((line) => line.trim())) errors.goals = 'Enter at least one completion line.';
+  return errors;
+}
+
+function firstInvalidField(errors: MilestoneFieldErrors): MilestoneField | null {
+  if (errors.name) return 'name';
+  if (errors.objective) return 'objective';
+  if (errors.goals) return 'goals';
+  return null;
+}
+
+function focusField(
+  field: MilestoneField,
+  refs: {
+    name: RefObject<HTMLInputElement | null>;
+    objective: RefObject<HTMLTextAreaElement | null>;
+    goals: RefObject<HTMLTextAreaElement | null>;
+  },
+) {
+  const node = refs[field].current;
+  node?.focus();
+  node?.scrollIntoView({ block: 'nearest' });
+}
+
+function FormAlert({ children }: { children: string }) {
+  return (
+    <p data-testid="milestone-error" role="alert" style={{ margin: 0, fontSize: 13, lineHeight: '18px', color: 'var(--danger)' }}>
+      {children}
+    </p>
+  );
+}
+
+function FieldError({ id, children }: { id: string; children: string }) {
+  return (
+    <span id={id} role="alert" style={{ fontSize: 13, lineHeight: '18px', color: 'var(--danger)' }}>
+      {children}
+    </span>
+  );
+}
+
 function FormFields({
   name,
   objective,
   goals,
   resourceIds,
   choices,
+  fieldErrors,
+  nameRef,
+  objectiveRef,
+  goalsRef,
   onName,
   onObjective,
   onGoals,
@@ -1406,6 +1502,10 @@ function FormFields({
   goals: string;
   resourceIds: string[];
   choices: ResourceChoice[];
+  fieldErrors: MilestoneFieldErrors;
+  nameRef: RefObject<HTMLInputElement | null>;
+  objectiveRef: RefObject<HTMLTextAreaElement | null>;
+  goalsRef: RefObject<HTMLTextAreaElement | null>;
   onName: (value: string) => void;
   onObjective: (value: string) => void;
   onGoals: (value: string) => void;
@@ -1415,62 +1515,87 @@ function FormFields({
     <>
       <label className="flex flex-col gap-2">
         <span style={{ fontSize: 14 }}>Milestone name *</span>
-        <input value={name} onChange={(event) => onName(event.target.value)} style={fieldStyle} />
+        <input
+          ref={nameRef}
+          value={name}
+          aria-invalid={fieldErrors.name ? true : undefined}
+          aria-describedby={fieldErrors.name ? 'milestone-name-error' : undefined}
+          onChange={(event) => onName(event.target.value)}
+          style={fieldStyle}
+        />
+        {fieldErrors.name ? <FieldError id="milestone-name-error">{fieldErrors.name}</FieldError> : null}
       </label>
       <label className="flex flex-col gap-2">
         <span style={{ fontSize: 14 }}>Brief *</span>
         <textarea
+          ref={objectiveRef}
           value={objective}
+          aria-invalid={fieldErrors.objective ? true : undefined}
+          aria-describedby={fieldErrors.objective ? 'milestone-brief-error' : undefined}
           onChange={(event) => onObjective(event.target.value)}
           rows={3}
           placeholder="What should be delivered, and what needs to happen?"
           style={{ ...fieldStyle, resize: 'vertical' }}
         />
+        {fieldErrors.objective ? <FieldError id="milestone-brief-error">{fieldErrors.objective}</FieldError> : null}
       </label>
       <label className="flex flex-col gap-2">
         <span style={{ fontSize: 14 }}>Done when *</span>
         <textarea
+          ref={goalsRef}
           value={goals}
+          aria-invalid={fieldErrors.goals ? true : undefined}
+          aria-describedby={fieldErrors.goals ? 'milestone-goals-error' : undefined}
           onChange={(event) => onGoals(event.target.value)}
           rows={3}
           placeholder="One completion line per row. These are not tasks."
           style={{ ...fieldStyle, resize: 'vertical' }}
         />
+        {fieldErrors.goals ? <FieldError id="milestone-goals-error">{fieldErrors.goals}</FieldError> : null}
       </label>
-      <div className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-        <div>
+      <div>
+        <div className="flex items-center justify-between gap-3">
           <FieldLabel>RESOURCES</FieldLabel>
-          <p style={{ marginTop: 8, fontSize: 14 }}>
-            {resourceIds.length === 0
-              ? 'No resources attached yet'
-              : choices
-                  .filter((choice) => resourceIds.includes(choice.id))
-                  .map((choice) => choice.title)
-                  .join(', ')}
-          </p>
+          <span data-testid="milestone-resource-count" style={{ fontSize: 13, color: 'var(--muted)' }}>
+            {resourceIds.length} selected
+          </span>
         </div>
-        {choices.some((choice) => !resourceIds.includes(choice.id)) ? (
-          <label className="flex flex-col gap-2" style={{ fontSize: 14 }}>
-            Attach resource
-            <select
-              value=""
-              onChange={(event) => {
-                const id = event.target.value;
-                if (id) onResources([...resourceIds, id]);
-              }}
-              style={fieldStyle}
-            >
-              <option value="">Choose a resource</option>
-              {choices
-                .filter((choice) => !resourceIds.includes(choice.id))
-                .map((choice) => (
-                  <option key={choice.id} value={choice.id}>
-                    {choice.title}
-                  </option>
-                ))}
-            </select>
-          </label>
-        ) : null}
+        {choices.length === 0 ? (
+          <p style={{ marginTop: 8, fontSize: 14 }}>No resources to attach.</p>
+        ) : (
+          <ul className="mt-2 flex flex-col gap-2" aria-label="Attach resources">
+            {choices.map((choice) => {
+              const selected = resourceIds.includes(choice.id);
+              return (
+                <li key={choice.id}>
+                  <button
+                    type="button"
+                    aria-pressed={selected}
+                    onClick={() =>
+                      onResources(selected ? resourceIds.filter((id) => id !== choice.id) : [...resourceIds, choice.id])
+                    }
+                    className="flex w-full items-center gap-3 text-left"
+                    style={{
+                      border: selected ? '1px solid var(--fg)' : '1px solid var(--border)',
+                      borderRadius: 12,
+                      padding: '10px 12px',
+                      background: selected ? 'var(--surface-2)' : 'transparent',
+                      color: 'var(--fg)',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    <span className="min-w-0 flex-1" style={{ fontSize: 14, fontWeight: 500 }}>
+                      {choice.title}
+                    </span>
+                    <span style={{ fontSize: 13, color: selected ? 'var(--fg)' : 'var(--muted)' }}>
+                      {selected ? 'Selected' : 'Attach'}
+                    </span>
+                  </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </div>
     </>
   );

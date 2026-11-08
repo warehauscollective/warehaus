@@ -309,7 +309,7 @@ export function TaskBoard({
           setLive('Move cancelled.');
         }}
       >
-        <BoardScroller tracks={boardColumnTemplate(shown.length, phone)}>
+        <BoardScroller tracks={boardColumnTemplate(shown.length, phone)} shared={!phone}>
           {shown.map((column) => {
             const dragging = activeId ? viewTasks.find((task) => task.id === activeId) : undefined;
             const hover = dragging && overKey === column.key ? decide(dragging, column.key) : null;
@@ -332,6 +332,7 @@ export function TaskBoard({
               dropIndex={dragging && accepting ? dropSlotIndex(resting, dragging) : null}
               dropHeight={liftedHeight}
               phone={phone}
+              shared={!phone}
               mode={mode}
               emptyClient={!staff}
               onLiftSize={(height) => {
@@ -468,6 +469,7 @@ function Column({
   dropIndex,
   dropHeight,
   phone,
+  shared,
   mode,
   emptyClient,
   onLiftSize,
@@ -496,6 +498,7 @@ function Column({
   dropIndex: number | null;
   dropHeight: number | null;
   phone: boolean;
+  shared: boolean;
   mode: BoardMode;
   emptyClient: boolean;
   onLiftSize: (height: number) => void;
@@ -547,17 +550,21 @@ function Column({
         position: 'relative',
         minWidth: 0,
         boxSizing: 'border-box',
+        height: shared ? '100%' : undefined,
+        minHeight: shared ? 560 : undefined,
         padding: 12,
         gap: 12,
-        borderRadius: 16,
+        borderRadius: shared ? 12 : 16,
         border: locked
           ? '2px dashed var(--danger)'
           : dashed
             ? '1px dashed var(--border)'
             : activeTarget
               ? '2px solid var(--accent)'
-              : '1px solid var(--border)',
-        background: activeTarget ? 'var(--accent-tint)' : 'var(--bg)',
+              : shared
+                ? '1px solid transparent'
+                : '1px solid var(--border)',
+        background: activeTarget ? 'var(--accent-tint)' : shared ? 'transparent' : 'var(--bg)',
       }}
     >
       <header className="flex items-center gap-2">
@@ -1355,7 +1362,7 @@ function portalNode(node: ReactNode) {
   return createPortal(node, document.body);
 }
 
-function BoardScroller({ children, tracks }: { children: ReactNode; tracks: string }) {
+function BoardScroller({ children, tracks, shared }: { children: ReactNode; tracks: string; shared: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fade, setFade] = useState(false);
   useEffect(() => {
@@ -1378,16 +1385,33 @@ function BoardScroller({ children, tracks }: { children: ReactNode; tracks: stri
       window.removeEventListener('resize', update);
     };
   }, [children]);
+  const columns = (
+    <div
+      ref={ref}
+      data-testid="task-board-columns"
+      className={shared ? 'grid h-full items-stretch gap-3 overflow-x-auto' : 'grid items-start gap-3 overflow-x-auto pb-2'}
+      style={{ gridTemplateColumns: tracks, minHeight: shared ? 596 : undefined }}
+    >
+      {children}
+    </div>
+  );
   return (
-    <div className="relative min-w-0">
-      <div
-        ref={ref}
-        data-testid="task-board-columns"
-        className="grid items-start gap-3 overflow-x-auto pb-2"
-        style={{ gridTemplateColumns: tracks }}
-      >
-        {children}
-      </div>
+    <div
+      className="relative min-w-0"
+      data-testid={shared ? 'task-board-surface' : undefined}
+      style={
+        shared
+          ? {
+              border: '1px solid var(--border)',
+              borderRadius: 16,
+              background: 'var(--surface)',
+              padding: 12,
+              minHeight: 620,
+            }
+          : undefined
+      }
+    >
+      {columns}
       {fade ? (
         <div
           aria-hidden

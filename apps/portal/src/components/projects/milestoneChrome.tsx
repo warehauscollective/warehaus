@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useRef, type ReactNode } from 'react';
+import { scrollActiveIntoView } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 
 export function Panel({
@@ -69,8 +70,22 @@ export function TabRow({
   onChange: (id: string) => void;
   label: string;
 }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const tabKey = tabs.map((tab) => tab.id).join('|');
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    scrollActiveIntoView(node, { activeSelector: '[aria-selected="true"]' });
+  }, [active, tabKey]);
   return (
-    <div className="flex flex-wrap gap-2" role="tablist" aria-label={label}>
+    <div className="min-w-0 max-w-full">
+      <div
+        ref={scroller}
+        className="flex flex-nowrap gap-2 overflow-x-auto"
+        role="tablist"
+        aria-label={label}
+        style={{ scrollbarWidth: 'none' }}
+      >
       {tabs.map((tab) => {
         const selected = tab.id === active;
         return (
@@ -80,6 +95,7 @@ export function TabRow({
             role="tab"
             aria-selected={selected}
             onClick={() => onChange(tab.id)}
+            className="shrink-0 whitespace-nowrap"
             style={{
               background: selected ? 'var(--accent)' : 'transparent',
               color: selected ? 'var(--accent-fg)' : 'var(--muted)',
@@ -96,6 +112,7 @@ export function TabRow({
           </button>
         );
       })}
+      </div>
     </div>
   );
 }
