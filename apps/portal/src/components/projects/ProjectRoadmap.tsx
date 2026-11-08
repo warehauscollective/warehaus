@@ -152,6 +152,14 @@ function nestedCopy(nested: number): string {
   return `${nested} subtasks stay on their parent cards, not in their own lanes.`;
 }
 
+/** Inclusive list and overview progress. Lane badges stay on the board. */
+export function inclusiveProgressCopy(done: number, total: number, nested: number): string {
+  const base = `${done} of ${total} complete`;
+  if (nested === 1) return `${base} · includes 1 subtask`;
+  if (nested > 1) return `${base} · includes ${nested} subtasks`;
+  return base;
+}
+
 function milestoneTasks(tasks: readonly PortalTask[], milestone: MilestoneRoadmapView): PortalTask[] {
   const ids = new Set<string>();
   for (const row of milestone.rows) {
@@ -431,6 +439,7 @@ function MilestoneListCard({
   onOpen: () => void;
 }) {
   const total = taskTotal(milestone);
+  const progress = boardTaskCounts(milestone);
   const meta =
     milestone.approval === 'approved' && milestone.decidedAt
       ? `Approved ${formatWhen(milestone.decidedAt)}`
@@ -472,7 +481,7 @@ function MilestoneListCard({
               color: 'var(--muted)',
             }}
           >
-            {milestone.doneCount} / {total} tasks complete
+            {inclusiveProgressCopy(milestone.doneCount, total, progress.nested)}
           </span>
           <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
             {resourceLabel(milestone.resources.length)} · {updatedCopy(milestone.decidedAt)}
@@ -604,11 +613,7 @@ function MilestoneDetail({
       <PageHeading
         testId="milestone-name"
         title={milestone.name}
-        subtitle={
-          board.nested > 0
-            ? `Milestone · ${board.laneDone} of ${board.lanes} on the board`
-            : `Milestone · ${milestone.doneCount} of ${total} tasks complete`
-        }
+        subtitle={`Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, board.nested)}`}
         action={<PrimaryButton onClick={() => setReviewOpen(true)}>Review milestone</PrimaryButton>}
       />
       <TabRow
@@ -691,7 +696,7 @@ function MilestoneDetail({
               <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 style={{ fontSize: 18, lineHeight: '27px', fontWeight: 500 }}>
-                    {board.laneDone} of {board.lanes} on the board
+                    {inclusiveProgressCopy(milestone.doneCount, total, board.nested)}
                   </h2>
                   <p data-testid="milestone-counts" style={{ marginTop: 8, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
                     <span data-testid="milestone-done-count">{milestone.doneCount}</span>

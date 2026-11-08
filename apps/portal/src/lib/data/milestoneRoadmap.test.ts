@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { FIXTURE_TASKS } from '@/lib/data/fixtures';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
+import { inclusiveProgressCopy } from '@/components/projects/ProjectRoadmap';
 
 const site = {
   id: 'p-site',
@@ -53,5 +54,12 @@ describe('roadmap markup', () => {
     assert.doesNotMatch(source, /type="checkbox"/);
     assert.doesNotMatch(source, /PortalCheckbox/);
     assert.doesNotMatch(source, /percent/);
+  });
+
+  it('names subtasks in the inclusive progress and leaves a plain count when there are none', () => {
+    assert.equal(inclusiveProgressCopy(1, 3, 1), '1 of 3 complete · includes 1 subtask');
+    assert.equal(inclusiveProgressCopy(2, 5, 2), '2 of 5 complete · includes 2 subtasks');
+    assert.equal(inclusiveProgressCopy(1, 2, 0), '1 of 2 complete');
+    assert.equal(inclusiveProgressCopy(0, 0, 0), '0 of 0 complete');
   });
 });

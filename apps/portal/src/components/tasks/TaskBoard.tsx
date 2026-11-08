@@ -91,7 +91,20 @@ export function stageSavedFeedback(input: {
 /** Equal tracks. Emptying a column does not change the template, so the row does not jump. */
 export function boardColumnTemplate(count: number, phone: boolean): string {
   if (phone) return 'minmax(0, 1fr)';
-  return `repeat(${Math.max(count, 1)}, minmax(12.75rem, 1fr))`;
+  // 12rem lets five lanes fit the 1440 project column. Narrower desktops still scroll.
+  return `repeat(${Math.max(count, 1)}, minmax(12rem, 1fr))`;
+}
+
+/** Right-edge hint only while horizontal lane content is still out of view. */
+export function boardShowsEdgeFade(input: {
+  wide: boolean;
+  scrollWidth: number;
+  clientWidth: number;
+  scrollLeft: number;
+}): boolean {
+  const overflow = input.scrollWidth - input.clientWidth > 1;
+  const atEnd = input.scrollLeft + input.clientWidth >= input.scrollWidth - 1;
+  return input.wide && overflow && !atEnd;
 }
 
 /** A drop stays in the new column only when enqueue accepts it. */
@@ -1370,9 +1383,14 @@ function BoardScroller({ children, tracks, shared }: { children: ReactNode; trac
     if (!node) return;
     const update = () => {
       const wide = window.matchMedia('(min-width: 1024px)').matches;
-      const overflow = node.scrollWidth - node.clientWidth > 1;
-      const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 1;
-      setFade(wide && overflow && !atEnd);
+      setFade(
+        boardShowsEdgeFade({
+          wide,
+          scrollWidth: node.scrollWidth,
+          clientWidth: node.clientWidth,
+          scrollLeft: node.scrollLeft,
+        }),
+      );
     };
     update();
     node.addEventListener('scroll', update, { passive: true });
@@ -1407,6 +1425,7 @@ function BoardScroller({ children, tracks, shared }: { children: ReactNode; trac
               background: 'var(--surface)',
               padding: 12,
               minHeight: 620,
+              overflow: 'hidden',
             }
           : undefined
       }
@@ -1416,8 +1435,14 @@ function BoardScroller({ children, tracks, shared }: { children: ReactNode; trac
         <div
           aria-hidden
           data-testid="board-edge-fade"
-          className="pointer-events-none absolute inset-y-0 right-0"
-          style={{ width: 72, background: 'linear-gradient(to right, transparent, var(--bg))' }}
+          className="pointer-events-none absolute"
+          style={{
+            top: 12,
+            bottom: 12,
+            right: 12,
+            width: 72,
+            background: 'linear-gradient(to right, transparent, var(--surface))',
+          }}
         />
       ) : null}
     </div>
