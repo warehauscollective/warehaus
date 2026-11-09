@@ -9,7 +9,7 @@ import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
-import { formatPortalDate, type PortalTask } from '@/lib/data/view-models';
+import { type PortalTask } from '@/lib/data/view-models';
 import {
   FieldLabel,
   FieldValue,
@@ -17,6 +17,7 @@ import {
   MenuActionError,
   MilestoneDialog,
   MissingMilestoneApi,
+  MilestoneListButton,
   PageHeading,
   Panel,
   StatusChip,
@@ -135,6 +136,31 @@ function applyFixtureTasks(
 function formatWhen(at: number | null): string | null {
   if (at == null) return null;
   return new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+/** Project summary date. The list frame includes the year. */
+function nextDueLabel(value?: string | null): string {
+  if (!value) return '—';
+  const dateOnly = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  const date = dateOnly
+    ? new Date(Date.UTC(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])))
+    : new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
+}
+
+/** Compact chip on the milestone list. The count still includes subtasks. */
+function listProgressCopy(done: number, total: number): string {
+  return `${done} / ${total} complete`;
+}
+
+function approvalLine(milestone: MilestoneRoadmapView): string | null {
+  if (milestone.approval === 'approved' && milestone.decidedAt) {
+    const when = new Date(milestone.decidedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    return `Approved ${when}`;
+  }
+  if (milestone.approval === 'changes_requested') return APPROVAL_LABEL.changes_requested;
+  return null;
 }
 
 function resourceLabel(count: number): string {
@@ -283,20 +309,40 @@ export function ProjectRoadmap({
 
   return (
     <section data-testid="project-roadmap" className="flex flex-col gap-6">
-      {page ? (
+      {page && selected ? (
         <NavBreadcrumb
           back="always"
-          onBack={() => {
-            if (selected) {
-              setOpenMilestoneId(null);
-              return;
-            }
-            onBackToProjects?.();
-          }}
+          onBack={() => setOpenMilestoneId(null)}
           parent={{ label: 'Projects', onClick: () => onBackToProjects?.() }}
-          middle={selected ? { label: project.name, onClick: () => setOpenMilestoneId(null) } : undefined}
-          current={selected ? selected.name : project.name}
+          middle={{ label: project.name, onClick: () => setOpenMilestoneId(null) }}
+          current={selected.name}
         />
+      ) : null}
+      {page && !selected ? (
+        <nav
+          aria-label="Breadcrumb"
+          data-testid="nav-breadcrumb"
+          className="ds-mono min-w-0"
+          style={{ fontSize: 11, lineHeight: '17px', color: 'var(--muted)' }}
+        >
+          <button
+            type="button"
+            onClick={() => onBackToProjects?.()}
+            data-testid="nav-breadcrumb-parent"
+            style={{
+              font: 'inherit',
+              color: 'inherit',
+              background: 'none',
+              border: 0,
+              padding: 0,
+              cursor: 'pointer',
+            }}
+          >
+            Projects
+          </button>
+          <span aria-hidden> / </span>
+          <span data-testid="nav-breadcrumb-current">{project.name}</span>
+        </nav>
       ) : null}
 
       {selected ? (
@@ -317,11 +363,12 @@ export function ProjectRoadmap({
       ) : (
         <>
           <PageHeading
+            measure
             title={project.name}
             subtitle="Project details · Every task belongs to a milestone"
             action={
               staff ? (
-                <PrimaryButton onClick={() => setCreateOpen(true)}>New milestone</PrimaryButton>
+                <MilestoneListButton onClick={() => setCreateOpen(true)}>New milestone</MilestoneListButton>
               ) : null
             }
           />
@@ -353,14 +400,14 @@ export function ProjectRoadmap({
           {projectTab === 'details' && page ? details : null}
 
           {projectTab === 'milestones' || !page ? (
-            <>
+            <div className="flex flex-col gap-6">
               <Panel>
-                <div className="grid grid-cols-2 gap-6 md:grid-cols-4">
-                  <div className="hidden md:block">
+                <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-4 md:gap-8">
+                  <div>
                     <FieldLabel>CLIENT</FieldLabel>
                     <FieldValue>{clientName || project.clientName || '—'}</FieldValue>
                   </div>
-                  <div className="hidden md:block">
+                  <div>
                     <FieldLabel>PROJECT STATUS</FieldLabel>
                     <FieldValue>{project.status || '—'}</FieldValue>
                   </div>
@@ -372,7 +419,7 @@ export function ProjectRoadmap({
                   </div>
                   <div>
                     <FieldLabel>NEXT DUE</FieldLabel>
-                    <FieldValue>{formatPortalDate(project.endDate)}</FieldValue>
+                    <FieldValue>{nextDueLabel(project.endDate)}</FieldValue>
                   </div>
                 </div>
               </Panel>
@@ -437,7 +484,7 @@ export function ProjectRoadmap({
                     : 'The open count is not the decision. Approving a milestone does not close its tasks.'}
                 </p>
               ) : null}
-            </>
+            </div>
           ) : null}
           </div>
         </>
@@ -470,17 +517,11 @@ function MilestoneListCard({
   onOpen: () => void;
 }) {
   const total = taskTotal(milestone);
-  const progress = boardTaskCounts(milestone);
-  const meta =
-    milestone.approval === 'approved' && milestone.decidedAt
-      ? `Approved ${formatWhen(milestone.decidedAt)}`
-      : milestone.approval === 'changes_requested'
-        ? APPROVAL_LABEL.changes_requested
-        : null;
+  const meta = approvalLine(milestone);
   return (
     <article
       data-testid={`milestone-${milestone.id}`}
-      className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between"
+      className="flex flex-col gap-4 md:flex-row md:items-start md:gap-6"
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
@@ -492,14 +533,14 @@ function MilestoneListCard({
         <StatusChip label={WORK_LABEL[milestone.workStatus]} />
         {meta ? <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{meta}</p> : null}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
         <h2 data-testid="milestone-name" style={{ fontSize: 20, lineHeight: '30px', fontWeight: 500 }}>
           {milestone.name}
         </h2>
-        <p data-testid="milestone-objective" style={{ marginTop: 12, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
+        <p data-testid="milestone-objective" style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
           {milestone.objective}
         </p>
-        <div className="mt-3 flex flex-col items-start gap-2 md:flex-row md:flex-wrap md:items-center md:gap-4">
+        <div className="flex flex-col items-start gap-2 md:flex-row md:flex-wrap md:items-center md:gap-4">
           <span
             className="ds-mono"
             style={{
@@ -512,7 +553,7 @@ function MilestoneListCard({
               color: 'var(--muted)',
             }}
           >
-            {inclusiveProgressCopy(milestone.doneCount, total, progress.nested)}
+            {listProgressCopy(milestone.doneCount, total)}
           </span>
           <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
             {resourceLabel(milestone.resources.length)} · {reviewStamp(milestone.decidedAt)}
@@ -524,13 +565,13 @@ function MilestoneListCard({
           ) : null}
         </div>
       </div>
-      <div className="hidden flex-col items-start gap-3 md:flex md:w-[174px] md:items-stretch">
+      <div className="hidden w-[174px] shrink-0 flex-col items-start gap-3 md:flex">
         <StatusChip label={WORK_LABEL[milestone.workStatus]} />
         {meta ? <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{meta}</p> : null}
-        <OutlineButton onClick={onOpen}>Open milestone</OutlineButton>
+        <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
       <div className="md:hidden">
-        <OutlineButton onClick={onOpen}>Open milestone</OutlineButton>
+        <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
     </article>
   );

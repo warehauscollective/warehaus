@@ -37,14 +37,18 @@ export function Panel({
 
 export function FieldLabel({ children }: { children: ReactNode }) {
   return (
-    <p className="ds-mono" style={{ fontSize: 10, lineHeight: '15px', letterSpacing: '0.06em', color: 'var(--muted)' }}>
+    <p className="ds-mono" style={{ fontSize: 10, lineHeight: '15px', color: 'var(--muted)' }}>
       {children}
     </p>
   );
 }
 
 export function FieldValue({ children }: { children: ReactNode }) {
-  return <p style={{ marginTop: 4, fontSize: 14, lineHeight: '21px', color: 'var(--fg)' }}>{children}</p>;
+  return (
+    <p style={{ marginTop: 4, fontFamily: 'var(--font-body)', fontSize: 14, fontWeight: 400, lineHeight: '21px', color: 'var(--fg)' }}>
+      {children}
+    </p>
+  );
 }
 
 /** Work status chip. Milestones have no stage field. */
@@ -147,20 +151,57 @@ export function PageHeading({
   subtitle,
   action,
   testId,
+  measure = false,
 }: {
   title: string;
   subtitle: string;
   action?: ReactNode;
   testId?: string;
+  /** Desktop title column from the 1440 milestone list. The action sits 24px after it. */
+  measure?: boolean;
 }) {
   return (
-    <div className="flex flex-col items-start gap-4 md:flex-row md:items-start md:justify-between">
-      <div className="min-w-0 flex-1">
+    <div className={measure ? 'flex flex-col items-start gap-4 md:flex-row md:items-start md:gap-6' : 'flex flex-col items-start gap-4 md:flex-row md:items-start md:justify-between'}>
+      <div className={measure ? 'min-w-0 w-full md:w-[820px] md:max-w-[calc(100%-180px)]' : 'min-w-0 flex-1'}>
         <h1 data-testid={testId} style={{ fontSize: 30, lineHeight: '45px', fontWeight: 600, color: 'var(--fg)' }}>{title}</h1>
         <p style={{ marginTop: 4, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>{subtitle}</p>
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
+  );
+}
+
+/** Filled and outline controls from the milestone list. 14px medium, 12×16, radius 9. */
+export function MilestoneListButton({
+  children,
+  onClick,
+  tone = 'fill',
+}: {
+  children: ReactNode;
+  onClick?: () => void;
+  tone?: 'fill' | 'outline';
+}) {
+  const fill = tone === 'fill';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="inline-flex shrink-0 items-center justify-center"
+      style={{
+        background: fill ? 'var(--accent)' : 'transparent',
+        color: fill ? 'var(--accent-fg)' : 'var(--fg)',
+        border: fill ? 0 : '1px solid var(--border-2)',
+        borderRadius: 9,
+        padding: '12px 16px',
+        fontFamily: 'var(--font-body)',
+        fontSize: 14,
+        fontWeight: 500,
+        lineHeight: 'normal',
+        cursor: 'pointer',
+      }}
+    >
+      {children}
+    </button>
   );
 }
 
