@@ -40,7 +40,9 @@ function TabPanelShell({
   const project = tab === 'projects';
   return (
     <div
-      className={`portal-tab-shell box-border flex h-full min-h-0 flex-col overflow-hidden pb-28 lg:flex-row lg:items-stretch ${
+      className={`portal-tab-shell box-border flex h-full min-h-0 flex-col overflow-hidden lg:flex-row lg:items-stretch ${
+        project ? 'pb-0 lg:pb-28' : 'pb-28'
+      } ${
         project ? 'pt-4 lg:pt-6' : 'pt-3 lg:pt-[var(--portal-panel-gap,1.25rem)]'
       }`}
       style={{

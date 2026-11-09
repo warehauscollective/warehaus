@@ -167,34 +167,32 @@ export function MobileMenu({
           height={25.593}
           className="portal-wordmark shrink-0"
         />
-        <span className="relative inline-flex">
-          <button
-            ref={menuRef}
-            type="button"
-            className="inline-flex items-center justify-center"
-            aria-expanded={open}
-            aria-controls="menu-sheet"
-            aria-label={unread > 0 ? unreadLabel(unread) : 'Menu'}
-            data-testid="mobile-menu-button"
-            onClick={openSheet}
-            style={{
-              minWidth: 44,
-              minHeight: 44,
-              height: 44,
-              padding: '12px 16px',
-              borderRadius: 9,
-              border: 0,
-              background: 'transparent',
-              color: 'var(--muted)',
-              fontFamily: 'var(--font-geist), var(--font-body)',
-              fontSize: 14,
-              fontWeight: 500,
-              lineHeight: 'normal',
-              cursor: 'pointer',
-            }}
-          >
-            Menu
-          </button>
+        <button
+          ref={menuRef}
+          type="button"
+          className="relative inline-flex items-center justify-center"
+          aria-expanded={open}
+          aria-controls="menu-sheet"
+          aria-label={unread > 0 ? unreadLabel(unread) : 'Menu'}
+          data-testid="mobile-menu-button"
+          onClick={openSheet}
+          style={{
+            minWidth: 44,
+            minHeight: 44,
+            height: 44,
+            padding: '12px 16px',
+            borderRadius: 9,
+            border: 0,
+            background: 'transparent',
+            color: 'var(--muted)',
+            fontFamily: 'var(--font-geist), var(--font-body)',
+            fontSize: 14,
+            fontWeight: 500,
+            lineHeight: 'normal',
+            cursor: 'pointer',
+          }}
+        >
+          Menu
           {unread > 0 ? (
             <span
               aria-hidden
@@ -202,7 +200,7 @@ export function MobileMenu({
               className="pointer-events-none absolute"
               style={{
                 top: 8,
-                right: 8,
+                right: 2,
                 width: 10,
                 height: 10,
                 borderRadius: 999,
@@ -211,7 +209,7 @@ export function MobileMenu({
               }}
             />
           ) : null}
-        </span>
+        </button>
       </header>
 
       {open ? (
@@ -414,7 +412,9 @@ export function MobileMenu({
                         {unread > 99 ? '99+' : unread}
                       </span>
                     ) : null}
-                    <TaskGlyph src="/icons/docs-chev.svg" size={16} />
+                    <span className="inline-flex shrink-0" style={{ color: 'var(--muted)' }}>
+                      <TaskGlyph src="/icons/menu-arrow.svg" size={16} />
+                    </span>
                   </button>
                 </div>
               </div>

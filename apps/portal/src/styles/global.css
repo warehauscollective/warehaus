@@ -99,6 +99,12 @@ html[data-density='compact'] .ds-data th {
 [data-testid="project-detail"] {
   scrollbar-width: none;
 }
+/* The phone scroller runs under the floating dock. Padding is inside the scroll, so the end can clear the dock. */
+@media (max-width: 1023px) {
+  [data-testid="project-detail"] {
+    padding-bottom: 82px;
+  }
+}
 [data-testid="project-detail"]::-webkit-scrollbar {
   display: none;
 }

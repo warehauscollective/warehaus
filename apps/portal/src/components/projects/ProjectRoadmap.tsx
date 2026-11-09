@@ -333,7 +333,7 @@ export function ProjectRoadmap({
         <>
           <button
             type="button"
-            className="inline-flex items-center justify-center lg:hidden"
+            className="inline-flex items-center justify-start lg:hidden"
             data-testid="nav-breadcrumb-back"
             onClick={() => onBackToProjects?.()}
             style={{
@@ -401,7 +401,7 @@ export function ProjectRoadmap({
           <PageHeading
             measure
             title={project.name}
-            subtitle="Project details · Every task belongs to a milestone"
+            subtitle="Project details · Review the work by milestone"
             action={
               staff ? (
                 <MilestoneListButton onClick={() => setCreateOpen(true)}>New milestone</MilestoneListButton>
