@@ -192,6 +192,7 @@ describe('milestone review fixes', () => {
     assert.equal(reviewStamp(now, now).includes('Updated'), false);
     assert.notEqual(goalKey(0, 'Ship'), goalKey(1, 'Ship'));
     assert.match(roadmap, /goalKey\(index, goal\)/);
-    assert.match(roadmap, /reviewStamp\(milestone\.decidedAt\)/);
+    assert.match(roadmap, /reviewStamp\(storedReview\.decidedAt\)/);
+    assert.match(roadmap, /tileUpdatedLine\(milestone\.decidedAt\)/);
   });
 });

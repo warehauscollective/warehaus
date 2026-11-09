@@ -3,7 +3,13 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { FIXTURE_TASKS } from '@/lib/data/fixtures';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
-import { inclusiveProgressCopy } from '@/components/projects/ProjectRoadmap';
+import {
+  inclusiveProgressCopy,
+  milestoneTileDate,
+  milestoneTileStage,
+  tileProgressLabel,
+  tileUpdatedLine,
+} from '@/components/projects/ProjectRoadmap';
 
 const site = {
   id: 'p-site',
@@ -54,6 +60,27 @@ describe('roadmap markup', () => {
     assert.doesNotMatch(source, /type="checkbox"/);
     assert.doesNotMatch(source, /PortalCheckbox/);
     assert.doesNotMatch(source, /percent/);
+  });
+
+  it('matches the milestone tile stage, date, and progress chip', () => {
+    assert.deepEqual(milestoneTileStage({ approval: 'unreviewed', workStatus: 'draft' }), {
+      label: 'Planning',
+      glyph: '/icons/item-stage.svg',
+    });
+    assert.deepEqual(milestoneTileStage({ approval: 'unreviewed', workStatus: 'active' }), {
+      label: 'Building',
+      glyph: '/icons/task-stage.svg',
+    });
+    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'ready' }).label, 'Shipped');
+    assert.equal(milestoneTileDate({ approval: 'unreviewed', decidedAt: null, due: '2026-11-20' }), 'Due Nov 20');
+    assert.equal(
+      milestoneTileDate({ approval: 'approved', decidedAt: Date.parse('2026-11-06T15:00:00Z'), due: '2026-11-20' }),
+      'Approved Nov 6',
+    );
+    assert.equal(tileProgressLabel(3, 8, false), '3 / 8 complete');
+    assert.equal(tileProgressLabel(3, 8, true), '3 / 8 tasks complete');
+    assert.equal(tileUpdatedLine(null, Date.parse('2026-11-09T12:00:00Z')), 'Updated today');
+    assert.equal(tileUpdatedLine(Date.parse('2026-11-06T15:00:00Z'), Date.parse('2026-11-09T12:00:00Z')), 'Updated Nov 6');
   });
 
   it('names subtasks in the inclusive progress and leaves a plain count when there are none', () => {

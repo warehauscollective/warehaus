@@ -156,21 +156,51 @@ function projectStatusLabel(status?: string | null): string {
   return status;
 }
 
-/** Approved date when one exists. There is no milestone due field, so that line is omitted. */
-function milestoneDateLine(milestone: MilestoneRoadmapView): string | null {
-  if (milestone.approval !== 'approved' || !milestone.decidedAt) return null;
-  const when = new Date(milestone.decidedAt).toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    timeZone: 'UTC',
-  });
-  return `Approved ${when}`;
+function monthDay(value: string | number): string {
+  const dateOnly = typeof value === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null;
+  const date = dateOnly
+    ? new Date(Date.UTC(Number(dateOnly[1]), Number(dateOnly[2]) - 1, Number(dateOnly[3])))
+    : new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' });
 }
 
-function statusGlyph(milestone: MilestoneRoadmapView): string {
-  if (milestone.approval === 'approved') return '/icons/task-stage-shipped.svg';
-  if (milestone.workStatus === 'draft') return '/icons/item-stage.svg';
-  return '/icons/task-stage.svg';
+/**
+ * Tile date from the milestone frames. Approved uses the decision day.
+ * Otherwise the project end date, which is the only due the portal stores.
+ */
+export function milestoneTileDate(input: {
+  approval: string;
+  decidedAt: number | null;
+  due?: string | null;
+}): string | null {
+  if (input.approval === 'approved' && input.decidedAt) return `Approved ${monthDay(input.decidedAt)}`;
+  if (!input.due) return null;
+  return `Due ${monthDay(input.due)}`;
+}
+
+/** Planning, Building, and Shipped are the tile badge. The detail page keeps the work-status words. */
+export function milestoneTileStage(input: {
+  approval: string;
+  workStatus: MilestoneRoadmapView['workStatus'];
+}): { label: 'Planning' | 'Building' | 'Shipped'; glyph: string } {
+  if (input.approval === 'approved') return { label: 'Shipped', glyph: '/icons/task-stage-shipped.svg' };
+  if (input.workStatus === 'draft') return { label: 'Planning', glyph: '/icons/item-stage.svg' };
+  return { label: 'Building', glyph: '/icons/task-stage.svg' };
+}
+
+/** Desktop chip is `3 / 8 complete`. The phone chip adds the word tasks. */
+export function tileProgressLabel(done: number, total: number, phone: boolean): string {
+  return phone ? `${done} / ${total} tasks complete` : `${done} / ${total} complete`;
+}
+
+/** Resource line on the tile. The frames say Updated today when there is no decision time. */
+export function tileUpdatedLine(at: number | null, now = Date.now()): string {
+  if (at == null) return 'Updated today';
+  const date = new Date(at);
+  const today = new Date(now);
+  if (date.toDateString() === today.toDateString()) return 'Updated today';
+  return `Updated ${monthDay(at)}`;
 }
 
 function resourceLabel(count: number): string {
@@ -524,7 +554,7 @@ export function ProjectRoadmap({
                   <MilestoneListCard
                     key={milestone.id}
                     milestone={milestone}
-                    staff={staff}
+                    due={project.endDate}
                     onOpen={() => setOpenMilestoneId(milestone.id)}
                   />
                 ))}
@@ -562,17 +592,17 @@ export function ProjectRoadmap({
 
 function MilestoneListCard({
   milestone,
-  staff,
+  due,
   onOpen,
 }: {
   milestone: MilestoneRoadmapView;
-  staff: boolean;
+  due?: string | null;
   onOpen: () => void;
 }) {
   const total = taskTotal(milestone);
-  const nested = boardTaskCounts(milestone).nested;
-  const meta = milestoneDateLine(milestone);
-  const glyph = statusGlyph(milestone);
+  const stage = milestoneTileStage(milestone);
+  const dateLine = milestoneTileDate({ approval: milestone.approval, decidedAt: milestone.decidedAt, due });
+  const updated = `${resourceLabel(milestone.resources.length)} · ${tileUpdatedLine(milestone.decidedAt)}`;
   return (
     <article
       data-testid={`milestone-${milestone.id}`}
@@ -584,9 +614,13 @@ function MilestoneListCard({
         padding: 24,
       }}
     >
-      <div className="flex items-center lg:hidden" style={{ gap: meta ? 24 : 0 }}>
-        <StatusChip label={WORK_LABEL[milestone.workStatus]} glyph={glyph} />
-        {meta ? <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{meta}</p> : null}
+      <div className="flex items-center gap-6 lg:hidden">
+        <StatusChip label={stage.label} glyph={stage.glyph} />
+        {dateLine ? (
+          <p data-testid="milestone-due" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+            {dateLine}
+          </p>
+        ) : null}
       </div>
       <div className="flex min-w-0 flex-1 flex-col gap-4 lg:gap-3">
         <h2 data-testid="milestone-name" className="text-[21px] leading-[32px] lg:text-[20px] lg:leading-[30px]" style={{ fontFamily: 'var(--font-geist), var(--font-body)', fontWeight: 500 }}>
@@ -595,9 +629,10 @@ function MilestoneListCard({
         <p data-testid="milestone-objective" style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
           {milestone.objective}
         </p>
-        <div className="flex flex-col items-start gap-4 lg:flex-row lg:flex-wrap lg:items-center">
+        <div className="flex flex-col items-start gap-4 lg:flex-row lg:flex-nowrap lg:items-center">
           <span
             className="ds-mono"
+            data-testid="milestone-progress"
             style={{
               background: 'var(--surface-2)',
               border: '1px solid var(--border)',
@@ -608,21 +643,19 @@ function MilestoneListCard({
               color: 'var(--muted)',
             }}
           >
-            {inclusiveProgressCopy(milestone.doneCount, total, nested)}
+            <span className="lg:hidden">{tileProgressLabel(milestone.doneCount, total, true)}</span>
+            <span className="hidden lg:inline">{tileProgressLabel(milestone.doneCount, total, false)}</span>
           </span>
-          <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-            {resourceLabel(milestone.resources.length)} · {reviewStamp(milestone.decidedAt)}
-          </span>
-          {staff && !milestone.publishToWarehaus ? (
-            <span data-testid="milestone-publish" style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Not published
-            </span>
-          ) : null}
+          <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{updated}</span>
         </div>
       </div>
       <div className="hidden w-[174px] shrink-0 flex-col items-start gap-3 lg:flex">
-        <StatusChip label={WORK_LABEL[milestone.workStatus]} glyph={glyph} />
-        {meta ? <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{meta}</p> : null}
+        <StatusChip label={stage.label} glyph={stage.glyph} />
+        {dateLine ? (
+          <p data-testid="milestone-due" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+            {dateLine}
+          </p>
+        ) : null}
         <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
       <div className="lg:hidden">
