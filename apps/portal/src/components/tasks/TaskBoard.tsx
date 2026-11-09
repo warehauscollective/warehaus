@@ -133,6 +133,7 @@ export function TaskBoard({
   quickAddEnabled = true,
   showQuickAdd = true,
   hideGroupToggle = false,
+  framed = false,
 }: {
   tasks: PortalTask[];
   staff: boolean;
@@ -147,9 +148,12 @@ export function TaskBoard({
   showQuickAdd?: boolean;
   /** Milestone tasks stay on status columns. */
   hideGroupToggle?: boolean;
+  /** Shared lane surface, equal heights, and the inset fade. Only the milestone board turns this on. */
+  framed?: boolean;
 }) {
   const [mode, setMode] = useState<BoardMode>('status');
   const [phone, setPhone] = useState(false);
+  const framedSurface = framed && !phone;
   const [overrides, setOverrides] = useState<Record<string, { mode: BoardMode; value: string; pending?: boolean }>>({});
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ message: string; retry?: () => void; undo?: () => void } | null>(null);
@@ -322,7 +326,7 @@ export function TaskBoard({
           setLive('Move cancelled.');
         }}
       >
-        <BoardScroller tracks={boardColumnTemplate(shown.length, phone)} shared={!phone}>
+        <BoardScroller tracks={boardColumnTemplate(shown.length, phone)} shared={framedSurface}>
           {shown.map((column) => {
             const dragging = activeId ? viewTasks.find((task) => task.id === activeId) : undefined;
             const hover = dragging && overKey === column.key ? decide(dragging, column.key) : null;
@@ -345,7 +349,7 @@ export function TaskBoard({
               dropIndex={dragging && accepting ? dropSlotIndex(resting, dragging) : null}
               dropHeight={liftedHeight}
               phone={phone}
-              shared={!phone}
+              shared={framedSurface}
               mode={mode}
               emptyClient={!staff}
               onLiftSize={(height) => {
@@ -1431,7 +1435,7 @@ function BoardScroller({ children, tracks, shared }: { children: ReactNode; trac
       }
     >
       {columns}
-      {fade ? (
+      {shared && fade ? (
         <div
           aria-hidden
           data-testid="board-edge-fade"

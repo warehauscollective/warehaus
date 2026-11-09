@@ -23,6 +23,17 @@ import {
   TabRow,
   fieldStyle,
 } from './milestoneChrome';
+import {
+  ACTIVITY_MILESTONE_ID_GAP,
+  boardCountsFromTasks,
+  clientMilestoneEmptyKind,
+  goalKey,
+  milestoneResourceChoices,
+  milestonesAfterQuery,
+  reviewStamp,
+  storedMilestoneReview,
+  tabIds,
+} from './milestoneGuards';
 
 const WORK_LABEL = { draft: 'Draft', active: 'In progress', ready: 'Ready for review' } as const;
 const APPROVAL_LABEL = {
@@ -122,14 +133,6 @@ function formatWhen(at: number | null): string | null {
   return new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
-function updatedCopy(at: number | null): string {
-  if (at == null) return 'Not updated yet';
-  const date = new Date(at);
-  const now = new Date();
-  if (date.toDateString() === now.toDateString()) return 'Updated today';
-  return `Updated ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-}
-
 function resourceLabel(count: number): string {
   return count === 1 ? '1 resource' : `${count} resources`;
 }
@@ -182,9 +185,9 @@ export function ProjectRoadmap({
   hostSlug,
   clientName,
   activity = [],
+  activityError = null,
   onBackToProjects,
   onOpenTask,
-  onCreateTask,
   resourceChoices = [],
   resourcesExtra,
   renderTasks,
@@ -198,9 +201,9 @@ export function ProjectRoadmap({
   hostSlug?: string;
   clientName?: string | null;
   activity?: readonly MilestoneActivityItem[];
+  activityError?: string | null;
   onBackToProjects?: () => void;
   onOpenTask?: (task: PortalTask) => void;
-  onCreateTask?: () => void;
   resourceChoices?: ResourceChoice[];
   resourcesExtra?: ReactNode;
   renderTasks?: (tasks: PortalTask[]) => ReactNode;
@@ -211,6 +214,7 @@ export function ProjectRoadmap({
   const [projectTab, setProjectTab] = useState<ProjectTab>('milestones');
   const [openMilestoneId, setOpenMilestoneId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
+  const rememberedMilestones = useRef<MilestoneRoadmapView[]>([]);
   const projectId = project.id as Id<'projects'>;
   const staffQuery = useSafeQuery<MilestoneRoadmapView[]>(
     api.milestones.listForProject,
@@ -229,9 +233,15 @@ export function ProjectRoadmap({
   if (!fixtures && !live && !onBackToProjects) return null;
   if (!fixtures && query.error && isMissingConvexFunction(query.error) && !onBackToProjects) return null;
 
+  if (!fixtures && query.data) rememberedMilestones.current = query.data;
   const milestones = fixtures
     ? [...fixtureRows, ...created].map((row) => applyFixtureTasks(row, tasks, patches[row.id]))
-    : (query.data ?? []);
+    : milestonesAfterQuery({
+        data: query.data,
+        error: query.error,
+        loading: query.loading,
+        previous: rememberedMilestones.current,
+      });
   const selected = milestones.find((milestone) => milestone.id === openMilestoneId) ?? null;
   const approvedCount = milestones.filter((milestone) => milestone.approval === 'approved').length;
   const attachedIds = new Set(milestones.flatMap((milestone) => milestone.rows.map((row) => row.id)));
@@ -287,9 +297,8 @@ export function ProjectRoadmap({
           staff={staff}
           fixtures={fixtures}
           hostSlug={hostSlug}
-          activity={projectActivity}
+          activityError={activityError}
           onOpenTask={onOpenTask}
-          onCreateTask={onCreateTask}
           resourceChoices={resourceChoices}
           renderTasks={renderTasks}
           onBack={() => setOpenMilestoneId(null)}
@@ -309,6 +318,7 @@ export function ProjectRoadmap({
           {page ? (
             <TabRow
               label="Project"
+              idPrefix="project"
               active={projectTab}
               onChange={(id) => setProjectTab(id as ProjectTab)}
               tabs={[
@@ -319,11 +329,17 @@ export function ProjectRoadmap({
               ]}
             />
           ) : null}
-
+          <div
+            role={page ? 'tabpanel' : undefined}
+            id={page ? tabIds('project', projectTab).panel : undefined}
+            aria-labelledby={page ? tabIds('project', projectTab).tab : undefined}
+          >
           {projectTab === 'resources' && page ? (
             <ProjectResources project={project} extra={resourcesExtra} />
           ) : null}
-          {projectTab === 'activity' && page ? <ActivityList items={projectActivity} empty="No activity on this project yet." /> : null}
+          {projectTab === 'activity' && page ? (
+            <ActivityList items={projectActivity} empty="No activity on this project yet." error={activityError} />
+          ) : null}
           {projectTab === 'details' && page ? details : null}
 
           {projectTab === 'milestones' || !page ? (
@@ -355,7 +371,11 @@ export function ProjectRoadmap({
                 <p style={{ fontSize: 14, color: 'var(--muted)' }}>Loading milestones</p>
               ) : null}
               {failed ? (
-                <p style={{ fontSize: 14, color: 'var(--danger)' }}>The milestones could not load.</p>
+                <p data-testid="milestone-query-error" style={{ fontSize: 14, color: 'var(--danger)' }}>
+                  {milestones.length > 0
+                    ? 'Milestones could not refresh. Showing the last list that loaded.'
+                    : 'The milestones could not load.'}
+                </p>
               ) : null}
 
               {!loading && !failed && milestones.length === 0 ? (
@@ -367,7 +387,7 @@ export function ProjectRoadmap({
                     body="Describe an outcome, attach resources, and let its tasks show the work needed to finish it."
                     action={<PrimaryButton onClick={() => setCreateOpen(true)}>New milestone</PrimaryButton>}
                   />
-                ) : (
+                ) : clientMilestoneEmptyKind(project) === 'unavailable' ? (
                   <StateCard
                     testId="milestone-unavailable"
                     kicker="CLIENT · NO ACCESS"
@@ -378,6 +398,13 @@ export function ProjectRoadmap({
                         <PrimaryButton onClick={onBackToProjects}>Back to projects</PrimaryButton>
                       ) : null
                     }
+                  />
+                ) : (
+                  <StateCard
+                    testId="milestone-none-shared"
+                    kicker="MILESTONES"
+                    title="No milestones shared yet"
+                    body="This project is available to you. Nothing on it has been shared as a milestone."
                   />
                 )
               ) : null}
@@ -409,6 +436,7 @@ export function ProjectRoadmap({
               ) : null}
             </>
           ) : null}
+          </div>
         </>
       )}
 
@@ -484,7 +512,7 @@ function MilestoneListCard({
             {inclusiveProgressCopy(milestone.doneCount, total, progress.nested)}
           </span>
           <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-            {resourceLabel(milestone.resources.length)} · {updatedCopy(milestone.decidedAt)}
+            {resourceLabel(milestone.resources.length)} · {reviewStamp(milestone.decidedAt)}
           </span>
           {staff && !milestone.publishToWarehaus ? (
             <span data-testid="milestone-publish" style={{ fontSize: 12, color: 'var(--muted)' }}>
@@ -512,9 +540,8 @@ function MilestoneDetail({
   staff,
   fixtures,
   hostSlug,
-  activity,
+  activityError = null,
   onOpenTask,
-  onCreateTask,
   resourceChoices,
   renderTasks,
   onBack,
@@ -526,9 +553,8 @@ function MilestoneDetail({
   staff: boolean;
   fixtures: boolean;
   hostSlug?: string;
-  activity: readonly MilestoneActivityItem[];
+  activityError?: string | null;
   onOpenTask?: (task: PortalTask) => void;
-  onCreateTask?: () => void;
   resourceChoices: ResourceChoice[];
   renderTasks?: (tasks: PortalTask[]) => ReactNode;
   onBack: () => void;
@@ -547,17 +573,20 @@ function MilestoneDetail({
   const [more, setMore] = useState(false);
   const [note, setNote] = useState('');
   const [noteError, setNoteError] = useState<string | null>(null);
+  const [noteAttempt, setNoteAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const locked = milestone.approval === 'approved';
   const total = taskTotal(milestone);
-  const board = boardTaskCounts(milestone);
+  const recordBoard = boardTaskCounts(milestone);
   const shownTasks = milestoneTasks(tasks, milestone);
-  const reviews = activity.filter(
-    (item) => item.name === milestone.name && item.type.startsWith('milestone.') && item.type !== 'milestone.ready',
+  const board = boardCountsFromTasks(shownTasks);
+  const storedReview = storedMilestoneReview(milestone);
+  const reviewCount = storedReview ? 1 : 0;
+  const choices = milestoneResourceChoices(
+    resourceChoices,
+    milestone.resources.map((resource) => ({ id: resource.id, title: resource.title })),
   );
-  const reviewCount = milestone.note ? Math.max(reviews.length, 1) : reviews.length;
-  const choices = milestone.resourceChoices ?? resourceChoices;
   const taken = new Set(milestone.rows.map((row) => row.id));
   const attachable = (milestone.attachableTasks ?? []).filter((task) => !taken.has(task.id));
 
@@ -577,6 +606,7 @@ function MilestoneDetail({
     const trimmed = note.trim();
     if (!trimmed) {
       setNoteError('A note is required.');
+      setNoteAttempt((current) => current + 1);
       return;
     }
     setNoteError(null);
@@ -613,11 +643,12 @@ function MilestoneDetail({
       <PageHeading
         testId="milestone-name"
         title={milestone.name}
-        subtitle={`Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, board.nested)}`}
-        action={<PrimaryButton onClick={() => setReviewOpen(true)}>Review milestone</PrimaryButton>}
+        subtitle={`Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`}
+        action={<PrimaryButton onClick={() => { setError(null); setReviewOpen(true); }}>Review milestone</PrimaryButton>}
       />
       <TabRow
         label="Milestone"
+        idPrefix="milestone"
         active={tab}
         onChange={(id) => setTab(id as MilestoneTab)}
         tabs={[
@@ -627,6 +658,7 @@ function MilestoneDetail({
           { id: 'activity', label: 'Activity' },
         ]}
       />
+      <div role="tabpanel" id={tabIds('milestone', tab).panel} aria-labelledby={tabIds('milestone', tab).tab}>
 
       {tab === 'overview' ? (
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
@@ -680,8 +712,8 @@ function MilestoneDetail({
               </p>
               {milestone.goals.length > 0 ? (
                 <ul data-testid="milestone-goals" className="mt-2 flex list-none flex-col gap-1">
-                  {milestone.goals.map((goal) => (
-                    <li key={goal} style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
+                  {milestone.goals.map((goal, index) => (
+                    <li key={goalKey(index, goal)} style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
                       {goal}
                     </li>
                   ))}
@@ -696,14 +728,14 @@ function MilestoneDetail({
               <div className="flex flex-col items-start gap-4 md:flex-row md:items-center md:justify-between">
                 <div>
                   <h2 style={{ fontSize: 18, lineHeight: '27px', fontWeight: 500 }}>
-                    {inclusiveProgressCopy(milestone.doneCount, total, board.nested)}
+                    {inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}
                   </h2>
                   <p data-testid="milestone-counts" style={{ marginTop: 8, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
                     <span data-testid="milestone-done-count">{milestone.doneCount}</span>
                     {' complete. '}
                     <span data-testid="milestone-open-count">{milestone.openCount}</span>
                     {' still open.'}
-                    {board.nested > 0 ? ` ${nestedCopy(board.nested)}` : ''}
+                    {recordBoard.nested > 0 ? ` ${nestedCopy(recordBoard.nested)}` : ''}
                     {' The open count is not the decision.'}
                   </p>
                 </div>
@@ -783,12 +815,12 @@ function MilestoneDetail({
             </Panel>
             {staff ? (
               <div className="flex flex-wrap items-center gap-3">
-                <GhostButton testId="milestone-edit" disabled={locked || busy} onClick={() => setEditing(true)}>
+                <GhostButton testId="milestone-edit" disabled={locked || busy} onClick={() => { setError(null); setEditing(true); }}>
                   Edit milestone
                 </GhostButton>
                 <GhostButton onClick={() => setMore((current) => !current)}>More ···</GhostButton>
                 <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-                  Manual task creation lives in More, never in a project-level task list.
+                  Assign an existing task from More. A new task is not created on this milestone.
                 </p>
               </div>
             ) : null}
@@ -802,7 +834,6 @@ function MilestoneDetail({
                 milestone={milestone}
                 busy={busy}
                 attachable={attachable}
-                onCreateTask={onCreateTask}
                 onWorkStatus={(workStatus) => {
                   if (fixtures) {
                     onFixture({ workStatus });
@@ -858,7 +889,7 @@ function MilestoneDetail({
                 }}
               />
             ) : null}
-            {error ? (
+            {error && !reviewOpen && !editing ? (
               <p data-testid="milestone-error" style={{ fontSize: 13, color: 'var(--danger)' }}>
                 {error}
               </p>
@@ -875,17 +906,15 @@ function MilestoneDetail({
               {board.nested > 0 ? `. ${nestedCopy(board.nested)}` : '.'} Open a task to see its brief. The open count is not the decision.
             </p>
           </Panel>
-          {total === 0 ? (
+          {board.lanes === 0 ? (
             <StateCard
               testId="milestone-tasks-empty"
               kicker="MILESTONE · NO TASKS YET"
               title="The brief is ready"
-              body="No tasks are attached yet. Staff can attach an existing task from More. This screen does not generate a task breakdown."
+              body="No tasks are attached yet. Staff can assign an existing task. This screen does not generate a task breakdown."
               action={
-                staff && attachable.length > 0 ? (
+                staff ? (
                   <PrimaryButton onClick={() => setMore(true)}>Assign existing task</PrimaryButton>
-                ) : staff && onCreateTask ? (
-                  <PrimaryButton onClick={onCreateTask}>New task</PrimaryButton>
                 ) : null
               }
             />
@@ -913,9 +942,69 @@ function MilestoneDetail({
               }}
             />
           )}
+          {more && staff ? (
+            <MoreMenu
+              milestone={milestone}
+              busy={busy}
+              attachable={attachable}
+              onWorkStatus={(workStatus) => {
+                if (fixtures) {
+                  onFixture({ workStatus });
+                  return;
+                }
+                void run(() =>
+                  setWorkStatus({
+                    hostSlug,
+                    milestoneId: milestone.id as Id<'milestones'>,
+                    workStatus,
+                  }),
+                );
+              }}
+              onPublish={() => {
+                const publishToWarehaus = !milestone.publishToWarehaus;
+                if (fixtures) {
+                  onFixture({ publishToWarehaus });
+                  return;
+                }
+                void run(() =>
+                  setPublish({
+                    hostSlug,
+                    milestoneId: milestone.id as Id<'milestones'>,
+                    publishToWarehaus,
+                  }),
+                );
+              }}
+              onAttach={(taskId) => {
+                if (fixtures) {
+                  onFixture({ attachedIds: [taskId] });
+                  return;
+                }
+                void run(() =>
+                  attachTask({
+                    hostSlug,
+                    milestoneId: milestone.id as Id<'milestones'>,
+                    taskId: taskId as Id<'tasks'>,
+                  }),
+                );
+              }}
+              onDetach={(taskId) => {
+                if (fixtures) {
+                  onFixture({ detachedIds: [taskId] });
+                  return;
+                }
+                void run(() =>
+                  detachTask({
+                    hostSlug,
+                    milestoneId: milestone.id as Id<'milestones'>,
+                    taskId: taskId as Id<'tasks'>,
+                  }),
+                );
+              }}
+            />
+          ) : null}
           {staff ? (
             <p style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Manual changes are in More. Tasks without a milestone stay on the project.
+              Assign an existing task from More. Tasks without a milestone stay on the project.
             </p>
           ) : null}
         </div>
@@ -944,30 +1033,49 @@ function MilestoneDetail({
               kicker="REVIEW"
               title="No review yet"
               body="A person approves the milestone or sends it back. That decision does not close its tasks."
-              action={<PrimaryButton onClick={() => setReviewOpen(true)}>Review milestone</PrimaryButton>}
+              action={<PrimaryButton onClick={() => { setError(null); setReviewOpen(true); }}>Review milestone</PrimaryButton>}
             />
           )}
-          {reviews.map((item) => (
-            <Panel key={item.id}>
-              <p style={{ fontSize: 14, fontWeight: 500 }}>{item.name}</p>
-              <p style={{ marginTop: 8, fontSize: 14, color: 'var(--muted)' }}>{item.summary || item.type}</p>
-            </Panel>
-          ))}
+          <p data-testid="milestone-activity-gap" style={{ fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
+            {ACTIVITY_MILESTONE_ID_GAP}
+          </p>
         </div>
       ) : null}
 
       {tab === 'activity' ? (
-        <ActivityList
-          items={activity.filter((item) => item.name === milestone.name || item.type.startsWith('milestone.'))}
-          empty="No milestone activity yet."
-        />
+        <div className="flex flex-col gap-4">
+          <ActivityList
+            items={
+              storedReview
+                ? [
+                    {
+                      id: storedReview.id,
+                      name: milestone.name,
+                      type: 'milestone.decision',
+                      summary: storedReview.note || storedReview.approval,
+                      timestamp: reviewStamp(storedReview.decidedAt),
+                      projectId: project.id,
+                    },
+                  ]
+                : []
+            }
+            empty="No review is stored on this milestone."
+            error={activityError}
+          />
+          <p data-testid="milestone-activity-gap" style={{ fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
+            {ACTIVITY_MILESTONE_ID_GAP}
+          </p>
+        </div>
       ) : null}
+      </div>
 
       {reviewOpen ? (
         <ReviewDialog
           milestone={milestone}
           note={note}
           error={noteError}
+          noteAttempt={noteAttempt}
+          saveError={error}
           busy={busy}
           onNote={setNote}
           onClose={() => {
@@ -982,6 +1090,7 @@ function MilestoneDetail({
           milestone={milestone}
           choices={choices}
           busy={busy}
+          saveError={error}
           onClose={() => setEditing(false)}
           onSave={(fields) => {
             if (fixtures) {
@@ -1024,7 +1133,6 @@ function MoreMenu({
   milestone,
   busy,
   attachable,
-  onCreateTask,
   onWorkStatus,
   onPublish,
   onAttach,
@@ -1033,7 +1141,6 @@ function MoreMenu({
   milestone: MilestoneRoadmapView;
   busy: boolean;
   attachable: { id: string; name: string }[];
-  onCreateTask?: () => void;
   onWorkStatus: (status: MilestoneRoadmapView['workStatus']) => void;
   onPublish: () => void;
   onAttach: (taskId: string) => void;
@@ -1061,36 +1168,27 @@ function MoreMenu({
             {milestone.publishToWarehaus ? 'Unpublish' : 'Publish'}
           </OutlineButton>
         </div>
-        {onCreateTask ? (
-          <div>
-            <OutlineButton disabled={busy} onClick={onCreateTask}>
-              New task
-            </OutlineButton>
-          </div>
-        ) : null}
-        {attachable.length > 0 ? (
-          <label className="flex flex-col gap-2" style={{ fontSize: 13, color: 'var(--muted)' }}>
-            Assign existing task
-            <select
-              data-testid="milestone-attach"
-              defaultValue=""
-              disabled={busy}
-              onChange={(event) => {
-                const taskId = event.target.value;
-                event.target.value = '';
-                if (taskId) onAttach(taskId);
-              }}
-              style={fieldStyle}
-            >
-              <option value="">Choose a task</option>
-              {attachable.map((task) => (
-                <option key={task.id} value={task.id}>
-                  {task.name}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
+        <label className="flex flex-col gap-2" style={{ fontSize: 13, color: 'var(--muted)' }}>
+          Assign existing task
+          <select
+            data-testid="milestone-attach"
+            defaultValue=""
+            disabled={busy || attachable.length === 0}
+            onChange={(event) => {
+              const taskId = event.target.value;
+              event.target.value = '';
+              if (taskId) onAttach(taskId);
+            }}
+            style={fieldStyle}
+          >
+            <option value="">{attachable.length === 0 ? 'No unassigned tasks' : 'Choose a task'}</option>
+            {attachable.map((task) => (
+              <option key={task.id} value={task.id}>
+                {task.name}
+              </option>
+            ))}
+          </select>
+        </label>
         {milestone.rows.length > 0 ? (
           <label className="flex flex-col gap-2" style={{ fontSize: 13, color: 'var(--muted)' }}>
             Remove from milestone
@@ -1170,6 +1268,8 @@ function ReviewDialog({
   milestone,
   note,
   error,
+  noteAttempt,
+  saveError,
   busy,
   onNote,
   onClose,
@@ -1178,6 +1278,8 @@ function ReviewDialog({
   milestone: MilestoneRoadmapView;
   note: string;
   error: string | null;
+  noteAttempt: number;
+  saveError: string | null;
   busy: boolean;
   onNote: (value: string) => void;
   onClose: () => void;
@@ -1189,7 +1291,7 @@ function ReviewDialog({
     if (!error) return;
     noteRef.current?.focus();
     noteRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [error]);
+  }, [error, noteAttempt]);
   return (
     <MilestoneDialog title="Review milestone" onClose={onClose} testId="milestone-review">
       <p style={{ marginTop: 8, fontSize: 14, color: 'var(--muted)' }}>
@@ -1227,6 +1329,7 @@ function ReviewDialog({
         />
         {error ? <FieldError id="milestone-note-error">{error}</FieldError> : null}
       </label>
+      {saveError ? <FormAlert>{saveError}</FormAlert> : null}
       <div className="mt-6 flex flex-wrap gap-2">
         <OutlineButton disabled={busy} onClick={onClose}>
           Cancel
@@ -1246,12 +1349,14 @@ function EditDialog({
   milestone,
   choices,
   busy,
+  saveError,
   onClose,
   onSave,
 }: {
   milestone: MilestoneRoadmapView;
   choices: ResourceChoice[];
   busy: boolean;
+  saveError: string | null;
   onClose: () => void;
   onSave: (fields: { name: string; objective: string; goals: string[]; resourceIds: string[] }) => void;
 }) {
@@ -1300,6 +1405,7 @@ function EditDialog({
           onResources={setResourceIds}
         />
         {error ? <FormAlert>{error}</FormAlert> : null}
+        {saveError ? <FormAlert>{saveError}</FormAlert> : null}
         <div className="flex flex-wrap gap-2">
           <OutlineButton disabled={busy} onClick={onClose}>
             Cancel
@@ -1563,7 +1669,7 @@ function FormFields({
       <div>
         <div className="flex items-center justify-between gap-3">
           <FieldLabel>RESOURCES</FieldLabel>
-          <span data-testid="milestone-resource-count" style={{ fontSize: 13, color: 'var(--muted)' }}>
+          <span data-testid="milestone-resource-count" aria-live="polite" style={{ fontSize: 13, color: 'var(--muted)' }}>
             {resourceIds.length} selected
           </span>
         </div>
@@ -1640,11 +1746,25 @@ function ProjectResources({ project, extra }: { project: RoadmapProject; extra?:
   );
 }
 
-function ActivityList({ items, empty }: { items: readonly MilestoneActivityItem[]; empty: string }) {
-  if (items.length === 0) {
-    return <p style={{ fontSize: 14, color: 'var(--muted)' }}>{empty}</p>;
-  }
+function ActivityList({
+  items,
+  empty,
+  error,
+}: {
+  items: readonly MilestoneActivityItem[];
+  empty: string;
+  error?: string | null;
+}) {
   return (
+    <div className="flex flex-col gap-3">
+      {error ? (
+        <p data-testid="activity-error" style={{ fontSize: 14, color: 'var(--danger)' }}>
+          {error}
+        </p>
+      ) : null}
+      {items.length === 0 ? (
+        <p style={{ fontSize: 14, color: 'var(--muted)' }}>{empty}</p>
+      ) : (
     <ul className="flex flex-col gap-3">
       {items.map((item) => (
         <li key={item.id}>
@@ -1658,6 +1778,8 @@ function ActivityList({ items, empty }: { items: readonly MilestoneActivityItem[
         </li>
       ))}
     </ul>
+      )}
+    </div>
   );
 }
 

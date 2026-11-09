@@ -4,6 +4,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useMutation } from 'convex/react';
 import { ProjectRoadmap } from '@/components/projects/ProjectRoadmap';
+import { resourcesForProject } from '@/components/projects/milestoneGuards';
 import { OutlineButton, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
@@ -478,9 +479,10 @@ export function ProjectsContent() {
       if (fixtures) setFixtureTaskId(task.id);
       else router.push(`/tasks/${task.id}`);
     };
-    const resourceChoices = ((fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[])
-      .filter((resource) => !resource.projectId || resource.projectId === openProject.id)
-      .map((resource) => ({ id: resource.id, title: resource.name }));
+    const resourceChoices = resourcesForProject(
+      (fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[],
+      openProject.id,
+    ).map((resource) => ({ id: resource.id, title: resource.name }));
     return (
       <PortalWorkspace hideHeader eyebrow={tenantEyebrow(data.tenant, 'Project')} title={openProject.name}>
         <PortalTilePane>
@@ -494,10 +496,10 @@ export function ProjectsContent() {
               hostSlug={hostSlug}
               clientName={openProject.internal ? null : openProject.clientName ?? null}
               activity={activityFeed.items}
+              activityError={activityFeed.error}
               onBackToProjects={closeProject}
               onOpenTask={openTask}
-              onCreateTask={isStaff ? () => setTaskCreateOpen(true) : undefined}
-              resourceChoices={resourceChoices}
+              resourceChoices={isStaff ? resourceChoices : []}
               resourcesExtra={
                 <DocsBlock docs={projectDocs} staff={isStaff} loading={projectsLoading && projectDocs.length === 0} />
               }
@@ -506,6 +508,7 @@ export function ProjectsContent() {
                   tasks={boardTasks}
                   staff={isStaff}
                   loading={listLoading}
+                  framed
                   hideGroupToggle
                   showQuickAdd={false}
                   onQuickAdd={async () => ({ ok: false, error: 'Add a task from the milestone menu.' })}

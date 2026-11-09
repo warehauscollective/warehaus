@@ -1,8 +1,9 @@
 'use client';
 
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { scrollActiveIntoView } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { dialogTabBoundary, nextTabIndex, tabIds } from './milestoneGuards';
 
 export function Panel({
   children,
@@ -64,11 +65,13 @@ export function TabRow({
   active,
   onChange,
   label,
+  idPrefix,
 }: {
   tabs: { id: string; label: string }[];
   active: string;
   onChange: (id: string) => void;
   label: string;
+  idPrefix: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
   const tabKey = tabs.map((tab) => tab.id).join('|');
@@ -77,6 +80,15 @@ export function TabRow({
     if (!node) return;
     scrollActiveIntoView(node, { activeSelector: '[aria-selected="true"]' });
   }, [active, tabKey]);
+  const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const index = tabs.findIndex((tab) => tab.id === active);
+    const next = nextTabIndex(index, tabs.length, event.key);
+    if (next == null) return;
+    event.preventDefault();
+    const nextTab = tabs[next];
+    onChange(nextTab.id);
+    scroller.current?.querySelector<HTMLButtonElement>(`#${tabIds(idPrefix, nextTab.id).tab}`)?.focus();
+  };
   return (
     <div className="min-w-0 max-w-full">
       <div
@@ -84,16 +96,21 @@ export function TabRow({
         className="flex flex-nowrap gap-2 overflow-x-auto"
         role="tablist"
         aria-label={label}
+        onKeyDown={onKeyDown}
         style={{ scrollbarWidth: 'none' }}
       >
       {tabs.map((tab) => {
         const selected = tab.id === active;
+        const ids = tabIds(idPrefix, tab.id);
         return (
           <button
             key={tab.id}
+            id={ids.tab}
             type="button"
             role="tab"
             aria-selected={selected}
+            aria-controls={ids.panel}
+            tabIndex={selected ? 0 : -1}
             onClick={() => onChange(tab.id)}
             className="shrink-0 whitespace-nowrap"
             style={{
@@ -228,13 +245,47 @@ export function MilestoneDialog({
   children: ReactNode;
   testId?: string;
 }) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
+    const node = dialogRef.current;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const focusable = () =>
+      node
+        ? [...node.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href]')].filter(
+            (element) => !element.hasAttribute('disabled'),
+          )
+        : [];
+    const first = focusable()[0];
+    (first ?? node)?.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
+      if (event.key === 'Escape') {
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab' || !node) return;
+      const items = focusable();
+      if (items.length === 0) return;
+      const boundary = dialogTabBoundary({
+        shiftKey: event.shiftKey,
+        atFirst: document.activeElement === items[0],
+        atLast: document.activeElement === items[items.length - 1],
+      });
+      if (boundary === 'first') {
+        event.preventDefault();
+        items[0].focus({ preventScroll: true });
+      } else if (boundary === 'last') {
+        event.preventDefault();
+        items[items.length - 1].focus({ preventScroll: true });
+      }
     };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onClose]);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      previous?.focus({ preventScroll: true });
+    };
+  }, []);
 
   return (
     <div
@@ -242,9 +293,11 @@ export function MilestoneDialog({
       style={{ zIndex: 80, background: 'color-mix(in oklab, var(--bg) 72%, transparent)' }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
+        tabIndex={-1}
         data-testid={testId}
         className="min-h-full w-full rounded-none md:min-h-0 md:max-w-[760px] md:rounded-[var(--panel-radius,12px)]"
         style={{
