@@ -67,10 +67,25 @@ export function MobileMenu({
   const [searchFocused, setSearchFocused] = useState(false);
   const [sheetHeight, setSheetHeight] = useState<number | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
+  const headerRef = useRef<HTMLElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
   const sheetRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const pushed = useRef(false);
+  const [scrolled, setScrolled] = useState(false);
+
+  useEffect(() => {
+    const header = headerRef.current;
+    const panel = header?.closest('[role="tabpanel"]');
+    if (!panel) return;
+    const onScroll = (event: Event) => {
+      const node = event.target;
+      if (!(node instanceof Element)) return;
+      setScrolled(node.scrollTop > 0);
+    };
+    panel.addEventListener('scroll', onScroll, true);
+    return () => panel.removeEventListener('scroll', onScroll, true);
+  }, []);
 
   const close = (fromPop: boolean) => {
     setOpen(false);
@@ -155,9 +170,18 @@ export function MobileMenu({
   return (
     <>
       <header
-        className="flex shrink-0 items-center justify-between lg:hidden"
-        style={{ paddingTop: 6, paddingBottom: 6, minHeight: 56 }}
+        ref={headerRef}
+        className="sticky top-0 z-20 flex shrink-0 items-center justify-between lg:hidden"
+        style={{
+          boxSizing: 'border-box',
+          paddingTop: 6,
+          paddingBottom: 6,
+          minHeight: 56,
+          background: 'var(--bg)',
+          borderBottom: `1px solid ${scrolled ? 'var(--border)' : 'transparent'}`,
+        }}
         data-testid="mobile-app-header"
+        data-scrolled={scrolled ? 'true' : 'false'}
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
