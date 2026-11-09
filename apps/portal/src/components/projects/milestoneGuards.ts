@@ -100,12 +100,20 @@ export function storedMilestoneReview(milestone: {
   };
 }
 
+/** Local calendar day. The today check and the printed day use this same zone. */
+export function localMonthDay(at: number): { key: string; label: string } {
+  const date = new Date(at);
+  return {
+    key: `${date.getFullYear()}-${date.getMonth()}-${date.getDate()}`,
+    label: date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+  };
+}
+
 export function reviewStamp(at: number | null, now = Date.now()): string {
   if (at == null) return 'No review yet';
-  const date = new Date(at);
-  const today = new Date(now);
-  if (date.toDateString() === today.toDateString()) return 'Last review today';
-  return `Last review ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
+  const when = localMonthDay(at);
+  if (when.key === localMonthDay(now).key) return 'Last review today';
+  return `Last review ${when.label}`;
 }
 
 export function goalKey(index: number, goal: string): string {

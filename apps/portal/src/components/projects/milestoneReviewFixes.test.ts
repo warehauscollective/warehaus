@@ -193,6 +193,9 @@ describe('milestone review fixes', () => {
     assert.notEqual(goalKey(0, 'Ship'), goalKey(1, 'Ship'));
     assert.match(roadmap, /goalKey\(index, goal\)/);
     assert.match(roadmap, /reviewStamp\(storedReview\.decidedAt\)/);
-    assert.match(roadmap, /tileUpdatedLine\(milestone\.decidedAt\)/);
+    assert.match(roadmap, /reviewStamp\(input\.decidedAt, input\.now\)/);
+    assert.match(roadmap, /decidedAt: milestone\.decidedAt/);
+    const listCard = roadmap.slice(roadmap.indexOf('function MilestoneListCard'), roadmap.indexOf('type MilestoneMutations'));
+    assert.equal(listCard.includes('Updated'), false);
   });
 });
