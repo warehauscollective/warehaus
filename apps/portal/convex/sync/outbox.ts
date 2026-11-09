@@ -20,6 +20,7 @@ import { internal } from '../_generated/api';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
+import { linkTaskToCreateMilestone, milestoneIdFromPayload } from '../_lib/taskMilestoneLink';
 
 const INFLIGHT_MS = 120_000;
 
@@ -497,6 +498,23 @@ export const applyOutcome = internalMutation({
               stagePendingBaseEditedTime: args.outcome.lastEditedTime,
             });
           }
+        }
+      }
+    }
+    if (row.kind === 'create' && row.database === 'tasks') {
+      const milestoneId = milestoneIdFromPayload(row.payload);
+      const createdPageId = args.outcome.notionPageId;
+      if (milestoneId) {
+        const task = await ctx.db
+          .query('tasks')
+          .withIndex('by_notionPageId', (q) => q.eq('notionPageId', createdPageId))
+          .unique();
+        if (task) {
+          await linkTaskToCreateMilestone(
+            ctx as unknown as Parameters<typeof linkTaskToCreateMilestone>[0],
+            task,
+            milestoneId,
+          );
         }
       }
     }

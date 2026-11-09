@@ -288,7 +288,6 @@ export default defineSchema({
     .index('by_orgId', ['orgId'])
     .index('by_orgId_timestamp', ['orgId', 'timestamp'])
     .index('by_orgId_type', ['orgId', 'type'])
-    .index('by_orgId_milestoneId', ['orgId', 'milestoneId'])
     .index('by_timestamp', ['timestamp']),
 
   taskResponses: defineTable({

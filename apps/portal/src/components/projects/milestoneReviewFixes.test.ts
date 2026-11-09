@@ -71,7 +71,7 @@ describe('milestone review fixes', () => {
     assert.match(roadmap, /activityForMilestone\(activity, milestone\.id\)/);
     const activity = schema.slice(schema.indexOf('activity: defineTable'), schema.indexOf('taskResponses: defineTable'));
     assert.match(activity, /milestoneId: v\.optional\(v\.id\('milestones'\)\)/);
-    assert.match(activity, /\.index\('by_orgId_milestoneId', \['orgId', 'milestoneId'\]\)/);
+    assert.equal(activity.includes('by_orgId_milestoneId'), false);
     const launch = storedMilestoneReview({
       id: 'm-launch',
       approval: 'approved',

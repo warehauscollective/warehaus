@@ -83,6 +83,52 @@ describe('menu sheet', () => {
       root?.unmount();
     });
   });
+
+  it('closes on browser back and unlocks scroll', async () => {
+    const document = installDom();
+    document.body.style.overflow = '';
+    let fromPop: boolean | null = null;
+    function Harness() {
+      const [open, setOpen] = useState(true);
+      return createElement(
+        'div',
+        null,
+        open
+          ? createElement(MenuSheetDialog, {
+              staff: false,
+              chips: [{ key: 'all', label: 'All projects' }],
+              tab: 'projects',
+              activeSection: 'all',
+              unread: 0,
+              onDismiss: (pop: boolean) => {
+                fromPop = pop;
+                setOpen(false);
+              },
+              onSelect: () => undefined,
+              onSearch: () => undefined,
+            })
+          : createElement('p', null, 'closed'),
+      );
+    }
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let root: Root | null = null;
+    await act(async () => {
+      root = createRoot(container as unknown as Element);
+      root.render(createElement(Harness));
+    });
+    assert.equal(document.body.style.overflow, 'hidden');
+    await act(async () => {
+      windowDispatch('popstate');
+    });
+    assert.equal(fromPop, true);
+    assert.equal(findById(container, 'menu-sheet'), null);
+    assert.match(textOf(container), /closed/);
+    assert.equal(document.body.style.overflow, '');
+    await act(async () => {
+      root?.unmount();
+    });
+  });
 });
 
 type TestNode = {
@@ -257,6 +303,7 @@ function installDom(): TestDoc {
   document.body = document.createElement('body');
   document.body.nodeName = 'BODY';
   document.activeElement = null;
+  const listeners: Record<string, Array<(event: { type: string }) => void>> = {};
   const view = {
     document,
     HTMLElement: function HTMLElement() {},
@@ -265,8 +312,16 @@ function installDom(): TestDoc {
     Node: function Node() {},
     scrollY: 0,
     scrollTo() {},
-    addEventListener() {},
-    removeEventListener() {},
+    addEventListener(type: string, fn: (event: { type: string }) => void) {
+      listeners[type] = listeners[type] ?? [];
+      listeners[type].push(fn);
+    },
+    removeEventListener(type: string, fn: (event: { type: string }) => void) {
+      listeners[type] = (listeners[type] ?? []).filter((item) => item !== fn);
+    },
+    dispatchEvent(event: { type: string }) {
+      for (const fn of [...(listeners[event.type] ?? [])]) fn(event);
+    },
     requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0),
     cancelAnimationFrame: (id: ReturnType<typeof setTimeout>) => clearTimeout(id),
     getSelection: () => null,
@@ -300,6 +355,11 @@ function findButton(node: TestNode, label: string): TestNode | null {
 
 function findById(node: TestNode, id: string): TestNode | null {
   return node.querySelector(`#${id}`);
+}
+
+function windowDispatch(type: string) {
+  const view = window as unknown as { dispatchEvent?: (event: { type: string }) => void };
+  view.dispatchEvent?.({ type });
 }
 
 function idOf(node: TestNode | null): string | null {

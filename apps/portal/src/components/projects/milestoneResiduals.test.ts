@@ -24,6 +24,13 @@ const milestone = {
   rows: [{ id: 't1', name: 'Write brief' }],
 } as MilestoneRoadmapView;
 
+function missingMilestoneApi(onBack: () => void) {
+  const View = MissingMilestoneApi as (props: { projectName: string; onBack?: () => void }) => ReturnType<
+    typeof MissingMilestoneApi
+  >;
+  return createElement(View, { projectName: 'Site', onBack }, 'Task board');
+}
+
 function tasksFailure(error: string) {
   const failure = tasksMenuFailure({ tab: 'tasks', error, reviewOpen: false, editing: false });
   return createElement(
@@ -130,7 +137,7 @@ describe('milestone residuals', () => {
     const missing = 'Could not find public function for api.milestones.listForProject';
     const loaded = renderToStaticMarkup(
       milestoneQueryAvailability({ fixtures: false, error: missing }) === 'fallback'
-        ? createElement(MissingMilestoneApi, { projectName: 'Site', onBack: () => undefined, children: 'Task board' })
+        ? missingMilestoneApi(() => undefined)
         : createElement('p', { 'data-testid': 'milestone-query-error' }, missing),
     );
     assert.match(loaded, /data-testid="project-body"/);
@@ -141,7 +148,7 @@ describe('milestone residuals', () => {
 
     const failed = renderToStaticMarkup(
       milestoneQueryAvailability({ fixtures: false, error: 'Server Error' }) === 'fallback'
-        ? createElement(MissingMilestoneApi, { projectName: 'Site', onBack: () => undefined, children: 'Task board' })
+        ? missingMilestoneApi(() => undefined)
         : createElement('p', { role: 'alert', 'data-testid': 'milestone-query-error' }, 'The milestones could not load.'),
     );
     assert.match(failed, /data-testid="milestone-query-error"/);
@@ -159,7 +166,7 @@ describe('milestone residuals', () => {
     await act(async () => {
       root = createRoot(container as unknown as Element);
       root.render(
-        createElement(MissingMilestoneApi, { projectName: 'Site', onBack: () => { backs += 1; }, children: 'Task board' }),
+        missingMilestoneApi(() => { backs += 1; }),
       );
     });
     const back = findButton(container, 'Back to Projects');

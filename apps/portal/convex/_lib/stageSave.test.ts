@@ -667,4 +667,95 @@ describe('applyOutcome task-stage', () => {
     assert.equal(row.lastEditedTime, TIME);
     assert.equal(row.pullRequestUrl, 'https://github.com/warehaus/secret/pull/1');
   });
+
+  it('links an existing task when a create is confirmed', async () => {
+    const row = task({ milestoneId: undefined, parentTaskId: undefined });
+    const tables: Record<string, Row[]> = {
+      tasks: [row],
+      notionOutbox: [
+        {
+          _id: 'out-create',
+          kind: 'create',
+          orgId: 'org-1',
+          database: 'tasks',
+          payload: JSON.stringify({ properties: { Name: 'Homepage' }, milestoneId: 'm-launch' }),
+          actor: 'staff',
+          status: 'inflight',
+          attempts: 1,
+          createdAt: 1,
+        },
+      ],
+      notionWriteState: [],
+      auditEvents: [],
+      milestones: [{ _id: 'm-launch', orgId: 'org-1', projectId: 'proj-1' }],
+    };
+    await run(applyOutcome, { db: memoryDb(tables) }, {
+      id: 'out-create',
+      outcome: {
+        kind: 'confirmed',
+        notionPageId: 'page-1',
+        lastEditedTime: TIME,
+        propertiesJson: JSON.stringify({ Name: 'Homepage', Status: 'To Do' }),
+        reused: false,
+      },
+    });
+    assert.equal(row.milestoneId, 'm-launch');
+    assert.equal(tables.notionOutbox[0]?.status, 'done');
+  });
+});
+
+describe('create task milestone link', () => {
+  it('sets milestoneId on the task row created after the outbox confirms', async () => {
+    const tables: Record<string, Row[]> = {
+      tasks: [],
+      notionOutbox: [
+        {
+          _id: 'out-create',
+          kind: 'create',
+          orgId: 'org-1',
+          database: 'tasks',
+          payload: JSON.stringify({ properties: { Name: 'Homepage', 'External ID': 'wh_tsk_homepage' }, milestoneId: 'm-launch' }),
+          actor: 'staff',
+          status: 'inflight',
+          attempts: 1,
+          createdAt: 1,
+        },
+      ],
+      notionWriteState: [],
+      auditEvents: [],
+      milestones: [{ _id: 'm-launch', orgId: 'org-1', projectId: 'proj-1' }],
+    };
+    await run(applyOutcome, { db: memoryDb(tables) }, {
+      id: 'out-create',
+      outcome: {
+        kind: 'confirmed',
+        notionPageId: 'page-new',
+        lastEditedTime: TIME,
+        propertiesJson: JSON.stringify({ Name: 'Homepage', Status: 'To Do' }),
+        reused: false,
+      },
+    });
+    assert.equal(tables.tasks.length, 0);
+    assert.match(String(tables.notionOutbox[0]?.payload), /m-launch/);
+
+    await run(upsertTask, {
+      db: memoryDb(tables),
+      runMutation: async () => {
+        throw new Error('no notice');
+      },
+    }, {
+      notionPageId: 'page-new',
+      orgId: 'org-1',
+      projectId: 'proj-1',
+      name: 'Homepage',
+      status: 'To Do',
+      isDone: false,
+      publishToWarehaus: false,
+      lastEditedTime: TIME,
+    });
+    const created = tables.tasks.find((row) => row.notionPageId === 'page-new');
+    assert.ok(created);
+    assert.equal(created?.milestoneId, 'm-launch');
+    assert.equal(created?.name, 'Homepage');
+  });
 });

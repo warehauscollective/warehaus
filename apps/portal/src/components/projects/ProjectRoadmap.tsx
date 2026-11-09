@@ -1232,7 +1232,7 @@ export function MilestoneDetailView({
                 : []),
               ...milestoneActivity.filter((item) => item.id !== storedReview?.id),
             ]}
-            empty="No review is stored on this milestone."
+            empty="No activity on this milestone yet."
             error={activityError}
           />
         </div>

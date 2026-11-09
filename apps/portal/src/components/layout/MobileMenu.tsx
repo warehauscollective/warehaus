@@ -11,6 +11,7 @@ import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { FIXTURE_NOTICES } from '@/lib/data/fixtures';
 import { dialogTabBoundary, isolateOutsideDialog } from '@/components/projects/milestoneGuards';
+import { headerBorderFromScroll, pickMainPageScroller } from './headerScroll';
 import type { PortalSidebarSection } from '@/lib/data/sidebarSections';
 
 /** Shown only while the menu search field is focused. */
@@ -72,13 +73,35 @@ export function MobileMenu({
     const header = headerRef.current;
     const panel = header?.closest('[role="tabpanel"]');
     if (!panel) return;
-    const onScroll = (event: Event) => {
-      const node = event.target;
-      if (!(node instanceof Element)) return;
-      setScrolled(node.scrollTop > 0);
+    const pageScroller = () => {
+      const nodes = [panel, ...Array.from(panel.querySelectorAll<HTMLElement>('*'))];
+      return pickMainPageScroller(
+        nodes.map((node) => {
+          const style = getComputedStyle(node);
+          return {
+            target: node,
+            role: node.getAttribute('role'),
+            overflowY: style.overflowY,
+            display: style.display,
+          };
+        }),
+      );
     };
-    panel.addEventListener('scroll', onScroll, true);
-    return () => panel.removeEventListener('scroll', onScroll, true);
+    const scroller = pageScroller();
+    setScrolled((scroller?.scrollTop ?? 0) > 0);
+    const onScroll = (event: Event) => {
+      const page = pageScroller();
+      const next = headerBorderFromScroll({
+        eventTarget: event.target,
+        pageScroller: page,
+        scrollTop: page?.scrollTop ?? 0,
+      });
+      if (next == null) return;
+      setScrolled(next);
+    };
+    const options = { capture: true, passive: true } as const;
+    panel.addEventListener('scroll', onScroll, options);
+    return () => panel.removeEventListener('scroll', onScroll, options);
   }, []);
 
   const close = (fromPop: boolean) => {
