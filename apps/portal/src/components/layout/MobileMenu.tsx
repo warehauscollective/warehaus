@@ -4,6 +4,7 @@ import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboard
 import { usePathname } from 'next/navigation';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalData } from '@/hooks/usePortalData';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
@@ -49,6 +50,7 @@ export function MobileMenu({
   onSelect: (key: string) => void;
 }) {
   const { data } = usePortalData();
+  const { openProjectId } = usePortalView();
   const fixtures = useFixturePreview();
   const staff = data.tenant.mode === 'team';
   const configured = isConvexConfigured();
@@ -70,6 +72,7 @@ export function MobileMenu({
   const pushed = useRef(false);
   const [scrolled, setScrolled] = useState(false);
   const pathname = usePathname();
+  const scrollTops = useRef(new WeakMap<EventTarget, number>());
 
   useEffect(() => {
     const header = headerRef.current;
@@ -77,20 +80,24 @@ export function MobileMenu({
     if (!panel) return;
     const marked = Array.from(panel.querySelectorAll<HTMLElement>('[data-page-scroll]'));
     const scroller = findPageScroller(marked);
+    for (const node of marked) scrollTops.current.set(node, node.scrollTop);
     setScrolled((scroller?.scrollTop ?? 0) > 0);
     const onScroll = (event: Event) => {
       const target = event.target instanceof HTMLElement ? event.target : null;
+      const scrollTop = target?.scrollTop ?? 0;
       const next = headerBorderFromScroll({
         eventTarget: target,
-        scrollTop: target?.scrollTop ?? 0,
+        scrollTop,
+        previousScrollTop: target ? scrollTops.current.get(target) ?? null : null,
       });
+      if (target?.hasAttribute('data-page-scroll')) scrollTops.current.set(target, scrollTop);
       if (next == null) return;
       setScrolled(next);
     };
     const options = { capture: true, passive: true } as const;
     panel.addEventListener('scroll', onScroll, options);
     return () => panel.removeEventListener('scroll', onScroll, options);
-  }, [pathname]);
+  }, [pathname, openProjectId]);
 
   const close = (fromPop: boolean) => {
     setOpen(false);

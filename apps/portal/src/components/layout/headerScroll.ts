@@ -10,7 +10,10 @@ export function findPageScroller<T>(markedInTreeOrder: readonly T[]): T | null {
 export function headerBorderFromScroll(input: {
   eventTarget: { hasAttribute?: (name: string) => boolean } | null;
   scrollTop: number;
+  /** Same value means this event did not move vertically, so the line stays. */
+  previousScrollTop?: number | null;
 }): boolean | null {
   if (!input.eventTarget?.hasAttribute?.('data-page-scroll')) return null;
+  if (input.previousScrollTop != null && input.scrollTop === input.previousScrollTop) return null;
   return input.scrollTop > 0;
 }

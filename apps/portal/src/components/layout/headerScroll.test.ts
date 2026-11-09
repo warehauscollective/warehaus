@@ -17,5 +17,9 @@ describe('phone header border scroll', () => {
     assert.equal(headerBorderFromScroll({ eventTarget: strip, scrollTop: 0 }), null);
     assert.equal(headerBorderFromScroll({ eventTarget: page, scrollTop: 0 }), false);
     assert.equal(headerBorderFromScroll({ eventTarget: page, scrollTop: 12 }), true);
+    assert.equal(
+      headerBorderFromScroll({ eventTarget: marked('table'), scrollTop: 0, previousScrollTop: 0 }),
+      null,
+    );
   });
 });

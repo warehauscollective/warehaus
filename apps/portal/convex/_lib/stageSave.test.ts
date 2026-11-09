@@ -6,6 +6,7 @@ import { enqueue } from '../sync/outbox';
 import { processDue } from '../sync/outboxWork';
 import { drainPendingStages, enqueueLiveFields, enqueueStage, enqueueStatus } from '../sync/taskWrite';
 import { upsertTask } from '../sync/upsert';
+import { detachTask } from '../milestones';
 
 type Row = Record<string, unknown> & { _id: string };
 
@@ -737,7 +738,19 @@ describe('create task milestone link', () => {
       ],
       notionWriteState: [],
       auditEvents: [],
-      milestones: [{ _id: 'm-launch', orgId: 'org-1', projectId: 'proj-1' }],
+      milestones: [{ _id: 'm-launch', orgId: 'org-1', projectId: 'proj-1', approval: 'unreviewed' }],
+      clients: [{ _id: 'org-1', slug: 'warehaus', portalAccess: 'Enabled' }],
+      contacts: [
+        {
+          _id: 'contact-staff',
+          orgId: 'org-1',
+          name: 'Maya Staff',
+          email: 'maya@warehaus.studio',
+          authUserId: 'auth-staff',
+          role: 'Warehaus Staff',
+          portalAccess: 'Enabled',
+        },
+      ],
     };
     await run(applyOutcome, { db: memoryDb(tables) }, {
       id: 'out-create',
@@ -753,6 +766,7 @@ describe('create task milestone link', () => {
     assert.match(String(tables.notionOutbox[0]?.payload), /m-launch/);
 
     const ctx = {
+      auth: { getUserIdentity: async () => ({ subject: 'auth-staff' }) },
       db: memoryDb(tables),
       runMutation: async () => {
         throw new Error('no notice');
@@ -775,7 +789,7 @@ describe('create task milestone link', () => {
     assert.equal(created?.milestoneOrder, 5);
     assert.equal(created?.name, 'Homepage');
 
-    await ctx.db.patch(String(created?._id), { milestoneId: undefined, milestoneOrder: undefined });
+    await run(detachTask, ctx, { milestoneId: 'm-launch', taskId: created?._id });
     assert.equal(created?.milestoneId, undefined);
     await run(upsertTask, ctx, { ...pull, name: 'Homepage revised' });
     assert.equal(created?.milestoneId, undefined);

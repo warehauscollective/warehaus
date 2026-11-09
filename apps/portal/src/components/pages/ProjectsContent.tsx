@@ -87,7 +87,7 @@ type ProjectRow = PortalProject & {
 export function ProjectsContent() {
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
-  const { sectionFor, setSectionFor, openLinkedClient } = usePortalView();
+  const { sectionFor, setSectionFor, openLinkedClient, setOpenProjectId } = usePortalView();
   const [createOpen, setCreateOpen] = useState(false);
   const writebackEnabled = useWritebackEnabled();
   const createEnabled = writebackEnabled;
@@ -129,6 +129,11 @@ export function ProjectsContent() {
     setQueuedStage(null);
     setStageRetry({ busy: false, error: null });
   }, [openId]);
+
+  useEffect(() => {
+    setOpenProjectId(openId);
+    return () => setOpenProjectId(null);
+  }, [openId, setOpenProjectId]);
 
   useLayoutEffect(() => {
     const apply = (event?: Event) => {
