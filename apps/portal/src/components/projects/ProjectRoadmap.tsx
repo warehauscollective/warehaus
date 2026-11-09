@@ -256,8 +256,6 @@ export function ProjectRoadmap({
       });
   const selected = milestones.find((milestone) => milestone.id === openMilestoneId) ?? null;
   const approvedCount = milestones.filter((milestone) => milestone.approval === 'approved').length;
-  const attachedIds = new Set(milestones.flatMap((milestone) => milestone.rows.map((row) => row.id)));
-  const unassigned = tasks.filter((task) => !task.parentTaskId && !attachedIds.has(task.id));
   const projectActivity = activity.filter((item) => item.projectId === project.id);
   const loading = !fixtures && (live ? query.loading : true) && milestones.length === 0;
   const failed = !fixtures && live && query.error != null;
@@ -320,7 +318,7 @@ export function ProjectRoadmap({
         <>
           <PageHeading
             title={project.name}
-            subtitle="Project details · Review the work by milestone"
+            subtitle="Project details · Every task belongs to a milestone"
             action={
               staff ? (
                 <PrimaryButton onClick={() => setCreateOpen(true)}>New milestone</PrimaryButton>
@@ -421,13 +419,6 @@ export function ProjectRoadmap({
                 )
               ) : null}
 
-              {!loading && !failed && staff && unassigned.length > 0 ? (
-                <p data-testid="milestone-unassigned" style={{ fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
-                  {unassigned.length} {unassigned.length === 1 ? 'task stays' : 'tasks stay'} on Project details until someone
-                  attaches {unassigned.length === 1 ? 'it' : 'them'}. Nothing is assigned automatically.
-                </p>
-              ) : null}
-
               <div className="flex flex-col gap-4">
                 {milestones.map((milestone) => (
                   <MilestoneListCard
@@ -442,7 +433,7 @@ export function ProjectRoadmap({
               {milestones.length > 0 ? (
                 <p style={{ fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
                   {staff
-                    ? 'Create milestones here. Tasks that are not attached stay on Project details. The open count is not the decision.'
+                    ? 'Create milestones here. Open a milestone to see its tasks. The open count is not the decision.'
                     : 'The open count is not the decision. Approving a milestone does not close its tasks.'}
                 </p>
               ) : null}
@@ -1019,7 +1010,7 @@ function MilestoneDetail({
           ) : null}
           {staff ? (
             <p style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Assign an existing task from More. Tasks without a milestone stay on the project.
+              Assign an existing task from More. A task that is not attached does not appear on this milestone.
             </p>
           ) : null}
         </div>

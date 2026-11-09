@@ -96,9 +96,28 @@ describe('milestone review fixes', () => {
     assert.match(board, /shared=\{framedSurface\}/);
     assert.match(board, /\{shared && fade \?/);
     const milestoneBoard = projects.slice(projects.indexOf('renderTasks='), projects.indexOf('details='));
-    const projectBoard = projects.slice(projects.indexOf("itemView.region === 'board'"));
+    const details = projects.slice(projects.indexOf('details='));
     assert.match(milestoneBoard, /<TaskBoard[\s\S]*?\bframed\b/);
-    assert.equal(projectBoard.includes('framed'), false);
+    assert.equal(details.includes('<TaskBoard'), false);
+    assert.equal(details.includes('framed'), false);
+    assert.equal((projects.match(/<TaskBoard/g) ?? []).length, 1);
+  });
+
+  it('keeps the project page on the milestone list until a milestone is opened', () => {
+    assert.match(roadmap, /useState<ProjectTab>\('milestones'\)/);
+    assert.match(roadmap, /\{ id: 'details', label: 'Project details' \}/);
+    assert.match(roadmap, /projectTab === 'details' && page \? details : null/);
+    assert.match(roadmap, /subtitle="Project details · Every task belongs to a milestone"/);
+    assert.equal(roadmap.includes('stay on Project details'), false);
+    const listCard = roadmap.slice(roadmap.indexOf('function MilestoneListCard'), roadmap.indexOf('function MilestoneDetail'));
+    assert.equal(listCard.includes('TaskBoard'), false);
+    assert.match(listCard, /Open milestone/);
+    const opened = roadmap.slice(roadmap.indexOf('function MilestoneDetail'));
+    assert.match(opened, /renderTasks\(shownTasks\)/);
+    const detailsStart = projects.indexOf('details=');
+    const details = projects.slice(detailsStart, projects.indexOf('</PortalTilePane>', detailsStart));
+    assert.equal(details.includes('>Tasks<'), false);
+    assert.equal(details.includes('<TaskBoard'), false);
   });
 
   it('separates an authorized empty milestone list from an inaccessible project', () => {
