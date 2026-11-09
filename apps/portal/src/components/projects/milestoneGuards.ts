@@ -1,3 +1,5 @@
+import { isMissingConvexFunction } from '@/lib/data/staffRoster';
+
 /**
  * Pure checks for the milestone UI. No schema and no new queries.
  * Activity rows still have no milestone id, so review history is not joined by name.
@@ -131,4 +133,93 @@ export function dialogTabBoundary(input: {
   if (input.shiftKey && input.atFirst) return 'last';
   if (!input.shiftKey && input.atLast) return 'first';
   return null;
+}
+
+/** Missing milestone API leaves the new shell. Any other error stays in it. */
+export function milestoneQueryAvailability(input: {
+  fixtures: boolean;
+  error: string | null;
+}): 'shell' | 'fallback' {
+  if (input.fixtures) return 'shell';
+  if (isMissingConvexFunction(input.error)) return 'fallback';
+  return 'shell';
+}
+
+export const MENU_ERROR_ID = 'milestone-menu-error';
+
+/** A tasks-tab mutation failure stays on that tab, with the menu still open and the controls usable. */
+export function tasksMenuFailure(input: {
+  tab: 'overview' | 'tasks' | 'reviews' | 'activity';
+  error: string | null;
+  reviewOpen: boolean;
+  editing: boolean;
+}): { show: boolean; describedBy: string | undefined } {
+  const show = input.tab === 'tasks' && input.error != null && !input.reviewOpen && !input.editing;
+  return { show, describedBy: show ? MENU_ERROR_ID : undefined };
+}
+
+type Isolatable = {
+  nodeName?: string;
+  parentElement: Isolatable | null;
+  children?: ArrayLike<Isolatable>;
+  inert?: boolean;
+  style?: { pointerEvents?: string };
+  setAttribute(name: string, value: string): void;
+  getAttribute(name: string): string | null;
+  removeAttribute(name: string): void;
+};
+
+function hideSiblings(current: Isolatable, touched: Array<{
+  el: Isolatable;
+  inert: boolean;
+  hidden: string | null;
+  pointer: string;
+}>) {
+  const parent = current.parentElement;
+  if (!parent?.children) return;
+  for (const child of Array.from(parent.children)) {
+    if (child === current) continue;
+    touched.push({
+      el: child,
+      inert: child.inert === true,
+      hidden: child.getAttribute('aria-hidden'),
+      pointer: child.style?.pointerEvents ?? '',
+    });
+    child.inert = true;
+    child.setAttribute('aria-hidden', 'true');
+    if (child.style) child.style.pointerEvents = 'none';
+  }
+}
+
+/**
+ * The open dialog stays reachable. Every other branch under body does not:
+ * inert, hidden from assistive tech, and out of the pointer path.
+ */
+export function isolateOutsideDialog(dialog: Isolatable): () => void {
+  const touched: Array<{
+    el: Isolatable;
+    inert: boolean;
+    hidden: string | null;
+    pointer: string;
+  }> = [];
+  let current: Isolatable | null = dialog;
+  while (current?.parentElement) {
+    const parentName = current.parentElement.nodeName ?? '';
+    hideSiblings(current, touched);
+    if (parentName === 'BODY' || parentName === 'HTML' || parentName === '#document') break;
+    current = current.parentElement;
+  }
+  return () => {
+    for (const item of touched) {
+      item.el.inert = item.inert;
+      if (item.hidden == null) item.el.removeAttribute('aria-hidden');
+      else item.el.setAttribute('aria-hidden', item.hidden);
+      if (item.el.style) item.el.style.pointerEvents = item.pointer;
+    }
+  };
+}
+
+/** Focus that lands outside the dialog is pulled back in. */
+export function focusShouldReturnToDialog(input: { targetInsideDialog: boolean }): boolean {
+  return !input.targetInsideDialog;
 }

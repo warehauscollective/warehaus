@@ -130,17 +130,20 @@ export function OutlineButton({
   type = 'button',
   onClick,
   disabled,
+  describedBy,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
   onClick?: () => void;
   disabled?: boolean;
+  describedBy?: string;
 }) {
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
+      aria-describedby={describedBy}
       className="inline-flex items-center justify-center"
       style={{
         background: 'transparent',

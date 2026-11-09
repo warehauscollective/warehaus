@@ -2,8 +2,16 @@
 
 import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { scrollActiveIntoView } from '@/components/layout/sectionEdgeFade';
+import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
-import { dialogTabBoundary, nextTabIndex, tabIds } from './milestoneGuards';
+import {
+  dialogTabBoundary,
+  focusShouldReturnToDialog,
+  isolateOutsideDialog,
+  MENU_ERROR_ID,
+  nextTabIndex,
+  tabIds,
+} from './milestoneGuards';
 
 export function Panel({
   children,
@@ -245,12 +253,15 @@ export function MilestoneDialog({
   children: ReactNode;
   testId?: string;
 }) {
+  const overlayRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   useEffect(() => {
+    const overlay = overlayRef.current;
     const node = dialogRef.current;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const release = overlay ? isolateOutsideDialog(overlay) : () => undefined;
     const focusable = () =>
       node
         ? [...node.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href]')].filter(
@@ -280,17 +291,29 @@ export function MilestoneDialog({
         items[items.length - 1].focus({ preventScroll: true });
       }
     };
+    const onFocusIn = (event: FocusEvent) => {
+      if (!overlay) return;
+      const target = event.target;
+      const inside = target instanceof Node && overlay.contains(target);
+      if (!focusShouldReturnToDialog({ targetInsideDialog: inside })) return;
+      const items = focusable();
+      (items[0] ?? node)?.focus({ preventScroll: true });
+    };
     document.addEventListener('keydown', onKey);
+    document.addEventListener('focusin', onFocusIn);
     return () => {
       document.removeEventListener('keydown', onKey);
+      document.removeEventListener('focusin', onFocusIn);
+      release();
       previous?.focus({ preventScroll: true });
     };
   }, []);
 
   return (
     <div
+      ref={overlayRef}
       className="fixed inset-0 flex items-start justify-center overflow-y-auto md:px-4 md:py-16"
-      style={{ zIndex: 80, background: 'color-mix(in oklab, var(--bg) 72%, transparent)' }}
+      style={{ zIndex: 80, background: 'color-mix(in oklab, var(--bg) 72%, transparent)', pointerEvents: 'auto' }}
     >
       <div
         ref={dialogRef}
@@ -317,6 +340,47 @@ export function MilestoneDialog({
         </div>
         {children}
       </div>
+    </div>
+  );
+}
+
+export function MissingMilestoneApi({
+  projectName,
+  onBack,
+  children,
+}: {
+  projectName: string;
+  onBack?: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <section data-testid="project-body" className="flex flex-col gap-6">
+      {onBack ? (
+        <NavBreadcrumb
+          back="always"
+          onBack={onBack}
+          parent={{ label: 'Projects', onClick: onBack }}
+          current={projectName}
+        />
+      ) : null}
+      {children}
+    </section>
+  );
+}
+
+export function MenuActionError({
+  error,
+  onDismiss,
+}: {
+  error: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div id={MENU_ERROR_ID} role="alert" data-testid="milestone-error" className="flex flex-col items-start gap-2">
+      <p style={{ fontSize: 13, color: 'var(--danger)' }}>{error}</p>
+      <button type="button" onClick={onDismiss} style={{ font: 'inherit', fontSize: 13, color: 'var(--fg)', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}>
+        Dismiss
+      </button>
     </div>
   );
 }

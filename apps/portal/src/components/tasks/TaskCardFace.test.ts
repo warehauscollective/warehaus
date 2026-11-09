@@ -185,7 +185,8 @@ describe('TaskCardFace client stage card', () => {
     const after = boardColumns([], 'status');
     assert.equal(before.length, after.length);
     assert.equal(boardColumnTemplate(before.length, false), boardColumnTemplate(after.length, false));
-    assert.equal(boardColumnTemplate(5, false), 'repeat(5, minmax(12rem, 1fr))');
+    assert.equal(boardColumnTemplate(5, false), 'repeat(5, minmax(12.75rem, 1fr))');
+    assert.equal(boardColumnTemplate(5, false, true), 'repeat(5, minmax(12rem, 1fr))');
     assert.equal(boardColumnTemplate(1, true), 'minmax(0, 1fr)');
   });
 

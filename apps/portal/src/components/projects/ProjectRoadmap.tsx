@@ -8,14 +8,15 @@ import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
-import { isMissingConvexFunction } from '@/lib/data/staffRoster';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
 import { formatPortalDate, type PortalTask } from '@/lib/data/view-models';
 import {
   FieldLabel,
   FieldValue,
   GhostButton,
+  MenuActionError,
   MilestoneDialog,
+  MissingMilestoneApi,
   PageHeading,
   Panel,
   StatusChip,
@@ -28,9 +29,12 @@ import {
   boardCountsFromTasks,
   clientMilestoneEmptyKind,
   goalKey,
+  MENU_ERROR_ID,
+  milestoneQueryAvailability,
   milestoneResourceChoices,
   milestonesAfterQuery,
   reviewStamp,
+  tasksMenuFailure,
   storedMilestoneReview,
   tabIds,
 } from './milestoneGuards';
@@ -230,8 +234,16 @@ export function ProjectRoadmap({
     [fixtures, project, tasks, staff],
   );
 
+  const milestoneApi = milestoneQueryAvailability({ fixtures, error: query.error });
+  if (milestoneApi === 'fallback') {
+    if (!onBackToProjects && !details) return null;
+    return (
+      <MissingMilestoneApi projectName={project.name} onBack={onBackToProjects}>
+        {details}
+      </MissingMilestoneApi>
+    );
+  }
   if (!fixtures && !live && !onBackToProjects) return null;
-  if (!fixtures && query.error && isMissingConvexFunction(query.error) && !onBackToProjects) return null;
 
   if (!fixtures && query.data) rememberedMilestones.current = query.data;
   const milestones = fixtures
@@ -834,6 +846,7 @@ function MilestoneDetail({
                 milestone={milestone}
                 busy={busy}
                 attachable={attachable}
+                describedBy={error && !reviewOpen && !editing ? MENU_ERROR_ID : undefined}
                 onWorkStatus={(workStatus) => {
                   if (fixtures) {
                     onFixture({ workStatus });
@@ -890,9 +903,7 @@ function MilestoneDetail({
               />
             ) : null}
             {error && !reviewOpen && !editing ? (
-              <p data-testid="milestone-error" style={{ fontSize: 13, color: 'var(--danger)' }}>
-                {error}
-              </p>
+              <MenuActionError error={error} onDismiss={() => setError(null)} />
             ) : null}
           </div>
         </div>
@@ -900,6 +911,9 @@ function MilestoneDetail({
 
       {tab === 'tasks' ? (
         <div className="flex flex-col gap-4">
+          {tasksMenuFailure({ tab, error, reviewOpen, editing }).show && error ? (
+            <MenuActionError error={error} onDismiss={() => setError(null)} />
+          ) : null}
           <Panel>
             <p data-testid="milestone-board-count" style={{ fontSize: 14, lineHeight: '21px' }}>
               {board.lanes} on the board
@@ -947,6 +961,7 @@ function MilestoneDetail({
               milestone={milestone}
               busy={busy}
               attachable={attachable}
+              describedBy={error && !reviewOpen && !editing ? MENU_ERROR_ID : undefined}
               onWorkStatus={(workStatus) => {
                 if (fixtures) {
                   onFixture({ workStatus });
@@ -1129,10 +1144,11 @@ function MilestoneDetail({
   );
 }
 
-function MoreMenu({
+export function MoreMenu({
   milestone,
   busy,
   attachable,
+  describedBy,
   onWorkStatus,
   onPublish,
   onAttach,
@@ -1141,6 +1157,7 @@ function MoreMenu({
   milestone: MilestoneRoadmapView;
   busy: boolean;
   attachable: { id: string; name: string }[];
+  describedBy?: string;
   onWorkStatus: (status: MilestoneRoadmapView['workStatus']) => void;
   onPublish: () => void;
   onAttach: (taskId: string) => void;
@@ -1154,6 +1171,7 @@ function MoreMenu({
           <select
             data-testid="milestone-work-select"
             value={milestone.workStatus}
+            aria-describedby={describedBy}
             disabled={busy}
             onChange={(event) => onWorkStatus(event.target.value as MilestoneRoadmapView['workStatus'])}
             style={fieldStyle}
@@ -1164,7 +1182,7 @@ function MoreMenu({
           </select>
         </label>
         <div>
-          <OutlineButton disabled={busy} onClick={onPublish}>
+          <OutlineButton disabled={busy} describedBy={describedBy} onClick={onPublish}>
             {milestone.publishToWarehaus ? 'Unpublish' : 'Publish'}
           </OutlineButton>
         </div>
@@ -1173,6 +1191,7 @@ function MoreMenu({
           <select
             data-testid="milestone-attach"
             defaultValue=""
+            aria-describedby={describedBy}
             disabled={busy || attachable.length === 0}
             onChange={(event) => {
               const taskId = event.target.value;

@@ -89,10 +89,11 @@ export function stageSavedFeedback(input: {
 }
 
 /** Equal tracks. Emptying a column does not change the template, so the row does not jump. */
-export function boardColumnTemplate(count: number, phone: boolean): string {
+export function boardColumnTemplate(count: number, phone: boolean, framed = false): string {
   if (phone) return 'minmax(0, 1fr)';
-  // 12rem lets five lanes fit the 1440 project column. Narrower desktops still scroll.
-  return `repeat(${Math.max(count, 1)}, minmax(12rem, 1fr))`;
+  // 12rem is the milestone frame, so five lanes fit that board. Other boards keep 12.75rem.
+  const track = framed ? '12rem' : '12.75rem';
+  return `repeat(${Math.max(count, 1)}, minmax(${track}, 1fr))`;
 }
 
 /** Right-edge hint only while horizontal lane content is still out of view. */
@@ -326,7 +327,7 @@ export function TaskBoard({
           setLive('Move cancelled.');
         }}
       >
-        <BoardScroller tracks={boardColumnTemplate(shown.length, phone)} shared={framedSurface}>
+        <BoardScroller tracks={boardColumnTemplate(shown.length, phone, framed)} shared={framedSurface}>
           {shown.map((column) => {
             const dragging = activeId ? viewTasks.find((task) => task.id === activeId) : undefined;
             const hover = dragging && overKey === column.key ? decide(dragging, column.key) : null;
