@@ -509,13 +509,7 @@ export const applyOutcome = internalMutation({
           .query('tasks')
           .withIndex('by_notionPageId', (q) => q.eq('notionPageId', createdPageId))
           .unique();
-        if (task) {
-          await linkTaskToCreateMilestone(
-            ctx as unknown as Parameters<typeof linkTaskToCreateMilestone>[0],
-            task,
-            milestoneId,
-          );
-        }
+        if (task) await linkTaskToCreateMilestone(ctx, task, milestoneId);
       }
     }
     await ctx.db.patch(row._id, {

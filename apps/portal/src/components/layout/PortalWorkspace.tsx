@@ -200,6 +200,7 @@ export function PortalTilePane({
   return (
     <div
       className={className ? `min-w-0 ${className}` : 'min-w-0'}
+      data-page-scroll=""
       style={{
         height: '100%',
         width: '100%',

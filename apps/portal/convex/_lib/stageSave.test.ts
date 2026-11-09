@@ -700,14 +700,28 @@ describe('applyOutcome task-stage', () => {
       },
     });
     assert.equal(row.milestoneId, 'm-launch');
+    assert.equal(row.milestoneOrder, 0);
     assert.equal(tables.notionOutbox[0]?.status, 'done');
   });
 });
 
 describe('create task milestone link', () => {
-  it('sets milestoneId on the task row created after the outbox confirms', async () => {
+  it('links a new task once and leaves it unlinked after detach', async () => {
     const tables: Record<string, Row[]> = {
-      tasks: [],
+      tasks: [
+        {
+          _id: 'task-older',
+          orgId: 'org-1',
+          projectId: 'proj-1',
+          notionPageId: 'page-older',
+          milestoneId: 'm-launch',
+          milestoneOrder: 4,
+          name: 'Older',
+          status: 'To Do',
+          isDone: false,
+          publishToWarehaus: false,
+        },
+      ],
       notionOutbox: [
         {
           _id: 'out-create',
@@ -735,15 +749,16 @@ describe('create task milestone link', () => {
         reused: false,
       },
     });
-    assert.equal(tables.tasks.length, 0);
+    assert.equal(tables.tasks.filter((row) => row.notionPageId === 'page-new').length, 0);
     assert.match(String(tables.notionOutbox[0]?.payload), /m-launch/);
 
-    await run(upsertTask, {
+    const ctx = {
       db: memoryDb(tables),
       runMutation: async () => {
         throw new Error('no notice');
       },
-    }, {
+    };
+    const pull = {
       notionPageId: 'page-new',
       orgId: 'org-1',
       projectId: 'proj-1',
@@ -752,10 +767,20 @@ describe('create task milestone link', () => {
       isDone: false,
       publishToWarehaus: false,
       lastEditedTime: TIME,
-    });
+    };
+    await run(upsertTask, ctx, pull);
     const created = tables.tasks.find((row) => row.notionPageId === 'page-new');
     assert.ok(created);
     assert.equal(created?.milestoneId, 'm-launch');
+    assert.equal(created?.milestoneOrder, 5);
     assert.equal(created?.name, 'Homepage');
+
+    await ctx.db.patch(String(created?._id), { milestoneId: undefined, milestoneOrder: undefined });
+    assert.equal(created?.milestoneId, undefined);
+    await run(upsertTask, ctx, { ...pull, name: 'Homepage revised' });
+    assert.equal(created?.milestoneId, undefined);
+    assert.equal(created?.milestoneOrder, undefined);
+    assert.equal(created?.name, 'Homepage revised');
+    assert.match(String(tables.notionOutbox[0]?.payload), /m-launch/);
   });
 });

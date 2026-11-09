@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { usePathname } from 'next/navigation';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { usePortalData } from '@/hooks/usePortalData';
@@ -11,7 +12,7 @@ import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { FIXTURE_NOTICES } from '@/lib/data/fixtures';
 import { dialogTabBoundary, isolateOutsideDialog } from '@/components/projects/milestoneGuards';
-import { headerBorderFromScroll, pickMainPageScroller } from './headerScroll';
+import { findPageScroller, headerBorderFromScroll } from './headerScroll';
 import type { PortalSidebarSection } from '@/lib/data/sidebarSections';
 
 /** Shown only while the menu search field is focused. */
@@ -68,33 +69,20 @@ export function MobileMenu({
   const headerRef = useRef<HTMLElement>(null);
   const pushed = useRef(false);
   const [scrolled, setScrolled] = useState(false);
+  const pathname = usePathname();
 
   useEffect(() => {
     const header = headerRef.current;
     const panel = header?.closest('[role="tabpanel"]');
     if (!panel) return;
-    const pageScroller = () => {
-      const nodes = [panel, ...Array.from(panel.querySelectorAll<HTMLElement>('*'))];
-      return pickMainPageScroller(
-        nodes.map((node) => {
-          const style = getComputedStyle(node);
-          return {
-            target: node,
-            role: node.getAttribute('role'),
-            overflowY: style.overflowY,
-            display: style.display,
-          };
-        }),
-      );
-    };
-    const scroller = pageScroller();
+    const marked = Array.from(panel.querySelectorAll<HTMLElement>('[data-page-scroll]'));
+    const scroller = findPageScroller(marked);
     setScrolled((scroller?.scrollTop ?? 0) > 0);
     const onScroll = (event: Event) => {
-      const page = pageScroller();
+      const target = event.target instanceof HTMLElement ? event.target : null;
       const next = headerBorderFromScroll({
-        eventTarget: event.target,
-        pageScroller: page,
-        scrollTop: page?.scrollTop ?? 0,
+        eventTarget: target,
+        scrollTop: target?.scrollTop ?? 0,
       });
       if (next == null) return;
       setScrolled(next);
@@ -102,7 +90,7 @@ export function MobileMenu({
     const options = { capture: true, passive: true } as const;
     panel.addEventListener('scroll', onScroll, options);
     return () => panel.removeEventListener('scroll', onScroll, options);
-  }, []);
+  }, [pathname]);
 
   const close = (fromPop: boolean) => {
     setOpen(false);

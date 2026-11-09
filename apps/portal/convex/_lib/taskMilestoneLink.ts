@@ -1,7 +1,11 @@
 /**
  * Portal-only milestone on a task created through the outbox.
- * Notion properties never include this id. The task row gets it here.
+ * Notion properties never include this id. The task row gets it here, once.
  */
+
+import type { Doc, Id } from '../_generated/dataModel';
+import type { MutationCtx } from '../_generated/server';
+import { nextMilestoneOrder, taskLinkPatch } from './milestones';
 
 export function milestoneIdFromPayload(payload: string): string | null {
   try {
@@ -30,30 +34,34 @@ type MilestoneLinkRow = {
 export function createdTaskMilestonePatch(input: {
   task: TaskLinkRow;
   milestone: MilestoneLinkRow | null;
-}): { milestoneId: string } | null {
+  orders: readonly (number | null | undefined)[];
+}): { milestoneId: string; milestoneOrder: number } | null {
   const { task, milestone } = input;
   if (!milestone) return null;
   if (task.milestoneId) return null;
   if (task.parentTaskId) return null;
   if (task.orgId !== milestone.orgId || task.projectId !== milestone.projectId) return null;
-  return { milestoneId: milestone._id };
+  return taskLinkPatch(milestone._id, nextMilestoneOrder(input.orders));
 }
 
-type LinkCtx = {
-  db: {
-    get: (id: string) => Promise<MilestoneLinkRow | TaskLinkRow | null>;
-    patch: (id: string, value: { milestoneId: string }) => Promise<unknown>;
-  };
-};
-
 export async function linkTaskToCreateMilestone(
-  ctx: LinkCtx,
-  task: TaskLinkRow,
+  ctx: MutationCtx,
+  task: Doc<'tasks'>,
   milestoneId: string,
 ): Promise<boolean> {
-  const milestone = (await ctx.db.get(milestoneId)) as MilestoneLinkRow | null;
-  const patch = createdTaskMilestonePatch({ task, milestone });
+  const milestone = await ctx.db.get(milestoneId as Id<'milestones'>);
+  if (!milestone) return false;
+  if (!createdTaskMilestonePatch({ task, milestone, orders: [] })) return false;
+  const siblings = await ctx.db
+    .query('tasks')
+    .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
+    .collect();
+  const patch = createdTaskMilestonePatch({
+    task,
+    milestone,
+    orders: siblings.map((row) => row.milestoneOrder),
+  });
   if (!patch) return false;
-  await ctx.db.patch(task._id, patch);
+  await ctx.db.patch(task._id, { milestoneId: milestone._id, milestoneOrder: patch.milestoneOrder });
   return true;
 }

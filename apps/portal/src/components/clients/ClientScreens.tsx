@@ -565,7 +565,7 @@ export function ClientDirectory({
   const syncProblem = errorMode === 'refresh' && Boolean(errorTitle);
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="account-clients">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="account-clients" data-page-scroll="">
       <ClampStyle />
       {showKpis ? (
         <div className="client-directory-kpis grid w-full gap-3" data-testid="client-stats">
@@ -843,14 +843,14 @@ export function ClientDetail({
   const { scrollerRef, active, choose } = useDetailSection(screen);
   if (screen === 'error') {
     return (
-      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail">
+      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-detail" data-page-scroll="">
         <StateNotice title="We could not load this client" body="Try again in a moment." />
       </div>
     );
   }
   if (screen === 'loading') {
     return (
-      <div className="flex h-full min-h-0 w-full flex-col overflow-y-auto" data-testid="client-detail" aria-busy="true">
+      <div className="flex h-full min-h-0 w-full flex-col overflow-y-auto" data-testid="client-detail" data-page-scroll="" aria-busy="true">
         <ClientListSkeleton />
       </div>
     );
@@ -872,7 +872,7 @@ export function ClientDetail({
     ['client-tasks', 'Tasks', taskRows.length],
   ] as const;
   return (
-    <div ref={scrollerRef} className="client-detail flex h-full min-h-0 flex-col overflow-y-auto" data-testid="client-detail">
+    <div ref={scrollerRef} className="client-detail flex h-full min-h-0 flex-col overflow-y-auto" data-testid="client-detail" data-page-scroll="">
       <ClampStyle />
       <Panel padded={false} className="client-detail-card">
         <div className="flex items-center gap-6">
@@ -1110,7 +1110,7 @@ export function ClientCompany({
     const visiblePeople = people.filter(clientVisiblePerson);
     const invite = clientTeamInviteCopy(name, visiblePeople);
     return (
-      <div className="flex h-full min-h-0 w-full flex-col gap-4 overflow-y-auto" data-testid="client-team">
+      <div className="flex h-full min-h-0 w-full flex-col gap-4 overflow-y-auto" data-testid="client-team" data-page-scroll="">
         <ClampStyle />
         <Panel testId="client-team-people">
           <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>Your team</h3>
@@ -1235,7 +1235,7 @@ export function ClientCompany({
 
   if (!loading && error && projects.length === 0) {
     return (
-      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company">
+      <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company" data-page-scroll="">
         <StateNotice
           title="We couldn't load your company"
           body="Try again in a moment."
@@ -1248,7 +1248,7 @@ export function ClientCompany({
   const trueEmpty = !loading && projects.length === 0;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company" aria-busy={loading || undefined}>
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto" data-testid="client-company" data-page-scroll="" aria-busy={loading || undefined}>
       <ClampStyle />
       {!loading && error ? (
         <StateNotice
