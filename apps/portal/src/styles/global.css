@@ -67,6 +67,42 @@ html[data-density='compact'] .ds-data th {
   --drop-slot-border: 1px dashed var(--accent);
 }
 
+@media (prefers-reduced-motion: no-preference) {
+  .menu-sheet {
+    animation: menu-sheet-in 200ms ease;
+  }
+}
+@keyframes menu-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-sheet {
+    animation: menu-sheet-fade 200ms ease;
+  }
+}
+@keyframes menu-sheet-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+#menu-search::placeholder {
+  color: var(--muted);
+}
+
+[data-testid="project-detail"] {
+  scrollbar-width: none;
+}
+[data-testid="project-detail"]::-webkit-scrollbar {
+  display: none;
+}
+
 /* Phone panels use 20px side margins. The notice bell is a fixed overlay and does not reserve a column. */
 .portal-tab-shell {
   padding-left: var(--portal-panel-gap, 1.25rem);

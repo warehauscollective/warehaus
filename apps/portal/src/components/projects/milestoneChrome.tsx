@@ -51,22 +51,27 @@ export function FieldValue({ children }: { children: ReactNode }) {
   );
 }
 
-/** Work status chip. Milestones have no stage field. */
-export function StatusChip({ label }: { label: string }) {
+/** Work status chip. The glyph follows the existing status; the label stays the status value. */
+export function StatusChip({ label, glyph = '/icons/task-stage.svg' }: { label: string; glyph?: string }) {
   return (
     <span
-      className="ds-mono inline-flex items-center gap-2"
+      className="ds-mono inline-flex items-center self-start"
       data-testid="milestone-status-chip"
       style={{
+        boxSizing: 'border-box',
+        width: 'auto',
+        height: 24,
+        gap: 8,
         border: '1px solid var(--border-2)',
         borderRadius: 999,
         padding: '4px 12px',
         fontSize: 11,
-        letterSpacing: '0.04em',
+        lineHeight: 'normal',
+        letterSpacing: '0.44px',
         color: 'var(--fg)',
       }}
     >
-      <TaskGlyph src="/icons/task-stage.svg" size={12} />
+      <TaskGlyph src={glyph} size={12} />
       {label}
     </span>
   );
@@ -126,14 +131,17 @@ export function TabRow({
             onClick={() => onChange(tab.id)}
             className="shrink-0 whitespace-nowrap"
             style={{
+              boxSizing: 'border-box',
+              height: 42,
               background: selected ? 'var(--accent)' : 'transparent',
               color: selected ? 'var(--accent-fg)' : 'var(--muted)',
               border: 0,
               borderRadius: 9,
               padding: '12px 16px',
-              fontFamily: 'var(--font-body)',
+              fontFamily: 'var(--font-geist), var(--font-body)',
               fontSize: 14,
               fontWeight: 500,
+              lineHeight: 'normal',
               cursor: 'pointer',
             }}
           >
@@ -161,10 +169,22 @@ export function PageHeading({
   measure?: boolean;
 }) {
   return (
-    <div className={measure ? 'flex flex-col items-start gap-4 md:flex-row md:items-start md:gap-6' : 'flex flex-col items-start gap-4 md:flex-row md:items-start md:justify-between'}>
-      <div className={measure ? 'min-w-0 w-full md:w-[820px] md:max-w-[calc(100%-180px)]' : 'min-w-0 flex-1'}>
-        <h1 data-testid={testId} style={{ fontSize: 30, lineHeight: '45px', fontWeight: 600, color: 'var(--fg)' }}>{title}</h1>
-        <p style={{ marginTop: 4, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>{subtitle}</p>
+    <div className={measure ? 'flex flex-col items-start gap-6 lg:flex-row lg:items-start' : 'flex flex-col items-start gap-4 md:flex-row md:items-start md:justify-between'}>
+      <div className={measure ? 'flex min-w-0 w-full flex-col gap-6 lg:w-[820px] lg:gap-1' : 'min-w-0 flex-1'}>
+        <h1
+          data-testid={testId}
+          style={{
+            fontFamily: 'var(--font-geist), var(--font-body)',
+            fontSize: measure ? undefined : 30,
+            lineHeight: measure ? undefined : '45px',
+            fontWeight: 600,
+            color: 'var(--fg)',
+          }}
+          className={measure ? 'text-[28px] leading-[42px] lg:text-[30px] lg:leading-[45px]' : undefined}
+        >
+          {title}
+        </h1>
+        <p style={{ marginTop: measure ? 0 : 4, fontFamily: 'var(--font-geist), var(--font-body)', fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>{subtitle}</p>
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>
@@ -190,10 +210,12 @@ export function MilestoneListButton({
       style={{
         background: fill ? 'var(--accent)' : 'transparent',
         color: fill ? 'var(--accent-fg)' : 'var(--fg)',
+        boxSizing: 'border-box',
+        height: fill ? 42 : 44,
         border: fill ? 0 : '1px solid var(--border-2)',
         borderRadius: 9,
         padding: '12px 16px',
-        fontFamily: 'var(--font-body)',
+        fontFamily: 'var(--font-geist), var(--font-body)',
         fontSize: 14,
         fontWeight: 500,
         lineHeight: 'normal',

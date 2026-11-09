@@ -37,13 +37,16 @@ function TabPanelShell({
   children: ReactNode;
 }) {
   const phone = useMaxWidth(767);
+  const project = tab === 'projects';
   return (
     <div
-      className="portal-tab-shell box-border flex h-full min-h-0 flex-col overflow-hidden pb-28 pt-3 lg:flex-row lg:pt-[var(--portal-panel-gap,1.25rem)]"
+      className={`portal-tab-shell box-border flex h-full min-h-0 flex-col overflow-hidden pb-28 lg:flex-row lg:items-stretch ${
+        project ? 'pt-4 lg:pt-6' : 'pt-3 lg:pt-[var(--portal-panel-gap,1.25rem)]'
+      }`}
       style={{
-        paddingLeft: '1.25rem',
-        paddingRight: phone ? '1.25rem' : '4.5rem',
-        gap: PORTAL_PANEL_GAP_VAR,
+        paddingLeft: project ? (phone ? 16 : 24) : '1.25rem',
+        paddingRight: project ? (phone ? 16 : 24) : phone ? '1.25rem' : '4.5rem',
+        gap: project ? 24 : PORTAL_PANEL_GAP_VAR,
         touchAction: 'pan-x pan-y',
       }}
     >

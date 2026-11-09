@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -42,6 +42,11 @@ export function NoticeBell() {
   const markRead = useMutation(api.invitesSync.markNoticeRead);
   const markAll = useMutation(api.invitesSync.markAllNoticesRead);
   const [open, setOpen] = useState(false);
+  useEffect(() => {
+    const onOpen = () => setOpen(true);
+    window.addEventListener('wh-open-notices', onOpen);
+    return () => window.removeEventListener('wh-open-notices', onOpen);
+  }, []);
   const [fixtureRows, setFixtureRows] = useState<
     Array<{ id: string; message: string; createdAt: number; readAt: number | null; edgeCase: string; unread: boolean }>
   >(FIXTURE_NOTICES);
@@ -73,7 +78,7 @@ export function NoticeBell() {
         aria-label={unread ? `Notices, ${unread} unread` : 'Notices'}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="relative flex items-center justify-center"
+        className="relative hidden items-center justify-center lg:flex"
         style={{
           width: 42,
           height: 42,

@@ -415,7 +415,7 @@ export function ProjectsContent() {
     return (
       <PortalWorkspace hideHeader eyebrow={tenantEyebrow(data.tenant, 'Project')} title={openProject.name}>
         <PortalTilePane>
-          <div className="flex h-full min-h-0 min-w-0 flex-col gap-4 overflow-y-auto" data-testid="project-detail" data-task-view={taskView} style={{ scrollbarGutter: 'stable' }}>
+          <div className="flex h-full min-h-0 w-full min-w-0 max-w-[1108px] flex-col gap-4 overflow-y-auto" data-testid="project-detail" data-task-view={taskView}>
             <ProjectRoadmap
               project={openProject}
               tasks={projectTasks}

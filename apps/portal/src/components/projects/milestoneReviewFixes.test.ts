@@ -108,7 +108,8 @@ describe('milestone review fixes', () => {
     assert.match(roadmap, /\{ id: 'details', label: 'Project details' \}/);
     assert.match(roadmap, /projectTab === 'details' && page \? details : null/);
     assert.match(roadmap, /subtitle="Project details · Every task belongs to a milestone"/);
-    assert.equal(roadmap.includes('stay on Project details'), false);
+    assert.match(roadmap, /data-testid="milestone-unassigned"/);
+    assert.match(roadmap, /Nothing is assigned automatically/);
     const listCard = roadmap.slice(roadmap.indexOf('function MilestoneListCard'), roadmap.indexOf('function MilestoneDetail'));
     assert.equal(listCard.includes('TaskBoard'), false);
     assert.match(listCard, /Open milestone/);

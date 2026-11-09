@@ -149,18 +149,27 @@ function nextDueLabel(value?: string | null): string {
   return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' });
 }
 
-/** Compact chip on the milestone list. The count still includes subtasks. */
-function listProgressCopy(done: number, total: number): string {
-  return `${done} / ${total} complete`;
+function projectStatusLabel(status?: string | null): string {
+  if (!status) return '—';
+  if (/^in progress$/i.test(status)) return 'In progress';
+  return status;
 }
 
-function approvalLine(milestone: MilestoneRoadmapView): string | null {
-  if (milestone.approval === 'approved' && milestone.decidedAt) {
-    const when = new Date(milestone.decidedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    return `Approved ${when}`;
-  }
-  if (milestone.approval === 'changes_requested') return APPROVAL_LABEL.changes_requested;
-  return null;
+/** Approved date when one exists. There is no milestone due field, so that line is omitted. */
+function milestoneDateLine(milestone: MilestoneRoadmapView): string | null {
+  if (milestone.approval !== 'approved' || !milestone.decidedAt) return null;
+  const when = new Date(milestone.decidedAt).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    timeZone: 'UTC',
+  });
+  return `Approved ${when}`;
+}
+
+function statusGlyph(milestone: MilestoneRoadmapView): string {
+  if (milestone.approval === 'approved') return '/icons/task-stage-shipped.svg';
+  if (milestone.workStatus === 'draft') return '/icons/item-stage.svg';
+  return '/icons/task-stage.svg';
 }
 
 function resourceLabel(count: number): string {
@@ -282,6 +291,8 @@ export function ProjectRoadmap({
       });
   const selected = milestones.find((milestone) => milestone.id === openMilestoneId) ?? null;
   const approvedCount = milestones.filter((milestone) => milestone.approval === 'approved').length;
+  const attachedIds = new Set(milestones.flatMap((milestone) => milestone.rows.map((row) => row.id)));
+  const unassigned = tasks.filter((task) => !task.parentTaskId && !attachedIds.has(task.id));
   const projectActivity = activity.filter((item) => item.projectId === project.id);
   const loading = !fixtures && (live ? query.loading : true) && milestones.length === 0;
   const failed = !fixtures && live && query.error != null;
@@ -319,30 +330,55 @@ export function ProjectRoadmap({
         />
       ) : null}
       {page && !selected ? (
-        <nav
-          aria-label="Breadcrumb"
-          data-testid="nav-breadcrumb"
-          className="ds-mono min-w-0"
-          style={{ fontSize: 11, lineHeight: '17px', color: 'var(--muted)' }}
-        >
+        <>
           <button
             type="button"
+            className="inline-flex items-center justify-center lg:hidden"
+            data-testid="nav-breadcrumb-back"
             onClick={() => onBackToProjects?.()}
-            data-testid="nav-breadcrumb-parent"
             style={{
-              font: 'inherit',
-              color: 'inherit',
-              background: 'none',
+              minHeight: 44,
+              padding: '12px 16px',
               border: 0,
-              padding: 0,
+              borderRadius: 9,
+              background: 'transparent',
+              color: 'var(--muted)',
+              fontFamily: 'var(--font-geist), var(--font-body)',
+              fontSize: 14,
+              fontWeight: 500,
+              lineHeight: 'normal',
               cursor: 'pointer',
             }}
           >
-            Projects
+            ‹ Projects
           </button>
-          <span aria-hidden> / </span>
-          <span data-testid="nav-breadcrumb-current">{project.name}</span>
-        </nav>
+          <nav
+            aria-label="Breadcrumb"
+            data-testid="nav-breadcrumb"
+            className="ds-mono hidden min-w-0 lg:block"
+            style={{ fontSize: 11, lineHeight: '17px', color: 'var(--muted)', letterSpacing: 0, textTransform: 'none' }}
+          >
+            <button
+              type="button"
+              onClick={() => onBackToProjects?.()}
+              data-testid="nav-breadcrumb-parent"
+              className="hover:underline focus-visible:underline"
+              style={{
+                font: 'inherit',
+                color: 'inherit',
+                background: 'none',
+                border: 0,
+                padding: 0,
+                cursor: 'pointer',
+                textDecoration: 'none',
+              }}
+            >
+              Projects
+            </button>
+            <span aria-hidden> / </span>
+            <span data-testid="nav-breadcrumb-current">{project.name}</span>
+          </nav>
+        </>
       ) : null}
 
       {selected ? (
@@ -401,15 +437,23 @@ export function ProjectRoadmap({
 
           {projectTab === 'milestones' || !page ? (
             <div className="flex flex-col gap-6">
-              <Panel>
-                <div className="grid grid-cols-2 gap-x-6 gap-y-4 md:grid-cols-4 md:gap-8">
-                  <div>
+              <section
+                data-testid="project-summary-panel"
+                className="box-border p-4 lg:p-6"
+                style={{
+                  background: 'var(--surface)',
+                  border: '1px solid var(--border)',
+                  borderRadius: 'var(--panel-radius, 12px)',
+                }}
+              >
+                <div className="grid grid-cols-[155px_155px] gap-4 lg:grid-cols-4 lg:gap-8">
+                  <div className="hidden lg:block">
                     <FieldLabel>CLIENT</FieldLabel>
                     <FieldValue>{clientName || project.clientName || '—'}</FieldValue>
                   </div>
-                  <div>
+                  <div className="hidden lg:block">
                     <FieldLabel>PROJECT STATUS</FieldLabel>
-                    <FieldValue>{project.status || '—'}</FieldValue>
+                    <FieldValue>{projectStatusLabel(project.status)}</FieldValue>
                   </div>
                   <div>
                     <FieldLabel>MILESTONES</FieldLabel>
@@ -422,7 +466,7 @@ export function ProjectRoadmap({
                     <FieldValue>{nextDueLabel(project.endDate)}</FieldValue>
                   </div>
                 </div>
-              </Panel>
+              </section>
 
               {loading ? (
                 <p style={{ fontSize: 14, color: 'var(--muted)' }}>Loading milestones</p>
@@ -464,6 +508,13 @@ export function ProjectRoadmap({
                     body="This project is available to you. Nothing on it has been shared as a milestone."
                   />
                 )
+              ) : null}
+
+              {!loading && !failed && staff && unassigned.length > 0 ? (
+                <p data-testid="milestone-unassigned" style={{ fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
+                  {unassigned.length} {unassigned.length === 1 ? 'task stays' : 'tasks stay'} on Project details until someone
+                  attaches {unassigned.length === 1 ? 'it' : 'them'}. Nothing is assigned automatically.
+                </p>
               ) : null}
 
               <div className="flex flex-col gap-4">
@@ -517,11 +568,13 @@ function MilestoneListCard({
   onOpen: () => void;
 }) {
   const total = taskTotal(milestone);
-  const meta = approvalLine(milestone);
+  const nested = boardTaskCounts(milestone).nested;
+  const meta = milestoneDateLine(milestone);
+  const glyph = statusGlyph(milestone);
   return (
     <article
       data-testid={`milestone-${milestone.id}`}
-      className="flex flex-col gap-4 md:flex-row md:items-start md:gap-6"
+      className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,838px)_174px] lg:items-start lg:justify-start lg:gap-x-6 lg:gap-y-0"
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
@@ -529,18 +582,18 @@ function MilestoneListCard({
         padding: 24,
       }}
     >
-      <div className="flex items-center justify-between gap-3 md:hidden">
-        <StatusChip label={WORK_LABEL[milestone.workStatus]} />
+      <div className="flex items-center lg:hidden" style={{ gap: meta ? 24 : 0 }}>
+        <StatusChip label={WORK_LABEL[milestone.workStatus]} glyph={glyph} />
         {meta ? <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{meta}</p> : null}
       </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-3">
-        <h2 data-testid="milestone-name" style={{ fontSize: 20, lineHeight: '30px', fontWeight: 500 }}>
+      <div className="flex min-w-0 flex-1 flex-col gap-4 lg:gap-3">
+        <h2 data-testid="milestone-name" className="text-[21px] leading-[32px] lg:text-[20px] lg:leading-[30px]" style={{ fontFamily: 'var(--font-geist), var(--font-body)', fontWeight: 500 }}>
           {milestone.name}
         </h2>
         <p data-testid="milestone-objective" style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
           {milestone.objective}
         </p>
-        <div className="flex flex-col items-start gap-2 md:flex-row md:flex-wrap md:items-center md:gap-4">
+        <div className="flex flex-col items-start gap-4 lg:flex-row lg:flex-wrap lg:items-center">
           <span
             className="ds-mono"
             style={{
@@ -553,7 +606,7 @@ function MilestoneListCard({
               color: 'var(--muted)',
             }}
           >
-            {listProgressCopy(milestone.doneCount, total)}
+            {inclusiveProgressCopy(milestone.doneCount, total, nested)}
           </span>
           <span style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
             {resourceLabel(milestone.resources.length)} · {reviewStamp(milestone.decidedAt)}
@@ -565,12 +618,12 @@ function MilestoneListCard({
           ) : null}
         </div>
       </div>
-      <div className="hidden w-[174px] shrink-0 flex-col items-start gap-3 md:flex">
-        <StatusChip label={WORK_LABEL[milestone.workStatus]} />
+      <div className="hidden w-[174px] shrink-0 flex-col items-start gap-3 lg:flex">
+        <StatusChip label={WORK_LABEL[milestone.workStatus]} glyph={glyph} />
         {meta ? <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{meta}</p> : null}
         <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
-      <div className="md:hidden">
+      <div className="lg:hidden">
         <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
     </article>
