@@ -428,6 +428,65 @@ export function milestoneActivityName(type: MilestoneActivityType, milestoneName
   return milestoneName;
 }
 
+/** Activity insert for one milestone. The id is what later reads filter on. */
+export function milestoneActivityInsert(input: {
+  orgId: string;
+  projectId: string;
+  milestoneId: string;
+  name: string;
+  type: MilestoneActivityType;
+  timestamp: number;
+}): {
+  orgId: string;
+  projectId: string;
+  milestoneId: string;
+  name: string;
+  type: MilestoneActivityType;
+  tone: 'warn' | 'success' | 'accent';
+  timestamp: number;
+} {
+  return {
+    orgId: input.orgId,
+    projectId: input.projectId,
+    milestoneId: input.milestoneId,
+    name: milestoneActivityName(input.type, input.name),
+    type: input.type,
+    tone:
+      input.type === 'milestone.changes_requested'
+        ? 'warn'
+        : input.type === 'milestone.approved'
+          ? 'success'
+          : 'accent',
+    timestamp: input.timestamp,
+  };
+}
+
+export async function writeMilestoneActivity(
+  ctx: {
+    db: {
+      insert: (
+        table: 'activity',
+        value: ReturnType<typeof milestoneActivityInsert>,
+      ) => Promise<unknown>;
+    };
+  },
+  milestone: { _id: string; orgId: string; projectId: string; name: string },
+  type: MilestoneActivityType,
+  at: number,
+): Promise<void> {
+  await ctx.db.insert(
+    'activity',
+    milestoneActivityInsert({
+      orgId: milestone.orgId,
+      projectId: milestone.projectId,
+      milestoneId: milestone._id,
+      name: milestone.name,
+      type,
+      timestamp: at,
+    }),
+  );
+}
+
 export type MilestoneResourceView = {
   id: string;
   title: string;

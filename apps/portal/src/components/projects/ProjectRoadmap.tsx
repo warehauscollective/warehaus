@@ -26,7 +26,7 @@ import {
   fieldStyle,
 } from './milestoneChrome';
 import {
-  ACTIVITY_MILESTONE_ID_GAP,
+  activityForMilestone,
   boardCountsFromTasks,
   clientMilestoneEmptyKind,
   goalKey,
@@ -68,6 +68,7 @@ export type MilestoneActivityItem = {
   summary: string;
   timestamp: string;
   projectId: string | null;
+  milestoneId?: string | null;
 };
 
 type ResourceChoice = { id: string; title: string };
@@ -389,6 +390,7 @@ export function ProjectRoadmap({
           staff={staff}
           fixtures={fixtures}
           hostSlug={hostSlug}
+          activity={projectActivity}
           activityError={activityError}
           onOpenTask={onOpenTask}
           resourceChoices={resourceChoices}
@@ -630,26 +632,57 @@ function MilestoneListCard({
   );
 }
 
-function MilestoneDetail({
-  milestone,
-  project,
-  tasks,
-  staff,
-  fixtures,
-  hostSlug,
-  activityError = null,
-  onOpenTask,
-  resourceChoices,
-  renderTasks,
-  onBack,
-  onFixture,
-}: {
+type MilestoneMutations = {
+  decide: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    decision: 'approved' | 'changes_requested';
+    note: string;
+  }) => Promise<unknown>;
+  decideAsClient: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    decision: 'approved' | 'changes_requested';
+    note: string;
+  }) => Promise<unknown>;
+  save: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    name: string;
+    objective: string;
+    goals: string[];
+    resourceIds: Id<'sharedResources'>[];
+  }) => Promise<unknown>;
+  setWorkStatus: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    workStatus: MilestoneRoadmapView['workStatus'];
+  }) => Promise<unknown>;
+  setPublish: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    publishToWarehaus: boolean;
+  }) => Promise<unknown>;
+  attachTask: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    taskId: Id<'tasks'>;
+  }) => Promise<unknown>;
+  detachTask: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    taskId: Id<'tasks'>;
+  }) => Promise<unknown>;
+};
+
+function MilestoneDetail(props: {
   milestone: MilestoneRoadmapView;
   project: RoadmapProject;
   tasks: readonly PortalTask[];
   staff: boolean;
   fixtures: boolean;
   hostSlug?: string;
+  activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
   onOpenTask?: (task: PortalTask) => void;
   resourceChoices: ResourceChoice[];
@@ -664,6 +697,46 @@ function MilestoneDetail({
   const setPublish = useMutation(api.milestones.setPublish);
   const attachTask = useMutation(api.milestones.attachTask);
   const detachTask = useMutation(api.milestones.detachTask);
+  return (
+    <MilestoneDetailView
+      {...props}
+      mutations={{ decide, decideAsClient, save, setWorkStatus, setPublish, attachTask, detachTask }}
+    />
+  );
+}
+
+export function MilestoneDetailView({
+  milestone,
+  project,
+  tasks,
+  staff,
+  fixtures,
+  hostSlug,
+  activity = [],
+  activityError = null,
+  onOpenTask,
+  resourceChoices,
+  renderTasks,
+  onBack,
+  onFixture,
+  mutations,
+}: {
+  milestone: MilestoneRoadmapView;
+  project: RoadmapProject;
+  tasks: readonly PortalTask[];
+  staff: boolean;
+  fixtures: boolean;
+  hostSlug?: string;
+  activity?: readonly MilestoneActivityItem[];
+  activityError?: string | null;
+  onOpenTask?: (task: PortalTask) => void;
+  resourceChoices: ResourceChoice[];
+  renderTasks?: (tasks: PortalTask[]) => ReactNode;
+  onBack: () => void;
+  onFixture: (patch: FixturePatch) => void;
+  mutations: MilestoneMutations;
+}) {
+  const { decide, decideAsClient, save, setWorkStatus, setPublish, attachTask, detachTask } = mutations;
   const [tab, setTab] = useState<MilestoneTab>('overview');
   const [reviewOpen, setReviewOpen] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -680,6 +753,7 @@ function MilestoneDetail({
   const board = boardCountsFromTasks(shownTasks);
   const storedReview = storedMilestoneReview(milestone);
   const reviewCount = storedReview ? 1 : 0;
+  const milestoneActivity = activityForMilestone(activity, milestone.id);
   const choices = milestoneResourceChoices(
     resourceChoices,
     milestone.resources.map((resource) => ({ id: resource.id, title: resource.title })),
@@ -1136,17 +1210,14 @@ function MilestoneDetail({
               action={<PrimaryButton onClick={() => { setError(null); setReviewOpen(true); }}>Review milestone</PrimaryButton>}
             />
           )}
-          <p data-testid="milestone-activity-gap" style={{ fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
-            {ACTIVITY_MILESTONE_ID_GAP}
-          </p>
         </div>
       ) : null}
 
       {tab === 'activity' ? (
         <div className="flex flex-col gap-4">
           <ActivityList
-            items={
-              storedReview
+            items={[
+              ...(storedReview
                 ? [
                     {
                       id: storedReview.id,
@@ -1155,16 +1226,15 @@ function MilestoneDetail({
                       summary: storedReview.note || storedReview.approval,
                       timestamp: reviewStamp(storedReview.decidedAt),
                       projectId: project.id,
+                      milestoneId: milestone.id,
                     },
                   ]
-                : []
-            }
+                : []),
+              ...milestoneActivity.filter((item) => item.id !== storedReview?.id),
+            ]}
             empty="No review is stored on this milestone."
             error={activityError}
           />
-          <p data-testid="milestone-activity-gap" style={{ fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
-            {ACTIVITY_MILESTONE_ID_GAP}
-          </p>
         </div>
       ) : null}
       </div>

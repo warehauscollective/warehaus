@@ -1,15 +1,16 @@
 import { isMissingConvexFunction } from '@/lib/data/staffRoster';
 
 /**
- * Pure checks for the milestone UI. No schema and no new queries.
- * Activity rows still have no milestone id, so review history is not joined by name.
+ * Pure checks for the milestone UI.
+ * Milestone activity is filtered by milestoneId. A matching name is not enough.
  */
 
-export const ACTIVITY_MILESTONE_ID_GAP =
-  'Activity rows store the milestone name and have no milestone id. A rename or two milestones with the same name cannot be separated, so this tab does not match activity by name.';
-
-export const CREATE_TASK_MILESTONE_GAP =
-  'createTask does not accept milestoneId. A new task is not attached to this milestone, so that control stays hidden. attachTask can link a task that already exists.';
+export function activityForMilestone<T extends { milestoneId?: string | null }>(
+  items: readonly T[],
+  milestoneId: string,
+): T[] {
+  return items.filter((item) => item.milestoneId === milestoneId);
+}
 
 export function resourcesForProject<T extends { projectId?: string | null }>(
   resources: readonly T[],

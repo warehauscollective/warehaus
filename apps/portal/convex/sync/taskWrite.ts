@@ -212,6 +212,7 @@ export const enqueueCreate = internalMutation({
     externalId: v.string(),
     date: v.optional(v.string()),
     stage: v.optional(v.string()),
+    milestoneId: v.optional(v.id('milestones')),
     actorId: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<EnqueueStatusResult> => {
@@ -221,6 +222,13 @@ export const enqueueCreate = internalMutation({
       .unique();
     const projectGate = taskCreateProjectGate(project, args.orgId);
     if (!projectGate.ok) return { ok: false as const, error: projectGate.error };
+    if (!project) return { ok: false as const, error: 'Project is not in this client' };
+    if (args.milestoneId) {
+      const milestone = await ctx.db.get(args.milestoneId);
+      if (!milestone || milestone.orgId !== args.orgId || milestone.projectId !== project._id) {
+        return { ok: false as const, error: 'Milestone is not on this project' };
+      }
+    }
     const planned = planTaskCreate({
       actor: 'staff',
       name: args.name,
@@ -236,7 +244,10 @@ export const enqueueCreate = internalMutation({
       kind: 'create',
       orgId: args.orgId,
       database: 'tasks',
-      payload: JSON.stringify({ properties: planned.properties }),
+      payload: JSON.stringify({
+        properties: planned.properties,
+        ...(args.milestoneId ? { milestoneId: args.milestoneId } : {}),
+      }),
       actor: 'staff' as const,
       actorId: args.actorId,
       schedule: true,

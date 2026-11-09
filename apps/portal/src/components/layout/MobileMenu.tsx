@@ -62,15 +62,9 @@ export function MobileMenu({
       ? FIXTURE_NOTICES.filter((row) => row.unread).length
       : (notices.data ?? []).filter((row) => row.unread).length;
   const chips = tab === 'projects' ? projectMenuChips(sections) : sections.filter((section) => section.key !== 'shipped');
-  const titleId = useId();
   const [open, setOpen] = useState(false);
-  const [searchFocused, setSearchFocused] = useState(false);
-  const [sheetHeight, setSheetHeight] = useState<number | null>(null);
   const menuRef = useRef<HTMLButtonElement>(null);
   const headerRef = useRef<HTMLElement>(null);
-  const closeRef = useRef<HTMLButtonElement>(null);
-  const sheetRef = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
   const pushed = useRef(false);
   const [scrolled, setScrolled] = useState(false);
 
@@ -89,7 +83,6 @@ export function MobileMenu({
 
   const close = (fromPop: boolean) => {
     setOpen(false);
-    setSearchFocused(false);
     if (!fromPop && pushed.current) {
       pushed.current = false;
       history.back();
@@ -105,66 +98,6 @@ export function MobileMenu({
       history.pushState({ whMenu: true }, '');
       pushed.current = true;
     }
-  };
-
-  useEffect(() => {
-    if (!open) return;
-    const sheet = sheetRef.current;
-    if (!sheet) return;
-    const release = isolateOutsideDialog(sheet);
-    const previousOverflow = document.body.style.overflow;
-    const scrollY = window.scrollY;
-    document.body.style.overflow = 'hidden';
-    closeRef.current?.focus();
-    const onPop = () => close(true);
-    window.addEventListener('popstate', onPop);
-    const viewport = window.visualViewport;
-    const fit = () => {
-      if (!viewport) return;
-      setSheetHeight(viewport.height);
-    };
-    fit();
-    viewport?.addEventListener('resize', fit);
-    viewport?.addEventListener('scroll', fit);
-    return () => {
-      release();
-      document.body.style.overflow = previousOverflow;
-      window.scrollTo(0, scrollY);
-      window.removeEventListener('popstate', onPop);
-      viewport?.removeEventListener('resize', fit);
-      viewport?.removeEventListener('scroll', fit);
-      setSheetHeight(null);
-    };
-  }, [open]);
-
-  const onSheetKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      close(false);
-      return;
-    }
-    if (event.key !== 'Tab') return;
-    const sheet = sheetRef.current;
-    if (!sheet) return;
-    const nodes = menuFocusIds(staff, chips)
-      .map((id) => sheet.querySelector<HTMLElement>(`#${id}`))
-      .filter((node): node is HTMLElement => node != null);
-    if (nodes.length === 0) return;
-    const boundary = dialogTabBoundary({
-      shiftKey: event.shiftKey,
-      atFirst: document.activeElement === nodes[0],
-      atLast: document.activeElement === nodes[nodes.length - 1],
-    });
-    if (boundary == null) return;
-    event.preventDefault();
-    nodes[boundary === 'first' ? 0 : nodes.length - 1]?.focus();
-  };
-
-  const submitSearch = () => {
-    const query = searchRef.current?.value ?? '';
-    const trigger = menuRef.current;
-    close(false);
-    window.dispatchEvent(new CustomEvent('wh-open-search', { detail: { trigger, query } }));
   };
 
   return (
@@ -237,6 +170,108 @@ export function MobileMenu({
       </header>
 
       {open ? (
+        <MenuSheetDialog
+          staff={staff}
+          chips={chips}
+          tab={tab}
+          activeSection={activeSection}
+          unread={unread}
+          onDismiss={close}
+          onSelect={(key) => {
+            onSelect(key);
+            close(false);
+          }}
+          onSearch={(query) => {
+            const trigger = menuRef.current;
+            close(false);
+            window.dispatchEvent(new CustomEvent('wh-open-search', { detail: { trigger, query } }));
+          }}
+        />
+      ) : null}
+    </>
+  );
+}
+
+export function MenuSheetDialog({
+  staff,
+  chips,
+  tab,
+  activeSection,
+  unread,
+  onDismiss,
+  onSelect,
+  onSearch,
+}: {
+  staff: boolean;
+  chips: readonly { key: string; label: string }[];
+  tab: PortalTab;
+  activeSection: string;
+  unread: number;
+  onDismiss: (fromPop: boolean) => void;
+  onSelect: (key: string) => void;
+  onSearch: (query: string) => void;
+}) {
+  const titleId = useId();
+  const [searchFocused, setSearchFocused] = useState(false);
+  const [sheetHeight, setSheetHeight] = useState<number | null>(null);
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const dismissRef = useRef(onDismiss);
+  dismissRef.current = onDismiss;
+
+  useEffect(() => {
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const release = isolateOutsideDialog(sheet);
+    const previousOverflow = document.body.style.overflow;
+    const scrollY = window.scrollY;
+    document.body.style.overflow = 'hidden';
+    closeRef.current?.focus();
+    const onPop = () => dismissRef.current(true);
+    window.addEventListener('popstate', onPop);
+    const viewport = window.visualViewport;
+    const fit = () => {
+      if (!viewport) return;
+      setSheetHeight(viewport.height);
+    };
+    fit();
+    viewport?.addEventListener('resize', fit);
+    viewport?.addEventListener('scroll', fit);
+    return () => {
+      release();
+      document.body.style.overflow = previousOverflow;
+      window.scrollTo(0, scrollY);
+      window.removeEventListener('popstate', onPop);
+      viewport?.removeEventListener('resize', fit);
+      viewport?.removeEventListener('scroll', fit);
+    };
+  }, []);
+
+  const onSheetKey = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      dismissRef.current(false);
+      return;
+    }
+    if (event.key !== 'Tab') return;
+    const sheet = sheetRef.current;
+    if (!sheet) return;
+    const nodes = menuFocusIds(staff, chips)
+      .map((id) => sheet.querySelector<HTMLElement>(`#${id}`))
+      .filter((node): node is HTMLElement => node != null);
+    if (nodes.length === 0) return;
+    const boundary = dialogTabBoundary({
+      shiftKey: event.shiftKey,
+      atFirst: document.activeElement === nodes[0],
+      atLast: document.activeElement === nodes[nodes.length - 1],
+    });
+    if (boundary == null) return;
+    event.preventDefault();
+    nodes[boundary === 'first' ? 0 : nodes.length - 1]?.focus();
+  };
+
+  return (
         <div
           ref={sheetRef}
           id="menu-sheet"
@@ -267,7 +302,7 @@ export function MobileMenu({
               id="menu-close"
               type="button"
               data-testid="menu-close"
-              onClick={() => close(false)}
+              onClick={() => dismissRef.current(false)}
               className="inline-flex items-center justify-center"
               style={{
                 minWidth: 44,
@@ -324,7 +359,7 @@ export function MobileMenu({
                   onKeyDown={(event) => {
                     if (event.key === 'Enter') {
                       event.preventDefault();
-                      submitSearch();
+                      onSearch(searchRef.current?.value ?? '');
                     }
                   }}
                   style={{
@@ -363,10 +398,7 @@ export function MobileMenu({
                         type="button"
                         data-testid={`menu-chip-${section.key}`}
                         aria-pressed={selected}
-                        onClick={() => {
-                          onSelect(section.key);
-                          close(false);
-                        }}
+                        onClick={() => onSelect(section.key)}
                         className="inline-flex items-center justify-center"
                         style={{
                           height: 44,
@@ -403,7 +435,7 @@ export function MobileMenu({
                     data-testid="menu-notifications"
                     onClick={() => {
                       window.dispatchEvent(new CustomEvent('wh-open-notices'));
-                      close(false);
+                      dismissRef.current(false);
                     }}
                     className="flex w-full items-center text-left"
                     style={{ minHeight: 56, gap: 12, padding: '0 16px', background: 'transparent', border: 0, color: 'var(--fg)', cursor: 'pointer' }}
@@ -445,7 +477,5 @@ export function MobileMenu({
             ) : null}
           </div>
         </div>
-      ) : null}
-    </>
   );
 }

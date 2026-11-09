@@ -182,6 +182,7 @@ export const getSnapshot = clientQuery({
                 timestamp: new Date(a.timestamp).toISOString(),
                 tone: a.tone ?? 'muted',
                 projectId: a.projectId ?? null,
+                milestoneId: a.milestoneId ?? null,
               }))
           : buildActivityFeed({
               audience: 'client',
@@ -207,6 +208,7 @@ export const getSnapshot = clientQuery({
               timestamp: item.timestamp,
               tone: item.tone,
               projectId: item.projectId,
+              milestoneId: item.milestoneId ?? null,
             }))),
       ],
       syncMeta: staff

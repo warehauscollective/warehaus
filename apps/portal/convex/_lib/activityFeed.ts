@@ -56,6 +56,8 @@ export type FeedActivity = {
   tone?: string;
   timestamp: number;
   projectId?: string;
+  /** Present when the row was written for one milestone. */
+  milestoneId?: string;
 };
 
 /** Display name only. Email stays off the feed. */
@@ -93,6 +95,8 @@ export type ActivityFeedItem = {
   timestamp: string;
   projectId: string | null;
   taskId: string | null;
+  /** Set for a milestone activity row. Absent on audit and outbox items. */
+  milestoneId?: string | null;
   /** Filter lane derived from type and tone. Visibility stays on `type`. */
   lane?: ActivityLane;
   /** Staff feed only. True when the client feed includes this same id. */
@@ -435,7 +439,7 @@ export function buildActivityFeed(input: {
     });
     if (input.audience === 'client' && !clientVisible) continue;
     const lane = activityLane(row.type, row.tone);
-    // Activity rows store projectId only. There is no task or resource id to load.
+    // Activity rows store projectId and, for a milestone, milestoneId. There is no task or resource id to load.
     const clientCopy = clientActivityCopy({
       lane,
       title: safeClientTitle(project?.name),
@@ -456,6 +460,7 @@ export function buildActivityFeed(input: {
           timestamp: new Date(row.timestamp).toISOString(),
           projectId: row.projectId ?? null,
           taskId: null,
+          milestoneId: row.milestoneId ?? null,
           ...(input.audience === 'staff' ? { clientVisible } : {}),
         },
         row.type,

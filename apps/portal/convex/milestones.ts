@@ -27,7 +27,7 @@ import {
   contentEditDecision,
   createMilestoneDecision,
   detachTaskDecision,
-  milestoneActivityName,
+  writeMilestoneActivity,
   nextMilestoneOrder,
   publishDecision,
   resourceEditDecision,
@@ -73,18 +73,31 @@ async function loadMilestone(ctx: QueryCtx | MutationCtx, milestoneId: Id<'miles
 
 async function logMilestone(
   ctx: MutationCtx,
-  milestone: { orgId: Id<'clients'>; projectId: Id<'projects'>; name: string },
+  milestone: { _id: Id<'milestones'>; orgId: Id<'clients'>; projectId: Id<'projects'>; name: string },
   type: MilestoneActivityType,
   at: number,
 ) {
-  await ctx.db.insert('activity', {
-    orgId: milestone.orgId,
-    projectId: milestone.projectId,
-    name: milestoneActivityName(type, milestone.name),
+  await writeMilestoneActivity(
+    ctx as {
+      db: {
+        insert: (
+          table: 'activity',
+          value: {
+            orgId: string;
+            projectId: string;
+            milestoneId: string;
+            name: string;
+            type: MilestoneActivityType;
+            tone: 'warn' | 'success' | 'accent';
+            timestamp: number;
+          },
+        ) => Promise<unknown>;
+      };
+    },
+    milestone,
     type,
-    tone: type === 'milestone.changes_requested' ? 'warn' : type === 'milestone.approved' ? 'success' : 'accent',
-    timestamp: at,
-  });
+    at,
+  );
 }
 
 async function replaceResources(

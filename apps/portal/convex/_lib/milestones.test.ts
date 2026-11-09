@@ -9,6 +9,7 @@ import {
   applyHumanDecision,
   attachTaskDecision,
   buildRoadmap,
+  writeMilestoneActivity,
   clientMaySeeLinkedResource,
   clientMaySeeMilestone,
   contentEditDecision,
@@ -451,8 +452,33 @@ describe('schema slice', () => {
     assert.doesNotMatch(source, /taskResponses/);
     assert.doesNotMatch(source, /isDone:\s*(true|false)/);
     assert.doesNotMatch(source, /patch\([^)]*isDone/);
+    assert.match(source, /writeMilestoneActivity/);
     assert.match(source, /applyHumanDecision/);
     assert.match(source, /actor: 'ai'/);
     assert.doesNotMatch(source, /approval: v\.literal\('approved'\)/);
+  });
+});
+
+describe('milestone activity rows', () => {
+  it('stores milestoneId so two milestones with the same name stay separate', async () => {
+    const inserted: Array<{ table: string; row: { milestoneId: string; name: string; type: string } }> = [];
+    const ctx = {
+      db: {
+        insert: async (table: string, row: { milestoneId: string; name: string; type: string }) => {
+          inserted.push({ table, row });
+        },
+      },
+    };
+    await writeMilestoneActivity(ctx, { _id: 'm-launch', orgId: 'org', projectId: 'p-site', name: 'Launch' }, 'milestone.approved', 5);
+    await writeMilestoneActivity(ctx, { _id: 'm-billing', orgId: 'org', projectId: 'p-site', name: 'Launch' }, 'milestone.changes_requested', 6);
+    assert.deepEqual(
+      inserted.map((entry) => entry.row.milestoneId),
+      ['m-launch', 'm-billing'],
+    );
+    assert.equal(inserted[0]?.table, 'activity');
+    assert.equal(inserted[0]?.row.name, 'Launch');
+    assert.equal(inserted[1]?.row.name, 'Launch');
+    assert.equal(inserted[0]?.row.type, 'milestone.approved');
+    assert.notEqual(inserted[0]?.row.milestoneId, inserted[1]?.row.milestoneId);
   });
 });

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
-  ACTIVITY_MILESTONE_ID_GAP,
+  activityForMilestone,
   boardCountsFromTasks,
   clientMilestoneEmptyKind,
   dialogTabBoundary,
@@ -61,17 +61,17 @@ describe('milestone review fixes', () => {
     assert.equal(menu.includes('New task'), false);
     assert.equal(roadmap.includes('>New task<'), false);
     const create = tasks.slice(tasks.indexOf('export const createTask'), tasks.indexOf('export const updateLiveFields'));
-    assert.equal(create.includes('milestoneId'), false);
+    assert.match(create, /milestoneId: v\.optional\(v\.id\('milestones'\)\)/);
   });
 
   it('does not attribute reviews or activity by milestone name', () => {
     assert.equal(roadmap.includes('item.name === milestone.name'), false);
     assert.equal(roadmap.includes("startsWith('milestone.')"), false);
     assert.match(roadmap, /storedMilestoneReview\(milestone\)/);
-    assert.match(roadmap, /ACTIVITY_MILESTONE_ID_GAP/);
+    assert.match(roadmap, /activityForMilestone\(activity, milestone\.id\)/);
     const activity = schema.slice(schema.indexOf('activity: defineTable'), schema.indexOf('taskResponses: defineTable'));
-    assert.equal(activity.includes('milestoneId'), false);
-    assert.match(activity, /name: v\.string\(\)/);
+    assert.match(activity, /milestoneId: v\.optional\(v\.id\('milestones'\)\)/);
+    assert.match(activity, /\.index\('by_orgId_milestoneId', \['orgId', 'milestoneId'\]\)/);
     const launch = storedMilestoneReview({
       id: 'm-launch',
       approval: 'approved',
@@ -88,7 +88,12 @@ describe('milestone review fixes', () => {
     });
     assert.equal(launch?.id, 'm-launch');
     assert.equal(billing, null);
-    assert.match(ACTIVITY_MILESTONE_ID_GAP, /no milestone id/);
+    const rows = [
+      { id: 'a', name: 'Launch', milestoneId: 'm-launch' },
+      { id: 'b', name: 'Launch', milestoneId: 'm-billing' },
+      { id: 'c', name: 'Launch', milestoneId: null },
+    ];
+    assert.deepEqual(activityForMilestone(rows, 'm-launch').map((row) => row.id), ['a']);
   });
 
   it('limits the shared board surface to the milestone board', () => {
