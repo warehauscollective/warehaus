@@ -99,10 +99,14 @@ html[data-density='compact'] .ds-data th {
 [data-testid="project-detail"] {
   scrollbar-width: none;
 }
-/* The phone scroller runs under the floating dock. Padding is inside the scroll, so the end can clear the dock. */
+/* The phone project scroller reaches the viewport bottom. Clearance is padding inside that scroll. */
 @media (max-width: 1023px) {
+  .project-open-pane {
+    --portal-tile-pad: 0px;
+  }
   [data-testid="project-detail"] {
     padding-bottom: 82px;
+    padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
   }
 }
 [data-testid="project-detail"]::-webkit-scrollbar {

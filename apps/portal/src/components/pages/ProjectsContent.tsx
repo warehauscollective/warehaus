@@ -414,7 +414,7 @@ export function ProjectsContent() {
     ).map((resource) => ({ id: resource.id, title: resource.name }));
     return (
       <PortalWorkspace hideHeader eyebrow={tenantEyebrow(data.tenant, 'Project')} title={openProject.name}>
-        <PortalTilePane>
+        <PortalTilePane className="project-open-pane">
           <div className="box-border flex h-full min-h-0 w-full min-w-0 max-w-[1108px] flex-col gap-4 overflow-y-auto" data-testid="project-detail" data-task-view={taskView}>
             <ProjectRoadmap
               project={openProject}

@@ -209,7 +209,7 @@ export function PortalTilePane({
         overscrollBehaviorX: 'none',
         overscrollBehaviorY: 'contain',
         touchAction: 'pan-x pan-y',
-        paddingBottom: '0.25rem',
+        paddingBottom: 'var(--portal-tile-pad, 0.25rem)',
       }}
     >
       {children}
