@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   OUTBOX_BACKOFF_MS,
   OUTBOX_DEAD_AFTER_MS,
+  OUTBOX_LEASE_MS,
   auditEventForOutcome,
   inviteIdempotencyKey,
   nextBackoffMs,
@@ -12,6 +13,7 @@ import {
   runOutboxAttempt,
   runProjectCreateAttempt,
   stateIdempotencyKey,
+  takeOutboxLease,
   taskStatusIdempotencyKey,
   type OutboxItem,
 } from './outbox';
@@ -61,6 +63,88 @@ describe('outbox keys and backoff', () => {
     assert.deepEqual(planOutboxAttempt(item(), 0, false), { action: 'hold', reason: 'writeback-disabled' });
     const dead = planOutboxAttempt(item(), OUTBOX_DEAD_AFTER_MS, true);
     assert.equal(dead.action, 'dead');
+  });
+
+  it('processes a row in the same pass that claims it', async () => {
+    const now = 1_000_000;
+    const taken = takeOutboxLease(item({ nextAttemptAt: now }), now);
+    assert.equal(taken.claimed, true);
+    if (!taken.claimed) return;
+    assert.equal(taken.item.status, 'inflight');
+    let wrote = 0;
+    const outcome = await runOutboxAttempt({
+      item: taken.item,
+      nowMs: now,
+      writebackEnabled: true,
+      owned: true,
+      actor: 'staff',
+      search: async () => [],
+      write: async () => {
+        wrote += 1;
+        return { ok: true, status: 200, notionPageId: 'page-1' };
+      },
+    });
+    assert.equal(outcome.outcome, 'confirmed');
+    assert.equal(wrote, 1);
+    assert.equal(planOutboxAttempt(taken.item, now, true).action, 'wait');
+  });
+
+  it('skips an inflight row another attempt still holds', () => {
+    const now = 1_000_000;
+    const held = item({ status: 'inflight', claimedAt: now - 1_000, nextAttemptAt: 0 });
+    assert.deepEqual(takeOutboxLease(held, now), { claimed: false, reason: 'inflight' });
+    assert.equal(planOutboxAttempt(held, now, true).action, 'wait');
+  });
+
+  it('reclaims an inflight row whose lease has expired', async () => {
+    const now = 1_000_000;
+    const stale = item({ status: 'inflight', claimedAt: now - OUTBOX_LEASE_MS, nextAttemptAt: 0 });
+    const taken = takeOutboxLease(stale, now);
+    assert.equal(taken.claimed, true);
+    if (!taken.claimed) return;
+    let wrote = 0;
+    const outcome = await runOutboxAttempt({
+      item: taken.item,
+      nowMs: now,
+      writebackEnabled: true,
+      owned: true,
+      actor: 'staff',
+      search: async () => [],
+      write: async () => {
+        wrote += 1;
+        return { ok: true, status: 200, notionPageId: 'page-1' };
+      },
+    });
+    assert.equal(outcome.outcome, 'confirmed');
+    assert.equal(wrote, 1);
+    assert.equal(planOutboxAttempt(stale, now, true).action, 'execute');
+  });
+
+  it('waits out backoff even after a claim', async () => {
+    const now = 1_000_000;
+    const backing = item({ status: 'failed', attempts: 1, nextAttemptAt: now + OUTBOX_BACKOFF_MS[0] });
+    const taken = takeOutboxLease(backing, now);
+    assert.equal(taken.claimed, true);
+    if (!taken.claimed) return;
+    let wrote = 0;
+    const outcome = await runOutboxAttempt({
+      item: taken.item,
+      nowMs: now,
+      writebackEnabled: true,
+      owned: true,
+      actor: 'staff',
+      search: async () => {
+        wrote += 1;
+        return [];
+      },
+      write: async () => {
+        wrote += 1;
+        return { ok: true, status: 200, notionPageId: 'page-1' };
+      },
+    });
+    assert.equal(outcome.outcome, 'wait');
+    assert.equal(wrote, 0);
+    assert.equal(planOutboxAttempt(backing, now, true).action, 'wait');
   });
 
   it('asks for a staff notice at 5 failures or 1 hour queued', () => {

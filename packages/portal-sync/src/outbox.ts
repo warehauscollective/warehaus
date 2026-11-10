@@ -19,6 +19,8 @@ export const OUTBOX_BACKOFF_MS = [30_000, 120_000, 600_000, 1_800_000, 7_200_000
 export const OUTBOX_DEAD_AFTER_MS = 24 * 60 * 60 * 1000;
 export const OUTBOX_STAFF_NOTICE_ATTEMPTS = 5;
 export const OUTBOX_STAFF_NOTICE_QUEUED_MS = 60 * 60 * 1000;
+/** How long a claimed row stays with that attempt. A crashed worker is reclaimed after this. */
+export const OUTBOX_LEASE_MS = 120_000;
 
 export type OutboxStatus = 'queued' | 'inflight' | 'done' | 'failed' | 'dead' | 'conflict';
 
@@ -35,6 +37,8 @@ export type OutboxItem = {
   attempts: number;
   nextAttemptAt: number;
   createdAt: number;
+  /** Set when an attempt claims the row. Absent means the lease is not held. */
+  claimedAt?: number;
   lastError?: string;
   staffNotifiedAt?: number;
 };
@@ -108,8 +112,40 @@ export type AttemptPlan =
   | { action: 'dead'; notifyStaff: boolean }
   | { action: 'execute'; notifyStaff: boolean };
 
-/** Flag off holds the row queued and does not call Notion. */
-export function planOutboxAttempt(item: OutboxItem, nowMs: number, writebackEnabled: boolean): AttemptPlan {
+export type LeaseTake =
+  | { claimed: false; reason: 'done' | 'dead' | 'conflict' | 'inflight' }
+  | { claimed: true; item: OutboxItem };
+
+export function outboxLeaseUnexpired(claimedAt: number | undefined, nowMs: number): boolean {
+  return claimedAt != null && nowMs - claimedAt < OUTBOX_LEASE_MS;
+}
+
+/**
+ * One attempt takes the row. A live lease stays with the attempt that holds it.
+ * An expired lease, or a row that was never claimed, can be taken.
+ */
+export function takeOutboxLease(item: OutboxItem, nowMs: number): LeaseTake {
+  if (item.status === 'done' || item.status === 'dead' || item.status === 'conflict') {
+    return { claimed: false, reason: item.status };
+  }
+  if (item.status === 'inflight' && outboxLeaseUnexpired(item.claimedAt, nowMs)) {
+    return { claimed: false, reason: 'inflight' };
+  }
+  return { claimed: true, item: { ...item, status: 'inflight', claimedAt: nowMs } };
+}
+
+/**
+ * Flag off holds the row and does not call Notion.
+ * `owned` means this attempt just claimed the row. That row is processed in
+ * this pass. Waiting is only for a lease another attempt still holds, or for
+ * backoff (`nextAttemptAt` in the future).
+ */
+export function planOutboxAttempt(
+  item: OutboxItem,
+  nowMs: number,
+  writebackEnabled: boolean,
+  options?: { owned?: boolean },
+): AttemptPlan {
   if (!writebackEnabled) return { action: 'hold', reason: 'writeback-disabled' };
   if (item.status === 'done' || item.status === 'dead' || item.status === 'conflict') {
     return { action: 'wait' };
@@ -117,9 +153,16 @@ export function planOutboxAttempt(item: OutboxItem, nowMs: number, writebackEnab
   if (isOutboxDead(item, nowMs)) {
     return { action: 'dead', notifyStaff: item.staffNotifiedAt == null };
   }
-  if (item.status === 'inflight') return { action: 'wait' };
+  const heldByOther =
+    item.status === 'inflight' && !options?.owned && outboxLeaseUnexpired(item.claimedAt, nowMs);
+  if (heldByOther) return { action: 'wait' };
   if (nowMs < item.nextAttemptAt) return { action: 'wait' };
-  return { action: 'execute', notifyStaff: shouldNotifyStaff(item, nowMs) && item.staffNotifiedAt == null };
+  const forNotice =
+    options?.owned && item.status === 'inflight' ? { ...item, status: 'queued' as const } : item;
+  return {
+    action: 'execute',
+    notifyStaff: shouldNotifyStaff(forNotice, nowMs) && item.staffNotifiedAt == null,
+  };
 }
 
 export type NotionWriteResponse = {
@@ -188,8 +231,10 @@ export async function runOutboxAttempt(input: {
   }) => Promise<NotionWriteResponse>;
   /** Re-read before an update. Required when `expectedLastEditedTime` is set. */
   readPage?: (notionPageId: string) => Promise<PageRead>;
+  /** This attempt just claimed the row, so its own lease is not "not due". */
+  owned?: boolean;
 }): Promise<AttemptOutcome> {
-  const plan = planOutboxAttempt(input.item, input.nowMs, input.writebackEnabled);
+  const plan = planOutboxAttempt(input.item, input.nowMs, input.writebackEnabled, { owned: input.owned });
   if (plan.action === 'hold') return { outcome: 'held', reason: plan.reason };
   if (plan.action === 'wait') return { outcome: 'wait' };
   if (plan.action === 'dead') {
@@ -378,8 +423,10 @@ export async function runProjectCreateAttempt(input: {
     externalId: string,
   ) => Promise<Array<{ notionPageId: string; clientNotionIds: readonly string[] }>>;
   create: (properties: WriteProperties) => Promise<NotionWriteResponse>;
+  /** This attempt just claimed the row, so its own lease is not "not due". */
+  owned?: boolean;
 }): Promise<AttemptOutcome> {
-  const plan = planOutboxAttempt(input.item, input.nowMs, input.writebackEnabled);
+  const plan = planOutboxAttempt(input.item, input.nowMs, input.writebackEnabled, { owned: input.owned });
   if (plan.action === 'hold') return { outcome: 'held', reason: plan.reason };
   if (plan.action === 'wait') return { outcome: 'wait' };
   if (plan.action === 'dead') {

@@ -70,6 +70,7 @@ function toItem(row: Doc<'notionOutbox'>): OutboxItem {
     attempts: row.attempts,
     nextAttemptAt: row.nextAttemptAt,
     createdAt: row.createdAt,
+    claimedAt: row.claimedAt,
     lastError: row.lastError,
     staffNotifiedAt: row.staffNotifiedAt,
   };
@@ -162,6 +163,7 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
         item,
         nowMs: Date.now(),
         writebackEnabled: true,
+        owned: true,
         search: (externalId) => searchProjectCreateHits(externalId),
         create: async (properties) => {
           const shaped = asProjectProperties(properties);
@@ -175,6 +177,7 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
         item,
         nowMs: Date.now(),
         writebackEnabled: true,
+        owned: true,
         actor: 'staff',
         readPage: async (notionPageId) => {
           const read = await readNotionLastEdited(notionPageId);

@@ -7,6 +7,7 @@ import {
   auditEventForOutcome,
   isNewerEditedTime,
   isNotionWritebackEnabled,
+  OUTBOX_LEASE_MS,
   planIdempotentEnqueue,
   taskLiveFieldsWriteError,
   validatePropertyPatch,
@@ -21,8 +22,6 @@ import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { linkTaskToCreateMilestone, milestoneIdFromPayload } from '../_lib/taskMilestoneLink';
-
-const INFLIGHT_MS = 120_000;
 
 const actor = v.union(v.literal('staff'), v.literal('clientAdmin'), v.literal('system'));
 
@@ -291,7 +290,8 @@ export const claim = internalMutation({
     if (row.status === 'dead' || row.status === 'conflict') {
       return { claimed: false as const, reason: row.status, lastError: row.lastError ?? null };
     }
-    if (row.status === 'inflight' && row.claimedAt != null && now - row.claimedAt < INFLIGHT_MS) {
+    // A live lease belongs to the attempt that claimed it. An expired lease is reclaimed.
+    if (row.status === 'inflight' && row.claimedAt != null && now - row.claimedAt < OUTBOX_LEASE_MS) {
       return { claimed: false as const, reason: 'inflight' as const };
     }
     await ctx.db.patch(id, { status: 'inflight', claimedAt: now });
