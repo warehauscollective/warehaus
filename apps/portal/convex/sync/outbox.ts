@@ -262,9 +262,12 @@ export const listDue = internalQuery({
       .query('notionOutbox')
       .withIndex('by_status_nextAttemptAt', (q) => q.eq('status', 'failed').lte('nextAttemptAt', now))
       .take(10);
+    // A crash after the PATCH and before applyOutcome comes back as conflict.
     const inflight = await ctx.db
       .query('notionOutbox')
-      .withIndex('by_status_nextAttemptAt', (q) => q.eq('status', 'inflight'))
+      .withIndex('by_status_nextAttemptAt', (q) =>
+        q.eq('status', 'inflight').lte('nextAttemptAt', now),
+      )
       .take(10);
     const reclaimable = inflight.filter(
       (row) => !outboxLeaseUnexpired(row.claimedAt, now) && row.nextAttemptAt <= now,
