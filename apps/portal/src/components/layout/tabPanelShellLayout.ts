@@ -38,11 +38,10 @@ export function tabPanelPadding(
  * bottom of the viewport and content can move under the dock.
  * Desktop is 24px top (lg:pt-6) with the dock clearance below the fold.
  */
-export function tabPanelShellLayout(project: boolean): {
+export function tabPanelShellLayout(): {
   shellClassName: string;
   contentClassName: string;
 } {
-  void project;
   const frame =
     'portal-tab-shell box-border flex h-full min-h-0 flex-col overflow-hidden lg:flex-row lg:items-stretch';
   return {

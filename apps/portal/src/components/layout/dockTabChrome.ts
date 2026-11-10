@@ -35,9 +35,8 @@ export function dockTabClassName(active: boolean): string {
 }
 
 /**
- * Dark mode keeps the token pair: paper fill (`--fg`) and ink type (`--bg`).
- * Light mode sets `--dock-active-paper` / `--dock-active-ink` so the pill stays
- * paper with an ink icon and label instead of inverting.
+ * Active pill is paper with ink in both themes. `--paper` and `--ink` do not
+ * flip with the light theme, so the contrast stays the same.
  */
 export function dockTabStyle(active: boolean): CSSProperties {
   return {
@@ -46,8 +45,8 @@ export function dockTabStyle(active: boolean): CSSProperties {
     fontStyle: 'italic',
     textTransform: 'uppercase',
     lineHeight: 'normal',
-    color: active ? 'var(--dock-active-ink, var(--bg))' : 'var(--muted)',
-    background: active ? 'var(--dock-active-paper, var(--fg))' : 'transparent',
-    border: active ? '1px solid var(--dock-active-paper, var(--fg))' : '1px solid transparent',
+    color: active ? 'var(--ink)' : 'var(--muted)',
+    background: active ? 'var(--paper)' : 'transparent',
+    border: active ? '1px solid var(--paper)' : '1px solid transparent',
   };
 }

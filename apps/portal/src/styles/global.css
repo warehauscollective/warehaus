@@ -72,13 +72,9 @@ html.light .dock-menu-glyph {
   filter: brightness(0);
 }
 
-/* Dock tab glyphs ship as muted strokes. The active pill is ink on paper in
-   both themes (Figma Dock/Portal 284:8236). Dark keeps --fg fill and --bg type.
-   Light pins the same paper pill and ink icon instead of inverting the glyph. */
+/* Light surface-2 sits on white, so the selected rail uses the grey fill.
+   The dock pill uses --paper and --ink directly. Those tokens do not flip. */
 html.light .ds-scope {
-  --dock-active-paper: #fdfdfe;
-  --dock-active-ink: #0a0a0b;
-  /* Light surface-2 sits on white, so the selected rail uses the grey fill. */
   --sidebar-active-fill: var(--bg-2);
 }
 .ds-scope {
@@ -91,9 +87,6 @@ html.light .ds-scope {
   flex: 0 0 auto;
   background-color: currentColor;
 }
-.dock-tab-icon-active {
-  filter: brightness(0);
-}
 /* RESOURCES and ACCOUNT run long in Eurostile. Desktop tracking brings each label down 3px. */
 @media (min-width: 1024px) {
   .dock-label-resources {
@@ -103,11 +96,14 @@ html.light .ds-scope {
     letter-spacing: 0.88px;
   }
 }
-[data-testid='portal-sidebar'] button:hover,
-[data-testid='portal-sidebar'] button:focus,
 [data-testid='portal-sidebar'] button:focus-visible {
-  outline: none;
-  box-shadow: none;
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+[data-testid='portal-dock'] button:focus-visible,
+.portal-icon-button:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
 }
 
 
@@ -187,7 +183,9 @@ html[data-density='compact'] .ds-data th {
 
 /* Phone panels share a 16px side margin. The wordmark sits at y≈31
    (16px shell pad + the 56px header). From 768px every tab uses 24px,
-   matching Projects at 1440. The notice bell is a fixed overlay. */
+   matching Projects at 1440. The notice bell is fixed 20px from the right
+   and 42px wide, so from 1024px the header keeps 50px of extra room:
+   42 + 20 - 24 shell inset + a 12px gap. */
 .portal-tab-shell {
   padding-left: 16px;
   padding-right: 16px;
@@ -196,6 +194,11 @@ html[data-density='compact'] .ds-data th {
   .portal-tab-shell {
     padding-left: 24px;
     padding-right: 24px;
+  }
+}
+@media (min-width: 1024px) {
+  [data-testid="workspace-title"] {
+    padding-right: 50px;
   }
 }
 

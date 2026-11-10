@@ -16,7 +16,5 @@ export function sidebarItemStyle(active: boolean): CSSProperties {
     color: active ? 'var(--fg)' : 'var(--muted)',
     background: active ? 'var(--sidebar-active-fill, var(--surface-2))' : 'transparent',
     border: '1px solid transparent',
-    outline: 'none',
-    boxShadow: 'none',
   };
 }

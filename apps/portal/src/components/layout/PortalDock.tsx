@@ -30,13 +30,13 @@ function DashboardGlyph() {
   );
 }
 
-function TabGlyph({ tab, active }: { tab: PortalTab; active: boolean }) {
+function TabGlyph({ tab }: { tab: PortalTab }) {
   if (tab === 'dashboard') return <DashboardGlyph />;
   const src = TAB_ICON[tab];
   return (
     <span
       aria-hidden
-      className={active ? 'dock-tab-icon dock-tab-icon-active' : 'dock-tab-icon'}
+      className="dock-tab-icon"
       style={{
         backgroundColor: 'currentColor',
         WebkitMaskImage: `url(${src})`,
@@ -147,7 +147,7 @@ export function PortalDock() {
               className={dockTabClassName(isActive)}
               style={dockTabStyle(isActive)}
             >
-              <TabGlyph tab={value} active={isActive} />
+              <TabGlyph tab={value} />
               <span className={dockLabelClassName(isActive, value)}>{label}</span>
             </button>
           );

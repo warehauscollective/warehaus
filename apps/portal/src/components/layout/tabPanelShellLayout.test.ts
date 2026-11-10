@@ -40,9 +40,11 @@ describe('phone shell margin', () => {
     assert.match(css, /\.portal-tab-shell\s*\{[^}]*padding-left:\s*16px;/);
     assert.match(css, /\.portal-tab-shell\s*\{[^}]*padding-right:\s*16px;/);
     assert.match(css, /min-width:\s*768px\)\s*\{[^}]*\.portal-tab-shell\s*\{[^}]*padding-left:\s*24px;/);
+    assert.match(css, /\[data-testid="workspace-title"\]\s*\{[^}]*padding-right:\s*50px;/);
     assert.match(css, /--portal-tile-pad:\s*calc\(82px \+ env\(safe-area-inset-bottom, 0px\)\)/);
     const swipe = readFileSync(new URL('./PortalSwipeWorkspace.tsx', import.meta.url), 'utf8');
-    assert.match(swipe, /tabPanelPadding\(phone, project\)/);
+    assert.equal(swipe.includes('tabPanelPadding'), false);
+    assert.equal(swipe.includes('paddingLeft'), false);
     assert.equal(swipe.includes('phone ? 16'), false);
     assert.equal(swipe.includes("'1.25rem'"), false);
   });
@@ -50,16 +52,14 @@ describe('phone shell margin', () => {
 
 describe('phone shell inset', () => {
   it('puts the 24px on the title header of a titled page and on the scroller when the header is hidden', () => {
-    for (const project of [false, true]) {
-      const shell = tabPanelShellLayout(project).shellClassName.replace(/lg:[^\s]+/g, ' ');
-      assert.match(shell, /(?:^|\s)gap-0(?:\s|$)/);
-      assert.match(shell, /(?:^|\s)pb-0(?:\s|$)/);
-      assert.match(shell, /(?:^|\s)pt-4(?:\s|$)/);
-      assert.equal(shell.includes('pb-28'), false);
-      assert.equal(shell.includes('pt-3'), false);
-      assert.match(tabPanelShellLayout(project).shellClassName, /lg:pt-6/);
-      assert.equal(tabPanelShellLayout(project).contentClassName.includes('pt-6'), false);
-    }
+    const shell = tabPanelShellLayout().shellClassName.replace(/lg:[^\s]+/g, ' ');
+    assert.match(shell, /(?:^|\s)gap-0(?:\s|$)/);
+    assert.match(shell, /(?:^|\s)pb-0(?:\s|$)/);
+    assert.match(shell, /(?:^|\s)pt-4(?:\s|$)/);
+    assert.equal(shell.includes('pb-28'), false);
+    assert.equal(shell.includes('pt-3'), false);
+    assert.match(tabPanelShellLayout().shellClassName, /lg:pt-6/);
+    assert.equal(tabPanelShellLayout().contentClassName.includes('pt-6'), false);
 
     const titled = markup(
       createElement(

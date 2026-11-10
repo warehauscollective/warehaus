@@ -61,15 +61,19 @@ describe('dock light pill', () => {
   it('keeps a paper fill and an ink icon in light mode, and the dark token pair otherwise', () => {
     const active = dockTabStyle(true);
     const idle = dockTabStyle(false);
-    assert.equal(active.background, 'var(--dock-active-paper, var(--fg))');
-    assert.equal(active.color, 'var(--dock-active-ink, var(--bg))');
-    assert.equal(active.border, '1px solid var(--dock-active-paper, var(--fg))');
+    assert.equal(active.background, 'var(--paper)');
+    assert.equal(active.color, 'var(--ink)');
+    assert.equal(active.border, '1px solid var(--paper)');
     assert.equal(idle.background, 'transparent');
     assert.equal(idle.color, 'var(--muted)');
 
-    assert.match(css, /html\.light \.ds-scope\s*\{[^}]*--dock-active-paper:\s*#fdfdfe;/);
-    assert.match(css, /html\.light \.ds-scope\s*\{[^}]*--dock-active-ink:\s*#0a0a0b;/);
-    assert.match(css, /\.dock-tab-icon-active\s*\{\s*filter:\s*brightness\(0\);\s*\}/);
+    assert.equal(css.includes('--dock-active-paper'), false);
+    assert.equal(css.includes('--dock-active-ink'), false);
+    assert.equal(css.includes('.dock-tab-icon-active'), false);
+    assert.match(
+      css,
+      /\[data-testid='portal-dock'\] button:focus-visible[\s\S]*?outline:\s*2px solid var\(--fg\);\s*outline-offset:\s*2px;/,
+    );
     assert.equal(css.includes('invert('), false);
   });
 });
