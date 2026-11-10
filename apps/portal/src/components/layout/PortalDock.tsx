@@ -54,9 +54,10 @@ function TabGlyph({ tab }: { tab: PortalTab }) {
 
 /**
  * Portal dock — Figma Dock/Portal 284:8236.
- * Desktop: hamburger circle, then a surface track. Active tab is a paper pill
- * with ink type in both themes. No dash indicators. Below 1024 only the
- * active tab shows its label. Every idle icon and label uses --muted.
+ * Desktop: hamburger circle, then a surface track. The active pill uses the
+ * portal foreground, so light is an ink pill and dark stays paper. No dash
+ * indicators. Below 1024 only the active tab shows its label. Every idle
+ * icon and label uses --muted. Desktop tabs sit flush; phone keeps 4px.
  */
 export function PortalDock() {
   const { activeTab, setActiveTab } = usePortalTab();
@@ -125,7 +126,7 @@ export function PortalDock() {
       <div
         role="tablist"
         aria-label="Portal sections"
-        className="box-border flex h-[45px] min-w-0 items-center gap-1 rounded-2xl p-1 lg:h-14 lg:gap-0 lg:rounded-3xl"
+        className="portal-dock-track box-border flex h-[45px] min-w-0 items-center rounded-2xl p-1 lg:h-14 lg:rounded-3xl"
         style={{
           background: 'var(--surface)',
           border: '1px solid var(--border)',

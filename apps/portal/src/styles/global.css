@@ -73,12 +73,17 @@ html.light .dock-menu-glyph {
 }
 
 /* Light surface-2 sits on white, so the selected rail uses the grey fill.
-   The dock pill uses --paper and --ink directly. Those tokens do not flip. */
+   The active dock pill follows --fg / --bg. --paper does not flip, and a
+   paper pill on the white track is about 1.02:1. */
 html.light .ds-scope {
   --sidebar-active-fill: var(--bg-2);
 }
 .ds-scope {
   --sidebar-active-fill: var(--surface-2);
+  --portal-fg: var(--fg);
+  --portal-bg: var(--bg);
+  --dock-pill-active-bg: var(--portal-fg);
+  --dock-pill-active-fg: var(--portal-bg);
 }
 .dock-tab-icon {
   display: block;
@@ -86,6 +91,18 @@ html.light .ds-scope {
   height: 16px;
   flex: 0 0 auto;
   background-color: currentColor;
+}
+/* Phone keeps 4px between tabs and a 1px border that matches the active fill.
+   Desktop tabs sit flush with no border: five 1px borders were the 678 vs 667
+   track (Dock/Portal 284:8236 is 667 inside the 731 dock). */
+.portal-dock-track {
+  gap: 4px;
+}
+[data-testid='portal-dock'] [role='tab'] {
+  border: 1px solid transparent;
+}
+[data-testid='portal-dock'] [role='tab'][aria-selected='true'] {
+  border-color: var(--dock-pill-active-bg);
 }
 /* RESOURCES and ACCOUNT run long in Eurostile. Desktop tracking brings each label down 3px. */
 @media (min-width: 1024px) {
@@ -95,14 +112,24 @@ html.light .ds-scope {
   .dock-label-account {
     letter-spacing: 0.88px;
   }
+  .portal-dock-track {
+    gap: 0;
+  }
+  [data-testid='portal-dock'] [role='tab'] {
+    border-width: 0;
+  }
 }
 [data-testid='portal-sidebar'] button:focus-visible {
   outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
-[data-testid='portal-dock'] button:focus-visible,
 .portal-icon-button:focus-visible {
   outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+/* Light ring is #0A0A0B (the ink pill). Dark stays paper, 2px with a 2px offset. */
+[data-testid='portal-dock'] button:focus-visible {
+  outline: 2px solid var(--dock-pill-active-bg);
   outline-offset: 2px;
 }
 
