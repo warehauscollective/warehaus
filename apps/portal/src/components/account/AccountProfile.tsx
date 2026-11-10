@@ -42,7 +42,7 @@ export function AccountProfile({
   const roleLine = profileRoleLine(orgName, role);
   const lane = ownerLane?.trim() ?? '';
   return (
-    <div className="account-profile flex h-full min-h-0 flex-col overflow-y-auto" data-testid="account-profile">
+    <div className="account-profile flex h-full min-h-0 flex-col overflow-y-auto" data-testid="account-profile" data-page-scroll="">
       <style>{ACCOUNT_CARD_CSS}</style>
       <section className="account-card" data-testid="account-profile-card">
         <header>

@@ -16,7 +16,7 @@ import {
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { internalMutation } from './_generated/server';
+import { internalMutation, internalQuery } from './_generated/server';
 import { PortalAuthError } from './_lib/identity';
 import {
   applyHumanDecision,
@@ -27,7 +27,7 @@ import {
   contentEditDecision,
   createMilestoneDecision,
   detachTaskDecision,
-  milestoneActivityName,
+  writeMilestoneActivity,
   nextMilestoneOrder,
   publishDecision,
   resourceEditDecision,
@@ -39,6 +39,12 @@ import {
   type MilestoneRoadmapView,
   type RoadmapTaskInput,
 } from './_lib/milestones';
+import {
+  MILESTONE_ONE_NAME,
+  MILESTONE_ONE_OBJECTIVE,
+  planMilestoneOne,
+  summarizeMilestoneOne,
+} from './_lib/milestoneOneSeed';
 import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/wrappers';
 
 const workStatusArg = v.union(v.literal('draft'), v.literal('active'), v.literal('ready'));
@@ -67,18 +73,31 @@ async function loadMilestone(ctx: QueryCtx | MutationCtx, milestoneId: Id<'miles
 
 async function logMilestone(
   ctx: MutationCtx,
-  milestone: { orgId: Id<'clients'>; projectId: Id<'projects'>; name: string },
+  milestone: { _id: Id<'milestones'>; orgId: Id<'clients'>; projectId: Id<'projects'>; name: string },
   type: MilestoneActivityType,
   at: number,
 ) {
-  await ctx.db.insert('activity', {
-    orgId: milestone.orgId,
-    projectId: milestone.projectId,
-    name: milestoneActivityName(type, milestone.name),
+  await writeMilestoneActivity(
+    ctx as {
+      db: {
+        insert: (
+          table: 'activity',
+          value: {
+            orgId: string;
+            projectId: string;
+            milestoneId: string;
+            name: string;
+            type: MilestoneActivityType;
+            tone: 'warn' | 'success' | 'accent';
+            timestamp: number;
+          },
+        ) => Promise<unknown>;
+      };
+    },
+    milestone,
     type,
-    tone: type === 'milestone.changes_requested' ? 'warn' : type === 'milestone.approved' ? 'success' : 'accent',
-    timestamp: at,
-  });
+    at,
+  );
 }
 
 async function replaceResources(
@@ -628,5 +647,93 @@ export const decideAsClient = clientMutation({
     });
     if (!visible) fail('Milestone not found');
     return decideMilestone(ctx, milestone, ctx.identity.contactId as Id<'contacts'>, args.decision, args.note);
+  },
+});
+
+/**
+ * One-time backfill. One milestone named exactly "Milestone One" for each
+ * project that still has top-level tasks with no milestone. Assigned tasks
+ * stay on the milestone they already have. Subtasks stay on their parent.
+ *
+ * Dry run, writes nothing:
+ *   npx convex run milestones:previewMilestoneOne
+ *   npx convex run milestones:migrateMilestoneOne
+ * Apply once on the shared dev deployment only, after that deploy is current:
+ *   npx convex run milestones:migrateMilestoneOne '{"apply":true}'
+ * Do not run this on production unique-turtle-383. Do not pass --prod.
+ */
+async function milestoneOneReport(ctx: QueryCtx) {
+  const projects = await ctx.db.query('projects').collect();
+  const milestones = await ctx.db.query('milestones').collect();
+  const tasks = await ctx.db.query('tasks').collect();
+  const plan = planMilestoneOne({
+    projects: projects.map((project) => ({ id: project._id, name: project.name })),
+    milestones: milestones.map((milestone) => ({
+      id: milestone._id,
+      projectId: milestone.projectId,
+      name: milestone.name,
+      createdAt: milestone._creationTime,
+    })),
+    tasks: tasks.map((task) => ({
+      id: task._id,
+      projectId: task.projectId,
+      parentTaskId: task.parentTaskId ?? null,
+      milestoneId: task.milestoneId ?? null,
+    })),
+  });
+  return {
+    counts: summarizeMilestoneOne(plan.projects, plan.orphans),
+    projects: plan.projects,
+    projectDocs: projects,
+  };
+}
+
+export const previewMilestoneOne = internalQuery({
+  args: {},
+  handler: async (ctx) => {
+    const report = await milestoneOneReport(ctx);
+    return { dryRun: true as const, wrote: false as const, counts: report.counts, projects: report.projects };
+  },
+});
+
+export const migrateMilestoneOne = internalMutation({
+  args: { apply: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const report = await milestoneOneReport(ctx);
+    if (args.apply !== true) {
+      return { dryRun: true as const, wrote: false as const, counts: report.counts, projects: report.projects };
+    }
+    const byId = new Map(report.projectDocs.map((project) => [project._id as string, project]));
+    let created = 0;
+    let attached = 0;
+    for (const row of report.projects) {
+      if (row.action === 'skip') continue;
+      const project = byId.get(row.projectId);
+      if (!project) continue;
+      let milestoneId = row.milestoneId;
+      if (row.action === 'reuse') {
+        if (!milestoneId) continue;
+      } else if (row.action === 'create') {
+        milestoneId = await insertMilestone(ctx, 'human', project, {
+          name: MILESTONE_ONE_NAME,
+          objective: MILESTONE_ONE_OBJECTIVE,
+          goals: [],
+        });
+        created += 1;
+      }
+      if (!milestoneId) continue;
+      for (const taskId of row.taskIds) {
+        await linkTask(ctx, 'human', milestoneId as Id<'milestones'>, taskId as Id<'tasks'>);
+        attached += 1;
+      }
+    }
+    return {
+      dryRun: false as const,
+      wrote: created > 0 || attached > 0,
+      created,
+      attached,
+      counts: report.counts,
+      projects: report.projects,
+    };
   },
 });

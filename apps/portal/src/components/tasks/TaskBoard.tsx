@@ -89,9 +89,23 @@ export function stageSavedFeedback(input: {
 }
 
 /** Equal tracks. Emptying a column does not change the template, so the row does not jump. */
-export function boardColumnTemplate(count: number, phone: boolean): string {
+export function boardColumnTemplate(count: number, phone: boolean, framed = false): string {
   if (phone) return 'minmax(0, 1fr)';
-  return `repeat(${Math.max(count, 1)}, minmax(12.75rem, 1fr))`;
+  // 12rem is the milestone frame, so five lanes fit that board. Other boards keep 12.75rem.
+  const track = framed ? '12rem' : '12.75rem';
+  return `repeat(${Math.max(count, 1)}, minmax(${track}, 1fr))`;
+}
+
+/** Right-edge hint only while horizontal lane content is still out of view. */
+export function boardShowsEdgeFade(input: {
+  wide: boolean;
+  scrollWidth: number;
+  clientWidth: number;
+  scrollLeft: number;
+}): boolean {
+  const overflow = input.scrollWidth - input.clientWidth > 1;
+  const atEnd = input.scrollLeft + input.clientWidth >= input.scrollWidth - 1;
+  return input.wide && overflow && !atEnd;
 }
 
 /** A drop stays in the new column only when enqueue accepts it. */
@@ -118,6 +132,9 @@ export function TaskBoard({
   onMove,
   onQuickAdd,
   quickAddEnabled = true,
+  showQuickAdd = true,
+  hideGroupToggle = false,
+  framed = false,
 }: {
   tasks: PortalTask[];
   staff: boolean;
@@ -128,9 +145,16 @@ export function TaskBoard({
   onQuickAdd: (input: { name: string; status: string; stage?: string }) => Promise<{ ok: boolean; error?: string }>;
   /** When write-back is off the column control stays disabled and never calls onQuickAdd. */
   quickAddEnabled?: boolean;
+  /** Milestone tasks hide column add. The milestone menu is the only create path. */
+  showQuickAdd?: boolean;
+  /** Milestone tasks stay on status columns. */
+  hideGroupToggle?: boolean;
+  /** Shared lane surface, equal heights, and the inset fade. Only the milestone board turns this on. */
+  framed?: boolean;
 }) {
   const [mode, setMode] = useState<BoardMode>('status');
   const [phone, setPhone] = useState(false);
+  const framedSurface = framed && !phone;
   const [overrides, setOverrides] = useState<Record<string, { mode: BoardMode; value: string; pending?: boolean }>>({});
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ message: string; retry?: () => void; undo?: () => void } | null>(null);
@@ -146,13 +170,13 @@ export function TaskBoard({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   useEffect(() => {
-    setMode(readBoardMode());
+    setMode(hideGroupToggle ? 'status' : readBoardMode());
     const media = window.matchMedia('(max-width: 767px)');
     const apply = () => setPhone(media.matches);
     apply();
     media.addEventListener('change', apply);
     return () => media.removeEventListener('change', apply);
-  }, []);
+  }, [hideGroupToggle]);
 
   const viewTasks = useMemo(
     () =>
@@ -276,7 +300,7 @@ export function TaskBoard({
   return (
     <div className="flex min-w-0 flex-col gap-3" data-testid="task-board">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <GroupToggle mode={mode} onChange={chooseMode} />
+        {hideGroupToggle ? null : <GroupToggle mode={mode} onChange={chooseMode} />}
         <p className="sr-only" aria-live="polite">{live}</p>
       </div>
       {phone ? (
@@ -303,7 +327,7 @@ export function TaskBoard({
           setLive('Move cancelled.');
         }}
       >
-        <BoardScroller tracks={boardColumnTemplate(shown.length, phone)}>
+        <BoardScroller tracks={boardColumnTemplate(shown.length, phone, framed)} shared={framedSurface}>
           {shown.map((column) => {
             const dragging = activeId ? viewTasks.find((task) => task.id === activeId) : undefined;
             const hover = dragging && overKey === column.key ? decide(dragging, column.key) : null;
@@ -326,6 +350,7 @@ export function TaskBoard({
               dropIndex={dragging && accepting ? dropSlotIndex(resting, dragging) : null}
               dropHeight={liftedHeight}
               phone={phone}
+              shared={framedSurface}
               mode={mode}
               emptyClient={!staff}
               onLiftSize={(height) => {
@@ -339,6 +364,7 @@ export function TaskBoard({
               onMoveSheet={setMoveTask}
               quick={quick === column.key}
               quickAddEnabled={quickAddEnabled}
+              showQuickAdd={showQuickAdd}
               onQuick={() => {
                 if (!quickAddEnabled) return;
                 setQuick(column.key);
@@ -461,6 +487,7 @@ function Column({
   dropIndex,
   dropHeight,
   phone,
+  shared,
   mode,
   emptyClient,
   onLiftSize,
@@ -472,6 +499,7 @@ function Column({
   onQuickClose,
   onQuickAdd,
   quickAddEnabled,
+  showQuickAdd,
   onKeyMove,
 }: {
   columnKey: string;
@@ -488,6 +516,7 @@ function Column({
   dropIndex: number | null;
   dropHeight: number | null;
   phone: boolean;
+  shared: boolean;
   mode: BoardMode;
   emptyClient: boolean;
   onLiftSize: (height: number) => void;
@@ -499,6 +528,7 @@ function Column({
   onQuickClose: () => void;
   onQuickAdd: (name: string) => Promise<{ ok: boolean; error?: string }>;
   quickAddEnabled: boolean;
+  showQuickAdd: boolean;
   onKeyMove: (task: PortalTask, direction: -1 | 1) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: `column:${columnKey}` });
@@ -538,24 +568,28 @@ function Column({
         position: 'relative',
         minWidth: 0,
         boxSizing: 'border-box',
+        height: shared ? '100%' : undefined,
+        minHeight: shared ? 560 : undefined,
         padding: 12,
         gap: 12,
-        borderRadius: 16,
+        borderRadius: shared ? 12 : 16,
         border: locked
           ? '2px dashed var(--danger)'
           : dashed
             ? '1px dashed var(--border)'
             : activeTarget
               ? '2px solid var(--accent)'
-              : '1px solid var(--border)',
-        background: activeTarget ? 'var(--accent-tint)' : 'var(--bg)',
+              : shared
+                ? '1px solid transparent'
+                : '1px solid var(--border)',
+        background: activeTarget ? 'var(--accent-tint)' : shared ? 'transparent' : 'var(--bg)',
       }}
     >
       <header className="flex items-center gap-2">
         <h3 className="ds-mono whitespace-nowrap" style={{ fontSize: 11, letterSpacing: '0.08em' }}>{label.toUpperCase()}</h3>
         <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface)', borderRadius: 999, padding: '0 0.45rem' }}>{restingCount}</span>
         <span className="flex-1" />
-        {staff && !columnKey.startsWith('unknown') ? (
+        {showQuickAdd && staff && !columnKey.startsWith('unknown') ? (
           quickAddEnabled ? (
             <button type="button" aria-label={`Add task to ${label}`} onClick={onQuick} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>+</button>
           ) : (
@@ -572,7 +606,7 @@ function Column({
             {emptyClient ? 'Nothing here yet.' : mode === 'stage' ? 'No tasks at this stage. Drag a card here.' : 'No tasks'}
           </p>
         ) : null}
-        {staff && !columnKey.startsWith('unknown') ? (
+        {showQuickAdd && staff && !columnKey.startsWith('unknown') ? (
           quickAddEnabled ? (
             <button type="button" onClick={onQuick} className="text-left" style={{ border: '1px dashed var(--border)', borderRadius: 18, padding: '0.7rem 0.85rem', color: 'var(--muted)', background: 'transparent' }}>
               + Add task
@@ -1346,7 +1380,7 @@ function portalNode(node: ReactNode) {
   return createPortal(node, document.body);
 }
 
-function BoardScroller({ children, tracks }: { children: ReactNode; tracks: string }) {
+function BoardScroller({ children, tracks, shared }: { children: ReactNode; tracks: string; shared: boolean }) {
   const ref = useRef<HTMLDivElement>(null);
   const [fade, setFade] = useState(false);
   useEffect(() => {
@@ -1354,9 +1388,14 @@ function BoardScroller({ children, tracks }: { children: ReactNode; tracks: stri
     if (!node) return;
     const update = () => {
       const wide = window.matchMedia('(min-width: 1024px)').matches;
-      const overflow = node.scrollWidth - node.clientWidth > 1;
-      const atEnd = node.scrollLeft + node.clientWidth >= node.scrollWidth - 1;
-      setFade(wide && overflow && !atEnd);
+      setFade(
+        boardShowsEdgeFade({
+          wide,
+          scrollWidth: node.scrollWidth,
+          clientWidth: node.clientWidth,
+          scrollLeft: node.scrollLeft,
+        }),
+      );
     };
     update();
     node.addEventListener('scroll', update, { passive: true });
@@ -1369,22 +1408,46 @@ function BoardScroller({ children, tracks }: { children: ReactNode; tracks: stri
       window.removeEventListener('resize', update);
     };
   }, [children]);
+  const columns = (
+    <div
+      ref={ref}
+      data-testid="task-board-columns"
+      className={shared ? 'grid h-full items-stretch gap-3 overflow-x-auto' : 'grid items-start gap-3 overflow-x-auto pb-2'}
+      style={{ gridTemplateColumns: tracks, minHeight: shared ? 596 : undefined }}
+    >
+      {children}
+    </div>
+  );
   return (
-    <div className="relative min-w-0">
-      <div
-        ref={ref}
-        data-testid="task-board-columns"
-        className="grid items-start gap-3 overflow-x-auto pb-2"
-        style={{ gridTemplateColumns: tracks }}
-      >
-        {children}
-      </div>
-      {fade ? (
+    <div
+      className="relative min-w-0"
+      data-testid={shared ? 'task-board-surface' : undefined}
+      style={
+        shared
+          ? {
+              border: '1px solid var(--border)',
+              borderRadius: 16,
+              background: 'var(--surface)',
+              padding: 12,
+              minHeight: 620,
+              overflow: 'hidden',
+            }
+          : undefined
+      }
+    >
+      {columns}
+      {shared && fade ? (
         <div
           aria-hidden
           data-testid="board-edge-fade"
-          className="pointer-events-none absolute inset-y-0 right-0"
-          style={{ width: 72, background: 'linear-gradient(to right, transparent, var(--bg))' }}
+          className="pointer-events-none absolute"
+          style={{
+            top: 12,
+            bottom: 12,
+            right: 12,
+            width: 72,
+            background: 'linear-gradient(to right, transparent, var(--surface))',
+          }}
         />
       ) : null}
     </div>

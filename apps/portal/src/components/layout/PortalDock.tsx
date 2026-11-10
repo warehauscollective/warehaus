@@ -66,7 +66,7 @@ export function PortalDock() {
   return (
     <nav
       className="fixed left-1/2 z-50 flex w-[calc(100vw-1.25rem)] max-w-[calc(100vw-0.75rem)] -translate-x-1/2 items-center justify-center gap-1 md:w-auto md:gap-2"
-      style={{ bottom: '1.25rem' }}
+      style={{ bottom: 24 }}
       aria-label="Portal navigation"
       data-testid="portal-dock"
     >
@@ -137,23 +137,21 @@ export function PortalDock() {
               aria-label={label}
               title={label}
               onClick={() => setActiveTab(value)}
-              className={`relative flex shrink-0 items-center justify-center gap-1 rounded-[13px] lg:gap-2 lg:rounded-[21px] ${
-                isActive ? 'px-3 py-2 lg:px-4 lg:py-3' : 'p-2 lg:px-4 lg:py-3'
-              }`}
+              className="relative flex size-8 shrink-0 items-center justify-center rounded-[13px] p-2 lg:size-auto lg:gap-2 lg:rounded-[21px] lg:px-4 lg:py-3"
               style={{
                 fontFamily: 'var(--font-display)',
                 fontWeight: 900,
                 fontStyle: 'italic',
                 textTransform: 'uppercase',
                 lineHeight: 'normal',
-                color: isActive ? 'var(--nav-text-inverse)' : 'var(--muted)',
-                background: isActive ? 'var(--nav-pill-bg)' : 'transparent',
-                border: isActive ? '1px solid var(--nav-pill-bg)' : '1px solid transparent',
+                color: isActive ? 'var(--bg)' : 'var(--muted)',
+                background: isActive ? 'var(--fg)' : 'transparent',
+                border: isActive ? '1px solid var(--fg)' : '1px solid transparent',
               }}
             >
               <TabGlyph tab={value} active={isActive} />
               <span
-                className={isActive ? 'text-[11px] tracking-[1.1px] lg:text-[13px] lg:tracking-[1.3px]' : 'hidden text-[13px] tracking-[1.3px] lg:inline'}
+                className="hidden text-[13px] tracking-[1.3px] lg:inline"
               >
                 {label}
               </span>

@@ -6,6 +6,7 @@ import { enqueue } from '../sync/outbox';
 import { processDue } from '../sync/outboxWork';
 import { drainPendingStages, enqueueLiveFields, enqueueStage, enqueueStatus } from '../sync/taskWrite';
 import { upsertTask } from '../sync/upsert';
+import { detachTask } from '../milestones';
 
 type Row = Record<string, unknown> & { _id: string };
 
@@ -666,5 +667,134 @@ describe('applyOutcome task-stage', () => {
     assert.equal(row.stagePendingBaseEditedTime, NEWER);
     assert.equal(row.lastEditedTime, TIME);
     assert.equal(row.pullRequestUrl, 'https://github.com/warehaus/secret/pull/1');
+  });
+
+  it('links an existing task when a create is confirmed', async () => {
+    const row = task({ milestoneId: undefined, parentTaskId: undefined });
+    const tables: Record<string, Row[]> = {
+      tasks: [row],
+      notionOutbox: [
+        {
+          _id: 'out-create',
+          kind: 'create',
+          orgId: 'org-1',
+          database: 'tasks',
+          payload: JSON.stringify({ properties: { Name: 'Homepage' }, milestoneId: 'm-launch' }),
+          actor: 'staff',
+          status: 'inflight',
+          attempts: 1,
+          createdAt: 1,
+        },
+      ],
+      notionWriteState: [],
+      auditEvents: [],
+      milestones: [{ _id: 'm-launch', orgId: 'org-1', projectId: 'proj-1' }],
+    };
+    await run(applyOutcome, { db: memoryDb(tables) }, {
+      id: 'out-create',
+      outcome: {
+        kind: 'confirmed',
+        notionPageId: 'page-1',
+        lastEditedTime: TIME,
+        propertiesJson: JSON.stringify({ Name: 'Homepage', Status: 'To Do' }),
+        reused: false,
+      },
+    });
+    assert.equal(row.milestoneId, 'm-launch');
+    assert.equal(row.milestoneOrder, 0);
+    assert.equal(tables.notionOutbox[0]?.status, 'done');
+  });
+});
+
+describe('create task milestone link', () => {
+  it('links a new task once and leaves it unlinked after detach', async () => {
+    const tables: Record<string, Row[]> = {
+      tasks: [
+        {
+          _id: 'task-older',
+          orgId: 'org-1',
+          projectId: 'proj-1',
+          notionPageId: 'page-older',
+          milestoneId: 'm-launch',
+          milestoneOrder: 4,
+          name: 'Older',
+          status: 'To Do',
+          isDone: false,
+          publishToWarehaus: false,
+        },
+      ],
+      notionOutbox: [
+        {
+          _id: 'out-create',
+          kind: 'create',
+          orgId: 'org-1',
+          database: 'tasks',
+          payload: JSON.stringify({ properties: { Name: 'Homepage', 'External ID': 'wh_tsk_homepage' }, milestoneId: 'm-launch' }),
+          actor: 'staff',
+          status: 'inflight',
+          attempts: 1,
+          createdAt: 1,
+        },
+      ],
+      notionWriteState: [],
+      auditEvents: [],
+      milestones: [{ _id: 'm-launch', orgId: 'org-1', projectId: 'proj-1', approval: 'unreviewed' }],
+      clients: [{ _id: 'org-1', slug: 'warehaus', portalAccess: 'Enabled' }],
+      contacts: [
+        {
+          _id: 'contact-staff',
+          orgId: 'org-1',
+          name: 'Maya Staff',
+          email: 'maya@warehaus.studio',
+          authUserId: 'auth-staff',
+          role: 'Warehaus Staff',
+          portalAccess: 'Enabled',
+        },
+      ],
+    };
+    await run(applyOutcome, { db: memoryDb(tables) }, {
+      id: 'out-create',
+      outcome: {
+        kind: 'confirmed',
+        notionPageId: 'page-new',
+        lastEditedTime: TIME,
+        propertiesJson: JSON.stringify({ Name: 'Homepage', Status: 'To Do' }),
+        reused: false,
+      },
+    });
+    assert.equal(tables.tasks.filter((row) => row.notionPageId === 'page-new').length, 0);
+    assert.match(String(tables.notionOutbox[0]?.payload), /m-launch/);
+
+    const ctx = {
+      auth: { getUserIdentity: async () => ({ subject: 'auth-staff' }) },
+      db: memoryDb(tables),
+      runMutation: async () => {
+        throw new Error('no notice');
+      },
+    };
+    const pull = {
+      notionPageId: 'page-new',
+      orgId: 'org-1',
+      projectId: 'proj-1',
+      name: 'Homepage',
+      status: 'To Do',
+      isDone: false,
+      publishToWarehaus: false,
+      lastEditedTime: TIME,
+    };
+    await run(upsertTask, ctx, pull);
+    const created = tables.tasks.find((row) => row.notionPageId === 'page-new');
+    assert.ok(created);
+    assert.equal(created?.milestoneId, 'm-launch');
+    assert.equal(created?.milestoneOrder, 5);
+    assert.equal(created?.name, 'Homepage');
+
+    await run(detachTask, ctx, { milestoneId: 'm-launch', taskId: created?._id });
+    assert.equal(created?.milestoneId, undefined);
+    await run(upsertTask, ctx, { ...pull, name: 'Homepage revised' });
+    assert.equal(created?.milestoneId, undefined);
+    assert.equal(created?.milestoneOrder, undefined);
+    assert.equal(created?.name, 'Homepage revised');
+    assert.match(String(tables.notionOutbox[0]?.payload), /m-launch/);
   });
 });

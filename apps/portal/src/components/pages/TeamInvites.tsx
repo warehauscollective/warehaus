@@ -262,7 +262,7 @@ export function TeamInvites({
 
   return (
     <PortalTilePane>
-      <div className="flex h-full min-h-0 flex-col gap-6 overflow-auto" data-testid="team-invites" data-state={view}>
+      <div className="flex h-full min-h-0 flex-col gap-6 overflow-auto" data-testid="team-invites" data-page-scroll="" data-state={view}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <p style={{ margin: 0, maxWidth: 520, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
             Who can sign in to the Portal. Staff are invited here; clients from the Clients tab.

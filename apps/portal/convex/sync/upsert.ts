@@ -12,6 +12,7 @@ import { internal } from '../_generated/api';
 import { internalMutation, internalQuery, type MutationCtx } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import { matchingQuarantineId } from '../_lib/quarantineRow';
+import { linkTaskToCreateMilestone, milestoneIdFromPayload } from '../_lib/taskMilestoneLink';
 
 /** Queued or failed task-stage rows only. Inflight, done, and conflict stay. */
 async function deleteUnsentTaskStageRows(ctx: MutationCtx, notionPageId: string): Promise<void> {
@@ -221,6 +222,18 @@ export const upsertTask = internalMutation({
     const taskId = existing
       ? (await ctx.db.patch(existing._id, patch), existing._id)
       : await ctx.db.insert('tasks', patch);
+    if (!existing) {
+      const created = await ctx.db.get(taskId);
+      if (created) {
+        const creates = await ctx.db
+          .query('notionOutbox')
+          .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
+          .collect();
+        const payload = creates.find((row) => row.kind === 'create' && row.database === 'tasks')?.payload;
+        const milestoneId = payload ? milestoneIdFromPayload(payload) : null;
+        if (milestoneId) await linkTaskToCreateMilestone(ctx, created, milestoneId);
+      }
+    }
     if (merge.deleteUnsent) await deleteUnsentTaskStageRows(ctx, args.notionPageId);
     if (merge.notice) {
       await ctx.runMutation(internal.invitesSync.recordStaffNotice, {

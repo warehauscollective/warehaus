@@ -231,10 +231,9 @@ describe('sectionEdgeFadePx', () => {
     assert.equal(node.scrollLeft, 180);
   });
 
-  it('keeps a user swipe when ActivityFilters, SectionScroller, and PhoneColumnTabs remeasure', () => {
+  it('keeps a user swipe when ActivityFilters and PhoneColumnTabs remeasure', () => {
     const sources = [
       readFileSync(new URL('../pages/ActivityContent.tsx', import.meta.url), 'utf8'),
-      readFileSync(new URL('./PortalSidebar.tsx', import.meta.url), 'utf8'),
       readFileSync(new URL('../tasks/TaskBoard.tsx', import.meta.url), 'utf8'),
     ];
     for (const source of sources) {

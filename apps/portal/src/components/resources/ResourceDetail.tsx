@@ -110,7 +110,7 @@ export function ResourceDetail({
   const recapMark = recapKind ? (published ? 'Recap published' : 'Draft recap') : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col gap-6 overflow-y-auto" data-testid="resource-detail">
+    <div className="flex h-full min-h-0 flex-col gap-6 overflow-y-auto" data-testid="resource-detail" data-page-scroll="">
       <Surface style={{ padding: '2rem', borderRadius: '2.25rem' }}>
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="min-w-0 flex-1">

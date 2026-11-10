@@ -26,6 +26,45 @@ main {
   min-height: 100dvh;
 }
 
+/* One hover and focus treatment for the project and milestone trails. */
+.portal-crumb {
+  text-decoration: none;
+}
+.portal-crumb:hover {
+  text-decoration: underline;
+}
+.portal-crumb:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+  text-decoration: underline;
+}
+
+/* The phone header line is the border. Keep it once the page has scrolled,
+   even if a later render paints the inline color a frame late. */
+@media (max-width: 1023px) {
+  [data-testid='mobile-app-header'][data-scrolled='true'] {
+    border-bottom-color: var(--border) !important;
+  }
+}
+
+/* Phone detail title. Desktop stays 30px with the short subtitle gap. */
+.portal-detail-title {
+  font-size: 28px;
+  line-height: 34px;
+}
+.portal-detail-subtitle {
+  margin-top: 26px;
+}
+@media (min-width: 1024px) {
+  .portal-detail-title {
+    font-size: 30px;
+    line-height: 45px;
+  }
+  .portal-detail-subtitle {
+    margin-top: 4px;
+  }
+}
+
 /* Figma back glyph and wordmark are paper (#fdfdfe). Light theme draws them as ink. */
 html.light .nav-back-glyph,
 html.light .portal-wordmark,
@@ -65,6 +104,52 @@ html[data-density='compact'] .ds-data th {
 :root.light .ds-scope {
   --drop-slot-bg: color-mix(in oklab, var(--accent) 4%, var(--surface));
   --drop-slot-border: 1px dashed var(--accent);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .menu-sheet {
+    animation: menu-sheet-in 200ms ease;
+  }
+}
+@keyframes menu-sheet-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .menu-sheet {
+    animation: menu-sheet-fade 200ms ease;
+  }
+}
+@keyframes menu-sheet-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+#menu-search::placeholder {
+  color: var(--muted);
+}
+
+[data-testid="project-detail"] {
+  scrollbar-width: none;
+}
+/* The phone project scroller reaches the viewport bottom. Clearance is padding inside that scroll. */
+@media (max-width: 1023px) {
+  .project-open-pane {
+    --portal-tile-pad: 0px;
+  }
+  [data-testid="project-detail"] {
+    padding-bottom: 82px;
+    padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+  }
+}
+[data-testid="project-detail"]::-webkit-scrollbar {
+  display: none;
 }
 
 /* Phone panels use 20px side margins. The notice bell is a fixed overlay and does not reserve a column. */

@@ -117,3 +117,101 @@ export function fixtureMilestones(
       : clientMaySeeMilestone({ publishToWarehaus: milestone.publishToWarehaus, project: projectGate }),
   );
 }
+
+const PREVIEW_REVIEW_AT = Date.parse('2026-11-03T15:00:00Z');
+
+function previewChild(id: string) {
+  return {
+    id,
+    name: `Subtask ${id}`,
+    status: 'To Do',
+    isDone: false,
+    stage: null,
+    resourceCount: 0,
+  };
+}
+
+function withLongChip(milestone: MilestoneRoadmapView): MilestoneRoadmapView {
+  const children = Array.from({ length: 9 }, (_, index) => previewChild(`long-sub-${index}`));
+  const done = Array.from({ length: 12 }, (_, index) => ({ ...previewChild(`long-done-${index}`), isDone: true, children: [] }));
+  const open = Array.from({ length: 126 }, (_, index) => ({ ...previewChild(`long-open-${index}`), children: [] }));
+  const rows = [...done, { ...previewChild('long-parent'), name: 'Parent', children }, ...open];
+  const flat = rows.flatMap((row) => [row, ...row.children]);
+  return {
+    ...milestone,
+    rows,
+    doneCount: flat.filter((row) => row.isDone).length,
+    openCount: flat.filter((row) => !row.isDone).length,
+  };
+}
+
+function previewMilestone(
+  patch: Pick<MilestoneRoadmapView, 'id' | 'name' | 'objective' | 'workStatus' | 'approval'> &
+    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName'>>,
+): MilestoneRoadmapView {
+  return {
+    goals: [],
+    note: null,
+    approverName: null,
+    decidedAt: null,
+    publishToWarehaus: true,
+    resources: [],
+    openCount: 1,
+    doneCount: 0,
+    countIsDecision: false,
+    rows: [],
+    ...patch,
+  };
+}
+
+/**
+ * Fixture-only list previews. `?chip=long` stretches the first chip.
+ * `?tiles=states` adds an in-progress tile, a reviewed tile, and a shipped tile.
+ * An empty search leaves the list alone.
+ */
+export function applyFixtureMilestonePreview(
+  milestones: readonly MilestoneRoadmapView[],
+  search: string,
+): MilestoneRoadmapView[] {
+  const params = new URLSearchParams(search.startsWith('?') ? search.slice(1) : search);
+  let next = [...milestones];
+  if (params.get('chip') === 'long' && next[0]) {
+    const first = next[0];
+    next = [withLongChip(first), ...next.slice(1)];
+  }
+  if (params.get('tiles') !== 'states') return next;
+  return [
+    ...next,
+    previewMilestone({
+      id: 'm-preview-active',
+      name: 'Case study',
+      objective: 'The case study is in progress.',
+      workStatus: 'active',
+      approval: 'unreviewed',
+    }),
+    previewMilestone({
+      id: 'm-preview-reviewed',
+      name: 'Navigation pass',
+      objective: 'The navigation notes were reviewed.',
+      workStatus: 'active',
+      approval: 'changes_requested',
+      decidedAt: PREVIEW_REVIEW_AT,
+      resources: [{ id: 'r-nav', title: 'Navigation notes', url: null }],
+    }),
+    previewMilestone({
+      id: 'm-preview-shipped',
+      name: 'Brand system',
+      objective: 'The brand system is approved.',
+      // Approval is the shipped signal. A stored "in progress" status would disagree with it.
+      workStatus: 'ready',
+      approval: 'approved',
+      decidedAt: PREVIEW_REVIEW_AT,
+      approverName: 'Northwind',
+      note: 'Approved with the brand file.',
+      resources: [
+        { id: 'r-brand', title: 'Brand file', url: null },
+        { id: 'r-brand-2', title: 'Logo sheet', url: null },
+      ],
+    }),
+  ];
+}
