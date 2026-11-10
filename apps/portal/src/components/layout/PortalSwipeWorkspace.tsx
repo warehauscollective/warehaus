@@ -10,7 +10,7 @@ import { ResourcesContent } from '@/components/pages/ResourcesContent';
 import { ActivityContent } from '@/components/pages/ActivityContent';
 import { AccountContent } from '@/components/pages/AccountContent';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
-import { tabPanelShellLayout } from './tabPanelShellLayout';
+import { tabPanelPadding, tabPanelShellLayout } from './tabPanelShellLayout';
 import { PortalPanelBoundary } from './PortalPanelBoundary';
 import { PortalTabSidebar } from './PortalSidebar';
 
@@ -39,12 +39,13 @@ function TabPanelShell({
   const phone = useMaxWidth(767);
   const project = tab === 'projects';
   const layout = tabPanelShellLayout(project);
+  const padding = tabPanelPadding(phone, project);
   return (
     <div
       className={layout.shellClassName}
       style={{
-        paddingLeft: project ? (phone ? 16 : 24) : '1.25rem',
-        paddingRight: project ? (phone ? 16 : 24) : phone ? '1.25rem' : '4.5rem',
+        paddingLeft: padding.paddingLeft,
+        paddingRight: padding.paddingRight,
         touchAction: 'pan-x pan-y',
       }}
     >

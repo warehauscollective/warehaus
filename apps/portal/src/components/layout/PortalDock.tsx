@@ -6,6 +6,7 @@ import { getPortalTabsForMode } from '@warehaus/logic/portal';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { usePortalData } from '@/hooks/usePortalData';
+import { dockLabelClassName, dockTabClassName, dockTabStyle } from './dockTabChrome';
 
 const TAB_ICON: Record<Exclude<PortalTab, 'dashboard'>, string> = {
   projects: '/icons/dock-projects.svg',
@@ -48,8 +49,8 @@ function TabGlyph({ tab, active }: { tab: PortalTab; active: boolean }) {
 /**
  * Portal dock — Figma Dock/Portal 284:8236.
  * Desktop: hamburger circle, then a surface track. Active tab is a paper pill
- * with ink type. No dash indicators. Mobile keeps icon tabs and labels the
- * active one.
+ * with ink type in both themes. No dash indicators. Below 1024 only the
+ * active tab shows its label. Inactive icons stay muted.
  */
 export function PortalDock() {
   const { activeTab, setActiveTab } = usePortalTab();
@@ -137,24 +138,11 @@ export function PortalDock() {
               aria-label={label}
               title={label}
               onClick={() => setActiveTab(value)}
-              className="relative flex size-8 shrink-0 items-center justify-center rounded-[13px] p-2 lg:size-auto lg:gap-2 lg:rounded-[21px] lg:px-4 lg:py-3"
-              style={{
-                fontFamily: 'var(--font-display)',
-                fontWeight: 900,
-                fontStyle: 'italic',
-                textTransform: 'uppercase',
-                lineHeight: 'normal',
-                color: isActive ? 'var(--bg)' : 'var(--muted)',
-                background: isActive ? 'var(--fg)' : 'transparent',
-                border: isActive ? '1px solid var(--fg)' : '1px solid transparent',
-              }}
+              className={dockTabClassName(isActive)}
+              style={dockTabStyle(isActive)}
             >
               <TabGlyph tab={value} active={isActive} />
-              <span
-                className="hidden text-[13px] tracking-[1.3px] lg:inline"
-              >
-                {label}
-              </span>
+              <span className={dockLabelClassName(isActive)}>{label}</span>
             </button>
           );
         })}

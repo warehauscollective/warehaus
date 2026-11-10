@@ -6,6 +6,25 @@
 export const PHONE_SCROLL_INSET = 'max-lg:pt-6';
 
 /**
+ * Phone side margin, and the wordmark's x, from the 390 frames under
+ * Figma 473:29440. One value for Dashboard, Resources, Activity, Account,
+ * Projects and Milestones.
+ */
+export const PHONE_SHELL_INSET_PX = 16;
+
+/** Phone uses {@link PHONE_SHELL_INSET_PX} on every tab. Desktop keeps its own insets. */
+export function tabPanelPadding(
+  phone: boolean,
+  project: boolean,
+): { paddingLeft: number | string; paddingRight: number | string } {
+  if (phone) {
+    return { paddingLeft: PHONE_SHELL_INSET_PX, paddingRight: PHONE_SHELL_INSET_PX };
+  }
+  if (project) return { paddingLeft: 24, paddingRight: 24 };
+  return { paddingLeft: '1.25rem', paddingRight: '4.5rem' };
+}
+
+/**
  * Phone shell gap is 0 on every tab. Desktop keeps its own gap.
  * The wrapper has no top padding, so the inset cannot stack on the page header.
  */

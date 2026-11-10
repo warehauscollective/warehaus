@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import React, { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { PhoneScrollInset, PortalTilePane, PortalWorkspaceFrame } from './PortalWorkspace';
-import { tabPanelShellLayout } from './tabPanelShellLayout';
+import { PHONE_SHELL_INSET_PX, tabPanelPadding, tabPanelShellLayout } from './tabPanelShellLayout';
 
 Object.assign(globalThis, { React });
 
@@ -16,6 +17,31 @@ function tag(html: string, testId: string): string {
   assert.ok(found, testId);
   return found[0];
 }
+
+describe('phone shell margin', () => {
+  it('uses the 390-frame inset on every tab, including projects and milestones', () => {
+    assert.equal(PHONE_SHELL_INSET_PX, 16);
+    for (const project of [false, true]) {
+      assert.deepEqual(tabPanelPadding(true, project), {
+        paddingLeft: 16,
+        paddingRight: 16,
+      });
+    }
+    assert.deepEqual(tabPanelPadding(false, true), { paddingLeft: 24, paddingRight: 24 });
+    assert.deepEqual(tabPanelPadding(false, false), {
+      paddingLeft: '1.25rem',
+      paddingRight: '4.5rem',
+    });
+
+    const css = readFileSync(new URL('../../styles/global.css', import.meta.url), 'utf8');
+    assert.match(css, /\.portal-tab-shell\s*\{[^}]*padding-left:\s*16px;/);
+    assert.match(css, /\.portal-tab-shell\s*\{[^}]*padding-right:\s*16px;/);
+    const swipe = readFileSync(new URL('./PortalSwipeWorkspace.tsx', import.meta.url), 'utf8');
+    assert.match(swipe, /tabPanelPadding\(phone, project\)/);
+    assert.equal(swipe.includes('phone ? 16'), false);
+    assert.equal(swipe.includes("'1.25rem'"), false);
+  });
+});
 
 describe('phone shell inset', () => {
   it('puts the 24px on the title header of a titled page and on the scroller when the header is hidden', () => {

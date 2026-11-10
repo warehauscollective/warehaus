@@ -1,0 +1,63 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { describe, it } from 'node:test';
+import React, { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { dockLabelClassName, dockTabClassName, dockTabStyle } from './dockTabChrome';
+
+Object.assign(globalThis, { React });
+
+const css = readFileSync(new URL('../../styles/global.css', import.meta.url), 'utf8');
+const dock = readFileSync(new URL('./PortalDock.tsx', import.meta.url), 'utf8');
+
+function labelClass(active: boolean): string {
+  return dockLabelClassName(active);
+}
+
+describe('dock active label', () => {
+  it('shows the label below 1024 only on the active tab', () => {
+    const active = labelClass(true);
+    const idle = labelClass(false);
+    assert.equal(/(?:^|\s)hidden(?:\s|$)/.test(active), false);
+    assert.match(active, /text-\[11px\]/);
+    assert.match(active, /tracking-\[1\.1px\]/);
+    assert.match(active, /lg:text-\[13px\]/);
+    assert.match(idle, /(?:^|\s)hidden(?:\s|$)/);
+    assert.match(idle, /lg:inline/);
+    assert.equal(idle.includes('text-[11px]'), false);
+
+    const activeHtml = renderToStaticMarkup(
+      createElement(
+        'button',
+        { className: dockTabClassName(true), style: dockTabStyle(true) },
+        createElement('span', { className: active }, 'Dashboard'),
+      ),
+    );
+    assert.match(activeHtml, />Dashboard</);
+    assert.equal(activeHtml.includes('hidden'), false);
+    assert.match(activeHtml, /dock-tab-active/);
+    assert.equal(dockTabClassName(true).includes('size-8'), false);
+    assert.match(dockTabClassName(false), /size-8/);
+
+    assert.match(dock, /dockLabelClassName\(isActive\)/);
+    assert.match(dock, /dockTabClassName\(isActive\)/);
+    assert.match(dock, /dockTabStyle\(isActive\)/);
+  });
+});
+
+describe('dock light pill', () => {
+  it('keeps a paper fill and an ink icon in light mode, and the dark token pair otherwise', () => {
+    const active = dockTabStyle(true);
+    const idle = dockTabStyle(false);
+    assert.equal(active.background, 'var(--dock-active-paper, var(--fg))');
+    assert.equal(active.color, 'var(--dock-active-ink, var(--bg))');
+    assert.equal(active.border, '1px solid var(--dock-active-paper, var(--fg))');
+    assert.equal(idle.background, 'transparent');
+    assert.equal(idle.color, 'var(--muted)');
+
+    assert.match(css, /html\.light \.ds-scope\s*\{[^}]*--dock-active-paper:\s*#fdfdfe;/);
+    assert.match(css, /html\.light \.ds-scope\s*\{[^}]*--dock-active-ink:\s*#0a0a0b;/);
+    assert.match(css, /\.dock-tab-icon-active\s*\{\s*filter:\s*brightness\(0\);\s*\}/);
+    assert.equal(css.includes('invert('), false);
+  });
+});

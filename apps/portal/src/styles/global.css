@@ -72,12 +72,15 @@ html.light .dock-menu-glyph {
   filter: brightness(0);
 }
 
-/* Dock tab glyphs ship as muted strokes. The active pill needs ink (dark) or paper (light). */
+/* Dock tab glyphs ship as muted strokes. The active pill is ink on paper in
+   both themes (Figma Dock/Portal 284:8236). Dark keeps --fg fill and --bg type.
+   Light pins the same paper pill and ink icon instead of inverting the glyph. */
+html.light .ds-scope {
+  --dock-active-paper: #fdfdfe;
+  --dock-active-ink: #0a0a0b;
+}
 .dock-tab-icon-active {
   filter: brightness(0);
-}
-html.light .dock-tab-icon-active {
-  filter: brightness(0) invert(1);
 }
 
 
@@ -152,13 +155,16 @@ html[data-density='compact'] .ds-data th {
   display: none;
 }
 
-/* Phone panels use 20px side margins. The notice bell is a fixed overlay and does not reserve a column. */
+/* Phone panels share a 16px side margin. The wordmark and the page sit at x=16
+   (Figma 390 frames under 473:29440). The notice bell is a fixed overlay and
+   does not reserve a column. From 768px the panel gap returns. */
 .portal-tab-shell {
-  padding-left: var(--portal-panel-gap, 1.25rem);
-  padding-right: var(--portal-panel-gap, 1.25rem);
+  padding-left: 16px;
+  padding-right: 16px;
 }
 @media (min-width: 768px) {
   .portal-tab-shell {
+    padding-left: var(--portal-panel-gap, 1.25rem);
     padding-right: max(var(--portal-panel-gap, 1.25rem), 4.5rem);
   }
 }
