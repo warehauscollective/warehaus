@@ -72,12 +72,38 @@ html.light .dock-menu-glyph {
   filter: brightness(0);
 }
 
-/* Dock tab glyphs ship as muted strokes. The active pill needs ink (dark) or paper (light). */
-.dock-tab-icon-active {
-  filter: brightness(0);
+/* Light surface-2 sits on white, so the selected rail uses the grey fill.
+   The dock pill uses --paper and --ink directly. Those tokens do not flip. */
+html.light .ds-scope {
+  --sidebar-active-fill: var(--bg-2);
 }
-html.light .dock-tab-icon-active {
-  filter: brightness(0) invert(1);
+.ds-scope {
+  --sidebar-active-fill: var(--surface-2);
+}
+.dock-tab-icon {
+  display: block;
+  width: 16px;
+  height: 16px;
+  flex: 0 0 auto;
+  background-color: currentColor;
+}
+/* RESOURCES and ACCOUNT run long in Eurostile. Desktop tracking brings each label down 3px. */
+@media (min-width: 1024px) {
+  .dock-label-resources {
+    letter-spacing: 0.97px;
+  }
+  .dock-label-account {
+    letter-spacing: 0.88px;
+  }
+}
+[data-testid='portal-sidebar'] button:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+[data-testid='portal-dock'] button:focus-visible,
+.portal-icon-button:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
 }
 
 
@@ -140,6 +166,9 @@ html[data-density='compact'] .ds-data th {
 }
 /* The phone project scroller reaches the viewport bottom. Clearance is padding inside that scroll. */
 @media (max-width: 1023px) {
+  .portal-tab-shell {
+    --portal-tile-pad: calc(82px + env(safe-area-inset-bottom, 0px));
+  }
   .project-open-pane {
     --portal-tile-pad: 0px;
   }
@@ -152,14 +181,24 @@ html[data-density='compact'] .ds-data th {
   display: none;
 }
 
-/* Phone panels use 20px side margins. The notice bell is a fixed overlay and does not reserve a column. */
+/* Phone panels share a 16px side margin. The wordmark sits at y≈31
+   (16px shell pad + the 56px header). From 768px every tab uses 24px,
+   matching Projects at 1440. The notice bell is fixed 20px from the right
+   and 42px wide, so from 1024px the header keeps 50px of extra room:
+   42 + 20 - 24 shell inset + a 12px gap. */
 .portal-tab-shell {
-  padding-left: var(--portal-panel-gap, 1.25rem);
-  padding-right: var(--portal-panel-gap, 1.25rem);
+  padding-left: 16px;
+  padding-right: 16px;
 }
 @media (min-width: 768px) {
   .portal-tab-shell {
-    padding-right: max(var(--portal-panel-gap, 1.25rem), 4.5rem);
+    padding-left: 24px;
+    padding-right: 24px;
+  }
+}
+@media (min-width: 1024px) {
+  [data-testid="workspace-title"] {
+    padding-right: 50px;
   }
 }
 

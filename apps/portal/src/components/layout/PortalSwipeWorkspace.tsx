@@ -9,7 +9,6 @@ import { ProjectsContent } from '@/components/pages/ProjectsContent';
 import { ResourcesContent } from '@/components/pages/ResourcesContent';
 import { ActivityContent } from '@/components/pages/ActivityContent';
 import { AccountContent } from '@/components/pages/AccountContent';
-import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { tabPanelShellLayout } from './tabPanelShellLayout';
 import { PortalPanelBoundary } from './PortalPanelBoundary';
 import { PortalTabSidebar } from './PortalSidebar';
@@ -36,18 +35,9 @@ function TabPanelShell({
   tab: PortalTab;
   children: ReactNode;
 }) {
-  const phone = useMaxWidth(767);
-  const project = tab === 'projects';
-  const layout = tabPanelShellLayout(project);
+  const layout = tabPanelShellLayout();
   return (
-    <div
-      className={layout.shellClassName}
-      style={{
-        paddingLeft: project ? (phone ? 16 : 24) : '1.25rem',
-        paddingRight: project ? (phone ? 16 : 24) : phone ? '1.25rem' : '4.5rem',
-        touchAction: 'pan-x pan-y',
-      }}
-    >
+    <div className={layout.shellClassName} style={{ touchAction: 'pan-x pan-y' }}>
       <PortalTabSidebar tab={tab} />
       <div className={layout.contentClassName}>{children}</div>
     </div>

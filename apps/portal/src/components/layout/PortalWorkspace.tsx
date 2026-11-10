@@ -142,7 +142,7 @@ export function PortalWorkspace({
                     type="button"
                     onClick={closeDetail}
                     aria-label="Close details"
-                    className="flex shrink-0 items-center justify-center"
+                    className="portal-icon-button flex shrink-0 items-center justify-center"
                     style={{
                       width: 32,
                       height: 32,

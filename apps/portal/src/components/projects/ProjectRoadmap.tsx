@@ -903,7 +903,7 @@ export function MilestoneDetailView({
                   View review
                 </OutlineButton>
               ) : null}
-              <PrimaryButton minWidth={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
+              <PrimaryButton width={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
                 Review milestone
               </PrimaryButton>
             </span>
@@ -912,12 +912,12 @@ export function MilestoneDetailView({
               <OutlineButton height={42} paddingInline={16} testId="milestone-view-review" onClick={() => setTab('reviews')}>
                 View review
               </OutlineButton>
-              <OutlineButton minWidth={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
+              <OutlineButton width={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
                 Review milestone
               </OutlineButton>
             </span>
           ) : (
-            <OutlineButton minWidth={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
+            <OutlineButton width={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
               Review milestone
             </OutlineButton>
           )
@@ -1324,7 +1324,7 @@ export function MilestoneDetailView({
               title="No review yet"
               body="A person approves the milestone or sends it back. That decision does not close its tasks."
               action={
-                <PrimaryButton minWidth={148} height={42} paddingInline={16} onClick={openReview}>
+                <PrimaryButton width={148} height={42} paddingInline={16} testId="milestone-review-empty" onClick={openReview}>
                   Review milestone
                 </PrimaryButton>
               }

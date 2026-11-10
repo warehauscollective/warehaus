@@ -15,6 +15,7 @@ import {
   waitForRegistrationFloor,
 } from '@/components/auth/EmailVerificationScreens';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
+import { signInSubmitState } from '@/components/auth/signInSubmit';
 
 export function PortalLoginForm({
   redirectTo = '/',
@@ -99,7 +100,7 @@ export function PortalLoginForm({
   }
 
   const error = localError ?? (emailError ? null : joinError);
-  const pending = busy || joining || linkStatus === 'loading';
+  const { pending, label: submitLabel } = signInSubmitState({ mode, busy, joining });
   const destination = safeRedirectPath(redirectTo);
   const rules = passwordRuleState(password);
   const registerBlocked = mode === 'register' && !rules.ready;
@@ -271,14 +272,10 @@ export function PortalLoginForm({
             {pending && mode === 'register' ? (
               <>
                 <ButtonSpinner />
-                Creating account…
+                {submitLabel}
               </>
-            ) : pending ? (
-              'Working…'
-            ) : mode === 'signin' ? (
-              'Sign in'
             ) : (
-              'Create account'
+              submitLabel
             )}
           </PrimaryButton>
         </div>
