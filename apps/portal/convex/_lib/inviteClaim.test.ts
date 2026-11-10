@@ -566,6 +566,22 @@ describe('invite accept, decline, and revoke', () => {
     assert.ok(row);
     assert.equal(row.inviteStatus, 'Expired');
     assert.deepEqual(teamInviteActions(row.inviteStatus), { resend: true, revoke: false });
+
+    const before = tables.pendingInvites?.length ?? 0;
+    await run(applyContactRead, ctx, {
+      notionPageId: 'never-issued',
+      orgId: 'org-wh',
+      name: 'Ghost',
+      email: 'ghost@warehaus.co',
+      role: 'Warehaus Staff',
+      source: 'portal',
+      placement: 'SKIP_AND_DROP_PENDING',
+      inviteStatus: 'Expired',
+      actionsJson: '[]',
+      observedJson: '{}',
+    });
+    assert.equal(tables.pendingInvites?.some((row) => row.notionPageId === 'never-issued'), false);
+    assert.equal(tables.pendingInvites?.length, before);
   });
 
   it('consumes a signup permit once and ignores an expired one', async () => {

@@ -1,36 +1,96 @@
-const KEY = 'warehaus-staff-joined';
+'use client';
+
+import { useEffect, useState } from 'react';
+
+const JOINED_KEY = 'warehaus-staff-joined';
+const FINISH_KEY = 'warehaus-staff-finish';
 
 export type StaffJoined = { name: string; passwordSet: boolean };
 
-/** Holds one read across React strict mode's second effect. The saved flag is already gone. */
-let handed: StaffJoined | null = null;
+export type StaffFinish = {
+  name: string;
+  passwordSet: boolean;
+  startedAt: number;
+  token: string;
+};
 
-/** Set only after accept succeeds in this browser session. */
-export function rememberStaffJoined(value: StaffJoined): void {
-  handed = null;
-  sessionStorage.setItem(KEY, JSON.stringify(value));
-}
-
-/** Reads the flag once and clears it. A later read in this session is empty. */
-export function readStaffJoined(): StaffJoined | null {
-  if (handed) {
-    const value = handed;
-    handed = null;
-    return value;
-  }
+function storage(): Storage | null {
   try {
-    const raw = sessionStorage.getItem(KEY);
-    sessionStorage.removeItem(KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<StaffJoined>;
-    if (!parsed.name?.trim()) return null;
-    const value = { name: parsed.name.trim(), passwordSet: parsed.passwordSet === true };
-    handed = value;
-    queueMicrotask(() => {
-      if (handed === value) handed = null;
-    });
-    return value;
+    return globalThis.sessionStorage ?? null;
   } catch {
     return null;
   }
+}
+
+/** Set only after accept succeeds in this browser tab. Read does not clear it. */
+export function rememberStaffJoined(value: StaffJoined): void {
+  storage()?.setItem(JOINED_KEY, JSON.stringify(value));
+}
+
+/** Non-destructive. Strict mode can read this twice before the welcome commits. */
+export function readStaffJoined(): StaffJoined | null {
+  try {
+    const raw = storage()?.getItem(JOINED_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StaffJoined>;
+    if (!parsed.name?.trim()) return null;
+    return { name: parsed.name.trim(), passwordSet: parsed.passwordSet === true };
+  } catch {
+    return null;
+  }
+}
+
+export function consumeStaffJoined(): void {
+  try {
+    storage()?.removeItem(JOINED_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+export function rememberStaffFinish(value: StaffFinish): void {
+  storage()?.setItem(FINISH_KEY, JSON.stringify(value));
+}
+
+export function readStaffFinish(): StaffFinish | null {
+  try {
+    const raw = storage()?.getItem(FINISH_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<StaffFinish>;
+    if (!parsed.name?.trim() || typeof parsed.startedAt !== 'number') return null;
+    return {
+      name: parsed.name.trim(),
+      passwordSet: parsed.passwordSet === true,
+      startedAt: parsed.startedAt,
+      token: typeof parsed.token === 'string' ? parsed.token : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function clearStaffFinish(): void {
+  try {
+    storage()?.removeItem(FINISH_KEY);
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Shows the welcome once. The saved flag stays through React strict mode's
+ * replay, then a macrotask clears it. A refresh after that sees nothing.
+ */
+export function useStaffJoinedWelcome(): StaffJoined | null {
+  const [joined, setJoined] = useState<StaffJoined | null>(null);
+  useEffect(() => {
+    const saved = readStaffJoined();
+    if (saved) setJoined(saved);
+    const id = setTimeout(() => {
+      consumeStaffJoined();
+      clearStaffFinish();
+    }, 0);
+    return () => clearTimeout(id);
+  }, []);
+  return joined;
 }

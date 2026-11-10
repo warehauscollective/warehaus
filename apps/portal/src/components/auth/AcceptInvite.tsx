@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation } from 'convex/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, Check, Circle, Clock, Lock, Mail, Shield, UserRound } from 'lucide-react';
@@ -10,6 +10,8 @@ import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { renewRequestMessage } from '@convex/_lib/inviteFlow';
 import { rememberStaffJoined } from '@/lib/staffJoined';
+import { useStaffLinkWait } from '@/lib/staffLinkWait';
+import { StaffLinkFinish } from '@/components/auth/StaffLinkFinish';
 
 type Preview = {
   status:
@@ -126,8 +128,26 @@ export function AcceptInvite() {
   const [screen, setScreen] = useState<Preview['status'] | null>(null);
   const state = rules(password, confirm);
   const ready = state.length && state.mix && state.match;
+  const replace = useCallback((path: string) => {
+    router.replace(path);
+  }, [router]);
+  const linkState = useSafeQuery<{ state: string; isStaff?: boolean }>(
+    api.contacts.getLinkStatus,
+    !forced && configured ? {} : 'skip',
+  );
+  const wait = useStaffLinkWait({ token, link: linkState.data, replace });
 
   if (previewKey === 'email') return <InviteEmailPreview />;
+  if (previewKey === 'finishing' || previewKey === 'finishing-slow') {
+    return (
+      <main className="flex min-h-[100dvh] items-center justify-center px-4 py-12" style={{ background: 'var(--background)', color: 'var(--foreground)' }} data-testid="accept-invite" data-status="finishing">
+        <div className="flex w-full max-w-[480px] flex-col gap-8">
+          <p className="font-display text-center" style={{ fontSize: 28, fontWeight: 650, letterSpacing: '-0.03em', margin: 0 }}>Warehaus</p>
+          <StaffLinkFinish slow={previewKey === 'finishing-slow'} onRetry={() => undefined} />
+        </div>
+      </main>
+    );
+  }
 
   async function join(event: FormEvent) {
     event.preventDefault();
@@ -159,8 +179,7 @@ export function AcceptInvite() {
         else setError(result.message ?? 'We couldn’t finish joining');
         return;
       }
-      rememberStaffJoined({ name: joinedName(preview.invitedEmail), passwordSet: true });
-      router.replace('/');
+      wait.begin({ name: joinedName(preview.invitedEmail), passwordSet: true });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'We couldn’t finish joining');
     } finally {
@@ -185,8 +204,7 @@ export function AcceptInvite() {
         else setError(result.message ?? 'We couldn’t finish joining');
         return;
       }
-      rememberStaffJoined({ name: joinedName(preview.invitedEmail), passwordSet: false });
-      router.replace('/');
+      wait.begin({ name: joinedName(preview.invitedEmail), passwordSet: false });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'We couldn’t finish joining');
     } finally {
@@ -217,8 +235,7 @@ export function AcceptInvite() {
         else setError(result.message ?? 'We couldn’t finish joining');
         return;
       }
-      rememberStaffJoined({ name: joinedName(preview.invitedEmail), passwordSet: false });
-      router.replace('/');
+      wait.begin({ name: joinedName(preview.invitedEmail), passwordSet: false });
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Check your password and try again.');
     } finally {
@@ -241,12 +258,14 @@ export function AcceptInvite() {
   const inviter = preview?.inviterName || INVITER_FALLBACK;
 
   return (
-    <main className="flex min-h-[100dvh] items-center justify-center px-4 py-12" style={{ background: 'var(--background)', color: 'var(--foreground)' }} data-testid="accept-invite" data-status={status ?? 'loading'}>
+    <main className="flex min-h-[100dvh] items-center justify-center px-4 py-12" style={{ background: 'var(--background)', color: 'var(--foreground)' }} data-testid="accept-invite" data-status={wait.waiting ? 'finishing' : (status ?? 'loading')}>
       <div className="flex w-full max-w-[480px] flex-col gap-8">
         <p className="font-display text-center" style={{ fontSize: 28, fontWeight: 650, letterSpacing: '-0.03em', margin: 0 }}>
           Warehaus
         </p>
-        {!preview ? (
+        {wait.waiting ? (
+          <StaffLinkFinish slow={wait.slow} onRetry={wait.retry} />
+        ) : !preview ? (
           live.loading ? (
             <Card>
               <p style={{ margin: 0, color: 'var(--muted)' }}>Checking this invite…</p>

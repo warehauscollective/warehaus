@@ -40,7 +40,6 @@ export function DashboardHome({
   onOpenTask,
   onOpenProject,
   joined,
-  finishing = false,
 }: {
   model: DashboardModel;
   focus: 'all' | 'awaiting' | 'sync' | 'activity';
@@ -51,15 +50,7 @@ export function DashboardHome({
   onOpenTask: (row: AwaitingRow) => void;
   onOpenProject: (row: ProjectRow) => void;
   joined?: { name: string; passwordSet: boolean } | null;
-  finishing?: boolean;
 }) {
-  if (finishing) {
-    return (
-      <div data-testid="dashboard" data-state="finishing" className="flex flex-col" style={{ gap: 24 }}>
-        <FinishingSetup />
-      </div>
-    );
-  }
   if (joined) {
     return (
       <div data-testid="dashboard" data-state="joined" className="flex flex-col" style={{ gap: 24 }}>
@@ -727,15 +718,6 @@ function initials(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
   const letters = (parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '');
   return (letters || name.slice(0, 2)).toUpperCase();
-}
-
-function FinishingSetup() {
-  return (
-    <div data-testid="finishing-setup" style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 16, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)' }}>
-      <p style={{ margin: 0, fontSize: 14 }}>Finishing setup</p>
-      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>We’re linking your staff access. This usually takes a moment.</p>
-    </div>
-  );
 }
 
 function JoinedStaff({ name, passwordSet }: { name: string; passwordSet: boolean }) {

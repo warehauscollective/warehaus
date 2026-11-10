@@ -350,8 +350,13 @@ export const applyContactRead = internalMutation({
     }
     const keepStaffPending =
       inviteRole === 'Warehaus Staff' && args.inviteStatus === 'Pending' && args.source === 'portal';
+    // Expired only keeps a row this portal already stored. A staff page we never
+    // invited does not become a team row just because Notion says Expired.
     const keepExpiredStaff =
-      inviteRole === 'Warehaus Staff' && args.inviteStatus === 'Expired' && args.source === 'portal';
+      existing != null &&
+      inviteRole === 'Warehaus Staff' &&
+      args.inviteStatus === 'Expired' &&
+      args.source === 'portal';
     if (
       (args.placement === 'UPSERT_PENDING_INVITE' || keepStaffPending || keepExpiredStaff) &&
       orgId &&

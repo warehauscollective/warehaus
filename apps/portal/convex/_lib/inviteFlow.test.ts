@@ -34,6 +34,7 @@ import {
   planStaffInviteLink,
   pendingInviteWouldRegress,
   renewRequestMessage,
+  staffAcceptInProgress,
   staffAcceptOrgOk,
   signupPermitOpen,
   tokenFromConfirmation,
@@ -352,6 +353,57 @@ describe('invite accept email match', () => {
       alreadyMember: true,
     });
     assert.equal(already.status, 'already');
+  });
+
+  it('treats only an accepted staff hold as an invite still in progress', () => {
+    const invite = {
+      email: 'Ada@example.com',
+      role: 'Warehaus Staff',
+      inviteStatus: 'Pending',
+      notionPageId: 'page-1',
+    };
+    const held = { emailNormalized: 'ada@example.com', status: 'pending', contactNotionPageId: 'page-1' };
+    const accepted = { notionPageId: 'page-1', inviteStatus: 'Accepted', staff: true, open: true };
+    assert.equal(
+      staffAcceptInProgress({ email: 'ada@example.com', invites: [invite], tokens: [held], holds: [accepted] }),
+      true,
+    );
+    assert.equal(
+      staffAcceptInProgress({
+        email: 'ada@example.com',
+        invites: [invite],
+        tokens: [{ ...held, status: 'live' }],
+        holds: [],
+      }),
+      false,
+    );
+    assert.equal(
+      staffAcceptInProgress({
+        email: 'ada@example.com',
+        invites: [invite],
+        tokens: [held],
+        holds: [{ ...accepted, inviteStatus: 'Revoked' }],
+      }),
+      false,
+    );
+    assert.equal(
+      staffAcceptInProgress({
+        email: 'ada@example.com',
+        invites: [{ ...invite, inviteStatus: 'Accepted' }],
+        tokens: [],
+        holds: [],
+      }),
+      true,
+    );
+    assert.equal(
+      staffAcceptInProgress({
+        email: 'other@example.com',
+        invites: [invite],
+        tokens: [held],
+        holds: [accepted],
+      }),
+      false,
+    );
   });
 
   it('links a new staff invite and refuses someone who is already staff or a member', () => {

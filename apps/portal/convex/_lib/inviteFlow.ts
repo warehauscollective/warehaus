@@ -299,6 +299,84 @@ export function liveTokenIsExpired(status: string, expiresAt: number, now: numbe
   return status === 'live' && expiresAt <= now;
 }
 
+export type StaffAcceptInvite = {
+  email: string;
+  role: string;
+  inviteStatus: string;
+  notionPageId: string;
+};
+
+export type StaffAcceptToken = {
+  emailNormalized: string;
+  status: string;
+  contactNotionPageId: string;
+};
+
+export type StaffAcceptHold = {
+  notionPageId: string;
+  inviteStatus: string | null;
+  staff: boolean;
+  open: boolean;
+};
+
+/**
+ * True while this email's staff accept is waiting on Notion.
+ * A Pending invite with a still-live token has not been accepted, so it does not count.
+ * Decline and revoke holds do not count.
+ */
+export function staffAcceptInProgress(input: {
+  email: string;
+  invites: readonly StaffAcceptInvite[];
+  tokens: readonly StaffAcceptToken[];
+  holds: readonly StaffAcceptHold[];
+}): boolean {
+  const email = normalizeEmail(input.email);
+  if (!email.includes('@')) return false;
+  return input.invites.some((invite) => {
+    if (normalizeEmail(invite.email) !== email || invite.role !== 'Warehaus Staff') return false;
+    if (invite.inviteStatus === 'Accepted') return true;
+    if (invite.inviteStatus !== 'Pending') return false;
+    const held = input.tokens.some(
+      (token) =>
+        token.contactNotionPageId === invite.notionPageId &&
+        normalizeEmail(token.emailNormalized) === email &&
+        token.status === 'pending',
+    );
+    if (!held) return false;
+    return input.holds.some(
+      (hold) =>
+        hold.notionPageId === invite.notionPageId &&
+        hold.open &&
+        hold.staff &&
+        hold.inviteStatus === 'Accepted',
+    );
+  });
+}
+
+export function readAcceptHold(
+  notionPageId: string,
+  kind: string,
+  status: string,
+  payload: string,
+): StaffAcceptHold | null {
+  if (kind !== 'setInviteState' || !notionPageId) return null;
+  const open = status === 'queued' || status === 'inflight' || status === 'done' || status === 'conflict';
+  try {
+    const parsed = JSON.parse(payload) as {
+      properties?: { 'Invite Status'?: string };
+      staffLink?: { role?: string };
+    };
+    return {
+      notionPageId,
+      inviteStatus: parsed.properties?.['Invite Status'] ?? null,
+      staff: parsed.staffLink?.role === 'Warehaus Staff',
+      open,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export function inviteStateProperties(target: 'Accepted' | 'Declined' | 'Expired' | 'Revoked'): Record<string, string> {
   if (target === 'Accepted') return { 'Portal Access': 'Enabled', 'Invite Status': 'Accepted' };
   if (target === 'Revoked') return { 'Portal Access': 'Disabled', 'Invite Status': 'Revoked' };

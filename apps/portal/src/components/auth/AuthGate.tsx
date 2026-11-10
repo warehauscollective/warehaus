@@ -1,21 +1,21 @@
 'use client';
 
-import { type ReactNode, useEffect, useRef } from 'react';
+import { type ReactNode, useCallback, useRef } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
-import { isConvexConfigured } from '@/lib/convex/client';
-import { safeRedirectPath } from '@convex/_lib/safeRedirect';
+import { AuthGateScreen } from './AuthGateScreen';
 
 /**
  * Blocks portal chrome until Better Auth session + Contact join succeed.
  * Unauthenticated / unlinked users are sent to /login.
+ * A staff invite that is still linking is never signed out.
  */
 export function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
-  const configured = isConvexConfigured();
   const linkingRef = useRef(false);
   const {
+    configured,
     sessionPending,
     joining,
     authUser,
@@ -25,79 +25,46 @@ export function AuthGate({ children }: { children: ReactNode }) {
     linkQueryError,
     ensureLinked,
     signOut,
+    staffInviteInProgress,
+    staffInviteCheckPending,
   } = usePortalAuth();
 
-  useEffect(() => {
-    if (!configured) {
-      router.replace('/login');
-      return;
-    }
-    if (sessionPending) return;
+  const replace = useCallback(
+    (href: string) => {
+      router.replace(href);
+    },
+    [router],
+  );
 
-    const nextPath = safeRedirectPath(pathname);
-    const next = nextPath !== '/' ? `?next=${encodeURIComponent(nextPath)}` : '';
+  const onLink = useCallback(() => {
+    if (linkingRef.current) return;
+    linkingRef.current = true;
+    void ensureLinked().finally(() => {
+      linkingRef.current = false;
+    });
+  }, [ensureLinked]);
 
-    if (!authUser) {
-      router.replace(`/login${next}`);
-      return;
-    }
-
-    if (joinError) {
-      void (async () => {
-        await signOut();
-        router.replace(`/login?error=${encodeURIComponent(joinError)}`);
-      })();
-      return;
-    }
-
-    if (linkStatus === 'unlinked' && !joining && !linkingRef.current) {
-      linkingRef.current = true;
-      void ensureLinked().finally(() => {
-        linkingRef.current = false;
-      });
-    }
-  }, [
-    configured,
-    sessionPending,
-    authUser,
-    linkStatus,
-    joining,
-    joinError,
-    ensureLinked,
-    signOut,
-    router,
-    pathname,
-  ]);
-
-  const ready =
-    configured &&
-    !sessionPending &&
-    !joining &&
-    Boolean(authUser) &&
-    linkStatus === 'linked' &&
-    Boolean(portalSession) &&
-    !joinError &&
-    !linkQueryError;
-
-  if (!ready) {
-    return (
-      <div
-        className="ds-scope flex h-[100dvh] items-center justify-center"
-        style={{
-          background:
-            'radial-gradient(1200px 600px at 50% -10%, color-mix(in oklab, var(--accent) 12%, transparent), transparent), var(--background)',
-        }}
-      >
-        <p className="ds-mono" style={{ fontSize: 'var(--t-sm)', color: linkQueryError ? 'var(--danger)' : 'var(--muted)' }}>
-          {joinError
-            ? 'Access denied — redirecting…'
-            : linkQueryError
-              ? 'Could not reach the portal session. Refresh to try again.'
-              : 'Checking access…'}
-        </p>
-      </div>
-    );
-  }
-
-  return <>{children}</>;
+  return (
+    <AuthGateScreen
+      snapshot={{
+        configured,
+        sessionPending,
+        hasUser: Boolean(authUser),
+        joinError,
+        linkStatus,
+        joining,
+        linking: linkingRef.current,
+        staffInviteInProgress,
+        staffInviteCheckPending,
+        hasPortalSession: Boolean(portalSession),
+        linkQueryError: Boolean(linkQueryError),
+        pathname: pathname ?? '/',
+      }}
+      replace={replace}
+      signOut={signOut}
+      onLink={onLink}
+    >
+      {children}
+    </AuthGateScreen>
+  );
 }
