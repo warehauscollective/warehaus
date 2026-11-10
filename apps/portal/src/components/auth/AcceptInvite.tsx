@@ -9,6 +9,7 @@ import { authClient } from '@/lib/auth-client';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { renewRequestMessage } from '@convex/_lib/inviteFlow';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { rememberStaffJoined } from '@/lib/staffJoined';
 import { useStaffLinkWait } from '@/lib/staffLinkWait';
 import { StaffLinkFinish } from '@/components/auth/StaffLinkFinish';
@@ -181,7 +182,7 @@ export function AcceptInvite() {
       }
       wait.begin({ name: joinedName(preview.invitedEmail), passwordSet: true });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'We couldn’t finish joining');
+      setError(userFacingErrorMessage(err, 'We couldn’t finish joining'));
     } finally {
       setBusy(false);
     }
@@ -206,7 +207,7 @@ export function AcceptInvite() {
       }
       wait.begin({ name: joinedName(preview.invitedEmail), passwordSet: false });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'We couldn’t finish joining');
+      setError(userFacingErrorMessage(err, 'We couldn’t finish joining'));
     } finally {
       setBusy(false);
     }
@@ -237,7 +238,7 @@ export function AcceptInvite() {
       }
       wait.begin({ name: joinedName(preview.invitedEmail), passwordSet: false });
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Check your password and try again.');
+      setError(userFacingErrorMessage(err, 'Check your password and try again.'));
     } finally {
       setBusy(false);
     }

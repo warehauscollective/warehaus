@@ -413,6 +413,38 @@ describe('invite accept, decline, and revoke', () => {
     assert.equal(enqueues.length, 0);
   });
 
+  it('does not enqueue a staff invite when the Warehaus page id is a seed id', async () => {
+    const previousWriteback = process.env.NOTION_WRITEBACK_ENABLED;
+    const previousEmail = process.env.INVITE_EMAIL_ENABLED;
+    const previousUrl = process.env.PORTAL_PUBLIC_URL;
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
+    process.env.INVITE_EMAIL_ENABLED = 'true';
+    process.env.PORTAL_PUBLIC_URL = 'http://localhost:3100';
+    try {
+      const tables = baseTables(await tokenRow('tok-seed', 'raw-seed'));
+      tables.clients?.push({
+        _id: 'org-wh',
+        slug: 'warehaus-internal',
+        notionPageId: 'seed-warehaus-org',
+        portalAccess: 'Enabled',
+        companyName: 'Warehaus',
+      });
+      const enqueues: Array<Record<string, unknown>> = [];
+      const created = await run(create, authCtx('auth-staff', tables, enqueues), {
+        name: 'New Staff',
+        email: 'new.staff@warehaus.co',
+        requestId: 'req-seed',
+      });
+      assert.equal(created.ok, false);
+      assert.match(created.message ?? '', /seed-warehaus-org/);
+      assert.equal(enqueues.length, 0);
+    } finally {
+      process.env.NOTION_WRITEBACK_ENABLED = previousWriteback;
+      process.env.INVITE_EMAIL_ENABLED = previousEmail;
+      process.env.PORTAL_PUBLIC_URL = previousUrl;
+    }
+  });
+
   it('links a new user and an existing account, then sign-in finds the staff contact', async () => {
     const previousWriteback = process.env.NOTION_WRITEBACK_ENABLED;
     const previousEmail = process.env.INVITE_EMAIL_ENABLED;
@@ -429,7 +461,7 @@ describe('invite accept, decline, and revoke', () => {
         tables.clients?.push({
           _id: 'org-wh',
           slug: 'warehaus-internal',
-          notionPageId: 'wh-notion',
+          notionPageId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
           portalAccess: 'Enabled',
           companyName: 'Warehaus',
         });

@@ -7,6 +7,7 @@ import { authClient } from '@/lib/auth-client';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { VERIFY_EMAIL_PATH, isCantRegisterError } from '@convex/_lib/registration';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { FIXTURE_CLIENT_SESSION, FIXTURE_SESSION } from '@/lib/data/portalFixtures';
 import { clearSearchRecents } from '@/lib/search/recents';
 import { useFixtureAudience, useFixturePreview } from '@/components/providers/FixturePreviewProvider';
@@ -24,9 +25,7 @@ export type PortalSessionView = {
 };
 
 function errorMessage(err: unknown, fallback: string): string {
-  if (err instanceof Error && err.message) return err.message;
-  if (typeof err === 'string' && err) return err;
-  return fallback;
+  return userFacingErrorMessage(err, fallback);
 }
 
 export function usePortalAuth() {

@@ -6,6 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { Check, Lock, Mail, X } from 'lucide-react';
 import { api } from '@convex/_generated/api';
 import { teamInviteActions } from '@convex/_lib/inviteFlow';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { PortalTilePane } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
@@ -212,7 +213,7 @@ export function TeamInvites({
       onDraftChange({ name: '', email: '' });
       setMode('sent');
     } catch (err) {
-      setNote(err instanceof Error ? err.message : "We couldn't send this invite");
+      setNote(userFacingErrorMessage(err, "We couldn't send this invite"));
       setMode('edit');
     } finally {
       setBusy(null);
@@ -234,7 +235,7 @@ export function TeamInvites({
       setNote(result.ok ? 'Resend pending. The old link stops working.' : (result.message ?? "We couldn't send this invite"));
       if (mode === 'invited' && result.ok) setMode('sent');
     } catch (err) {
-      setNote(err instanceof Error ? err.message : "We couldn't send this invite");
+      setNote(userFacingErrorMessage(err, "We couldn't send this invite"));
     } finally {
       setBusy(null);
     }
@@ -250,7 +251,7 @@ export function TeamInvites({
       const result = await revokeInvite({ contactNotionPageId: revokeId });
       setNote(result.ok ? 'Revoke pending.' : (result.message ?? "We couldn't revoke this invite"));
     } catch (err) {
-      setNote(err instanceof Error ? err.message : "We couldn't revoke this invite");
+      setNote(userFacingErrorMessage(err, "We couldn't revoke this invite"));
     } finally {
       setBusy(null);
       setRevokeId(null);

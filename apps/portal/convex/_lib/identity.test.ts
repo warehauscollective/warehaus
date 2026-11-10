@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { ConvexError } from 'convex/values';
 import {
   PortalAuthError,
   assertHostMatchesOrg,
@@ -7,6 +8,7 @@ import {
   resolveIdentityFromContact,
   type PortalIdentity,
 } from './identity';
+import { userFacingErrorMessage } from './userFacingError';
 
 const sugarShark: PortalIdentity = {
   authUserId: 'user_sugar',
@@ -28,6 +30,25 @@ const staff: PortalIdentity = {
   role: 'Warehaus Staff',
   email: 'team@warehaus.co',
 };
+
+describe('PortalAuthError', () => {
+  it('is a ConvexError whose data is the user-facing sentence', () => {
+    const error = new PortalAuthError(
+      "This email can't register here. Contact your Warehaus team.",
+      'FORBIDDEN',
+    );
+    assert.ok(error instanceof ConvexError);
+    assert.equal(error.data, "This email can't register here. Contact your Warehaus team.");
+    const wrapped = new ConvexError<string>(
+      '[CONVEX M(contacts:linkSession)] Server Error\n  Called by client',
+    );
+    wrapped.data = error.data;
+    assert.equal(
+      userFacingErrorMessage(wrapped, 'Could not link portal contact'),
+      "This email can't register here. Contact your Warehaus team.",
+    );
+  });
+});
 
 describe('resolveIdentityFromContact', () => {
   it('joins auth user to contact + client', () => {

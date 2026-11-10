@@ -3,6 +3,8 @@
  * Pure helpers are unit-tested; Convex wrappers call into these.
  */
 
+import { ConvexError } from 'convex/values';
+
 export type PortalRole = 'Client Admin' | 'Client Member' | 'Warehaus Staff';
 
 export type PortalIdentity = {
@@ -16,10 +18,21 @@ export type PortalIdentity = {
   email: string;
 };
 
-export class PortalAuthError extends Error {
+/**
+ * User-facing auth failure. ConvexError carries the sentence to the client.
+ * A plain Error is redacted to "Server Error".
+ */
+export class PortalAuthError extends ConvexError<string> {
+  readonly code:
+    | 'UNAUTHENTICATED'
+    | 'NO_CONTACT'
+    | 'PORTAL_DISABLED'
+    | 'HOST_MISMATCH'
+    | 'FORBIDDEN';
+
   constructor(
     message: string,
-    readonly code:
+    code:
       | 'UNAUTHENTICATED'
       | 'NO_CONTACT'
       | 'PORTAL_DISABLED'
@@ -28,6 +41,7 @@ export class PortalAuthError extends Error {
   ) {
     super(message);
     this.name = 'PortalAuthError';
+    this.code = code;
   }
 }
 

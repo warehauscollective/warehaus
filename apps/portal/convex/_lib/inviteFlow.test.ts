@@ -13,7 +13,11 @@ import {
   INVITE_UNVERIFIED_MESSAGE,
   INVITE_URL_OFF_MESSAGE,
   INVITE_USED_MESSAGE,
+  WAREHAUS_INTERNAL_NOTION_PAGE_ENV,
   asClientInviteRole,
+  inviteCreatePayloadError,
+  inviteRelationError,
+  resolveWarehausInviteNotionPage,
   asInviteRole,
   claimInviteToken,
   createInviteToken,
@@ -42,13 +46,15 @@ import {
   type InviteTokenState,
 } from './inviteFlow';
 
+const INTERNAL_PAGE = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
+
 const base = {
   role: 'Warehaus Staff' as const,
   inviteRole: 'Warehaus Staff',
   email: 'ada@example.com',
   name: 'Ada',
   internalOrgId: 'org-internal',
-  internalNotionPageId: 'internal-page',
+  internalNotionPageId: INTERNAL_PAGE,
   sentToday: 0,
   emailOwnedByOtherOrg: false,
 };
@@ -63,7 +69,69 @@ describe('invite create plan', () => {
     assert.equal(plan.properties['Portal Access'], 'Disabled');
     assert.equal(plan.properties['Invite Status'], 'Pending');
     assert.equal(plan.properties.Email, 'ada@example.com');
-    assert.deepEqual(plan.properties['Client Company'], ['internal-page']);
+    assert.deepEqual(plan.properties['Client Company'], [INTERNAL_PAGE]);
+  });
+
+  it('refuses a seed id and does not build a Notion payload', () => {
+    const resolved = resolveWarehausInviteNotionPage({
+      clients: [
+        {
+          slug: 'warehaus-internal',
+          externalId: 'wh_cli_warehaus-internal',
+          notionPageId: 'seed-warehaus-org',
+        },
+        { slug: 'client-portal', notionPageId: INTERNAL_PAGE },
+      ],
+    });
+    assert.equal(resolved.ok, false);
+    if (!resolved.ok) assert.match(resolved.message, /seed-warehaus-org/);
+
+    const plan = planInviteCreate({ ...base, internalNotionPageId: 'seed-warehaus-org' });
+    assert.equal(plan.ok, false);
+    if (!plan.ok) {
+      assert.match(plan.clientMessage, /Notion page uuid/);
+      assert.equal('properties' in plan, false);
+    }
+    const payloadError = inviteCreatePayloadError({
+      properties: {
+        Name: 'Ada',
+        'Client Company': ['seed-warehaus-org'],
+        Project: [INTERNAL_PAGE],
+      },
+      clientNotionPageId: 'seed-warehaus-org',
+    });
+    assert.match(payloadError ?? '', /Client Company must be a Notion page uuid/);
+    assert.match(
+      inviteRelationError({
+        'Client Company': [INTERNAL_PAGE],
+        Project: ['seed-warehaus-org'],
+      }) ?? '',
+      /Project must be a Notion page uuid/,
+    );
+  });
+
+  it('uses the Warehaus client uuid and ignores the seed row', () => {
+    const resolved = resolveWarehausInviteNotionPage({
+      clients: [
+        { slug: 'warehaus-internal', notionPageId: 'seed-warehaus-org' },
+        { slug: 'warehaus', notionPageId: INTERNAL_PAGE },
+      ],
+    });
+    assert.deepEqual(resolved, { ok: true, notionPageId: INTERNAL_PAGE });
+  });
+
+  it('uses one configured uuid when every Warehaus row is a seed id', () => {
+    const resolved = resolveWarehausInviteNotionPage({
+      clients: [{ slug: 'warehaus-internal', notionPageId: 'seed-warehaus-org' }],
+      configuredNotionPageId: INTERNAL_PAGE,
+    });
+    assert.deepEqual(resolved, { ok: true, notionPageId: INTERNAL_PAGE });
+    const invalid = resolveWarehausInviteNotionPage({
+      clients: [{ slug: 'warehaus-internal', notionPageId: 'seed-warehaus-org' }],
+      configuredNotionPageId: 'seed-warehaus-org',
+    });
+    assert.equal(invalid.ok, false);
+    if (!invalid.ok) assert.match(invalid.message, new RegExp(WAREHAUS_INTERNAL_NOTION_PAGE_ENV));
   });
 
   it('refuses clients, including a Client Admin', () => {

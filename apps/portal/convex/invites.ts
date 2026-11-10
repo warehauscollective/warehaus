@@ -8,8 +8,10 @@
  */
 
 import {
+  WAREHAUS_INTERNAL_CLIENT_EXTERNAL_ID,
   WAREHAUS_INTERNAL_CLIENT_SLUG,
   inviteIdempotencyKey,
+  isNotionPageId,
   isNotionWritebackEnabled,
   stateIdempotencyKey,
   WRITEBACK_OFF_ERROR,
@@ -35,7 +37,11 @@ import {
   INVITE_CLIENT_FAILURE,
   INVITE_DAILY_LIMIT,
   INVITE_INTERNAL_MISSING,
+  WAREHAUS_INTERNAL_NOTION_PAGE_ENV,
   asInviteRole,
+  inviteCreatePayloadError,
+  notionPageIdForms,
+  resolveWarehausInviteNotionPage,
   claimInviteToken,
   describeInvitePreview,
   finishInviteToken,
@@ -105,6 +111,37 @@ async function warehausInternal(ctx: QueryCtx | MutationCtx) {
     .unique();
 }
 
+/** Warehaus client rows that might hold the real Notion page. Seed ids are ignored later. */
+async function warehausInviteClients(ctx: QueryCtx | MutationCtx) {
+  const slug = await warehausInternal(ctx);
+  const alternate = await ctx.db
+    .query('clients')
+    .withIndex('by_slug', (q) => q.eq('slug', 'warehaus'))
+    .take(8);
+  const external = await ctx.db
+    .query('clients')
+    .withIndex('by_externalId', (q) => q.eq('externalId', WAREHAUS_INTERNAL_CLIENT_EXTERNAL_ID))
+    .take(8);
+  const configured = process.env[WAREHAUS_INTERNAL_NOTION_PAGE_ENV]?.trim() ?? '';
+  const byPage = [];
+  if (configured && isNotionPageId(configured)) {
+    for (const form of notionPageIdForms(configured)) {
+      const row = await ctx.db
+        .query('clients')
+        .withIndex('by_notionPageId', (q) => q.eq('notionPageId', form))
+        .unique();
+      if (row) byPage.push(row);
+    }
+  }
+  const rows = [slug, ...alternate, ...external, ...byPage].filter((row) => row != null);
+  const seen = new Set<string>();
+  return rows.filter((row) => {
+    if (seen.has(row._id)) return false;
+    seen.add(row._id);
+    return true;
+  });
+}
+
 export const create = adminMutation({
   args: {
     name: v.string(),
@@ -116,6 +153,15 @@ export const create = adminMutation({
     const warehaus = await warehausInternal(ctx);
     if (!warehaus) return { ok: false as const, message: INVITE_INTERNAL_MISSING };
     const orgId = warehaus._id;
+    const page = resolveWarehausInviteNotionPage({
+      clients: (await warehausInviteClients(ctx)).map((client) => ({
+        slug: client.slug,
+        externalId: client.externalId,
+        notionPageId: client.notionPageId,
+      })),
+      configuredNotionPageId: process.env[WAREHAUS_INTERNAL_NOTION_PAGE_ENV],
+    });
+    if (!page.ok) return { ok: false as const, message: page.message };
     const emailNormalized = normalizeEmail(args.email);
     const since = Date.now() - 24 * 60 * 60 * 1000;
     const recent = await ctx.db
@@ -146,7 +192,7 @@ export const create = adminMutation({
       email: args.email,
       name: args.name,
       internalOrgId: orgId,
-      internalNotionPageId: warehaus.notionPageId,
+      internalNotionPageId: page.notionPageId,
       sentToday,
       emailOwnedByOtherOrg,
       emailAlreadyMember: contacts.length > 0,
@@ -161,20 +207,26 @@ export const create = adminMutation({
       }
       return { ok: false as const, message: plan.clientMessage };
     }
+    const payload = {
+      properties: plan.properties,
+      invite: {
+        name: args.name.trim(),
+        emailNormalized: plan.emailNormalized,
+        role: 'Warehaus Staff' as const,
+        createdByContactId: ctx.identity.contactId,
+        clientNotionPageId: page.notionPageId,
+      },
+    };
+    const payloadError = inviteCreatePayloadError({
+      properties: payload.properties,
+      clientNotionPageId: payload.invite.clientNotionPageId,
+    });
+    if (payloadError) return { ok: false as const, message: payloadError };
     const queued = await enqueueInvite(ctx, {
       idempotencyKey: inviteIdempotencyKey(orgId, plan.emailNormalized, args.requestId),
       kind: 'createInvite',
       orgId,
-      payload: JSON.stringify({
-        properties: plan.properties,
-        invite: {
-          name: args.name.trim(),
-          emailNormalized: plan.emailNormalized,
-          role: 'Warehaus Staff' as const,
-          createdByContactId: ctx.identity.contactId,
-          clientNotionPageId: warehaus.notionPageId,
-        },
-      }),
+      payload: JSON.stringify(payload),
       actor: 'staff',
       actorId: ctx.identity.contactId,
     });
