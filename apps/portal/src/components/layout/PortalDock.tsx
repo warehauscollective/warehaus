@@ -6,6 +6,7 @@ import { getPortalTabsForMode } from '@warehaus/logic/portal';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { usePortalData } from '@/hooks/usePortalData';
+import { dockLabelClassName, dockTabClassName, dockTabStyle } from './dockTabChrome';
 
 const TAB_ICON: Record<Exclude<PortalTab, 'dashboard'>, string> = {
   projects: '/icons/dock-projects.svg',
@@ -29,27 +30,33 @@ function DashboardGlyph() {
   );
 }
 
-function TabGlyph({ tab, active }: { tab: PortalTab; active: boolean }) {
+function TabGlyph({ tab }: { tab: PortalTab }) {
   if (tab === 'dashboard') return <DashboardGlyph />;
+  const src = TAB_ICON[tab];
   return (
-    <span className="relative shrink-0" style={{ width: 16, height: 16 }} aria-hidden>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        alt=""
-        src={TAB_ICON[tab]}
-        width={16}
-        height={16}
-        className={active ? 'dock-tab-icon dock-tab-icon-active' : 'dock-tab-icon'}
-      />
-    </span>
+    <span
+      aria-hidden
+      className="dock-tab-icon"
+      style={{
+        backgroundColor: 'currentColor',
+        WebkitMaskImage: `url(${src})`,
+        maskImage: `url(${src})`,
+        WebkitMaskRepeat: 'no-repeat',
+        maskRepeat: 'no-repeat',
+        WebkitMaskPosition: 'center',
+        maskPosition: 'center',
+        WebkitMaskSize: 'contain',
+        maskSize: 'contain',
+      }}
+    />
   );
 }
 
 /**
  * Portal dock — Figma Dock/Portal 284:8236.
  * Desktop: hamburger circle, then a surface track. Active tab is a paper pill
- * with ink type. No dash indicators. Mobile keeps icon tabs and labels the
- * active one.
+ * with ink type in both themes. No dash indicators. Below 1024 only the
+ * active tab shows its label. Every idle icon and label uses --muted.
  */
 export function PortalDock() {
   const { activeTab, setActiveTab } = usePortalTab();
@@ -118,7 +125,7 @@ export function PortalDock() {
       <div
         role="tablist"
         aria-label="Portal sections"
-        className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-2xl p-1 lg:gap-0 lg:overflow-visible lg:rounded-3xl"
+        className="box-border flex h-[45px] min-w-0 items-center gap-1 rounded-2xl p-1 lg:h-14 lg:gap-0 lg:rounded-3xl"
         style={{
           background: 'var(--surface)',
           border: '1px solid var(--border)',
@@ -137,24 +144,11 @@ export function PortalDock() {
               aria-label={label}
               title={label}
               onClick={() => setActiveTab(value)}
-              className="relative flex size-8 shrink-0 items-center justify-center rounded-[13px] p-2 lg:size-auto lg:gap-2 lg:rounded-[21px] lg:px-4 lg:py-3"
-              style={{
-                fontFamily: 'var(--font-display)',
-                fontWeight: 900,
-                fontStyle: 'italic',
-                textTransform: 'uppercase',
-                lineHeight: 'normal',
-                color: isActive ? 'var(--bg)' : 'var(--muted)',
-                background: isActive ? 'var(--fg)' : 'transparent',
-                border: isActive ? '1px solid var(--fg)' : '1px solid transparent',
-              }}
+              className={dockTabClassName(isActive)}
+              style={dockTabStyle(isActive)}
             >
-              <TabGlyph tab={value} active={isActive} />
-              <span
-                className="hidden text-[13px] tracking-[1.3px] lg:inline"
-              >
-                {label}
-              </span>
+              <TabGlyph tab={value} />
+              <span className={dockLabelClassName(isActive, value)}>{label}</span>
             </button>
           );
         })}

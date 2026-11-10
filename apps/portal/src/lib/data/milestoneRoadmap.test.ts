@@ -461,8 +461,9 @@ describe('MilestoneDetailView', () => {
     const ready = renderDetail(tileMilestone({ workStatus: 'ready', approval: 'unreviewed' }));
     assert.equal(primary(ready), true);
     assert.match(ready, /data-testid="milestone-review-action"[^>]*>Review milestone</);
+    assert.match(action(ready), /(?:^|;)width:148px/);
     assert.match(action(ready), /min-width:148px/);
-    assert.doesNotMatch(action(ready), /(?:^|;)width:/);
+    assert.match(action(ready), /max-width:148px/);
     assert.match(action(ready), /height:42px/);
     assert.equal(view(ready), false);
 
@@ -478,8 +479,9 @@ describe('MilestoneDetailView', () => {
     );
     assert.equal(outline(approved), true);
     assert.equal(primary(approved), false);
+    assert.match(action(approved), /(?:^|;)width:148px/);
     assert.match(action(approved), /min-width:148px/);
-    assert.doesNotMatch(action(approved), /(?:^|;)width:/);
+    assert.match(action(approved), /max-width:148px/);
     assert.match(action(approved), /height:42px/);
     assert.equal(view(approved), true);
     assert.match(viewButton(approved), /height:42px/);
@@ -495,6 +497,7 @@ describe('MilestoneDetailView', () => {
     const draft = renderDetail(tileMilestone({ workStatus: 'draft', approval: 'unreviewed' }));
     assert.equal(outline(draft), true);
     assert.equal(primary(draft), false);
+    assert.match(action(draft), /(?:^|;)width:148px/);
     assert.match(action(draft), /min-width:148px/);
     assert.match(action(draft), /height:42px/);
     assert.equal(view(changes), true);

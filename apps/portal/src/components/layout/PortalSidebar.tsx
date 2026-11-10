@@ -6,6 +6,7 @@ import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalData } from '@/hooks/usePortalData';
 import { MobileMenu } from './MobileMenu';
+import { sidebarItemStyle } from './sidebarItemChrome';
 
 /**
  * In-flow section rail for one swipe tab.
@@ -87,18 +88,8 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
                 type="button"
                 onClick={() => setSectionFor(tab, s.key)}
                 aria-current={active ? 'true' : undefined}
-                className="w-full text-left transition-colors"
-                style={{
-                  fontFamily: 'var(--font-geist), var(--font-body)',
-                  fontSize: 14,
-                  lineHeight: '20px',
-                  fontWeight: active ? 600 : 500,
-                  padding: 12,
-                  borderRadius: 12,
-                  color: active ? 'var(--fg)' : 'var(--muted)',
-                  background: active ? 'var(--surface-2)' : 'transparent',
-                  border: active ? '1px solid var(--border-2)' : '1px solid transparent',
-                }}
+                className="w-full text-left"
+                style={sidebarItemStyle(active)}
               >
                 {s.label}
               </button>

@@ -78,7 +78,7 @@ export function NoticeBell() {
         aria-label={unread ? `Notices, ${unread} unread` : 'Notices'}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="relative hidden items-center justify-center lg:flex"
+        className="portal-icon-button relative hidden items-center justify-center lg:flex"
         style={{
           width: 42,
           height: 42,
