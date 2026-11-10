@@ -5,6 +5,7 @@ import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
+import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
@@ -41,7 +42,6 @@ import {
   tabIds,
 } from './milestoneGuards';
 
-const WORK_LABEL = { draft: 'Draft', active: 'In progress', ready: 'Ready for review' } as const;
 const APPROVAL_LABEL = {
   unreviewed: 'Unreviewed',
   approved: 'Approved',
@@ -140,6 +140,14 @@ function formatWhen(at: number | null): string | null {
   return new Date(at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
 }
 
+/** Name and decision day. A name alone is not a date. */
+export function lastReviewLabel(input: { approverName: string | null; decidedAt: number | null }): string | null {
+  const when = formatWhen(input.decidedAt);
+  const name = input.approverName?.trim() ? input.approverName.trim() : null;
+  if (name && when) return `${name} · ${when}`;
+  return when ?? name;
+}
+
 /** A `YYYY-MM-DD` value is a calendar day, not a timestamp. */
 function calendarDate(value: string): Date | null {
   const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
@@ -181,14 +189,24 @@ export function milestoneTileDate(input: {
   return `Approved ${localMonthDay(input.decidedAt).label}`;
 }
 
-/** Planning, Building, and Shipped are the tile badge. The detail page keeps the work-status words. */
+/**
+ * Status and stage from the same stored approval and work status.
+ * Tiles use the stage. The detail page uses both. An approval of approved wins.
+ */
 export function milestoneTileStage(input: {
   approval: string;
   workStatus: MilestoneRoadmapView['workStatus'];
-}): { label: 'Planning' | 'Building' | 'Shipped'; glyph: string } {
-  if (input.approval === 'approved') return { label: 'Shipped', glyph: '/icons/task-stage-shipped.svg' };
-  if (input.workStatus === 'draft') return { label: 'Planning', glyph: '/icons/item-stage.svg' };
-  return { label: 'Building', glyph: '/icons/task-stage.svg' };
+}): { status: string; label: 'Planning' | 'Building' | 'Shipped'; glyph: string } {
+  if (input.approval === 'approved') {
+    return { status: 'Approved', label: 'Shipped', glyph: '/icons/task-stage-shipped.svg' };
+  }
+  if (input.workStatus === 'draft') {
+    return { status: 'Draft', label: 'Planning', glyph: '/icons/item-stage.svg' };
+  }
+  if (input.workStatus === 'ready') {
+    return { status: 'Ready for review', label: 'Building', glyph: '/icons/task-stage.svg' };
+  }
+  return { status: 'In progress', label: 'Building', glyph: '/icons/task-stage.svg' };
 }
 
 function progressBase(done: number, total: number, phone: boolean): string {
@@ -390,122 +408,23 @@ export function ProjectRoadmap({
   return (
     <section data-testid="project-roadmap" className="flex flex-col gap-6">
       {page && selected ? (
-        <>
-          <button
-            type="button"
-            className="inline-flex items-center justify-start lg:hidden"
-            data-testid="nav-breadcrumb-back"
-            onClick={() => setOpenMilestoneId(null)}
-            style={{
-              minHeight: 44,
-              padding: '12px 16px',
-              border: 0,
-              borderRadius: 9,
-              background: 'transparent',
-              color: 'var(--muted)',
-              fontFamily: 'var(--font-geist), var(--font-body)',
-              fontSize: 14,
-              fontWeight: 500,
-              lineHeight: 'normal',
-              cursor: 'pointer',
-            }}
-          >
-            {`‹ ${project.name}`}
-          </button>
-          <nav
-            aria-label="Breadcrumb"
-            data-testid="nav-breadcrumb"
-            className="ds-mono hidden min-w-0 lg:block"
-            style={{ fontSize: 11, lineHeight: '17px', color: 'var(--muted)', letterSpacing: 0, textTransform: 'none' }}
-          >
-            <button
-              type="button"
-              onClick={() => onBackToProjects?.()}
-              data-testid="nav-breadcrumb-parent"
-              style={{
-                font: 'inherit',
-                color: 'inherit',
-                background: 'none',
-                border: 0,
-                padding: 0,
-                cursor: 'pointer',
-                textDecoration: 'none',
-              }}
-            >
-              Projects
-            </button>
-            <span aria-hidden> / </span>
-            <button
-              type="button"
-              onClick={() => setOpenMilestoneId(null)}
-              data-testid="nav-breadcrumb-middle"
-              style={{
-                font: 'inherit',
-                color: 'inherit',
-                background: 'none',
-                border: 0,
-                padding: 0,
-                cursor: 'pointer',
-                textDecoration: 'none',
-              }}
-            >
-              {project.name}
-            </button>
-            <span aria-hidden> / </span>
-            <span data-testid="nav-breadcrumb-current">{selected.name}</span>
-          </nav>
-        </>
+        <ProjectBreadcrumb
+          back={{ label: `‹ ${project.name}`, onClick: () => setOpenMilestoneId(null) }}
+          trail={[
+            { label: 'Projects', onClick: () => onBackToProjects?.(), testId: 'nav-breadcrumb-parent' },
+            { label: project.name, onClick: () => setOpenMilestoneId(null), testId: 'nav-breadcrumb-middle' },
+            { label: 'Milestones', testId: 'nav-breadcrumb-current' },
+          ]}
+        />
       ) : null}
       {page && !selected ? (
-        <>
-          <button
-            type="button"
-            className="inline-flex items-center justify-start lg:hidden"
-            data-testid="nav-breadcrumb-back"
-            onClick={() => onBackToProjects?.()}
-            style={{
-              minHeight: 44,
-              padding: '12px 16px',
-              border: 0,
-              borderRadius: 9,
-              background: 'transparent',
-              color: 'var(--muted)',
-              fontFamily: 'var(--font-geist), var(--font-body)',
-              fontSize: 14,
-              fontWeight: 500,
-              lineHeight: 'normal',
-              cursor: 'pointer',
-            }}
-          >
-            ‹ Projects
-          </button>
-          <nav
-            aria-label="Breadcrumb"
-            data-testid="nav-breadcrumb"
-            className="ds-mono hidden min-w-0 lg:block"
-            style={{ fontSize: 11, lineHeight: '17px', color: 'var(--muted)', letterSpacing: 0, textTransform: 'none' }}
-          >
-            <button
-              type="button"
-              onClick={() => onBackToProjects?.()}
-              data-testid="nav-breadcrumb-parent"
-              className="hover:underline focus-visible:underline"
-              style={{
-                font: 'inherit',
-                color: 'inherit',
-                background: 'none',
-                border: 0,
-                padding: 0,
-                cursor: 'pointer',
-                textDecoration: 'none',
-              }}
-            >
-              Projects
-            </button>
-            <span aria-hidden> / </span>
-            <span data-testid="nav-breadcrumb-current">{project.name}</span>
-          </nav>
-        </>
+        <ProjectBreadcrumb
+          back={{ label: '‹ Projects', onClick: () => onBackToProjects?.() }}
+          trail={[
+            { label: 'Projects', onClick: () => onBackToProjects?.(), testId: 'nav-breadcrumb-parent' },
+            { label: project.name, testId: 'nav-breadcrumb-current' },
+          ]}
+        />
       ) : null}
 
       {selected ? (
@@ -908,6 +827,14 @@ export function MilestoneDetailView({
   );
   const taken = new Set(milestone.rows.map((row) => row.id));
   const attachable = (milestone.attachableTasks ?? []).filter((task) => !taken.has(task.id));
+  const statusStage = milestoneTileStage(milestone);
+  const reviewLine = lastReviewLabel(milestone);
+  const readyForReview = milestone.workStatus === 'ready' && milestone.approval !== 'approved';
+  const reviewExists = milestone.approval !== 'unreviewed' || milestone.decidedAt != null || Boolean(milestone.note);
+  const openReview = () => {
+    setError(null);
+    setReviewOpen(true);
+  };
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -964,7 +891,15 @@ export function MilestoneDetailView({
         testId="milestone-name"
         title={milestone.name}
         subtitle={`Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`}
-        action={<PrimaryButton onClick={() => { setError(null); setReviewOpen(true); }}>Review milestone</PrimaryButton>}
+        action={
+          readyForReview ? (
+            <PrimaryButton width={148} paddingInline={16} onClick={openReview}>
+              Review milestone
+            </PrimaryButton>
+          ) : reviewExists ? (
+            <OutlineButton onClick={() => setTab('reviews')}>View review</OutlineButton>
+          ) : null
+        }
       />
       <TabRow
         label="Milestone"
@@ -985,19 +920,16 @@ export function MilestoneDetailView({
           <div className="order-first w-full lg:order-last lg:w-[292px] lg:shrink-0">
             <Panel>
               <div className="grid grid-cols-2 gap-5 lg:grid-cols-1">
-                <p className="ds-mono col-span-2 lg:col-span-1" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--muted)' }}>
-                  DETAILS
-                </p>
                 <div>
                   <FieldLabel>STATUS</FieldLabel>
                   <FieldValue>
-                    <span data-testid="milestone-work-status">{WORK_LABEL[milestone.workStatus]}</span>
+                    <span data-testid="milestone-work-status">{statusStage.status}</span>
                   </FieldValue>
                 </div>
                 <div>
                   <FieldLabel>STAGE</FieldLabel>
                   <FieldValue>
-                    <span data-testid="milestone-stage">{milestoneTileStage(milestone).label}</span>
+                    <span data-testid="milestone-stage">{statusStage.label}</span>
                   </FieldValue>
                 </div>
                 {milestone.approval !== 'unreviewed' ? (
@@ -1022,10 +954,12 @@ export function MilestoneDetailView({
                   <FieldLabel>PROJECT</FieldLabel>
                   <FieldValue>{project.name}</FieldValue>
                 </div>
-                {milestone.approverName ? (
+                {reviewLine ? (
                   <div className="col-span-2 lg:col-span-1">
                     <FieldLabel>LAST REVIEW</FieldLabel>
-                    <FieldValue>{milestone.approverName}</FieldValue>
+                    <FieldValue>
+                      <span data-testid="milestone-last-review">{reviewLine}</span>
+                    </FieldValue>
                   </div>
                 ) : null}
               </div>
@@ -1364,7 +1298,13 @@ export function MilestoneDetailView({
               kicker="REVIEW"
               title="No review yet"
               body="A person approves the milestone or sends it back. That decision does not close its tasks."
-              action={<PrimaryButton onClick={() => { setError(null); setReviewOpen(true); }}>Review milestone</PrimaryButton>}
+              action={
+                readyForReview ? (
+                  <PrimaryButton width={148} paddingInline={16} onClick={openReview}>
+                    Review milestone
+                  </PrimaryButton>
+                ) : undefined
+              }
             />
           )}
         </div>

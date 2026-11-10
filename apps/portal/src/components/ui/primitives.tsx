@@ -89,6 +89,8 @@ export function PrimaryButton({
   className,
   title,
   solidWhenDisabled = false,
+  width,
+  paddingInline,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
@@ -98,6 +100,10 @@ export function PrimaryButton({
   title?: string;
   /** Keep the primary fill. The control stays disabled; the tooltip explains why. */
   solidWhenDisabled?: boolean;
+  /** Fixed width, border-box. Used by the milestone review action. */
+  width?: number;
+  /** Horizontal padding in pixels. Replaces the default 1.1rem when set. */
+  paddingInline?: number;
 }) {
   return (
     <button
@@ -115,7 +121,10 @@ export function PrimaryButton({
         fontFamily: 'var(--font-body)',
         fontSize: 'var(--t-sm)',
         fontWeight: 600,
-        padding: '0.65rem 1.1rem',
+        boxSizing: width != null ? 'border-box' : undefined,
+        width,
+        whiteSpace: width != null ? 'nowrap' : undefined,
+        padding: paddingInline != null ? `0.65rem ${paddingInline}px` : '0.65rem 1.1rem',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled && !solidWhenDisabled ? 0.55 : 1,
       }}

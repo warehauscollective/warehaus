@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
-import { scrollActiveIntoView } from '@/components/layout/sectionEdgeFade';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import {
@@ -91,12 +91,29 @@ export function TabRow({
   idPrefix: string;
 }) {
   const scroller = useRef<HTMLDivElement>(null);
+  const [fade, setFade] = useState<EdgeFade>({ leading: 0, trailing: 0 });
   const tabKey = tabs.map((tab) => tab.id).join('|');
   useEffect(() => {
     const node = scroller.current;
     if (!node) return;
     scrollActiveIntoView(node, { activeSelector: '[aria-selected="true"]' });
   }, [active, tabKey]);
+  useEffect(() => {
+    const node = scroller.current;
+    if (!node) return;
+    const update = () => setFade(sectionEdgeFades(node, { activeSelector: '[aria-selected="true"]' }));
+    update();
+    node.addEventListener('scroll', update, { passive: true });
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(update);
+    observer?.observe(node);
+    window.addEventListener('resize', update);
+    return () => {
+      node.removeEventListener('scroll', update);
+      observer?.disconnect();
+      window.removeEventListener('resize', update);
+    };
+  }, [active, tabKey]);
+  const mask = sectionEdgeMask(fade);
   const onKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
     const index = tabs.findIndex((tab) => tab.id === active);
     const next = nextTabIndex(index, tabs.length, event.key);
@@ -110,11 +127,14 @@ export function TabRow({
     <div className="min-w-0 max-w-full">
       <div
         ref={scroller}
-        className="flex flex-nowrap gap-2 overflow-x-auto"
+        className="flex min-w-0 flex-nowrap gap-2 overflow-x-auto"
         role="tablist"
         aria-label={label}
         onKeyDown={onKeyDown}
-        style={{ scrollbarWidth: 'none' }}
+        style={{
+          scrollbarWidth: 'none',
+          ...(mask ? { maskImage: mask, WebkitMaskImage: mask } : {}),
+        }}
       >
       {tabs.map((tab) => {
         const selected = tab.id === active;
@@ -179,16 +199,27 @@ export function PageHeading({
           data-testid={testId}
           style={{
             fontFamily: 'var(--font-geist), var(--font-body)',
-            fontSize: measure ? undefined : 30,
-            lineHeight: measure ? undefined : '45px',
+            fontSize: measure || alignAction ? undefined : 30,
+            lineHeight: measure || alignAction ? undefined : '45px',
             fontWeight: 600,
             color: 'var(--fg)',
           }}
-          className={measure ? 'text-[28px] leading-[42px] lg:text-[30px] lg:leading-[45px]' : undefined}
+          className={measure ? 'text-[28px] leading-[42px] lg:text-[30px] lg:leading-[45px]' : alignAction ? 'portal-detail-title' : undefined}
         >
           {title}
         </h1>
-        <p style={{ marginTop: measure ? 0 : 4, fontFamily: 'var(--font-geist), var(--font-body)', fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>{subtitle}</p>
+        <p
+          className={alignAction ? 'portal-detail-subtitle' : undefined}
+          style={{
+            ...(alignAction ? {} : { marginTop: measure ? 0 : 4 }),
+            fontFamily: 'var(--font-geist), var(--font-body)',
+            fontSize: 14,
+            lineHeight: '21px',
+            color: 'var(--muted)',
+          }}
+        >
+          {subtitle}
+        </p>
       </div>
       {action ? <div className="shrink-0">{action}</div> : null}
     </div>

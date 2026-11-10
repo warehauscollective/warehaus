@@ -26,6 +26,45 @@ main {
   min-height: 100dvh;
 }
 
+/* One hover and focus treatment for the project and milestone trails. */
+.portal-crumb {
+  text-decoration: none;
+}
+.portal-crumb:hover {
+  text-decoration: underline;
+}
+.portal-crumb:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 3px;
+  text-decoration: underline;
+}
+
+/* The phone header line is the border. Keep it once the page has scrolled,
+   even if a later render paints the inline color a frame late. */
+@media (max-width: 1023px) {
+  [data-testid='mobile-app-header'][data-scrolled='true'] {
+    border-bottom-color: var(--border) !important;
+  }
+}
+
+/* Phone detail title. Desktop stays 30px with the short subtitle gap. */
+.portal-detail-title {
+  font-size: 28px;
+  line-height: 34px;
+}
+.portal-detail-subtitle {
+  margin-top: 26px;
+}
+@media (min-width: 1024px) {
+  .portal-detail-title {
+    font-size: 30px;
+    line-height: 45px;
+  }
+  .portal-detail-subtitle {
+    margin-top: 4px;
+  }
+}
+
 /* Figma back glyph and wordmark are paper (#fdfdfe). Light theme draws them as ink. */
 html.light .nav-back-glyph,
 html.light .portal-wordmark,

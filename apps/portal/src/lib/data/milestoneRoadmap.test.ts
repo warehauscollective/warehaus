@@ -6,8 +6,11 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { FIXTURE_TASKS } from '@/lib/data/fixtures';
 import { applyFixtureMilestonePreview, fixtureMilestones } from '@/lib/data/milestoneRoadmap';
+import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
 import {
   inclusiveProgressCopy,
+  lastReviewLabel,
+  MilestoneDetailView,
   MilestoneListCard,
   milestoneTileDate,
   milestoneTileStage,
@@ -128,6 +131,8 @@ describe('fixture roadmap', () => {
     assert.equal(states[2]?.approval, 'unreviewed');
     assert.equal(states[3]?.decidedAt, Date.parse('2026-11-03T15:00:00Z'));
     assert.equal(states[4]?.approval, 'approved');
+    assert.equal(states[4]?.workStatus, 'ready');
+    assert.notEqual(states[4]?.workStatus, 'active');
   });
 });
 
@@ -144,18 +149,23 @@ describe('roadmap markup', () => {
 
   it('matches the milestone tile stage, date, and progress chip', () => {
     assert.deepEqual(milestoneTileStage({ approval: 'unreviewed', workStatus: 'draft' }), {
+      status: 'Draft',
       label: 'Planning',
       glyph: '/icons/item-stage.svg',
     });
     assert.deepEqual(milestoneTileStage({ approval: 'unreviewed', workStatus: 'active' }), {
+      status: 'In progress',
       label: 'Building',
       glyph: '/icons/task-stage.svg',
     });
     assert.deepEqual(milestoneTileStage({ approval: 'unreviewed', workStatus: 'ready' }), {
+      status: 'Ready for review',
       label: 'Building',
       glyph: '/icons/task-stage.svg',
     });
     assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'ready' }).label, 'Shipped');
+    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active' }).status, 'Approved');
+    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active' }).label, 'Shipped');
     assert.equal(milestoneTileDate({ approval: 'unreviewed', decidedAt: null }), null);
     assert.equal(milestoneTileDate({ approval: 'approved', decidedAt: null }), 'Approved');
     const decidedAt = Date.parse('2026-11-06T15:00:00Z');
@@ -357,5 +367,94 @@ describe('roadmap markup', () => {
     assert.equal(inclusiveProgressCopy(2, 5, 2), '2 of 5 complete · includes 2 subtasks');
     assert.equal(inclusiveProgressCopy(1, 2, 0), '1 of 2 complete');
     assert.equal(inclusiveProgressCopy(0, 0, 0), '0 of 0 complete');
+  });
+});
+
+const idle = async () => undefined;
+
+function renderDetail(milestone: MilestoneRoadmapView): string {
+  return renderToStaticMarkup(
+    createElement(MilestoneDetailView, {
+      milestone,
+      project: site,
+      tasks: [],
+      staff: true,
+      fixtures: true,
+      resourceChoices: [],
+      onBack: () => undefined,
+      onFixture: () => undefined,
+      mutations: {
+        decide: idle,
+        decideAsClient: idle,
+        save: idle,
+        setWorkStatus: idle,
+        setPublish: idle,
+        attachTask: idle,
+        detachTask: idle,
+      },
+    }),
+  );
+}
+
+function field(html: string, testId: string): string {
+  const match = new RegExp(`data-testid="${testId}"[^>]*>([^<]*)<`).exec(html);
+  return match?.[1] ?? '';
+}
+
+describe('MilestoneDetailView', () => {
+  it('keeps status and stage on one derivation for draft, in progress, ready, and approved', () => {
+    const cases = [
+      { workStatus: 'draft' as const, approval: 'unreviewed' as const, status: 'Draft', stage: 'Planning' },
+      { workStatus: 'active' as const, approval: 'unreviewed' as const, status: 'In progress', stage: 'Building' },
+      { workStatus: 'ready' as const, approval: 'unreviewed' as const, status: 'Ready for review', stage: 'Building' },
+      { workStatus: 'active' as const, approval: 'approved' as const, status: 'Approved', stage: 'Shipped' },
+    ];
+    for (const item of cases) {
+      const html = renderDetail(tileMilestone({ workStatus: item.workStatus, approval: item.approval }));
+      assert.equal(field(html, 'milestone-work-status'), item.status, item.status);
+      assert.equal(field(html, 'milestone-stage'), item.stage, item.stage);
+    }
+  });
+
+  it('prints the last review as the approver and the decision day', () => {
+    const decidedAt = Date.parse('2026-11-03T15:00:00Z');
+    const day = new Date(decidedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    assert.equal(lastReviewLabel({ approverName: 'Northwind', decidedAt }), `Northwind · ${day}`);
+    const html = renderDetail(
+      tileMilestone({
+        approval: 'approved',
+        workStatus: 'ready',
+        approverName: 'Northwind',
+        decidedAt,
+        note: 'Approved with the brand file.',
+      }),
+    );
+    assert.equal(field(html, 'milestone-last-review'), `Northwind · ${day}`);
+    assert.equal(html.includes('>Northwind<'), false);
+  });
+
+  it('omits the approval row until a review exists', () => {
+    const unreviewed = renderDetail(tileMilestone({ approval: 'unreviewed' }));
+    assert.equal(unreviewed.includes('data-testid="milestone-approval"'), false);
+    const approved = renderDetail(tileMilestone({ approval: 'approved', workStatus: 'ready' }));
+    assert.equal(field(approved, 'milestone-approval'), 'Approved');
+    const changes = renderDetail(tileMilestone({ approval: 'changes_requested', workStatus: 'active' }));
+    assert.equal(field(changes, 'milestone-approval'), 'Changes requested');
+  });
+
+  it('ends the detail breadcrumb at Milestones and shares the focus treatment', () => {
+    const html = renderToStaticMarkup(
+      createElement(ProjectBreadcrumb, {
+        back: { label: '‹ Northwind site', onClick: () => undefined },
+        trail: [
+          { label: 'Projects', onClick: () => undefined, testId: 'nav-breadcrumb-parent' },
+          { label: 'Northwind site', onClick: () => undefined, testId: 'nav-breadcrumb-middle' },
+          { label: 'Milestones', testId: 'nav-breadcrumb-current' },
+        ],
+      }),
+    );
+    assert.match(html, /data-testid="nav-breadcrumb-current"[^>]*>Milestones</);
+    assert.equal(html.includes('Launch the homepage'), false);
+    assert.match(html, /class="portal-crumb"/);
   });
 });

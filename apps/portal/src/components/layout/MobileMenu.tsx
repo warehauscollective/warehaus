@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { flushSync } from 'react-dom';
 import { usePathname } from 'next/navigation';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -71,6 +72,7 @@ export function MobileMenu({
   const headerRef = useRef<HTMLElement>(null);
   const pushed = useRef(false);
   const [scrolled, setScrolled] = useState(false);
+  const scrolledRef = useRef(false);
   const pathname = usePathname();
   const scrollTops = useRef(new WeakMap<EventTarget, number>());
 
@@ -81,7 +83,18 @@ export function MobileMenu({
     const marked = Array.from(panel.querySelectorAll<HTMLElement>('[data-page-scroll]'));
     const scroller = findPageScroller(marked);
     for (const node of marked) scrollTops.current.set(node, node.scrollTop);
-    setScrolled((scroller?.scrollTop ?? 0) > 0);
+    const paint = (next: boolean, sync: boolean) => {
+      const node = headerRef.current;
+      if (node) {
+        node.dataset.scrolled = next ? 'true' : 'false';
+        node.style.borderBottomColor = next ? 'var(--border)' : 'transparent';
+      }
+      if (scrolledRef.current === next) return;
+      scrolledRef.current = next;
+      if (sync) flushSync(() => setScrolled(next));
+      else setScrolled(next);
+    };
+    paint((scroller?.scrollTop ?? 0) > 0, false);
     const onScroll = (event: Event) => {
       const target = event.target instanceof HTMLElement ? event.target : null;
       const scrollTop = target?.scrollTop ?? 0;
@@ -92,7 +105,7 @@ export function MobileMenu({
       });
       if (target?.hasAttribute('data-page-scroll')) scrollTops.current.set(target, scrollTop);
       if (next == null) return;
-      setScrolled(next);
+      paint(next, true);
     };
     const options = { capture: true, passive: true } as const;
     panel.addEventListener('scroll', onScroll, options);
