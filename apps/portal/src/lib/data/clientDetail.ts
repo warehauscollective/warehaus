@@ -153,16 +153,14 @@ export function clientTeamCrumbs(phone: boolean): {
   return { parent: 'Account', middle: 'Company', current: 'Your team', back: 'account' };
 }
 
-/** Notice only. It does not send an invite. */
+/** Notice only. Clients cannot send invites. */
 export function clientTeamInviteCopy(
-  company: string,
-  people: Array<{ name: string; role?: string | null }>,
+  _company: string,
+  _people: Array<{ name: string; role?: string | null }>,
 ): { title: string; body: string } {
-  const admin = people.find((person) => person.role === 'Client Admin' && person.name.trim());
-  const who = admin ? admin.name.trim().split(/\s+/)[0] : 'A Client Admin';
   return {
-    title: 'Client Admins can invite teammates',
-    body: `${who} can invite new Client Members from Account › Team. Invited people only see ${company}.`,
+    title: 'Warehaus manages access',
+    body: 'Your Warehaus project lead adds and removes people. To change who has access, contact them.',
   };
 }
 

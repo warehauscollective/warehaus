@@ -19,9 +19,10 @@ function requireEnv(name: string): string {
   return value;
 }
 
-export async function sendPortalEmail(args: SendPortalEmailArgs): Promise<void> {
+export async function sendPortalEmail(args: SendPortalEmailArgs & { from?: string }): Promise<void> {
   const apiKey = requireEnv('RESEND_API_KEY');
   const from =
+    args.from?.trim() ||
     process.env.EMAIL_FROM?.trim() ||
     'Warehaus Portal <noreply@warehaus.co>';
   const replyTo = process.env.EMAIL_REPLY_TO?.trim();
@@ -48,6 +49,25 @@ export async function sendPortalEmail(args: SendPortalEmailArgs): Promise<void> 
     const body = await res.text().catch(() => '');
     throw new Error(`Resend send failed (${res.status}): ${body.slice(0, 300)}`);
   }
+}
+
+/** Keep an invite accept path. Every other callback stays on the verify page. */
+export function verificationLinkFor(verifyUrl: string): string {
+  try {
+    const url = new URL(verifyUrl);
+    const callback = decodeURIComponent(url.searchParams.get('callbackURL') ?? '');
+    if (
+      callback.startsWith('/accept?token=') &&
+      !callback.includes('\\') &&
+      !callback.includes('//') &&
+      !callback.includes('@')
+    ) {
+      return verifyUrl;
+    }
+  } catch {
+    return rewriteVerificationCallback(verifyUrl);
+  }
+  return rewriteVerificationCallback(verifyUrl);
 }
 
 /** Keep verification links on our callback page, not a caller-supplied absolute URL. */
@@ -213,71 +233,112 @@ export function passwordResetEmail(args: {
   return { subject, html, text };
 }
 
-export function inviteEmail(args: {
+function inviteSubject(inviterName?: string): string {
+  const first = inviterName?.trim().split(/\s+/)[0];
+  return first
+    ? `${first} invited you to join Warehaus on the Portal`
+    : 'You’re invited to join Warehaus on the Portal';
+}
+
+function inviteLetter(args: {
   name: string;
   acceptUrl: string;
+  inviterName?: string;
+  inviterEmail?: string;
+  expiresOn?: string;
+  existingLogin: boolean;
 }): { subject: string; html: string; text: string } {
-  const subject = 'You’re invited to the Warehaus portal';
+  const subject = inviteSubject(args.inviterName);
+  const inviter = args.inviterName?.trim() || 'Warehaus';
+  const inviterMail = args.inviterEmail?.trim();
+  const who = inviterMail ? `${inviter} (${inviterMail})` : inviter;
+  const expires = args.expiresOn?.trim() || '7 days from now';
+  const first = inviter.split(/\s+/)[0] ?? inviter;
+  const action = args.existingLogin
+    ? 'Sign in with your Portal account to join Warehaus as staff.'
+    : 'Accept the invite to set your password and confirm your email in one step.';
+  const button = args.existingLogin ? 'Sign in to accept' : 'Accept invite';
   const text = [
-    `Hi ${args.name},`,
+    `${who} invited you to join Warehaus as staff.`,
+    action,
     '',
-    'You have a Warehaus portal invite.',
-    'Sign in to accept:',
     args.acceptUrl,
     '',
-    'If you were not expecting this, you can ignore this email.',
+    `This link expires in 7 days. It works once and stops working on ${expires}. If it expires, ask ${first} for a new invite.`,
+    '',
+    'Weren’t expecting this? You can ignore this email. Nothing is created until you accept, and we never ask for your password by email.',
     '',
     '— Warehaus',
   ].join('\n');
   const html = `<!DOCTYPE html>
 <html>
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111; max-width: 520px; margin: 0 auto; padding: 24px;">
-    <p style="font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: #666; margin: 0 0 16px;">Warehaus Portal</p>
-    <p>Hi ${escapeHtml(args.name)},</p>
-    <p>You have a Warehaus portal invite.</p>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111; max-width: 640px; margin: 0 auto; padding: 24px;">
+    <p style="font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #666; margin: 0 0 8px;">Staff invite</p>
+    <h1 style="font-size: 28px; line-height: 36px; margin: 0 0 16px;">Join Warehaus on the Portal</h1>
+    <p>${escapeHtml(who)} invited you to join Warehaus as staff. ${escapeHtml(action)}</p>
     <p style="margin: 28px 0;">
       <a href="${escapeHtml(args.acceptUrl)}"
-         style="display: inline-block; background: #111; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 8px; font-weight: 600;">
-        Accept invite
+         style="display: inline-block; background: #111; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 9px; font-weight: 600;">
+        ${button}
       </a>
     </p>
-    <p style="font-size: 14px; color: #555;">Or paste this link into your browser:</p>
+    <p style="margin: 0 0 8px;"><strong>This link expires in 7 days</strong></p>
+    <p style="font-size: 14px; color: #555; margin-top: 0;">It works once and stops working on ${escapeHtml(expires)}. If it expires, ask ${escapeHtml(first)} for a new invite.</p>
+    <p style="font-size: 14px; color: #555;">Button not working? Paste this link into your browser:</p>
     <p style="font-size: 13px; word-break: break-all; color: #333;">${escapeHtml(args.acceptUrl)}</p>
+    <p style="font-size: 14px; color: #555;">Weren’t expecting this? You can ignore this email. Nothing is created until you accept, and we never ask for your password by email.</p>
+    <p style="font-size: 12px; color: #777;">Warehaus Portal · warehaus.studio</p>
   </body>
 </html>`;
   return { subject, html, text };
 }
 
+export function inviteEmail(args: {
+  name: string;
+  acceptUrl: string;
+  inviterName?: string;
+  inviterEmail?: string;
+  expiresOn?: string;
+}): { subject: string; html: string; text: string } {
+  return inviteLetter({ ...args, existingLogin: false });
+}
+
 export function existingLoginEmail(args: {
   name: string;
   acceptUrl: string;
+  inviterName?: string;
+  inviterEmail?: string;
+  expiresOn?: string;
 }): { subject: string; html: string; text: string } {
-  const subject = 'You already have a Warehaus portal login';
+  return inviteLetter({ ...args, existingLogin: true });
+}
+
+export function renewRequestEmail(args: {
+  inviteeEmail: string;
+}): { subject: string; html: string; text: string } {
+  const subject = 'A staff invite expired';
   const text = [
-    `Hi ${args.name},`,
+    `A staff invite for ${args.inviteeEmail} expired, and they asked for a new one.`,
+    'Send a fresh invite from Account › Team & invites.',
     '',
-    'You already have a Warehaus portal login. Sign in to accept this invite:',
-    args.acceptUrl,
-    '',
-    '— Warehaus',
+    '— Warehaus Portal',
   ].join('\n');
   const html = `<!DOCTYPE html>
 <html>
-  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111; max-width: 520px; margin: 0 auto; padding: 24px;">
-    <p style="font-size: 14px; letter-spacing: 0.08em; text-transform: uppercase; color: #666; margin: 0 0 16px;">Warehaus Portal</p>
-    <p>Hi ${escapeHtml(args.name)},</p>
-    <p>You already have a Warehaus portal login.</p>
-    <p style="margin: 28px 0;">
-      <a href="${escapeHtml(args.acceptUrl)}"
-         style="display: inline-block; background: #111; color: #fff; text-decoration: none; padding: 12px 18px; border-radius: 8px; font-weight: 600;">
-        Sign in to accept
-      </a>
-    </p>
-    <p style="font-size: 14px; color: #555;">Or paste this link into your browser:</p>
-    <p style="font-size: 13px; word-break: break-all; color: #333;">${escapeHtml(args.acceptUrl)}</p>
+  <body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; line-height: 1.5; color: #111; max-width: 640px; margin: 0 auto; padding: 24px;">
+    <p style="font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: #666;">Warehaus Portal</p>
+    <p>A staff invite for ${escapeHtml(args.inviteeEmail)} expired, and they asked for a new one.</p>
+    <p>Send a fresh invite from Account › Team &amp; invites.</p>
   </body>
 </html>`;
   return { subject, html, text };
+}
+
+/** Invite mail uses EMAIL_FROM only. There is no backup sender. */
+export function requireInviteFrom(from: string | undefined): string {
+  const value = from?.trim();
+  if (!value) throw new Error('EMAIL_FROM is not set on the Convex deployment');
+  return value;
 }
 
 export type InviteMailMessage = { to: string; subject: string; html: string; text: string };
@@ -298,12 +359,23 @@ export const INVITE_EMAIL_OFF = 'INVITE_EMAIL_ENABLED is off';
  * NOTION_WRITEBACK_ENABLED does not turn this on. Tests pass a mock client.
  */
 export async function sendIssuedInviteMail(
-  args: { to: string; name: string; rawToken: string; alreadyHasLogin: boolean },
-  env: { INVITE_EMAIL_ENABLED?: string; PORTAL_PUBLIC_URL?: string },
+  args: {
+    to: string;
+    name: string;
+    rawToken: string;
+    alreadyHasLogin: boolean;
+    inviterName?: string;
+    inviterEmail?: string;
+    expiresOn?: string;
+  },
+  env: { INVITE_EMAIL_ENABLED?: string; PORTAL_PUBLIC_URL?: string; EMAIL_FROM?: string },
   client: InviteMailClient,
 ): Promise<{ sent: true } | { sent: false; reason: string }> {
   if (!isInviteEmailEnabled(env.INVITE_EMAIL_ENABLED)) {
     return { sent: false, reason: INVITE_EMAIL_OFF };
+  }
+  if (!env.EMAIL_FROM?.trim()) {
+    return { sent: false, reason: 'EMAIL_FROM is not set' };
   }
   const origin = env.PORTAL_PUBLIC_URL?.replace(/\/$/, '') ?? '';
   if (!origin) return { sent: false, reason: 'PORTAL_PUBLIC_URL is not set' };
@@ -314,6 +386,9 @@ export async function sendIssuedInviteMail(
       name: args.name,
       acceptUrl,
       alreadyHasLogin: args.alreadyHasLogin,
+      inviterName: args.inviterName,
+      inviterEmail: args.inviterEmail,
+      expiresOn: args.expiresOn,
     },
     client,
   );
@@ -325,12 +400,18 @@ export async function sendIssuedInviteMail(
  * This function does not call a provider.
  */
 export async function deliverInviteEmail(
-  args: { to: string; name: string; acceptUrl: string; alreadyHasLogin: boolean },
+  args: {
+    to: string;
+    name: string;
+    acceptUrl: string;
+    alreadyHasLogin: boolean;
+    inviterName?: string;
+    inviterEmail?: string;
+    expiresOn?: string;
+  },
   client: InviteMailClient,
 ): Promise<void> {
-  const mail = args.alreadyHasLogin
-    ? existingLoginEmail({ name: args.name, acceptUrl: args.acceptUrl })
-    : inviteEmail({ name: args.name, acceptUrl: args.acceptUrl });
+  const mail = args.alreadyHasLogin ? existingLoginEmail(args) : inviteEmail(args);
   await client.send({ to: args.to, ...mail });
 }
 

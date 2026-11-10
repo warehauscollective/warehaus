@@ -106,7 +106,11 @@ function authCtx(
 type Handler = (ctx: ReturnType<typeof authCtx>, args: Record<string, unknown>) => Promise<unknown>;
 
 function run(fn: object, ctx: ReturnType<typeof authCtx>, args: Record<string, unknown> = {}) {
-  return (fn as { _handler: Handler })._handler(ctx, args);
+  return (fn as { _handler: Handler })._handler(ctx, args) as Promise<{
+    ok: boolean;
+    status?: string;
+    message?: string;
+  }>;
 }
 
 async function tokenRow(id: string, raw: string) {
@@ -166,7 +170,8 @@ describe('invite accept, decline, and revoke', () => {
     assert.equal(enqueues.length, 1);
 
     const second = await run(accept, ctx, { token: 'raw-accept' });
-    assert.deepEqual(second, { ok: false, status: 'unusable' });
+    assert.equal(second.ok, false);
+    assert.equal(second.status, 'unusable');
     assert.equal(tables.inviteTokens?.[0]?.status, 'pending');
     assert.equal(enqueues.length, 1);
   });
@@ -193,7 +198,9 @@ describe('invite accept, decline, and revoke', () => {
     assert.equal(tables.inviteTokens?.[0]?.status, 'used');
 
     const after = await run(accept, ctx, { token: 'raw-accept' });
-    assert.deepEqual(after, { ok: false, status: 'unusable' });
+    assert.equal(after.ok, false);
+    assert.equal(after.status, 'used');
+    assert.match(String(after.message), /already used or revoked/);
     assert.equal(tables.inviteTokens?.[0]?.status, 'used');
   });
 
@@ -215,7 +222,11 @@ describe('invite accept, decline, and revoke', () => {
     held.payload = JSON.stringify(payload);
     await run(issueTokenAfterConfirm, ctx, { outboxId: held._id, notionPageId: 'contact-notion' });
     assert.equal(tables.inviteTokens?.[0]?.status, 'killed');
-    assert.deepEqual(await run(accept, ctx, { token: 'raw-decline' }), { ok: false, status: 'unusable' });
+    assert.deepEqual(await run(accept, ctx, { token: 'raw-decline' }), {
+      ok: false,
+      status: 'used',
+      message: 'This invite was already used or revoked.',
+    });
   });
 
   it('refuses a second revoke and kills the token when Notion confirms', async () => {

@@ -64,6 +64,7 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
     const tab = params.get('tab');
     const section = params.get('section');
     if (tab && section && isPortalTab(tab)) {
+      setActiveTab(tab);
       setSectionsByTab((prev) => ({ ...prev, [tab]: section }));
     }
   }, []);

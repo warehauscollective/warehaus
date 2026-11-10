@@ -25,6 +25,14 @@ crons.interval(
   {},
 );
 
+/** Live invite tokens past expiresAt become expired. Does not write Notion. */
+crons.interval(
+  'expire-invite-tokens',
+  { hours: 1 },
+  internal.invites.expireDue,
+  {},
+);
+
 /** Portal → Notion. No-ops unless NOTION_WRITEBACK_ENABLED is exactly "true". */
 crons.interval(
   'notion-outbox',

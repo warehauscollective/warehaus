@@ -71,8 +71,8 @@ describe('client team page', () => {
     assert.match(html, /data-testid="client-person-role-phone"[^>]*style="[^"]*white-space:nowrap[^"]*"[^>]*> · Client Admin</);
     assert.match(html, /Invite pending/);
     assert.match(html, /color:var\(--warning\)/);
-    assert.match(html, /Client Admins can invite teammates/);
-    assert.match(html, /Ada can invite new Client Members from Account › Team/);
+    assert.match(html, /Warehaus manages access/);
+    assert.match(html, /project lead adds and removes people/);
     assert.equal(html.includes('← Company'), false);
     assert.match(html, /Waiting on you/);
     assert.match(html, /Tasks published to you at Awaiting Go/);
@@ -130,11 +130,11 @@ describe('client team page', () => {
     const empty = teamMarkup([]);
     assert.match(empty, /data-testid="client-team-empty"/);
     assert.match(empty, /No teammates yet/);
-    assert.match(empty, /Your Client Admin can invite teammates/);
+    assert.match(empty, /Your Warehaus project lead adds and removes people/);
     assert.equal(empty.includes('Teammates you invite will show here.'), false);
     assert.equal(empty.includes('Invite someone'), false);
     assert.equal(empty.includes('No people shared yet'), false);
-    assert.match(empty, /Client Admins can invite teammates/);
+    assert.match(empty, /Warehaus manages access/);
 
     const admin = renderToStaticMarkup(
       createElement(ClientCompany, {
@@ -150,7 +150,7 @@ describe('client team page', () => {
         viewerRole: 'Client Admin',
       }),
     );
-    assert.match(admin, /Teammates you invite will show here/);
+    assert.match(admin, /project lead adds and removes people/);
 
     const loading = renderToStaticMarkup(
       createElement(ClientCompany, {

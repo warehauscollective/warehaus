@@ -1,5 +1,4 @@
 import { useEffect, useId, useState, type ReactNode } from 'react';
-import { PortalRadio } from '@/components/ui/primitives';
 import { clientInitials } from '@/lib/data/clientList';
 
 /** Fixture long-text row from Account / States (297:18927). Not a schema field. */
@@ -14,8 +13,8 @@ export const TEAM_STAFF_EMPTY = {
 
 export const TEAM_CLIENT_EMPTY = {
   title: 'No teammates yet',
-  admin: 'Teammates you invite will show here.',
-  member: 'Your Client Admin can invite teammates.',
+  admin: 'Your Warehaus project lead adds and removes people. To change who has access, contact them.',
+  member: 'Your Warehaus project lead adds and removes people. To change who has access, contact them.',
 } as const;
 
 /** No-data load failure. A cached roster uses TEAM_STALE_COPY instead. */
@@ -38,9 +37,10 @@ export const TEAM_FIXTURE_HINT = 'Fixture preview does not send invites.';
 export const TEAM_SEND_READY = 'They get an email after Notion confirms.';
 
 export type ClientInviteChoice = 'Client Member' | 'Client Admin';
+export type TeamInviteChoice = 'Warehaus Staff';
 
-export function asTeamInviteRole(role: string): ClientInviteChoice | null {
-  if (role === 'Client Member' || role === 'Client Admin') return role;
+export function asTeamInviteRole(role: string): TeamInviteChoice | null {
+  if (role === 'Warehaus Staff') return role;
   return null;
 }
 
@@ -298,32 +298,35 @@ export function TeamOutlineButton({
 }
 
 export function TeamRolePicker({
-  role,
-  onChange,
+  role: _role,
+  onChange: _onChange,
 }: {
-  role: ClientInviteChoice;
-  onChange?: (role: ClientInviteChoice) => void;
+  role: TeamInviteChoice;
+  onChange?: (role: TeamInviteChoice) => void;
 }) {
   return (
-    <fieldset className="flex flex-col gap-2" style={{ border: 0, margin: 0, padding: 0 }} data-testid="team-role">
-      <legend style={{ fontSize: 14, color: 'var(--muted)' }}>Role</legend>
-      <label className="flex items-center gap-2" style={{ fontSize: 14 }} data-testid="team-role-member">
-        <PortalRadio
-          name="role"
-          checked={role === 'Client Member'}
-          onChange={() => onChange?.('Client Member')}
-        />
-        Client Member
-      </label>
-      <label className="flex items-center gap-2" style={{ fontSize: 14 }} data-testid="team-role-admin">
-        <PortalRadio
-          name="role"
-          checked={role === 'Client Admin'}
-          onChange={() => onChange?.('Client Admin')}
-        />
-        Client Admin
-      </label>
-    </fieldset>
+    <div className="flex flex-col gap-2" data-testid="team-role">
+      <span style={{ fontSize: 14 }}>Role</span>
+      <div
+        className="flex items-center gap-2"
+        data-testid="team-role-staff"
+        style={{
+          border: '1px solid var(--border)',
+          borderRadius: 10,
+          minHeight: 54,
+          padding: '0 16px',
+          color: 'var(--foreground)',
+        }}
+      >
+        <span style={{ flex: 1 }}>Warehaus Staff</span>
+        <span className="ds-mono" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--muted)' }}>
+          FIXED
+        </span>
+      </div>
+      <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
+        Invites from this screen always join as Warehaus Staff.
+      </p>
+    </div>
   );
 }
 

@@ -7,29 +7,50 @@
  * Invite email also requires INVITE_EMAIL_ENABLED to be exactly "true".
  */
 
-import { inviteIdempotencyKey, stateIdempotencyKey, WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
+import {
+  WAREHAUS_INTERNAL_CLIENT_SLUG,
+  inviteIdempotencyKey,
+  isNotionWritebackEnabled,
+  stateIdempotencyKey,
+  WRITEBACK_OFF_ERROR,
+} from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
-import { internal } from './_generated/api';
-import { internalAction, internalMutation, mutation, query, type MutationCtx } from './_generated/server';
+import { components, internal } from './_generated/api';
+import {
+  internalAction,
+  internalMutation,
+  internalQuery,
+  mutation,
+  query,
+  type MutationCtx,
+  type QueryCtx,
+} from './_generated/server';
 import { adminMutation, adminQuery } from './_lib/wrappers';
 import { authComponent } from './auth';
-import { sendIssuedInviteMail, sendPortalEmail } from './_lib/email';
-import { normalizeEmail } from './_lib/contactJoin';
+import { isInviteEmailEnabled, renewRequestEmail, sendIssuedInviteMail, sendPortalEmail } from './_lib/email';
+import { ensureContactExternalId, normalizeEmail } from './_lib/contactJoin';
 import { PortalAuthError } from './_lib/identity';
 import {
   INVITE_CLIENT_FAILURE,
   INVITE_DAILY_LIMIT,
-  asClientInviteRole,
+  INVITE_INTERNAL_MISSING,
+  asInviteRole,
   claimInviteToken,
   describeInvitePreview,
   finishInviteToken,
   hashInviteToken,
+  inviteSendGate,
   inviteStateProperties,
+  inviteStatusMessage,
+  liveTokenIsExpired,
   memberRemoveProperties,
   planInviteAccept,
   planInviteCreate,
+  planInviteSignup,
   planMemberRemove,
+  planStaffInviteLink,
+  renewRequestMessage,
   tokenFromConfirmation,
   type InviteTokenState,
 } from './_lib/inviteFlow';
@@ -68,17 +89,30 @@ function offOrError(error: string) {
   return error === WRITEBACK_OFF_ERROR ? WRITEBACK_OFF_ERROR : error;
 }
 
+const inviteRoleArg = v.union(
+  v.literal('Client Member'),
+  v.literal('Client Admin'),
+  v.literal('Warehaus Staff'),
+);
+
+async function warehausInternal(ctx: QueryCtx | MutationCtx) {
+  return ctx.db
+    .query('clients')
+    .withIndex('by_slug', (q) => q.eq('slug', WAREHAUS_INTERNAL_CLIENT_SLUG))
+    .unique();
+}
+
 export const create = adminMutation({
   args: {
     name: v.string(),
     email: v.string(),
     requestId: v.string(),
-    inviteRole: v.optional(v.union(v.literal('Client Member'), v.literal('Client Admin'))),
+    inviteRole: v.optional(inviteRoleArg),
   },
   handler: async (ctx, args) => {
-    const orgId = ctx.identity.orgId as Id<'clients'>;
-    const client = await ctx.db.get(orgId);
-    if (!client) throw new PortalAuthError('Client missing', 'NO_CONTACT');
+    const warehaus = await warehausInternal(ctx);
+    if (!warehaus) return { ok: false as const, message: INVITE_INTERNAL_MISSING };
+    const orgId = warehaus._id;
     const emailNormalized = normalizeEmail(args.email);
     const since = Date.now() - 24 * 60 * 60 * 1000;
     const recent = await ctx.db
@@ -97,15 +131,22 @@ export const create = adminMutation({
       .withIndex('by_email', (q) => q.eq('email', emailNormalized))
       .collect();
     const emailOwnedByOtherOrg = [...contacts, ...pending].some((row) => row.orgId !== orgId);
+    const gate = inviteSendGate({
+      writebackEnabled: isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED),
+      emailEnabled: isInviteEmailEnabled(process.env.INVITE_EMAIL_ENABLED),
+      publicUrl: process.env.PORTAL_PUBLIC_URL ?? '',
+    });
+    if (!gate.ok) return { ok: false as const, message: gate.message };
     const plan = planInviteCreate({
       role: ctx.identity.role,
-      identityOrgId: orgId,
-      inviteRole: args.inviteRole ?? 'Client Member',
+      inviteRole: args.inviteRole ?? 'Warehaus Staff',
       email: args.email,
       name: args.name,
-      clientNotionPageId: client.notionPageId,
+      internalOrgId: orgId,
+      internalNotionPageId: warehaus.notionPageId,
       sentToday,
       emailOwnedByOtherOrg,
+      emailAlreadyMember: contacts.length > 0,
     });
     if (!plan.ok) {
       if (plan.staffMessage) {
@@ -126,9 +167,9 @@ export const create = adminMutation({
         invite: {
           name: args.name.trim(),
           emailNormalized: plan.emailNormalized,
-          role: args.inviteRole ?? 'Client Member',
+          role: 'Warehaus Staff' as const,
           createdByContactId: ctx.identity.contactId,
-          clientNotionPageId: client.notionPageId,
+          clientNotionPageId: warehaus.notionPageId,
         },
       }),
       actor: 'staff',
@@ -138,6 +179,24 @@ export const create = adminMutation({
     return { ok: true as const, status: 'pending' as const, message: 'Invite pending' };
   },
 });
+
+async function authUserByEmail(ctx: QueryCtx, email: string) {
+  return (await ctx.runQuery(components.betterAuth.adapter.findOne, {
+    model: 'user',
+    where: [{ field: 'email', operator: 'eq', value: normalizeEmail(email) }],
+  })) as { _id?: string; email?: string; emailVerified?: boolean } | null;
+}
+
+async function pendingForToken(
+  ctx: QueryCtx | MutationCtx,
+  notionPageId: string | undefined,
+) {
+  if (!notionPageId) return null;
+  return ctx.db
+    .query('pendingInvites')
+    .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+    .unique();
+}
 
 export const previewAccept = query({
   args: { token: v.string() },
@@ -151,7 +210,32 @@ export const previewAccept = query({
     const now = Date.now();
     const usable = row != null && row.status === 'live' && row.expiresAt > now;
     const client = usable ? await ctx.db.get(row.orgId) : null;
-    return describeInvitePreview({
+    const pending = usable ? await pendingForToken(ctx, row.contactNotionPageId) : null;
+    const staffInvite = pending?.role === 'Warehaus Staff';
+    const account = usable ? await authUserByEmail(ctx, row.emailNormalized) : null;
+    const contacts = usable
+      ? await ctx.db.query('contacts').withIndex('by_email', (q) => q.eq('email', row.emailNormalized)).collect()
+      : [];
+    const sessionContact = user
+      ? await ctx.db
+          .query('contacts')
+          .withIndex('by_authUserId', (q) =>
+            q.eq('authUserId', user && '_id' in user && typeof user._id === 'string' ? user._id : ''),
+          )
+          .unique()
+      : null;
+    const link = usable
+      ? planStaffInviteLink({
+          authUserId:
+            user && '_id' in user && typeof user._id === 'string' ? user._id : '',
+          authEmail: user?.email ?? row.emailNormalized,
+          emailVerified: user?.emailVerified === true,
+          tokenEmail: row.emailNormalized,
+          sessionAlreadyLinked: sessionContact != null,
+          contacts,
+        })
+      : null;
+    const preview = describeInvitePreview({
       tokenStatus: row?.status ?? 'missing',
       expiresAt: row?.expiresAt ?? 0,
       now,
@@ -159,26 +243,66 @@ export const previewAccept = query({
       signedInEmail: user?.email ?? null,
       emailVerified: user?.emailVerified === true,
       tokenEmail: row?.emailNormalized ?? '',
+      accountExists: Boolean(account?._id || account?.email),
+      staffInvite,
+      alreadyMember: staffInvite && link != null && !link.ok && link.reason === 'already',
     });
+    const inviter = row?.createdByContactId ? await ctx.db.get(row.createdByContactId) : null;
+    return {
+      ...preview,
+      inviterName: inviter?.name ?? null,
+      expiresAt: row?.expiresAt ?? null,
+    };
   },
 });
+
+/** Token-gated. Does not reveal why a token failed. */
+export const signupAllowed = internalQuery({
+  args: { token: v.string(), email: v.string() },
+  handler: async (ctx, { token, email }) => {
+    const tokenHash = await hashInviteToken(token);
+    const row = await ctx.db
+      .query('inviteTokens')
+      .withIndex('by_tokenHash', (q) => q.eq('tokenHash', tokenHash))
+      .unique();
+    const pending = await pendingForToken(ctx, row?.contactNotionPageId);
+    const account = row ? await authUserByEmail(ctx, row.emailNormalized) : null;
+    const plan = planInviteSignup({
+      tokenStatus: row?.status ?? 'missing',
+      expiresAt: row?.expiresAt ?? 0,
+      now: Date.now(),
+      tokenEmail: row?.emailNormalized ?? '',
+      accountExists: Boolean(account?._id || account?.email),
+      staffInvite: pending?.role === 'Warehaus Staff' && inviteEmailsMatchSafe(email, row?.emailNormalized ?? ''),
+    });
+    if (!plan.ok) return { ok: false as const };
+    return { ok: true as const, email: plan.emailNormalized };
+  },
+});
+
+function inviteEmailsMatchSafe(left: string, right: string) {
+  return normalizeEmail(left) === normalizeEmail(right) && normalizeEmail(left).includes('@');
+}
 
 export const listTeam = adminQuery({
   args: {},
   handler: async (ctx) => {
-    const orgId = ctx.identity.orgId as Id<'clients'>;
+    const internal = await warehausInternal(ctx);
+    if (!internal) {
+      return { canInvite: true, members: [], invites: [] };
+    }
     const contacts = await ctx.db
       .query('contacts')
-      .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+      .withIndex('by_orgId', (q) => q.eq('orgId', internal._id))
       .collect();
     const invites = await ctx.db
       .query('pendingInvites')
-      .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+      .withIndex('by_orgId', (q) => q.eq('orgId', internal._id))
       .collect();
     return {
       canInvite: true,
       members: contacts
-        .filter((contact) => !contact.syncHiddenAt && contact.role !== 'Warehaus Staff')
+        .filter((contact) => !contact.syncHiddenAt && contact.role === 'Warehaus Staff')
         .map((contact) => ({
           notionPageId: contact.notionPageId,
           name: contact.name,
@@ -186,13 +310,26 @@ export const listTeam = adminQuery({
           role: contact.role,
           portalAccess: contact.portalAccess,
         })),
-      invites: invites.map((invite) => ({
-        notionPageId: invite.notionPageId,
-        name: invite.name,
-        email: invite.email,
-        role: invite.role,
-        inviteStatus: invite.inviteStatus,
-      })),
+      invites: await Promise.all(
+        invites
+          .filter((invite) => invite.inviteStatus === 'Pending' || invite.inviteStatus === 'Expired')
+          .map(async (invite) => {
+            const tokens = await ctx.db
+              .query('inviteTokens')
+              .withIndex('by_contactNotionPageId', (q) => q.eq('contactNotionPageId', invite.notionPageId))
+              .collect();
+            const latest = tokens.sort((a, b) => b.createdAt - a.createdAt)[0];
+            return {
+              notionPageId: invite.notionPageId,
+              name: invite.name,
+              email: invite.email,
+              role: invite.role,
+              inviteStatus: invite.inviteStatus,
+              invitedAt: latest?.createdAt ?? invite.lastSyncedAt,
+              expiresAt: latest?.expiresAt ?? null,
+            };
+          }),
+      ),
     };
   },
 });
@@ -233,14 +370,51 @@ export const accept = mutation({
     });
     if (!plan.ok) {
       if (plan.reason === 'mismatch') {
-        return { ok: false as const, status: 'different-email' as const, signedInEmail: plan.signedInEmail };
+        return {
+          ok: false as const,
+          status: 'different-email' as const,
+          signedInEmail: plan.signedInEmail,
+          message: inviteStatusMessage('different-email', plan.signedInEmail),
+        };
       }
-      return { ok: false as const, status: plan.reason };
+      return { ok: false as const, status: plan.reason, message: inviteStatusMessage(plan.reason) };
     }
-    if (!row) return { ok: false as const, status: 'unusable' as const };
-    const claimed = claimInviteToken(tokenState(row), 'accept');
-    if (!claimed.ok) return { ok: false as const, status: 'unusable' as const };
+    if (!row) return { ok: false as const, status: 'unusable' as const, message: inviteStatusMessage('unusable') };
+    const pending = await pendingForToken(ctx, row.contactNotionPageId);
     const authUserId = 'id' in user && typeof user.id === 'string' ? user.id : '';
+    let staffLink: { email: string; name: string; role: 'Warehaus Staff' } | undefined;
+    if (pending?.role === 'Warehaus Staff') {
+      const contacts = await ctx.db
+        .query('contacts')
+        .withIndex('by_email', (q) => q.eq('email', plan.emailNormalized))
+        .collect();
+      const session = authUserId
+        ? await ctx.db
+            .query('contacts')
+            .withIndex('by_authUserId', (q) => q.eq('authUserId', authUserId))
+            .unique()
+        : null;
+      const link = planStaffInviteLink({
+        authUserId,
+        authEmail: user.email,
+        emailVerified: true,
+        tokenEmail: row.emailNormalized,
+        sessionAlreadyLinked: session != null,
+        contacts,
+      });
+      if (!link.ok) {
+        const status = link.reason === 'already' ? 'already' : link.reason === 'unverified' ? 'unverified' : 'different-email';
+        return {
+          ok: false as const,
+          status,
+          message: status === 'different-email' ? inviteStatusMessage(status, normalizeEmail(user.email)) : inviteStatusMessage(status),
+          ...(status === 'different-email' ? { signedInEmail: normalizeEmail(user.email) } : {}),
+        };
+      }
+      staffLink = { email: plan.emailNormalized, name: pending.name, role: 'Warehaus Staff' };
+    }
+    const claimed = claimInviteToken(tokenState(row), 'accept');
+    if (!claimed.ok) return { ok: false as const, status: 'unusable' as const, message: inviteStatusMessage('unusable') };
     const queued = await enqueueInvite(ctx, {
       idempotencyKey: stateIdempotencyKey(row.contactNotionPageId, 'Accepted', holdKey(row)),
       kind: 'setInviteState',
@@ -251,6 +425,7 @@ export const accept = mutation({
         properties: inviteStateProperties('Accepted'),
         tokenId: row._id,
         authUserId,
+        ...(staffLink ? { staffLink } : {}),
       }),
       actor: 'system',
     });
@@ -305,13 +480,12 @@ export const decline = mutation({
 export const revoke = adminMutation({
   args: { contactNotionPageId: v.string() },
   handler: async (ctx, { contactNotionPageId }) => {
-    const orgId = ctx.identity.orgId as Id<'clients'>;
     const tokens = await ctx.db
       .query('inviteTokens')
       .withIndex('by_contactNotionPageId', (q) => q.eq('contactNotionPageId', contactNotionPageId))
       .collect();
     const token = tokens
-      .filter((row) => row.orgId === orgId && row.status === 'live')
+      .filter((row) => row.status === 'live')
       .sort((a, b) => b.createdAt - a.createdAt)[0];
     if (!token) return { ok: false as const, message: INVITE_CLIENT_FAILURE };
     const claimed = claimInviteToken(tokenState(token), 'revoke');
@@ -319,7 +493,7 @@ export const revoke = adminMutation({
     const queued = await enqueueInvite(ctx, {
       idempotencyKey: stateIdempotencyKey(contactNotionPageId, 'Revoked', holdKey(token)),
       kind: 'setInviteState',
-      orgId,
+      orgId: token.orgId,
       notionPageId: contactNotionPageId,
       expectedLastEditedTime: await lastEditedFor(ctx, contactNotionPageId),
       payload: JSON.stringify({ properties: inviteStateProperties('Revoked'), tokenId: token._id }),
@@ -381,16 +555,18 @@ export const issueTokenAfterConfirm = internalMutation({
       invite?: {
         name: string;
         emailNormalized: string;
-        role: 'Client Member' | 'Client Admin';
+        role: 'Client Member' | 'Client Admin' | 'Warehaus Staff';
         createdByContactId?: string;
         clientNotionPageId: string;
       };
       tokenId?: string;
+      authUserId?: string;
+      staffLink?: { email: string; name: string; role: 'Warehaus Staff' };
       properties?: { 'Invite Status'?: string };
     };
     if (row.resultJson?.includes('"issued":true')) return empty;
     const now = Date.now();
-    const inviteRole = parsed.invite ? asClientInviteRole(parsed.invite.role) : null;
+    const inviteRole = parsed.invite ? asInviteRole(parsed.invite.role) : null;
     if (row.kind === 'createInvite' && parsed.invite && inviteRole) {
       const invite = parsed.invite;
       const issued = await tokenFromConfirmation({ confirmed: true, now });
@@ -457,6 +633,15 @@ export const issueTokenAfterConfirm = internalMutation({
         if (next.status === 'used') await ctx.db.patch(token._id, { status: 'used', usedAt: now });
         else if (next.status !== token.status) await ctx.db.patch(token._id, { status: next.status });
       }
+      if (status === 'Accepted' && parsed.staffLink && parsed.authUserId) {
+        await linkConfirmedStaff(ctx, {
+          orgId: row.orgId,
+          notionPageId: args.notionPageId,
+          email: parsed.staffLink.email,
+          name: parsed.staffLink.name,
+          authUserId: parsed.authUserId,
+        });
+      }
       const pending = await ctx.db
         .query('pendingInvites')
         .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
@@ -490,26 +675,180 @@ export const releaseHeldToken = internalMutation({
   },
 });
 
+async function linkConfirmedStaff(
+  ctx: MutationCtx,
+  input: { orgId: Id<'clients'>; notionPageId: string; email: string; name: string; authUserId: string },
+) {
+  const email = normalizeEmail(input.email);
+  const contacts = await ctx.db.query('contacts').withIndex('by_email', (q) => q.eq('email', email)).collect();
+  const session = await ctx.db
+    .query('contacts')
+    .withIndex('by_authUserId', (q) => q.eq('authUserId', input.authUserId))
+    .unique();
+  const link = planStaffInviteLink({
+    authUserId: input.authUserId,
+    authEmail: email,
+    emailVerified: true,
+    tokenEmail: email,
+    sessionAlreadyLinked: session != null && normalizeEmail(session.email) !== email,
+    contacts,
+  });
+  if (!link.ok) return;
+  if (link.mode === 'link') {
+    const staff = contacts.find((contact) => contact.role === 'Warehaus Staff' && !contact.authUserId);
+    if (!staff) return;
+    await ctx.db.patch(staff._id, {
+      authUserId: input.authUserId,
+      portalAccess: 'Enabled',
+      email,
+      role: 'Warehaus Staff',
+      externalId: ensureContactExternalId(staff.externalId, staff._id),
+    });
+    return;
+  }
+  const contactId = await ctx.db.insert('contacts', {
+    orgId: input.orgId,
+    notionPageId: input.notionPageId,
+    name: input.name,
+    email,
+    role: 'Warehaus Staff',
+    portalAccess: 'Enabled',
+    authUserId: input.authUserId,
+    source: 'portal',
+    lastSyncedAt: Date.now(),
+  });
+  await ctx.db.patch(contactId, { externalId: ensureContactExternalId(null, contactId) });
+}
+
+/** True when this address has a live Warehaus Staff invite. Used to send verification mail. */
+export const emailHasLiveStaffInvite = internalQuery({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const normalized = normalizeEmail(email);
+    const pending = await ctx.db
+      .query('pendingInvites')
+      .withIndex('by_email', (q) => q.eq('email', normalized))
+      .collect();
+    const staff = pending.find((row) => row.role === 'Warehaus Staff' && row.inviteStatus === 'Pending');
+    if (!staff) return { ok: false as const };
+    const tokens = await ctx.db
+      .query('inviteTokens')
+      .withIndex('by_contactNotionPageId', (q) => q.eq('contactNotionPageId', staff.notionPageId))
+      .collect();
+    const now = Date.now();
+    const live = tokens.some(
+      (token) => token.status === 'live' && token.expiresAt > now && token.emailNormalized === normalized,
+    );
+    return { ok: live };
+  },
+});
+
+/** Marks live tokens past expiresAt. Uses by_status_expiresAt. Does not write Notion. */
+export const expireDue = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const due = await ctx.db
+      .query('inviteTokens')
+      .withIndex('by_status_expiresAt', (q) => q.eq('status', 'live').lt('expiresAt', now))
+      .take(50);
+    let expired = 0;
+    for (const token of due) {
+      if (!liveTokenIsExpired(token.status, token.expiresAt, now)) continue;
+      await ctx.db.patch(token._id, { status: 'expired' });
+      const pending = await ctx.db
+        .query('pendingInvites')
+        .withIndex('by_notionPageId', (q) => q.eq('notionPageId', token.contactNotionPageId))
+        .unique();
+      if (pending?.inviteStatus === 'Pending') {
+        await ctx.db.patch(pending._id, { inviteStatus: 'Expired' });
+      }
+      expired += 1;
+    }
+    return { expired };
+  },
+});
+
+/** Always the same sentence. Emails the original sender when the link is expired. */
+export const requestRenew = mutation({
+  args: { token: v.string() },
+  handler: async (ctx, { token }) => {
+    const message = renewRequestMessage();
+    const tokenHash = await hashInviteToken(token);
+    const row = await ctx.db
+      .query('inviteTokens')
+      .withIndex('by_tokenHash', (q) => q.eq('tokenHash', tokenHash))
+      .unique();
+    const now = Date.now();
+    const expired = row != null && (row.status === 'expired' || (row.status === 'live' && row.expiresAt <= now));
+    if (!expired) return { ok: true as const, message };
+    const since = now - 24 * 60 * 60 * 1000;
+    const events = await ctx.db
+      .query('auditEvents')
+      .withIndex('by_notionPageId', (q) => q.eq('notionPageId', row.contactNotionPageId))
+      .collect();
+    const hits = events.filter(
+      (event) => event.action === 'invite.renewRequest' && event.after === row.tokenHash && event.createdAt >= since,
+    );
+    if (hits.length >= 3) return { ok: true as const, message };
+    const inviter = row.createdByContactId ? await ctx.db.get(row.createdByContactId) : null;
+    await ctx.db.insert('auditEvents', {
+      orgId: row.orgId,
+      actorKind: 'system',
+      action: 'invite.renewRequest',
+      notionPageId: row.contactNotionPageId,
+      after: row.tokenHash,
+      createdAt: now,
+    });
+    if (inviter?.email) {
+      await ctx.scheduler.runAfter(0, internal.invites.sendRenewNotice, {
+        to: inviter.email,
+        inviteeEmail: row.emailNormalized,
+      });
+    }
+    return { ok: true as const, message };
+  },
+});
+
+export const sendRenewNotice = internalAction({
+  args: { to: v.string(), inviteeEmail: v.string() },
+  handler: async (_ctx, args) => {
+    const from = process.env.EMAIL_FROM?.trim();
+    if (!from || !isInviteEmailEnabled(process.env.INVITE_EMAIL_ENABLED)) return { sent: false as const };
+    const mail = renewRequestEmail({ inviteeEmail: args.inviteeEmail });
+    await sendPortalEmail({ to: args.to, ...mail, from });
+    return { sent: true as const };
+  },
+});
+
 export const sendIssuedInvite = internalAction({
   args: {
     to: v.string(),
     rawToken: v.string(),
     name: v.string(),
     alreadyHasLogin: v.optional(v.boolean()),
+    inviterName: v.optional(v.string()),
+    expiresOn: v.optional(v.string()),
   },
   handler: async (_ctx, args) => {
+    const from = process.env.EMAIL_FROM?.trim();
     return sendIssuedInviteMail(
       {
         to: args.to,
         name: args.name,
         rawToken: args.rawToken,
         alreadyHasLogin: args.alreadyHasLogin === true,
+        inviterName: args.inviterName,
+        expiresOn: args.expiresOn,
       },
       {
         INVITE_EMAIL_ENABLED: process.env.INVITE_EMAIL_ENABLED,
         PORTAL_PUBLIC_URL: process.env.PORTAL_PUBLIC_URL,
+        EMAIL_FROM: from,
       },
-      { send: sendPortalEmail },
+      {
+        send: (message) => sendPortalEmail({ ...message, from }),
+      },
     );
   },
 });

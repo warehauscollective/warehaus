@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
@@ -55,6 +56,7 @@ export function PortalHomeContent() {
   const { sectionFor, openDetail } = usePortalView();
   const { data, loading, error } = usePortalData();
   const { portalSession } = usePortalAuth();
+  const params = useSearchParams();
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
   const isStaff = Boolean(portalSession?.isStaff);
@@ -201,6 +203,14 @@ export function PortalHomeContent() {
                 </p>
               ),
             })
+          }
+          joined={
+            params.get('joined') === 'staff'
+              ? {
+                  name: params.get('name') || portalSession?.name?.split(/\s+/)[0] || 'there',
+                  inviter: params.get('inviter') || 'The person who invited you',
+                }
+              : null
           }
         />
       </PortalTilePane>

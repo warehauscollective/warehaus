@@ -437,7 +437,11 @@ export default defineSchema({
     notionPageId: v.string(),
     name: v.string(),
     email: v.string(),
-    role: v.union(v.literal('Client Admin'), v.literal('Client Member')),
+    role: v.union(
+      v.literal('Client Admin'),
+      v.literal('Client Member'),
+      v.literal('Warehaus Staff'),
+    ),
     inviteStatus: v.union(
       v.literal('Pending'),
       v.literal('Accepted'),

@@ -3,44 +3,64 @@ import { describe, it } from 'node:test';
 import { validatePropertyPatch } from '@warehaus/portal-sync';
 import { signInToAcceptPath } from './acceptPaths';
 import { deliverInviteEmail, existingLoginEmail, inviteEmail, sendIssuedInviteMail } from './email';
+import { WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
 import {
+  INVITE_ALREADY_MESSAGE,
   INVITE_CLIENT_FAILURE,
+  INVITE_CLIENT_ROLE_MESSAGE,
+  INVITE_EMAIL_OFF_MESSAGE,
+  INVITE_EXPIRED_MESSAGE,
+  INVITE_UNVERIFIED_MESSAGE,
+  INVITE_URL_OFF_MESSAGE,
+  INVITE_USED_MESSAGE,
   asClientInviteRole,
+  asInviteRole,
   claimInviteToken,
   createInviteToken,
   describeInvitePreview,
   finishInviteToken,
+  grantInviteSignup,
   hashInviteToken,
   inviteEmailsMatch,
+  invitePasswordReady,
+  inviteSendGate,
   inviteStateProperties,
+  inviteStatusMessage,
+  liveTokenIsExpired,
   memberRemoveProperties,
   planInviteAccept,
   planInviteCreate,
+  planInviteSignup,
   planMemberRemove,
+  planStaffInviteLink,
+  renewRequestMessage,
+  takeInviteSignupGrant,
   tokenFromConfirmation,
   type InviteTokenState,
 } from './inviteFlow';
 
 const base = {
   role: 'Warehaus Staff' as const,
-  identityOrgId: 'org-a',
-  inviteRole: 'Client Member',
+  inviteRole: 'Warehaus Staff',
   email: 'ada@example.com',
   name: 'Ada',
-  clientNotionPageId: 'client-page',
+  internalOrgId: 'org-internal',
+  internalNotionPageId: 'internal-page',
   sentToday: 0,
   emailOwnedByOtherOrg: false,
 };
 
 describe('invite create plan', () => {
-  it('builds a disabled pending contact and keeps the identity org', () => {
+  it('builds a disabled staff contact on the warehaus-internal org', () => {
     const plan = planInviteCreate(base);
     assert.equal(plan.ok, true);
     if (!plan.ok) return;
-    assert.equal(plan.orgId, 'org-a');
+    assert.equal(plan.orgId, 'org-internal');
+    assert.equal(plan.properties.Role, 'Warehaus Staff');
     assert.equal(plan.properties['Portal Access'], 'Disabled');
     assert.equal(plan.properties['Invite Status'], 'Pending');
     assert.equal(plan.properties.Email, 'ada@example.com');
+    assert.deepEqual(plan.properties['Client Company'], ['internal-page']);
   });
 
   it('refuses clients, including a Client Admin', () => {
@@ -50,14 +70,19 @@ describe('invite create plan', () => {
     if (!admin.ok) assert.equal(admin.clientMessage, 'You cannot send invites');
   });
 
-  it('lets staff invite a Client Admin', () => {
-    const plan = planInviteCreate({ ...base, inviteRole: 'Client Admin', name: 'Bea North', email: 'bea@northwind.example' });
-    assert.equal(plan.ok, true);
-    if (!plan.ok) return;
-    assert.equal(plan.properties.Role, 'Client Admin');
-    assert.equal(plan.properties.Email, 'bea@northwind.example');
-    assert.equal(plan.properties['Invite Status'], 'Pending');
-    assert.equal(plan.properties['Portal Access'], 'Disabled');
+  it('refuses client-role invite creation', () => {
+    const member = planInviteCreate({ ...base, inviteRole: 'Client Member' });
+    const admin = planInviteCreate({ ...base, inviteRole: 'Client Admin' });
+    assert.equal(member.ok, false);
+    assert.equal(admin.ok, false);
+    if (!member.ok) assert.equal(member.clientMessage, INVITE_CLIENT_ROLE_MESSAGE);
+    if (!admin.ok) assert.equal(admin.clientMessage, INVITE_CLIENT_ROLE_MESSAGE);
+  });
+
+  it('refuses an email that is already staff or a member', () => {
+    const plan = planInviteCreate({ ...base, emailAlreadyMember: true });
+    assert.equal(plan.ok, false);
+    if (!plan.ok) assert.equal(plan.clientMessage, INVITE_ALREADY_MESSAGE);
   });
 
   it('hides a cross-client email from the caller and keeps the reason for staff', () => {
@@ -174,7 +199,20 @@ describe('invite accept email match', () => {
       emailVerified: true,
     });
     assert.equal(dead.ok, false);
-    if (!dead.ok) assert.equal(dead.reason, 'unusable');
+    if (!dead.ok) assert.equal(dead.reason, 'used');
+    const expired = planInviteAccept({
+      tokenStatus: 'expired',
+      expiresAt: 100,
+      now: 1,
+      tokenEmail: 'ada@example.com',
+      signedInEmail: 'ada@example.com',
+      emailVerified: true,
+    });
+    assert.equal(expired.ok, false);
+    if (!expired.ok) assert.equal(expired.reason, 'expired');
+    assert.equal(inviteStatusMessage('expired'), INVITE_EXPIRED_MESSAGE);
+    assert.equal(inviteStatusMessage('used'), INVITE_USED_MESSAGE);
+    assert.equal(inviteStatusMessage('unverified'), INVITE_UNVERIFIED_MESSAGE);
   });
 
   it('creates a token only after Notion confirms', async () => {
@@ -207,7 +245,7 @@ describe('invite accept email match', () => {
       name: 'Ada',
       acceptUrl: 'https://portal.example/accept?token=abc',
     });
-    assert.match(mail.subject, /already have a Warehaus portal login/);
+    assert.match(mail.subject, /invited you to join Warehaus on the Portal|You’re invited to join Warehaus/);
     assert.match(mail.html, /Warehaus Portal/);
     assert.match(mail.html, /background: #111/);
     assert.match(mail.html, /Sign in to accept/);
@@ -246,7 +284,7 @@ describe('invite accept email match', () => {
     assert.match(sent[0]?.subject ?? '', /invited/);
   });
 
-  it('gives unknown, expired, and used tokens the same preview and hides the company', () => {
+  it('gives expired and used tokens their own preview and hides the company', () => {
     const secret = 'Secret Co';
     const shared = {
       now: 10,
@@ -259,13 +297,155 @@ describe('invite accept email match', () => {
     const expired = describeInvitePreview({ ...shared, tokenStatus: 'expired', expiresAt: 100 });
     const past = describeInvitePreview({ ...shared, tokenStatus: 'live', expiresAt: 5 });
     const used = describeInvitePreview({ ...shared, tokenStatus: 'used', expiresAt: 100 });
+    const revoked = describeInvitePreview({ ...shared, tokenStatus: 'killed', expiresAt: 100 });
     assert.deepEqual(unknown, { status: 'unusable', portalName: 'Portal invite' });
-    assert.deepEqual(expired, unknown);
-    assert.deepEqual(past, unknown);
-    assert.deepEqual(used, unknown);
-    assert.equal(JSON.stringify(unknown).includes(secret), false);
-    const ready = describeInvitePreview({ ...shared, tokenStatus: 'live', expiresAt: 100 });
+    assert.deepEqual(expired, { status: 'expired', portalName: 'Portal invite', invitedEmail: 'ada@example.com' });
+    assert.deepEqual(past, { status: 'expired', portalName: 'Portal invite', invitedEmail: 'ada@example.com' });
+    assert.deepEqual(used, { status: 'used', portalName: 'Portal invite' });
+    assert.deepEqual(revoked, { status: 'used', portalName: 'Portal invite' });
+    assert.equal(JSON.stringify({ unknown, used }).includes(secret), false);
+    assert.equal(JSON.stringify(expired).includes(secret), false);
+    assert.equal(JSON.stringify(unknown).includes('ada@example.com'), false);
+    assert.equal(expired.invitedEmail, 'ada@example.com');
+    const ready = describeInvitePreview({
+      ...shared,
+      tokenStatus: 'live',
+      expiresAt: 100,
+      staffInvite: true,
+    });
     assert.deepEqual(ready, { status: 'ready', portalName: 'Secret Co portal invite' });
+    const created = describeInvitePreview({
+      ...shared,
+      signedInEmail: null,
+      tokenStatus: 'live',
+      expiresAt: 100,
+      staffInvite: true,
+      accountExists: false,
+    });
+    assert.equal(created.status, 'create-account');
+    if (created.status === 'create-account') assert.equal(created.invitedEmail, 'ada@example.com');
+    const existing = describeInvitePreview({
+      ...shared,
+      signedInEmail: null,
+      tokenStatus: 'live',
+      expiresAt: 100,
+      staffInvite: true,
+      accountExists: true,
+    });
+    assert.equal(existing.status, 'sign-in');
+    const already = describeInvitePreview({
+      ...shared,
+      tokenStatus: 'live',
+      expiresAt: 100,
+      staffInvite: true,
+      alreadyMember: true,
+    });
+    assert.equal(already.status, 'already');
+  });
+
+  it('links a new staff invite and refuses someone who is already staff or a member', () => {
+    const fresh = planStaffInviteLink({
+      authUserId: 'user-new',
+      authEmail: 'ada@example.com',
+      emailVerified: true,
+      tokenEmail: 'ada@example.com',
+      sessionAlreadyLinked: false,
+      contacts: [],
+    });
+    assert.deepEqual(fresh, { ok: true, mode: 'create' });
+    const member = planStaffInviteLink({
+      authUserId: 'user-new',
+      authEmail: 'ada@example.com',
+      emailVerified: true,
+      tokenEmail: 'ada@example.com',
+      sessionAlreadyLinked: false,
+      contacts: [{ role: 'Client Member', email: 'ada@example.com', authUserId: 'user-old' }],
+    });
+    assert.equal(member.ok, false);
+    if (!member.ok) assert.equal(member.reason, 'already');
+    const linkedStaff = planStaffInviteLink({
+      authUserId: 'user-new',
+      authEmail: 'ada@example.com',
+      emailVerified: true,
+      tokenEmail: 'ada@example.com',
+      sessionAlreadyLinked: true,
+      contacts: [],
+    });
+    assert.equal(linkedStaff.ok, false);
+    const unverified = planStaffInviteLink({
+      authUserId: 'user-new',
+      authEmail: 'ada@example.com',
+      emailVerified: false,
+      tokenEmail: 'ada@example.com',
+      sessionAlreadyLinked: false,
+      contacts: [],
+    });
+    assert.equal(unverified.ok, false);
+    if (!unverified.ok) assert.equal(unverified.reason, 'unverified');
+  });
+
+  it('lets a live staff token create a password and refuses an existing account', () => {
+    const created = planInviteSignup({
+      tokenStatus: 'live',
+      expiresAt: 100,
+      now: 1,
+      tokenEmail: 'ada@example.com',
+      accountExists: false,
+      staffInvite: true,
+    });
+    assert.deepEqual(created, { ok: true, emailNormalized: 'ada@example.com' });
+    const existing = planInviteSignup({
+      tokenStatus: 'live',
+      expiresAt: 100,
+      now: 1,
+      tokenEmail: 'ada@example.com',
+      accountExists: true,
+      staffInvite: true,
+    });
+    assert.equal(existing.ok, false);
+    if (!existing.ok) assert.equal(existing.reason, 'sign-in');
+    const client = planInviteSignup({
+      tokenStatus: 'live',
+      expiresAt: 100,
+      now: 1,
+      tokenEmail: 'ada@example.com',
+      accountExists: false,
+      staffInvite: false,
+    });
+    assert.equal(client.ok, false);
+    const expired = planInviteSignup({
+      tokenStatus: 'expired',
+      expiresAt: 100,
+      now: 1,
+      tokenEmail: 'ada@example.com',
+      accountExists: false,
+      staffInvite: true,
+    });
+    assert.equal(expired.ok, false);
+    if (!expired.ok) assert.equal(expired.reason, 'expired');
+  });
+
+  it('fails closed when write-back, invite email, or the public url is off', () => {
+    assert.deepEqual(inviteSendGate({ writebackEnabled: false, emailEnabled: true, publicUrl: 'http://localhost:3100' }), {
+      ok: false,
+      message: WRITEBACK_OFF_ERROR,
+    });
+    assert.deepEqual(inviteSendGate({ writebackEnabled: true, emailEnabled: false, publicUrl: 'http://localhost:3100' }), {
+      ok: false,
+      message: INVITE_EMAIL_OFF_MESSAGE,
+    });
+    assert.deepEqual(inviteSendGate({ writebackEnabled: true, emailEnabled: true, publicUrl: '' }), {
+      ok: false,
+      message: INVITE_URL_OFF_MESSAGE,
+    });
+    assert.deepEqual(inviteSendGate({ writebackEnabled: true, emailEnabled: true, publicUrl: 'http://localhost:3100' }), {
+      ok: true,
+    });
+    assert.equal(liveTokenIsExpired('live', 5, 10), true);
+    assert.equal(liveTokenIsExpired('used', 5, 10), false);
+    grantInviteSignup('Ada@Example.com', 1_000);
+    assert.equal(takeInviteSignupGrant('ada@example.com', 1_001), true);
+    assert.equal(takeInviteSignupGrant('ada@example.com', 1_002), false);
   });
 
   it('refuses decline and revoke after accept until a dead write releases the token', () => {
@@ -299,6 +479,8 @@ describe('invite accept email match', () => {
     assert.equal(asClientInviteRole('Client Member'), 'Client Member');
     assert.equal(asClientInviteRole('Client Admin'), 'Client Admin');
     assert.equal(asClientInviteRole('Warehaus Staff'), null);
+    assert.equal(asInviteRole('Warehaus Staff'), 'Warehaus Staff');
+    assert.equal(asInviteRole('Client Member'), 'Client Member');
   });
 
   it('does not send invite email unless INVITE_EMAIL_ENABLED is exactly true', async () => {
@@ -337,10 +519,20 @@ describe('invite accept email match', () => {
       assert.equal(almost.sent, false);
       const on = await sendIssuedInviteMail(
         message,
-        { INVITE_EMAIL_ENABLED: 'true', PORTAL_PUBLIC_URL: 'https://portal.example/' },
+        {
+          INVITE_EMAIL_ENABLED: 'true',
+          PORTAL_PUBLIC_URL: 'https://portal.example/',
+          EMAIL_FROM: 'Warehaus Portal <portal@warehaus.studio>',
+        },
         client,
       );
       assert.deepEqual(on, { sent: true });
+      const noFrom = await sendIssuedInviteMail(
+        message,
+        { INVITE_EMAIL_ENABLED: 'true', PORTAL_PUBLIC_URL: 'https://portal.example/' },
+        client,
+      );
+      assert.deepEqual(noFrom, { sent: false, reason: 'EMAIL_FROM is not set' });
     } finally {
       globalThis.fetch = originalFetch;
       if (previousWriteback === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
@@ -359,5 +551,13 @@ describe('invite accept email match', () => {
     assert.equal(inviteStateProperties('Declined')['Invite Status'], 'Declined');
     assert.equal(inviteStateProperties('Revoked')['Portal Access'], 'Disabled');
     assert.equal(inviteStateProperties('Expired')['Invite Status'], 'Expired');
+  });
+
+  it('requires a letter and a number and keeps the renew reply constant', () => {
+    assert.equal(invitePasswordReady('short1'), false);
+    assert.equal(invitePasswordReady('longpassword'), false);
+    assert.equal(invitePasswordReady('longpass1'), true);
+    assert.equal(renewRequestMessage(), renewRequestMessage());
+    assert.equal(renewRequestMessage().toLowerCase().includes('account'), false);
   });
 });
