@@ -5,7 +5,7 @@ import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { FIXTURE_TASKS } from '@/lib/data/fixtures';
-import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
+import { applyFixtureMilestonePreview, fixtureMilestones } from '@/lib/data/milestoneRoadmap';
 import {
   inclusiveProgressCopy,
   MilestoneListCard,
@@ -19,12 +19,11 @@ Object.assign(globalThis, { React });
 
 const resource = { id: 'r-notes', title: 'Kickoff recap', url: null };
 
-function renderTile(input: { staff: boolean; milestone: MilestoneRoadmapView; nested?: number }): string {
+function renderTile(input: { staff: boolean; milestone: MilestoneRoadmapView }): string {
   return renderToStaticMarkup(
     createElement(MilestoneListCard, {
       milestone: input.milestone,
       staff: input.staff,
-      nested: input.nested,
       onOpen: () => undefined,
     }),
   );
@@ -108,6 +107,28 @@ describe('fixture roadmap', () => {
       'https://github.com/warehauscollective/warehaus/pull/83',
     );
   });
+
+  it('keeps fixture previews off the default list and behind the query', () => {
+    const staff = fixtureMilestones(site, FIXTURE_TASKS, 'staff');
+    assert.deepEqual(
+      applyFixtureMilestonePreview(staff, '').map((milestone) => milestone.name),
+      ['Launch the homepage', 'Billing export draft'],
+    );
+    const long = applyFixtureMilestonePreview(staff, '?chip=long');
+    assert.equal(long[0]?.doneCount, 12);
+    assert.equal((long[0]?.doneCount ?? 0) + (long[0]?.openCount ?? 0), 148);
+    assert.equal(long[0]?.rows.reduce((sum, row) => sum + row.children.length, 0), 9);
+    assert.equal(long[1]?.name, 'Billing export draft');
+    const states = applyFixtureMilestonePreview(staff, '?tiles=states');
+    assert.deepEqual(
+      states.map((milestone) => milestone.name),
+      ['Launch the homepage', 'Billing export draft', 'Case study', 'Navigation pass', 'Brand system'],
+    );
+    assert.equal(states[2]?.workStatus, 'active');
+    assert.equal(states[2]?.approval, 'unreviewed');
+    assert.equal(states[3]?.decidedAt, Date.parse('2026-11-03T15:00:00Z'));
+    assert.equal(states[4]?.approval, 'approved');
+  });
 });
 
 describe('roadmap markup', () => {
@@ -146,22 +167,69 @@ describe('roadmap markup', () => {
     assert.equal(tileProgressLabel(1, 3, 1, true), '1 / 3 tasks complete · includes 1 subtask');
     assert.equal(tileProgressLabel(12, 148, 9, true), '12 / 148 tasks complete · includes 9 subtasks');
     assert.equal(
-      tileMetaLine({ staff: true, published: false, resources: 0, decidedAt: null, workStatus: 'draft' }),
+      tileMetaLine({
+        staff: true,
+        published: false,
+        resources: 0,
+        decidedAt: null,
+        workStatus: 'draft',
+        approval: 'unreviewed',
+      }),
       'Not published · 0 resources · No review yet',
     );
     assert.equal(
-      tileMetaLine({ staff: false, published: false, resources: 0, decidedAt: null, workStatus: 'draft' }),
+      tileMetaLine({
+        staff: false,
+        published: false,
+        resources: 0,
+        decidedAt: null,
+        workStatus: 'draft',
+        approval: 'unreviewed',
+      }),
       '0 resources · No review yet',
     );
     assert.equal(
-      tileMetaLine({ staff: true, published: true, resources: 2, decidedAt: null, workStatus: 'ready' }),
+      tileMetaLine({
+        staff: true,
+        published: true,
+        resources: 2,
+        decidedAt: null,
+        workStatus: 'ready',
+        approval: 'unreviewed',
+      }),
       '2 resources · No review yet · Ready for review',
+    );
+    assert.equal(
+      tileMetaLine({
+        staff: true,
+        published: true,
+        resources: 1,
+        decidedAt: null,
+        workStatus: 'ready',
+        approval: 'approved',
+      }),
+      '1 resource',
+    );
+    const reviewedAt = Date.parse('2026-11-03T15:00:00Z');
+    const reviewedDay = new Date(reviewedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    assert.equal(
+      tileMetaLine({
+        staff: true,
+        published: true,
+        resources: 2,
+        decidedAt: reviewedAt,
+        workStatus: 'ready',
+        approval: 'approved',
+      }),
+      `2 resources · Last review ${reviewedDay}`,
     );
   });
 
   it('renders the chip, date, and meta copy for staff and client tiles', () => {
     const source = readFileSync(new URL('../../components/projects/ProjectRoadmap.tsx', import.meta.url), 'utf8');
     assert.match(source, /flex flex-col gap-6 lg:gap-4/);
+    assert.equal(source.includes('longChip'), false);
+    assert.equal(source.includes("get('chip')"), false);
     assert.match(source, /data-testid="milestone-stage"/);
     assert.match(source, /<FieldLabel>STATUS<\/FieldLabel>/);
     assert.match(source, /<FieldLabel>STAGE<\/FieldLabel>/);
@@ -175,8 +243,8 @@ describe('roadmap markup', () => {
     });
     assert.equal(withSubtask.includes('milestone-due'), false);
     assert.equal(withSubtask.includes('Due '), false);
-    assert.match(withSubtask, />1 \/ 3 tasks complete · includes 1 subtask</);
-    assert.match(withSubtask, />1 \/ 3 complete · includes 1 subtask</);
+    assert.match(withSubtask, /1 \/ 3 tasks complete · <span style="white-space:nowrap">includes 1 subtask<\/span>/);
+    assert.match(withSubtask, /1 \/ 3 complete · <span style="white-space:nowrap">includes 1 subtask<\/span>/);
     assert.match(withSubtask, /data-testid="milestone-meta"[^>]*>1 resource · No review yet</);
     assert.equal(withSubtask.includes('Not published'), false);
     assert.equal(withSubtask.includes('Ready for review'), false);
@@ -246,24 +314,42 @@ describe('roadmap markup', () => {
       milestone: tileMilestone({ approval: 'approved', decidedAt: null, resources: [resource] }),
     });
     assert.match(approvedUndated, /data-testid="milestone-due"[^>]*>Approved</);
-    assert.match(approvedUndated, /data-testid="milestone-meta"[^>]*>1 resource · No review yet</);
+    assert.match(approvedUndated, /data-testid="milestone-meta"[^>]*>1 resource</);
+    assert.equal(approvedUndated.includes('No review yet'), false);
     assert.equal(approvedUndated.includes('Due '), false);
+
+    const approvedReady = renderTile({
+      staff: true,
+      milestone: tileMilestone({
+        approval: 'approved',
+        workStatus: 'ready',
+        decidedAt,
+        resources: [resource, { ...resource, id: 'r-2' }],
+      }),
+    });
+    assert.match(approvedReady, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Shipped</);
+    assert.match(approvedReady, new RegExp(`data-testid="milestone-meta"[^>]*>2 resources · Last review ${day}<`));
+    assert.equal(approvedReady.includes('Ready for review'), false);
 
     const longChip = renderTile({
       staff: true,
-      nested: 9,
-      milestone: tileMilestone({ doneCount: 12, openCount: 136, resources: [resource] }),
+      milestone: tileMilestone({
+        doneCount: 12,
+        openCount: 136,
+        resources: [resource],
+        rows: [rowWithSubtasks(9)],
+      }),
     });
-    assert.match(longChip, />12 \/ 148 tasks complete · includes 9 subtasks</);
-    assert.match(longChip, />12 \/ 148 complete · includes 9 subtasks</);
+    assert.match(longChip, /12 \/ 148 tasks complete · <span style="white-space:nowrap">includes 9 subtasks<\/span>/);
+    assert.match(longChip, /12 \/ 148 complete · <span style="white-space:nowrap">includes 9 subtasks<\/span>/);
     assert.match(longChip, /white-space:normal/);
     assert.match(longChip, /overflow-wrap:anywhere/);
     assert.doesNotMatch(longChip, /flex-nowrap/);
     assert.doesNotMatch(longChip, /truncate/);
     assert.doesNotMatch(longChip, /whitespace-nowrap/);
     assert.doesNotMatch(longChip, /line-clamp/);
-    assert.match(longChip, /data-testid="milestone-meta"[^>]*class="block min-w-0 w-full max-w-full"/);
-    assert.match(longChip, /flex w-full min-w-0 flex-col items-start gap-4/);
+    assert.match(longChip, /data-testid="milestone-meta"[^>]*class="min-w-0 max-w-full"/);
+    assert.match(longChip, /flex w-full min-w-0 flex-row flex-wrap items-center gap-4/);
   });
 
   it('names subtasks in the inclusive progress and leaves a plain count when there are none', () => {

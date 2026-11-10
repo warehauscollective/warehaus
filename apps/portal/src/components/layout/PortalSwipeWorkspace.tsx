@@ -41,14 +41,12 @@ function TabPanelShell({
   return (
     <div
       className={`portal-tab-shell box-border flex h-full min-h-0 flex-col overflow-hidden lg:flex-row lg:items-stretch ${
-        project ? 'pb-0 lg:pb-28' : 'pb-28'
-      } ${
-        project ? 'pt-4 lg:pt-6' : 'pt-3 lg:pt-[var(--portal-panel-gap,1.25rem)]'
+        project ? 'gap-0 pb-0 pt-4 lg:gap-6 lg:pb-28 lg:pt-6' : 'pb-28 pt-3 lg:pt-[var(--portal-panel-gap,1.25rem)]'
       }`}
       style={{
         paddingLeft: project ? (phone ? 16 : 24) : '1.25rem',
         paddingRight: project ? (phone ? 16 : 24) : phone ? '1.25rem' : '4.5rem',
-        gap: project ? 24 : PORTAL_PANEL_GAP_VAR,
+        ...(project ? {} : { gap: PORTAL_PANEL_GAP_VAR }),
         touchAction: 'pan-x pan-y',
       }}
     >

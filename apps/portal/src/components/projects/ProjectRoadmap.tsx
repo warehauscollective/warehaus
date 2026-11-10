@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -8,6 +8,7 @@ import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
 import { type PortalTask } from '@/lib/data/view-models';
 import {
@@ -191,12 +192,35 @@ export function milestoneTileStage(input: {
   return { label: 'Building', glyph: '/icons/task-stage.svg' };
 }
 
+function progressBase(done: number, total: number, phone: boolean): string {
+  return phone ? `${done} / ${total} tasks complete` : `${done} / ${total} complete`;
+}
+
+function progressNote(nested: number): string | null {
+  if (nested === 1) return 'includes 1 subtask';
+  if (nested > 1) return `includes ${nested} subtasks`;
+  return null;
+}
+
 /** Desktop is `1 / 3 complete`. The phone chip adds the word tasks. Subtasks are named only when there is one. */
 export function tileProgressLabel(done: number, total: number, nested: number, phone: boolean): string {
-  const base = phone ? `${done} / ${total} tasks complete` : `${done} / ${total} complete`;
-  if (nested === 1) return `${base} · includes 1 subtask`;
-  if (nested > 1) return `${base} · includes ${nested} subtasks`;
-  return base;
+  const base = progressBase(done, total, phone);
+  const note = progressNote(nested);
+  return note ? `${base} · ${note}` : base;
+}
+
+/** The subtask phrase stays on one line. The chip may break after the dot. */
+function ProgressCopy({ done, total, nested, phone }: { done: number; total: number; nested: number; phone: boolean }) {
+  const note = progressNote(nested);
+  const base = progressBase(done, total, phone);
+  if (!note) return base;
+  return (
+    <>
+      {base}
+      {' · '}
+      <span style={{ whiteSpace: 'nowrap' }}>{note}</span>
+    </>
+  );
 }
 
 export function tileMetaLine(input: {
@@ -205,13 +229,15 @@ export function tileMetaLine(input: {
   resources: number;
   decidedAt: number | null;
   workStatus: MilestoneRoadmapView['workStatus'];
+  approval: string;
   now?: number;
 }): string {
   const parts: string[] = [];
+  const approved = input.approval === 'approved';
   if (input.staff && !input.published) parts.push('Not published');
   parts.push(resourceLabel(input.resources));
-  parts.push(reviewStamp(input.decidedAt, input.now));
-  if (input.workStatus === 'ready') parts.push('Ready for review');
+  if (!(approved && input.decidedAt == null)) parts.push(reviewStamp(input.decidedAt, input.now));
+  if (input.workStatus === 'ready' && !approved) parts.push('Ready for review');
   return parts.join(' · ');
 }
 
@@ -294,11 +320,6 @@ export function ProjectRoadmap({
   const [patches, setPatches] = useState<Record<string, FixturePatch>>({});
   const [created, setCreated] = useState<MilestoneRoadmapView[]>([]);
   const [projectTab, setProjectTab] = useState<ProjectTab>('milestones');
-  const [longChip, setLongChip] = useState(false);
-  useLayoutEffect(() => {
-    if (!fixtures) return;
-    setLongChip(new URLSearchParams(window.location.search).get('chip') === 'long');
-  }, [fixtures]);
   const [openMilestoneId, setOpenMilestoneId] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const rememberedMilestones = useRef<MilestoneRoadmapView[]>([]);
@@ -312,10 +333,11 @@ export function ProjectRoadmap({
     live && !staff ? { projectId, hostSlug } : 'skip',
   );
   const query = staff ? staffQuery : clientQuery;
-  const fixtureRows = useMemo(
+  const fixtureBase = useMemo(
     () => (fixtures ? fixtureMilestones(project, tasks, staff ? 'staff' : 'client') : []),
     [fixtures, project, tasks, staff],
   );
+  const fixtureRows = useFixtureMilestonePreview(fixtureBase, fixtures);
 
   const milestoneApi = milestoneQueryAvailability({ fixtures, error: query.error });
   if (milestoneApi === 'fallback') {
@@ -567,19 +589,14 @@ export function ProjectRoadmap({
               ) : null}
 
               <div className="flex flex-col gap-6 lg:gap-4">
-                {milestones.map((milestone, index) => {
-                  const long = longChip && index === 0;
-                  const shown = long ? { ...milestone, doneCount: 12, openCount: 136 } : milestone;
-                  return (
-                    <MilestoneListCard
-                      key={milestone.id}
-                      milestone={shown}
-                      staff={staff}
-                      nested={long ? 9 : undefined}
-                      onOpen={() => setOpenMilestoneId(milestone.id)}
-                    />
-                  );
-                })}
+                {milestones.map((milestone) => (
+                  <MilestoneListCard
+                    key={milestone.id}
+                    milestone={milestone}
+                    staff={staff}
+                    onOpen={() => setOpenMilestoneId(milestone.id)}
+                  />
+                ))}
               </div>
 
               {milestones.length > 0 ? (
@@ -615,18 +632,15 @@ export function ProjectRoadmap({
 export function MilestoneListCard({
   milestone,
   staff,
-  nested,
   onOpen,
 }: {
   milestone: MilestoneRoadmapView;
   staff: boolean;
-  /** Fixture preview `?chip=long` supplies a nested count the rows do not have. */
-  nested?: number;
   onOpen: () => void;
 }) {
   const total = taskTotal(milestone);
   const stage = milestoneTileStage(milestone);
-  const subtasks = nested ?? boardTaskCounts(milestone).nested;
+  const subtasks = boardTaskCounts(milestone).nested;
   const dateLine = milestoneTileDate({ approval: milestone.approval, decidedAt: milestone.decidedAt });
   const meta = tileMetaLine({
     staff,
@@ -634,6 +648,7 @@ export function MilestoneListCard({
     resources: milestone.resources.length,
     decidedAt: milestone.decidedAt,
     workStatus: milestone.workStatus,
+    approval: milestone.approval,
   });
   return (
     <article
@@ -661,9 +676,9 @@ export function MilestoneListCard({
         <p data-testid="milestone-objective" style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
           {milestone.objective}
         </p>
-        <div className="flex w-full min-w-0 flex-col items-start gap-4">
+        <div className="flex w-full min-w-0 flex-row flex-wrap items-center gap-4">
           <span
-            className="ds-mono block max-w-full"
+            className="ds-mono max-w-full"
             data-testid="milestone-progress"
             style={{
               background: 'var(--surface-2)',
@@ -674,15 +689,18 @@ export function MilestoneListCard({
               lineHeight: '17px',
               color: 'var(--muted)',
               whiteSpace: 'normal',
-              overflowWrap: 'anywhere',
             }}
           >
-            <span className="lg:hidden">{tileProgressLabel(milestone.doneCount, total, subtasks, true)}</span>
-            <span className="hidden lg:inline">{tileProgressLabel(milestone.doneCount, total, subtasks, false)}</span>
+            <span className="lg:hidden">
+              <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone />
+            </span>
+            <span className="hidden lg:inline">
+              <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone={false} />
+            </span>
           </span>
           <span
             data-testid="milestone-meta"
-            className="block min-w-0 w-full max-w-full"
+            className="min-w-0 max-w-full"
             style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}
           >
             {meta}
