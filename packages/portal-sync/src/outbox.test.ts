@@ -120,30 +120,10 @@ describe('outbox keys and backoff', () => {
     assert.equal(planOutboxAttempt(stale, now, true).action, 'execute');
   });
 
-  it('waits out backoff even after a claim', async () => {
+  it('refuses to claim a row that is still in backoff', () => {
     const now = 1_000_000;
     const backing = item({ status: 'failed', attempts: 1, nextAttemptAt: now + OUTBOX_BACKOFF_MS[0] });
-    const taken = takeOutboxLease(backing, now);
-    assert.equal(taken.claimed, true);
-    if (!taken.claimed) return;
-    let wrote = 0;
-    const outcome = await runOutboxAttempt({
-      item: taken.item,
-      nowMs: now,
-      writebackEnabled: true,
-      owned: true,
-      actor: 'staff',
-      search: async () => {
-        wrote += 1;
-        return [];
-      },
-      write: async () => {
-        wrote += 1;
-        return { ok: true, status: 200, notionPageId: 'page-1' };
-      },
-    });
-    assert.equal(outcome.outcome, 'wait');
-    assert.equal(wrote, 0);
+    assert.deepEqual(takeOutboxLease(backing, now), { claimed: false, reason: 'backoff' });
     assert.equal(planOutboxAttempt(backing, now, true).action, 'wait');
   });
 

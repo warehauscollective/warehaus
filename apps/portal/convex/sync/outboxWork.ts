@@ -148,6 +148,7 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
     }
     if (claim.reason === 'missing') return { ok: false, error: 'Outbox row was missing' };
     if (claim.reason === 'inflight') return { ok: false, error: 'This write is already in progress.' };
+    if (claim.reason === 'backoff') return { ok: false, error: 'This write is not due.' };
     return { ok: false, error: claim.lastError ?? 'This write is not queued.' };
   }
 

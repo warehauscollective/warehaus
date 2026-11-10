@@ -113,8 +113,14 @@ export type AttemptPlan =
   | { action: 'execute'; notifyStaff: boolean };
 
 export type LeaseTake =
-  | { claimed: false; reason: 'done' | 'dead' | 'conflict' | 'inflight' }
+  | { claimed: false; reason: 'done' | 'dead' | 'conflict' | 'inflight' | 'backoff' }
   | { claimed: true; item: OutboxItem };
+
+type LeaseInput = {
+  status: OutboxStatus;
+  claimedAt?: number;
+  nextAttemptAt?: number;
+};
 
 export function outboxLeaseUnexpired(claimedAt: number | undefined, nowMs: number): boolean {
   return claimedAt != null && nowMs - claimedAt < OUTBOX_LEASE_MS;
@@ -123,13 +129,20 @@ export function outboxLeaseUnexpired(claimedAt: number | undefined, nowMs: numbe
 /**
  * One attempt takes the row. A live lease stays with the attempt that holds it.
  * An expired lease, or a row that was never claimed, can be taken.
+ * A row whose next attempt is still in the future is not claimed.
  */
-export function takeOutboxLease(item: OutboxItem, nowMs: number): LeaseTake {
+export function takeOutboxLease<T extends LeaseInput>(
+  item: T,
+  nowMs: number,
+): { claimed: false; reason: 'done' | 'dead' | 'conflict' | 'inflight' | 'backoff' } | { claimed: true; item: T & { status: 'inflight'; claimedAt: number } } {
   if (item.status === 'done' || item.status === 'dead' || item.status === 'conflict') {
     return { claimed: false, reason: item.status };
   }
   if (item.status === 'inflight' && outboxLeaseUnexpired(item.claimedAt, nowMs)) {
     return { claimed: false, reason: 'inflight' };
+  }
+  if (typeof item.nextAttemptAt === 'number' && nowMs < item.nextAttemptAt) {
+    return { claimed: false, reason: 'backoff' };
   }
   return { claimed: true, item: { ...item, status: 'inflight', claimedAt: nowMs } };
 }
@@ -279,6 +292,7 @@ export async function runOutboxAttempt(input: {
 
   const isPatch =
     input.item.kind === 'task-status' ||
+    input.item.kind === 'task-stage' ||
     input.item.kind === 'update' ||
     input.item.kind === 'task-fields';
   const validated = isPatch
