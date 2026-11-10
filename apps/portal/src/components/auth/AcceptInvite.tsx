@@ -9,6 +9,7 @@ import { authClient } from '@/lib/auth-client';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { renewRequestMessage } from '@convex/_lib/inviteFlow';
+import { rememberStaffJoined } from '@/lib/staffJoined';
 
 type Preview = {
   status:
@@ -20,7 +21,10 @@ type Preview = {
     | 'unusable'
     | 'expired'
     | 'used'
-    | 'already';
+    | 'revoked'
+    | 'off'
+    | 'already'
+    | 'error';
   invitedEmail?: string;
   signedInEmail?: string;
   inviterName?: string | null;
@@ -34,9 +38,13 @@ const FIXTURES: Record<string, Preview> = {
     status: 'expired',
     invitedEmail: 'jordan@warehaus.studio',
     inviterName: 'Peter Roquemore',
-    expiresAt: Date.UTC(2026, 10, 15),
+    expiresAt: Date.UTC(2026, 10, 2),
   },
   used: { status: 'used', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
+  revoked: { status: 'revoked', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
+  invalid: { status: 'unusable' },
+  unavailable: { status: 'off', inviterName: 'Peter Roquemore' },
+  'signed-in': { status: 'ready', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
   different: {
     status: 'different-email',
     invitedEmail: 'jordan@warehaus.studio',
@@ -45,7 +53,7 @@ const FIXTURES: Record<string, Preview> = {
   },
   already: { status: 'already', invitedEmail: 'avery@warehaus.studio', inviterName: 'Peter Roquemore' },
   unverified: { status: 'unverified', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
-  generic: { status: 'unusable', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
+  generic: { status: 'error', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
 };
 
 function rules(password: string, confirm: string) {
@@ -63,6 +71,31 @@ function dayLabel(ms: number | null | undefined): string {
 
 function firstName(name: string | null | undefined): string {
   return name?.trim().split(/\s+/)[0] || 'them';
+}
+
+function asScreen(status: string | undefined): Preview['status'] | null {
+  switch (status) {
+    case 'sign-in':
+    case 'create-account':
+    case 'ready':
+    case 'different-email':
+    case 'unverified':
+    case 'unusable':
+    case 'expired':
+    case 'used':
+    case 'revoked':
+    case 'off':
+    case 'already':
+    case 'error':
+      return status;
+    default:
+      return null;
+  }
+}
+
+function joinedName(email: string): string {
+  const local = email.split('@')[0]?.replace(/[._-]+/g, ' ').trim() || 'there';
+  return local.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
 export function AcceptInvite() {
@@ -85,6 +118,8 @@ export function AcceptInvite() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [renewed, setRenewed] = useState(false);
+  const [reference] = useState(() => `INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`);
+  const [screen, setScreen] = useState<Preview['status'] | null>(null);
   const state = rules(password, confirm);
   const ready = state.length && state.mix && state.match;
 
@@ -94,7 +129,8 @@ export function AcceptInvite() {
     event.preventDefault();
     if (!ready || !preview?.invitedEmail) return;
     if (forced) {
-      router.replace('/preview?joined=staff&inviter=Peter%20Roquemore&name=Jordan');
+      rememberStaffJoined({ name: 'Jordan' });
+      router.replace('/preview');
       return;
     }
     setBusy(true);
@@ -114,11 +150,39 @@ export function AcceptInvite() {
       await authClient.signIn.email({ email: preview.invitedEmail, password });
       const result = await accept({ token });
       if (!result.ok) {
-        setError(result.message ?? 'We couldn’t finish joining');
+        const next = asScreen(result.status);
+        if (next) setScreen(next);
+        else setError(result.message ?? 'We couldn’t finish joining');
         return;
       }
-      const inviter = encodeURIComponent(preview.inviterName ?? '');
-      router.replace(`/?joined=staff&inviter=${inviter}`);
+      rememberStaffJoined({ name: joinedName(preview.invitedEmail) });
+      router.replace('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'We couldn’t finish joining');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirmSignedIn() {
+    if (!preview?.invitedEmail) return;
+    if (forced) {
+      rememberStaffJoined({ name: 'Jordan' });
+      router.replace('/preview');
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const result = await accept({ token });
+      if (!result.ok) {
+        const next = asScreen(result.status);
+        if (next) setScreen(next);
+        else setError(result.message ?? 'We couldn’t finish joining');
+        return;
+      }
+      rememberStaffJoined({ name: joinedName(preview.invitedEmail) });
+      router.replace('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'We couldn’t finish joining');
     } finally {
@@ -130,7 +194,8 @@ export function AcceptInvite() {
     event.preventDefault();
     if (!preview?.invitedEmail || !password) return;
     if (forced) {
-      router.replace('/preview?joined=staff&inviter=Peter%20Roquemore&name=Jordan');
+      rememberStaffJoined({ name: 'Jordan' });
+      router.replace('/preview');
       return;
     }
     setBusy(true);
@@ -143,10 +208,13 @@ export function AcceptInvite() {
       }
       const result = await accept({ token });
       if (!result.ok) {
-        setError(result.message ?? 'We couldn’t finish joining');
+        const next = asScreen(result.status);
+        if (next) setScreen(next);
+        else setError(result.message ?? 'We couldn’t finish joining');
         return;
       }
-      router.replace(`/?joined=staff&inviter=${encodeURIComponent(preview.inviterName ?? '')}`);
+      rememberStaffJoined({ name: joinedName(preview.invitedEmail) });
+      router.replace('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Check your password and try again.');
     } finally {
@@ -164,7 +232,7 @@ export function AcceptInvite() {
     }
   }
 
-  const status = signInMode && preview?.status === 'create-account' ? 'sign-in' : preview?.status;
+  const status = screen ?? (signInMode && preview?.status === 'create-account' ? 'sign-in' : preview?.status);
   const email = preview?.invitedEmail ?? '';
   const inviter = preview?.inviterName || 'Peter Roquemore';
 
@@ -175,9 +243,13 @@ export function AcceptInvite() {
           Warehaus
         </p>
         {!preview ? (
-          <Card>
-            <p style={{ margin: 0, color: 'var(--muted)' }}>{live.loading ? 'Checking this invite…' : 'This invite link can’t be used.'}</p>
-          </Card>
+          live.loading ? (
+            <Card>
+              <p style={{ margin: 0, color: 'var(--muted)' }}>Checking this invite…</p>
+            </Card>
+          ) : (
+            <InvalidCard />
+          )
         ) : status === 'create-account' ? (
           <Card>
             <Kicker>Staff invite</Kicker>
@@ -196,7 +268,19 @@ export function AcceptInvite() {
               {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
             </form>
           </Card>
-        ) : status === 'sign-in' || status === 'ready' ? (
+        ) : status === 'ready' ? (
+          <Card>
+            <Kicker>Staff invite</Kicker>
+            <h1 style={title}>Accept your invite</h1>
+            <p style={lede}>You’re signed in as {email}. There’s no password step. Accept to join Warehaus as staff.</p>
+            <Inviter name={inviter} />
+            <LockedEmail email={email} />
+            <button type="button" disabled={busy} onClick={() => void confirmSignedIn()} style={{ ...primary, opacity: busy ? 0.4 : 1, alignSelf: 'flex-start' }}>
+              {busy ? 'Joining…' : 'Accept invite'}
+            </button>
+            {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
+          </Card>
+        ) : status === 'sign-in' ? (
           <Card>
             <Kicker>Staff invite</Kicker>
             <h1 style={title}>Sign in to accept</h1>
@@ -233,6 +317,30 @@ export function AcceptInvite() {
             body="It was already accepted. If that was you, sign in to continue."
             link="Forgot password?"
             href="/forgot-password"
+            action="Sign in"
+            actionHref="/login"
+          />
+        ) : status === 'revoked' ? (
+          <ErrorCard
+            icon={<AlertTriangle size={20} />}
+            kicker="Invite revoked"
+            title="This invite was revoked"
+            body="It can’t be used. Ask the person who invited you to send a new one."
+            link="Back to sign in"
+            href="/login"
+            action="Sign in"
+            actionHref="/login"
+          />
+        ) : status === 'unusable' ? (
+          <InvalidCard />
+        ) : status === 'off' ? (
+          <ErrorCard
+            icon={<AlertTriangle size={20} />}
+            kicker="Unavailable"
+            title="Invites are unavailable"
+            body="This link can’t be accepted right now. Nothing was changed."
+            link="Back to sign in"
+            href="/login"
             action="Sign in"
             actionHref="/login"
           />
@@ -278,7 +386,7 @@ export function AcceptInvite() {
             kicker="Something went wrong"
             title="We couldn’t finish joining"
             body={`Your invite still works. Try again in a moment. If it keeps happening, send ${firstName(inviter)} the reference below.`}
-            rows={[['Reference', token ? `INV-${token.slice(0, 4).toUpperCase()}` : 'INV-LINK']]}
+            rows={[['Reference', reference]]}
             link="Back to sign in"
             href="/login"
             action="Try again"
@@ -295,7 +403,7 @@ function InviteEmailPreview() {
     <main data-testid="invite-email" style={{ background: 'var(--background)', color: 'var(--foreground)', minHeight: '100dvh', padding: '48px 24px' }}>
       <article style={{ maxWidth: 640, margin: '0 auto' }}>
         <h1 style={{ fontSize: 22, lineHeight: '30px', margin: '0 0 16px' }}>Peter invited you to join Warehaus on the Portal</h1>
-        <p style={meta}><span>FROM</span> Warehaus Portal &lt;portal@warehaus.studio&gt;</p>
+        <p style={meta}><span>FROM</span> EMAIL_FROM on warehaus.co</p>
         <p style={meta}><span>TO</span> jordan@warehaus.studio</p>
         <p style={meta}><span>PREVIEW</span> Accept within 7 days to set your password and join as staff.</p>
         <div style={{ marginTop: 32, padding: 32, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)' }}>
@@ -377,6 +485,21 @@ function Rule({ met, label }: { met: boolean; label: string }) {
       {met ? <Check size={16} /> : <Circle size={16} />}
       {label}
     </p>
+  );
+}
+
+function InvalidCard() {
+  return (
+    <ErrorCard
+      icon={<AlertTriangle size={20} />}
+      kicker="Invalid link"
+      title="This invite link can’t be used"
+      body="The link is missing or not a valid invite. Ask for a new one."
+      link="Back to sign in"
+      href="/login"
+      action="Sign in"
+      actionHref="/login"
+    />
   );
 }
 

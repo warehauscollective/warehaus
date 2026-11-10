@@ -298,8 +298,7 @@ export function TeamOutlineButton({
 }
 
 export function TeamRolePicker({
-  role: _role,
-  onChange: _onChange,
+  role,
 }: {
   role: TeamInviteChoice;
   onChange?: (role: TeamInviteChoice) => void;
@@ -318,7 +317,7 @@ export function TeamRolePicker({
           color: 'var(--foreground)',
         }}
       >
-        <span style={{ flex: 1 }}>Warehaus Staff</span>
+        <span style={{ flex: 1 }}>{role}</span>
         <span className="ds-mono" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--muted)' }}>
           FIXED
         </span>

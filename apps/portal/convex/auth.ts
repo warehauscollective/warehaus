@@ -15,12 +15,7 @@ import {
   verificationEmail,
   verificationLinkFor,
 } from './_lib/email';
-import {
-  grantInviteSignup,
-  INVITE_PASSWORD_MESSAGE,
-  invitePasswordReady,
-  takeInviteSignupGrant,
-} from './_lib/inviteFlow';
+import { INVITE_PASSWORD_MESSAGE, invitePasswordReady } from './_lib/inviteFlow';
 import {
   CANT_REGISTER_MESSAGE,
   existingUserSignupAction,
@@ -257,8 +252,13 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
                   code: 'INVITE_PASSWORD',
                 });
               }
-              grantInviteSignup(fields.email);
-              return;
+              if ('runMutation' in ctx) {
+                const granted = (await ctx.runMutation(anyApi.invites.grantSignupPermit, {
+                  token: inviteToken,
+                  email: fields.email,
+                })) as { ok?: boolean } | null;
+                if (granted?.ok) return;
+              }
             }
           }
           return await uniformBlockedSignup(ctx, baCtx as SignupHookCtx);
@@ -289,8 +289,11 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
       user: {
         create: {
           before: async (user) => {
-            if (takeInviteSignupGrant(user.email)) {
-              return { data: { ...user, emailVerified: true } };
+            if ('runMutation' in ctx) {
+              const taken = (await ctx.runMutation(anyApi.invites.takeSignupPermit, {
+                email: user.email,
+              })) as { ok?: boolean } | null;
+              if (taken?.ok) return { data: { ...user, emailVerified: true } };
             }
             const decision = await readEligibility(ctx, user.email);
             if (!decision) refuseRegistration();

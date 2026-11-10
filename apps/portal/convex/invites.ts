@@ -51,6 +51,9 @@ import {
   planMemberRemove,
   planStaffInviteLink,
   renewRequestMessage,
+  signupPermitExpiry,
+  signupPermitOpen,
+  staffAcceptOrgOk,
   tokenFromConfirmation,
   type InviteTokenState,
 } from './_lib/inviteFlow';
@@ -180,7 +183,7 @@ export const create = adminMutation({
   },
 });
 
-async function authUserByEmail(ctx: QueryCtx, email: string) {
+async function authUserByEmail(ctx: { runQuery: QueryCtx['runQuery'] }, email: string) {
   return (await ctx.runQuery(components.betterAuth.adapter.findOne, {
     model: 'user',
     where: [{ field: 'email', operator: 'eq', value: normalizeEmail(email) }],
@@ -277,6 +280,60 @@ export const signupAllowed = internalQuery({
     });
     if (!plan.ok) return { ok: false as const };
     return { ok: true as const, email: plan.emailNormalized };
+  },
+});
+
+/** Durable, single-use permit so the auth create hook can mark the email verified. */
+export const grantSignupPermit = internalMutation({
+  args: { token: v.string(), email: v.string() },
+  handler: async (ctx, { token, email }) => {
+    const tokenHash = await hashInviteToken(token);
+    const row = await ctx.db
+      .query('inviteTokens')
+      .withIndex('by_tokenHash', (q) => q.eq('tokenHash', tokenHash))
+      .unique();
+    const pending = await pendingForToken(ctx, row?.contactNotionPageId);
+    const account = row ? await authUserByEmail(ctx, row.emailNormalized) : null;
+    const plan = planInviteSignup({
+      tokenStatus: row?.status ?? 'missing',
+      expiresAt: row?.expiresAt ?? 0,
+      now: Date.now(),
+      tokenEmail: row?.emailNormalized ?? '',
+      accountExists: Boolean(account?._id || account?.email),
+      staffInvite: pending?.role === 'Warehaus Staff' && inviteEmailsMatchSafe(email, row?.emailNormalized ?? ''),
+    });
+    if (!plan.ok) return { ok: false as const };
+    const expiresAt = signupPermitExpiry();
+    const existing = await ctx.db
+      .query('inviteSignupPermits')
+      .withIndex('by_tokenHash', (q) => q.eq('tokenHash', tokenHash))
+      .unique();
+    if (existing) await ctx.db.patch(existing._id, { email: plan.emailNormalized, expiresAt });
+    else await ctx.db.insert('inviteSignupPermits', { tokenHash, email: plan.emailNormalized, expiresAt });
+    return { ok: true as const };
+  },
+});
+
+/** Consumes the permit once. A second call, or an expired row, does not verify. */
+export const takeSignupPermit = internalMutation({
+  args: { email: v.string() },
+  handler: async (ctx, { email }) => {
+    const normalized = normalizeEmail(email);
+    const rows = await ctx.db
+      .query('inviteSignupPermits')
+      .withIndex('by_email', (q) => q.eq('email', normalized))
+      .collect();
+    const now = Date.now();
+    let opened = false;
+    for (const permit of rows) {
+      if (!opened && signupPermitOpen(permit, normalized, now)) {
+        opened = true;
+        await ctx.db.delete(permit._id);
+      } else if (permit.expiresAt <= now) {
+        await ctx.db.delete(permit._id);
+      }
+    }
+    return { ok: opened };
   },
 });
 
@@ -380,8 +437,21 @@ export const accept = mutation({
       return { ok: false as const, status: plan.reason, message: inviteStatusMessage(plan.reason) };
     }
     if (!row) return { ok: false as const, status: 'unusable' as const, message: inviteStatusMessage('unusable') };
+    const identity = await ctx.auth.getUserIdentity();
+    const authUserId = identity?.subject ?? '';
+    if (!authUserId) return { ok: false as const, status: 'unusable' as const, message: inviteStatusMessage('unusable') };
     const pending = await pendingForToken(ctx, row.contactNotionPageId);
-    const authUserId = 'id' in user && typeof user.id === 'string' ? user.id : '';
+    const warehaus = await warehausInternal(ctx);
+    if (
+      !staffAcceptOrgOk({
+        pendingRole: pending?.role,
+        pendingOrgId: pending?.orgId,
+        tokenOrgId: row.orgId,
+        internalOrgId: warehaus?._id,
+      })
+    ) {
+      return { ok: false as const, status: 'unusable' as const, message: inviteStatusMessage('unusable') };
+    }
     let staffLink: { email: string; name: string; role: 'Warehaus Staff' } | undefined;
     if (pending?.role === 'Warehaus Staff') {
       const contacts = await ctx.db
@@ -614,12 +684,23 @@ export const issueTokenAfterConfirm = internalMutation({
         .query('contacts')
         .withIndex('by_email', (q) => q.eq('email', invite.emailNormalized))
         .collect();
+      const account = await authUserByEmail(ctx, invite.emailNormalized);
+      const inviter = invite.createdByContactId
+        ? await ctx.db.get(invite.createdByContactId as Id<'contacts'>)
+        : null;
       return {
         issued: true as const,
         raw: issued.raw,
         to: invite.emailNormalized,
         name: invite.name,
-        alreadyHasLogin: logins.some((contact) => Boolean(contact.authUserId)),
+        alreadyHasLogin: Boolean(account?._id || account?.email) || logins.some((contact) => Boolean(contact.authUserId)),
+        inviterName: inviter?.name,
+        expiresOn: new Intl.DateTimeFormat('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric',
+          timeZone: 'UTC',
+        }).format(issued.expiresAt),
       };
     }
     if (row.kind === 'setInviteState' && parsed.tokenId) {
@@ -679,6 +760,8 @@ async function linkConfirmedStaff(
   ctx: MutationCtx,
   input: { orgId: Id<'clients'>; notionPageId: string; email: string; name: string; authUserId: string },
 ) {
+  const internal = await warehausInternal(ctx);
+  if (!internal || input.orgId !== internal._id) return;
   const email = normalizeEmail(input.email);
   const contacts = await ctx.db.query('contacts').withIndex('by_email', (q) => q.eq('email', email)).collect();
   const session = await ctx.db
@@ -743,7 +826,7 @@ export const emailHasLiveStaffInvite = internalQuery({
   },
 });
 
-/** Marks live tokens past expiresAt. Uses by_status_expiresAt. Does not write Notion. */
+/** Marks live tokens past expiresAt and queues Invite Status Expired for Notion. */
 export const expireDue = internalMutation({
   args: {},
   handler: async (ctx) => {
@@ -763,6 +846,18 @@ export const expireDue = internalMutation({
       if (pending?.inviteStatus === 'Pending') {
         await ctx.db.patch(pending._id, { inviteStatus: 'Expired' });
       }
+      await enqueueInvite(ctx, {
+        idempotencyKey: stateIdempotencyKey(token.contactNotionPageId, 'Expired', token._id),
+        kind: 'setInviteState',
+        orgId: token.orgId,
+        notionPageId: token.contactNotionPageId,
+        expectedLastEditedTime: await lastEditedFor(ctx, token.contactNotionPageId),
+        payload: JSON.stringify({
+          properties: inviteStateProperties('Expired'),
+          tokenId: token._id,
+        }),
+        actor: 'system',
+      });
       expired += 1;
     }
     return { expired };

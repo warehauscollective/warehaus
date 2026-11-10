@@ -48,6 +48,7 @@ export type InviteDraft = { name: string; email: string };
 
 const INVITED = Date.UTC(2026, 10, 9);
 const EXPIRES = Date.UTC(2026, 10, 16);
+const EXPIRED_ON = Date.UTC(2026, 10, 2);
 
 const FIXTURE_TEAM: TeamRow = {
   canInvite: true,
@@ -83,8 +84,8 @@ const FIXTURE_TEAM: TeamRow = {
       email: 'sam@warehaus.studio',
       role: 'Warehaus Staff',
       inviteStatus: 'Expired',
-      invitedAt: INVITED,
-      expiresAt: EXPIRES,
+      invitedAt: Date.UTC(2026, 9, 26),
+      expiresAt: EXPIRED_ON,
     },
   ],
 };
@@ -113,11 +114,9 @@ function modeFromPreview(value: string | null): ModalMode {
 }
 
 export function TeamInvites({
-  hostSlug: _hostSlug,
   configured,
   fixtures = false,
   screen = 'ready',
-  draft: _draft,
   onDraftChange,
   onRetry,
 }: {
@@ -265,7 +264,7 @@ export function TeamInvites({
       <div className="flex h-full min-h-0 flex-col gap-6 overflow-auto" data-testid="team-invites" data-page-scroll="" data-state={view}>
         <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
           <p style={{ margin: 0, maxWidth: 520, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
-            Who can sign in to the Portal. Staff are invited here; clients from the Clients tab.
+            Who can sign in to the Portal. Staff are invited here.
           </p>
           <button type="button" data-testid="team-open-invite" onClick={openModal} style={primaryButton}>
             Invite staff
@@ -363,7 +362,7 @@ export function TeamInvites({
           </section>
         ) : null}
         <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
-          Only Warehaus Staff can invite staff. Client Members and Client Admins are invited from the Clients tab.
+          Only Warehaus Staff can invite staff.
         </p>
         {note ? (
           <p role="status" data-testid="team-invite-hint" style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>

@@ -1,18 +1,39 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { accept, decline, issueTokenAfterConfirm, releaseHeldToken, remove, revoke } from '../invites';
+import { applyContactRead } from '../invitesSync';
+import {
+  accept,
+  create,
+  decline,
+  expireDue,
+  grantSignupPermit,
+  issueTokenAfterConfirm,
+  releaseHeldToken,
+  remove,
+  revoke,
+  takeSignupPermit,
+} from '../invites';
+import { selectContactForJoin } from './contactJoin';
 import { INVITE_CLIENT_FAILURE, hashInviteToken } from './inviteFlow';
 
 type Row = Record<string, unknown> & { _id: string };
 
 class EqBuilder {
-  private eqs: Array<[string, unknown]> = [];
+  private preds: Array<(row: Row) => boolean> = [];
   eq(field: string, value: unknown): this {
-    this.eqs.push([field, value]);
+    this.preds.push((row) => row[field] === value);
+    return this;
+  }
+  gte(field: string, value: number): this {
+    this.preds.push((row) => typeof row[field] === 'number' && (row[field] as number) >= value);
+    return this;
+  }
+  lt(field: string, value: number): this {
+    this.preds.push((row) => typeof row[field] === 'number' && (row[field] as number) < value);
     return this;
   }
   matches(row: Row): boolean {
-    return this.eqs.every(([field, value]) => row[field] === value);
+    return this.preds.every((pred) => pred(row));
   }
 }
 
@@ -25,10 +46,16 @@ class MemoryIndex {
     if (this.rows.length > 1) throw new Error('Expected a unique row');
     return this.rows[0] ?? null;
   }
+  async take(count: number) {
+    return this.rows.slice(0, count);
+  }
 }
 
+const seqByTables = new WeakMap<Record<string, Row[]>, { n: number }>();
+
 function memoryDb(tables: Record<string, Row[]>) {
-  let seq = 1;
+  const seq = seqByTables.get(tables) ?? { n: 1 };
+  seqByTables.set(tables, seq);
   return {
     async get(id: string) {
       for (const rows of Object.values(tables)) {
@@ -38,7 +65,7 @@ function memoryDb(tables: Record<string, Row[]>) {
       return null;
     },
     async insert(table: string, doc: Record<string, unknown>) {
-      const row = { ...doc, _id: `${table}-${seq++}` } as Row;
+      const row = { ...doc, _id: `${table}-${seq.n++}` } as Row;
       (tables[table] ??= []).push(row);
       return row._id;
     },
@@ -47,6 +74,15 @@ function memoryDb(tables: Record<string, Row[]>) {
         const found = rows.find((row) => row._id === id);
         if (found) {
           Object.assign(found, fields);
+          return;
+        }
+      }
+    },
+    async delete(id: string) {
+      for (const rows of Object.values(tables)) {
+        const index = rows.findIndex((row) => row._id === id);
+        if (index >= 0) {
+          rows.splice(index, 1);
           return;
         }
       }
@@ -66,8 +102,13 @@ function memoryDb(tables: Record<string, Row[]>) {
 
 const user = {
   _id: 'user-1',
-  id: 'user-1',
   email: 'ada@northwind.test',
+  emailVerified: true,
+};
+
+const newStaffUser = {
+  _id: 'user-new',
+  email: 'new.staff@warehaus.co',
   emailVerified: true,
 };
 
@@ -76,14 +117,24 @@ function authCtx(
   tables: Record<string, Row[]>,
   enqueues: Array<Record<string, unknown>>,
   enqueueOk = true,
+  authUser: Row = user,
+  accounts: Row[] = [],
 ) {
   const db = memoryDb(tables);
+  const known = [authUser, ...accounts];
   return {
     auth: { getUserIdentity: async () => ({ subject, sessionId: 'sess-1' }) },
     db,
-    async runQuery(_ref: unknown, args: { model?: string }) {
+    async runQuery(_ref: unknown, args: { model?: string; where?: Array<{ field?: string; value?: unknown }> }) {
       if (args.model === 'session') return { _id: 'sess-1', expiresAt: Date.now() + 60_000 };
-      if (args.model === 'user') return user;
+      if (args.model === 'user') {
+        const where = args.where ?? [];
+        const id = where.find((item) => item.field === '_id')?.value;
+        if (id != null) return known.find((row) => row._id === id) ?? null;
+        const email = where.find((item) => item.field === 'email')?.value;
+        if (email != null) return known.find((row) => row.email === email) ?? null;
+        return authUser;
+      }
       return null;
     },
     async runMutation(_ref: unknown, args: Record<string, unknown>) {
@@ -128,6 +179,32 @@ async function tokenRow(id: string, raw: string) {
   };
 }
 
+function asStaffInvite(tables: Record<string, Row[]>, token: Row) {
+  tables.clients?.push({
+    _id: 'org-wh',
+    slug: 'warehaus-internal',
+    notionPageId: 'wh-notion',
+    portalAccess: 'Enabled',
+    companyName: 'Warehaus',
+  });
+  token.orgId = 'org-wh';
+  token.emailNormalized = newStaffUser.email;
+  tables.pendingInvites = [
+    {
+      _id: 'pending-staff',
+      orgId: 'org-wh',
+      notionPageId: String(token.contactNotionPageId),
+      name: 'New Staff',
+      email: newStaffUser.email,
+      role: 'Warehaus Staff',
+      inviteStatus: 'Pending',
+      source: 'portal',
+      lastSyncedAt: 1,
+    },
+  ];
+  return tables;
+}
+
 function baseTables(token: Row): Record<string, Row[]> {
   return {
     clients: [{ _id: 'org-north', slug: 'northwind', portalAccess: 'Enabled', companyName: 'Northwind' }],
@@ -160,14 +237,19 @@ function baseTables(token: Row): Record<string, Row[]> {
 
 describe('invite accept, decline, and revoke', () => {
   it('holds the token in the same mutation and refuses a second accept', async () => {
-    const tables = baseTables(await tokenRow('tok-accept', 'raw-accept'));
+    const token = await tokenRow('tok-accept', 'raw-accept');
+    const tables = asStaffInvite(baseTables(token), token);
     const enqueues: Array<Record<string, unknown>> = [];
-    const ctx = authCtx('user-1', tables, enqueues);
+    const ctx = authCtx('user-new', tables, enqueues, true, newStaffUser);
+    assert.equal('id' in newStaffUser, false);
 
     const first = await run(accept, ctx, { token: 'raw-accept' });
     assert.deepEqual(first, { ok: true, status: 'pending' });
     assert.equal(tables.inviteTokens?.[0]?.status, 'pending');
     assert.equal(enqueues.length, 1);
+    const payload = JSON.parse(String(enqueues[0]?.payload)) as { authUserId?: string; staffLink?: { role?: string } };
+    assert.equal(payload.authUserId, newStaffUser._id);
+    assert.equal(payload.staffLink?.role, 'Warehaus Staff');
 
     const second = await run(accept, ctx, { token: 'raw-accept' });
     assert.equal(second.ok, false);
@@ -177,9 +259,10 @@ describe('invite accept, decline, and revoke', () => {
   });
 
   it('puts the token back when the write dies, then marks it used when Notion confirms', async () => {
-    const tables = baseTables(await tokenRow('tok-accept', 'raw-accept'));
+    const token = await tokenRow('tok-accept', 'raw-accept');
+    const tables = asStaffInvite(baseTables(token), token);
     const enqueues: Array<Record<string, unknown>> = [];
-    const ctx = authCtx('user-1', tables, enqueues);
+    const ctx = authCtx('user-new', tables, enqueues, true, newStaffUser);
     await run(accept, ctx, { token: 'raw-accept' });
     const outboxId = enqueues[0]?.outboxId as string;
 
@@ -200,7 +283,7 @@ describe('invite accept, decline, and revoke', () => {
     const after = await run(accept, ctx, { token: 'raw-accept' });
     assert.equal(after.ok, false);
     assert.equal(after.status, 'used');
-    assert.match(String(after.message), /already used or revoked/);
+    assert.match(String(after.message), /already used/);
     assert.equal(tables.inviteTokens?.[0]?.status, 'used');
   });
 
@@ -224,8 +307,8 @@ describe('invite accept, decline, and revoke', () => {
     assert.equal(tables.inviteTokens?.[0]?.status, 'killed');
     assert.deepEqual(await run(accept, ctx, { token: 'raw-decline' }), {
       ok: false,
-      status: 'used',
-      message: 'This invite was already used or revoked.',
+      status: 'revoked',
+      message: 'This invite was revoked.',
     });
   });
 
@@ -301,5 +384,181 @@ describe('invite accept, decline, and revoke', () => {
     const result = await run(remove, ctx, { contactNotionPageId: 'member-notion', requestId: 'req-off' });
     assert.deepEqual(result, { ok: false, message: 'Write-back is off. Nothing was sent to Notion.' });
     assert.equal(enqueues.length, 0);
+  });
+
+  it('refuses accept unless the invite is Warehaus Staff on the internal org', async () => {
+    const token = await tokenRow('tok-client', 'raw-client');
+    const tables = baseTables(token);
+    tables.pendingInvites = [
+      {
+        _id: 'pending-client',
+        orgId: 'org-north',
+        notionPageId: 'contact-notion',
+        name: 'Ada Client',
+        email: 'ada@northwind.test',
+        role: 'Client Member',
+        inviteStatus: 'Pending',
+        source: 'portal',
+        lastSyncedAt: 1,
+      },
+    ];
+    const enqueues: Array<Record<string, unknown>> = [];
+    const ctx = authCtx('user-1', tables, enqueues);
+    const refused = await run(accept, ctx, { token: 'raw-client' });
+    assert.equal(refused.ok, false);
+    assert.equal(refused.status, 'unusable');
+    assert.equal(tables.inviteTokens?.[0]?.status, 'live');
+    assert.equal(enqueues.length, 0);
+  });
+
+  it('links a new user and an existing account, then sign-in finds the staff contact', async () => {
+    const previousWriteback = process.env.NOTION_WRITEBACK_ENABLED;
+    const previousEmail = process.env.INVITE_EMAIL_ENABLED;
+    const previousUrl = process.env.PORTAL_PUBLIC_URL;
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
+    process.env.INVITE_EMAIL_ENABLED = 'true';
+    process.env.PORTAL_PUBLIC_URL = 'http://localhost:3100';
+    try {
+      for (const existing of [false, true]) {
+        const email = existing ? 'sam.existing@warehaus.co' : 'new.staff@warehaus.co';
+        const authId = existing ? 'user-existing' : 'user-new';
+        const account = { _id: authId, email, emailVerified: true };
+        const tables = baseTables(await tokenRow(`tok-${authId}`, `raw-${authId}`));
+        tables.clients?.push({
+          _id: 'org-wh',
+          slug: 'warehaus-internal',
+          notionPageId: 'wh-notion',
+          portalAccess: 'Enabled',
+          companyName: 'Warehaus',
+        });
+        const enqueues: Array<Record<string, unknown>> = [];
+        const staffCtx = authCtx('auth-staff', tables, enqueues, true, user, existing ? [account] : []);
+        const created = await run(create, staffCtx, {
+          name: existing ? 'Sam Existing' : 'New Staff',
+          email,
+          requestId: `req-${authId}`,
+        });
+        assert.deepEqual(created, { ok: true, status: 'pending', message: 'Invite pending' });
+        const outbox = tables.notionOutbox?.[0];
+        assert.ok(outbox);
+        outbox.status = 'done';
+        outbox.kind = 'createInvite';
+        const issued = await (
+          issueTokenAfterConfirm as unknown as {
+            _handler: (ctx: ReturnType<typeof authCtx>, args: Record<string, unknown>) => Promise<{
+              issued?: boolean;
+              alreadyHasLogin?: boolean;
+              inviterName?: string;
+              expiresOn?: string;
+              raw?: string;
+            }>;
+          }
+        )._handler(staffCtx, { outboxId: outbox._id, notionPageId: `page-${authId}` });
+        assert.equal(issued.issued, true);
+        assert.equal(issued.alreadyHasLogin, existing);
+        assert.equal(issued.inviterName, 'Alex Staff');
+        assert.match(issued.expiresOn ?? '', /[A-Z][a-z]+ \d+, \d{4}/);
+        assert.equal((issued.expiresOn ?? '').includes('7 days from now'), false);
+
+        const inviteeCtx = authCtx(authId, tables, enqueues, true, account);
+        const accepted = await run(accept, inviteeCtx, { token: issued.raw });
+        assert.deepEqual(accepted, { ok: true, status: 'pending' });
+        const held = tables.notionOutbox?.find((row) => row._id === enqueues.at(-1)?.outboxId);
+        assert.ok(held);
+        held.status = 'done';
+        held.kind = 'setInviteState';
+        await run(issueTokenAfterConfirm, inviteeCtx, { outboxId: held._id, notionPageId: `page-${authId}` });
+        const linked = tables.contacts?.find((row) => row.email === email && row.role === 'Warehaus Staff');
+        assert.ok(linked);
+        assert.equal(linked.authUserId, authId);
+        assert.equal(linked.portalAccess, 'Enabled');
+        const joined = selectContactForJoin({
+          email,
+          authUserId: authId,
+          emailVerified: true,
+          contacts: [
+            {
+              _id: String(linked._id),
+              orgId: String(linked.orgId),
+              email: String(linked.email),
+              name: String(linked.name),
+              role: 'Warehaus Staff',
+              portalAccess: 'Enabled',
+              authUserId: String(linked.authUserId),
+              notionPageId: String(linked.notionPageId),
+            },
+          ],
+        });
+        assert.equal(joined.authUserId, authId);
+        tables.notionOutbox = [];
+        enqueues.length = 0;
+      }
+    } finally {
+      if (previousWriteback === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+      else process.env.NOTION_WRITEBACK_ENABLED = previousWriteback;
+      if (previousEmail === undefined) delete process.env.INVITE_EMAIL_ENABLED;
+      else process.env.INVITE_EMAIL_ENABLED = previousEmail;
+      if (previousUrl === undefined) delete process.env.PORTAL_PUBLIC_URL;
+      else process.env.PORTAL_PUBLIC_URL = previousUrl;
+    }
+  });
+
+  it('queues Expired for Notion and keeps that status when sync sends Pending again', async () => {
+    const token = await tokenRow('tok-expire', 'raw-expire');
+    token.expiresAt = Date.now() - 1_000;
+    token.status = 'live';
+    const tables = asStaffInvite(baseTables(token), token);
+    const pending = tables.pendingInvites?.[0];
+    assert.ok(pending);
+    pending.inviteStatus = 'Pending';
+    const enqueues: Array<Record<string, unknown>> = [];
+    const ctx = authCtx('user-1', tables, enqueues);
+    const result = await run(expireDue, ctx);
+    assert.equal(result.ok, undefined);
+    assert.equal(tables.inviteTokens?.[0]?.status, 'expired');
+    assert.equal(tables.pendingInvites?.[0]?.inviteStatus, 'Expired');
+    const payload = JSON.parse(String(enqueues[0]?.payload)) as { properties?: Record<string, string> };
+    assert.equal(payload.properties?.['Invite Status'], 'Expired');
+
+    await run(applyContactRead, ctx, {
+      notionPageId: 'contact-notion',
+      orgId: 'org-wh',
+      name: 'New Staff',
+      email: newStaffUser.email,
+      role: 'Warehaus Staff',
+      source: 'portal',
+      placement: 'UPSERT_PENDING_INVITE',
+      inviteStatus: 'Pending',
+      actionsJson: '[]',
+      observedJson: '{}',
+    });
+    assert.equal(tables.pendingInvites?.[0]?.inviteStatus, 'Expired');
+  });
+
+  it('consumes a signup permit once and ignores an expired one', async () => {
+    const token = await tokenRow('tok-permit', 'raw-permit');
+    const tables = asStaffInvite(baseTables(token), token);
+    const enqueues: Array<Record<string, unknown>> = [];
+    const ctx = authCtx('auth-staff', tables, enqueues, true, user);
+    const granted = await run(grantSignupPermit, ctx, { token: 'raw-permit', email: newStaffUser.email });
+    assert.deepEqual(granted, { ok: true });
+    assert.equal(tables.inviteSignupPermits?.length, 1);
+    const first = await run(takeSignupPermit, ctx, { email: 'New.Staff@warehaus.co' });
+    assert.deepEqual(first, { ok: true });
+    assert.equal(tables.inviteSignupPermits?.length, 0);
+    const second = await run(takeSignupPermit, ctx, { email: newStaffUser.email });
+    assert.deepEqual(second, { ok: false });
+
+    tables.inviteSignupPermits = [
+      {
+        _id: 'permit-old',
+        tokenHash: 'dead',
+        email: newStaffUser.email,
+        expiresAt: Date.now() - 1,
+      },
+    ];
+    const expired = await run(takeSignupPermit, ctx, { email: newStaffUser.email });
+    assert.deepEqual(expired, { ok: false });
+    assert.equal(tables.inviteSignupPermits.length, 0);
   });
 });

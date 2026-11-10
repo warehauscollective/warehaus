@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
@@ -27,6 +26,7 @@ import {
 } from '@/lib/data/dashboard';
 import { NewTaskControl } from '@/components/tasks/NewTaskControl';
 import { DashboardHome, type DashPreview } from '@/components/pages/DashboardHome';
+import { readStaffJoined, type StaffJoined } from '@/lib/staffJoined';
 
 type SyncHealthPayload = {
   pull: PullMeta;
@@ -56,8 +56,11 @@ export function PortalHomeContent() {
   const { sectionFor, openDetail } = usePortalView();
   const { data, loading, error } = usePortalData();
   const { portalSession } = usePortalAuth();
-  const params = useSearchParams();
   const fixtures = useFixturePreview();
+  const [joined, setJoined] = useState<StaffJoined | null>(null);
+  useEffect(() => {
+    setJoined(readStaffJoined());
+  }, []);
   const configured = isConvexConfigured();
   const isStaff = Boolean(portalSession?.isStaff);
   const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
@@ -204,14 +207,7 @@ export function PortalHomeContent() {
               ),
             })
           }
-          joined={
-            params.get('joined') === 'staff'
-              ? {
-                  name: params.get('name') || portalSession?.name?.split(/\s+/)[0] || 'there',
-                  inviter: params.get('inviter') || 'The person who invited you',
-                }
-              : null
-          }
+          joined={joined}
         />
       </PortalTilePane>
     </PortalWorkspace>

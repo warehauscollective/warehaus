@@ -1,7 +1,7 @@
 /**
  * Thin Resend sender for portal transactional mail (password reset, etc.).
- * Runs inside Better Auth handlers on the Convex deployment — set
- * RESEND_API_KEY (+ optional EMAIL_FROM / EMAIL_REPLY_TO) via `npx convex env set`.
+ * The sender is EMAIL_FROM on warehaus.co. There is no baked-in address.
+ * Set RESEND_API_KEY, EMAIL_FROM, and optional EMAIL_REPLY_TO on the deployment.
  */
 
 export type SendPortalEmailArgs = {
@@ -21,10 +21,7 @@ function requireEnv(name: string): string {
 
 export async function sendPortalEmail(args: SendPortalEmailArgs & { from?: string }): Promise<void> {
   const apiKey = requireEnv('RESEND_API_KEY');
-  const from =
-    args.from?.trim() ||
-    process.env.EMAIL_FROM?.trim() ||
-    'Warehaus Portal <noreply@warehaus.co>';
+  const from = requireInviteFrom(args.from?.trim() || process.env.EMAIL_FROM);
   const replyTo = process.env.EMAIL_REPLY_TO?.trim();
 
   const payload: Record<string, unknown> = {
@@ -252,7 +249,7 @@ function inviteLetter(args: {
   const inviter = args.inviterName?.trim() || 'Warehaus';
   const inviterMail = args.inviterEmail?.trim();
   const who = inviterMail ? `${inviter} (${inviterMail})` : inviter;
-  const expires = args.expiresOn?.trim() || '7 days from now';
+  const expires = args.expiresOn?.trim() ?? '';
   const first = inviter.split(/\s+/)[0] ?? inviter;
   const action = args.existingLogin
     ? 'Sign in with your Portal account to join Warehaus as staff.'
@@ -264,7 +261,9 @@ function inviteLetter(args: {
     '',
     args.acceptUrl,
     '',
-    `This link expires in 7 days. It works once and stops working on ${expires}. If it expires, ask ${first} for a new invite.`,
+    expires
+      ? `This link expires in 7 days. It works once and stops working on ${expires}. If it expires, ask ${first} for a new invite.`
+      : `This link expires in 7 days. It works once. If it expires, ask ${first} for a new invite.`,
     '',
     'Weren’t expecting this? You can ignore this email. Nothing is created until you accept, and we never ask for your password by email.',
     '',
@@ -283,7 +282,7 @@ function inviteLetter(args: {
       </a>
     </p>
     <p style="margin: 0 0 8px;"><strong>This link expires in 7 days</strong></p>
-    <p style="font-size: 14px; color: #555; margin-top: 0;">It works once and stops working on ${escapeHtml(expires)}. If it expires, ask ${escapeHtml(first)} for a new invite.</p>
+    <p style="font-size: 14px; color: #555; margin-top: 0;">${expires ? `It works once and stops working on ${escapeHtml(expires)}. ` : 'It works once. '}If it expires, ask ${escapeHtml(first)} for a new invite.</p>
     <p style="font-size: 14px; color: #555;">Button not working? Paste this link into your browser:</p>
     <p style="font-size: 13px; word-break: break-all; color: #333;">${escapeHtml(args.acceptUrl)}</p>
     <p style="font-size: 14px; color: #555;">Weren’t expecting this? You can ignore this email. Nothing is created until you accept, and we never ask for your password by email.</p>
@@ -334,7 +333,7 @@ export function renewRequestEmail(args: {
   return { subject, html, text };
 }
 
-/** Invite mail uses EMAIL_FROM only. There is no backup sender. */
+/** Sender is EMAIL_FROM on warehaus.co. Auth mail and invites both require it. */
 export function requireInviteFrom(from: string | undefined): string {
   const value = from?.trim();
   if (!value) throw new Error('EMAIL_FROM is not set on the Convex deployment');

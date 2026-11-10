@@ -11,7 +11,7 @@ import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from './_generated/server';
 import { adminMutation, adminQuery } from './_lib/wrappers';
-import { asInviteRole } from './_lib/inviteFlow';
+import { asInviteRole, pendingInviteWouldRegress } from './_lib/inviteFlow';
 import { revertAllowed, REVERT_WINDOW_MS } from './_lib/revertLimit';
 import { isDuplicateNotice } from './_lib/noticeDedupe';
 import { isNotionWritebackEnabled } from './_lib/writeAuthz';
@@ -334,6 +334,20 @@ export const applyContactRead = internalMutation({
       .unique();
 
     const inviteRole = asInviteRole(args.role);
+    const tokens = await ctx.db
+      .query('inviteTokens')
+      .withIndex('by_contactNotionPageId', (q) => q.eq('contactNotionPageId', args.notionPageId))
+      .collect();
+    if (
+      pendingInviteWouldRegress({
+        existingStatus: existing?.inviteStatus,
+        incomingStatus: args.inviteStatus,
+        tokens,
+        now,
+      })
+    ) {
+      return { selfWrite };
+    }
     const keepStaffPending =
       inviteRole === 'Warehaus Staff' && args.inviteStatus === 'Pending' && args.source === 'portal';
     if ((args.placement === 'UPSERT_PENDING_INVITE' || keepStaffPending) && orgId && args.inviteStatus && inviteRole) {

@@ -19,7 +19,6 @@ import {
   createInviteToken,
   describeInvitePreview,
   finishInviteToken,
-  grantInviteSignup,
   hashInviteToken,
   inviteEmailsMatch,
   invitePasswordReady,
@@ -33,8 +32,10 @@ import {
   planInviteSignup,
   planMemberRemove,
   planStaffInviteLink,
+  pendingInviteWouldRegress,
   renewRequestMessage,
-  takeInviteSignupGrant,
+  staffAcceptOrgOk,
+  signupPermitOpen,
   tokenFromConfirmation,
   type InviteTokenState,
 } from './inviteFlow';
@@ -199,7 +200,7 @@ describe('invite accept email match', () => {
       emailVerified: true,
     });
     assert.equal(dead.ok, false);
-    if (!dead.ok) assert.equal(dead.reason, 'used');
+    if (!dead.ok) assert.equal(dead.reason, 'revoked');
     const expired = planInviteAccept({
       tokenStatus: 'expired',
       expiresAt: 100,
@@ -238,6 +239,16 @@ describe('invite accept email match', () => {
     assert.match(mail.html, /background: #111/);
     assert.match(mail.text, /portal\.example\/accept\?token=abc/);
     assert.equal(mail.html.includes('Decline'), false);
+    assert.equal(mail.html.includes('7 days from now'), false);
+    const named = inviteEmail({
+      name: 'Ada',
+      acceptUrl: 'https://portal.example/accept?token=abc',
+      inviterName: 'Peter Roquemore',
+      expiresOn: 'Nov 16, 2026',
+    });
+    assert.match(named.html, /Peter Roquemore/);
+    assert.match(named.text, /stops working on Nov 16, 2026/);
+    assert.equal(named.text.includes('7 days from now'), false);
   });
 
   it('emails people who already have a login instead of a password screen', () => {
@@ -302,7 +313,7 @@ describe('invite accept email match', () => {
     assert.deepEqual(expired, { status: 'expired', portalName: 'Portal invite', invitedEmail: 'ada@example.com' });
     assert.deepEqual(past, { status: 'expired', portalName: 'Portal invite', invitedEmail: 'ada@example.com' });
     assert.deepEqual(used, { status: 'used', portalName: 'Portal invite' });
-    assert.deepEqual(revoked, { status: 'used', portalName: 'Portal invite' });
+    assert.deepEqual(revoked, { status: 'revoked', portalName: 'Portal invite' });
     assert.equal(JSON.stringify({ unknown, used }).includes(secret), false);
     assert.equal(JSON.stringify(expired).includes(secret), false);
     assert.equal(JSON.stringify(unknown).includes('ada@example.com'), false);
@@ -443,9 +454,46 @@ describe('invite accept email match', () => {
     });
     assert.equal(liveTokenIsExpired('live', 5, 10), true);
     assert.equal(liveTokenIsExpired('used', 5, 10), false);
-    grantInviteSignup('Ada@Example.com', 1_000);
-    assert.equal(takeInviteSignupGrant('ada@example.com', 1_001), true);
-    assert.equal(takeInviteSignupGrant('ada@example.com', 1_002), false);
+    const permit = { email: 'ada@example.com', expiresAt: 1_000 + 15_000 };
+    assert.equal(signupPermitOpen(permit, 'Ada@Example.com', 1_001), true);
+    assert.equal(signupPermitOpen(permit, 'ada@example.com', permit.expiresAt), false);
+    assert.equal(signupPermitOpen(null, 'ada@example.com', 1_001), false);
+    assert.equal(
+      pendingInviteWouldRegress({
+        existingStatus: 'Expired',
+        incomingStatus: 'Pending',
+        tokens: [{ status: 'expired', expiresAt: 1 }],
+        now: 10,
+      }),
+      true,
+    );
+    assert.equal(
+      pendingInviteWouldRegress({
+        existingStatus: 'Expired',
+        incomingStatus: 'Pending',
+        tokens: [{ status: 'live', expiresAt: 50 }],
+        now: 10,
+      }),
+      false,
+    );
+    assert.equal(
+      staffAcceptOrgOk({
+        pendingRole: 'Warehaus Staff',
+        pendingOrgId: 'org-wh',
+        tokenOrgId: 'org-wh',
+        internalOrgId: 'org-wh',
+      }),
+      true,
+    );
+    assert.equal(
+      staffAcceptOrgOk({
+        pendingRole: 'Warehaus Staff',
+        pendingOrgId: 'org-client',
+        tokenOrgId: 'org-client',
+        internalOrgId: 'org-wh',
+      }),
+      false,
+    );
   });
 
   it('refuses decline and revoke after accept until a dead write releases the token', () => {
@@ -522,7 +570,7 @@ describe('invite accept email match', () => {
         {
           INVITE_EMAIL_ENABLED: 'true',
           PORTAL_PUBLIC_URL: 'https://portal.example/',
-          EMAIL_FROM: 'Warehaus Portal <portal@warehaus.studio>',
+          EMAIL_FROM: 'Warehaus Portal <noreply@warehaus.co>',
         },
         client,
       );

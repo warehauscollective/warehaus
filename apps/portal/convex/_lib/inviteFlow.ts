@@ -12,7 +12,8 @@ export const INVITE_EXPIRY_MS = 7 * 24 * 60 * 60 * 1000;
 export const INVITE_DAILY_LIMIT = 20;
 export const INVITE_CLIENT_FAILURE = "We couldn't send this invite";
 export const INVITE_EXPIRED_MESSAGE = 'This invite has expired.';
-export const INVITE_USED_MESSAGE = 'This invite was already used or revoked.';
+export const INVITE_USED_MESSAGE = 'This invite was already used.';
+export const INVITE_REVOKED_MESSAGE = 'This invite was revoked.';
 export const INVITE_MISMATCH_MESSAGE = 'You’re signed in as a different account.';
 export const INVITE_ALREADY_MESSAGE = 'This email is already staff or a member.';
 export const INVITE_UNVERIFIED_MESSAGE = 'Verify your email, then open this link again.';
@@ -131,7 +132,7 @@ export function inviteSendGate(env: {
   return { ok: true };
 }
 
-export type AcceptReason = 'mismatch' | 'unverified' | 'unusable' | 'expired' | 'used';
+export type AcceptReason = 'mismatch' | 'unverified' | 'unusable' | 'expired' | 'used' | 'revoked';
 
 export type AcceptPlan =
   | { ok: true; emailNormalized: string }
@@ -150,9 +151,8 @@ export function planInviteAccept(input: {
   signedInEmail: string;
   emailVerified: boolean;
 }): AcceptPlan {
-  if (input.tokenStatus === 'used' || input.tokenStatus === 'killed') {
-    return { ok: false, reason: 'used' };
-  }
+  if (input.tokenStatus === 'killed') return { ok: false, reason: 'revoked' };
+  if (input.tokenStatus === 'used') return { ok: false, reason: 'used' };
   if (input.tokenStatus === 'expired' || (input.tokenStatus === 'live' && input.expiresAt <= input.now)) {
     return { ok: false, reason: 'expired' };
   }
@@ -167,6 +167,7 @@ export function planInviteAccept(input: {
 export function inviteStatusMessage(status: string, signedInEmail?: string): string {
   if (status === 'expired') return INVITE_EXPIRED_MESSAGE;
   if (status === 'used') return INVITE_USED_MESSAGE;
+  if (status === 'revoked') return INVITE_REVOKED_MESSAGE;
   if (status === 'different-email') {
     const who = signedInEmail?.trim();
     return who ? `You’re signed in as ${who}. ${INVITE_MISMATCH_MESSAGE}` : INVITE_MISMATCH_MESSAGE;
@@ -230,27 +231,63 @@ export function planInviteSignup(input: {
     emailVerified: true,
   });
   if (!token.ok) {
-    const reason = token.reason === 'mismatch' || token.reason === 'unverified' ? 'unusable' : token.reason;
-    return { ok: false, reason };
+    if (token.reason === 'expired') return { ok: false, reason: 'expired' };
+    if (token.reason === 'used' || token.reason === 'revoked') return { ok: false, reason: 'used' };
+    return { ok: false, reason: 'unusable' };
   }
   if (!input.staffInvite) return { ok: false, reason: 'not-staff' };
   if (input.accountExists) return { ok: false, reason: 'sign-in' };
   return { ok: true, emailNormalized: token.emailNormalized };
 }
 
-const inviteSignupGrants = new Map<string, number>();
+/** How long a signup permit stays usable. Opening the link is the verification. */
+export const INVITE_SIGNUP_PERMIT_MS = 15_000;
 
-/** Same-request permit so the auth create hook can allow this email. The token was already checked. */
-export function grantInviteSignup(email: string, now = Date.now()): void {
-  inviteSignupGrants.set(normalizeEmail(email), now + 15_000);
+export function signupPermitExpiry(now = Date.now()): number {
+  return now + INVITE_SIGNUP_PERMIT_MS;
 }
 
-export function takeInviteSignupGrant(email: string, now = Date.now()): boolean {
-  const key = normalizeEmail(email);
-  const until = inviteSignupGrants.get(key);
-  if (until == null) return false;
-  inviteSignupGrants.delete(key);
-  return until > now;
+/** True only while the row is unexpired and for this email. The caller deletes it. */
+export function signupPermitOpen(
+  permit: { email: string; expiresAt: number } | null,
+  email: string,
+  now = Date.now(),
+): boolean {
+  if (!permit) return false;
+  return normalizeEmail(permit.email) === normalizeEmail(email) && permit.expiresAt > now;
+}
+
+const ENDED_INVITE_STATUS = new Set(['Expired', 'Revoked', 'Accepted']);
+
+/**
+ * A later Notion pull that still says Pending must not revive an invite
+ * whose token is expired or otherwise dead.
+ */
+export function pendingInviteWouldRegress(input: {
+  existingStatus: string | null | undefined;
+  incomingStatus: string | null | undefined;
+  tokens: ReadonlyArray<{ status: string; expiresAt: number }>;
+  now: number;
+}): boolean {
+  if (input.incomingStatus !== 'Pending') return false;
+  if (!input.existingStatus || !ENDED_INVITE_STATUS.has(input.existingStatus)) return false;
+  const live = input.tokens.some((token) => token.status === 'live' && token.expiresAt > input.now);
+  return !live;
+}
+
+/** Accept only a Warehaus Staff invite on the internal org. */
+export function staffAcceptOrgOk(input: {
+  pendingRole: string | null | undefined;
+  pendingOrgId: string | null | undefined;
+  tokenOrgId: string | null | undefined;
+  internalOrgId: string | null | undefined;
+}): boolean {
+  return (
+    input.pendingRole === 'Warehaus Staff' &&
+    Boolean(input.internalOrgId) &&
+    input.pendingOrgId === input.internalOrgId &&
+    input.tokenOrgId === input.internalOrgId
+  );
 }
 
 export function liveTokenIsExpired(status: string, expiresAt: number, now: number): boolean {
@@ -339,7 +376,7 @@ export function finishInviteToken(
 }
 
 export type InvitePreview =
-  | { status: 'unusable' | 'used'; portalName: 'Portal invite' }
+  | { status: 'unusable' | 'used' | 'revoked'; portalName: 'Portal invite' }
   | { status: 'expired'; portalName: 'Portal invite'; invitedEmail: string }
   | { status: 'sign-in' | 'create-account'; portalName: string; invitedEmail: string }
   | { status: 'different-email'; portalName: string; signedInEmail: string; invitedEmail: string }
@@ -386,6 +423,7 @@ export function describeInvitePreview(input: {
       return { status: 'expired', portalName: 'Portal invite', invitedEmail: normalizeEmail(input.tokenEmail) };
     }
     if (dead.reason === 'used') return { status: 'used', portalName: 'Portal invite' };
+    if (dead.reason === 'revoked') return { status: 'revoked', portalName: 'Portal invite' };
     return { status: 'unusable', portalName: 'Portal invite' };
   }
   const portalName = input.companyName ? `${input.companyName} portal invite` : 'Portal invite';

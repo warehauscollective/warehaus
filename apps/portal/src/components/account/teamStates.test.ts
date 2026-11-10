@@ -67,6 +67,7 @@ describe('account team states', () => {
     assert.equal(invites.includes('getElementById'), false);
     assert.equal(invites.includes('Invite someone'), false);
     assert.match(invites, /Revoke this invite/);
+    assert.equal(invites.includes('from the Clients tab'), false);
     assert.equal(teamWritesLive({ configured: true, fixtures: false }), true);
     assert.equal(teamWritesLive({ configured: true, fixtures: true }), false);
     assert.equal(teamWritesLive({ configured: false, fixtures: false }), false);

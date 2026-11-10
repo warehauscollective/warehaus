@@ -459,6 +459,20 @@ export default defineSchema({
     .index('by_notionPageId', ['notionPageId'])
     .index('by_email', ['email']),
 
+  /**
+   * One short-lived row per invite token hash. Consumed once when the
+   * invited person creates their account, so opening the link counts as
+   * verifying that email. Not an in-memory permit.
+   */
+  /** Add-only. One short-lived permit per token hash, consumed once at invite signup. */
+  inviteSignupPermits: defineTable({
+    tokenHash: v.string(),
+    email: v.string(),
+    expiresAt: v.number(),
+  })
+    .index('by_tokenHash', ['tokenHash'])
+    .index('by_email', ['email']),
+
   /** Raw invite tokens are never stored. Only the SHA-256 hash. */
   inviteTokens: defineTable({
     orgId: v.id('clients'),

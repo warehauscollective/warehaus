@@ -49,12 +49,12 @@ export function DashboardHome({
   clientName?: string | null;
   onOpenTask: (row: AwaitingRow) => void;
   onOpenProject: (row: ProjectRow) => void;
-  joined?: { name: string; inviter: string } | null;
+  joined?: { name: string } | null;
 }) {
   if (joined) {
     return (
       <div data-testid="dashboard" data-state="joined" className="flex flex-col" style={{ gap: 24 }}>
-        <JoinedStaff name={joined.name} inviter={joined.inviter} />
+        <JoinedStaff name={joined.name} />
       </div>
     );
   }
@@ -720,8 +720,7 @@ function initials(name: string): string {
   return (letters || name.slice(0, 2)).toUpperCase();
 }
 
-function JoinedStaff({ name, inviter }: { name: string; inviter: string }) {
-  const who = inviter.trim() || 'The person who invited you';
+function JoinedStaff({ name }: { name: string }) {
   const cards = [
     ['Projects', 'Browse every client project, its links and milestones.', 'Go to projects', '/preview?tab=projects'],
     ['Your profile', 'Add your name and photo so clients know who they’re talking to.', 'Set up your profile', '/preview?tab=account&section=profile'],
@@ -734,7 +733,7 @@ function JoinedStaff({ name, inviter }: { name: string; inviter: string }) {
         <div>
           <p style={{ margin: 0, fontSize: 14 }}>You’ve joined Warehaus as staff</p>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-            Your email is confirmed and your password is set. {who} has been told you accepted.
+            Your email is confirmed and your password is set.
           </p>
         </div>
       </div>

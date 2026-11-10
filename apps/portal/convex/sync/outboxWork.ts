@@ -285,6 +285,8 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
         rawToken: issued.raw,
         name: issued.name,
         alreadyHasLogin: issued.alreadyHasLogin === true,
+        ...(issued.inviterName ? { inviterName: issued.inviterName } : {}),
+        ...(issued.expiresOn ? { expiresOn: issued.expiresOn } : {}),
       });
     }
   }

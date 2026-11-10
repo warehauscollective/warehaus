@@ -36,7 +36,7 @@ is provisioned; Contact.orgId is already the portal ACL source of truth.
 6. Sign out from Account → Profile (returns to `/login`)
 
 Email verification is required before a session can link a contact. Verification mail uses the
-same Resend env as password reset (`RESEND_API_KEY`, optional `EMAIL_FROM` / `EMAIL_REPLY_TO`).
+same Resend env as password reset (`RESEND_API_KEY`, `EMAIL_FROM` on warehaus.co, optional `EMAIL_REPLY_TO`).
 `SITE_URL` must be the portal origin so links point at this app.
 
 ### Staff links (not self-serve)
