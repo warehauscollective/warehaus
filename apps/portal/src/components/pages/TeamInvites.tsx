@@ -415,8 +415,11 @@ export function TeamInvites({
             right: 0 !important;
             width: 100% !important;
             max-width: none !important;
+            max-height: calc(100dvh - 16px) !important;
+            overflow: auto !important;
             transform: none !important;
             border-radius: 16px 16px 0 0 !important;
+            padding-bottom: 108px !important;
           }
         }
       `}</style>
