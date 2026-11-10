@@ -11,8 +11,15 @@ export type StaffFinish = {
   name: string;
   passwordSet: boolean;
   startedAt: number;
-  token: string;
+  /** SHA-256 hex of the invite token. The raw token is never stored. */
+  tokenHash: string;
 };
+
+/** Same SHA-256 hex as the server token hash. Used only so a reload can resume. */
+export async function hashStaffFinishToken(raw: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(raw));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
+}
 
 function storage(): Storage | null {
   try {
@@ -56,13 +63,19 @@ export function readStaffFinish(): StaffFinish | null {
   try {
     const raw = storage()?.getItem(FINISH_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw) as Partial<StaffFinish>;
+    const parsed = JSON.parse(raw) as Partial<StaffFinish> & { token?: string };
+    if (typeof parsed.token === 'string' && parsed.token) {
+      clearStaffFinish();
+      return null;
+    }
     if (!parsed.name?.trim() || typeof parsed.startedAt !== 'number') return null;
+    const tokenHash = typeof parsed.tokenHash === 'string' ? parsed.tokenHash : '';
+    if (!/^[0-9a-f]{64}$/.test(tokenHash)) return null;
     return {
       name: parsed.name.trim(),
       passwordSet: parsed.passwordSet === true,
       startedAt: parsed.startedAt,
-      token: typeof parsed.token === 'string' ? parsed.token : '',
+      tokenHash,
     };
   } catch {
     return null;

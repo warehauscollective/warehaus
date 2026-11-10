@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+  hashStaffFinishToken,
   rememberStaffFinish,
   rememberStaffJoined,
   readStaffFinish,
@@ -44,14 +45,23 @@ export function useStaffLinkWait(input: {
 }) {
   const [finish, setFinish] = useState<StaffFinish | null>(null);
   const [generation, setGeneration] = useState(0);
+  const [tokenHash, setTokenHash] = useState<string | null>(null);
   const replaceRef = useRef(input.replace);
   replaceRef.current = input.replace;
   const redirected = useRef(false);
   void generation;
 
   useEffect(() => {
-    const saved = readStaffFinish();
-    if (saved && saved.token === input.token) setFinish(saved);
+    let cancelled = false;
+    void hashStaffFinishToken(input.token).then((hash) => {
+      if (cancelled) return;
+      setTokenHash(hash);
+      const saved = readStaffFinish();
+      if (saved && saved.tokenHash === hash) setFinish(saved);
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [input.token]);
 
   const phase = staffLinkPhase({
@@ -62,12 +72,13 @@ export function useStaffLinkWait(input: {
     timeoutMs: input.timeoutMs,
   });
 
-  function begin(value: { name: string; passwordSet: boolean }) {
+  async function begin(value: { name: string; passwordSet: boolean }) {
+    const hash = tokenHash ?? (await hashStaffFinishToken(input.token));
     const row: StaffFinish = {
       name: value.name,
       passwordSet: value.passwordSet,
       startedAt: Date.now(),
-      token: input.token,
+      tokenHash: hash,
     };
     rememberStaffFinish(row);
     setFinish(row);

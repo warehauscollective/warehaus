@@ -320,9 +320,9 @@ export type StaffAcceptHold = {
 };
 
 /**
- * True while this email's staff accept is waiting on Notion.
- * A Pending invite with a still-live token has not been accepted, so it does not count.
- * Decline and revoke holds do not count.
+ * True while this email's staff accept is waiting on an open Notion write.
+ * Accepted with no open hold does not count. A Pending invite still needs the
+ * token held by accept. Decline, revoke, and conflict holds do not count.
  */
 export function staffAcceptInProgress(input: {
   email: string;
@@ -334,21 +334,21 @@ export function staffAcceptInProgress(input: {
   if (!email.includes('@')) return false;
   return input.invites.some((invite) => {
     if (normalizeEmail(invite.email) !== email || invite.role !== 'Warehaus Staff') return false;
-    if (invite.inviteStatus === 'Accepted') return true;
-    if (invite.inviteStatus !== 'Pending') return false;
-    const held = input.tokens.some(
-      (token) =>
-        token.contactNotionPageId === invite.notionPageId &&
-        normalizeEmail(token.emailNormalized) === email &&
-        token.status === 'pending',
-    );
-    if (!held) return false;
-    return input.holds.some(
+    if (invite.inviteStatus !== 'Pending' && invite.inviteStatus !== 'Accepted') return false;
+    const openHold = input.holds.some(
       (hold) =>
         hold.notionPageId === invite.notionPageId &&
         hold.open &&
         hold.staff &&
         hold.inviteStatus === 'Accepted',
+    );
+    if (!openHold) return false;
+    if (invite.inviteStatus === 'Accepted') return true;
+    return input.tokens.some(
+      (token) =>
+        token.contactNotionPageId === invite.notionPageId &&
+        normalizeEmail(token.emailNormalized) === email &&
+        token.status === 'pending',
     );
   });
 }
@@ -360,7 +360,8 @@ export function readAcceptHold(
   payload: string,
 ): StaffAcceptHold | null {
   if (kind !== 'setInviteState' || !notionPageId) return null;
-  const open = status === 'queued' || status === 'inflight' || status === 'done' || status === 'conflict';
+  // conflict is not retried. Leaving it open would keep AuthGate waiting.
+  const open = status === 'queued' || status === 'inflight' || status === 'done';
   try {
     const parsed = JSON.parse(payload) as {
       properties?: { 'Invite Status'?: string };

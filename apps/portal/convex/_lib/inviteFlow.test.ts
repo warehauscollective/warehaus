@@ -22,6 +22,7 @@ import {
   hashInviteToken,
   inviteEmailsMatch,
   invitePasswordReady,
+  readAcceptHold,
   inviteSendGate,
   inviteStateProperties,
   inviteStatusMessage,
@@ -393,8 +394,40 @@ describe('invite accept email match', () => {
         tokens: [],
         holds: [],
       }),
+      false,
+    );
+    assert.equal(
+      staffAcceptInProgress({
+        email: 'ada@example.com',
+        invites: [{ ...invite, inviteStatus: 'Accepted' }],
+        tokens: [],
+        holds: [accepted],
+      }),
       true,
     );
+    const conflict = readAcceptHold(
+      'page-1',
+      'setInviteState',
+      'conflict',
+      JSON.stringify({ properties: { 'Invite Status': 'Accepted' }, staffLink: { role: 'Warehaus Staff' } }),
+    );
+    assert.equal(conflict?.open, false);
+    assert.equal(
+      staffAcceptInProgress({
+        email: 'ada@example.com',
+        invites: [{ ...invite, inviteStatus: 'Accepted' }],
+        tokens: [held],
+        holds: conflict ? [conflict] : [],
+      }),
+      false,
+    );
+    const queued = readAcceptHold(
+      'page-1',
+      'setInviteState',
+      'queued',
+      JSON.stringify({ properties: { 'Invite Status': 'Accepted' }, staffLink: { role: 'Warehaus Staff' } }),
+    );
+    assert.equal(queued?.open, true);
     assert.equal(
       staffAcceptInProgress({
         email: 'other@example.com',

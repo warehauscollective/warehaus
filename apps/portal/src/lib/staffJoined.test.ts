@@ -3,7 +3,14 @@ import React, { createElement } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, it } from 'node:test';
-import { readStaffJoined, rememberStaffJoined, useStaffJoinedWelcome } from './staffJoined';
+import {
+  hashStaffFinishToken,
+  readStaffFinish,
+  readStaffJoined,
+  rememberStaffFinish,
+  rememberStaffJoined,
+  useStaffJoinedWelcome,
+} from './staffJoined';
 import { installTestDom, textOf, type DomDocument } from '../components/auth/testDom';
 
 Object.assign(globalThis, { React });
@@ -67,5 +74,21 @@ describe('staff joined flag', () => {
 
     rememberStaffJoined({ name: 'Sam', passwordSet: false });
     assert.deepEqual(readStaffJoined(), { name: 'Sam', passwordSet: false });
+  });
+
+  it('stores a hash of the invite token and drops a row that saved the raw token', async () => {
+    const storage = installStorage();
+    storage.setItem(
+      'warehaus-staff-finish',
+      JSON.stringify({ name: 'Jordan', passwordSet: true, startedAt: 1, token: 'raw-token' }),
+    );
+    assert.equal(readStaffFinish(), null);
+    assert.equal(storage.getItem('warehaus-staff-finish'), null);
+
+    const tokenHash = await hashStaffFinishToken('raw-token');
+    rememberStaffFinish({ name: 'Jordan', passwordSet: true, startedAt: 1, tokenHash });
+    const saved = storage.getItem('warehaus-staff-finish') ?? '';
+    assert.equal(saved.includes('raw-token'), false);
+    assert.equal(readStaffFinish()?.tokenHash, tokenHash);
   });
 });

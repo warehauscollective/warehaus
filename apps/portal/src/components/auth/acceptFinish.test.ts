@@ -35,6 +35,7 @@ function gateElement(
   replaced: string[],
   signedOut: string[],
   linked: string[],
+  options?: { timeoutMs?: number; retrySignal?: number },
 ) {
   return createElement(
     AuthGateScreen,
@@ -49,6 +50,8 @@ function gateElement(
       onLink: () => {
         linked.push('link');
       },
+      timeoutMs: options?.timeoutMs,
+      retrySignal: options?.retrySignal,
     },
     createElement('p', null, 'dashboard'),
   );
@@ -78,7 +81,7 @@ function FinishProbe({
   useEffect(() => {
     if (step === 'accepted' && !began.current) {
       began.current = true;
-      wait.begin({ name: 'Jordan', passwordSet: true });
+      void wait.begin({ name: 'Jordan', passwordSet: true });
     }
   }, [step, wait]);
   useEffect(() => {
@@ -137,7 +140,13 @@ describe('staff accept waits for the link', () => {
     await act(async () => {
       view.root.render(createElement(FinishProbe, { step: 'accepted', link: { state: 'unlinked' }, retryTick: 0, redirects }));
     });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
     assert.match(view.text(), /Finishing setup/);
+    const savedFinish = sessionStorage.getItem('warehaus-staff-finish') ?? '';
+    assert.equal(savedFinish.includes('tok-1'), false);
+    assert.match(savedFinish, /"tokenHash":"[0-9a-f]{64}"/);
     assert.match(view.text(), /linking your staff access/);
     assert.equal(view.text().includes('Sign out'), false);
     assert.equal(view.text().includes('Access denied'), false);
@@ -224,6 +233,31 @@ describe('staff accept waits for the link', () => {
     assert.deepEqual(signedOut, ['out']);
     assert.equal(replaced.join('').startsWith('/login?error='), true);
     assert.equal(linked.length, 0);
+    await act(async () => {
+      view.root.unmount();
+    });
+  });
+
+  it('offers try again on the access gate when staff linking takes longer than a minute', async () => {
+    const document = installTestDom();
+    const replaced: string[] = [];
+    const signedOut: string[] = [];
+    const linked: string[] = [];
+    const waiting = { ...gateBase, staffInviteInProgress: true };
+    const view = await renderAt(document, gateElement(waiting, replaced, signedOut, linked, { timeoutMs: 20 }));
+    assert.equal(view.text().includes('taking longer than usual'), false);
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 40));
+    });
+    assert.match(view.text(), /taking longer than usual/);
+    assert.match(view.text(), /Try again/);
+    assert.deepEqual(signedOut, []);
+    assert.deepEqual(replaced, []);
+    await act(async () => {
+      view.root.render(gateElement(waiting, replaced, signedOut, linked, { timeoutMs: 20, retrySignal: 1 }));
+    });
+    assert.equal(view.text().includes('taking longer than usual'), false);
+    assert.deepEqual(signedOut, []);
     await act(async () => {
       view.root.unmount();
     });
