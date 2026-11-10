@@ -9,8 +9,8 @@ import { ProjectsContent } from '@/components/pages/ProjectsContent';
 import { ResourcesContent } from '@/components/pages/ResourcesContent';
 import { ActivityContent } from '@/components/pages/ActivityContent';
 import { AccountContent } from '@/components/pages/AccountContent';
-import { PORTAL_PANEL_GAP_VAR } from '@/lib/design/portal-chrome';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
+import { tabPanelShellLayout } from './tabPanelShellLayout';
 import { PortalPanelBoundary } from './PortalPanelBoundary';
 import { PortalTabSidebar } from './PortalSidebar';
 
@@ -38,22 +38,18 @@ function TabPanelShell({
 }) {
   const phone = useMaxWidth(767);
   const project = tab === 'projects';
+  const layout = tabPanelShellLayout(project);
   return (
     <div
-      className={`portal-tab-shell box-border flex h-full min-h-0 flex-col overflow-hidden lg:flex-row lg:items-stretch ${
-        project ? 'gap-0 pb-0 pt-4 lg:gap-6 lg:pb-28 lg:pt-6' : 'pb-28 pt-3 lg:pt-[var(--portal-panel-gap,1.25rem)]'
-      }`}
+      className={layout.shellClassName}
       style={{
         paddingLeft: project ? (phone ? 16 : 24) : '1.25rem',
         paddingRight: project ? (phone ? 16 : 24) : phone ? '1.25rem' : '4.5rem',
-        ...(project ? {} : { gap: PORTAL_PANEL_GAP_VAR }),
         touchAction: 'pan-x pan-y',
       }}
     >
       <PortalTabSidebar tab={tab} />
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden pt-6 lg:pt-0">
-        {children}
-      </div>
+      <div className={layout.contentClassName}>{children}</div>
     </div>
   );
 }

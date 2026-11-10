@@ -6,7 +6,6 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { FIXTURE_TASKS } from '@/lib/data/fixtures';
 import { applyFixtureMilestonePreview, fixtureMilestones } from '@/lib/data/milestoneRoadmap';
-import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
 import {
   inclusiveProgressCopy,
   lastReviewLabel,
@@ -372,7 +371,7 @@ describe('roadmap markup', () => {
 
 const idle = async () => undefined;
 
-function renderDetail(milestone: MilestoneRoadmapView): string {
+function renderDetail(milestone: MilestoneRoadmapView, page = false): string {
   return renderToStaticMarkup(
     createElement(MilestoneDetailView, {
       milestone,
@@ -382,6 +381,7 @@ function renderDetail(milestone: MilestoneRoadmapView): string {
       fixtures: true,
       resourceChoices: [],
       onBack: () => undefined,
+      ...(page ? { onBackToProjects: () => undefined } : {}),
       onFixture: () => undefined,
       mutations: {
         decide: idle,
@@ -442,19 +442,59 @@ describe('MilestoneDetailView', () => {
     assert.equal(field(changes, 'milestone-approval'), 'Changes requested');
   });
 
-  it('ends the detail breadcrumb at Milestones and shares the focus treatment', () => {
-    const html = renderToStaticMarkup(
-      createElement(ProjectBreadcrumb, {
-        back: { label: '‹ Northwind site', onClick: () => undefined },
-        trail: [
-          { label: 'Projects', onClick: () => undefined, testId: 'nav-breadcrumb-parent' },
-          { label: 'Northwind site', onClick: () => undefined, testId: 'nav-breadcrumb-middle' },
-          { label: 'Milestones', testId: 'nav-breadcrumb-current' },
-        ],
-      }),
-    );
+  it('ends the detail trail at Milestones', () => {
+    const html = renderDetail(tileMilestone({ name: 'Brand system' }), true);
     assert.match(html, /data-testid="nav-breadcrumb-current"[^>]*>Milestones</);
-    assert.equal(html.includes('Launch the homepage'), false);
+    assert.equal(html.includes('>Brand system</span>'), false);
     assert.match(html, /class="portal-crumb"/);
+  });
+
+  it('keeps Review milestone on every work status and only changes how it looks', () => {
+    const action = (html: string) => html.match(/<button[^>]*data-testid="milestone-review-action"[^>]*>/)?.[0] ?? '';
+    const view = (html: string) => html.includes('data-testid="milestone-view-review"');
+    const primary = (html: string) => action(html).includes('background:var(--accent)');
+    const outline = (html: string) =>
+      action(html).includes('background:transparent') &&
+      /data-testid="milestone-review-action"[^>]*>Review milestone/.test(html);
+
+    const ready = renderDetail(tileMilestone({ workStatus: 'ready', approval: 'unreviewed' }));
+    assert.equal(primary(ready), true);
+    assert.match(ready, /data-testid="milestone-review-action"[^>]*>Review milestone</);
+    assert.match(ready, /min-width:148px/);
+    assert.equal(view(ready), false);
+
+    const readyChanges = renderDetail(
+      tileMilestone({ workStatus: 'ready', approval: 'changes_requested', note: 'Tighten the type.' }),
+    );
+    assert.equal(primary(readyChanges), true);
+    assert.equal(view(readyChanges), false);
+
+    const approved = renderDetail(
+      tileMilestone({ workStatus: 'ready', approval: 'approved', note: 'Approved with the brand file.' }),
+    );
+    assert.equal(action(approved), '');
+    assert.equal(view(approved), true);
+    assert.match(approved, /data-testid="milestone-view-review"[^>]*>View review</);
+
+    const changes = renderDetail(
+      tileMilestone({ workStatus: 'active', approval: 'changes_requested', decidedAt: Date.parse('2026-11-03T15:00:00Z') }),
+    );
+    assert.equal(action(changes), '');
+    assert.equal(view(changes), true);
+
+    const draft = renderDetail(tileMilestone({ workStatus: 'draft', approval: 'unreviewed' }));
+    assert.equal(outline(draft), true);
+    assert.equal(primary(draft), false);
+    assert.equal(view(draft), false);
+
+    const active = renderDetail(tileMilestone({ workStatus: 'active', approval: 'unreviewed' }));
+    assert.equal(outline(active), true);
+    assert.equal(primary(active), false);
+    assert.equal(view(active), false);
+  });
+
+  it('shows DETAILS from 768px up', () => {
+    const html = renderDetail(tileMilestone({ name: 'Launch the homepage' }));
+    assert.match(html, /hidden md:block[^>]*>\s*DETAILS\s*</);
   });
 });

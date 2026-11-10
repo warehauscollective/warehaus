@@ -90,7 +90,9 @@ export function PrimaryButton({
   title,
   solidWhenDisabled = false,
   width,
+  minWidth,
   paddingInline,
+  testId,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
@@ -100,10 +102,13 @@ export function PrimaryButton({
   title?: string;
   /** Keep the primary fill. The control stays disabled; the tooltip explains why. */
   solidWhenDisabled?: boolean;
-  /** Fixed width, border-box. Used by the milestone review action. */
+  /** Fixed width, border-box. */
   width?: number;
+  /** Floor width, border-box. The control can grow with the label. */
+  minWidth?: number;
   /** Horizontal padding in pixels. Replaces the default 1.1rem when set. */
   paddingInline?: number;
+  testId?: string;
 }) {
   return (
     <button
@@ -112,6 +117,7 @@ export function PrimaryButton({
       disabled={disabled}
       aria-disabled={disabled || undefined}
       title={title}
+      data-testid={testId}
       className={['inline-flex items-center justify-center gap-2', className].filter(Boolean).join(' ')}
       style={{
         background: 'var(--accent)',
@@ -121,9 +127,10 @@ export function PrimaryButton({
         fontFamily: 'var(--font-body)',
         fontSize: 'var(--t-sm)',
         fontWeight: 600,
-        boxSizing: width != null ? 'border-box' : undefined,
+        boxSizing: width != null || minWidth != null ? 'border-box' : undefined,
         width,
-        whiteSpace: width != null ? 'nowrap' : undefined,
+        minWidth,
+        whiteSpace: width != null || minWidth != null ? 'nowrap' : undefined,
         padding: paddingInline != null ? `0.65rem ${paddingInline}px` : '0.65rem 1.1rem',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled && !solidWhenDisabled ? 0.55 : 1,
@@ -141,6 +148,7 @@ export function OutlineButton({
   disabled,
   describedBy,
   nowrap = false,
+  testId,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
@@ -149,12 +157,14 @@ export function OutlineButton({
   describedBy?: string;
   /** One line, 44 tall. Used by the milestone “View tasks” control. */
   nowrap?: boolean;
+  testId?: string;
 }) {
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
+      data-testid={testId}
       aria-describedby={describedBy}
       className={nowrap ? 'inline-flex shrink-0 items-center justify-center' : 'inline-flex items-center justify-center'}
       style={{

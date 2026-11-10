@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { flushSync } from 'react-dom';
 import { usePathname } from 'next/navigation';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -83,7 +82,7 @@ export function MobileMenu({
     const marked = Array.from(panel.querySelectorAll<HTMLElement>('[data-page-scroll]'));
     const scroller = findPageScroller(marked);
     for (const node of marked) scrollTops.current.set(node, node.scrollTop);
-    const paint = (next: boolean, sync: boolean) => {
+    const paint = (next: boolean) => {
       const node = headerRef.current;
       if (node) {
         node.dataset.scrolled = next ? 'true' : 'false';
@@ -91,10 +90,9 @@ export function MobileMenu({
       }
       if (scrolledRef.current === next) return;
       scrolledRef.current = next;
-      if (sync) flushSync(() => setScrolled(next));
-      else setScrolled(next);
+      setScrolled(next);
     };
-    paint((scroller?.scrollTop ?? 0) > 0, false);
+    paint((scroller?.scrollTop ?? 0) > 0);
     const onScroll = (event: Event) => {
       const target = event.target instanceof HTMLElement ? event.target : null;
       const scrollTop = target?.scrollTop ?? 0;
@@ -105,7 +103,7 @@ export function MobileMenu({
       });
       if (target?.hasAttribute('data-page-scroll')) scrollTops.current.set(target, scrollTop);
       if (next == null) return;
-      paint(next, true);
+      paint(next);
     };
     const options = { capture: true, passive: true } as const;
     panel.addEventListener('scroll', onScroll, options);

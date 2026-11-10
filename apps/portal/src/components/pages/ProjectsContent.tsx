@@ -7,6 +7,7 @@ import { ProjectRoadmap } from '@/components/projects/ProjectRoadmap';
 import { resourcesForProject } from '@/components/projects/milestoneGuards';
 import { OutlineButton, Surface } from '@/components/ui/primitives';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
+import { PHONE_SCROLL_INSET } from '@/components/layout/tabPanelShellLayout';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import {
   activeKpiCaption,
@@ -420,7 +421,8 @@ export function ProjectsContent() {
     return (
       <PortalWorkspace hideHeader eyebrow={tenantEyebrow(data.tenant, 'Project')} title={openProject.name}>
         <PortalTilePane className="project-open-pane">
-          <div className="box-border flex h-full min-h-0 w-full min-w-0 max-w-[1108px] flex-col gap-4 overflow-y-auto" data-testid="project-detail" data-page-scroll="" data-task-view={taskView}>
+          <div className="box-border flex h-full min-h-0 w-full min-w-0 max-w-[1108px] flex-col overflow-y-auto" data-testid="project-detail" data-page-scroll="" data-task-view={taskView}>
+            <div className={PHONE_SCROLL_INSET}>
             <ProjectRoadmap
               project={openProject}
               tasks={projectTasks}
@@ -523,6 +525,7 @@ export function ProjectsContent() {
                 </>
               }
             />
+            </div>
           </div>
         </PortalTilePane>
         {routeTaskId ? (

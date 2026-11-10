@@ -407,16 +407,6 @@ export function ProjectRoadmap({
 
   return (
     <section data-testid="project-roadmap" className="flex flex-col gap-6">
-      {page && selected ? (
-        <ProjectBreadcrumb
-          back={{ label: `‹ ${project.name}`, onClick: () => setOpenMilestoneId(null) }}
-          trail={[
-            { label: 'Projects', onClick: () => onBackToProjects?.(), testId: 'nav-breadcrumb-parent' },
-            { label: project.name, onClick: () => setOpenMilestoneId(null), testId: 'nav-breadcrumb-middle' },
-            { label: 'Milestones', testId: 'nav-breadcrumb-current' },
-          ]}
-        />
-      ) : null}
       {page && !selected ? (
         <ProjectBreadcrumb
           back={{ label: '‹ Projects', onClick: () => onBackToProjects?.() }}
@@ -441,6 +431,7 @@ export function ProjectRoadmap({
           resourceChoices={resourceChoices}
           renderTasks={renderTasks}
           onBack={() => setOpenMilestoneId(null)}
+          onBackToProjects={page ? onBackToProjects : undefined}
           onFixture={(patch) => patchMilestone(selected.id, patch)}
         />
       ) : (
@@ -755,6 +746,7 @@ function MilestoneDetail(props: {
   resourceChoices: ResourceChoice[];
   renderTasks?: (tasks: PortalTask[]) => ReactNode;
   onBack: () => void;
+  onBackToProjects?: () => void;
   onFixture: (patch: FixturePatch) => void;
 }) {
   const decide = useMutation(api.milestones.decide);
@@ -785,6 +777,7 @@ export function MilestoneDetailView({
   resourceChoices,
   renderTasks,
   onBack,
+  onBackToProjects,
   onFixture,
   mutations,
 }: {
@@ -800,6 +793,7 @@ export function MilestoneDetailView({
   resourceChoices: ResourceChoice[];
   renderTasks?: (tasks: PortalTask[]) => ReactNode;
   onBack: () => void;
+  onBackToProjects?: () => void;
   onFixture: (patch: FixturePatch) => void;
   mutations: MilestoneMutations;
 }) {
@@ -886,6 +880,16 @@ export function MilestoneDetailView({
 
   return (
     <div className="flex flex-col gap-6">
+      {onBackToProjects ? (
+        <ProjectBreadcrumb
+          back={{ label: `‹ ${project.name}`, onClick: onBack }}
+          trail={[
+            { label: 'Projects', onClick: onBackToProjects, testId: 'nav-breadcrumb-parent' },
+            { label: project.name, onClick: onBack, testId: 'nav-breadcrumb-middle' },
+            { label: 'Milestones', testId: 'nav-breadcrumb-current' },
+          ]}
+        />
+      ) : null}
       <PageHeading
         alignAction
         testId="milestone-name"
@@ -893,12 +897,18 @@ export function MilestoneDetailView({
         subtitle={`Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`}
         action={
           readyForReview ? (
-            <PrimaryButton width={148} paddingInline={16} onClick={openReview}>
+            <PrimaryButton minWidth={148} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
               Review milestone
             </PrimaryButton>
-          ) : reviewExists ? (
-            <OutlineButton onClick={() => setTab('reviews')}>View review</OutlineButton>
-          ) : null
+          ) : milestone.approval === 'approved' || reviewExists ? (
+            <OutlineButton testId="milestone-view-review" onClick={() => setTab('reviews')}>
+              View review
+            </OutlineButton>
+          ) : (
+            <OutlineButton testId="milestone-review-action" onClick={openReview}>
+              Review milestone
+            </OutlineButton>
+          )
         }
       />
       <TabRow
@@ -920,6 +930,9 @@ export function MilestoneDetailView({
           <div className="order-first w-full lg:order-last lg:w-[292px] lg:shrink-0">
             <Panel>
               <div className="grid grid-cols-2 gap-5 lg:grid-cols-1">
+                <p className="ds-mono col-span-2 hidden md:block lg:col-span-1" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--muted)' }}>
+                  DETAILS
+                </p>
                 <div>
                   <FieldLabel>STATUS</FieldLabel>
                   <FieldValue>
@@ -1299,11 +1312,9 @@ export function MilestoneDetailView({
               title="No review yet"
               body="A person approves the milestone or sends it back. That decision does not close its tasks."
               action={
-                readyForReview ? (
-                  <PrimaryButton width={148} paddingInline={16} onClick={openReview}>
-                    Review milestone
-                  </PrimaryButton>
-                ) : undefined
+                <PrimaryButton minWidth={148} paddingInline={16} onClick={openReview}>
+                  Review milestone
+                </PrimaryButton>
               }
             />
           )}
