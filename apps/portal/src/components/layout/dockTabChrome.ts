@@ -35,8 +35,10 @@ export function dockTabClassName(active: boolean): string {
 }
 
 /**
- * Active pill is paper with ink in both themes. `--paper` and `--ink` do not
- * flip with the light theme, so the contrast stays the same.
+ * Active pill follows the portal foreground. Light is ink (#0A0A0B) on the
+ * white track; dark stays paper (#FDFDFE). The phone border matches the fill.
+ * Desktop border width is 0: a 1px border on each tab added 10px to the track.
+ * `--paper` does not flip, so the pill must not use it.
  */
 export function dockTabStyle(active: boolean): CSSProperties {
   return {
@@ -45,8 +47,7 @@ export function dockTabStyle(active: boolean): CSSProperties {
     fontStyle: 'italic',
     textTransform: 'uppercase',
     lineHeight: 'normal',
-    color: active ? 'var(--ink)' : 'var(--muted)',
-    background: active ? 'var(--paper)' : 'transparent',
-    border: active ? '1px solid var(--paper)' : '1px solid transparent',
+    color: active ? 'var(--dock-pill-active-fg)' : 'var(--muted)',
+    background: active ? 'var(--dock-pill-active-bg)' : 'transparent',
   };
 }
