@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import localFont from 'next/font/local';
 import { DM_Sans, Geist, Geist_Mono } from 'next/font/google';
 import { ConvexClientProvider } from '@/components/providers/ConvexClientProvider';
+import { ThemeBoot } from '@/components/account/ThemeBoot';
 import { fixturePreviewAllowed } from '@/lib/data/fixturePreviewGate';
 import '@/styles/global.css';
 
@@ -97,6 +98,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="bg-background text-foreground font-body antialiased" suppressHydrationWarning>
+        <ThemeBoot />
         <ConvexClientProvider fixtureTransport={fixtureTransport}>{children}</ConvexClientProvider>
       </body>
     </html>
