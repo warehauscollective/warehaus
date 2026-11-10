@@ -349,7 +349,7 @@ describe('roadmap markup', () => {
     assert.doesNotMatch(longChip, /whitespace-nowrap/);
     assert.doesNotMatch(longChip, /line-clamp/);
     assert.match(longChip, /data-testid="milestone-meta"[^>]*class="min-w-0 max-w-full"/);
-    assert.match(longChip, /flex w-full min-w-0 flex-row flex-wrap items-center gap-4/);
+    assert.match(longChip, /flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center/);
   });
 
   it('names subtasks in the inclusive progress and leaves a plain count when there are none', () => {

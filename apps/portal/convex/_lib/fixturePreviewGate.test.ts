@@ -33,6 +33,8 @@ describe('fixture preview gate', () => {
   it('is true only for local next dev with the fixtures flag', () => {
     assert.equal(fixturePreviewAllowedFrom({ fixturesFlag: '1' }), true);
     assert.equal(fixturePreviewAllowedFrom({ fixturesFlag: '1', vercelEnv: '' }), true);
+    assert.equal(fixturePreviewAllowedFrom({ fixturesFlag: '1', nodeEnv: 'development' }), true);
+    assert.equal(fixturePreviewAllowedFrom({ fixturesFlag: '1', nodeEnv: 'production' }), false);
     assert.equal(fixturePreviewAllowedFrom({}), false);
     assert.equal(fixturePreviewAllowedFrom({ vercelEnv: 'production', vercel: '1' }), false);
   });

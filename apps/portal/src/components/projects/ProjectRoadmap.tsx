@@ -5,7 +5,6 @@ import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
-import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
@@ -391,13 +390,71 @@ export function ProjectRoadmap({
   return (
     <section data-testid="project-roadmap" className="flex flex-col gap-6">
       {page && selected ? (
-        <NavBreadcrumb
-          back="always"
-          onBack={() => setOpenMilestoneId(null)}
-          parent={{ label: 'Projects', onClick: () => onBackToProjects?.() }}
-          middle={{ label: project.name, onClick: () => setOpenMilestoneId(null) }}
-          current={selected.name}
-        />
+        <>
+          <button
+            type="button"
+            className="inline-flex items-center justify-start lg:hidden"
+            data-testid="nav-breadcrumb-back"
+            onClick={() => setOpenMilestoneId(null)}
+            style={{
+              minHeight: 44,
+              padding: '12px 16px',
+              border: 0,
+              borderRadius: 9,
+              background: 'transparent',
+              color: 'var(--muted)',
+              fontFamily: 'var(--font-geist), var(--font-body)',
+              fontSize: 14,
+              fontWeight: 500,
+              lineHeight: 'normal',
+              cursor: 'pointer',
+            }}
+          >
+            {`‹ ${project.name}`}
+          </button>
+          <nav
+            aria-label="Breadcrumb"
+            data-testid="nav-breadcrumb"
+            className="ds-mono hidden min-w-0 lg:block"
+            style={{ fontSize: 11, lineHeight: '17px', color: 'var(--muted)', letterSpacing: 0, textTransform: 'none' }}
+          >
+            <button
+              type="button"
+              onClick={() => onBackToProjects?.()}
+              data-testid="nav-breadcrumb-parent"
+              style={{
+                font: 'inherit',
+                color: 'inherit',
+                background: 'none',
+                border: 0,
+                padding: 0,
+                cursor: 'pointer',
+                textDecoration: 'none',
+              }}
+            >
+              Projects
+            </button>
+            <span aria-hidden> / </span>
+            <button
+              type="button"
+              onClick={() => setOpenMilestoneId(null)}
+              data-testid="nav-breadcrumb-middle"
+              style={{
+                font: 'inherit',
+                color: 'inherit',
+                background: 'none',
+                border: 0,
+                padding: 0,
+                cursor: 'pointer',
+                textDecoration: 'none',
+              }}
+            >
+              {project.name}
+            </button>
+            <span aria-hidden> / </span>
+            <span data-testid="nav-breadcrumb-current">{selected.name}</span>
+          </nav>
+        </>
       ) : null}
       {page && !selected ? (
         <>
@@ -676,7 +733,7 @@ export function MilestoneListCard({
         <p data-testid="milestone-objective" style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
           {milestone.objective}
         </p>
-        <div className="flex w-full min-w-0 flex-row flex-wrap items-center gap-4">
+        <div className="flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center">
           <span
             className="ds-mono max-w-full"
             data-testid="milestone-progress"
@@ -903,6 +960,7 @@ export function MilestoneDetailView({
   return (
     <div className="flex flex-col gap-6">
       <PageHeading
+        alignAction
         testId="milestone-name"
         title={milestone.name}
         subtitle={`Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`}
@@ -942,12 +1000,14 @@ export function MilestoneDetailView({
                     <span data-testid="milestone-stage">{milestoneTileStage(milestone).label}</span>
                   </FieldValue>
                 </div>
-                <div>
-                  <FieldLabel>APPROVAL</FieldLabel>
-                  <FieldValue>
-                    <span data-testid="milestone-approval">{APPROVAL_LABEL[milestone.approval]}</span>
-                  </FieldValue>
-                </div>
+                {milestone.approval !== 'unreviewed' ? (
+                  <div>
+                    <FieldLabel>APPROVAL</FieldLabel>
+                    <FieldValue>
+                      <span data-testid="milestone-approval">{APPROVAL_LABEL[milestone.approval]}</span>
+                    </FieldValue>
+                  </div>
+                ) : null}
                 {staff ? (
                   <div className="col-span-2 lg:col-span-1">
                     <FieldLabel>VISIBILITY</FieldLabel>
@@ -973,7 +1033,7 @@ export function MilestoneDetailView({
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-6">
             <Panel>
-              <h2 style={{ fontSize: 30, lineHeight: '30px', fontWeight: 500 }}>What we’re delivering</h2>
+              <h2 style={{ fontSize: 20, lineHeight: '30px', fontWeight: 500 }}>What we’re delivering</h2>
               <p data-testid="milestone-objective" style={{ marginTop: 16, fontSize: 15, lineHeight: '23px' }}>{milestone.objective}</p>
               <p className="ds-mono" style={{ marginTop: 16, fontSize: 10, lineHeight: '15px', color: 'var(--muted)' }}>
                 DONE WHEN
@@ -1007,7 +1067,7 @@ export function MilestoneDetailView({
                     {' The open count is not the decision.'}
                   </p>
                 </div>
-                <OutlineButton onClick={() => setTab('tasks')}>View tasks · {board.lanes}</OutlineButton>
+                <OutlineButton nowrap onClick={() => setTab('tasks')}>View tasks · {board.lanes}</OutlineButton>
               </div>
             </Panel>
             <Panel>

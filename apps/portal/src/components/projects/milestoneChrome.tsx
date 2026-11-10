@@ -160,6 +160,7 @@ export function PageHeading({
   action,
   testId,
   measure = false,
+  alignAction = false,
 }: {
   title: string;
   subtitle: string;
@@ -167,10 +168,13 @@ export function PageHeading({
   testId?: string;
   /** Desktop title column from the 1440 milestone list. The action sits 24px after it. */
   measure?: boolean;
+  /** Keep the 30px title and place the action 24px after the 820px column. */
+  alignAction?: boolean;
 }) {
+  const column = measure || alignAction;
   return (
-    <div className={measure ? 'flex flex-col items-start gap-6 lg:flex-row lg:items-start' : 'flex flex-col items-start gap-4 md:flex-row md:items-start md:justify-between'}>
-      <div className={measure ? 'flex min-w-0 w-full flex-col gap-6 lg:w-[820px] lg:gap-1' : 'min-w-0 flex-1'}>
+    <div className={column ? 'flex flex-col items-start gap-6 lg:flex-row lg:items-start' : 'flex flex-col items-start gap-4 md:flex-row md:items-start md:justify-between'}>
+      <div className={measure ? 'flex min-w-0 w-full flex-col gap-6 lg:w-[820px] lg:gap-1' : alignAction ? 'flex min-w-0 w-full flex-col lg:w-[820px]' : 'min-w-0 flex-1'}>
         <h1
           data-testid={testId}
           style={{

@@ -131,12 +131,15 @@ export function OutlineButton({
   onClick,
   disabled,
   describedBy,
+  nowrap = false,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
   onClick?: () => void;
   disabled?: boolean;
   describedBy?: string;
+  /** One line, 44 tall. Used by the milestone “View tasks” control. */
+  nowrap?: boolean;
 }) {
   return (
     <button
@@ -144,8 +147,9 @@ export function OutlineButton({
       onClick={onClick}
       disabled={disabled}
       aria-describedby={describedBy}
-      className="inline-flex items-center justify-center"
+      className={nowrap ? 'inline-flex shrink-0 items-center justify-center' : 'inline-flex items-center justify-center'}
       style={{
+        boxSizing: 'border-box',
         background: 'transparent',
         color: 'var(--fg)',
         border: '1px solid var(--border)',
@@ -153,7 +157,9 @@ export function OutlineButton({
         fontFamily: 'var(--font-body)',
         fontSize: 14,
         fontWeight: 500,
-        padding: '0.65rem 1rem',
+        height: nowrap ? 44 : undefined,
+        padding: nowrap ? '12px 16px' : '0.65rem 1rem',
+        whiteSpace: nowrap ? 'nowrap' : undefined,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.55 : 1,
       }}
