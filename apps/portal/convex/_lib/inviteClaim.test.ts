@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { applyContactRead } from '../invitesSync';
+import { grantInviteSignupFromHook, takeInviteSignupFromHook } from '../auth';
 import {
   accept,
   create,
@@ -8,13 +9,14 @@ import {
   expireDue,
   grantSignupPermit,
   issueTokenAfterConfirm,
+  listTeam,
   releaseHeldToken,
   remove,
   revoke,
   takeSignupPermit,
 } from '../invites';
 import { selectContactForJoin } from './contactJoin';
-import { INVITE_CLIENT_FAILURE, hashInviteToken } from './inviteFlow';
+import { INVITE_CLIENT_FAILURE, hashInviteToken, teamInviteActions } from './inviteFlow';
 
 type Row = Record<string, unknown> & { _id: string };
 
@@ -520,6 +522,14 @@ describe('invite accept, decline, and revoke', () => {
     const payload = JSON.parse(String(enqueues[0]?.payload)) as { properties?: Record<string, string> };
     assert.equal(payload.properties?.['Invite Status'], 'Expired');
 
+    const held = tables.notionOutbox?.find((row) => row._id === enqueues[0]?.outboxId);
+    assert.ok(held);
+    held.status = 'done';
+    held.kind = 'setInviteState';
+    await run(issueTokenAfterConfirm, ctx, { outboxId: held._id, notionPageId: 'contact-notion' });
+    assert.equal(tables.pendingInvites?.length, 1);
+    assert.equal(tables.pendingInvites?.[0]?.inviteStatus, 'Expired');
+
     await run(applyContactRead, ctx, {
       notionPageId: 'contact-notion',
       orgId: 'org-wh',
@@ -533,6 +543,29 @@ describe('invite accept, decline, and revoke', () => {
       observedJson: '{}',
     });
     assert.equal(tables.pendingInvites?.[0]?.inviteStatus, 'Expired');
+
+    await run(applyContactRead, ctx, {
+      notionPageId: 'contact-notion',
+      orgId: 'org-wh',
+      name: 'New Staff',
+      email: newStaffUser.email,
+      role: 'Warehaus Staff',
+      source: 'portal',
+      placement: 'SKIP_AND_DROP_PENDING',
+      inviteStatus: 'Expired',
+      actionsJson: '[]',
+      observedJson: '{}',
+    });
+    assert.equal(tables.pendingInvites?.length, 1);
+    assert.equal(tables.pendingInvites?.[0]?.inviteStatus, 'Expired');
+
+    const staffCtx = authCtx('auth-staff', tables, enqueues);
+    const team = await run(listTeam, staffCtx);
+    const listed = (team as { invites?: Array<{ email?: string; inviteStatus?: string }> }).invites ?? [];
+    const row = listed.find((invite) => invite.email === newStaffUser.email);
+    assert.ok(row);
+    assert.equal(row.inviteStatus, 'Expired');
+    assert.deepEqual(teamInviteActions(row.inviteStatus), { resend: true, revoke: false });
   });
 
   it('consumes a signup permit once and ignores an expired one', async () => {
@@ -560,5 +593,26 @@ describe('invite accept, decline, and revoke', () => {
     const expired = await run(takeSignupPermit, ctx, { email: newStaffUser.email });
     assert.deepEqual(expired, { ok: false });
     assert.equal(tables.inviteSignupPermits.length, 0);
+  });
+
+  it('verifies a new invite user through the auth signup permit hooks', async () => {
+    const token = await tokenRow('tok-hook', 'raw-hook');
+    const tables = asStaffInvite(baseTables(token), token);
+    const enqueues: Array<Record<string, unknown>> = [];
+    const ctx = authCtx('auth-staff', tables, enqueues, true, user);
+    const runMutation = async (_ref: unknown, args: Record<string, unknown>) => {
+      const email = String(args.email ?? '');
+      if (typeof args.token === 'string') return run(grantSignupPermit, ctx, { token: args.token, email });
+      return run(takeSignupPermit, ctx, { email });
+    };
+    const granted = await grantInviteSignupFromHook(runMutation, { token: 'raw-hook', email: newStaffUser.email });
+    assert.equal(granted, true);
+    assert.equal(tables.inviteSignupPermits?.length, 1);
+    const created = await takeInviteSignupFromHook(runMutation, { email: 'New.Staff@warehaus.co', name: 'New Staff' });
+    assert.equal(created?.data.emailVerified, true);
+    assert.equal(created?.data.name, 'New Staff');
+    assert.equal(tables.inviteSignupPermits?.length, 0);
+    const again = await takeInviteSignupFromHook(runMutation, { email: newStaffUser.email, name: 'New Staff' });
+    assert.equal(again, null);
   });
 });

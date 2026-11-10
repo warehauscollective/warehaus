@@ -275,6 +275,11 @@ export function pendingInviteWouldRegress(input: {
   return !live;
 }
 
+/** Expired rows stay listed with Resend. Revoke is only for a live pending invite. */
+export function teamInviteActions(status: string): { resend: true; revoke: boolean } {
+  return { resend: true, revoke: status !== 'Expired' };
+}
+
 /** Accept only a Warehaus Staff invite on the internal org. */
 export function staffAcceptOrgOk(input: {
   pendingRole: string | null | undefined;

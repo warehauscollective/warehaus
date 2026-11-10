@@ -5,6 +5,7 @@ import { useMutation } from 'convex/react';
 import { useSearchParams } from 'next/navigation';
 import { Check, Lock, Mail, X } from 'lucide-react';
 import { api } from '@convex/_generated/api';
+import { teamInviteActions } from '@convex/_lib/inviteFlow';
 import { PortalTilePane } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
@@ -323,6 +324,7 @@ export function TeamInvites({
             ))}
             {people.invites.map((invite) => {
               const expired = invite.inviteStatus === 'Expired';
+              const actions = teamInviteActions(invite.inviteStatus);
               const detail = `Invited ${dayLabel(invite.invitedAt) || '—'} · ${expired ? 'expired' : 'expires'} ${dayLabel(invite.expiresAt) || '—'}`;
               return (
                 <MemberRow
@@ -343,7 +345,7 @@ export function TeamInvites({
                       >
                         Resend
                       </button>
-                      {expired ? null : (
+                      {actions.revoke ? (
                         <button
                           type="button"
                           data-testid={`team-revoke-${invite.notionPageId}`}
@@ -353,7 +355,7 @@ export function TeamInvites({
                         >
                           Revoke
                         </button>
-                      )}
+                      ) : null}
                     </>
                   }
                 />

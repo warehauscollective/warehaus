@@ -727,7 +727,11 @@ export const issueTokenAfterConfirm = internalMutation({
         .query('pendingInvites')
         .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
         .unique();
-      if (pending && status !== 'Pending') await ctx.db.delete(pending._id);
+      if (pending && status === 'Expired') {
+        await ctx.db.patch(pending._id, { inviteStatus: 'Expired' });
+      } else if (pending && (status === 'Accepted' || status === 'Declined' || status === 'Revoked')) {
+        await ctx.db.delete(pending._id);
+      }
       await ctx.db.patch(row._id, {
         resultJson: JSON.stringify({ issued: true, notionPageId: args.notionPageId }),
       });

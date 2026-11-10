@@ -570,7 +570,7 @@ describe('invite accept email match', () => {
         {
           INVITE_EMAIL_ENABLED: 'true',
           PORTAL_PUBLIC_URL: 'https://portal.example/',
-          EMAIL_FROM: 'Warehaus Portal <noreply@warehaus.co>',
+          EMAIL_FROM: 'Warehaus Portal <portal@warehaus.studio>',
         },
         client,
       );

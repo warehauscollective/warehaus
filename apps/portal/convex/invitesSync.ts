@@ -350,7 +350,14 @@ export const applyContactRead = internalMutation({
     }
     const keepStaffPending =
       inviteRole === 'Warehaus Staff' && args.inviteStatus === 'Pending' && args.source === 'portal';
-    if ((args.placement === 'UPSERT_PENDING_INVITE' || keepStaffPending) && orgId && args.inviteStatus && inviteRole) {
+    const keepExpiredStaff =
+      inviteRole === 'Warehaus Staff' && args.inviteStatus === 'Expired' && args.source === 'portal';
+    if (
+      (args.placement === 'UPSERT_PENDING_INVITE' || keepStaffPending || keepExpiredStaff) &&
+      orgId &&
+      args.inviteStatus &&
+      inviteRole
+    ) {
       const row = {
         orgId,
         notionPageId: args.notionPageId,

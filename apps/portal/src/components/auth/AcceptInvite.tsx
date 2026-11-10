@@ -69,8 +69,12 @@ function dayLabel(ms: number | null | undefined): string {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' }).format(ms);
 }
 
+const INVITER_FALLBACK = 'A Warehaus team member';
+
 function firstName(name: string | null | undefined): string {
-  return name?.trim().split(/\s+/)[0] || 'them';
+  const trimmed = name?.trim();
+  if (!trimmed || trimmed === INVITER_FALLBACK) return 'them';
+  return trimmed.split(/\s+/)[0] || 'them';
 }
 
 function asScreen(status: string | undefined): Preview['status'] | null {
@@ -129,7 +133,7 @@ export function AcceptInvite() {
     event.preventDefault();
     if (!ready || !preview?.invitedEmail) return;
     if (forced) {
-      rememberStaffJoined({ name: 'Jordan' });
+      rememberStaffJoined({ name: 'Jordan', passwordSet: true });
       router.replace('/preview');
       return;
     }
@@ -155,7 +159,7 @@ export function AcceptInvite() {
         else setError(result.message ?? 'We couldn’t finish joining');
         return;
       }
-      rememberStaffJoined({ name: joinedName(preview.invitedEmail) });
+      rememberStaffJoined({ name: joinedName(preview.invitedEmail), passwordSet: true });
       router.replace('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'We couldn’t finish joining');
@@ -167,7 +171,7 @@ export function AcceptInvite() {
   async function confirmSignedIn() {
     if (!preview?.invitedEmail) return;
     if (forced) {
-      rememberStaffJoined({ name: 'Jordan' });
+      rememberStaffJoined({ name: 'Jordan', passwordSet: false });
       router.replace('/preview');
       return;
     }
@@ -181,7 +185,7 @@ export function AcceptInvite() {
         else setError(result.message ?? 'We couldn’t finish joining');
         return;
       }
-      rememberStaffJoined({ name: joinedName(preview.invitedEmail) });
+      rememberStaffJoined({ name: joinedName(preview.invitedEmail), passwordSet: false });
       router.replace('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'We couldn’t finish joining');
@@ -194,7 +198,7 @@ export function AcceptInvite() {
     event.preventDefault();
     if (!preview?.invitedEmail || !password) return;
     if (forced) {
-      rememberStaffJoined({ name: 'Jordan' });
+      rememberStaffJoined({ name: 'Jordan', passwordSet: false });
       router.replace('/preview');
       return;
     }
@@ -213,7 +217,7 @@ export function AcceptInvite() {
         else setError(result.message ?? 'We couldn’t finish joining');
         return;
       }
-      rememberStaffJoined({ name: joinedName(preview.invitedEmail) });
+      rememberStaffJoined({ name: joinedName(preview.invitedEmail), passwordSet: false });
       router.replace('/');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Check your password and try again.');
@@ -234,7 +238,7 @@ export function AcceptInvite() {
 
   const status = screen ?? (signInMode && preview?.status === 'create-account' ? 'sign-in' : preview?.status);
   const email = preview?.invitedEmail ?? '';
-  const inviter = preview?.inviterName || 'Peter Roquemore';
+  const inviter = preview?.inviterName || INVITER_FALLBACK;
 
   return (
     <main className="flex min-h-[100dvh] items-center justify-center px-4 py-12" style={{ background: 'var(--background)', color: 'var(--foreground)' }} data-testid="accept-invite" data-status={status ?? 'loading'}>
@@ -403,7 +407,7 @@ function InviteEmailPreview() {
     <main data-testid="invite-email" style={{ background: 'var(--background)', color: 'var(--foreground)', minHeight: '100dvh', padding: '48px 24px' }}>
       <article style={{ maxWidth: 640, margin: '0 auto' }}>
         <h1 style={{ fontSize: 22, lineHeight: '30px', margin: '0 0 16px' }}>Peter invited you to join Warehaus on the Portal</h1>
-        <p style={meta}><span>FROM</span> EMAIL_FROM on warehaus.co</p>
+        <p style={meta}><span>FROM</span> Warehaus Portal &lt;portal@warehaus.studio&gt;</p>
         <p style={meta}><span>TO</span> jordan@warehaus.studio</p>
         <p style={meta}><span>PREVIEW</span> Accept within 7 days to set your password and join as staff.</p>
         <div style={{ marginTop: 32, padding: 32, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)' }}>
@@ -586,6 +590,9 @@ const title = { margin: 0, fontSize: 24, lineHeight: '32px', fontWeight: 600 } a
 const lede = { margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--muted)' } as const;
 const meta = { margin: '4px 0', fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 12 } as const;
 const primary = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
   background: 'var(--foreground)',
   color: 'var(--background)',
   border: 0,
@@ -594,5 +601,6 @@ const primary = {
   padding: '0 16px',
   fontSize: 14,
   fontWeight: 600,
+  lineHeight: '18px',
   cursor: 'pointer',
 } as const;

@@ -40,6 +40,7 @@ export function DashboardHome({
   onOpenTask,
   onOpenProject,
   joined,
+  finishing = false,
 }: {
   model: DashboardModel;
   focus: 'all' | 'awaiting' | 'sync' | 'activity';
@@ -49,12 +50,20 @@ export function DashboardHome({
   clientName?: string | null;
   onOpenTask: (row: AwaitingRow) => void;
   onOpenProject: (row: ProjectRow) => void;
-  joined?: { name: string } | null;
+  joined?: { name: string; passwordSet: boolean } | null;
+  finishing?: boolean;
 }) {
+  if (finishing) {
+    return (
+      <div data-testid="dashboard" data-state="finishing" className="flex flex-col" style={{ gap: 24 }}>
+        <FinishingSetup />
+      </div>
+    );
+  }
   if (joined) {
     return (
       <div data-testid="dashboard" data-state="joined" className="flex flex-col" style={{ gap: 24 }}>
-        <JoinedStaff name={joined.name} />
+        <JoinedStaff name={joined.name} passwordSet={joined.passwordSet} />
       </div>
     );
   }
@@ -720,7 +729,16 @@ function initials(name: string): string {
   return (letters || name.slice(0, 2)).toUpperCase();
 }
 
-function JoinedStaff({ name }: { name: string }) {
+function FinishingSetup() {
+  return (
+    <div data-testid="finishing-setup" style={{ display: 'flex', flexDirection: 'column', gap: 8, padding: 16, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)' }}>
+      <p style={{ margin: 0, fontSize: 14 }}>Finishing setup</p>
+      <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>We’re linking your staff access. This usually takes a moment.</p>
+    </div>
+  );
+}
+
+function JoinedStaff({ name, passwordSet }: { name: string; passwordSet: boolean }) {
   const cards = [
     ['Projects', 'Browse every client project, its links and milestones.', 'Go to projects', '/preview?tab=projects'],
     ['Your profile', 'Add your name and photo so clients know who they’re talking to.', 'Set up your profile', '/preview?tab=account&section=profile'],
@@ -733,7 +751,9 @@ function JoinedStaff({ name }: { name: string }) {
         <div>
           <p style={{ margin: 0, fontSize: 14 }}>You’ve joined Warehaus as staff</p>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-            Your email is confirmed and your password is set.
+            {passwordSet
+              ? 'Your email is confirmed and your password is set.'
+              : 'Your email is confirmed.'}
           </p>
         </div>
       </div>

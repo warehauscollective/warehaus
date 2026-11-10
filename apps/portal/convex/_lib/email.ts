@@ -1,6 +1,7 @@
 /**
  * Thin Resend sender for portal transactional mail (password reset, etc.).
- * The sender is EMAIL_FROM on warehaus.co. There is no baked-in address.
+ * The sender is Warehaus Portal <portal@warehaus.studio> via EMAIL_FROM.
+ * There is no baked-in address: auth mail and invites require EMAIL_FROM.
  * Set RESEND_API_KEY, EMAIL_FROM, and optional EMAIL_REPLY_TO on the deployment.
  */
 
@@ -333,7 +334,7 @@ export function renewRequestEmail(args: {
   return { subject, html, text };
 }
 
-/** Sender is EMAIL_FROM on warehaus.co. Auth mail and invites both require it. */
+/** Sender is Warehaus Portal <portal@warehaus.studio> via EMAIL_FROM. Auth mail and invites both require it. */
 export function requireInviteFrom(from: string | undefined): string {
   const value = from?.trim();
   if (!value) throw new Error('EMAIL_FROM is not set on the Convex deployment');

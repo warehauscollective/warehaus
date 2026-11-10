@@ -155,9 +155,11 @@ export function clientTeamCrumbs(phone: boolean): {
 
 /** Notice only. Clients cannot send invites. */
 export function clientTeamInviteCopy(
-  _company: string,
-  _people: Array<{ name: string; role?: string | null }>,
+  company: string,
+  people: Array<{ name: string; role?: string | null }>,
 ): { title: string; body: string } {
+  void company;
+  void people;
   return {
     title: 'Warehaus manages access',
     body: 'Your Warehaus project lead adds and removes people. To change who has access, contact them.',

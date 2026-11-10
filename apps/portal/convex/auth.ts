@@ -126,6 +126,34 @@ type SignupHookCtx = {
   };
 };
 
+type PermitRun = (ref: unknown, args: Record<string, unknown>) => Promise<{ ok?: boolean } | null>;
+
+function permitRunner(ctx: GenericCtx<DataModel>): PermitRun | undefined {
+  if (!('runMutation' in ctx)) return undefined;
+  return (ref, args) => ctx.runMutation(ref as never, args as never);
+}
+
+/** Opens the durable signup permit. The sign-up hook returns only when this is true. */
+export async function grantInviteSignupFromHook(
+  runMutation: PermitRun | undefined,
+  input: { token: string; email: string },
+): Promise<boolean> {
+  if (!runMutation) return false;
+  const granted = await runMutation(anyApi.invites.grantSignupPermit, input);
+  return Boolean(granted?.ok);
+}
+
+/** Consumes that permit once and marks the new user verified. */
+export async function takeInviteSignupFromHook<T extends { email: string }>(
+  runMutation: PermitRun | undefined,
+  user: T,
+): Promise<{ data: T & { emailVerified: true } } | null> {
+  if (!runMutation) return null;
+  const taken = await runMutation(anyApi.invites.takeSignupPermit, { email: user.email });
+  if (!taken?.ok) return null;
+  return { data: { ...user, emailVerified: true } };
+}
+
 function signupFields(body: unknown): { email: string; password: string; name: string } | null {
   if (!body || typeof body !== 'object') return null;
   const record = body as { email?: unknown; password?: unknown; name?: unknown };
@@ -252,13 +280,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
                   code: 'INVITE_PASSWORD',
                 });
               }
-              if ('runMutation' in ctx) {
-                const granted = (await ctx.runMutation(anyApi.invites.grantSignupPermit, {
-                  token: inviteToken,
-                  email: fields.email,
-                })) as { ok?: boolean } | null;
-                if (granted?.ok) return;
-              }
+              if (await grantInviteSignupFromHook(permitRunner(ctx), { token: inviteToken, email: fields.email })) return;
             }
           }
           return await uniformBlockedSignup(ctx, baCtx as SignupHookCtx);
@@ -289,12 +311,8 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
       user: {
         create: {
           before: async (user) => {
-            if ('runMutation' in ctx) {
-              const taken = (await ctx.runMutation(anyApi.invites.takeSignupPermit, {
-                email: user.email,
-              })) as { ok?: boolean } | null;
-              if (taken?.ok) return { data: { ...user, emailVerified: true } };
-            }
+            const verified = await takeInviteSignupFromHook(permitRunner(ctx), user);
+            if (verified) return verified;
             const decision = await readEligibility(ctx, user.email);
             if (!decision) refuseRegistration();
             if (decision.allowed) return { data: user };

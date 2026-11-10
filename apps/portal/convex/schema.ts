@@ -460,11 +460,9 @@ export default defineSchema({
     .index('by_email', ['email']),
 
   /**
-   * One short-lived row per invite token hash. Consumed once when the
-   * invited person creates their account, so opening the link counts as
-   * verifying that email. Not an in-memory permit.
+   * Add-only. One short-lived row per invite token hash, consumed once when
+   * the invited person creates their account. Not an in-memory permit.
    */
-  /** Add-only. One short-lived permit per token hash, consumed once at invite signup. */
   inviteSignupPermits: defineTable({
     tokenHash: v.string(),
     email: v.string(),

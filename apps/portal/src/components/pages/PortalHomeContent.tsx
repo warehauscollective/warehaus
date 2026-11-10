@@ -55,12 +55,18 @@ function useDashPreview(fixtures: boolean): DashPreview {
 export function PortalHomeContent() {
   const { sectionFor, openDetail } = usePortalView();
   const { data, loading, error } = usePortalData();
-  const { portalSession } = usePortalAuth();
+  const { portalSession, linkStatus } = usePortalAuth();
   const fixtures = useFixturePreview();
   const [joined, setJoined] = useState<StaffJoined | null>(null);
+  const [setupPreview, setSetupPreview] = useState(false);
   useEffect(() => {
-    setJoined(readStaffJoined());
-  }, []);
+    const saved = readStaffJoined();
+    if (saved) setJoined(saved);
+    if (!fixtures) return;
+    setSetupPreview(new URLSearchParams(window.location.search).get('setup') === 'finishing');
+  }, [fixtures]);
+  const staffLinked = linkStatus === 'linked' && Boolean(portalSession?.isStaff);
+  const finishing = setupPreview || (Boolean(joined) && !staffLinked);
   const configured = isConvexConfigured();
   const isStaff = Boolean(portalSession?.isStaff);
   const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
@@ -208,6 +214,7 @@ export function PortalHomeContent() {
             })
           }
           joined={joined}
+          finishing={finishing}
         />
       </PortalTilePane>
     </PortalWorkspace>
