@@ -147,7 +147,7 @@ function withLongChip(milestone: MilestoneRoadmapView): MilestoneRoadmapView {
 
 function previewMilestone(
   patch: Pick<MilestoneRoadmapView, 'id' | 'name' | 'objective' | 'workStatus' | 'approval'> &
-    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources'>>,
+    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName'>>,
 ): MilestoneRoadmapView {
   return {
     goals: [],
@@ -205,6 +205,8 @@ export function applyFixtureMilestonePreview(
       workStatus: 'active',
       approval: 'approved',
       decidedAt: PREVIEW_REVIEW_AT,
+      approverName: 'Northwind',
+      note: 'Approved with the brand file.',
       resources: [
         { id: 'r-brand', title: 'Brand file', url: null },
         { id: 'r-brand-2', title: 'Logo sheet', url: null },
