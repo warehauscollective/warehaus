@@ -451,7 +451,8 @@ describe('MilestoneDetailView', () => {
 
   it('keeps Review milestone on every work status and only changes how it looks', () => {
     const action = (html: string) => html.match(/<button[^>]*data-testid="milestone-review-action"[^>]*>/)?.[0] ?? '';
-    const view = (html: string) => html.includes('data-testid="milestone-view-review"');
+    const viewButton = (html: string) => html.match(/<button[^>]*data-testid="milestone-view-review"[^>]*>/)?.[0] ?? '';
+    const view = (html: string) => viewButton(html) !== '';
     const primary = (html: string) => action(html).includes('background:var(--accent)');
     const outline = (html: string) =>
       action(html).includes('background:transparent') &&
@@ -460,7 +461,8 @@ describe('MilestoneDetailView', () => {
     const ready = renderDetail(tileMilestone({ workStatus: 'ready', approval: 'unreviewed' }));
     assert.equal(primary(ready), true);
     assert.match(ready, /data-testid="milestone-review-action"[^>]*>Review milestone</);
-    assert.match(action(ready), /width:148px/);
+    assert.match(action(ready), /min-width:148px/);
+    assert.doesNotMatch(action(ready), /(?:^|;)width:/);
     assert.match(action(ready), /height:42px/);
     assert.equal(view(ready), false);
 
@@ -468,16 +470,19 @@ describe('MilestoneDetailView', () => {
       tileMilestone({ workStatus: 'ready', approval: 'changes_requested', note: 'Tighten the type.' }),
     );
     assert.equal(primary(readyChanges), true);
-    assert.equal(view(readyChanges), false);
+    assert.equal(view(readyChanges), true);
+    assert.match(viewButton(readyChanges), /height:42px/);
 
     const approved = renderDetail(
       tileMilestone({ workStatus: 'ready', approval: 'approved', note: 'Approved with the brand file.' }),
     );
     assert.equal(outline(approved), true);
     assert.equal(primary(approved), false);
-    assert.match(action(approved), /width:148px/);
+    assert.match(action(approved), /min-width:148px/);
+    assert.doesNotMatch(action(approved), /(?:^|;)width:/);
     assert.match(action(approved), /height:42px/);
     assert.equal(view(approved), true);
+    assert.match(viewButton(approved), /height:42px/);
     assert.match(approved, /data-testid="milestone-view-review"[^>]*>View review</);
 
     const changes = renderDetail(
@@ -490,8 +495,10 @@ describe('MilestoneDetailView', () => {
     const draft = renderDetail(tileMilestone({ workStatus: 'draft', approval: 'unreviewed' }));
     assert.equal(outline(draft), true);
     assert.equal(primary(draft), false);
-    assert.match(action(draft), /width:148px/);
+    assert.match(action(draft), /min-width:148px/);
     assert.match(action(draft), /height:42px/);
+    assert.equal(view(changes), true);
+    assert.match(viewButton(changes), /height:42px/);
     assert.equal(view(draft), false);
 
     const active = renderDetail(tileMilestone({ workStatus: 'active', approval: 'unreviewed' }));

@@ -897,20 +897,27 @@ export function MilestoneDetailView({
         subtitle={`Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`}
         action={
           readyForReview ? (
-            <PrimaryButton width={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
-              Review milestone
-            </PrimaryButton>
+            <span className="flex flex-wrap items-center gap-2">
+              {reviewExists ? (
+                <OutlineButton height={42} paddingInline={16} testId="milestone-view-review" onClick={() => setTab('reviews')}>
+                  View review
+                </OutlineButton>
+              ) : null}
+              <PrimaryButton minWidth={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
+                Review milestone
+              </PrimaryButton>
+            </span>
           ) : reviewExists ? (
             <span className="flex flex-wrap items-center gap-2">
-              <OutlineButton testId="milestone-view-review" onClick={() => setTab('reviews')}>
+              <OutlineButton height={42} paddingInline={16} testId="milestone-view-review" onClick={() => setTab('reviews')}>
                 View review
               </OutlineButton>
-              <OutlineButton width={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
+              <OutlineButton minWidth={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
                 Review milestone
               </OutlineButton>
             </span>
           ) : (
-            <OutlineButton width={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
+            <OutlineButton minWidth={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
               Review milestone
             </OutlineButton>
           )
@@ -1317,7 +1324,7 @@ export function MilestoneDetailView({
               title="No review yet"
               body="A person approves the milestone or sends it back. That decision does not close its tasks."
               action={
-                <PrimaryButton width={148} height={42} paddingInline={16} onClick={openReview}>
+                <PrimaryButton minWidth={148} height={42} paddingInline={16} onClick={openReview}>
                   Review milestone
                 </PrimaryButton>
               }

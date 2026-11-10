@@ -42,20 +42,8 @@ export function PortalWorkspace({
   const showRight = detailOpen || Boolean(aside);
 
   return (
-    <div className="flex h-full min-h-0 flex-col lg:overflow-hidden">
-      {!hideHeader ? (
-        <header
-          className="flex shrink-0 flex-wrap items-end justify-between gap-3"
-          style={{
-            position: 'relative',
-            zIndex: 2,
-            background: 'var(--bg)',
-            boxShadow: 'none',
-            paddingTop: 'var(--s-5)',
-            paddingBottom: 'var(--s-4)',
-            borderBottom: '1px solid var(--border)',
-          }}
-        >
+    <PortalWorkspaceFrame hideHeader={hideHeader} header={
+      <>
           <div className="min-w-0">
             {breadcrumb ? (
               breadcrumb
@@ -94,13 +82,8 @@ export function PortalWorkspace({
             </h1>
           </div>
           {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
-        </header>
-      ) : null}
-
-      <div
-        className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:overflow-hidden${hideHeader ? '' : ' pt-4'}`}
-        style={{ gap: PORTAL_PANEL_GAP_VAR }}
-      >
+      </>
+    }>
         <div className="min-h-0 min-w-0 flex-1 lg:overflow-hidden">{children}</div>
 
         {showRight ? (
@@ -184,9 +167,55 @@ export function PortalWorkspace({
             )}
           </aside>
         ) : null}
+    </PortalWorkspaceFrame>
+  );
+}
+
+/**
+ * Phone inset sits on this header, directly under the phone header.
+ * A hidden header has no titled block, so the page scroller carries the 24px instead.
+ */
+export function PortalWorkspaceFrame({
+  hideHeader = false,
+  header,
+  children,
+}: {
+  hideHeader?: boolean;
+  header?: ReactNode;
+  children?: ReactNode;
+}) {
+  return (
+    <div className="flex h-full min-h-0 flex-col lg:overflow-hidden">
+      {!hideHeader ? (
+        <header
+          className="flex max-lg:pt-6 shrink-0 flex-wrap items-end justify-between gap-3 lg:pt-[var(--s-5)]"
+          data-testid="workspace-title"
+          style={{
+            position: 'relative',
+            zIndex: 2,
+            background: 'var(--bg)',
+            boxShadow: 'none',
+            paddingBottom: 'var(--s-4)',
+            borderBottom: '1px solid var(--border)',
+          }}
+        >
+          {header}
+        </header>
+      ) : null}
+      <div
+        className={`flex min-h-0 flex-1 flex-col lg:flex-row lg:overflow-hidden${hideHeader ? '' : ' pt-4'}`}
+        data-testid="workspace-body"
+        style={{ gap: PORTAL_PANEL_GAP_VAR }}
+      >
+        {children}
       </div>
     </div>
   );
+}
+
+/** 24px inside a hideHeader page scroller. Titled pages do not use this. */
+export function PhoneScrollInset({ children }: { children: ReactNode }) {
+  return <div className={PHONE_SCROLL_INSET}>{children}</div>;
 }
 
 /** Scrollable tile/list region that stays inside the workspace (not the page).
@@ -194,16 +223,13 @@ export function PortalWorkspace({
 export function PortalTilePane({
   children,
   className,
-  inset = true,
 }: {
   children: ReactNode;
   className?: string;
-  /** Phone inset for this scroller. Turn off when a nested page scroller carries it. */
-  inset?: boolean;
 }) {
   return (
     <div
-      className={['min-w-0', inset ? PHONE_SCROLL_INSET : '', className].filter(Boolean).join(' ')}
+      className={className ? `min-w-0 ${className}` : 'min-w-0'}
       data-page-scroll=""
       style={{
         height: '100%',

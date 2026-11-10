@@ -155,6 +155,7 @@ export function OutlineButton({
   describedBy,
   nowrap = false,
   width,
+  minWidth,
   height,
   paddingInline,
   testId,
@@ -168,12 +169,15 @@ export function OutlineButton({
   nowrap?: boolean;
   /** Fixed width, border-box. */
   width?: number;
+  /** Floor width, border-box. The control grows if the label needs more. */
+  minWidth?: number;
   /** Fixed height, border-box. Vertical padding is dropped so the box stays exact. */
   height?: number;
   /** Horizontal padding in pixels when width or height is fixed. */
   paddingInline?: number;
   testId?: string;
 }) {
+  const fixed = nowrap || width != null || minWidth != null;
   return (
     <button
       type={type}
@@ -181,7 +185,7 @@ export function OutlineButton({
       disabled={disabled}
       data-testid={testId}
       aria-describedby={describedBy}
-      className={nowrap || width != null ? 'inline-flex shrink-0 items-center justify-center' : 'inline-flex items-center justify-center'}
+      className={fixed ? 'inline-flex shrink-0 items-center justify-center' : 'inline-flex items-center justify-center'}
       style={{
         boxSizing: 'border-box',
         background: 'transparent',
@@ -192,10 +196,11 @@ export function OutlineButton({
         fontSize: 14,
         fontWeight: 500,
         width,
+        minWidth,
         height: height ?? (nowrap ? 44 : undefined),
         lineHeight: height != null ? '20px' : undefined,
         padding: height != null ? `0 ${paddingInline ?? 16}px` : nowrap ? '12px 16px' : '0.65rem 1rem',
-        whiteSpace: nowrap || width != null ? 'nowrap' : undefined,
+        whiteSpace: fixed ? 'nowrap' : undefined,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.55 : 1,
       }}
