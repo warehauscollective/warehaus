@@ -10,6 +10,7 @@ import { query } from './_generated/server';
 import authConfig from './auth.config';
 import {
   blockedSignupDelivery,
+  devMailboxEnabled,
   passwordResetEmail,
   rewriteVerificationCallback,
   sendPortalEmail,
@@ -26,7 +27,7 @@ import {
   type SelfServeDecision,
 } from './_lib/registration';
 import { VERIFICATION_EXPIRES_IN_SECONDS } from './_lib/resendCooldown';
-import { portalSessionConfig } from './_lib/sessionLifetime';
+import { JWT_EXPIRES_IN_SECONDS, portalSessionConfig } from './_lib/sessionLifetime';
 
 /**
  * Better Auth on the portal Convex deployment (separate from Motoko).
@@ -48,11 +49,25 @@ type ResendDecision = { allowed: boolean; retryAfterMs: number };
 
 type PortalEmail = { to: string; subject: string; html: string; text: string };
 
+async function captureDevMail(ctx: GenericCtx<DataModel>, message: PortalEmail): Promise<boolean> {
+  if (!devMailboxEnabled()) return false;
+  if ('runMutation' in ctx) {
+    await ctx.runMutation(anyApi.devMailbox.record, message);
+    return true;
+  }
+  if ('scheduler' in ctx) {
+    await ctx.scheduler.runAfter(0, anyApi.devMailbox.record, message);
+    return true;
+  }
+  return false;
+}
+
 async function deliverPortalEmail(
   ctx: GenericCtx<DataModel>,
   message: PortalEmail,
   delayMs = 0,
 ): Promise<void> {
+  if (await captureDevMail(ctx, message)) return;
   if ('scheduler' in ctx) {
     await ctx.scheduler.runAfter(delayMs, anyApi.mail.deliver, message);
     return;
@@ -189,6 +204,10 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
       'http://localhost:3100',
       'http://portal.localhost:3100',
       'http://client-portal.localhost:3100',
+      'http://127.0.0.1:3110',
+      'http://localhost:3110',
+      'http://portal.localhost:3110',
+      'http://client-portal.localhost:3110',
     ].filter(Boolean),
     session: portalSessionConfig(),
     emailAndPassword: {
@@ -202,12 +221,20 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
           name: user.name,
           resetUrl: url,
         });
-        await sendPortalEmail({
+        const message = {
           to: user.email,
           subject: content.subject,
           html: content.html,
           text: content.text,
-        });
+        };
+        if (devMailboxEnabled()) {
+          const captured = await captureDevMail(ctx, message);
+          if (!captured) {
+            throw new Error('Local dev mailbox is enabled, but this handler cannot store mail');
+          }
+          return;
+        }
+        await sendPortalEmail(message);
       },
     },
     emailVerification: {
@@ -269,7 +296,12 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
         },
       },
     },
-    plugins: [convex({ authConfig })],
+    plugins: [
+      convex({
+        authConfig,
+        jwt: { expirationSeconds: JWT_EXPIRES_IN_SECONDS },
+      }),
+    ],
   });
 };
 

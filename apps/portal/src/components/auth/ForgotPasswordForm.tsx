@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { PrimaryButton, Surface } from '@/components/ui/primitives';
 import { authClient } from '@/lib/auth-client';
@@ -10,6 +10,12 @@ export function ForgotPasswordForm() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [localInbox, setLocalInbox] = useState(false);
+
+  useEffect(() => {
+    const host = window.location.hostname;
+    setLocalInbox(host === '127.0.0.1' || host === 'localhost');
+  }, []);
 
   return (
     <Surface style={{ padding: 'var(--s-5)', maxWidth: 480, width: '100%' }}>
@@ -29,6 +35,15 @@ export function ForgotPasswordForm() {
             If that email has a portal account, a reset link is on the way. Check your inbox
             (and spam), then follow the link to choose a new password.
           </p>
+          {localInbox && (
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--foreground)' }}>
+              On this local portal the link is in the{' '}
+              <Link href="/dev-mail" style={{ color: 'inherit', textDecoration: 'underline' }}>
+                dev inbox
+              </Link>
+              , not an email account.
+            </p>
+          )}
           <Link
             href="/login"
             style={{

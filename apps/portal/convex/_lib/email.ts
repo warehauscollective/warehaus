@@ -19,6 +19,17 @@ function requireEnv(name: string): string {
   return value;
 }
 
+/**
+ * Shared-dev inbox used when Resend is not configured.
+ * The flag must be the string "true". A configured Resend key always wins,
+ * so production mail is never stored here.
+ */
+export function devMailboxEnabled(
+  env: { DEV_MAILBOX_ENABLED?: string; RESEND_API_KEY?: string } = process.env,
+): boolean {
+  return env.DEV_MAILBOX_ENABLED === 'true' && !env.RESEND_API_KEY?.trim();
+}
+
 export async function sendPortalEmail(args: SendPortalEmailArgs): Promise<void> {
   const apiKey = requireEnv('RESEND_API_KEY');
   const from =
