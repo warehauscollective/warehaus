@@ -4,12 +4,7 @@ import { describe, it } from 'node:test';
 import React, { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { PhoneScrollInset, PortalTilePane, PortalWorkspaceFrame } from './PortalWorkspace';
-import {
-  DESKTOP_SHELL_INSET_PX,
-  PHONE_SHELL_INSET_PX,
-  tabPanelPadding,
-  tabPanelShellLayout,
-} from './tabPanelShellLayout';
+import { tabPanelShellLayout } from './tabPanelShellLayout';
 
 Object.assign(globalThis, { React });
 
@@ -25,16 +20,11 @@ function tag(html: string, testId: string): string {
 
 describe('phone shell margin', () => {
   it('uses the 390-frame inset on every tab, including projects and milestones', () => {
-    assert.equal(PHONE_SHELL_INSET_PX, 16);
-    for (const project of [false, true]) {
-      assert.deepEqual(tabPanelPadding(true, project), {
-        paddingLeft: 16,
-        paddingRight: 16,
-      });
-    }
-    assert.equal(DESKTOP_SHELL_INSET_PX, 24);
-    assert.deepEqual(tabPanelPadding(false, true), { paddingLeft: 24, paddingRight: 24 });
-    assert.deepEqual(tabPanelPadding(false, false), { paddingLeft: 24, paddingRight: 24 });
+    const layout = readFileSync(new URL('./tabPanelShellLayout.ts', import.meta.url), 'utf8');
+    assert.equal(layout.includes('tabPanelPadding'), false);
+    assert.equal(layout.includes('void project'), false);
+    assert.equal(layout.includes('PHONE_SHELL_INSET_PX'), false);
+    assert.equal(layout.includes('DESKTOP_SHELL_INSET_PX'), false);
 
     const css = readFileSync(new URL('../../styles/global.css', import.meta.url), 'utf8');
     assert.match(css, /\.portal-tab-shell\s*\{[^}]*padding-left:\s*16px;/);
