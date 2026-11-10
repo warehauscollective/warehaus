@@ -91,6 +91,7 @@ export function PrimaryButton({
   solidWhenDisabled = false,
   width,
   minWidth,
+  height,
   paddingInline,
   testId,
 }: {
@@ -106,10 +107,13 @@ export function PrimaryButton({
   width?: number;
   /** Floor width, border-box. The control can grow with the label. */
   minWidth?: number;
+  /** Fixed height, border-box. Vertical padding is dropped so the box stays exact. */
+  height?: number;
   /** Horizontal padding in pixels. Replaces the default 1.1rem when set. */
   paddingInline?: number;
   testId?: string;
 }) {
+  const fixed = width != null || minWidth != null || height != null;
   return (
     <button
       type={type}
@@ -127,11 +131,13 @@ export function PrimaryButton({
         fontFamily: 'var(--font-body)',
         fontSize: 'var(--t-sm)',
         fontWeight: 600,
-        boxSizing: width != null || minWidth != null ? 'border-box' : undefined,
+        boxSizing: fixed ? 'border-box' : undefined,
         width,
         minWidth,
-        whiteSpace: width != null || minWidth != null ? 'nowrap' : undefined,
-        padding: paddingInline != null ? `0.65rem ${paddingInline}px` : '0.65rem 1.1rem',
+        height,
+        lineHeight: height != null ? '20px' : undefined,
+        whiteSpace: fixed ? 'nowrap' : undefined,
+        padding: height != null ? `0 ${paddingInline ?? 16}px` : paddingInline != null ? `0.65rem ${paddingInline}px` : '0.65rem 1.1rem',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled && !solidWhenDisabled ? 0.55 : 1,
       }}
@@ -148,6 +154,9 @@ export function OutlineButton({
   disabled,
   describedBy,
   nowrap = false,
+  width,
+  height,
+  paddingInline,
   testId,
 }: {
   children: ReactNode;
@@ -157,6 +166,12 @@ export function OutlineButton({
   describedBy?: string;
   /** One line, 44 tall. Used by the milestone “View tasks” control. */
   nowrap?: boolean;
+  /** Fixed width, border-box. */
+  width?: number;
+  /** Fixed height, border-box. Vertical padding is dropped so the box stays exact. */
+  height?: number;
+  /** Horizontal padding in pixels when width or height is fixed. */
+  paddingInline?: number;
   testId?: string;
 }) {
   return (
@@ -166,7 +181,7 @@ export function OutlineButton({
       disabled={disabled}
       data-testid={testId}
       aria-describedby={describedBy}
-      className={nowrap ? 'inline-flex shrink-0 items-center justify-center' : 'inline-flex items-center justify-center'}
+      className={nowrap || width != null ? 'inline-flex shrink-0 items-center justify-center' : 'inline-flex items-center justify-center'}
       style={{
         boxSizing: 'border-box',
         background: 'transparent',
@@ -176,9 +191,11 @@ export function OutlineButton({
         fontFamily: 'var(--font-body)',
         fontSize: 14,
         fontWeight: 500,
-        height: nowrap ? 44 : undefined,
-        padding: nowrap ? '12px 16px' : '0.65rem 1rem',
-        whiteSpace: nowrap ? 'nowrap' : undefined,
+        width,
+        height: height ?? (nowrap ? 44 : undefined),
+        lineHeight: height != null ? '20px' : undefined,
+        padding: height != null ? `0 ${paddingInline ?? 16}px` : nowrap ? '12px 16px' : '0.65rem 1rem',
+        whiteSpace: nowrap || width != null ? 'nowrap' : undefined,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.55 : 1,
       }}

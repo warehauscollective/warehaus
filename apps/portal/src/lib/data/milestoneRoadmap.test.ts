@@ -460,7 +460,8 @@ describe('MilestoneDetailView', () => {
     const ready = renderDetail(tileMilestone({ workStatus: 'ready', approval: 'unreviewed' }));
     assert.equal(primary(ready), true);
     assert.match(ready, /data-testid="milestone-review-action"[^>]*>Review milestone</);
-    assert.match(ready, /min-width:148px/);
+    assert.match(action(ready), /width:148px/);
+    assert.match(action(ready), /height:42px/);
     assert.equal(view(ready), false);
 
     const readyChanges = renderDetail(
@@ -472,19 +473,25 @@ describe('MilestoneDetailView', () => {
     const approved = renderDetail(
       tileMilestone({ workStatus: 'ready', approval: 'approved', note: 'Approved with the brand file.' }),
     );
-    assert.equal(action(approved), '');
+    assert.equal(outline(approved), true);
+    assert.equal(primary(approved), false);
+    assert.match(action(approved), /width:148px/);
+    assert.match(action(approved), /height:42px/);
     assert.equal(view(approved), true);
     assert.match(approved, /data-testid="milestone-view-review"[^>]*>View review</);
 
     const changes = renderDetail(
       tileMilestone({ workStatus: 'active', approval: 'changes_requested', decidedAt: Date.parse('2026-11-03T15:00:00Z') }),
     );
-    assert.equal(action(changes), '');
+    assert.equal(outline(changes), true);
+    assert.equal(primary(changes), false);
     assert.equal(view(changes), true);
 
     const draft = renderDetail(tileMilestone({ workStatus: 'draft', approval: 'unreviewed' }));
     assert.equal(outline(draft), true);
     assert.equal(primary(draft), false);
+    assert.match(action(draft), /width:148px/);
+    assert.match(action(draft), /height:42px/);
     assert.equal(view(draft), false);
 
     const active = renderDetail(tileMilestone({ workStatus: 'active', approval: 'unreviewed' }));

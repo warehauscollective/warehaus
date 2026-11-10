@@ -5,6 +5,7 @@ import { X } from 'lucide-react';
 import { Bevel } from '@warehaus/ui';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { PORTAL_PANEL_GAP_VAR, PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
+import { PHONE_SCROLL_INSET } from '@/components/layout/tabPanelShellLayout';
 
 /**
  * Desktop portal chrome for a single tab: fixed above-the-fold workspace.
@@ -193,13 +194,16 @@ export function PortalWorkspace({
 export function PortalTilePane({
   children,
   className,
+  inset = true,
 }: {
   children: ReactNode;
   className?: string;
+  /** Phone inset for this scroller. Turn off when a nested page scroller carries it. */
+  inset?: boolean;
 }) {
   return (
     <div
-      className={className ? `min-w-0 ${className}` : 'min-w-0'}
+      className={['min-w-0', inset ? PHONE_SCROLL_INSET : '', className].filter(Boolean).join(' ')}
       data-page-scroll=""
       style={{
         height: '100%',

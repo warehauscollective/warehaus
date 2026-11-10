@@ -7,6 +7,7 @@ import { PrimaryButton } from '@/components/ui/primitives';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { resourceKind } from '@/components/tasks/AttachedResourceRow';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
+import { PHONE_SCROLL_INSET } from '@/components/layout/tabPanelShellLayout';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { ResourceDetail, type ResourceTaskRow } from '@/components/resources/ResourceDetail';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
@@ -552,8 +553,8 @@ export function ResourcesContent() {
         ) : undefined
       }
     >
-      <PortalTilePane>
-        <div className="flex h-full min-h-0 flex-col gap-8 overflow-y-auto" data-testid="resources-list" data-page-scroll="">
+      <PortalTilePane inset={false}>
+        <div className={`flex h-full min-h-0 flex-col gap-8 overflow-y-auto ${PHONE_SCROLL_INSET}`} data-testid="resources-list" data-page-scroll="">
           <div
             className={`grid grid-cols-1 gap-4 ${isStaff ? 'sm:grid-cols-3' : 'sm:grid-cols-2'}`}
             data-testid="resource-kpis"

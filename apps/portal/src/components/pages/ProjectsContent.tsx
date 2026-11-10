@@ -420,7 +420,7 @@ export function ProjectsContent() {
     ).map((resource) => ({ id: resource.id, title: resource.name }));
     return (
       <PortalWorkspace hideHeader eyebrow={tenantEyebrow(data.tenant, 'Project')} title={openProject.name}>
-        <PortalTilePane className="project-open-pane">
+        <PortalTilePane className="project-open-pane" inset={false}>
           <div className="box-border flex h-full min-h-0 w-full min-w-0 max-w-[1108px] flex-col overflow-y-auto" data-testid="project-detail" data-page-scroll="" data-task-view={taskView}>
             <div className={PHONE_SCROLL_INSET}>
             <ProjectRoadmap
@@ -569,8 +569,8 @@ export function ProjectsContent() {
         ) : null
       }
     >
-      <PortalTilePane>
-        <div className="flex h-full min-h-0 flex-col gap-3 overflow-y-auto" data-testid="projects-list" data-page-scroll="">
+      <PortalTilePane inset={false}>
+        <div className={`flex h-full min-h-0 flex-col gap-3 overflow-y-auto ${PHONE_SCROLL_INSET}`} data-testid="projects-list" data-page-scroll="">
           <ProjectListScreen
             staff={isStaff}
             errorMode={errorMode}
