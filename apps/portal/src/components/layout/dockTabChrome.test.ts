@@ -39,7 +39,19 @@ describe('dock active label', () => {
     assert.equal(dockTabClassName(true).includes('size-8'), false);
     assert.match(dockTabClassName(false), /size-8/);
 
-    assert.match(dock, /dockLabelClassName\(isActive\)/);
+    assert.match(dockTabClassName(true), /h-\[35px\]/);
+    assert.match(dockTabClassName(true), /lg:h-\[46px\]/);
+    assert.match(dockTabClassName(false), /lg:h-11/);
+    assert.match(dock, /h-\[45px\]/);
+    assert.match(dock, /lg:h-14/);
+    assert.match(dockLabelClassName(true, 'resources'), /dock-label-resources/);
+    assert.match(dockLabelClassName(false, 'account'), /dock-label-account/);
+    assert.match(css, /\.dock-label-resources\s*\{[^}]*letter-spacing:\s*0\.97px;/);
+    assert.match(css, /\.dock-label-account\s*\{[^}]*letter-spacing:\s*0\.88px;/);
+    assert.match(dock, /backgroundColor: 'currentColor'/);
+    assert.match(dock, /stroke="currentColor"/);
+
+    assert.match(dock, /dockLabelClassName\(isActive, value\)/);
     assert.match(dock, /dockTabClassName\(isActive\)/);
     assert.match(dock, /dockTabStyle\(isActive\)/);
   });

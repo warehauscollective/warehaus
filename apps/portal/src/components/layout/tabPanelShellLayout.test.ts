@@ -4,7 +4,12 @@ import { describe, it } from 'node:test';
 import React, { createElement, type ReactNode } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { PhoneScrollInset, PortalTilePane, PortalWorkspaceFrame } from './PortalWorkspace';
-import { PHONE_SHELL_INSET_PX, tabPanelPadding, tabPanelShellLayout } from './tabPanelShellLayout';
+import {
+  DESKTOP_SHELL_INSET_PX,
+  PHONE_SHELL_INSET_PX,
+  tabPanelPadding,
+  tabPanelShellLayout,
+} from './tabPanelShellLayout';
 
 Object.assign(globalThis, { React });
 
@@ -27,15 +32,15 @@ describe('phone shell margin', () => {
         paddingRight: 16,
       });
     }
+    assert.equal(DESKTOP_SHELL_INSET_PX, 24);
     assert.deepEqual(tabPanelPadding(false, true), { paddingLeft: 24, paddingRight: 24 });
-    assert.deepEqual(tabPanelPadding(false, false), {
-      paddingLeft: '1.25rem',
-      paddingRight: '4.5rem',
-    });
+    assert.deepEqual(tabPanelPadding(false, false), { paddingLeft: 24, paddingRight: 24 });
 
     const css = readFileSync(new URL('../../styles/global.css', import.meta.url), 'utf8');
     assert.match(css, /\.portal-tab-shell\s*\{[^}]*padding-left:\s*16px;/);
     assert.match(css, /\.portal-tab-shell\s*\{[^}]*padding-right:\s*16px;/);
+    assert.match(css, /min-width:\s*768px\)\s*\{[^}]*\.portal-tab-shell\s*\{[^}]*padding-left:\s*24px;/);
+    assert.match(css, /--portal-tile-pad:\s*calc\(82px \+ env\(safe-area-inset-bottom, 0px\)\)/);
     const swipe = readFileSync(new URL('./PortalSwipeWorkspace.tsx', import.meta.url), 'utf8');
     assert.match(swipe, /tabPanelPadding\(phone, project\)/);
     assert.equal(swipe.includes('phone ? 16'), false);
@@ -48,6 +53,11 @@ describe('phone shell inset', () => {
     for (const project of [false, true]) {
       const shell = tabPanelShellLayout(project).shellClassName.replace(/lg:[^\s]+/g, ' ');
       assert.match(shell, /(?:^|\s)gap-0(?:\s|$)/);
+      assert.match(shell, /(?:^|\s)pb-0(?:\s|$)/);
+      assert.match(shell, /(?:^|\s)pt-4(?:\s|$)/);
+      assert.equal(shell.includes('pb-28'), false);
+      assert.equal(shell.includes('pt-3'), false);
+      assert.match(tabPanelShellLayout(project).shellClassName, /lg:pt-6/);
       assert.equal(tabPanelShellLayout(project).contentClassName.includes('pt-6'), false);
     }
 

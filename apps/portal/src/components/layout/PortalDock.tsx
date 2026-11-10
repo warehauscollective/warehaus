@@ -32,17 +32,23 @@ function DashboardGlyph() {
 
 function TabGlyph({ tab, active }: { tab: PortalTab; active: boolean }) {
   if (tab === 'dashboard') return <DashboardGlyph />;
+  const src = TAB_ICON[tab];
   return (
-    <span className="relative shrink-0" style={{ width: 16, height: 16 }} aria-hidden>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        alt=""
-        src={TAB_ICON[tab]}
-        width={16}
-        height={16}
-        className={active ? 'dock-tab-icon dock-tab-icon-active' : 'dock-tab-icon'}
-      />
-    </span>
+    <span
+      aria-hidden
+      className={active ? 'dock-tab-icon dock-tab-icon-active' : 'dock-tab-icon'}
+      style={{
+        backgroundColor: 'currentColor',
+        WebkitMaskImage: `url(${src})`,
+        maskImage: `url(${src})`,
+        WebkitMaskRepeat: 'no-repeat',
+        maskRepeat: 'no-repeat',
+        WebkitMaskPosition: 'center',
+        maskPosition: 'center',
+        WebkitMaskSize: 'contain',
+        maskSize: 'contain',
+      }}
+    />
   );
 }
 
@@ -50,7 +56,7 @@ function TabGlyph({ tab, active }: { tab: PortalTab; active: boolean }) {
  * Portal dock — Figma Dock/Portal 284:8236.
  * Desktop: hamburger circle, then a surface track. Active tab is a paper pill
  * with ink type in both themes. No dash indicators. Below 1024 only the
- * active tab shows its label. Inactive icons stay muted.
+ * active tab shows its label. Every idle icon and label uses --muted.
  */
 export function PortalDock() {
   const { activeTab, setActiveTab } = usePortalTab();
@@ -119,7 +125,7 @@ export function PortalDock() {
       <div
         role="tablist"
         aria-label="Portal sections"
-        className="flex min-w-0 items-center gap-1 overflow-x-auto rounded-2xl p-1 lg:gap-0 lg:overflow-visible lg:rounded-3xl"
+        className="box-border flex h-[45px] min-w-0 items-center gap-1 rounded-2xl p-1 lg:h-14 lg:gap-0 lg:rounded-3xl"
         style={{
           background: 'var(--surface)',
           border: '1px solid var(--border)',
@@ -142,7 +148,7 @@ export function PortalDock() {
               style={dockTabStyle(isActive)}
             >
               <TabGlyph tab={value} active={isActive} />
-              <span className={dockLabelClassName(isActive)}>{label}</span>
+              <span className={dockLabelClassName(isActive, value)}>{label}</span>
             </button>
           );
         })}
