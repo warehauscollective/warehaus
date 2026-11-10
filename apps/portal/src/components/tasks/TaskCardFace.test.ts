@@ -18,6 +18,7 @@ const {
   MOVE_NOT_SAVED,
   boardColumnTemplate,
   boardMovePersists,
+  boardShowsEdgeFade,
   cardDragPointerDown,
   flagOffDropMessage,
   stageSavedFeedback,
@@ -185,7 +186,15 @@ describe('TaskCardFace client stage card', () => {
     assert.equal(before.length, after.length);
     assert.equal(boardColumnTemplate(before.length, false), boardColumnTemplate(after.length, false));
     assert.equal(boardColumnTemplate(5, false), 'repeat(5, minmax(12.75rem, 1fr))');
+    assert.equal(boardColumnTemplate(5, false, true), 'repeat(5, minmax(12rem, 1fr))');
     assert.equal(boardColumnTemplate(1, true), 'minmax(0, 1fr)');
+  });
+
+  it('shows the lane fade only while wide content is still cut off', () => {
+    assert.equal(boardShowsEdgeFade({ wide: true, scrollWidth: 1043, clientWidth: 1043, scrollLeft: 0 }), false);
+    assert.equal(boardShowsEdgeFade({ wide: true, scrollWidth: 1068, clientWidth: 703, scrollLeft: 0 }), true);
+    assert.equal(boardShowsEdgeFade({ wide: true, scrollWidth: 1068, clientWidth: 703, scrollLeft: 365 }), false);
+    assert.equal(boardShowsEdgeFade({ wide: false, scrollWidth: 1068, clientWidth: 390, scrollLeft: 0 }), false);
   });
 
   it('toasts a saved stage move with Undo back to the previous stage', () => {

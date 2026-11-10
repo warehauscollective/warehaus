@@ -277,6 +277,8 @@ export default defineSchema({
   activity: defineTable({
     orgId: v.id('clients'),
     projectId: v.optional(v.id('projects')),
+    /** Set when the row is about one milestone. Older rows omit it. */
+    milestoneId: v.optional(v.id('milestones')),
     name: v.string(),
     summary: v.optional(v.string()),
     type: v.string(),

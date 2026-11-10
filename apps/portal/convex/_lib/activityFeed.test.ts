@@ -552,4 +552,40 @@ describe('staff and client activity agree', () => {
     assert.equal(JSON.stringify(client).includes('Draft estimate'), false);
     assert.equal(JSON.stringify(client).includes('warehaus.studio'), false);
   });
+
+  it('keeps each milestone id when two rows share a name', () => {
+    const feed = buildActivityFeed({
+      audience: 'staff',
+      orgVisible: true,
+      activity: [
+        {
+          _id: 'act-launch',
+          name: 'Launch',
+          type: 'milestone.approved',
+          timestamp: 2,
+          projectId: 'proj-public',
+          milestoneId: 'm-launch',
+        },
+        {
+          _id: 'act-billing',
+          name: 'Launch',
+          type: 'milestone.changes_requested',
+          timestamp: 1,
+          projectId: 'proj-public',
+          milestoneId: 'm-billing',
+        },
+      ],
+      audits: [],
+      outbox: [],
+      projects: [publicProject],
+      tasks: [],
+    });
+    assert.deepEqual(
+      feed.map((item) => ({ id: item.id, name: item.name, milestoneId: item.milestoneId })),
+      [
+        { id: 'act-launch', name: 'Launch', milestoneId: 'm-launch' },
+        { id: 'act-billing', name: 'Launch', milestoneId: 'm-billing' },
+      ],
+    );
+  });
 });

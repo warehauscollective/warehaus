@@ -194,7 +194,7 @@ export function TeamInvites({
   return (
     <PortalTilePane>
       <style>{TEAM_CARD_CSS}</style>
-      <div className="flex h-full min-h-0 flex-col gap-8 overflow-auto" data-testid="team-invites" data-state={view}>
+      <div className="flex h-full min-h-0 flex-col gap-8 overflow-auto" data-testid="team-invites" data-page-scroll="" data-state={view}>
         {fixtures ? null : missing && (
           <Surface style={{ padding: 'var(--s-5)' }}>
             <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>

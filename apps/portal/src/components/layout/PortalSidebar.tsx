@@ -1,12 +1,11 @@
 'use client';
 
-import { useEffect, useRef, useState, type ReactNode } from 'react';
+import { useEffect } from 'react';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
-import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { usePortalData } from '@/hooks/usePortalData';
-import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from './sectionEdgeFade';
+import { MobileMenu } from './MobileMenu';
 
 /**
  * In-flow section rail for one swipe tab.
@@ -30,94 +29,18 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
 
   return (
     <>
-      {/* Mobile / tablet: in-flow chip row (scrolls with the tab) */}
-      <nav
-        aria-label={`${tab} sections`}
-        className="mb-3 flex shrink-0 items-center gap-2 rounded-2xl px-3 py-2 backdrop-blur-2xl lg:hidden"
-        style={{
-          background: 'var(--nav-bg)',
-          border: '1px solid var(--nav-border)',
-          // Same width as the client strip. The staff bell overlays the trailing
-          // peek; shortening the bar left the active pill with empty space after it.
-          overflow: 'hidden',
-        }}
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          alt="warehaus"
-          src="/icons/wordmark.svg"
-          width={91.6264}
-          height={12.4073}
-          className="portal-wordmark shrink-0"
-        />
-        <button
-          type="button"
-          aria-label="Search"
-          className="inline-flex shrink-0 items-center justify-center"
-          style={{
-            width: 32,
-            height: 32,
-            borderRadius: 999,
-            border: '1px solid var(--nav-border)',
-            background: 'transparent',
-            color: 'var(--nav-text)',
-            cursor: 'pointer',
-          }}
-          onClick={(event) => {
-            window.dispatchEvent(new CustomEvent('wh-open-search', { detail: { trigger: event.currentTarget } }));
-          }}
-        >
-          <TaskGlyph src="/icons/resource-search.svg" size={16} />
-        </button>
-        <span
-          className="ds-mono hidden shrink-0 sm:inline"
-          style={{
-            fontSize: '0.65rem',
-            textTransform: 'uppercase',
-            letterSpacing: '0.14em',
-            color: 'var(--muted)',
-          }}
-        >
-          {tab}
-        </span>
-        <SectionScroller
-          inset={data.tenant.mode === 'team'}
-          activeKey={activeSection}
-          endClearance={data.tenant.mode === 'team' && activeSection === sections[sections.length - 1]?.key ? 48 : 0}
-        >
-          {sections.map((s) => {
-            const active = activeSection === s.key;
-            return (
-              <button
-                key={s.key}
-                type="button"
-                onClick={() => setSectionFor(tab, s.key)}
-                aria-current={active ? 'true' : undefined}
-                className="shrink-0 whitespace-nowrap transition-colors"
-                style={{
-                  fontSize: 'var(--t-xs)',
-                  fontWeight: active ? 600 : 500,
-                  padding: '0.45rem 0.7rem',
-                  borderRadius: 999,
-                  color: active ? 'var(--nav-text-inverse)' : 'var(--nav-text)',
-                  background: active ? 'var(--nav-pill-bg)' : 'transparent',
-                  border: active
-                    ? '1px solid var(--nav-pill-border)'
-                    : '1px solid transparent',
-                }}
-              >
-                {s.label}
-              </button>
-            );
-          })}
-        </SectionScroller>
-      </nav>
+      <MobileMenu
+        tab={tab}
+        sections={sections}
+        activeSection={activeSection}
+        onSelect={(key) => setSectionFor(tab, key)}
+      />
 
       {/* Desktop: floating wordmark card (Figma 284:8408). No bar mark, no swoop. */}
       <nav
         aria-label={`${tab} sections`}
         data-testid="portal-sidebar"
-        className="hidden max-h-full min-h-0 w-[244px] shrink-0 flex-col overflow-y-auto lg:flex"
+        className="hidden w-[244px] shrink-0 flex-col self-start overflow-y-auto lg:flex"
         style={{
           background: 'var(--surface)',
           border: '1px solid var(--border)',
@@ -141,7 +64,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img alt="" src="/icons/sidebar-menu.svg" width={16} height={16} />
         </div>
-        <div className="flex w-full flex-col" style={{ paddingTop: 16, gap: 4 }}>
+        <div className="flex w-full flex-col" style={{ paddingTop: 9, gap: 4 }}>
           <p
             className="ds-mono"
             style={{
@@ -166,6 +89,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
                 aria-current={active ? 'true' : undefined}
                 className="w-full text-left transition-colors"
                 style={{
+                  fontFamily: 'var(--font-geist), var(--font-body)',
                   fontSize: 14,
                   lineHeight: '20px',
                   fontWeight: active ? 600 : 500,
@@ -183,87 +107,6 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         </div>
       </nav>
     </>
-  );
-}
-
-function SectionScroller({
-  children,
-  inset,
-  activeKey,
-  endClearance = 0,
-}: {
-  children: ReactNode;
-  inset?: boolean;
-  activeKey: string;
-  endClearance?: number;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [fade, setFade] = useState<EdgeFade>({ leading: 0, trailing: 0 });
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    scrollActiveIntoView(node, { inset, endClearance });
-  }, [activeKey, inset, endClearance]);
-  useEffect(() => {
-    const node = ref.current;
-    if (!node) return;
-    const update = () => {
-      setFade(sectionEdgeFades(node, { inset }));
-    };
-    update();
-    node.addEventListener('scroll', update, { passive: true });
-    const observer = new ResizeObserver(update);
-    observer.observe(node);
-    window.addEventListener('resize', update);
-    return () => {
-      node.removeEventListener('scroll', update);
-      observer.disconnect();
-      window.removeEventListener('resize', update);
-    };
-  }, [children, inset]);
-  const mask = sectionEdgeMask(fade);
-  return (
-    <div className="relative min-w-0 flex-1">
-      <div
-        ref={ref}
-        data-testid="section-scroller"
-        className="section-scroller flex min-w-0 items-center gap-1 overscroll-x-contain"
-        style={{
-          scrollbarWidth: 'none',
-          overflowX: 'auto',
-          overflowY: 'hidden',
-          paddingLeft: 0,
-          scrollPaddingLeft: 0,
-          ...(mask
-            ? {
-                maskImage: mask,
-                WebkitMaskImage: mask,
-              }
-            : null),
-        }}
-      >
-        {children}
-        {endClearance > 0 ? (
-          <span aria-hidden data-testid="section-end-spacer" className="shrink-0" style={{ width: endClearance }} />
-        ) : null}
-      </div>
-      {fade.leading > 0 ? (
-        <div
-          aria-hidden
-          data-testid="section-edge-fade-leading"
-          className="pointer-events-none absolute inset-y-0 left-0"
-          style={{ width: fade.leading, background: 'linear-gradient(to left, transparent, var(--nav-bg) 70%)' }}
-        />
-      ) : null}
-      {fade.trailing > 0 ? (
-        <div
-          aria-hidden
-          data-testid="section-edge-fade"
-          className="pointer-events-none absolute inset-y-0 right-0"
-          style={{ width: fade.trailing, background: 'linear-gradient(to right, transparent, var(--nav-bg) 70%)' }}
-        />
-      ) : null}
-    </div>
   );
 }
 

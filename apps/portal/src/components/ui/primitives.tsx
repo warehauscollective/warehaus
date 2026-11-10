@@ -89,6 +89,11 @@ export function PrimaryButton({
   className,
   title,
   solidWhenDisabled = false,
+  width,
+  minWidth,
+  height,
+  paddingInline,
+  testId,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
@@ -98,7 +103,17 @@ export function PrimaryButton({
   title?: string;
   /** Keep the primary fill. The control stays disabled; the tooltip explains why. */
   solidWhenDisabled?: boolean;
+  /** Fixed width, border-box. */
+  width?: number;
+  /** Floor width, border-box. The control can grow with the label. */
+  minWidth?: number;
+  /** Fixed height, border-box. Vertical padding is dropped so the box stays exact. */
+  height?: number;
+  /** Horizontal padding in pixels. Replaces the default 1.1rem when set. */
+  paddingInline?: number;
+  testId?: string;
 }) {
+  const fixed = width != null || minWidth != null || height != null;
   return (
     <button
       type={type}
@@ -106,6 +121,7 @@ export function PrimaryButton({
       disabled={disabled}
       aria-disabled={disabled || undefined}
       title={title}
+      data-testid={testId}
       className={['inline-flex items-center justify-center gap-2', className].filter(Boolean).join(' ')}
       style={{
         background: 'var(--accent)',
@@ -115,7 +131,13 @@ export function PrimaryButton({
         fontFamily: 'var(--font-body)',
         fontSize: 'var(--t-sm)',
         fontWeight: 600,
-        padding: '0.65rem 1.1rem',
+        boxSizing: fixed ? 'border-box' : undefined,
+        width,
+        minWidth,
+        height,
+        lineHeight: height != null ? '20px' : undefined,
+        whiteSpace: fixed ? 'nowrap' : undefined,
+        padding: height != null ? `0 ${paddingInline ?? 16}px` : paddingInline != null ? `0.65rem ${paddingInline}px` : '0.65rem 1.1rem',
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled && !solidWhenDisabled ? 0.55 : 1,
       }}
@@ -130,19 +152,42 @@ export function OutlineButton({
   type = 'button',
   onClick,
   disabled,
+  describedBy,
+  nowrap = false,
+  width,
+  minWidth,
+  height,
+  paddingInline,
+  testId,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
   onClick?: () => void;
   disabled?: boolean;
+  describedBy?: string;
+  /** One line, 44 tall. Used by the milestone “View tasks” control. */
+  nowrap?: boolean;
+  /** Fixed width, border-box. */
+  width?: number;
+  /** Floor width, border-box. The control grows if the label needs more. */
+  minWidth?: number;
+  /** Fixed height, border-box. Vertical padding is dropped so the box stays exact. */
+  height?: number;
+  /** Horizontal padding in pixels when width or height is fixed. */
+  paddingInline?: number;
+  testId?: string;
 }) {
+  const fixed = nowrap || width != null || minWidth != null;
   return (
     <button
       type={type}
       onClick={onClick}
       disabled={disabled}
-      className="inline-flex items-center justify-center"
+      data-testid={testId}
+      aria-describedby={describedBy}
+      className={fixed ? 'inline-flex shrink-0 items-center justify-center' : 'inline-flex items-center justify-center'}
       style={{
+        boxSizing: 'border-box',
         background: 'transparent',
         color: 'var(--fg)',
         border: '1px solid var(--border)',
@@ -150,7 +195,12 @@ export function OutlineButton({
         fontFamily: 'var(--font-body)',
         fontSize: 14,
         fontWeight: 500,
-        padding: '0.65rem 1rem',
+        width,
+        minWidth,
+        height: height ?? (nowrap ? 44 : undefined),
+        lineHeight: height != null ? '20px' : undefined,
+        padding: height != null ? `0 ${paddingInline ?? 16}px` : nowrap ? '12px 16px' : '0.65rem 1rem',
+        whiteSpace: fixed ? 'nowrap' : undefined,
         cursor: disabled ? 'not-allowed' : 'pointer',
         opacity: disabled ? 0.55 : 1,
       }}

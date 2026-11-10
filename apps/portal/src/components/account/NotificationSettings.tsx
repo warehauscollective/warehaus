@@ -117,7 +117,7 @@ export function NotificationSettings({
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col overflow-y-auto">
+    <div className="flex h-full min-h-0 flex-col overflow-y-auto" data-page-scroll="">
       <style>{ACCOUNT_CARD_CSS}</style>
       <section className="account-card" id="account-notifications" data-testid="account-notifications">
         <header>

@@ -16,30 +16,24 @@ describe('task list retry and quick-add', () => {
     assert.ok(providerAt >= 0 && chromeAt > providerAt);
   });
 
-  it('calls createTask from the project task list when write-back is on', () => {
+  it('does not mount a task board or create tasks on the project page', () => {
     const projects = readFileSync(new URL('../pages/ProjectsContent.tsx', import.meta.url), 'utf8');
-    assert.match(projects, /api\.tasks\.createTask/);
-    assert.match(projects, /createTask\(/);
-    assert.match(projects, /quickAddEnabled=\{writebackEnabled\}/);
-    assert.equal(projects.includes('quickAddEnabled={false}'), false);
-    assert.match(projects, /if \(!writebackEnabled\) return \{ ok: false, error: WRITEBACK_OFF_ERROR \}/);
-    assert.match(projects, /showTaskListFilters\(itemView\.region\)/);
+    const details = projects.slice(projects.indexOf('details='));
+    assert.equal(details.includes('<TaskBoard'), false);
+    assert.equal(details.includes('StatusTable'), false);
+    assert.equal(projects.includes('api.tasks.createTask'), false);
+    assert.equal(projects.includes('quickAddEnabled={writebackEnabled}'), false);
+    assert.match(projects, /showQuickAdd=\{false\}/);
+    assert.match(projects, /renderTasks=/);
   });
 
-  it('restores the open project and task view from the URL after Try again', () => {
+  it('keeps the open project in the URL while its milestones load', () => {
     const projects = readFileSync(new URL('../pages/ProjectsContent.tsx', import.meta.url), 'utf8');
-    const retryStart = projects.indexOf('const retryTasks');
-    const retryEnd = projects.indexOf('const clearTaskFilters');
-    const retry = projects.slice(retryStart, retryEnd);
-    assert.match(retry, /setSearchParams\(remembered\)/);
-    assert.match(retry, /taskView/);
-    assert.match(retry, /projectId/);
-    const writeAt = retry.indexOf('setSearchParams(remembered)');
-    const remountAt = retry.indexOf('retryPortalData()');
-    assert.ok(writeAt >= 0 && remountAt > writeAt);
     assert.match(projects, /keepProjectWhileLoading\(/);
     assert.match(projects, /readTaskListView\(params\.get\('taskView'\)\)/);
+    assert.match(projects, /setSearchParams\(\{ project: project\.id, taskView: 'board' \}\)/);
     assert.equal(projects.includes('projectsLoading && deepLink'), false);
+    assert.equal(projects.includes('<h2 style={{ fontSize: 18, fontWeight: 600, lineHeight: \'26px\' }}>Tasks</h2>'), false);
   });
 
   it('catches a queued stage retry once and still records the failure', () => {

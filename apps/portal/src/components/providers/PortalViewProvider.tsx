@@ -44,6 +44,9 @@ interface PortalViewContextValue {
   linkedClientId: string | null;
   openLinkedClient: (clientId: string) => void;
   clearLinkedClient: () => void;
+  /** Project opened from the list. Query-only, so the path does not change. */
+  openProjectId: string | null;
+  setOpenProjectId: (id: string | null) => void;
 }
 
 const PortalViewContext = createContext<PortalViewContextValue | null>(null);
@@ -53,6 +56,7 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
   const [sectionsByTab, setSectionsByTab] = useState<Record<PortalTab, string>>(defaultSections);
   const [detail, setDetail] = useState<PortalDetail>(null);
   const [linkedClientId, setLinkedClientId] = useState<string | null>(null);
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
 
   // Clear inspector when switching dock tabs (section state is kept per tab).
   useEffect(() => {
@@ -119,6 +123,8 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
       linkedClientId,
       openLinkedClient,
       clearLinkedClient,
+      openProjectId,
+      setOpenProjectId,
     }),
     [
       activeTab,
@@ -131,6 +137,7 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
       linkedClientId,
       openLinkedClient,
       clearLinkedClient,
+      openProjectId,
     ],
   );
 

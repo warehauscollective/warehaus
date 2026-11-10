@@ -136,7 +136,7 @@ export function StatusTable({
     );
   }
   return (
-    <div className="h-full overflow-auto" data-testid="status-table">
+    <div className="h-full overflow-auto" data-testid="status-table" data-page-scroll="">
       <table className="ds-data" style={{ minWidth: 640 }}>
         <thead>
           <tr>

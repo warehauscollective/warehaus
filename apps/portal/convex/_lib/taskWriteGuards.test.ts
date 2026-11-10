@@ -3,7 +3,7 @@ import { describe, it } from 'node:test';
 import { WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
 import { enqueue } from '../sync/outbox';
 import { enqueueCreate, enqueueStage, enqueueStatus } from '../sync/taskWrite';
-import { moveStage, moveStatus, updateLiveFields } from '../tasks';
+import { createTask, moveStage, moveStatus, updateLiveFields } from '../tasks';
 import { PortalAuthError } from './identity';
 
 type Handler = (ctx: unknown, args: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>;
@@ -72,6 +72,121 @@ describe('createTask project org', () => {
     assert.equal(calls.length, 1);
     assert.equal(calls[0]?.actor, 'staff');
     assert.equal(calls[0]?.orgId, 'org-northwind');
+  });
+
+  it('forwards milestoneId from createTask into the outbox payload', async () => {
+    const forwarded: Array<{ milestoneId?: string; actorId?: string }> = [];
+    const staff = {
+      _id: 'contact-staff',
+      orgId: 'org-warehaus',
+      name: 'Maya Staff',
+      email: 'maya@warehaus.studio',
+      authUserId: 'auth-staff',
+      role: 'Warehaus Staff' as const,
+      portalAccess: 'Enabled' as const,
+    };
+    const created = await run(
+      createTask,
+      {
+        auth: { getUserIdentity: async () => ({ subject: 'auth-staff' }) },
+        db: {
+          get: async (id: string) =>
+            id === 'org-warehaus' ? { _id: 'org-warehaus', slug: 'warehaus', portalAccess: 'Enabled' } : null,
+          query: (table: string) => ({
+            withIndex: () => ({ unique: async () => (table === 'contacts' ? staff : null) }),
+          }),
+        },
+        runMutation: async (_ref: unknown, args: { milestoneId?: string; actorId?: string }) => {
+          forwarded.push(args);
+          return { ok: true, outboxId: 'out-1', duplicate: false };
+        },
+      },
+      {
+        orgId: 'org-northwind',
+        name: 'Homepage',
+        status: 'To Do',
+        projectNotionId: 'notion-proj',
+        externalId: 'wh_tsk_homepage',
+        milestoneId: 'm-launch',
+      },
+    );
+    assert.equal(created.ok, true);
+    assert.equal(forwarded[0]?.milestoneId, 'm-launch');
+    assert.equal(forwarded[0]?.actorId, 'contact-staff');
+
+    const queued: Array<{ payload?: string }> = [];
+    const db = {
+      query: () => ({
+        withIndex: () => ({
+          unique: async () => ({ _id: 'proj-public', orgId: 'org-northwind', notionPageId: 'notion-proj' }),
+        }),
+      }),
+      get: async (id: string) =>
+        id === 'm-launch'
+          ? { _id: 'm-launch', orgId: 'org-northwind', projectId: 'proj-public' }
+          : id === 'm-other'
+            ? { _id: 'm-other', orgId: 'org-northwind', projectId: 'proj-other' }
+            : null,
+    };
+    const accepted = await run(
+      enqueueCreate,
+      {
+        db,
+        runMutation: async (_ref: unknown, args: { payload?: string }) => {
+          queued.push(args);
+          return { ok: true, outboxId: 'out-2', duplicate: false };
+        },
+      },
+      {
+        orgId: 'org-northwind',
+        name: 'Homepage',
+        status: 'To Do',
+        projectNotionId: 'notion-proj',
+        externalId: 'wh_tsk_homepage',
+        milestoneId: 'm-launch',
+        actorId: 'contact-staff',
+      },
+    );
+    assert.equal(accepted.ok, true);
+    const payload = JSON.parse(queued[0]?.payload ?? '{}') as { properties?: object; milestoneId?: string };
+    assert.equal(payload.milestoneId, 'm-launch');
+    assert.equal(typeof payload.properties, 'object');
+
+    const rejected = await run(
+      enqueueCreate,
+      { db, runMutation: async () => ({ ok: true, outboxId: 'out-3', duplicate: false }) },
+      {
+        orgId: 'org-northwind',
+        name: 'Homepage',
+        status: 'To Do',
+        projectNotionId: 'notion-proj',
+        externalId: 'wh_tsk_homepage_2',
+        milestoneId: 'm-other',
+      },
+    );
+    assert.deepEqual(rejected, { ok: false, error: 'Milestone is not on this project' });
+    assert.equal(queued.length, 1);
+
+    const plain = await run(
+      enqueueCreate,
+      {
+        db,
+        runMutation: async (_ref: unknown, args: { payload?: string }) => {
+          queued.push(args);
+          return { ok: true, outboxId: 'out-4', duplicate: false };
+        },
+      },
+      {
+        orgId: 'org-northwind',
+        name: 'Homepage',
+        status: 'To Do',
+        projectNotionId: 'notion-proj',
+        externalId: 'wh_tsk_homepage_3',
+      },
+    );
+    assert.equal(plain.ok, true);
+    const plainPayload = JSON.parse(queued[1]?.payload ?? '{}') as { milestoneId?: string };
+    assert.equal('milestoneId' in plainPayload, false);
   });
 });
 

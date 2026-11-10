@@ -327,7 +327,9 @@ export function PortalSearch() {
       openSearch(null);
     }
     const onOpen = (event: Event) => {
-      const trigger = event instanceof CustomEvent ? event.detail?.trigger : null;
+      const detail = event instanceof CustomEvent ? event.detail : null;
+      const trigger = detail?.trigger;
+      if (typeof detail?.query === 'string') setQuery(detail.query);
       openSearch(trigger instanceof HTMLElement ? trigger : null);
     };
     const onKey = (event: KeyboardEvent) => {

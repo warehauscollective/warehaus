@@ -97,6 +97,8 @@ export type PortalActivity = {
   tone: string;
   projectId: string | null;
   taskId?: string | null;
+  /** Set when the row belongs to one milestone. */
+  milestoneId?: string | null;
   /** Staff feed only. Client activity is already filtered and omits this flag. */
   clientVisible?: boolean;
 };
