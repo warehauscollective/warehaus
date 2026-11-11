@@ -3,31 +3,23 @@
 export function StaffLinkFinish({ slow, onRetry }: { slow: boolean; onRetry: () => void }) {
   return (
     <section
+      className="accept-card"
       data-testid="finishing-setup"
       data-slow={slow ? 'true' : 'false'}
-      style={{
-        background: 'var(--surface)',
-        border: '1px solid var(--border)',
-        borderRadius: 12,
-        padding: 32,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 16,
-      }}
     >
-      <p style={{ margin: 0, fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+      <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', letterSpacing: '0.8px', textTransform: 'uppercase', color: 'var(--accept-muted, var(--muted))' }}>
         Staff invite
       </p>
       <h1 style={{ margin: 0, fontSize: 24, lineHeight: '32px', fontWeight: 600 }}>Finishing setup</h1>
-      <p style={{ margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--muted)' }}>
+      <p style={{ margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--accept-muted, var(--muted))' }}>
         We’re linking your staff access. This usually takes a moment.
       </p>
       {slow ? (
         <>
-          <p data-testid="finishing-slow" style={{ margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--muted)' }}>
+          <p data-testid="finishing-slow" style={{ margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--accept-muted, var(--muted))' }}>
             This is taking longer than usual. Your invite is still accepted. Stay on this page and try again.
           </p>
-          <button type="button" onClick={onRetry} style={retryButton}>
+          <button type="button" onClick={onRetry} className="accept-primary" style={retryButton}>
             Try again
           </button>
         </>
@@ -40,8 +32,8 @@ const retryButton = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  background: 'var(--foreground)',
-  color: 'var(--background)',
+  background: 'var(--accent, var(--foreground))',
+  color: 'var(--accent-fg, var(--background))',
   border: 0,
   borderRadius: 9,
   minHeight: 42,

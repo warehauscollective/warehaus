@@ -1,8 +1,9 @@
 'use client';
 
-import { type ReactNode, useCallback, useRef } from 'react';
+import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
+import { readStaffJoined } from '@/lib/staffJoined';
 import { AuthGateScreen } from './AuthGateScreen';
 
 /**
@@ -14,6 +15,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const linkingRef = useRef(false);
+  const [staffJustJoined, setStaffJustJoined] = useState(false);
+  useEffect(() => {
+    if (readStaffJoined()) setStaffJustJoined(true);
+  }, []);
   const {
     configured,
     sessionPending,
@@ -58,6 +63,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         staffInviteInProgress,
         staffInviteCheckPending,
         staffInviteConflicted,
+        staffJustJoined,
         hasPortalSession: Boolean(portalSession),
         linkQueryError: Boolean(linkQueryError),
         pathname: pathname ?? '/',

@@ -7,6 +7,7 @@ import { describe, it } from 'node:test';
 import { AuthGateScreen } from './AuthGateScreen';
 import { StaffLinkFinish } from './StaffLinkFinish';
 import { authGateAction, type AuthGateInput } from './authGateAction';
+import { DashboardHome } from '@/components/pages/DashboardHome';
 import { installTestDom, textOf, type DomDocument, type DomNode, type EventLike } from './testDom';
 import { useStaffLinkWait } from '@/lib/staffLinkWait';
 import { readStaffJoined } from '@/lib/staffJoined';
@@ -320,6 +321,62 @@ describe('staff accept waits for the link', () => {
     assert.deepEqual(signedOut, ['out']);
     assert.deepEqual(replaced, ['/login']);
     assert.equal(view.text().includes('Access denied'), false);
+    await act(async () => {
+      view.root.unmount();
+    });
+  });
+
+  it('lands on the joined dashboard instead of a bare checking screen', async () => {
+    const justJoined: AuthGateInput = {
+      ...gateBase,
+      staffInviteInProgress: false,
+      staffInviteCheckPending: true,
+      linkStatus: 'loading',
+      hasPortalSession: false,
+      staffJustJoined: true,
+      hasUser: true,
+      sessionPending: false,
+      joinError: null,
+    };
+    assert.equal(authGateAction(justJoined).type, 'ready');
+    const linkedWhileChecking: AuthGateInput = {
+      ...gateBase,
+      staffInviteInProgress: false,
+      staffInviteCheckPending: true,
+      linkStatus: 'linked',
+      hasPortalSession: true,
+      hasUser: true,
+      sessionPending: false,
+    };
+    assert.equal(authGateAction(linkedWhileChecking).type, 'ready');
+
+    const document = installTestDom();
+    const view = await renderAt(
+      document,
+      gateElement(justJoined, [], [], []),
+    );
+    assert.equal(view.text(), 'dashboard');
+    assert.equal(view.text().includes('Checking access'), false);
+
+    await act(async () => {
+      view.root.render(
+        createElement(DashboardHome, {
+          model: { audience: 'staff' } as never,
+          focus: 'all',
+          loading: false,
+          preview: null,
+          showLoadError: false,
+          onOpenTask: () => undefined,
+          onOpenProject: () => undefined,
+          joined: { name: 'Jordan', passwordSet: true },
+        }),
+      );
+    });
+    assert.match(view.text(), /You’ve joined Warehaus as staff/);
+    assert.match(view.text(), /Projects/);
+    assert.match(view.text(), /Your profile/);
+    assert.match(view.text(), /Notifications/);
+    assert.match(view.text(), /Go to projects/);
     await act(async () => {
       view.root.unmount();
     });

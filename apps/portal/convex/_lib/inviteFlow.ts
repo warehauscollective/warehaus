@@ -677,7 +677,8 @@ export type InvitePreview =
   | { status: 'expired'; portalName: 'Portal invite'; invitedEmail: string }
   | { status: 'sign-in' | 'create-account'; portalName: string; invitedEmail: string }
   | { status: 'different-email'; portalName: string; signedInEmail: string; invitedEmail: string }
-  | { status: 'unverified' | 'already' | 'ready'; portalName: string };
+  | { status: 'unverified' | 'already'; portalName: string }
+  | { status: 'ready'; portalName: string; invitedEmail: string };
 
 /** Staff-invite password. Eight characters, one letter, one number. */
 export function invitePasswordReady(password: string): boolean {
@@ -750,7 +751,7 @@ export function describeInvitePreview(input: {
   if (!plan.ok && plan.reason === 'unverified') return { status: 'unverified', portalName };
   if (!plan.ok) return { status: 'unusable', portalName: 'Portal invite' };
   if (input.staffInvite && input.alreadyMember) return { status: 'already', portalName };
-  return { status: 'ready', portalName };
+  return { status: 'ready', portalName, invitedEmail };
 }
 
 /** Token material is created only when Notion has already confirmed. */

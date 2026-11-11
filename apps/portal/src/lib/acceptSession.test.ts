@@ -3,7 +3,7 @@ import React, { createElement } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, it } from 'node:test';
-import { SignedInAcceptCopy } from '@/components/auth/AcceptInvite';
+import { SignedInAcceptCopy, SignedInLockedEmail } from '@/components/auth/AcceptInvite';
 import { installTestDom, textOf, type DomDocument } from '@/components/auth/testDom';
 import {
   ACCEPT_AUTH_INTERVAL_MS,
@@ -12,6 +12,7 @@ import {
   acceptFailureCopy,
   acceptOnceAuthenticated,
   knownSessionEmail,
+  lockedInviteEmail,
   planJoinSteps,
 } from './acceptSession';
 
@@ -139,5 +140,31 @@ describe('accept waits for the Convex session', () => {
     const named = await renderAt(document, createElement(SignedInAcceptCopy, { email: 'ada@example.com' }));
     assert.match(named.text(), /You’re signed in as ada@example.com\./);
     await named.unmount();
+  });
+
+  it('fills the locked email from the signed-in user when the invite address is blank', async () => {
+    assert.equal(
+      lockedInviteEmail({ invitedEmail: '', sessionEmail: 'ada@example.com' }),
+      'ada@example.com',
+    );
+    assert.equal(
+      lockedInviteEmail({ invitedEmail: 'jordan@warehaus.studio', sessionEmail: null }),
+      'jordan@warehaus.studio',
+    );
+    assert.equal(lockedInviteEmail({ invitedEmail: '   ', sessionEmail: '  ' }), '');
+    const document = installTestDom();
+    const view = await renderAt(
+      document,
+      createElement(SignedInLockedEmail, { invitedEmail: '', sessionEmail: 'ada@example.com' }),
+    );
+    assert.match(view.text(), /ada@example.com/);
+    assert.equal(view.text().includes('You’re signed in as .'), false);
+    const empty = await renderAt(
+      document,
+      createElement(SignedInLockedEmail, { invitedEmail: undefined, sessionEmail: '' }),
+    );
+    assert.equal(empty.text().includes('@'), false);
+    await view.unmount();
+    await empty.unmount();
   });
 });
