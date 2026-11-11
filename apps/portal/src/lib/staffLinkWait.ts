@@ -76,18 +76,20 @@ export function useStaffLinkWait(input: {
     timeoutMs: input.timeoutMs,
   });
 
-  async function begin(value: { name: string; passwordSet: boolean }) {
+  async function begin(value: { name: string; passwordSet: boolean; inviterName?: string }) {
     let hash = tokenHash;
     try {
       hash = tokenHash ?? (await hashStaffFinishToken(input.token));
     } catch {
       hash = tokenHash;
     }
+    const inviterName = value.inviterName?.trim();
     const row: StaffFinish = {
       name: value.name,
       passwordSet: value.passwordSet,
       startedAt: Date.now(),
       tokenHash: hash && /^[0-9a-f]{64}$/.test(hash) ? hash : '0'.repeat(64),
+      ...(inviterName ? { inviterName } : {}),
     };
     if (hash && /^[0-9a-f]{64}$/.test(hash)) {
       try {
@@ -111,7 +113,11 @@ export function useStaffLinkWait(input: {
   useEffect(() => {
     if (!phase.redirect || !finish || redirected.current) return;
     redirected.current = true;
-    rememberStaffJoined({ name: finish.name, passwordSet: finish.passwordSet });
+    rememberStaffJoined({
+      name: finish.name,
+      passwordSet: finish.passwordSet,
+      ...(finish.inviterName ? { inviterName: finish.inviterName } : {}),
+    });
     replaceRef.current('/');
   }, [phase.redirect, finish]);
 

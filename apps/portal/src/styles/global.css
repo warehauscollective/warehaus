@@ -1,9 +1,9 @@
 @import "tailwindcss";
-/* Ensure utilities used by shared UI package classes are generated. */
-@source "../../../../packages/ui/src";
 /* Shared design tokens + brand chrome (single source of truth). */
 @import "@warehaus/tokens/css";
 @import "@warehaus/ui/styles/brand.css";
+/* @source stays after the imports so PostCSS does not drop the token files. */
+@source "../../../../packages/ui/src";
 
 @theme inline {
   --color-background: var(--background);
@@ -326,6 +326,48 @@ html.light .accept-invite {
   outline: 3px solid var(--ring);
   border-color: var(--fg);
   outline-offset: 1px;
+}
+
+.accept-wordmark {
+  width: 260px;
+  height: 35px;
+}
+@media (max-width: 767px) {
+  .accept-wordmark {
+    width: 188px;
+    height: 25px;
+  }
+}
+.accept-progress {
+  height: 4px;
+  width: 100%;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--bg-2);
+}
+.accept-progress > span {
+  display: block;
+  height: 100%;
+  width: 40%;
+  border-radius: inherit;
+  background: var(--fg);
+  animation: accept-progress 1.1s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .accept-progress > span {
+    animation: none;
+    width: 100%;
+    opacity: 0.45;
+  }
+}
+@keyframes accept-progress {
+  0% { transform: translateX(-120%); }
+  100% { transform: translateX(280%); }
+}
+@media (min-width: 1024px) {
+  [data-testid='portal-dock'] [role='tab']:has(.dock-label-account) {
+    padding-inline: 14px;
+  }
 }
 
 /* Client directory stats: 2×2 on a phone, auto columns once each card can be 160px. */

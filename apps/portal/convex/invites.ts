@@ -358,11 +358,22 @@ export const previewAccept = query({
       alreadyMember: staffInvite && link != null && !link.ok && link.reason === 'already',
     });
     const inviter = row?.createdByContactId ? await ctx.db.get(row.createdByContactId) : null;
+    const contactNotionPageId = row?.contactNotionPageId;
+    const invitee = contactNotionPageId
+      ? (
+          await ctx.db
+            .query('contacts')
+            .withIndex('by_notionPageId', (q) => q.eq('notionPageId', contactNotionPageId))
+            .take(1)
+        )[0]
+      : null;
     return {
       ...preview,
       inviterName: inviter?.name ?? null,
       inviterEmail: inviter?.email ?? null,
+      inviteeName: invitee?.name ?? null,
       expiresAt: row?.expiresAt ?? null,
+      usedAt: row?.usedAt ?? null,
     };
   },
 });
@@ -481,15 +492,27 @@ export const listTeam = adminQuery({
     ).flat();
     return {
       canInvite: true,
-      members: contacts
+      members: await Promise.all(
+        contacts
         .filter((contact) => !contact.syncHiddenAt && contact.role === 'Warehaus Staff')
-        .map((contact) => ({
-          notionPageId: contact.notionPageId,
-          name: contact.name,
-          email: contact.email,
-          role: contact.role,
-          portalAccess: contact.portalAccess,
-        })),
+        .map(async (contact) => {
+          const tokens = await ctx.db
+            .query('inviteTokens')
+            .withIndex('by_contactNotionPageId', (q) => q.eq('contactNotionPageId', contact.notionPageId))
+            .collect();
+          const joined = tokens
+            .filter((token) => token.status === 'used' && typeof token.usedAt === 'number')
+            .sort((a, b) => (b.usedAt ?? 0) - (a.usedAt ?? 0))[0];
+          return {
+            notionPageId: contact.notionPageId,
+            name: contact.name,
+            email: contact.email,
+            role: contact.role,
+            portalAccess: contact.portalAccess,
+            joinedAt: joined?.usedAt ?? null,
+          };
+        }),
+      ),
       invites: await Promise.all(
         invites
           .filter((invite) => invite.inviteStatus === 'Pending' || invite.inviteStatus === 'Expired')

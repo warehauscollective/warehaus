@@ -160,7 +160,7 @@ export function PortalHomeContent() {
       eyebrow={eyebrow}
       title="Dashboard"
       actions={
-        isStaff ? (
+        isStaff && !joined ? (
           <NewTaskControl
             projectName={taskTarget?.name ?? taskProject}
             writebackEnabled={liveSync.data?.writebackEnabled === true}

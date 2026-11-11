@@ -49,12 +49,12 @@ export function DashboardHome({
   clientName?: string | null;
   onOpenTask: (row: AwaitingRow) => void;
   onOpenProject: (row: ProjectRow) => void;
-  joined?: { name: string; passwordSet: boolean } | null;
+  joined?: { name: string; passwordSet: boolean; inviterName?: string } | null;
 }) {
   if (joined) {
     return (
       <div data-testid="dashboard" data-state="joined" className="flex flex-col" style={{ gap: 24 }}>
-        <JoinedStaff name={joined.name} passwordSet={joined.passwordSet} />
+        <JoinedStaff name={joined.name} passwordSet={joined.passwordSet} inviterName={joined.inviterName} />
       </div>
     );
   }
@@ -720,7 +720,7 @@ function initials(name: string): string {
   return (letters || name.slice(0, 2)).toUpperCase();
 }
 
-function JoinedStaff({ name, passwordSet }: { name: string; passwordSet: boolean }) {
+function JoinedStaff({ name, passwordSet, inviterName }: { name: string; passwordSet: boolean; inviterName?: string }) {
   const cards = [
     ['Projects', 'Browse every client project, its links and milestones.', 'Go to projects', '/preview?tab=projects'],
     ['Your profile', 'Add your name and photo so clients know who they’re talking to.', 'Set up your profile', '/preview?tab=account&section=profile'],
@@ -737,6 +737,9 @@ function JoinedStaff({ name, passwordSet }: { name: string; passwordSet: boolean
               ? 'Your email is confirmed and your password is set.'
               : 'Your email is confirmed.'}
           </p>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
+            {inviterName?.trim() || 'Your inviter'} has been told you accepted.
+          </p>
         </div>
       </div>
       <div>
@@ -751,7 +754,9 @@ function JoinedStaff({ name, passwordSet }: { name: string; passwordSet: boolean
           <article key={title} style={{ ...cardStyle, borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 210 }}>
             <h3 style={{ margin: 0, fontSize: 20, lineHeight: '30px' }}>{title}</h3>
             <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)', flex: 1 }}>{body}</p>
-            <a href={href} style={{ alignSelf: 'flex-start', border: '1px solid var(--border)', borderRadius: 9, padding: '10px 14px', fontSize: 14, color: 'var(--foreground)', textDecoration: 'none' }}>{label}</a>
+            <a href={href} style={title === 'Projects'
+              ? { alignSelf: 'flex-start', background: 'var(--fg)', color: 'var(--bg)', border: 0, borderRadius: 9, padding: '10px 14px', fontSize: 14, fontWeight: 600, textDecoration: 'none' }
+              : { alignSelf: 'flex-start', border: '1px solid var(--border)', borderRadius: 9, padding: '10px 14px', fontSize: 14, color: 'var(--foreground)', textDecoration: 'none' }}>{label}</a>
           </article>
         ))}
       </div>

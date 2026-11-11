@@ -114,7 +114,7 @@ export function teamView(input: {
   if (!input.fixtures && input.loading && !input.hasCache) return 'loading';
   if (!input.fixtures && !input.missing && input.failed && input.hasCache) return 'stale';
   if (!input.fixtures && !input.missing && input.failed) return 'error';
-  if (input.count === 0 && (input.fixtures || !input.loading)) return 'empty';
+  // A staff roster is never empty. Zero people still uses the table.
   return 'ready';
 }
 

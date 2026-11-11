@@ -16,6 +16,9 @@ export function StaffLinkFinish({ slow, onRetry }: { slow: boolean; onRetry: () 
       </p>
       {slow ? (
         <>
+          <div className="accept-progress" data-testid="finishing-progress" role="progressbar" aria-label="Finishing setup">
+            <span />
+          </div>
           <p data-testid="finishing-slow" style={{ margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--accept-muted, var(--muted))' }}>
             This is taking longer than usual. Your invite is still accepted. Stay on this page and try again.
           </p>

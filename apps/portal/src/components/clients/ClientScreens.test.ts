@@ -64,8 +64,8 @@ const staffClient: DirectoryClient = {
 describe('client team page', () => {
   it('matches the team card, hides staff, and labels awaiting work for the client', () => {
     const html = teamMarkup();
-    assert.match(html, /Your team/);
-    assert.match(html, /People at Northwind with portal access/);
+    assert.match(html, /People with access/);
+    assert.match(html, /People at Northwind who can sign in to this Portal/);
     assert.equal(html.includes('Maya Chen'), false);
     assert.match(html, /data-testid="client-person-email"[^>]*style="[^"]*overflow-wrap:anywhere[^"]*"[^>]*>ada@northwind\.example</);
     assert.match(html, /data-testid="client-person-role-phone"[^>]*style="[^"]*white-space:nowrap[^"]*"[^>]*> · Client Admin</);
@@ -74,21 +74,15 @@ describe('client team page', () => {
     assert.match(html, /Warehaus manages access/);
     assert.match(html, /project lead adds and removes people/);
     assert.equal(html.includes('← Company'), false);
-    assert.match(html, /Waiting on you/);
-    assert.match(html, /Tasks published to you at Awaiting Go/);
-    assert.match(html, /Write the launch checklist/);
-    assert.equal(html.includes('Build the project page'), false);
-    assert.match(html, /Northwind site · Due Oct 20/);
-    assert.match(html, /Pending approval/);
-    assert.equal(html.includes('>Awaiting Go<'), false);
-    assert.match(html, /data-testid="client-team-open"/);
-    assert.match(html, /Updated Oct 5/);
+    assert.equal(html.includes('Waiting on you'), false);
+    assert.equal(html.includes('Write the launch checklist'), false);
+    assert.equal(html.includes('data-testid="client-team-open"'), false);
     assert.match(html, /data-testid="client-person-role"[^>]*style="[^"]*width:140px[^"]*text-align:left/);
     assert.match(html, /data-testid="client-person-status"[^>]*style="[^"]*width:140px;margin-left:24px[^"]*text-align:left/);
     assert.equal(html.includes('class="clamp-one"'), false);
     assert.match(html, /border-radius:999px/);
     assert.equal(html.includes('ds-pill'), false);
-    assert.equal(html.includes('client-chev.svg'), true);
+    assert.equal(html.includes('client-chev.svg'), false);
   });
 
   it('renders role and portal status from the listForClient row shape', () => {
