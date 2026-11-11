@@ -345,7 +345,7 @@ export function TeamInvites({
                   status={expired ? 'Expired' : 'Pending'}
                   detail={detail}
                   actions={
-                    <span style={{ position: 'relative', display: 'inline-flex' }}>
+                    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                       <button
                         type="button"
                         aria-haspopup="menu"
@@ -363,12 +363,7 @@ export function TeamInvites({
                           role="menu"
                           data-testid="team-invite-menu"
                           style={{
-                            position: 'absolute',
-                            bottom: '100%',
-                            right: 0,
-                            zIndex: 30,
                             minWidth: 168,
-                            marginBottom: 4,
                             padding: 4,
                             display: 'flex',
                             flexDirection: 'column',
