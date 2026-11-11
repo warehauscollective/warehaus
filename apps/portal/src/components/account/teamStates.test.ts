@@ -33,7 +33,7 @@ describe('account team states', () => {
     assert.equal(teamView({ ...base, loading: true, count: -1 }), 'loading');
     assert.equal(teamView({ ...base, failed: true, count: -1 }), 'error');
     assert.equal(teamView({ ...base, missing: true, failed: true, count: -1 }), 'ready');
-    assert.equal(teamView({ ...base, count: 0 }), 'empty');
+    assert.equal(teamView({ ...base, count: 0 }), 'ready');
     assert.equal(teamView({ ...base, fixtures: true, count: 2 }), 'ready');
     assert.equal(teamView({ ...base, screen: 'long', fixtures: true, count: 2 }), 'long');
     assert.equal(teamView({ ...base, screen: 'empty', fixtures: true, loading: true, count: 2 }), 'empty');
@@ -67,7 +67,12 @@ describe('account team states', () => {
     assert.equal(invites.includes('getElementById'), false);
     assert.equal(invites.includes('Invite someone'), false);
     assert.match(invites, /Revoke this invite/);
-    assert.equal(invites.includes('from the Clients tab'), false);
+    assert.match(invites, /from the Clients tab/);
+    assert.match(invites, /zIndex: 60/);
+    assert.match(invites, /zIndex: 61/);
+    assert.equal(invites.includes('88px'), false);
+    assert.match(invites, /role="menu"/);
+    assert.equal(invites.includes('TEAM_STAFF_EMPTY'), false);
     assert.equal(teamWritesLive({ configured: true, fixtures: false }), true);
     assert.equal(teamWritesLive({ configured: true, fixtures: true }), false);
     assert.equal(teamWritesLive({ configured: false, fixtures: false }), false);

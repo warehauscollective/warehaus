@@ -647,6 +647,7 @@ describe('client identity against warehaus.studio', () => {
       role: 'Client Member',
       portalAccess: 'Enabled',
       invitePending: false,
+      joinedAt: null,
     });
     assert.equal('authUserId' in listedPeople[0], false);
     assert.equal('notionPageId' in listedPeople[0], false);
@@ -915,6 +916,7 @@ describe('client identity against warehaus.studio', () => {
       role: string;
       portalAccess: string;
       invitePending: boolean;
+      joinedAt: number | null;
     }>;
     assert.deepEqual(
       people.map((person) => person.name),
@@ -924,7 +926,8 @@ describe('client identity against warehaus.studio', () => {
     const bea = people[1];
     assert.ok(ada);
     assert.ok(bea);
-    assert.deepEqual(Object.keys(ada).sort(), ['email', 'id', 'invitePending', 'name', 'portalAccess', 'role']);
+    assert.deepEqual(Object.keys(ada).sort(), ['email', 'id', 'invitePending', 'joinedAt', 'name', 'portalAccess', 'role']);
+    assert.equal(ada.joinedAt, null);
     assert.equal(ada.role, 'Client Member');
     assert.equal(ada.portalAccess, 'Enabled');
     assert.equal(ada.invitePending, false);

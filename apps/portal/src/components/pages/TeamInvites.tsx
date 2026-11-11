@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation } from 'convex/react';
 import { useSearchParams } from 'next/navigation';
-import { Check, Lock, Mail, X } from 'lucide-react';
+import { Check, Clock, Lock, Mail, MoreHorizontal, ShieldCheck, X } from 'lucide-react';
 import { api } from '@convex/_generated/api';
 import { teamInviteActions } from '@convex/_lib/inviteFlow';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
@@ -13,8 +13,6 @@ import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isMissingConvexFunction } from '@/lib/data/staffRoster';
 import {
   TEAM_ERROR_COPY,
-  TEAM_STAFF_EMPTY,
-  TeamEmpty,
   TeamOutlineButton,
   TeamSkeletonRows,
   TeamStateNotice,
@@ -42,6 +40,7 @@ type TeamRow = {
     email: string;
     role: string;
     portalAccess: string;
+    joinedAt?: number | null;
   }>;
   invites: InviteRow[];
 };
@@ -61,6 +60,7 @@ const FIXTURE_TEAM: TeamRow = {
       email: 'peter@warehaus.studio',
       role: 'Warehaus Staff',
       portalAccess: 'Enabled',
+      joinedAt: Date.UTC(2026, 9, 2),
     },
     {
       notionPageId: 'ct-avery',
@@ -68,6 +68,7 @@ const FIXTURE_TEAM: TeamRow = {
       email: 'avery@warehaus.studio',
       role: 'Warehaus Staff',
       portalAccess: 'Enabled',
+      joinedAt: Date.UTC(2026, 10, 2),
     },
   ],
   invites: [
@@ -111,8 +112,12 @@ function modeFromPreview(value: string | null): ModalMode {
   if (value === 'sending' || value === 'sent' || value === 'invalid' || value === 'invited' || value === 'staff') {
     return value;
   }
-  if (value === 'modal' || value === 'sheet') return 'edit';
+  if (value === 'modal' || value === 'sheet' || value === 'empty') return 'edit';
   return 'closed';
+}
+
+function composeExpiry(fixtures: boolean): number {
+  return fixtures ? EXPIRES : Date.now() + 7 * 24 * 60 * 60 * 1000;
 }
 
 export function TeamInvites({
@@ -141,8 +146,12 @@ export function TeamInvites({
   const [busy, setBusy] = useState<string | null>(null);
   const [cached, setCached] = useState<TeamRow | null>(null);
   const [mode, setMode] = useState<ModalMode>(modeFromPreview(previewUi));
-  const [email, setEmail] = useState(previewUi === 'invalid' ? 'jordan' : previewUi ? 'jordan@warehaus.studio' : '');
+  const [email, setEmail] = useState(
+    previewUi === 'invalid' ? 'jordan' : previewUi && previewUi !== 'empty' && previewUi !== 'menu' ? 'jordan@warehaus.studio' : '',
+  );
   const [revokeId, setRevokeId] = useState<string | null>(previewUi === 'revoke' ? 'ct-jordan' : null);
+  const [menuId, setMenuId] = useState<string | null>(previewUi === 'menu' ? 'ct-jordan' : null);
+  const [sentOn, setSentOn] = useState<number | null>(null);
   useEffect(() => {
     if (team.data) setCached(team.data);
   }, [team.data]);
@@ -211,6 +220,7 @@ export function TeamInvites({
         return;
       }
       onDraftChange({ name: '', email: '' });
+      setSentOn(Date.now() + 7 * 24 * 60 * 60 * 1000);
       setMode('sent');
     } catch (err) {
       setNote(userFacingErrorMessage(err, "We couldn't send this invite"));
@@ -295,10 +305,9 @@ export function TeamInvites({
           />
         )}
         {view === 'loading' ? <TeamSkeletonRows /> : null}
-        {view === 'empty' ? <TeamEmpty title={TEAM_STAFF_EMPTY.title} body={TEAM_STAFF_EMPTY.body} /> : null}
-        {people && (view === 'ready' || view === 'long' || view === 'stale') ? (
+        {people && (view === 'ready' || view === 'long' || view === 'stale' || view === 'empty') ? (
           <section data-testid="team-people" style={panel}>
-            <header style={{ padding: '24px 24px 8px' }}>
+            <header style={{ padding: '24px 24px 12px' }}>
               <h2 style={{ margin: 0, fontSize: 20, lineHeight: '30px', fontWeight: 600 }}>
                 Warehaus Staff · {count}
               </h2>
@@ -320,7 +329,7 @@ export function TeamInvites({
                 email={member.email}
                 role={member.role}
                 status="Active"
-                detail={null}
+                detail={member.joinedAt ? `Joined ${dayLabel(member.joinedAt)}` : 'Joined'}
               />
             ))}
             {people.invites.map((invite) => {
@@ -336,28 +345,65 @@ export function TeamInvites({
                   status={expired ? 'Expired' : 'Pending'}
                   detail={detail}
                   actions={
-                    <>
+                    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
                       <button
                         type="button"
-                        data-testid={`team-resend-${invite.notionPageId}`}
+                        aria-haspopup="menu"
+                        aria-expanded={menuId === invite.notionPageId}
+                        aria-label={`Actions for ${invite.email}`}
+                        data-testid={`team-invite-menu-${invite.notionPageId}`}
                         disabled={busy !== null}
-                        style={textButton}
-                        onClick={() => void resend(invite)}
+                        style={iconButton}
+                        onClick={() => setMenuId((current) => (current === invite.notionPageId ? null : invite.notionPageId))}
                       >
-                        Resend
+                        <MoreHorizontal size={16} />
                       </button>
-                      {actions.revoke ? (
-                        <button
-                          type="button"
-                          data-testid={`team-revoke-${invite.notionPageId}`}
-                          disabled={busy !== null}
-                          style={textButton}
-                          onClick={() => setRevokeId(invite.notionPageId)}
+                      {menuId === invite.notionPageId ? (
+                        <span
+                          role="menu"
+                          data-testid="team-invite-menu"
+                          style={{
+                            minWidth: 168,
+                            padding: 4,
+                            display: 'flex',
+                            flexDirection: 'column',
+                            background: 'var(--surface)',
+                            border: '1px solid var(--border)',
+                            borderRadius: 10,
+                            boxShadow: '0 12px 32px rgb(0 0 0 / 18%)',
+                          }}
                         >
-                          Revoke
-                        </button>
+                          <button
+                            type="button"
+                            role="menuitem"
+                            data-testid={`team-resend-${invite.notionPageId}`}
+                            disabled={busy !== null}
+                            style={menuItem}
+                            onClick={() => {
+                              setMenuId(null);
+                              void resend(invite);
+                            }}
+                          >
+                            Resend
+                          </button>
+                          {actions.revoke ? (
+                            <button
+                              type="button"
+                              role="menuitem"
+                              data-testid={`team-revoke-${invite.notionPageId}`}
+                              disabled={busy !== null}
+                              style={{ ...menuItem, color: 'var(--danger)' }}
+                              onClick={() => {
+                                setMenuId(null);
+                                setRevokeId(invite.notionPageId);
+                              }}
+                            >
+                              Revoke
+                            </button>
+                          ) : null}
+                        </span>
                       ) : null}
-                    </>
+                    </span>
                   }
                 />
               );
@@ -365,7 +411,7 @@ export function TeamInvites({
           </section>
         ) : null}
         <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
-          Only Warehaus Staff can invite staff.
+          Only Warehaus Staff can invite staff. Client Members and Client Admins are invited from the Clients tab.
         </p>
         {note ? (
           <p role="status" data-testid="team-invite-hint" style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>
@@ -387,6 +433,8 @@ export function TeamInvites({
             if (row) void resend(row);
             else if (fixtures) setMode('sent');
           }}
+          sentOn={sentOn}
+          expiresOn={composeExpiry(fixtures)}
           onAnother={() => {
             setEmail('');
             setMode('edit');
@@ -409,7 +457,21 @@ export function TeamInvites({
           .invite-row { display: grid !important; grid-template-columns: minmax(140px, 1.1fr) minmax(160px, 1.3fr) 140px 180px 160px; align-items: center; }
           .invite-card-meta { display: none; }
         }
+        .invite-grab { display: none; }
+        .invite-dialog input:focus-visible {
+          outline: 2px solid var(--fg);
+          outline-offset: 2px;
+          border-color: var(--fg);
+        }
         @media (max-width: 720px) {
+          .invite-grab {
+            display: block;
+            width: 36px;
+            height: 4px;
+            border-radius: 999px;
+            background: var(--border-2, var(--border));
+            margin: -8px auto 4px;
+          }
           .invite-dialog {
             top: auto !important;
             bottom: 0 !important;
@@ -417,12 +479,16 @@ export function TeamInvites({
             right: 0 !important;
             width: 100% !important;
             max-width: none !important;
-            max-height: calc(100dvh - 16px) !important;
+            max-height: 100dvh !important;
             overflow: auto !important;
             transform: none !important;
             border-radius: 16px 16px 0 0 !important;
-            padding-bottom: 108px !important;
+            padding-bottom: 24px !important;
           }
+          .invite-actions { flex-direction: column !important; align-items: stretch !important; }
+          .invite-actions button { width: 100%; }
+          .invite-actions .invite-primary { order: 1; }
+          .invite-actions .invite-cancel { order: 2; }
         }
       `}</style>
     </PortalTilePane>
@@ -444,9 +510,13 @@ function MemberRow({
   detail: string | null;
   actions?: React.ReactNode;
 }) {
+  const initials = name.split(/\s+/).slice(0, 2).map((part) => part[0] ?? '').join('').toUpperCase();
   return (
     <div className="invite-row" style={{ display: 'flex', flexDirection: 'column', gap: 6, padding: '16px 24px', borderTop: '1px solid var(--border)' }}>
-      <strong style={{ fontSize: 14 }}>{name}</strong>
+      <span style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
+        <span aria-hidden style={{ width: 32, height: 32, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: 'var(--bg-2)', border: '1px solid var(--border)', fontSize: 12, fontWeight: 600 }}>{initials}</span>
+        <strong style={{ fontSize: 14 }}>{name}</strong>
+      </span>
       <span style={{ fontSize: 14, color: 'var(--muted)' }}>{email}</span>
       <span style={{ fontSize: 14 }}>{role}</span>
       <span style={{ display: 'inline-flex', flexDirection: 'column', gap: 2 }}>
@@ -460,19 +530,25 @@ function MemberRow({
 
 function StatusPill({ label }: { label: string }) {
   const danger = label === 'Expired';
+  const active = label === 'Active';
+  const pending = label === 'Pending';
   return (
     <span
       style={{
         display: 'inline-flex',
+        alignItems: 'center',
+        gap: 4,
         width: 'fit-content',
         borderRadius: 999,
-        border: `1px solid ${danger ? 'var(--danger)' : 'var(--border)'}`,
+        border: `1px solid ${danger ? 'var(--danger)' : active ? 'transparent' : 'var(--border)'}`,
+        background: active ? 'var(--fg)' : 'transparent',
         padding: '2px 8px',
         fontSize: 12,
         lineHeight: '18px',
-        color: danger ? 'var(--danger)' : 'var(--foreground)',
+        color: danger ? 'var(--danger)' : active ? 'var(--bg)' : 'var(--foreground)',
       }}
     >
+      {pending ? <Clock size={12} aria-hidden /> : null}
       {label}
     </span>
   );
@@ -483,6 +559,8 @@ function InviteDialog({
   email,
   busy,
   pending,
+  sentOn,
+  expiresOn,
   onEmail,
   onClose,
   onSend,
@@ -493,6 +571,8 @@ function InviteDialog({
   email: string;
   busy: boolean;
   pending?: InviteRow;
+  sentOn?: number | null;
+  expiresOn: number;
   onEmail: (value: string) => void;
   onClose: () => void;
   onSend: () => void;
@@ -501,7 +581,7 @@ function InviteDialog({
 }) {
   const locked = mode === 'sending';
   return (
-    <div role="presentation" style={scrim} onClick={onClose}>
+    <div role="presentation" className="invite-scrim" style={scrim} onClick={onClose}>
       <div
         className="invite-dialog"
         role="dialog"
@@ -512,6 +592,7 @@ function InviteDialog({
         style={dialog}
         onClick={(event) => event.stopPropagation()}
       >
+        <span className="invite-grab" aria-hidden />
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
           <div>
             {mode === 'sent' ? (
@@ -525,7 +606,7 @@ function InviteDialog({
             <p style={{ margin: '8px 0 0', fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
               {mode === 'sent'
                 ? `We emailed ${email || 'them'}. They show as Pending in your staff list until they accept.`
-                : 'They’ll get an email with a link to set a password and join Warehaus. The link works once and expires in 7 days.'}
+                : `They’ll get an email with a link to set a password and join Warehaus. The link works once and expires ${dayLabel(expiresOn)}.`}
             </p>
           </div>
           <button type="button" aria-label="Close" onClick={onClose} style={iconButton}>
@@ -536,7 +617,7 @@ function InviteDialog({
           <div style={notice}>
             <Mail size={16} />
             <div>
-              <p style={{ margin: 0, fontSize: 14 }}>Pending · expires {dayLabel(pending?.expiresAt) || 'in 7 days'}</p>
+              <p style={{ margin: 0, fontSize: 14 }}>Pending · expires {dayLabel(pending?.expiresAt ?? sentOn) || 'in 7 days'}</p>
               <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
                 You can resend or revoke the invite from the staff list at any time.
               </p>
@@ -561,6 +642,28 @@ function InviteDialog({
                 </span>
               ) : null}
             </label>
+            {mode === 'invited' ? (
+              <div style={notice}>
+                <Clock size={16} />
+                <div>
+                  <p style={{ margin: 0, fontSize: 14 }}>Already invited</p>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
+                    {email} has a pending invite from {dayLabel(pending?.invitedAt) || 'earlier'}. It expires {dayLabel(pending?.expiresAt) || 'in 7 days'}. Resending sends a fresh link and restarts the 7 days.
+                  </p>
+                </div>
+              </div>
+            ) : null}
+            {mode === 'staff' ? (
+              <div style={notice}>
+                <ShieldCheck size={16} />
+                <div>
+                  <p style={{ margin: 0, fontSize: 14 }}>Already on the team</p>
+                  <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
+                    {email} is already Warehaus Staff. There’s nothing to send.
+                  </p>
+                </div>
+              </div>
+            ) : null}
             <div data-testid="team-role-staff">
               <span style={{ fontSize: 14 }}>Role</span>
               <div style={{ ...field, display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, opacity: locked ? 0.5 : 1 }}>
@@ -572,50 +675,28 @@ function InviteDialog({
                 Invites from this screen always join as Warehaus Staff.
               </p>
             </div>
-            {mode === 'invited' ? (
-              <div style={notice}>
-                <Mail size={16} />
-                <div>
-                  <p style={{ margin: 0, fontSize: 14 }}>Already invited</p>
-                  <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-                    {email} has a pending invite from {dayLabel(pending?.invitedAt) || 'earlier'}. It expires {dayLabel(pending?.expiresAt) || 'in 7 days'}. Resending sends a fresh link and restarts the 7 days.
-                  </p>
-                </div>
-              </div>
-            ) : null}
-            {mode === 'staff' ? (
-              <div style={notice}>
-                <Mail size={16} />
-                <div>
-                  <p style={{ margin: 0, fontSize: 14 }}>Already on the team</p>
-                  <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
-                    {email} is already Warehaus Staff. Edit the email to invite someone else.
-                  </p>
-                </div>
-              </div>
-            ) : null}
           </>
         )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+        <div className="invite-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           {mode === 'sent' ? (
             <>
-              <button type="button" style={secondaryButton} onClick={onAnother}>Invite another</button>
-              <button type="button" style={primaryButton} onClick={onClose}>Done</button>
+              <button type="button" className="invite-cancel" style={ghostButton} onClick={onAnother}>Invite another</button>
+              <button type="button" className="invite-primary" style={primaryButton} onClick={onClose}>Done</button>
             </>
           ) : mode === 'invited' ? (
             <>
-              <button type="button" style={secondaryButton} onClick={onClose}>Cancel</button>
-              <button type="button" data-testid="team-send-invite" style={primaryButton} onClick={onResend}>Resend invite</button>
+              <button type="button" className="invite-cancel" style={ghostButton} onClick={onClose}>Cancel</button>
+              <button type="button" className="invite-primary" data-testid="team-send-invite" style={primaryButton} onClick={onResend}>Resend invite</button>
             </>
           ) : mode === 'staff' ? (
             <>
-              <button type="button" style={secondaryButton} onClick={onClose}>Cancel</button>
-              <button type="button" style={primaryButton} onClick={() => onEmail('')}>Edit email</button>
+              <button type="button" className="invite-cancel" style={ghostButton} onClick={onClose}>Close</button>
+              <button type="button" className="invite-primary" data-testid="team-edit-email" style={primaryButton} onClick={() => onEmail('')}>Edit email</button>
             </>
           ) : (
             <>
-              <button type="button" style={secondaryButton} onClick={onClose} disabled={locked}>Cancel</button>
-              <button type="button" data-testid="team-send-invite" style={primaryButton} disabled={locked || busy} onClick={onSend}>
+              <button type="button" className="invite-cancel" style={ghostButton} onClick={onClose} disabled={locked}>Cancel</button>
+              <button type="button" className="invite-primary" data-testid="team-send-invite" style={locked || busy ? sendingButton : primaryButton} disabled={locked || busy} onClick={onSend}>
                 {mode === 'sending' || busy ? 'Sending…' : 'Send invite'}
               </button>
             </>
@@ -673,6 +754,29 @@ const primaryButton = {
   cursor: 'pointer',
 } as const;
 
+const ghostButton = {
+  background: 'transparent',
+  color: 'var(--foreground)',
+  border: 0,
+  borderRadius: 9,
+  minHeight: 42,
+  padding: '0 16px',
+  fontSize: 14,
+  cursor: 'pointer',
+} as const;
+
+const sendingButton = {
+  background: 'var(--bg-2)',
+  color: 'var(--muted)',
+  border: 0,
+  borderRadius: 9,
+  minHeight: 42,
+  padding: '0 16px',
+  fontSize: 14,
+  fontWeight: 600,
+  cursor: 'default',
+} as const;
+
 const secondaryButton = {
   background: 'transparent',
   color: 'var(--foreground)',
@@ -684,12 +788,15 @@ const secondaryButton = {
   cursor: 'pointer',
 } as const;
 
-const textButton = {
+const menuItem = {
   background: 'transparent',
   border: 0,
-  padding: 0,
+  borderRadius: 8,
+  minHeight: 36,
+  padding: '0 12px',
   color: 'var(--foreground)',
   fontSize: 14,
+  textAlign: 'left' as const,
   cursor: 'pointer',
 } as const;
 
@@ -701,7 +808,7 @@ const field = {
   minHeight: 52,
   borderRadius: 10,
   border: '1px solid var(--border)',
-  background: 'transparent',
+  background: 'var(--bg-2)',
   color: 'var(--foreground)',
   padding: '0 14px',
   fontSize: 15,
@@ -711,7 +818,7 @@ const scrim = {
   position: 'fixed' as const,
   inset: 0,
   background: 'color-mix(in oklab, black 55%, transparent)',
-  zIndex: 40,
+  zIndex: 60,
 };
 
 const dialog = {
@@ -728,7 +835,7 @@ const dialog = {
   display: 'flex',
   flexDirection: 'column' as const,
   gap: 20,
-  zIndex: 41,
+  zIndex: 61,
 };
 
 const iconButton = {

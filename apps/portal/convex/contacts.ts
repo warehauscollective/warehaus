@@ -420,6 +420,16 @@ export const listForClient = clientQuery({
         .filter((invite) => invite.inviteStatus === 'Pending')
         .map((invite) => normalizeEmail(invite.email)),
     );
+    const tokens = await ctx.db
+      .query('inviteTokens')
+      .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
+      .collect();
+    const joinedAtByEmail = new Map<string, number>();
+    for (const token of tokens) {
+      if (token.status !== 'used' || typeof token.usedAt !== 'number') continue;
+      const previous = joinedAtByEmail.get(token.emailNormalized);
+      if (previous == null || token.usedAt > previous) joinedAtByEmail.set(token.emailNormalized, token.usedAt);
+    }
     return rows
       .filter(
         (row) =>
@@ -434,6 +444,7 @@ export const listForClient = clientQuery({
         role: row.role,
         portalAccess: row.portalAccess,
         invitePending: pendingEmails.has(normalizeEmail(row.email)),
+        joinedAt: joinedAtByEmail.get(normalizeEmail(row.email)) ?? null,
       }))
       .sort((a, b) => a.name.localeCompare(b.name));
   },

@@ -402,7 +402,8 @@ describe('invite accept email match', () => {
   it('builds the invite email in the portal style', () => {
     const mail = inviteEmail({ name: 'Ada', acceptUrl: 'https://portal.example/accept?token=abc' });
     assert.match(mail.html, /Warehaus Portal/);
-    assert.match(mail.html, /background: #111/);
+    assert.match(mail.html, /color-scheme:light/);
+    assert.match(mail.html, /background:#0a0a0b/);
     assert.match(mail.text, /portal\.example\/accept\?token=abc/);
     assert.equal(mail.html.includes('Decline'), false);
     assert.equal(mail.html.includes('7 days from now'), false);
@@ -424,7 +425,8 @@ describe('invite accept email match', () => {
     });
     assert.match(mail.subject, /invited you to join Warehaus on the Portal|You’re invited to join Warehaus/);
     assert.match(mail.html, /Warehaus Portal/);
-    assert.match(mail.html, /background: #111/);
+    assert.match(mail.html, /color-scheme:light/);
+    assert.match(mail.html, /background:#0a0a0b/);
     assert.match(mail.html, /Sign in to accept/);
     assert.equal(mail.html.includes('set a password'), false);
     assert.equal(mail.html.includes('Decline'), false);

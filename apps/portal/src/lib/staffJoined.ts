@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useState } from 'react';
 
 const JOINED_KEY = 'warehaus-staff-joined';
 const FINISH_KEY = 'warehaus-staff-finish';
 
-export type StaffJoined = { name: string; passwordSet: boolean };
+export type StaffJoined = { name: string; passwordSet: boolean; inviterName?: string };
 
 export type StaffFinish = {
   name: string;
@@ -13,6 +13,7 @@ export type StaffFinish = {
   startedAt: number;
   /** SHA-256 hex of the invite token. The raw token is never stored. */
   tokenHash: string;
+  inviterName?: string;
 };
 
 /** Same SHA-256 hex as the server token hash. Used only so a reload can resume. */
@@ -41,7 +42,12 @@ export function readStaffJoined(): StaffJoined | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<StaffJoined>;
     if (!parsed.name?.trim()) return null;
-    return { name: parsed.name.trim(), passwordSet: parsed.passwordSet === true };
+    const inviterName = typeof parsed.inviterName === 'string' ? parsed.inviterName.trim() : '';
+    return {
+      name: parsed.name.trim(),
+      passwordSet: parsed.passwordSet === true,
+      ...(inviterName ? { inviterName } : {}),
+    };
   } catch {
     return null;
   }
@@ -71,11 +77,13 @@ export function readStaffFinish(): StaffFinish | null {
     if (!parsed.name?.trim() || typeof parsed.startedAt !== 'number') return null;
     const tokenHash = typeof parsed.tokenHash === 'string' ? parsed.tokenHash : '';
     if (!/^[0-9a-f]{64}$/.test(tokenHash)) return null;
+    const inviterName = typeof parsed.inviterName === 'string' ? parsed.inviterName.trim() : '';
     return {
       name: parsed.name.trim(),
       passwordSet: parsed.passwordSet === true,
       startedAt: parsed.startedAt,
       tokenHash,
+      ...(inviterName ? { inviterName } : {}),
     };
   } catch {
     return null;
@@ -88,6 +96,19 @@ export function clearStaffFinish(): void {
   } catch {
     /* ignore */
   }
+}
+
+/**
+ * False on the server and on the hydration render, so the HTML matches.
+ * The layout effect reads sessionStorage before paint, which is what AuthGate
+ * needs after a full load. A passive effect would flash "Checking access…".
+ */
+export function useStaffJustJoined(): boolean {
+  const [joined, setJoined] = useState(false);
+  useLayoutEffect(() => {
+    setJoined(readStaffJoined() !== null);
+  }, []);
+  return joined;
 }
 
 /**

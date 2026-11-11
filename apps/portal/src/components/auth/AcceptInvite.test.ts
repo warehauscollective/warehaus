@@ -3,7 +3,8 @@ import React, { createElement } from 'react';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { describe, it } from 'node:test';
-import { AcceptInvite, type AcceptInviteIO } from './AcceptInvite';
+import { AcceptInvite, inviteReference, type AcceptInviteIO } from './AcceptInvite';
+import { readStaffJoined } from '@/lib/staffJoined';
 import { STAFF_ACCESS_CONFLICT_MESSAGE } from './authGateAction';
 import { installTestDom, textOf, type DomNode, type EventLike } from './testDom';
 
@@ -133,7 +134,61 @@ function io(overrides: Partial<AcceptInviteIO> = {}): AcceptInviteIO & { calls: 
   return { calls, ...base, ...overrides, accept: overrides.accept ?? base.accept, signUpEmail: overrides.signUpEmail ?? base.signUpEmail, signInEmail: overrides.signInEmail ?? base.signInEmail };
 }
 
+describe('inviteReference', () => {
+  it('stays stable for an empty token and a real token', () => {
+    assert.equal(inviteReference(''), 'INV-7F3C-0921');
+    assert.equal(inviteReference('story-token'), inviteReference('story-token'));
+    assert.match(inviteReference('story-token'), /^INV-[0-9A-F]{8}$/);
+    assert.notEqual(inviteReference('story-token'), inviteReference('other-token'));
+  });
+});
+
 describe('AcceptInvite sign-up, sign-in, and confirm', () => {
+  it('shows a wrong password under the field', async () => {
+    installStorage();
+    const preview = {
+      status: 'sign-in' as const,
+      invitedEmail: 'jordan@warehaus.studio',
+      inviteeName: 'Jordan Blake',
+      inviterName: 'Peter Roquemore',
+    };
+    const view = await render(createElement(AcceptInvite, {
+      io: io({ previewKey: 'wrong-password', forced: preview, preview }),
+    }));
+    assert.match(view.text(), /That password doesn't match this email/);
+    const input = nodes(view.container, 'input')[0];
+    assert.equal(input?.getAttribute('aria-invalid'), 'true');
+    await view.unmount();
+  });
+
+  it('stores the profile name when a fixture create-account finishes', async () => {
+    installStorage();
+    const preview = {
+      status: 'create-account' as const,
+      invitedEmail: 'jordan@warehaus.studio',
+      inviteeName: 'Jordan Blake',
+      inviterName: 'Peter Roquemore',
+    };
+    const harness = io({ previewKey: 'new', forced: preview, preview });
+    const view = await render(createElement(AcceptInvite, { io: harness }));
+    const inputs = nodes(view.container, 'input');
+    await act(async () => {
+      typeInto(inputs[0]!, 'password1');
+      typeInto(inputs[1]!, 'password1');
+    });
+    const form = nodes(view.container, 'form')[0];
+    assert.ok(form);
+    await act(async () => {
+      fire(form, 'submit');
+    });
+    assert.deepEqual(readStaffJoined(), {
+      name: 'Jordan Blake',
+      passwordSet: true,
+      inviterName: 'Peter Roquemore',
+    });
+    await view.unmount();
+  });
+
   it('signs up, signs in, then waits and accepts', async () => {
     installStorage();
     const harness = io();

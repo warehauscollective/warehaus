@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import { Lock } from 'lucide-react';
 import { OutlineButton, Pill, PortalCheckbox } from '@/components/ui/primitives';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
@@ -79,6 +80,7 @@ export type ClientPersonRow = {
   role?: string;
   portalAccess?: 'Enabled' | 'Disabled';
   invitePending?: boolean;
+  joinedAt?: number | null;
 };
 
 const FILTERS: Array<{ key: ClientListFilter; label: string }> = [
@@ -244,6 +246,10 @@ function Chevron({ className = '' }: { className?: string }) {
   );
 }
 
+function clientJoinedLabel(ms: number): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(ms);
+}
+
 function personRowStyle(index: number): CSSProperties {
   return {
     borderTop: index === 0 ? 'none' : '1px solid var(--border)',
@@ -264,6 +270,27 @@ function TeamPersonRow({
 }) {
   const status = clientPersonStatus(person);
   const statusColor = person.invitePending ? pendingColor : 'var(--muted)';
+  const active = status === 'Active';
+  const joined = !person.invitePending && person.joinedAt ? `Joined ${clientJoinedLabel(person.joinedAt)}` : null;
+  const pill = () => (
+    <span
+      data-testid="client-person-pill"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        width: 'fit-content',
+        borderRadius: 999,
+        border: active ? '1px solid transparent' : '1px solid var(--border)',
+        background: active ? 'var(--fg)' : 'transparent',
+        color: person.invitePending ? statusColor : active ? 'var(--bg)' : statusColor,
+        padding: '2px 8px',
+        fontSize: 12,
+        lineHeight: '18px',
+      }}
+    >
+      {status}
+    </span>
+  );
   return (
     <li className="flex items-start lg:items-center" style={personRowStyle(index)}>
       <PersonMark name={person.name} />
@@ -275,7 +302,8 @@ function TeamPersonRow({
             data-testid="client-person-status"
             style={{ fontSize: 12, color: statusColor, textAlign: 'left' }}
           >
-            {status}
+            {pill()}
+            {joined ? <span className="mt-1 block" style={{ color: 'var(--muted)', fontWeight: 400 }}>{joined}</span> : null}
           </span>
         </span>
         <span className="ds-mono hidden lg:block" style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'anywhere' }}>{person.email}</span>
@@ -300,7 +328,8 @@ function TeamPersonRow({
         data-testid="client-person-status"
         style={{ width: 140, marginLeft: 24, fontSize: 12, color: statusColor, textAlign: 'left' }}
       >
-        {status}
+        {pill()}
+        {joined ? <span className="mt-1 block" style={{ color: 'var(--muted)', fontWeight: 400 }}>{joined}</span> : null}
       </span>
     </li>
   );
@@ -1110,12 +1139,25 @@ export function ClientCompany({
     const visiblePeople = people.filter(clientVisiblePerson);
     const invite = clientTeamInviteCopy(name, visiblePeople);
     return (
-      <div className="flex h-full min-h-0 w-full flex-col gap-4 overflow-y-auto" data-testid="client-team" data-page-scroll="">
+      <div className="flex h-full min-h-0 w-full flex-col gap-4 overflow-y-auto" data-testid="client-team" data-page-scroll="" style={{ paddingBottom: 120 }}>
         <ClampStyle />
+        {loading || (error && visiblePeople.length === 0) ? null : (
+        <div
+          data-testid="client-team-invite"
+          className="flex items-start gap-3"
+          style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px' }}
+        >
+          <Lock size={16} aria-hidden />
+          <span className="min-w-0">
+            <span className="block" style={{ fontSize: 14, fontWeight: 600 }}>{invite.title}</span>
+            <span className="mt-1 block" style={{ fontSize: 13, color: 'var(--muted)' }}>{invite.body}</span>
+          </span>
+        </div>
+        )}
         <Panel testId="client-team-people">
-          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>Your team</h3>
+          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>People with access · {visiblePeople.length}</h3>
           <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
-            People at {name} with portal access
+            People at {name} who can sign in to this Portal.
           </p>
           {loading ? (
             <div className="mt-4">
@@ -1157,75 +1199,6 @@ export function ClientCompany({
               {visiblePeople.map((person, index) => (
                 <TeamPersonRow key={person.id} person={person} index={index} pendingColor="var(--warning)" />
               ))}
-            </ul>
-          )}
-          {loading || (error && visiblePeople.length === 0) ? null : (
-          <div
-            data-testid="client-team-invite"
-            className="mt-4 flex items-start gap-3"
-            style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 18, padding: '16px 24px' }}
-          >
-            <span aria-hidden className="inline-flex shrink-0 items-center justify-center" style={{ width: 20, height: 20, borderRadius: 999, border: '1.25px solid var(--muted)', color: 'var(--muted)', fontSize: 11, fontWeight: 600 }}>i</span>
-            <span className="min-w-0">
-              <span className="block" style={{ fontSize: 14, fontWeight: 600 }}>{invite.title}</span>
-              <span className="mt-1 block" style={{ fontSize: 13, color: 'var(--muted)' }}>{invite.body}</span>
-            </span>
-          </div>
-          )}
-        </Panel>
-        <Panel testId="client-team-waiting">
-          <h3 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>Waiting on you</h3>
-          <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 4 }}>
-            Tasks published to you at Awaiting Go
-          </p>
-          {awaiting.length === 0 ? (
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>Nothing is waiting on your approval.</p>
-          ) : (
-            <ul style={{ marginTop: 16 }}>
-              {awaiting.map((task, index) => {
-                const due = clientDueLabel(task.date);
-                const meta = [task.projectName ?? name, due].filter(Boolean).join(' · ');
-                const updated = clientUpdatedLabel(task);
-                const body = (
-                  <>
-                    <span className="min-w-0 flex-1">
-                      <span className="block" style={{ fontWeight: 500 }}>{task.name}</span>
-                      <span className="ds-mono block" style={{ fontSize: 12, color: 'var(--muted)' }}>{meta}</span>
-                      <span className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
-                        <StageBadge />
-                        <FilledStatus>{task.status}</FilledStatus>
-                      </span>
-                    </span>
-                    <span className="hidden shrink-0 items-center gap-3 lg:flex">
-                      <StageBadge />
-                      <FilledStatus>{task.status}</FilledStatus>
-                      {updated ? (
-                        <span className="ds-mono" data-testid="client-team-updated" style={{ fontSize: 12, color: 'var(--muted)' }}>
-                          {updated}
-                        </span>
-                      ) : null}
-                    </span>
-                    {onOpenTask ? <Chevron /> : null}
-                  </>
-                );
-                return (
-                  <li key={task.id} style={personRowStyle(index)}>
-                    {onOpenTask ? (
-                      <button
-                        type="button"
-                        data-testid="client-team-open"
-                        onClick={() => onOpenTask(task.id)}
-                        className="flex w-full items-start gap-3 text-left lg:items-center"
-                        style={{ background: 'none', border: 0, padding: 0, color: 'inherit', cursor: 'pointer' }}
-                      >
-                        {body}
-                      </button>
-                    ) : (
-                      <div className="flex w-full items-start gap-3 lg:items-center">{body}</div>
-                    )}
-                  </li>
-                );
-              })}
             </ul>
           )}
         </Panel>

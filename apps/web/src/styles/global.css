@@ -1,10 +1,11 @@
 @import "tailwindcss";
-/* Ensure utilities used by shared UI package classes are generated. */
-@source "../../../../packages/ui/src";
 /* Shared design tokens — built by @warehaus/tokens (`npm run tokens`). */
 @import "@warehaus/tokens/css";
 /* Shared brand chrome, type system, ds-scope, glass — @warehaus/ui */
 @import "@warehaus/ui/styles/brand.css";
+/* Ensure utilities used by shared UI package classes are generated.
+   @source stays after the imports so PostCSS does not drop the token files. */
+@source "../../../../packages/ui/src";
 
 @theme inline {
   --color-background: var(--background);

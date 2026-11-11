@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useConvexAuth, useMutation } from 'convex/react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertTriangle, Check, Circle, Clock, Lock, Mail, Shield, SquareArrowOutUpRight } from 'lucide-react';
+import { AlertTriangle, Circle, CircleCheck, Clock, Lock, LogOut, Mail, ShieldCheck } from 'lucide-react';
 import { api } from '@convex/_generated/api';
 import { authClient } from '@/lib/auth-client';
 import {
@@ -40,19 +40,33 @@ type Preview = {
   signedInEmail?: string;
   inviterName?: string | null;
   inviterEmail?: string | null;
+  inviteeName?: string | null;
   expiresAt?: number | null;
+  usedAt?: number | null;
+  sentAtLabel?: string | null;
 };
 
+/** Stable across the server render and hydration. A random id mismatches and shows the dev issue badge. */
+export function inviteReference(token: string): string {
+  if (!token) return 'INV-7F3C-0921';
+  let hash = 2166136261;
+  for (let index = 0; index < token.length; index += 1) {
+    hash ^= token.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `INV-${(hash >>> 0).toString(16).slice(0, 8).toUpperCase().padStart(8, '0')}`;
+}
+
 const FIXTURES: Record<string, Preview> = {
-  new: { status: 'create-account', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
-  existing: { status: 'sign-in', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
+  new: { status: 'create-account', invitedEmail: 'jordan@warehaus.studio', inviteeName: 'Jordan Blake', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
+  existing: { status: 'sign-in', invitedEmail: 'jordan@warehaus.studio', inviteeName: 'Jordan Blake', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
   expired: {
     status: 'expired',
     invitedEmail: 'jordan@warehaus.studio',
     inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio',
     expiresAt: Date.UTC(2026, 10, 2),
   },
-  used: { status: 'used', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
+  used: { status: 'used', invitedEmail: 'jordan@warehaus.studio', inviteeName: 'Jordan Blake', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio', usedAt: Date.UTC(2026, 10, 9) },
   revoked: { status: 'revoked', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
   invalid: { status: 'unusable' },
   unavailable: { status: 'off', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
@@ -64,8 +78,9 @@ const FIXTURES: Record<string, Preview> = {
     inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio',
   },
   already: { status: 'already', invitedEmail: 'avery@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
-  unverified: { status: 'unverified', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
+  unverified: { status: 'unverified', invitedEmail: 'jordan@warehaus.studio', inviteeName: 'Jordan Blake', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio', sentAtLabel: '10:42 AM' },
   generic: { status: 'error', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
+  'wrong-password': { status: 'sign-in', invitedEmail: 'jordan@warehaus.studio', inviteeName: 'Jordan Blake', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
 };
 
 function rules(password: string, confirm: string) {
@@ -82,6 +97,7 @@ function dayLabel(ms: number | null | undefined): string {
 }
 
 const INVITER_FALLBACK = 'A Warehaus team member';
+const WRONG_PASSWORD = "That password doesn't match this email.";
 
 function firstName(name: string | null | undefined): string {
   const trimmed = name?.trim();
@@ -252,13 +268,13 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
   const forced = io.forced;
   const configured = io.configured;
   const preview = io.preview;
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState(previewKey === 'wrong-password' ? 'wrongpass1' : '');
   const [confirm, setConfirm] = useState('');
   const [signInMode, setSignInMode] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(previewKey === 'wrong-password' ? WRONG_PASSWORD : null);
   const [busy, setBusy] = useState(false);
   const [renewed, setRenewed] = useState(false);
-  const [reference] = useState(() => `INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`);
+  const reference = inviteReference(token);
   const [screen, setScreen] = useState<Preview['status'] | null>(null);
   const [accountCreated, setAccountCreated] = useState(false);
   const [awaitingAccept, setAwaitingAccept] = useState(false);
@@ -268,7 +284,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
   const replace = io.replace;
   const wait = useStaffLinkWait({ token, link: io.link, replace });
   const begin = io.begin ?? wait.begin;
-  const pendingFinish = useRef<{ name: string; passwordSet: boolean } | null>(null);
+  const pendingFinish = useRef<{ name: string; passwordSet: boolean; inviterName?: string } | null>(null);
   const sessionEmail = io.sessionEmail ?? knownSessionEmail(preview?.signedInEmail);
 
   if (previewKey === 'email') return <InviteEmailPreview />;
@@ -284,7 +300,11 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
     event.preventDefault();
     if (!ready || !preview?.invitedEmail) return;
     if (forced) {
-      rememberStaffJoined({ name: 'Jordan', passwordSet: true });
+      rememberStaffJoined({
+        name: preview.inviteeName?.trim() || 'Jordan Blake',
+        passwordSet: true,
+        inviterName: preview.inviterName?.trim() || 'Peter Roquemore',
+      });
       replace('/preview');
       return;
     }
@@ -309,7 +329,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
       if (steps.includes('sign-in')) {
         const signedIn = await io.signInEmail({ email: preview.invitedEmail, password });
         if (signedIn.error) {
-          setError(signedIn.error.message ?? 'Check your password and try again.');
+          setError(WRONG_PASSWORD);
           return;
         }
       }
@@ -352,7 +372,12 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
       else setError(acceptFailureCopy(result.message ?? 'We couldn’t finish joining'));
       return;
     }
-    const value = { name: joinedName(nameEmail), passwordSet };
+    const profile = preview?.inviteeName?.trim() || joinedName(nameEmail);
+    const value = {
+      name: profile,
+      passwordSet,
+      ...(preview?.inviterName?.trim() ? { inviterName: preview.inviterName.trim() } : {}),
+    };
     pendingFinish.current = value;
     try {
       // join, confirmSignedIn, and signIn all await this, so a failed begin stays here.
@@ -367,7 +392,11 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
     const nameEmail = sessionEmail ?? knownSessionEmail(preview?.invitedEmail);
     if (!nameEmail) return;
     if (forced) {
-      rememberStaffJoined({ name: 'Jordan', passwordSet: false });
+      rememberStaffJoined({
+        name: preview?.inviteeName?.trim() || 'Jordan Blake',
+        passwordSet: false,
+        inviterName: preview?.inviterName?.trim() || 'Peter Roquemore',
+      });
       replace('/preview');
       return;
     }
@@ -395,7 +424,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
     try {
       const signed = await io.signInEmail({ email: preview.invitedEmail, password });
       if (signed.error) {
-        setError(signed.error.message ?? 'Check your password and try again.');
+        setError(WRONG_PASSWORD);
         return;
       }
       await finishAccept(preview.invitedEmail, false);
@@ -462,9 +491,11 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           )
         ) : status === 'create-account' ? (
           <Card>
-            <Kicker>Staff invite</Kicker>
-            <h1 style={title}>Join Warehaus as staff</h1>
-            <p style={lede}>Set a password to finish. Opening this link from your email confirms your address, so there’s no separate verification step.</p>
+            <div className="accept-stack">
+              <Kicker>Staff invite</Kicker>
+              <h1 style={title}>Join Warehaus as staff</h1>
+              <p style={lede}>Set a password to finish. Opening this link from your email confirms your address, so there’s no separate verification step.</p>
+            </div>
             <Inviter name={inviter} email={inviterEmail} />
             <LockedEmail email={email} hint={`This is the address ${firstName(inviter)} invited. It can’t be changed here.`} />
             {awaitingAccept ? (
@@ -484,16 +515,20 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
                 <Rule met={state.mix} label="Includes a letter and a number" />
                 <Rule met={state.match} label="Passwords match" />
                 <Actions link="Already have an account? Sign in" onLink={() => setSignInMode(true)} label={busy ? 'Joining…' : accountCreated ? 'Try again' : 'Join Warehaus'} disabled={!ready || busy} />
-                <p style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--faint)' }}>Join turns on when every rule is met.</p>
+                {ready ? null : (
+                  <p className="accept-hint" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--accept-muted)' }}>Join turns on when every rule is met.</p>
+                )}
                 {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
               </form>
             )}
           </Card>
         ) : status === 'ready' ? (
           <Card>
-            <Kicker>Staff invite</Kicker>
-            <h1 style={title}>Accept your invite</h1>
-            <SignedInAcceptCopy email={readyEmail} />
+            <div className="accept-stack">
+              <Kicker>Staff invite</Kicker>
+              <h1 style={title}>Accept your invite</h1>
+              <SignedInAcceptCopy email={readyEmail} />
+            </div>
             <Inviter name={inviter} email={inviterEmail} />
             <SignedInLockedEmail invitedEmail={preview?.invitedEmail} sessionEmail={sessionEmail ?? readyEmail} />
             <div className="accept-actions">
@@ -505,14 +540,15 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           </Card>
         ) : status === 'sign-in' ? (
           <Card>
-            <Kicker>Staff invite</Kicker>
-            <h1 style={title}>Sign in to accept</h1>
-            <p style={lede}>{email || 'This address'} already has a Portal account. Sign in with it to join Warehaus as staff.</p>
+            <div className="accept-stack">
+              <Kicker>Staff invite</Kicker>
+              <h1 style={title}>Sign in to accept</h1>
+              <p style={lede}>{email || 'This address'} already has a Portal account. Sign in with it to join Warehaus as staff.</p>
+            </div>
             <Inviter name={inviter} email={inviterEmail} />
             <LockedEmail email={email} />
             <form onSubmit={(event) => void signIn(event)} className="flex flex-col gap-4">
-              <Field label="Password" value={password} onChange={setPassword} />
-              {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
+              <Field label="Password" value={password} onChange={setPassword} error={error} />
               <Actions link="Forgot password?" href="/forgot-password" label={busy ? 'Signing in…' : 'Sign in and join'} disabled={!password || busy} />
             </form>
           </Card>
@@ -534,10 +570,10 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           />
         ) : status === 'used' ? (
           <ErrorCard
-            icon={<Check size={20} />}
+            icon={<CircleCheck size={20} />}
             kicker="Invite already used"
             title="This invite has already been used"
-            body="It was already accepted. If that was you, sign in to continue."
+            body={`It was accepted on ${dayLabel(preview.usedAt) || 'an earlier date'}. If that was you, sign in to continue.`}
             link="Forgot password?"
             href="/forgot-password"
             action="Sign in"
@@ -560,14 +596,12 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
             kicker="Unavailable"
             title="Invites are unavailable"
             body="This link can’t be accepted right now. Nothing was changed."
-            link="Back to sign in"
-            href="/login"
             action="Sign in"
             actionHref="/login"
           />
         ) : status === 'different-email' ? (
           <ErrorCard
-            icon={<SquareArrowOutUpRight size={20} />}
+            icon={<LogOut size={20} />}
             kicker="Different account"
             title="You’re signed in as someone else"
             body="This invite is for a different email. Switch accounts to accept it."
@@ -582,7 +616,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           />
         ) : status === 'already' ? (
           <ErrorCard
-            icon={<Shield size={20} />}
+            icon={<ShieldCheck size={20} />}
             kicker="Already staff"
             title="You’re already on the Warehaus team"
             body={`${email || 'This email'} is already Warehaus Staff, so there’s nothing to accept.`}
@@ -595,6 +629,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
             kicker="Verify your email"
             title="Confirm your email to finish"
             body={`Your account’s email isn’t verified yet. We sent a link to ${email || 'you'}. Open it, then come back to this invite.`}
+            callout={preview.sentAtLabel ? `Sent at ${preview.sentAtLabel}` : 'Sent just now'}
             note="It can take a minute to arrive. Check spam if you don’t see it."
             link="Use a different account"
             href="/login"
@@ -603,6 +638,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           />
         ) : (
           <ErrorCard
+            tone="danger"
             icon={<AlertTriangle size={20} />}
             kicker="Something went wrong"
             title="We couldn’t finish joining"
@@ -619,34 +655,38 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
 }
 
 function InviteEmailPreview() {
+  const ink = '#0a0a0b';
+  const muted = '#525252';
+  const line = '#d7d7d7';
+  const paper = '#fdfdfe';
   return (
-    <main data-testid="invite-email" style={{ background: 'var(--background)', color: 'var(--foreground)', minHeight: '100dvh', padding: '48px 24px' }}>
+    <main data-testid="invite-email" data-theme="light" style={{ background: paper, color: ink, colorScheme: 'light', minHeight: '100dvh', padding: '48px 24px' }}>
       <article style={{ maxWidth: 640, margin: '0 auto' }}>
-        <h1 style={{ fontSize: 22, lineHeight: '30px', margin: '0 0 16px' }}>Peter invited you to join Warehaus on the Portal</h1>
-        <p style={meta}><span>FROM</span> Warehaus Portal &lt;portal@warehaus.studio&gt;</p>
-        <p style={meta}><span>TO</span> jordan@warehaus.studio</p>
-        <p style={meta}><span>PREVIEW</span> Accept within 7 days to set your password and join as staff.</p>
-        <div style={{ marginTop: 32, padding: 32, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)' }}>
-          <p className="font-display" style={{ margin: 0, fontSize: 20 }}>Warehaus</p>
-          <p style={{ margin: '24px 0 0', fontSize: 12, letterSpacing: '0.08em', color: 'var(--muted)' }}>STAFF INVITE</p>
-          <h2 style={{ margin: '8px 0 0', fontSize: 28, lineHeight: '36px' }}>Join Warehaus on the Portal</h2>
-          <p style={{ fontSize: 15, lineHeight: '24px' }}>
+        <h1 style={{ fontSize: 22, lineHeight: '30px', margin: '0 0 16px', color: ink }}>Peter invited you to join Warehaus on the Portal</h1>
+        <p style={{ ...meta, color: muted }}><span>FROM</span> Warehaus Portal &lt;portal@warehaus.studio&gt;</p>
+        <p style={{ ...meta, color: muted }}><span>TO</span> jordan@warehaus.studio</p>
+        <p style={{ ...meta, color: muted }}><span>PREVIEW</span> Accept within 7 days to set your password and join as staff.</p>
+        <div style={{ marginTop: 32, padding: 48, borderRadius: 12, border: `1px solid ${line}`, background: '#ffffff', color: ink }}>
+          <p style={{ margin: 0, fontFamily: 'Eurostile, Impact, sans-serif', fontWeight: 900, fontStyle: 'italic', fontSize: 28, letterSpacing: '-0.02em', lineHeight: 1, textTransform: 'lowercase', color: ink }}>warehaus</p>
+          <p style={{ margin: '24px 0 0', fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: muted }}>Staff invite</p>
+          <h2 style={{ margin: '8px 0 0', fontSize: 30, lineHeight: '40px', color: ink }}>Join Warehaus on the Portal</h2>
+          <p style={{ fontSize: 16, lineHeight: '26px', color: muted }}>
             Peter Roquemore (peter@warehaus.studio) invited you to join Warehaus as staff. Accept the invite to set your password and confirm your email in one step.
           </p>
-          <a href="/accept?invitePreview=new" style={{ ...primary, display: 'inline-flex', textDecoration: 'none' }}>Accept invite</a>
-          <div style={{ display: 'flex', gap: 12, marginTop: 24, padding: 16, borderRadius: 12, border: '1px solid var(--border)' }}>
+          <a href="https://portal.warehaus.studio/accept?token=preview" style={{ ...primary, display: 'inline-flex', textDecoration: 'none', background: ink, color: paper }}>Accept invite</a>
+          <div style={{ display: 'flex', gap: 12, marginTop: 24, padding: 16, borderRadius: 10, border: `1px solid ${line}`, background: '#f7f7f7', color: ink }}>
             <Clock size={16} />
             <div>
-              <p style={{ margin: 0 }}>This link expires in 7 days</p>
-              <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 14 }}>It works once and stops working on Nov 16, 2026. If it expires, ask Peter for a new invite.</p>
+              <p style={{ margin: 0, fontWeight: 600 }}>This link expires in 7 days</p>
+              <p style={{ margin: '4px 0 0', color: muted, fontSize: 13 }}>It works once and stops working on Nov 16, 2026. If it expires, ask Peter for a new invite.</p>
             </div>
           </div>
-          <p style={{ marginTop: 24, fontSize: 14, color: 'var(--muted)' }}>Button not working? Paste this link into your browser:</p>
-          <p style={{ fontSize: 13, wordBreak: 'break-all' }}>https://portal.warehaus.studio/accept?token=…</p>
-          <p style={{ fontSize: 14, color: 'var(--muted)' }}>Weren’t expecting this? You can ignore this email. Nothing is created until you accept, and we never ask for your password by email.</p>
+          <p style={{ marginTop: 24, fontSize: 13, color: muted }}>Button not working? Paste this link into your browser:</p>
+          <p style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, wordBreak: 'break-all', color: ink }}>https://portal.warehaus.studio/accept?token=preview</p>
+          <p style={{ fontSize: 13, color: muted }}>Weren’t expecting this? You can ignore this email. Nothing is created until you accept, and we never ask for your password by email.</p>
         </div>
-        <p style={{ marginTop: 24, fontSize: 12, color: 'var(--muted)' }}>Warehaus · warehaus.studio</p>
-        <p style={{ fontSize: 12, color: 'var(--muted)' }}>You’re getting this because Peter Roquemore invited jordan@warehaus.studio to the Warehaus Portal.</p>
+        <p style={{ marginTop: 24, fontSize: 12, color: '#929292', textAlign: 'center' }}>Warehaus · warehaus.studio</p>
+        <p style={{ fontSize: 12, color: '#929292', textAlign: 'center' }}>You’re getting this because Peter Roquemore invited jordan@warehaus.studio to the Warehaus Portal.</p>
       </article>
     </main>
   );
@@ -663,7 +703,7 @@ function AcceptShell({
 }) {
   return (
     <main
-      className="accept-invite ds-scope flex min-h-[100dvh] items-start justify-center px-6 pb-12 pt-6 md:items-center md:py-16"
+      className="accept-invite ds-scope flex min-h-[100dvh] items-start justify-center px-6 pb-12 pt-12 md:items-center md:py-16"
       data-testid="accept-invite"
       data-status={status}
     >
@@ -675,8 +715,7 @@ function AcceptShell({
             src="/icons/wordmark.svg"
             width={260}
             height={35}
-            className="portal-wordmark"
-            style={{ width: 260, height: 35 }}
+            className="portal-wordmark accept-wordmark"
           />
           <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', textAlign: 'center', color: 'var(--accept-muted)' }}>{subtitle}</p>
         </header>
@@ -725,11 +764,19 @@ function LockedEmail({ email, hint }: { email: string; hint?: string }) {
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function Field({ label, value, onChange, error }: { label: string; value: string; onChange: (value: string) => void; error?: string | null }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <span style={fieldLabel}>{label}</span>
-      <input type="password" value={value} onChange={(event) => onChange(event.target.value)} autoComplete="new-password" style={{ minHeight: 52, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-2)', color: 'var(--fg)', padding: '0 16px', fontSize: 16, lineHeight: '24px' }} />
+      <input
+        type="password"
+        value={value}
+        aria-invalid={error ? true : undefined}
+        onChange={(event) => onChange(event.target.value)}
+        autoComplete="new-password"
+        style={{ minHeight: 52, borderRadius: 10, border: `1px solid ${error ? 'var(--danger)' : 'var(--border)'}`, background: 'var(--bg-2)', color: 'var(--fg)', padding: '0 16px', fontSize: 16, lineHeight: '24px' }}
+      />
+      {error ? <span data-testid="accept-field-error" style={{ color: 'var(--danger)', fontSize: 13, lineHeight: '20px' }}>{error}</span> : null}
     </label>
   );
 }
@@ -737,7 +784,7 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
 function Rule({ met, label }: { met: boolean; label: string }) {
   return (
     <p style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, lineHeight: '20px', color: met ? 'var(--fg)' : 'var(--accept-muted)' }}>
-      {met ? <Check size={16} /> : <Circle size={16} />}
+      {met ? <CircleCheck size={16} /> : <Circle size={16} />}
       {label}
     </p>
   );
@@ -787,39 +834,53 @@ function ErrorCard({
   title: heading,
   body,
   rows,
+  callout,
   note,
   link,
   href,
   action,
   actionHref,
   onAction,
+  tone,
 }: {
   icon: ReactNode;
   kicker: string;
   title: string;
   body: string;
   rows?: Array<[string, string]>;
+  callout?: string | null;
   note?: string | null;
   link?: string;
   href?: string;
   action: string;
   actionHref?: string;
   onAction?: () => void;
+  tone?: 'danger';
 }) {
+  const danger = tone === 'danger';
+  const accent = danger ? 'var(--danger)' : 'var(--accept-muted)';
   return (
     <Card>
-      <span style={{ width: 44, height: 44, borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</span>
-      <Kicker>{kicker}</Kicker>
-      <h1 style={title}>{heading}</h1>
-      <p style={lede}>{body}</p>
+      <div className="accept-stack">
+        <span style={{ width: 44, height: 44, borderRadius: 999, border: `1px solid ${danger ? 'var(--danger)' : 'var(--border)'}`, background: danger ? 'color-mix(in oklab, var(--danger) 12%, transparent)' : 'var(--surface-2)', color: danger ? 'var(--danger)' : 'inherit', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</span>
+        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', letterSpacing: '0.8px', textTransform: 'uppercase', color: accent }}>{kicker}</p>
+        <h1 style={title}>{heading}</h1>
+        <p style={lede}>{body}</p>
+      </div>
       {rows ? (
         <div style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {rows.map(([label, value]) => (
             <div key={label} style={{ display: 'flex', gap: 12, minWidth: 0 }}>
               <span className="ds-mono" style={{ width: 96, flexShrink: 0, color: 'var(--accept-muted)', fontSize: 11, lineHeight: '17px', letterSpacing: '0.04em', textTransform: 'uppercase' }}>{label}</span>
-              <span style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, lineHeight: '20px' }}>{value}</span>
+              <span style={{ flex: '1 1 auto', minWidth: 0, overflowWrap: 'anywhere', fontSize: 13, lineHeight: '20px' }}>{value}</span>
             </div>
           ))}
+        </div>
+      ) : null}
+      {callout ? (
+        <div data-testid="accept-callout" style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 16, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-2)', fontSize: 14, lineHeight: '21px' }}>
+          <Clock size={16} />
+          <span>{callout}</span>
         </div>
       ) : null}
       {note ? <p style={{ margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--accept-muted)' }}>{note}</p> : null}

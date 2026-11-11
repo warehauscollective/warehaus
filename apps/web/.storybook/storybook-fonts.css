@@ -1,0 +1,42 @@
+@font-face {
+  font-family: "Eurostile";
+  src: url("/Font's/Eurostile.otf") format("opentype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Eurostile";
+  src: url("/Font's/Eurostile Regular Oblique.otf") format("opentype");
+  font-weight: 400;
+  font-style: italic;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Eurostile";
+  src: url("/Font's/Eurostile Medium.otf") format("opentype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Eurostile";
+  src: url("/Font's/Eurostile Bold.otf") format("opentype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Eurostile";
+  src: url("/Font's/Eurostile Black.otf") format("opentype");
+  font-weight: 900;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: "Eurostile";
+  src: url("/Font's/Eurostile Black Italic.otf") format("opentype");
+  font-weight: 900;
+  font-style: italic;
+  font-display: swap;
+}

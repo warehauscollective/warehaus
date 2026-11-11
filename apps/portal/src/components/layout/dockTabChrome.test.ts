@@ -48,6 +48,7 @@ describe('dock active label', () => {
     assert.match(dockLabelClassName(false, 'account'), /dock-label-account/);
     assert.match(css, /\.dock-label-resources\s*\{[^}]*letter-spacing:\s*0\.97px;/);
     assert.match(css, /\.dock-label-account\s*\{[^}]*letter-spacing:\s*0\.88px;/);
+    assert.match(css, /\[aria-selected='true'\]:has\(\.dock-label-account\)\s*\{[^}]*padding-inline:\s*10px;/);
     assert.match(dock, /backgroundColor: 'currentColor'/);
     assert.match(dock, /stroke="currentColor"/);
 

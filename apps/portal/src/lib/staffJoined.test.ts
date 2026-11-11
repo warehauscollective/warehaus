@@ -10,7 +10,9 @@ import {
   rememberStaffFinish,
   rememberStaffJoined,
   useStaffJoinedWelcome,
+  useStaffJustJoined,
 } from './staffJoined';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { installTestDom, textOf, type DomDocument } from '../components/auth/testDom';
 
 Object.assign(globalThis, { React });
@@ -90,5 +92,49 @@ describe('staff joined flag', () => {
     const saved = storage.getItem('warehaus-staff-finish') ?? '';
     assert.equal(saved.includes('raw-token'), false);
     assert.equal(readStaffFinish()?.tokenHash, tokenHash);
+  });
+});
+
+function JustJoinedProbe() {
+  const joined = useStaffJustJoined();
+  return createElement('p', { 'data-joined': joined ? 'true' : 'false' }, joined ? 'yes' : 'no');
+}
+
+describe('staff just joined gate', () => {
+  it('matches the server render, then reads the flag before paint', async () => {
+    installStorage();
+    rememberStaffJoined({ name: 'Jordan Blake', passwordSet: true, inviterName: 'Peter Roquemore' });
+    const html = renderToStaticMarkup(createElement(JustJoinedProbe));
+    assert.match(html, /data-joined="false"/);
+    assert.match(html, />no</);
+
+    const document = installTestDom();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let root: Root | null = null;
+    await act(async () => {
+      root = createRoot(container as unknown as Element);
+      root.render(createElement(JustJoinedProbe));
+    });
+    assert.equal(textOf(container), 'yes');
+    await act(async () => {
+      root?.unmount();
+    });
+  });
+
+  it('stays false when the tab has no joined flag', async () => {
+    installStorage();
+    const document = installTestDom();
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let root: Root | null = null;
+    await act(async () => {
+      root = createRoot(container as unknown as Element);
+      root.render(createElement(JustJoinedProbe));
+    });
+    assert.equal(textOf(container), 'no');
+    await act(async () => {
+      root?.unmount();
+    });
   });
 });
