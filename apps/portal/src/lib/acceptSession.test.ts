@@ -6,10 +6,13 @@ import { describe, it } from 'node:test';
 import { SignedInAcceptCopy } from '@/components/auth/AcceptInvite';
 import { installTestDom, textOf, type DomDocument } from '@/components/auth/testDom';
 import {
+  ACCEPT_AUTH_INTERVAL_MS,
+  ACCEPT_AUTH_POLLS,
   SESSION_NOT_ATTACHED_MESSAGE,
   acceptFailureCopy,
   acceptOnceAuthenticated,
   knownSessionEmail,
+  planJoinSteps,
 } from './acceptSession';
 
 Object.assign(globalThis, { React });
@@ -98,6 +101,29 @@ describe('accept waits for the Convex session', () => {
     assert.deepEqual(retried, { ok: true, result: 'accepted' });
     assert.equal(accepts, 1);
     assert.equal(ready, true);
+  });
+
+  it('gives each round 20 checks at 250ms, then the clear message', async () => {
+    assert.equal(ACCEPT_AUTH_POLLS, 20);
+    assert.equal(ACCEPT_AUTH_INTERVAL_MS, 250);
+    let sleeps = 0;
+    let waited = 0;
+    const outcome = await acceptOnceAuthenticated({
+      readAuthenticated: () => false,
+      refresh: async () => {},
+      accept: async () => 'accepted',
+      sleep: async (ms) => {
+        sleeps += 1;
+        waited += ms;
+      },
+    });
+    assert.equal(outcome.ok, false);
+    if (!outcome.ok) assert.equal(outcome.message, SESSION_NOT_ATTACHED_MESSAGE);
+    assert.equal(sleeps, ACCEPT_AUTH_POLLS * 2);
+    assert.equal(waited, ACCEPT_AUTH_POLLS * 2 * ACCEPT_AUTH_INTERVAL_MS);
+    assert.deepEqual(planJoinSteps({ accountCreated: true, awaitingAccept: true }), ['accept']);
+    assert.deepEqual(planJoinSteps({ accountCreated: true, awaitingAccept: false }), ['sign-in', 'accept']);
+    assert.deepEqual(planJoinSteps({ accountCreated: false, awaitingAccept: false }), ['sign-up', 'sign-in', 'accept']);
   });
 
   it('does not render a signed-in line with an empty email', async () => {

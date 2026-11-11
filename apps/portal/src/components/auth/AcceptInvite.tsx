@@ -10,6 +10,7 @@ import {
   acceptFailureCopy,
   acceptOnceAuthenticated,
   knownSessionEmail,
+  planJoinSteps,
   refreshConvexSession,
 } from '@/lib/acceptSession';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
@@ -171,6 +172,8 @@ function AcceptInviteBody({
   const [renewed, setRenewed] = useState(false);
   const [reference] = useState(() => `INV-${crypto.randomUUID().slice(0, 8).toUpperCase()}`);
   const [screen, setScreen] = useState<Preview['status'] | null>(null);
+  const [accountCreated, setAccountCreated] = useState(false);
+  const [awaitingAccept, setAwaitingAccept] = useState(false);
   const state = rules(password, confirm);
   const ready = state.length && state.mix && state.match;
   const replace = useCallback((path: string) => {
@@ -207,18 +210,42 @@ function AcceptInviteBody({
     setBusy(true);
     setError(null);
     try {
-      const signed = await authClient.signUp.email({
-        email: preview.invitedEmail,
-        password,
-        name: preview.invitedEmail.split('@')[0] ?? 'Staff',
-        callbackURL: `/accept?token=${encodeURIComponent(token)}`,
-        inviteToken: token,
-      } as never);
-      if (signed.error) {
-        setError(signed.error.message ?? 'We couldn’t finish joining');
-        return;
+      const steps = planJoinSteps({ accountCreated, awaitingAccept });
+      if (steps.includes('sign-up')) {
+        const signed = await authClient.signUp.email({
+          email: preview.invitedEmail,
+          password,
+          name: preview.invitedEmail.split('@')[0] ?? 'Staff',
+          callbackURL: `/accept?token=${encodeURIComponent(token)}`,
+          inviteToken: token,
+        } as never);
+        if (signed.error) {
+          setError(signed.error.message ?? 'We couldn’t finish joining');
+          return;
+        }
+        setAccountCreated(true);
       }
-      await authClient.signIn.email({ email: preview.invitedEmail, password });
+      if (steps.includes('sign-in')) {
+        const signedIn = await authClient.signIn.email({ email: preview.invitedEmail, password });
+        if (signedIn.error) {
+          setError(signedIn.error.message ?? 'Check your password and try again.');
+          return;
+        }
+      }
+      setAwaitingAccept(true);
+      await finishAccept(preview.invitedEmail, true);
+    } catch (err) {
+      setError(acceptFailureCopy(userFacingErrorMessage(err, 'We couldn’t finish joining')));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function retryAccept() {
+    if (!preview?.invitedEmail) return;
+    setBusy(true);
+    setError(null);
+    try {
       await finishAccept(preview.invitedEmail, true);
     } catch (err) {
       setError(acceptFailureCopy(userFacingErrorMessage(err, 'We couldn’t finish joining')));
@@ -328,16 +355,25 @@ function AcceptInviteBody({
             <p style={lede}>Set a password to finish. Opening this link from your email confirms your address, so there’s no separate verification step.</p>
             <Inviter name={inviter} />
             <LockedEmail email={email} hint={`This is the address ${firstName(inviter)} invited. It can’t be changed here.`} />
-            <form onSubmit={(event) => void join(event)} className="flex flex-col gap-4">
-              <Field label="Password" value={password} onChange={setPassword} />
-              <Field label="Confirm password" value={confirm} onChange={setConfirm} />
-              <Rule met={state.length} label="At least 8 characters" />
-              <Rule met={state.mix} label="A letter and a number" />
-              <Rule met={state.match} label="Passwords match" />
-              <Actions link="Already have an account? Sign in" onLink={() => setSignInMode(true)} label={busy ? 'Joining…' : 'Join Warehaus'} disabled={!ready || busy} />
-              <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Join turns on when every rule is met.</p>
-              {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
-            </form>
+            {awaitingAccept ? (
+              <div className="flex flex-col gap-4">
+                {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
+                <button type="button" disabled={busy} onClick={() => void retryAccept()} style={{ ...primary, opacity: busy ? 0.4 : 1, alignSelf: 'flex-start' }}>
+                  {busy ? 'Joining…' : 'Try again'}
+                </button>
+              </div>
+            ) : (
+              <form onSubmit={(event) => void join(event)} className="flex flex-col gap-4">
+                <Field label="Password" value={password} onChange={setPassword} />
+                <Field label="Confirm password" value={confirm} onChange={setConfirm} />
+                <Rule met={state.length} label="At least 8 characters" />
+                <Rule met={state.mix} label="A letter and a number" />
+                <Rule met={state.match} label="Passwords match" />
+                <Actions link="Already have an account? Sign in" onLink={() => setSignInMode(true)} label={busy ? 'Joining…' : accountCreated ? 'Try again' : 'Join Warehaus'} disabled={!ready || busy} />
+                <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Join turns on when every rule is met.</p>
+                {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
+              </form>
+            )}
           </Card>
         ) : status === 'ready' ? (
           <Card>
