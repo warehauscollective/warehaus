@@ -1,11 +1,17 @@
 'use client';
 
-import { useCallback, useState, type FormEvent, type ReactNode } from 'react';
-import { useMutation } from 'convex/react';
+import { useCallback, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useConvexAuth, useMutation } from 'convex/react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { AlertTriangle, Check, Circle, Clock, Lock, Mail, Shield, UserRound } from 'lucide-react';
 import { api } from '@convex/_generated/api';
 import { authClient } from '@/lib/auth-client';
+import {
+  acceptFailureCopy,
+  acceptOnceAuthenticated,
+  knownSessionEmail,
+  refreshConvexSession,
+} from '@/lib/acceptSession';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { renewRequestMessage } from '@convex/_lib/inviteFlow';
@@ -105,7 +111,45 @@ function joinedName(email: string): string {
   return local.replace(/\b\w/g, (letter) => letter.toUpperCase());
 }
 
+export function SignedInAcceptCopy({ email }: { email: string | null | undefined }) {
+  const known = knownSessionEmail(email);
+  if (!known) {
+    return (
+      <p style={lede} data-testid="accept-session-pending">
+        Checking your sign-in…
+      </p>
+    );
+  }
+  return (
+    <p style={lede} data-testid="accept-signed-in">
+      You’re signed in as {known}. There’s no password step. Accept to join Warehaus as staff.
+    </p>
+  );
+}
+
 export function AcceptInvite() {
+  if (!isConvexConfigured()) {
+    return <AcceptInviteBody readAuthenticated={() => false} refreshSession={async () => {}} />;
+  }
+  return <AcceptInviteAuthed />;
+}
+
+function AcceptInviteAuthed() {
+  const { isAuthenticated } = useConvexAuth();
+  const authenticated = useRef(isAuthenticated);
+  authenticated.current = isAuthenticated;
+  const readAuthenticated = useCallback(() => authenticated.current, []);
+  const refreshSession = useCallback(() => refreshConvexSession(authClient), []);
+  return <AcceptInviteBody readAuthenticated={readAuthenticated} refreshSession={refreshSession} />;
+}
+
+function AcceptInviteBody({
+  readAuthenticated,
+  refreshSession,
+}: {
+  readAuthenticated: () => boolean;
+  refreshSession: () => Promise<void>;
+}) {
   const router = useRouter();
   const params = useSearchParams();
   const token = params.get('token') ?? '';
@@ -137,6 +181,8 @@ export function AcceptInvite() {
     !forced && configured ? {} : 'skip',
   );
   const wait = useStaffLinkWait({ token, link: linkState.data, replace });
+  const { data: authSession } = authClient.useSession();
+  const sessionEmail = knownSessionEmail(authSession?.user?.email) ?? knownSessionEmail(preview?.signedInEmail);
 
   if (previewKey === 'email') return <InviteEmailPreview />;
   if (previewKey === 'finishing' || previewKey === 'finishing-slow') {
@@ -173,23 +219,37 @@ export function AcceptInvite() {
         return;
       }
       await authClient.signIn.email({ email: preview.invitedEmail, password });
-      const result = await accept({ token });
-      if (!result.ok) {
-        const next = asScreen(result.status);
-        if (next) setScreen(next);
-        else setError(result.message ?? 'We couldn’t finish joining');
-        return;
-      }
-      wait.begin({ name: joinedName(preview.invitedEmail), passwordSet: true });
+      await finishAccept(preview.invitedEmail, true);
     } catch (err) {
-      setError(userFacingErrorMessage(err, 'We couldn’t finish joining'));
+      setError(acceptFailureCopy(userFacingErrorMessage(err, 'We couldn’t finish joining')));
     } finally {
       setBusy(false);
     }
   }
 
+  async function finishAccept(nameEmail: string, passwordSet: boolean) {
+    const gate = await acceptOnceAuthenticated({
+      readAuthenticated,
+      refresh: refreshSession,
+      accept: () => accept({ token }),
+    });
+    if (!gate.ok) {
+      setError(gate.message);
+      return;
+    }
+    const result = gate.result;
+    if (!result.ok) {
+      const next = asScreen(result.status);
+      if (next) setScreen(next);
+      else setError(acceptFailureCopy(result.message ?? 'We couldn’t finish joining'));
+      return;
+    }
+    wait.begin({ name: joinedName(nameEmail), passwordSet });
+  }
+
   async function confirmSignedIn() {
-    if (!preview?.invitedEmail) return;
+    const nameEmail = sessionEmail ?? knownSessionEmail(preview?.invitedEmail);
+    if (!nameEmail) return;
     if (forced) {
       rememberStaffJoined({ name: 'Jordan', passwordSet: false });
       router.replace('/preview');
@@ -198,16 +258,9 @@ export function AcceptInvite() {
     setBusy(true);
     setError(null);
     try {
-      const result = await accept({ token });
-      if (!result.ok) {
-        const next = asScreen(result.status);
-        if (next) setScreen(next);
-        else setError(result.message ?? 'We couldn’t finish joining');
-        return;
-      }
-      wait.begin({ name: joinedName(preview.invitedEmail), passwordSet: false });
+      await finishAccept(nameEmail, false);
     } catch (err) {
-      setError(userFacingErrorMessage(err, 'We couldn’t finish joining'));
+      setError(acceptFailureCopy(userFacingErrorMessage(err, 'We couldn’t finish joining')));
     } finally {
       setBusy(false);
     }
@@ -229,16 +282,9 @@ export function AcceptInvite() {
         setError(signed.error.message ?? 'Check your password and try again.');
         return;
       }
-      const result = await accept({ token });
-      if (!result.ok) {
-        const next = asScreen(result.status);
-        if (next) setScreen(next);
-        else setError(result.message ?? 'We couldn’t finish joining');
-        return;
-      }
-      wait.begin({ name: joinedName(preview.invitedEmail), passwordSet: false });
+      await finishAccept(preview.invitedEmail, false);
     } catch (err) {
-      setError(userFacingErrorMessage(err, 'Check your password and try again.'));
+      setError(acceptFailureCopy(userFacingErrorMessage(err, 'Check your password and try again.')));
     } finally {
       setBusy(false);
     }
@@ -256,6 +302,7 @@ export function AcceptInvite() {
 
   const status = screen ?? (signInMode && preview?.status === 'create-account' ? 'sign-in' : preview?.status);
   const email = preview?.invitedEmail ?? '';
+  const readyEmail = sessionEmail ?? (forced ? knownSessionEmail(email) : null);
   const inviter = preview?.inviterName || INVITER_FALLBACK;
 
   return (
@@ -296,10 +343,10 @@ export function AcceptInvite() {
           <Card>
             <Kicker>Staff invite</Kicker>
             <h1 style={title}>Accept your invite</h1>
-            <p style={lede}>You’re signed in as {email}. There’s no password step. Accept to join Warehaus as staff.</p>
+            <SignedInAcceptCopy email={readyEmail} />
             <Inviter name={inviter} />
             <LockedEmail email={email} />
-            <button type="button" disabled={busy} onClick={() => void confirmSignedIn()} style={{ ...primary, opacity: busy ? 0.4 : 1, alignSelf: 'flex-start' }}>
+            <button type="button" disabled={busy || !readyEmail} onClick={() => void confirmSignedIn()} style={{ ...primary, opacity: busy || !readyEmail ? 0.4 : 1, alignSelf: 'flex-start' }}>
               {busy ? 'Joining…' : 'Accept invite'}
             </button>
             {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
@@ -376,7 +423,7 @@ export function AcceptInvite() {
             body="This invite is for a different email. Switch accounts to accept it."
             rows={[
               ['Invite for', email],
-              ['Signed in as', preview.signedInEmail ?? ''],
+              ['Signed in as', knownSessionEmail(preview.signedInEmail) ?? 'Checking your sign-in…'],
             ]}
             link="Stay signed in"
             href="/"
