@@ -9,10 +9,11 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { PORTAL_TABS, isPortalTab, type PortalTab } from '@warehaus/logic/portal';
+import { PORTAL_TABS, type PortalTab } from '@warehaus/logic/portal';
 import { PORTAL_SIDEBAR_SECTIONS } from '@/lib/data/sidebarSections';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { setSearchParams } from '@/lib/nav/clearSearchParam';
+import { readPortalDeepLink } from '@/lib/nav/portalDeepLink';
 
 export type PortalDetail = {
   id: string;
@@ -64,13 +65,11 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
   }, [activeTab]);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tab = params.get('tab');
-    const section = params.get('section');
-    if (tab && section && isPortalTab(tab)) {
-      setSectionsByTab((prev) => ({ ...prev, [tab]: section }));
-    }
-  }, []);
+    const link = readPortalDeepLink(window.location.search);
+    if (!link) return;
+    setActiveTab(link.tab);
+    setSectionsByTab((prev) => ({ ...prev, [link.tab]: link.section }));
+  }, [setActiveTab]);
 
   const sectionFor = useCallback(
     (tab: PortalTab) =>

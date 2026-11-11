@@ -130,6 +130,35 @@ async function loadSourcePages(
   return { ...loaded, archivedOk };
 }
 
+/** Pending invite stays. Dropped invite is hidden and its sessions are revoked. */
+export function pendingInviteSyncConceal(placement: string): {
+  action: 'hide';
+  reason: 'gate';
+  detail: string;
+  revokeSessions: boolean;
+  cascade: 'none';
+} | null {
+  if (placement === 'UPSERT_PENDING_INVITE') {
+    return {
+      action: 'hide',
+      reason: 'gate',
+      detail: 'Pending invite is not a login. The row stays, and sessions stay.',
+      revokeSessions: false,
+      cascade: 'none',
+    };
+  }
+  if (placement === 'SKIP_AND_DROP_PENDING') {
+    return {
+      action: 'hide',
+      reason: 'gate',
+      detail: 'Contact is not a login',
+      revokeSessions: true,
+      cascade: 'none',
+    };
+  }
+  return null;
+}
+
 /**
  * Allowlisted pull: Notion → Convex.
  * Incremental when `notion-pull` syncMeta exists (last_edited_time filter);
@@ -426,25 +455,10 @@ export const pullAll = internalAction({
             actionsJson: JSON.stringify(syncDecision.actions),
             observedJson: JSON.stringify(observed),
           });
-          if (syncDecision.placement === 'UPSERT_PENDING_INVITE') {
-            await conceal('contacts', page.id, {
-              action: 'hide',
-              reason: 'gate',
-              detail: 'Pending invite is not a login',
-              revokeSessions: true,
-              cascade: 'none',
-            });
-            return;
-          }
-          if (syncDecision.placement === 'SKIP_AND_DROP_PENDING') {
-            await conceal('contacts', page.id, {
-              action: 'hide',
-              reason: 'gate',
-              detail: 'Contact is not a login',
-              revokeSessions: true,
-              cascade: 'none',
-            });
-            stats.skipped += 1;
+          const pendingConceal = pendingInviteSyncConceal(syncDecision.placement);
+          if (pendingConceal) {
+            await conceal('contacts', page.id, pendingConceal);
+            if (syncDecision.placement === 'SKIP_AND_DROP_PENDING') stats.skipped += 1;
             return;
           }
         }

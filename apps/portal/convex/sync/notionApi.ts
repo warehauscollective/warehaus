@@ -66,6 +66,22 @@ export async function resolveDataSourceId(databaseOrSourceId: string): Promise<s
   return databaseOrSourceId;
 }
 
+/**
+ * Property names on a data source. Null when the schema could not be read.
+ * Callers then fall through to the write, which still rejects a missing property by name.
+ */
+export async function listDataSourcePropertyNames(databaseOrSourceId: string): Promise<string[] | null> {
+  try {
+    const dataSourceId = await resolveDataSourceId(databaseOrSourceId);
+    const json = await notionFetch(`/data_sources/${dataSourceId}`);
+    const props = json?.properties;
+    if (!props || typeof props !== 'object') return null;
+    return Object.keys(props as Record<string, unknown>);
+  } catch {
+    return null;
+  }
+}
+
 export type QueryPagesOpts = {
   /**
    * ISO timestamp — only pages with `last_edited_time` after this value.

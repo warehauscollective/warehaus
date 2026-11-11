@@ -439,7 +439,11 @@ export default defineSchema({
     notionPageId: v.string(),
     name: v.string(),
     email: v.string(),
-    role: v.union(v.literal('Client Admin'), v.literal('Client Member')),
+    role: v.union(
+      v.literal('Client Admin'),
+      v.literal('Client Member'),
+      v.literal('Warehaus Staff'),
+    ),
     inviteStatus: v.union(
       v.literal('Pending'),
       v.literal('Accepted'),
@@ -453,6 +457,18 @@ export default defineSchema({
   })
     .index('by_orgId', ['orgId'])
     .index('by_notionPageId', ['notionPageId'])
+    .index('by_email', ['email']),
+
+  /**
+   * Add-only. One short-lived row per invite token hash, consumed once when
+   * the invited person creates their account. Not an in-memory permit.
+   */
+  inviteSignupPermits: defineTable({
+    tokenHash: v.string(),
+    email: v.string(),
+    expiresAt: v.number(),
+  })
+    .index('by_tokenHash', ['tokenHash'])
     .index('by_email', ['email']),
 
   /** Raw invite tokens are never stored. Only the SHA-256 hash. */

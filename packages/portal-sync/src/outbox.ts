@@ -19,6 +19,8 @@ export const OUTBOX_BACKOFF_MS = [30_000, 120_000, 600_000, 1_800_000, 7_200_000
 export const OUTBOX_DEAD_AFTER_MS = 24 * 60 * 60 * 1000;
 export const OUTBOX_STAFF_NOTICE_ATTEMPTS = 5;
 export const OUTBOX_STAFF_NOTICE_QUEUED_MS = 60 * 60 * 1000;
+/** How long a claimed row stays with that attempt. A crashed worker is reclaimed after this. */
+export const OUTBOX_LEASE_MS = 120_000;
 
 export type OutboxStatus = 'queued' | 'inflight' | 'done' | 'failed' | 'dead' | 'conflict';
 
@@ -35,6 +37,8 @@ export type OutboxItem = {
   attempts: number;
   nextAttemptAt: number;
   createdAt: number;
+  /** Set when an attempt claims the row. Absent means the lease is not held. */
+  claimedAt?: number;
   lastError?: string;
   staffNotifiedAt?: number;
 };
@@ -108,8 +112,53 @@ export type AttemptPlan =
   | { action: 'dead'; notifyStaff: boolean }
   | { action: 'execute'; notifyStaff: boolean };
 
-/** Flag off holds the row queued and does not call Notion. */
-export function planOutboxAttempt(item: OutboxItem, nowMs: number, writebackEnabled: boolean): AttemptPlan {
+export type LeaseTake =
+  | { claimed: false; reason: 'done' | 'dead' | 'conflict' | 'inflight' | 'backoff' }
+  | { claimed: true; item: OutboxItem };
+
+type LeaseInput = {
+  status: OutboxStatus;
+  claimedAt?: number;
+  nextAttemptAt?: number;
+};
+
+export function outboxLeaseUnexpired(claimedAt: number | undefined, nowMs: number): boolean {
+  return claimedAt != null && nowMs - claimedAt < OUTBOX_LEASE_MS;
+}
+
+/**
+ * One attempt takes the row. A live lease stays with the attempt that holds it.
+ * An expired lease, or a row that was never claimed, can be taken.
+ * A row whose next attempt is still in the future is not claimed.
+ */
+export function takeOutboxLease<T extends LeaseInput>(
+  item: T,
+  nowMs: number,
+): { claimed: false; reason: 'done' | 'dead' | 'conflict' | 'inflight' | 'backoff' } | { claimed: true; item: T & { status: 'inflight'; claimedAt: number } } {
+  if (item.status === 'done' || item.status === 'dead' || item.status === 'conflict') {
+    return { claimed: false, reason: item.status };
+  }
+  if (item.status === 'inflight' && outboxLeaseUnexpired(item.claimedAt, nowMs)) {
+    return { claimed: false, reason: 'inflight' };
+  }
+  if (typeof item.nextAttemptAt === 'number' && nowMs < item.nextAttemptAt) {
+    return { claimed: false, reason: 'backoff' };
+  }
+  return { claimed: true, item: { ...item, status: 'inflight', claimedAt: nowMs } };
+}
+
+/**
+ * Flag off holds the row and does not call Notion.
+ * `owned` means this attempt just claimed the row. That row is processed in
+ * this pass. Waiting is only for a lease another attempt still holds, or for
+ * backoff (`nextAttemptAt` in the future).
+ */
+export function planOutboxAttempt(
+  item: OutboxItem,
+  nowMs: number,
+  writebackEnabled: boolean,
+  options?: { owned?: boolean },
+): AttemptPlan {
   if (!writebackEnabled) return { action: 'hold', reason: 'writeback-disabled' };
   if (item.status === 'done' || item.status === 'dead' || item.status === 'conflict') {
     return { action: 'wait' };
@@ -117,9 +166,16 @@ export function planOutboxAttempt(item: OutboxItem, nowMs: number, writebackEnab
   if (isOutboxDead(item, nowMs)) {
     return { action: 'dead', notifyStaff: item.staffNotifiedAt == null };
   }
-  if (item.status === 'inflight') return { action: 'wait' };
+  const heldByOther =
+    item.status === 'inflight' && !options?.owned && outboxLeaseUnexpired(item.claimedAt, nowMs);
+  if (heldByOther) return { action: 'wait' };
   if (nowMs < item.nextAttemptAt) return { action: 'wait' };
-  return { action: 'execute', notifyStaff: shouldNotifyStaff(item, nowMs) && item.staffNotifiedAt == null };
+  const forNotice =
+    options?.owned && item.status === 'inflight' ? { ...item, status: 'queued' as const } : item;
+  return {
+    action: 'execute',
+    notifyStaff: shouldNotifyStaff(forNotice, nowMs) && item.staffNotifiedAt == null,
+  };
 }
 
 export type NotionWriteResponse = {
@@ -188,8 +244,15 @@ export async function runOutboxAttempt(input: {
   }) => Promise<NotionWriteResponse>;
   /** Re-read before an update. Required when `expectedLastEditedTime` is set. */
   readPage?: (notionPageId: string) => Promise<PageRead>;
+  /** This attempt just claimed the row, so its own lease is not "not due". */
+  owned?: boolean;
+  /**
+   * Property names on the live data source. When set, a payload key that is
+   * absent is rejected before search or write. Omit when the schema was not read.
+   */
+  livePropertyNames?: readonly string[];
 }): Promise<AttemptOutcome> {
-  const plan = planOutboxAttempt(input.item, input.nowMs, input.writebackEnabled);
+  const plan = planOutboxAttempt(input.item, input.nowMs, input.writebackEnabled, { owned: input.owned });
   if (plan.action === 'hold') return { outcome: 'held', reason: plan.reason };
   if (plan.action === 'wait') return { outcome: 'wait' };
   if (plan.action === 'dead') {
@@ -203,6 +266,8 @@ export async function runOutboxAttempt(input: {
       properties: input.item.properties,
     });
     if (!validated.ok) return { outcome: 'rejected', reason: validated.errors.join('; ') };
+    const inviteSchema = rejectIfSchemaMissing(validated.properties, input.livePropertyNames);
+    if (inviteSchema) return inviteSchema;
     if (!input.item.notionPageId) {
       return { outcome: 'rejected', reason: 'State changes need an existing Notion page' };
     }
@@ -234,6 +299,7 @@ export async function runOutboxAttempt(input: {
 
   const isPatch =
     input.item.kind === 'task-status' ||
+    input.item.kind === 'task-stage' ||
     input.item.kind === 'update' ||
     input.item.kind === 'task-fields';
   const validated = isPatch
@@ -249,6 +315,8 @@ export async function runOutboxAttempt(input: {
   if (!validated.ok) {
     return { outcome: 'rejected', reason: validated.errors.join('; ') };
   }
+  const schemaMiss = rejectIfSchemaMissing(validated.properties, input.livePropertyNames);
+  if (schemaMiss) return schemaMiss;
 
   if (isPatch) {
     return runPatchAttempt({
@@ -280,18 +348,7 @@ export async function runOutboxAttempt(input: {
     properties: validated.properties,
   });
 
-  if (!response.ok || !response.notionPageId) {
-    const attempts = input.item.attempts + 1;
-    const delay = nextBackoffMs(attempts, response.retryAfterMs);
-    const next: OutboxItem = { ...input.item, attempts, status: 'failed', createdAt: input.item.createdAt };
-    return {
-      outcome: 'retry',
-      attempts,
-      nextAttemptAt: input.nowMs + delay,
-      lastError: response.error ?? `Notion HTTP ${response.status}`,
-      notifyStaff: shouldNotifyStaff(next, input.nowMs) && input.item.staffNotifiedAt == null,
-    };
-  }
+  if (!response.ok || !response.notionPageId) return retryOutcome(input.item, input.nowMs, response);
 
   return {
     outcome: 'confirmed',
@@ -304,7 +361,43 @@ export async function runOutboxAttempt(input: {
   };
 }
 
+/** Notion's validation error names the property. The match is the property name. */
+export function missingWritebackProperty(error: string | undefined): string | null {
+  if (!error) return null;
+  const match = error.match(/([A-Za-z][^"\\]{0,80}?) is not a property that exists/);
+  const name = match?.[1]?.trim();
+  return name ? name : null;
+}
+
+/** Payload keys that the live data source does not have, in payload order. */
+export function missingWritebackProperties(
+  payloadKeys: readonly string[],
+  liveNames: readonly string[],
+): string[] {
+  const live = new Set(liveNames);
+  return payloadKeys.filter((name) => !live.has(name));
+}
+
+export function missingWritebackReason(names: readonly string[]): string {
+  const quoted = names.map((name) => `"${name}"`).join(', ');
+  return names.length === 1
+    ? `Notion is missing property ${quoted}.`
+    : `Notion is missing properties ${quoted}.`;
+}
+
+function rejectIfSchemaMissing(
+  properties: WriteProperties,
+  livePropertyNames: readonly string[] | undefined,
+): AttemptOutcome | null {
+  if (!livePropertyNames) return null;
+  const missing = missingWritebackProperties(Object.keys(properties), livePropertyNames);
+  if (missing.length === 0) return null;
+  return { outcome: 'rejected', reason: missingWritebackReason(missing) };
+}
+
 function retryOutcome(item: OutboxItem, nowMs: number, response: NotionWriteResponse): AttemptOutcome {
+  const missing = missingWritebackProperty(response.error);
+  if (missing) return { outcome: 'rejected', reason: missingWritebackReason([missing]) };
   const attempts = item.attempts + 1;
   const delay = nextBackoffMs(attempts, response.retryAfterMs);
   const next: OutboxItem = { ...item, attempts, status: 'failed', createdAt: item.createdAt };
@@ -378,8 +471,12 @@ export async function runProjectCreateAttempt(input: {
     externalId: string,
   ) => Promise<Array<{ notionPageId: string; clientNotionIds: readonly string[] }>>;
   create: (properties: WriteProperties) => Promise<NotionWriteResponse>;
+  /** This attempt just claimed the row, so its own lease is not "not due". */
+  owned?: boolean;
+  /** Property names on the live Projects data source. Omit when the schema was not read. */
+  livePropertyNames?: readonly string[];
 }): Promise<AttemptOutcome> {
-  const plan = planOutboxAttempt(input.item, input.nowMs, input.writebackEnabled);
+  const plan = planOutboxAttempt(input.item, input.nowMs, input.writebackEnabled, { owned: input.owned });
   if (plan.action === 'hold') return { outcome: 'held', reason: plan.reason };
   if (plan.action === 'wait') return { outcome: 'wait' };
   if (plan.action === 'dead') {
@@ -396,6 +493,8 @@ export async function runProjectCreateAttempt(input: {
   if (typeof externalId !== 'string' || !Array.isArray(client) || client.length !== 1) {
     return { outcome: 'rejected', reason: 'Project create payload is incomplete' };
   }
+  const schemaMiss = rejectIfSchemaMissing(properties, input.livePropertyNames);
+  if (schemaMiss) return schemaMiss;
 
   const hits = await input.search(externalId);
   const dedupe = decideProjectCreateDedupe({ hits, clientNotionPageId: client[0]! });

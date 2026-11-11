@@ -7,7 +7,9 @@ import {
   auditEventForOutcome,
   isNewerEditedTime,
   isNotionWritebackEnabled,
+  outboxLeaseUnexpired,
   planIdempotentEnqueue,
+  takeOutboxLease,
   taskLiveFieldsWriteError,
   validatePropertyPatch,
   validateTaskStatusUpdate,
@@ -21,8 +23,6 @@ import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { linkTaskToCreateMilestone, milestoneIdFromPayload } from '../_lib/taskMilestoneLink';
-
-const INFLIGHT_MS = 120_000;
 
 const actor = v.union(v.literal('staff'), v.literal('clientAdmin'), v.literal('system'));
 
@@ -262,7 +262,17 @@ export const listDue = internalQuery({
       .query('notionOutbox')
       .withIndex('by_status_nextAttemptAt', (q) => q.eq('status', 'failed').lte('nextAttemptAt', now))
       .take(10);
-    return [...queued, ...failed];
+    // A crash after the PATCH and before applyOutcome comes back as conflict.
+    const inflight = await ctx.db
+      .query('notionOutbox')
+      .withIndex('by_status_nextAttemptAt', (q) =>
+        q.eq('status', 'inflight').lte('nextAttemptAt', now),
+      )
+      .take(10);
+    const reclaimable = inflight.filter(
+      (row) => !outboxLeaseUnexpired(row.claimedAt, now) && row.nextAttemptAt <= now,
+    );
+    return [...reclaimable, ...queued, ...failed].slice(0, 10);
   },
 });
 
@@ -288,13 +298,14 @@ export const claim = internalMutation({
     if (row.status === 'done') {
       return { claimed: false as const, reason: 'done' as const, resultJson: row.resultJson ?? null };
     }
-    if (row.status === 'dead' || row.status === 'conflict') {
-      return { claimed: false as const, reason: row.status, lastError: row.lastError ?? null };
+    const decision = takeOutboxLease(row, now);
+    if (!decision.claimed) {
+      if (decision.reason === 'dead' || decision.reason === 'conflict') {
+        return { claimed: false as const, reason: decision.reason, lastError: row.lastError ?? null };
+      }
+      return { claimed: false as const, reason: decision.reason };
     }
-    if (row.status === 'inflight' && row.claimedAt != null && now - row.claimedAt < INFLIGHT_MS) {
-      return { claimed: false as const, reason: 'inflight' as const };
-    }
-    await ctx.db.patch(id, { status: 'inflight', claimedAt: now });
+    await ctx.db.patch(id, { status: 'inflight', claimedAt: decision.item.claimedAt });
     return { claimed: true as const };
   },
 });

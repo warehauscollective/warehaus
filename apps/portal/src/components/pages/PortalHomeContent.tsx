@@ -26,6 +26,7 @@ import {
 } from '@/lib/data/dashboard';
 import { NewTaskControl } from '@/components/tasks/NewTaskControl';
 import { DashboardHome, type DashPreview } from '@/components/pages/DashboardHome';
+import { useStaffJoinedWelcome } from '@/lib/staffJoined';
 
 type SyncHealthPayload = {
   pull: PullMeta;
@@ -56,6 +57,7 @@ export function PortalHomeContent() {
   const { data, loading, error } = usePortalData();
   const { portalSession } = usePortalAuth();
   const fixtures = useFixturePreview();
+  const joined = useStaffJoinedWelcome();
   const configured = isConvexConfigured();
   const isStaff = Boolean(portalSession?.isStaff);
   const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
@@ -202,6 +204,7 @@ export function PortalHomeContent() {
               ),
             })
           }
+          joined={joined}
         />
       </PortalTilePane>
     </PortalWorkspace>

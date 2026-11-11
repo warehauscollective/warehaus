@@ -16,6 +16,7 @@ import {
   staffManualLinkError,
 } from './_lib/registration';
 import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { readAcceptHold, staffAcceptInProgress } from './_lib/inviteFlow';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 
 type DbCtx = QueryCtx | MutationCtx;
@@ -175,6 +176,55 @@ export const getLinkStatus = query({
       name: contact.name,
       email: contact.email,
       isStaff: contact.role === 'Warehaus Staff',
+    };
+  },
+});
+
+/**
+ * True after this user accepts a staff invite and before the staff contact is linked.
+ * AuthGate uses it so a join error during that wait does not sign them out.
+ */
+export const staffInviteInProgress = query({
+  args: {},
+  handler: async (ctx) => {
+    const identity = await ctx.auth.getUserIdentity();
+    if (!identity) return { inProgress: false as const };
+    const user = await authComponent.getAuthUser(ctx);
+    const email = user?.email ? normalizeEmail(user.email) : '';
+    if (!email) return { inProgress: false as const };
+    const invites = await ctx.db
+      .query('pendingInvites')
+      .withIndex('by_email', (q) => q.eq('email', email))
+      .collect();
+    const staff = invites.filter(
+      (invite) =>
+        invite.role === 'Warehaus Staff' &&
+        (invite.inviteStatus === 'Pending' || invite.inviteStatus === 'Accepted'),
+    );
+    const tokens: Array<{ emailNormalized: string; status: string; contactNotionPageId: string }> = [];
+    const holds: Array<{ notionPageId: string; inviteStatus: string | null; staff: boolean; open: boolean }> = [];
+    for (const invite of staff) {
+      const pageTokens = await ctx.db
+        .query('inviteTokens')
+        .withIndex('by_contactNotionPageId', (q) => q.eq('contactNotionPageId', invite.notionPageId))
+        .collect();
+      tokens.push(...pageTokens);
+      const writes = await ctx.db
+        .query('notionOutbox')
+        .withIndex('by_notionPageId', (q) => q.eq('notionPageId', invite.notionPageId))
+        .collect();
+      for (const write of writes) {
+        const hold = readAcceptHold(invite.notionPageId, write.kind, write.status, write.payload);
+        if (hold) holds.push(hold);
+      }
+    }
+    return {
+      inProgress: staffAcceptInProgress({
+        email,
+        invites: staff,
+        tokens,
+        holds,
+      }),
     };
   },
 });

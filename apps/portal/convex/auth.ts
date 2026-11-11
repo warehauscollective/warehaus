@@ -11,10 +11,11 @@ import authConfig from './auth.config';
 import {
   blockedSignupDelivery,
   passwordResetEmail,
-  rewriteVerificationCallback,
   sendPortalEmail,
   verificationEmail,
+  verificationLinkFor,
 } from './_lib/email';
+import { INVITE_PASSWORD_MESSAGE, invitePasswordReady } from './_lib/inviteFlow';
 import {
   CANT_REGISTER_MESSAGE,
   existingUserSignupAction,
@@ -125,6 +126,34 @@ type SignupHookCtx = {
   };
 };
 
+type PermitRun = (ref: unknown, args: Record<string, unknown>) => Promise<{ ok?: boolean } | null>;
+
+function permitRunner(ctx: GenericCtx<DataModel>): PermitRun | undefined {
+  if (!('runMutation' in ctx)) return undefined;
+  return (ref, args) => ctx.runMutation(ref as never, args as never);
+}
+
+/** Opens the durable signup permit. The sign-up hook returns only when this is true. */
+export async function grantInviteSignupFromHook(
+  runMutation: PermitRun | undefined,
+  input: { token: string; email: string },
+): Promise<boolean> {
+  if (!runMutation) return false;
+  const granted = await runMutation(anyApi.invites.grantSignupPermit, input);
+  return Boolean(granted?.ok);
+}
+
+/** Consumes that permit once and marks the new user verified. */
+export async function takeInviteSignupFromHook<T extends { email: string }>(
+  runMutation: PermitRun | undefined,
+  user: T,
+): Promise<{ data: T & { emailVerified: true } } | null> {
+  if (!runMutation) return null;
+  const taken = await runMutation(anyApi.invites.takeSignupPermit, { email: user.email });
+  if (!taken?.ok) return null;
+  return { data: { ...user, emailVerified: true } };
+}
+
 function signupFields(body: unknown): { email: string; password: string; name: string } | null {
   if (!body || typeof body !== 'object') return null;
   const record = body as { email?: unknown; password?: unknown; name?: unknown };
@@ -217,7 +246,7 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
       expiresIn: VERIFICATION_EXPIRES_IN_SECONDS,
       sendVerificationEmail: async ({ user, url }) => {
         await runResendMutation(ctx, 'stamp', user.email);
-        const verifyUrl = rewriteVerificationCallback(url);
+        const verifyUrl = verificationLinkFor(url);
         const content = verificationEmail({
           name: user.name,
           verifyUrl,
@@ -234,6 +263,26 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
       before: createAuthMiddleware(async (baCtx) => {
         const path = baCtx.path ?? '';
         if (path.endsWith('/sign-up/email')) {
+          const fields = signupFields(baCtx.body);
+          const inviteToken =
+            baCtx.body && typeof baCtx.body === 'object' && 'inviteToken' in baCtx.body
+              ? String((baCtx.body as { inviteToken?: unknown }).inviteToken ?? '')
+              : '';
+          if (fields && inviteToken && 'runQuery' in ctx) {
+            const allowed = (await ctx.runQuery(anyApi.invites.signupAllowed, {
+              token: inviteToken,
+              email: fields.email,
+            })) as { ok?: boolean } | null;
+            if (allowed?.ok) {
+              if (!invitePasswordReady(fields.password)) {
+                throw APIError.from('BAD_REQUEST', {
+                  message: INVITE_PASSWORD_MESSAGE,
+                  code: 'INVITE_PASSWORD',
+                });
+              }
+              if (await grantInviteSignupFromHook(permitRunner(ctx), { token: inviteToken, email: fields.email })) return;
+            }
+          }
           return await uniformBlockedSignup(ctx, baCtx as SignupHookCtx);
         }
         if (!path.endsWith('/send-verification-email')) return;
@@ -244,6 +293,12 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
         if (!email.trim()) return;
         const cooldown = await runResendMutation(ctx, 'claim', email);
         if (!cooldown?.allowed) return { status: true };
+        if ('runQuery' in ctx) {
+          const liveInvite = (await ctx.runQuery(anyApi.invites.emailHasLiveStaffInvite, {
+            email,
+          })) as { ok?: boolean } | null;
+          if (liveInvite?.ok) return;
+        }
         const eligibility = await readEligibility(ctx, email);
         if (!eligibility || signupOutbound(eligibility) === 'none') return { status: true };
         if (signupOutbound(eligibility) === 'blocked-notice') {
@@ -256,6 +311,8 @@ export const createAuth = (ctx: GenericCtx<DataModel>) => {
       user: {
         create: {
           before: async (user) => {
+            const verified = await takeInviteSignupFromHook(permitRunner(ctx), user);
+            if (verified) return verified;
             const decision = await readEligibility(ctx, user.email);
             if (!decision) refuseRegistration();
             if (decision.allowed) return { data: user };

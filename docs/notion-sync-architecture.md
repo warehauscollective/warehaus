@@ -43,6 +43,8 @@ Tables: `notionOutbox`, `notionWriteState`, `auditEvents`, `notices`.
 
 `NOTION_WRITEBACK_ENABLED` must be the exact string `true`. Unset or any other value is off. Enqueue returns `Write-back is off. Nothing was sent to Notion.` and does not insert a row. The worker returns without calling Notion. The flag stays unset on every deployment until someone turns it on in dev.
 
+`WAREHAUS_INTERNAL_CLIENT_ID` is optional. It is the Convex `clients` id of the Warehaus row that already stores a real Notion page uuid, used only to choose that row for a staff invite. It is not a Notion page id. Unset, the invite uses the single Warehaus row that holds a uuid. The `warehaus-internal` slug is not moved by this setting.
+
 Writable property names are the keys of the tier maps in `packages/portal-sync/src/tiers.ts`. A name that is not in the map is rejected. That includes Stage, Parent item, and Resources. Activity has no write path.
 
 Updates re-read `last_edited_time` and do not PATCH when it differs from the time passed to enqueue. The same idempotency key does not write twice. Failures back off 30s, 2m, 10m, 30m, then stay at 2h. A longer 429 Retry-After is honored. A row dies after 24h. Each confirmed write inserts an `auditEvents` row.

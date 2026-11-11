@@ -126,9 +126,10 @@ describe('client detail', () => {
       { name: 'Maya Chen', role: 'Warehaus Staff' },
       { name: 'Ada North', role: 'Client Admin' },
     ]);
-    assert.equal(notice.title, 'Client Admins can invite teammates');
-    assert.match(notice.body, /^Ada can invite new Client Members/);
-    assert.match(notice.body, /only see Northwind\.$/);
+    assert.equal(notice.title, 'Warehaus manages access');
+    assert.match(notice.body, /project lead adds and removes people/);
+    assert.match(notice.body, /contact them/);
+    assert.equal(notice.body.includes('Client Admins can invite'), false);
     assert.equal(notice.body.includes('@'), false);
   });
 });

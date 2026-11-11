@@ -5,8 +5,11 @@
  */
 
 import {
+  PORTAL_COLLECTIONS,
   WRITEBACK_OFF_ERROR,
   isNotionWritebackEnabled,
+  missingWritebackProperty,
+  missingWritebackReason,
   projectCreateConvexFields,
   readNotionPlain,
   runOutboxAttempt,
@@ -21,6 +24,7 @@ import { v } from 'convex/values';
 import { internal } from '../_generated/api';
 import type { Doc, Id } from '../_generated/dataModel';
 import { internalAction, type ActionCtx } from '../_generated/server';
+import { listDataSourcePropertyNames } from './notionApi';
 import {
   createNotionProjectPage,
   readNotionLastEdited,
@@ -70,6 +74,7 @@ function toItem(row: Doc<'notionOutbox'>): OutboxItem {
     attempts: row.attempts,
     nextAttemptAt: row.nextAttemptAt,
     createdAt: row.createdAt,
+    claimedAt: row.claimedAt,
     lastError: row.lastError,
     staffNotifiedAt: row.staffNotifiedAt,
   };
@@ -147,6 +152,7 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
     }
     if (claim.reason === 'missing') return { ok: false, error: 'Outbox row was missing' };
     if (claim.reason === 'inflight') return { ok: false, error: 'This write is already in progress.' };
+    if (claim.reason === 'backoff') return { ok: false, error: 'This write is not due.' };
     return { ok: false, error: claim.lastError ?? 'This write is not queued.' };
   }
 
@@ -157,11 +163,15 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
   const database = item.database;
   let outcome: AttemptOutcome;
   try {
+    const livePropertyNames =
+      database === 'activity' ? null : await listDataSourcePropertyNames(PORTAL_COLLECTIONS[database]);
     if (row.kind === 'project-create') {
       outcome = await runProjectCreateAttempt({
         item,
         nowMs: Date.now(),
         writebackEnabled: true,
+        owned: true,
+        livePropertyNames: livePropertyNames ?? undefined,
         search: (externalId) => searchProjectCreateHits(externalId),
         create: async (properties) => {
           const shaped = asProjectProperties(properties);
@@ -175,7 +185,9 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
         item,
         nowMs: Date.now(),
         writebackEnabled: true,
+        owned: true,
         actor: 'staff',
+        livePropertyNames: livePropertyNames ?? undefined,
         readPage: async (notionPageId) => {
           const read = await readNotionLastEdited(notionPageId);
           if (!read.ok) {
@@ -202,13 +214,17 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
       });
     }
   } catch (err) {
-    outcome = {
-      outcome: 'retry',
-      attempts: row.attempts + 1,
-      nextAttemptAt: Date.now() + 30_000,
-      lastError: failureMessage(err),
-      notifyStaff: false,
-    };
+    const message = failureMessage(err);
+    const missing = missingWritebackProperty(message);
+    outcome = missing
+      ? { outcome: 'rejected', reason: missingWritebackReason([missing]) }
+      : {
+          outcome: 'retry',
+          attempts: row.attempts + 1,
+          nextAttemptAt: Date.now() + 30_000,
+          lastError: message,
+          notifyStaff: false,
+        };
   }
 
   if (outcome.outcome === 'held') {
@@ -285,6 +301,8 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
         rawToken: issued.raw,
         name: issued.name,
         alreadyHasLogin: issued.alreadyHasLogin === true,
+        ...(issued.inviterName ? { inviterName: issued.inviterName } : {}),
+        ...(issued.expiresOn ? { expiresOn: issued.expiresOn } : {}),
       });
     }
   }

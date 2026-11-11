@@ -3,8 +3,11 @@ import { describe, it } from 'node:test';
 import {
   OUTBOX_BACKOFF_MS,
   OUTBOX_DEAD_AFTER_MS,
+  OUTBOX_LEASE_MS,
   auditEventForOutcome,
   inviteIdempotencyKey,
+  missingWritebackProperty,
+  missingWritebackProperties,
   nextBackoffMs,
   planIdempotentEnqueue,
   planOutboxAttempt,
@@ -12,6 +15,7 @@ import {
   runOutboxAttempt,
   runProjectCreateAttempt,
   stateIdempotencyKey,
+  takeOutboxLease,
   taskStatusIdempotencyKey,
   type OutboxItem,
 } from './outbox';
@@ -61,6 +65,122 @@ describe('outbox keys and backoff', () => {
     assert.deepEqual(planOutboxAttempt(item(), 0, false), { action: 'hold', reason: 'writeback-disabled' });
     const dead = planOutboxAttempt(item(), OUTBOX_DEAD_AFTER_MS, true);
     assert.equal(dead.action, 'dead');
+  });
+
+  it('processes a row in the same pass that claims it', async () => {
+    const now = 1_000_000;
+    const taken = takeOutboxLease(item({ nextAttemptAt: now }), now);
+    assert.equal(taken.claimed, true);
+    if (!taken.claimed) return;
+    assert.equal(taken.item.status, 'inflight');
+    let wrote = 0;
+    const outcome = await runOutboxAttempt({
+      item: taken.item,
+      nowMs: now,
+      writebackEnabled: true,
+      owned: true,
+      actor: 'staff',
+      search: async () => [],
+      write: async () => {
+        wrote += 1;
+        return { ok: true, status: 200, notionPageId: 'page-1' };
+      },
+    });
+    assert.equal(outcome.outcome, 'confirmed');
+    assert.equal(wrote, 1);
+    assert.equal(planOutboxAttempt(taken.item, now, true).action, 'wait');
+  });
+
+  it('rejects a missing writeback property by name before the write', async () => {
+    const notionError =
+      '{"object":"error","status":400,"code":"validation_error","message":"Invite Status is not a property that exists."}';
+    assert.equal(missingWritebackProperty(notionError), 'Invite Status');
+    assert.deepEqual(
+      missingWritebackProperties(['Name', 'Invite Status', 'Portal Access'], ['Name', 'Portal Access']),
+      ['Invite Status'],
+    );
+
+    let wrote = 0;
+    const preflight = await runOutboxAttempt({
+      item: item({ properties: { ...properties, 'Invite Status': 'Pending' } }),
+      nowMs: 0,
+      writebackEnabled: true,
+      actor: 'staff',
+      livePropertyNames: ['Name', 'Email', 'Role', 'Source', 'Portal Access', 'Client Company'],
+      search: async () => [],
+      write: async () => {
+        wrote += 1;
+        return { ok: true, status: 200, notionPageId: 'page-1' };
+      },
+    });
+    assert.equal(preflight.outcome, 'rejected');
+    if (preflight.outcome === 'rejected') {
+      assert.equal(preflight.reason, 'Notion is missing property "Invite Status".');
+    }
+    assert.equal(wrote, 0);
+
+    const fromNotion = await runOutboxAttempt({
+      item: item({ properties: { ...properties, 'Invite Status': 'Pending' } }),
+      nowMs: 0,
+      writebackEnabled: true,
+      actor: 'staff',
+      search: async () => [],
+      write: async () => ({ ok: false, status: 400, error: notionError }),
+    });
+    assert.equal(fromNotion.outcome, 'rejected');
+    if (fromNotion.outcome === 'rejected') {
+      assert.match(fromNotion.reason, /"Invite Status"/);
+    }
+  });
+
+  it('still retries a Notion failure that does not name a missing property', async () => {
+    const outcome = await runOutboxAttempt({
+      item: item(),
+      nowMs: 0,
+      writebackEnabled: true,
+      actor: 'staff',
+      search: async () => [],
+      write: async () => ({ ok: false, status: 500, error: 'Notion HTTP 500' }),
+    });
+    assert.equal(outcome.outcome, 'retry');
+  });
+
+  it('skips an inflight row another attempt still holds', () => {
+    const now = 1_000_000;
+    const held = item({ status: 'inflight', claimedAt: now - 1_000, nextAttemptAt: 0 });
+    assert.deepEqual(takeOutboxLease(held, now), { claimed: false, reason: 'inflight' });
+    assert.equal(planOutboxAttempt(held, now, true).action, 'wait');
+  });
+
+  it('reclaims an inflight row whose lease has expired', async () => {
+    const now = 1_000_000;
+    const stale = item({ status: 'inflight', claimedAt: now - OUTBOX_LEASE_MS, nextAttemptAt: 0 });
+    const taken = takeOutboxLease(stale, now);
+    assert.equal(taken.claimed, true);
+    if (!taken.claimed) return;
+    let wrote = 0;
+    const outcome = await runOutboxAttempt({
+      item: taken.item,
+      nowMs: now,
+      writebackEnabled: true,
+      owned: true,
+      actor: 'staff',
+      search: async () => [],
+      write: async () => {
+        wrote += 1;
+        return { ok: true, status: 200, notionPageId: 'page-1' };
+      },
+    });
+    assert.equal(outcome.outcome, 'confirmed');
+    assert.equal(wrote, 1);
+    assert.equal(planOutboxAttempt(stale, now, true).action, 'execute');
+  });
+
+  it('refuses to claim a row that is still in backoff', () => {
+    const now = 1_000_000;
+    const backing = item({ status: 'failed', attempts: 1, nextAttemptAt: now + OUTBOX_BACKOFF_MS[0] });
+    assert.deepEqual(takeOutboxLease(backing, now), { claimed: false, reason: 'backoff' });
+    assert.equal(planOutboxAttempt(backing, now, true).action, 'wait');
   });
 
   it('asks for a staff notice at 5 failures or 1 hour queued', () => {

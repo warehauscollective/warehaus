@@ -7,6 +7,7 @@ import { authClient } from '@/lib/auth-client';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { VERIFY_EMAIL_PATH, isCantRegisterError } from '@convex/_lib/registration';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { FIXTURE_CLIENT_SESSION, FIXTURE_SESSION } from '@/lib/data/portalFixtures';
 import { clearSearchRecents } from '@/lib/search/recents';
 import { useFixtureAudience, useFixturePreview } from '@/components/providers/FixturePreviewProvider';
@@ -24,9 +25,7 @@ export type PortalSessionView = {
 };
 
 function errorMessage(err: unknown, fallback: string): string {
-  if (err instanceof Error && err.message) return err.message;
-  if (typeof err === 'string' && err) return err;
-  return fallback;
+  return userFacingErrorMessage(err, fallback);
 }
 
 export function usePortalAuth() {
@@ -42,6 +41,12 @@ export function usePortalAuth() {
     configured ? {} : 'skip',
   );
   const linkStatus = linkState.data;
+  const inviteProgress = useSafeQuery<{ inProgress: boolean }>(
+    api.contacts.staffInviteInProgress,
+    configured ? {} : 'skip',
+  );
+  const staffInviteInProgress = inviteProgress.data?.inProgress === true;
+  const staffInviteCheckPending = Boolean(configured && session?.user && inviteProgress.loading && !inviteProgress.error);
   const portalState = useSafeQuery<PortalSessionView>(
     api.me.getPortalSession,
     configured && linkStatus?.state === 'linked'
@@ -85,12 +90,26 @@ export function usePortalAuth() {
       setJoinError(null);
       return;
     }
+    if (linkStatus?.state === 'linked') {
+      setJoinError(null);
+      return;
+    }
+    if (inviteProgress.loading || staffInviteInProgress) return;
     if (linkStatus?.state === 'unlinked') {
       void ensureLinked().catch((err) => {
         setJoinError(errorMessage(err, 'Could not link portal contact'));
       });
     }
-  }, [configured, sessionPending, session?.user, linkStatus?.state, linkState.error, ensureLinked]);
+  }, [
+    configured,
+    sessionPending,
+    session?.user,
+    linkStatus?.state,
+    linkState.error,
+    ensureLinked,
+    inviteProgress.loading,
+    staffInviteInProgress,
+  ]);
 
   const signIn = useCallback(
     async (email: string, password: string) => {
@@ -156,6 +175,8 @@ export function usePortalAuth() {
       },
       linkStatus: 'linked' as const,
       linkQueryError: null,
+      staffInviteInProgress: false,
+      staffInviteCheckPending: false,
       portalSession: session,
       signIn,
       signUp,
@@ -175,6 +196,8 @@ export function usePortalAuth() {
       ? ('error' as const)
       : (linkStatus?.state ?? (configured ? 'loading' : 'disabled')),
     linkQueryError: linkState.error ?? portalState.error,
+    staffInviteInProgress,
+    staffInviteCheckPending,
     portalSession: portalSession ?? null,
     signIn,
     signUp,

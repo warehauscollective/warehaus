@@ -11,7 +11,7 @@ import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { internalMutation, internalQuery, type MutationCtx, type QueryCtx } from './_generated/server';
 import { adminMutation, adminQuery } from './_lib/wrappers';
-import { asClientInviteRole } from './_lib/inviteFlow';
+import { asInviteRole, pendingInviteWouldRegress } from './_lib/inviteFlow';
 import { revertAllowed, REVERT_WINDOW_MS } from './_lib/revertLimit';
 import { isDuplicateNotice } from './_lib/noticeDedupe';
 import { isNotionWritebackEnabled } from './_lib/writeAuthz';
@@ -333,14 +333,42 @@ export const applyContactRead = internalMutation({
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
       .unique();
 
-    const clientRole = asClientInviteRole(args.role);
-    if (args.placement === 'UPSERT_PENDING_INVITE' && orgId && args.inviteStatus && clientRole) {
+    const inviteRole = asInviteRole(args.role);
+    const tokens = await ctx.db
+      .query('inviteTokens')
+      .withIndex('by_contactNotionPageId', (q) => q.eq('contactNotionPageId', args.notionPageId))
+      .collect();
+    if (
+      pendingInviteWouldRegress({
+        existingStatus: existing?.inviteStatus,
+        incomingStatus: args.inviteStatus,
+        tokens,
+        now,
+      })
+    ) {
+      return { selfWrite };
+    }
+    const keepStaffPending =
+      inviteRole === 'Warehaus Staff' && args.inviteStatus === 'Pending' && args.source === 'portal';
+    // Expired only keeps a row this portal already stored. A staff page we never
+    // invited does not become a team row just because Notion says Expired.
+    const keepExpiredStaff =
+      existing != null &&
+      inviteRole === 'Warehaus Staff' &&
+      args.inviteStatus === 'Expired' &&
+      args.source === 'portal';
+    if (
+      (args.placement === 'UPSERT_PENDING_INVITE' || keepStaffPending || keepExpiredStaff) &&
+      orgId &&
+      args.inviteStatus &&
+      inviteRole
+    ) {
       const row = {
         orgId,
         notionPageId: args.notionPageId,
         name: args.name,
         email: args.email,
-        role: clientRole,
+        role: inviteRole,
         inviteStatus: args.inviteStatus,
         lastSyncedAt: now,
         ...(args.source ? { source: args.source } : {}),

@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Check, ChevronRight } from 'lucide-react';
+import { Check, ChevronRight, Shield } from 'lucide-react';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 import {
@@ -39,6 +39,7 @@ export function DashboardHome({
   clientName,
   onOpenTask,
   onOpenProject,
+  joined,
 }: {
   model: DashboardModel;
   focus: 'all' | 'awaiting' | 'sync' | 'activity';
@@ -48,7 +49,15 @@ export function DashboardHome({
   clientName?: string | null;
   onOpenTask: (row: AwaitingRow) => void;
   onOpenProject: (row: ProjectRow) => void;
+  joined?: { name: string; passwordSet: boolean } | null;
 }) {
+  if (joined) {
+    return (
+      <div data-testid="dashboard" data-state="joined" className="flex flex-col" style={{ gap: 24 }}>
+        <JoinedStaff name={joined.name} passwordSet={joined.passwordSet} />
+      </div>
+    );
+  }
   const busy = loading || preview === 'loading';
   const awaiting = displayAwaiting(model, preview);
   const sync = model.audience === 'staff' ? displaySync(model, preview) : null;
@@ -709,4 +718,43 @@ function initials(name: string): string {
   const parts = name.split(/\s+/).filter(Boolean);
   const letters = (parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '');
   return (letters || name.slice(0, 2)).toUpperCase();
+}
+
+function JoinedStaff({ name, passwordSet }: { name: string; passwordSet: boolean }) {
+  const cards = [
+    ['Projects', 'Browse every client project, its links and milestones.', 'Go to projects', '/preview?tab=projects'],
+    ['Your profile', 'Add your name and photo so clients know who they’re talking to.', 'Set up your profile', '/preview?tab=account&section=profile'],
+    ['Notifications', 'Choose which updates reach your inbox.', 'Choose notifications', '/preview?tab=account&section=notifications'],
+  ] as const;
+  return (
+    <div data-testid="joined-staff" className="flex flex-col" style={{ gap: 24 }}>
+      <div style={{ display: 'flex', gap: 12, padding: 16, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)' }}>
+        <Check size={16} />
+        <div>
+          <p style={{ margin: 0, fontSize: 14 }}>You’ve joined Warehaus as staff</p>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
+            {passwordSet
+              ? 'Your email is confirmed and your password is set.'
+              : 'Your email is confirmed.'}
+          </p>
+        </div>
+      </div>
+      <div>
+        <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border)', borderRadius: 999, padding: '4px 10px', fontSize: 12 }}>
+          <Shield size={14} /> Warehaus Staff
+        </span>
+        <h2 style={{ margin: '12px 0 0', fontSize: 30, lineHeight: '45px', fontWeight: 600 }}>Welcome to the Portal, {name}</h2>
+        <p style={{ margin: '8px 0 0', fontSize: 15, color: 'var(--muted)' }}>You now have staff access across Warehaus projects. Here’s a good place to start.</p>
+      </div>
+      <div className="grid gap-4 md:grid-cols-3">
+        {cards.map(([title, body, label, href]) => (
+          <article key={title} style={{ ...cardStyle, borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 210 }}>
+            <h3 style={{ margin: 0, fontSize: 20, lineHeight: '30px' }}>{title}</h3>
+            <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)', flex: 1 }}>{body}</p>
+            <a href={href} style={{ alignSelf: 'flex-start', border: '1px solid var(--border)', borderRadius: 9, padding: '10px 14px', fontSize: 14, color: 'var(--foreground)', textDecoration: 'none' }}>{label}</a>
+          </article>
+        ))}
+      </div>
+    </div>
+  );
 }
