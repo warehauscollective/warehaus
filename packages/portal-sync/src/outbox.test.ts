@@ -6,6 +6,8 @@ import {
   OUTBOX_LEASE_MS,
   auditEventForOutcome,
   inviteIdempotencyKey,
+  missingWritebackProperty,
+  missingWritebackProperties,
   nextBackoffMs,
   planIdempotentEnqueue,
   planOutboxAttempt,
@@ -87,6 +89,60 @@ describe('outbox keys and backoff', () => {
     assert.equal(outcome.outcome, 'confirmed');
     assert.equal(wrote, 1);
     assert.equal(planOutboxAttempt(taken.item, now, true).action, 'wait');
+  });
+
+  it('rejects a missing writeback property by name before the write', async () => {
+    const notionError =
+      '{"object":"error","status":400,"code":"validation_error","message":"Invite Status is not a property that exists."}';
+    assert.equal(missingWritebackProperty(notionError), 'Invite Status');
+    assert.deepEqual(
+      missingWritebackProperties(['Name', 'Invite Status', 'Portal Access'], ['Name', 'Portal Access']),
+      ['Invite Status'],
+    );
+
+    let wrote = 0;
+    const preflight = await runOutboxAttempt({
+      item: item({ properties: { ...properties, 'Invite Status': 'Pending' } }),
+      nowMs: 0,
+      writebackEnabled: true,
+      actor: 'staff',
+      livePropertyNames: ['Name', 'Email', 'Role', 'Source', 'Portal Access', 'Client Company'],
+      search: async () => [],
+      write: async () => {
+        wrote += 1;
+        return { ok: true, status: 200, notionPageId: 'page-1' };
+      },
+    });
+    assert.equal(preflight.outcome, 'rejected');
+    if (preflight.outcome === 'rejected') {
+      assert.equal(preflight.reason, 'Notion is missing property "Invite Status".');
+    }
+    assert.equal(wrote, 0);
+
+    const fromNotion = await runOutboxAttempt({
+      item: item({ properties: { ...properties, 'Invite Status': 'Pending' } }),
+      nowMs: 0,
+      writebackEnabled: true,
+      actor: 'staff',
+      search: async () => [],
+      write: async () => ({ ok: false, status: 400, error: notionError }),
+    });
+    assert.equal(fromNotion.outcome, 'rejected');
+    if (fromNotion.outcome === 'rejected') {
+      assert.match(fromNotion.reason, /"Invite Status"/);
+    }
+  });
+
+  it('still retries a Notion failure that does not name a missing property', async () => {
+    const outcome = await runOutboxAttempt({
+      item: item(),
+      nowMs: 0,
+      writebackEnabled: true,
+      actor: 'staff',
+      search: async () => [],
+      write: async () => ({ ok: false, status: 500, error: 'Notion HTTP 500' }),
+    });
+    assert.equal(outcome.outcome, 'retry');
   });
 
   it('skips an inflight row another attempt still holds', () => {

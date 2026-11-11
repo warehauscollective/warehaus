@@ -5,8 +5,11 @@
  */
 
 import {
+  PORTAL_COLLECTIONS,
   WRITEBACK_OFF_ERROR,
   isNotionWritebackEnabled,
+  missingWritebackProperty,
+  missingWritebackReason,
   projectCreateConvexFields,
   readNotionPlain,
   runOutboxAttempt,
@@ -21,6 +24,7 @@ import { v } from 'convex/values';
 import { internal } from '../_generated/api';
 import type { Doc, Id } from '../_generated/dataModel';
 import { internalAction, type ActionCtx } from '../_generated/server';
+import { listDataSourcePropertyNames } from './notionApi';
 import {
   createNotionProjectPage,
   readNotionLastEdited,
@@ -159,12 +163,15 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
   const database = item.database;
   let outcome: AttemptOutcome;
   try {
+    const livePropertyNames =
+      database === 'activity' ? null : await listDataSourcePropertyNames(PORTAL_COLLECTIONS[database]);
     if (row.kind === 'project-create') {
       outcome = await runProjectCreateAttempt({
         item,
         nowMs: Date.now(),
         writebackEnabled: true,
         owned: true,
+        livePropertyNames: livePropertyNames ?? undefined,
         search: (externalId) => searchProjectCreateHits(externalId),
         create: async (properties) => {
           const shaped = asProjectProperties(properties);
@@ -180,6 +187,7 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
         writebackEnabled: true,
         owned: true,
         actor: 'staff',
+        livePropertyNames: livePropertyNames ?? undefined,
         readPage: async (notionPageId) => {
           const read = await readNotionLastEdited(notionPageId);
           if (!read.ok) {
@@ -206,13 +214,17 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
       });
     }
   } catch (err) {
-    outcome = {
-      outcome: 'retry',
-      attempts: row.attempts + 1,
-      nextAttemptAt: Date.now() + 30_000,
-      lastError: failureMessage(err),
-      notifyStaff: false,
-    };
+    const message = failureMessage(err);
+    const missing = missingWritebackProperty(message);
+    outcome = missing
+      ? { outcome: 'rejected', reason: missingWritebackReason([missing]) }
+      : {
+          outcome: 'retry',
+          attempts: row.attempts + 1,
+          nextAttemptAt: Date.now() + 30_000,
+          lastError: message,
+          notifyStaff: false,
+        };
   }
 
   if (outcome.outcome === 'held') {

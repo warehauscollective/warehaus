@@ -246,6 +246,11 @@ export async function runOutboxAttempt(input: {
   readPage?: (notionPageId: string) => Promise<PageRead>;
   /** This attempt just claimed the row, so its own lease is not "not due". */
   owned?: boolean;
+  /**
+   * Property names on the live data source. When set, a payload key that is
+   * absent is rejected before search or write. Omit when the schema was not read.
+   */
+  livePropertyNames?: readonly string[];
 }): Promise<AttemptOutcome> {
   const plan = planOutboxAttempt(input.item, input.nowMs, input.writebackEnabled, { owned: input.owned });
   if (plan.action === 'hold') return { outcome: 'held', reason: plan.reason };
@@ -261,6 +266,8 @@ export async function runOutboxAttempt(input: {
       properties: input.item.properties,
     });
     if (!validated.ok) return { outcome: 'rejected', reason: validated.errors.join('; ') };
+    const inviteSchema = rejectIfSchemaMissing(validated.properties, input.livePropertyNames);
+    if (inviteSchema) return inviteSchema;
     if (!input.item.notionPageId) {
       return { outcome: 'rejected', reason: 'State changes need an existing Notion page' };
     }
@@ -308,6 +315,8 @@ export async function runOutboxAttempt(input: {
   if (!validated.ok) {
     return { outcome: 'rejected', reason: validated.errors.join('; ') };
   }
+  const schemaMiss = rejectIfSchemaMissing(validated.properties, input.livePropertyNames);
+  if (schemaMiss) return schemaMiss;
 
   if (isPatch) {
     return runPatchAttempt({
@@ -339,18 +348,7 @@ export async function runOutboxAttempt(input: {
     properties: validated.properties,
   });
 
-  if (!response.ok || !response.notionPageId) {
-    const attempts = input.item.attempts + 1;
-    const delay = nextBackoffMs(attempts, response.retryAfterMs);
-    const next: OutboxItem = { ...input.item, attempts, status: 'failed', createdAt: input.item.createdAt };
-    return {
-      outcome: 'retry',
-      attempts,
-      nextAttemptAt: input.nowMs + delay,
-      lastError: response.error ?? `Notion HTTP ${response.status}`,
-      notifyStaff: shouldNotifyStaff(next, input.nowMs) && input.item.staffNotifiedAt == null,
-    };
-  }
+  if (!response.ok || !response.notionPageId) return retryOutcome(input.item, input.nowMs, response);
 
   return {
     outcome: 'confirmed',
@@ -363,7 +361,43 @@ export async function runOutboxAttempt(input: {
   };
 }
 
+/** Notion's validation error names the property. The match is the property name. */
+export function missingWritebackProperty(error: string | undefined): string | null {
+  if (!error) return null;
+  const match = error.match(/([A-Za-z][^"\\]{0,80}?) is not a property that exists/);
+  const name = match?.[1]?.trim();
+  return name ? name : null;
+}
+
+/** Payload keys that the live data source does not have, in payload order. */
+export function missingWritebackProperties(
+  payloadKeys: readonly string[],
+  liveNames: readonly string[],
+): string[] {
+  const live = new Set(liveNames);
+  return payloadKeys.filter((name) => !live.has(name));
+}
+
+export function missingWritebackReason(names: readonly string[]): string {
+  const quoted = names.map((name) => `"${name}"`).join(', ');
+  return names.length === 1
+    ? `Notion is missing property ${quoted}.`
+    : `Notion is missing properties ${quoted}.`;
+}
+
+function rejectIfSchemaMissing(
+  properties: WriteProperties,
+  livePropertyNames: readonly string[] | undefined,
+): AttemptOutcome | null {
+  if (!livePropertyNames) return null;
+  const missing = missingWritebackProperties(Object.keys(properties), livePropertyNames);
+  if (missing.length === 0) return null;
+  return { outcome: 'rejected', reason: missingWritebackReason(missing) };
+}
+
 function retryOutcome(item: OutboxItem, nowMs: number, response: NotionWriteResponse): AttemptOutcome {
+  const missing = missingWritebackProperty(response.error);
+  if (missing) return { outcome: 'rejected', reason: missingWritebackReason([missing]) };
   const attempts = item.attempts + 1;
   const delay = nextBackoffMs(attempts, response.retryAfterMs);
   const next: OutboxItem = { ...item, attempts, status: 'failed', createdAt: item.createdAt };
@@ -439,6 +473,8 @@ export async function runProjectCreateAttempt(input: {
   create: (properties: WriteProperties) => Promise<NotionWriteResponse>;
   /** This attempt just claimed the row, so its own lease is not "not due". */
   owned?: boolean;
+  /** Property names on the live Projects data source. Omit when the schema was not read. */
+  livePropertyNames?: readonly string[];
 }): Promise<AttemptOutcome> {
   const plan = planOutboxAttempt(input.item, input.nowMs, input.writebackEnabled, { owned: input.owned });
   if (plan.action === 'hold') return { outcome: 'held', reason: plan.reason };
@@ -457,6 +493,8 @@ export async function runProjectCreateAttempt(input: {
   if (typeof externalId !== 'string' || !Array.isArray(client) || client.length !== 1) {
     return { outcome: 'rejected', reason: 'Project create payload is incomplete' };
   }
+  const schemaMiss = rejectIfSchemaMissing(properties, input.livePropertyNames);
+  if (schemaMiss) return schemaMiss;
 
   const hits = await input.search(externalId);
   const dedupe = decideProjectCreateDedupe({ hits, clientNotionPageId: client[0]! });
