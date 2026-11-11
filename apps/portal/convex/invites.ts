@@ -15,7 +15,7 @@ import {
   stateIdempotencyKey,
   WRITEBACK_OFF_ERROR,
 } from '@warehaus/portal-sync';
-import { v } from 'convex/values';
+import { ConvexError, v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import { components, internal } from './_generated/api';
 import {
@@ -166,7 +166,7 @@ async function loadWarehausInviteRows(
 
 async function staffOrgChoice(ctx: QueryCtx | MutationCtx) {
   const loaded = await loadWarehausInviteRows(ctx);
-  if (!loaded.ok) throw new Error(loaded.message);
+  if (!loaded.ok) throw new ConvexError<string>(loaded.message);
   const legacy = loaded.clients.find((client) => client.slug === WAREHAUS_INTERNAL_CLIENT_SLUG);
   return {
     legacyId: legacy?.id as Id<'clients'> | undefined,

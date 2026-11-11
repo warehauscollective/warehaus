@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { ConvexError } from 'convex/values';
 import { describe, it } from 'node:test';
 import { applyContactRead } from '../invitesSync';
 import { grantInviteSignupFromHook, takeInviteSignupFromHook } from '../auth';
@@ -639,7 +640,11 @@ describe('invite accept, decline, and revoke', () => {
     });
     await assert.rejects(
       () => run(accept, authCtx('user-new', tables, [], true, newStaffUser), { token: 'raw-dup' }),
-      /More than one client uses the warehaus-internal slug/,
+      (err: unknown) => {
+        assert.ok(err instanceof ConvexError);
+        assert.equal(err.data, 'More than one client uses the warehaus-internal slug. Nothing was queued.');
+        return true;
+      },
     );
   });
 
