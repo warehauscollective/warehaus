@@ -29,6 +29,17 @@ export function knownSessionEmail(email: string | null | undefined): string | nu
   return trimmed;
 }
 
+/**
+ * Prefer the invited address. The ready preview includes it. When that
+ * address is blank, the locked field uses the signed-in user's email.
+ */
+export function lockedInviteEmail(input: {
+  invitedEmail?: string | null;
+  sessionEmail?: string | null;
+}): string {
+  return knownSessionEmail(input.invitedEmail) ?? knownSessionEmail(input.sessionEmail) ?? '';
+}
+
 /** Convex’s unauthenticated failure is not copy. Replace it with the retry sentence. */
 export function acceptFailureCopy(message: string): string {
   if (/unauthenticated/i.test(message)) return SESSION_NOT_ATTACHED_MESSAGE;

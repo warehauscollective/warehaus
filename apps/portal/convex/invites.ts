@@ -361,6 +361,7 @@ export const previewAccept = query({
     return {
       ...preview,
       inviterName: inviter?.name ?? null,
+      inviterEmail: inviter?.email ?? null,
       expiresAt: row?.expiresAt ?? null,
     };
   },

@@ -246,6 +246,88 @@ html[data-density='compact'] .ds-data th {
   letter-spacing: var(--ls-display);
 }
 
+/* Accept-invite screens. Light body and labels use the portal muted token #525252.
+   At 390 the card sits 24px from the edges and the action is a 292px button. */
+.accept-invite {
+  --accept-muted: #a4a4a4;
+  background:
+    radial-gradient(1000px 560px at 50% -180px, color-mix(in oklab, var(--fg) 14%, transparent), transparent 68%),
+    var(--bg);
+  color: var(--fg);
+}
+:root.light .accept-invite,
+html.light .accept-invite {
+  --accept-muted: #525252;
+}
+.accept-invite .accept-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  width: 100%;
+}
+@media (min-width: 768px) {
+  .accept-invite .accept-card {
+    padding: 32px;
+  }
+}
+.accept-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+}
+.accept-invite .accept-primary {
+  width: 100%;
+  max-width: 292px;
+}
+.accept-actions .accept-primary {
+  order: 1;
+}
+.accept-actions .accept-link {
+  order: 2;
+  color: var(--accept-muted);
+  font-size: 14px;
+  line-height: 21px;
+  text-decoration: underline;
+  text-underline-position: from-font;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+}
+@media (min-width: 768px) {
+  .accept-actions {
+    flex-direction: row;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .accept-actions .accept-link {
+    order: 1;
+  }
+  .accept-invite .accept-primary,
+  .accept-actions .accept-primary {
+    order: 2;
+    width: auto;
+    max-width: none;
+    margin-left: auto;
+  }
+}
+.accept-invite .accept-primary:focus-visible,
+.accept-invite .accept-link:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
+}
+.accept-invite input:focus {
+  outline: 3px solid var(--ring);
+  border-color: var(--fg);
+  outline-offset: 1px;
+}
+
 /* Client directory stats: 2×2 on a phone, auto columns once each card can be 160px. */
 .client-stat-grid {
   display: grid;

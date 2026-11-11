@@ -3,13 +3,14 @@
 import { useCallback, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useConvexAuth, useMutation } from 'convex/react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertTriangle, Check, Circle, Clock, Lock, Mail, Shield, UserRound } from 'lucide-react';
+import { AlertTriangle, Check, Circle, Clock, Lock, Mail, Shield, SquareArrowOutUpRight } from 'lucide-react';
 import { api } from '@convex/_generated/api';
 import { authClient } from '@/lib/auth-client';
 import {
   acceptFailureCopy,
   acceptOnceAuthenticated,
   knownSessionEmail,
+  lockedInviteEmail,
   planJoinSteps,
   refreshConvexSession,
 } from '@/lib/acceptSession';
@@ -38,32 +39,33 @@ type Preview = {
   invitedEmail?: string;
   signedInEmail?: string;
   inviterName?: string | null;
+  inviterEmail?: string | null;
   expiresAt?: number | null;
 };
 
 const FIXTURES: Record<string, Preview> = {
-  new: { status: 'create-account', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
-  existing: { status: 'sign-in', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
+  new: { status: 'create-account', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
+  existing: { status: 'sign-in', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
   expired: {
     status: 'expired',
     invitedEmail: 'jordan@warehaus.studio',
-    inviterName: 'Peter Roquemore',
+    inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio',
     expiresAt: Date.UTC(2026, 10, 2),
   },
-  used: { status: 'used', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
-  revoked: { status: 'revoked', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
+  used: { status: 'used', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
+  revoked: { status: 'revoked', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
   invalid: { status: 'unusable' },
-  unavailable: { status: 'off', inviterName: 'Peter Roquemore' },
-  'signed-in': { status: 'ready', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
+  unavailable: { status: 'off', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
+  'signed-in': { status: 'ready', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
   different: {
     status: 'different-email',
     invitedEmail: 'jordan@warehaus.studio',
     signedInEmail: 'jordan.blake@gmail.com',
-    inviterName: 'Peter Roquemore',
+    inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio',
   },
-  already: { status: 'already', invitedEmail: 'avery@warehaus.studio', inviterName: 'Peter Roquemore' },
-  unverified: { status: 'unverified', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
-  generic: { status: 'error', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore' },
+  already: { status: 'already', invitedEmail: 'avery@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
+  unverified: { status: 'unverified', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
+  generic: { status: 'error', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
 };
 
 function rules(password: string, confirm: string) {
@@ -110,6 +112,16 @@ function asScreen(status: string | undefined): Preview['status'] | null {
 function joinedName(email: string): string {
   const local = email.split('@')[0]?.replace(/[._-]+/g, ' ').trim() || 'there';
   return local.replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+export function SignedInLockedEmail({
+  invitedEmail,
+  sessionEmail,
+}: {
+  invitedEmail?: string | null;
+  sessionEmail?: string | null;
+}) {
+  return <LockedEmail email={lockedInviteEmail({ invitedEmail, sessionEmail })} />;
 }
 
 export function SignedInAcceptCopy({ email }: { email: string | null | undefined }) {
@@ -262,12 +274,9 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
   if (previewKey === 'email') return <InviteEmailPreview />;
   if (previewKey === 'finishing' || previewKey === 'finishing-slow') {
     return (
-      <main className="flex min-h-[100dvh] items-center justify-center px-4 py-12" style={{ background: 'var(--background)', color: 'var(--foreground)' }} data-testid="accept-invite" data-status="finishing">
-        <div className="flex w-full max-w-[480px] flex-col gap-8">
-          <p className="font-display text-center" style={{ fontSize: 28, fontWeight: 650, letterSpacing: '-0.03em', margin: 0 }}>Warehaus</p>
-          <StaffLinkFinish slow={previewKey === 'finishing-slow'} onRetry={() => undefined} />
-        </div>
-      </main>
+      <AcceptShell status="finishing" subtitle="Staff invite">
+        <StaffLinkFinish slow={previewKey === 'finishing-slow'} onRetry={() => undefined} />
+      </AcceptShell>
     );
   }
 
@@ -411,13 +420,16 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
   const email = preview?.invitedEmail ?? '';
   const readyEmail = sessionEmail ?? (forced ? knownSessionEmail(email) : null);
   const inviter = preview?.inviterName || INVITER_FALLBACK;
+  const inviterEmail = preview?.inviterEmail ?? null;
+  const subtitle =
+    status === 'create-account' || status === 'sign-in' || status === 'ready'
+      ? 'You’ve been invited to the Warehaus Portal'
+      : 'Staff invite';
+
+  const shellStatus = io.conflicted && !previewKey ? 'conflict' : wait.waiting || held ? 'finishing' : (status ?? 'loading');
 
   return (
-    <main className="flex min-h-[100dvh] items-center justify-center px-4 py-12" style={{ background: 'var(--background)', color: 'var(--foreground)' }} data-testid="accept-invite" data-status={io.conflicted && !previewKey ? 'conflict' : wait.waiting || held ? 'finishing' : (status ?? 'loading')}>
-      <div className="flex w-full max-w-[480px] flex-col gap-8">
-        <p className="font-display text-center" style={{ fontSize: 28, fontWeight: 650, letterSpacing: '-0.03em', margin: 0 }}>
-          Warehaus
-        </p>
+    <AcceptShell status={shellStatus} subtitle={subtitle}>
         {io.conflicted && !previewKey ? (
           <ErrorCard
             icon={<AlertTriangle size={20} />}
@@ -443,7 +455,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
         ) : !preview ? (
           io.previewLoading ? (
             <Card>
-              <p style={{ margin: 0, color: 'var(--muted)' }}>Checking this invite…</p>
+              <p style={{ margin: 0, color: 'var(--accept-muted)' }}>Checking this invite…</p>
             </Card>
           ) : (
             <InvalidCard />
@@ -453,24 +465,26 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
             <Kicker>Staff invite</Kicker>
             <h1 style={title}>Join Warehaus as staff</h1>
             <p style={lede}>Set a password to finish. Opening this link from your email confirms your address, so there’s no separate verification step.</p>
-            <Inviter name={inviter} />
+            <Inviter name={inviter} email={inviterEmail} />
             <LockedEmail email={email} hint={`This is the address ${firstName(inviter)} invited. It can’t be changed here.`} />
             {awaitingAccept ? (
               <div className="flex flex-col gap-4">
                 {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
-                <button type="button" disabled={busy} onClick={() => void retryAccept()} style={{ ...primary, opacity: busy ? 0.4 : 1, alignSelf: 'flex-start' }}>
-                  {busy ? 'Joining…' : 'Try again'}
-                </button>
+                <div className="accept-actions">
+                  <button type="button" disabled={busy} onClick={() => void retryAccept()} className="accept-primary" style={{ ...primary, opacity: busy ? 0.5 : 1 }}>
+                    {busy ? 'Joining…' : 'Try again'}
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={(event) => void join(event)} className="flex flex-col gap-4">
                 <Field label="Password" value={password} onChange={setPassword} />
                 <Field label="Confirm password" value={confirm} onChange={setConfirm} />
                 <Rule met={state.length} label="At least 8 characters" />
-                <Rule met={state.mix} label="A letter and a number" />
+                <Rule met={state.mix} label="Includes a letter and a number" />
                 <Rule met={state.match} label="Passwords match" />
                 <Actions link="Already have an account? Sign in" onLink={() => setSignInMode(true)} label={busy ? 'Joining…' : accountCreated ? 'Try again' : 'Join Warehaus'} disabled={!ready || busy} />
-                <p style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Join turns on when every rule is met.</p>
+                <p style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--faint)' }}>Join turns on when every rule is met.</p>
                 {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
               </form>
             )}
@@ -480,11 +494,13 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
             <Kicker>Staff invite</Kicker>
             <h1 style={title}>Accept your invite</h1>
             <SignedInAcceptCopy email={readyEmail} />
-            <Inviter name={inviter} />
-            <LockedEmail email={email} />
-            <button type="button" disabled={busy || !readyEmail} onClick={() => void confirmSignedIn()} style={{ ...primary, opacity: busy || !readyEmail ? 0.4 : 1, alignSelf: 'flex-start' }}>
-              {busy ? 'Joining…' : 'Accept invite'}
-            </button>
+            <Inviter name={inviter} email={inviterEmail} />
+            <SignedInLockedEmail invitedEmail={preview?.invitedEmail} sessionEmail={sessionEmail ?? readyEmail} />
+            <div className="accept-actions">
+              <button type="button" disabled={busy || !readyEmail} onClick={() => void confirmSignedIn()} className="accept-primary" style={{ ...primary, opacity: busy || !readyEmail ? 0.5 : 1 }}>
+                {busy ? 'Joining…' : 'Accept invite'}
+              </button>
+            </div>
             {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
           </Card>
         ) : status === 'sign-in' ? (
@@ -492,7 +508,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
             <Kicker>Staff invite</Kicker>
             <h1 style={title}>Sign in to accept</h1>
             <p style={lede}>{email || 'This address'} already has a Portal account. Sign in with it to join Warehaus as staff.</p>
-            <Inviter name={inviter} />
+            <Inviter name={inviter} email={inviterEmail} />
             <LockedEmail email={email} />
             <form onSubmit={(event) => void signIn(event)} className="flex flex-col gap-4">
               <Field label="Password" value={password} onChange={setPassword} />
@@ -533,8 +549,6 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
             kicker="Invite revoked"
             title="This invite was revoked"
             body="It can’t be used. Ask the person who invited you to send a new one."
-            link="Back to sign in"
-            href="/login"
             action="Sign in"
             actionHref="/login"
           />
@@ -553,7 +567,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           />
         ) : status === 'different-email' ? (
           <ErrorCard
-            icon={<UserRound size={20} />}
+            icon={<SquareArrowOutUpRight size={20} />}
             kicker="Different account"
             title="You’re signed in as someone else"
             body="This invite is for a different email. Switch accounts to accept it."
@@ -600,8 +614,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
             onAction={() => io.refresh()}
           />
         )}
-      </div>
-    </main>
+    </AcceptShell>
   );
 }
 
@@ -639,26 +652,61 @@ function InviteEmailPreview() {
   );
 }
 
-function Card({ children }: { children: ReactNode }) {
+function AcceptShell({
+  status,
+  subtitle,
+  children,
+}: {
+  status: string;
+  subtitle: string;
+  children: ReactNode;
+}) {
   return (
-    <section style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: 32, display: 'flex', flexDirection: 'column', gap: 16 }}>
-      {children}
-    </section>
+    <main
+      className="accept-invite ds-scope flex min-h-[100dvh] items-start justify-center px-6 pb-12 pt-6 md:items-center md:py-16"
+      data-testid="accept-invite"
+      data-status={status}
+    >
+      <div className="flex w-full max-w-[480px] flex-col gap-8">
+        <header style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            alt="Warehaus"
+            src="/icons/wordmark.svg"
+            width={260}
+            height={35}
+            className="portal-wordmark"
+            style={{ width: 260, height: 35 }}
+          />
+          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', textAlign: 'center', color: 'var(--accept-muted)' }}>{subtitle}</p>
+        </header>
+        {children}
+      </div>
+    </main>
   );
 }
 
-function Kicker({ children }: { children: ReactNode }) {
-  return <p style={{ margin: 0, fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>{children}</p>;
+function Card({ children }: { children: ReactNode }) {
+  return <section className="accept-card">{children}</section>;
 }
 
-function Inviter({ name }: { name: string }) {
-  const initials = name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+function Kicker({ children }: { children: ReactNode }) {
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 16, borderRadius: 12, border: '1px solid var(--border)' }}>
-      <span style={{ width: 40, height: 40, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', background: 'color-mix(in oklab, var(--foreground) 8%, transparent)', fontSize: 13 }}>{initials}</span>
-      <span>
-        <span style={{ display: 'block', fontSize: 14 }}>{name} invited you</span>
-        <span style={{ display: 'block', fontSize: 13, color: 'var(--muted)' }}>Joining as Warehaus Staff</span>
+    <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', letterSpacing: '0.8px', textTransform: 'uppercase', color: 'var(--accept-muted)' }}>
+      {children}
+    </p>
+  );
+}
+
+function Inviter({ name, email }: { name: string; email?: string | null }) {
+  const initials = name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+  const detail = email ? `${email}  ·  Joining as Warehaus Staff` : 'Joining as Warehaus Staff';
+  return (
+    <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 16, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-2)' }}>
+      <span style={{ width: 40, height: 40, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border-2)', fontSize: 13, fontWeight: 500 }}>{initials}</span>
+      <span style={{ minWidth: 0 }}>
+        <span style={{ display: 'block', fontSize: 14, lineHeight: '21px', fontWeight: 500 }}>{name} invited you</span>
+        <span style={{ display: 'block', fontSize: 13, lineHeight: '20px', color: 'var(--accept-muted)' }}>{detail}</span>
       </span>
     </div>
   );
@@ -667,12 +715,12 @@ function Inviter({ name }: { name: string }) {
 function LockedEmail({ email, hint }: { email: string; hint?: string }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <span style={{ fontSize: 14 }}>Email</span>
-      <span style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 52, borderRadius: 10, border: '1px solid var(--border)', padding: '0 14px' }}>
+      <span style={fieldLabel}>Email</span>
+      <span data-testid="locked-email" style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 52, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface-2)', padding: '0 16px', fontSize: 16, lineHeight: '24px' }}>
         <Lock size={16} />
-        {email}
+        <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</span>
       </span>
-      {hint ? <span style={{ fontSize: 13, color: 'var(--muted)' }}>{hint}</span> : null}
+      {hint ? <span style={{ fontSize: 13, lineHeight: '20px', color: 'var(--accept-muted)' }}>{hint}</span> : null}
     </label>
   );
 }
@@ -680,15 +728,15 @@ function LockedEmail({ email, hint }: { email: string; hint?: string }) {
 function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <span style={{ fontSize: 14 }}>{label}</span>
-      <input type="password" value={value} onChange={(event) => onChange(event.target.value)} autoComplete="new-password" style={{ minHeight: 52, borderRadius: 10, border: '1px solid var(--border)', background: 'transparent', color: 'var(--foreground)', padding: '0 14px' }} />
+      <span style={fieldLabel}>{label}</span>
+      <input type="password" value={value} onChange={(event) => onChange(event.target.value)} autoComplete="new-password" style={{ minHeight: 52, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-2)', color: 'var(--fg)', padding: '0 16px', fontSize: 16, lineHeight: '24px' }} />
     </label>
   );
 }
 
 function Rule({ met, label }: { met: boolean; label: string }) {
   return (
-    <p style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 14, color: met ? 'var(--foreground)' : 'var(--muted)' }}>
+    <p style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, lineHeight: '20px', color: met ? 'var(--fg)' : 'var(--accept-muted)' }}>
       {met ? <Check size={16} /> : <Circle size={16} />}
       {label}
     </p>
@@ -702,8 +750,6 @@ function InvalidCard() {
       kicker="Invalid link"
       title="This invite link can’t be used"
       body="The link is missing or not a valid invite. Ask for a new one."
-      link="Back to sign in"
-      href="/login"
       action="Sign in"
       actionHref="/login"
     />
@@ -724,13 +770,13 @@ function Actions({
   disabled?: boolean;
 }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+    <div className="accept-actions">
       {href ? (
-        <a href={href} style={{ color: 'var(--foreground)', fontSize: 14 }}>{link}</a>
+        <a href={href} className="accept-link">{link}</a>
       ) : (
-        <button type="button" onClick={onLink} style={{ background: 'transparent', border: 0, color: 'var(--foreground)', fontSize: 14, padding: 0, cursor: 'pointer' }}>{link}</button>
+        <button type="button" onClick={onLink} className="accept-link">{link}</button>
       )}
-      <button type="submit" disabled={disabled} style={{ ...primary, opacity: disabled ? 0.4 : 1 }}>{label}</button>
+      <button type="submit" disabled={disabled} className="accept-primary" style={{ ...primary, opacity: disabled ? 0.5 : 1 }}>{label}</button>
     </div>
   );
 }
@@ -762,27 +808,27 @@ function ErrorCard({
 }) {
   return (
     <Card>
-      <span style={{ width: 44, height: 44, borderRadius: 999, border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</span>
+      <span style={{ width: 44, height: 44, borderRadius: 999, border: '1px solid var(--border)', background: 'var(--surface-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</span>
       <Kicker>{kicker}</Kicker>
       <h1 style={title}>{heading}</h1>
       <p style={lede}>{body}</p>
       {rows ? (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {rows.map(([label, value]) => (
-            <div key={label} style={{ display: 'flex', gap: 12, fontSize: 14 }}>
-              <span style={{ width: 96, color: 'var(--muted)', fontSize: 12, letterSpacing: '0.06em', textTransform: 'uppercase' }}>{label}</span>
-              <span>{value}</span>
+            <div key={label} style={{ display: 'flex', gap: 12, minWidth: 0 }}>
+              <span className="ds-mono" style={{ width: 96, flexShrink: 0, color: 'var(--accept-muted)', fontSize: 11, lineHeight: '17px', letterSpacing: '0.04em', textTransform: 'uppercase' }}>{label}</span>
+              <span style={{ flex: '1 1 0', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 13, lineHeight: '20px' }}>{value}</span>
             </div>
           ))}
         </div>
       ) : null}
-      {note ? <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)' }}>{note}</p> : null}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
-        {link && href ? <a href={href} style={{ color: 'var(--foreground)', fontSize: 14 }}>{link}</a> : <span />}
+      {note ? <p style={{ margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--accept-muted)' }}>{note}</p> : null}
+      <div className="accept-actions">
+        {link && href ? <a href={href} className="accept-link">{link}</a> : null}
         {actionHref ? (
-          <a href={actionHref} style={{ ...primary, textDecoration: 'none' }}>{action}</a>
+          <a href={actionHref} className="accept-primary" style={{ ...primary, textDecoration: 'none' }}>{action}</a>
         ) : (
-          <button type="button" onClick={onAction} style={primary}>{action}</button>
+          <button type="button" onClick={onAction} className="accept-primary" style={primary}>{action}</button>
         )}
       </div>
     </Card>
@@ -790,14 +836,15 @@ function ErrorCard({
 }
 
 const title = { margin: 0, fontSize: 24, lineHeight: '32px', fontWeight: 600 } as const;
-const lede = { margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--muted)' } as const;
+const fieldLabel = { fontSize: 14, lineHeight: '21px', fontWeight: 500, color: 'var(--accept-muted)' } as const;
+const lede = { margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--accept-muted)' } as const;
 const meta = { margin: '4px 0', fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 12 } as const;
 const primary = {
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
-  background: 'var(--foreground)',
-  color: 'var(--background)',
+  background: 'var(--accent)',
+  color: 'var(--accent-fg)',
   border: 0,
   borderRadius: 9,
   minHeight: 42,

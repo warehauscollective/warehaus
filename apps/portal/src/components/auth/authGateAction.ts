@@ -14,6 +14,8 @@ export type AuthGateInput = {
   staffInviteInProgress: boolean;
   staffInviteCheckPending: boolean;
   staffInviteConflicted: boolean;
+  /** Set after accept succeeds in this tab. The dashboard welcome must show. */
+  staffJustJoined?: boolean;
   hasPortalSession: boolean;
   linkQueryError: boolean;
   pathname: string;
@@ -41,15 +43,11 @@ function loginHref(pathname: string): string {
  */
 export function authGateAction(input: AuthGateInput): AuthGateAction {
   if (!input.configured) return { type: 'login', href: '/login' };
-  if (input.sessionPending || input.staffInviteCheckPending) return { type: 'checking' };
-  if (!input.hasUser) return { type: 'login', href: loginHref(input.pathname) };
-  if (input.staffInviteInProgress && input.linkStatus !== 'linked') return { type: 'wait' };
-  if (input.staffInviteConflicted && input.linkStatus !== 'linked') return { type: 'conflict' };
-  if (input.joinError && input.linkStatus !== 'linked') {
-    return { type: 'sign-out', href: `/login?error=${encodeURIComponent(input.joinError)}` };
-  }
-  if (input.linkQueryError && input.linkStatus !== 'linked') return { type: 'unreachable' };
-  if (input.linkStatus === 'unlinked' && !input.joining && !input.linking) return { type: 'link' };
+  // A just-joined flag must not skip this. With no user yet, skipping it
+  // falls through to /login. Only the invite check below is skipped.
+  if (input.sessionPending) return { type: 'checking' };
+  // A linked portal session is the dashboard. Don't hold it on "Checking access…"
+  // while the staff-invite query is still loading.
   if (
     input.hasUser &&
     input.linkStatus === 'linked' &&
@@ -59,5 +57,16 @@ export function authGateAction(input: AuthGateInput): AuthGateAction {
   ) {
     return { type: 'ready' };
   }
+  if (input.staffInviteCheckPending && !input.staffJustJoined) return { type: 'checking' };
+  if (!input.hasUser) return { type: 'login', href: loginHref(input.pathname) };
+  if (input.staffInviteInProgress && input.linkStatus !== 'linked') return { type: 'wait' };
+  if (input.staffInviteConflicted && input.linkStatus !== 'linked') return { type: 'conflict' };
+  if (input.joinError && input.linkStatus !== 'linked') {
+    return { type: 'sign-out', href: `/login?error=${encodeURIComponent(input.joinError)}` };
+  }
+  if (input.linkQueryError && input.linkStatus !== 'linked') return { type: 'unreachable' };
+  if (input.linkStatus === 'unlinked' && !input.joining && !input.linking) return { type: 'link' };
+  // Accept already succeeded. Land on the dashboard welcome instead of a bare checking screen.
+  if (input.staffJustJoined && input.hasUser) return { type: 'ready' };
   return { type: 'checking' };
 }

@@ -490,7 +490,11 @@ describe('invite accept email match', () => {
       expiresAt: 100,
       staffInvite: true,
     });
-    assert.deepEqual(ready, { status: 'ready', portalName: 'Secret Co portal invite' });
+    assert.deepEqual(ready, {
+      status: 'ready',
+      portalName: 'Secret Co portal invite',
+      invitedEmail: 'ada@example.com',
+    });
     const created = describeInvitePreview({
       ...shared,
       signedInEmail: null,
