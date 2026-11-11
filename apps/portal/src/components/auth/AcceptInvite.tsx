@@ -1,8 +1,8 @@
 'use client';
 
-import { useCallback, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useConvexAuth, useMutation } from 'convex/react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { AlertTriangle, Circle, CircleCheck, Clock, Lock, LogOut, Mail, ShieldCheck } from 'lucide-react';
 import { api } from '@convex/_generated/api';
 import { authClient } from '@/lib/auth-client';
@@ -17,6 +17,7 @@ import {
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { STAFF_ACCESS_CONFLICT_MESSAGE, renewRequestMessage } from '@convex/_lib/inviteFlow';
+import { inviteEmailMarkup } from '@convex/_lib/inviteEmailTemplate';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { rememberStaffJoined } from '@/lib/staffJoined';
 import { useStaffLinkWait } from '@/lib/staffLinkWait';
@@ -210,9 +211,19 @@ function AcceptInviteLive({
   refreshSession?: () => Promise<void>;
 }) {
   const router = useRouter();
-  const params = useSearchParams();
-  const token = params.get('token') ?? '';
-  const previewKey = process.env.NEXT_PUBLIC_PORTAL_FIXTURES === '1' ? params.get('invitePreview') : null;
+  // First server and client render both see an empty query. The layout effect
+  // reads the real URL before paint, so useState is never seeded from a
+  // search param that can differ during hydration.
+  const [query, setQuery] = useState({ token: '', previewKey: null as string | null });
+  useLayoutEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const fixtures = process.env.NEXT_PUBLIC_PORTAL_FIXTURES === '1';
+    setQuery({
+      token: params.get('token') ?? '',
+      previewKey: fixtures ? params.get('invitePreview') : null,
+    });
+  }, []);
+  const { token, previewKey } = query;
   const forced = previewKey ? FIXTURES[previewKey] : undefined;
   const configured = isConvexConfigured();
   const live = useSafeQuery<Preview & { portalName?: string }>(
@@ -268,10 +279,15 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
   const forced = io.forced;
   const configured = io.configured;
   const preview = io.preview;
-  const [password, setPassword] = useState(previewKey === 'wrong-password' ? 'wrongpass1' : '');
+  const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [signInMode, setSignInMode] = useState(false);
-  const [error, setError] = useState<string | null>(previewKey === 'wrong-password' ? WRONG_PASSWORD : null);
+  const [error, setError] = useState<string | null>(null);
+  useLayoutEffect(() => {
+    if (previewKey !== 'wrong-password') return;
+    setPassword((current) => current || 'wrongpass1');
+    setError((current) => current ?? WRONG_PASSWORD);
+  }, [previewKey]);
   const [busy, setBusy] = useState(false);
   const [renewed, setRenewed] = useState(false);
   const reference = inviteReference(token);
@@ -415,7 +431,11 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
     event.preventDefault();
     if (!preview?.invitedEmail || !password) return;
     if (forced) {
-      rememberStaffJoined({ name: 'Jordan', passwordSet: false });
+      rememberStaffJoined({
+        name: preview.inviteeName?.trim() || 'Jordan Blake',
+        passwordSet: false,
+        inviterName: preview.inviterName?.trim() || 'Peter Roquemore',
+      });
       replace('/preview');
       return;
     }
@@ -555,6 +575,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
         ) : status === 'expired' ? (
           <ErrorCard
             icon={<Clock size={20} />}
+            phoneGap="expired"
             kicker="Invite expired"
             title="This invite has expired"
             body={`Invite links work for 7 days. This one expired on ${dayLabel(preview.expiresAt) || 'its expiry date'}. Request a new one and we’ll let ${firstName(inviter)} know.`}
@@ -655,40 +676,22 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
 }
 
 function InviteEmailPreview() {
-  const ink = '#0a0a0b';
-  const muted = '#525252';
-  const line = '#d7d7d7';
-  const paper = '#fdfdfe';
+  const html = inviteEmailMarkup({
+    acceptUrl: 'https://portal.warehaus.studio/accept?token=preview',
+    who: 'Peter Roquemore (peter@warehaus.studio)',
+    action: 'Accept the invite to set your password and confirm your email in one step.',
+    button: 'Accept invite',
+    expiryDetail: 'It works once and stops working on Nov 16, 2026. If it expires, ask Peter for a new invite.',
+    because: 'You’re getting this because Peter Roquemore invited jordan@warehaus.studio to the Warehaus Portal.',
+    wordmarkSrc: '/icons/wordmark-ink.png',
+  });
   return (
-    <main data-testid="invite-email" data-theme="light" style={{ background: paper, color: ink, colorScheme: 'light', minHeight: '100dvh', padding: '48px 24px' }}>
-      <article style={{ maxWidth: 640, margin: '0 auto' }}>
-        <h1 style={{ fontSize: 22, lineHeight: '30px', margin: '0 0 16px', color: ink }}>Peter invited you to join Warehaus on the Portal</h1>
-        <p style={{ ...meta, color: muted }}><span>FROM</span> Warehaus Portal &lt;portal@warehaus.studio&gt;</p>
-        <p style={{ ...meta, color: muted }}><span>TO</span> jordan@warehaus.studio</p>
-        <p style={{ ...meta, color: muted }}><span>PREVIEW</span> Accept within 7 days to set your password and join as staff.</p>
-        <div style={{ marginTop: 32, padding: 48, borderRadius: 12, border: `1px solid ${line}`, background: '#ffffff', color: ink }}>
-          <p style={{ margin: 0, fontFamily: 'Eurostile, Impact, sans-serif', fontWeight: 900, fontStyle: 'italic', fontSize: 28, letterSpacing: '-0.02em', lineHeight: 1, textTransform: 'lowercase', color: ink }}>warehaus</p>
-          <p style={{ margin: '24px 0 0', fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: muted }}>Staff invite</p>
-          <h2 style={{ margin: '8px 0 0', fontSize: 30, lineHeight: '40px', color: ink }}>Join Warehaus on the Portal</h2>
-          <p style={{ fontSize: 16, lineHeight: '26px', color: muted }}>
-            Peter Roquemore (peter@warehaus.studio) invited you to join Warehaus as staff. Accept the invite to set your password and confirm your email in one step.
-          </p>
-          <a href="https://portal.warehaus.studio/accept?token=preview" style={{ ...primary, display: 'inline-flex', textDecoration: 'none', background: ink, color: paper }}>Accept invite</a>
-          <div style={{ display: 'flex', gap: 12, marginTop: 24, padding: 16, borderRadius: 10, border: `1px solid ${line}`, background: '#f7f7f7', color: ink }}>
-            <Clock size={16} />
-            <div>
-              <p style={{ margin: 0, fontWeight: 600 }}>This link expires in 7 days</p>
-              <p style={{ margin: '4px 0 0', color: muted, fontSize: 13 }}>It works once and stops working on Nov 16, 2026. If it expires, ask Peter for a new invite.</p>
-            </div>
-          </div>
-          <p style={{ marginTop: 24, fontSize: 13, color: muted }}>Button not working? Paste this link into your browser:</p>
-          <p style={{ fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12, wordBreak: 'break-all', color: ink }}>https://portal.warehaus.studio/accept?token=preview</p>
-          <p style={{ fontSize: 13, color: muted }}>Weren’t expecting this? You can ignore this email. Nothing is created until you accept, and we never ask for your password by email.</p>
-        </div>
-        <p style={{ marginTop: 24, fontSize: 12, color: '#929292', textAlign: 'center' }}>Warehaus · warehaus.studio</p>
-        <p style={{ fontSize: 12, color: '#929292', textAlign: 'center' }}>You’re getting this because Peter Roquemore invited jordan@warehaus.studio to the Warehaus Portal.</p>
-      </article>
-    </main>
+    <main
+      data-testid="invite-email"
+      data-theme="light"
+      style={{ background: '#fdfdfe', color: '#0a0a0b', colorScheme: 'light', minHeight: '100dvh' }}
+      dangerouslySetInnerHTML={{ __html: html }}
+    />
   );
 }
 
@@ -707,7 +710,7 @@ function AcceptShell({
       data-testid="accept-invite"
       data-status={status}
     >
-      <div className="flex w-full max-w-[480px] flex-col gap-8">
+      <div className="flex w-full flex-col gap-8" style={{ width: '100%', maxWidth: 480 }}>
         <header style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 10 }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -741,7 +744,7 @@ function Inviter({ name, email }: { name: string; email?: string | null }) {
   const initials = name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
   const detail = email ? `${email}  ·  Joining as Warehaus Staff` : 'Joining as Warehaus Staff';
   return (
-    <div style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 16, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-2)' }}>
+    <div className="accept-inset" style={{ display: 'flex', gap: 12, alignItems: 'center', padding: 16, borderRadius: 10, border: '1px solid var(--border)' }}>
       <span style={{ width: 40, height: 40, borderRadius: 999, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, background: 'var(--surface-2)', border: '1px solid var(--border-2)', fontSize: 13, fontWeight: 500 }}>{initials}</span>
       <span style={{ minWidth: 0 }}>
         <span style={{ display: 'block', fontSize: 14, lineHeight: '21px', fontWeight: 500 }}>{name} invited you</span>
@@ -756,7 +759,7 @@ function LockedEmail({ email, hint }: { email: string; hint?: string }) {
     <label style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <span style={fieldLabel}>Email</span>
       <span data-testid="locked-email" style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 52, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface-2)', padding: '0 16px', fontSize: 16, lineHeight: '24px' }}>
-        <Lock size={16} />
+        <Lock size={16} className="notice-icon" />
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</span>
       </span>
       {hint ? <span style={{ fontSize: 13, lineHeight: '20px', color: 'var(--accept-muted)' }}>{hint}</span> : null}
@@ -783,8 +786,8 @@ function Field({ label, value, onChange, error }: { label: string; value: string
 
 function Rule({ met, label }: { met: boolean; label: string }) {
   return (
-    <p style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, lineHeight: '20px', color: met ? 'var(--fg)' : 'var(--accept-muted)' }}>
-      {met ? <CircleCheck size={16} /> : <Circle size={16} />}
+    <p data-rule={label} data-met={met ? 'true' : 'false'} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, lineHeight: '20px', color: met ? 'var(--fg)' : 'var(--accept-muted)' }}>
+      {met ? <CircleCheck size={16} className="notice-icon" /> : <Circle size={16} className="notice-icon" />}
       {label}
     </p>
   );
@@ -842,6 +845,7 @@ function ErrorCard({
   actionHref,
   onAction,
   tone,
+  phoneGap,
 }: {
   icon: ReactNode;
   kicker: string;
@@ -856,19 +860,20 @@ function ErrorCard({
   actionHref?: string;
   onAction?: () => void;
   tone?: 'danger';
+  phoneGap?: 'expired';
 }) {
   const danger = tone === 'danger';
   const accent = danger ? 'var(--danger)' : 'var(--accept-muted)';
   return (
     <Card>
-      <div className="accept-stack">
-        <span style={{ width: 44, height: 44, borderRadius: 999, border: `1px solid ${danger ? 'var(--danger)' : 'var(--border)'}`, background: danger ? 'color-mix(in oklab, var(--danger) 12%, transparent)' : 'var(--surface-2)', color: danger ? 'var(--danger)' : 'inherit', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</span>
+      <div className={phoneGap === 'expired' ? 'accept-stack accept-stack-expired' : 'accept-stack'}>
+        <span className="accept-icon" style={{ width: 44, height: 44, minWidth: 44, minHeight: 44, flexShrink: 0, borderRadius: 999, border: `1px solid ${danger ? 'var(--danger)' : 'var(--border)'}`, background: danger ? 'color-mix(in oklab, var(--danger) 12%, transparent)' : 'var(--surface-2)', color: danger ? 'var(--danger)' : 'inherit', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</span>
         <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', letterSpacing: '0.8px', textTransform: 'uppercase', color: accent }}>{kicker}</p>
         <h1 style={title}>{heading}</h1>
         <p style={lede}>{body}</p>
       </div>
       {rows ? (
-        <div style={{ background: 'var(--bg-2)', border: '1px solid var(--border)', borderRadius: 10, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="accept-inset" style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
           {rows.map(([label, value]) => (
             <div key={label} style={{ display: 'flex', gap: 12, minWidth: 0 }}>
               <span className="ds-mono" style={{ width: 96, flexShrink: 0, color: 'var(--accept-muted)', fontSize: 11, lineHeight: '17px', letterSpacing: '0.04em', textTransform: 'uppercase' }}>{label}</span>
@@ -878,8 +883,8 @@ function ErrorCard({
         </div>
       ) : null}
       {callout ? (
-        <div data-testid="accept-callout" style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 16, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-2)', fontSize: 14, lineHeight: '21px' }}>
-          <Clock size={16} />
+        <div data-testid="accept-callout" className="accept-inset" style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 16, borderRadius: 10, border: '1px solid var(--border)', fontSize: 14, lineHeight: '21px' }}>
+          <Clock size={16} className="notice-icon" />
           <span>{callout}</span>
         </div>
       ) : null}
@@ -899,7 +904,6 @@ function ErrorCard({
 const title = { margin: 0, fontSize: 24, lineHeight: '32px', fontWeight: 600 } as const;
 const fieldLabel = { fontSize: 14, lineHeight: '21px', fontWeight: 500, color: 'var(--accept-muted)' } as const;
 const lede = { margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--accept-muted)' } as const;
-const meta = { margin: '4px 0', fontSize: 13, color: 'var(--muted)', display: 'flex', gap: 12 } as const;
 const primary = {
   display: 'inline-flex',
   alignItems: 'center',

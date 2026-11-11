@@ -12,8 +12,8 @@ export const DOCK_IDLE_LABEL_CLASS =
   'hidden whitespace-nowrap text-[13px] tracking-[1.3px] lg:inline';
 
 /**
- * Desktop Eurostile is a few pixels wider than the Dock/Portal master on
- * RESOURCES and ACCOUNT. The nudge is desktop-only so the phone pill stays 122.
+ * Desktop Account keeps lg:px-4 so the pill stays 122px.
+ * The 10px inline pad lives in a max-width 767px rule and only applies at 390.
  */
 export function dockLabelClassName(active: boolean, tab?: string): string {
   const base = active ? DOCK_ACTIVE_LABEL_CLASS : DOCK_IDLE_LABEL_CLASS;

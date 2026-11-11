@@ -17,7 +17,7 @@ import {
   type SyncHealth,
 } from '@/lib/data/dashboard';
 
-export type DashPreview = 'empty' | 'loading' | 'error' | 'long' | 'capped' | null;
+export type DashPreview = 'empty' | 'loading' | 'error' | 'long' | 'capped' | 'blank' | null;
 
 const LONG_NAME =
   'Quarterly seasonal menu photography, packaging and in-store signage rollout for all twelve Northwind Foods locations';
@@ -728,16 +728,16 @@ function JoinedStaff({ name, passwordSet, inviterName }: { name: string; passwor
   ] as const;
   return (
     <div data-testid="joined-staff" className="flex flex-col" style={{ gap: 24 }}>
-      <div data-testid="joined-banner" style={{ display: 'flex', gap: 12, padding: 16, borderRadius: 12, background: 'var(--fg)', color: 'var(--bg)' }}>
-        <CircleCheck size={16} />
+      <div data-testid="joined-banner" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: 16, borderRadius: 12, background: 'var(--surface-2)', color: 'var(--fg)', border: '1px solid var(--border)' }}>
+        <CircleCheck size={16} className="notice-icon" />
         <div>
           <p style={{ margin: 0, fontSize: 14 }}>You’ve joined Warehaus as staff</p>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'color-mix(in oklab, var(--bg) 78%, transparent)' }}>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
             {passwordSet
               ? 'Your email is confirmed and your password is set.'
               : 'Your email is confirmed.'}
           </p>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'color-mix(in oklab, var(--bg) 78%, transparent)' }}>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
             {inviterName?.trim() || 'Your inviter'} has been told you accepted.
           </p>
         </div>
@@ -754,7 +754,7 @@ function JoinedStaff({ name, passwordSet, inviterName }: { name: string; passwor
           <article key={title} style={{ ...cardStyle, borderRadius: 12, padding: 24, display: 'flex', flexDirection: 'column', gap: 12, minHeight: 210 }}>
             <h3 style={{ margin: 0, fontSize: 20, lineHeight: '30px' }}>{title}</h3>
             <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)', flex: 1 }}>{body}</p>
-            <a href={href} style={title === 'Projects'
+            <a href={href} className="joined-cta" style={title === 'Projects'
               ? { alignSelf: 'flex-start', background: 'var(--fg)', color: 'var(--bg)', border: 0, borderRadius: 9, padding: '10px 14px', fontSize: 14, fontWeight: 600, textDecoration: 'none' }
               : { alignSelf: 'flex-start', border: '1px solid var(--border)', borderRadius: 9, padding: '10px 14px', fontSize: 14, color: 'var(--foreground)', textDecoration: 'none' }}>{label}</a>
           </article>

@@ -120,6 +120,13 @@ function composeExpiry(fixtures: boolean): number {
   return fixtures ? EXPIRES : Date.now() + 7 * 24 * 60 * 60 * 1000;
 }
 
+function seededEmail(previewUi: string | null): string {
+  if (previewUi === 'invalid') return 'jordan';
+  if (previewUi === 'staff') return 'avery@warehaus.studio';
+  if (previewUi && previewUi !== 'empty' && previewUi !== 'menu') return 'jordan@warehaus.studio';
+  return '';
+}
+
 export function TeamInvites({
   configured,
   fixtures = false,
@@ -146,9 +153,7 @@ export function TeamInvites({
   const [busy, setBusy] = useState<string | null>(null);
   const [cached, setCached] = useState<TeamRow | null>(null);
   const [mode, setMode] = useState<ModalMode>(modeFromPreview(previewUi));
-  const [email, setEmail] = useState(
-    previewUi === 'invalid' ? 'jordan' : previewUi && previewUi !== 'empty' && previewUi !== 'menu' ? 'jordan@warehaus.studio' : '',
-  );
+  const [email, setEmail] = useState(seededEmail(previewUi));
   const [revokeId, setRevokeId] = useState<string | null>(previewUi === 'revoke' ? 'ct-jordan' : null);
   const [menuId, setMenuId] = useState<string | null>(previewUi === 'menu' ? 'ct-jordan' : null);
   const [sentOn, setSentOn] = useState<number | null>(null);
@@ -278,7 +283,7 @@ export function TeamInvites({
           <p style={{ margin: 0, maxWidth: 520, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
             Who can sign in to the Portal. Staff are invited here.
           </p>
-          <button type="button" data-testid="team-open-invite" onClick={openModal} style={primaryButton}>
+          <button type="button" className="team-page-cta" data-testid="team-open-invite" onClick={openModal} style={primaryButton}>
             Invite staff
           </button>
         </div>
@@ -345,7 +350,7 @@ export function TeamInvites({
                   status={expired ? 'Expired' : 'Pending'}
                   detail={detail}
                   actions={
-                    <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: 4 }}>
+                    <span style={{ position: 'relative', display: 'inline-flex' }}>
                       <button
                         type="button"
                         aria-haspopup="menu"
@@ -356,13 +361,17 @@ export function TeamInvites({
                         style={iconButton}
                         onClick={() => setMenuId((current) => (current === invite.notionPageId ? null : invite.notionPageId))}
                       >
-                        <MoreHorizontal size={16} />
+                        <MoreHorizontal size={16} className="notice-icon" />
                       </button>
                       {menuId === invite.notionPageId ? (
                         <span
                           role="menu"
                           data-testid="team-invite-menu"
                           style={{
+                            position: 'absolute',
+                            right: 0,
+                            bottom: 'calc(100% + 6px)',
+                            zIndex: 30,
                             minWidth: 168,
                             padding: 4,
                             display: 'flex',
@@ -452,10 +461,14 @@ export function TeamInvites({
       ) : null}
       <style>{`
         .invite-columns { display: none; }
+        .invite-row:has([role='menu']) { position: relative; z-index: 4; }
         @media (min-width: 800px) {
           .invite-columns { display: grid; }
-          .invite-row { display: grid !important; grid-template-columns: minmax(140px, 1.1fr) minmax(160px, 1.3fr) 140px 180px 160px; align-items: center; }
+          .invite-row { display: grid !important; grid-template-columns: minmax(140px, 1.1fr) minmax(160px, 1.3fr) 140px 180px 160px; align-items: center; height: 77px; min-height: 77px; box-sizing: border-box; overflow: visible; }
           .invite-card-meta { display: none; }
+        }
+        @media (max-width: 720px) {
+          .team-page-cta { width: 100%; }
         }
         .invite-grab { display: none; }
         .invite-dialog input:focus-visible {
@@ -548,7 +561,7 @@ function StatusPill({ label }: { label: string }) {
         color: danger ? 'var(--danger)' : active ? 'var(--bg)' : 'var(--foreground)',
       }}
     >
-      {pending ? <Clock size={12} aria-hidden /> : null}
+      {pending ? <Clock size={14} aria-hidden className="notice-icon" style={{ width: 14, height: 14, minWidth: 14, minHeight: 14 }} /> : null}
       {label}
     </span>
   );
@@ -615,7 +628,7 @@ function InviteDialog({
         </div>
         {mode === 'sent' ? (
           <div style={notice}>
-            <Mail size={16} />
+            <Mail size={16} className="notice-icon" />
             <div>
               <p style={{ margin: 0, fontSize: 14 }}>Pending · expires {dayLabel(pending?.expiresAt ?? sentOn) || 'in 7 days'}</p>
               <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
@@ -644,7 +657,7 @@ function InviteDialog({
             </label>
             {mode === 'invited' ? (
               <div style={notice}>
-                <Clock size={16} />
+                <Clock size={16} className="notice-icon" />
                 <div>
                   <p style={{ margin: 0, fontSize: 14 }}>Already invited</p>
                   <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
@@ -655,7 +668,7 @@ function InviteDialog({
             ) : null}
             {mode === 'staff' ? (
               <div style={notice}>
-                <ShieldCheck size={16} />
+                <ShieldCheck size={16} className="notice-icon" />
                 <div>
                   <p style={{ margin: 0, fontSize: 14 }}>Already on the team</p>
                   <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
@@ -667,7 +680,7 @@ function InviteDialog({
             <div data-testid="team-role-staff">
               <span style={{ fontSize: 14 }}>Role</span>
               <div style={{ ...field, display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, opacity: locked ? 0.5 : 1 }}>
-                <Lock size={16} />
+                <Lock size={16} className="notice-icon" />
                 <span style={{ flex: 1 }}>Warehaus Staff</span>
                 <span className="ds-mono" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--muted)' }}>FIXED</span>
               </div>
@@ -691,7 +704,7 @@ function InviteDialog({
           ) : mode === 'staff' ? (
             <>
               <button type="button" className="invite-cancel" style={ghostButton} onClick={onClose}>Close</button>
-              <button type="button" className="invite-primary" data-testid="team-edit-email" style={primaryButton} onClick={() => onEmail('')}>Edit email</button>
+              <button type="button" className="invite-primary" data-testid="team-edit-email" style={secondaryButton} onClick={() => onEmail('')}>Edit email</button>
             </>
           ) : (
             <>
@@ -859,6 +872,7 @@ const iconBadge = {
 
 const notice = {
   display: 'flex',
+  alignItems: 'flex-start' as const,
   gap: 12,
   padding: 16,
   borderRadius: 12,

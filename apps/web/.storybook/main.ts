@@ -36,7 +36,7 @@ const config: StorybookConfig = {
     getAbsolutePath('@storybook/addon-mcp'),
   ],
   framework: getAbsolutePath('@storybook/nextjs-vite'),
-  staticDirs: ['../public'],
+  staticDirs: ['../public', '../../portal/public'],
   async viteFinal(config) {
     config.plugins = [
       ...(config.plugins ?? []),

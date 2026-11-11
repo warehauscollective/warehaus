@@ -404,6 +404,11 @@ describe('invite accept email match', () => {
     assert.match(mail.html, /Warehaus Portal/);
     assert.match(mail.html, /color-scheme:light/);
     assert.match(mail.html, /background:#0a0a0b/);
+    assert.match(mail.html, /alt="warehaus"/);
+    assert.match(mail.html, /wordmark-ink\.png/);
+    assert.match(mail.html, /font-weight:600/);
+    assert.match(mail.html, /padding:\s*22px/);
+    assert.match(mail.html, /<hr /);
     assert.match(mail.text, /portal\.example\/accept\?token=abc/);
     assert.equal(mail.html.includes('Decline'), false);
     assert.equal(mail.html.includes('7 days from now'), false);
@@ -427,6 +432,11 @@ describe('invite accept email match', () => {
     assert.match(mail.html, /Warehaus Portal/);
     assert.match(mail.html, /color-scheme:light/);
     assert.match(mail.html, /background:#0a0a0b/);
+    assert.match(mail.html, /alt="warehaus"/);
+    assert.match(mail.html, /wordmark-ink\.png/);
+    assert.match(mail.html, /font-weight:600/);
+    assert.match(mail.html, /padding:\s*22px/);
+    assert.match(mail.html, /<hr /);
     assert.match(mail.html, /Sign in to accept/);
     assert.equal(mail.html.includes('set a password'), false);
     assert.equal(mail.html.includes('Decline'), false);

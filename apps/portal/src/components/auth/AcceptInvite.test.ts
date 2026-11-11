@@ -189,6 +189,64 @@ describe('AcceptInvite sign-up, sign-in, and confirm', () => {
     await view.unmount();
   });
 
+  it('ticks every rule and enables Join only after confirm matches', async () => {
+    installStorage();
+    const preview = {
+      status: 'create-account' as const,
+      invitedEmail: 'jordan@warehaus.studio',
+      inviteeName: 'Jordan Blake',
+      inviterName: 'Peter Roquemore',
+    };
+    const view = await render(createElement(AcceptInvite, { io: io({ previewKey: 'new', forced: preview, preview }) }));
+    const inputs = nodes(view.container, 'input');
+    const rule = (label: string) =>
+      nodes(view.container, 'p').find((node) => node.getAttribute('data-rule') === label);
+    const join = () => nodes(view.container, 'button').find((node) => textOf(node).includes('Join Warehaus'));
+    const joinDisabled = () => {
+      const button = join();
+      return button?.disabled === true || button?.getAttribute('disabled') != null;
+    };
+    assert.equal(joinDisabled(), true);
+    await act(async () => {
+      typeInto(inputs[0]!, 'harbor12');
+    });
+    assert.equal(rule('At least 8 characters')?.getAttribute('data-met'), 'true');
+    assert.equal(rule('Includes a letter and a number')?.getAttribute('data-met'), 'true');
+    assert.equal(rule('Passwords match')?.getAttribute('data-met'), 'false');
+    assert.equal(joinDisabled(), true);
+    await act(async () => {
+      typeInto(inputs[1]!, 'harbor12');
+    });
+    assert.equal(rule('At least 8 characters')?.getAttribute('data-met'), 'true');
+    assert.equal(rule('Includes a letter and a number')?.getAttribute('data-met'), 'true');
+    assert.equal(rule('Passwords match')?.getAttribute('data-met'), 'true');
+    assert.equal(joinDisabled(), false);
+    await view.unmount();
+  });
+
+  it('stores the full name when a fixture sign-in finishes', async () => {
+    installStorage();
+    const preview = {
+      status: 'sign-in' as const,
+      invitedEmail: 'jordan@warehaus.studio',
+      inviteeName: 'Jordan Blake',
+      inviterName: 'Peter Roquemore',
+    };
+    const view = await render(createElement(AcceptInvite, { io: io({ previewKey: 'existing', forced: preview, preview }) }));
+    const input = nodes(view.container, 'input')[0];
+    assert.ok(input);
+    await act(async () => {
+      typeInto(input, 'harbor12');
+    });
+    const form = nodes(view.container, 'form')[0];
+    assert.ok(form);
+    await act(async () => {
+      fire(form, 'submit');
+    });
+    assert.equal(readStaffJoined()?.name, 'Jordan Blake');
+    await view.unmount();
+  });
+
   it('signs up, signs in, then waits and accepts', async () => {
     installStorage();
     const harness = io();
