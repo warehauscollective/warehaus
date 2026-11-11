@@ -201,6 +201,17 @@ describe('AcceptInvite sign-up, sign-in, and confirm', () => {
     const inputs = nodes(view.container, 'input');
     const rule = (label: string) =>
       nodes(view.container, 'p').find((node) => node.getAttribute('data-rule') === label);
+    const iconShape = (label: string) => {
+      const marks: string[] = [];
+      const row = rule(label);
+      if (!row) return marks;
+      walk(row, (node) => {
+        if (node.tagName === 'PATH') marks.push(node.getAttribute('d') ?? '');
+        if (node.tagName === 'CIRCLE') marks.push('circle');
+      });
+      return marks;
+    };
+    const checkPath = 'M20 6 9 17l-5-5';
     const join = () => nodes(view.container, 'button').find((node) => textOf(node).includes('Join Warehaus'));
     const joinDisabled = () => {
       const button = join();
@@ -213,6 +224,9 @@ describe('AcceptInvite sign-up, sign-in, and confirm', () => {
     assert.equal(rule('At least 8 characters')?.getAttribute('data-met'), 'true');
     assert.equal(rule('Includes a letter and a number')?.getAttribute('data-met'), 'true');
     assert.equal(rule('Passwords match')?.getAttribute('data-met'), 'false');
+    assert.deepEqual(iconShape('At least 8 characters'), [checkPath]);
+    assert.deepEqual(iconShape('Includes a letter and a number'), [checkPath]);
+    assert.deepEqual(iconShape('Passwords match'), ['circle']);
     assert.equal(joinDisabled(), true);
     await act(async () => {
       typeInto(inputs[1]!, 'harbor12');
@@ -220,6 +234,9 @@ describe('AcceptInvite sign-up, sign-in, and confirm', () => {
     assert.equal(rule('At least 8 characters')?.getAttribute('data-met'), 'true');
     assert.equal(rule('Includes a letter and a number')?.getAttribute('data-met'), 'true');
     assert.equal(rule('Passwords match')?.getAttribute('data-met'), 'true');
+    assert.deepEqual(iconShape('At least 8 characters'), [checkPath]);
+    assert.deepEqual(iconShape('Includes a letter and a number'), [checkPath]);
+    assert.deepEqual(iconShape('Passwords match'), [checkPath]);
     assert.equal(joinDisabled(), false);
     await view.unmount();
   });

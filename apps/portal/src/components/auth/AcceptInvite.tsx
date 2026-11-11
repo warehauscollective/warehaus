@@ -3,7 +3,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useConvexAuth, useMutation } from 'convex/react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Circle, CircleCheck, Clock, Lock, LogOut, Mail, ShieldCheck } from 'lucide-react';
+import { AlertTriangle, Check, Circle, CircleCheck, Clock, Lock, LogOut, Mail, ShieldCheck } from 'lucide-react';
 import { api } from '@convex/_generated/api';
 import { authClient } from '@/lib/auth-client';
 import {
@@ -787,7 +787,7 @@ function Field({ label, value, onChange, error }: { label: string; value: string
 function Rule({ met, label }: { met: boolean; label: string }) {
   return (
     <p data-rule={label} data-met={met ? 'true' : 'false'} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, lineHeight: '20px', color: met ? 'var(--fg)' : 'var(--accept-muted)' }}>
-      {met ? <CircleCheck size={16} className="notice-icon" /> : <Circle size={16} className="notice-icon" />}
+      {met ? <Check size={16} strokeWidth={2.75} className="notice-icon" aria-hidden /> : <Circle size={16} className="notice-icon" aria-hidden />}
       {label}
     </p>
   );
