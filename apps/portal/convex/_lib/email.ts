@@ -5,6 +5,8 @@
  * Set RESEND_API_KEY, EMAIL_FROM, and optional EMAIL_REPLY_TO on the deployment.
  */
 
+import { inviteEmailDocument, wordmarkSrcForAcceptUrl } from './inviteEmailTemplate';
+
 export type SendPortalEmailArgs = {
   to: string;
   subject: string;
@@ -273,44 +275,20 @@ function inviteLetter(args: {
   ].join('\n');
   const recipient = args.to?.trim();
   const because = recipient
-    ? `You’re getting this because ${escapeHtml(who)} invited ${escapeHtml(recipient)} to the Warehaus Portal.`
-    : `You’re getting this because ${escapeHtml(who)} invited you to the Warehaus Portal.`;
+    ? `You’re getting this because ${who} invited ${recipient} to the Warehaus Portal.`
+    : `You’re getting this because ${who} invited you to the Warehaus Portal.`;
   const expiryDetail = expires
-    ? `It works once and stops working on ${escapeHtml(expires)}. If it expires, ask ${escapeHtml(first)} for a new invite.`
-    : `It works once. If it expires, ask ${escapeHtml(first)} for a new invite.`;
-  const html = `<!DOCTYPE html>
-<html>
-  <head>
-    <meta name="color-scheme" content="light" />
-    <meta name="supported-color-schemes" content="light" />
-  </head>
-  <body style="margin:0;padding:0;background:#fdfdfe;color:#0a0a0b;color-scheme:light only;">
-    <div style="font-family:Geist,-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;line-height:1.5;color:#0a0a0b;background:#fdfdfe;max-width:640px;margin:0 auto;padding:48px 24px 24px;">
-      <div style="background:#ffffff;border:1px solid #d7d7d7;border-radius:12px;padding:48px;">
-        <p style="margin:0;font-family:Eurostile,Impact,sans-serif;font-weight:900;font-style:italic;font-size:28px;letter-spacing:-0.02em;line-height:1;text-transform:lowercase;color:#0a0a0b;">warehaus</p>
-        <p style="margin:24px 0 0;font-size:12px;letter-spacing:0.08em;text-transform:uppercase;color:#525252;">Staff invite</p>
-        <h1 style="font-size:30px;line-height:40px;margin:8px 0 0;color:#0a0a0b;">Join Warehaus on the Portal</h1>
-        <p style="font-size:16px;line-height:26px;color:#525252;">${escapeHtml(who)} invited you to join Warehaus as staff. ${escapeHtml(action)}</p>
-        <p style="margin:24px 0;">
-          <a href="${escapeHtml(args.acceptUrl)}"
-             style="display:inline-block;background:#0a0a0b;color:#fdfdfe;text-decoration:none;padding:10px 18px;border-radius:9px;font-weight:600;">
-            ${button}
-          </a>
-        </p>
-        <div style="background:#f7f7f7;border:1px solid #d7d7d7;border-radius:10px;padding:16px;">
-          <p style="margin:0;font-size:14px;line-height:21px;font-weight:600;color:#0a0a0b;">This link expires in 7 days</p>
-          <p style="margin:4px 0 0;font-size:13px;line-height:20px;color:#525252;">${expiryDetail}</p>
-        </div>
-        <p style="margin:24px 0 0;font-size:13px;line-height:20px;color:#525252;">Button not working? Paste this link into your browser:</p>
-        <p style="margin:6px 0 0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;line-height:18px;color:#0a0a0b;word-break:break-all;">${escapeHtml(args.acceptUrl)}</p>
-        <hr style="border:0;border-top:1px solid #d7d7d7;margin:24px 0;" />
-        <p style="margin:0;font-size:13px;line-height:20px;color:#525252;">Weren’t expecting this? You can ignore this email. Nothing is created until you accept, and we never ask for your password by email.</p>
-      </div>
-      <p style="margin:24px 0 0;font-size:12px;line-height:18px;color:#929292;text-align:center;">Warehaus · warehaus.studio</p>
-      <p style="margin:4px 0 0;font-size:12px;line-height:18px;color:#929292;text-align:center;">${because}</p>
-    </div>
-  </body>
-</html>`;
+    ? `It works once and stops working on ${expires}. If it expires, ask ${first} for a new invite.`
+    : `It works once. If it expires, ask ${first} for a new invite.`;
+  const html = inviteEmailDocument({
+    acceptUrl: args.acceptUrl,
+    who,
+    action,
+    button,
+    expiryDetail,
+    because,
+    wordmarkSrc: wordmarkSrcForAcceptUrl(args.acceptUrl),
+  });
   return { subject, html, text };
 }
 

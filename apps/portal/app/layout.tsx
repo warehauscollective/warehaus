@@ -95,6 +95,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       suppressHydrationWarning
     >
       <head>
+        {fixturePreviewAllowed() ? (
+          <script dangerouslySetInnerHTML={{ __html: 'window.__WH_FIXTURE_PREVIEW=true' }} />
+        ) : null}
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
       </head>
       <body className="bg-background text-foreground font-body antialiased" suppressHydrationWarning>

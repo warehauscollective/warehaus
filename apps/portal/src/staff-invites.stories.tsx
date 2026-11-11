@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/nextjs-vite';
 import type { ReactNode } from 'react';
+import { expect, userEvent, within } from 'storybook/test';
 import './styles/global.css';
 import { AcceptInvite, type AcceptInviteIO } from '@/components/auth/AcceptInvite';
 import { TeamInvites } from '@/components/pages/TeamInvites';
@@ -59,6 +60,10 @@ function Shell({ children }: { children: ReactNode }) {
   );
 }
 
+function Padded({ children }: { children: ReactNode }) {
+  return <div style={{ padding: 24 }}>{children}</div>;
+}
+
 const meta = {
   title: 'Portal/Staff invites',
   component: AcceptInvite,
@@ -69,6 +74,15 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const CreateAccount: Story = { render: () => <AcceptInvite io={io('new')} /> };
+export const RulesMet: Story = {
+  render: () => <AcceptInvite io={io('new')} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    await userEvent.type(canvas.getByLabelText('Password'), 'harbor12');
+    await userEvent.type(canvas.getByLabelText('Confirm password'), 'harbor12');
+    await expect(canvas.getByRole('button', { name: 'Join Warehaus' })).toBeEnabled();
+  },
+};
 export const SignIn: Story = { render: () => <AcceptInvite io={io('existing')} /> };
 export const Ready: Story = { render: () => <AcceptInvite io={io('ready')} /> };
 export const AlreadyUsed: Story = { render: () => <AcceptInvite io={io('used')} /> };
@@ -87,9 +101,11 @@ export const StaffTab: Story = {
     nextjs: { appDirectory: true, navigation: { pathname: '/preview' } },
   },
   render: () => (
-    <Shell>
-      <TeamInvites configured={false} fixtures screen="ready" draft={{ name: '', email: '' }} onDraftChange={() => {}} />
-    </Shell>
+    <Padded>
+      <Shell>
+        <TeamInvites configured={false} fixtures screen="ready" draft={{ name: '', email: '' }} onDraftChange={() => {}} />
+      </Shell>
+    </Padded>
   ),
 };
 
@@ -98,14 +114,46 @@ export const InviteModal: Story = {
     nextjs: { appDirectory: true, navigation: { pathname: '/preview', query: { inviteUi: 'modal' } } },
   },
   render: () => (
+    <Padded>
+      <Shell>
+        <TeamInvites configured={false} fixtures screen="ready" draft={{ name: '', email: '' }} onDraftChange={() => {}} />
+      </Shell>
+    </Padded>
+  ),
+};
+
+export const InviteMenuPhone: Story = {
+  parameters: {
+    chromatic: {
+      modes: {
+        'light phone': { theme: 'light', viewport: 390 },
+        'dark phone': { theme: 'dark', viewport: 390 },
+      },
+    },
+    nextjs: { appDirectory: true, navigation: { pathname: '/preview', query: { inviteUi: 'menu' } } },
+  },
+  render: () => (
     <Shell>
       <TeamInvites configured={false} fixtures screen="ready" draft={{ name: '', email: '' }} onDraftChange={() => {}} />
     </Shell>
   ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const menu = await canvas.findByRole('menu');
+    await expect(menu).toBeVisible();
+    await expect(canvas.getByRole('menuitem', { name: 'Resend' })).toBeVisible();
+    await expect(canvas.getByRole('menuitem', { name: 'Revoke' })).toBeVisible();
+  },
 };
 
 export const InviteSheet: Story = {
   parameters: {
+    chromatic: {
+      modes: {
+        'light phone': { theme: 'light', viewport: 390 },
+        'dark phone': { theme: 'dark', viewport: 390 },
+      },
+    },
     nextjs: { appDirectory: true, navigation: { pathname: '/preview', query: { inviteUi: 'sheet' } } },
   },
   render: () => (
@@ -120,9 +168,11 @@ export const Sending: Story = {
     nextjs: { appDirectory: true, navigation: { pathname: '/preview', query: { inviteUi: 'sending' } } },
   },
   render: () => (
-    <Shell>
-      <TeamInvites configured={false} fixtures screen="ready" draft={{ name: '', email: '' }} onDraftChange={() => {}} />
-    </Shell>
+    <Padded>
+      <Shell>
+        <TeamInvites configured={false} fixtures screen="ready" draft={{ name: '', email: '' }} onDraftChange={() => {}} />
+      </Shell>
+    </Padded>
   ),
 };
 
@@ -131,8 +181,10 @@ export const AlreadyOnTeam: Story = {
     nextjs: { appDirectory: true, navigation: { pathname: '/preview', query: { inviteUi: 'staff' } } },
   },
   render: () => (
-    <Shell>
-      <TeamInvites configured={false} fixtures screen="ready" draft={{ name: '', email: '' }} onDraftChange={() => {}} />
-    </Shell>
+    <Padded>
+      <Shell>
+        <TeamInvites configured={false} fixtures screen="ready" draft={{ name: '', email: '' }} onDraftChange={() => {}} />
+      </Shell>
+    </Padded>
   ),
 };

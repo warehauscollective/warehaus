@@ -264,6 +264,41 @@ html.light .accept-invite {
   flex-direction: column;
   gap: 12px;
 }
+.accept-invite svg,
+.notice-icon {
+  flex-shrink: 0;
+}
+.notice-icon {
+  width: 16px;
+  height: 16px;
+  min-width: 16px;
+  min-height: 16px;
+}
+.accept-inset {
+  background: #111113;
+}
+:root.light .accept-inset,
+html.light .accept-inset {
+  background: var(--bg-2);
+}
+@media (max-width: 767px) {
+  .accept-stack-expired > .accept-icon {
+    margin-bottom: 8px;
+  }
+  .accept-stack-expired > h1 {
+    margin-bottom: -5px !important;
+  }
+}
+.joined-cta {
+  width: 100%;
+  box-sizing: border-box;
+  text-align: center;
+}
+@media (min-width: 768px) {
+  .joined-cta {
+    width: auto;
+  }
+}
 .accept-invite .accept-card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -369,12 +404,9 @@ html.light .accept-invite {
   0% { transform: translateX(-120%); }
   100% { transform: translateX(280%); }
 }
-[data-testid='portal-dock'] [role='tab'][aria-selected='true']:has(.dock-label-account) {
-  padding-inline: 10px;
-}
-@media (min-width: 1024px) {
-  [data-testid='portal-dock'] [role='tab']:has(.dock-label-account) {
-    padding-inline: 14px;
+@media (max-width: 767px) {
+  [data-testid='portal-dock'] [role='tab'][aria-selected='true']:has(.dock-label-account) {
+    padding-inline: 10px;
   }
 }
 

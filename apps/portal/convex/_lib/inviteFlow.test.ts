@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { validatePropertyPatch } from '@warehaus/portal-sync';
 import { signInToAcceptPath } from './acceptPaths';
 import { deliverInviteEmail, existingLoginEmail, inviteEmail, sendIssuedInviteMail } from './email';
+import { inviteEmailDocument } from './inviteEmailTemplate';
 import { WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
 import {
   INVITE_ALREADY_MESSAGE,
@@ -404,6 +405,11 @@ describe('invite accept email match', () => {
     assert.match(mail.html, /Warehaus Portal/);
     assert.match(mail.html, /color-scheme:light/);
     assert.match(mail.html, /background:#0a0a0b/);
+    assert.match(mail.html, /alt="warehaus"/);
+    assert.match(mail.html, /wordmark-ink\.png/);
+    assert.match(mail.html, /font-weight:600/);
+    assert.match(mail.html, /padding:\s*22px/);
+    assert.match(mail.html, /<hr /);
     assert.match(mail.text, /portal\.example\/accept\?token=abc/);
     assert.equal(mail.html.includes('Decline'), false);
     assert.equal(mail.html.includes('7 days from now'), false);
@@ -413,7 +419,20 @@ describe('invite accept email match', () => {
       inviterName: 'Peter Roquemore',
       expiresOn: 'Nov 16, 2026',
     });
+    assert.equal(named.html.match(/<style>/g)?.length, 1);
     assert.match(named.html, /Peter Roquemore/);
+    const quoted = inviteEmailDocument({
+      acceptUrl: 'https://portal.example/accept?token=abc',
+      who: "O'Brien",
+      action: 'Accept the invite.',
+      button: 'Accept invite',
+      expiryDetail: 'It works once.',
+      because: "You're invited.",
+      wordmarkSrc: '/icons/wordmark-ink.png',
+    });
+    assert.match(quoted, /O&#39;Brien/);
+    assert.match(quoted, /You&#39;re invited\./);
+    assert.equal(quoted.match(/<style>/g)?.length, 1);
     assert.match(named.text, /stops working on Nov 16, 2026/);
     assert.equal(named.text.includes('7 days from now'), false);
   });
@@ -427,6 +446,11 @@ describe('invite accept email match', () => {
     assert.match(mail.html, /Warehaus Portal/);
     assert.match(mail.html, /color-scheme:light/);
     assert.match(mail.html, /background:#0a0a0b/);
+    assert.match(mail.html, /alt="warehaus"/);
+    assert.match(mail.html, /wordmark-ink\.png/);
+    assert.match(mail.html, /font-weight:600/);
+    assert.match(mail.html, /padding:\s*22px/);
+    assert.match(mail.html, /<hr /);
     assert.match(mail.html, /Sign in to accept/);
     assert.equal(mail.html.includes('set a password'), false);
     assert.equal(mail.html.includes('Decline'), false);

@@ -48,7 +48,9 @@ describe('dock active label', () => {
     assert.match(dockLabelClassName(false, 'account'), /dock-label-account/);
     assert.match(css, /\.dock-label-resources\s*\{[^}]*letter-spacing:\s*0\.97px;/);
     assert.match(css, /\.dock-label-account\s*\{[^}]*letter-spacing:\s*0\.88px;/);
-    assert.match(css, /\[aria-selected='true'\]:has\(\.dock-label-account\)\s*\{[^}]*padding-inline:\s*10px;/);
+    const phoneDock = css.slice(css.indexOf('@media (max-width: 767px)'));
+    assert.match(phoneDock, /\[aria-selected='true'\]:has\(\.dock-label-account\)\s*\{[^}]*padding-inline:\s*10px;/);
+    assert.equal(css.includes('padding-inline: 14px'), false);
     assert.match(dock, /backgroundColor: 'currentColor'/);
     assert.match(dock, /stroke="currentColor"/);
 
