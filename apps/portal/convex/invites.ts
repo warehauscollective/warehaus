@@ -11,7 +11,6 @@ import {
   WAREHAUS_INTERNAL_CLIENT_EXTERNAL_ID,
   WAREHAUS_INTERNAL_CLIENT_SLUG,
   inviteIdempotencyKey,
-  isNotionPageId,
   isNotionWritebackEnabled,
   stateIdempotencyKey,
   WRITEBACK_OFF_ERROR,
@@ -35,13 +34,15 @@ import { ensureContactExternalId, normalizeEmail } from './_lib/contactJoin';
 import { PortalAuthError } from './_lib/identity';
 import {
   INVITE_CLIENT_FAILURE,
+  INVITE_CLIENT_ROLE_MESSAGE,
   INVITE_DAILY_LIMIT,
-  INVITE_INTERNAL_MISSING,
-  WAREHAUS_INTERNAL_NOTION_PAGE_ENV,
+  WAREHAUS_INTERNAL_CLIENT_ID_ENV,
   asInviteRole,
   inviteCreatePayloadError,
-  notionPageIdForms,
-  resolveWarehausInviteNotionPage,
+  resolveWarehausInviteClient,
+  staffInviteOrgAllowed,
+  warehausHolderOrgIds,
+  type WarehausPageCandidate,
   claimInviteToken,
   describeInvitePreview,
   finishInviteToken,
@@ -111,9 +112,34 @@ async function warehausInternal(ctx: QueryCtx | MutationCtx) {
     .unique();
 }
 
-/** Warehaus client rows that might hold the real Notion page. Seed ids are ignored later. */
-async function warehausInviteClients(ctx: QueryCtx | MutationCtx) {
-  const slug = await warehausInternal(ctx);
+type ClientRow = NonNullable<Awaited<ReturnType<typeof warehausInternal>>>;
+
+function toInviteCandidate(row: ClientRow): WarehausPageCandidate {
+  return {
+    id: row._id,
+    slug: row.slug,
+    externalId: row.externalId,
+    notionPageId: row.notionPageId,
+  };
+}
+
+/**
+ * Warehaus rows that can hold the invite. The env value is a client id, looked
+ * up with get, so a duplicate page id cannot throw from `.unique()`.
+ */
+async function loadWarehausInviteRows(
+  ctx: QueryCtx | MutationCtx,
+): Promise<{ ok: true; clients: WarehausPageCandidate[] } | { ok: false; message: string }> {
+  const slugRows = await ctx.db
+    .query('clients')
+    .withIndex('by_slug', (q) => q.eq('slug', WAREHAUS_INTERNAL_CLIENT_SLUG))
+    .take(2);
+  if (slugRows.length > 1) {
+    return {
+      ok: false,
+      message: 'More than one client uses the warehaus-internal slug. Nothing was queued.',
+    };
+  }
   const alternate = await ctx.db
     .query('clients')
     .withIndex('by_slug', (q) => q.eq('slug', 'warehaus'))
@@ -122,24 +148,34 @@ async function warehausInviteClients(ctx: QueryCtx | MutationCtx) {
     .query('clients')
     .withIndex('by_externalId', (q) => q.eq('externalId', WAREHAUS_INTERNAL_CLIENT_EXTERNAL_ID))
     .take(8);
-  const configured = process.env[WAREHAUS_INTERNAL_NOTION_PAGE_ENV]?.trim() ?? '';
-  const byPage = [];
-  if (configured && isNotionPageId(configured)) {
-    for (const form of notionPageIdForms(configured)) {
-      const row = await ctx.db
-        .query('clients')
-        .withIndex('by_notionPageId', (q) => q.eq('notionPageId', form))
-        .unique();
-      if (row) byPage.push(row);
+  const configuredId = process.env[WAREHAUS_INTERNAL_CLIENT_ID_ENV]?.trim() ?? '';
+  let configured: ClientRow | null = null;
+  if (configuredId) {
+    try {
+      configured = await ctx.db.get(configuredId as Id<'clients'>);
+    } catch {
+      configured = null;
     }
   }
-  const rows = [slug, ...alternate, ...external, ...byPage].filter((row) => row != null);
+  const rows = [slugRows[0], ...alternate, ...external, configured].filter((row) => row != null);
   const seen = new Set<string>();
-  return rows.filter((row) => {
-    if (seen.has(row._id)) return false;
-    seen.add(row._id);
-    return true;
-  });
+  const clients = rows
+    .filter((row) => {
+      if (seen.has(row._id)) return false;
+      seen.add(row._id);
+      return true;
+    })
+    .map(toInviteCandidate);
+  return { ok: true, clients };
+}
+
+async function staffOrgChoice(ctx: QueryCtx | MutationCtx) {
+  const legacy = await warehausInternal(ctx);
+  const loaded = await loadWarehausInviteRows(ctx);
+  return {
+    legacyId: legacy?._id,
+    holderOrgIds: loaded.ok ? warehausHolderOrgIds(loaded.clients) : [],
+  };
 }
 
 export const create = adminMutation({
@@ -150,18 +186,34 @@ export const create = adminMutation({
     inviteRole: v.optional(inviteRoleArg),
   },
   handler: async (ctx, args) => {
-    const warehaus = await warehausInternal(ctx);
-    if (!warehaus) return { ok: false as const, message: INVITE_INTERNAL_MISSING };
-    const orgId = warehaus._id;
-    const page = resolveWarehausInviteNotionPage({
-      clients: (await warehausInviteClients(ctx)).map((client) => ({
-        slug: client.slug,
-        externalId: client.externalId,
-        notionPageId: client.notionPageId,
-      })),
-      configuredNotionPageId: process.env[WAREHAUS_INTERNAL_NOTION_PAGE_ENV],
+    if (ctx.identity.role !== 'Warehaus Staff') {
+      return { ok: false as const, message: 'You cannot send invites' };
+    }
+    if ((args.inviteRole ?? 'Warehaus Staff') !== 'Warehaus Staff') {
+      return { ok: false as const, message: INVITE_CLIENT_ROLE_MESSAGE };
+    }
+    const loaded = await loadWarehausInviteRows(ctx);
+    if (!loaded.ok) return { ok: false as const, message: loaded.message };
+    const page = resolveWarehausInviteClient({
+      clients: loaded.clients,
+      configuredClientId: process.env[WAREHAUS_INTERNAL_CLIENT_ID_ENV],
     });
-    if (!page.ok) return { ok: false as const, message: page.message };
+    if (!page.ok) {
+      console.error(`[invites] ${page.message}`);
+      const noticeOrg =
+        loaded.clients.find((client) => client.slug === WAREHAUS_INTERNAL_CLIENT_SLUG) ?? loaded.clients[0];
+      if (noticeOrg) {
+        await ctx.db.insert('notices', {
+          orgId: noticeOrg.id as Id<'clients'>,
+          audience: 'staff',
+          message: page.message,
+          edgeCase: 'invite-state',
+          createdAt: Date.now(),
+        });
+      }
+      return { ok: false as const, message: page.message };
+    }
+    const orgId = page.orgId as Id<'clients'>;
     const emailNormalized = normalizeEmail(args.email);
     const since = Date.now() - 24 * 60 * 60 * 1000;
     const recent = await ctx.db
@@ -193,6 +245,8 @@ export const create = adminMutation({
       name: args.name,
       internalOrgId: orgId,
       internalNotionPageId: page.notionPageId,
+      clients: loaded.clients,
+      configuredClientId: process.env[WAREHAUS_INTERNAL_CLIENT_ID_ENV],
       sentToday,
       emailOwnedByOtherOrg,
       emailAlreadyMember: contacts.length > 0,
@@ -396,18 +450,33 @@ function inviteEmailsMatchSafe(left: string, right: string) {
 export const listTeam = adminQuery({
   args: {},
   handler: async (ctx) => {
-    const internal = await warehausInternal(ctx);
-    if (!internal) {
+    const staffOrg = await staffOrgChoice(ctx);
+    const orgIds = [
+      ...new Set([staffOrg.legacyId, ...staffOrg.holderOrgIds].filter((id) => id != null)),
+    ] as Id<'clients'>[];
+    if (orgIds.length === 0) {
       return { canInvite: true, members: [], invites: [] };
     }
-    const contacts = await ctx.db
-      .query('contacts')
-      .withIndex('by_orgId', (q) => q.eq('orgId', internal._id))
-      .collect();
-    const invites = await ctx.db
-      .query('pendingInvites')
-      .withIndex('by_orgId', (q) => q.eq('orgId', internal._id))
-      .collect();
+    const contacts = (
+      await Promise.all(
+        orgIds.map((orgId) =>
+          ctx.db
+            .query('contacts')
+            .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+            .collect(),
+        ),
+      )
+    ).flat();
+    const invites = (
+      await Promise.all(
+        orgIds.map((orgId) =>
+          ctx.db
+            .query('pendingInvites')
+            .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+            .collect(),
+        ),
+      )
+    ).flat();
     return {
       canInvite: true,
       members: contacts
@@ -493,13 +562,14 @@ export const accept = mutation({
     const authUserId = identity?.subject ?? '';
     if (!authUserId) return { ok: false as const, status: 'unusable' as const, message: inviteStatusMessage('unusable') };
     const pending = await pendingForToken(ctx, row.contactNotionPageId);
-    const warehaus = await warehausInternal(ctx);
+    const staffOrg = await staffOrgChoice(ctx);
     if (
       !staffAcceptOrgOk({
         pendingRole: pending?.role,
         pendingOrgId: pending?.orgId,
         tokenOrgId: row.orgId,
-        internalOrgId: warehaus?._id,
+        internalOrgId: staffOrg.legacyId,
+        holderOrgIds: staffOrg.holderOrgIds,
       })
     ) {
       return { ok: false as const, status: 'unusable' as const, message: inviteStatusMessage('unusable') };
@@ -816,8 +886,16 @@ async function linkConfirmedStaff(
   ctx: MutationCtx,
   input: { orgId: Id<'clients'>; notionPageId: string; email: string; name: string; authUserId: string },
 ) {
-  const internal = await warehausInternal(ctx);
-  if (!internal || input.orgId !== internal._id) return;
+  const staffOrg = await staffOrgChoice(ctx);
+  if (
+    !staffInviteOrgAllowed({
+      orgId: input.orgId,
+      legacyOrgId: staffOrg.legacyId,
+      holderOrgIds: staffOrg.holderOrgIds,
+    })
+  ) {
+    return;
+  }
   const email = normalizeEmail(input.email);
   const contacts = await ctx.db.query('contacts').withIndex('by_email', (q) => q.eq('email', email)).collect();
   const session = await ctx.db

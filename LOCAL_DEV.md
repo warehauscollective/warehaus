@@ -82,6 +82,8 @@ npx convex env set PORTAL_PUBLIC_URL https://your-portal-origin
 
 `PORTAL_PUBLIC_URL` is the origin staff open, with no path. The invite link is `{origin}/accept?token=...`. Unset or any value other than `true` keeps each flag off.
 
+`WAREHAUS_INTERNAL_CLIENT_ID` is the Convex id of the Warehaus client row that already stores a real Notion page uuid. Set it on the shared dev deployment only when more than one Warehaus row has a uuid. It is not a page id, and it does not move the `warehaus-internal` slug. Leave it unset in this file. Do not set it on production `unique-turtle-383` from here.
+
 One manual check, against one test task, after Peter pulls this branch and runs `npx convex dev` so the new tables exist:
 
 1. Confirm `CONVEX_DEPLOYMENT` is the shared `dev:` deployment and does not contain `unique-turtle-383`.

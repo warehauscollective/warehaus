@@ -430,8 +430,8 @@ export const pullAll = internalAction({
             await conceal('contacts', page.id, {
               action: 'hide',
               reason: 'gate',
-              detail: 'Pending invite is not a login',
-              revokeSessions: true,
+              detail: 'Pending invite is not a login. The row stays, and sessions stay.',
+              revokeSessions: false,
               cascade: 'none',
             });
             return;

@@ -15,8 +15,11 @@ import {
   revoke,
   takeSignupPermit,
 } from '../invites';
+import { decideContactSync } from '@warehaus/portal-sync';
 import { selectContactForJoin } from './contactJoin';
 import { INVITE_CLIENT_FAILURE, hashInviteToken, teamInviteActions } from './inviteFlow';
+
+const REAL_WAREHAUS_PAGE = '3b1ffd60-316b-813f-987b-f9912477dbc0';
 
 type Row = Record<string, unknown> & { _id: string };
 
@@ -430,6 +433,8 @@ describe('invite accept, decline, and revoke', () => {
         companyName: 'Warehaus',
       });
       const enqueues: Array<Record<string, unknown>> = [];
+      const tokensBefore = tables.inviteTokens?.length ?? 0;
+      const contactsBefore = tables.contacts?.length ?? 0;
       const created = await run(create, authCtx('auth-staff', tables, enqueues), {
         name: 'New Staff',
         email: 'new.staff@warehaus.co',
@@ -437,11 +442,160 @@ describe('invite accept, decline, and revoke', () => {
       });
       assert.equal(created.ok, false);
       assert.match(created.message ?? '', /seed-warehaus-org/);
+      assert.match(created.message ?? '', /Nothing was queued/);
       assert.equal(enqueues.length, 0);
+      assert.equal(tables.inviteTokens?.length, tokensBefore);
+      assert.equal(tables.contacts?.length, contactsBefore);
+      assert.equal(tables.pendingInvites?.length ?? 0, 0);
+      assert.equal(
+        tables.contacts?.some((row) => row.email === 'new.staff@warehaus.co'),
+        false,
+      );
+      assert.equal(tables.notices?.length, 1);
     } finally {
       process.env.NOTION_WRITEBACK_ENABLED = previousWriteback;
       process.env.INVITE_EMAIL_ENABLED = previousEmail;
       process.env.PORTAL_PUBLIC_URL = previousUrl;
+    }
+  });
+
+  it('keeps an invite on the row that holds the Notion page through the next sync', async () => {
+    const previousWriteback = process.env.NOTION_WRITEBACK_ENABLED;
+    const previousEmail = process.env.INVITE_EMAIL_ENABLED;
+    const previousUrl = process.env.PORTAL_PUBLIC_URL;
+    const previousClient = process.env.WAREHAUS_INTERNAL_CLIENT_ID;
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
+    process.env.INVITE_EMAIL_ENABLED = 'true';
+    process.env.PORTAL_PUBLIC_URL = 'http://localhost:3100';
+    process.env.WAREHAUS_INTERNAL_CLIENT_ID = 'org-real';
+    try {
+      const tables = baseTables(await tokenRow('tok-real', 'raw-real'));
+      tables.clients?.push(
+        {
+          _id: 'org-seed',
+          slug: 'warehaus-internal',
+          notionPageId: 'seed-warehaus-org',
+          portalAccess: 'Enabled',
+          companyName: 'Warehaus (Internal)',
+        },
+        {
+          _id: 'org-real',
+          slug: 'warehaus',
+          notionPageId: REAL_WAREHAUS_PAGE,
+          portalAccess: 'Enabled',
+          companyName: 'Warehaus',
+        },
+      );
+      tables.contacts?.push({
+        _id: 'contact-seed-staff',
+        orgId: 'org-seed',
+        name: 'Seed Staff',
+        email: 'seed.staff@warehaus.co',
+        authUserId: 'user-seed',
+        role: 'Warehaus Staff',
+        portalAccess: 'Enabled',
+      });
+      const enqueues: Array<Record<string, unknown>> = [];
+      const staffCtx = authCtx('auth-staff', tables, enqueues);
+      const created = await run(create, staffCtx, {
+        name: 'New Staff',
+        email: 'new.staff@warehaus.co',
+        requestId: 'req-real',
+      });
+      assert.deepEqual(created, { ok: true, status: 'pending', message: 'Invite pending' });
+      assert.equal(enqueues[0]?.orgId, 'org-real');
+      const payload = JSON.parse(String(enqueues[0]?.payload)) as {
+        properties?: { 'Client Company'?: string[] };
+        invite?: { clientNotionPageId?: string };
+      };
+      assert.deepEqual(payload.properties?.['Client Company'], [REAL_WAREHAUS_PAGE]);
+      assert.equal(payload.invite?.clientNotionPageId, REAL_WAREHAUS_PAGE);
+      assert.equal(String(enqueues[0]?.orgId) === 'org-seed', false);
+
+      const outbox = tables.notionOutbox?.[0];
+      assert.ok(outbox);
+      outbox.status = 'done';
+      outbox.kind = 'createInvite';
+      const issued = (await run(issueTokenAfterConfirm, staffCtx, {
+        outboxId: outbox._id,
+        notionPageId: 'contact-new',
+      })) as { issued?: boolean; raw?: string };
+      assert.equal(issued.issued, true);
+      const pending = tables.pendingInvites?.find((row) => row.email === 'new.staff@warehaus.co');
+      assert.ok(pending);
+      assert.equal(pending.orgId, 'org-real');
+      const live = tables.inviteTokens?.find((row) => row.emailNormalized === 'new.staff@warehaus.co');
+      assert.equal(live?.clientNotionPageId, REAL_WAREHAUS_PAGE);
+      assert.equal(live?.orgId, 'org-real');
+
+      const decision = decideContactSync({
+        portalAccess: 'Disabled',
+        inviteStatus: 'Pending',
+        source: 'portal',
+        clientNotionId: REAL_WAREHAUS_PAGE,
+        clientEnabled: (id) => id === REAL_WAREHAUS_PAGE,
+        liveToken: { clientNotionPageId: REAL_WAREHAUS_PAGE },
+        verifiedAcceptance: false,
+      });
+      const placement: string = decision.placement;
+      assert.equal(placement === 'SKIP_AND_DROP_PENDING', false);
+      assert.equal(placement, 'UPSERT_PENDING_INVITE');
+      await run(applyContactRead, staffCtx, {
+        notionPageId: 'contact-new',
+        orgId: 'org-real',
+        name: 'New Staff',
+        email: 'new.staff@warehaus.co',
+        role: 'Warehaus Staff',
+        source: 'portal',
+        placement: decision.placement as 'UPSERT_PENDING_INVITE',
+        inviteStatus: 'Pending',
+        actionsJson: '[]',
+        observedJson: '{}',
+      });
+      const kept = tables.pendingInvites?.find((row) => row.notionPageId === 'contact-new');
+      assert.ok(kept);
+      assert.equal(kept.orgId, 'org-real');
+      assert.equal(kept.inviteStatus, 'Pending');
+      assert.ok(tables.contacts?.find((row) => row._id === 'contact-seed-staff'));
+      assert.equal(tables.inviteTokens?.find((row) => row._id === live?._id)?.status, 'live');
+
+      const team = (await run(listTeam, staffCtx)) as unknown as {
+        invites: Array<{ email?: string }>;
+        members: Array<{ email?: string }>;
+      };
+      assert.equal(
+        team.invites.some((invite) => invite.email === 'new.staff@warehaus.co'),
+        true,
+      );
+      assert.equal(
+        team.members.some((member) => member.email === 'seed.staff@warehaus.co'),
+        true,
+      );
+
+      const invitee = { _id: 'user-new', email: 'new.staff@warehaus.co', emailVerified: true };
+      const accepted = await run(accept, authCtx('user-new', tables, enqueues, true, invitee), {
+        token: issued.raw,
+      });
+      assert.deepEqual(accepted, { ok: true, status: 'pending' });
+      const held = tables.notionOutbox?.find((row) => row._id === enqueues.at(-1)?.outboxId);
+      assert.ok(held);
+      held.status = 'done';
+      held.kind = 'setInviteState';
+      await run(issueTokenAfterConfirm, staffCtx, { outboxId: held._id, notionPageId: 'contact-new' });
+      const linked = tables.contacts?.find((row) => row.email === 'new.staff@warehaus.co');
+      assert.ok(linked);
+      assert.equal(linked.orgId, 'org-real');
+      assert.equal(linked.role, 'Warehaus Staff');
+      assert.equal(linked.authUserId, 'user-new');
+    } finally {
+      if (previousWriteback === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+      else process.env.NOTION_WRITEBACK_ENABLED = previousWriteback;
+      if (previousEmail === undefined) delete process.env.INVITE_EMAIL_ENABLED;
+      else process.env.INVITE_EMAIL_ENABLED = previousEmail;
+      if (previousUrl === undefined) delete process.env.PORTAL_PUBLIC_URL;
+      else process.env.PORTAL_PUBLIC_URL = previousUrl;
+      if (previousClient === undefined) delete process.env.WAREHAUS_INTERNAL_CLIENT_ID;
+      else process.env.WAREHAUS_INTERNAL_CLIENT_ID = previousClient;
     }
   });
 

@@ -6,8 +6,6 @@
 
 import {
   WRITEBACK_OFF_ERROR,
-  WAREHAUS_INTERNAL_CLIENT_EXTERNAL_ID,
-  WAREHAUS_INTERNAL_CLIENT_SLUG,
   isNotionPageId,
   isWarehausInternalClient,
   normalizeNotionId,
@@ -29,8 +27,12 @@ export const INVITE_URL_OFF_MESSAGE = 'The portal link is not set. Nothing was s
 export const INVITE_CLIENT_ROLE_MESSAGE = 'Client invites are off.';
 export const INVITE_UNUSABLE_MESSAGE = 'This invite link can’t be used.';
 export const INVITE_INTERNAL_MISSING = 'Warehaus internal org is missing.';
-/** Convex env. A real Notion page uuid for the Warehaus client. Never a seed id. */
-export const WAREHAUS_INTERNAL_NOTION_PAGE_ENV = 'WAREHAUS_INTERNAL_NOTION_PAGE_ID';
+/**
+ * Convex env. A `clients` document id for the Warehaus row that already
+ * stores a real Notion page uuid. Never a page id, and never a stand-in
+ * for a row that does not hold one.
+ */
+export const WAREHAUS_INTERNAL_CLIENT_ID_ENV = 'WAREHAUS_INTERNAL_CLIENT_ID';
 export const INVITE_NOTION_UUID_MESSAGE =
   'Warehaus internal client has no Notion page uuid. Nothing was queued.';
 
@@ -77,81 +79,76 @@ export function notionPageIdForms(id: string): string[] {
 }
 
 export type WarehausPageCandidate = {
+  id: string;
   slug?: string | null;
   externalId?: string | null;
   notionPageId?: string | null;
 };
 
-function realNotionPageIds(ids: readonly (string | null | undefined)[]): string[] {
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const id of ids) {
-    if (!id || !isNotionPageId(id)) continue;
-    const key = normalizeNotionId(id);
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(id);
-  }
-  return out;
+function holdsNotionPage(client: WarehausPageCandidate): boolean {
+  const pageId = client.notionPageId?.trim() ?? '';
+  return pageId.length > 0 && isNotionPageId(pageId);
 }
 
 /**
- * The Notion relation for a staff invite. A seed or fixture id is never a page.
- * One Warehaus client uuid wins. A single env uuid is the fallback when no
- * client row has one. Anything else fails before a write is queued.
+ * Invite org and Client Company come from the same Warehaus row.
+ * The env id may only choose among rows that already store a Notion page uuid.
  */
-export function resolveWarehausInviteNotionPage(input: {
+export function resolveWarehausInviteClient(input: {
   clients: readonly WarehausPageCandidate[];
-  configuredNotionPageId?: string | null;
-}): { ok: true; notionPageId: string } | { ok: false; message: string } {
-  const configured = input.configuredNotionPageId?.trim() ?? '';
-  if (configured && !isNotionPageId(configured)) {
-    return {
-      ok: false,
-      message: `${WAREHAUS_INTERNAL_NOTION_PAGE_ENV} is not a Notion page uuid. Nothing was queued.`,
-    };
-  }
+  configuredClientId?: string | null;
+}): { ok: true; orgId: string; notionPageId: string } | { ok: false; message: string } {
+  const configured = input.configuredClientId?.trim() ?? '';
+  const holders = input.clients.filter(
+    (client) => isWarehausInviteClient(client) && holdsNotionPage(client),
+  );
   if (configured) {
-    const holders = input.clients.filter(
-      (client) => client.notionPageId && normalizeNotionId(client.notionPageId) === normalizeNotionId(configured),
-    );
-    if (holders.length > 0 && holders.every((client) => !isWarehausInviteClient(client))) {
+    const chosen = holders.find((client) => client.id === configured);
+    if (!chosen?.notionPageId) {
       return {
         ok: false,
-        message: `${WAREHAUS_INTERNAL_NOTION_PAGE_ENV} does not match the Warehaus client. Nothing was queued.`,
+        message: `${WAREHAUS_INTERNAL_CLIENT_ID_ENV} does not match a Warehaus client with a Notion page uuid. Nothing was queued.`,
       };
     }
+    return { ok: true, orgId: chosen.id, notionPageId: chosen.notionPageId.trim() };
   }
-  const warehaus = input.clients.filter((client) => isWarehausInviteClient(client));
-  const fromClients = realNotionPageIds(warehaus.map((client) => client.notionPageId));
-  if (fromClients.length > 1) {
+  if (holders.length === 1) {
+    const chosen = holders[0]!;
+    return { ok: true, orgId: chosen.id, notionPageId: chosen.notionPageId!.trim() };
+  }
+  if (holders.length > 1) {
     return {
       ok: false,
       message: 'More than one Warehaus client has a Notion page uuid. Nothing was queued.',
     };
   }
-  const fromClient = fromClients[0];
-  if (configured && fromClient && normalizeNotionId(configured) !== normalizeNotionId(fromClient)) {
+  const seed = input.clients.find((client) => {
+    if (!isWarehausInviteClient(client)) return false;
+    const pageId = client.notionPageId ?? '';
+    return pageId.startsWith('seed-') || pageId.startsWith('fixture-');
+  });
+  if (seed?.notionPageId) {
     return {
       ok: false,
-      message: `${WAREHAUS_INTERNAL_NOTION_PAGE_ENV} does not match the Warehaus client. Nothing was queued.`,
+      message: `Warehaus internal client page id "${seed.notionPageId}" is not a Notion page uuid. Nothing was queued.`,
     };
   }
-  const notionPageId = fromClient ?? (configured || undefined);
-  if (!notionPageId) {
-    const seed = warehaus.find((client) => {
-      const pageId = client.notionPageId ?? '';
-      return pageId.startsWith('seed-') || pageId.startsWith('fixture-');
-    });
-    if (seed?.notionPageId) {
-      return {
-        ok: false,
-        message: `Warehaus internal client page id "${seed.notionPageId}" is not a Notion page uuid. Nothing was queued.`,
-      };
-    }
-    return { ok: false, message: INVITE_NOTION_UUID_MESSAGE };
-  }
-  return { ok: true, notionPageId };
+  return { ok: false, message: INVITE_NOTION_UUID_MESSAGE };
+}
+
+export function warehausHolderOrgIds(clients: readonly WarehausPageCandidate[]): string[] {
+  return clients.filter((client) => isWarehausInviteClient(client) && holdsNotionPage(client)).map((client) => client.id);
+}
+
+/** Existing staff stay on the slug row. A new invite may use the row that holds the page. */
+export function staffInviteOrgAllowed(input: {
+  orgId: string | null | undefined;
+  legacyOrgId: string | null | undefined;
+  holderOrgIds: readonly string[];
+}): boolean {
+  if (!input.orgId) return false;
+  if (input.legacyOrgId && input.orgId === input.legacyOrgId) return true;
+  return input.holderOrgIds.includes(input.orgId);
 }
 
 /** Every relation id in an invite create body must be a Notion page uuid. */
@@ -201,9 +198,11 @@ export function planInviteCreate(input: {
   inviteRole: string;
   email: string;
   name: string;
-  /** warehaus-internal client id. Staff invites never land on a client org. */
+  /** Used only when `clients` is omitted. Create always passes the resolved row. */
   internalOrgId: string;
   internalNotionPageId: string;
+  clients?: readonly WarehausPageCandidate[];
+  configuredClientId?: string | null;
   sentToday: number;
   emailOwnedByOtherOrg: boolean;
   emailAlreadyMember?: boolean;
@@ -235,24 +234,23 @@ export function planInviteCreate(input: {
       staffMessage: `Invite email is already staff or a member: ${emailNormalized}`,
     };
   }
-  if (!input.name.trim() || !input.internalOrgId) {
+  if (!input.name.trim()) {
     return {
       ok: false,
       clientMessage: INVITE_INTERNAL_MISSING,
       staffMessage: 'Staff invite is missing the warehaus-internal org',
     };
   }
-  const page = resolveWarehausInviteNotionPage({
-    clients: [
-      {
-        slug: WAREHAUS_INTERNAL_CLIENT_SLUG,
-        externalId: WAREHAUS_INTERNAL_CLIENT_EXTERNAL_ID,
-        notionPageId: input.internalNotionPageId,
-      },
-    ],
-  });
-  if (!page.ok) {
-    return { ok: false, clientMessage: page.message, staffMessage: page.message };
+  const resolved = input.clients
+    ? resolveWarehausInviteClient({
+        clients: input.clients,
+        configuredClientId: input.configuredClientId,
+      })
+    : isNotionPageId(input.internalNotionPageId) && input.internalOrgId
+      ? { ok: true as const, orgId: input.internalOrgId, notionPageId: input.internalNotionPageId }
+      : { ok: false as const, message: INVITE_NOTION_UUID_MESSAGE };
+  if (!resolved.ok) {
+    return { ok: false, clientMessage: resolved.message, staffMessage: resolved.message };
   }
   const properties: Record<string, string | string[]> = {
     Name: input.name.trim(),
@@ -261,7 +259,7 @@ export function planInviteCreate(input: {
     Source: 'portal',
     'Portal Access': 'Disabled',
     'Invite Status': 'Pending',
-    'Client Company': [page.notionPageId],
+    'Client Company': [resolved.notionPageId],
   };
   const relationError = inviteRelationError(properties);
   if (relationError) {
@@ -269,7 +267,7 @@ export function planInviteCreate(input: {
   }
   return {
     ok: true,
-    orgId: input.internalOrgId,
+    orgId: resolved.orgId,
     emailNormalized,
     properties,
   };
@@ -441,12 +439,17 @@ export function staffAcceptOrgOk(input: {
   pendingOrgId: string | null | undefined;
   tokenOrgId: string | null | undefined;
   internalOrgId: string | null | undefined;
+  holderOrgIds?: readonly string[];
 }): boolean {
   return (
     input.pendingRole === 'Warehaus Staff' &&
-    Boolean(input.internalOrgId) &&
-    input.pendingOrgId === input.internalOrgId &&
-    input.tokenOrgId === input.internalOrgId
+    Boolean(input.pendingOrgId) &&
+    input.pendingOrgId === input.tokenOrgId &&
+    staffInviteOrgAllowed({
+      orgId: input.pendingOrgId,
+      legacyOrgId: input.internalOrgId,
+      holderOrgIds: input.holderOrgIds ?? [],
+    })
   );
 }
 
