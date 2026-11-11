@@ -3,7 +3,7 @@
 import { useCallback, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useConvexAuth, useMutation } from 'convex/react';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { AlertTriangle, Check, Circle, Clock, Lock, LogOut, Mail, Shield } from 'lucide-react';
+import { AlertTriangle, Circle, CircleCheck, Clock, Lock, LogOut, Mail, ShieldCheck } from 'lucide-react';
 import { api } from '@convex/_generated/api';
 import { authClient } from '@/lib/auth-client';
 import {
@@ -80,6 +80,7 @@ const FIXTURES: Record<string, Preview> = {
   already: { status: 'already', invitedEmail: 'avery@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
   unverified: { status: 'unverified', invitedEmail: 'jordan@warehaus.studio', inviteeName: 'Jordan Blake', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio', sentAtLabel: '10:42 AM' },
   generic: { status: 'error', invitedEmail: 'jordan@warehaus.studio', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
+  'wrong-password': { status: 'sign-in', invitedEmail: 'jordan@warehaus.studio', inviteeName: 'Jordan Blake', inviterName: 'Peter Roquemore', inviterEmail: 'peter@warehaus.studio' },
 };
 
 function rules(password: string, confirm: string) {
@@ -96,6 +97,7 @@ function dayLabel(ms: number | null | undefined): string {
 }
 
 const INVITER_FALLBACK = 'A Warehaus team member';
+const WRONG_PASSWORD = "That password doesn't match this email.";
 
 function firstName(name: string | null | undefined): string {
   const trimmed = name?.trim();
@@ -266,10 +268,10 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
   const forced = io.forced;
   const configured = io.configured;
   const preview = io.preview;
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState(previewKey === 'wrong-password' ? 'wrongpass1' : '');
   const [confirm, setConfirm] = useState('');
   const [signInMode, setSignInMode] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(previewKey === 'wrong-password' ? WRONG_PASSWORD : null);
   const [busy, setBusy] = useState(false);
   const [renewed, setRenewed] = useState(false);
   const reference = inviteReference(token);
@@ -298,7 +300,11 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
     event.preventDefault();
     if (!ready || !preview?.invitedEmail) return;
     if (forced) {
-      rememberStaffJoined({ name: 'Jordan', passwordSet: true });
+      rememberStaffJoined({
+        name: preview.inviteeName?.trim() || 'Jordan Blake',
+        passwordSet: true,
+        inviterName: preview.inviterName?.trim() || 'Peter Roquemore',
+      });
       replace('/preview');
       return;
     }
@@ -323,7 +329,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
       if (steps.includes('sign-in')) {
         const signedIn = await io.signInEmail({ email: preview.invitedEmail, password });
         if (signedIn.error) {
-          setError(signedIn.error.message ?? 'Check your password and try again.');
+          setError(WRONG_PASSWORD);
           return;
         }
       }
@@ -418,7 +424,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
     try {
       const signed = await io.signInEmail({ email: preview.invitedEmail, password });
       if (signed.error) {
-        setError(signed.error.message ?? 'Check your password and try again.');
+        setError(WRONG_PASSWORD);
         return;
       }
       await finishAccept(preview.invitedEmail, false);
@@ -485,9 +491,11 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           )
         ) : status === 'create-account' ? (
           <Card>
-            <Kicker>Staff invite</Kicker>
-            <h1 style={title}>Join Warehaus as staff</h1>
-            <p style={lede}>Set a password to finish. Opening this link from your email confirms your address, so there’s no separate verification step.</p>
+            <div className="accept-stack">
+              <Kicker>Staff invite</Kicker>
+              <h1 style={title}>Join Warehaus as staff</h1>
+              <p style={lede}>Set a password to finish. Opening this link from your email confirms your address, so there’s no separate verification step.</p>
+            </div>
             <Inviter name={inviter} email={inviterEmail} />
             <LockedEmail email={email} hint={`This is the address ${firstName(inviter)} invited. It can’t be changed here.`} />
             {awaitingAccept ? (
@@ -516,9 +524,11 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           </Card>
         ) : status === 'ready' ? (
           <Card>
-            <Kicker>Staff invite</Kicker>
-            <h1 style={title}>Accept your invite</h1>
-            <SignedInAcceptCopy email={readyEmail} />
+            <div className="accept-stack">
+              <Kicker>Staff invite</Kicker>
+              <h1 style={title}>Accept your invite</h1>
+              <SignedInAcceptCopy email={readyEmail} />
+            </div>
             <Inviter name={inviter} email={inviterEmail} />
             <SignedInLockedEmail invitedEmail={preview?.invitedEmail} sessionEmail={sessionEmail ?? readyEmail} />
             <div className="accept-actions">
@@ -530,14 +540,15 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           </Card>
         ) : status === 'sign-in' ? (
           <Card>
-            <Kicker>Staff invite</Kicker>
-            <h1 style={title}>Sign in to accept</h1>
-            <p style={lede}>{email || 'This address'} already has a Portal account. Sign in with it to join Warehaus as staff.</p>
+            <div className="accept-stack">
+              <Kicker>Staff invite</Kicker>
+              <h1 style={title}>Sign in to accept</h1>
+              <p style={lede}>{email || 'This address'} already has a Portal account. Sign in with it to join Warehaus as staff.</p>
+            </div>
             <Inviter name={inviter} email={inviterEmail} />
             <LockedEmail email={email} />
             <form onSubmit={(event) => void signIn(event)} className="flex flex-col gap-4">
-              <Field label="Password" value={password} onChange={setPassword} />
-              {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
+              <Field label="Password" value={password} onChange={setPassword} error={error} />
               <Actions link="Forgot password?" href="/forgot-password" label={busy ? 'Signing in…' : 'Sign in and join'} disabled={!password || busy} />
             </form>
           </Card>
@@ -559,7 +570,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           />
         ) : status === 'used' ? (
           <ErrorCard
-            icon={<Check size={20} />}
+            icon={<CircleCheck size={20} />}
             kicker="Invite already used"
             title="This invite has already been used"
             body={`It was accepted on ${dayLabel(preview.usedAt) || 'an earlier date'}. If that was you, sign in to continue.`}
@@ -605,7 +616,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           />
         ) : status === 'already' ? (
           <ErrorCard
-            icon={<Shield size={20} />}
+            icon={<ShieldCheck size={20} />}
             kicker="Already staff"
             title="You’re already on the Warehaus team"
             body={`${email || 'This email'} is already Warehaus Staff, so there’s nothing to accept.`}
@@ -656,7 +667,7 @@ function InviteEmailPreview() {
         <p style={{ ...meta, color: muted }}><span>TO</span> jordan@warehaus.studio</p>
         <p style={{ ...meta, color: muted }}><span>PREVIEW</span> Accept within 7 days to set your password and join as staff.</p>
         <div style={{ marginTop: 32, padding: 48, borderRadius: 12, border: `1px solid ${line}`, background: '#ffffff', color: ink }}>
-          <img alt="Warehaus" src="/icons/wordmark.svg" width={188} height={25} style={{ display: 'block', width: 188, height: 25 }} />
+          <p style={{ margin: 0, fontFamily: 'Eurostile, Impact, sans-serif', fontWeight: 900, fontStyle: 'italic', fontSize: 28, letterSpacing: '-0.02em', lineHeight: 1, textTransform: 'lowercase', color: ink }}>warehaus</p>
           <p style={{ margin: '24px 0 0', fontSize: 12, letterSpacing: '0.08em', textTransform: 'uppercase', color: muted }}>Staff invite</p>
           <h2 style={{ margin: '8px 0 0', fontSize: 30, lineHeight: '40px', color: ink }}>Join Warehaus on the Portal</h2>
           <p style={{ fontSize: 16, lineHeight: '26px', color: muted }}>
@@ -753,11 +764,19 @@ function LockedEmail({ email, hint }: { email: string; hint?: string }) {
   );
 }
 
-function Field({ label, value, onChange }: { label: string; value: string; onChange: (value: string) => void }) {
+function Field({ label, value, onChange, error }: { label: string; value: string; onChange: (value: string) => void; error?: string | null }) {
   return (
     <label style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <span style={fieldLabel}>{label}</span>
-      <input type="password" value={value} onChange={(event) => onChange(event.target.value)} autoComplete="new-password" style={{ minHeight: 52, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--bg-2)', color: 'var(--fg)', padding: '0 16px', fontSize: 16, lineHeight: '24px' }} />
+      <input
+        type="password"
+        value={value}
+        aria-invalid={error ? true : undefined}
+        onChange={(event) => onChange(event.target.value)}
+        autoComplete="new-password"
+        style={{ minHeight: 52, borderRadius: 10, border: `1px solid ${error ? 'var(--danger)' : 'var(--border)'}`, background: 'var(--bg-2)', color: 'var(--fg)', padding: '0 16px', fontSize: 16, lineHeight: '24px' }}
+      />
+      {error ? <span data-testid="accept-field-error" style={{ color: 'var(--danger)', fontSize: 13, lineHeight: '20px' }}>{error}</span> : null}
     </label>
   );
 }
@@ -765,7 +784,7 @@ function Field({ label, value, onChange }: { label: string; value: string; onCha
 function Rule({ met, label }: { met: boolean; label: string }) {
   return (
     <p style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, lineHeight: '20px', color: met ? 'var(--fg)' : 'var(--accept-muted)' }}>
-      {met ? <Check size={16} /> : <Circle size={16} />}
+      {met ? <CircleCheck size={16} /> : <Circle size={16} />}
       {label}
     </p>
   );
@@ -842,7 +861,7 @@ function ErrorCard({
   const accent = danger ? 'var(--danger)' : 'var(--accept-muted)';
   return (
     <Card>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <div className="accept-stack">
         <span style={{ width: 44, height: 44, borderRadius: 999, border: `1px solid ${danger ? 'var(--danger)' : 'var(--border)'}`, background: danger ? 'color-mix(in oklab, var(--danger) 12%, transparent)' : 'var(--surface-2)', color: danger ? 'var(--danger)' : 'inherit', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}>{icon}</span>
         <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', letterSpacing: '0.8px', textTransform: 'uppercase', color: accent }}>{kicker}</p>
         <h1 style={title}>{heading}</h1>

@@ -1,7 +1,7 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Check, ChevronRight, Shield } from 'lucide-react';
+import { Check, ChevronRight, CircleCheck, Shield } from 'lucide-react';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 import {
@@ -728,16 +728,16 @@ function JoinedStaff({ name, passwordSet, inviterName }: { name: string; passwor
   ] as const;
   return (
     <div data-testid="joined-staff" className="flex flex-col" style={{ gap: 24 }}>
-      <div style={{ display: 'flex', gap: 12, padding: 16, borderRadius: 12, border: '1px solid var(--border)', background: 'var(--surface)' }}>
-        <Check size={16} />
+      <div data-testid="joined-banner" style={{ display: 'flex', gap: 12, padding: 16, borderRadius: 12, background: 'var(--fg)', color: 'var(--bg)' }}>
+        <CircleCheck size={16} />
         <div>
           <p style={{ margin: 0, fontSize: 14 }}>You’ve joined Warehaus as staff</p>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'color-mix(in oklab, var(--bg) 78%, transparent)' }}>
             {passwordSet
               ? 'Your email is confirmed and your password is set.'
               : 'Your email is confirmed.'}
           </p>
-          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
+          <p style={{ margin: '4px 0 0', fontSize: 13, color: 'color-mix(in oklab, var(--bg) 78%, transparent)' }}>
             {inviterName?.trim() || 'Your inviter'} has been told you accepted.
           </p>
         </div>

@@ -9,7 +9,7 @@ const { ClientCompany, ClientDetail, ClientDirectory, EditClientButton, NewClien
 
 const people: ClientPersonRow[] = [
   { id: 'maya', name: 'Maya Chen', email: 'maya@warehaus.co', role: 'Warehaus Staff', portalAccess: 'Enabled' },
-  { id: 'ada', name: 'Ada North', email: 'ada@northwind.example', role: 'Client Admin', portalAccess: 'Enabled' },
+  { id: 'ada', name: 'Ada North', email: 'ada@northwind.example', role: 'Client Admin', portalAccess: 'Enabled', joinedAt: Date.UTC(2026, 9, 2) },
   { id: 'sam', name: 'Sam North', email: 'sam@northwind.example', role: 'Client Member', portalAccess: 'Disabled', invitePending: true },
 ];
 
@@ -70,6 +70,8 @@ describe('client team page', () => {
     assert.match(html, /data-testid="client-person-email"[^>]*style="[^"]*overflow-wrap:anywhere[^"]*"[^>]*>ada@northwind\.example</);
     assert.match(html, /data-testid="client-person-role-phone"[^>]*style="[^"]*white-space:nowrap[^"]*"[^>]*> · Client Admin</);
     assert.match(html, /Invite pending/);
+    assert.match(html, /data-testid="client-person-pill"/);
+    assert.match(html, /Joined Oct 2/);
     assert.match(html, /color:var\(--warning\)/);
     assert.match(html, /Warehaus manages access/);
     assert.match(html, /project lead adds and removes people/);

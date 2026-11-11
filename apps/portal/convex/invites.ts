@@ -490,52 +490,69 @@ export const listTeam = adminQuery({
         ),
       )
     ).flat();
+    const tokenRows = (
+      await Promise.all(
+        orgIds.map((orgId) =>
+          ctx.db
+            .query('inviteTokens')
+            .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+            .collect(),
+        ),
+      )
+    ).flat();
+    const tokensByContact = new Map<string, typeof tokenRows>();
+    for (const token of tokenRows) {
+      const group = tokensByContact.get(token.contactNotionPageId);
+      if (group) group.push(token);
+      else tokensByContact.set(token.contactNotionPageId, [token]);
+    }
     return {
       canInvite: true,
-      members: await Promise.all(
-        contacts
+      members: contacts
         .filter((contact) => !contact.syncHiddenAt && contact.role === 'Warehaus Staff')
-        .map(async (contact) => {
-          const tokens = await ctx.db
-            .query('inviteTokens')
-            .withIndex('by_contactNotionPageId', (q) => q.eq('contactNotionPageId', contact.notionPageId))
-            .collect();
-          const joined = tokens
-            .filter((token) => token.status === 'used' && typeof token.usedAt === 'number')
-            .sort((a, b) => (b.usedAt ?? 0) - (a.usedAt ?? 0))[0];
+        .map((contact) => ({
+          notionPageId: contact.notionPageId,
+          name: contact.name,
+          email: contact.email,
+          role: contact.role,
+          portalAccess: contact.portalAccess,
+          joinedAt: latestUsedAt(tokensByContact.get(contact.notionPageId)),
+        })),
+      invites: invites
+        .filter((invite) => invite.inviteStatus === 'Pending' || invite.inviteStatus === 'Expired')
+        .map((invite) => {
+          const latest = newestToken(tokensByContact.get(invite.notionPageId));
           return {
-            notionPageId: contact.notionPageId,
-            name: contact.name,
-            email: contact.email,
-            role: contact.role,
-            portalAccess: contact.portalAccess,
-            joinedAt: joined?.usedAt ?? null,
+            notionPageId: invite.notionPageId,
+            name: invite.name,
+            email: invite.email,
+            role: invite.role,
+            inviteStatus: invite.inviteStatus,
+            invitedAt: latest?.createdAt ?? invite.lastSyncedAt,
+            expiresAt: latest?.expiresAt ?? null,
           };
         }),
-      ),
-      invites: await Promise.all(
-        invites
-          .filter((invite) => invite.inviteStatus === 'Pending' || invite.inviteStatus === 'Expired')
-          .map(async (invite) => {
-            const tokens = await ctx.db
-              .query('inviteTokens')
-              .withIndex('by_contactNotionPageId', (q) => q.eq('contactNotionPageId', invite.notionPageId))
-              .collect();
-            const latest = tokens.sort((a, b) => b.createdAt - a.createdAt)[0];
-            return {
-              notionPageId: invite.notionPageId,
-              name: invite.name,
-              email: invite.email,
-              role: invite.role,
-              inviteStatus: invite.inviteStatus,
-              invitedAt: latest?.createdAt ?? invite.lastSyncedAt,
-              expiresAt: latest?.expiresAt ?? null,
-            };
-          }),
-      ),
     };
   },
 });
+
+function latestUsedAt(rows: Array<{ status: string; usedAt?: number }> | undefined): number | null {
+  let latest: number | null = null;
+  for (const row of rows ?? []) {
+    if (row.status === 'used' && typeof row.usedAt === 'number' && (latest === null || row.usedAt > latest)) {
+      latest = row.usedAt;
+    }
+  }
+  return latest;
+}
+
+function newestToken<T extends { createdAt: number }>(rows: T[] | undefined): T | undefined {
+  let best: T | undefined;
+  for (const row of rows ?? []) {
+    if (!best || row.createdAt > best.createdAt) best = row;
+  }
+  return best;
+}
 
 function tokenState(row: { status: InviteTokenState['status']; attempt?: number }): InviteTokenState {
   return { status: row.status, attempt: row.attempt ?? 0 };

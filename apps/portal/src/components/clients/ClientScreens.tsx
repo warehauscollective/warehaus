@@ -80,6 +80,7 @@ export type ClientPersonRow = {
   role?: string;
   portalAccess?: 'Enabled' | 'Disabled';
   invitePending?: boolean;
+  joinedAt?: number | null;
 };
 
 const FILTERS: Array<{ key: ClientListFilter; label: string }> = [
@@ -245,6 +246,10 @@ function Chevron({ className = '' }: { className?: string }) {
   );
 }
 
+function clientJoinedLabel(ms: number): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'UTC' }).format(ms);
+}
+
 function personRowStyle(index: number): CSSProperties {
   return {
     borderTop: index === 0 ? 'none' : '1px solid var(--border)',
@@ -265,6 +270,27 @@ function TeamPersonRow({
 }) {
   const status = clientPersonStatus(person);
   const statusColor = person.invitePending ? pendingColor : 'var(--muted)';
+  const active = status === 'Active';
+  const joined = !person.invitePending && person.joinedAt ? `Joined ${clientJoinedLabel(person.joinedAt)}` : null;
+  const pill = () => (
+    <span
+      data-testid="client-person-pill"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        width: 'fit-content',
+        borderRadius: 999,
+        border: active ? '1px solid transparent' : '1px solid var(--border)',
+        background: active ? 'var(--fg)' : 'transparent',
+        color: person.invitePending ? statusColor : active ? 'var(--bg)' : statusColor,
+        padding: '2px 8px',
+        fontSize: 12,
+        lineHeight: '18px',
+      }}
+    >
+      {status}
+    </span>
+  );
   return (
     <li className="flex items-start lg:items-center" style={personRowStyle(index)}>
       <PersonMark name={person.name} />
@@ -276,7 +302,8 @@ function TeamPersonRow({
             data-testid="client-person-status"
             style={{ fontSize: 12, color: statusColor, textAlign: 'left' }}
           >
-            {status}
+            {pill()}
+            {joined ? <span className="mt-1 block" style={{ color: 'var(--muted)', fontWeight: 400 }}>{joined}</span> : null}
           </span>
         </span>
         <span className="ds-mono hidden lg:block" style={{ fontSize: 12, color: 'var(--muted)', overflowWrap: 'anywhere' }}>{person.email}</span>
@@ -301,7 +328,8 @@ function TeamPersonRow({
         data-testid="client-person-status"
         style={{ width: 140, marginLeft: 24, fontSize: 12, color: statusColor, textAlign: 'left' }}
       >
-        {status}
+        {pill()}
+        {joined ? <span className="mt-1 block" style={{ color: 'var(--muted)', fontWeight: 400 }}>{joined}</span> : null}
       </span>
     </li>
   );

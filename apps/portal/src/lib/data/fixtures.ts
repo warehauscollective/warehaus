@@ -398,6 +398,7 @@ export const FIXTURE_CONTACTS = [
     email: 'ada@northwind.example',
     role: 'Client Admin',
     portalAccess: 'Enabled' as const,
+    joinedAt: Date.UTC(2026, 9, 2),
     notionPageId: 'notion-contact-ada',
     lastSyncedAt: SYNCED_AT,
     syncHidden: false,

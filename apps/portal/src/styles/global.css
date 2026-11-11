@@ -259,6 +259,11 @@ html[data-density='compact'] .ds-data th {
 html.light .accept-invite {
   --accept-muted: #525252;
 }
+.accept-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
 .accept-invite .accept-card {
   background: var(--surface);
   border: 1px solid var(--border);
@@ -363,6 +368,9 @@ html.light .accept-invite {
 @keyframes accept-progress {
   0% { transform: translateX(-120%); }
   100% { transform: translateX(280%); }
+}
+[data-testid='portal-dock'] [role='tab'][aria-selected='true']:has(.dock-label-account) {
+  padding-inline: 10px;
 }
 @media (min-width: 1024px) {
   [data-testid='portal-dock'] [role='tab']:has(.dock-label-account) {

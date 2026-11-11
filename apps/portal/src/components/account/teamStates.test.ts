@@ -68,6 +68,10 @@ describe('account team states', () => {
     assert.equal(invites.includes('Invite someone'), false);
     assert.match(invites, /Revoke this invite/);
     assert.match(invites, /from the Clients tab/);
+    assert.match(invites, /zIndex: 60/);
+    assert.match(invites, /zIndex: 61/);
+    assert.equal(invites.includes('88px'), false);
+    assert.match(invites, /role="menu"/);
     assert.equal(invites.includes('TEAM_STAFF_EMPTY'), false);
     assert.equal(teamWritesLive({ configured: true, fixtures: false }), true);
     assert.equal(teamWritesLive({ configured: true, fixtures: true }), false);
