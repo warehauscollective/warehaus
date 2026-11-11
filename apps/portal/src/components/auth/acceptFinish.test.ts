@@ -10,6 +10,7 @@ import { authGateAction, type AuthGateInput } from './authGateAction';
 import { installTestDom, textOf, type DomDocument } from './testDom';
 import { useStaffLinkWait } from '@/lib/staffLinkWait';
 import { readStaffJoined } from '@/lib/staffJoined';
+import { STAFF_ACCESS_CONFLICT_MESSAGE } from './authGateAction';
 import { staffLinkPhase } from '@/lib/staffLinkWait';
 
 Object.assign(globalThis, { React });
@@ -119,6 +120,7 @@ const gateBase: AuthGateInput = {
   linking: false,
   staffInviteInProgress: true,
   staffInviteCheckPending: false,
+  staffInviteConflicted: false,
   hasPortalSession: false,
   linkQueryError: false,
   pathname: '/',
@@ -261,6 +263,59 @@ describe('staff accept waits for the link', () => {
     await act(async () => {
       view.root.unmount();
     });
+  });
+
+  it('shows the resend copy when the staff accept conflicted, and does not sign out', async () => {
+    const document = installTestDom();
+    const replaced: string[] = [];
+    const signedOut: string[] = [];
+    const linked: string[] = [];
+    const conflicted = {
+      ...gateBase,
+      staffInviteInProgress: false,
+      staffInviteConflicted: true,
+      joinError: "This email can't register here. Contact your Warehaus team.",
+    };
+    assert.equal(authGateAction(conflicted).type, 'conflict');
+    const view = await renderAt(document, gateElement(conflicted, replaced, signedOut, linked));
+    assert.equal(view.text().includes(STAFF_ACCESS_CONFLICT_MESSAGE), true);
+    assert.equal(view.text().includes('Access denied'), false);
+    assert.deepEqual(signedOut, []);
+    assert.deepEqual(replaced, []);
+    await act(async () => {
+      view.root.unmount();
+    });
+  });
+
+  it('stays in finishing when the staff-link hash cannot be saved', async () => {
+    installStorage();
+    const document = installTestDom();
+    const redirects: string[] = [];
+    const subtle = crypto.subtle;
+    const original = subtle.digest.bind(subtle);
+    Object.defineProperty(subtle, 'digest', {
+      configurable: true,
+      value: async () => {
+        throw new Error('digest unavailable');
+      },
+    });
+    try {
+      const view = await renderAt(
+        document,
+        createElement(FinishProbe, { step: 'accepted', link: { state: 'unlinked' }, retryTick: 0, redirects }),
+      );
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      assert.match(view.text(), /Finishing setup/);
+      assert.equal(view.text().includes('Access denied'), false);
+      assert.deepEqual(redirects, []);
+      await act(async () => {
+        view.root.unmount();
+      });
+    } finally {
+      Object.defineProperty(subtle, 'digest', { configurable: true, value: original });
+    }
   });
 
   it('keeps the sixty second fallback and drops the dashboard finishing state', () => {

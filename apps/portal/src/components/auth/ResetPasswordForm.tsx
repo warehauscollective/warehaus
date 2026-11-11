@@ -4,6 +4,7 @@ import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { PrimaryButton, Surface } from '@/components/ui/primitives';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { authClient } from '@/lib/auth-client';
 
 export function ResetPasswordForm({
@@ -124,7 +125,7 @@ export function ResetPasswordForm({
               }
               setDone(true);
             } catch (err) {
-              setError(err instanceof Error ? err.message : 'Could not reset password.');
+              setError(userFacingErrorMessage(err, 'Could not reset password.'));
             } finally {
               setBusy(false);
             }

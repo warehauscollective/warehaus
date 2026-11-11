@@ -17,7 +17,8 @@ export type ContactSyncAction =
       caseId: 4 | 6 | 8;
     }
   | { type: 'killToken'; caseId: 3 | 7 }
-  | { type: 'notice'; caseId: ContactSyncCase; message: string };
+  | { type: 'notice'; caseId: ContactSyncCase; message: string }
+  | { type: 'backfill'; field: 'Invite Status'; value: 'Pending' };
 
 export type ContactPlacement = 'UPSERT_CONTACT' | 'UPSERT_PENDING_INVITE' | 'SKIP_AND_DROP_PENDING';
 
@@ -64,6 +65,19 @@ export function decideContactSync(input: {
   const token = input.liveToken;
 
   if (!input.selfWrite) {
+    // Pre-migration invites were Pending in the portal while Notion had no
+    // Invite Status value. Empty is not a staff clear (that needs a previous Pending).
+    if (
+      inviteStatus == null &&
+      input.prevInviteStatus == null &&
+      portalAccess === 'Disabled' &&
+      input.source === 'portal' &&
+      token
+    ) {
+      inviteStatus = 'Pending';
+      actions.push({ type: 'backfill', field: 'Invite Status', value: 'Pending' });
+    }
+
     if (inviteStatus === 'Pending' && !token) {
       actions.push({
         type: 'revert',

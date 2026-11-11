@@ -41,6 +41,7 @@ import {
   planStaffInviteLink,
   pendingInviteWouldRegress,
   renewRequestMessage,
+  staffAcceptConflicted,
   staffAcceptInProgress,
   staffAcceptOrgOk,
   signupPermitOpen,
@@ -575,6 +576,7 @@ describe('invite accept email match', () => {
       JSON.stringify({ properties: { 'Invite Status': 'Accepted' }, staffLink: { role: 'Warehaus Staff' } }),
     );
     assert.equal(conflict?.open, false);
+    assert.equal(conflict?.conflicted, true);
     assert.equal(
       staffAcceptInProgress({
         email: 'ada@example.com',
@@ -583,6 +585,14 @@ describe('invite accept email match', () => {
         holds: conflict ? [conflict] : [],
       }),
       false,
+    );
+    assert.equal(
+      staffAcceptConflicted({
+        email: 'ada@example.com',
+        invites: [{ ...invite, inviteStatus: 'Accepted' }],
+        holds: conflict ? [conflict] : [],
+      }),
+      true,
     );
     const queued = readAcceptHold(
       'page-1',

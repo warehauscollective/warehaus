@@ -140,7 +140,27 @@ function failureMessage(err: unknown): string {
   return message.slice(0, 200);
 }
 
-async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessResult> {
+type SchemaCache = Map<string, Promise<string[] | null>>;
+
+/** One schema read per data source for this processDue pass. The next pass reads again. */
+async function propertyNamesFor(
+  cache: SchemaCache,
+  database: WritebackDatabase,
+): Promise<string[] | null> {
+  if (database === 'activity') return null;
+  const id = PORTAL_COLLECTIONS[database];
+  const existing = cache.get(id);
+  if (existing) return existing;
+  const pending = listDataSourcePropertyNames(id);
+  cache.set(id, pending);
+  return pending;
+}
+
+async function execute(
+  ctx: ActionCtx,
+  id: Id<'notionOutbox'>,
+  schemaCache: SchemaCache,
+): Promise<ProcessResult> {
   if (!writebackOn()) return { ok: false, error: WRITEBACK_OFF_ERROR };
 
   const claim = await ctx.runMutation(internal.sync.outbox.claim, { id });
@@ -163,8 +183,7 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
   const database = item.database;
   let outcome: AttemptOutcome;
   try {
-    const livePropertyNames =
-      database === 'activity' ? null : await listDataSourcePropertyNames(PORTAL_COLLECTIONS[database]);
+    const livePropertyNames = await propertyNamesFor(schemaCache, database);
     if (row.kind === 'project-create') {
       outcome = await runProjectCreateAttempt({
         item,
@@ -331,7 +350,7 @@ async function execute(ctx: ActionCtx, id: Id<'notionOutbox'>): Promise<ProcessR
 
 export const processOne = internalAction({
   args: { id: v.id('notionOutbox') },
-  handler: async (ctx, { id }): Promise<ProcessResult> => execute(ctx, id),
+  handler: async (ctx, { id }): Promise<ProcessResult> => execute(ctx, id, new Map()),
 });
 
 export const processDue = internalAction({
@@ -341,9 +360,10 @@ export const processDue = internalAction({
     await ctx.runMutation(internal.sync.taskWrite.drainPendingStages, {});
     const now = Date.now();
     const due = await ctx.runQuery(internal.sync.outbox.listDue, { now });
+    const schemaCache: SchemaCache = new Map();
     let processed = 0;
     for (const row of due) {
-      await execute(ctx, row._id);
+      await execute(ctx, row._id, schemaCache);
       processed += 1;
     }
     return { processed, held: false };

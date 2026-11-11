@@ -5,6 +5,7 @@
 
 import {
   auditEventForOutcome,
+  isMissingPropertyRejection,
   isNewerEditedTime,
   isNotionWritebackEnabled,
   outboxLeaseUnexpired,
@@ -433,6 +434,9 @@ export const applyOutcome = internalMutation({
         after: args.outcome.reason,
         createdAt: now,
       });
+      if (isMissingPropertyRejection(args.outcome.reason)) {
+        await notify(`${await noticeSubject(ctx, row)}: ${args.outcome.reason}`, 'missing-property');
+      }
       await releaseHeldInvite();
       return;
     }

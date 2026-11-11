@@ -297,9 +297,16 @@ export async function runOutboxAttempt(input: {
     };
   }
 
+  // Partial edits use the patch path and its last-edited conflict check.
+  // Full-page validation stays for creates only: `create` and `createInvite`
+  // send a new page, and `project-create` has its own create attempt.
+  // `setInviteState` and `revert` already use validatePropertyPatch above.
+  // They re-read only when expectedLastEditedTime is present, because some
+  // state changes have no prior read. That is not the full-page bug.
   const isPatch =
     input.item.kind === 'task-status' ||
     input.item.kind === 'task-stage' ||
+    input.item.kind === 'task-description' ||
     input.item.kind === 'update' ||
     input.item.kind === 'task-fields';
   const validated = isPatch
@@ -383,6 +390,12 @@ export function missingWritebackReason(names: readonly string[]): string {
   return names.length === 1
     ? `Notion is missing property ${quoted}.`
     : `Notion is missing properties ${quoted}.`;
+}
+
+/** True when a rejection names a Notion property the data source does not have. */
+export function isMissingPropertyRejection(reason: string | undefined): boolean {
+  if (!reason) return false;
+  return reason.startsWith('Notion is missing property ') || reason.startsWith('Notion is missing properties ');
 }
 
 function rejectIfSchemaMissing(

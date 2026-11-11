@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from 'react';
 import { useAction } from 'convex/react';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { createProjectExternalId } from '@warehaus/portal-sync';
@@ -76,7 +77,7 @@ export function NewProjectControl({
       setOrgId('');
       onClose();
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Could not create the project';
+      const message = userFacingErrorMessage(err, 'Could not create the project');
       setNote(message);
     } finally {
       setPending(false);

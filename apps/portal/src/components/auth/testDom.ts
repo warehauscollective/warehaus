@@ -17,8 +17,28 @@ export type DomNode = {
   appendChild: (child: DomNode) => DomNode;
   removeChild: (child: DomNode) => DomNode;
   insertBefore: (child: DomNode, before: DomNode | null) => DomNode;
-  addEventListener: () => void;
-  removeEventListener: () => void;
+  listeners: Record<string, Array<(event: EventLike) => void>>;
+  value: string;
+  disabled: boolean;
+  type: string;
+  attachEvent: (type: string, fn: (event: EventLike) => void) => void;
+  detachEvent: (type: string, fn: (event: EventLike) => void) => void;
+  addEventListener: (type: string, fn: (event: EventLike) => void) => void;
+  removeEventListener: (type: string, fn: (event: EventLike) => void) => void;
+  dispatchEvent: (event: EventLike) => boolean;
+};
+
+export type EventLike = {
+  type: string;
+  bubbles?: boolean;
+  cancelable?: boolean;
+  defaultPrevented?: boolean;
+  cancelBubble?: boolean;
+  target: DomNode | null;
+  currentTarget: DomNode | null;
+  timeStamp?: number;
+  preventDefault: () => void;
+  stopPropagation: () => void;
 };
 
 export type DomDocument = DomNode & {
@@ -57,6 +77,16 @@ export function installTestDom(): DomDocument {
       textContent: '',
       namespaceURI: 'http://www.w3.org/1999/xhtml',
       nextSibling: null,
+      listeners: {},
+      value: '',
+      disabled: false,
+      type: '',
+      attachEvent(type, fn) {
+        this.addEventListener(type, fn);
+      },
+      detachEvent(type, fn) {
+        this.removeEventListener(type, fn);
+      },
       setAttribute(name, value) {
         this.attributes[name] = String(value);
       },
@@ -89,8 +119,26 @@ export function installTestDom(): DomDocument {
         linkSiblings(this);
         return child;
       },
-      addEventListener() {},
-      removeEventListener() {},
+      addEventListener(type, fn) {
+        this.listeners[type] = this.listeners[type] ?? [];
+        this.listeners[type].push(fn);
+      },
+      removeEventListener(type, fn) {
+        this.listeners[type] = (this.listeners[type] ?? []).filter((item) => item !== fn);
+      },
+      dispatchEvent(event) {
+        event.target = event.target ?? this;
+        const list = [...(this.listeners[event.type] ?? [])];
+        for (const fn of list) {
+          event.currentTarget = this;
+          fn(event);
+          if (event.cancelBubble) return true;
+        }
+        if (event.bubbles !== false && !event.cancelBubble && this.parentNode?.dispatchEvent) {
+          this.parentNode.dispatchEvent(event);
+        }
+        return true;
+      },
     };
     return node;
   }

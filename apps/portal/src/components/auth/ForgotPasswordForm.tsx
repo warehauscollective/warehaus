@@ -3,6 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { PrimaryButton, Surface } from '@/components/ui/primitives';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { authClient } from '@/lib/auth-client';
 
 export function ForgotPasswordForm() {
@@ -60,7 +61,7 @@ export function ForgotPasswordForm() {
                 }
                 setSent(true);
               } catch (err) {
-                setError(err instanceof Error ? err.message : 'Could not send reset email.');
+                setError(userFacingErrorMessage(err, 'Could not send reset email.'));
               } finally {
                 setBusy(false);
               }

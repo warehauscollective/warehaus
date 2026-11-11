@@ -2,7 +2,7 @@
 
 import { type ReactNode, useEffect, useState } from 'react';
 import { STAFF_LINK_WAIT_MS } from '@/lib/staffLinkWait';
-import { authGateAction, type AuthGateInput } from './authGateAction';
+import { STAFF_ACCESS_CONFLICT_MESSAGE, authGateAction, type AuthGateInput } from './authGateAction';
 
 export function AuthGateScreen({
   snapshot,
@@ -60,11 +60,13 @@ export function AuthGateScreen({
   const message =
     action.type === 'sign-out'
       ? 'Access denied — redirecting…'
-      : action.type === 'wait'
-        ? 'Finishing setup. We’re linking your staff access.'
-        : action.type === 'unreachable'
-          ? 'Could not reach the portal session. Refresh to try again.'
-          : 'Checking access…';
+      : action.type === 'conflict'
+        ? STAFF_ACCESS_CONFLICT_MESSAGE
+        : action.type === 'wait'
+          ? 'Finishing setup. We’re linking your staff access.'
+          : action.type === 'unreachable'
+            ? 'Could not reach the portal session. Refresh to try again.'
+            : 'Checking access…';
 
   return (
     <div className="ds-scope flex h-[100dvh] items-center justify-center" data-testid="auth-gate" data-action={action.type}>

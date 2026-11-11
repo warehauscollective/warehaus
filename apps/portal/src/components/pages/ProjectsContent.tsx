@@ -3,6 +3,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { useMutation } from 'convex/react';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { ProjectRoadmap } from '@/components/projects/ProjectRoadmap';
 import { resourcesForProject } from '@/components/projects/milestoneGuards';
 import { OutlineButton, Surface } from '@/components/ui/primitives';
@@ -394,7 +395,7 @@ export function ProjectsContent() {
     } catch (err) {
       setStageRetry({
         busy: false,
-        error: err instanceof Error ? err.message : 'Could not retry the stage change.',
+        error: userFacingErrorMessage(err, 'Could not retry the stage change.'),
       });
     }
   };

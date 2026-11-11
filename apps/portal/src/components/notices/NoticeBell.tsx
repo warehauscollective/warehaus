@@ -24,6 +24,7 @@ type NoticeRow = {
 function noticeLabel(edgeCase: string | null): string {
   if (!edgeCase) return 'Notice';
   if (edgeCase === 'conflict') return 'Conflict';
+  if (edgeCase === 'missing-property') return 'Missing property';
   if (edgeCase === 'sync' || edgeCase.startsWith('sync')) return 'Sync';
   if (edgeCase.startsWith('unknown-stage')) return 'Stage';
   if (edgeCase.startsWith('invite') || edgeCase.startsWith('revert')) return 'Invite';

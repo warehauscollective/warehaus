@@ -4,7 +4,7 @@ import { getFunctionName } from 'convex/server';
 import { OUTBOX_LEASE_MS } from '@warehaus/portal-sync';
 import { applyOutcome, claim, get, listDue, release } from '../sync/outbox';
 import { issueTokenAfterConfirm } from '../invites';
-import { processOne } from '../sync/outboxWork';
+import { processDue, processOne } from '../sync/outboxWork';
 
 type Row = Record<string, unknown> & { _id: string };
 type Handler = (ctx: unknown, args: Record<string, unknown>) => Promise<unknown>;
@@ -350,5 +350,264 @@ describe('outbox rows due for another attempt', () => {
       due.map((row) => row._id),
       ['crashed', 'queued', 'failed'],
     );
+  });
+});
+
+const EXPECTED = '2026-11-10T00:00:00.000Z';
+
+function schemaFetch(properties: Record<string, unknown>, onSchema: () => void) {
+  const calls: string[] = [];
+  globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+    const path = String(url);
+    const method = init?.method ?? 'GET';
+    calls.push(`${method} ${path}`);
+    if (path.includes('/databases/')) return new Response('not a database', { status: 404 });
+    if (path.includes('/data_sources/') && path.endsWith('/query')) {
+      return new Response(JSON.stringify({ results: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (path.includes('/data_sources/')) {
+      onSchema();
+      return new Response(JSON.stringify({ properties }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }
+    if (method === 'GET' && path.includes('/pages/')) {
+      return new Response(JSON.stringify({ id: 'page-1', last_edited_time: EXPECTED }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (method === 'PATCH' && path.includes('/pages/')) {
+      return new Response(JSON.stringify({ id: 'page-1', last_edited_time: '2026-11-10T00:00:01.000Z' }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    if (method === 'POST' && path.endsWith('/pages')) {
+      return new Response(JSON.stringify({ id: 'page-new', last_edited_time: EXPECTED }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }
+    return new Response('unexpected', { status: 500 });
+  }) as typeof fetch;
+  return calls;
+}
+
+function workerCtx(rows: Row[]) {
+  const outcomes: Array<Record<string, unknown>> = [];
+  const byId = new Map(rows.map((row) => [row._id, row]));
+  const ctx = {
+    runQuery: async (ref: never, args: Record<string, unknown>) => {
+      const name = getFunctionName(ref);
+      if (name === 'sync/outbox:listDue') return rows;
+      if (name === 'sync/outbox:get') return byId.get(String(args.id)) ?? null;
+      if (name === 'sync/outbox:clientNotionId') return 'client-page';
+      throw new Error(`Unexpected query ${name}`);
+    },
+    runMutation: async (ref: never, args: Record<string, unknown>) => {
+      const name = getFunctionName(ref);
+      if (name === 'sync/taskWrite:drainPendingStages') return null;
+      if (name === 'sync/outbox:claim') return { claimed: true as const };
+      if (name === 'sync/outbox:release') return null;
+      if (name === 'sync/outbox:applyOutcome') {
+        outcomes.push(args.outcome as Record<string, unknown>);
+        return null;
+      }
+      if (name === 'invites:issueTokenAfterConfirm') return { issued: false };
+      if (name === 'sync/upsert:upsertProject') return 'proj-1';
+      if (name === 'sync/outbox:attachProjectId') return null;
+      throw new Error(`Unexpected mutation ${name}`);
+    },
+    runAction: async () => {
+      throw new Error('no action');
+    },
+  };
+  return { ctx, outcomes };
+}
+
+describe('outbox work with a live property list', () => {
+  const env = { ...process.env };
+  const realFetch = globalThis.fetch;
+
+  beforeEach(() => {
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
+    process.env.NOTION_WAREHAUS_TOKEN = 'test-token';
+  });
+
+  afterEach(() => {
+    process.env = { ...env };
+    globalThis.fetch = realFetch;
+  });
+
+  it('patches a task description after the re-read matches, and conflicts when it does not', async () => {
+    const row = inviteRow({
+      _id: 'out-desc',
+      kind: 'task-description',
+      database: 'tasks',
+      notionPageId: 'page-1',
+      expectedLastEditedTime: EXPECTED,
+      payload: JSON.stringify({ properties: { Description: 'Staff note' } }),
+      idempotencyKey: 'task-description:page-1',
+    });
+    let schemas = 0;
+    const calls = schemaFetch({ Description: { type: 'rich_text' }, Name: { type: 'title' } }, () => {
+      schemas += 1;
+    });
+    const { ctx, outcomes } = workerCtx([row]);
+    const result = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; error?: string };
+    assert.equal(result.ok, true, result.error ?? 'not ok');
+    assert.equal(schemas, 1);
+    assert.equal(outcomes[0]?.kind, 'confirmed');
+    assert.equal(calls.some((call) => call.startsWith('PATCH ')), true);
+    const patch = calls.find((call) => call.startsWith('PATCH '));
+    assert.ok(patch);
+
+    schemas = 0;
+    globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
+      const path = String(url);
+      const method = init?.method ?? 'GET';
+      if (path.includes('/databases/')) return new Response('no', { status: 404 });
+      if (path.includes('/data_sources/')) {
+        schemas += 1;
+        return new Response(JSON.stringify({ properties: { Description: {} } }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (method === 'GET' && path.includes('/pages/')) {
+        return new Response(JSON.stringify({ id: 'page-1', last_edited_time: '2026-11-11T00:00:00.000Z' }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
+      if (method === 'PATCH') return new Response('should not patch', { status: 500 });
+      return new Response('unexpected', { status: 500 });
+    }) as typeof fetch;
+    const conflicted = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; error?: string };
+    assert.equal(conflicted.ok, false);
+    assert.match(conflicted.error ?? '', /Nothing was written/);
+    assert.equal(outcomes.at(-1)?.kind, 'conflict');
+  });
+
+  it('checks invite-state and project-create against the live property list', async () => {
+    const invite = inviteRow({
+      _id: 'out-state',
+      kind: 'setInviteState',
+      database: 'contacts',
+      notionPageId: 'page-1',
+      expectedLastEditedTime: EXPECTED,
+      payload: JSON.stringify({ properties: { 'Portal Access': 'Enabled', 'Invite Status': 'Accepted' } }),
+      idempotencyKey: 'state:page-1',
+    });
+    let schemas = 0;
+    schemaFetch(
+      { 'Portal Access': { type: 'select' }, Name: { type: 'title' }, Email: { type: 'email' } },
+      () => {
+        schemas += 1;
+      },
+    );
+    const missing = workerCtx([invite]);
+    const rejected = (await run(processOne, missing.ctx, { id: invite._id })) as { ok: boolean; error?: string };
+    assert.equal(rejected.ok, false);
+    assert.equal(rejected.error, 'Notion is missing property "Invite Status".');
+    assert.equal(missing.outcomes[0]?.kind, 'rejected');
+    assert.equal(schemas, 1);
+
+    schemas = 0;
+    schemaFetch(
+      {
+        'Portal Access': { type: 'select' },
+        'Invite Status': { type: 'select' },
+        Name: { type: 'title' },
+      },
+      () => {
+        schemas += 1;
+      },
+    );
+    const present = workerCtx([invite]);
+    const accepted = (await run(processOne, present.ctx, { id: invite._id })) as { ok: boolean; error?: string };
+    assert.equal(accepted.ok, true, accepted.error ?? 'not ok');
+    assert.equal(present.outcomes[0]?.kind, 'confirmed');
+
+    const project = inviteRow({
+      _id: 'out-project',
+      kind: 'project-create',
+      database: 'projects',
+      payload: JSON.stringify({
+        properties: {
+          Name: 'Spring menu',
+          Client: ['client-page'],
+          'Publish to Warehaus': true,
+          Archive: false,
+          Source: 'portal',
+          'External ID': 'wh_prj_menu',
+        },
+      }),
+      idempotencyKey: 'project-create:wh_prj_menu',
+      notionPageId: undefined,
+      expectedLastEditedTime: undefined,
+    });
+    schemas = 0;
+    schemaFetch(
+      {
+        Name: {},
+        Client: {},
+        'Publish to Warehaus': {},
+        Archive: {},
+        Source: {},
+      },
+      () => {
+        schemas += 1;
+      },
+    );
+    const incomplete = workerCtx([project]);
+    const projectRejected = (await run(processOne, incomplete.ctx, { id: project._id })) as { ok: boolean; error?: string };
+    assert.equal(projectRejected.ok, false);
+    assert.match(projectRejected.error ?? '', /External ID/);
+    assert.equal(incomplete.outcomes[0]?.kind, 'rejected');
+
+    schemaFetch(
+      {
+        Name: {},
+        Client: {},
+        'Publish to Warehaus': {},
+        Archive: {},
+        Source: {},
+        'External ID': {},
+      },
+      () => {
+        schemas += 1;
+      },
+    );
+    const created = workerCtx([project]);
+    const projectOk = (await run(processOne, created.ctx, { id: project._id })) as { ok: boolean; error?: string };
+    assert.equal(projectOk.ok, true, projectOk.error ?? 'not ok');
+    assert.equal(created.outcomes[0]?.kind, 'confirmed');
+  });
+
+  it('reads each data source once per processDue run', async () => {
+    const first = inviteRow({
+      _id: 'out-a',
+      kind: 'task-description',
+      database: 'tasks',
+      notionPageId: 'page-1',
+      expectedLastEditedTime: EXPECTED,
+      payload: JSON.stringify({ properties: { Description: 'One' } }),
+    });
+    const second = inviteRow({
+      _id: 'out-b',
+      kind: 'task-stage',
+      database: 'tasks',
+      notionPageId: 'page-1',
+      expectedLastEditedTime: EXPECTED,
+      payload: JSON.stringify({ properties: { Stage: 'Planning' } }),
+    });
+    let schemas = 0;
+    schemaFetch({ Description: {}, Stage: {}, Name: {} }, () => {
+      schemas += 1;
+    });
+    const { ctx } = workerCtx([first, second]);
+    const result = (await run(processDue, ctx, {})) as { processed: number };
+    assert.equal(result.processed, 2);
+    assert.equal(schemas, 1);
   });
 });

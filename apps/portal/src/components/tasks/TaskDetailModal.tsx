@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEditMode } from '@warehaus/portal-sync';
@@ -229,7 +230,7 @@ export function TaskDetailModal({
                       ...patch,
                     });
                   } catch (err) {
-                    return { ok: false, error: err instanceof Error ? err.message : 'Could not save' };
+                    return { ok: false, error: userFacingErrorMessage(err, 'Could not save') };
                   }
                 }}
               />
@@ -368,7 +369,7 @@ function TaskDescription({
       });
       setNote(result.ok ? 'Queued for Notion.' : result.error);
     } catch (err) {
-      setNote(err instanceof Error ? err.message : 'Could not save the description');
+      setNote(userFacingErrorMessage(err, 'Could not save the description'));
     } finally {
       setPending(false);
     }
@@ -587,7 +588,7 @@ export function TaskCreateDialog({
       }
       onClose();
     } catch (err) {
-      setNote(err instanceof Error ? err.message : 'Could not create the task');
+      setNote(userFacingErrorMessage(err, 'Could not create the task'));
     } finally {
       setPending(false);
     }

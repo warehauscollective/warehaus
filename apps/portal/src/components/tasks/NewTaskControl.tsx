@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from 'react';
 import { useMutation } from 'convex/react';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { WRITEBACK_OFF_ERROR, createTaskExternalId } from '@warehaus/portal-sync';
@@ -71,7 +72,7 @@ export function NewTaskControl({
       setStatus('');
       setOpen(false);
     } catch (err) {
-      setNote(err instanceof Error ? err.message : 'Could not create the task');
+      setNote(userFacingErrorMessage(err, 'Could not create the task'));
     } finally {
       setPending(false);
     }

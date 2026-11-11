@@ -481,6 +481,50 @@ describe('outbox attempt', () => {
     assert.equal(writes, 1);
   });
 
+  it('patches a task description and conflicts when Notion changed', async () => {
+    const description = item({
+      kind: 'task-description',
+      database: 'tasks',
+      notionPageId: 'page-1',
+      expectedLastEditedTime: '2026-10-01T00:00:00.000Z',
+      properties: { Description: 'Staff note' },
+    });
+    let wrote = 0;
+    const sent = await runOutboxAttempt({
+      item: description,
+      nowMs: 0,
+      writebackEnabled: true,
+      actor: 'staff',
+      search: async () => {
+        throw new Error('search should not run');
+      },
+      readPage: async () => ({ ok: true, lastEditedTime: '2026-10-01T00:00:00.000Z' }),
+      write: async (request) => {
+        wrote += 1;
+        assert.equal(request.method, 'update');
+        assert.deepEqual(request.properties, { Description: 'Staff note' });
+        return { ok: true, status: 200, notionPageId: 'page-1', lastEditedTime: '2026-10-01T00:01:00.000Z' };
+      },
+    });
+    assert.equal(sent.outcome, 'confirmed');
+    assert.equal(wrote, 1);
+
+    const conflict = await runOutboxAttempt({
+      item: description,
+      nowMs: 0,
+      writebackEnabled: true,
+      actor: 'staff',
+      search: async () => [],
+      readPage: async () => ({ ok: true, lastEditedTime: '2026-10-02T00:00:00.000Z' }),
+      write: async () => {
+        wrote += 1;
+        return { ok: true, status: 200, notionPageId: 'page-1' };
+      },
+    });
+    assert.equal(conflict.outcome, 'conflict');
+    assert.equal(wrote, 1);
+  });
+
   it('writes a task status when the re-read matches', async () => {
     const outcome = await runOutboxAttempt({
       item: item({

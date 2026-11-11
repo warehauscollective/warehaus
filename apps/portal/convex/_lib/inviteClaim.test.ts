@@ -566,6 +566,68 @@ describe('invite accept, decline, and revoke', () => {
     }
   });
 
+  it('keeps a legacy pending invite whose Notion Invite Status is empty and backfills it', async () => {
+    const previous = process.env.NOTION_WRITEBACK_ENABLED;
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
+    try {
+      const decision = decideContactSync({
+        portalAccess: 'Disabled',
+        inviteStatus: undefined,
+        prevInviteStatus: null,
+        source: 'portal',
+        clientNotionId: REAL_WAREHAUS_PAGE,
+        clientEnabled: () => true,
+        liveToken: { clientNotionPageId: REAL_WAREHAUS_PAGE },
+        verifiedAcceptance: false,
+      });
+      assert.equal(decision.placement, 'UPSERT_PENDING_INVITE');
+      assert.equal(decision.effective.inviteStatus, 'Pending');
+      const conceal = pendingInviteSyncConceal(decision.placement);
+      assert.equal(conceal?.revokeSessions, false);
+
+      const tables: Record<string, Row[]> = {
+        pendingInvites: [],
+        inviteTokens: [
+          {
+            _id: 'tok-legacy',
+            status: 'live',
+            emailNormalized: 'legacy@warehaus.co',
+            contactNotionPageId: 'page-legacy',
+            clientNotionPageId: REAL_WAREHAUS_PAGE,
+            expiresAt: Date.now() + 86_400_000,
+          },
+        ],
+        notionOutbox: [],
+        notionWriteState: [],
+        auditEvents: [],
+        notices: [],
+      };
+      const enqueues: Array<Record<string, unknown>> = [];
+      await run(applyContactRead, authCtx('auth-staff', tables, enqueues), {
+        notionPageId: 'page-legacy',
+        orgId: 'org-real',
+        name: 'Legacy Staff',
+        email: 'legacy@warehaus.co',
+        role: 'Warehaus Staff',
+        source: 'portal',
+        placement: 'UPSERT_PENDING_INVITE',
+        inviteStatus: 'Pending',
+        actionsJson: JSON.stringify(decision.actions),
+        observedJson: '{}',
+      });
+      const kept = tables.pendingInvites?.find((row) => row.notionPageId === 'page-legacy');
+      assert.equal(kept?.inviteStatus, 'Pending');
+      assert.equal(tables.inviteTokens?.[0]?.status, 'live');
+      assert.equal(enqueues[0]?.kind, 'revert');
+      const payload = JSON.parse(String(enqueues[0]?.payload)) as { properties?: { 'Invite Status'?: string } };
+      assert.equal(payload.properties?.['Invite Status'], 'Pending');
+      assert.equal(String(enqueues[0]?.idempotencyKey).includes('legacy-pending'), true);
+    } finally {
+      if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+      else process.env.NOTION_WRITEBACK_ENABLED = previous;
+    }
+  });
+
   it('hides a pending invite without revoking sessions, and revokes when the invite is dropped', () => {
     const kept = pendingInviteSyncConceal('UPSERT_PENDING_INVITE');
     assert.equal(kept?.action, 'hide');

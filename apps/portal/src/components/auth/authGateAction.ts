@@ -1,4 +1,7 @@
+import { STAFF_ACCESS_CONFLICT_MESSAGE } from '@convex/_lib/inviteFlow';
 import { safeRedirectPath } from '@convex/_lib/safeRedirect';
+
+export { STAFF_ACCESS_CONFLICT_MESSAGE };
 
 export type AuthGateInput = {
   configured: boolean;
@@ -10,6 +13,7 @@ export type AuthGateInput = {
   linking: boolean;
   staffInviteInProgress: boolean;
   staffInviteCheckPending: boolean;
+  staffInviteConflicted: boolean;
   hasPortalSession: boolean;
   linkQueryError: boolean;
   pathname: string;
@@ -20,6 +24,7 @@ export type AuthGateAction =
   | { type: 'sign-out'; href: string }
   | { type: 'link' }
   | { type: 'wait' }
+  | { type: 'conflict' }
   | { type: 'ready' }
   | { type: 'checking' }
   | { type: 'unreachable' };
@@ -39,6 +44,7 @@ export function authGateAction(input: AuthGateInput): AuthGateAction {
   if (input.sessionPending || input.staffInviteCheckPending) return { type: 'checking' };
   if (!input.hasUser) return { type: 'login', href: loginHref(input.pathname) };
   if (input.staffInviteInProgress && input.linkStatus !== 'linked') return { type: 'wait' };
+  if (input.staffInviteConflicted && input.linkStatus !== 'linked') return { type: 'conflict' };
   if (input.joinError && input.linkStatus !== 'linked') {
     return { type: 'sign-out', href: `/login?error=${encodeURIComponent(input.joinError)}` };
   }

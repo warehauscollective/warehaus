@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { useMutation } from 'convex/react';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { Pill, PrimaryButton } from '@/components/ui/primitives';
@@ -403,7 +404,7 @@ export function TaskResponseSheet({ task }: { task: PortalTask }) {
       setBody('');
       if (type !== 'comment') setType('comment');
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not send response');
+      setError(userFacingErrorMessage(err, 'Could not send response'));
     } finally {
       setSubmitting(false);
     }

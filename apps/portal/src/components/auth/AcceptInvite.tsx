@@ -15,7 +15,7 @@ import {
 } from '@/lib/acceptSession';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isConvexConfigured } from '@/lib/convex/client';
-import { renewRequestMessage } from '@convex/_lib/inviteFlow';
+import { STAFF_ACCESS_CONFLICT_MESSAGE, renewRequestMessage } from '@convex/_lib/inviteFlow';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { rememberStaffJoined } from '@/lib/staffJoined';
 import { useStaffLinkWait } from '@/lib/staffLinkWait';
@@ -128,10 +128,40 @@ export function SignedInAcceptCopy({ email }: { email: string | null | undefined
   );
 }
 
-export function AcceptInvite() {
-  if (!isConvexConfigured()) {
-    return <AcceptInviteBody readAuthenticated={() => false} refreshSession={async () => {}} />;
-  }
+type AcceptResult = { ok: boolean; status?: string; message?: string; signedInEmail?: string };
+
+export type AcceptInviteIO = {
+  token: string;
+  previewKey: string | null;
+  forced: Preview | undefined;
+  preview: (Preview & { portalName?: string }) | null;
+  previewLoading: boolean;
+  configured: boolean;
+  sessionEmail: string | null;
+  readAuthenticated: () => boolean;
+  refreshSession: () => Promise<void>;
+  accept: (args: { token: string }) => Promise<AcceptResult>;
+  requestRenew: (args: { token: string }) => Promise<unknown>;
+  signUpEmail: (args: {
+    email: string;
+    password: string;
+    name: string;
+    callbackURL: string;
+    inviteToken: string;
+  }) => Promise<{ error: { message?: string } | null }>;
+  signInEmail: (args: { email: string; password: string }) => Promise<{ error: { message?: string } | null }>;
+  sendVerification: (args: { email: string; callbackURL: string }) => Promise<unknown>;
+  replace: (path: string) => void;
+  refresh: () => void;
+  link: { state: string; isStaff?: boolean } | null | undefined;
+  conflicted: boolean;
+  /** When set, tests replace the staff-link wait. Production leaves it unset. */
+  begin?: (value: { name: string; passwordSet: boolean }) => Promise<void>;
+};
+
+export function AcceptInvite({ io }: { io?: AcceptInviteIO }) {
+  if (io) return <AcceptInviteBody io={io} />;
+  if (!isConvexConfigured()) return <AcceptInviteLive />;
   return <AcceptInviteAuthed />;
 }
 
@@ -141,15 +171,15 @@ function AcceptInviteAuthed() {
   authenticated.current = isAuthenticated;
   const readAuthenticated = useCallback(() => authenticated.current, []);
   const refreshSession = useCallback(() => refreshConvexSession(authClient), []);
-  return <AcceptInviteBody readAuthenticated={readAuthenticated} refreshSession={refreshSession} />;
+  return <AcceptInviteLive readAuthenticated={readAuthenticated} refreshSession={refreshSession} />;
 }
 
-function AcceptInviteBody({
-  readAuthenticated,
-  refreshSession,
+function AcceptInviteLive({
+  readAuthenticated = () => false,
+  refreshSession = async () => {},
 }: {
-  readAuthenticated: () => boolean;
-  refreshSession: () => Promise<void>;
+  readAuthenticated?: () => boolean;
+  refreshSession?: () => Promise<void>;
 }) {
   const router = useRouter();
   const params = useSearchParams();
@@ -163,7 +193,53 @@ function AcceptInviteBody({
   );
   const accept = useMutation(api.invites.accept);
   const requestRenew = useMutation(api.invites.requestRenew);
-  const preview = forced ?? live.data ?? null;
+  const linkState = useSafeQuery<{ state: string; isStaff?: boolean }>(
+    api.contacts.getLinkStatus,
+    !forced && configured ? {} : 'skip',
+  );
+  const inviteProgress = useSafeQuery<{ inProgress: boolean; conflicted?: boolean }>(
+    api.contacts.staffInviteInProgress,
+    !forced && configured ? {} : 'skip',
+  );
+  const { data: authSession } = authClient.useSession();
+  const replace = useCallback((path: string) => {
+    router.replace(path);
+  }, [router]);
+  const refresh = useCallback(() => {
+    router.refresh();
+  }, [router]);
+  return (
+    <AcceptInviteBody
+      io={{
+        token,
+        previewKey,
+        forced,
+        preview: forced ?? live.data ?? null,
+        previewLoading: live.loading,
+        configured,
+        sessionEmail: knownSessionEmail(authSession?.user?.email),
+        readAuthenticated,
+        refreshSession,
+        accept,
+        requestRenew,
+        signUpEmail: (args) => authClient.signUp.email(args as never),
+        signInEmail: (args) => authClient.signIn.email(args),
+        sendVerification: (args) => authClient.sendVerificationEmail(args),
+        replace,
+        refresh,
+        link: linkState.data,
+        conflicted: inviteProgress.data?.conflicted === true,
+      }}
+    />
+  );
+}
+
+function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
+  const token = io.token;
+  const previewKey = io.previewKey;
+  const forced = io.forced;
+  const configured = io.configured;
+  const preview = io.preview;
   const [password, setPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [signInMode, setSignInMode] = useState(false);
@@ -174,18 +250,14 @@ function AcceptInviteBody({
   const [screen, setScreen] = useState<Preview['status'] | null>(null);
   const [accountCreated, setAccountCreated] = useState(false);
   const [awaitingAccept, setAwaitingAccept] = useState(false);
+  const [held, setHeld] = useState(false);
   const state = rules(password, confirm);
   const ready = state.length && state.mix && state.match;
-  const replace = useCallback((path: string) => {
-    router.replace(path);
-  }, [router]);
-  const linkState = useSafeQuery<{ state: string; isStaff?: boolean }>(
-    api.contacts.getLinkStatus,
-    !forced && configured ? {} : 'skip',
-  );
-  const wait = useStaffLinkWait({ token, link: linkState.data, replace });
-  const { data: authSession } = authClient.useSession();
-  const sessionEmail = knownSessionEmail(authSession?.user?.email) ?? knownSessionEmail(preview?.signedInEmail);
+  const replace = io.replace;
+  const wait = useStaffLinkWait({ token, link: io.link, replace });
+  const begin = io.begin ?? wait.begin;
+  const pendingFinish = useRef<{ name: string; passwordSet: boolean } | null>(null);
+  const sessionEmail = io.sessionEmail ?? knownSessionEmail(preview?.signedInEmail);
 
   if (previewKey === 'email') return <InviteEmailPreview />;
   if (previewKey === 'finishing' || previewKey === 'finishing-slow') {
@@ -204,7 +276,7 @@ function AcceptInviteBody({
     if (!ready || !preview?.invitedEmail) return;
     if (forced) {
       rememberStaffJoined({ name: 'Jordan', passwordSet: true });
-      router.replace('/preview');
+      replace('/preview');
       return;
     }
     setBusy(true);
@@ -212,13 +284,13 @@ function AcceptInviteBody({
     try {
       const steps = planJoinSteps({ accountCreated, awaitingAccept });
       if (steps.includes('sign-up')) {
-        const signed = await authClient.signUp.email({
+        const signed = await io.signUpEmail({
           email: preview.invitedEmail,
           password,
           name: preview.invitedEmail.split('@')[0] ?? 'Staff',
           callbackURL: `/accept?token=${encodeURIComponent(token)}`,
           inviteToken: token,
-        } as never);
+        });
         if (signed.error) {
           setError(signed.error.message ?? 'We couldn’t finish joining');
           return;
@@ -226,7 +298,7 @@ function AcceptInviteBody({
         setAccountCreated(true);
       }
       if (steps.includes('sign-in')) {
-        const signedIn = await authClient.signIn.email({ email: preview.invitedEmail, password });
+        const signedIn = await io.signInEmail({ email: preview.invitedEmail, password });
         if (signedIn.error) {
           setError(signedIn.error.message ?? 'Check your password and try again.');
           return;
@@ -256,9 +328,9 @@ function AcceptInviteBody({
 
   async function finishAccept(nameEmail: string, passwordSet: boolean) {
     const gate = await acceptOnceAuthenticated({
-      readAuthenticated,
-      refresh: refreshSession,
-      accept: () => accept({ token }),
+      readAuthenticated: io.readAuthenticated,
+      refresh: io.refreshSession,
+      accept: () => io.accept({ token }),
     });
     if (!gate.ok) {
       setError(gate.message);
@@ -271,7 +343,15 @@ function AcceptInviteBody({
       else setError(acceptFailureCopy(result.message ?? 'We couldn’t finish joining'));
       return;
     }
-    wait.begin({ name: joinedName(nameEmail), passwordSet });
+    const value = { name: joinedName(nameEmail), passwordSet };
+    pendingFinish.current = value;
+    try {
+      // join, confirmSignedIn, and signIn all await this, so a failed begin stays here.
+      await begin(value);
+      setHeld(false);
+    } catch {
+      setHeld(true);
+    }
   }
 
   async function confirmSignedIn() {
@@ -279,7 +359,7 @@ function AcceptInviteBody({
     if (!nameEmail) return;
     if (forced) {
       rememberStaffJoined({ name: 'Jordan', passwordSet: false });
-      router.replace('/preview');
+      replace('/preview');
       return;
     }
     setBusy(true);
@@ -298,13 +378,13 @@ function AcceptInviteBody({
     if (!preview?.invitedEmail || !password) return;
     if (forced) {
       rememberStaffJoined({ name: 'Jordan', passwordSet: false });
-      router.replace('/preview');
+      replace('/preview');
       return;
     }
     setBusy(true);
     setError(null);
     try {
-      const signed = await authClient.signIn.email({ email: preview.invitedEmail, password });
+      const signed = await io.signInEmail({ email: preview.invitedEmail, password });
       if (signed.error) {
         setError(signed.error.message ?? 'Check your password and try again.');
         return;
@@ -321,7 +401,7 @@ function AcceptInviteBody({
     setRenewed(true);
     if (forced || !configured || !token) return;
     try {
-      await requestRenew({ token });
+      await io.requestRenew({ token });
     } catch {
       setRenewed(true);
     }
@@ -333,15 +413,35 @@ function AcceptInviteBody({
   const inviter = preview?.inviterName || INVITER_FALLBACK;
 
   return (
-    <main className="flex min-h-[100dvh] items-center justify-center px-4 py-12" style={{ background: 'var(--background)', color: 'var(--foreground)' }} data-testid="accept-invite" data-status={wait.waiting ? 'finishing' : (status ?? 'loading')}>
+    <main className="flex min-h-[100dvh] items-center justify-center px-4 py-12" style={{ background: 'var(--background)', color: 'var(--foreground)' }} data-testid="accept-invite" data-status={io.conflicted && !previewKey ? 'conflict' : wait.waiting || held ? 'finishing' : (status ?? 'loading')}>
       <div className="flex w-full max-w-[480px] flex-col gap-8">
         <p className="font-display text-center" style={{ fontSize: 28, fontWeight: 650, letterSpacing: '-0.03em', margin: 0 }}>
           Warehaus
         </p>
-        {wait.waiting ? (
-          <StaffLinkFinish slow={wait.slow} onRetry={wait.retry} />
+        {io.conflicted && !previewKey ? (
+          <ErrorCard
+            icon={<AlertTriangle size={20} />}
+            kicker="Staff invite"
+            title="Setup didn’t finish"
+            body={STAFF_ACCESS_CONFLICT_MESSAGE}
+            action="Stay on this page"
+            onAction={() => undefined}
+          />
+        ) : wait.waiting || held ? (
+          <StaffLinkFinish
+            slow={wait.slow || held}
+            onRetry={() => {
+              if (wait.waiting) {
+                wait.retry();
+                return;
+              }
+              const value = pendingFinish.current;
+              if (!value) return;
+              void begin(value).then(() => setHeld(false), () => setHeld(true));
+            }}
+          />
         ) : !preview ? (
-          live.loading ? (
+          io.previewLoading ? (
             <Card>
               <p style={{ margin: 0, color: 'var(--muted)' }}>Checking this invite…</p>
             </Card>
@@ -485,7 +585,7 @@ function AcceptInviteBody({
             link="Use a different account"
             href="/login"
             action="Resend verification email"
-            onAction={() => void authClient.sendVerificationEmail({ email, callbackURL: `/accept?token=${encodeURIComponent(token)}` })}
+            onAction={() => void io.sendVerification({ email, callbackURL: `/accept?token=${encodeURIComponent(token)}` })}
           />
         ) : (
           <ErrorCard
@@ -497,7 +597,7 @@ function AcceptInviteBody({
             link="Back to sign in"
             href="/login"
             action="Try again"
-            onAction={() => router.refresh()}
+            onAction={() => io.refresh()}
           />
         )}
       </div>

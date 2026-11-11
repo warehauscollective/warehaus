@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
   buildActivityFeed,
+  buildTaskTimeline,
   type FeedActivity,
   type FeedAudit,
   type FeedOutbox,
@@ -587,5 +588,50 @@ describe('staff and client activity agree', () => {
         { id: 'act-billing', name: 'Launch', milestoneId: 'm-billing' },
       ],
     );
+  });
+});
+
+describe('missing Notion property label', () => {
+  it('names the missing property and does not call it a write conflict', () => {
+    const reason = 'Notion is missing property "Invite Status".';
+    const missing: FeedOutbox = {
+      _id: 'out-miss',
+      kind: 'createInvite',
+      status: 'dead',
+      database: 'contacts',
+      notionPageId: 'task-public-notion',
+      lastError: reason,
+      createdAt: 20,
+    };
+    const conflict: FeedOutbox = {
+      _id: 'out-conflict',
+      kind: 'task-status',
+      status: 'conflict',
+      database: 'tasks',
+      lastError: 'Notion changed since the last read',
+      createdAt: 10,
+    };
+    const feed = buildActivityFeed({
+      audience: 'staff',
+      orgVisible: true,
+      activity: [],
+      audits: [],
+      outbox: [missing, conflict],
+      projects: [project],
+      tasks,
+      contacts: [],
+    });
+    assert.equal(feed.find((item) => item.id === 'out-miss')?.name, reason);
+    assert.equal(feed.find((item) => item.id === 'out-conflict')?.name, 'Write conflict');
+    const timeline = buildTaskTimeline({
+      audience: 'staff',
+      task: tasks[0]!,
+      project,
+      orgVisible: true,
+      audits: [],
+      outbox: [missing],
+    });
+    assert.equal(timeline[0]?.title, reason);
+    assert.equal(timeline[0]?.title.includes('Write conflict'), false);
   });
 });
