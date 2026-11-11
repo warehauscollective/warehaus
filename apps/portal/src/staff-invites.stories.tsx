@@ -83,6 +83,9 @@ export const FinishingSlow: Story = { render: () => <AcceptInvite io={slowIo()} 
 export const InviteEmail: Story = { render: () => <AcceptInvite io={emailIo()} /> };
 
 export const StaffTab: Story = {
+  parameters: {
+    nextjs: { appDirectory: true, navigation: { pathname: '/preview' } },
+  },
   render: () => (
     <Shell>
       <TeamInvites configured={false} fixtures screen="ready" draft={{ name: '', email: '' }} onDraftChange={() => {}} />
