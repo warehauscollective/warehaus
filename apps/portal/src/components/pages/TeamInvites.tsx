@@ -364,11 +364,11 @@ export function TeamInvites({
                           data-testid="team-invite-menu"
                           style={{
                             position: 'absolute',
-                            top: '100%',
+                            bottom: '100%',
                             right: 0,
-                            zIndex: 2,
+                            zIndex: 30,
                             minWidth: 168,
-                            marginTop: 4,
+                            marginBottom: 4,
                             padding: 4,
                             display: 'flex',
                             flexDirection: 'column',
