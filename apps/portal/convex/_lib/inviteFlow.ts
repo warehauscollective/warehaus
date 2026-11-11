@@ -499,11 +499,16 @@ export type StaffAcceptToken = {
   contactNotionPageId: string;
 };
 
+export const STAFF_ACCESS_CONFLICT_MESSAGE =
+  "We couldn't finish setting up your access. Ask a Warehaus admin to resend your invite.";
+
 export type StaffAcceptHold = {
   notionPageId: string;
   inviteStatus: string | null;
   staff: boolean;
   open: boolean;
+  /** Notion rejected the accept because the page changed. Not retried. */
+  conflicted?: boolean;
 };
 
 /**
@@ -540,6 +545,26 @@ export function staffAcceptInProgress(input: {
   });
 }
 
+/** A staff accept whose Notion write conflicted. AuthGate must not sign them out. */
+export function staffAcceptConflicted(input: {
+  email: string;
+  invites: readonly StaffAcceptInvite[];
+  holds: readonly StaffAcceptHold[];
+}): boolean {
+  const email = normalizeEmail(input.email);
+  if (!email.includes('@')) return false;
+  return input.invites.some((invite) => {
+    if (normalizeEmail(invite.email) !== email || invite.role !== 'Warehaus Staff') return false;
+    return input.holds.some(
+      (hold) =>
+        hold.conflicted === true &&
+        hold.notionPageId === invite.notionPageId &&
+        hold.staff &&
+        hold.inviteStatus === 'Accepted',
+    );
+  });
+}
+
 export function readAcceptHold(
   notionPageId: string,
   kind: string,
@@ -559,6 +584,7 @@ export function readAcceptHold(
       inviteStatus: parsed.properties?.['Invite Status'] ?? null,
       staff: parsed.staffLink?.role === 'Warehaus Staff',
       open,
+      conflicted: status === 'conflict',
     };
   } catch {
     return null;

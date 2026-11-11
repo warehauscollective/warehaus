@@ -16,7 +16,7 @@ import {
   staffManualLinkError,
 } from './_lib/registration';
 import { isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
-import { readAcceptHold, staffAcceptInProgress } from './_lib/inviteFlow';
+import { readAcceptHold, staffAcceptConflicted, staffAcceptInProgress } from './_lib/inviteFlow';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 
 type DbCtx = QueryCtx | MutationCtx;
@@ -202,7 +202,13 @@ export const staffInviteInProgress = query({
         (invite.inviteStatus === 'Pending' || invite.inviteStatus === 'Accepted'),
     );
     const tokens: Array<{ emailNormalized: string; status: string; contactNotionPageId: string }> = [];
-    const holds: Array<{ notionPageId: string; inviteStatus: string | null; staff: boolean; open: boolean }> = [];
+    const holds: Array<{
+      notionPageId: string;
+      inviteStatus: string | null;
+      staff: boolean;
+      open: boolean;
+      conflicted?: boolean;
+    }> = [];
     for (const invite of staff) {
       const pageTokens = await ctx.db
         .query('inviteTokens')
@@ -225,6 +231,7 @@ export const staffInviteInProgress = query({
         tokens,
         holds,
       }),
+      conflicted: staffAcceptConflicted({ email, invites: staff, holds }),
     };
   },
 });

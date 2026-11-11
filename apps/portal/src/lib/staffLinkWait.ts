@@ -53,12 +53,16 @@ export function useStaffLinkWait(input: {
 
   useEffect(() => {
     let cancelled = false;
-    void hashStaffFinishToken(input.token).then((hash) => {
-      if (cancelled) return;
-      setTokenHash(hash);
-      const saved = readStaffFinish();
-      if (saved && saved.tokenHash === hash) setFinish(saved);
-    });
+    void hashStaffFinishToken(input.token)
+      .then((hash) => {
+        if (cancelled) return;
+        setTokenHash(hash);
+        const saved = readStaffFinish();
+        if (saved && saved.tokenHash === hash) setFinish(saved);
+      })
+      .catch(() => {
+        // begin hashes again and still shows the finishing screen.
+      });
     return () => {
       cancelled = true;
     };
@@ -73,14 +77,25 @@ export function useStaffLinkWait(input: {
   });
 
   async function begin(value: { name: string; passwordSet: boolean }) {
-    const hash = tokenHash ?? (await hashStaffFinishToken(input.token));
+    let hash = tokenHash;
+    try {
+      hash = tokenHash ?? (await hashStaffFinishToken(input.token));
+    } catch {
+      hash = tokenHash;
+    }
     const row: StaffFinish = {
       name: value.name,
       passwordSet: value.passwordSet,
       startedAt: Date.now(),
-      tokenHash: hash,
+      tokenHash: hash && /^[0-9a-f]{64}$/.test(hash) ? hash : '0'.repeat(64),
     };
-    rememberStaffFinish(row);
+    if (hash && /^[0-9a-f]{64}$/.test(hash)) {
+      try {
+        rememberStaffFinish(row);
+      } catch {
+        // The in-memory wait still holds the finishing screen.
+      }
+    }
     setFinish(row);
   }
 

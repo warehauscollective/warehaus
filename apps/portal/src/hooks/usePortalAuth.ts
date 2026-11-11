@@ -41,11 +41,12 @@ export function usePortalAuth() {
     configured ? {} : 'skip',
   );
   const linkStatus = linkState.data;
-  const inviteProgress = useSafeQuery<{ inProgress: boolean }>(
+  const inviteProgress = useSafeQuery<{ inProgress: boolean; conflicted?: boolean }>(
     api.contacts.staffInviteInProgress,
     configured ? {} : 'skip',
   );
   const staffInviteInProgress = inviteProgress.data?.inProgress === true;
+  const staffInviteConflicted = inviteProgress.data?.conflicted === true;
   const staffInviteCheckPending = Boolean(configured && session?.user && inviteProgress.loading && !inviteProgress.error);
   const portalState = useSafeQuery<PortalSessionView>(
     api.me.getPortalSession,
@@ -94,7 +95,7 @@ export function usePortalAuth() {
       setJoinError(null);
       return;
     }
-    if (inviteProgress.loading || staffInviteInProgress) return;
+    if (inviteProgress.loading || staffInviteInProgress || staffInviteConflicted) return;
     if (linkStatus?.state === 'unlinked') {
       void ensureLinked().catch((err) => {
         setJoinError(errorMessage(err, 'Could not link portal contact'));
@@ -109,6 +110,7 @@ export function usePortalAuth() {
     ensureLinked,
     inviteProgress.loading,
     staffInviteInProgress,
+    staffInviteConflicted,
   ]);
 
   const signIn = useCallback(
@@ -177,6 +179,7 @@ export function usePortalAuth() {
       linkQueryError: null,
       staffInviteInProgress: false,
       staffInviteCheckPending: false,
+      staffInviteConflicted: false,
       portalSession: session,
       signIn,
       signUp,
@@ -198,6 +201,7 @@ export function usePortalAuth() {
     linkQueryError: linkState.error ?? portalState.error,
     staffInviteInProgress,
     staffInviteCheckPending,
+    staffInviteConflicted,
     portalSession: portalSession ?? null,
     signIn,
     signUp,

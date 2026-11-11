@@ -237,6 +237,7 @@ export {
   missingWritebackProperty,
   missingWritebackProperties,
   missingWritebackReason,
+  isMissingPropertyRejection,
   auditEventForOutcome,
   type OutboxStatus,
   type OutboxItem,

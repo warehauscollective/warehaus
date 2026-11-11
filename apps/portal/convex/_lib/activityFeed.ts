@@ -9,6 +9,7 @@ import {
   clientMaySeeProject,
   clientMaySeeTask,
   isClientVisibleActivityType,
+  isMissingPropertyRejection,
   sanitizeInlineText,
 } from '@warehaus/portal-sync';
 
@@ -208,6 +209,17 @@ function clientTextRejected(value: string): boolean {
     NOTION_PAGE_ID.test(value) ||
     OUTBOX_WORD.test(value)
   );
+}
+
+function outboxFeedName(row: FeedOutbox): string {
+  if (row.status === 'dead' && isMissingPropertyRejection(row.lastError) && row.lastError) return row.lastError;
+  if (row.status === 'conflict' || row.status === 'dead') return 'Write conflict';
+  return `Notion ${row.kind}`;
+}
+
+function outboxTimelineTitle(row: FeedOutbox): string {
+  if (row.status === 'dead' && isMissingPropertyRejection(row.lastError) && row.lastError) return row.lastError;
+  return `${row.kind} · ${row.status}`;
 }
 
 function safeClientTitle(value: string | undefined): string | null {
@@ -523,7 +535,7 @@ export function buildActivityFeed(input: {
         withLane(
           {
             id: row._id,
-            name: failed ? 'Write conflict' : `Notion ${row.kind}`,
+            name: outboxFeedName(row),
             summary: sanitizeInlineText(row.lastError ?? row.status),
             type: staffType,
             tone: failed ? 'danger' : 'muted',
@@ -584,7 +596,7 @@ export function buildTaskTimeline(input: {
       items.push({
         id: row._id,
         at: new Date(row.createdAt).toISOString(),
-        title: `${row.kind} · ${row.status}`,
+        title: outboxTimelineTitle(row),
         detail: sanitizeInlineText(row.lastError ?? ''),
         tone: failed ? 'danger' : 'muted',
       });

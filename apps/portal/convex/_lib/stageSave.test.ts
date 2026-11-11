@@ -64,6 +64,7 @@ function memoryDb(tables: Record<string, Row[]>) {
           return chain(list);
         },
         collect: async () => list,
+        take: async (count: number) => list.slice(0, count),
         unique: async () => {
           if (list.length > 1) throw new Error('Expected a unique row');
           return list[0] ?? null;
@@ -796,5 +797,73 @@ describe('create task milestone link', () => {
     assert.equal(created?.milestoneOrder, undefined);
     assert.equal(created?.name, 'Homepage revised');
     assert.match(String(tables.notionOutbox[0]?.payload), /m-launch/);
+  });
+});
+
+describe('missing property rejection', () => {
+  it('raises a staff notice and does not call it a write conflict', async () => {
+    const tables: Record<string, Row[]> = {
+      notionOutbox: [
+        {
+          _id: 'out-miss',
+          kind: 'createInvite',
+          orgId: 'org-1',
+          database: 'contacts',
+          notionPageId: 'page-1',
+          payload: JSON.stringify({ properties: { Name: 'Ada Lovelace' } }),
+          actor: 'staff',
+          status: 'inflight',
+          attempts: 1,
+          createdAt: 1,
+        },
+      ],
+      tasks: [],
+      notices: [],
+      auditEvents: [],
+    };
+    const notices: Array<Record<string, unknown>> = [];
+    await run(
+      applyOutcome,
+      {
+        db: memoryDb(tables),
+        runMutation: async (_ref: unknown, args: Record<string, unknown>) => {
+          notices.push(args);
+          return { inserted: true };
+        },
+      },
+      {
+        id: 'out-miss',
+        outcome: { kind: 'rejected', reason: 'Notion is missing property "Invite Status".' },
+      },
+    );
+    assert.equal(tables.notionOutbox[0]?.status, 'dead');
+    assert.equal(tables.notionOutbox[0]?.lastError, 'Notion is missing property "Invite Status".');
+    assert.equal(notices.length, 1);
+    assert.equal(notices[0]?.edgeCase, 'missing-property');
+    assert.match(String(notices[0]?.message), /Notion is missing property "Invite Status"/);
+    assert.equal(String(notices[0]?.message).toLowerCase().includes('write conflict'), false);
+    assert.equal(String(notices[0]?.message).includes('conflicted'), false);
+
+    notices.length = 0;
+    const other = tables.notionOutbox[0]!;
+    other._id = 'out-other';
+    other.status = 'inflight';
+    other.staffNotifiedAt = undefined;
+    tables.notionOutbox = [other];
+    await run(
+      applyOutcome,
+      {
+        db: memoryDb(tables),
+        runMutation: async (_ref: unknown, args: Record<string, unknown>) => {
+          notices.push(args);
+          return { inserted: true };
+        },
+      },
+      {
+        id: 'out-other',
+        outcome: { kind: 'rejected', reason: 'Unknown property Secret' },
+      },
+    );
+    assert.equal(notices.length, 0);
   });
 });

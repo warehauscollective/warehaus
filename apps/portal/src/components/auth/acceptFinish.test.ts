@@ -7,9 +7,10 @@ import { describe, it } from 'node:test';
 import { AuthGateScreen } from './AuthGateScreen';
 import { StaffLinkFinish } from './StaffLinkFinish';
 import { authGateAction, type AuthGateInput } from './authGateAction';
-import { installTestDom, textOf, type DomDocument } from './testDom';
+import { installTestDom, textOf, type DomDocument, type DomNode, type EventLike } from './testDom';
 import { useStaffLinkWait } from '@/lib/staffLinkWait';
 import { readStaffJoined } from '@/lib/staffJoined';
+import { STAFF_ACCESS_CONFLICT_MESSAGE } from './authGateAction';
 import { staffLinkPhase } from '@/lib/staffLinkWait';
 
 Object.assign(globalThis, { React });
@@ -94,6 +95,36 @@ function FinishProbe({
   return createElement(StaffLinkFinish, { slow: wait.slow, onRetry: wait.retry });
 }
 
+function walk(node: DomNode, visit: (node: DomNode) => void) {
+  visit(node);
+  for (const child of node.childNodes) walk(child, visit);
+}
+
+function clickButton(root: DomNode, label: string) {
+  const found: DomNode[] = [];
+  walk(root, (node) => {
+    if (node.tagName === 'BUTTON' && textOf(node).includes(label)) found.push(node);
+  });
+  const button = found[0];
+  assert.ok(button);
+  const event: EventLike = {
+    type: 'click',
+    bubbles: true,
+    cancelable: true,
+    defaultPrevented: false,
+    target: button,
+    currentTarget: null,
+    timeStamp: Date.now(),
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+    stopPropagation() {
+      this.cancelBubble = true;
+    },
+  };
+  button.dispatchEvent(event);
+}
+
 async function renderAt(document: DomDocument, node: ReactNode): Promise<{ root: Root; container: DomDocument['body']; text: () => string }> {
   const container = document.createElement('div');
   document.body.appendChild(container);
@@ -119,6 +150,7 @@ const gateBase: AuthGateInput = {
   linking: false,
   staffInviteInProgress: true,
   staffInviteCheckPending: false,
+  staffInviteConflicted: false,
   hasPortalSession: false,
   linkQueryError: false,
   pathname: '/',
@@ -261,6 +293,67 @@ describe('staff accept waits for the link', () => {
     await act(async () => {
       view.root.unmount();
     });
+  });
+
+  it('shows the resend copy when the staff accept conflicted, and signs out only when asked', async () => {
+    const document = installTestDom();
+    const replaced: string[] = [];
+    const signedOut: string[] = [];
+    const linked: string[] = [];
+    const conflicted = {
+      ...gateBase,
+      staffInviteInProgress: false,
+      staffInviteConflicted: true,
+      joinError: "This email can't register here. Contact your Warehaus team.",
+    };
+    assert.equal(authGateAction(conflicted).type, 'conflict');
+    const view = await renderAt(document, gateElement(conflicted, replaced, signedOut, linked));
+    assert.equal(view.text().includes(STAFF_ACCESS_CONFLICT_MESSAGE), true);
+    assert.match(view.text(), /Sign out/);
+    assert.equal(view.text().includes('Access denied'), false);
+    assert.deepEqual(signedOut, []);
+    assert.deepEqual(replaced, []);
+    await act(async () => {
+      clickButton(view.container, 'Sign out');
+      await Promise.resolve();
+    });
+    assert.deepEqual(signedOut, ['out']);
+    assert.deepEqual(replaced, ['/login']);
+    assert.equal(view.text().includes('Access denied'), false);
+    await act(async () => {
+      view.root.unmount();
+    });
+  });
+
+  it('stays in finishing when the staff-link hash cannot be saved', async () => {
+    installStorage();
+    const document = installTestDom();
+    const redirects: string[] = [];
+    const subtle = crypto.subtle;
+    const original = subtle.digest.bind(subtle);
+    Object.defineProperty(subtle, 'digest', {
+      configurable: true,
+      value: async () => {
+        throw new Error('digest unavailable');
+      },
+    });
+    try {
+      const view = await renderAt(
+        document,
+        createElement(FinishProbe, { step: 'accepted', link: { state: 'unlinked' }, retryTick: 0, redirects }),
+      );
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      assert.match(view.text(), /Finishing setup/);
+      assert.equal(view.text().includes('Access denied'), false);
+      assert.deepEqual(redirects, []);
+      await act(async () => {
+        view.root.unmount();
+      });
+    } finally {
+      Object.defineProperty(subtle, 'digest', { configurable: true, value: original });
+    }
   });
 
   it('keeps the sixty second fallback and drops the dashboard finishing state', () => {

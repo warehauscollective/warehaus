@@ -87,6 +87,43 @@ describe('decideContactSync read gate', () => {
     assert.ok(cleared.actions.some((action) => action.type === 'killToken' && action.caseId === 7));
   });
 
+  it('keeps Accepted, Revoked, Expired, and Declined instead of backfilling them', () => {
+    for (const inviteStatus of ['Accepted', 'Revoked', 'Expired', 'Declined'] as const) {
+      const result = decision({
+        inviteStatus,
+        prevInviteStatus: null,
+        portalAccess: 'Disabled',
+        source: 'portal',
+        liveToken: { clientNotionPageId: 'client-a' },
+      });
+      assert.equal(result.actions.some((action) => action.type === 'backfill'), false);
+      assert.equal(result.effective.inviteStatus, inviteStatus);
+    }
+  });
+
+  it('keeps a legacy pending invite when Notion Invite Status is empty', () => {
+    const result = decision({
+      inviteStatus: undefined,
+      prevInviteStatus: null,
+      source: 'portal',
+      portalAccess: 'Disabled',
+      liveToken: { clientNotionPageId: 'client-a' },
+    });
+    assert.equal(result.placement, 'UPSERT_PENDING_INVITE');
+    assert.equal(result.effective.inviteStatus, 'Pending');
+    assert.deepEqual(
+      result.actions.filter((action) => action.type === 'backfill'),
+      [{ type: 'backfill', field: 'Invite Status', value: 'Pending' }],
+    );
+    assert.equal(result.actions.some((action) => action.type === 'killToken'), false);
+  });
+
+  it('still drops an empty status that was never a portal invite', () => {
+    const result = decision({ inviteStatus: undefined, source: 'notion', liveToken: null });
+    assert.equal(result.placement, 'SKIP_AND_DROP_PENDING');
+    assert.equal(result.actions.some((action) => action.type === 'backfill'), false);
+  });
+
   it('keeps the enabled empty-status path', () => {
     const result = decision({
       portalAccess: 'Enabled',

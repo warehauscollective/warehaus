@@ -27,6 +27,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     signOut,
     staffInviteInProgress,
     staffInviteCheckPending,
+    staffInviteConflicted,
   } = usePortalAuth();
 
   const replace = useCallback(
@@ -56,6 +57,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
         linking: linkingRef.current,
         staffInviteInProgress,
         staffInviteCheckPending,
+        staffInviteConflicted,
         hasPortalSession: Boolean(portalSession),
         linkQueryError: Boolean(linkQueryError),
         pathname: pathname ?? '/',

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useMutation } from 'convex/react';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
@@ -836,7 +837,7 @@ export function MilestoneDetailView({
     try {
       await action();
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not save the milestone.');
+      setError(userFacingErrorMessage(err, 'Could not save the milestone.'));
     } finally {
       setBusy(false);
     }
@@ -1792,7 +1793,7 @@ function CreateMilestone({
           })
             .then(() => onClose())
             .catch((err: unknown) => {
-              setError(err instanceof Error ? err.message : 'Could not create the milestone.');
+              setError(userFacingErrorMessage(err, 'Could not create the milestone.'));
             })
             .finally(() => setBusy(false));
         }}

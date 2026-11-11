@@ -15,6 +15,7 @@ import {
   assertHostMatchesOrg,
   resolveIdentityFromContact,
 } from './_lib/identity';
+import { userFacingErrorMessage } from './_lib/userFacingError';
 
 /**
  * Staff creates one project through the Notion outbox, then upserts that page
@@ -111,7 +112,7 @@ export const createInNotion = action({
         externalId: args.externalId,
       });
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Could not create the project';
+      const message = userFacingErrorMessage(err, 'Could not create the project');
       return { ok: false, error: message };
     }
     if (!prepared.ok) return prepared;
