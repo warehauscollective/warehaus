@@ -103,8 +103,6 @@ export const InviteModal: Story = {
 
 export const InviteSheet: Story = {
   parameters: {
-    viewport: { defaultViewport: 'mobile1' },
-    chromatic: { viewports: [390] },
     nextjs: { appDirectory: true, navigation: { pathname: '/preview', query: { inviteUi: 'sheet' } } },
   },
   render: () => (
