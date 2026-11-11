@@ -87,6 +87,20 @@ describe('decideContactSync read gate', () => {
     assert.ok(cleared.actions.some((action) => action.type === 'killToken' && action.caseId === 7));
   });
 
+  it('keeps Accepted, Revoked, Expired, and Declined instead of backfilling them', () => {
+    for (const inviteStatus of ['Accepted', 'Revoked', 'Expired', 'Declined'] as const) {
+      const result = decision({
+        inviteStatus,
+        prevInviteStatus: null,
+        portalAccess: 'Disabled',
+        source: 'portal',
+        liveToken: { clientNotionPageId: 'client-a' },
+      });
+      assert.equal(result.actions.some((action) => action.type === 'backfill'), false);
+      assert.equal(result.effective.inviteStatus, inviteStatus);
+    }
+  });
+
   it('keeps a legacy pending invite when Notion Invite Status is empty', () => {
     const result = decision({
       inviteStatus: undefined,

@@ -7,7 +7,7 @@ import { describe, it } from 'node:test';
 import { AuthGateScreen } from './AuthGateScreen';
 import { StaffLinkFinish } from './StaffLinkFinish';
 import { authGateAction, type AuthGateInput } from './authGateAction';
-import { installTestDom, textOf, type DomDocument } from './testDom';
+import { installTestDom, textOf, type DomDocument, type DomNode, type EventLike } from './testDom';
 import { useStaffLinkWait } from '@/lib/staffLinkWait';
 import { readStaffJoined } from '@/lib/staffJoined';
 import { STAFF_ACCESS_CONFLICT_MESSAGE } from './authGateAction';
@@ -93,6 +93,36 @@ function FinishProbe({
   }, [retryTick, wait]);
   if (!wait.waiting) return createElement('p', null, 'form');
   return createElement(StaffLinkFinish, { slow: wait.slow, onRetry: wait.retry });
+}
+
+function walk(node: DomNode, visit: (node: DomNode) => void) {
+  visit(node);
+  for (const child of node.childNodes) walk(child, visit);
+}
+
+function clickButton(root: DomNode, label: string) {
+  const found: DomNode[] = [];
+  walk(root, (node) => {
+    if (node.tagName === 'BUTTON' && textOf(node).includes(label)) found.push(node);
+  });
+  const button = found[0];
+  assert.ok(button);
+  const event: EventLike = {
+    type: 'click',
+    bubbles: true,
+    cancelable: true,
+    defaultPrevented: false,
+    target: button,
+    currentTarget: null,
+    timeStamp: Date.now(),
+    preventDefault() {
+      this.defaultPrevented = true;
+    },
+    stopPropagation() {
+      this.cancelBubble = true;
+    },
+  };
+  button.dispatchEvent(event);
 }
 
 async function renderAt(document: DomDocument, node: ReactNode): Promise<{ root: Root; container: DomDocument['body']; text: () => string }> {
@@ -265,7 +295,7 @@ describe('staff accept waits for the link', () => {
     });
   });
 
-  it('shows the resend copy when the staff accept conflicted, and does not sign out', async () => {
+  it('shows the resend copy when the staff accept conflicted, and signs out only when asked', async () => {
     const document = installTestDom();
     const replaced: string[] = [];
     const signedOut: string[] = [];
@@ -279,9 +309,17 @@ describe('staff accept waits for the link', () => {
     assert.equal(authGateAction(conflicted).type, 'conflict');
     const view = await renderAt(document, gateElement(conflicted, replaced, signedOut, linked));
     assert.equal(view.text().includes(STAFF_ACCESS_CONFLICT_MESSAGE), true);
+    assert.match(view.text(), /Sign out/);
     assert.equal(view.text().includes('Access denied'), false);
     assert.deepEqual(signedOut, []);
     assert.deepEqual(replaced, []);
+    await act(async () => {
+      clickButton(view.container, 'Sign out');
+      await Promise.resolve();
+    });
+    assert.deepEqual(signedOut, ['out']);
+    assert.deepEqual(replaced, ['/login']);
+    assert.equal(view.text().includes('Access denied'), false);
     await act(async () => {
       view.root.unmount();
     });

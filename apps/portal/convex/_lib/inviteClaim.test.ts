@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { ConvexError } from 'convex/values';
 import { describe, it } from 'node:test';
 import { applyContactRead } from '../invitesSync';
+import { enqueue } from '../sync/outbox';
 import { grantInviteSignupFromHook, takeInviteSignupFromHook } from '../auth';
 import {
   accept,
@@ -132,6 +133,75 @@ const newStaffUser = {
   email: 'new.staff@warehaus.co',
   emailVerified: true,
 };
+
+function readCtx(tables: Record<string, Row[]>) {
+  const db = memoryDb(tables);
+  const ctx = {
+    auth: { getUserIdentity: async () => ({ subject: 'auth-staff', sessionId: 'sess-1' }) },
+    db,
+    scheduler: { runAfter: async () => undefined },
+    async runQuery() {
+      return null;
+    },
+    async runMutation(_ref: unknown, args: Record<string, unknown>) {
+      const handler = enqueue as unknown as {
+        _handler: (ctx: unknown, args: Record<string, unknown>) => Promise<{ ok: boolean; duplicate?: boolean }>;
+      };
+      return handler._handler(ctx, args);
+    },
+  };
+  return ctx as unknown as ReturnType<typeof authCtx>;
+}
+
+function legacyRead(overrides: Partial<Parameters<typeof decideContactSync>[0]> = {}) {
+  return decideContactSync({
+    portalAccess: 'Disabled',
+    inviteStatus: undefined,
+    prevInviteStatus: null,
+    source: 'portal',
+    clientNotionId: REAL_WAREHAUS_PAGE,
+    clientEnabled: () => true,
+    liveToken: { clientNotionPageId: REAL_WAREHAUS_PAGE },
+    verifiedAcceptance: false,
+    ...overrides,
+  });
+}
+
+function legacyTables(): Record<string, Row[]> {
+  return {
+    pendingInvites: [],
+    inviteTokens: [
+      {
+        _id: 'tok-legacy',
+        status: 'live',
+        emailNormalized: 'legacy@warehaus.co',
+        contactNotionPageId: 'page-legacy',
+        clientNotionPageId: REAL_WAREHAUS_PAGE,
+        expiresAt: Date.now() + 86_400_000,
+      },
+    ],
+    notionOutbox: [],
+    notionWriteState: [],
+    auditEvents: [],
+    notices: [],
+  };
+}
+
+function legacyArgs(decision: ReturnType<typeof decideContactSync>, extra: Record<string, unknown> = {}) {
+  return {
+    notionPageId: 'page-legacy',
+    orgId: 'org-real',
+    name: 'Legacy Staff',
+    email: 'legacy@warehaus.co',
+    role: 'Warehaus Staff',
+    source: 'portal',
+    placement: decision.placement,
+    inviteStatus: decision.effective.inviteStatus,
+    actionsJson: JSON.stringify(decision.actions),
+    observedJson: '{}',
+    ...extra,
+  };
+}
 
 function authCtx(
   subject: string,
@@ -622,6 +692,63 @@ describe('invite accept, decline, and revoke', () => {
       const payload = JSON.parse(String(enqueues[0]?.payload)) as { properties?: { 'Invite Status'?: string } };
       assert.equal(payload.properties?.['Invite Status'], 'Pending');
       assert.equal(String(enqueues[0]?.idempotencyKey).includes('legacy-pending'), true);
+    } finally {
+      if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+      else process.env.NOTION_WRITEBACK_ENABLED = previous;
+    }
+  });
+
+  it('keeps a legacy pending invite when write-back is off and enqueues nothing', async () => {
+    const previous = process.env.NOTION_WRITEBACK_ENABLED;
+    delete process.env.NOTION_WRITEBACK_ENABLED;
+    try {
+      const decision = legacyRead();
+      const tables = legacyTables();
+      await run(applyContactRead, readCtx(tables), legacyArgs(decision));
+      assert.equal(tables.notionOutbox?.length, 0);
+      assert.equal(tables.pendingInvites?.find((row) => row.notionPageId === 'page-legacy')?.inviteStatus, 'Pending');
+      assert.equal(tables.inviteTokens?.[0]?.status, 'live');
+      assert.equal(
+        tables.auditEvents?.some((row) => row.action === 'invite.backfill.Invite Status'),
+        false,
+      );
+    } finally {
+      if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+      else process.env.NOTION_WRITEBACK_ENABLED = previous;
+    }
+  });
+
+  it('enqueues one backfill per observed edit through the real enqueue', async () => {
+    const previous = process.env.NOTION_WRITEBACK_ENABLED;
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
+    try {
+      const decision = legacyRead();
+      const tables = legacyTables();
+      const ctx = readCtx(tables);
+      const args = legacyArgs(decision);
+      await run(applyContactRead, ctx, args);
+      await run(applyContactRead, ctx, args);
+      assert.equal(tables.notionOutbox?.length, 1);
+      assert.equal(String(tables.notionOutbox?.[0]?.idempotencyKey).includes('legacy-pending'), true);
+      assert.equal(tables.pendingInvites?.[0]?.inviteStatus, 'Pending');
+      assert.equal(tables.inviteTokens?.[0]?.status, 'live');
+      assert.equal(
+        tables.auditEvents?.filter((row) => row.action === 'invite.backfill.Invite Status').length,
+        1,
+      );
+
+      const edited = '2026-11-01T00:00:00.000Z';
+      await run(applyContactRead, ctx, { ...args, notionLastEditedTime: edited });
+      await run(applyContactRead, ctx, { ...args, notionLastEditedTime: edited });
+      assert.equal(tables.notionOutbox?.length, 2);
+      assert.equal(
+        tables.notionOutbox?.filter((row) => String(row.idempotencyKey).endsWith(edited)).length,
+        1,
+      );
+      assert.equal(
+        tables.auditEvents?.filter((row) => row.action === 'invite.backfill.Invite Status').length,
+        2,
+      );
     } finally {
       if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
       else process.env.NOTION_WRITEBACK_ENABLED = previous;

@@ -239,13 +239,18 @@ export const applyContactRead = internalMutation({
     if (!selfWrite && orgId) {
       for (const action of actions) {
         if (action.type === 'backfill') {
+          // The key is the page, field, and observed last-edited time. The same
+          // read is one row. An unrelated Notion edit changes that time and
+          // queues a second revert. The older row can conflict when it runs;
+          // the newer row is the one that writes Pending. That conflict stays
+          // visible so staff can see the stale write, and it does not drop the invite.
           if (isNotionWritebackEnabled()) {
             const key = revertIdempotencyKey(
               args.notionPageId,
               action.field,
               args.notionLastEditedTime ?? 'legacy-pending',
             );
-            await ctx.runMutation(internal.sync.outbox.enqueue, {
+            const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
               idempotencyKey: key,
               kind: 'revert',
               orgId,
@@ -256,15 +261,17 @@ export const applyContactRead = internalMutation({
               schedule: true,
               ...(args.notionLastEditedTime ? { expectedLastEditedTime: args.notionLastEditedTime } : {}),
             });
+            if (queued.ok && !queued.duplicate) {
+              await ctx.db.insert('auditEvents', {
+                orgId,
+                actorKind: 'system',
+                action: 'invite.backfill.Invite Status',
+                notionPageId: args.notionPageId,
+                after: action.value,
+                createdAt: now,
+              });
+            }
           }
-          await ctx.db.insert('auditEvents', {
-            orgId,
-            actorKind: 'system',
-            action: 'invite.backfill.Invite Status',
-            notionPageId: args.notionPageId,
-            after: action.value,
-            createdAt: now,
-          });
           continue;
         }
         if (action.type === 'notice') {

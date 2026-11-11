@@ -74,6 +74,20 @@ export function AuthGateScreen({
         <p className="ds-mono" style={{ fontSize: 'var(--t-sm)', color: action.type === 'unreachable' ? 'var(--danger)' : 'var(--muted)', margin: 0 }}>
           {message}
         </p>
+        {action.type === 'conflict' ? (
+          <button
+            type="button"
+            onClick={() => {
+              void (async () => {
+                await signOut();
+                replace('/login');
+              })();
+            }}
+            style={{ minHeight: 42 }}
+          >
+            Sign out
+          </button>
+        ) : null}
         {action.type === 'wait' && slow ? (
           <>
             <p data-testid="finishing-slow" style={{ margin: 0, fontSize: 14, lineHeight: '22px', color: 'var(--muted)' }}>
