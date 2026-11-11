@@ -263,7 +263,7 @@ html.light .accept-invite {
   background: var(--surface);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 24px 25px;
+  padding: 24px;
   display: flex;
   flex-direction: column;
   gap: 24px;
@@ -316,6 +316,11 @@ html.light .accept-invite {
     max-width: none;
     margin-left: auto;
   }
+}
+.accept-invite .accept-primary:focus-visible,
+.accept-invite .accept-link:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: 2px;
 }
 .accept-invite input:focus {
   outline: 3px solid var(--ring);

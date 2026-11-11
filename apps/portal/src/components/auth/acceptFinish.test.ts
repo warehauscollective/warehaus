@@ -326,6 +326,67 @@ describe('staff accept waits for the link', () => {
     });
   });
 
+  it('keeps conflict, just-joined, session pending, and the invite check in one gate', async () => {
+    const conflicted: AuthGateInput = {
+      ...gateBase,
+      staffInviteInProgress: false,
+      staffInviteConflicted: true,
+    };
+    assert.equal(authGateAction(conflicted).type, 'conflict');
+
+    const justJoined: AuthGateInput = {
+      ...gateBase,
+      staffInviteInProgress: false,
+      staffInviteCheckPending: true,
+      linkStatus: 'loading',
+      hasPortalSession: false,
+      staffJustJoined: true,
+      hasUser: true,
+      sessionPending: false,
+      joinError: null,
+    };
+    assert.equal(authGateAction(justJoined).type, 'ready');
+
+    const sessionStillResolving: AuthGateInput = {
+      ...justJoined,
+      sessionPending: true,
+      hasUser: false,
+    };
+    assert.equal(authGateAction(sessionStillResolving).type, 'checking');
+
+    const inviteCheckPending: AuthGateInput = {
+      ...gateBase,
+      staffInviteInProgress: false,
+      staffInviteCheckPending: true,
+      linkStatus: 'loading',
+      hasPortalSession: false,
+      sessionPending: false,
+      joinError: null,
+    };
+    assert.equal(authGateAction(inviteCheckPending).type, 'checking');
+    assert.equal(
+      authGateAction({ ...inviteCheckPending, linkStatus: 'linked', hasPortalSession: true }).type,
+      'ready',
+    );
+
+    const document = installTestDom();
+    const replaced: string[] = [];
+    const signedOut: string[] = [];
+    const view = await renderAt(document, gateElement(sessionStillResolving, replaced, signedOut, []));
+    assert.match(view.text(), /Checking access/);
+    assert.equal(view.text().includes('Access denied'), false);
+    assert.deepEqual(replaced, []);
+    assert.deepEqual(signedOut, []);
+    await act(async () => {
+      view.root.render(gateElement(conflicted, replaced, signedOut, []));
+    });
+    assert.match(view.text(), /Sign out/);
+    assert.deepEqual(replaced, []);
+    await act(async () => {
+      view.root.unmount();
+    });
+  });
+
   it('lands on the joined dashboard instead of a bare checking screen', async () => {
     const justJoined: AuthGateInput = {
       ...gateBase,

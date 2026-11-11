@@ -1,6 +1,6 @@
 'use client';
 
-import { type ReactNode, useCallback, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useRef, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { readStaffJoined } from '@/lib/staffJoined';
@@ -15,10 +15,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const linkingRef = useRef(false);
-  const [staffJustJoined, setStaffJustJoined] = useState(false);
-  useEffect(() => {
-    if (readStaffJoined()) setStaffJustJoined(true);
-  }, []);
+  // Read before paint. An effect latches this a frame late and flashes "Checking access…".
+  const [staffJustJoined] = useState(() => readStaffJoined() !== null);
   const {
     configured,
     sessionPending,

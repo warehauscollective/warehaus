@@ -30,8 +30,8 @@ export function knownSessionEmail(email: string | null | undefined): string | nu
 }
 
 /**
- * The ready preview omits the invited address. The locked field uses that
- * address when it is present, and the signed-in user's email when it is not.
+ * Prefer the invited address. The ready preview includes it. When that
+ * address is blank, the locked field uses the signed-in user's email.
  */
 export function lockedInviteEmail(input: {
   invitedEmail?: string | null;

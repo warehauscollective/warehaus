@@ -43,7 +43,9 @@ function loginHref(pathname: string): string {
  */
 export function authGateAction(input: AuthGateInput): AuthGateAction {
   if (!input.configured) return { type: 'login', href: '/login' };
-  if (input.sessionPending && !input.staffJustJoined) return { type: 'checking' };
+  // A just-joined flag must not skip this. With no user yet, skipping it
+  // falls through to /login. Only the invite check below is skipped.
+  if (input.sessionPending) return { type: 'checking' };
   // A linked portal session is the dashboard. Don't hold it on "Checking access…"
   // while the staff-invite query is still loading.
   if (

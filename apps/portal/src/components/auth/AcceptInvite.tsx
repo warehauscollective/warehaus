@@ -470,9 +470,11 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
             {awaitingAccept ? (
               <div className="flex flex-col gap-4">
                 {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
-                <button type="button" disabled={busy} onClick={() => void retryAccept()} className="accept-primary" style={{ ...primary, opacity: busy ? 0.5 : 1 }}>
-                  {busy ? 'Joining…' : 'Try again'}
-                </button>
+                <div className="accept-actions">
+                  <button type="button" disabled={busy} onClick={() => void retryAccept()} className="accept-primary" style={{ ...primary, opacity: busy ? 0.5 : 1 }}>
+                    {busy ? 'Joining…' : 'Try again'}
+                  </button>
+                </div>
               </div>
             ) : (
               <form onSubmit={(event) => void join(event)} className="flex flex-col gap-4">
@@ -494,9 +496,11 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
             <SignedInAcceptCopy email={readyEmail} />
             <Inviter name={inviter} email={inviterEmail} />
             <SignedInLockedEmail invitedEmail={preview?.invitedEmail} sessionEmail={sessionEmail ?? readyEmail} />
-            <button type="button" disabled={busy || !readyEmail} onClick={() => void confirmSignedIn()} className="accept-primary" style={{ ...primary, opacity: busy || !readyEmail ? 0.5 : 1 }}>
-              {busy ? 'Joining…' : 'Accept invite'}
-            </button>
+            <div className="accept-actions">
+              <button type="button" disabled={busy || !readyEmail} onClick={() => void confirmSignedIn()} className="accept-primary" style={{ ...primary, opacity: busy || !readyEmail ? 0.5 : 1 }}>
+                {busy ? 'Joining…' : 'Accept invite'}
+              </button>
+            </div>
             {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
           </Card>
         ) : status === 'sign-in' ? (
