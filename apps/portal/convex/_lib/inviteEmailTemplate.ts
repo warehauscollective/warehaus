@@ -18,7 +18,8 @@ function escapeHtml(value: string): string {
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;');
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 const EMAIL_MEDIA = `@media (max-width: 480px) {
@@ -65,7 +66,6 @@ export function inviteEmailDocument(args: InviteEmailContent): string {
   <head>
     <meta name="color-scheme" content="light" />
     <meta name="supported-color-schemes" content="light" />
-    <style>${EMAIL_MEDIA}</style>
   </head>
   <body style="margin:0;padding:0;background:#fdfdfe;color:#0a0a0b;color-scheme:light only;">
     ${inviteEmailMarkup(args)}

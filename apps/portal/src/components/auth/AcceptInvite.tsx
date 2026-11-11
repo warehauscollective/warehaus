@@ -217,7 +217,8 @@ function AcceptInviteLive({
   const [query, setQuery] = useState({ token: '', previewKey: null as string | null });
   useLayoutEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    const fixtures = process.env.NEXT_PUBLIC_PORTAL_FIXTURES === '1';
+    const fixtures =
+      process.env.NEXT_PUBLIC_PORTAL_FIXTURES === '1' && window.__WH_FIXTURE_PREVIEW === true;
     setQuery({
       token: params.get('token') ?? '',
       previewKey: fixtures ? params.get('invitePreview') : null,

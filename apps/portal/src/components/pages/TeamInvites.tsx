@@ -366,12 +366,9 @@ export function TeamInvites({
                       {menuId === invite.notionPageId ? (
                         <span
                           role="menu"
+                          className="invite-menu"
                           data-testid="team-invite-menu"
                           style={{
-                            position: 'absolute',
-                            right: 0,
-                            bottom: 'calc(100% + 6px)',
-                            zIndex: 30,
                             minWidth: 168,
                             padding: 4,
                             display: 'flex',
@@ -461,7 +458,13 @@ export function TeamInvites({
       ) : null}
       <style>{`
         .invite-columns { display: none; }
+        .invite-row { overflow: visible; }
         .invite-row:has([role='menu']) { position: relative; z-index: 4; }
+        .invite-menu { position: absolute; right: 0; bottom: calc(100% + 6px); z-index: 30; }
+        @media (max-width: 799px) {
+          .invite-row { overflow: visible; }
+          .invite-menu { left: 0; right: auto; top: calc(100% + 6px); bottom: auto; }
+        }
         @media (min-width: 800px) {
           .invite-columns { display: grid; }
           .invite-row { display: grid !important; grid-template-columns: minmax(140px, 1.1fr) minmax(160px, 1.3fr) 140px 180px 160px; align-items: center; height: 77px; min-height: 77px; box-sizing: border-box; overflow: visible; }
@@ -553,14 +556,15 @@ function StatusPill({ label }: { label: string }) {
         gap: 4,
         width: 'fit-content',
         borderRadius: 999,
-        border: `1px solid ${danger ? 'var(--danger)' : active ? 'transparent' : 'var(--border)'}`,
-        background: active ? 'var(--fg)' : 'transparent',
+        border: `1px solid ${danger ? 'var(--danger)' : 'var(--border)'}`,
+        background: 'transparent',
         padding: '2px 8px',
         fontSize: 12,
         lineHeight: '18px',
-        color: danger ? 'var(--danger)' : active ? 'var(--bg)' : 'var(--foreground)',
+        color: danger ? 'var(--danger)' : 'var(--foreground)',
       }}
     >
+      {active ? <span aria-hidden data-testid="team-status-dot" style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--fg)', flexShrink: 0 }} /> : null}
       {pending ? <Clock size={14} aria-hidden className="notice-icon" style={{ width: 14, height: 14, minWidth: 14, minHeight: 14 }} /> : null}
       {label}
     </span>

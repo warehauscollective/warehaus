@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import { validatePropertyPatch } from '@warehaus/portal-sync';
 import { signInToAcceptPath } from './acceptPaths';
 import { deliverInviteEmail, existingLoginEmail, inviteEmail, sendIssuedInviteMail } from './email';
+import { inviteEmailDocument } from './inviteEmailTemplate';
 import { WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
 import {
   INVITE_ALREADY_MESSAGE,
@@ -418,7 +419,20 @@ describe('invite accept email match', () => {
       inviterName: 'Peter Roquemore',
       expiresOn: 'Nov 16, 2026',
     });
+    assert.equal(named.html.match(/<style>/g)?.length, 1);
     assert.match(named.html, /Peter Roquemore/);
+    const quoted = inviteEmailDocument({
+      acceptUrl: 'https://portal.example/accept?token=abc',
+      who: "O'Brien",
+      action: 'Accept the invite.',
+      button: 'Accept invite',
+      expiryDetail: 'It works once.',
+      because: "You're invited.",
+      wordmarkSrc: '/icons/wordmark-ink.png',
+    });
+    assert.match(quoted, /O&#39;Brien/);
+    assert.match(quoted, /You&#39;re invited\./);
+    assert.equal(quoted.match(/<style>/g)?.length, 1);
     assert.match(named.text, /stops working on Nov 16, 2026/);
     assert.equal(named.text.includes('7 days from now'), false);
   });

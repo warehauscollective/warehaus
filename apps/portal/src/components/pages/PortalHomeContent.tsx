@@ -127,42 +127,48 @@ export function PortalHomeContent() {
         projects,
         tasks,
         activity: (blank ? [] : feed.items) as DashboardActivity[],
-        pull: isStaff
-          ? liveSync.data?.pull ?? {
-              // getSyncHealth loads after the snapshot. Until it arrives, the
-              // pull line falls back to syncMeta so the card is not blank.
-              lastSyncedAt: data.syncMeta.lastSyncedAt,
-              lastError: data.syncMeta.lastError,
-            }
-          : { lastSyncedAt: null, lastError: null },
-        outbox: capped
-          ? {
-              counts: {
-                queued: OUTBOX_HEALTH_LIMIT,
-                inflight: 0,
-                failed: OUTBOX_HEALTH_LIMIT,
-                dead: 0,
-                conflict: 0,
-              },
-              oldestCreatedAt: Date.now(),
-            }
+        pull: blank
+          ? { lastSyncedAt: null, lastError: null }
           : isStaff
-            ? liveSync.data?.outbox ?? EMPTY_OUTBOX
-            : EMPTY_OUTBOX,
-        writebackEnabled: capped || (isStaff && liveSync.data?.writebackEnabled === true),
-        notices: isStaff ? liveSync.data?.notices ?? [] : [],
+            ? liveSync.data?.pull ?? {
+                // getSyncHealth loads after the snapshot. Until it arrives, the
+                // pull line falls back to syncMeta so the card is not blank.
+                lastSyncedAt: data.syncMeta.lastSyncedAt,
+                lastError: data.syncMeta.lastError,
+              }
+            : { lastSyncedAt: null, lastError: null },
+        outbox: blank
+          ? EMPTY_OUTBOX
+          : capped
+            ? {
+                counts: {
+                  queued: OUTBOX_HEALTH_LIMIT,
+                  inflight: 0,
+                  failed: OUTBOX_HEALTH_LIMIT,
+                  dead: 0,
+                  conflict: 0,
+                },
+                oldestCreatedAt: Date.now(),
+              }
+            : isStaff
+              ? liveSync.data?.outbox ?? EMPTY_OUTBOX
+              : EMPTY_OUTBOX,
+        writebackEnabled: !blank && (capped || (isStaff && liveSync.data?.writebackEnabled === true)),
+        notices: blank ? [] : isStaff ? liveSync.data?.notices ?? [] : [],
         ...(isStaff
           ? {
-              granola: liveSync.data?.granola ?? {
-                configured: false,
-                lastRunAt: null,
-                lastError: null,
-              },
+              granola: blank
+                ? { configured: false, lastRunAt: null, lastError: null }
+                : liveSync.data?.granola ?? {
+                    configured: false,
+                    lastRunAt: null,
+                    lastError: null,
+                  },
             }
           : {}),
         now: Date.now(),
       }),
-    [isStaff, projects, tasks, feed.items, liveSync.data, data.syncMeta.lastSyncedAt, data.syncMeta.lastError, capped],
+    [isStaff, projects, tasks, feed.items, liveSync.data, data.syncMeta.lastSyncedAt, data.syncMeta.lastError, capped, blank],
   );
 
   const projectsLoading = blank

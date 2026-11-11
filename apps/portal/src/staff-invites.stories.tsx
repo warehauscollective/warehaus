@@ -122,6 +122,30 @@ export const InviteModal: Story = {
   ),
 };
 
+export const InviteMenuPhone: Story = {
+  parameters: {
+    chromatic: {
+      modes: {
+        'light phone': { theme: 'light', viewport: 390 },
+        'dark phone': { theme: 'dark', viewport: 390 },
+      },
+    },
+    nextjs: { appDirectory: true, navigation: { pathname: '/preview', query: { inviteUi: 'menu' } } },
+  },
+  render: () => (
+    <Shell>
+      <TeamInvites configured={false} fixtures screen="ready" draft={{ name: '', email: '' }} onDraftChange={() => {}} />
+    </Shell>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement);
+    const menu = await canvas.findByRole('menu');
+    await expect(menu).toBeVisible();
+    await expect(canvas.getByRole('menuitem', { name: 'Resend' })).toBeVisible();
+    await expect(canvas.getByRole('menuitem', { name: 'Revoke' })).toBeVisible();
+  },
+};
+
 export const InviteSheet: Story = {
   parameters: {
     chromatic: {

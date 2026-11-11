@@ -72,6 +72,12 @@ describe('account team states', () => {
     assert.match(invites, /zIndex: 61/);
     assert.equal(invites.includes('88px'), false);
     assert.match(invites, /role="menu"/);
+    assert.match(invites, /\.invite-row \{ overflow: visible; \}/);
+    const phoneMenu = invites.slice(invites.indexOf('@media (max-width: 799px)'), invites.indexOf('@media (min-width: 800px)'));
+    assert.match(phoneMenu, /\.invite-row \{ overflow: visible; \}/);
+    assert.match(phoneMenu, /left: 0; right: auto; top: calc\(100% \+ 6px\); bottom: auto;/);
+    assert.match(invites, /data-testid="team-status-dot"/);
+    assert.equal(invites.includes("background: active ? 'var(--fg)'"), false);
     assert.equal(invites.includes('TEAM_STAFF_EMPTY'), false);
     assert.equal(teamWritesLive({ configured: true, fixtures: false }), true);
     assert.equal(teamWritesLive({ configured: true, fixtures: true }), false);
