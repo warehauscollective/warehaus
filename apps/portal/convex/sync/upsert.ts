@@ -1,6 +1,7 @@
 import {
   decideResourceLink,
   isApprovedInternalWarehausProject,
+  isOrgVisibleToClients,
   isWarehausInternalClient,
   mergePulledStage,
   projectCountsForTaskGate,
@@ -513,7 +514,7 @@ export const resolveIds = internalMutation({
     const enabledClientIds = new Set<Id<'clients'>>();
     const warehausInternalOrgIds = new Set<Id<'clients'>>();
     for (const client of clients) {
-      const enabled = client.portalAccess === 'Enabled' && client.syncHiddenAt == null;
+      const enabled = isOrgVisibleToClients(client);
       clientEnabledByNotion[client.notionPageId] = enabled;
       if (enabled) enabledClientIds.add(client._id);
       const internal = isWarehausInternalClient({

@@ -83,11 +83,28 @@ export type WarehausPageCandidate = {
   slug?: string | null;
   externalId?: string | null;
   notionPageId?: string | null;
+  portalAccess?: 'Enabled' | 'Disabled' | null;
+  syncHiddenAt?: number | null;
 };
 
 function holdsNotionPage(client: WarehausPageCandidate): boolean {
   const pageId = client.notionPageId?.trim() ?? '';
   return pageId.length > 0 && isNotionPageId(pageId);
+}
+
+/** Same bar as sync: Enabled, and not soft-hidden. A hidden or disabled client drops the contact on pull. */
+function holderBlock(client: WarehausPageCandidate): string | null {
+  if (client.syncHiddenAt != null) {
+    return 'Warehaus internal client is hidden from sync. Nothing was queued.';
+  }
+  if (client.portalAccess !== 'Enabled') {
+    return 'Warehaus internal client portal access is disabled. Nothing was queued.';
+  }
+  return null;
+}
+
+function isReadyHolder(client: WarehausPageCandidate): boolean {
+  return isWarehausInviteClient(client) && holdsNotionPage(client) && holderBlock(client) == null;
 }
 
 /**
@@ -99,10 +116,14 @@ export function resolveWarehausInviteClient(input: {
   configuredClientId?: string | null;
 }): { ok: true; orgId: string; notionPageId: string } | { ok: false; message: string } {
   const configured = input.configuredClientId?.trim() ?? '';
-  const holders = input.clients.filter(
+  const pageHolders = input.clients.filter(
     (client) => isWarehausInviteClient(client) && holdsNotionPage(client),
   );
+  const holders = pageHolders.filter((client) => holderBlock(client) == null);
   if (configured) {
+    const named = pageHolders.find((client) => client.id === configured);
+    const blocked = named ? holderBlock(named) : null;
+    if (blocked) return { ok: false, message: blocked };
     const chosen = holders.find((client) => client.id === configured);
     if (!chosen?.notionPageId) {
       return {
@@ -122,6 +143,8 @@ export function resolveWarehausInviteClient(input: {
       message: 'More than one Warehaus client has a Notion page uuid. Nothing was queued.',
     };
   }
+  const blocked = pageHolders.map((client) => holderBlock(client)).find((message) => message != null);
+  if (blocked) return { ok: false, message: blocked };
   const seed = input.clients.find((client) => {
     if (!isWarehausInviteClient(client)) return false;
     const pageId = client.notionPageId ?? '';
@@ -137,7 +160,7 @@ export function resolveWarehausInviteClient(input: {
 }
 
 export function warehausHolderOrgIds(clients: readonly WarehausPageCandidate[]): string[] {
-  return clients.filter((client) => isWarehausInviteClient(client) && holdsNotionPage(client)).map((client) => client.id);
+  return clients.filter((client) => isReadyHolder(client)).map((client) => client.id);
 }
 
 /** Existing staff stay on the slug row. A new invite may use the row that holds the page. */
@@ -198,9 +221,11 @@ export function planInviteCreate(input: {
   inviteRole: string;
   email: string;
   name: string;
-  /** Used only when `clients` is omitted. Create always passes the resolved row. */
+  /** Used only when `resolved` and `clients` are omitted. */
   internalOrgId: string;
   internalNotionPageId: string;
+  /** The row create already resolved. Skips a second lookup. */
+  resolved?: { orgId: string; notionPageId: string };
   clients?: readonly WarehausPageCandidate[];
   configuredClientId?: string | null;
   sentToday: number;
@@ -241,14 +266,18 @@ export function planInviteCreate(input: {
       staffMessage: 'Staff invite is missing the warehaus-internal org',
     };
   }
-  const resolved = input.clients
-    ? resolveWarehausInviteClient({
-        clients: input.clients,
-        configuredClientId: input.configuredClientId,
-      })
-    : isNotionPageId(input.internalNotionPageId) && input.internalOrgId
-      ? { ok: true as const, orgId: input.internalOrgId, notionPageId: input.internalNotionPageId }
-      : { ok: false as const, message: INVITE_NOTION_UUID_MESSAGE };
+  const resolved = input.resolved
+    ? isNotionPageId(input.resolved.notionPageId) && input.resolved.orgId
+      ? { ok: true as const, orgId: input.resolved.orgId, notionPageId: input.resolved.notionPageId }
+      : { ok: false as const, message: INVITE_NOTION_UUID_MESSAGE }
+    : input.clients
+      ? resolveWarehausInviteClient({
+          clients: input.clients,
+          configuredClientId: input.configuredClientId,
+        })
+      : isNotionPageId(input.internalNotionPageId) && input.internalOrgId
+        ? { ok: true as const, orgId: input.internalOrgId, notionPageId: input.internalNotionPageId }
+        : { ok: false as const, message: INVITE_NOTION_UUID_MESSAGE };
   if (!resolved.ok) {
     return { ok: false, clientMessage: resolved.message, staffMessage: resolved.message };
   }

@@ -15,11 +15,26 @@ import {
   revoke,
   takeSignupPermit,
 } from '../invites';
-import { decideContactSync } from '@warehaus/portal-sync';
+import { decideContactSync, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { pendingInviteSyncConceal } from '../sync/pull';
 import { selectContactForJoin } from './contactJoin';
 import { INVITE_CLIENT_FAILURE, hashInviteToken, teamInviteActions } from './inviteFlow';
 
 const REAL_WAREHAUS_PAGE = '3b1ffd60-316b-813f-987b-f9912477dbc0';
+
+/** The map `resolveIds` stores and `pullAll` passes to `decideContactSync`. */
+function clientEnabledForPull(clients: Row[]): (id: string | undefined) => boolean {
+  const enabled: Record<string, boolean> = {};
+  for (const client of clients) {
+    if (typeof client.notionPageId !== 'string') continue;
+    const portalAccess = client.portalAccess === 'Enabled' ? 'Enabled' : 'Disabled';
+    enabled[client.notionPageId] = isOrgVisibleToClients({
+      portalAccess,
+      syncHiddenAt: typeof client.syncHiddenAt === 'number' ? client.syncHiddenAt : null,
+    });
+  }
+  return (id) => (id ? enabled[id] === true : false);
+}
 
 type Row = Record<string, unknown> & { _id: string };
 
@@ -452,11 +467,180 @@ describe('invite accept, decline, and revoke', () => {
         false,
       );
       assert.equal(tables.notices?.length, 1);
+      assert.match(String(tables.notices?.[0]?.message), /Nothing was queued/);
     } finally {
       process.env.NOTION_WRITEBACK_ENABLED = previousWriteback;
       process.env.INVITE_EMAIL_ENABLED = previousEmail;
       process.env.PORTAL_PUBLIC_URL = previousUrl;
     }
+  });
+
+  it('does not queue an invite when the holder row is portal-disabled', async () => {
+    const previousWriteback = process.env.NOTION_WRITEBACK_ENABLED;
+    const previousEmail = process.env.INVITE_EMAIL_ENABLED;
+    const previousUrl = process.env.PORTAL_PUBLIC_URL;
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
+    process.env.INVITE_EMAIL_ENABLED = 'true';
+    process.env.PORTAL_PUBLIC_URL = 'http://localhost:3100';
+    try {
+      const tables = baseTables(await tokenRow('tok-disabled', 'raw-disabled'));
+      tables.clients?.push(
+        {
+          _id: 'org-seed',
+          slug: 'warehaus-internal',
+          notionPageId: 'seed-warehaus-org',
+          portalAccess: 'Enabled',
+          companyName: 'Warehaus (Internal)',
+        },
+        {
+          _id: 'org-real',
+          slug: 'warehaus',
+          notionPageId: REAL_WAREHAUS_PAGE,
+          portalAccess: 'Disabled',
+          companyName: 'Warehaus',
+        },
+      );
+      const enqueues: Array<Record<string, unknown>> = [];
+      const tokensBefore = tables.inviteTokens?.length ?? 0;
+      const created = await run(create, authCtx('auth-staff', tables, enqueues), {
+        name: 'New Staff',
+        email: 'disabled.holder@warehaus.co',
+        requestId: 'req-disabled',
+      });
+      assert.equal(created.ok, false);
+      assert.match(created.message ?? '', /portal access is disabled/);
+      assert.match(created.message ?? '', /Nothing was queued/);
+      assert.equal(enqueues.length, 0);
+      assert.equal(tables.inviteTokens?.length, tokensBefore);
+      assert.equal(tables.pendingInvites?.some((row) => row.email === 'disabled.holder@warehaus.co'), false);
+      assert.equal(tables.notices?.length, 1);
+      assert.match(String(tables.notices?.[0]?.message), /Nothing was queued/);
+    } finally {
+      if (previousWriteback === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+      else process.env.NOTION_WRITEBACK_ENABLED = previousWriteback;
+      if (previousEmail === undefined) delete process.env.INVITE_EMAIL_ENABLED;
+      else process.env.INVITE_EMAIL_ENABLED = previousEmail;
+      if (previousUrl === undefined) delete process.env.PORTAL_PUBLIC_URL;
+      else process.env.PORTAL_PUBLIC_URL = previousUrl;
+    }
+  });
+
+  it('does not queue an invite when the holder row is hidden from sync', async () => {
+    const previousWriteback = process.env.NOTION_WRITEBACK_ENABLED;
+    const previousEmail = process.env.INVITE_EMAIL_ENABLED;
+    const previousUrl = process.env.PORTAL_PUBLIC_URL;
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
+    process.env.INVITE_EMAIL_ENABLED = 'true';
+    process.env.PORTAL_PUBLIC_URL = 'http://localhost:3100';
+    try {
+      const tables = baseTables(await tokenRow('tok-hidden', 'raw-hidden'));
+      tables.clients?.push({
+        _id: 'org-real',
+        slug: 'warehaus',
+        notionPageId: REAL_WAREHAUS_PAGE,
+        portalAccess: 'Enabled',
+        syncHiddenAt: 1,
+        companyName: 'Warehaus',
+      });
+      const enqueues: Array<Record<string, unknown>> = [];
+      const created = await run(create, authCtx('auth-staff', tables, enqueues), {
+        name: 'New Staff',
+        email: 'hidden.holder@warehaus.co',
+        requestId: 'req-hidden',
+      });
+      assert.equal(created.ok, false);
+      assert.match(created.message ?? '', /hidden from sync/);
+      assert.match(created.message ?? '', /Nothing was queued/);
+      assert.equal(enqueues.length, 0);
+      assert.equal(tables.pendingInvites?.some((row) => row.email === 'hidden.holder@warehaus.co'), false);
+      assert.equal(tables.contacts?.some((row) => row.email === 'hidden.holder@warehaus.co'), false);
+      assert.equal(tables.notices?.length, 1);
+    } finally {
+      if (previousWriteback === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+      else process.env.NOTION_WRITEBACK_ENABLED = previousWriteback;
+      if (previousEmail === undefined) delete process.env.INVITE_EMAIL_ENABLED;
+      else process.env.INVITE_EMAIL_ENABLED = previousEmail;
+      if (previousUrl === undefined) delete process.env.PORTAL_PUBLIC_URL;
+      else process.env.PORTAL_PUBLIC_URL = previousUrl;
+    }
+  });
+
+  it('hides a pending invite without revoking sessions, and revokes when the invite is dropped', () => {
+    const kept = pendingInviteSyncConceal('UPSERT_PENDING_INVITE');
+    assert.equal(kept?.action, 'hide');
+    assert.equal(kept?.revokeSessions, false);
+    const dropped = pendingInviteSyncConceal('SKIP_AND_DROP_PENDING');
+    assert.equal(dropped?.revokeSessions, true);
+  });
+
+  it('treats the slug row and the holder row as one staff org', async () => {
+    const previousWriteback = process.env.NOTION_WRITEBACK_ENABLED;
+    const previousEmail = process.env.INVITE_EMAIL_ENABLED;
+    const previousUrl = process.env.PORTAL_PUBLIC_URL;
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
+    process.env.INVITE_EMAIL_ENABLED = 'true';
+    process.env.PORTAL_PUBLIC_URL = 'http://localhost:3100';
+    try {
+      const tables = baseTables(await tokenRow('tok-same-org', 'raw-same-org'));
+      tables.clients?.push(
+        {
+          _id: 'org-seed',
+          slug: 'warehaus-internal',
+          notionPageId: 'seed-warehaus-org',
+          portalAccess: 'Enabled',
+          companyName: 'Warehaus (Internal)',
+        },
+        {
+          _id: 'org-real',
+          slug: 'warehaus',
+          notionPageId: REAL_WAREHAUS_PAGE,
+          portalAccess: 'Enabled',
+          companyName: 'Warehaus',
+        },
+      );
+      tables.pendingInvites?.push({
+        _id: 'pending-seed-email',
+        orgId: 'org-seed',
+        notionPageId: 'page-seed-email',
+        name: 'Moved Staff',
+        email: 'moved.staff@warehaus.co',
+        role: 'Warehaus Staff',
+        inviteStatus: 'Pending',
+        source: 'portal',
+        lastSyncedAt: 1,
+      });
+      const enqueues: Array<Record<string, unknown>> = [];
+      const created = await run(create, authCtx('auth-staff', tables, enqueues), {
+        name: 'Moved Staff',
+        email: 'moved.staff@warehaus.co',
+        requestId: 'req-same-org',
+      });
+      assert.equal(created.ok, true);
+      assert.equal(enqueues[0]?.orgId, 'org-real');
+    } finally {
+      if (previousWriteback === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+      else process.env.NOTION_WRITEBACK_ENABLED = previousWriteback;
+      if (previousEmail === undefined) delete process.env.INVITE_EMAIL_ENABLED;
+      else process.env.INVITE_EMAIL_ENABLED = previousEmail;
+      if (previousUrl === undefined) delete process.env.PORTAL_PUBLIC_URL;
+      else process.env.PORTAL_PUBLIC_URL = previousUrl;
+    }
+  });
+
+  it('names a duplicate warehaus-internal slug instead of a unique-index error', async () => {
+    const token = await tokenRow('tok-dup', 'raw-dup');
+    const tables = asStaffInvite(baseTables(token), token);
+    tables.clients?.push({
+      _id: 'org-wh-2',
+      slug: 'warehaus-internal',
+      notionPageId: 'seed-warehaus-org-2',
+      portalAccess: 'Enabled',
+      companyName: 'Warehaus other',
+    });
+    await assert.rejects(
+      () => run(accept, authCtx('user-new', tables, [], true, newStaffUser), { token: 'raw-dup' }),
+      /More than one client uses the warehaus-internal slug/,
+    );
   });
 
   it('keeps an invite on the row that holds the Notion page through the next sync', async () => {
@@ -528,18 +712,23 @@ describe('invite accept, decline, and revoke', () => {
       assert.equal(live?.clientNotionPageId, REAL_WAREHAUS_PAGE);
       assert.equal(live?.orgId, 'org-real');
 
+      const clientEnabled = clientEnabledForPull(tables.clients ?? []);
+      assert.equal(clientEnabled(REAL_WAREHAUS_PAGE), true);
       const decision = decideContactSync({
         portalAccess: 'Disabled',
         inviteStatus: 'Pending',
         source: 'portal',
         clientNotionId: REAL_WAREHAUS_PAGE,
-        clientEnabled: (id) => id === REAL_WAREHAUS_PAGE,
+        clientEnabled,
         liveToken: { clientNotionPageId: REAL_WAREHAUS_PAGE },
         verifiedAcceptance: false,
       });
       const placement: string = decision.placement;
       assert.equal(placement === 'SKIP_AND_DROP_PENDING', false);
       assert.equal(placement, 'UPSERT_PENDING_INVITE');
+      const conceal = pendingInviteSyncConceal(placement);
+      assert.ok(conceal);
+      assert.equal(conceal.revokeSessions, false);
       await run(applyContactRead, staffCtx, {
         notionPageId: 'contact-new',
         orgId: 'org-real',

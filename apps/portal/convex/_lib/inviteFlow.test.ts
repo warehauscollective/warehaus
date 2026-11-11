@@ -19,6 +19,7 @@ import {
   inviteRelationError,
   resolveWarehausInviteClient,
   staffInviteOrgAllowed,
+  type WarehausPageCandidate,
   asInviteRole,
   claimInviteToken,
   createInviteToken,
@@ -119,7 +120,7 @@ describe('invite create plan', () => {
     const resolved = resolveWarehausInviteClient({
       clients: [
         { id: 'org-seed', slug: 'warehaus-internal', notionPageId: 'seed-warehaus-org' },
-        { id: 'org-real', slug: 'warehaus', notionPageId: INTERNAL_PAGE },
+        { id: 'org-real', slug: 'warehaus', notionPageId: INTERNAL_PAGE, portalAccess: 'Enabled' },
       ],
     });
     assert.deepEqual(resolved, { ok: true, orgId: 'org-real', notionPageId: INTERNAL_PAGE });
@@ -129,7 +130,7 @@ describe('invite create plan', () => {
       internalNotionPageId: 'seed-warehaus-org',
       clients: [
         { id: 'org-seed', slug: 'warehaus-internal', notionPageId: 'seed-warehaus-org' },
-        { id: 'org-real', slug: 'warehaus', notionPageId: INTERNAL_PAGE },
+        { id: 'org-real', slug: 'warehaus', notionPageId: INTERNAL_PAGE, portalAccess: 'Enabled' },
       ],
     });
     assert.equal(plan.ok, true);
@@ -151,7 +152,7 @@ describe('invite create plan', () => {
     const pointingAtSeed = resolveWarehausInviteClient({
       clients: [
         { id: 'org-seed', slug: 'warehaus-internal', notionPageId: 'seed-warehaus-org' },
-        { id: 'org-real', slug: 'warehaus', notionPageId: INTERNAL_PAGE },
+        { id: 'org-real', slug: 'warehaus', notionPageId: INTERNAL_PAGE, portalAccess: 'Enabled' },
       ],
       configuredClientId: 'org-seed',
     });
@@ -160,10 +161,15 @@ describe('invite create plan', () => {
   });
 
   it('fails when more than one Warehaus row holds a page unless the env picks one', () => {
-    const clients = [
+    const clients: WarehausPageCandidate[] = [
       { id: 'org-seed', slug: 'warehaus-internal', notionPageId: 'seed-warehaus-org' },
-      { id: 'org-a', slug: 'warehaus', notionPageId: INTERNAL_PAGE },
-      { id: 'org-b', slug: 'warehaus', notionPageId: '3b1ffd60-316b-813f-987b-f9912477dbc0' },
+      { id: 'org-a', slug: 'warehaus', notionPageId: INTERNAL_PAGE, portalAccess: 'Enabled' },
+      {
+        id: 'org-b',
+        slug: 'warehaus',
+        notionPageId: '3b1ffd60-316b-813f-987b-f9912477dbc0',
+        portalAccess: 'Enabled',
+      },
     ];
     const ambiguous = resolveWarehausInviteClient({ clients });
     assert.equal(ambiguous.ok, false);
@@ -179,6 +185,48 @@ describe('invite create plan', () => {
       configuredClientId: 'org-north',
     });
     assert.equal(otherClient.ok, false);
+  });
+
+  it('refuses a holder whose portal access is disabled', () => {
+    const resolved = resolveWarehausInviteClient({
+      clients: [
+        { id: 'org-seed', slug: 'warehaus-internal', notionPageId: 'seed-warehaus-org' },
+        { id: 'org-real', slug: 'warehaus', notionPageId: INTERNAL_PAGE, portalAccess: 'Disabled' },
+      ],
+    });
+    assert.equal(resolved.ok, false);
+    if (!resolved.ok) {
+      assert.match(resolved.message, /portal access is disabled/);
+      assert.match(resolved.message, /Nothing was queued/);
+    }
+    const configured = resolveWarehausInviteClient({
+      clients: [
+        { id: 'org-real', slug: 'warehaus', notionPageId: INTERNAL_PAGE, portalAccess: 'Disabled' },
+        { id: 'org-other', slug: 'warehaus', notionPageId: '3b1ffd60-316b-813f-987b-f9912477dbc0', portalAccess: 'Enabled' },
+      ],
+      configuredClientId: 'org-real',
+    });
+    assert.equal(configured.ok, false);
+    if (!configured.ok) assert.match(configured.message, /Nothing was queued/);
+  });
+
+  it('refuses a holder hidden from sync', () => {
+    const resolved = resolveWarehausInviteClient({
+      clients: [
+        {
+          id: 'org-real',
+          slug: 'warehaus',
+          notionPageId: INTERNAL_PAGE,
+          portalAccess: 'Enabled',
+          syncHiddenAt: 1,
+        },
+      ],
+    });
+    assert.equal(resolved.ok, false);
+    if (!resolved.ok) {
+      assert.match(resolved.message, /hidden from sync/);
+      assert.match(resolved.message, /Nothing was queued/);
+    }
   });
 
   it('refuses clients, including a Client Admin', () => {

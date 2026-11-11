@@ -16,7 +16,7 @@ import {
   WRITEBACK_OFF_ERROR,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
-import type { Id } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import { components, internal } from './_generated/api';
 import {
   internalAction,
@@ -105,14 +105,7 @@ const inviteRoleArg = v.union(
   v.literal('Warehaus Staff'),
 );
 
-async function warehausInternal(ctx: QueryCtx | MutationCtx) {
-  return ctx.db
-    .query('clients')
-    .withIndex('by_slug', (q) => q.eq('slug', WAREHAUS_INTERNAL_CLIENT_SLUG))
-    .unique();
-}
-
-type ClientRow = NonNullable<Awaited<ReturnType<typeof warehausInternal>>>;
+type ClientRow = Doc<'clients'>;
 
 function toInviteCandidate(row: ClientRow): WarehausPageCandidate {
   return {
@@ -120,6 +113,8 @@ function toInviteCandidate(row: ClientRow): WarehausPageCandidate {
     slug: row.slug,
     externalId: row.externalId,
     notionPageId: row.notionPageId,
+    portalAccess: row.portalAccess,
+    syncHiddenAt: row.syncHiddenAt,
   };
 }
 
@@ -170,11 +165,12 @@ async function loadWarehausInviteRows(
 }
 
 async function staffOrgChoice(ctx: QueryCtx | MutationCtx) {
-  const legacy = await warehausInternal(ctx);
   const loaded = await loadWarehausInviteRows(ctx);
+  if (!loaded.ok) throw new Error(loaded.message);
+  const legacy = loaded.clients.find((client) => client.slug === WAREHAUS_INTERNAL_CLIENT_SLUG);
   return {
-    legacyId: legacy?._id,
-    holderOrgIds: loaded.ok ? warehausHolderOrgIds(loaded.clients) : [],
+    legacyId: legacy?.id as Id<'clients'> | undefined,
+    holderOrgIds: warehausHolderOrgIds(loaded.clients),
   };
 }
 
@@ -231,7 +227,13 @@ export const create = adminMutation({
       .query('pendingInvites')
       .withIndex('by_email', (q) => q.eq('email', emailNormalized))
       .collect();
-    const emailOwnedByOtherOrg = [...contacts, ...pending].some((row) => row.orgId !== orgId);
+    const staffOrgIds = new Set<string>([
+      ...loaded.clients
+        .filter((client) => client.slug === WAREHAUS_INTERNAL_CLIENT_SLUG)
+        .map((client) => client.id),
+      ...warehausHolderOrgIds(loaded.clients),
+    ]);
+    const emailOwnedByOtherOrg = [...contacts, ...pending].some((row) => !staffOrgIds.has(String(row.orgId)));
     const gate = inviteSendGate({
       writebackEnabled: isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED),
       emailEnabled: isInviteEmailEnabled(process.env.INVITE_EMAIL_ENABLED),
@@ -243,10 +245,9 @@ export const create = adminMutation({
       inviteRole: args.inviteRole ?? 'Warehaus Staff',
       email: args.email,
       name: args.name,
-      internalOrgId: orgId,
+      internalOrgId: page.orgId,
       internalNotionPageId: page.notionPageId,
-      clients: loaded.clients,
-      configuredClientId: process.env[WAREHAUS_INTERNAL_CLIENT_ID_ENV],
+      resolved: page,
       sentToday,
       emailOwnedByOtherOrg,
       emailAlreadyMember: contacts.length > 0,

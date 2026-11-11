@@ -25,7 +25,7 @@ crons.interval(
   {},
 );
 
-/** Live invite tokens past expiresAt become expired. Does not write Notion. */
+/** Live invite tokens past expiresAt become expired and queue Invite Status Expired for Notion. */
 crons.interval(
   'expire-invite-tokens',
   { hours: 1 },
