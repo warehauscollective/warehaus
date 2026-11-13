@@ -7,14 +7,23 @@
 import {
   PORTAL_COLLECTIONS,
   WRITEBACK_OFF_ERROR,
+  asClientCreateProperties,
+  clientCreateConvexFields,
+  clientCreateInsertAllowed,
+  clientCreateHitFromNotion,
+  clientFieldsFromNotionPage,
   isNotionWritebackEnabled,
   missingWritebackProperty,
   missingWritebackReason,
+  outboxKindSendsInvite,
   projectCreateConvexFields,
   readNotionPlain,
+  runClientCreateAttempt,
   runOutboxAttempt,
   runProjectCreateAttempt,
   type AttemptOutcome,
+  type ClientCreateAttempt,
+  type ClientUpsertFields,
   type OutboxItem,
   type ProjectCreateProperties,
   type WriteProperties,
@@ -26,15 +35,17 @@ import type { Doc, Id } from '../_generated/dataModel';
 import { internalAction, type ActionCtx } from '../_generated/server';
 import { listDataSourcePropertyNames } from './notionApi';
 import {
+  createNotionClientPage,
   createNotionProjectPage,
   readNotionLastEdited,
+  searchClientCreateHits,
   searchNotionPages,
   searchProjectCreateHits,
   writeNotionPage,
 } from './notionWrite';
 
 type ProcessResult =
-  | { ok: true; notionPageId: string; reused: boolean; projectId?: string }
+  | { ok: true; notionPageId: string; reused: boolean; projectId?: string; clientId?: string }
   | { ok: false; error: string };
 
 function writebackOn(): boolean {
@@ -101,6 +112,7 @@ function asProjectProperties(properties: WriteProperties): ProjectCreateProperti
 function storedPage(resultJson: string | null | undefined): {
   notionPageId: string;
   projectId?: string;
+  clientId?: string;
   reused: boolean;
 } | null {
   if (!resultJson) return null;
@@ -108,17 +120,59 @@ function storedPage(resultJson: string | null | undefined): {
     const parsed = JSON.parse(resultJson) as {
       notionPageId?: string;
       projectId?: string;
+      clientId?: string;
       reused?: boolean;
     };
     if (!parsed.notionPageId) return null;
     return {
       notionPageId: parsed.notionPageId,
       projectId: parsed.projectId,
+      clientId: parsed.clientId,
       reused: parsed.reused ?? true,
     };
   } catch {
     return null;
   }
+}
+
+async function convexClientForCreate(
+  ctx: ActionCtx,
+  notionPageId: string,
+  properties: WriteProperties,
+  attempt: ClientCreateAttempt | null,
+): Promise<Id<'clients'>> {
+  const existing = await ctx.runQuery(internal.clientCreate.findByNotionPage, { notionPageId });
+  if (existing && !clientCreateInsertAllowed(existing.id)) return existing.id;
+
+  const externalId = typeof properties['External ID'] === 'string' ? properties['External ID'] : '';
+  if (externalId) {
+    const byExternal = await ctx.runQuery(internal.clientCreate.findByExternalId, { externalId });
+    if (byExternal && !clientCreateInsertAllowed(byExternal.id)) return byExternal.id;
+  }
+
+  const reuse = attempt?.outcome === 'confirmed' ? attempt : null;
+  let fields: ClientUpsertFields | null = null;
+  if (reuse?.reuseKind && reuse.existingNotionProperties) {
+    fields = clientFieldsFromNotionPage(notionPageId, reuse.existingNotionProperties);
+    if (!fields) throw new Error('That client already exists in Notion, but the page could not be read.');
+  } else if (reuse?.reuseKind === 'slug') {
+    throw new Error('That client already exists in Notion, but the page could not be read.');
+  } else {
+    const shaped = asClientCreateProperties(properties);
+    fields = shaped ? clientCreateConvexFields(shaped) : null;
+  }
+  if (!fields) throw new Error('Client create payload is incomplete');
+  return ctx.runMutation(internal.sync.upsert.upsertClient, {
+    notionPageId,
+    companyName: fields.companyName,
+    slug: fields.slug,
+    status: fields.status,
+    portalAccess: fields.portalAccess,
+    ...(fields.primaryEmail ? { primaryEmail: fields.primaryEmail } : {}),
+    ...(fields.phone ? { phone: fields.phone } : {}),
+    ...(fields.externalId ? { externalId: fields.externalId } : {}),
+    ...(fields.source ? { source: fields.source } : {}),
+  });
 }
 
 function sameOrg(
@@ -168,7 +222,37 @@ async function execute(
     if (claim.reason === 'done') {
       const stored = storedPage(claim.resultJson);
       if (!stored) return { ok: false, error: 'This write already finished without a page id.' };
-      return { ok: true, notionPageId: stored.notionPageId, reused: true, projectId: stored.projectId };
+      if (stored.clientId) {
+        return {
+          ok: true,
+          notionPageId: stored.notionPageId,
+          reused: true,
+          projectId: stored.projectId,
+          clientId: stored.clientId,
+        };
+      }
+      const doneRow = await ctx.runQuery(internal.sync.outbox.get, { id });
+      if (doneRow?.kind === 'client-create') {
+        try {
+          const clientId = await convexClientForCreate(
+            ctx,
+            stored.notionPageId,
+            parseProperties(doneRow.payload),
+            null,
+          );
+          await ctx.runMutation(internal.sync.outbox.attachClientId, { id, clientId });
+          return { ok: true, notionPageId: stored.notionPageId, reused: true, clientId };
+        } catch (err) {
+          return { ok: false, error: failureMessage(err) };
+        }
+      }
+      return {
+        ok: true,
+        notionPageId: stored.notionPageId,
+        reused: true,
+        projectId: stored.projectId,
+        clientId: stored.clientId,
+      };
     }
     if (claim.reason === 'missing') return { ok: false, error: 'Outbox row was missing' };
     if (claim.reason === 'inflight') return { ok: false, error: 'This write is already in progress.' };
@@ -182,9 +266,29 @@ async function execute(
   const item = toItem(row);
   const database = item.database;
   let outcome: AttemptOutcome;
+  let clientAttempt: ClientCreateAttempt | null = null;
   try {
     const livePropertyNames = await propertyNamesFor(schemaCache, database);
-    if (row.kind === 'project-create') {
+    if (row.kind === 'client-create') {
+      const externalId =
+        typeof item.properties['External ID'] === 'string' ? item.properties['External ID'] : '';
+      const slug = typeof item.properties.Slug === 'string' ? item.properties.Slug : '';
+      const attempt = await runClientCreateAttempt({
+        item,
+        nowMs: Date.now(),
+        writebackEnabled: true,
+        owned: true,
+        livePropertyNames: livePropertyNames ?? undefined,
+        search: async () => {
+          if (!externalId || !slug) return [];
+          const pages = await searchClientCreateHits(externalId, slug);
+          return pages.map(clientCreateHitFromNotion);
+        },
+        create: async (properties) => createNotionClientPage(properties),
+      });
+      clientAttempt = attempt;
+      outcome = attempt;
+    } else if (row.kind === 'project-create') {
       outcome = await runProjectCreateAttempt({
         item,
         nowMs: Date.now(),
@@ -298,6 +402,39 @@ async function execute(
     return { ok: false, error: 'Notion changed since the last read. Nothing was written.' };
   }
 
+  if (row.kind === 'client-create') {
+    const pageId = outcome.write.notionPageId;
+    let clientId: Id<'clients'>;
+    try {
+      clientId = await convexClientForCreate(ctx, pageId, outcome.write.properties, clientAttempt);
+    } catch (err) {
+      const message = failureMessage(err);
+      await ctx.runMutation(internal.sync.outbox.applyOutcome, {
+        id,
+        outcome: {
+          kind: 'retry',
+          attempts: row.attempts + 1,
+          nextAttemptAt: Date.now() + 30_000,
+          lastError: message,
+          notifyStaff: false,
+        },
+      });
+      return { ok: false, error: message };
+    }
+    await ctx.runMutation(internal.sync.outbox.applyOutcome, {
+      id,
+      outcome: {
+        kind: 'confirmed',
+        notionPageId: pageId,
+        lastEditedTime: outcome.write.lastEditedTime,
+        propertiesJson: JSON.stringify(outcome.write.properties),
+        reused: outcome.reused,
+      },
+    });
+    await ctx.runMutation(internal.sync.outbox.attachClientId, { id, clientId });
+    return { ok: true, notionPageId: pageId, reused: outcome.reused, clientId };
+  }
+
   await ctx.runMutation(internal.sync.outbox.applyOutcome, {
     id,
     outcome: {
@@ -309,7 +446,7 @@ async function execute(
     },
   });
 
-  if (row.kind === 'createInvite' || row.kind === 'setInviteState') {
+  if (outboxKindSendsInvite(row.kind)) {
     const issued = await ctx.runMutation(internal.invites.issueTokenAfterConfirm, {
       outboxId: row._id,
       notionPageId: outcome.write.notionPageId,

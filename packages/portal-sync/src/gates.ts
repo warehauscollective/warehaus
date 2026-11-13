@@ -17,10 +17,15 @@ export type ClientGateInput = {
   portalAccess: string | null | undefined;
 };
 
-/** Clients: `Portal access` = Enabled */
+/**
+ * Clients: Portal access is Enabled or Disabled.
+ * Disabled is staff-only. It is not a reason to skip or conceal the row.
+ * Trash, archive, and quarantine still conceal. Client users only see an
+ * Enabled row with no hide stamp (`isOrgVisibleToClients`).
+ */
 export function clientRowPassesGate(row: ClientGateInput): GateResult {
-  if (row.portalAccess !== 'Enabled') {
-    return fail(`Portal access is ${JSON.stringify(row.portalAccess)}, expected Enabled`);
+  if (row.portalAccess !== 'Enabled' && row.portalAccess !== 'Disabled') {
+    return fail(`Portal access is ${JSON.stringify(row.portalAccess)}, expected Enabled or Disabled`);
   }
   return pass();
 }

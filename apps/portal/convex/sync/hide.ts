@@ -194,10 +194,18 @@ export const hideProjectTasks = internalMutation({
   },
 });
 
-/** When a client is enabled again, reveal children that were hidden only because of it. */
+/**
+ * Reveal children hidden only because of this client.
+ * A well-formed Disabled client also drops a stale gate stamp here.
+ * Trash, archive, and quarantine stamps stay.
+ */
 export const clearAncestorHides = internalMutation({
   args: { orgId: v.id('clients') },
   handler: async (ctx, { orgId }) => {
+    const client = await ctx.db.get(orgId);
+    if (client?.portalAccess === 'Disabled' && client.syncHiddenReason === 'gate') {
+      await ctx.db.patch(client._id, { syncHiddenAt: undefined, syncHiddenReason: undefined });
+    }
     const tables = ['projects', 'tasks', 'sharedResources', 'clientDocs', 'contacts'] as const;
     for (const table of tables) {
       const rows = await ctx.db

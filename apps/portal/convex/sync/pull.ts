@@ -62,6 +62,7 @@ export type PullStats = {
 type IdMaps = {
   clientByNotion: Record<string, Id<'clients'>>;
   clientEnabledByNotion: Record<string, boolean>;
+  clientStaffVisibleByNotion: Record<string, boolean>;
   projectByNotion: Record<string, Id<'projects'>>;
   projectOrgByNotion: Record<string, Id<'clients'>>;
   projectVisibleByNotion: Record<string, boolean>;
@@ -566,7 +567,7 @@ export const pullAll = internalAction({
           dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
           archived: page.archived,
           inTrash: page.inTrash,
-          parentClientEnabled: clientNotionId ? ids.clientEnabledByNotion[clientNotionId] === true : undefined,
+          parentClientEnabled: clientNotionId ? ids.clientStaffVisibleByNotion[clientNotionId] === true : undefined,
         });
         const approvedInternal =
           !page.archived &&

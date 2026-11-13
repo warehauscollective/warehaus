@@ -195,7 +195,8 @@ export function mapNotionClient(
   properties: Record<string, unknown>,
 ): MapResult {
   const droppedProperties = dropUnknown('clients', properties);
-  const portalAccess = asPortalAccess(extractSelect(properties['Portal access']));
+  const rawAccess = extractSelect(properties['Portal access']);
+  const portalAccess = asPortalAccess(rawAccess);
   const row: MappedClient = {
     database: 'clients',
     notionPageId,
@@ -209,7 +210,7 @@ export function mapNotionClient(
     source: extractSelect(properties.Source) ?? undefined,
   };
 
-  const gate = clientRowPassesGate({ portalAccess: row.portalAccess });
+  const gate = clientRowPassesGate({ portalAccess: rawAccess });
   if (!gate.ok) return { disposition: 'skip', reason: gate.reason, droppedProperties, row };
   if (!row.slug) {
     return { disposition: 'quarantine', reason: 'Client missing Slug', droppedProperties, row };

@@ -113,9 +113,11 @@ describe('property tiers fail closed', () => {
 });
 
 describe('row gates', () => {
-  it('clients require Portal access Enabled', () => {
+  it('clients pass when Portal access is Enabled or Disabled', () => {
     assert.equal(clientRowPassesGate({ portalAccess: 'Enabled' }).ok, true);
-    assert.equal(clientRowPassesGate({ portalAccess: 'Disabled' }).ok, false);
+    assert.equal(clientRowPassesGate({ portalAccess: 'Disabled' }).ok, true);
+    assert.equal(clientRowPassesGate({ portalAccess: null }).ok, false);
+    assert.equal(clientRowPassesGate({ portalAccess: 'Paused' }).ok, false);
   });
 
   it('projects block Internal type even when published', () => {

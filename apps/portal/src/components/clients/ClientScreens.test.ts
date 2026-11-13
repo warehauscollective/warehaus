@@ -537,4 +537,28 @@ describe('client states', () => {
     );
     assert.match(branded, /data-testid="brand-row-meta"[^>]*>Brand: Northwind Kitchen</);
   });
+
+  it('enables New client for staff and keeps the control disabled without a handler', () => {
+    const enabled = renderToStaticMarkup(createElement(NewClientButton, { onCreate: () => {} }));
+    assert.match(enabled, /data-testid="new-client-header-button"/);
+    assert.match(enabled, />New client</);
+    assert.equal(enabled.includes('aria-disabled'), false);
+    assert.equal(enabled.includes('opacity:0.4'), false);
+    assert.equal(enabled.includes('Creating a client turns on with Notion write-back'), false);
+
+    const empty = renderToStaticMarkup(
+      createElement(ClientDirectory, {
+        clients: [],
+        filter: 'all',
+        onFilter: () => {},
+        onOpen: () => {},
+        loading: false,
+        error: null,
+        onCreate: () => {},
+      }),
+    );
+    assert.match(empty, /data-testid="new-client"/);
+    assert.equal(empty.includes('aria-disabled'), false);
+    assert.equal(empty.includes('opacity:0.4'), false);
+  });
 });

@@ -55,6 +55,7 @@ export {
 } from './gates';
 
 export {
+  clientKeepsProjectsStaffVisible,
   decideSyncedRowVisibility,
   isClientSurfaceVisible,
   isOrgVisibleToClients,
@@ -193,6 +194,32 @@ export {
 } from './projectCreate';
 
 export {
+  companyNameKey,
+  reservedClientSlug,
+  slugFromCompanyName,
+  clientCreateExternalId,
+  clientCreateStaffAllowed,
+  planClientCreateDispatch,
+  buildClientCreateProperties,
+  clientCreateEnqueueError,
+  asClientCreateProperties,
+  toNotionClientCreateProperties,
+  clientCreatePageRequest,
+  clientCreateSearchFilter,
+  clientCreateHitFromNotion,
+  decideClientCreateDedupe,
+  clientCreateConvexFields,
+  clientCreateInsertAllowed,
+  clientFieldsFromNotionPage,
+  type ClientCreateField,
+  type ClientCreateProperties,
+  type ClientCreateBuild,
+  type ClientCreateHit,
+  type ClientCreateDedupe,
+  type ClientUpsertFields,
+} from './clientCreate';
+
+export {
   WRITEBACK_OFF_ERROR,
   NOTION_WRITE_VERSION,
   TASK_STATUSES,
@@ -225,6 +252,8 @@ export {
   revertIdempotencyKey,
   taskStatusIdempotencyKey,
   projectCreateIdempotencyKey,
+  clientCreateIdempotencyKey,
+  outboxKindSendsInvite,
   nextBackoffMs,
   shouldNotifyStaff,
   isOutboxDead,
@@ -234,6 +263,7 @@ export {
   planIdempotentEnqueue,
   runOutboxAttempt,
   runProjectCreateAttempt,
+  runClientCreateAttempt,
   missingWritebackProperty,
   missingWritebackProperties,
   missingWritebackReason,
@@ -246,6 +276,7 @@ export {
   type NotionWriteResponse,
   type ConfirmedWrite,
   type AttemptOutcome,
+  type ClientCreateAttempt,
   type IdempotencyRow,
   type PageRead,
 } from './outbox';

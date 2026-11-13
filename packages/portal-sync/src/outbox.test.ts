@@ -12,6 +12,8 @@ import {
   planIdempotentEnqueue,
   planOutboxAttempt,
   revertIdempotencyKey,
+  outboxKindSendsInvite,
+  runClientCreateAttempt,
   runOutboxAttempt,
   runProjectCreateAttempt,
   stateIdempotencyKey,
@@ -548,5 +550,101 @@ describe('outbox attempt', () => {
       },
     });
     assert.equal(outcome.outcome, 'confirmed');
+  });
+});
+
+const clientProperties: WriteProperties = {
+  'Company Name': 'North Wind',
+  Slug: 'north-wind',
+  Status: 'Prospect',
+  'External ID': 'wh_cli_north-wind',
+  Source: 'portal',
+  'Portal access': 'Disabled',
+  'Publish to Warehaus': false,
+};
+
+describe('client create attempt', () => {
+  it('does not search or post when write-back is off', async () => {
+    let called = 0;
+    const outcome = await runClientCreateAttempt({
+      item: item({
+        idempotencyKey: 'client-create:wh_cli_north-wind',
+        kind: 'client-create',
+        database: 'clients',
+        properties: clientProperties,
+      }),
+      nowMs: 0,
+      writebackEnabled: false,
+      search: async () => {
+        called += 1;
+        return [];
+      },
+      create: async () => {
+        called += 1;
+        return { ok: true, status: 200, notionPageId: 'page' };
+      },
+    });
+    assert.equal(outcome.outcome, 'held');
+    assert.equal(called, 0);
+    assert.equal(outboxKindSendsInvite('client-create'), false);
+  });
+
+  it('reuses a slug hit and does not post or patch', async () => {
+    let created = 0;
+    const outcome = await runClientCreateAttempt({
+      item: item({
+        kind: 'client-create',
+        database: 'clients',
+        properties: clientProperties,
+      }),
+      nowMs: 0,
+      writebackEnabled: true,
+      owned: true,
+      search: async () => [
+        {
+          notionPageId: 'page-existing',
+          externalId: 'wh_cli_other',
+          slug: 'north-wind',
+          properties: { Slug: { type: 'rich_text', rich_text: [{ plain_text: 'north-wind' }] } },
+        },
+      ],
+      create: async () => {
+        created += 1;
+        return { ok: true, status: 200, notionPageId: 'page-new' };
+      },
+    });
+    assert.equal(outcome.outcome, 'confirmed');
+    if (outcome.outcome !== 'confirmed') return;
+    assert.equal(outcome.reused, true);
+    assert.equal(outcome.reuseKind, 'slug');
+    assert.equal(outcome.write.notionPageId, 'page-existing');
+    assert.equal(created, 0);
+  });
+
+  it('posts once when External ID and Slug are new', async () => {
+    let created = 0;
+    const outcome = await runClientCreateAttempt({
+      item: item({
+        kind: 'client-create',
+        database: 'clients',
+        properties: clientProperties,
+      }),
+      nowMs: 0,
+      writebackEnabled: true,
+      owned: true,
+      search: async () => [],
+      create: async (properties) => {
+        created += 1;
+        assert.equal(properties['Portal access'], 'Disabled');
+        assert.equal(properties.Status, 'Prospect');
+        assert.equal(properties['Publish to Warehaus'], false);
+        return { ok: true, status: 200, notionPageId: 'page-new', lastEditedTime: '2026-11-13T00:00:00.000Z' };
+      },
+    });
+    assert.equal(created, 1);
+    assert.equal(outcome.outcome, 'confirmed');
+    if (outcome.outcome !== 'confirmed') return;
+    assert.equal(outcome.reused, false);
+    assert.equal(outcome.write.notionPageId, 'page-new');
   });
 });

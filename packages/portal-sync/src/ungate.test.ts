@@ -8,7 +8,12 @@ import {
   mapNotionSharedResource,
   mapNotionTask,
 } from './mappers';
-import { decideSyncedRowVisibility, isClientSurfaceVisible, isOrgVisibleToClients } from './ungate';
+import {
+  clientKeepsProjectsStaffVisible,
+  decideSyncedRowVisibility,
+  isClientSurfaceVisible,
+  isOrgVisibleToClients,
+} from './ungate';
 
 function title(text: string) {
   return { type: 'title', title: [{ plain_text: text }] };
@@ -43,23 +48,66 @@ const enabledClient = {
 };
 
 describe('un-gate each flip', () => {
-  it('hides a client when Portal access is disabled and cascades children', () => {
+  it('keeps a Disabled prospect unhidden and its projects staff-visible', () => {
     const mapped = mapNotionClient('c1', {
       ...enabledClient,
+      Status: select('Prospect'),
       'Portal access': select('Disabled'),
     });
-    assert.equal(mapped.disposition, 'skip');
+    assert.equal(mapped.disposition, 'upsert');
     const decision = decideSyncedRowVisibility({
       table: 'clients',
       disposition: mapped.disposition,
-      dispositionReason: mapped.disposition === 'skip' ? mapped.reason : undefined,
     });
-    assert.equal(decision.action, 'hide');
-    if (decision.action === 'hide') {
-      assert.equal(decision.reason, 'gate');
-      assert.equal(decision.cascade, 'client-children');
-      assert.equal(decision.revokeSessions, false);
-    }
+    assert.equal(decision.action, 'show');
+    const client = { portalAccess: 'Disabled' as const };
+    assert.equal(isOrgVisibleToClients(client), false);
+    assert.equal(clientKeepsProjectsStaffVisible({}), true);
+    const project = decideSyncedRowVisibility({
+      table: 'projects',
+      disposition: 'upsert',
+      parentClientEnabled: clientKeepsProjectsStaffVisible({}),
+    });
+    assert.equal(project.action, 'show');
+
+    const concealed = decideSyncedRowVisibility({
+      table: 'projects',
+      disposition: 'upsert',
+      parentClientEnabled: clientKeepsProjectsStaffVisible({ syncHiddenAt: 9 }),
+    });
+    assert.equal(concealed.action, 'store-hidden');
+
+    const trashed = decideSyncedRowVisibility({
+      table: 'clients',
+      disposition: 'upsert',
+      inTrash: true,
+    });
+    const archived = decideSyncedRowVisibility({
+      table: 'clients',
+      disposition: 'upsert',
+      archived: true,
+    });
+    assert.equal(trashed.action, 'hide');
+    assert.equal(archived.action, 'hide');
+    if (trashed.action === 'hide') assert.equal(trashed.reason, 'trashed');
+
+    const missingSlug = mapNotionClient('c2', {
+      'Company Name': title('Acme'),
+      'Portal access': select('Disabled'),
+    });
+    assert.equal(missingSlug.disposition, 'quarantine');
+    const quarantine = decideSyncedRowVisibility({
+      table: 'clients',
+      disposition: 'quarantine',
+      dispositionReason: 'Client missing Slug',
+    });
+    assert.equal(quarantine.action, 'quarantine');
+
+    const blankAccess = mapNotionClient('c3', {
+      'Company Name': title('Acme'),
+      Slug: rich('acme'),
+    });
+    assert.equal(blankAccess.disposition, 'skip');
   });
 
   it('hides a contact when Portal Access is disabled and revokes sessions', () => {
