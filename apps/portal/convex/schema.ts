@@ -141,12 +141,37 @@ export default defineSchema({
     milestoneId: v.optional(v.id('milestones')),
     /** Roadmap order while milestoneId is set. Cleared with that link. */
     milestoneOrder: v.optional(v.number()),
+    /**
+     * Staff-only copies of NEVER Notion fields, so task links can be rebuilt.
+     * Client serializers do not read them.
+     */
+    figmaFrame: v.optional(v.union(v.string(), v.null())),
+    repoBranch: v.optional(v.union(v.string(), v.null())),
+    nextAction: v.optional(v.union(v.string(), v.null())),
+    /** Milliseconds. Set when the portal or a pull writes the row. */
+    updatedAt: v.optional(v.number()),
+    /** Last writer per field. Absent until a pull or the staff API stamps it. */
+    fieldStamps: v.optional(
+      v.object({
+        status: v.optional(v.object({ updatedAt: v.number(), updatedBy: v.string() })),
+        stage: v.optional(v.object({ updatedAt: v.number(), updatedBy: v.string() })),
+        priority: v.optional(v.object({ updatedAt: v.number(), updatedBy: v.string() })),
+        nextAction: v.optional(v.object({ updatedAt: v.number(), updatedBy: v.string() })),
+      }),
+    ),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])
     .index('by_orgId_milestoneId', ['orgId', 'milestoneId'])
     .index('by_notionPageId', ['notionPageId'])
-    .index('by_externalId', ['externalId']),
+    .index('by_externalId', ['externalId'])
+    .index('by_projectId', ['projectId'])
+    .index('by_projectId_status', ['projectId', 'status'])
+    .index('by_projectId_stage', ['projectId', 'stage'])
+    .index('by_projectId_updatedAt', ['projectId', 'updatedAt'])
+    .index('by_status', ['status'])
+    .index('by_stage', ['stage'])
+    .index('by_updatedAt', ['updatedAt']),
 
   /**
    * Task → Shared Resource. Only a link whose resource org matches the task org.
@@ -186,7 +211,8 @@ export default defineSchema({
     publishToWarehaus: v.boolean(),
   })
     .index('by_orgId', ['orgId'])
-    .index('by_orgId_projectId', ['orgId', 'projectId']),
+    .index('by_orgId_projectId', ['orgId', 'projectId'])
+    .index('by_projectId', ['projectId']),
 
   /**
    * Milestone → Shared Resource. Same org only.
@@ -625,4 +651,70 @@ export default defineSchema({
     weeklySummary: v.boolean(),
     updatedAt: v.number(),
   }).index('by_contactId', ['contactId']),
+
+  /**
+   * Staff API tokens. The raw token is shown once at creation and is not stored.
+   * `tokenHash` is the SHA-256 hex of the token. Clients never read this table.
+   */
+  apiTokens: defineTable({
+    name: v.string(),
+    tokenHash: v.string(),
+    tokenPrefix: v.string(),
+    scope: v.union(v.literal('read'), v.literal('read-write')),
+    revokedAt: v.optional(v.number()),
+    lastUsedAt: v.optional(v.number()),
+    createdAt: v.number(),
+    createdByContactId: v.id('contacts'),
+    rateLimit: v.number(),
+    rateWindowMs: v.number(),
+    windowStartedAt: v.number(),
+    windowCount: v.number(),
+  })
+    .index('by_tokenHash', ['tokenHash'])
+    .index('by_name', ['name'])
+    .index('by_createdAt', ['createdAt']),
+
+  /** One stored response per token and Idempotency-Key. */
+  apiIdempotency: defineTable({
+    tokenId: v.id('apiTokens'),
+    key: v.string(),
+    requestHash: v.string(),
+    status: v.number(),
+    body: v.string(),
+    createdAt: v.number(),
+  }).index('by_tokenId_key', ['tokenId', 'key']),
+
+  /**
+   * Staff-only links on a task. Kinds match the portal API.
+   * Repo branch is included so the Notion field is not dropped.
+   */
+  taskLinks: defineTable({
+    orgId: v.id('clients'),
+    taskId: v.id('tasks'),
+    kind: v.union(
+      v.literal('chat request'),
+      v.literal('PR'),
+      v.literal('deploy'),
+      v.literal('Figma frame'),
+      v.literal('Notion page or doc'),
+      v.literal('Repo branch'),
+    ),
+    url: v.string(),
+    title: v.optional(v.string()),
+    addedBy: v.string(),
+    createdAt: v.number(),
+  })
+    .index('by_taskId', ['taskId'])
+    .index('by_orgId_taskId', ['orgId', 'taskId']),
+
+  /** Staff API comments. Not Notion comments, and not client task responses. */
+  taskComments: defineTable({
+    orgId: v.id('clients'),
+    taskId: v.id('tasks'),
+    body: v.string(),
+    addedBy: v.string(),
+    createdAt: v.number(),
+  })
+    .index('by_taskId_createdAt', ['taskId', 'createdAt'])
+    .index('by_orgId_taskId', ['orgId', 'taskId']),
 });

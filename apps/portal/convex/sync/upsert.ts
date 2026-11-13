@@ -5,6 +5,7 @@ import {
   isApprovedInternalWarehausProject,
   isOrgVisibleToClients,
   isWarehausInternalClient,
+  mergePulledField,
   mergePulledStage,
   projectCountsForTaskGate,
   resolveParentLink,
@@ -16,6 +17,7 @@ import { internalMutation, internalQuery, type MutationCtx } from '../_generated
 import type { Id } from '../_generated/dataModel';
 import { matchingQuarantineId } from '../_lib/quarantineRow';
 import { linkTaskToCreateMilestone, milestoneIdFromPayload } from '../_lib/taskMilestoneLink';
+import { ensureSourceLinks } from '../_lib/taskSourceLinks';
 
 /** Queued or failed task-stage rows only. Inflight, done, and conflict stay. */
 async function deleteUnsentTaskStageRows(ctx: MutationCtx, notionPageId: string): Promise<void> {
@@ -150,6 +152,9 @@ export const upsertTask = internalMutation({
     parentNotionPageId: v.optional(v.union(v.string(), v.null())),
     resourceNotionIds: v.optional(v.array(v.string())),
     pullRequestUrl: v.optional(v.union(v.string(), v.null())),
+    figmaFrame: v.optional(v.union(v.string(), v.null())),
+    repoBranch: v.optional(v.union(v.string(), v.null())),
+    nextAction: v.optional(v.union(v.string(), v.null())),
     lastEditedTime: v.optional(v.union(v.string(), v.null())),
     publishToWarehaus: v.boolean(),
     estimate: v.optional(v.string()),
@@ -164,7 +169,7 @@ export const upsertTask = internalMutation({
     syncNotice: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
-    const { hiddenReason, syncNotice, description, descriptionSource, ...fields } = args;
+    const { hiddenReason, syncNotice, description, descriptionSource, nextAction, figmaFrame, repoBranch, ...fields } = args;
     const existing = await ctx.db
       .query('tasks')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
@@ -209,6 +214,35 @@ export const upsertTask = internalMutation({
               description: undefined,
               descriptionSource: descriptionSource === 'none' ? ('none' as const) : undefined,
             };
+    const editedMs = typeof fields.lastEditedTime === 'string' ? Date.parse(fields.lastEditedTime) : Number.NaN;
+    const notionEditedMs = Number.isFinite(editedMs) ? editedMs : null;
+    const statusMerge = mergePulledField({
+      field: 'status',
+      notionValue: fields.status,
+      notionEditedMs,
+      localValue: existing?.status ?? null,
+      localStamp: existing?.fieldStamps?.status ?? null,
+    });
+    const priorityMerge = mergePulledField({
+      field: 'priority',
+      notionValue: fields.priority ?? null,
+      notionEditedMs,
+      localValue: existing?.priority ?? null,
+      localStamp: existing?.fieldStamps?.priority ?? null,
+    });
+    const nextMerge = mergePulledField({
+      field: 'nextAction',
+      notionValue: nextAction ?? null,
+      notionEditedMs,
+      localValue: existing?.nextAction ?? null,
+      localStamp: existing?.fieldStamps?.nextAction ?? null,
+    });
+    const fieldStamps = {
+      ...(existing?.fieldStamps ?? {}),
+      ...(statusMerge.applied && statusMerge.stamp ? { status: statusMerge.stamp } : {}),
+      ...(priorityMerge.applied && priorityMerge.stamp ? { priority: priorityMerge.stamp } : {}),
+      ...(nextMerge.applied && nextMerge.stamp ? { nextAction: nextMerge.stamp } : {}),
+    };
     const patch = {
       ...fields,
       stage: merge.stage,
@@ -217,6 +251,13 @@ export const upsertTask = internalMutation({
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
       ...descriptionPatch,
+      ...(statusMerge.applied ? {} : existing ? { status: existing.status, isDone: existing.isDone } : {}),
+      ...(priorityMerge.applied ? {} : existing ? { priority: existing.priority } : {}),
+      nextAction: nextMerge.applied ? (nextAction ?? null) : (existing?.nextAction ?? null),
+      figmaFrame: figmaFrame ?? null,
+      repoBranch: repoBranch ?? null,
+      ...(Object.keys(fieldStamps).length > 0 ? { fieldStamps } : {}),
+      updatedAt: now,
       ...(syncNotice
         ? { syncNotice }
         : syncNotice === null && existing
@@ -226,6 +267,13 @@ export const upsertTask = internalMutation({
     const taskId = existing
       ? (await ctx.db.patch(existing._id, patch), existing._id)
       : await ctx.db.insert('tasks', patch);
+    await ensureSourceLinks(ctx, {
+      orgId: args.orgId,
+      taskId,
+      pullRequestUrl: fields.pullRequestUrl,
+      figmaFrame,
+      repoBranch,
+    });
     if (!existing) {
       const created = await ctx.db.get(taskId);
       if (created) {

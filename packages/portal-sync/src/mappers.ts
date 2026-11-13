@@ -85,6 +85,10 @@ export type MappedTask = {
   parentNotionId?: string;
   resourceNotionIds: string[];
   pullRequestUrl?: string;
+  /** Staff-only. NEVER on the client tier. Stored so task links can be rebuilt. */
+  figmaFrame?: string;
+  repoBranch?: string;
+  nextAction?: string;
   publishToWarehaus: boolean;
   estimate?: string;
   priority?: string;
@@ -171,6 +175,13 @@ export type MapResult = SyncDisposition & {
   /** Tolerated values, such as an unknown stage. The row is still mapped. */
   notices?: string[];
 };
+
+function extractUrlOrText(prop: unknown): string | undefined {
+  const url = extractUrl(prop);
+  if (url) return url;
+  const text = extractRichText(prop).trim();
+  return text || undefined;
+}
 
 function dropUnknown(database: SyncInCollectionKey, properties: Record<string, unknown>): string[] {
   return Object.keys(properties).filter((name) => {
@@ -281,7 +292,10 @@ export function mapNotionTask(
     stage: stage.stage ?? undefined,
     parentNotionId: parent.parentNotionId ?? undefined,
     resourceNotionIds: extractRelationIds(properties.Resources),
-    pullRequestUrl: extractUrl(properties['GitHub Issue/PR']) ?? undefined,
+    pullRequestUrl: extractUrlOrText(properties['GitHub Issue/PR']),
+    figmaFrame: extractUrlOrText(properties['Figma Frame']),
+    repoBranch: extractUrlOrText(properties['Repo Branch']),
+    nextAction: extractUrlOrText(properties['Next Action']),
     publishToWarehaus: extractCheckbox(properties['Publish to Warehaus']),
     estimate: extractSelect(properties.Estimate) ?? undefined,
     priority: extractSelect(properties.Priority) ?? undefined,

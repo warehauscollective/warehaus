@@ -33,6 +33,7 @@ import {
   type DirectoryClient,
 } from '@/components/clients/ClientScreens';
 import { NewClientControl } from '@/components/clients/NewClientControl';
+import { ApiTokensPanel } from '@/components/account/ApiTokensPanel';
 import { useClientTaskPlatform } from '@/components/clients/useClientTaskPlatform';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { useRetryPortalData } from '@/components/providers/PortalDataRetry';
@@ -105,6 +106,7 @@ const SECTION_TITLE: Record<string, string> = {
   profile: 'Profile',
   notifications: 'Notifications',
   team: 'Team & invites',
+  tokens: 'API tokens',
 };
 
 type DirectoryRow = (typeof FIXTURE_CLIENTS)[number];
@@ -163,7 +165,7 @@ export function AccountContent() {
   }, [linkedClientId, setSectionFor, clearLinkedClient]);
 
   useEffect(() => {
-    if (isClient && activeSection === 'team') {
+    if (isClient && (activeSection === 'team' || activeSection === 'tokens')) {
       setSectionFor('account', 'profile');
     }
   }, [isClient, activeSection, setSectionFor]);
@@ -521,6 +523,12 @@ export function AccountContent() {
           }}
         />
       ) : null}
+
+      {isStaff && activeSection === 'tokens' && (
+        <PortalTilePane>
+          <ApiTokensPanel live={configured && !fixtures} hostSlug={hostSlug} />
+        </PortalTilePane>
+      )}
 
       {isStaff && activeSection === 'team' && (
         <TeamInvites
