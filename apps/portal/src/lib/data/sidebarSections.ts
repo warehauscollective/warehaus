@@ -36,6 +36,7 @@ const TEAM_SECTIONS: Record<PortalTab, PortalSidebarSection[]> = {
     { key: 'profile', label: 'Profile' },
     { key: 'notifications', label: 'Notifications' },
     { key: 'team', label: 'Team & invites' },
+    { key: 'tokens', label: 'API tokens' },
   ],
 };
 
