@@ -173,6 +173,7 @@ export function TaskDetailModal({
                 Staff only · hidden from clients
               </p>
             ) : null}
+            <div className={phone ? undefined : 'flex flex-col'} style={phone ? { display: 'contents' } : undefined}>
             <div className="flex flex-col gap-1" style={{ order: phone ? 3 : undefined }}>
             <Field label="Status" row={phone}>
               {staff ? (
@@ -238,10 +239,18 @@ export function TaskDetailModal({
             ) : null}
             </div>
             {staff ? (
-              <div style={{ order: phone ? 4 : undefined }}>
+              <div
+                className="task-sources-section"
+                data-testid="task-sources-section"
+                style={{
+                  order: phone ? 4 : undefined,
+                  marginTop: phone ? 'calc(var(--s-6) - 24px)' : undefined,
+                }}
+              >
                 <TaskSources taskId={task.id} hostSlug={hostSlug} live={live} />
               </div>
             ) : null}
+            </div>
             {staff ? (
               <div className="flex flex-col gap-3" style={{ order: phone ? 4 : undefined }}>
                 <div className="flex items-center gap-2">

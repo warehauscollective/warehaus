@@ -1,43 +1,59 @@
 'use client';
 
-import { sourceKindLabel, sourceLinkHref, sourceStateChip, type SourceChipTone } from '@warehaus/portal-sync';
+import { useEffect, useState } from 'react';
+import { ExternalLink } from 'lucide-react';
+import {
+  sourceAddedByLabel,
+  sourceKindLabel,
+  sourceLinkHref,
+  sourceStateChip,
+  type SourceChipTone,
+} from '@warehaus/portal-sync';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
+import { Pill } from '@/components/ui/primitives';
+import {
+  readSourceScreen,
+  SOURCE_PANEL_LINKS,
+  type SourcePanelScreen,
+  type TaskSourceLink,
+} from './sourcePanelFixtures';
 
-export type TaskSourceLink = {
-  id: string;
-  kind: string;
-  url: string;
-  title: string | null;
-  addedBy: string;
-  createdAt: number;
-  state: string | null;
-};
+export type { TaskSourceLink };
 
-const TONE_COLOR: Record<SourceChipTone, string> = {
-  neutral: 'var(--muted)',
+const TONE_COLOR: Record<Exclude<SourceChipTone, 'neutral'>, string> = {
   good: 'var(--success)',
   warn: 'var(--warn)',
   bad: 'var(--danger)',
 };
 
-function Chip({ label, tone }: { label: string; tone: SourceChipTone }) {
-  const color = TONE_COLOR[tone];
+function SourcePill({ label, tone }: { label: string; tone: SourceChipTone }) {
+  const color = tone === 'neutral' ? undefined : TONE_COLOR[tone];
+  return <Pill color={color}>{label}</Pill>;
+}
+
+function SourceTitle({ href, text }: { href: string | null; text: string }) {
+  if (!href) {
+    return (
+      <p style={{ margin: '6px 0 0', fontSize: 'var(--t-sm)', color: 'var(--fg)', overflowWrap: 'anywhere' }}>{text}</p>
+    );
+  }
   return (
-    <span
-      className="ds-mono inline-flex items-center whitespace-nowrap"
-      data-testid="task-source-chip"
-      style={{
-        border: `1px solid ${tone === 'neutral' ? 'var(--border)' : color}`,
-        borderRadius: 999,
-        padding: '4px 10px',
-        fontSize: 11,
-        color,
-      }}
-    >
-      {label}
-    </span>
+    <div style={{ marginTop: 6 }}>
+      <a
+        className="task-source-link"
+        data-testid="task-source-link"
+        href={href}
+        target="_blank"
+        rel="noreferrer noopener"
+        style={{ fontSize: 'var(--t-sm)', overflowWrap: 'anywhere' }}
+      >
+        {text}
+        <ExternalLink aria-hidden size={14} strokeWidth={2} style={{ display: 'inline-block', marginLeft: 4, verticalAlign: '-2px' }} />
+      </a>
+    </div>
   );
 }
 
@@ -78,37 +94,44 @@ export function TaskSourcesPanel({
         <ul className="flex flex-col" style={{ margin: 0, padding: 0, listStyle: 'none' }}>
           {links.map((link) => {
             const href = sourceLinkHref(link.url);
-            const state = sourceStateChip(link.state);
+            const state = sourceStateChip(link.state) ?? { label: 'No status', tone: 'neutral' as const };
             const text = link.title?.trim() || link.url;
             return (
               <li key={link.id} data-testid="task-source-row" style={{ padding: '0.7rem 0', borderBottom: '1px solid var(--border)' }}>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Chip label={sourceKindLabel(link.kind)} tone="neutral" />
-                  {state ? <Chip label={state.label} tone={state.tone} /> : null}
+                  <SourcePill label={sourceKindLabel(link.kind)} tone="neutral" />
+                  <SourcePill label={state.label} tone={state.tone} />
                 </div>
-                {href ? (
-                  <a
-                    href={href}
-                    target="_blank"
-                    rel="noreferrer noopener"
-                    style={{ display: 'block', marginTop: 6, fontSize: 'var(--t-sm)', color: 'var(--fg)', overflowWrap: 'anywhere' }}
-                  >
-                    {text}
-                  </a>
-                ) : (
-                  <p style={{ margin: '6px 0 0', fontSize: 'var(--t-sm)', color: 'var(--fg)', overflowWrap: 'anywhere' }}>{text}</p>
-                )}
-                <p className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)', margin: '4px 0 0' }}>{link.addedBy}</p>
+                <SourceTitle href={href} text={text} />
+                <p className="ds-mono" data-testid="task-source-added" style={{ fontSize: 11, color: 'var(--faint)', margin: '4px 0 0' }}>
+                  {sourceAddedByLabel(link.addedBy)}
+                </p>
               </li>
             );
           })}
         </ul>
       ) : null}
       {truncated ? (
-        <p className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)', margin: 0 }}>Showing the first 50.</p>
+        <p className="ds-mono" data-testid="task-sources-cap" style={{ fontSize: 11, color: 'var(--faint)', margin: 0 }}>
+          Showing the first 50.
+        </p>
       ) : null}
     </section>
   );
+}
+
+function useFixtureSourceScreen(live: boolean): SourcePanelScreen | null {
+  const fixtures = useFixturePreview();
+  const [screen, setScreen] = useState<SourcePanelScreen | null>(null);
+  useEffect(() => {
+    if (!fixtures || live || typeof window === 'undefined') {
+      setScreen(null);
+      return;
+    }
+    const value = new URLSearchParams(window.location.search).get('sources');
+    setScreen(readSourceScreen(value, true));
+  }, [fixtures, live]);
+  return fixtures && !live ? screen : null;
 }
 
 export function TaskSources({
@@ -120,10 +143,23 @@ export function TaskSources({
   hostSlug?: string;
   live: boolean;
 }) {
+  const fixtureScreen = useFixtureSourceScreen(live);
   const rows = useSafeQuery<{ items: TaskSourceLink[]; truncated: boolean }>(
     api.tasks.linksForStaff,
     live ? { hostSlug, taskId: taskId as Id<'tasks'> } : 'skip',
   );
+  if (fixtureScreen === 'loading') {
+    return <TaskSourcesPanel links={[]} loading truncated={false} />;
+  }
+  if (fixtureScreen === 'error') {
+    return <TaskSourcesPanel links={[]} loading={false} truncated={false} error="unavailable" />;
+  }
+  if (fixtureScreen === 'links') {
+    return <TaskSourcesPanel links={SOURCE_PANEL_LINKS} loading={false} truncated />;
+  }
+  if (fixtureScreen === 'empty') {
+    return <TaskSourcesPanel links={[]} loading={false} truncated={false} />;
+  }
   return (
     <TaskSourcesPanel
       links={rows.data?.items ?? []}

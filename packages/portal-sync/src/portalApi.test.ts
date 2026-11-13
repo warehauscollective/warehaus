@@ -13,6 +13,8 @@ import {
   planApiComment,
   planApiLink,
   planApiLinkPatch,
+  SOURCE_NO_STATUS,
+  sourceAddedByLabel,
   sourceKindLabel,
   sourceLinkHref,
   sourceStateChip,
@@ -518,16 +520,33 @@ describe('task link backfill', () => {
   });
 
   it('labels source chips for the staff panel', () => {
-    assert.equal(sourceKindLabel('PR'), 'PR');
+    assert.equal(sourceKindLabel('chat request'), 'Chat request');
+    assert.equal(sourceKindLabel('PR'), 'Cursor PR');
     assert.equal(sourceKindLabel('deploy'), 'Deploy');
-    assert.equal(sourceKindLabel('agent'), 'Agent');
-    assert.equal(sourceKindLabel('Figma frame'), 'Figma');
+    assert.equal(sourceKindLabel('agent'), 'Agent run');
+    assert.equal(sourceKindLabel('Figma frame'), 'Figma frame');
     assert.equal(sourceKindLabel('Notion page or doc'), 'Doc');
-    assert.deepEqual(sourceStateChip('merged'), { label: 'merged', tone: 'good' });
-    assert.deepEqual(sourceStateChip(' open '), { label: 'open', tone: 'warn' });
-    assert.deepEqual(sourceStateChip('failed'), { label: 'failed', tone: 'bad' });
-    assert.equal(sourceStateChip('  '), null);
+    assert.equal(sourceKindLabel('Repo branch'), 'Branch');
+    assert.deepEqual(sourceStateChip('merged'), { label: 'Merged', tone: 'good' });
+    assert.deepEqual(sourceStateChip('deployed'), { label: 'Deployed', tone: 'good' });
+    assert.deepEqual(sourceStateChip(' open '), { label: 'Open', tone: 'warn' });
+    assert.deepEqual(sourceStateChip('failed'), { label: 'Failed', tone: 'bad' });
+    assert.deepEqual(sourceStateChip('failure'), { label: 'Failed', tone: 'bad' });
+    assert.deepEqual(sourceStateChip('ready'), { label: 'Ready', tone: 'good' });
+    assert.deepEqual(sourceStateChip('in_progress'), { label: 'In Progress', tone: 'warn' });
+    assert.deepEqual(sourceStateChip('weird_state'), { label: 'Weird State', tone: 'neutral' });
+    assert.deepEqual(sourceStateChip('  '), { label: SOURCE_NO_STATUS, tone: 'neutral' });
+    assert.deepEqual(sourceStateChip(null), { label: SOURCE_NO_STATUS, tone: 'neutral' });
     assert.equal(sourceStateChip('x'.repeat(41)), null);
+    assert.equal(sourceAddedByLabel('cursor'), 'Added by Cursor');
+    assert.equal(sourceAddedByLabel('github'), 'Added by GitHub');
+    assert.equal(sourceAddedByLabel('github-webhook'), 'Added by GitHub');
+    assert.equal(sourceAddedByLabel('vercel'), 'Added by Vercel');
+    assert.equal(sourceAddedByLabel('vercel-webhook'), 'Added by Vercel');
+    assert.equal(sourceAddedByLabel('staff'), 'Added by Staff');
+    assert.equal(sourceAddedByLabel('notion'), 'Notion');
+    assert.equal(sourceAddedByLabel('claude_bot'), 'Claude Bot');
+    assert.equal(sourceAddedByLabel('  '), 'Unknown');
     assert.equal(sourceLinkHref('https://cursor.com/agents/bc-example'), 'https://cursor.com/agents/bc-example');
     assert.equal(sourceLinkHref('cursor/p4-sources'), null);
     assert.equal(sourceLinkHref('javascript:alert(1)'), null);
