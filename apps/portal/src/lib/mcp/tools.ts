@@ -8,6 +8,7 @@ import {
   LIVE_TASK_STATUSES,
   TASK_LINK_KINDS,
   TASK_STAGES,
+  taskListPlan,
 } from '@warehaus/portal-sync';
 import { z } from 'zod';
 
@@ -52,7 +53,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'list_projects',
     description:
-      'List staff-visible projects, including unpublished drafts. Omit concealed clients. Page size is 1 to 50. Pass orgId to stay on one client.',
+      'List staff-visible projects, including unpublished drafts. Omit concealed clients. Page size is 1 to 50. A page can be shorter than the limit while more results remain. Pass orgId to stay on one client.',
     write: false,
     schema: { orgId: z.string().min(1).optional(), cursor, limit },
     call: (args) => ({
@@ -71,7 +72,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'list_clients',
     description:
-      'List staff-visible clients. Disabled portal access is included. Trash, archive, and quarantine are omitted. Page size is 1 to 50.',
+      'List staff-visible clients. Disabled portal access is included. Trash, archive, and quarantine are omitted. Page size is 1 to 50. A page can be shorter than the limit while more results remain.',
     write: false,
     schema: { cursor, limit },
     call: (args) => ({
@@ -90,7 +91,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'list_tasks',
     description:
-      'List staff-visible tasks. Filter by project, milestone, stage, or updatedSince (milliseconds). Status is an optional extra filter. Use only one of status, stage, updatedSince, and milestone. Page size is 1 to 50.',
+      'List staff-visible tasks. Filter by project, milestone, stage, or updatedSince (milliseconds). Status is an optional extra filter. Milestone cannot be combined with status, stage, or updatedSince. Page size is 1 to 50. A page can be shorter than the limit while more results remain, because concealed rows are skipped.',
     write: false,
     schema: {
       projectId: z.string().min(1).optional(),
@@ -244,7 +245,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'create_project',
     description:
-      'Create a project through the staff project-create path. Pass clientId, or client to create a new client first with the staff client-create path. The new client stays unpublished. The project follows that existing path, which publishes it. Send an idempotency key.',
+      'Create a project through the staff project-create path. Pass clientId, or client to create a new client first with the staff client-create path. The new client stays unpublished. The project stays unpublished unless publishToWarehaus is true. Send an idempotency key.',
     write: true,
     schema: {
       name: z.string().min(1).max(2000),
@@ -257,6 +258,7 @@ export const portalTools: PortalTool[] = [
         })
         .optional(),
       externalId: z.string().min(1).max(80).optional(),
+      publishToWarehaus: z.boolean().optional(),
       idempotencyKey,
     },
     call: (args) => ({
@@ -268,6 +270,7 @@ export const portalTools: PortalTool[] = [
         clientId: args.clientId,
         client: args.client,
         externalId: args.externalId,
+        publishToWarehaus: args.publishToWarehaus,
       }),
     }),
   },
@@ -354,6 +357,17 @@ export function planToolCall(
     if (Boolean(body.clientId) === Boolean(body.client)) {
       return { ok: false, status: 400, error: 'Provide a clientId or a new client' };
     }
+  }
+  if (name === 'list_tasks') {
+    const data = parsed.data as {
+      projectId?: string;
+      milestoneId?: string;
+      status?: string;
+      stage?: string;
+      updatedSince?: number;
+    };
+    const plan = taskListPlan(data);
+    if (!plan.ok) return { ok: false, status: 400, error: plan.error };
   }
   return { ok: true, call: tool.call(parsed.data) };
 }

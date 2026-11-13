@@ -80,12 +80,12 @@ describe('portal MCP tools', () => {
     const capped = planToolCall('list_projects', { limit: API_PAGE_MAX });
     assert.equal(capped.ok, true);
     if (capped.ok) assert.equal(capped.call.search?.limit, String(API_PAGE_MAX));
-    const tasks = planToolCall('list_tasks', { milestoneId: 'milestone-1', stage: 'Idea' });
+    const combined = planToolCall('list_tasks', { milestoneId: 'milestone-1', stage: 'Idea' });
+    assert.equal(combined.ok, false);
+    if (!combined.ok) assert.match(combined.error, /milestone/);
+    const tasks = planToolCall('list_tasks', { milestoneId: 'milestone-1' });
     assert.equal(tasks.ok, true);
-    if (tasks.ok) {
-      assert.equal(tasks.call.search?.milestoneId, 'milestone-1');
-      assert.equal(tasks.call.search?.stage, 'Idea');
-    }
+    if (tasks.ok) assert.equal(tasks.call.search?.milestoneId, 'milestone-1');
   });
 
   it('calls a mocked handler for every tool and blocks a read token', async () => {
@@ -142,7 +142,16 @@ describe('portal MCP tools', () => {
     if (created.ok) {
       assert.equal(created.call.path, '/api/v1/projects');
       assert.deepEqual(created.call.body?.client, { companyName: 'Northwind' });
+      assert.equal(created.call.body?.publishToWarehaus, undefined);
     }
+    const published = planToolCall('create_project', {
+      name: 'Website',
+      clientId: 'client-1',
+      publishToWarehaus: true,
+      idempotencyKey: 'project-3',
+    });
+    assert.equal(published.ok, true);
+    if (published.ok) assert.equal(published.call.body?.publishToWarehaus, true);
   });
 });
 

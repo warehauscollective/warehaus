@@ -15,7 +15,8 @@ export type ProjectClientOption = {
 
 /**
  * New project dialog. The header and empty-state buttons call `onClose` /
- * the parent's open callback. Publish and Archive are not asked; the server sets them.
+ * the parent's open callback. Publish and Archive are not asked. The server
+ * action passes publish true, so this form still publishes the project.
  */
 export function NewProjectControl({
   open,

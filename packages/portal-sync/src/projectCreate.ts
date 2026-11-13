@@ -14,8 +14,9 @@
  *   this payload omits it. The pull mapper stores "Inbox" when Status is empty.
  * - Source is a select. `portal` already exists. Send select, not rich text.
  * - Type is not required. Omitting it keeps Internal out of the project gate.
- * - Publish to Warehaus and Archive are checkboxes. This create path sets
- *   Publish on and Archive off.
+ * - Publish to Warehaus and Archive are checkboxes. Archive is off.
+ *   Publish is an argument: the staff form passes true, and a token create
+ *   passes false unless the caller opts in.
  * - Tasks, Client Docs, and Ops (Internal) are relations. This path does not set them.
  */
 
@@ -33,7 +34,7 @@ const UNSAFE_TEXT = /notion\.(so|com)|amazonaws\.com/i;
 export type ProjectCreateProperties = {
   Name: string;
   Client: [string];
-  'Publish to Warehaus': true;
+  'Publish to Warehaus': boolean;
   Archive: false;
   Source: 'portal';
   'External ID': string;
@@ -83,6 +84,7 @@ export function buildProjectCreateProperties(input: {
   name: string;
   clientNotionPageId: string;
   externalId: string;
+  publish: boolean;
 }): ProjectCreateBuild {
   const errors: string[] = [];
   const name = input.name.trim();
@@ -105,7 +107,7 @@ export function buildProjectCreateProperties(input: {
     properties: {
       Name: name,
       Client: [input.clientNotionPageId],
-      'Publish to Warehaus': true,
+      'Publish to Warehaus': input.publish,
       Archive: false,
       Source: 'portal',
       'External ID': input.externalId,
@@ -120,7 +122,7 @@ export function toNotionProjectCreateProperties(
   return {
     Name: { title: [{ type: 'text', text: { content: properties.Name } }] },
     Client: { relation: [{ id: properties.Client[0] }] },
-    'Publish to Warehaus': { checkbox: true },
+    'Publish to Warehaus': { checkbox: properties['Publish to Warehaus'] },
     Archive: { checkbox: false },
     Source: { select: { name: 'portal' } },
     'External ID': {
@@ -159,7 +161,7 @@ export function projectCreateConvexFields(properties: ProjectCreateProperties): 
   status: typeof PROJECT_CREATE_CONVEX_STATUS;
   type: [];
   archive: false;
-  publishToWarehaus: true;
+  publishToWarehaus: boolean;
   externalId: string;
   source: 'portal';
 } {
@@ -168,7 +170,7 @@ export function projectCreateConvexFields(properties: ProjectCreateProperties): 
     status: PROJECT_CREATE_CONVEX_STATUS,
     type: [],
     archive: false,
-    publishToWarehaus: true,
+    publishToWarehaus: properties['Publish to Warehaus'],
     externalId: properties['External ID'],
     source: 'portal',
   };

@@ -7,7 +7,7 @@
  * Do not point CONVEX_DEPLOYMENT at production.
  *
  *   node scripts/mint-bot-token.mjs --name grok-bot --org-id <clients id>
- *   node scripts/mint-bot-token.mjs --name warehaus-studio-manager --scope read --org-id <clients id>
+ *   node scripts/mint-bot-token.mjs --name warehaus-studio-manager --scope read-write --org-id <clients id>
  *   node scripts/mint-bot-token.mjs --all --org-id <clients id>
  *   node scripts/mint-bot-token.mjs --revoke grok-bot
  */

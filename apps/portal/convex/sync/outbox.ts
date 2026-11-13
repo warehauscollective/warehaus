@@ -205,7 +205,9 @@ function validateEnqueueKind(input: {
     if (!Array.isArray(client) || client.length !== 1 || typeof client[0] !== 'string') {
       return 'Client is required';
     }
-    if (input.properties['Publish to Warehaus'] !== true) return 'Publish to Warehaus must be on';
+    if (typeof input.properties['Publish to Warehaus'] !== 'boolean') {
+      return 'Publish to Warehaus must be true or false';
+    }
     if (input.properties.Archive !== false) return 'Archive must be off';
     if (input.properties.Source !== 'portal') return 'Source must be portal';
     if (typeof input.properties['External ID'] !== 'string') return 'External ID is required';

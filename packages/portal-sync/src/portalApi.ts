@@ -109,8 +109,12 @@ export function pageLimit(value: unknown): number | null {
   return limit;
 }
 
-export function visibilityWriteError(body: Record<string, unknown>): string | null {
+export function visibilityWriteError(
+  body: Record<string, unknown>,
+  allow: readonly string[] = [],
+): string | null {
   for (const key of VISIBILITY_KEYS) {
+    if (allow.includes(key)) continue;
     if (Object.prototype.hasOwnProperty.call(body, key)) {
       return 'Client visibility cannot be changed through the API';
     }
@@ -157,19 +161,38 @@ export type IdempotencyRecord = {
   state: 'pending' | 'done';
   status?: number;
   body?: string;
+  createdAt?: number;
 };
+
+/** A pending key older than this can be claimed again by the same request. */
+export const API_IDEMPOTENCY_LEASE_MS = 120_000;
+
+export const IDEMPOTENCY_IN_PROGRESS_ERROR =
+  'A request with this idempotency key is already in progress';
 
 export function idempotencyDecision(input: {
   existing: IdempotencyRecord | null;
   requestHash: string;
+  now?: number;
 }):
   | { action: 'start' }
+  | { action: 'reclaim' }
   | { action: 'replay'; status: number; body: string }
   | { action: 'mismatch' }
   | { action: 'in_progress' } {
   if (!input.existing) return { action: 'start' };
   if (input.existing.requestHash !== input.requestHash) return { action: 'mismatch' };
-  if (input.existing.state === 'pending') return { action: 'in_progress' };
+  if (input.existing.state === 'pending') {
+    const createdAt = input.existing.createdAt;
+    if (
+      input.now != null &&
+      createdAt != null &&
+      input.now - createdAt >= API_IDEMPOTENCY_LEASE_MS
+    ) {
+      return { action: 'reclaim' };
+    }
+    return { action: 'in_progress' };
+  }
   return {
     action: 'replay',
     status: input.existing.status ?? 500,
@@ -180,18 +203,21 @@ export function idempotencyDecision(input: {
 /**
  * Claim the key before any other write. A start replaces a missing row with
  * pending. A later overlapping call sees that pending row and does not start.
+ * The same request can reclaim a pending row after `API_IDEMPOTENCY_LEASE_MS`.
  */
 export function claimIdempotency(
   existing: IdempotencyRecord | null,
   requestHash: string,
+  now?: number,
 ):
   | { action: 'start'; record: IdempotencyRecord }
+  | { action: 'reclaim'; record: IdempotencyRecord }
   | { action: 'replay'; status: number; body: string; record: IdempotencyRecord }
   | { action: 'mismatch'; record: IdempotencyRecord }
   | { action: 'in_progress'; record: IdempotencyRecord } {
-  const decision = idempotencyDecision({ existing, requestHash });
-  if (decision.action === 'start') {
-    return { action: 'start', record: { requestHash, state: 'pending' } };
+  const decision = idempotencyDecision({ existing, requestHash, now });
+  if (decision.action === 'start' || decision.action === 'reclaim') {
+    return { action: decision.action, record: { requestHash, state: 'pending' } };
   }
   return { ...decision, record: existing as IdempotencyRecord };
 }

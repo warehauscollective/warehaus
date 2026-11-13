@@ -10,9 +10,11 @@ import {
   applyFieldWrite,
   authorizeApiCall,
   bearerToken,
+  API_IDEMPOTENCY_LEASE_MS,
   claimIdempotency,
   clientIsStaffVisible,
   createProjectExternalId,
+  IDEMPOTENCY_IN_PROGRESS_ERROR,
   idempotencyKeyError,
   idempotencyMaterial,
   pageLimit,
@@ -91,6 +93,7 @@ async function openIdempotency(
     .query('apiIdempotency')
     .withIndex('by_tokenId_key', (q) => q.eq('tokenId', args.tokenId).eq('key', args.key))
     .unique();
+  const now = Date.now();
   const claim = claimIdempotency(
     existing
       ? {
@@ -98,22 +101,27 @@ async function openIdempotency(
           state: existing.state,
           status: existing.status,
           body: existing.body,
+          createdAt: existing.createdAt,
         }
       : null,
     args.requestHash,
+    now,
   );
-  if (claim.action === 'start') {
+  if (claim.action === 'start' || claim.action === 'reclaim') {
+    if (claim.action === 'reclaim' && existing && now - existing.createdAt >= API_IDEMPOTENCY_LEASE_MS) {
+      await ctx.db.delete(existing._id);
+    }
     const id = await ctx.db.insert('apiIdempotency', {
       tokenId: args.tokenId,
       key: args.key,
       requestHash: args.requestHash,
       state: 'pending',
-      createdAt: Date.now(),
+      createdAt: now,
     });
     return { action: 'start', id };
   }
   if (claim.action === 'in_progress') {
-    return fail(409, 'A request with this idempotency key is already in progress');
+    return fail(409, IDEMPOTENCY_IN_PROGRESS_ERROR);
   }
   if (claim.action === 'mismatch') {
     return fail(409, 'Idempotency key was already used for a different request');
@@ -130,6 +138,8 @@ async function finishIdempotency(
   id: Id<'apiIdempotency'>,
   result: ApiResult,
 ): Promise<ApiResult> {
+  const row = await ctx.db.get(id);
+  if (!row) return result;
   await ctx.db.patch(id, {
     state: 'done',
     status: result.status,
@@ -233,10 +243,19 @@ export const listTasks = internalQuery({
     if (!plan.ok) return fail(400, plan.error);
     const opts = { numItems: Math.min(args.limit, PAGE_CAP), cursor: args.cursor };
     const projectId = args.projectId;
+    const orgSeen = new Map<Id<'clients'>, boolean>();
+    const visibleOrg = async (orgId: Id<'clients'>) => {
+      const cached = orgSeen.get(orgId);
+      if (cached != null) return cached;
+      const ok = await orgVisible(ctx, orgId);
+      orgSeen.set(orgId, ok);
+      return ok;
+    };
+    let milestone: Doc<'milestones'> | null = null;
     if (plan.index === 'by_milestone') {
       if (!args.milestoneId) return fail(400, 'Milestone id is required');
-      const milestone = await ctx.db.get(args.milestoneId);
-      if (!milestone || !(await orgVisible(ctx, milestone.orgId))) return fail(404, 'Milestone not found');
+      milestone = await ctx.db.get(args.milestoneId);
+      if (!milestone || !(await visibleOrg(milestone.orgId))) return fail(404, 'Milestone not found');
       if (projectId && projectId !== milestone.projectId) {
         return fail(400, 'Milestone is on a different project');
       }
@@ -244,12 +263,13 @@ export const listTasks = internalQuery({
     const page = await (async () => {
       switch (plan.index) {
         case 'by_milestone': {
-          if (!args.milestoneId) return null;
-          const milestone = await ctx.db.get(args.milestoneId);
-          if (!milestone) return null;
+          const milestoneRow = milestone;
+          if (!milestoneRow) return null;
           return ctx.db
             .query('tasks')
-            .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
+            .withIndex('by_orgId_milestoneId', (q) =>
+              q.eq('orgId', milestoneRow.orgId).eq('milestoneId', milestoneRow._id),
+            )
             .paginate(opts);
         }
         case 'by_projectId':
@@ -290,9 +310,10 @@ export const listTasks = internalQuery({
       }
     })();
     if (!page) return fail(400, 'Choose a project, milestone, status, stage, or updatedSince');
+    // Concealed orgs are dropped after the page is read, so a page can be shorter than `limit` while `hasMore` is true.
     const visible = [];
     for (const row of page.page) {
-      if (await orgVisible(ctx, row.orgId)) visible.push(row);
+      if (await visibleOrg(row.orgId)) visible.push(row);
     }
     return {
       status: 200,
@@ -830,7 +851,7 @@ const MILESTONE_UPDATE_FIELDS = ['milestoneId', 'name', 'objective', 'goals', 'w
 const COMMENT_FIELDS = ['taskId', 'body'];
 const LINK_FIELDS = ['taskId', 'kind', 'url', 'title', 'expectedLastEditedTime'];
 const CLIENT_CREATE_FIELDS = ['companyName', 'primaryEmail', 'phone'];
-const PROJECT_CREATE_FIELDS = ['name', 'clientId', 'client', 'externalId'];
+const PROJECT_CREATE_FIELDS = ['name', 'clientId', 'client', 'externalId', 'publishToWarehaus'];
 const ATTACH_FIELDS = ['milestoneId', 'taskId'];
 const CLIENT_NESTED_FIELDS = ['companyName', 'primaryEmail', 'phone'];
 
@@ -844,6 +865,13 @@ function queryLimit(url: URL): number | null {
 }
 
 function projectShapeError(body: Record<string, unknown>): string | null {
+  if (
+    Object.prototype.hasOwnProperty.call(body, 'publishToWarehaus') &&
+    body.publishToWarehaus !== true &&
+    body.publishToWarehaus !== false
+  ) {
+    return 'publishToWarehaus must be true or false';
+  }
   const hasId = typeof body.clientId === 'string' && body.clientId.length > 0;
   const hasClient = body.client != null;
   if (hasId === hasClient) return 'Provide a clientId or a new client';
@@ -980,7 +1008,10 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
   const requestHash = await sha256Hex(idempotencyMaterial(method, url.pathname, rawBody));
   const idem = { tokenId: consumed.tokenId, key: idempotencyKey, requestHash };
 
-  const visibility = visibilityWriteError(parsed);
+  const visibility = visibilityWriteError(
+    parsed,
+    url.pathname === '/api/v1/projects' ? ['publishToWarehaus'] : [],
+  );
   const allowed =
     url.pathname === '/api/v1/tasks'
       ? TASK_CREATE_FIELDS
@@ -1125,6 +1156,7 @@ async function dispatchWrite(
         orgId: clientId as Id<'clients'>,
         name: String(body.name ?? ''),
         externalId,
+        publishToWarehaus: body.publishToWarehaus === true,
       });
       if (!created.ok) return fail(400, created.error);
       return {

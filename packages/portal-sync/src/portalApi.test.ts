@@ -4,8 +4,10 @@ import { mapNotionTask } from './mappers';
 import {
   applyFieldWrite,
   authorizeApiCall,
+  API_IDEMPOTENCY_LEASE_MS,
   claimIdempotency,
   completeIdempotency,
+  IDEMPOTENCY_IN_PROGRESS_ERROR,
   idempotencyDecision,
   idempotencyKeyError,
   planApiComment,
@@ -101,6 +103,25 @@ describe('portal API idempotency', () => {
       }).action,
       'in_progress',
     );
+  });
+
+  it('keeps a fresh pending key at 409 and reclaims it after the lease', () => {
+    const pending = { requestHash: 'a', state: 'pending' as const, createdAt: 1_000 };
+    const fresh = idempotencyDecision({
+      existing: pending,
+      requestHash: 'a',
+      now: 1_000 + API_IDEMPOTENCY_LEASE_MS - 1,
+    });
+    assert.equal(fresh.action, 'in_progress');
+    assert.equal(IDEMPOTENCY_IN_PROGRESS_ERROR, 'A request with this idempotency key is already in progress');
+    const stale = claimIdempotency(pending, 'a', 1_000 + API_IDEMPOTENCY_LEASE_MS);
+    assert.equal(stale.action, 'reclaim');
+    const other = idempotencyDecision({
+      existing: pending,
+      requestHash: 'b',
+      now: 1_000 + API_IDEMPOTENCY_LEASE_MS,
+    });
+    assert.equal(other.action, 'mismatch');
   });
 
   it('tells a missing key from a blank key and a key that is too long', () => {
@@ -427,6 +448,11 @@ describe('portal API outbox plans', () => {
 
   it('refuses client visibility and a Notion page for comments or non-field links', () => {
     assert.match(visibilityWriteError({ publishToWarehaus: true }) ?? '', /visibility/);
+    assert.equal(visibilityWriteError({ publishToWarehaus: true }, ['publishToWarehaus']), null);
+    assert.match(
+      visibilityWriteError({ clientVisible: true }, ['publishToWarehaus']) ?? '',
+      /visibility/,
+    );
     assert.equal(planApiComment('Noted on the task').ok, true);
     const chat = planApiLink({ kind: 'chat request', url: 'https://example.com/chat' });
     assert.equal(chat.ok, true);

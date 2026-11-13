@@ -116,16 +116,22 @@ export const listProjects = internalQuery({
       ? ctx.db.query('projects').withIndex('by_orgId', (q) => q.eq('orgId', args.orgId as Id<'clients'>))
       : ctx.db.query('projects')
     ).paginate({ numItems: Math.min(args.limit, PAGE_CAP), cursor: args.cursor });
+    const orgSeen = new Map<Id<'clients'>, boolean>();
     const items = [];
     for (const row of page.page) {
       if (args.orgId) {
         items.push(staffProject(row));
         continue;
       }
-      const client = await ctx.db.get(row.orgId);
-      if (!clientIsStaffVisible(client)) continue;
+      let visible = orgSeen.get(row.orgId);
+      if (visible == null) {
+        visible = clientIsStaffVisible(await ctx.db.get(row.orgId));
+        orgSeen.set(row.orgId, visible);
+      }
+      if (!visible) continue;
       items.push(staffProject(row));
     }
+    // Concealed clients are skipped after the page is read, so a page can be shorter than `limit` while `hasMore` is true.
     return {
       status: 200,
       body: {

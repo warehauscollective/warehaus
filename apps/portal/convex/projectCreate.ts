@@ -31,6 +31,7 @@ export const prepare = internalQuery({
     orgId: v.id('clients'),
     name: v.string(),
     externalId: v.string(),
+    publish: v.boolean(),
   },
   handler: async (ctx, args) => {
     const contact = await ctx.db
@@ -73,6 +74,7 @@ export const prepare = internalQuery({
       name: args.name,
       clientNotionPageId: client.notionPageId,
       externalId: args.externalId,
+      publish: args.publish,
     });
     if (!built.ok) {
       return { ok: false as const, error: built.errors.join(' ') };
@@ -112,6 +114,7 @@ export const createInNotion = action({
         orgId: args.orgId,
         name: args.name,
         externalId: args.externalId,
+        publish: true,
       });
     } catch (err) {
       const message = userFacingErrorMessage(err, 'Could not create the project');
@@ -178,12 +181,13 @@ async function finishProjectCreate(
   };
 }
 
-/** Same property builder and outbox path as the staff form. The caller is a staff API token. */
+/** Same property builder and outbox path as the staff form. The caller is a staff API token. Publish stays off unless the caller opts in. */
 export const prepareForToken = internalQuery({
   args: {
     orgId: v.id('clients'),
     name: v.string(),
     externalId: v.string(),
+    publishToWarehaus: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const client = await ctx.db.get(args.orgId);
@@ -194,6 +198,7 @@ export const prepareForToken = internalQuery({
       name: args.name,
       clientNotionPageId: client.notionPageId,
       externalId: args.externalId,
+      publish: args.publishToWarehaus === true,
     });
     if (!built.ok) return { ok: false as const, error: built.errors.join(' ') };
     return { ok: true as const, orgId: client._id, properties: built.properties };
@@ -205,6 +210,7 @@ export const createForToken = internalAction({
     orgId: v.id('clients'),
     name: v.string(),
     externalId: v.string(),
+    publishToWarehaus: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<ProjectCreateOk | { ok: false; error: string }> => {
     const prepared = await ctx.runQuery(internal.projectCreate.prepareForToken, args);
