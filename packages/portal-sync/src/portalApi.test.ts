@@ -444,6 +444,10 @@ describe('portal API outbox plans', () => {
     assert.equal(taskListPlan({ projectId: 'p', status: 'Done' }).ok, true);
     assert.equal(taskListPlan({ status: 'Done', stage: 'Building' }).ok, false);
     assert.equal(taskListPlan({}).ok, false);
+    const byMilestone = taskListPlan({ projectId: 'p', milestoneId: 'm' });
+    assert.equal(byMilestone.ok && byMilestone.index, 'by_milestone');
+    assert.equal(taskListPlan({ milestoneId: 'm', stage: 'Idea' }).ok, false);
+    assert.equal(taskListPlan({ milestoneId: 'm', updatedSince: 1 }).ok, false);
   });
 });
 

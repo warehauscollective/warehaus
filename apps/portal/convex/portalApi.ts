@@ -11,6 +11,8 @@ import {
   authorizeApiCall,
   bearerToken,
   claimIdempotency,
+  clientIsStaffVisible,
+  createProjectExternalId,
   idempotencyKeyError,
   idempotencyMaterial,
   pageLimit,
@@ -206,6 +208,7 @@ export const backfillTaskLinks = internalMutation({
 
 const listArgs = {
   projectId: v.optional(v.id('projects')),
+  milestoneId: v.optional(v.id('milestones')),
   status: v.optional(v.string()),
   stage: v.optional(v.string()),
   updatedSince: v.optional(v.number()),
@@ -213,11 +216,16 @@ const listArgs = {
   limit: v.number(),
 };
 
+async function orgVisible(ctx: { db: { get: (id: Id<'clients'>) => Promise<Doc<'clients'> | null> } }, orgId: Id<'clients'>) {
+  return clientIsStaffVisible(await ctx.db.get(orgId));
+}
+
 export const listTasks = internalQuery({
   args: listArgs,
   handler: async (ctx, args) => {
     const plan = taskListPlan({
       projectId: args.projectId,
+      milestoneId: args.milestoneId,
       status: args.status,
       stage: args.stage,
       updatedSince: args.updatedSince,
@@ -225,8 +233,25 @@ export const listTasks = internalQuery({
     if (!plan.ok) return fail(400, plan.error);
     const opts = { numItems: Math.min(args.limit, PAGE_CAP), cursor: args.cursor };
     const projectId = args.projectId;
+    if (plan.index === 'by_milestone') {
+      if (!args.milestoneId) return fail(400, 'Milestone id is required');
+      const milestone = await ctx.db.get(args.milestoneId);
+      if (!milestone || !(await orgVisible(ctx, milestone.orgId))) return fail(404, 'Milestone not found');
+      if (projectId && projectId !== milestone.projectId) {
+        return fail(400, 'Milestone is on a different project');
+      }
+    }
     const page = await (async () => {
       switch (plan.index) {
+        case 'by_milestone': {
+          if (!args.milestoneId) return null;
+          const milestone = await ctx.db.get(args.milestoneId);
+          if (!milestone) return null;
+          return ctx.db
+            .query('tasks')
+            .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
+            .paginate(opts);
+        }
         case 'by_projectId':
           if (!projectId) return null;
           return ctx.db.query('tasks').withIndex('by_projectId', (q) => q.eq('projectId', projectId)).paginate(opts);
@@ -264,11 +289,15 @@ export const listTasks = internalQuery({
           return null;
       }
     })();
-    if (!page) return fail(400, 'Choose a project, status, stage, or updatedSince');
+    if (!page) return fail(400, 'Choose a project, milestone, status, stage, or updatedSince');
+    const visible = [];
+    for (const row of page.page) {
+      if (await orgVisible(ctx, row.orgId)) visible.push(row);
+    }
     return {
       status: 200,
       body: {
-        items: page.page.map((row) => {
+        items: visible.map((row) => {
           const task = staffTask(row);
           return {
             id: task.id,
@@ -298,7 +327,7 @@ export const getTask = internalQuery({
   args: { taskId: v.id('tasks') },
   handler: async (ctx, args) => {
     const task = await ctx.db.get(args.taskId);
-    if (!task) return fail(404, 'Task not found');
+    if (!task || !(await orgVisible(ctx, task.orgId))) return fail(404, 'Task not found');
     const links = await ctx.db
       .query('taskLinks')
       .withIndex('by_taskId', (q) => q.eq('taskId', task._id))
@@ -347,7 +376,7 @@ export const listMilestones = internalQuery({
   args: { projectId: v.id('projects'), cursor: v.union(v.string(), v.null()), limit: v.number() },
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
-    if (!project) return fail(404, 'Project not found');
+    if (!project || !(await orgVisible(ctx, project.orgId))) return fail(404, 'Project not found');
     const page = await ctx.db
       .query('milestones')
       .withIndex('by_projectId', (q) => q.eq('projectId', args.projectId))
@@ -367,7 +396,7 @@ export const listComments = internalQuery({
   args: { taskId: v.id('tasks'), cursor: v.union(v.string(), v.null()), limit: v.number() },
   handler: async (ctx, args) => {
     const task = await ctx.db.get(args.taskId);
-    if (!task) return fail(404, 'Task not found');
+    if (!task || !(await orgVisible(ctx, task.orgId))) return fail(404, 'Task not found');
     const page = await ctx.db
       .query('taskComments')
       .withIndex('by_taskId_createdAt', (q) => q.eq('taskId', args.taskId))
@@ -388,7 +417,7 @@ export const listLinks = internalQuery({
   args: { taskId: v.id('tasks'), cursor: v.union(v.string(), v.null()), limit: v.number() },
   handler: async (ctx, args) => {
     const task = await ctx.db.get(args.taskId);
-    if (!task) return fail(404, 'Task not found');
+    if (!task || !(await orgVisible(ctx, task.orgId))) return fail(404, 'Task not found');
     const page = await ctx.db
       .query('taskLinks')
       .withIndex('by_taskId', (q) => q.eq('taskId', args.taskId))
@@ -419,7 +448,9 @@ export const createTask = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const project = await ctx.db.get(args.projectId);
-    if (!project) return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
+    if (!project || !(await orgVisible(ctx, project.orgId))) {
+      return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
+    }
     const externalId = `wh_tsk_${(await sha256Hex(`${args.tokenId}:${args.key}`)).slice(0, 24)}`;
     const planned = planApiTaskCreate({
       name: args.name,
@@ -467,7 +498,9 @@ export const updateTask = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const task = await ctx.db.get(args.taskId);
-    if (!task) return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
+    if (!task || !(await orgVisible(ctx, task.orgId))) {
+      return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
+    }
     if ((task.lastEditedTime ?? '') !== args.expectedLastEditedTime) {
       return finishIdempotency(ctx, opened.id, fail(409, 'Notion changed since the last read'));
     }
@@ -572,7 +605,9 @@ export const createMilestone = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const project = await ctx.db.get(args.projectId);
-    if (!project) return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
+    if (!project || !(await orgVisible(ctx, project.orgId))) {
+      return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
+    }
     const created = createMilestoneDecision({
       actor: 'human',
       name: args.name,
@@ -619,7 +654,9 @@ export const updateMilestone = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const milestone = await ctx.db.get(args.milestoneId);
-    if (!milestone) return finishIdempotency(ctx, opened.id, fail(404, 'Milestone not found'));
+    if (!milestone || !(await orgVisible(ctx, milestone.orgId))) {
+      return finishIdempotency(ctx, opened.id, fail(404, 'Milestone not found'));
+    }
     const edited = contentEditDecision({
       actor: 'human',
       approval: milestone.approval,
@@ -664,7 +701,9 @@ export const addComment = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const task = await ctx.db.get(args.taskId);
-    if (!task) return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
+    if (!task || !(await orgVisible(ctx, task.orgId))) {
+      return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
+    }
     const planned = planApiComment(args.body);
     if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
     const id = await ctx.db.insert('taskComments', {
@@ -692,7 +731,9 @@ export const addLink = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const task = await ctx.db.get(args.taskId);
-    if (!task) return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
+    if (!task || !(await orgVisible(ctx, task.orgId))) {
+      return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
+    }
     const planned = planApiLink({ kind: args.kind, url: args.url, title: args.title });
     if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
     if (planned.property) {
@@ -737,6 +778,44 @@ export const addLink = internalMutation({
   },
 });
 
+export const openWrite = internalMutation({
+  args: idemArgs,
+  handler: async (ctx, args) => openIdempotency(ctx, args),
+});
+
+export const closeWrite = internalMutation({
+  args: { id: v.id('apiIdempotency'), status: v.number(), body: v.string() },
+  handler: async (ctx, args): Promise<ApiResult> => {
+    return finishIdempotency(ctx, args.id, { status: args.status, body: JSON.parse(args.body) as unknown });
+  },
+});
+
+export const attachTask = internalMutation({
+  args: { ...idemArgs, milestoneId: v.id('milestones'), taskId: v.id('tasks') },
+  handler: async (ctx, args): Promise<ApiResult> => {
+    const opened = await openIdempotency(ctx, args);
+    if (!('action' in opened)) return opened;
+    const milestone = await ctx.db.get(args.milestoneId);
+    const task = await ctx.db.get(args.taskId);
+    if (!milestone || !(await orgVisible(ctx, milestone.orgId))) {
+      return finishIdempotency(ctx, opened.id, fail(404, 'Milestone not found'));
+    }
+    if (!task || !(await orgVisible(ctx, task.orgId))) {
+      return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
+    }
+    try {
+      const linked = await ctx.runMutation(internal.milestones.attachTaskForApi, {
+        milestoneId: args.milestoneId,
+        taskId: args.taskId,
+      });
+      return finishIdempotency(ctx, opened.id, { status: 200, body: linked });
+    } catch (error) {
+      const message = error instanceof ConvexError && typeof error.data === 'string' ? error.data : 'Request failed';
+      return finishIdempotency(ctx, opened.id, fail(400, message));
+    }
+  },
+});
+
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -750,6 +829,10 @@ const MILESTONE_CREATE_FIELDS = ['projectId', 'name', 'objective', 'goals', 'wor
 const MILESTONE_UPDATE_FIELDS = ['milestoneId', 'name', 'objective', 'goals', 'workStatus'];
 const COMMENT_FIELDS = ['taskId', 'body'];
 const LINK_FIELDS = ['taskId', 'kind', 'url', 'title', 'expectedLastEditedTime'];
+const CLIENT_CREATE_FIELDS = ['companyName', 'primaryEmail', 'phone'];
+const PROJECT_CREATE_FIELDS = ['name', 'clientId', 'client', 'externalId'];
+const ATTACH_FIELDS = ['milestoneId', 'taskId'];
+const CLIENT_NESTED_FIELDS = ['companyName', 'primaryEmail', 'phone'];
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
@@ -760,12 +843,48 @@ function queryLimit(url: URL): number | null {
   return pageLimit(url.searchParams.get('limit'));
 }
 
+function projectShapeError(body: Record<string, unknown>): string | null {
+  const hasId = typeof body.clientId === 'string' && body.clientId.length > 0;
+  const hasClient = body.client != null;
+  if (hasId === hasClient) return 'Provide a clientId or a new client';
+  if (!hasClient) return null;
+  const client = asRecord(body.client);
+  if (!client) return 'Client must be an object';
+  return unknownFieldError(client, CLIENT_NESTED_FIELDS);
+}
+
+async function finishAction(
+  ctx: ActionCtx,
+  actor: { tokenId: Id<'apiTokens'>; key: string; requestHash: string },
+  run: () => Promise<ApiResult>,
+): Promise<ApiResult> {
+  const opened = await ctx.runMutation(internal.portalApi.openWrite, actor);
+  if (!('action' in opened)) return opened;
+  let result: ApiResult;
+  try {
+    result = await run();
+  } catch (error) {
+    const message = error instanceof ConvexError && typeof error.data === 'string' ? error.data : 'Request failed';
+    result = fail(400, message);
+  }
+  return ctx.runMutation(internal.portalApi.closeWrite, {
+    id: opened.id,
+    status: result.status,
+    body: JSON.stringify(result.body),
+  });
+}
+
 export const portalApiHttp = httpAction(async (ctx, request) => {
   const url = new URL(request.url);
   const method = request.method === 'GET' || request.method === 'POST' ? request.method : null;
   if (!method) return json({ error: 'Method not allowed' }, 405);
   const token = bearerToken(request.headers.get('authorization'));
   if (!token) return json({ error: 'Unauthorized' }, 401);
+  if (method === 'GET' && url.pathname === '/api/v1/session') {
+    const session = await ctx.runQuery(internal.portalCatalog.readSession, { tokenHash: await sha256Hex(token) });
+    if (!session.ok) return json({ error: session.error }, session.status);
+    return json({ name: session.name, scope: session.scope }, 200);
+  }
   const consumed = await ctx.runMutation(internal.portalApi.consumeToken, {
     tokenHash: await sha256Hex(token),
     method,
@@ -787,6 +906,7 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
         const updatedSince = url.searchParams.get('updatedSince');
         const result = await ctx.runQuery(internal.portalApi.listTasks, {
           projectId: (url.searchParams.get('projectId') || undefined) as Id<'projects'> | undefined,
+          milestoneId: (url.searchParams.get('milestoneId') || undefined) as Id<'milestones'> | undefined,
           status: url.searchParams.get('status') || undefined,
           stage: url.searchParams.get('stage') || undefined,
           updatedSince: updatedSince ? Number(updatedSince) : undefined,
@@ -812,6 +932,27 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
           url.pathname === '/api/v1/comments'
             ? await ctx.runQuery(internal.portalApi.listComments, { taskId: taskId as Id<'tasks'>, cursor, limit })
             : await ctx.runQuery(internal.portalApi.listLinks, { taskId: taskId as Id<'tasks'>, cursor, limit });
+        return json(result.body, result.status);
+      }
+      if (url.pathname === '/api/v1/clients/item' || url.pathname === '/api/v1/projects/item') {
+        const id = url.searchParams.get('id');
+        if (!id) return json({ error: 'Id is required' }, 400);
+        const result =
+          url.pathname === '/api/v1/clients/item'
+            ? await ctx.runQuery(internal.portalCatalog.getClient, { clientId: id as Id<'clients'> })
+            : await ctx.runQuery(internal.portalCatalog.getProject, { projectId: id as Id<'projects'> });
+        return json(result.body, result.status);
+      }
+      if (url.pathname === '/api/v1/clients') {
+        const result = await ctx.runQuery(internal.portalCatalog.listClients, { cursor, limit });
+        return json(result.body, result.status);
+      }
+      if (url.pathname === '/api/v1/projects') {
+        const result = await ctx.runQuery(internal.portalCatalog.listProjects, {
+          orgId: (url.searchParams.get('orgId') || undefined) as Id<'clients'> | undefined,
+          cursor,
+          limit,
+        });
         return json(result.body, result.status);
       }
     } catch {
@@ -853,14 +994,21 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
               ? COMMENT_FIELDS
               : url.pathname === '/api/v1/links'
                 ? LINK_FIELDS
-                : null;
+                : url.pathname === '/api/v1/clients'
+                  ? CLIENT_CREATE_FIELDS
+                  : url.pathname === '/api/v1/projects'
+                    ? PROJECT_CREATE_FIELDS
+                    : url.pathname === '/api/v1/milestones/attach'
+                      ? ATTACH_FIELDS
+                      : null;
   if (!allowed) return json({ error: 'Not found' }, 404);
+  const shape = url.pathname === '/api/v1/projects' ? projectShapeError(parsed) : null;
   const unknown = unknownFieldError(parsed, allowed);
-  if (visibility || unknown) {
+  if (visibility || unknown || shape) {
     const result = await ctx.runMutation(internal.portalApi.rememberResult, {
       ...idem,
       status: 400,
-      body: JSON.stringify({ error: visibility ?? unknown }),
+      body: JSON.stringify({ error: visibility ?? unknown ?? shape }),
     });
     return json(result.body, result.status);
   }
@@ -928,6 +1076,61 @@ async function dispatchWrite(
       ...actor,
       taskId: body.taskId as Id<'tasks'>,
       body: String(body.body ?? ''),
+    });
+  }
+  if (path === '/api/v1/milestones/attach') {
+    return ctx.runMutation(internal.portalApi.attachTask, {
+      ...actor,
+      milestoneId: body.milestoneId as Id<'milestones'>,
+      taskId: body.taskId as Id<'tasks'>,
+    });
+  }
+  if (path === '/api/v1/clients') {
+    return finishAction(ctx, actor, async () => {
+      const homeOrgId = await ctx.runQuery(internal.portalCatalog.tokenHomeOrg, { tokenId: actor.tokenId });
+      if (!homeOrgId) return fail(400, 'This token has no home org');
+      const created = await ctx.runAction(internal.clientCreate.createForToken, {
+        orgId: homeOrgId,
+        companyName: String(body.companyName ?? ''),
+        primaryEmail: typeof body.primaryEmail === 'string' ? body.primaryEmail : undefined,
+        phone: typeof body.phone === 'string' ? body.phone : undefined,
+      });
+      if (!created.ok) return fail(400, created.error);
+      return { status: 200, body: created };
+    });
+  }
+  if (path === '/api/v1/projects') {
+    return finishAction(ctx, actor, async () => {
+      const nested = asRecord(body.client);
+      let clientId = typeof body.clientId === 'string' ? body.clientId : '';
+      let clientReused = false;
+      if (!clientId) {
+        const homeOrgId = await ctx.runQuery(internal.portalCatalog.tokenHomeOrg, { tokenId: actor.tokenId });
+        if (!homeOrgId) return fail(400, 'This token has no home org');
+        const createdClient = await ctx.runAction(internal.clientCreate.createForToken, {
+          orgId: homeOrgId,
+          companyName: String(nested?.companyName ?? ''),
+          primaryEmail: typeof nested?.primaryEmail === 'string' ? nested.primaryEmail : undefined,
+          phone: typeof nested?.phone === 'string' ? nested.phone : undefined,
+        });
+        if (!createdClient.ok) return fail(400, createdClient.error);
+        clientId = createdClient.clientId;
+        clientReused = createdClient.reused;
+      }
+      const externalId =
+        typeof body.externalId === 'string' && body.externalId
+          ? body.externalId
+          : createProjectExternalId((await sha256Hex(`${actor.tokenId}:${actor.key}`)).slice(0, 20));
+      const created = await ctx.runAction(internal.projectCreate.createForToken, {
+        orgId: clientId as Id<'clients'>,
+        name: String(body.name ?? ''),
+        externalId,
+      });
+      if (!created.ok) return fail(400, created.error);
+      return {
+        status: 200,
+        body: { ...created, clientId, ...(nested ? { clientReused } : {}) },
+      };
     });
   }
   return ctx.runMutation(internal.portalApi.addLink, {

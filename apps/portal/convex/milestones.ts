@@ -553,6 +553,12 @@ export const attachTask = adminMutation({
   handler: async (ctx, args) => linkTask(ctx, 'human', args.milestoneId, args.taskId),
 });
 
+/** Staff API. Same human link rules as the portal button. Already-linked tasks are not rewritten. */
+export const attachTaskForApi = internalMutation({
+  args: { milestoneId: v.id('milestones'), taskId: v.id('tasks') },
+  handler: async (ctx, args) => linkTask(ctx, 'human', args.milestoneId, args.taskId),
+});
+
 export const attachTaskFromAi = internalMutation({
   args: { milestoneId: v.id('milestones'), taskId: v.id('tasks') },
   handler: async (ctx, args) => linkTask(ctx, 'ai', args.milestoneId, args.taskId),

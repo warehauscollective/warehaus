@@ -233,10 +233,12 @@ export type TaskListIndex =
   | 'by_projectId_updatedAt'
   | 'by_status'
   | 'by_stage'
-  | 'by_updatedAt';
+  | 'by_updatedAt'
+  | 'by_milestone';
 
 export function taskListPlan(input: {
   projectId?: string;
+  milestoneId?: string;
   status?: string;
   stage?: string;
   updatedSince?: number;
@@ -244,6 +246,7 @@ export function taskListPlan(input: {
   const status = input.status?.trim() ?? '';
   const stage = input.stage?.trim() ?? '';
   const hasProject = Boolean(input.projectId);
+  const hasMilestone = Boolean(input.milestoneId);
   const hasStatus = status.length > 0;
   const hasStage = stage.length > 0;
   const hasSince = input.updatedSince != null;
@@ -253,12 +256,16 @@ export function taskListPlan(input: {
     return { ok: false, error: 'updatedSince must be a time in milliseconds' };
   }
   const filters = Number(hasStatus) + Number(hasStage) + Number(hasSince);
-  if (!hasProject && filters === 0) {
-    return { ok: false, error: 'Choose a project, status, stage, or updatedSince' };
+  if (hasMilestone && filters > 0) {
+    return { ok: false, error: 'Filter by one of status, stage, updatedSince, or milestone' };
+  }
+  if (!hasProject && !hasMilestone && filters === 0) {
+    return { ok: false, error: 'Choose a project, milestone, status, stage, or updatedSince' };
   }
   if (filters > 1) {
     return { ok: false, error: 'Filter by one of status, stage, or updatedSince' };
   }
+  if (hasMilestone) return { ok: true, index: 'by_milestone' };
   if (hasProject && hasStatus) return { ok: true, index: 'by_projectId_status' };
   if (hasProject && hasStage) return { ok: true, index: 'by_projectId_stage' };
   if (hasProject && hasSince) return { ok: true, index: 'by_projectId_updatedAt' };

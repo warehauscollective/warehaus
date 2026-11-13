@@ -664,7 +664,9 @@ export default defineSchema({
     revokedAt: v.optional(v.number()),
     lastUsedAt: v.optional(v.number()),
     createdAt: v.number(),
-    createdByContactId: v.id('contacts'),
+    createdByContactId: v.optional(v.id('contacts')),
+    /** Staff org stamped on bot tokens so client create can enqueue. */
+    homeOrgId: v.optional(v.id('clients')),
     rateLimit: v.number(),
     rateWindowMs: v.number(),
     windowStartedAt: v.number(),
