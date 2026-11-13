@@ -459,6 +459,9 @@ export function resolvePulledStage(input: {
 }
 
 export type PullFieldSnapshot = {
+  name: string | null;
+  date: string | null;
+  description: string | null;
   status: string | null;
   isDone: boolean;
   stage: string | null;
@@ -472,6 +475,9 @@ export type PullFieldSnapshot = {
 export function pullFieldsChanged(before: PullFieldSnapshot | null, after: PullFieldSnapshot): boolean {
   if (!before) return true;
   return (
+    (before.name ?? null) !== (after.name ?? null) ||
+    (before.date ?? null) !== (after.date ?? null) ||
+    (before.description ?? null) !== (after.description ?? null) ||
     before.status !== after.status ||
     before.isDone !== after.isDone ||
     (before.stage ?? null) !== (after.stage ?? null) ||
@@ -481,6 +487,14 @@ export function pullFieldsChanged(before: PullFieldSnapshot | null, after: PullF
     (before.figmaFrame ?? null) !== (after.figmaFrame ?? null) ||
     (before.repoBranch ?? null) !== (after.repoBranch ?? null)
   );
+}
+
+/** Keep Notion's page time even when the stage stamp wins. */
+export function storedPullLastEditedTime(
+  resolved: string | null,
+  existing: string | null | undefined,
+): string | null | undefined {
+  return resolved ?? existing;
 }
 
 export function pullUpdatedAt(input: {

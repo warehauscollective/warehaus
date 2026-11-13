@@ -18,6 +18,7 @@ import {
   pullUpdatedAt,
   resolvePulledStage,
   sourceLinksChanged,
+  storedPullLastEditedTime,
   sourceLinksFromFields,
   takeRateLimit,
   taskListPlan,
@@ -231,6 +232,10 @@ describe('portal API conflict rule', () => {
     assert.equal(older.keptLocal, true);
     assert.equal(older.stage, 'Ready to Ship');
     assert.equal(older.stamp, null);
+    assert.equal(
+      storedPullLastEditedTime(older.lastEditedTime, '2026-11-13T14:00:00.000Z'),
+      '2026-11-13T15:00:00.000Z',
+    );
     const pending = resolvePulledStage({
       pending: true,
       notionStage: 'Building',
@@ -255,9 +260,32 @@ describe('portal API conflict rule', () => {
     });
     assert.equal(event.apply, false);
   });
+
+  it('keeps the local stage when the stamp wins and still stores the newer Notion lastEditedTime', () => {
+    const resolved = resolvePulledStage({
+      pending: false,
+      notionStage: 'Building',
+      notionEditedMs: Date.parse('2026-11-13T15:00:00.000Z'),
+      localStage: 'Ready to Ship',
+      localStamp: { updatedAt: Date.parse('2026-11-13T16:00:00.000Z'), updatedBy: 'cursor-portal' },
+      pulledStage: 'Building',
+      pulledStageSynced: 'Building',
+      pulledLastEditedTime: '2026-11-13T15:00:00.000Z',
+    });
+    assert.equal(resolved.keptLocal, true);
+    assert.equal(resolved.stage, 'Ready to Ship');
+    assert.equal(resolved.stamp, null);
+    assert.equal(
+      storedPullLastEditedTime(resolved.lastEditedTime, '2026-11-13T14:00:00.000Z'),
+      '2026-11-13T15:00:00.000Z',
+    );
+  });
 });
 
 const quietPull: PullFieldSnapshot = {
+  name: 'Ship the API',
+  date: '2026-11-20',
+  description: 'Staff notes',
   status: 'In Progress',
   isDone: false,
   stage: 'Building',
@@ -292,6 +320,22 @@ describe('portal pull updatedAt', () => {
       999,
     );
     assert.equal(pullUpdatedAt({ previousUpdatedAt: 100, now: 999, fieldsChanged: false, linksChanged: true }), 999);
+    for (const edit of [
+      { name: 'Rename the task' },
+      { date: '2026-11-21' },
+      { description: 'Updated in Notion' },
+    ] as const) {
+      assert.equal(pullFieldsChanged(quietPull, { ...quietPull, ...edit }), true);
+      assert.equal(
+        pullUpdatedAt({
+          previousUpdatedAt: 100,
+          now: 999,
+          fieldsChanged: pullFieldsChanged(quietPull, { ...quietPull, ...edit }),
+          linksChanged: false,
+        }),
+        999,
+      );
+    }
   });
 });
 

@@ -10,6 +10,7 @@ import {
   pullFieldsChanged,
   pullUpdatedAt,
   resolvePulledStage,
+  storedPullLastEditedTime,
   projectCountsForTaskGate,
   resolveParentLink,
   taskTouchesIncrementalSet,
@@ -264,8 +265,13 @@ export const upsertTask = internalMutation({
     const stage = stageResolved.keptLocal ? (existing?.stage ?? null) : stageResolved.stage;
     const priority = priorityMerge.applied ? (fields.priority ?? null) : (existing?.priority ?? null);
     const mergedNextAction = nextMerge.applied ? (nextAction ?? null) : (existing?.nextAction ?? null);
+    const mergedDescription =
+      description === undefined ? (existing?.description ?? null) : description ? description : null;
     const before = existing
       ? {
+          name: existing.name,
+          date: existing.date ?? null,
+          description: existing.description ?? null,
           status: existing.status,
           isDone: existing.isDone,
           stage: existing.stage ?? null,
@@ -277,6 +283,9 @@ export const upsertTask = internalMutation({
         }
       : null;
     const after = {
+      name: fields.name,
+      date: fields.date ?? null,
+      description: mergedDescription,
       status,
       isDone,
       stage,
@@ -305,7 +314,7 @@ export const upsertTask = internalMutation({
     const patch = {
       ...fields,
       stage,
-      lastEditedTime: stageResolved.keptLocal ? existing?.lastEditedTime : stageResolved.lastEditedTime,
+      lastEditedTime: storedPullLastEditedTime(stageResolved.lastEditedTime, existing?.lastEditedTime),
       ...pendingPatch,
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
