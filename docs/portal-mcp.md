@@ -54,7 +54,7 @@ Peter runs this himself from `apps/portal`. These commands are not the script ab
 
 Unset `CONVEX_DEPLOY_KEY` so a dev deploy key does not override `--prod`. `npx convex login` is enough. `--prod` selects production `unique-turtle-383` for the project linked by `.env.local`.
 
-The staff home org id is the `clients` row whose `slug` is `warehaus-internal`. That id is not checked in. Look it up, then use the `id` on the item in `body.items`:
+The staff home org id is the `clients` row whose `slug` is `warehaus`. That id is not checked in. Look it up, then use the `id` on the item in `body.items`:
 
 ```bash
 npx convex run --prod portalCatalog:listClients '{"cursor":null,"limit":50}'
