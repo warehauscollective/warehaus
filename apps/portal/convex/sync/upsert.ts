@@ -7,6 +7,9 @@ import {
   isWarehausInternalClient,
   mergePulledField,
   mergePulledStage,
+  pullFieldsChanged,
+  pullUpdatedAt,
+  resolvePulledStage,
   projectCountsForTaskGate,
   resolveParentLink,
   taskTouchesIncrementalSet,
@@ -185,19 +188,6 @@ export const upsertTask = internalMutation({
       name: fields.name,
       notionPageId: args.notionPageId,
     });
-    const pendingPatch = merge.clearPending
-      ? {
-          stageSynced: merge.stageSynced,
-          stagePendingAt: undefined,
-          stagePendingBaseEditedTime: undefined,
-          stagePendingPullRequest: undefined,
-        }
-      : {
-          stageSynced: merge.stageSynced,
-          ...(merge.stagePendingBaseEditedTime
-            ? { stagePendingBaseEditedTime: merge.stagePendingBaseEditedTime }
-            : {}),
-        };
     const now = Date.now();
     const descriptionPatch =
       description === undefined && descriptionSource === undefined
@@ -237,27 +227,97 @@ export const upsertTask = internalMutation({
       localValue: existing?.nextAction ?? null,
       localStamp: existing?.fieldStamps?.nextAction ?? null,
     });
+    const stageResolved = resolvePulledStage({
+      pending: existing?.stagePendingAt != null,
+      notionStage: fields.stage ?? null,
+      notionEditedMs,
+      localStage: existing?.stage ?? null,
+      localStamp: existing?.fieldStamps?.stage ?? null,
+      pulledStage: merge.stage,
+      pulledStageSynced: merge.stageSynced,
+      pulledLastEditedTime: merge.lastEditedTime,
+    });
+    const pendingPatch = stageResolved.keptLocal
+      ? {}
+      : merge.clearPending
+        ? {
+            stageSynced: merge.stageSynced,
+            stagePendingAt: undefined,
+            stagePendingBaseEditedTime: undefined,
+            stagePendingPullRequest: undefined,
+          }
+        : {
+            stageSynced: merge.stageSynced,
+            ...(merge.stagePendingBaseEditedTime
+              ? { stagePendingBaseEditedTime: merge.stagePendingBaseEditedTime }
+              : {}),
+          };
     const fieldStamps = {
       ...(existing?.fieldStamps ?? {}),
       ...(statusMerge.applied && statusMerge.stamp ? { status: statusMerge.stamp } : {}),
       ...(priorityMerge.applied && priorityMerge.stamp ? { priority: priorityMerge.stamp } : {}),
       ...(nextMerge.applied && nextMerge.stamp ? { nextAction: nextMerge.stamp } : {}),
+      ...(stageResolved.stamp ? { stage: stageResolved.stamp } : {}),
     };
+    const status = statusMerge.applied ? fields.status : (existing?.status ?? fields.status);
+    const isDone = statusMerge.applied ? fields.isDone : (existing?.isDone ?? fields.isDone);
+    const stage = stageResolved.keptLocal ? (existing?.stage ?? null) : stageResolved.stage;
+    const priority = priorityMerge.applied ? (fields.priority ?? null) : (existing?.priority ?? null);
+    const mergedNextAction = nextMerge.applied ? (nextAction ?? null) : (existing?.nextAction ?? null);
+    const before = existing
+      ? {
+          status: existing.status,
+          isDone: existing.isDone,
+          stage: existing.stage ?? null,
+          priority: existing.priority ?? null,
+          nextAction: existing.nextAction ?? null,
+          pullRequestUrl: existing.pullRequestUrl ?? null,
+          figmaFrame: existing.figmaFrame ?? null,
+          repoBranch: existing.repoBranch ?? null,
+        }
+      : null;
+    const after = {
+      status,
+      isDone,
+      stage,
+      priority,
+      nextAction: mergedNextAction,
+      pullRequestUrl: fields.pullRequestUrl ?? null,
+      figmaFrame: figmaFrame ?? null,
+      repoBranch: repoBranch ?? null,
+    };
+    const fieldsChanged = pullFieldsChanged(before, after);
+    const linksChanged = existing
+      ? await ensureSourceLinks(ctx, {
+          orgId: args.orgId,
+          taskId: existing._id,
+          pullRequestUrl: fields.pullRequestUrl,
+          figmaFrame,
+          repoBranch,
+        })
+      : false;
+    const updatedAt = pullUpdatedAt({
+      previousUpdatedAt: existing?.updatedAt,
+      now,
+      fieldsChanged,
+      linksChanged,
+    });
     const patch = {
       ...fields,
-      stage: merge.stage,
-      lastEditedTime: merge.lastEditedTime,
+      stage,
+      lastEditedTime: stageResolved.keptLocal ? existing?.lastEditedTime : stageResolved.lastEditedTime,
       ...pendingPatch,
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
       ...descriptionPatch,
-      ...(statusMerge.applied ? {} : existing ? { status: existing.status, isDone: existing.isDone } : {}),
-      ...(priorityMerge.applied ? {} : existing ? { priority: existing.priority } : {}),
-      nextAction: nextMerge.applied ? (nextAction ?? null) : (existing?.nextAction ?? null),
+      status,
+      isDone,
+      ...(priorityMerge.applied ? { priority: fields.priority } : existing ? { priority: existing.priority } : {}),
+      nextAction: mergedNextAction,
       figmaFrame: figmaFrame ?? null,
       repoBranch: repoBranch ?? null,
       ...(Object.keys(fieldStamps).length > 0 ? { fieldStamps } : {}),
-      updatedAt: now,
+      ...(updatedAt != null ? { updatedAt } : {}),
       ...(syncNotice
         ? { syncNotice }
         : syncNotice === null && existing
@@ -267,13 +327,15 @@ export const upsertTask = internalMutation({
     const taskId = existing
       ? (await ctx.db.patch(existing._id, patch), existing._id)
       : await ctx.db.insert('tasks', patch);
-    await ensureSourceLinks(ctx, {
-      orgId: args.orgId,
-      taskId,
-      pullRequestUrl: fields.pullRequestUrl,
-      figmaFrame,
-      repoBranch,
-    });
+    if (!existing) {
+      await ensureSourceLinks(ctx, {
+        orgId: args.orgId,
+        taskId,
+        pullRequestUrl: fields.pullRequestUrl,
+        figmaFrame,
+        repoBranch,
+      });
+    }
     if (!existing) {
       const created = await ctx.db.get(taskId);
       if (created) {

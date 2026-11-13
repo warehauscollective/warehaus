@@ -148,7 +148,7 @@ export default defineSchema({
     figmaFrame: v.optional(v.union(v.string(), v.null())),
     repoBranch: v.optional(v.union(v.string(), v.null())),
     nextAction: v.optional(v.union(v.string(), v.null())),
-    /** Milliseconds. Set when the portal or a pull writes the row. */
+    /** Milliseconds. Set when a merged field or a source link changes. */
     updatedAt: v.optional(v.number()),
     /** Last writer per field. Absent until a pull or the staff API stamps it. */
     fieldStamps: v.optional(
@@ -674,13 +674,17 @@ export default defineSchema({
     .index('by_name', ['name'])
     .index('by_createdAt', ['createdAt']),
 
-  /** One stored response per token and Idempotency-Key. */
+  /**
+   * One row per token and Idempotency-Key. The pending row is inserted in the
+   * same mutation that reads the index, before any other write.
+   */
   apiIdempotency: defineTable({
     tokenId: v.id('apiTokens'),
     key: v.string(),
     requestHash: v.string(),
-    status: v.number(),
-    body: v.string(),
+    state: v.union(v.literal('pending'), v.literal('done')),
+    status: v.optional(v.number()),
+    body: v.optional(v.string()),
     createdAt: v.number(),
   }).index('by_tokenId_key', ['tokenId', 'key']),
 

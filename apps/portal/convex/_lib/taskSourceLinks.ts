@@ -3,7 +3,7 @@
  * Tool-added links are left in place. Reads one task's links, not the table.
  */
 
-import { isSourceLinkKind, sourceLinksFromFields } from '@warehaus/portal-sync';
+import { isSourceLinkKind, sourceLinksChanged, sourceLinksFromFields } from '@warehaus/portal-sync';
 import type { Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 
@@ -18,12 +18,13 @@ export async function ensureSourceLinks(
     figmaFrame?: string | null;
     repoBranch?: string | null;
   },
-): Promise<void> {
+): Promise<boolean> {
   const wanted = sourceLinksFromFields(input);
   const existing = await ctx.db
     .query('taskLinks')
     .withIndex('by_taskId', (q) => q.eq('taskId', input.taskId))
     .take(LINK_CAP);
+  const changed = sourceLinksChanged(existing, wanted);
   const wantedKey = new Set(wanted.map((link) => `${link.kind}\n${link.url}`));
   const now = Date.now();
   for (const link of wanted) {
@@ -43,4 +44,5 @@ export async function ensureSourceLinks(
     if (wantedKey.has(`${row.kind}\n${row.url}`)) continue;
     await ctx.db.delete(row._id);
   }
+  return changed;
 }

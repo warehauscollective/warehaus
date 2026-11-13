@@ -4,17 +4,27 @@ import { mapNotionTask } from './mappers';
 import {
   applyFieldWrite,
   authorizeApiCall,
+  claimIdempotency,
+  completeIdempotency,
   idempotencyDecision,
+  idempotencyKeyError,
   planApiComment,
   planApiLink,
   planApiLinkPatch,
   planApiTaskCreate,
   planApiTaskUpdate,
+  portalRequestAuth,
+  pullFieldsChanged,
+  pullUpdatedAt,
+  resolvePulledStage,
+  sourceLinksChanged,
   sourceLinksFromFields,
   takeRateLimit,
   taskListPlan,
   toPortalTokenListItem,
   visibilityWriteError,
+  type IdempotencyRecord,
+  type PullFieldSnapshot,
 } from './portalApi';
 
 const page = { notionPageId: 'page-1', expectedLastEditedTime: '2026-11-13T15:00:00.000Z' };
@@ -71,18 +81,51 @@ describe('portal API idempotency', () => {
     assert.deepEqual(idempotencyDecision({ existing: null, requestHash: 'a' }), { action: 'start' });
     assert.deepEqual(
       idempotencyDecision({
-        existing: { requestHash: 'a', status: 200, body: '{"id":"1"}' },
+        existing: { requestHash: 'a', state: 'done', status: 200, body: '{"id":"1"}' },
         requestHash: 'a',
       }),
       { action: 'replay', status: 200, body: '{"id":"1"}' },
     );
     assert.equal(
       idempotencyDecision({
-        existing: { requestHash: 'a', status: 200, body: '{}' },
+        existing: { requestHash: 'a', state: 'done', status: 200, body: '{}' },
         requestHash: 'b',
       }).action,
       'mismatch',
     );
+    assert.equal(
+      idempotencyDecision({
+        existing: { requestHash: 'a', state: 'pending' },
+        requestHash: 'a',
+      }).action,
+      'in_progress',
+    );
+  });
+
+  it('tells a missing key from a blank key and a key that is too long', () => {
+    assert.equal(idempotencyKeyError(null), 'Idempotency key is required');
+    assert.equal(idempotencyKeyError(''), 'Idempotency key is required');
+    assert.equal(idempotencyKeyError('   '), 'Idempotency key cannot be blank');
+    assert.equal(idempotencyKeyError(' key'), 'Idempotency key cannot be blank');
+    assert.equal(idempotencyKeyError('k'.repeat(201)), 'Idempotency key is too long');
+    assert.equal(idempotencyKeyError('cursor-portal'), null);
+  });
+
+  it('lets only one of two overlapping same-key writes start', async () => {
+    let record: IdempotencyRecord | null = null;
+    let writes = 0;
+    async function attempt() {
+      const claim = claimIdempotency(record, 'same-hash');
+      record = claim.record;
+      if (claim.action !== 'start') return claim.action;
+      await Promise.resolve();
+      writes += 1;
+      record = completeIdempotency(claim.record, { status: 200, body: '{"id":"1"}' });
+      return 'wrote';
+    }
+    const [first, second] = await Promise.all([attempt(), attempt()]);
+    assert.equal(writes, 1);
+    assert.deepEqual([first, second].sort(), ['in_progress', 'wrote']);
   });
 });
 
@@ -171,6 +214,132 @@ describe('portal API conflict rule', () => {
       updatedBy: 'notion',
     });
     assert.equal(pulled.apply, false);
+  });
+
+  it('keeps a newer stage stamp when an older pull arrives and keeps a pending move', () => {
+    const stampAt = Date.parse('2026-11-13T16:00:00.000Z');
+    const older = resolvePulledStage({
+      pending: false,
+      notionStage: 'Building',
+      notionEditedMs: Date.parse('2026-11-13T15:00:00.000Z'),
+      localStage: 'Ready to Ship',
+      localStamp: { updatedAt: stampAt, updatedBy: 'cursor-portal' },
+      pulledStage: 'Building',
+      pulledStageSynced: 'Building',
+      pulledLastEditedTime: '2026-11-13T15:00:00.000Z',
+    });
+    assert.equal(older.keptLocal, true);
+    assert.equal(older.stage, 'Ready to Ship');
+    assert.equal(older.stamp, null);
+    const pending = resolvePulledStage({
+      pending: true,
+      notionStage: 'Building',
+      notionEditedMs: Date.parse('2026-11-13T15:00:00.000Z'),
+      localStage: 'Ready to Ship',
+      localStamp: { updatedAt: stampAt, updatedBy: 'cursor-portal' },
+      pulledStage: 'Ready to Ship',
+      pulledStageSynced: 'Building',
+      pulledLastEditedTime: '2026-11-13T14:00:00.000Z',
+    });
+    assert.equal(pending.keptLocal, false);
+    assert.equal(pending.stage, 'Ready to Ship');
+    assert.equal(pending.stageSynced, 'Building');
+    const event = applyFieldWrite({
+      field: 'status',
+      origin: 'event',
+      currentValue: 'Done',
+      currentStamp: { updatedAt: stampAt, updatedBy: 'cursor-portal' },
+      nextValue: 'In Progress',
+      updatedAt: stampAt + 1_000,
+      updatedBy: 'github',
+    });
+    assert.equal(event.apply, false);
+  });
+});
+
+const quietPull: PullFieldSnapshot = {
+  status: 'In Progress',
+  isDone: false,
+  stage: 'Building',
+  priority: 'High',
+  nextAction: 'Review the diff',
+  pullRequestUrl: 'https://github.com/warehauscollective/warehaus/pull/12',
+  figmaFrame: null,
+  repoBranch: 'cursor/portal-api-p1-eeef',
+};
+
+describe('portal pull updatedAt', () => {
+  it('leaves updatedAt alone on a no-op pull and bumps it when a field or link changes', () => {
+    assert.equal(pullFieldsChanged(quietPull, { ...quietPull }), false);
+    assert.equal(
+      sourceLinksChanged(
+        [{ kind: 'PR', url: quietPull.pullRequestUrl ?? '', addedBy: 'notion' }],
+        [{ kind: 'PR', url: quietPull.pullRequestUrl ?? '' }],
+      ),
+      false,
+    );
+    assert.equal(
+      pullUpdatedAt({ previousUpdatedAt: 100, now: 999, fieldsChanged: false, linksChanged: false }),
+      100,
+    );
+    assert.equal(
+      pullUpdatedAt({
+        previousUpdatedAt: 100,
+        now: 999,
+        fieldsChanged: pullFieldsChanged(quietPull, { ...quietPull, stage: 'Shipped' }),
+        linksChanged: false,
+      }),
+      999,
+    );
+    assert.equal(pullUpdatedAt({ previousUpdatedAt: 100, now: 999, fieldsChanged: false, linksChanged: true }), 999);
+  });
+});
+
+const bearer = 'Bearer whp_0123456789abcdef';
+
+describe('portal HTTP auth', () => {
+  it('rejects a missing, malformed, or revoked bearer and a read token that posts', () => {
+    assert.deepEqual(portalRequestAuth({ authorization: null, method: 'GET', stored: { scope: 'read-write' } }), {
+      ok: false,
+      status: 401,
+      error: 'Unauthorized',
+    });
+    assert.equal(portalRequestAuth({ authorization: 'Bearer nope', method: 'GET', stored: { scope: 'read-write' } }).ok, false);
+    assert.equal(
+      portalRequestAuth({ authorization: 'Bearer whp_short', method: 'GET', stored: { scope: 'read-write' } }).ok,
+      false,
+    );
+    assert.deepEqual(
+      portalRequestAuth({
+        authorization: bearer,
+        method: 'GET',
+        stored: { scope: 'read-write', revokedAt: 5 },
+      }),
+      { ok: false, status: 401, error: 'Unauthorized' },
+    );
+    assert.deepEqual(portalRequestAuth({ authorization: bearer, method: 'POST', stored: { scope: 'read' } }), {
+      ok: false,
+      status: 403,
+      error: 'This token is read-only',
+    });
+    assert.equal(portalRequestAuth({ authorization: bearer, method: 'POST', stored: { scope: 'read-write' } }).ok, true);
+  });
+
+  it('does not apply a second overlapping write for the same idempotency key', async () => {
+    let record: IdempotencyRecord | null = null;
+    let writes = 0;
+    async function post() {
+      const claim = claimIdempotency(record, 'http-hash');
+      record = claim.record;
+      if (claim.action !== 'start') return claim.action;
+      await Promise.resolve();
+      writes += 1;
+      record = completeIdempotency(claim.record, { status: 200, body: '{"ok":true}' });
+      return 'wrote';
+    }
+    const results = await Promise.all([post(), post()]);
+    assert.equal(writes, 1);
+    assert.deepEqual(results.sort(), ['in_progress', 'wrote']);
   });
 });
 

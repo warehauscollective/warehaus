@@ -9,7 +9,9 @@ import { ConvexError, v } from 'convex/values';
 import {
   applyFieldWrite,
   authorizeApiCall,
-  idempotencyDecision,
+  bearerToken,
+  claimIdempotency,
+  idempotencyKeyError,
   idempotencyMaterial,
   pageLimit,
   planApiComment,
@@ -82,23 +84,40 @@ function staffMilestone(row: Doc<'milestones'>) {
 async function openIdempotency(
   ctx: MutationCtx,
   args: { tokenId: Id<'apiTokens'>; key: string; requestHash: string },
-): Promise<{ action: 'start' } | ApiResult> {
+): Promise<{ action: 'start'; id: Id<'apiIdempotency'> } | ApiResult> {
   const existing = await ctx.db
     .query('apiIdempotency')
     .withIndex('by_tokenId_key', (q) => q.eq('tokenId', args.tokenId).eq('key', args.key))
     .unique();
-  const decision = idempotencyDecision({
-    existing: existing
-      ? { requestHash: existing.requestHash, status: existing.status, body: existing.body }
+  const claim = claimIdempotency(
+    existing
+      ? {
+          requestHash: existing.requestHash,
+          state: existing.state,
+          status: existing.status,
+          body: existing.body,
+        }
       : null,
-    requestHash: args.requestHash,
-  });
-  if (decision.action === 'start') return { action: 'start' };
-  if (decision.action === 'mismatch') {
+    args.requestHash,
+  );
+  if (claim.action === 'start') {
+    const id = await ctx.db.insert('apiIdempotency', {
+      tokenId: args.tokenId,
+      key: args.key,
+      requestHash: args.requestHash,
+      state: 'pending',
+      createdAt: Date.now(),
+    });
+    return { action: 'start', id };
+  }
+  if (claim.action === 'in_progress') {
+    return fail(409, 'A request with this idempotency key is already in progress');
+  }
+  if (claim.action === 'mismatch') {
     return fail(409, 'Idempotency key was already used for a different request');
   }
   try {
-    return { status: decision.status, body: JSON.parse(decision.body) as unknown };
+    return { status: claim.status, body: JSON.parse(claim.body) as unknown };
   } catch {
     return fail(500, 'Stored response could not be read');
   }
@@ -106,16 +125,13 @@ async function openIdempotency(
 
 async function finishIdempotency(
   ctx: MutationCtx,
-  args: { tokenId: Id<'apiTokens'>; key: string; requestHash: string },
+  id: Id<'apiIdempotency'>,
   result: ApiResult,
 ): Promise<ApiResult> {
-  await ctx.db.insert('apiIdempotency', {
-    tokenId: args.tokenId,
-    key: args.key,
-    requestHash: args.requestHash,
+  await ctx.db.patch(id, {
+    state: 'done',
     status: result.status,
     body: JSON.stringify(result.body),
-    createdAt: Date.now(),
   });
   return result;
 }
@@ -162,7 +178,7 @@ export const rememberResult = internalMutation({
   handler: async (ctx, args): Promise<ApiResult> => {
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
-    return finishIdempotency(ctx, args, { status: args.status, body: JSON.parse(args.body) as unknown });
+    return finishIdempotency(ctx, opened.id, { status: args.status, body: JSON.parse(args.body) as unknown });
   },
 });
 
@@ -403,7 +419,7 @@ export const createTask = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const project = await ctx.db.get(args.projectId);
-    if (!project) return finishIdempotency(ctx, args, fail(404, 'Project not found'));
+    if (!project) return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
     const externalId = `wh_tsk_${(await sha256Hex(`${args.tokenId}:${args.key}`)).slice(0, 24)}`;
     const planned = planApiTaskCreate({
       name: args.name,
@@ -413,7 +429,7 @@ export const createTask = internalMutation({
       date: args.date,
       stage: args.stage,
     });
-    if (!planned.ok) return finishIdempotency(ctx, args, fail(400, planned.error));
+    if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
     const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
       idempotencyKey: planned.idempotencyKey,
       kind: 'create',
@@ -427,8 +443,8 @@ export const createTask = internalMutation({
       actorId: args.tokenName,
       schedule: true,
     });
-    if (!queued.ok) return fail(400, queued.error);
-    return finishIdempotency(ctx, args, {
+    if (!queued.ok) return finishIdempotency(ctx, opened.id, fail(400, queued.error));
+    return finishIdempotency(ctx, opened.id, {
       status: 200,
       body: { externalId, outboxId: queued.outboxId, duplicate: queued.duplicate },
     });
@@ -451,9 +467,9 @@ export const updateTask = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const task = await ctx.db.get(args.taskId);
-    if (!task) return finishIdempotency(ctx, args, fail(404, 'Task not found'));
+    if (!task) return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
     if ((task.lastEditedTime ?? '') !== args.expectedLastEditedTime) {
-      return finishIdempotency(ctx, args, fail(409, 'Notion changed since the last read'));
+      return finishIdempotency(ctx, opened.id, fail(409, 'Notion changed since the last read'));
     }
     const planned = planApiTaskUpdate({
       notionPageId: task.notionPageId,
@@ -463,7 +479,7 @@ export const updateTask = internalMutation({
       ...(args.nextAction !== undefined ? { nextAction: args.nextAction } : {}),
       ...(args.stage !== undefined ? { stage: args.stage, pullRequestLink: args.pullRequestLink } : {}),
     });
-    if (!planned.ok) return finishIdempotency(ctx, args, fail(400, planned.error));
+    if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
 
     const now = Date.now();
     const stamps: {
@@ -494,7 +510,7 @@ export const updateTask = internalMutation({
     if (args.priority !== undefined) consider('priority', task.priority ?? null, args.priority);
     if (args.nextAction !== undefined) consider('nextAction', task.nextAction ?? null, args.nextAction);
     if (args.stage !== undefined) consider('stage', task.stage ?? null, args.stage);
-    if (conflicts.length > 0) return finishIdempotency(ctx, args, fail(409, conflicts[0]!));
+    if (conflicts.length > 0) return finishIdempotency(ctx, opened.id, fail(409, conflicts[0]!));
 
     const fieldWrite = planned.writes.find((write) => write.kind === 'update');
     const stageWrite = planned.writes.find((write) => write.kind === 'task-stage');
@@ -511,7 +527,7 @@ export const updateTask = internalMutation({
         actorId: args.tokenName,
         schedule: true,
       });
-      if (!queued.ok) return fail(400, queued.error);
+      if (!queued.ok) return finishIdempotency(ctx, opened.id, fail(400, queued.error));
     }
     if (stageWrite && args.stage) {
       const queued = await ctx.runMutation(internal.sync.taskWrite.enqueueStage, {
@@ -522,7 +538,7 @@ export const updateTask = internalMutation({
         actorId: args.tokenName,
         actor: 'staff',
       });
-      if (!queued.ok) return fail(400, queued.error);
+      if (!queued.ok) return finishIdempotency(ctx, opened.id, fail(400, queued.error));
     }
 
     const clear = (value: string | null | undefined) => {
@@ -536,7 +552,7 @@ export const updateTask = internalMutation({
       fieldStamps: stamps,
       updatedAt: now,
     });
-    return finishIdempotency(ctx, args, {
+    return finishIdempotency(ctx, opened.id, {
       status: 200,
       body: { id: task._id, updatedAt: now },
     });
@@ -556,7 +572,7 @@ export const createMilestone = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const project = await ctx.db.get(args.projectId);
-    if (!project) return finishIdempotency(ctx, args, fail(404, 'Project not found'));
+    if (!project) return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
     const created = createMilestoneDecision({
       actor: 'human',
       name: args.name,
@@ -564,7 +580,7 @@ export const createMilestone = internalMutation({
       goals: args.goals,
       workStatus: args.workStatus,
     });
-    if (!created.ok) return finishIdempotency(ctx, args, fail(400, created.reason));
+    if (!created.ok) return finishIdempotency(ctx, opened.id, fail(400, created.reason));
     const milestoneId = await ctx.db.insert('milestones', {
       orgId: project.orgId,
       projectId: project._id,
@@ -586,7 +602,7 @@ export const createMilestone = internalMutation({
         );
       }
     }
-    return finishIdempotency(ctx, args, { status: 200, body: { id: milestoneId } });
+    return finishIdempotency(ctx, opened.id, { status: 200, body: { id: milestoneId } });
   },
 });
 
@@ -603,13 +619,13 @@ export const updateMilestone = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const milestone = await ctx.db.get(args.milestoneId);
-    if (!milestone) return finishIdempotency(ctx, args, fail(404, 'Milestone not found'));
+    if (!milestone) return finishIdempotency(ctx, opened.id, fail(404, 'Milestone not found'));
     const edited = contentEditDecision({
       actor: 'human',
       approval: milestone.approval,
       patch: { name: args.name, objective: args.objective, goals: args.goals },
     });
-    if (!edited.ok) return finishIdempotency(ctx, args, fail(400, edited.reason));
+    if (!edited.ok) return finishIdempotency(ctx, opened.id, fail(400, edited.reason));
     let workStatus = milestone.workStatus;
     let activity: 'milestone.ready' | null = null;
     if (args.workStatus != null) {
@@ -619,12 +635,12 @@ export const updateMilestone = internalMutation({
         from: milestone.workStatus,
         to: args.workStatus,
       });
-      if (!status.ok) return finishIdempotency(ctx, args, fail(400, status.reason));
+      if (!status.ok) return finishIdempotency(ctx, opened.id, fail(400, status.reason));
       workStatus = status.workStatus;
       activity = status.activityType;
     }
     if (Object.keys(edited.patch).length === 0 && args.workStatus == null) {
-      return finishIdempotency(ctx, args, fail(400, 'At least one field is required'));
+      return finishIdempotency(ctx, opened.id, fail(400, 'At least one field is required'));
     }
     await ctx.db.patch(milestone._id, {
       ...edited.patch,
@@ -638,7 +654,7 @@ export const updateMilestone = internalMutation({
         Date.now(),
       );
     }
-    return finishIdempotency(ctx, args, { status: 200, body: { id: milestone._id } });
+    return finishIdempotency(ctx, opened.id, { status: 200, body: { id: milestone._id } });
   },
 });
 
@@ -648,9 +664,9 @@ export const addComment = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const task = await ctx.db.get(args.taskId);
-    if (!task) return finishIdempotency(ctx, args, fail(404, 'Task not found'));
+    if (!task) return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
     const planned = planApiComment(args.body);
-    if (!planned.ok) return finishIdempotency(ctx, args, fail(400, planned.error));
+    if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
     const id = await ctx.db.insert('taskComments', {
       orgId: task.orgId,
       taskId: task._id,
@@ -658,7 +674,7 @@ export const addComment = internalMutation({
       addedBy: args.tokenName,
       createdAt: Date.now(),
     });
-    return finishIdempotency(ctx, args, { status: 200, body: { id } });
+    return finishIdempotency(ctx, opened.id, { status: 200, body: { id } });
   },
 });
 
@@ -676,18 +692,18 @@ export const addLink = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const task = await ctx.db.get(args.taskId);
-    if (!task) return finishIdempotency(ctx, args, fail(404, 'Task not found'));
+    if (!task) return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
     const planned = planApiLink({ kind: args.kind, url: args.url, title: args.title });
-    if (!planned.ok) return finishIdempotency(ctx, args, fail(400, planned.error));
+    if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
     if (planned.property) {
       if (!args.expectedLastEditedTime) {
-        return finishIdempotency(ctx, args, fail(400, 'Updates require the last read time'));
+        return finishIdempotency(ctx, opened.id, fail(400, 'Updates require the last read time'));
       }
       if ((task.lastEditedTime ?? '') !== args.expectedLastEditedTime) {
-        return finishIdempotency(ctx, args, fail(409, 'Notion changed since the last read'));
+        return finishIdempotency(ctx, opened.id, fail(409, 'Notion changed since the last read'));
       }
       const patch = planApiLinkPatch(planned.property, planned.url);
-      if (!patch.ok) return finishIdempotency(ctx, args, fail(400, patch.error));
+      if (!patch.ok) return finishIdempotency(ctx, opened.id, fail(400, patch.error));
       const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
         idempotencyKey: `api-link:${args.tokenId}:${args.key}`,
         kind: 'update',
@@ -700,14 +716,14 @@ export const addLink = internalMutation({
         actorId: args.tokenName,
         schedule: true,
       });
-      if (!queued.ok) return fail(400, queued.error);
+      if (!queued.ok) return finishIdempotency(ctx, opened.id, fail(400, queued.error));
     }
     const existing = await ctx.db
       .query('taskLinks')
       .withIndex('by_taskId', (q) => q.eq('taskId', task._id))
       .take(PAGE_CAP);
     const found = existing.find((row) => row.kind === planned.kind && row.url === planned.url);
-    if (found) return finishIdempotency(ctx, args, { status: 200, body: { id: found._id, duplicate: true } });
+    if (found) return finishIdempotency(ctx, opened.id, { status: 200, body: { id: found._id, duplicate: true } });
     const id = await ctx.db.insert('taskLinks', {
       orgId: task.orgId,
       taskId: task._id,
@@ -717,7 +733,7 @@ export const addLink = internalMutation({
       addedBy: args.tokenName,
       createdAt: Date.now(),
     });
-    return finishIdempotency(ctx, args, { status: 200, body: { id, duplicate: false } });
+    return finishIdempotency(ctx, opened.id, { status: 200, body: { id, duplicate: false } });
   },
 });
 
@@ -748,10 +764,8 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
   const url = new URL(request.url);
   const method = request.method === 'GET' || request.method === 'POST' ? request.method : null;
   if (!method) return json({ error: 'Method not allowed' }, 405);
-  const header = request.headers.get('authorization');
-  const match = /^Bearer\s+(\S+)\s*$/i.exec(header ?? '');
-  const token = match?.[1] ?? '';
-  if (!token.startsWith('whp_')) return json({ error: 'Unauthorized' }, 401);
+  const token = bearerToken(request.headers.get('authorization'));
+  if (!token) return json({ error: 'Unauthorized' }, 401);
   const consumed = await ctx.runMutation(internal.portalApi.consumeToken, {
     tokenHash: await sha256Hex(token),
     method,
@@ -820,9 +834,8 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
   }
   if (!parsed) return json({ error: 'Request body must be a JSON object' }, 400);
   const idempotencyKey = request.headers.get('idempotency-key');
-  if (!idempotencyKey || idempotencyKey.trim() !== idempotencyKey || idempotencyKey.length > 200) {
-    return json({ error: 'Idempotency key is required' }, 400);
-  }
+  const keyError = idempotencyKeyError(idempotencyKey);
+  if (keyError || !idempotencyKey) return json({ error: keyError ?? 'Idempotency key is required' }, 400);
   const requestHash = await sha256Hex(idempotencyMaterial(method, url.pathname, rawBody));
   const idem = { tokenId: consumed.tokenId, key: idempotencyKey, requestHash };
 

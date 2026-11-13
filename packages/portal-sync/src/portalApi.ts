@@ -92,7 +92,9 @@ export function apiRateLimit(value: unknown): number | null {
 }
 
 export function idempotencyKeyError(key: string | null | undefined): string | null {
-  if (!key || key.trim() !== key || key.length > 200) return 'Idempotency key is required';
+  if (key == null || key === '') return 'Idempotency key is required';
+  if (key.trim() === '' || key.trim() !== key) return 'Idempotency key cannot be blank';
+  if (key.length > 200) return 'Idempotency key is too long';
   return null;
 }
 
@@ -150,16 +152,78 @@ export function takeRateLimit(input: {
   return { ok: true, windowStartedAt: started, windowCount: count + 1 };
 }
 
+export type IdempotencyRecord = {
+  requestHash: string;
+  state: 'pending' | 'done';
+  status?: number;
+  body?: string;
+};
+
 export function idempotencyDecision(input: {
-  existing: { requestHash: string; status: number; body: string } | null;
+  existing: IdempotencyRecord | null;
   requestHash: string;
 }):
   | { action: 'start' }
   | { action: 'replay'; status: number; body: string }
-  | { action: 'mismatch' } {
+  | { action: 'mismatch' }
+  | { action: 'in_progress' } {
   if (!input.existing) return { action: 'start' };
   if (input.existing.requestHash !== input.requestHash) return { action: 'mismatch' };
-  return { action: 'replay', status: input.existing.status, body: input.existing.body };
+  if (input.existing.state === 'pending') return { action: 'in_progress' };
+  return {
+    action: 'replay',
+    status: input.existing.status ?? 500,
+    body: input.existing.body ?? '',
+  };
+}
+
+/**
+ * Claim the key before any other write. A start replaces a missing row with
+ * pending. A later overlapping call sees that pending row and does not start.
+ */
+export function claimIdempotency(
+  existing: IdempotencyRecord | null,
+  requestHash: string,
+):
+  | { action: 'start'; record: IdempotencyRecord }
+  | { action: 'replay'; status: number; body: string; record: IdempotencyRecord }
+  | { action: 'mismatch'; record: IdempotencyRecord }
+  | { action: 'in_progress'; record: IdempotencyRecord } {
+  const decision = idempotencyDecision({ existing, requestHash });
+  if (decision.action === 'start') {
+    return { action: 'start', record: { requestHash, state: 'pending' } };
+  }
+  return { ...decision, record: existing as IdempotencyRecord };
+}
+
+export function completeIdempotency(
+  record: IdempotencyRecord,
+  result: { status: number; body: string },
+): IdempotencyRecord {
+  return { ...record, state: 'done', status: result.status, body: result.body };
+}
+
+export function portalRequestAuth(input: {
+  authorization: string | null;
+  method: 'GET' | 'POST';
+  stored: { scope: 'read' | 'read-write'; revokedAt?: number | null } | null;
+}): { ok: true; token: string } | { ok: false; status: 401 | 403; error: string } {
+  const token = bearerToken(input.authorization);
+  if (!token || !input.stored || input.stored.revokedAt != null) {
+    return { ok: false, status: 401, error: 'Unauthorized' };
+  }
+  const auth = authorizeApiCall({
+    token: { scope: input.stored.scope, revokedAt: input.stored.revokedAt ?? null },
+    method: input.method,
+  });
+  if (!auth.ok) {
+    return {
+      ok: false,
+      status: auth.status,
+      error: auth.reason === 'scope' ? 'This token is read-only' : 'Unauthorized',
+    };
+  }
+  return { ok: true, token };
 }
 
 export type TaskListIndex =
@@ -225,6 +289,21 @@ export function sourceLinksFromFields(input: {
 
 export function isSourceLinkKind(kind: string): boolean {
   return (SOURCE_LINK_KINDS as readonly string[]).includes(kind);
+}
+
+export function sourceLinksChanged(
+  existing: ReadonlyArray<{ kind: string; url: string; addedBy: string }>,
+  wanted: ReadonlyArray<{ kind: string; url: string }>,
+): boolean {
+  const wantedKey = new Set(wanted.map((link) => `${link.kind}\n${link.url}`));
+  for (const link of wanted) {
+    if (!existing.some((row) => row.kind === link.kind && row.url === link.url)) return true;
+  }
+  for (const row of existing) {
+    if (row.addedBy !== 'notion' || !isSourceLinkKind(row.kind)) continue;
+    if (!wantedKey.has(`${row.kind}\n${row.url}`)) return true;
+  }
+  return false;
 }
 
 function httpsUrl(value: string): boolean {
@@ -318,6 +397,100 @@ export function mergePulledField(input: {
   });
   if (!decision.apply) return { applied: false, value: input.localValue, stamp: input.localStamp };
   return { applied: true, value: input.notionValue, stamp: decision.stamp };
+}
+
+/**
+ * Stage from a pull. An in-flight move keeps `mergePulledStage`. Otherwise the
+ * Notion edit time has to beat `fieldStamps.stage`. An older pull keeps the
+ * local stage. Event writes are not pulls: `applyFieldWrite` still rejects a
+ * status or stage that moves backwards when origin is `event`.
+ */
+export function resolvePulledStage(input: {
+  pending: boolean;
+  notionStage: string | null;
+  notionEditedMs: number | null;
+  localStage: string | null;
+  localStamp: FieldStamp | null;
+  pulledStage: string | null;
+  pulledStageSynced: string | null;
+  pulledLastEditedTime: string | null;
+}): {
+  stage: string | null;
+  stageSynced: string | null;
+  lastEditedTime: string | null;
+  stamp: FieldStamp | null;
+  keptLocal: boolean;
+} {
+  if (input.pending) {
+    const changed = (input.localStage ?? null) !== (input.pulledStage ?? null);
+    return {
+      stage: input.pulledStage,
+      stageSynced: input.pulledStageSynced,
+      lastEditedTime: input.pulledLastEditedTime,
+      stamp: changed ? { updatedAt: input.notionEditedMs ?? 0, updatedBy: 'notion' } : null,
+      keptLocal: false,
+    };
+  }
+  const decision = applyFieldWrite({
+    field: 'stage',
+    origin: 'pull',
+    currentValue: input.localStage,
+    currentStamp: input.localStamp,
+    nextValue: input.notionStage,
+    updatedAt: input.notionEditedMs ?? 0,
+    updatedBy: 'notion',
+  });
+  if (!decision.apply) {
+    return {
+      stage: input.localStage,
+      stageSynced: input.pulledStageSynced,
+      lastEditedTime: input.pulledLastEditedTime,
+      stamp: null,
+      keptLocal: true,
+    };
+  }
+  return {
+    stage: input.pulledStage,
+    stageSynced: input.pulledStageSynced,
+    lastEditedTime: input.pulledLastEditedTime,
+    stamp: decision.stamp,
+    keptLocal: false,
+  };
+}
+
+export type PullFieldSnapshot = {
+  status: string | null;
+  isDone: boolean;
+  stage: string | null;
+  priority: string | null;
+  nextAction: string | null;
+  pullRequestUrl: string | null;
+  figmaFrame: string | null;
+  repoBranch: string | null;
+};
+
+export function pullFieldsChanged(before: PullFieldSnapshot | null, after: PullFieldSnapshot): boolean {
+  if (!before) return true;
+  return (
+    before.status !== after.status ||
+    before.isDone !== after.isDone ||
+    (before.stage ?? null) !== (after.stage ?? null) ||
+    (before.priority ?? null) !== (after.priority ?? null) ||
+    (before.nextAction ?? null) !== (after.nextAction ?? null) ||
+    (before.pullRequestUrl ?? null) !== (after.pullRequestUrl ?? null) ||
+    (before.figmaFrame ?? null) !== (after.figmaFrame ?? null) ||
+    (before.repoBranch ?? null) !== (after.repoBranch ?? null)
+  );
+}
+
+export function pullUpdatedAt(input: {
+  previousUpdatedAt?: number | null;
+  now: number;
+  fieldsChanged: boolean;
+  linksChanged: boolean;
+}): number | undefined {
+  if (input.fieldsChanged || input.linksChanged) return input.now;
+  return input.previousUpdatedAt ?? undefined;
 }
 
 function priorityProperty(value: string | null): { ok: true; value: string | null } | { ok: false; error: string } {
