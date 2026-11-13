@@ -55,6 +55,7 @@ export {
 } from './gates';
 
 export {
+  clientKeepsProjectsStaffVisible,
   decideSyncedRowVisibility,
   isClientSurfaceVisible,
   isOrgVisibleToClients,

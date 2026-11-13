@@ -2,6 +2,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { buildClientCreateProperties, WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
 import { prepare, createInNotion } from '../clientCreate';
+import { clearAncestorHides } from '../sync/hide';
+import { backfillClientNameKeys } from '../sync/nameKeyBackfill';
 import { enqueue } from '../sync/outbox';
 import { upsertClient } from '../sync/upsert';
 
@@ -9,12 +11,20 @@ type Row = Record<string, unknown> & { _id: string };
 
 class EqBuilder {
   private eqs: Array<[string, unknown]> = [];
+  private gts: Array<[string, number]> = [];
   eq(field: string, value: unknown): this {
     this.eqs.push([field, value]);
     return this;
   }
+  gt(field: string, value: number): this {
+    this.gts.push([field, value]);
+    return this;
+  }
   matches(row: Row): boolean {
-    return this.eqs.every(([field, value]) => row[field] === value);
+    return (
+      this.eqs.every(([field, value]) => row[field] === value) &&
+      this.gts.every(([field, value]) => Number(row[field]) > value)
+    );
   }
 }
 
@@ -57,7 +67,7 @@ function memoryDb(tables: Record<string, Row[]>, takes: Array<{ table: string; c
         },
         take: async (count: number) => {
           takes.push({ table, count });
-          if (table === 'clients' && count !== 2) throw new Error(`clients.take(${count})`);
+          if (table === 'clients' && count > 50) throw new Error(`clients.take(${count})`);
           return list.slice(0, count);
         },
         unique: async () => {
@@ -156,6 +166,10 @@ function actionCtx(
       if (name === 'clientCreate:prepare') return run(prepare, ctx, args);
       if (name === 'clientCreate:findByNotionPage') {
         const row = (tables.clients ?? []).find((item) => item.notionPageId === args.notionPageId);
+        return row ? { id: row._id } : null;
+      }
+      if (name === 'clientCreate:findByExternalId') {
+        const row = (tables.clients ?? []).find((item) => item.externalId === args.externalId);
         return row ? { id: row._id } : null;
       }
       throw new Error(`unexpected query ${name}`);
@@ -379,21 +393,109 @@ describe('staff client create', () => {
     });
   });
 
-  it('does not insert our defaults onto a Notion page we only reused', async () => {
+  it('upserts when Notion already confirmed the page and Convex has no row', async () => {
     const tables = staffTables();
     const takes: Array<{ table: string; count: number }> = [];
     await withFlag(true, async () => {
       const { ctx, calls } = actionCtx(tables, takes, {
         process: async () => ({ ok: true, notionPageId: 'page-remote', reused: true }),
       });
-      const result = await run(createInNotion, ctx, { companyName: 'Fresh Co' });
-      assert.deepEqual(result, {
-        ok: false,
-        error: 'That client already exists in Notion, but it is not in the portal yet.',
-      });
-      assert.equal(calls.includes('sync/upsert:upsertClient'), false);
-      assert.equal(tables.clients!.length, 1);
+      const result = (await run(createInNotion, ctx, { companyName: 'Fresh Co' })) as {
+        ok: boolean;
+        clientId?: string;
+        reused?: boolean;
+      };
+      assert.equal(result.ok, true);
+      assert.equal(result.reused, false);
+      assert.equal(calls.includes('sync/upsert:upsertClient'), true);
+      const created = tables.clients!.find((row) => row._id === result.clientId);
+      assert.equal(created?.notionPageId, 'page-remote');
+      assert.equal(created?.status, 'Prospect');
+      assert.equal(created?.portalAccess, 'Disabled');
+      assert.equal(created?.syncHiddenAt, undefined);
     });
+  });
+
+  it('finds an existing client by name after nameKey is filled, even with a different slug', async () => {
+    const tables = staffTables([
+      {
+        _id: 'client-old-name',
+        _creationTime: 20,
+        notionPageId: 'page-old-name',
+        companyName: 'North Wind',
+        slug: 'different-slug',
+        portalAccess: 'Disabled',
+        status: 'Active',
+        syncHiddenAt: 40,
+        syncHiddenReason: 'gate',
+      },
+    ]);
+    tables.clients![0]!._creationTime = 10;
+    const takes: Array<{ table: string; count: number }> = [];
+    const db = memoryDb(tables, takes);
+    const filled = (await run(backfillClientNameKeys, { db }, { numItems: 25 })) as {
+      updated: number;
+      isDone: boolean;
+    };
+    assert.equal(filled.updated, 1);
+    assert.equal(filled.isDone, true);
+    assert.equal(tables.clients!.find((row) => row._id === 'client-old-name')!.nameKey, 'north wind');
+    assert.deepEqual(
+      takes.filter((item) => item.table === 'clients').map((item) => item.count),
+      [25],
+    );
+
+    const prepared = (await run(prepare, { db: memoryDb(tables, takes) }, {
+      authUserId: 'user-staff',
+      companyName: 'North Wind',
+    })) as { ok: boolean; reused?: boolean; clientId?: string };
+    assert.equal(prepared.ok, true);
+    assert.equal(prepared.reused, true);
+    assert.equal(prepared.clientId, 'client-old-name');
+    assert.equal(tables.notionOutbox!.length, 0);
+  });
+
+  it('clears a stale Disabled gate stamp and leaves trash concealed', async () => {
+    const client = {
+      _id: 'org-disabled',
+      portalAccess: 'Disabled',
+      syncHiddenAt: 70,
+      syncHiddenReason: 'gate',
+      companyName: 'North Wind',
+      slug: 'north-wind',
+    };
+    const project = {
+      _id: 'project-1',
+      orgId: 'org-disabled',
+      syncHiddenAt: 70,
+      syncHiddenReason: 'ancestor',
+      name: 'Site',
+    };
+    const trashed = {
+      _id: 'org-trash',
+      portalAccess: 'Disabled',
+      syncHiddenAt: 80,
+      syncHiddenReason: 'trashed',
+      companyName: 'Gone',
+      slug: 'gone',
+    };
+    const tables: Record<string, Row[]> = {
+      clients: [client, trashed],
+      projects: [project],
+      tasks: [],
+      sharedResources: [],
+      clientDocs: [],
+      contacts: [],
+    };
+    const db = memoryDb(tables, []);
+    await run(clearAncestorHides, { db }, { orgId: 'org-disabled' });
+    assert.equal(client.syncHiddenAt, undefined);
+    assert.equal(client.syncHiddenReason, undefined);
+    assert.equal(project.syncHiddenAt, undefined);
+    assert.equal(project.syncHiddenReason, undefined);
+    await run(clearAncestorHides, { db }, { orgId: 'org-trash' });
+    assert.equal(trashed.syncHiddenAt, 80);
+    assert.equal(trashed.syncHiddenReason, 'trashed');
   });
 
   it('rejects a non-staff session and an anonymous session', async () => {

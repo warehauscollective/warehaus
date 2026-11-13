@@ -4,9 +4,20 @@ import { useState, type CSSProperties, type FormEvent } from 'react';
 import { useAction } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
-import { buildClientCreateProperties } from '@warehaus/portal-sync';
+import { buildClientCreateProperties, type ClientCreateField } from '@warehaus/portal-sync';
 import { GhostButton, PrimaryButton, Surface } from '@/components/ui/primitives';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
+
+export type NewClientNote = {
+  tone: 'error' | 'info';
+  text: string;
+  field?: ClientCreateField;
+};
+
+function fieldMessage(note: NewClientNote | null, field: ClientCreateField): string | null {
+  if (!note || note.tone !== 'error' || note.field !== field) return null;
+  return note.text;
+}
 
 /**
  * Staff client create. Company Name is required. Email and phone are optional.
@@ -30,7 +41,7 @@ export function NewClientControl({
   const [companyName, setCompanyName] = useState('');
   const [primaryEmail, setPrimaryEmail] = useState('');
   const [phone, setPhone] = useState('');
-  const [note, setNote] = useState<string | null>(null);
+  const [note, setNote] = useState<NewClientNote | null>(null);
   const [reusedId, setReusedId] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
@@ -42,11 +53,11 @@ export function NewClientControl({
     const built = buildClientCreateProperties({ companyName, primaryEmail, phone });
     if (!built.ok) {
       setReusedId(null);
-      setNote(built.error);
+      setNote({ tone: 'error', text: built.error, field: built.field });
       return;
     }
     if (fixtures) {
-      setNote('Fixture preview does not create clients.');
+      setNote({ tone: 'info', text: 'Fixture preview does not create clients.' });
       return;
     }
 
@@ -61,12 +72,12 @@ export function NewClientControl({
         ...(built.properties.Phone ? { phone: built.properties.Phone } : {}),
       });
       if (!result.ok) {
-        setNote(result.error);
+        setNote({ tone: 'error', text: result.error, field: result.field });
         return;
       }
       if (result.reused) {
         setReusedId(result.clientId);
-        setNote('A client with this name or slug already exists.');
+        setNote({ tone: 'info', text: 'A client with this name or slug already exists.' });
         return;
       }
       setCompanyName('');
@@ -75,7 +86,7 @@ export function NewClientControl({
       onOpen(result.clientId);
       onClose();
     } catch (err) {
-      setNote(userFacingErrorMessage(err, 'Could not create the client'));
+      setNote({ tone: 'error', text: userFacingErrorMessage(err, 'Could not create the client') });
     } finally {
       setPending(false);
     }
@@ -125,7 +136,7 @@ export function NewClientForm({
   companyName: string;
   primaryEmail: string;
   phone: string;
-  note: string | null;
+  note: NewClientNote | null;
   pending: boolean;
   reused: boolean;
   onCompanyName: (value: string) => void;
@@ -162,38 +173,40 @@ export function NewClientForm({
             Starts as a prospect. Portal access stays off. No invite is sent.
           </p>
           <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
-            <label className="flex flex-col gap-1">
-              <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Company Name</span>
-              <input
-                value={companyName}
-                onChange={(event) => onCompanyName(event.target.value)}
-                required
-                data-testid="new-client-name"
-                style={inputStyle}
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Primary Email</span>
-              <input
-                value={primaryEmail}
-                onChange={(event) => onPrimaryEmail(event.target.value)}
-                type="email"
-                data-testid="new-client-email"
-                style={inputStyle}
-              />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Phone</span>
-              <input
-                value={phone}
-                onChange={(event) => onPhone(event.target.value)}
-                data-testid="new-client-phone"
-                style={inputStyle}
-              />
-            </label>
-            {note ? (
-              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }} role="status">
-                {note}
+            <ClientField
+              label="Company Name"
+              value={companyName}
+              testId="new-client-name"
+              errorId="new-client-name-error"
+              error={fieldMessage(note, 'companyName')}
+              onChange={onCompanyName}
+              required
+            />
+            <ClientField
+              label="Primary Email"
+              value={primaryEmail}
+              testId="new-client-email"
+              errorId="new-client-email-error"
+              error={fieldMessage(note, 'email')}
+              onChange={onPrimaryEmail}
+              type="email"
+            />
+            <ClientField
+              label="Phone"
+              value={phone}
+              testId="new-client-phone"
+              errorId="new-client-phone-error"
+              error={fieldMessage(note, 'phone')}
+              onChange={onPhone}
+            />
+            {note?.tone === 'info' ? (
+              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--fg)' }} role="status" data-testid="new-client-info">
+                {note.text}
+              </p>
+            ) : null}
+            {note?.tone === 'error' && !note.field ? (
+              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }} role="alert">
+                {note.text}
               </p>
             ) : null}
             <div className="mt-2 flex justify-end gap-2">
@@ -212,6 +225,47 @@ export function NewClientForm({
         </Surface>
       </div>
     </div>
+  );
+}
+
+function ClientField({
+  label,
+  value,
+  testId,
+  errorId,
+  error,
+  onChange,
+  type = 'text',
+  required = false,
+}: {
+  label: string;
+  value: string;
+  testId: string;
+  errorId: string;
+  error: string | null;
+  onChange: (value: string) => void;
+  type?: 'text' | 'email';
+  required?: boolean;
+}) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>{label}</span>
+      <input
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        required={required}
+        type={type}
+        data-testid={testId}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? errorId : undefined}
+        style={inputStyle}
+      />
+      {error ? (
+        <span id={errorId} role="alert" style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>
+          {error}
+        </span>
+      ) : null}
+    </label>
   );
 }
 

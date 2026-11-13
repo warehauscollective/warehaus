@@ -52,10 +52,13 @@ function revokeSessions(table: SyncTable, role: ContactRole | undefined, ancesto
 }
 
 /**
- * Gate failure, trash, and a disabled parent hide the Convex copy.
- * A passing row whose parent client is disabled is stored hidden (`ancestor`)
- * so the data is current when that client is enabled again.
+ * Gate failure, trash, and a concealed parent hide the Convex copy.
+ * Portal access Disabled is not a gate failure for a client.
+ * A passing row whose parent client is concealed is stored hidden (`ancestor`).
  * `parentClientEnabled` is omitted for the client table itself.
+ * Project pulls pass `clientKeepsProjectsStaffVisible` so a Disabled client
+ * keeps its projects on the staff roster. Client users still use
+ * `isOrgVisibleToClients`.
  */
 export function decideSyncedRowVisibility(input: {
   table: SyncTable;
@@ -123,6 +126,16 @@ export function decideSyncedRowVisibility(input: {
 /** Client lists omit rows the pull has soft-hidden. Missing means visible. */
 export function isClientSurfaceVisible(row: { syncHiddenAt?: number | null }): boolean {
   return row.syncHiddenAt == null;
+}
+
+/**
+ * Staff still see projects when the client row itself is not concealed.
+ * Portal access Disabled does not conceal it. Trash, archive, and quarantine do.
+ */
+export function clientKeepsProjectsStaffVisible(
+  client: { syncHiddenAt?: number | null } | null | undefined,
+): boolean {
+  return !!client && isClientSurfaceVisible(client);
 }
 
 export function isOrgVisibleToClients(

@@ -6,9 +6,9 @@
  * be exactly "true" or nothing is queued.
  *
  * This path does not create a contact, an invite, or an email.
- * Portal access Disabled still fails the client pull gate. This module does
- * not change that gate. The create action upserts after Notion returns a page
- * id; the next pull may conceal the row.
+ * Portal access Disabled stays in Convex for staff. It is not a reason to
+ * skip or conceal a well-formed client. Trash, archive, and quarantine still
+ * conceal. Client users only see Enabled rows with no hide stamp.
  *
  * Live Clients schema (data source 5165ca6e-352e-45af-8918-98779fd76e61):
  * - Company Name is the title.

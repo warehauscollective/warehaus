@@ -45,6 +45,7 @@ import type * as sync_blobGc from "../sync/blobGc.js";
 import type * as sync_docBody from "../sync/docBody.js";
 import type * as sync_granola from "../sync/granola.js";
 import type * as sync_hide from "../sync/hide.js";
+import type * as sync_nameKeyBackfill from "../sync/nameKeyBackfill.js";
 import type * as sync_notionApi from "../sync/notionApi.js";
 import type * as sync_notionWrite from "../sync/notionWrite.js";
 import type * as sync_outbox from "../sync/outbox.js";
@@ -105,6 +106,7 @@ declare const fullApi: ApiFromModules<{
   "sync/docBody": typeof sync_docBody;
   "sync/granola": typeof sync_granola;
   "sync/hide": typeof sync_hide;
+  "sync/nameKeyBackfill": typeof sync_nameKeyBackfill;
   "sync/notionApi": typeof sync_notionApi;
   "sync/notionWrite": typeof sync_notionWrite;
   "sync/outbox": typeof sync_outbox;

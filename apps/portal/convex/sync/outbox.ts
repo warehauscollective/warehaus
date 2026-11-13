@@ -588,6 +588,7 @@ export const attachClientId = internalMutation({
     if (!row?.resultJson) return;
     const parsed = JSON.parse(row.resultJson) as Record<string, unknown>;
     await ctx.db.patch(args.id, {
+      orgId: args.clientId,
       resultJson: JSON.stringify({ ...parsed, clientId: args.clientId }),
     });
   },

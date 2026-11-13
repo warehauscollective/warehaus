@@ -38,8 +38,8 @@ type PrepareResult =
 /**
  * Staff creates one client through the Notion outbox, then upserts that page
  * into Convex. No contact, invite, or email.
- * Write-back off returns before any Notion call. The pull gate is unchanged:
- * Portal access Disabled is concealed on the next pull.
+ * Write-back off returns before any Notion call. A well-formed Disabled
+ * client stays in Convex for staff. Trash, archive, and quarantine still conceal.
  */
 export const prepare = internalQuery({
   args: {
@@ -135,6 +135,19 @@ export const findByNotionPage = internalQuery({
   },
 });
 
+export const findByExternalId = internalQuery({
+  args: { externalId: v.string() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query('clients')
+      .withIndex('by_externalId', (q) => q.eq('externalId', args.externalId))
+      .take(2);
+    const row = rows[0];
+    if (!row) return null;
+    return { id: row._id };
+  },
+});
+
 export const createInNotion = action({
   args: {
     hostSlug: v.optional(v.string()),
@@ -209,11 +222,11 @@ export const createInNotion = action({
     if (existing) {
       return { ok: true, clientId: existing.id, notionPageId: processed.notionPageId, reused: true };
     }
-    if (processed.reused) {
-      return {
-        ok: false,
-        error: 'That client already exists in Notion, but it is not in the portal yet.',
-      };
+    const byExternal = await ctx.runQuery(internal.clientCreate.findByExternalId, {
+      externalId: prepared.properties['External ID'],
+    });
+    if (byExternal) {
+      return { ok: true, clientId: byExternal.id, notionPageId: processed.notionPageId, reused: true };
     }
 
     const fields = clientCreateConvexFields(prepared.properties);

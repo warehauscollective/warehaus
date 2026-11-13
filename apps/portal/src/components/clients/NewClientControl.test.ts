@@ -13,7 +13,7 @@ function markup(extra: Record<string, unknown> = {}) {
       companyName: '',
       primaryEmail: '',
       phone: '',
-      note: null,
+      note: null as { tone: 'error' | 'info'; text: string; field?: 'companyName' | 'email' | 'phone' | 'slug' } | null,
       pending: false,
       reused: false,
       onCompanyName: () => {},
@@ -38,15 +38,29 @@ describe('new client dialog', () => {
     assert.equal(html.includes('aria-disabled'), false);
   });
 
-  it('shows Use existing when the name or slug is already a client', () => {
+  it('shows Use existing as info when the name or slug is already a client', () => {
     const html = markup({
       reused: true,
-      note: 'A client with this name or slug already exists.',
+      note: { tone: 'info', text: 'A client with this name or slug already exists.' },
     });
     assert.match(html, /data-testid="use-existing-client"/);
+    assert.match(html, /data-testid="new-client-info"/);
+    assert.match(html, /color:var\(--fg\)/);
     assert.match(html, /Use existing/);
     assert.match(html, /A client with this name or slug already exists\./);
     assert.equal(html.includes('>Create client<'), false);
+    assert.equal(html.includes('color:var(--danger)'), false);
+  });
+
+  it('marks the returned field invalid and shows the error on that input', () => {
+    const html = markup({
+      note: { tone: 'error', text: 'Primary Email is not a valid address', field: 'email' },
+    });
+    assert.match(html, /data-testid="new-client-email"[^>]*aria-invalid="true"/);
+    assert.match(html, /id="new-client-email-error"/);
+    assert.match(html, /Primary Email is not a valid address/);
+    assert.equal(html.includes('data-testid="new-client-name" aria-invalid'), false);
+    assert.equal(html.includes('aria-invalid="true" data-testid="new-client-name"') || html.includes('data-testid="new-client-name" aria-invalid'), false);
   });
 
   it('is a bottom sheet at 390px', () => {

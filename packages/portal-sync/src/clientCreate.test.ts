@@ -20,6 +20,7 @@ import {
 import { clientRowPassesGate } from './gates';
 import { mapNotionClient } from './mappers';
 import { outboxKindSendsInvite } from './outbox';
+import { decideSyncedRowVisibility } from './ungate';
 import { WRITEBACK_OFF_ERROR } from './writeback';
 
 function built(extra: { primaryEmail?: string; phone?: string; slug?: string } = {}) {
@@ -69,7 +70,7 @@ describe('client create payload', () => {
     });
   });
 
-  it('keeps the pull gate: a Disabled prospect is skipped and still has a row', () => {
+  it('keeps a Disabled prospect in the pull instead of skipping it', () => {
     const properties = built();
     const mapped = mapNotionClient('page-new', {
       'Company Name': { type: 'title', title: [{ plain_text: properties['Company Name'] }] },
@@ -79,14 +80,16 @@ describe('client create payload', () => {
       Source: { type: 'select', select: { name: properties.Source } },
       'External ID': { type: 'rich_text', rich_text: [{ plain_text: properties['External ID'] }] },
     });
-    assert.equal(mapped.disposition, 'skip');
+    assert.equal(mapped.disposition, 'upsert');
     assert.equal(mapped.row?.database, 'clients');
     if (mapped.row?.database !== 'clients') return;
     assert.equal(mapped.row.status, 'Prospect');
     assert.equal(mapped.row.portalAccess, 'Disabled');
     assert.equal(mapped.row.slug, 'north-wind');
-    assert.equal(clientRowPassesGate({ portalAccess: 'Disabled' }).ok, false);
+    assert.equal(clientRowPassesGate({ portalAccess: 'Disabled' }).ok, true);
     assert.equal(clientRowPassesGate({ portalAccess: 'Enabled' }).ok, true);
+    const shown = decideSyncedRowVisibility({ table: 'clients', disposition: mapped.disposition });
+    assert.equal(shown.action, 'show');
     const convex = clientCreateConvexFields(properties);
     assert.equal(convex.status, 'Prospect');
     assert.equal(convex.portalAccess, 'Disabled');

@@ -1,4 +1,5 @@
 import {
+  clientKeepsProjectsStaffVisible,
   companyNameKey,
   decideResourceLink,
   isApprovedInternalWarehausProject,
@@ -512,12 +513,14 @@ export const resolveIds = internalMutation({
     const clients = await ctx.db.query('clients').collect();
     const projects = await ctx.db.query('projects').collect();
     const clientEnabledByNotion: Record<string, boolean> = {};
+    const clientStaffVisibleByNotion: Record<string, boolean> = {};
     const warehausInternalByNotion: Record<string, boolean> = {};
     const enabledClientIds = new Set<Id<'clients'>>();
     const warehausInternalOrgIds = new Set<Id<'clients'>>();
     for (const client of clients) {
       const enabled = isOrgVisibleToClients(client);
       clientEnabledByNotion[client.notionPageId] = enabled;
+      clientStaffVisibleByNotion[client.notionPageId] = clientKeepsProjectsStaffVisible(client);
       if (enabled) enabledClientIds.add(client._id);
       const internal = isWarehausInternalClient({
         slug: client.slug,
@@ -531,6 +534,7 @@ export const resolveIds = internalMutation({
         clients.map((c) => [c.notionPageId, c._id as Id<'clients'>]),
       ),
       clientEnabledByNotion,
+      clientStaffVisibleByNotion,
       warehausInternalByNotion,
       projectByNotion: Object.fromEntries(
         projects.map((p) => [p.notionPageId, p._id as Id<'projects'>]),
