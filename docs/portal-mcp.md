@@ -25,7 +25,14 @@ The portal process needs `NEXT_PUBLIC_CONVEX_SITE_URL` or `CONVEX_SITE_URL`. Too
 
 `create_client` uses the staff client-create path and stays disabled and unpublished. `create_project` uses the same project-create path. Pass `clientId`, or `client` to create the client first. The project stays unpublished unless `publishToWarehaus` is `true`. The staff form still publishes, because that path passes publish on. Tasks and milestones stay unpublished.
 
-If a write stops after the outbox row is stored and before the response is saved, the idempotency key stays pending. Retrying that same key within 2 minutes returns 409: `A request with this idempotency key is already in progress`. After 2 minutes the same key and the same request can start again. The outbox still dedupes the project or client, so the retry does not create a second page.
+If a write stops after the outbox row is stored and before the response is saved, the idempotency key stays pending. Retrying that key returns 409, `A request with this idempotency key is already in progress`, while the key is inside its 15 minute lease. That lease is longer than the Convex action limit, so a request that is still running is not replaced.
+
+After the lease, the retry reads the matching outbox row and does not start a second Notion create while that row is in flight:
+- `done` replays the stored result and does not call `processOne`.
+- `inflight` or `queued` returns the same 409. It does not take the outbox lease and does not call `processOne`.
+- `failed` or `dead` is the only case that calls `processOne` again.
+
+The outbox lease is 15 minutes as well. A live attempt cannot be preempted. This is not a promise that Notion itself dedupes a create that is still in flight and not yet searchable. The retry avoids that race by leaving an inflight row alone.
 
 ## Mint a token
 

@@ -14,9 +14,9 @@
  *   this payload omits it. The pull mapper stores "Inbox" when Status is empty.
  * - Source is a select. `portal` already exists. Send select, not rich text.
  * - Type is not required. Omitting it keeps Internal out of the project gate.
- * - Publish to Warehaus and Archive are checkboxes. Archive is off.
- *   Publish is an argument: the staff form passes true, and a token create
- *   passes false unless the caller opts in.
+ * - Publish to Warehaus is a checkbox argument. This helper does not turn it on.
+ *   The staff form passes true. A token create passes false unless the caller opts in.
+ *   Archive is off.
  * - Tasks, Client Docs, and Ops (Internal) are relations. This path does not set them.
  */
 

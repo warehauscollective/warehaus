@@ -164,8 +164,13 @@ export type IdempotencyRecord = {
   createdAt?: number;
 };
 
-/** A pending key older than this can be claimed again by the same request. */
-export const API_IDEMPOTENCY_LEASE_MS = 120_000;
+/**
+ * A pending key younger than this returns 409. Convex actions and HTTP actions
+ * stop at 10 minutes, so this is longer: a request that is still alive is not
+ * replaced. After the lease, the same request may look at the outbox. An
+ * inflight outbox row still returns 409 and is not claimed.
+ */
+export const API_IDEMPOTENCY_LEASE_MS = 15 * 60 * 1000;
 
 export const IDEMPOTENCY_IN_PROGRESS_ERROR =
   'A request with this idempotency key is already in progress';
@@ -203,7 +208,9 @@ export function idempotencyDecision(input: {
 /**
  * Claim the key before any other write. A start replaces a missing row with
  * pending. A later overlapping call sees that pending row and does not start.
- * The same request can reclaim a pending row after `API_IDEMPOTENCY_LEASE_MS`.
+ * After `API_IDEMPOTENCY_LEASE_MS` the same request may resume that pending row.
+ * Resuming does not delete it, and it does not start a second Notion create
+ * while the matching outbox row is still inflight.
  */
 export function claimIdempotency(
   existing: IdempotencyRecord | null,

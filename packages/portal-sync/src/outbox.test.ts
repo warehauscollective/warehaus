@@ -9,6 +9,7 @@ import {
   missingWritebackProperty,
   missingWritebackProperties,
   nextBackoffMs,
+  planCreateResume,
   planIdempotentEnqueue,
   planOutboxAttempt,
   revertIdempotencyKey,
@@ -646,5 +647,21 @@ describe('client create attempt', () => {
     if (outcome.outcome !== 'confirmed') return;
     assert.equal(outcome.reused, false);
     assert.equal(outcome.write.notionPageId, 'page-new');
+  });
+});
+
+describe('create resume', () => {
+  it('replays a done row and leaves an inflight row alone', () => {
+    assert.deepEqual(
+      planCreateResume({
+        status: 'done',
+        resultJson: JSON.stringify({ notionPageId: 'page-1', projectId: 'proj-1', reused: false }),
+      }),
+      { action: 'replay', notionPageId: 'page-1', projectId: 'proj-1', reused: false },
+    );
+    assert.deepEqual(planCreateResume({ status: 'inflight', resultJson: null }), { action: 'busy' });
+    assert.deepEqual(planCreateResume({ status: 'queued' }), { action: 'busy' });
+    assert.equal(planCreateResume({ status: 'failed' }).action, 'retry');
+    assert.equal(planCreateResume({ status: 'dead' }).action, 'retry');
   });
 });

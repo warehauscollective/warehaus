@@ -4,8 +4,10 @@ import {
   clientCreateIdempotencyKey,
   clientCreateStaffAllowed,
   companyNameKey,
+  IDEMPOTENCY_IN_PROGRESS_ERROR,
   isNotionWritebackEnabled,
   planClientCreateDispatch,
+  planCreateResume,
   type ClientCreateField,
   type ClientCreateProperties,
 } from '@warehaus/portal-sync';
@@ -166,7 +168,7 @@ export const createInNotion = action({
     args,
   ): Promise<
     | { ok: true; clientId: string; notionPageId: string; reused: boolean }
-    | { ok: false; error: string; field?: ClientCreateField }
+    | { ok: false; error: string; status?: 409; field?: ClientCreateField }
   > => {
     const auth = await ctx.auth.getUserIdentity();
     if (!auth) return { ok: false, error: 'Not authenticated' };
@@ -201,7 +203,7 @@ type ClientCreateOk = { ok: true; clientId: string; notionPageId: string; reused
 async function finishClientCreate(
   ctx: ActionCtx,
   prepared: { orgId: Id<'clients'>; properties: ClientCreateProperties },
-): Promise<ClientCreateOk | { ok: false; error: string; field?: ClientCreateField }> {
+): Promise<ClientCreateOk | { ok: false; error: string; status?: 409; field?: ClientCreateField }> {
   const gate = planClientCreateDispatch({
     writebackEnabled: isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED),
   });
@@ -217,6 +219,29 @@ async function finishClientCreate(
     schedule: false,
   });
   if (!queued.ok) return queued;
+  if (queued.duplicate) {
+    const resume = planCreateResume({ status: queued.status, resultJson: queued.resultJson });
+    if (resume.action === 'busy') {
+      return { ok: false, status: 409, error: IDEMPOTENCY_IN_PROGRESS_ERROR };
+    }
+    if (resume.action === 'replay' && resume.clientId) {
+      return {
+        ok: true,
+        clientId: resume.clientId,
+        notionPageId: resume.notionPageId,
+        reused: true,
+      };
+    }
+    if (resume.action === 'replay') {
+      const existing = await ctx.runQuery(internal.clientCreate.findByNotionPage, {
+        notionPageId: resume.notionPageId,
+      });
+      if (existing) {
+        return { ok: true, clientId: existing.id, notionPageId: resume.notionPageId, reused: true };
+      }
+      return { ok: false, status: 409, error: IDEMPOTENCY_IN_PROGRESS_ERROR };
+    }
+  }
 
   const processed = await ctx.runAction(internal.sync.outboxWork.processOne, {
     id: queued.outboxId,
@@ -296,7 +321,7 @@ export const createForToken = internalAction({
     primaryEmail: v.optional(v.string()),
     phone: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<ClientCreateOk | { ok: false; error: string; field?: ClientCreateField }> => {
+  handler: async (ctx, args): Promise<ClientCreateOk | { ok: false; error: string; status?: 409; field?: ClientCreateField }> => {
     const prepared = await ctx.runQuery(internal.clientCreate.prepareForToken, args);
     if (!prepared.ok) return prepared;
     if (prepared.reused) {

@@ -262,6 +262,7 @@ export {
   planOutboxAttempt,
   takeOutboxLease,
   outboxLeaseUnexpired,
+  planCreateResume,
   planIdempotentEnqueue,
   runOutboxAttempt,
   runProjectCreateAttempt,

@@ -30,7 +30,13 @@ const actor = v.union(v.literal('staff'), v.literal('clientAdmin'), v.literal('s
 
 type EnqueueResult =
   | { ok: false; error: string }
-  | { ok: true; outboxId: Id<'notionOutbox'>; duplicate: boolean };
+  | {
+      ok: true;
+      outboxId: Id<'notionOutbox'>;
+      duplicate: boolean;
+      status: 'queued' | 'inflight' | 'done' | 'failed' | 'dead' | 'conflict';
+      resultJson: string | null;
+    };
 
 function writebackOn(): boolean {
   return isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED);
@@ -88,7 +94,13 @@ export const enqueue = internalMutation({
     if (plan.action === 'noop') return { ok: false, error: plan.error };
     if (plan.action === 'reuse') {
       if (!existing) return { ok: false, error: 'Outbox row was missing' };
-      return { ok: true, outboxId: existing._id, duplicate: true };
+      return {
+        ok: true,
+        outboxId: existing._id,
+        duplicate: true,
+        status: existing.status,
+        resultJson: existing.resultJson ?? null,
+      };
     }
 
     const systemInvite =
@@ -130,7 +142,7 @@ export const enqueue = internalMutation({
     if (args.schedule) {
       await ctx.scheduler.runAfter(0, internal.sync.outboxWork.processOne, { id: outboxId });
     }
-    return { ok: true, outboxId, duplicate: false };
+    return { ok: true, outboxId, duplicate: false, status: 'queued', resultJson: null };
   },
 });
 

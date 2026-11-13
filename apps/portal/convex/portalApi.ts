@@ -10,7 +10,6 @@ import {
   applyFieldWrite,
   authorizeApiCall,
   bearerToken,
-  API_IDEMPOTENCY_LEASE_MS,
   claimIdempotency,
   clientIsStaffVisible,
   createProjectExternalId,
@@ -107,10 +106,11 @@ async function openIdempotency(
     args.requestHash,
     now,
   );
-  if (claim.action === 'start' || claim.action === 'reclaim') {
-    if (claim.action === 'reclaim' && existing && now - existing.createdAt >= API_IDEMPOTENCY_LEASE_MS) {
-      await ctx.db.delete(existing._id);
-    }
+  if (claim.action === 'reclaim') {
+    if (!existing) return fail(409, IDEMPOTENCY_IN_PROGRESS_ERROR);
+    return { action: 'start', id: existing._id };
+  }
+  if (claim.action === 'start') {
     const id = await ctx.db.insert('apiIdempotency', {
       tokenId: args.tokenId,
       key: args.key,
@@ -895,6 +895,7 @@ async function finishAction(
     const message = error instanceof ConvexError && typeof error.data === 'string' ? error.data : 'Request failed';
     result = fail(400, message);
   }
+  if (result.status === 409) return result;
   return ctx.runMutation(internal.portalApi.closeWrite, {
     id: opened.id,
     status: result.status,
@@ -1126,7 +1127,7 @@ async function dispatchWrite(
         primaryEmail: typeof body.primaryEmail === 'string' ? body.primaryEmail : undefined,
         phone: typeof body.phone === 'string' ? body.phone : undefined,
       });
-      if (!created.ok) return fail(400, created.error);
+      if (!created.ok) return fail(created.status ?? 400, created.error);
       return { status: 200, body: created };
     });
   }
@@ -1158,7 +1159,7 @@ async function dispatchWrite(
         externalId,
         publishToWarehaus: body.publishToWarehaus === true,
       });
-      if (!created.ok) return fail(400, created.error);
+      if (!created.ok) return fail(created.status ?? 400, created.error);
       return {
         status: 200,
         body: { ...created, clientId, ...(nested ? { clientReused } : {}) },

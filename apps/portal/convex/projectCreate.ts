@@ -1,7 +1,9 @@
 import {
   buildProjectCreateProperties,
   clientIsStaffVisible,
+  IDEMPOTENCY_IN_PROGRESS_ERROR,
   isNotionWritebackEnabled,
+  planCreateResume,
   planProjectCreateDispatch,
   projectCreateConvexFields,
   projectCreateIdempotencyKey,
@@ -93,10 +95,7 @@ export const createInNotion = action({
   handler: async (
     ctx,
     args,
-  ): Promise<
-    | { ok: true; projectId: string; notionPageId: string; reused: boolean }
-    | { ok: false; error: string }
-  > => {
+  ): Promise<ProjectCreateResult> => {
     const auth = await ctx.auth.getUserIdentity();
     if (!auth) {
       return { ok: false, error: 'Not authenticated' };
@@ -126,11 +125,12 @@ export const createInNotion = action({
 });
 
 type ProjectCreateOk = { ok: true; projectId: string; notionPageId: string; reused: boolean };
+type ProjectCreateResult = ProjectCreateOk | { ok: false; error: string; status?: 409 };
 
 async function finishProjectCreate(
   ctx: ActionCtx,
   prepared: { orgId: Id<'clients'>; properties: ProjectCreateProperties },
-): Promise<ProjectCreateOk | { ok: false; error: string }> {
+  ): Promise<ProjectCreateResult> {
   const gate = planProjectCreateDispatch({
     writebackEnabled: isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED),
   });
@@ -146,6 +146,35 @@ async function finishProjectCreate(
     schedule: false,
   });
   if (!queued.ok) return queued;
+  if (queued.duplicate) {
+    const resume = planCreateResume({ status: queued.status, resultJson: queued.resultJson });
+    if (resume.action === 'busy') {
+      return { ok: false, status: 409, error: IDEMPOTENCY_IN_PROGRESS_ERROR };
+    }
+    if (resume.action === 'replay') {
+      if (resume.projectId) {
+        return {
+          ok: true,
+          projectId: resume.projectId,
+          notionPageId: resume.notionPageId,
+          reused: true,
+        };
+      }
+      const fields = projectCreateConvexFields(prepared.properties);
+      const projectId = await ctx.runMutation(internal.sync.upsert.upsertProject, {
+        notionPageId: resume.notionPageId,
+        orgId: prepared.orgId,
+        name: fields.name,
+        status: fields.status,
+        type: fields.type,
+        archive: fields.archive,
+        publishToWarehaus: fields.publishToWarehaus,
+        externalId: fields.externalId,
+        source: fields.source,
+      });
+      return { ok: true, projectId, notionPageId: resume.notionPageId, reused: true };
+    }
+  }
 
   const processed = await ctx.runAction(internal.sync.outboxWork.processOne, {
     id: queued.outboxId,
@@ -212,7 +241,7 @@ export const createForToken = internalAction({
     externalId: v.string(),
     publishToWarehaus: v.optional(v.boolean()),
   },
-  handler: async (ctx, args): Promise<ProjectCreateOk | { ok: false; error: string }> => {
+  handler: async (ctx, args): Promise<ProjectCreateResult> => {
     const prepared = await ctx.runQuery(internal.projectCreate.prepareForToken, args);
     if (!prepared.ok) return prepared;
     return finishProjectCreate(ctx, prepared);
