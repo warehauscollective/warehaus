@@ -25,6 +25,7 @@ import {
   isApprovedInternalWarehausProject,
   projectClientIdForResourceGate,
   projectCountsForTaskGate,
+  projectStaffVisibleForTasks,
   sharedResourceRowPassesGate,
   taskRowPassesGate,
   toClientUploadClientView,
@@ -178,6 +179,44 @@ describe('row gates', () => {
         projectRelationIds: ['p1'],
         projectClientId: 'c2',
       }).ok,
+      false,
+    );
+  });
+
+  it('keeps a Disabled client project as a staff task parent', () => {
+    const published = {
+      publishToWarehaus: true,
+      archive: false,
+      types: ['Website'],
+    };
+    assert.equal(projectStaffVisibleForTasks({ ...published, clientStaffVisible: true }), true);
+    assert.equal(
+      projectCountsForTaskGate({
+        visibleToClients: projectStaffVisibleForTasks({ ...published, clientStaffVisible: true }),
+        approvedInternal: false,
+      }),
+      true,
+    );
+    assert.equal(projectStaffVisibleForTasks({ ...published, clientStaffVisible: false }), false);
+    assert.equal(
+      projectStaffVisibleForTasks({ ...published, syncHiddenAt: 4, clientStaffVisible: true }),
+      false,
+    );
+    assert.equal(
+      projectStaffVisibleForTasks({
+        publishToWarehaus: true,
+        archive: true,
+        types: ['Website'],
+        clientStaffVisible: true,
+      }),
+      false,
+    );
+    assert.equal(
+      projectCountsForTaskGate({
+        visibleToClients: projectStaffVisibleForTasks({ ...published, clientStaffVisible: false }),
+        approvedInternal: false,
+        hiddenReason: 'trashed',
+      }),
       false,
     );
   });

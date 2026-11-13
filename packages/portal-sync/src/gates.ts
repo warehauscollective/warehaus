@@ -150,6 +150,27 @@ export function isApprovedInternalWarehausProject(input: {
   );
 }
 
+/**
+ * Staff task parent. Portal access Disabled still counts when the client
+ * row is not concealed. Archive, Type Internal, and a hidden project do not.
+ * The approved internal Warehaus project is decided separately.
+ */
+export function projectStaffVisibleForTasks(input: {
+  publishToWarehaus: boolean;
+  archive: boolean;
+  types: readonly string[];
+  syncHiddenAt?: number | null;
+  clientStaffVisible: boolean;
+}): boolean {
+  return (
+    input.publishToWarehaus &&
+    !input.archive &&
+    !input.types.includes('Internal') &&
+    input.syncHiddenAt == null &&
+    input.clientStaffVisible
+  );
+}
+
 /** Visible client projects and the approved internal Warehaus project. */
 export function projectCountsForTaskGate(input: {
   visibleToClients: boolean;
