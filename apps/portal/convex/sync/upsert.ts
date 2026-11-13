@@ -1,5 +1,5 @@
 import {
-  clientKeepsProjectsStaffVisible,
+  clientIsStaffVisible,
   companyNameKey,
   decideResourceLink,
   isApprovedInternalWarehausProject,
@@ -522,7 +522,7 @@ export const resolveIds = internalMutation({
     for (const client of clients) {
       const enabled = isOrgVisibleToClients(client);
       clientEnabledByNotion[client.notionPageId] = enabled;
-      const staffVisible = clientKeepsProjectsStaffVisible(client);
+      const staffVisible = clientIsStaffVisible(client);
       clientStaffVisibleByNotion[client.notionPageId] = staffVisible;
       if (enabled) enabledClientIds.add(client._id);
       if (staffVisible) staffVisibleClientIds.add(client._id);

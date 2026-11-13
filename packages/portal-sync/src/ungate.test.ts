@@ -8,8 +8,9 @@ import {
   mapNotionSharedResource,
   mapNotionTask,
 } from './mappers';
+import { clientMaySeeProject, clientMaySeeTask } from './taskBoard';
 import {
-  clientKeepsProjectsStaffVisible,
+  clientIsStaffVisible,
   contactStaysStaffVisible,
   decideSyncedRowVisibility,
   isClientSurfaceVisible,
@@ -63,18 +64,18 @@ describe('un-gate each flip', () => {
     assert.equal(decision.action, 'show');
     const client = { portalAccess: 'Disabled' as const };
     assert.equal(isOrgVisibleToClients(client), false);
-    assert.equal(clientKeepsProjectsStaffVisible({}), true);
+    assert.equal(clientIsStaffVisible({}), true);
     const project = decideSyncedRowVisibility({
       table: 'projects',
       disposition: 'upsert',
-      parentClientEnabled: clientKeepsProjectsStaffVisible({}),
+      parentStaffVisible: clientIsStaffVisible({}),
     });
     assert.equal(project.action, 'show');
 
     const concealed = decideSyncedRowVisibility({
       table: 'projects',
       disposition: 'upsert',
-      parentClientEnabled: clientKeepsProjectsStaffVisible({ syncHiddenAt: 9 }),
+      parentStaffVisible: clientIsStaffVisible({ syncHiddenAt: 9 }),
     });
     assert.equal(concealed.action, 'store-hidden');
 
@@ -112,10 +113,37 @@ describe('un-gate each flip', () => {
   });
 
   it('keeps contacts, tasks, resources, and docs staff-visible under a Disabled prospect', () => {
-    const client = { portalAccess: 'Disabled' as const };
+    const client = { portalAccess: 'Disabled' as const, syncHiddenAt: null };
     assert.equal(isOrgVisibleToClients(client), false);
-    const parentClientEnabled = clientKeepsProjectsStaffVisible(client);
-    assert.equal(parentClientEnabled, true);
+    const parentStaffVisible = clientIsStaffVisible(client);
+    assert.equal(parentStaffVisible, true);
+    const orgVisible = isOrgVisibleToClients(client);
+    assert.equal(
+      clientMaySeeProject({
+        name: 'Site',
+        types: ['Website'],
+        publishToWarehaus: true,
+        archive: false,
+        hidden: false,
+        orgVisible,
+      }),
+      false,
+    );
+    assert.equal(
+      clientMaySeeTask({
+        publishToWarehaus: true,
+        hidden: false,
+        project: {
+          name: 'Site',
+          types: ['Website'],
+          publishToWarehaus: true,
+          archive: false,
+          hidden: false,
+          orgVisible,
+        },
+      }),
+      false,
+    );
 
     const contact = mapNotionContact('person', {
       Name: title('Ada'),
@@ -129,7 +157,7 @@ describe('un-gate each flip', () => {
       decideSyncedRowVisibility({
         table: 'contacts',
         disposition: 'upsert',
-        parentClientEnabled,
+        parentStaffVisible,
         contactRole: 'Client Member',
       }).action,
       'show',
@@ -137,7 +165,7 @@ describe('un-gate each flip', () => {
     assert.equal(
       contactStaysStaffVisible({
         disposition: 'upsert',
-        parentStaffVisible: parentClientEnabled,
+        parentStaffVisible: parentStaffVisible,
         effectivePortalAccess: 'Enabled',
         inviteStatus: null,
         unverifiedAcceptance: false,
@@ -147,7 +175,7 @@ describe('un-gate each flip', () => {
     assert.equal(
       contactStaysStaffVisible({
         disposition: 'upsert',
-        parentStaffVisible: parentClientEnabled,
+        parentStaffVisible: parentStaffVisible,
         effectivePortalAccess: 'Enabled',
         inviteStatus: 'Accepted',
         unverifiedAcceptance: true,
@@ -157,7 +185,7 @@ describe('un-gate each flip', () => {
     assert.equal(
       contactStaysStaffVisible({
         disposition: 'skip',
-        parentStaffVisible: parentClientEnabled,
+        parentStaffVisible: parentStaffVisible,
         effectivePortalAccess: 'Disabled',
         inviteStatus: null,
         unverifiedAcceptance: false,
@@ -167,7 +195,7 @@ describe('un-gate each flip', () => {
     assert.equal(
       contactStaysStaffVisible({
         disposition: 'upsert',
-        parentStaffVisible: clientKeepsProjectsStaffVisible({ syncHiddenAt: 9 }),
+        parentStaffVisible: clientIsStaffVisible({ syncHiddenAt: 9 }),
         effectivePortalAccess: 'Enabled',
         inviteStatus: null,
         unverifiedAcceptance: false,
@@ -190,7 +218,7 @@ describe('un-gate each flip', () => {
       decideSyncedRowVisibility({
         table: 'tasks',
         disposition: 'upsert',
-        parentClientEnabled,
+        parentStaffVisible,
         parentProjectVisible: true,
       }).action,
       'show',
@@ -198,7 +226,7 @@ describe('un-gate each flip', () => {
     const hiddenProject = decideSyncedRowVisibility({
       table: 'tasks',
       disposition: 'upsert',
-      parentClientEnabled,
+      parentStaffVisible,
       parentProjectVisible: false,
     });
     assert.equal(hiddenProject.action, 'store-hidden');
@@ -214,7 +242,7 @@ describe('un-gate each flip', () => {
       decideSyncedRowVisibility({
         table: 'sharedResources',
         disposition: 'upsert',
-        parentClientEnabled,
+        parentStaffVisible,
       }).action,
       'show',
     );
@@ -231,18 +259,18 @@ describe('un-gate each flip', () => {
       decideSyncedRowVisibility({
         table: 'clientDocs',
         disposition: 'upsert',
-        parentClientEnabled,
+        parentStaffVisible,
       }).action,
       'show',
     );
 
-    const concealedParent = clientKeepsProjectsStaffVisible({ syncHiddenAt: 9 });
+    const concealedParent = clientIsStaffVisible({ syncHiddenAt: 9 });
     assert.equal(concealedParent, false);
     for (const table of ['contacts', 'tasks', 'sharedResources', 'clientDocs'] as const) {
       const stored = decideSyncedRowVisibility({
         table,
         disposition: 'upsert',
-        parentClientEnabled: concealedParent,
+        parentStaffVisible: concealedParent,
         ...(table === 'tasks' ? { parentProjectVisible: true } : {}),
         ...(table === 'contacts' ? { contactRole: 'Client Member' as const } : {}),
       });
@@ -254,13 +282,13 @@ describe('un-gate each flip', () => {
       const trashed = decideSyncedRowVisibility({
         table,
         disposition: 'upsert',
-        parentClientEnabled,
+        parentStaffVisible,
         inTrash: true,
       });
       const archived = decideSyncedRowVisibility({
         table,
         disposition: 'upsert',
-        parentClientEnabled,
+        parentStaffVisible,
         archived: true,
       });
       assert.equal(trashed.action, 'hide');
@@ -271,7 +299,7 @@ describe('un-gate each flip', () => {
         table,
         disposition: 'quarantine',
         dispositionReason: 'quarantine',
-        parentClientEnabled,
+        parentStaffVisible,
       });
       assert.equal(quarantine.action, 'quarantine');
     }
@@ -452,7 +480,7 @@ describe('un-gate each flip', () => {
     const project = decideSyncedRowVisibility({
       table: 'projects',
       disposition: 'upsert',
-      parentClientEnabled: false,
+      parentStaffVisible: false,
     });
     assert.equal(project.action, 'store-hidden');
     if (project.action === 'store-hidden') {
@@ -463,7 +491,7 @@ describe('un-gate each flip', () => {
     const contact = decideSyncedRowVisibility({
       table: 'contacts',
       disposition: 'upsert',
-      parentClientEnabled: false,
+      parentStaffVisible: false,
       contactRole: 'Client Member',
     });
     assert.equal(contact.action, 'store-hidden');
@@ -472,7 +500,7 @@ describe('un-gate each flip', () => {
     const staff = decideSyncedRowVisibility({
       table: 'contacts',
       disposition: 'upsert',
-      parentClientEnabled: false,
+      parentStaffVisible: false,
       contactRole: 'Warehaus Staff',
     });
     if (staff.action === 'store-hidden') assert.equal(staff.revokeSessions, false);
@@ -489,7 +517,7 @@ describe('un-gate each flip', () => {
     const decision = decideSyncedRowVisibility({
       table: 'projects',
       disposition: 'upsert',
-      parentClientEnabled: true,
+      parentStaffVisible: true,
     });
     assert.deepEqual(decision, { action: 'show' });
   });

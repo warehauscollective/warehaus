@@ -482,7 +482,7 @@ export const pullAll = internalAction({
           dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
           archived: page.archived,
           inTrash: page.inTrash,
-          parentClientEnabled: clientNotionId ? parentStaffVisible : undefined,
+          parentStaffVisible: clientNotionId ? parentStaffVisible : undefined,
           contactRole: mapped.row?.database === 'contacts' ? mapped.row.role : undefined,
         });
         if (decision.action === 'hide') {
@@ -580,7 +580,7 @@ export const pullAll = internalAction({
           dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
           archived: page.archived,
           inTrash: page.inTrash,
-          parentClientEnabled: clientNotionId ? ids.clientStaffVisibleByNotion[clientNotionId] === true : undefined,
+          parentStaffVisible: clientNotionId ? ids.clientStaffVisibleByNotion[clientNotionId] === true : undefined,
         });
         const approvedInternal =
           !page.archived &&
@@ -711,7 +711,7 @@ export const pullAll = internalAction({
         for (const notice of mapped.notices ?? []) {
           stats.errors.push(`notice tasks ${page.id}: ${notice}`);
         }
-        const parentClientEnabled = projectIds.length === 0
+        const parentStaffVisible = projectIds.length === 0
           ? undefined
           : projectIds.some((id) => {
               const orgId = ids.projectOrgByNotion[id];
@@ -725,7 +725,7 @@ export const pullAll = internalAction({
           dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
           archived: page.archived,
           inTrash: page.inTrash,
-          parentClientEnabled: typeof parentClientEnabled === 'boolean' ? parentClientEnabled : undefined,
+          parentStaffVisible: typeof parentStaffVisible === 'boolean' ? parentStaffVisible : undefined,
           parentProjectVisible: parentOk,
         });
         if (decision.action === 'hide') {
@@ -877,7 +877,7 @@ export const pullAll = internalAction({
         const projectClientId = projectOrgId
           ? Object.entries(ids.clientByNotion).find(([, clientId]) => clientId === projectOrgId)?.[0]
           : undefined;
-        const parentClientEnabled = resourceClientId
+        const parentStaffVisible = resourceClientId
           ? ids.clientStaffVisibleByNotion[resourceClientId] === true
           : projectClientId
             ? ids.clientStaffVisibleByNotion[projectClientId] === true
@@ -888,7 +888,7 @@ export const pullAll = internalAction({
           dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
           archived: page.archived,
           inTrash: page.inTrash,
-          parentClientEnabled,
+          parentStaffVisible,
         });
         if (decision.action === 'hide') {
           stats.skipped += 1;
@@ -1038,7 +1038,7 @@ export const pullAll = internalAction({
           dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
           archived: page.archived,
           inTrash: page.inTrash,
-          parentClientEnabled: docClientId ? ids.clientStaffVisibleByNotion[docClientId] === true : undefined,
+          parentStaffVisible: docClientId ? ids.clientStaffVisibleByNotion[docClientId] === true : undefined,
         });
         if (decision.action === 'hide') {
           stats.skipped += 1;

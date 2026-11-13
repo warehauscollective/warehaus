@@ -56,7 +56,7 @@ export {
 } from './gates';
 
 export {
-  clientKeepsProjectsStaffVisible,
+  clientIsStaffVisible,
   contactStaysStaffVisible,
   decideSyncedRowVisibility,
   isClientSurfaceVisible,
