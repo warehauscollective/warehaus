@@ -719,6 +719,8 @@ export default defineSchema({
     updatedAt: v.optional(v.number()),
   })
     .index('by_taskId', ['taskId'])
+    .index('by_taskId_url', ['taskId', 'url'])
+    .index('by_sha', ['sha'])
     .index('by_orgId_taskId', ['orgId', 'taskId']),
 
   /** Staff API comments. Not Notion comments, and not client task responses. */

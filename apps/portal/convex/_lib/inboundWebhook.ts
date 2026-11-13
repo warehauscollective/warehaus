@@ -59,11 +59,39 @@ export type InboundItem = {
 
 export type InboundPlan =
   | { action: 'ignore'; reason: string }
-  | { action: 'apply'; source: InboundSource; deliveryId?: string; items: InboundItem[] };
+  | {
+      action: 'apply';
+      source: InboundSource;
+      deliveryId?: string;
+      /** repo#number#sha#state, deploymentId#state, or check#sha#conclusion. */
+      contentKey?: string;
+      /** Set for check_suite and workflow_run. The mutation matches an existing PR link. */
+      matchSha?: string;
+      checkState?: string;
+      items: InboundItem[];
+    };
 
 export type WebhookDecision =
-  | { ok: false; status: 401; reason: 'missing_secret' | 'invalid_signature' }
+  | { ok: false; status: 401 | 413; reason: 'missing_secret' | 'invalid_signature' | 'payload_too_large' }
   | { ok: true; plan: InboundPlan };
+
+export function deliveryClaimId(source: InboundSource, deliveryId: string): string {
+  return `${source}:delivery:${deliveryId}`;
+}
+
+export function snapshotClaimId(source: InboundSource, contentKey: string): string {
+  return `${source}:snapshot:${contentKey}`;
+}
+
+/** True when the header or the raw body is over 1 MiB. Checked before the signature. */
+export function payloadTooLarge(contentLength: string | null | undefined, rawBody: string): boolean {
+  const bytes = new TextEncoder().encode(rawBody).length;
+  if (bytes > INBOUND_MAX_BODY_BYTES) return true;
+  const header = contentLength?.trim() ?? '';
+  if (!header) return false;
+  const parsed = Number(header);
+  return Number.isFinite(parsed) && parsed > INBOUND_MAX_BODY_BYTES;
+}
 
 export function notionIdVariants(id: string): string[] {
   const hex = id.replace(/-/g, '').toLowerCase();
@@ -112,6 +140,7 @@ export function stageMoveForMerge(input: {
   const edited = input.lastEditedTime?.trim() ?? '';
   if (!edited) return { ok: false, reason: 'no_edited_time' };
   const current = input.stage?.trim() || null;
+  if (current === 'Parked') return { ok: false, reason: 'parked' };
   if (current === MERGE_REVIEW_STAGE) return { ok: false, reason: 'already' };
   const decision = applyFieldWrite({
     field: 'stage',
@@ -154,9 +183,6 @@ async function signatureDecision(input: {
 }): Promise<Extract<WebhookDecision, { ok: false }> | { ok: true }> {
   const secret = input.secret?.trim() ?? '';
   if (!secret) return { ok: false, status: 401, reason: 'missing_secret' };
-  if (input.rawBody.length > INBOUND_MAX_BODY_BYTES) {
-    return { ok: false, status: 401, reason: 'invalid_signature' };
-  }
   const header = input.signatureHeader?.trim() ?? '';
   const digest = await input.expected(secret);
   if (!timingSafeEqualUtf8(digest, header)) {
@@ -259,21 +285,14 @@ function githubPullFields(body: Record<string, unknown>): {
 }
 
 function githubCheckFields(body: Record<string, unknown>, key: 'check_suite' | 'workflow_run'): {
-  repo: string;
-  number: number;
   sha: string;
   conclusion: string;
 } | null {
-  const repository = asRecord(body.repository);
   const node = asRecord(body[key]);
-  const repo = asNonEmpty(repository?.full_name);
   const sha = cleanSha(node?.head_sha);
-  const pulls = Array.isArray(node?.pull_requests) ? node.pull_requests : [];
-  const first = asRecord(pulls[0]);
-  const number = pullNumber(first?.number);
   const conclusion = asNonEmpty(node?.conclusion);
-  if (!repo || !sha || number == null || !conclusion || !CHECK_CONCLUSIONS.has(conclusion)) return null;
-  return { repo, number, sha, conclusion };
+  if (!sha || !conclusion || !CHECK_CONCLUSIONS.has(conclusion)) return null;
+  return { sha, conclusion };
 }
 
 function planGitHub(rawBody: string, eventHeader: string | null, deliveryHeader: string | null): InboundPlan {
@@ -303,23 +322,29 @@ function planGitHub(rawBody: string, eventHeader: string | null, deliveryHeader:
       moveStage: merged,
     });
     if (!items) return { action: 'ignore', reason: 'no_pull_request' };
-    return { action: 'apply', source: 'github', ...(deliveryId ? { deliveryId } : {}), items };
+    return {
+      action: 'apply',
+      source: 'github',
+      ...(deliveryId ? { deliveryId } : {}),
+      // State stays on the key so an open and a later merge of the same head sha
+      // are not the same snapshot. A replay of the same state still no-ops.
+      contentKey: `${pull.repo}#${pull.number}#${pull.sha}#${state}`,
+      items,
+    };
   }
 
   if (event === 'check_suite' || event === 'workflow_run') {
     const fields = githubCheckFields(body, event);
     if (!fields) return { action: 'ignore', reason: 'event' };
-    if (ids.length === 0) return { action: 'ignore', reason: 'no_portal_task' };
-    const items = itemsForPull({
-      ids,
-      repo: fields.repo,
-      number: fields.number,
-      sha: fields.sha,
-      state: fields.conclusion,
-      moveStage: false,
-    });
-    if (!items) return { action: 'ignore', reason: 'no_pull_request' };
-    return { action: 'apply', source: 'github', ...(deliveryId ? { deliveryId } : {}), items };
+    return {
+      action: 'apply',
+      source: 'github',
+      ...(deliveryId ? { deliveryId } : {}),
+      contentKey: `check#${fields.sha}#${fields.conclusion}`,
+      matchSha: fields.sha,
+      checkState: fields.conclusion,
+      items: [],
+    };
   }
 
   return { action: 'ignore', reason: 'event' };
@@ -352,10 +377,12 @@ function planVercel(rawBody: string): InboundPlan {
   const url = deployUrl(deployment);
   if (!sha || !url) return { action: 'ignore', reason: 'no_deploy' };
   const deliveryId = cleanDeliveryId(asNonEmpty(body.id));
+  const deploymentId = cleanDeliveryId(asNonEmpty(deployment?.id)) ?? url;
   return {
     action: 'apply',
     source: 'vercel',
     ...(deliveryId ? { deliveryId } : {}),
+    contentKey: `${deploymentId}#${state}`,
     items: ids.map((notionPageId) => ({
       notionPageId,
       kind: 'deploy' as const,
@@ -372,8 +399,12 @@ export async function decideGitHubWebhook(input: {
   signatureHeader: string | null | undefined;
   eventHeader: string | null | undefined;
   deliveryHeader: string | null | undefined;
+  contentLength?: string | null;
   secret: string | null | undefined;
 }): Promise<WebhookDecision> {
+  if (payloadTooLarge(input.contentLength, input.rawBody)) {
+    return { ok: false, status: 413, reason: 'payload_too_large' };
+  }
   const signed = await signatureDecision({
     rawBody: input.rawBody,
     signatureHeader: input.signatureHeader,
@@ -390,8 +421,12 @@ export async function decideGitHubWebhook(input: {
 export async function decideVercelWebhook(input: {
   rawBody: string;
   signatureHeader: string | null | undefined;
+  contentLength?: string | null;
   secret: string | null | undefined;
 }): Promise<WebhookDecision> {
+  if (payloadTooLarge(input.contentLength, input.rawBody)) {
+    return { ok: false, status: 413, reason: 'payload_too_large' };
+  }
   const signed = await signatureDecision({
     rawBody: input.rawBody,
     signatureHeader: input.signatureHeader,
