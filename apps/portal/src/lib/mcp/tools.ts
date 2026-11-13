@@ -294,12 +294,22 @@ export const portalTools: PortalTool[] = [
   {
     name: 'add_task_link',
     description:
-      'Add a staff task link. Kinds that mirror a Notion field go through the update outbox and need lastEditedTime from get_task. A duplicate link is not written again. Send an idempotency key.',
+      'Add a staff task link. Post a Cursor agent URL with kind `agent`. Kinds that mirror a Notion field go through the update outbox and need lastEditedTime from get_task. Kind `agent` does not write a Notion field. A duplicate link is not written again. Send an idempotency key.',
     write: true,
     schema: {
       taskId: z.string().min(1),
       kind: z.enum(TASK_LINK_KINDS),
-      url: z.string().min(1).max(2000),
+      url: z
+        .string()
+        .min(1)
+        .max(2000)
+        .refine((value) => {
+          try {
+            return new URL(value).protocol === 'https:';
+          } catch {
+            return false;
+          }
+        }, 'Link URL must start with https'),
       title: z.string().min(1).max(200).optional(),
       expectedLastEditedTime: z.string().min(1).optional(),
       idempotencyKey,

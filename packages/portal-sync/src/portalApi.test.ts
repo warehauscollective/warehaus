@@ -13,6 +13,9 @@ import {
   planApiComment,
   planApiLink,
   planApiLinkPatch,
+  sourceKindLabel,
+  sourceLinkHref,
+  sourceStateChip,
   planApiTaskCreate,
   planApiTaskUpdate,
   portalRequestAuth,
@@ -464,6 +467,19 @@ describe('portal API outbox plans', () => {
     const patch = planApiLinkPatch(pr.property, pr.url);
     assert.equal(patch.ok, true);
     if (patch.ok) assert.equal(patch.kind, 'update');
+    const agent = planApiLink({
+      kind: 'agent',
+      url: ' https://cursor.com/agents/bc-example ',
+      title: 'Cursor agent',
+    });
+    assert.equal(agent.ok, true);
+    if (!agent.ok) return;
+    assert.equal(agent.kind, 'agent');
+    assert.equal(agent.url, 'https://cursor.com/agents/bc-example');
+    assert.equal(agent.property, null);
+    assert.equal(agent.title, 'Cursor agent');
+    assert.equal(planApiLink({ kind: 'agent', url: 'http://cursor.com/agents/bc-example' }).ok, false);
+    assert.equal(planApiLink({ kind: 'agent', url: 'cursor/p4' }).ok, false);
   });
 
   it('reads one indexed filter at a time', () => {
@@ -492,6 +508,29 @@ describe('task link backfill', () => {
       ],
     );
     assert.deepEqual(sourceLinksFromFields({ pullRequestUrl: '  ', figmaFrame: null, repoBranch: '' }), []);
+    assert.equal(
+      sourceLinksChanged(
+        [{ kind: 'agent', url: 'https://cursor.com/agents/bc-example', addedBy: 'cursor' }],
+        [],
+      ),
+      false,
+    );
+  });
+
+  it('labels source chips for the staff panel', () => {
+    assert.equal(sourceKindLabel('PR'), 'PR');
+    assert.equal(sourceKindLabel('deploy'), 'Deploy');
+    assert.equal(sourceKindLabel('agent'), 'Agent');
+    assert.equal(sourceKindLabel('Figma frame'), 'Figma');
+    assert.equal(sourceKindLabel('Notion page or doc'), 'Doc');
+    assert.deepEqual(sourceStateChip('merged'), { label: 'merged', tone: 'good' });
+    assert.deepEqual(sourceStateChip(' open '), { label: 'open', tone: 'warn' });
+    assert.deepEqual(sourceStateChip('failed'), { label: 'failed', tone: 'bad' });
+    assert.equal(sourceStateChip('  '), null);
+    assert.equal(sourceStateChip('x'.repeat(41)), null);
+    assert.equal(sourceLinkHref('https://cursor.com/agents/bc-example'), 'https://cursor.com/agents/bc-example');
+    assert.equal(sourceLinkHref('cursor/p4-sources'), null);
+    assert.equal(sourceLinkHref('javascript:alert(1)'), null);
   });
 
   it('maps the Notion fields that the tier list does not sync in', () => {

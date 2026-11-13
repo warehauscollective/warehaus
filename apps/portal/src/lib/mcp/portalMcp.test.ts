@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { API_PAGE_MAX } from '@warehaus/portal-sync';
 import { handlePortalMcp, type PortalMcpDeps } from './handle';
@@ -153,6 +154,39 @@ describe('portal MCP tools', () => {
     assert.equal(published.ok, true);
     if (published.ok) assert.equal(published.call.body?.publishToWarehaus, true);
   });
+
+  it('posts a cursor agent url with kind agent', () => {
+    const tool = portalTools.find((item) => item.name === 'add_task_link');
+    assert.match(tool?.description ?? '', /kind `agent`/);
+    const planned = planToolCall('add_task_link', {
+      taskId: 'task-1',
+      kind: 'agent',
+      url: 'https://cursor.com/agents/bc-example',
+      title: 'Cursor agent',
+      idempotencyKey: 'link-agent',
+    });
+    assert.equal(planned.ok, true);
+    if (!planned.ok) return;
+    assert.equal(planned.call.method, 'POST');
+    assert.equal(planned.call.path, '/api/v1/links');
+    assert.equal(planned.call.body?.kind, 'agent');
+    assert.equal(planned.call.body?.url, 'https://cursor.com/agents/bc-example');
+    assert.equal(planned.call.idempotencyKey, 'link-agent');
+    const rejected = planToolCall('add_task_link', {
+      taskId: 'task-1',
+      kind: 'not-a-kind',
+      url: 'https://cursor.com/agents/bc-example',
+      idempotencyKey: 'link-bad',
+    });
+    assert.equal(rejected.ok, false);
+    const insecure = planToolCall('add_task_link', {
+      taskId: 'task-1',
+      kind: 'agent',
+      url: 'http://cursor.com/agents/bc-example',
+      idempotencyKey: 'link-http',
+    });
+    assert.equal(insecure.ok, false);
+  });
 });
 
 function mcpRequest(body: unknown, authorization?: string) {
@@ -251,5 +285,51 @@ describe('portal MCP HTTP', () => {
     assert.equal(read.calls[0]?.search?.limit, String(API_PAGE_MAX));
     const payload = (await called.json()) as { result?: { content?: Array<{ text: string }> } };
     assert.equal(payload.result?.content?.[0]?.text, JSON.stringify({ ok: true }));
+  });
+
+  it('lets a read-write token post an agent link on the same endpoint', async () => {
+    const write = deps('read-write');
+    const response = await handlePortalMcp(
+      mcpRequest(
+        {
+          jsonrpc: '2.0',
+          id: 5,
+          method: 'tools/call',
+          params: {
+            name: 'add_task_link',
+            arguments: {
+              taskId: 'task-1',
+              kind: 'agent',
+              url: 'https://cursor.com/agents/bc-example',
+              idempotencyKey: 'link-agent',
+            },
+          },
+        },
+        BEARER,
+      ),
+      write,
+    );
+    assert.equal(response.status, 200);
+    assert.equal(write.calls.length, 1);
+    assert.equal(write.calls[0]?.method, 'POST');
+    assert.equal(write.calls[0]?.path, '/api/v1/links');
+    assert.equal(write.calls[0]?.body?.kind, 'agent');
+    assert.equal(write.calls[0]?.body?.url, 'https://cursor.com/agents/bc-example');
+  });
+});
+
+describe('claude portal mcp docs', () => {
+  it('documents the production endpoint and the claude mint command', () => {
+    const docs = readFileSync(new URL('../../../../../docs/portal-mcp.md', import.meta.url), 'utf8');
+    const script = readFileSync(new URL('../../../scripts/mint-bot-token.mjs', import.meta.url), 'utf8');
+    assert.match(docs, /Claude Code/);
+    assert.match(docs, /Claude Desktop/);
+    assert.match(docs, /POST https:\/\/warehaus-portal\.vercel\.app\/api\/mcp/);
+    assert.match(
+      docs,
+      /npx convex run --prod portalTokens:mintBot '\{"name":"claude","scope":"read-write","homeOrgId":"<clients id>"\}'/,
+    );
+    assert.equal(script.includes('--prod'), false);
+    assert.equal(script.includes('claude'), false);
   });
 });
