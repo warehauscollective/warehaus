@@ -32,12 +32,13 @@ describe('task sources panel', () => {
     assert.match(html, />No status</);
     assert.match(html, />Failed</);
     assert.match(html, />In Progress</);
-    assert.match(html, />Ready</);
     assert.match(html, /Added by Staff/);
     assert.match(html, /Added by GitHub/);
     assert.match(html, /Added by Vercel/);
     assert.match(html, /Added by Cursor/);
-    assert.match(html, />Notion</);
+    assert.match(html, /Added by Notion/);
+    assert.equal(html.includes('>Ready<'), false);
+    assert.equal(html.includes('>Notion<'), false);
     assert.match(html, />Claude Bot</);
     assert.match(html, /task-source-link/);
     assert.match(html, /lucide-external-link/);

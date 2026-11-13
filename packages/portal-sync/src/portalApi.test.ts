@@ -532,7 +532,10 @@ describe('task link backfill', () => {
     assert.deepEqual(sourceStateChip(' open '), { label: 'Open', tone: 'warn' });
     assert.deepEqual(sourceStateChip('failed'), { label: 'Failed', tone: 'bad' });
     assert.deepEqual(sourceStateChip('failure'), { label: 'Failed', tone: 'bad' });
-    assert.deepEqual(sourceStateChip('ready'), { label: 'Ready', tone: 'good' });
+    assert.deepEqual(sourceStateChip('error'), { label: 'Failed', tone: 'bad' });
+    assert.deepEqual(sourceStateChip('succeeded'), { label: 'Deployed', tone: 'good' });
+    assert.deepEqual(sourceStateChip('ready'), { label: 'Deployed', tone: 'good' });
+    assert.deepEqual(sourceStateChip('success'), { label: 'Success', tone: 'good' });
     assert.deepEqual(sourceStateChip('in_progress'), { label: 'In Progress', tone: 'warn' });
     assert.deepEqual(sourceStateChip('weird_state'), { label: 'Weird State', tone: 'neutral' });
     assert.deepEqual(sourceStateChip('  '), { label: SOURCE_NO_STATUS, tone: 'neutral' });
@@ -544,8 +547,12 @@ describe('task link backfill', () => {
     assert.equal(sourceAddedByLabel('vercel'), 'Added by Vercel');
     assert.equal(sourceAddedByLabel('vercel-webhook'), 'Added by Vercel');
     assert.equal(sourceAddedByLabel('staff'), 'Added by Staff');
-    assert.equal(sourceAddedByLabel('notion'), 'Notion');
+    assert.equal(sourceAddedByLabel('notion'), 'Added by Notion');
     assert.equal(sourceAddedByLabel('claude_bot'), 'Claude Bot');
+    assert.equal(sourceAddedByLabel('k57f3m9q2n4p5r6s7t8v9w0x1y2z3a'), 'Added by Staff');
+    assert.equal(sourceAddedByLabel('a1b2c3d4e5f67890abcd1234ef567890'), 'Added by Staff');
+    assert.equal(sourceAddedByLabel('550e8400-e29b-41d4-a716-446655440000'), 'Added by Staff');
+    assert.equal(sourceAddedByLabel('bc-182f5a11-7d73-5b60'), 'Added by Staff');
     assert.equal(sourceAddedByLabel('  '), 'Unknown');
     assert.equal(sourceLinkHref('https://cursor.com/agents/bc-example'), 'https://cursor.com/agents/bc-example');
     assert.equal(sourceLinkHref('cursor/p4-sources'), null);

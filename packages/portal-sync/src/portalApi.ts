@@ -400,9 +400,12 @@ const WARN_LINK_STATES = new Set(['open', 'building', 'pending', 'queued', 'in_p
 const STATE_PLAIN: Record<string, string> = {
   merged: 'Merged',
   deployed: 'Deployed',
+  succeeded: 'Deployed',
+  ready: 'Deployed',
   open: 'Open',
   failed: 'Failed',
   failure: 'Failed',
+  error: 'Failed',
 };
 
 const ADDED_BY_PLAIN: Record<string, string> = {
@@ -412,13 +415,14 @@ const ADDED_BY_PLAIN: Record<string, string> = {
   vercel: 'Added by Vercel',
   'vercel-webhook': 'Added by Vercel',
   staff: 'Added by Staff',
+  notion: 'Added by Notion',
 };
 
 export const SOURCE_NO_STATUS = 'No status';
 
 export type SourceChipTone = 'neutral' | 'good' | 'warn' | 'bad';
 
-/** Title case. Underscores and hyphens become spaces, so a raw id is not shown. */
+/** Title-case a stored word. Separators become spaces. This does not hide an id. */
 export function sourcePlainWords(value: string): string {
   return value
     .trim()
@@ -456,12 +460,31 @@ export function sourceStateChip(state: string | null | undefined): { label: stri
   return { label: plainStateLabel(raw), tone };
 }
 
-/** Who added the link, in plain words. Unknown values are title-cased, never raw ids. */
+/**
+ * A Convex id, a UUID, or one long alphanumeric token.
+ * A short name such as `claude_bot` is not an id.
+ */
+function looksLikeOpaqueId(value: string): boolean {
+  const lower = value.trim().toLowerCase();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(lower)) return true;
+  const compact = lower.replace(/[_-]/g, '');
+  if (compact.length < 16 || !/^[a-z0-9]+$/.test(compact)) return false;
+  if (!/[_-]/.test(lower)) return true;
+  return /\d/.test(compact);
+}
+
+/**
+ * Who added the link, in plain words.
+ * Known actors, including Notion, are named.
+ * A Convex id or other long alphanumeric is "Added by Staff", not a title-cased id.
+ * Any other unknown value is title-cased.
+ */
 export function sourceAddedByLabel(addedBy: string | null | undefined): string {
   const raw = addedBy?.trim() ?? '';
   if (!raw) return 'Unknown';
   const named = ADDED_BY_PLAIN[raw.toLowerCase()];
   if (named) return named;
+  if (looksLikeOpaqueId(raw)) return 'Added by Staff';
   const words = sourcePlainWords(raw);
   return words || 'Unknown';
 }
