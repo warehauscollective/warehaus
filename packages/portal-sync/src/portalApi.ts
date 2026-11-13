@@ -380,11 +380,11 @@ export function planApiLink(input: {
 }
 
 const KIND_LABEL: Record<TaskLinkKind, string> = {
-  'chat request': 'Chat',
-  PR: 'PR',
+  'chat request': 'Chat request',
+  PR: 'Cursor PR',
   deploy: 'Deploy',
-  agent: 'Agent',
-  'Figma frame': 'Figma',
+  agent: 'Agent run',
+  'Figma frame': 'Figma frame',
   'Notion page or doc': 'Doc',
   'Repo branch': 'Branch',
 };
@@ -393,17 +393,63 @@ export function sourceKindLabel(kind: string): string {
   return KIND_LABEL[kind as TaskLinkKind] ?? kind;
 }
 
-const GOOD_LINK_STATES = new Set(['merged', 'shipped', 'success', 'succeeded', 'ready']);
+const GOOD_LINK_STATES = new Set(['merged', 'deployed', 'shipped', 'success', 'succeeded', 'ready']);
 const BAD_LINK_STATES = new Set(['closed', 'canceled', 'cancelled', 'failure', 'failed', 'error']);
 const WARN_LINK_STATES = new Set(['open', 'building', 'pending', 'queued', 'in_progress', 'in progress']);
 
+const STATE_PLAIN: Record<string, string> = {
+  merged: 'Merged',
+  deployed: 'Deployed',
+  succeeded: 'Deployed',
+  ready: 'Deployed',
+  open: 'Open',
+  failed: 'Failed',
+  failure: 'Failed',
+  error: 'Failed',
+};
+
+const ADDED_BY_PLAIN: Record<string, string> = {
+  cursor: 'Added by Cursor',
+  github: 'Added by GitHub',
+  'github-webhook': 'Added by GitHub',
+  vercel: 'Added by Vercel',
+  'vercel-webhook': 'Added by Vercel',
+  staff: 'Added by Staff',
+  notion: 'Added by Notion',
+};
+
+export const SOURCE_NO_STATUS = 'No status';
+
 export type SourceChipTone = 'neutral' | 'good' | 'warn' | 'bad';
 
-/** Staff chip for a stored link state. Blank and oversized values stay off the panel. */
+/** Title-case a stored word. Separators become spaces. This does not hide an id. */
+export function sourcePlainWords(value: string): string {
+  return value
+    .trim()
+    .replace(/[_-]+/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => {
+      const lower = word.toLowerCase();
+      if (lower === 'github') return 'GitHub';
+      return lower.charAt(0).toUpperCase() + lower.slice(1);
+    })
+    .join(' ');
+}
+
+function plainStateLabel(value: string): string {
+  return STATE_PLAIN[value.trim().toLowerCase()] ?? sourcePlainWords(value);
+}
+
+/**
+ * Staff pill for a stored link state.
+ * A blank value is "No status". Oversized or multiline values stay off the panel.
+ */
 export function sourceStateChip(state: string | null | undefined): { label: string; tone: SourceChipTone } | null {
-  const label = state?.trim() ?? '';
-  if (!label || label.length > 40 || /[\n\r]/.test(label)) return null;
-  const key = label.toLowerCase();
+  const raw = state?.trim() ?? '';
+  if (!raw) return { label: SOURCE_NO_STATUS, tone: 'neutral' };
+  if (raw.length > 40 || /[\n\r]/.test(raw)) return null;
+  const key = raw.toLowerCase();
   const tone: SourceChipTone = GOOD_LINK_STATES.has(key)
     ? 'good'
     : BAD_LINK_STATES.has(key)
@@ -411,7 +457,47 @@ export function sourceStateChip(state: string | null | undefined): { label: stri
       : WARN_LINK_STATES.has(key)
         ? 'warn'
         : 'neutral';
-  return { label, tone };
+  return { label: plainStateLabel(raw), tone };
+}
+
+/**
+ * A Convex id, a UUID, or one long alphanumeric token.
+ * A short name such as `claude_bot` is not an id.
+ */
+function looksLikeOpaqueId(value: string): boolean {
+  const lower = value.trim().toLowerCase();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(lower)) return true;
+  const compact = lower.replace(/[_-]/g, '');
+  if (compact.length < 16 || !/^[a-z0-9]+$/.test(compact)) return false;
+  if (!/[_-]/.test(lower)) return true;
+  return /\d/.test(compact);
+}
+
+/**
+ * Drop a trailing bot or source marker so `claude_bot` is "Claude", not "Claude Bot".
+ * A name that is only that marker stays as written.
+ */
+function actorName(value: string): string {
+  const parts = value.trim().toLowerCase().split(/[_-]+/).filter(Boolean);
+  const tail = parts[parts.length - 1];
+  if (parts.length > 1 && (tail === 'bot' || tail === 'source')) parts.pop();
+  return sourcePlainWords(parts.join(' '));
+}
+
+/**
+ * Who added the link, in plain words.
+ * Known actors, including Notion, are named.
+ * A Convex id or other long alphanumeric is "Added by Staff", not a title-cased id.
+ * Every other short name is "Added by {name}". A bot or source suffix is not part of the name.
+ */
+export function sourceAddedByLabel(addedBy: string | null | undefined): string {
+  const raw = addedBy?.trim() ?? '';
+  if (!raw) return 'Unknown';
+  const named = ADDED_BY_PLAIN[raw.toLowerCase()];
+  if (named) return named;
+  if (looksLikeOpaqueId(raw)) return 'Added by Staff';
+  const name = actorName(raw);
+  return name ? `Added by ${name}` : 'Unknown';
 }
 
 /** https links can be opened. A repo branch and any other scheme stay plain text. */

@@ -13,6 +13,8 @@ import {
   planApiComment,
   planApiLink,
   planApiLinkPatch,
+  SOURCE_NO_STATUS,
+  sourceAddedByLabel,
   sourceKindLabel,
   sourceLinkHref,
   sourceStateChip,
@@ -518,16 +520,47 @@ describe('task link backfill', () => {
   });
 
   it('labels source chips for the staff panel', () => {
-    assert.equal(sourceKindLabel('PR'), 'PR');
+    assert.equal(sourceKindLabel('chat request'), 'Chat request');
+    assert.equal(sourceKindLabel('PR'), 'Cursor PR');
     assert.equal(sourceKindLabel('deploy'), 'Deploy');
-    assert.equal(sourceKindLabel('agent'), 'Agent');
-    assert.equal(sourceKindLabel('Figma frame'), 'Figma');
+    assert.equal(sourceKindLabel('agent'), 'Agent run');
+    assert.equal(sourceKindLabel('Figma frame'), 'Figma frame');
     assert.equal(sourceKindLabel('Notion page or doc'), 'Doc');
-    assert.deepEqual(sourceStateChip('merged'), { label: 'merged', tone: 'good' });
-    assert.deepEqual(sourceStateChip(' open '), { label: 'open', tone: 'warn' });
-    assert.deepEqual(sourceStateChip('failed'), { label: 'failed', tone: 'bad' });
-    assert.equal(sourceStateChip('  '), null);
+    assert.equal(sourceKindLabel('Repo branch'), 'Branch');
+    assert.deepEqual(sourceStateChip('merged'), { label: 'Merged', tone: 'good' });
+    assert.deepEqual(sourceStateChip('deployed'), { label: 'Deployed', tone: 'good' });
+    assert.deepEqual(sourceStateChip(' open '), { label: 'Open', tone: 'warn' });
+    assert.deepEqual(sourceStateChip('failed'), { label: 'Failed', tone: 'bad' });
+    assert.deepEqual(sourceStateChip('failure'), { label: 'Failed', tone: 'bad' });
+    assert.deepEqual(sourceStateChip('error'), { label: 'Failed', tone: 'bad' });
+    assert.deepEqual(sourceStateChip('succeeded'), { label: 'Deployed', tone: 'good' });
+    assert.deepEqual(sourceStateChip('ready'), { label: 'Deployed', tone: 'good' });
+    assert.deepEqual(sourceStateChip('success'), { label: 'Success', tone: 'good' });
+    assert.deepEqual(sourceStateChip('in_progress'), { label: 'In Progress', tone: 'warn' });
+    assert.deepEqual(sourceStateChip('weird_state'), { label: 'Weird State', tone: 'neutral' });
+    assert.deepEqual(sourceStateChip('  '), { label: SOURCE_NO_STATUS, tone: 'neutral' });
+    assert.deepEqual(sourceStateChip(null), { label: SOURCE_NO_STATUS, tone: 'neutral' });
     assert.equal(sourceStateChip('x'.repeat(41)), null);
+    assert.equal(sourceAddedByLabel('cursor'), 'Added by Cursor');
+    assert.equal(sourceAddedByLabel('github'), 'Added by GitHub');
+    assert.equal(sourceAddedByLabel('github-webhook'), 'Added by GitHub');
+    assert.equal(sourceAddedByLabel('vercel'), 'Added by Vercel');
+    assert.equal(sourceAddedByLabel('vercel-webhook'), 'Added by Vercel');
+    assert.equal(sourceAddedByLabel('staff'), 'Added by Staff');
+    assert.equal(sourceAddedByLabel('notion'), 'Added by Notion');
+    assert.equal(sourceAddedByLabel('claude_bot'), 'Added by Claude');
+    assert.equal(sourceAddedByLabel('claude'), 'Added by Claude');
+    assert.equal(sourceAddedByLabel('linear_bot'), 'Added by Linear');
+    assert.equal(sourceAddedByLabel('figma-source'), 'Added by Figma');
+    assert.equal(sourceAddedByLabel('github_source'), 'Added by GitHub');
+    assert.equal(sourceAddedByLabel('bridge'), 'Added by Bridge');
+    assert.notEqual(sourceAddedByLabel('claude_bot'), 'Claude Bot');
+    assert.notEqual(sourceAddedByLabel('claude_bot'), 'Added by Claude Bot');
+    assert.equal(sourceAddedByLabel('k57f3m9q2n4p5r6s7t8v9w0x1y2z3a'), 'Added by Staff');
+    assert.equal(sourceAddedByLabel('a1b2c3d4e5f67890abcd1234ef567890'), 'Added by Staff');
+    assert.equal(sourceAddedByLabel('550e8400-e29b-41d4-a716-446655440000'), 'Added by Staff');
+    assert.equal(sourceAddedByLabel('bc-182f5a11-7d73-5b60'), 'Added by Staff');
+    assert.equal(sourceAddedByLabel('  '), 'Unknown');
     assert.equal(sourceLinkHref('https://cursor.com/agents/bc-example'), 'https://cursor.com/agents/bc-example');
     assert.equal(sourceLinkHref('cursor/p4-sources'), null);
     assert.equal(sourceLinkHref('javascript:alert(1)'), null);

@@ -26,6 +26,18 @@ main {
   min-height: 100dvh;
 }
 
+/* Staff source titles. Inside .ds-scope, --accent is the monochrome ink/paper
+   and matches --fg. --info is the semantic hue the token set does not remap. */
+.ds-scope a.task-source-link {
+  color: var(--info);
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+.ds-scope a.task-source-link:hover,
+.ds-scope a.task-source-link:focus-visible {
+  text-decoration: underline;
+}
+
 /* One hover and focus treatment for the project and milestone trails. */
 .portal-crumb {
   text-decoration: none;
@@ -37,6 +49,11 @@ main {
   outline: 2px solid var(--fg);
   outline-offset: 3px;
   text-decoration: underline;
+}
+
+/* Section break between the Source field and the SOURCES list. */
+.task-sources-section {
+  margin-top: var(--s-6);
 }
 
 /* The phone header line is the border. Keep it once the page has scrolled,
