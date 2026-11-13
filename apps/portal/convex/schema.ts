@@ -709,6 +709,14 @@ export default defineSchema({
     title: v.optional(v.string()),
     addedBy: v.string(),
     createdAt: v.number(),
+    /**
+     * Webhook bookkeeping for a PR or deploy link.
+     * Staff-only. Client queries do not read this table.
+     * `state` is open, closed, merged, a check conclusion, or a deploy phase.
+     */
+    state: v.optional(v.string()),
+    sha: v.optional(v.string()),
+    updatedAt: v.optional(v.number()),
   })
     .index('by_taskId', ['taskId'])
     .index('by_orgId_taskId', ['orgId', 'taskId']),

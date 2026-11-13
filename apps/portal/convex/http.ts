@@ -2,7 +2,13 @@ import { httpRouter } from 'convex/server';
 import { authComponent, createAuth } from './auth';
 import { stripeWebhook } from './billing/stripe';
 import { portalApiHttp } from './portalApi';
+import { githubWebhook, vercelWebhook } from './sync/inbound';
 import { notionWebhook } from './sync/queue';
+
+/** Signed GitHub events. The secret is GITHUB_WEBHOOK_SECRET, not set here. */
+export const GITHUB_WEBHOOK_PATH = '/github/webhook';
+/** Signed Vercel events. The secret is VERCEL_WEBHOOK_SECRET, not set here. */
+export const VERCEL_WEBHOOK_PATH = '/vercel/webhook';
 
 const http = httpRouter();
 authComponent.registerRoutes(http, createAuth);
@@ -17,6 +23,18 @@ http.route({
   path: '/stripe/webhook',
   method: 'POST',
   handler: stripeWebhook,
+});
+
+http.route({
+  path: GITHUB_WEBHOOK_PATH,
+  method: 'POST',
+  handler: githubWebhook,
+});
+
+http.route({
+  path: VERCEL_WEBHOOK_PATH,
+  method: 'POST',
+  handler: vercelWebhook,
 });
 
 export const portalApiRoutes: Array<{ path: string; method: 'GET' | 'POST' }> = [
