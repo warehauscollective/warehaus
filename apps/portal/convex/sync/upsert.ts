@@ -1,5 +1,5 @@
 import {
-  clientKeepsProjectsStaffVisible,
+  clientIsStaffVisible,
   companyNameKey,
   decideResourceLink,
   isApprovedInternalWarehausProject,
@@ -12,6 +12,7 @@ import {
   resolvePulledStage,
   storedPullLastEditedTime,
   projectCountsForTaskGate,
+  projectStaffVisibleForTasks,
   resolveParentLink,
   taskTouchesIncrementalSet,
 } from '@warehaus/portal-sync';
@@ -635,12 +636,15 @@ export const resolveIds = internalMutation({
     const clientStaffVisibleByNotion: Record<string, boolean> = {};
     const warehausInternalByNotion: Record<string, boolean> = {};
     const enabledClientIds = new Set<Id<'clients'>>();
+    const staffVisibleClientIds = new Set<Id<'clients'>>();
     const warehausInternalOrgIds = new Set<Id<'clients'>>();
     for (const client of clients) {
       const enabled = isOrgVisibleToClients(client);
       clientEnabledByNotion[client.notionPageId] = enabled;
-      clientStaffVisibleByNotion[client.notionPageId] = clientKeepsProjectsStaffVisible(client);
+      const staffVisible = clientIsStaffVisible(client);
+      clientStaffVisibleByNotion[client.notionPageId] = staffVisible;
       if (enabled) enabledClientIds.add(client._id);
+      if (staffVisible) staffVisibleClientIds.add(client._id);
       const internal = isWarehausInternalClient({
         slug: client.slug,
         externalId: client.externalId,
@@ -673,12 +677,14 @@ export const resolveIds = internalMutation({
       ),
       projectTaskParentByNotion: Object.fromEntries(
         projects.map((p) => {
-          const visibleToClients =
-            p.publishToWarehaus &&
-            !p.archive &&
-            !p.type.includes('Internal') &&
-            p.syncHiddenAt == null &&
-            enabledClientIds.has(p.orgId);
+          // Staff roster. Client reads still use isOrgVisibleToClients.
+          const visibleToClients = projectStaffVisibleForTasks({
+            publishToWarehaus: p.publishToWarehaus,
+            archive: p.archive,
+            types: p.type,
+            syncHiddenAt: p.syncHiddenAt,
+            clientStaffVisible: staffVisibleClientIds.has(p.orgId),
+          });
           return [
             p.notionPageId,
             projectCountsForTaskGate({

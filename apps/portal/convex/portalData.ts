@@ -3,7 +3,7 @@ import { clientQuery, adminQuery } from './_lib/wrappers';
 import { isStaff } from './_lib/identity';
 import { buildActivityFeed } from './_lib/activityFeed';
 import { staffQuarantineActivity } from './_lib/quarantineActivity';
-import { clientMaySeeProject, clientMaySeeTask, isOrgVisibleToClients, readTaskPlatform, staffGranolaStatus, taskPlatformStatus } from '@warehaus/portal-sync';
+import { clientIsStaffVisible, clientMaySeeProject, clientMaySeeTask, isOrgVisibleToClients, readTaskPlatform, staffGranolaStatus, taskPlatformStatus } from '@warehaus/portal-sync';
 import { linearEnv } from './_lib/taskPlatformRead';
 import { isNotionWritebackEnabled } from './_lib/writeAuthz';
 
@@ -55,8 +55,9 @@ export const getSnapshot = clientQuery({
         )
       : [];
 
-    const orgOpen = isOrgVisibleToClients(client);
-    const publishedProjects = (orgOpen ? projects : [])
+    const clientVisible = isOrgVisibleToClients(client);
+    const rosterOpen = staff ? clientIsStaffVisible(client) : clientVisible;
+    const publishedProjects = (rosterOpen ? projects : [])
       .filter((p) =>
         clientMaySeeProject({
           name: p.name,
@@ -186,7 +187,7 @@ export const getSnapshot = clientQuery({
               }))
           : buildActivityFeed({
               audience: 'client',
-              orgVisible: orgOpen,
+              orgVisible: clientVisible,
               activity,
               audits: [],
               outbox: [],

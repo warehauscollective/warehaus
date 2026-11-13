@@ -55,10 +55,10 @@ function revokeSessions(table: SyncTable, role: ContactRole | undefined, ancesto
  * Gate failure, trash, and a concealed parent hide the Convex copy.
  * Portal access Disabled is not a gate failure for a client.
  * A passing row whose parent client is concealed is stored hidden (`ancestor`).
- * `parentClientEnabled` is omitted for the client table itself.
- * Project pulls pass `clientKeepsProjectsStaffVisible` so a Disabled client
- * keeps its projects on the staff roster. Client users still use
- * `isOrgVisibleToClients`.
+ * `parentStaffVisible` is omitted for the client table itself.
+ * Child pulls pass `clientIsStaffVisible` so a Disabled client keeps
+ * contacts, projects, tasks, shared resources, and client docs on the staff
+ * roster. Client users still use `isOrgVisibleToClients`.
  */
 export function decideSyncedRowVisibility(input: {
   table: SyncTable;
@@ -66,7 +66,7 @@ export function decideSyncedRowVisibility(input: {
   dispositionReason?: string;
   archived?: boolean;
   inTrash?: boolean;
-  parentClientEnabled?: boolean;
+  parentStaffVisible?: boolean;
   parentProjectVisible?: boolean;
   contactRole?: ContactRole;
 }): VisibilityDecision {
@@ -100,11 +100,11 @@ export function decideSyncedRowVisibility(input: {
     };
   }
 
-  if (input.parentClientEnabled === false) {
+  if (input.parentStaffVisible === false) {
     return {
       action: 'store-hidden',
       reason: 'ancestor',
-      detail: 'Parent client is not enabled',
+      detail: 'Parent client is not staff-visible',
       revokeSessions: revokeSessions(input.table, input.contactRole, true),
       cascade: input.table === 'projects' ? 'project-tasks' : 'none',
     };
@@ -129,13 +129,37 @@ export function isClientSurfaceVisible(row: { syncHiddenAt?: number | null }): b
 }
 
 /**
- * Staff still see projects when the client row itself is not concealed.
+ * Staff still see child rows when the client row itself is not concealed.
  * Portal access Disabled does not conceal it. Trash, archive, and quarantine do.
+ * `portalAccess` is accepted so a client row can be passed to both this and
+ * `isOrgVisibleToClients`. It does not affect the result.
  */
-export function clientKeepsProjectsStaffVisible(
-  client: { syncHiddenAt?: number | null } | null | undefined,
+export function clientIsStaffVisible(
+  client:
+    | { portalAccess?: 'Enabled' | 'Disabled'; syncHiddenAt?: number | null }
+    | null
+    | undefined,
 ): boolean {
   return !!client && isClientSurfaceVisible(client);
+}
+
+/**
+ * A contact that passes its own gate stays on the staff roster when the
+ * client is Disabled but not concealed. Invite placement still requires
+ * portal access Enabled. An unverified Accepted status stays concealed.
+ */
+export function contactStaysStaffVisible(input: {
+  disposition: 'upsert' | 'skip' | 'quarantine';
+  parentStaffVisible: boolean;
+  effectivePortalAccess: 'Enabled' | 'Disabled';
+  inviteStatus?: string | null;
+  unverifiedAcceptance: boolean;
+}): boolean {
+  if (!input.parentStaffVisible) return false;
+  if (input.disposition !== 'upsert') return false;
+  if (input.unverifiedAcceptance) return false;
+  if (input.effectivePortalAccess !== 'Enabled') return false;
+  return input.inviteStatus == null || input.inviteStatus === 'Accepted';
 }
 
 export function isOrgVisibleToClients(

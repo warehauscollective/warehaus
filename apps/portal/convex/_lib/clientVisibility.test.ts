@@ -542,9 +542,18 @@ function run(fn: object, args: Record<string, unknown> = {}) {
 }
 
 function runDb(fn: object, db: ReturnType<typeof memoryDb>, args: Record<string, unknown> = {}) {
+  return runDbAs(fn, db, 'auth-client', args);
+}
+
+function runDbAs(
+  fn: object,
+  db: ReturnType<typeof memoryDb>,
+  subject: string,
+  args: Record<string, unknown> = {},
+) {
   return (fn as { _handler: Handler })._handler(
     {
-      auth: { getUserIdentity: async () => ({ subject: 'auth-client' }) },
+      auth: { getUserIdentity: async () => ({ subject }) },
       db,
     },
     args,
@@ -837,6 +846,36 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(JSON.stringify(clientList).includes('pending-pr-secret'), false);
     assert.equal(JSON.stringify(clientSnapshot).includes('pending-pr-secret'), false);
     assert.equal(JSON.stringify(clientDetail).includes('pending-pr-secret'), false);
+  });
+
+  it('shows a Disabled prospect on the staff snapshot and keeps it off the client read', async () => {
+    const disabledOrg = { ...org, portalAccess: 'Disabled' as const, syncHiddenAt: null };
+    const db = memoryDb({ ...tables, clients: [disabledOrg, otherOrg] });
+    const staffSnapshot = (await runDbAs(getSnapshot, db, 'auth-staff')) as {
+      projects: Array<{ name: string }>;
+      tasks: Array<{ name: string }>;
+    };
+    assert.equal(staffSnapshot.projects.some((project) => project.name === 'Northwind site'), true);
+    assert.equal(staffSnapshot.tasks.some((task) => task.name === 'Homepage'), true);
+    assert.equal(staffSnapshot.projects.some((project) => project.name === 'warehaus.studio'), false);
+    assert.equal(staffSnapshot.tasks.some((task) => task.name === 'Secret draft'), false);
+
+    await assert.rejects(runDb(getSnapshot, db), (err: unknown) => {
+      assert.ok(err instanceof PortalAuthError);
+      assert.equal(err.message, 'Client portal access is disabled');
+      return true;
+    });
+
+    const concealed = memoryDb({
+      ...tables,
+      clients: [{ ...disabledOrg, syncHiddenAt: 4 }, otherOrg],
+    });
+    const hiddenSnapshot = (await runDbAs(getSnapshot, concealed, 'auth-staff')) as {
+      projects: unknown[];
+      tasks: unknown[];
+    };
+    assert.equal(hiddenSnapshot.projects.length, 0);
+    assert.equal(hiddenSnapshot.tasks.length, 0);
   });
 
   it('shows internal work and the task description to staff', async () => {

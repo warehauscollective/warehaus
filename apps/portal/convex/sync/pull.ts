@@ -8,6 +8,7 @@ import {
   mapNotionClientDoc,
   mapNotionContact,
   mapNotionProject,
+  contactStaysStaffVisible,
   decideContactSync,
   isPortalSelfWrite,
   mapNotionSharedResource,
@@ -415,6 +416,9 @@ export const pullAll = internalAction({
         await track(page, 'contacts', async () => {
         const mapped = mapNotionContact(page.id, page.properties);
         const clientNotionId = mapped.row?.database === 'contacts' ? mapped.row.clientNotionIds[0] : undefined;
+        const parentStaffVisible = clientNotionId
+          ? ids.clientStaffVisibleByNotion[clientNotionId] === true
+          : false;
         if (mapped.row?.database === 'contacts' && !page.archived && !page.inTrash && mapped.disposition !== 'quarantine') {
           const syncCtx = await ctx.runQuery(internal.invitesSync.contactSyncContext, {
             notionPageId: page.id,
@@ -457,7 +461,16 @@ export const pullAll = internalAction({
             observedJson: JSON.stringify(observed),
           });
           const pendingConceal = pendingInviteSyncConceal(syncDecision.placement);
-          if (pendingConceal) {
+          const keepForStaff = contactStaysStaffVisible({
+            disposition: mapped.disposition,
+            parentStaffVisible,
+            effectivePortalAccess: syncDecision.effective.portalAccess,
+            inviteStatus: syncDecision.effective.inviteStatus ?? null,
+            unverifiedAcceptance: syncDecision.actions.some(
+              (action) => action.type === 'notice' && action.caseId === 5,
+            ),
+          });
+          if (pendingConceal && !keepForStaff) {
             await conceal('contacts', page.id, pendingConceal);
             if (syncDecision.placement === 'SKIP_AND_DROP_PENDING') stats.skipped += 1;
             return;
@@ -469,7 +482,7 @@ export const pullAll = internalAction({
           dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
           archived: page.archived,
           inTrash: page.inTrash,
-          parentClientEnabled: clientNotionId ? ids.clientEnabledByNotion[clientNotionId] === true : undefined,
+          parentStaffVisible: clientNotionId ? parentStaffVisible : undefined,
           contactRole: mapped.row?.database === 'contacts' ? mapped.row.role : undefined,
         });
         if (decision.action === 'hide') {
@@ -567,7 +580,7 @@ export const pullAll = internalAction({
           dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
           archived: page.archived,
           inTrash: page.inTrash,
-          parentClientEnabled: clientNotionId ? ids.clientStaffVisibleByNotion[clientNotionId] === true : undefined,
+          parentStaffVisible: clientNotionId ? ids.clientStaffVisibleByNotion[clientNotionId] === true : undefined,
         });
         const approvedInternal =
           !page.archived &&
@@ -698,13 +711,13 @@ export const pullAll = internalAction({
         for (const notice of mapped.notices ?? []) {
           stats.errors.push(`notice tasks ${page.id}: ${notice}`);
         }
-        const parentClientEnabled = projectIds.length === 0
+        const parentStaffVisible = projectIds.length === 0
           ? undefined
           : projectIds.some((id) => {
               const orgId = ids.projectOrgByNotion[id];
               if (!orgId) return false;
               const clientNotionId = Object.entries(ids.clientByNotion).find(([, clientId]) => clientId === orgId)?.[0];
-              return clientNotionId ? ids.clientEnabledByNotion[clientNotionId] === true : false;
+              return clientNotionId ? ids.clientStaffVisibleByNotion[clientNotionId] === true : false;
             });
         const decision = decideSyncedRowVisibility({
           table: 'tasks',
@@ -712,7 +725,7 @@ export const pullAll = internalAction({
           dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
           archived: page.archived,
           inTrash: page.inTrash,
-          parentClientEnabled: typeof parentClientEnabled === 'boolean' ? parentClientEnabled : undefined,
+          parentStaffVisible: typeof parentStaffVisible === 'boolean' ? parentStaffVisible : undefined,
           parentProjectVisible: parentOk,
         });
         if (decision.action === 'hide') {
@@ -867,10 +880,10 @@ export const pullAll = internalAction({
         const projectClientId = projectOrgId
           ? Object.entries(ids.clientByNotion).find(([, clientId]) => clientId === projectOrgId)?.[0]
           : undefined;
-        const parentClientEnabled = resourceClientId
-          ? ids.clientEnabledByNotion[resourceClientId] === true
+        const parentStaffVisible = resourceClientId
+          ? ids.clientStaffVisibleByNotion[resourceClientId] === true
           : projectClientId
-            ? ids.clientEnabledByNotion[projectClientId] === true
+            ? ids.clientStaffVisibleByNotion[projectClientId] === true
             : undefined;
         const decision = decideSyncedRowVisibility({
           table: 'sharedResources',
@@ -878,7 +891,7 @@ export const pullAll = internalAction({
           dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
           archived: page.archived,
           inTrash: page.inTrash,
-          parentClientEnabled,
+          parentStaffVisible,
         });
         if (decision.action === 'hide') {
           stats.skipped += 1;
@@ -1028,7 +1041,7 @@ export const pullAll = internalAction({
           dispositionReason: mapped.disposition === 'upsert' ? undefined : mapped.reason,
           archived: page.archived,
           inTrash: page.inTrash,
-          parentClientEnabled: docClientId ? ids.clientEnabledByNotion[docClientId] === true : undefined,
+          parentStaffVisible: docClientId ? ids.clientStaffVisibleByNotion[docClientId] === true : undefined,
         });
         if (decision.action === 'hide') {
           stats.skipped += 1;
