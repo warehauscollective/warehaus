@@ -36,7 +36,9 @@ The outbox lease is 15 minutes as well. A live attempt cannot be preempted. This
 
 ## Mint a token
 
-One live token per name. `grok-bot` and `warehaus-studio-manager` are separate rows, each with its own scope, and each can be revoked on its own. Run this from `apps/portal` against the deployment in `.env.local`. Do not point that deployment at production. The command prints each raw token once on stdout.
+One live token per name. `grok-bot` and `warehaus-studio-manager` are separate rows, each with its own scope, and each can be revoked on its own.
+
+The script follows `.env.local` and must not be pointed at production. Run it from `apps/portal`. It does not pass `--prod`. The command prints each raw token once on stdout.
 
 ```bash
 node scripts/mint-bot-token.mjs --name grok-bot --scope read-write --org-id <clients id>
@@ -45,3 +47,36 @@ node scripts/mint-bot-token.mjs --revoke grok-bot
 ```
 
 `--org-id` is the staff home org stored on the token so client create can enqueue. It is not a slug. `--all` mints both bots. The default scope for `grok-bot` and for `warehaus-studio-manager` is `read-write`. Pass `--scope` with one `--name` to choose `read` or `read-write` for that bot only. A name that already has a live token is refused. After a revoke, minting the same name replaces that row and prints the new token once.
+
+### Production
+
+Peter runs this himself from `apps/portal`. These commands are not the script above. `npx convex run` does not deploy.
+
+Unset `CONVEX_DEPLOY_KEY` so a dev deploy key does not override `--prod`. `npx convex login` is enough. `--prod` selects production `unique-turtle-383` for the project linked by `.env.local`.
+
+The staff home org id is the `clients` row whose `slug` is `warehaus-internal`. That id is not checked in. Look it up, then use the `id` on the item in `body.items`:
+
+```bash
+npx convex run --prod portalCatalog:listClients '{"cursor":null,"limit":50}'
+```
+
+The output includes each client's `primaryEmail` and `phone`. Do not paste it back. If `body.hasMore` is true, repeat with that page's `body.nextCursor`.
+
+Mint one bot. The example is `grok-bot`, scope `read-write`. The raw token prints once in the JSON `token` field.
+
+```bash
+npx convex run --prod portalTokens:mintBot '{"name":"grok-bot","scope":"read-write","homeOrgId":"<clients id>"}'
+```
+
+`warehaus-studio-manager` is the same shape, scope `read-write`, and a separate row:
+
+```bash
+npx convex run --prod portalTokens:mintBot '{"name":"warehaus-studio-manager","scope":"read-write","homeOrgId":"<clients id>"}'
+```
+
+Revoke by name:
+
+```bash
+npx convex run --prod portalTokens:revokeBot '{"name":"grok-bot"}'
+npx convex run --prod portalTokens:revokeBot '{"name":"warehaus-studio-manager"}'
+```
