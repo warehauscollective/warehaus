@@ -26,10 +26,10 @@ main {
   min-height: 100dvh;
 }
 
-/* Staff source titles. Inside .ds-scope, --accent is the monochrome ink/paper
-   and matches --fg. --info is the semantic hue the token set does not remap. */
+/* Staff source titles. Foreground keeps contrast on the light rail.
+   --info is 3.62:1 there, so it is not a link color. */
 .ds-scope a.task-source-link {
-  color: var(--info);
+  color: var(--fg);
   text-decoration: underline;
   text-underline-offset: 0.15em;
 }

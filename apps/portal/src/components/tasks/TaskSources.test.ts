@@ -95,9 +95,10 @@ describe('task sources panel', () => {
     assert.match(modal, /marginTop: phone \? 'calc\(var\(--s-6\) - 24px\)'/);
     const css = readFileSync(new URL('../../styles/global.css', import.meta.url), 'utf8');
     assert.match(css, /\.task-sources-section\s*\{\s*margin-top:\s*var\(--s-6\);/);
-    assert.match(css, /\.ds-scope a\.task-source-link\s*\{[^}]*color:\s*var\(--info\)/);
+    assert.match(css, /\.ds-scope a\.task-source-link\s*\{[^}]*color:\s*var\(--fg\)/);
     assert.match(css, /\.ds-scope a\.task-source-link\s*\{[^}]*text-decoration:\s*underline/);
     assert.equal(/\.ds-scope a\.task-source-link\s*\{[^}]*var\(--accent\)/.test(css), false);
+    assert.equal(/\.ds-scope a\.task-source-link\s*\{[^}]*var\(--info\)/.test(css), false);
     assert.match(css, /\.ds-scope a\.task-source-link:hover[\s\S]*text-decoration:\s*underline/);
     const tasks = readFileSync(new URL('../../../convex/tasks.ts', import.meta.url), 'utf8');
     const start = tasks.indexOf('export const linksForStaff');
