@@ -693,6 +693,8 @@ export default defineSchema({
   /**
    * Staff-only links on a task. Kinds match the portal API.
    * Repo branch is included so the Notion field is not dropped.
+   * `agent` is a Cursor agent URL. Client queries do not read this table.
+   * `state` is the chip label (open, closed, merged, a check, or a deploy phase).
    */
   taskLinks: defineTable({
     orgId: v.id('clients'),
@@ -701,6 +703,7 @@ export default defineSchema({
       v.literal('chat request'),
       v.literal('PR'),
       v.literal('deploy'),
+      v.literal('agent'),
       v.literal('Figma frame'),
       v.literal('Notion page or doc'),
       v.literal('Repo branch'),

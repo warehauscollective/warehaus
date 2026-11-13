@@ -13,6 +13,7 @@ import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask 
 import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
 import { StaffLiveFields } from './StaffLiveFields';
 import { TaskGlyph } from './TaskGlyph';
+import { TaskSources } from './TaskSources';
 
 type ResourceRow = {
   id: string;
@@ -236,6 +237,11 @@ export function TaskDetailModal({
               />
             ) : null}
             </div>
+            {staff ? (
+              <div style={{ order: phone ? 4 : undefined }}>
+                <TaskSources taskId={task.id} hostSlug={hostSlug} live={live} />
+              </div>
+            ) : null}
             {staff ? (
               <div className="flex flex-col gap-3" style={{ order: phone ? 4 : undefined }}>
                 <div className="flex items-center gap-2">

@@ -1,4 +1,5 @@
 import {
+  TASK_LINK_READ_CAP,
   TASK_STAGES,
   TASK_UNAVAILABLE,
   clientMaySeeTask,
@@ -383,6 +384,36 @@ export const activityForStaff = adminQuery({
       audits,
       outbox,
     });
+  },
+});
+
+/**
+ * Staff Sources panel. One indexed page, capped. Clients cannot call this.
+ * Returns the rows as stored. Does not write.
+ */
+export const linksForStaff = adminQuery({
+  args: { taskId: v.id('tasks') },
+  handler: async (ctx, { taskId }) => {
+    const task = await ctx.db.get(taskId);
+    if (!task) return { items: [], truncated: false };
+    const rows = await ctx.db
+      .query('taskLinks')
+      .withIndex('by_taskId', (q) => q.eq('taskId', task._id))
+      .take(TASK_LINK_READ_CAP + 1);
+    const page = rows.slice(0, TASK_LINK_READ_CAP);
+    page.sort((a, b) => a.createdAt - b.createdAt);
+    return {
+      items: page.map((row) => ({
+        id: row._id,
+        kind: row.kind,
+        url: row.url,
+        title: row.title ?? null,
+        addedBy: row.addedBy,
+        createdAt: row.createdAt,
+        state: row.state ?? null,
+      })),
+      truncated: rows.length > TASK_LINK_READ_CAP,
+    };
   },
 });
 

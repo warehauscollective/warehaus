@@ -23,6 +23,27 @@ Point the client at the portal origin, not the Convex site URL. Send both `appli
 
 The portal process needs `NEXT_PUBLIC_CONVEX_SITE_URL` or `CONVEX_SITE_URL`. Tool calls are forwarded to `/api/v1` with the same bearer token. Reads are staff-visible: unpublished drafts stay, and trash, archive, and quarantine are omitted. Pages are at most 50. A page can be shorter than `limit` while `hasMore` is true, because concealed rows are skipped after the page is read. Follow `nextCursor` until `hasMore` is false. Writes need an `idempotencyKey`. There are no delete tools.
 
+Cursor posts its agent URL with `add_task_link` and kind `agent`. That kind stays on the task. It does not enqueue a Notion field update.
+
+## Claude Code and Claude Desktop
+
+Claude Code and Claude Desktop use the same staff endpoint as every other MCP client: `POST https://warehaus-portal.vercel.app/api/mcp`. Send `Accept: application/json, text/event-stream` and a bearer token. The handler does not special-case the token name. The token for these two clients is named `claude`, scope `read-write`. A missing or unknown token is 401. A read token that calls a write tool is 403. The raw token is shown once at mint time and is not stored in this repo.
+
+```json
+{
+  "mcpServers": {
+    "warehaus-portal": {
+      "url": "https://warehaus-portal.vercel.app/api/mcp",
+      "headers": {
+        "Authorization": "Bearer whp_…"
+      }
+    }
+  }
+}
+```
+
+Claude Desktop uses that block. Claude Code uses the same URL and the same `Authorization` header.
+
 `create_client` uses the staff client-create path and stays disabled and unpublished. `create_project` uses the same project-create path. Pass `clientId`, or `client` to create the client first. The project stays unpublished unless `publishToWarehaus` is `true`. The staff form still publishes, because that path passes publish on. Tasks and milestones stay unpublished.
 
 If a write stops after the outbox row is stored and before the response is saved, the idempotency key stays pending. Retrying that key returns 409, `A request with this idempotency key is already in progress`, while the key is inside its 15 minute lease. That lease is longer than the Convex action limit, so a request that is still running is not replaced.
@@ -74,9 +95,16 @@ npx convex run --prod portalTokens:mintBot '{"name":"grok-bot","scope":"read-wri
 npx convex run --prod portalTokens:mintBot '{"name":"warehaus-studio-manager","scope":"read-write","homeOrgId":"<clients id>"}'
 ```
 
+`claude` is the same shape, scope `read-write`, and a separate row. Claude Code and Claude Desktop use this token on `POST https://warehaus-portal.vercel.app/api/mcp`.
+
+```bash
+npx convex run --prod portalTokens:mintBot '{"name":"claude","scope":"read-write","homeOrgId":"<clients id>"}'
+```
+
 Revoke by name:
 
 ```bash
 npx convex run --prod portalTokens:revokeBot '{"name":"grok-bot"}'
 npx convex run --prod portalTokens:revokeBot '{"name":"warehaus-studio-manager"}'
+npx convex run --prod portalTokens:revokeBot '{"name":"claude"}'
 ```

@@ -22,10 +22,14 @@ export const TASK_LINK_KINDS = [
   'chat request',
   'PR',
   'deploy',
+  'agent',
   'Figma frame',
   'Notion page or doc',
   'Repo branch',
 ] as const;
+
+/** One indexed page of task links. The Sources panel does not read past this. */
+export const TASK_LINK_READ_CAP = 50;
 
 export type TaskLinkKind = (typeof TASK_LINK_KINDS)[number];
 
@@ -373,6 +377,52 @@ export function planApiLink(input: {
   if (title.length > 200) return { ok: false, error: 'Link title is too long' };
   const property = LINK_PROPERTY[kind] ?? null;
   return { ok: true, kind, url, ...(title ? { title } : {}), property };
+}
+
+const KIND_LABEL: Record<TaskLinkKind, string> = {
+  'chat request': 'Chat',
+  PR: 'PR',
+  deploy: 'Deploy',
+  agent: 'Agent',
+  'Figma frame': 'Figma',
+  'Notion page or doc': 'Doc',
+  'Repo branch': 'Branch',
+};
+
+export function sourceKindLabel(kind: string): string {
+  return KIND_LABEL[kind as TaskLinkKind] ?? kind;
+}
+
+const GOOD_LINK_STATES = new Set(['merged', 'shipped', 'success', 'succeeded', 'ready']);
+const BAD_LINK_STATES = new Set(['closed', 'canceled', 'cancelled', 'failure', 'failed', 'error']);
+const WARN_LINK_STATES = new Set(['open', 'building', 'pending', 'queued', 'in_progress', 'in progress']);
+
+export type SourceChipTone = 'neutral' | 'good' | 'warn' | 'bad';
+
+/** Staff chip for a stored link state. Blank and oversized values stay off the panel. */
+export function sourceStateChip(state: string | null | undefined): { label: string; tone: SourceChipTone } | null {
+  const label = state?.trim() ?? '';
+  if (!label || label.length > 40 || /[\n\r]/.test(label)) return null;
+  const key = label.toLowerCase();
+  const tone: SourceChipTone = GOOD_LINK_STATES.has(key)
+    ? 'good'
+    : BAD_LINK_STATES.has(key)
+      ? 'bad'
+      : WARN_LINK_STATES.has(key)
+        ? 'warn'
+        : 'neutral';
+  return { label, tone };
+}
+
+/** https links can be opened. A repo branch and any other scheme stay plain text. */
+export function sourceLinkHref(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'https:') return null;
+    return parsed.toString();
+  } catch {
+    return null;
+  }
 }
 
 export function planApiComment(body: string): { ok: true; body: string } | { ok: false; error: string } {
