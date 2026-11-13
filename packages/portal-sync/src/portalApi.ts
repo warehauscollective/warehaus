@@ -474,10 +474,21 @@ function looksLikeOpaqueId(value: string): boolean {
 }
 
 /**
+ * Drop a trailing bot or source marker so `claude_bot` is "Claude", not "Claude Bot".
+ * A name that is only that marker stays as written.
+ */
+function actorName(value: string): string {
+  const parts = value.trim().toLowerCase().split(/[_-]+/).filter(Boolean);
+  const tail = parts[parts.length - 1];
+  if (parts.length > 1 && (tail === 'bot' || tail === 'source')) parts.pop();
+  return sourcePlainWords(parts.join(' '));
+}
+
+/**
  * Who added the link, in plain words.
  * Known actors, including Notion, are named.
  * A Convex id or other long alphanumeric is "Added by Staff", not a title-cased id.
- * Any other unknown value is title-cased.
+ * Every other short name is "Added by {name}". A bot or source suffix is not part of the name.
  */
 export function sourceAddedByLabel(addedBy: string | null | undefined): string {
   const raw = addedBy?.trim() ?? '';
@@ -485,8 +496,8 @@ export function sourceAddedByLabel(addedBy: string | null | undefined): string {
   const named = ADDED_BY_PLAIN[raw.toLowerCase()];
   if (named) return named;
   if (looksLikeOpaqueId(raw)) return 'Added by Staff';
-  const words = sourcePlainWords(raw);
-  return words || 'Unknown';
+  const name = actorName(raw);
+  return name ? `Added by ${name}` : 'Unknown';
 }
 
 /** https links can be opened. A repo branch and any other scheme stay plain text. */

@@ -48,6 +48,7 @@ function SourceTitle({ href, text }: { href: string | null; text: string }) {
         href={href}
         target="_blank"
         rel="noreferrer noopener"
+        aria-label={`${text} (opens in a new tab)`}
         style={{ fontSize: 'var(--t-sm)', overflowWrap: 'anywhere' }}
       >
         {text}

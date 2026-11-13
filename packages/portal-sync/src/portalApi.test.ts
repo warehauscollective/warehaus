@@ -548,7 +548,14 @@ describe('task link backfill', () => {
     assert.equal(sourceAddedByLabel('vercel-webhook'), 'Added by Vercel');
     assert.equal(sourceAddedByLabel('staff'), 'Added by Staff');
     assert.equal(sourceAddedByLabel('notion'), 'Added by Notion');
-    assert.equal(sourceAddedByLabel('claude_bot'), 'Claude Bot');
+    assert.equal(sourceAddedByLabel('claude_bot'), 'Added by Claude');
+    assert.equal(sourceAddedByLabel('claude'), 'Added by Claude');
+    assert.equal(sourceAddedByLabel('linear_bot'), 'Added by Linear');
+    assert.equal(sourceAddedByLabel('figma-source'), 'Added by Figma');
+    assert.equal(sourceAddedByLabel('github_source'), 'Added by GitHub');
+    assert.equal(sourceAddedByLabel('bridge'), 'Added by Bridge');
+    assert.notEqual(sourceAddedByLabel('claude_bot'), 'Claude Bot');
+    assert.notEqual(sourceAddedByLabel('claude_bot'), 'Added by Claude Bot');
     assert.equal(sourceAddedByLabel('k57f3m9q2n4p5r6s7t8v9w0x1y2z3a'), 'Added by Staff');
     assert.equal(sourceAddedByLabel('a1b2c3d4e5f67890abcd1234ef567890'), 'Added by Staff');
     assert.equal(sourceAddedByLabel('550e8400-e29b-41d4-a716-446655440000'), 'Added by Staff');
