@@ -536,7 +536,9 @@ describe('task link backfill', () => {
     assert.deepEqual(sourceStateChip('succeeded'), { label: 'Deployed', tone: 'good' });
     assert.deepEqual(sourceStateChip('ready'), { label: 'Deployed', tone: 'good' });
     assert.deepEqual(sourceStateChip('success'), { label: 'Success', tone: 'good' });
-    assert.deepEqual(sourceStateChip('in_progress'), { label: 'In Progress', tone: 'warn' });
+    assert.deepEqual(sourceStateChip('in_progress'), { label: 'In progress', tone: 'warn' });
+    assert.deepEqual(sourceStateChip('in progress'), { label: 'In progress', tone: 'warn' });
+    assert.deepEqual(sourceStateChip('In Progress'), { label: 'In progress', tone: 'warn' });
     assert.deepEqual(sourceStateChip('weird_state'), { label: 'Weird State', tone: 'neutral' });
     assert.deepEqual(sourceStateChip('  '), { label: SOURCE_NO_STATUS, tone: 'neutral' });
     assert.deepEqual(sourceStateChip(null), { label: SOURCE_NO_STATUS, tone: 'neutral' });

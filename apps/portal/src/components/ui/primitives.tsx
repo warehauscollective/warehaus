@@ -9,12 +9,14 @@ export function Eyebrow({ children }: { children: ReactNode }) {
 export function Pill({
   children,
   color,
+  className,
 }: {
   children: ReactNode;
   color?: string;
+  className?: string;
 }) {
   return (
-    <span className="ds-pill" style={color ? { color, borderColor: color } : undefined}>
+    <span className={className ? `ds-pill ${className}` : 'ds-pill'} style={color ? { color, borderColor: color } : undefined}>
       {children}
     </span>
   );

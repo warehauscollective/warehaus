@@ -38,6 +38,18 @@ main {
   text-decoration: underline;
 }
 
+/* Open and in-progress pills. The bright --warn swatch is 1.85:1 on paper.
+   Light mode uses the warning text color (4.94:1 on paper). Dark --warn is
+   10.51:1 on ink, so it stays. */
+.ds-scope .task-source-warn {
+  color: var(--warn);
+  border-color: var(--warn);
+}
+:root.light .ds-scope .task-source-warn {
+  color: var(--warning);
+  border-color: var(--warning);
+}
+
 /* One hover and focus treatment for the project and milestone trails. */
 .portal-crumb {
   text-decoration: none;
