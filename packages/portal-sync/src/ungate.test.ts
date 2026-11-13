@@ -10,6 +10,7 @@ import {
 } from './mappers';
 import {
   clientKeepsProjectsStaffVisible,
+  contactStaysStaffVisible,
   decideSyncedRowVisibility,
   isClientSurfaceVisible,
   isOrgVisibleToClients,
@@ -108,6 +109,172 @@ describe('un-gate each flip', () => {
       Slug: rich('acme'),
     });
     assert.equal(blankAccess.disposition, 'skip');
+  });
+
+  it('keeps contacts, tasks, resources, and docs staff-visible under a Disabled prospect', () => {
+    const client = { portalAccess: 'Disabled' as const };
+    assert.equal(isOrgVisibleToClients(client), false);
+    const parentClientEnabled = clientKeepsProjectsStaffVisible(client);
+    assert.equal(parentClientEnabled, true);
+
+    const contact = mapNotionContact('person', {
+      Name: title('Ada'),
+      Email: email('ada@acme.test'),
+      'Portal Access': select('Enabled'),
+      'Client Company': relation(['c1']),
+      Role: select('Client Member'),
+    });
+    assert.equal(contact.disposition, 'upsert');
+    assert.equal(
+      decideSyncedRowVisibility({
+        table: 'contacts',
+        disposition: 'upsert',
+        parentClientEnabled,
+        contactRole: 'Client Member',
+      }).action,
+      'show',
+    );
+    assert.equal(
+      contactStaysStaffVisible({
+        disposition: 'upsert',
+        parentStaffVisible: parentClientEnabled,
+        effectivePortalAccess: 'Enabled',
+        inviteStatus: null,
+        unverifiedAcceptance: false,
+      }),
+      true,
+    );
+    assert.equal(
+      contactStaysStaffVisible({
+        disposition: 'upsert',
+        parentStaffVisible: parentClientEnabled,
+        effectivePortalAccess: 'Enabled',
+        inviteStatus: 'Accepted',
+        unverifiedAcceptance: true,
+      }),
+      false,
+    );
+    assert.equal(
+      contactStaysStaffVisible({
+        disposition: 'skip',
+        parentStaffVisible: parentClientEnabled,
+        effectivePortalAccess: 'Disabled',
+        inviteStatus: null,
+        unverifiedAcceptance: false,
+      }),
+      false,
+    );
+    assert.equal(
+      contactStaysStaffVisible({
+        disposition: 'upsert',
+        parentStaffVisible: clientKeepsProjectsStaffVisible({ syncHiddenAt: 9 }),
+        effectivePortalAccess: 'Enabled',
+        inviteStatus: null,
+        unverifiedAcceptance: false,
+      }),
+      false,
+    );
+
+    const task = mapNotionTask(
+      'task',
+      {
+        Name: title('Ship'),
+        Projects: relation(['prj']),
+        'Publish to Warehaus': checkbox(true),
+        Status: status('To Do'),
+      },
+      true,
+    );
+    assert.equal(task.disposition, 'upsert');
+    assert.equal(
+      decideSyncedRowVisibility({
+        table: 'tasks',
+        disposition: 'upsert',
+        parentClientEnabled,
+        parentProjectVisible: true,
+      }).action,
+      'show',
+    );
+    const hiddenProject = decideSyncedRowVisibility({
+      table: 'tasks',
+      disposition: 'upsert',
+      parentClientEnabled,
+      parentProjectVisible: false,
+    });
+    assert.equal(hiddenProject.action, 'store-hidden');
+
+    const resource = mapNotionSharedResource('resource', {
+      Name: title('Logo'),
+      Client: relation(['c1']),
+      'Publish to Warehaus': checkbox(true),
+      Type: select('Image'),
+    });
+    assert.equal(resource.disposition, 'upsert');
+    assert.equal(
+      decideSyncedRowVisibility({
+        table: 'sharedResources',
+        disposition: 'upsert',
+        parentClientEnabled,
+      }).action,
+      'show',
+    );
+
+    const doc = mapNotionClientDoc('doc', {
+      Title: title('Start'),
+      Status: select('Published'),
+      'Publish to Warehaus': checkbox(true),
+      Client: relation(['c1']),
+      'Doc Type': select('Start Here'),
+    });
+    assert.equal(doc.disposition, 'upsert');
+    assert.equal(
+      decideSyncedRowVisibility({
+        table: 'clientDocs',
+        disposition: 'upsert',
+        parentClientEnabled,
+      }).action,
+      'show',
+    );
+
+    const concealedParent = clientKeepsProjectsStaffVisible({ syncHiddenAt: 9 });
+    assert.equal(concealedParent, false);
+    for (const table of ['contacts', 'tasks', 'sharedResources', 'clientDocs'] as const) {
+      const stored = decideSyncedRowVisibility({
+        table,
+        disposition: 'upsert',
+        parentClientEnabled: concealedParent,
+        ...(table === 'tasks' ? { parentProjectVisible: true } : {}),
+        ...(table === 'contacts' ? { contactRole: 'Client Member' as const } : {}),
+      });
+      assert.equal(stored.action, 'store-hidden');
+      if (stored.action === 'store-hidden' && table === 'contacts') {
+        assert.equal(stored.revokeSessions, true);
+      }
+
+      const trashed = decideSyncedRowVisibility({
+        table,
+        disposition: 'upsert',
+        parentClientEnabled,
+        inTrash: true,
+      });
+      const archived = decideSyncedRowVisibility({
+        table,
+        disposition: 'upsert',
+        parentClientEnabled,
+        archived: true,
+      });
+      assert.equal(trashed.action, 'hide');
+      assert.equal(archived.action, 'hide');
+      if (trashed.action === 'hide') assert.equal(trashed.reason, 'trashed');
+
+      const quarantine = decideSyncedRowVisibility({
+        table,
+        disposition: 'quarantine',
+        dispositionReason: 'quarantine',
+        parentClientEnabled,
+      });
+      assert.equal(quarantine.action, 'quarantine');
+    }
   });
 
   it('hides a contact when Portal Access is disabled and revokes sessions', () => {

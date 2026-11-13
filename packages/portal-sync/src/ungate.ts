@@ -56,9 +56,9 @@ function revokeSessions(table: SyncTable, role: ContactRole | undefined, ancesto
  * Portal access Disabled is not a gate failure for a client.
  * A passing row whose parent client is concealed is stored hidden (`ancestor`).
  * `parentClientEnabled` is omitted for the client table itself.
- * Project pulls pass `clientKeepsProjectsStaffVisible` so a Disabled client
- * keeps its projects on the staff roster. Client users still use
- * `isOrgVisibleToClients`.
+ * Child pulls pass `clientKeepsProjectsStaffVisible` so a Disabled client
+ * keeps contacts, projects, tasks, shared resources, and client docs on the
+ * staff roster. Client users still use `isOrgVisibleToClients`.
  */
 export function decideSyncedRowVisibility(input: {
   table: SyncTable;
@@ -129,13 +129,32 @@ export function isClientSurfaceVisible(row: { syncHiddenAt?: number | null }): b
 }
 
 /**
- * Staff still see projects when the client row itself is not concealed.
+ * Staff still see child rows when the client row itself is not concealed.
  * Portal access Disabled does not conceal it. Trash, archive, and quarantine do.
  */
 export function clientKeepsProjectsStaffVisible(
   client: { syncHiddenAt?: number | null } | null | undefined,
 ): boolean {
   return !!client && isClientSurfaceVisible(client);
+}
+
+/**
+ * A contact that passes its own gate stays on the staff roster when the
+ * client is Disabled but not concealed. Invite placement still requires
+ * portal access Enabled. An unverified Accepted status stays concealed.
+ */
+export function contactStaysStaffVisible(input: {
+  disposition: 'upsert' | 'skip' | 'quarantine';
+  parentStaffVisible: boolean;
+  effectivePortalAccess: 'Enabled' | 'Disabled';
+  inviteStatus?: string | null;
+  unverifiedAcceptance: boolean;
+}): boolean {
+  if (!input.parentStaffVisible) return false;
+  if (input.disposition !== 'upsert') return false;
+  if (input.unverifiedAcceptance) return false;
+  if (input.effectivePortalAccess !== 'Enabled') return false;
+  return input.inviteStatus == null || input.inviteStatus === 'Accepted';
 }
 
 export function isOrgVisibleToClients(

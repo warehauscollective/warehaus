@@ -42,6 +42,7 @@ export {
   isWarehausInternalClient,
   isApprovedInternalWarehausProject,
   projectCountsForTaskGate,
+  projectStaffVisibleForTasks,
   projectClientIdForResourceGate,
   WAREHAUS_INTERNAL_CLIENT_SLUG,
   WAREHAUS_INTERNAL_CLIENT_EXTERNAL_ID,
@@ -56,6 +57,7 @@ export {
 
 export {
   clientKeepsProjectsStaffVisible,
+  contactStaysStaffVisible,
   decideSyncedRowVisibility,
   isClientSurfaceVisible,
   isOrgVisibleToClients,
