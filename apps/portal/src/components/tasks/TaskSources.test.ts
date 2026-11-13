@@ -31,7 +31,8 @@ describe('task sources panel', () => {
     assert.match(html, />Deployed</);
     assert.match(html, />No status</);
     assert.match(html, />Failed</);
-    assert.match(html, />In Progress</);
+    assert.match(html, />In progress</);
+    assert.equal(html.includes('>In Progress<'), false);
     assert.match(html, /Added by Staff/);
     assert.match(html, /Added by GitHub/);
     assert.match(html, /Added by Vercel/);
@@ -59,7 +60,8 @@ describe('task sources panel', () => {
     assert.equal(html.includes('<button'), false);
     assert.equal(html.includes('javascript:'), false);
     assert.equal((html.match(/data-testid="task-source-row"/g) ?? []).length, SOURCE_PANEL_LINKS.length);
-    assert.equal((html.match(/class="ds-pill"/g) ?? []).length, SOURCE_PANEL_LINKS.length * 2);
+    assert.equal((html.match(/class="ds-pill(?: task-source-warn)?"/g) ?? []).length, SOURCE_PANEL_LINKS.length * 2);
+    assert.equal((html.match(/task-source-warn/g) ?? []).length, 2);
   });
 
   it('keeps an empty list read-only', () => {
@@ -100,6 +102,8 @@ describe('task sources panel', () => {
     assert.equal(/\.ds-scope a\.task-source-link\s*\{[^}]*var\(--accent\)/.test(css), false);
     assert.equal(/\.ds-scope a\.task-source-link\s*\{[^}]*var\(--info\)/.test(css), false);
     assert.match(css, /\.ds-scope a\.task-source-link:hover[\s\S]*text-decoration:\s*underline/);
+    assert.match(css, /\.ds-scope \.task-source-warn\s*\{[^}]*color:\s*var\(--warn\)/);
+    assert.match(css, /:root\.light \.ds-scope \.task-source-warn\s*\{[^}]*color:\s*var\(--warning\)/);
     const tasks = readFileSync(new URL('../../../convex/tasks.ts', import.meta.url), 'utf8');
     const start = tasks.indexOf('export const linksForStaff');
     const body = tasks.slice(start, tasks.indexOf('export const setResources'));

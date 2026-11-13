@@ -403,6 +403,8 @@ const STATE_PLAIN: Record<string, string> = {
   succeeded: 'Deployed',
   ready: 'Deployed',
   open: 'Open',
+  in_progress: 'In progress',
+  'in progress': 'In progress',
   failed: 'Failed',
   failure: 'Failed',
   error: 'Failed',

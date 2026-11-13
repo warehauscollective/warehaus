@@ -23,13 +23,13 @@ import {
 
 export type { TaskSourceLink };
 
-const TONE_COLOR: Record<Exclude<SourceChipTone, 'neutral'>, string> = {
+const TONE_COLOR: Record<'good' | 'bad', string> = {
   good: 'var(--success)',
-  warn: 'var(--warn)',
   bad: 'var(--danger)',
 };
 
 function SourcePill({ label, tone }: { label: string; tone: SourceChipTone }) {
+  if (tone === 'warn') return <Pill className="task-source-warn">{label}</Pill>;
   const color = tone === 'neutral' ? undefined : TONE_COLOR[tone];
   return <Pill color={color}>{label}</Pill>;
 }
