@@ -6,10 +6,13 @@
 
 import {
   PORTAL_COLLECTIONS,
+  clientCreatePageRequest,
+  clientCreateSearchFilter,
   extractRelationIds,
   projectCreatePageRequest,
   projectCreateSearchFilter,
   toNotionProperties,
+  type ClientCreateProperties,
   type ProjectCreateProperties,
   type WriteProperties,
   type WritebackDatabase,
@@ -135,6 +138,43 @@ export async function searchProjectCreateHits(
       notionPageId: page.id,
       clientNotionIds: extractRelationIds(page.properties?.Client),
     }));
+}
+
+/** External ID or Slug. Does not update the page. */
+export async function searchClientCreateHits(
+  externalId: string,
+  slug: string,
+): Promise<Array<{ notionPageId: string; properties: Record<string, unknown> }>> {
+  const sourceId = await resolveDataSourceId(PORTAL_COLLECTIONS.clients);
+  const res = await notionWriteFetch(`/data_sources/${sourceId}/query`, {
+    method: 'POST',
+    body: JSON.stringify({ filter: clientCreateSearchFilter(externalId, slug), page_size: 5 }),
+  });
+  if (!res.ok) {
+    const error = (await res.text()).slice(0, 400);
+    throw new Error(`Notion search → ${res.status}: ${error}`);
+  }
+  const body = (await res.json()) as {
+    results?: Array<{ id?: string; properties?: Record<string, unknown> }>;
+  };
+  return (body.results ?? [])
+    .filter((page): page is { id: string; properties?: Record<string, unknown> } => Boolean(page.id))
+    .map((page) => ({
+      notionPageId: page.id,
+      properties: page.properties ?? {},
+    }));
+}
+
+/** Full-page POST. A slug hit never reaches this function. */
+export async function createNotionClientPage(
+  properties: ClientCreateProperties,
+): Promise<NotionWriteResult> {
+  const sourceId = await resolveDataSourceId(PORTAL_COLLECTIONS.clients);
+  const res = await notionWriteFetch('/pages', {
+    method: 'POST',
+    body: JSON.stringify(clientCreatePageRequest(sourceId, properties)),
+  });
+  return readResult(res);
 }
 
 /** Uses the project-create property builder, not the generic create shaper. */

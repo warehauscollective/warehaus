@@ -17,6 +17,7 @@ import type * as auth from "../auth.js";
 import type * as billing from "../billing.js";
 import type * as billing_stripe from "../billing/stripe.js";
 import type * as billingUpsert from "../billingUpsert.js";
+import type * as clientCreate from "../clientCreate.js";
 import type * as clientDocs from "../clientDocs.js";
 import type * as clientUploads from "../clientUploads.js";
 import type * as clients from "../clients.js";
@@ -76,6 +77,7 @@ declare const fullApi: ApiFromModules<{
   billing: typeof billing;
   "billing/stripe": typeof billing_stripe;
   billingUpsert: typeof billingUpsert;
+  clientCreate: typeof clientCreate;
   clientDocs: typeof clientDocs;
   clientUploads: typeof clientUploads;
   clients: typeof clients;

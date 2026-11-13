@@ -3,6 +3,13 @@
  * No caller may create a Convex row that grants access until `confirmed`.
  */
 
+import {
+  asClientCreateProperties,
+  clientCreateEnqueueError,
+  decideClientCreateDedupe,
+  type ClientCreateHit,
+  type ClientCreateProperties,
+} from './clientCreate';
 import { decideProjectCreateDedupe } from './projectCreate';
 import { PROJECT_PROPERTY_TIERS } from './tiers';
 import {
@@ -66,6 +73,15 @@ export function taskStatusIdempotencyKey(
 
 export function projectCreateIdempotencyKey(externalId: string): string {
   return `project-create:${externalId}`;
+}
+
+export function clientCreateIdempotencyKey(externalId: string): string {
+  return `client-create:${externalId}`;
+}
+
+/** Invite mail runs only for these kinds. Client create is not one of them. */
+export function outboxKindSendsInvite(kind: string): boolean {
+  return kind === 'createInvite' || kind === 'setInviteState';
 }
 
 export type IdempotencyRow = {
@@ -299,7 +315,9 @@ export async function runOutboxAttempt(input: {
 
   // Partial edits use the patch path and its last-edited conflict check.
   // Full-page validation stays for creates only: `create` and `createInvite`
-  // send a new page, and `project-create` has its own create attempt.
+  // send a new page. `project-create` and `client-create` have their own
+  // attempts. A client slug hit must not fall through here: this path PATCHes
+  // a reused page, and client create must not.
   // `setInviteState` and `revert` already use validatePropertyPatch above.
   // They re-read only when expectedLastEditedTime is present, because some
   // state changes have no prior read. That is not the full-page bug.
@@ -529,6 +547,70 @@ export async function runProjectCreateAttempt(input: {
       notionPageId: response.notionPageId,
       lastEditedTime: response.lastEditedTime ?? null,
       properties,
+    },
+  };
+}
+
+export type ClientCreateAttempt = AttemptOutcome & {
+  reuseKind?: 'external-id' | 'slug';
+  existingNotionProperties?: Record<string, unknown>;
+};
+
+/**
+ * Staff client create. External ID and Slug hits are reused and not patched.
+ * Write-back off calls nothing. This attempt does not send mail.
+ */
+export async function runClientCreateAttempt(input: {
+  item: OutboxItem;
+  nowMs: number;
+  writebackEnabled: boolean;
+  search: () => Promise<readonly ClientCreateHit[]>;
+  create: (properties: ClientCreateProperties) => Promise<NotionWriteResponse>;
+  owned?: boolean;
+  livePropertyNames?: readonly string[];
+}): Promise<ClientCreateAttempt> {
+  const plan = planOutboxAttempt(input.item, input.nowMs, input.writebackEnabled, { owned: input.owned });
+  if (plan.action === 'hold') return { outcome: 'held', reason: plan.reason };
+  if (plan.action === 'wait') return { outcome: 'wait' };
+  if (plan.action === 'dead') {
+    return { outcome: 'dead', notifyStaff: plan.notifyStaff, error: 'Outbox item exceeded 24h' };
+  }
+
+  const invalid = clientCreateEnqueueError(input.item.properties);
+  if (invalid) return { outcome: 'rejected', reason: invalid };
+  const schemaMiss = rejectIfSchemaMissing(input.item.properties, input.livePropertyNames);
+  if (schemaMiss) return schemaMiss;
+
+  const externalId = input.item.properties['External ID'];
+  const slug = input.item.properties.Slug;
+  if (typeof externalId !== 'string' || typeof slug !== 'string') {
+    return { outcome: 'rejected', reason: 'Client create payload is incomplete' };
+  }
+
+  const hits = await input.search();
+  const dedupe = decideClientCreateDedupe({ externalId, slug, hits });
+  if (dedupe.action === 'reuse') {
+    const hit = hits.find((row) => row.notionPageId === dedupe.notionPageId);
+    return {
+      outcome: 'confirmed',
+      reused: true,
+      reuseKind: dedupe.kind,
+      existingNotionProperties: hit?.properties,
+      write: { notionPageId: dedupe.notionPageId, lastEditedTime: null, properties: input.item.properties },
+    };
+  }
+
+  const shaped = asClientCreateProperties(input.item.properties);
+  if (!shaped) return { outcome: 'rejected', reason: 'Client create payload is incomplete' };
+  const response = await input.create(shaped);
+  if (!response.ok || !response.notionPageId) return retryOutcome(input.item, input.nowMs, response);
+  return {
+    outcome: 'confirmed',
+    reused: false,
+    write: {
+      notionPageId: response.notionPageId,
+      lastEditedTime: response.lastEditedTime ?? null,
+      properties: input.item.properties,
     },
   };
 }

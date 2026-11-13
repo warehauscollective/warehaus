@@ -472,8 +472,15 @@ function ClientListSkeleton() {
   );
 }
 
-export function NewClientButton() {
+export function NewClientButton({ onCreate }: { onCreate?: () => void }) {
   const hintId = useId();
+  if (onCreate) {
+    return (
+      <OutlineButton onClick={onCreate} testId="new-client-header-button">
+        New client
+      </OutlineButton>
+    );
+  }
   return (
     <span
       tabIndex={0}
@@ -558,6 +565,7 @@ export function ClientDirectory({
   error,
   errorTitle,
   onRetry,
+  onCreate,
 }: {
   clients: DirectoryClient[];
   filter: ClientListFilter;
@@ -568,6 +576,8 @@ export function ClientDirectory({
   /** Designed sync-problem title. A plain query failure uses the load/refresh titles. */
   errorTitle?: string;
   onRetry?: () => void;
+  /** Staff create. Omitted while the control stays disabled. */
+  onCreate?: () => void;
 }) {
   const narrow = useMaxWidth(480);
   const count = clients.length;
@@ -686,7 +696,15 @@ export function ClientDirectory({
           <EmptyCopy
             title="No clients yet"
             body="Add a client to start a project. Warehaus (internal) always exists."
-            action={<ClientOutlineAction label="New client" hint={CLIENT_CREATE_HINT} testId="new-client" />}
+            action={
+              onCreate ? (
+                <OutlineButton onClick={onCreate} testId="new-client">
+                  New client
+                </OutlineButton>
+              ) : (
+                <ClientOutlineAction label="New client" hint={CLIENT_CREATE_HINT} testId="new-client" />
+              )
+            }
           />
         ) : filteredEmpty ? (
           <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 16 }}>

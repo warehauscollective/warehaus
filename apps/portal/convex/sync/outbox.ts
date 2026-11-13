@@ -5,6 +5,7 @@
 
 import {
   auditEventForOutcome,
+  clientCreateEnqueueError,
   isMissingPropertyRejection,
   isNewerEditedTime,
   isNotionWritebackEnabled,
@@ -220,6 +221,10 @@ function validateEnqueueKind(input: {
       if (!allowed.has(name)) return `${name} is not part of project create`;
     }
     return null;
+  }
+  if (input.kind === 'client-create') {
+    if (input.database !== 'clients') return 'Client create only writes the Clients database';
+    return clientCreateEnqueueError(input.properties);
   }
   if (input.kind === 'createInvite') {
     if (input.database !== 'contacts') return 'Invites only write the Contacts database';
@@ -572,6 +577,18 @@ export const attachProjectId = internalMutation({
     const parsed = JSON.parse(row.resultJson) as Record<string, unknown>;
     await ctx.db.patch(args.id, {
       resultJson: JSON.stringify({ ...parsed, projectId: args.projectId }),
+    });
+  },
+});
+
+export const attachClientId = internalMutation({
+  args: { id: v.id('notionOutbox'), clientId: v.id('clients') },
+  handler: async (ctx, args) => {
+    const row = await ctx.db.get(args.id);
+    if (!row?.resultJson) return;
+    const parsed = JSON.parse(row.resultJson) as Record<string, unknown>;
+    await ctx.db.patch(args.id, {
+      resultJson: JSON.stringify({ ...parsed, clientId: args.clientId }),
     });
   },
 });

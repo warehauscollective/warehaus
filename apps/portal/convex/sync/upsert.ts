@@ -1,4 +1,5 @@
 import {
+  companyNameKey,
   decideResourceLink,
   isApprovedInternalWarehausProject,
   isOrgVisibleToClients,
@@ -64,6 +65,7 @@ export const upsertClient = internalMutation({
     const now = Date.now();
     const patch = {
       ...fields,
+      nameKey: companyNameKey(args.companyName),
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
     };

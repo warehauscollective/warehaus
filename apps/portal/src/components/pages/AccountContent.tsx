@@ -32,6 +32,7 @@ import {
   type ClientTaskRow,
   type DirectoryClient,
 } from '@/components/clients/ClientScreens';
+import { NewClientControl } from '@/components/clients/NewClientControl';
 import { useClientTaskPlatform } from '@/components/clients/useClientTaskPlatform';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { useRetryPortalData } from '@/components/providers/PortalDataRetry';
@@ -132,6 +133,7 @@ export function AccountContent() {
   const [teamAttempt, setTeamAttempt] = useState(0);
   const [inviteDraft, setInviteDraft] = useState<InviteDraft>({ name: '', email: '' });
   const [clientPeopleCache, setClientPeopleCache] = useState<ClientPersonRow[] | null>(null);
+  const [clientFormOpen, setClientFormOpen] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -370,7 +372,11 @@ export function AccountContent() {
       titleLines={titleLines}
       breadcrumb={breadcrumb ?? undefined}
       actions={
-        showNewClient ? <NewClientButton /> : clientOpen ? <EditClientButton /> : undefined
+        showNewClient ? (
+          <NewClientButton onCreate={() => setClientFormOpen(true)} />
+        ) : clientOpen ? (
+          <EditClientButton />
+        ) : undefined
       }
     >
       {fixtures && docsPreview === 'states' ? (
@@ -428,6 +434,7 @@ export function AccountContent() {
               if (clientScreen === 'filtered' && next === 'all') setClientScreen('ready');
             }}
             onOpen={(id) => setClientId(id)}
+            onCreate={isStaff ? () => setClientFormOpen(true) : undefined}
             loading={clientScreen === 'loading' || (directoryState.loading && !fixtures)}
             error={directoryError}
             errorTitle={clientScreen === 'refresh' ? 'Client list is out of date' : undefined}
@@ -501,6 +508,19 @@ export function AccountContent() {
           <NotificationSettings staff={isStaff} live={configured && !fixtures} hostSlug={hostSlug} />
         </PortalTilePane>
       )}
+
+      {isStaff && clientFormOpen ? (
+        <NewClientControl
+          open
+          fixtures={fixtures}
+          hostSlug={hostSlug}
+          onClose={() => setClientFormOpen(false)}
+          onOpen={(id) => {
+            setClientId(id);
+            setClientFormOpen(false);
+          }}
+        />
+      ) : null}
 
       {isStaff && activeSection === 'team' && (
         <TeamInvites

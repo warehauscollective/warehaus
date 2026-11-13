@@ -43,6 +43,11 @@ export default defineSchema({
     /** Stripe Customer id — maps webhooks → org (never Notion) */
     stripeCustomerId: v.optional(v.string()),
     /**
+     * Trimmed lowercase company name for the duplicate check.
+     * Absent until a later upsert writes it. This is not a backfill.
+     */
+    nameKey: v.optional(v.string()),
+    /**
      * Portal choice for task and milestone reads.
      * Absent means Notion. Notion sync does not write this field.
      */
@@ -51,7 +56,8 @@ export default defineSchema({
     .index('by_slug', ['slug'])
     .index('by_notionPageId', ['notionPageId'])
     .index('by_externalId', ['externalId'])
-    .index('by_stripeCustomerId', ['stripeCustomerId']),
+    .index('by_stripeCustomerId', ['stripeCustomerId'])
+    .index('by_nameKey', ['nameKey']),
 
   projects: defineTable({
     orgId: v.id('clients'),
