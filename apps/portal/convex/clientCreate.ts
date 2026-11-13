@@ -4,14 +4,16 @@ import {
   clientCreateIdempotencyKey,
   clientCreateStaffAllowed,
   companyNameKey,
+  IDEMPOTENCY_IN_PROGRESS_ERROR,
   isNotionWritebackEnabled,
   planClientCreateDispatch,
+  planCreateResume,
   type ClientCreateField,
   type ClientCreateProperties,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
-import { action, internalQuery } from './_generated/server';
+import { action, internalAction, internalQuery, type ActionCtx, type QueryCtx } from './_generated/server';
 import type { Id } from './_generated/dataModel';
 import {
   PortalAuthError,
@@ -34,6 +36,28 @@ type PrepareResult =
       properties: ClientCreateProperties;
     }
   | { ok: false; error: string; field?: ClientCreateField };
+
+async function findExistingClient(db: QueryCtx['db'], properties: ClientCreateProperties) {
+  const named = await db
+    .query('clients')
+    .withIndex('by_nameKey', (q) => q.eq('nameKey', companyNameKey(properties['Company Name'])))
+    .take(2);
+  const slugged = named[0]
+    ? []
+    : await db
+        .query('clients')
+        .withIndex('by_slug', (q) => q.eq('slug', properties.Slug))
+        .take(2);
+  const external = named[0] || slugged[0]
+    ? []
+    : await db
+        .query('clients')
+        .withIndex('by_externalId', (q) => q.eq('externalId', properties['External ID']))
+        .take(2);
+  const existing = named[0] ?? slugged[0] ?? external[0];
+  if (!existing) return null;
+  return { clientId: existing._id, notionPageId: existing.notionPageId };
+}
 
 /**
  * Staff creates one client through the Notion outbox, then upserts that page
@@ -88,28 +112,12 @@ export const prepare = internalQuery({
     });
     if (!built.ok) return { ok: false, error: built.error, field: built.field };
 
-    const named = await ctx.db
-      .query('clients')
-      .withIndex('by_nameKey', (q) => q.eq('nameKey', companyNameKey(built.properties['Company Name'])))
-      .take(2);
-    const slugged = named[0]
-      ? []
-      : await ctx.db
-          .query('clients')
-          .withIndex('by_slug', (q) => q.eq('slug', built.properties.Slug))
-          .take(2);
-    const external = named[0] || slugged[0]
-      ? []
-      : await ctx.db
-          .query('clients')
-          .withIndex('by_externalId', (q) => q.eq('externalId', built.properties['External ID']))
-          .take(2);
-    const existing = named[0] ?? slugged[0] ?? external[0];
+    const existing = await findExistingClient(ctx.db, built.properties);
     if (existing) {
       return {
         ok: true,
         reused: true,
-        clientId: existing._id,
+        clientId: existing.clientId,
         notionPageId: existing.notionPageId,
       };
     }
@@ -160,7 +168,7 @@ export const createInNotion = action({
     args,
   ): Promise<
     | { ok: true; clientId: string; notionPageId: string; reused: boolean }
-    | { ok: false; error: string; field?: ClientCreateField }
+    | { ok: false; error: string; status?: 409; field?: ClientCreateField }
   > => {
     const auth = await ctx.auth.getUserIdentity();
     if (!auth) return { ok: false, error: 'Not authenticated' };
@@ -186,66 +194,144 @@ export const createInNotion = action({
         reused: true,
       };
     }
+    return finishClientCreate(ctx, prepared);
+  },
+});
 
-    const gate = planClientCreateDispatch({
-      writebackEnabled: isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED),
-    });
-    if (!gate.ok) return gate;
+type ClientCreateOk = { ok: true; clientId: string; notionPageId: string; reused: boolean };
 
-    const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
-      idempotencyKey: clientCreateIdempotencyKey(prepared.properties['External ID']),
-      kind: 'client-create',
-      orgId: prepared.orgId,
-      database: 'clients',
-      payload: JSON.stringify({ properties: prepared.properties }),
-      actor: 'staff',
-      schedule: false,
-    });
-    if (!queued.ok) return queued;
+async function finishClientCreate(
+  ctx: ActionCtx,
+  prepared: { orgId: Id<'clients'>; properties: ClientCreateProperties },
+): Promise<ClientCreateOk | { ok: false; error: string; status?: 409; field?: ClientCreateField }> {
+  const gate = planClientCreateDispatch({
+    writebackEnabled: isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED),
+  });
+  if (!gate.ok) return gate;
 
-    const processed = await ctx.runAction(internal.sync.outboxWork.processOne, {
-      id: queued.outboxId,
-    });
-    if (!processed.ok) return processed;
-    if (processed.clientId) {
+  const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
+    idempotencyKey: clientCreateIdempotencyKey(prepared.properties['External ID']),
+    kind: 'client-create',
+    orgId: prepared.orgId,
+    database: 'clients',
+    payload: JSON.stringify({ properties: prepared.properties }),
+    actor: 'staff',
+    schedule: false,
+  });
+  if (!queued.ok) return queued;
+  if (queued.duplicate) {
+    const resume = planCreateResume({ status: queued.status, resultJson: queued.resultJson });
+    if (resume.action === 'busy') {
+      return { ok: false, status: 409, error: IDEMPOTENCY_IN_PROGRESS_ERROR };
+    }
+    if (resume.action === 'replay' && resume.clientId) {
       return {
         ok: true,
-        clientId: processed.clientId,
-        notionPageId: processed.notionPageId,
-        reused: processed.reused,
+        clientId: resume.clientId,
+        notionPageId: resume.notionPageId,
+        reused: true,
       };
     }
-
-    const existing = await ctx.runQuery(internal.clientCreate.findByNotionPage, {
-      notionPageId: processed.notionPageId,
-    });
-    if (existing) {
-      return { ok: true, clientId: existing.id, notionPageId: processed.notionPageId, reused: true };
+    if (resume.action === 'replay') {
+      const existing = await ctx.runQuery(internal.clientCreate.findByNotionPage, {
+        notionPageId: resume.notionPageId,
+      });
+      if (existing) {
+        return { ok: true, clientId: existing.id, notionPageId: resume.notionPageId, reused: true };
+      }
+      return { ok: false, status: 409, error: IDEMPOTENCY_IN_PROGRESS_ERROR };
     }
-    const byExternal = await ctx.runQuery(internal.clientCreate.findByExternalId, {
-      externalId: prepared.properties['External ID'],
-    });
-    if (byExternal) {
-      return { ok: true, clientId: byExternal.id, notionPageId: processed.notionPageId, reused: true };
-    }
+  }
 
-    const fields = clientCreateConvexFields(prepared.properties);
-    const clientId = await ctx.runMutation(internal.sync.upsert.upsertClient, {
-      notionPageId: processed.notionPageId,
-      companyName: fields.companyName,
-      slug: fields.slug,
-      status: fields.status,
-      portalAccess: 'Disabled',
-      externalId: fields.externalId,
-      source: 'portal',
-      ...(fields.primaryEmail ? { primaryEmail: fields.primaryEmail } : {}),
-      ...(fields.phone ? { phone: fields.phone } : {}),
-    });
+  const processed = await ctx.runAction(internal.sync.outboxWork.processOne, {
+    id: queued.outboxId,
+  });
+  if (!processed.ok) return processed;
+  if (processed.clientId) {
     return {
       ok: true,
-      clientId,
+      clientId: processed.clientId,
       notionPageId: processed.notionPageId,
-      reused: false,
+      reused: processed.reused,
     };
+  }
+
+  const existing = await ctx.runQuery(internal.clientCreate.findByNotionPage, {
+    notionPageId: processed.notionPageId,
+  });
+  if (existing) {
+    return { ok: true, clientId: existing.id, notionPageId: processed.notionPageId, reused: true };
+  }
+  const byExternal = await ctx.runQuery(internal.clientCreate.findByExternalId, {
+    externalId: prepared.properties['External ID'],
+  });
+  if (byExternal) {
+    return { ok: true, clientId: byExternal.id, notionPageId: processed.notionPageId, reused: true };
+  }
+
+  const fields = clientCreateConvexFields(prepared.properties);
+  const clientId = await ctx.runMutation(internal.sync.upsert.upsertClient, {
+    notionPageId: processed.notionPageId,
+    companyName: fields.companyName,
+    slug: fields.slug,
+    status: fields.status,
+    portalAccess: 'Disabled',
+    externalId: fields.externalId,
+    source: 'portal',
+    ...(fields.primaryEmail ? { primaryEmail: fields.primaryEmail } : {}),
+    ...(fields.phone ? { phone: fields.phone } : {}),
+  });
+  return {
+    ok: true,
+    clientId,
+    notionPageId: processed.notionPageId,
+    reused: false,
+  };
+}
+
+/** Same property builder and outbox path as the staff form. The caller is a staff API token. */
+export const prepareForToken = internalQuery({
+  args: {
+    orgId: v.id('clients'),
+    companyName: v.string(),
+    primaryEmail: v.optional(v.string()),
+    phone: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<PrepareResult> => {
+    const home = await ctx.db.get(args.orgId);
+    if (!home) return { ok: false, error: 'Home org was not found' };
+    const built = buildClientCreateProperties({
+      companyName: args.companyName,
+      primaryEmail: args.primaryEmail,
+      phone: args.phone,
+    });
+    if (!built.ok) return { ok: false, error: built.error, field: built.field };
+    const existing = await findExistingClient(ctx.db, built.properties);
+    if (existing) {
+      return { ok: true, reused: true, clientId: existing.clientId, notionPageId: existing.notionPageId };
+    }
+    return { ok: true, reused: false, orgId: home._id, properties: built.properties };
+  },
+});
+
+export const createForToken = internalAction({
+  args: {
+    orgId: v.id('clients'),
+    companyName: v.string(),
+    primaryEmail: v.optional(v.string()),
+    phone: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<ClientCreateOk | { ok: false; error: string; status?: 409; field?: ClientCreateField }> => {
+    const prepared = await ctx.runQuery(internal.clientCreate.prepareForToken, args);
+    if (!prepared.ok) return prepared;
+    if (prepared.reused) {
+      return {
+        ok: true,
+        clientId: prepared.clientId,
+        notionPageId: prepared.notionPageId,
+        reused: true,
+      };
+    }
+    return finishClientCreate(ctx, prepared);
   },
 });

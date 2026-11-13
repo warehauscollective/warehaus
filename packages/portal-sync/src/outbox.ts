@@ -26,8 +26,12 @@ export const OUTBOX_BACKOFF_MS = [30_000, 120_000, 600_000, 1_800_000, 7_200_000
 export const OUTBOX_DEAD_AFTER_MS = 24 * 60 * 60 * 1000;
 export const OUTBOX_STAFF_NOTICE_ATTEMPTS = 5;
 export const OUTBOX_STAFF_NOTICE_QUEUED_MS = 60 * 60 * 1000;
-/** How long a claimed row stays with that attempt. A crashed worker is reclaimed after this. */
-export const OUTBOX_LEASE_MS = 120_000;
+/**
+ * How long a claimed row stays with that attempt.
+ * Convex actions and HTTP actions stop at 10 minutes. This is longer, so a
+ * request that is still running cannot be handed to another attempt.
+ */
+export const OUTBOX_LEASE_MS = 15 * 60 * 1000;
 
 export type OutboxStatus = 'queued' | 'inflight' | 'done' | 'failed' | 'dead' | 'conflict';
 
@@ -102,6 +106,40 @@ export function planIdempotentEnqueue(
   if (!writebackEnabled) return { action: 'noop', error: WRITEBACK_OFF_ERROR };
   if (existing) return { action: 'reuse' };
   return { action: 'insert' };
+}
+
+export type CreateResume =
+  | { action: 'replay'; notionPageId: string; projectId?: string; clientId?: string; reused: boolean }
+  | { action: 'busy' }
+  | { action: 'retry' };
+
+/**
+ * A reused outbox row. `done` replays the stored page. `failed` and `dead`
+ * may run processOne again. Anything still queued or inflight stays put, so a
+ * retry does not take the lease or start a second Notion create.
+ */
+export function planCreateResume(row: { status: OutboxStatus; resultJson?: string | null }): CreateResume {
+  if (row.status === 'failed' || row.status === 'dead') return { action: 'retry' };
+  if (row.status !== 'done') return { action: 'busy' };
+  if (!row.resultJson) return { action: 'busy' };
+  try {
+    const parsed = JSON.parse(row.resultJson) as {
+      notionPageId?: unknown;
+      projectId?: unknown;
+      clientId?: unknown;
+      reused?: unknown;
+    };
+    if (typeof parsed.notionPageId !== 'string' || parsed.notionPageId.length === 0) return { action: 'busy' };
+    return {
+      action: 'replay',
+      notionPageId: parsed.notionPageId,
+      ...(typeof parsed.projectId === 'string' ? { projectId: parsed.projectId } : {}),
+      ...(typeof parsed.clientId === 'string' ? { clientId: parsed.clientId } : {}),
+      reused: parsed.reused === true,
+    };
+  } catch {
+    return { action: 'busy' };
+  }
 }
 
 export function nextBackoffMs(failedAttempts: number, retryAfterMs?: number): number {

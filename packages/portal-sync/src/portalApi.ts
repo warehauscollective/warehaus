@@ -109,8 +109,12 @@ export function pageLimit(value: unknown): number | null {
   return limit;
 }
 
-export function visibilityWriteError(body: Record<string, unknown>): string | null {
+export function visibilityWriteError(
+  body: Record<string, unknown>,
+  allow: readonly string[] = [],
+): string | null {
   for (const key of VISIBILITY_KEYS) {
+    if (allow.includes(key)) continue;
     if (Object.prototype.hasOwnProperty.call(body, key)) {
       return 'Client visibility cannot be changed through the API';
     }
@@ -157,19 +161,43 @@ export type IdempotencyRecord = {
   state: 'pending' | 'done';
   status?: number;
   body?: string;
+  createdAt?: number;
 };
+
+/**
+ * A pending key younger than this returns 409. Convex actions and HTTP actions
+ * stop at 10 minutes, so this is longer: a request that is still alive is not
+ * replaced. After the lease, the same request may look at the outbox. An
+ * inflight outbox row still returns 409 and is not claimed.
+ */
+export const API_IDEMPOTENCY_LEASE_MS = 15 * 60 * 1000;
+
+export const IDEMPOTENCY_IN_PROGRESS_ERROR =
+  'A request with this idempotency key is already in progress';
 
 export function idempotencyDecision(input: {
   existing: IdempotencyRecord | null;
   requestHash: string;
+  now?: number;
 }):
   | { action: 'start' }
+  | { action: 'reclaim' }
   | { action: 'replay'; status: number; body: string }
   | { action: 'mismatch' }
   | { action: 'in_progress' } {
   if (!input.existing) return { action: 'start' };
   if (input.existing.requestHash !== input.requestHash) return { action: 'mismatch' };
-  if (input.existing.state === 'pending') return { action: 'in_progress' };
+  if (input.existing.state === 'pending') {
+    const createdAt = input.existing.createdAt;
+    if (
+      input.now != null &&
+      createdAt != null &&
+      input.now - createdAt >= API_IDEMPOTENCY_LEASE_MS
+    ) {
+      return { action: 'reclaim' };
+    }
+    return { action: 'in_progress' };
+  }
   return {
     action: 'replay',
     status: input.existing.status ?? 500,
@@ -180,18 +208,23 @@ export function idempotencyDecision(input: {
 /**
  * Claim the key before any other write. A start replaces a missing row with
  * pending. A later overlapping call sees that pending row and does not start.
+ * After `API_IDEMPOTENCY_LEASE_MS` the same request may resume that pending row.
+ * Resuming does not delete it, and it does not start a second Notion create
+ * while the matching outbox row is still inflight.
  */
 export function claimIdempotency(
   existing: IdempotencyRecord | null,
   requestHash: string,
+  now?: number,
 ):
   | { action: 'start'; record: IdempotencyRecord }
+  | { action: 'reclaim'; record: IdempotencyRecord }
   | { action: 'replay'; status: number; body: string; record: IdempotencyRecord }
   | { action: 'mismatch'; record: IdempotencyRecord }
   | { action: 'in_progress'; record: IdempotencyRecord } {
-  const decision = idempotencyDecision({ existing, requestHash });
-  if (decision.action === 'start') {
-    return { action: 'start', record: { requestHash, state: 'pending' } };
+  const decision = idempotencyDecision({ existing, requestHash, now });
+  if (decision.action === 'start' || decision.action === 'reclaim') {
+    return { action: decision.action, record: { requestHash, state: 'pending' } };
   }
   return { ...decision, record: existing as IdempotencyRecord };
 }
@@ -233,10 +266,12 @@ export type TaskListIndex =
   | 'by_projectId_updatedAt'
   | 'by_status'
   | 'by_stage'
-  | 'by_updatedAt';
+  | 'by_updatedAt'
+  | 'by_milestone';
 
 export function taskListPlan(input: {
   projectId?: string;
+  milestoneId?: string;
   status?: string;
   stage?: string;
   updatedSince?: number;
@@ -244,6 +279,7 @@ export function taskListPlan(input: {
   const status = input.status?.trim() ?? '';
   const stage = input.stage?.trim() ?? '';
   const hasProject = Boolean(input.projectId);
+  const hasMilestone = Boolean(input.milestoneId);
   const hasStatus = status.length > 0;
   const hasStage = stage.length > 0;
   const hasSince = input.updatedSince != null;
@@ -253,12 +289,16 @@ export function taskListPlan(input: {
     return { ok: false, error: 'updatedSince must be a time in milliseconds' };
   }
   const filters = Number(hasStatus) + Number(hasStage) + Number(hasSince);
-  if (!hasProject && filters === 0) {
-    return { ok: false, error: 'Choose a project, status, stage, or updatedSince' };
+  if (hasMilestone && filters > 0) {
+    return { ok: false, error: 'Filter by one of status, stage, updatedSince, or milestone' };
+  }
+  if (!hasProject && !hasMilestone && filters === 0) {
+    return { ok: false, error: 'Choose a project, milestone, status, stage, or updatedSince' };
   }
   if (filters > 1) {
     return { ok: false, error: 'Filter by one of status, stage, or updatedSince' };
   }
+  if (hasMilestone) return { ok: true, index: 'by_milestone' };
   if (hasProject && hasStatus) return { ok: true, index: 'by_projectId_status' };
   if (hasProject && hasStage) return { ok: true, index: 'by_projectId_stage' };
   if (hasProject && hasSince) return { ok: true, index: 'by_projectId_updatedAt' };

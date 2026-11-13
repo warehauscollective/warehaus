@@ -33,6 +33,7 @@ import type * as milestones from "../milestones.js";
 import type * as notificationPrefs from "../notificationPrefs.js";
 import type * as notionAuth from "../notionAuth.js";
 import type * as portalApi from "../portalApi.js";
+import type * as portalCatalog from "../portalCatalog.js";
 import type * as portalData from "../portalData.js";
 import type * as portalTokens from "../portalTokens.js";
 import type * as projectCreate from "../projectCreate.js";
@@ -96,6 +97,7 @@ declare const fullApi: ApiFromModules<{
   notificationPrefs: typeof notificationPrefs;
   notionAuth: typeof notionAuth;
   portalApi: typeof portalApi;
+  portalCatalog: typeof portalCatalog;
   portalData: typeof portalData;
   portalTokens: typeof portalTokens;
   projectCreate: typeof projectCreate;

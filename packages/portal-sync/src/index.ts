@@ -262,6 +262,7 @@ export {
   planOutboxAttempt,
   takeOutboxLease,
   outboxLeaseUnexpired,
+  planCreateResume,
   planIdempotentEnqueue,
   runOutboxAttempt,
   runProjectCreateAttempt,
@@ -419,6 +420,7 @@ export {
 } from './taskPlatform';
 
 export {
+  API_IDEMPOTENCY_LEASE_MS,
   API_PAGE_DEFAULT,
   API_PAGE_MAX,
   API_RATE_LIMIT_DEFAULT,
@@ -433,6 +435,7 @@ export {
   bearerToken,
   claimIdempotency,
   completeIdempotency,
+  IDEMPOTENCY_IN_PROGRESS_ERROR,
   idempotencyDecision,
   idempotencyKeyError,
   idempotencyMaterial,

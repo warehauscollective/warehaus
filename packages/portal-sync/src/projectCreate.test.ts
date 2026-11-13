@@ -24,6 +24,7 @@ function built() {
     name: '  Spring menu  ',
     clientNotionPageId: CLIENT_ID,
     externalId: createProjectExternalId('menu1234'),
+    publish: true,
   });
   assert.equal(result.ok, true);
   if (!result.ok) throw new Error('expected properties');
@@ -125,11 +126,28 @@ describe('project create payload', () => {
     assert.equal('taskId' in convex, false);
   });
 
+  it('leaves Publish off unless the caller passes publish true', () => {
+    const result = buildProjectCreateProperties({
+      name: 'Draft site',
+      clientNotionPageId: CLIENT_ID,
+      externalId: createProjectExternalId('draft1234'),
+      publish: false,
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.properties['Publish to Warehaus'], false);
+    assert.deepEqual(toNotionProjectCreateProperties(result.properties)['Publish to Warehaus'], {
+      checkbox: false,
+    });
+    assert.equal(projectCreateConvexFields(result.properties).publishToWarehaus, false);
+  });
+
   it('rejects a missing name, a non-Notion client, and a bad external id', () => {
     const missing = buildProjectCreateProperties({
       name: '   ',
       clientNotionPageId: 'portal:client:1',
       externalId: 'prj_nope',
+      publish: true,
     });
     assert.equal(missing.ok, false);
     if (missing.ok) return;

@@ -95,14 +95,15 @@ function asProjectProperties(properties: WriteProperties): ProjectCreateProperti
   const client = properties.Client;
   if (typeof properties.Name !== 'string') return null;
   if (!Array.isArray(client) || client.length !== 1 || typeof client[0] !== 'string') return null;
-  if (properties['Publish to Warehaus'] !== true) return null;
+  const publish = properties['Publish to Warehaus'];
+  if (typeof publish !== 'boolean') return null;
   if (properties.Archive !== false) return null;
   if (properties.Source !== 'portal') return null;
   if (typeof properties['External ID'] !== 'string') return null;
   return {
     Name: properties.Name,
     Client: [client[0]],
-    'Publish to Warehaus': true,
+    'Publish to Warehaus': publish,
     Archive: false,
     Source: 'portal',
     'External ID': properties['External ID'],
