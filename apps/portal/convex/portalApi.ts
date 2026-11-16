@@ -899,12 +899,31 @@ function projectShapeError(body: Record<string, unknown>): string | null {
   return unknownFieldError(client, CLIENT_NESTED_FIELDS);
 }
 
+type ApiActor = {
+  tokenId: Id<'apiTokens'>;
+  tokenName: string;
+  key: string;
+  requestHash: string;
+};
+
+/**
+ * Idempotency fields only. `tokenName` belongs on mutations that store the
+ * caller (`actorId`, `addedBy`, `updatedBy`). Convex rejects it everywhere else.
+ */
+function idempotencyActor(actor: ApiActor) {
+  return {
+    tokenId: actor.tokenId,
+    key: actor.key,
+    requestHash: actor.requestHash,
+  };
+}
+
 async function finishAction(
   ctx: ActionCtx,
-  actor: { tokenId: Id<'apiTokens'>; key: string; requestHash: string },
+  actor: ApiActor,
   run: () => Promise<ApiResult>,
 ): Promise<ApiResult> {
-  const opened = await ctx.runMutation(internal.portalApi.openWrite, actor);
+  const opened = await ctx.runMutation(internal.portalApi.openWrite, idempotencyActor(actor));
   if (!('action' in opened)) return opened;
   let result: ApiResult;
   try {
@@ -1081,7 +1100,7 @@ async function dispatchWrite(
   ctx: ActionCtx,
   path: string,
   body: Record<string, unknown>,
-  actor: { tokenId: Id<'apiTokens'>; tokenName: string; key: string; requestHash: string },
+  actor: ApiActor,
 ): Promise<ApiResult> {
   if (path === '/api/v1/tasks') {
     return ctx.runMutation(internal.portalApi.createTask, {
@@ -1108,7 +1127,7 @@ async function dispatchWrite(
   }
   if (path === '/api/v1/milestones') {
     return ctx.runMutation(internal.portalApi.createMilestone, {
-      ...actor,
+      ...idempotencyActor(actor),
       projectId: body.projectId as Id<'projects'>,
       name: String(body.name ?? ''),
       objective: String(body.objective ?? ''),
@@ -1118,7 +1137,7 @@ async function dispatchWrite(
   }
   if (path === '/api/v1/milestones/update') {
     return ctx.runMutation(internal.portalApi.updateMilestone, {
-      ...actor,
+      ...idempotencyActor(actor),
       milestoneId: body.milestoneId as Id<'milestones'>,
       name: typeof body.name === 'string' ? body.name : undefined,
       objective: typeof body.objective === 'string' ? body.objective : undefined,
@@ -1135,7 +1154,7 @@ async function dispatchWrite(
   }
   if (path === '/api/v1/milestones/attach') {
     return ctx.runMutation(internal.portalApi.attachTask, {
-      ...actor,
+      ...idempotencyActor(actor),
       milestoneId: body.milestoneId as Id<'milestones'>,
       taskId: body.taskId as Id<'tasks'>,
     });
