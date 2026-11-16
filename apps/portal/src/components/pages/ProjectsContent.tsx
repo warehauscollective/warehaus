@@ -59,7 +59,7 @@ import { clearPortalReturn, peekPortalReturn, takePortalReturn, taskCloseLabel }
 import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
-import { useWritebackEnabled } from '@/hooks/useWritebackEnabled';
+import { useFixtureCreatePreview, useWritebackEnabled } from '@/hooks/useWritebackEnabled';
 import {
   NewProjectButton,
   ProjectKpiSkeleton,
@@ -92,7 +92,7 @@ export function ProjectsContent() {
   const { sectionFor, setSectionFor, openLinkedClient, setOpenProjectId } = usePortalView();
   const [createOpen, setCreateOpen] = useState(false);
   const writebackEnabled = useWritebackEnabled();
-  const createEnabled = writebackEnabled;
+  const createEnabled = writebackEnabled || useFixtureCreatePreview();
   const { data, loading, error } = usePortalData();
   const activityFeed = useActivityFeed();
   const retryPortalData = useRetryPortalData();
@@ -389,10 +389,12 @@ export function ProjectsContent() {
   const openCreate = () => {
     requestProjectCreate(createEnabled, () => setCreateOpen(true));
   };
-  const projectClients = (fixtures ? FIXTURE_CLIENTS : directory.data ?? []).map((client) => ({
-    id: client.id,
-    name: client.name,
-  }));
+  const projectClients = (fixtures ? FIXTURE_CLIENTS : directory.data ?? []).map((client) => {
+    const rows = projects.filter((project) => project.orgId === client.id);
+    const counted = 'projectCount' in client && typeof client.projectCount === 'number' ? client.projectCount : rows.length;
+    const internal = 'internal' in client ? Boolean(client.internal) : rows.some((project) => project.internal);
+    return { id: client.id, name: client.name, projectCount: counted, internal };
+  });
   const retryQueuedStage = async () => {
     if (!queuedStage || fixtures || stageRetry.busy) return;
     setStageRetry({ busy: true, error: null });

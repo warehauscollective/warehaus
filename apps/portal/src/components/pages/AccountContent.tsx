@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -33,6 +34,9 @@ import {
   type DirectoryClient,
 } from '@/components/clients/ClientScreens';
 import { NewClientControl } from '@/components/clients/NewClientControl';
+import { NewProjectControl } from '@/components/projects/NewProjectControl';
+import { requestProjectCreate } from '@/lib/data/projectList';
+import { useFixtureCreatePreview, useWritebackEnabled } from '@/hooks/useWritebackEnabled';
 import { ApiTokensPanel } from '@/components/account/ApiTokensPanel';
 import { useClientTaskPlatform } from '@/components/clients/useClientTaskPlatform';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
@@ -136,6 +140,18 @@ export function AccountContent() {
   const [inviteDraft, setInviteDraft] = useState<InviteDraft>({ name: '', email: '' });
   const [clientPeopleCache, setClientPeopleCache] = useState<ClientPersonRow[] | null>(null);
   const [clientFormOpen, setClientFormOpen] = useState(false);
+  const [projectFormOpen, setProjectFormOpen] = useState(false);
+  const [createdProjects, setCreatedProjects] = useState<Array<ClientProjectRow & { orgId: string }>>([]);
+  const [highlightProjectId, setHighlightProjectId] = useState<string | null>(null);
+  const [projectToast, setProjectToast] = useState<{ id: string; name: string } | null>(null);
+  const writebackEnabled = useWritebackEnabled();
+  const createEnabled = writebackEnabled || useFixtureCreatePreview();
+
+  useEffect(() => {
+    if (!projectToast) return;
+    const timer = window.setTimeout(() => setProjectToast(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [projectToast]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -403,7 +419,15 @@ export function AccountContent() {
               ...(directory.find((client) => client.id === selected.id) ?? (selected as DirectoryClient)),
               name: clientScreen === 'long' ? LONG_CLIENT : selected.name,
             }}
-            projects={staffProjects(projects.filter((project) => project.orgId === selected.id), clientScreen) as ClientProjectRow[]}
+            projects={staffProjects(
+              [
+                ...createdProjects.filter(
+                  (project) => project.orgId === selected.id && !projects.some((row) => row.id === project.id),
+                ),
+                ...projects.filter((project) => project.orgId === selected.id),
+              ],
+              clientScreen,
+            ) as ClientProjectRow[]}
             tasks={(taskPlatform.linearTasks ??
               tasks.filter((task) => task.orgId === selected.id)
             ).map((task) => {
@@ -422,6 +446,15 @@ export function AccountContent() {
             brandName={clientScreen === 'long' ? LONG_CLIENT : selected.name}
             screen={clientScreen}
             taskPlatform={taskPlatform.panel}
+            onCreateProject={
+              isStaff
+                ? () => {
+                    requestProjectCreate(createEnabled, () => setProjectFormOpen(true));
+                  }
+                : undefined
+            }
+            createEnabled={createEnabled}
+            highlightProjectId={highlightProjectId}
           />
         </PortalTilePane>
       ) : null}
@@ -523,6 +556,76 @@ export function AccountContent() {
           }}
         />
       ) : null}
+
+      {isStaff && selected && createEnabled ? (
+        <NewProjectControl
+          open={projectFormOpen}
+          onClose={() => setProjectFormOpen(false)}
+          clients={directory.map((client) => ({
+            id: client.id,
+            name: client.name,
+            projectCount: client.projectCount,
+            internal: client.internal,
+          }))}
+          clientPreset={{ id: selected.id, name: selected.name, locked: true }}
+          fixtures={fixtures}
+          hostSlug={hostSlug}
+          onCreated={(project) => {
+            setCreatedProjects((rows) => [
+              {
+                id: project.id,
+                name: project.name,
+                orgId: project.orgId,
+                status: 'Inbox',
+                progress: 0,
+                publishToWarehaus: true,
+              },
+              ...rows.filter((row) => row.id !== project.id),
+            ]);
+            setHighlightProjectId(project.id);
+            setProjectToast({ id: project.id, name: project.name });
+          }}
+        />
+      ) : null}
+
+      {projectToast && typeof document !== 'undefined'
+        ? createPortal(
+        <div
+          className="ds-scope"
+          role="status"
+          data-testid="project-created-toast"
+          style={{
+            position: 'fixed',
+            zIndex: 120,
+            left: '50%',
+            top: 72,
+            transform: 'translateX(-50%)',
+            display: 'flex',
+            alignItems: 'center',
+            gap: 12,
+            maxWidth: 'calc(100% - 32px)',
+            background: 'var(--surface)',
+            color: 'var(--fg)',
+            border: '1px solid var(--border-2)',
+            borderRadius: 18,
+            padding: '12px 14px',
+            boxShadow: '0 16px 40px rgb(0 0 0 / 35%)',
+          }}
+        >
+          <span>Project created · {projectToast.name}</span>
+          <button
+            type="button"
+            onClick={() => {
+              document.getElementById(`client-project-${projectToast.id}`)?.scrollIntoView({ block: 'center' });
+            }}
+            style={{ border: 0, background: 'transparent', color: 'var(--fg)', fontWeight: 600, cursor: 'pointer' }}
+          >
+            Open
+          </button>
+        </div>,
+        document.body,
+        )
+        : null}
 
       {isStaff && activeSection === 'tokens' && (
         <PortalTilePane>

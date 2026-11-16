@@ -63,6 +63,30 @@ describe('new client dialog', () => {
     assert.equal(html.includes('aria-invalid="true" data-testid="new-client-name"') || html.includes('data-testid="new-client-name" aria-invalid'), false);
   });
 
+  it('shows the exists error and a network retry on the nested sheet', () => {
+    const exists = markup({
+      layout: 'nested',
+      companyName: 'Northwind',
+      reused: true,
+      reusedName: 'Northwind',
+      note: { tone: 'error', text: 'A client named “Northwind” already exists.', field: 'companyName' },
+    });
+    assert.match(exists, /data-testid="new-client-nested"/);
+    assert.match(exists, /A client named “Northwind” already exists\./);
+    assert.match(exists, /Use ‘Northwind’ instead/);
+    assert.match(exists, /aria-invalid="true"/);
+    assert.equal(exists.includes('Publish to client portal'), false);
+
+    const network = markup({
+      layout: 'nested',
+      companyName: 'Fieldnote',
+      note: { tone: 'error', text: 'Couldn’t create the client. The connection dropped. Nothing was saved — your entries are kept.' },
+    });
+    assert.match(network, /data-testid="new-client-network"/);
+    assert.match(network, /Try again/);
+    assert.match(network, /value="Fieldnote"/);
+  });
+
   it('is a bottom sheet at 390px', () => {
     const html = markup({ narrow: true });
     assert.match(html, /data-testid="new-client-sheet"/);
