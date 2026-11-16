@@ -22,6 +22,7 @@ import {
   applyHumanDecision,
   attachTaskDecision,
   buildRoadmap,
+  type AttachFailureCode,
   clientMaySeeLinkedResource,
   clientMaySeeMilestone,
   contentEditDecision,
@@ -512,15 +513,18 @@ export const setPublish = adminMutation({
   },
 });
 
+type TaskLinkResult = { ok: true } | { ok: false; code: AttachFailureCode; error: string };
+
 async function linkTask(
   ctx: MutationCtx,
   actor: 'human' | 'ai',
   milestoneId: Id<'milestones'>,
   taskId: Id<'tasks'>,
-) {
-  const milestone = await loadMilestone(ctx, milestoneId);
+): Promise<TaskLinkResult> {
+  const milestone = await ctx.db.get(milestoneId);
+  if (!milestone) return { ok: false, code: 'not_found', error: 'Milestone not found' };
   const task = await ctx.db.get(taskId);
-  if (!task) fail('Task not found');
+  if (!task) return { ok: false, code: 'not_found', error: 'Task not found' };
   const decision = attachTaskDecision({
     actor,
     milestone: {
@@ -537,20 +541,25 @@ async function linkTask(
       milestoneId: task.milestoneId ?? null,
     },
   });
-  if (!decision.ok) fail(decision.reason);
-  if (decision.alreadyAttached) return { ok: true as const };
+  if (!decision.ok) return { ok: false, code: decision.code, error: decision.reason };
+  if (decision.alreadyAttached) return { ok: true };
   const siblings = await ctx.db
     .query('tasks')
     .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
     .collect();
   const link = taskLinkPatch(milestone._id, nextMilestoneOrder(siblings.map((row) => row.milestoneOrder)));
   await ctx.db.patch(task._id, { milestoneId: milestone._id, milestoneOrder: link.milestoneOrder });
+  return { ok: true };
+}
+
+function raiseLink(result: TaskLinkResult) {
+  if (!result.ok) fail(result.error);
   return { ok: true as const };
 }
 
 export const attachTask = adminMutation({
   args: { milestoneId: v.id('milestones'), taskId: v.id('tasks') },
-  handler: async (ctx, args) => linkTask(ctx, 'human', args.milestoneId, args.taskId),
+  handler: async (ctx, args) => raiseLink(await linkTask(ctx, 'human', args.milestoneId, args.taskId)),
 });
 
 /** Staff API. Same human link rules as the portal button. Already-linked tasks are not rewritten. */
@@ -561,7 +570,7 @@ export const attachTaskForApi = internalMutation({
 
 export const attachTaskFromAi = internalMutation({
   args: { milestoneId: v.id('milestones'), taskId: v.id('tasks') },
-  handler: async (ctx, args) => linkTask(ctx, 'ai', args.milestoneId, args.taskId),
+  handler: async (ctx, args) => raiseLink(await linkTask(ctx, 'ai', args.milestoneId, args.taskId)),
 });
 
 async function unlinkTask(ctx: MutationCtx, actor: 'human' | 'ai', milestoneId: Id<'milestones'>, taskId: Id<'tasks'>) {

@@ -143,6 +143,11 @@ describe('milestone review fixes', () => {
     ];
     assert.deepEqual(boardCountsFromTasks(shown), { lanes: 1, laneDone: 0, nested: 1 });
     assert.deepEqual(boardCountsFromTasks([]), { lanes: 0, laneDone: 0, nested: 0 });
+    assert.deepEqual(boardCountsFromTasks([{ id: 'child', parentTaskId: 'plan', isDone: true }]), {
+      lanes: 1,
+      laneDone: 1,
+      nested: 0,
+    });
     assert.match(roadmap, /const board = boardCountsFromTasks\(shownTasks\)/);
     assert.match(roadmap, /\{board\.lanes\} on the board/);
     assert.match(roadmap, /board\.lanes === 0/);

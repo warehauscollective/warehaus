@@ -175,33 +175,47 @@ describe('who may edit', () => {
 describe('tasks on a milestone', () => {
   const milestone = { id: 'm-1', orgId: 'org-1', projectId: 'p-1', approval: 'unreviewed' as const };
 
-  it('attaches only a top-level task on the same project', () => {
-    assert.equal(
-      attachTaskDecision({
-        actor: 'ai',
-        milestone,
-        task: { id: 't-1', orgId: 'org-1', projectId: 'p-1', parentTaskId: null, milestoneId: null },
-      }).ok,
-      true,
-    );
+  it('attaches a subtask on the same project and leaves a second link alone', () => {
+    const top = attachTaskDecision({
+      actor: 'ai',
+      milestone,
+      task: { id: 't-1', orgId: 'org-1', projectId: 'p-1', parentTaskId: null, milestoneId: null },
+    });
+    assert.deepEqual(top, { ok: true, alreadyAttached: false });
     const child = attachTaskDecision({
       actor: 'human',
       milestone,
       task: { id: 't-2', orgId: 'org-1', projectId: 'p-1', parentTaskId: 't-1', milestoneId: null },
     });
-    assert.equal(child.ok, false);
+    assert.deepEqual(child, { ok: true, alreadyAttached: false });
+    const again = attachTaskDecision({
+      actor: 'human',
+      milestone,
+      task: { id: 't-2', orgId: 'org-1', projectId: 'p-1', parentTaskId: 't-1', milestoneId: 'm-1' },
+    });
+    assert.deepEqual(again, { ok: true, alreadyAttached: true });
+    const taken = attachTaskDecision({
+      actor: 'human',
+      milestone,
+      task: { id: 't-2', orgId: 'org-1', projectId: 'p-1', parentTaskId: 't-1', milestoneId: 'm-2' },
+    });
+    assert.deepEqual(taken, {
+      ok: false,
+      reason: 'Task is already on a milestone',
+      code: 'already_attached',
+    });
     const otherProject = attachTaskDecision({
       actor: 'ai',
       milestone,
-      task: { id: 't-3', orgId: 'org-1', projectId: 'p-2', parentTaskId: null, milestoneId: null },
+      task: { id: 't-3', orgId: 'org-1', projectId: 'p-2', parentTaskId: 't-1', milestoneId: null },
     });
-    assert.equal(otherProject.ok, false);
+    assert.deepEqual(otherProject, { ok: false, reason: 'Task is on another project', code: 'wrong_project' });
     const otherOrg = attachTaskDecision({
       actor: 'ai',
       milestone,
       task: { id: 't-4', orgId: 'org-2', projectId: 'p-1', parentTaskId: null, milestoneId: null },
     });
-    assert.equal(otherOrg.ok, false);
+    assert.deepEqual(otherOrg, { ok: false, reason: 'Task belongs to another client', code: 'permission' });
   });
 
   it('lets a human add or remove tasks while approved, and stops AI', () => {
@@ -213,7 +227,8 @@ describe('tasks on a milestone', () => {
       parentTaskId: null,
       milestoneId: null,
     };
-    assert.equal(attachTaskDecision({ actor: 'ai', milestone: approved, task: link }).ok, false);
+    const denied = attachTaskDecision({ actor: 'ai', milestone: approved, task: link });
+    assert.deepEqual(denied, { ok: false, reason: AI_LOCKED, code: 'permission' });
     assert.equal(attachTaskDecision({ actor: 'human', milestone: approved, task: link }).ok, true);
     assert.equal(
       detachTaskDecision({
@@ -429,6 +444,95 @@ describe('roadmap', () => {
     assert.equal(roadmap.openCount, 2);
     assert.equal(roadmap.doneCount, 1);
   });
+
+  it('shows an attached subtask once and does not pull its parent or siblings', () => {
+    const alone = buildRoadmap({
+      audience: 'staff',
+      milestoneId: 'm-1',
+      tasks: [
+        task({ id: 'plan', name: 'Plan', milestoneId: null, milestoneOrder: null, parentTaskId: null }),
+        task({ id: 'rollup', name: 'Rollup', milestoneId: null, milestoneOrder: null, parentTaskId: 'plan' }),
+        task({
+          id: 'sub',
+          name: 'Ship the header',
+          parentTaskId: 'plan',
+          milestoneId: 'm-1',
+          milestoneOrder: 0,
+          isDone: false,
+        }),
+        task({
+          id: 'sib',
+          name: 'Ship the footer',
+          parentTaskId: 'plan',
+          milestoneId: null,
+          milestoneOrder: null,
+        }),
+      ],
+      projectVisibleToClient: true,
+    });
+    assert.deepEqual(
+      alone.rows.map((row) => row.id),
+      ['sub'],
+    );
+    assert.deepEqual(alone.rows[0]?.children, []);
+    assert.equal(alone.openCount, 1);
+    assert.equal(alone.doneCount, 0);
+
+    const both = buildRoadmap({
+      audience: 'staff',
+      milestoneId: 'm-1',
+      tasks: [
+        task({ id: 'plan', name: 'Plan', milestoneId: 'm-1', milestoneOrder: 0, isDone: false }),
+        task({
+          id: 'sub',
+          name: 'Ship the header',
+          parentTaskId: 'plan',
+          milestoneId: 'm-1',
+          milestoneOrder: 1,
+          isDone: true,
+        }),
+        task({
+          id: 'sib',
+          name: 'Ship the footer',
+          parentTaskId: 'plan',
+          milestoneId: null,
+          milestoneOrder: null,
+          isDone: false,
+        }),
+      ],
+      projectVisibleToClient: true,
+    });
+    assert.deepEqual(
+      both.rows.map((row) => row.id),
+      ['plan'],
+    );
+    assert.deepEqual(
+      both.rows[0]?.children.map((child) => child.id),
+      ['sib', 'sub'],
+    );
+    const shown = both.rows.flatMap((row) => [row.id, ...row.children.map((child) => child.id)]);
+    assert.equal(new Set(shown).size, shown.length);
+    assert.equal(both.openCount, 2);
+    assert.equal(both.doneCount, 1);
+
+    const elsewhere = buildRoadmap({
+      audience: 'staff',
+      milestoneId: 'm-1',
+      tasks: [
+        task({ id: 'plan', name: 'Plan', milestoneId: 'm-1', milestoneOrder: 0 }),
+        task({
+          id: 'sub',
+          name: 'Ship the header',
+          parentTaskId: 'plan',
+          milestoneId: 'm-2',
+          milestoneOrder: 0,
+        }),
+      ],
+      projectVisibleToClient: true,
+    });
+    assert.deepEqual(elsewhere.rows[0]?.children, []);
+    assert.equal(elsewhere.openCount, 1);
+  });
 });
 
 describe('schema slice', () => {
@@ -445,6 +549,15 @@ describe('schema slice', () => {
     assert.match(schema, /\.index\('by_orgId_milestoneId', \['orgId', 'milestoneId'\]\)/);
     assert.match(schema, /milestoneResources: defineTable/);
     assert.doesNotMatch(schema.slice(end, schema.indexOf('contacts: defineTable')), /notionPageId/);
+  });
+
+  it('patches only the attached task and skips a task that is already linked', () => {
+    const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
+    const link = source.slice(source.indexOf('async function linkTask'), source.indexOf('function raiseLink'));
+    assert.equal(link.split('.patch(').length - 1, 1);
+    assert.match(link, /ctx\.db\.patch\(task\._id/);
+    assert.match(link, /if \(decision\.alreadyAttached\) return \{ ok: true \}/);
+    assert.doesNotMatch(link, /parent\._id/);
   });
 
   it('does not let the milestone mutations close tasks or write task responses', () => {

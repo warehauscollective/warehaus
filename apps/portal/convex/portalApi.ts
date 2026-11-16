@@ -39,14 +39,30 @@ import {
 } from './_generated/server';
 import { sha256Hex } from './_lib/tokenCrypto';
 import { ensureSourceLinks } from './_lib/taskSourceLinks';
-import { createMilestoneDecision, contentEditDecision, workStatusDecision, writeMilestoneActivity } from './_lib/milestones';
+import {
+  attachFailureCode,
+  attachFailureStatus,
+  contentEditDecision,
+  createMilestoneDecision,
+  workStatusDecision,
+  writeMilestoneActivity,
+  type AttachFailureCode,
+} from './_lib/milestones';
+import { convexFailureText } from './_lib/userFacingError';
 
 const PAGE_CAP = 50;
 
 type ApiResult = { status: number; body: unknown };
 
-function fail(status: number, error: string): ApiResult {
-  return { status, body: { error } };
+function fail(status: number, error: string, code?: string): ApiResult {
+  return { status, body: code ? { error, code } : { error } };
+}
+
+const ATTACH_FALLBACK = 'The milestone link failed before a reason was returned';
+
+function attachError(error: string, code: AttachFailureCode | 'failed'): ApiResult {
+  const text = error === 'Request failed' ? ATTACH_FALLBACK : error;
+  return fail(attachFailureStatus(code), text, code);
 }
 
 function staffTask(row: Doc<'tasks'>) {
@@ -819,20 +835,22 @@ export const attachTask = internalMutation({
     const milestone = await ctx.db.get(args.milestoneId);
     const task = await ctx.db.get(args.taskId);
     if (!milestone || !(await orgVisible(ctx, milestone.orgId))) {
-      return finishIdempotency(ctx, opened.id, fail(404, 'Milestone not found'));
+      return finishIdempotency(ctx, opened.id, attachError('Milestone not found', 'not_found'));
     }
     if (!task || !(await orgVisible(ctx, task.orgId))) {
-      return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
+      return finishIdempotency(ctx, opened.id, attachError('Task not found', 'not_found'));
     }
     try {
       const linked = await ctx.runMutation(internal.milestones.attachTaskForApi, {
         milestoneId: args.milestoneId,
         taskId: args.taskId,
       });
+      if (!linked.ok) return finishIdempotency(ctx, opened.id, attachError(linked.error, linked.code));
       return finishIdempotency(ctx, opened.id, { status: 200, body: linked });
     } catch (error) {
-      const message = error instanceof ConvexError && typeof error.data === 'string' ? error.data : 'Request failed';
-      return finishIdempotency(ctx, opened.id, fail(400, message));
+      const message = convexFailureText(error);
+      const code = attachFailureCode(message);
+      return finishIdempotency(ctx, opened.id, attachError(message, code));
     }
   },
 });
@@ -1049,6 +1067,11 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
     const result = await dispatchWrite(ctx, url.pathname, parsed, { ...idem, tokenName: consumed.name });
     return json(result.body, result.status);
   } catch (error) {
+    if (url.pathname === '/api/v1/milestones/attach') {
+      const message = convexFailureText(error);
+      const code = attachFailureCode(message);
+      return json(attachError(message, code).body, attachFailureStatus(code));
+    }
     if (error instanceof ConvexError && typeof error.data === 'string') return json({ error: error.data }, 400);
     return json({ error: 'Request failed' }, 400);
   }
