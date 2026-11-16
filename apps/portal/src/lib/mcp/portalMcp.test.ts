@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { API_PAGE_MAX } from '@warehaus/portal-sync';
 import { handlePortalMcp, type PortalMcpDeps } from './handle';
-import { planToolCall, portalTools, runPortalTool, type ToolCall } from './tools';
+import { planToolCall, portalTools, presentAttachResult, runPortalTool, type ToolCall } from './tools';
 
 const BEARER = 'Bearer whp_testtokenvalue0001';
 const ACCEPT = 'application/json, text/event-stream';
@@ -187,6 +187,49 @@ describe('portal MCP tools', () => {
     });
     assert.equal(insecure.ok, false);
   });
+
+  it('returns typed attach errors and leaves an idempotent success unchanged', async () => {
+    const success = await runPortalTool({
+      name: 'attach_task_to_milestone',
+      args: samples.attach_task_to_milestone ?? {},
+      scope: 'read-write',
+      token: 'whp_testtokenvalue0001',
+      call: async () => ({ status: 200, body: { ok: true } }),
+    });
+    assert.deepEqual(success, { status: 200, body: { ok: true } });
+
+    const wrongProject = await runPortalTool({
+      name: 'attach_task_to_milestone',
+      args: samples.attach_task_to_milestone ?? {},
+      scope: 'read-write',
+      token: 'whp_testtokenvalue0001',
+      call: async () => ({ status: 400, body: { error: 'Task is on another project' } }),
+    });
+    assert.deepEqual(wrongProject, {
+      status: 400,
+      body: { error: 'Task is on another project', code: 'wrong_project' },
+    });
+
+    const missing = presentAttachResult({ status: 404, body: { error: 'Task not found', code: 'not_found' } });
+    assert.deepEqual(missing, { status: 404, body: { error: 'Task not found', code: 'not_found' } });
+    const taken = presentAttachResult({ status: 400, body: { error: 'Task is already on a milestone' } });
+    assert.deepEqual(taken, {
+      status: 409,
+      body: { error: 'Task is already on a milestone', code: 'already_attached' },
+    });
+    const bare = presentAttachResult({ status: 400, body: { error: 'Request failed' } });
+    assert.equal(bare.status, 400);
+    assert.equal((bare.body as { code?: string }).code, 'failed');
+    assert.equal(JSON.stringify(bare.body).includes('Request failed'), false);
+    const denied = await runPortalTool({
+      name: 'attach_task_to_milestone',
+      args: samples.attach_task_to_milestone ?? {},
+      scope: 'read',
+      token: 'whp_testtokenvalue0001',
+      call: async () => ({ status: 200, body: { ok: true } }),
+    });
+    assert.deepEqual(denied, { status: 403, body: { error: 'This token is read-only', code: 'permission' } });
+  });
 });
 
 function mcpRequest(body: unknown, authorization?: string) {
@@ -251,6 +294,20 @@ describe('portal MCP HTTP', () => {
     assert.equal(response.status, 403);
     assert.deepEqual(await response.json(), { error: 'This token is read-only' });
     assert.equal(read.calls.length, 0);
+    const attach = await handlePortalMcp(
+      mcpRequest(
+        {
+          jsonrpc: '2.0',
+          id: 2,
+          method: 'tools/call',
+          params: { name: 'attach_task_to_milestone', arguments: samples.attach_task_to_milestone },
+        },
+        BEARER,
+      ),
+      read,
+    );
+    assert.equal(attach.status, 403);
+    assert.deepEqual(await attach.json(), { error: 'This token is read-only', code: 'permission' });
   });
 
   it('lists the tools and calls the staff handler for a read', async () => {

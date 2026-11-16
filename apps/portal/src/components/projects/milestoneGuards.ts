@@ -63,15 +63,24 @@ export function milestonesAfterQuery<T>(input: {
   return [];
 }
 
+/**
+ * Cards on a board. A subtask is its own card only when its parent is not in
+ * this set. A parent and its attached child are not two cards.
+ */
+export function boardLaneTasks<T extends { id: string; parentTaskId?: string | null }>(tasks: readonly T[]): T[] {
+  const ids = new Set(tasks.map((task) => task.id));
+  return tasks.filter((task) => !task.parentTaskId || !ids.has(task.parentTaskId));
+}
+
 export function boardCountsFromTasks(
   tasks: readonly { id: string; parentTaskId?: string | null; isDone: boolean }[],
 ): { lanes: number; laneDone: number; nested: number } {
-  const ids = new Set(tasks.map((task) => task.id));
-  const parents = tasks.filter((task) => !task.parentTaskId);
-  const nested = tasks.filter((task) => Boolean(task.parentTaskId) && ids.has(task.parentTaskId as string));
+  const lanes = boardLaneTasks(tasks);
+  const laneIds = new Set(lanes.map((task) => task.id));
+  const nested = tasks.filter((task) => !laneIds.has(task.id));
   return {
-    lanes: parents.length,
-    laneDone: parents.filter((task) => task.isDone).length,
+    lanes: lanes.length,
+    laneDone: lanes.filter((task) => task.isDone).length,
     nested: nested.length,
   };
 }

@@ -10,6 +10,7 @@ import {
   TASK_STAGES,
   taskListPlan,
 } from '@warehaus/portal-sync';
+import { attachFailureCode, attachFailureStatus } from '@convex/_lib/milestones';
 import { z } from 'zod';
 
 const limit = z.number().int().min(1).max(API_PAGE_MAX).optional();
@@ -277,7 +278,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'attach_task_to_milestone',
     description:
-      'Attach a task to a milestone with the same rules as the staff milestone control. An already attached task is left as it is. Send an idempotency key.',
+      'Attach one task to a milestone on the same project. A subtask can be attached on its own. The parent and its other subtasks stay unattached. An already attached task is left as it is. Send an idempotency key.',
     write: true,
     schema: {
       milestoneId: z.string().min(1),
@@ -335,6 +336,30 @@ export function isWriteTool(name: string): boolean {
   return toolsByName.get(name)?.write === true;
 }
 
+const ATTACH_FALLBACK = 'The milestone link failed before a reason was returned';
+
+/** Staff attach failures carry a code. A bare "Request failed" is not a result. */
+export function presentAttachResult(result: { status: number; body: unknown }): { status: number; body: unknown } {
+  if (result.status < 400) return result;
+  const record =
+    result.body && typeof result.body === 'object' && !Array.isArray(result.body)
+      ? (result.body as Record<string, unknown>)
+      : null;
+  const raw = typeof record?.error === 'string' ? record.error.trim() : '';
+  const given = typeof record?.code === 'string' ? record.code : '';
+  const code =
+    given === 'not_found' ||
+    given === 'wrong_project' ||
+    given === 'permission' ||
+    given === 'already_attached' ||
+    given === 'failed'
+      ? given
+      : attachFailureCode(raw);
+  const error = raw && raw !== 'Request failed' ? raw : ATTACH_FALLBACK;
+  const status = code === 'failed' ? result.status : attachFailureStatus(code);
+  return { status, body: { error, code } };
+}
+
 export async function runPortalTool(input: {
   name: string;
   args: Record<string, unknown>;
@@ -343,11 +368,18 @@ export async function runPortalTool(input: {
   call: (request: ToolCall & { token: string }) => Promise<{ status: number; body: unknown }>;
 }): Promise<{ status: number; body: unknown }> {
   if (isWriteTool(input.name) && input.scope !== 'read-write') {
+    if (input.name === 'attach_task_to_milestone') {
+      return { status: 403, body: { error: 'This token is read-only', code: 'permission' } };
+    }
     return { status: 403, body: { error: 'This token is read-only' } };
   }
   const planned = planToolCall(input.name, input.args);
-  if (!planned.ok) return { status: planned.status, body: { error: planned.error } };
-  return input.call({ ...planned.call, token: input.token });
+  if (!planned.ok) {
+    const denied = { status: planned.status, body: { error: planned.error } };
+    return input.name === 'attach_task_to_milestone' ? presentAttachResult(denied) : denied;
+  }
+  const result = await input.call({ ...planned.call, token: input.token });
+  return input.name === 'attach_task_to_milestone' ? presentAttachResult(result) : result;
 }
 
 export function planToolCall(

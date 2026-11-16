@@ -25,6 +25,7 @@ import {
   type MoveActor,
   type MoveRule,
 } from '@warehaus/portal-sync';
+import { boardLaneTasks } from '@/components/projects/milestoneGuards';
 import { NEW_TASK_HINT } from '@/components/tasks/itemStates';
 import { OutlineButton, Pill, PrimaryButton } from '@/components/ui/primitives';
 import { SyncChip } from '@/components/sync/SyncChip';
@@ -193,7 +194,7 @@ export function TaskBoard({
     [tasks, overrides],
   );
   const columns = useMemo(
-    () => boardColumns(viewTasks.filter((task) => !task.parentTaskId), mode, staff ? 'staff' : 'client'),
+    () => boardColumns(boardLaneTasks(viewTasks), mode, staff ? 'staff' : 'client'),
     [viewTasks, mode, staff],
   );
   const activeTab = tab && columns.some((column) => column.key === tab) ? tab : columns[0]?.key ?? null;

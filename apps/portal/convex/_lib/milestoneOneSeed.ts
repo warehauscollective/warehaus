@@ -2,7 +2,7 @@
  * Plan for the one-time Milestone One backfill.
  * A project with top-level tasks and no milestone gets one milestone
  * named exactly "Milestone One". Tasks that already have a milestone stay put.
- * Subtasks stay on their parent. The existing attach rule only accepts a top-level task.
+ * Subtasks stay on their parent. This plan does not attach them.
  */
 
 export const MILESTONE_ONE_NAME = 'Milestone One';

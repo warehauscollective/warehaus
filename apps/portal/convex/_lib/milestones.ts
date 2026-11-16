@@ -226,25 +226,48 @@ export type TaskLinkInput = {
   milestoneId: string | null;
 };
 
+export type AttachFailureCode = 'not_found' | 'wrong_project' | 'permission' | 'already_attached';
+
+/** Map a known attach sentence to the code the staff API and MCP tool return. */
+export function attachFailureCode(reason: string): AttachFailureCode | 'failed' {
+  if (reason === 'Milestone not found' || reason === 'Task not found') return 'not_found';
+  if (reason === 'Task is on another project') return 'wrong_project';
+  if (
+    reason === 'Task belongs to another client' ||
+    reason === AI_LOCKED ||
+    reason === 'This token is read-only'
+  ) {
+    return 'permission';
+  }
+  if (reason === 'Task is already on a milestone') return 'already_attached';
+  return 'failed';
+}
+
+export function attachFailureStatus(code: AttachFailureCode | 'failed'): 400 | 403 | 404 | 409 {
+  if (code === 'not_found') return 404;
+  if (code === 'permission') return 403;
+  if (code === 'already_attached') return 409;
+  return 400;
+}
+
 export function attachTaskDecision(input: {
   actor: MilestoneActor;
   milestone: { id: string; orgId: string; projectId: string; approval: MilestoneApproval };
   task: TaskLinkInput;
-}): { ok: true; alreadyAttached: boolean } | { ok: false; reason: string } {
+}): { ok: true; alreadyAttached: boolean } | { ok: false; reason: string; code: AttachFailureCode } {
   if (input.actor === 'ai' && input.milestone.approval === 'approved') {
-    return { ok: false, reason: AI_LOCKED };
+    return { ok: false, reason: AI_LOCKED, code: 'permission' };
   }
   if (input.task.orgId !== input.milestone.orgId) {
-    return { ok: false, reason: 'Task belongs to another client' };
+    return { ok: false, reason: 'Task belongs to another client', code: 'permission' };
   }
   if (input.task.projectId !== input.milestone.projectId) {
-    return { ok: false, reason: 'Task is on another project' };
-  }
-  if (input.task.parentTaskId) {
-    return { ok: false, reason: 'Only a top-level task can join a milestone' };
+    return { ok: false, reason: 'Task is on another project', code: 'wrong_project' };
   }
   if (input.task.milestoneId === input.milestone.id) return { ok: true, alreadyAttached: true };
-  if (input.task.milestoneId) return { ok: false, reason: 'Task is already on a milestone' };
+  if (input.task.milestoneId) {
+    return { ok: false, reason: 'Task is already on a milestone', code: 'already_attached' };
+  }
   return { ok: true, alreadyAttached: false };
 }
 
@@ -377,9 +400,20 @@ function taskVisible(task: RoadmapTaskInput, audience: 'staff' | 'client', proje
   return true;
 }
 
+function milestoneOrder(a: RoadmapTaskInput, b: RoadmapTaskInput): number {
+  const orderA = a.milestoneOrder ?? Number.MAX_SAFE_INTEGER;
+  const orderB = b.milestoneOrder ?? Number.MAX_SAFE_INTEGER;
+  if (orderA !== orderB) return orderA - orderB;
+  return a.name.localeCompare(b.name);
+}
+
 /**
- * The milestone's tasks, parents in milestone order, subtasks nested under them.
- * Open and done counts include every shown row. They are context, not approval.
+ * The milestone's tasks. A row is a task linked to this milestone whose parent
+ * is not also linked here. Subtasks of that row stay nested, including a
+ * subtask with no link of its own. A subtask linked on its own is a row when
+ * its parent is not on this milestone. A subtask linked to a different
+ * milestone is not nested here, so it is not counted twice. Each shown task
+ * is in the open or done count once. The counts are context, not approval.
  * No percent complete.
  */
 export function buildRoadmap(input: {
@@ -394,17 +428,18 @@ export function buildRoadmap(input: {
   rows: RoadmapRow[];
 } {
   const visible = input.tasks.filter((task) => taskVisible(task, input.audience, input.projectVisibleToClient));
+  const linkedHere = new Set(
+    visible.filter((task) => task.milestoneId === input.milestoneId).map((task) => task.id),
+  );
   const parents = visible
-    .filter((task) => task.milestoneId === input.milestoneId && !task.parentTaskId)
-    .sort((a, b) => {
-      const orderA = a.milestoneOrder ?? Number.MAX_SAFE_INTEGER;
-      const orderB = b.milestoneOrder ?? Number.MAX_SAFE_INTEGER;
-      if (orderA !== orderB) return orderA - orderB;
-      return a.name.localeCompare(b.name);
-    });
+    .filter((task) => linkedHere.has(task.id) && (!task.parentTaskId || !linkedHere.has(task.parentTaskId)))
+    .sort(milestoneOrder);
   const rows: RoadmapRow[] = parents.map((parent) => {
     const children = visible
-      .filter((task) => task.parentTaskId === parent.id)
+      .filter((task) => {
+        if (task.parentTaskId !== parent.id) return false;
+        return !task.milestoneId || task.milestoneId === input.milestoneId;
+      })
       .sort((a, b) => a.name.localeCompare(b.name))
       .map((task) => roadmapTask(task, input.audience));
     return { ...roadmapTask(parent, input.audience), children };

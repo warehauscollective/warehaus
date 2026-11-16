@@ -20,16 +20,21 @@ function jsonError(status: number, error: string): Response {
   return Response.json({ error }, { status });
 }
 
-function requestsWrite(body: unknown): boolean {
+function toolNames(body: unknown): string[] {
   const messages = Array.isArray(body) ? body : [body];
+  const names: string[] = [];
   for (const message of messages) {
     if (!message || typeof message !== 'object') continue;
     const method = (message as { method?: unknown }).method;
     if (method !== 'tools/call') continue;
     const name = (message as { params?: { name?: unknown } }).params?.name;
-    if (typeof name === 'string' && isWriteTool(name)) return true;
+    if (typeof name === 'string') names.push(name);
   }
-  return false;
+  return names;
+}
+
+function requestsWrite(body: unknown): boolean {
+  return toolNames(body).some((name) => isWriteTool(name));
 }
 
 function toolResult(status: number, body: unknown) {
@@ -58,6 +63,9 @@ export async function handlePortalMcp(request: Request, deps: PortalMcpDeps): Pr
   const session = await deps.lookup(token);
   if (!session.ok) return jsonError(session.status, session.error);
   if (session.scope !== 'read-write' && requestsWrite(parsed)) {
+    if (toolNames(parsed).includes('attach_task_to_milestone')) {
+      return Response.json({ error: 'This token is read-only', code: 'permission' }, { status: 403 });
+    }
     return jsonError(403, 'This token is read-only');
   }
 

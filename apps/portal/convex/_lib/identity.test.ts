@@ -8,7 +8,7 @@ import {
   resolveIdentityFromContact,
   type PortalIdentity,
 } from './identity';
-import { userFacingErrorMessage } from './userFacingError';
+import { convexFailureText, userFacingErrorMessage } from './userFacingError';
 
 const sugarShark: PortalIdentity = {
   authUserId: 'user_sugar',
@@ -47,6 +47,18 @@ describe('PortalAuthError', () => {
       userFacingErrorMessage(wrapped, 'Could not link portal contact'),
       "This email can't register here. Contact your Warehaus team.",
     );
+  });
+});
+
+describe('convexFailureText', () => {
+  it('reads the sentence after a nested PortalAuthError loses its data', () => {
+    const nested = new Error('Uncaught PortalAuthError: Task is on another project\n    at linkTask');
+    assert.equal(convexFailureText(nested), 'Task is on another project');
+    assert.equal(convexFailureText(new ConvexError('Task not found')), 'Task not found');
+    const invalid = new ConvexError({ message: 'Value does not match validator.' });
+    assert.equal(convexFailureText(invalid), 'Value does not match validator.');
+    assert.equal(convexFailureText(new Error('Uncaught Error: ArgumentValidationError: Invalid ID')), 'Invalid ID');
+    assert.equal(convexFailureText(null), 'Request failed');
   });
 });
 
