@@ -66,7 +66,7 @@ export function fixtureMilestones(
     projectVisibleToClient: true,
   });
   const attachable = inputs
-    .filter((task) => !task.parentTaskId && !task.milestoneId && !task.hidden)
+    .filter((task) => !task.milestoneId && !task.hidden)
     .map((task) => ({ id: task.id, name: task.name }));
   const milestones: MilestoneRoadmapView[] = [
     {

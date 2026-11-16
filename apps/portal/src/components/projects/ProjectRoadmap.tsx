@@ -119,8 +119,10 @@ function applyFixtureTasks(
 ): MilestoneRoadmapView {
   const base = mergePatch(milestone, patch);
   const detached = new Set(patch?.detachedIds ?? []);
-  const rows = base.rows.filter((row) => !detached.has(row.id));
-  const present = new Set(rows.map((row) => row.id));
+  const rows = base.rows
+    .filter((row) => !detached.has(row.id))
+    .map((row) => ({ ...row, children: row.children.filter((child) => !detached.has(child.id)) }));
+  const present = new Set(rows.flatMap((row) => [row.id, ...row.children.map((child) => child.id)]));
   const attached = (patch?.attachedIds ?? [])
     .filter((id) => !present.has(id) && !detached.has(id))
     .map((id) => tasks.find((task) => task.id === id))
@@ -286,7 +288,7 @@ function taskTotal(milestone: MilestoneRoadmapView): number {
   return milestone.openCount + milestone.doneCount;
 }
 
-/** Lane cards are parent tasks. Subtasks stay on the parent card, so they are not a lane. */
+/** Nested subtasks on the milestone rows. Lane badges on the board come from boardCountsFromTasks. */
 function boardTaskCounts(milestone: MilestoneRoadmapView): { lanes: number; laneDone: number; nested: number } {
   return {
     lanes: milestone.rows.length,
@@ -298,6 +300,16 @@ function boardTaskCounts(milestone: MilestoneRoadmapView): { lanes: number; lane
 function nestedCopy(nested: number): string {
   if (nested === 1) return '1 subtask stays on its parent card, not in its own lane.';
   return `${nested} subtasks stay on their parent cards, not in their own lanes.`;
+}
+
+/** Tasks the detach menu can unlink, including a subtask nested under an attached parent. */
+export function milestoneDetachOptions(
+  rows: readonly { id: string; name: string; children?: readonly { id: string; name: string }[] }[],
+): { id: string; name: string }[] {
+  return rows.flatMap((row) => [
+    { id: row.id, name: row.name },
+    ...(row.children ?? []).map((child) => ({ id: child.id, name: child.name })),
+  ]);
 }
 
 /** Inclusive list and overview progress. Lane badges stay on the board. */
@@ -992,7 +1004,7 @@ export function MilestoneDetailView({
     resourceChoices,
     milestone.resources.map((resource) => ({ id: resource.id, title: resource.title })),
   );
-  const taken = new Set(milestone.rows.map((row) => row.id));
+  const taken = new Set(milestoneDetachOptions(milestone.rows).map((task) => task.id));
   const attachable = (milestone.attachableTasks ?? []).filter((task) => !taken.has(task.id));
   const reviewLine = lastReviewLabel({ approverName: milestone.approverName, decidedAt: milestone.decidedAt ?? null });
   const edits = useMilestoneDetailEdits({
@@ -1468,7 +1480,7 @@ export function MoreMenu({
             ))}
           </select>
         </label>
-        {milestone.rows.length > 0 ? (
+        {milestoneDetachOptions(milestone.rows).length > 0 ? (
           <label className="flex flex-col gap-2" style={{ fontSize: 13, color: 'var(--muted)' }}>
             Remove from milestone
             <select
@@ -1484,9 +1496,9 @@ export function MoreMenu({
               style={fieldStyle}
             >
               <option value="">Choose a task</option>
-              {milestone.rows.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {row.name}
+              {milestoneDetachOptions(milestone.rows).map((task) => (
+                <option key={task.id} value={task.id}>
+                  {task.name}
                 </option>
               ))}
             </select>
@@ -1536,6 +1548,11 @@ function TaskLines({
           {row.children.map((child) => (
             <div key={child.id} className="pl-4">
               <TaskLine row={child} testId="milestone-subtask" />
+              {staff ? (
+                <button type="button" data-testid="milestone-detach-subtask" disabled={busy} onClick={() => onDetach(child.id)} style={textButton}>
+                  Remove from milestone
+                </button>
+              ) : null}
             </div>
           ))}
         </div>

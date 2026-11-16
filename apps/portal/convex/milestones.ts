@@ -302,7 +302,7 @@ async function toRoadmap(
   if (review) view.review = review;
   if (audience === 'staff') {
     view.attachableTasks = tasks
-      .filter((task) => !task.parentTaskId && !task.milestoneId)
+      .filter((task) => !task.milestoneId)
       .map((task) => ({ id: task._id, name: task.name }))
       .sort((a, b) => a.name.localeCompare(b.name));
     const choices = await ctx.db
@@ -757,6 +757,7 @@ async function linkTask(
   });
   if (!decision.ok) return { ok: false, code: decision.code, error: decision.reason };
   if (decision.alreadyAttached) return { ok: true };
+  // One task. Attaching a subtask does not write the parent or its siblings.
   const siblings = await ctx.db
     .query('tasks')
     .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))

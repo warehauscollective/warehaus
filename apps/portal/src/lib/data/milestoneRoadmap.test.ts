@@ -11,6 +11,8 @@ import {
   lastReviewLabel,
   MilestoneDetailView,
   MilestoneListCard,
+  MoreMenu,
+  milestoneDetachOptions,
   milestoneTileDate,
   milestoneTileStage,
   tileMetaLine,
@@ -99,11 +101,12 @@ describe('fixture roadmap', () => {
       ['Approve the type ramp', 'Build the project page'],
     );
     assert.equal(launch.rows[1]?.children[0]?.name, 'Check the type scale');
+    const staffLaunch = staff[0];
+    assert.equal(staffLaunch?.attachableTasks?.some((task) => task.name === 'Check the type scale'), true);
     assert.equal(launch.rows[1]?.status, 'In Progress');
     assert.equal(launch.rows[1]?.stage, 'Building');
     assert.equal(launch.rows[1]?.resourceCount, 3);
     assert.equal('pullRequestUrl' in (launch.rows[1] ?? {}), false);
-    const staffLaunch = staff[0];
     assert.equal(
       staffLaunch?.rows[1]?.pullRequestUrl,
       'https://github.com/warehauscollective/warehaus/pull/83',
@@ -490,6 +493,33 @@ describe('MilestoneDetailView', () => {
     assert.equal(client.includes('Peter wrote this.'), false);
     assert.equal(client.includes('APPROVAL'), false);
     assert.equal(client.includes('LAST REVIEW'), false);
+  });
+
+  it('offers a nested child in the detach menu', () => {
+    const milestone = tileMilestone({
+      rows: [rowWithSubtasks(1)],
+      attachableTasks: [
+        { id: 'sub-0', name: 'Subtask 1' },
+        { id: 'loose', name: 'Loose subtask' },
+      ],
+    });
+    assert.deepEqual(
+      milestoneDetachOptions(milestone.rows).map((task) => task.id),
+      ['parent', 'sub-0'],
+    );
+    const html = renderToStaticMarkup(
+      createElement(MoreMenu, {
+        milestone,
+        busy: false,
+        attachable: [{ id: 'loose', name: 'Loose subtask' }],
+        onWorkStatus: () => undefined,
+        onPublish: () => undefined,
+        onAttach: () => undefined,
+        onDetach: () => undefined,
+      }),
+    );
+    assert.match(html, /data-testid="milestone-detach"[\s\S]*<option value="sub-0">Subtask 1<\/option>/);
+    assert.match(html, /<option value="loose">Loose subtask<\/option>/);
   });
 
   it('shows DETAILS from 768px up', () => {
