@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type Ref, type RefObject } from 'react';
+import { Lock } from 'lucide-react';
 import { createPortal } from 'react-dom';
 import { useAction } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
@@ -35,7 +36,9 @@ export const newClientDialogZ = {
   overDialog: 96,
 } as const;
 
-export const CLIENT_NETWORK_COPY = 'Couldn’t create the client. The connection dropped. Nothing was saved — your entries are kept.';
+export const CLIENT_NETWORK_TITLE = 'Couldn’t create the client';
+export const CLIENT_NETWORK_BODY = 'The connection dropped. Nothing was saved — your entries are kept.';
+export const CLIENT_NETWORK_COPY = `${CLIENT_NETWORK_TITLE}. ${CLIENT_NETWORK_BODY}`;
 
 /**
  * Staff client create. Company Name is required. Email and phone are optional.
@@ -107,6 +110,17 @@ export function NewClientControl({
     if (known) {
       markReused(known.id, known.name);
       return;
+    }
+    if (fixtures && typeof window !== 'undefined') {
+      const previewError = new URLSearchParams(window.location.search).get('clientError');
+      if (previewError === 'network') {
+        setNote({ tone: 'error', text: CLIENT_NETWORK_COPY });
+        return;
+      }
+      if (previewError === 'saving') {
+        setPending(true);
+        return;
+      }
     }
     if (fixtures) {
       if (onPreviewClient) {
@@ -258,7 +272,7 @@ export function NewClientForm({
 
   const dialog = (
     <div
-      className="ds-scope"
+      className={nested ? 'ds-scope portal-create-scrim-nested' : 'ds-scope portal-create-scrim'}
       role="dialog"
       aria-modal="true"
       aria-label="New client"
@@ -275,7 +289,9 @@ export function NewClientForm({
         position: 'fixed',
         inset: 0,
         zIndex,
-        background: nested ? 'rgb(0 0 0 / 40%)' : 'color-mix(in oklab, var(--bg) 55%, transparent)',
+        background: nested
+          ? 'color-mix(in oklab, var(--ink) 40%, transparent)'
+          : 'color-mix(in oklab, var(--ink) 55%, transparent)',
         display: 'flex',
         alignItems: nested && narrow ? 'flex-start' : narrow ? 'flex-end' : 'center',
         justifyContent: 'center',
@@ -294,14 +310,15 @@ export function NewClientForm({
       >
         {nested ? (
           <div
+            className="portal-create-panel"
             style={{
               height: narrow ? '100%' : undefined,
               overflow: 'auto',
               background: 'var(--surface)',
               color: 'var(--fg)',
               border: '1px solid var(--border-2)',
+              boxShadow: '0 16px 48px color-mix(in oklab, var(--ink) 45%, transparent)',
               borderRadius: narrow ? '20px 20px 0 0' : 28,
-              boxShadow: '0 24px 80px rgb(0 0 0 / 45%)',
               padding: narrow ? 20 : 24,
               display: 'flex',
               flexDirection: 'column',
@@ -310,61 +327,77 @@ export function NewClientForm({
           >
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>Client</p>
-                <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 20, fontWeight: 600, lineHeight: '28px', marginTop: 4 }}>
+                <p className="ds-mono" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>NEW PROJECT  ›  CLIENT</p>
+                <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 20, fontWeight: 600, lineHeight: '30px', marginTop: 2 }}>
                   New client
                 </h2>
-                <p style={{ fontSize: 13, color: 'var(--muted)', marginTop: 6 }}>
-                  Starts as a draft. Portal access stays off. No invite is sent.
-                </p>
               </div>
               <button type="button" onClick={onClose} disabled={pending} style={textButtonStyle(pending)}>
                 Close
               </button>
             </div>
             <form className="flex flex-col gap-4" onSubmit={onSubmit}>
+              {network ? <NetworkNotice /> : null}
               <fieldset disabled={pending} style={{ border: 0, margin: 0, padding: 0, opacity: pending ? 0.45 : 1 }}>
                 <ClientField
-                  label="Company name"
+                  label="Company name *"
                   value={companyName}
                   testId="new-client-name"
                   errorId="new-client-name-error"
                   error={fieldMessage(note, 'companyName')}
                   onChange={onCompanyName}
                   inputRef={nameRef}
+                  placeholder="Company name"
                   appearance="framed"
                 />
                 <div className="mt-4">
                   <ClientField
-                    label="Email"
+                    label="Primary email (optional)"
                     value={primaryEmail}
                     testId="new-client-email"
                     errorId="new-client-email-error"
                     error={fieldMessage(note, 'email')}
                     onChange={onPrimaryEmail}
                     type="email"
+                    placeholder="name@company.com"
                     appearance="framed"
                   />
                 </div>
                 <div className="mt-4">
                   <ClientField
-                    label="Phone"
+                    label="Phone (optional)"
                     value={phone}
                     testId="new-client-phone"
                     errorId="new-client-phone-error"
                     error={fieldMessage(note, 'phone')}
                     onChange={onPhone}
+                    placeholder="+1 555 010 0100"
                     appearance="framed"
                   />
                 </div>
+                <div
+                  className="portal-create-draft mt-4 flex items-center gap-3"
+                  data-testid="new-client-draft"
+                  style={{ borderRadius: 18, padding: 12, background: 'var(--bg-2)', color: 'var(--fg)' }}
+                >
+                  <Lock size={16} aria-hidden="true" />
+                  <div>
+                    <p style={{ fontSize: 14, fontWeight: 500, lineHeight: '21px' }}>Created as a draft client</p>
+                    <p className="ds-mono" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                      Portal access off · unpublished · no invite email
+                    </p>
+                  </div>
+                </div>
               </fieldset>
-              {network ? (
-                <p role="alert" data-testid="new-client-network" style={{ fontSize: 13, color: 'var(--danger)' }}>
-                  {note?.text}
-                </p>
-              ) : null}
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <p style={{ fontSize: 12, color: 'var(--muted)' }}>↵ to create · Esc to close</p>
+              <div
+                className="flex flex-wrap items-center justify-between gap-3"
+                style={{
+                  borderTop: '1px solid var(--border)',
+                  margin: narrow ? '0 -20px' : '0 -24px',
+                  padding: narrow ? '16px 20px 0' : '16px 24px 0',
+                }}
+              >
+                <p className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>↵ to create · Esc back to project</p>
                 <div className="flex gap-2">
                   <OutlineButton onClick={onClose} disabled={pending}>Cancel</OutlineButton>
                   {reused ? (
@@ -422,7 +455,7 @@ export function NewClientForm({
                 </p>
               ) : null}
               {note?.tone === 'error' && !note.field ? (
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }} role="alert">
+                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--fg)' }} role="alert">
                   {note.text}
                 </p>
               ) : null}
@@ -458,6 +491,7 @@ function ClientField({
   type = 'text',
   required = false,
   inputRef,
+  placeholder,
   appearance = 'plain',
 }: {
   label: string;
@@ -469,6 +503,7 @@ function ClientField({
   type?: 'text' | 'email';
   required?: boolean;
   inputRef?: Ref<HTMLInputElement>;
+  placeholder?: string;
   appearance?: 'plain' | 'framed';
 }) {
   const framed = appearance === 'framed';
@@ -486,13 +521,15 @@ function ClientField({
         onChange={(event) => onChange(event.target.value)}
         required={required}
         type={type}
+        placeholder={placeholder}
         data-testid={testId}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? errorId : undefined}
+        className={framed ? 'portal-create-field' : undefined}
         style={framed ? framedInput(Boolean(error)) : inputStyle}
       />
       {error ? (
-        <span id={errorId} role="alert" style={{ fontSize: 'var(--t-sm)', color: 'var(--danger-text)' }}>
+        <span id={errorId} role="alert" style={{ fontSize: 'var(--t-sm)', color: 'var(--fg)' }}>
           {error}
         </span>
       ) : null}
@@ -529,15 +566,61 @@ function framedInput(invalid: boolean): CSSProperties {
   return {
     width: '100%',
     minHeight: 44,
-    border: invalid ? '1px solid var(--danger)' : '1px solid var(--border-2)',
     borderRadius: 18,
     background: 'var(--surface-2)',
     color: 'var(--fg)',
+    border: invalid ? '1px solid var(--danger)' : '1px solid var(--border-2)',
     padding: '10px 12px',
-    fontSize: 15,
+    fontSize: 14,
     fontFamily: 'var(--font-body)',
     outline: 'none',
   };
+}
+
+function NetworkNotice() {
+  return (
+    <div
+      role="alert"
+      data-testid="new-client-network"
+      style={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 12,
+        border: '1px solid var(--danger)',
+        borderRadius: 18,
+        background: 'var(--surface)',
+        padding: '16px 24px',
+      }}
+    >
+      <span
+        aria-hidden="true"
+        style={{
+          width: 20,
+          height: 20,
+          borderRadius: 999,
+          border: '1.25px solid var(--danger)',
+          color: 'var(--danger)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 11,
+          fontWeight: 600,
+          lineHeight: 1,
+          flex: '0 0 auto',
+        }}
+      >
+        !
+      </span>
+      <span>
+        <span data-testid="new-client-network-title" style={{ display: 'block', fontSize: 14, fontWeight: 600, lineHeight: '20px', color: 'var(--fg)' }}>
+          {CLIENT_NETWORK_TITLE}
+        </span>
+        <span style={{ display: 'block', marginTop: 4, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
+          {CLIENT_NETWORK_BODY}
+        </span>
+      </span>
+    </div>
+  );
 }
 
 function textButtonStyle(pending: boolean): CSSProperties {

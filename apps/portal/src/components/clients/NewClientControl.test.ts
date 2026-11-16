@@ -74,6 +74,13 @@ describe('new client dialog', () => {
     assert.match(exists, /data-testid="new-client-nested"/);
     assert.match(exists, /A client named “Northwind” already exists\./);
     assert.match(exists, /Use ‘Northwind’ instead/);
+    assert.match(exists, /Company name \*/);
+    assert.match(exists, /Primary email \(optional\)/);
+    assert.match(exists, /Phone \(optional\)/);
+    assert.match(exists, /Created as a draft client/);
+    assert.match(exists, /Portal access off · unpublished · no invite email/);
+    assert.match(exists, /NEW PROJECT {2}› {2}CLIENT/);
+    assert.equal(exists.includes('rgb('), false);
     assert.match(exists, /aria-invalid="true"/);
     assert.equal(exists.includes('Publish to client portal'), false);
 
@@ -82,7 +89,12 @@ describe('new client dialog', () => {
       companyName: 'Fieldnote',
       note: { tone: 'error', text: 'Couldn’t create the client. The connection dropped. Nothing was saved — your entries are kept.' },
     });
+    assert.match(network, /border:1px solid var\(--danger\)/);
     assert.match(network, /data-testid="new-client-network"/);
+    assert.match(network, /data-testid="new-client-network-title"[^>]*color:var\(--fg\)/);
+    assert.match(network, /Couldn’t create the client/);
+    assert.match(network, /The connection dropped\. Nothing was saved — your entries are kept\./);
+    assert.equal(/new-client-network-title[^>]*color:var\(--danger\)/.test(network), false);
     assert.match(network, /Try again/);
     assert.match(network, /value="Fieldnote"/);
   });

@@ -145,6 +145,8 @@ describe('prefilled client', () => {
     assert.equal(html.includes('data-testid="new-client-row"'), false);
     assert.equal(html.includes('Publish to client portal'), false);
     assert.match(html, /Publish is on and Archive is off/);
+    assert.match(html, /Project name \*/);
+    assert.equal(html.includes('rgb('), false);
     assert.match(html, /value="Harbor site"/);
     assert.equal(shouldConfirmProjectDiscard({
       name: '',

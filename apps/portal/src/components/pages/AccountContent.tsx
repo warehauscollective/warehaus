@@ -591,7 +591,7 @@ export function AccountContent() {
       {projectToast && typeof document !== 'undefined'
         ? createPortal(
         <div
-          className="ds-scope"
+          className="ds-scope portal-create-toast"
           role="status"
           data-testid="project-created-toast"
           style={{
@@ -604,12 +604,12 @@ export function AccountContent() {
             alignItems: 'center',
             gap: 12,
             maxWidth: 'calc(100% - 32px)',
+            borderRadius: 18,
+            padding: '12px 14px',
             background: 'var(--surface)',
             color: 'var(--fg)',
             border: '1px solid var(--border-2)',
-            borderRadius: 18,
-            padding: '12px 14px',
-            boxShadow: '0 16px 40px rgb(0 0 0 / 35%)',
+            boxShadow: '0 16px 40px color-mix(in oklab, var(--ink) 35%, transparent)',
           }}
         >
           <span>Project created · {projectToast.name}</span>

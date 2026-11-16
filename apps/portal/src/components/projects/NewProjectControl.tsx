@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type ReactElement, type Ref, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useAction } from 'convex/react';
-import { AlertCircle, Check, ChevronDown, Lock, Plus, Search } from 'lucide-react';
+import { AlertCircle, Building2, Check, ChevronDown, Lock, Plus, Search } from 'lucide-react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -469,7 +469,7 @@ export function NewProjectForm({
 
   const dialog = (
     <div
-      className="ds-scope"
+      className="ds-scope portal-create-scrim"
       role="dialog"
       aria-modal={sheetOpen ? undefined : true}
       aria-hidden={sheetOpen || undefined}
@@ -489,7 +489,7 @@ export function NewProjectForm({
         position: 'fixed',
         inset: 0,
         zIndex: newClientDialogZ.dialog,
-        background: 'rgb(0 0 0 / 55%)',
+        background: 'color-mix(in oklab, var(--ink) 55%, transparent)',
         display: 'flex',
         alignItems: narrow ? 'flex-start' : 'center',
         justifyContent: 'center',
@@ -499,6 +499,7 @@ export function NewProjectForm({
       <div
         ref={panelRef}
         onClick={(event) => event.stopPropagation()}
+        className="portal-create-panel"
         style={{
           width: narrow ? '100%' : 640,
           maxWidth: '100%',
@@ -508,8 +509,8 @@ export function NewProjectForm({
           background: 'var(--surface)',
           color: 'var(--fg)',
           border: '1px solid var(--border-2)',
+          boxShadow: '0 16px 48px color-mix(in oklab, var(--ink) 45%, transparent)',
           borderRadius: narrow ? '20px 20px 0 0' : 28,
-          boxShadow: '0 24px 80px rgb(0 0 0 / 45%)',
           padding: narrow ? 20 : 24,
           display: 'flex',
           flexDirection: 'column',
@@ -517,12 +518,9 @@ export function NewProjectForm({
         }}
       >
         <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>Project</p>
-            <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 20, fontWeight: 600, lineHeight: '28px', marginTop: 4 }}>
-              New project
-            </h2>
-          </div>
+          <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 20, fontWeight: 600, lineHeight: '30px' }}>
+            New project
+          </h2>
           <button
             type="button"
             onClick={onRequestClose}
@@ -538,40 +536,47 @@ export function NewProjectForm({
             style={{ border: 0, margin: 0, padding: 0, opacity: pending ? 0.45 : 1 }}
           >
             <label className="flex flex-col gap-2">
-              <FieldLabel>Project name</FieldLabel>
+              <FieldLabel>Project name *</FieldLabel>
               <input
                 ref={nameRef}
                 value={name}
                 onChange={(event) => onName(event.target.value)}
                 aria-invalid={note?.tone === 'error' && note.field === 'name' ? true : undefined}
                 data-testid="new-project-name"
-                className="project-create-field"
-                style={fieldStyle(note?.tone === 'error' && note.field === 'name')}
+                className="portal-create-field"
+                style={fieldStyle()}
               />
             </label>
             {locked ? (
               <div className="mt-4 flex flex-col gap-2" data-testid="new-project-client" data-locked="true" aria-disabled="true">
                 <FieldLabel>Client · preset</FieldLabel>
                 <div
+                  className="portal-create-locked"
                   style={{
-                    ...fieldStyle(false),
                     display: 'flex',
                     alignItems: 'center',
-                    gap: 10,
+                    gap: 8,
+                    minHeight: 44,
+                    borderRadius: 18,
+                    padding: '10px 12px',
+                    background: 'var(--bg-2)',
+                    color: 'var(--fg)',
+                    border: '1px solid var(--border)',
                   }}
                 >
-                  <ClientMark name={lockedName} />
-                  <span className="min-w-0 flex-1 truncate" style={{ fontWeight: 600 }}>{lockedName}</span>
+                  <Building2 size={16} aria-hidden="true" />
+                  <span className="min-w-0 flex-1 truncate">{lockedName}</span>
                   <Tag>Preset</Tag>
-                  <Lock size={16} aria-hidden="true" />
+                  <Lock size={14} aria-hidden="true" />
                 </div>
-                <p style={{ fontSize: 13, color: 'var(--muted)' }}>
-                  Set from {lockedName}. Start from Projects to pick another client.
+                <p className="ds-mono" style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
+                  <Lock size={14} aria-hidden="true" style={{ flex: '0 0 auto', marginTop: 2 }} />
+                  <span>Set from {lockedName}. Start from Projects to pick another client.</span>
                 </p>
               </div>
             ) : (
               <div className="relative mt-4 flex flex-col gap-2">
-                <FieldLabel>Client</FieldLabel>
+                <FieldLabel>Client *</FieldLabel>
                 <button
                   ref={clientRef}
                   type="button"
@@ -582,13 +587,15 @@ export function NewProjectForm({
                   data-locked="false"
                   data-fresh={fresh ? 'true' : 'false'}
                   onClick={() => (pickerOpen ? onPickerClose() : onPickerOpen())}
+                  className="portal-create-field"
                   style={{
-                    ...fieldStyle(note?.tone === 'error' && note.field === 'client'),
+                    ...fieldStyle(),
                     display: 'flex',
                     alignItems: 'center',
                     gap: 10,
                     textAlign: 'left',
                     cursor: 'pointer',
+                    borderColor: note?.tone === 'error' && note.field === 'client' ? 'var(--danger)' : undefined,
                   }}
                 >
                   {selected ? <ClientMark name={selected.name} /> : null}
@@ -604,12 +611,14 @@ export function NewProjectForm({
                     role="listbox"
                     aria-label="Clients"
                     data-testid="client-picker"
+                    className="portal-create-menu"
                     style={{
-                      border: '1px solid var(--border-2)',
                       borderRadius: 18,
-                      background: 'var(--surface)',
-                      boxShadow: '0 16px 40px rgb(0 0 0 / 35%)',
                       overflow: 'hidden',
+                      background: 'var(--surface)',
+                      color: 'var(--fg)',
+                      border: '1px solid var(--border-2)',
+                      boxShadow: '0 16px 40px color-mix(in oklab, var(--ink) 35%, transparent)',
                     }}
                   >
                     <label className="flex items-center gap-2" style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
@@ -686,16 +695,16 @@ export function NewProjectForm({
               </div>
             )}
           </fieldset>
-          <p data-testid="project-publish-copy" style={{ fontSize: 13, color: 'var(--muted)' }}>
+          <p className="ds-mono" data-testid="project-publish-copy" style={{ fontSize: 12, color: 'var(--muted)' }}>
             {PROJECT_PUBLISH_COPY}
           </p>
           {note ? (
             <p
-              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: note.tone === 'error' ? 'var(--danger)' : 'var(--fg)' }}
+              style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--fg)' }}
               role={note.tone === 'error' ? 'alert' : 'status'}
               data-testid={note.tone === 'error' ? 'new-project-error' : 'new-project-info'}
             >
-              {note.tone === 'error' ? <AlertCircle size={14} aria-hidden="true" /> : null}
+              {note.tone === 'error' ? <AlertCircle size={14} aria-hidden="true" style={{ color: 'var(--danger)' }} /> : null}
               {note.text}
             </p>
           ) : null}
@@ -708,8 +717,15 @@ export function NewProjectForm({
               </div>
             </div>
           ) : (
-            <div className="flex flex-wrap items-center justify-between gap-3">
-              <p style={{ fontSize: 12, color: 'var(--muted)' }}>↵ to create · Esc to close</p>
+            <div
+              className="flex flex-wrap items-center justify-between gap-3"
+              style={{
+                borderTop: '1px solid var(--border)',
+                margin: narrow ? '0 -20px' : '0 -24px',
+                padding: narrow ? '16px 20px 0' : '16px 24px 0',
+              }}
+            >
+              <p className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>↵ to create · Esc to close</p>
               <div className="flex gap-2">
                 <OutlineButton onClick={onRequestClose} disabled={pending}>Cancel</OutlineButton>
                 <PrimaryButton type="submit" disabled={pending || !name.trim() || !orgId} testId="create-project">
@@ -788,14 +804,14 @@ function optionStyle(active: boolean): CSSProperties {
   };
 }
 
-function fieldStyle(invalid: boolean): CSSProperties {
+function fieldStyle(): CSSProperties {
   return {
     width: '100%',
     minHeight: 44,
-    border: invalid ? '1px solid var(--danger)' : '1px solid var(--border-2)',
     borderRadius: 18,
     background: 'var(--surface-2)',
     color: 'var(--fg)',
+    border: '1px solid var(--border-2)',
     padding: '10px 12px',
     fontSize: 15,
     fontFamily: 'var(--font-body)',
