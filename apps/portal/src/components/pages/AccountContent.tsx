@@ -145,7 +145,8 @@ export function AccountContent() {
   const [highlightProjectId, setHighlightProjectId] = useState<string | null>(null);
   const [projectToast, setProjectToast] = useState<{ id: string; name: string } | null>(null);
   const writebackEnabled = useWritebackEnabled();
-  const createEnabled = writebackEnabled || useFixtureCreatePreview();
+  const fixtureCreate = useFixtureCreatePreview();
+  const createEnabled = writebackEnabled || fixtureCreate;
 
   useEffect(() => {
     if (!projectToast) return;

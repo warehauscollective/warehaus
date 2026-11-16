@@ -92,7 +92,8 @@ export function ProjectsContent() {
   const { sectionFor, setSectionFor, openLinkedClient, setOpenProjectId } = usePortalView();
   const [createOpen, setCreateOpen] = useState(false);
   const writebackEnabled = useWritebackEnabled();
-  const createEnabled = writebackEnabled || useFixtureCreatePreview();
+  const fixtureCreate = useFixtureCreatePreview();
+  const createEnabled = writebackEnabled || fixtureCreate;
   const { data, loading, error } = usePortalData();
   const activityFeed = useActivityFeed();
   const retryPortalData = useRetryPortalData();

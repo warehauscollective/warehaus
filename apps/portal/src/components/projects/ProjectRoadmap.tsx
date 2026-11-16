@@ -302,13 +302,20 @@ function nestedCopy(nested: number): string {
   return `${nested} subtasks stay on their parent cards, not in their own lanes.`;
 }
 
-/** Tasks the detach menu can unlink, including a subtask nested under an attached parent. */
+/** Tasks the detach menu can unlink. A nested child is included only when it is linked to this milestone. */
 export function milestoneDetachOptions(
-  rows: readonly { id: string; name: string; children?: readonly { id: string; name: string }[] }[],
+  rows: readonly {
+    id: string;
+    name: string;
+    onMilestone?: boolean;
+    children?: readonly { id: string; name: string; onMilestone?: boolean }[];
+  }[],
 ): { id: string; name: string }[] {
   return rows.flatMap((row) => [
-    { id: row.id, name: row.name },
-    ...(row.children ?? []).map((child) => ({ id: child.id, name: child.name })),
+    ...(row.onMilestone === false ? [] : [{ id: row.id, name: row.name }]),
+    ...(row.children ?? [])
+      .filter((child) => child.onMilestone === true)
+      .map((child) => ({ id: child.id, name: child.name })),
   ]);
 }
 
@@ -1548,7 +1555,7 @@ function TaskLines({
           {row.children.map((child) => (
             <div key={child.id} className="pl-4">
               <TaskLine row={child} testId="milestone-subtask" />
-              {staff ? (
+              {staff && child.onMilestone ? (
                 <button type="button" data-testid="milestone-detach-subtask" disabled={busy} onClick={() => onDetach(child.id)} style={textButton}>
                   Remove from milestone
                 </button>

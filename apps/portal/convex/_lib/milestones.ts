@@ -369,6 +369,8 @@ export type RoadmapChild = {
   resourceCount: number;
   pullRequestUrl?: string;
   source?: string | null;
+  /** True only when this task's milestoneId is the milestone being shown. */
+  onMilestone?: boolean;
 };
 
 export type RoadmapRow = RoadmapChild & {
@@ -450,8 +452,11 @@ export function buildRoadmap(input: {
         return !task.milestoneId || task.milestoneId === input.milestoneId;
       })
       .sort((a, b) => a.name.localeCompare(b.name))
-      .map((task) => roadmapTask(task, input.audience));
-    return { ...roadmapTask(parent, input.audience), children };
+      .map((task) => ({
+        ...roadmapTask(task, input.audience),
+        onMilestone: task.milestoneId === input.milestoneId,
+      }));
+    return { ...roadmapTask(parent, input.audience), onMilestone: true, children };
   });
   const flat = rows.flatMap((row) => [row, ...row.children]);
   return {

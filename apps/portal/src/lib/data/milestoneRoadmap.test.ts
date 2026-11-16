@@ -48,6 +48,7 @@ function rowWithSubtasks(count: number) {
       isDone: false,
       stage: null,
       resourceCount: 0,
+      onMilestone: true,
     })),
   };
 }
@@ -495,11 +496,22 @@ describe('MilestoneDetailView', () => {
     assert.equal(client.includes('LAST REVIEW'), false);
   });
 
-  it('offers a nested child in the detach menu', () => {
+  it('offers detach only for tasks linked to the milestone', () => {
+    const row = rowWithSubtasks(1);
+    row.children.push({
+      id: 'sub-free',
+      name: 'Unlinked subtask',
+      status: 'To Do',
+      isDone: false,
+      stage: null,
+      resourceCount: 0,
+      onMilestone: false,
+    });
     const milestone = tileMilestone({
-      rows: [rowWithSubtasks(1)],
+      rows: [row],
       attachableTasks: [
         { id: 'sub-0', name: 'Subtask 1' },
+        { id: 'sub-free', name: 'Unlinked subtask' },
         { id: 'loose', name: 'Loose subtask' },
       ],
     });
@@ -511,14 +523,20 @@ describe('MilestoneDetailView', () => {
       createElement(MoreMenu, {
         milestone,
         busy: false,
-        attachable: [{ id: 'loose', name: 'Loose subtask' }],
+        attachable: [
+          { id: 'sub-free', name: 'Unlinked subtask' },
+          { id: 'loose', name: 'Loose subtask' },
+        ],
         onWorkStatus: () => undefined,
         onPublish: () => undefined,
         onAttach: () => undefined,
         onDetach: () => undefined,
       }),
     );
-    assert.match(html, /data-testid="milestone-detach"[\s\S]*<option value="sub-0">Subtask 1<\/option>/);
+    const detach = html.match(/data-testid="milestone-detach"[\s\S]*?<\/select>/)?.[0] ?? '';
+    assert.match(detach, /<option value="sub-0">Subtask 1<\/option>/);
+    assert.equal(detach.includes('sub-free'), false);
+    assert.match(html, /<option value="sub-free">Unlinked subtask<\/option>/);
     assert.match(html, /<option value="loose">Loose subtask<\/option>/);
   });
 

@@ -516,6 +516,8 @@ describe('roadmap', () => {
       both.rows[0]?.children.map((child) => child.id),
       ['sib', 'sub'],
     );
+    assert.equal(both.rows[0]?.children.find((child) => child.id === 'sib')?.onMilestone, false);
+    assert.equal(both.rows[0]?.children.find((child) => child.id === 'sub')?.onMilestone, true);
     const shown = both.rows.flatMap((row) => [row.id, ...row.children.map((child) => child.id)]);
     assert.equal(new Set(shown).size, shown.length);
     assert.equal(both.openCount, 2);
