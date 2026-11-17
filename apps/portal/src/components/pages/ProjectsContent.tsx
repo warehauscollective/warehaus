@@ -351,7 +351,7 @@ export function ProjectsContent() {
             className="flex flex-col items-start gap-3"
             style={{ border: '1px solid var(--danger)', borderRadius: 18, padding: '1rem 1.25rem' }}
           >
-            <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 14 }}>{copy.title}</p>
+            <p style={{ color: 'var(--danger-text)', fontWeight: 600, fontSize: 14 }}>{copy.title}</p>
             <p style={{ color: 'var(--muted)', fontSize: 13 }}>{copy.detail}</p>
             <OutlineButton onClick={closeProject}>Back to projects</OutlineButton>
           </div>

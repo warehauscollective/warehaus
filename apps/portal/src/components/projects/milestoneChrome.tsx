@@ -350,6 +350,8 @@ export function MilestoneDialog({
   footer,
   onConfirm,
   contained = false,
+  cover = false,
+  confirmOnEnter = false,
   trapFocus = true,
 }: {
   title: string;
@@ -363,6 +365,10 @@ export function MilestoneDialog({
   onConfirm?: () => void;
   /** Stay in the parent flow. The live dialog is a fixed overlay. */
   contained?: boolean;
+  /** Cover the parent frame so the scrim sits on the page behind it. */
+  cover?: boolean;
+  /** Plain Enter confirms. Text fields still insert a newline. */
+  confirmOnEnter?: boolean;
   trapFocus?: boolean;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
@@ -391,6 +397,13 @@ export function MilestoneDialog({
         return;
       }
       if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault();
+        onConfirmRef.current?.();
+        return;
+      }
+      if (confirmOnEnter && event.key === 'Enter' && !event.shiftKey && !event.altKey) {
+        const target = event.target;
+        if (target instanceof HTMLTextAreaElement || (target instanceof HTMLInputElement && target.type !== 'button')) return;
         event.preventDefault();
         onConfirmRef.current?.();
         return;
@@ -427,13 +440,13 @@ export function MilestoneDialog({
       release();
       previous?.focus({ preventScroll: true });
     };
-  }, [trapFocus]);
+  }, [trapFocus, confirmOnEnter]);
 
   const sheet = phone === true;
   const responsive = phone == null;
   const overlayClass = [
     'ds-scope flex justify-center overflow-y-auto',
-    contained ? 'relative min-h-[280px]' : 'fixed inset-0',
+    cover ? 'absolute inset-0' : contained ? 'relative min-h-[280px]' : 'fixed inset-0',
     sheet ? 'items-end' : responsive ? 'items-end md:items-center md:p-6' : 'items-center p-6',
   ].join(' ');
   const panelClass = [
@@ -447,7 +460,7 @@ export function MilestoneDialog({
       ref={overlayRef}
       className={overlayClass}
       style={{
-        zIndex: contained ? 1 : 80,
+        zIndex: cover ? 2 : contained ? 1 : 80,
         background: 'var(--scrim)',
         backdropFilter: 'blur(var(--scrim-blur))',
         WebkitBackdropFilter: 'blur(var(--scrim-blur))',
@@ -485,10 +498,10 @@ export function MilestoneDialog({
             style={{
               background: 'transparent',
               color: 'var(--fg)',
-              border: '1px solid var(--border-2)',
-              borderRadius: 9,
+              border: 0,
+              padding: 0,
               fontSize: 14,
-              padding: '8px 14px',
+              lineHeight: '21px',
               cursor: 'pointer',
             }}
           >
@@ -498,7 +511,7 @@ export function MilestoneDialog({
         <div className="px-6 py-4">{children}</div>
         {hint || footer ? (
           <div
-            className="flex flex-wrap items-center justify-between gap-3 border-t px-6 pt-4"
+            className={sheet ? 'flex flex-col gap-3 border-t px-6 pt-4' : 'flex flex-wrap items-center justify-between gap-3 border-t px-6 pt-4'}
             style={{ borderColor: 'var(--border)', paddingBottom: sheet ? 24 : 16 }}
           >
             {hint ? (
@@ -508,7 +521,7 @@ export function MilestoneDialog({
             ) : (
               <span />
             )}
-            <div className="flex flex-wrap justify-end gap-2">{footer}</div>
+            <div className={sheet ? 'flex w-full flex-col gap-2' : 'flex flex-wrap justify-end gap-2'}>{footer}</div>
           </div>
         ) : null}
       </div>
@@ -549,7 +562,7 @@ export function MenuActionError({
 }) {
   return (
     <div id={MENU_ERROR_ID} role="alert" data-testid="milestone-error" className="flex flex-col items-start gap-2">
-      <p style={{ fontSize: 13, color: 'var(--danger)' }}>{error}</p>
+      <p style={{ fontSize: 13, color: 'var(--danger-text)' }}>{error}</p>
       <button type="button" onClick={onDismiss} style={{ font: 'inherit', fontSize: 13, color: 'var(--fg)', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}>
         Dismiss
       </button>

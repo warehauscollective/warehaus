@@ -17,6 +17,7 @@ import {
   reviewChatLine,
   reviewForAudience,
   reviewNotesForAudience,
+  roadmapReviewForAudience,
   type PlanReviewInput,
 } from './milestoneReview';
 
@@ -219,11 +220,22 @@ describe('client review notes', () => {
     assert.equal(reviewNotesForAudience('client', '   '), null);
     assert.equal(reviewNotesForAudience('client', null), null);
     assert.equal(reviewNotesForAudience('staff', '  Keep the ring  '), 'Keep the ring');
+    const client = roadmapReviewForAudience('client', {
+      approval: 'approved',
+      decidedAt: 1,
+      note: "Peter's notes",
+    });
+    assert.equal(client.note, null);
+    assert.equal('approval' in client, false);
+    assert.equal('decidedAt' in client, false);
+    const staff = roadmapReviewForAudience('staff', { approval: 'approved', decidedAt: 1, note: ' Keep ' });
+    assert.equal(staff.approval, 'approved');
+    assert.equal(staff.decidedAt, 1);
     const milestones = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
     const apply = milestones.slice(milestones.indexOf('async function applyMilestoneReview'), milestones.indexOf('export const decideAsClient'));
     assert.match(apply, /if \(planned\.idempotent\)/);
     assert.equal(apply.includes('note: planned.notes'), false);
-    assert.match(milestones, /note: reviewNotesForAudience\(audience, milestone\.note\)/);
+    assert.match(milestones, /roadmapReviewForAudience\(audience, milestone\)/);
   });
 });
 

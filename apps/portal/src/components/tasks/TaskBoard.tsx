@@ -1288,7 +1288,7 @@ function NeedsDialog({
           “{taskName}” needs a linked pull request before it can be Ready to Ship. Add it now to move it.
         </p>
         <label htmlFor="pr-link" className="flex flex-col gap-2" style={{ fontSize: 14 }}>
-          <span>{field?.label ?? 'Pull request link'} <span aria-hidden style={{ color: 'var(--danger)' }}>*</span></span>
+          <span>{field?.label ?? 'Pull request link'} <span aria-hidden style={{ color: 'var(--danger-text)' }}>*</span></span>
           <span className="flex items-center gap-2" style={{ border: error ? '2px solid var(--danger)' : '2px solid var(--accent)', borderRadius: 18, background: 'var(--surface-2, var(--bg))', padding: '0.7rem 0.85rem' }}>
             <span aria-hidden style={{ color: 'var(--muted)' }}>🔗</span>
             <input
@@ -1312,7 +1312,7 @@ function NeedsDialog({
             style={{ border: '1px solid var(--border)', borderRadius: 18, background: 'var(--surface-2, var(--bg))', color: 'var(--fg)', padding: '0.7rem 0.85rem' }}
           />
         </label>
-        {error ? <p style={{ color: 'var(--danger)', fontSize: 14, margin: 0 }}>{error}</p> : null}
+        {error ? <p style={{ color: 'var(--danger-text)', fontSize: 14, margin: 0 }}>{error}</p> : null}
         <div className="flex justify-end gap-2">
           <OutlineButton onClick={onCancel}>Cancel</OutlineButton>
           <PrimaryButton type="submit">Move to Ready to Ship</PrimaryButton>

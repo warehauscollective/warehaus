@@ -22,7 +22,7 @@ export function Pill({
   );
 }
 
-/** Status chip from the review spec: border-2, pill, mono 12. Not an accent fill. */
+/** Filled status from the task review row: no border, muted text, chevron. */
 export function StatusBadge({ children }: { children: ReactNode }) {
   return (
     <span
@@ -30,15 +30,20 @@ export function StatusBadge({ children }: { children: ReactNode }) {
       style={{
         display: 'inline-flex',
         alignItems: 'center',
-        border: '1px solid var(--border-2)',
+        gap: 4,
+        border: 0,
         borderRadius: 999,
         padding: '3px 8px',
         fontSize: 12,
         lineHeight: '18px',
-        color: 'var(--fg)',
+        color: 'var(--muted)',
+        background: 'var(--surface-2)',
       }}
     >
       {children}
+      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
+        <path d="M2.2 3.6 5 6.4 7.8 3.6" fill="none" stroke="currentColor" strokeWidth="1.25" />
+      </svg>
     </span>
   );
 }
@@ -187,6 +192,7 @@ export function OutlineButton({
   height,
   paddingInline,
   testId,
+  className,
   disabledOpacity = 0.55,
 }: {
   children: ReactNode;
@@ -194,6 +200,7 @@ export function OutlineButton({
   onClick?: () => void;
   disabled?: boolean;
   describedBy?: string;
+  className?: string;
   /** Opacity while disabled. Review actions waiting on a build use 0.4. */
   disabledOpacity?: number;
   /** One line, 44 tall. Used by the milestone “View tasks” control. */
@@ -216,7 +223,7 @@ export function OutlineButton({
       disabled={disabled}
       data-testid={testId}
       aria-describedby={describedBy}
-      className={fixed ? 'inline-flex shrink-0 items-center justify-center' : 'inline-flex items-center justify-center'}
+      className={[fixed ? 'inline-flex shrink-0 items-center justify-center' : 'inline-flex items-center justify-center', className].filter(Boolean).join(' ')}
       style={{
         boxSizing: 'border-box',
         background: 'transparent',

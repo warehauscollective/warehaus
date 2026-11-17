@@ -521,7 +521,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
             <LockedEmail email={email} hint={`This is the address ${firstName(inviter)} invited. It can’t be changed here.`} />
             {awaitingAccept ? (
               <div className="flex flex-col gap-4">
-                {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
+                {error ? <p style={{ margin: 0, color: 'var(--danger-text)', fontSize: 14 }}>{error}</p> : null}
                 <div className="accept-actions">
                   <button type="button" disabled={busy} onClick={() => void retryAccept()} className="accept-primary" style={{ ...primary, opacity: busy ? 0.5 : 1 }}>
                     {busy ? 'Joining…' : 'Try again'}
@@ -539,7 +539,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
                 {ready ? null : (
                   <p className="accept-hint" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--accept-muted)' }}>Join turns on when every rule is met.</p>
                 )}
-                {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
+                {error ? <p style={{ margin: 0, color: 'var(--danger-text)', fontSize: 14 }}>{error}</p> : null}
               </form>
             )}
           </Card>
@@ -557,7 +557,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
                 {busy ? 'Joining…' : 'Accept invite'}
               </button>
             </div>
-            {error ? <p style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>{error}</p> : null}
+            {error ? <p style={{ margin: 0, color: 'var(--danger-text)', fontSize: 14 }}>{error}</p> : null}
           </Card>
         ) : status === 'sign-in' ? (
           <Card>
@@ -780,7 +780,7 @@ function Field({ label, value, onChange, error }: { label: string; value: string
         autoComplete="new-password"
         style={{ minHeight: 52, borderRadius: 10, border: `1px solid ${error ? 'var(--danger)' : 'var(--border)'}`, background: 'var(--bg-2)', color: 'var(--fg)', padding: '0 16px', fontSize: 16, lineHeight: '24px' }}
       />
-      {error ? <span data-testid="accept-field-error" style={{ color: 'var(--danger)', fontSize: 13, lineHeight: '20px' }}>{error}</span> : null}
+      {error ? <span data-testid="accept-field-error" style={{ color: 'var(--danger-text)', fontSize: 13, lineHeight: '20px' }}>{error}</span> : null}
     </label>
   );
 }

@@ -182,18 +182,8 @@ export function stageMoveRule(actor: MoveActor, stage: string): MoveRule {
   if (stage === 'Building' || stage === 'Shipped') {
     return { kind: 'locked', reason: STAGE_LOCK_REASONS[stage] };
   }
-  if (stage === 'Ready to Ship') {
-    return {
-      kind: 'needs',
-      reason: 'Ready to Ship needs a pull request link.',
-      fields: [
-        {
-          key: 'pullRequestLink',
-          label: 'Pull request link',
-          placeholder: 'github.com/…/pull/123',
-        },
-      ],
-    };
+  if (stage === 'Awaiting Go' || stage === 'Ready to Ship') {
+    return { kind: 'locked', reason: "Awaiting Go and Ready to Ship are Peter's call." };
   }
   return { kind: 'allowed' };
 }
@@ -376,12 +366,20 @@ export function planTaskStageWrite(input: {
   pullRequestLink?: string;
   notionPageId: string;
   expectedLastEditedTime: string;
+  /** Merge webhook only. Staff and the API stay locked out of Ready to Ship. */
+  allowReviewStage?: boolean;
 }): { ok: true; properties: TaskWriteProperties; idempotencyKey: string } | { ok: false; error: string } {
   const rule = stageMoveRule(input.actor, input.stage);
-  if (rule.kind === 'denied' || rule.kind === 'locked') return { ok: false, error: rule.reason };
+  const mergeReview = input.allowReviewStage === true && input.stage === 'Ready to Ship';
+  if ((rule.kind === 'denied' || rule.kind === 'locked') && !mergeReview) return { ok: false, error: rule.reason };
   if (!input.notionPageId) return { ok: false, error: 'Updates require a Notion page' };
   if (!input.expectedLastEditedTime) return { ok: false, error: 'Updates require the last read time' };
   const properties: TaskWriteProperties = { Stage: input.stage };
+  if (mergeReview) {
+    const link = input.pullRequestLink?.trim() ?? '';
+    if (!isPullRequestLink(link)) return { ok: false, error: 'Ready to Ship needs a pull request link.' };
+    properties['GitHub Issue/PR'] = link;
+  }
   if (rule.kind === 'needs') {
     const link = input.pullRequestLink?.trim() ?? '';
     if (!isPullRequestLink(link)) return { ok: false, error: rule.reason };

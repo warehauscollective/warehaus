@@ -402,7 +402,7 @@ function StageBadge() {
     <span
       className="ds-mono inline-flex items-center gap-2"
       data-testid="client-team-stage"
-      style={{ border: '1px solid var(--danger)', borderRadius: 999, padding: '4px 12px', fontSize: 11, letterSpacing: '0.44px', color: 'var(--danger)' }}
+      style={{ border: '1px solid var(--danger)', borderRadius: 999, padding: '4px 12px', fontSize: 11, letterSpacing: '0.44px', color: 'var(--danger-text)' }}
     >
       <TaskGlyph src="/icons/task-stage.svg" size={12} />
       {CLIENT_TEAM_STAGE_LABEL}
@@ -1460,7 +1460,7 @@ function StateNotice({ title, body, action }: { title: string; body: string; act
           height: 20,
           borderRadius: 999,
           border: '1.25px solid var(--danger)',
-          color: 'var(--danger)',
+          color: 'var(--danger-text)',
           fontSize: 11,
           fontWeight: 600,
         }}
@@ -1468,7 +1468,7 @@ function StateNotice({ title, body, action }: { title: string; body: string; act
         !
       </span>
       <span className="min-w-0 flex-1">
-        <p style={{ margin: 0, color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{title}</p>
+        <p style={{ margin: 0, color: 'var(--danger-text)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{title}</p>
         <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: '19px' }}>{body}</p>
         {action ? <span className="mt-2 block">{action}</span> : null}
       </span>

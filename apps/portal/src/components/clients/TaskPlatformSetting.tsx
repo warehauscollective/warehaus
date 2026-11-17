@@ -114,7 +114,7 @@ export function TaskPlatformSetting({
         </p>
       ) : null}
       {error ? (
-        <p data-testid="task-platform-error" style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)', marginTop: 12 }}>
+        <p data-testid="task-platform-error" style={{ fontSize: 'var(--t-sm)', color: 'var(--danger-text)', marginTop: 12 }}>
           {error}
         </p>
       ) : null}

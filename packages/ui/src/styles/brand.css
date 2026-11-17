@@ -181,6 +181,8 @@ body {
   /* Amber on ink. Light theme overrides this; #f59e0b fails AA on white. */
   --warning: #f59e0b;
   --danger: oklch(64% 0.2 25);
+  /* 14px error text. Lighter than --danger so it clears 4.5:1 on dark surfaces. */
+  --danger-text: #ff9b93;
 
   /* Body font (Geist) is now set globally on :root; the scope inherits it. */
 
@@ -220,6 +222,8 @@ body {
   --accent-tint: oklch(25% 0 0 / 0.1);
   /* Amber-700. 5.02:1 on white, 4.94:1 on paper. Small stale text needs 4.5:1. */
   --warning: #b45309;
+  /* Darker than --danger. 7.9:1 on paper, so 14px error text clears 4.5:1. */
+  --danger-text: #9b1e22;
 }
 
 /* Rail width reserved for the style-guide sub-nav on desktop.

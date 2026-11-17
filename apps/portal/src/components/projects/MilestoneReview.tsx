@@ -39,6 +39,7 @@ export type ReviewSurfaceModel = {
   history: MilestoneReviewHistoryItem[];
   tasks: { id: string; name: string }[];
   resultTasks?: { name: string }[];
+  milestoneName?: string;
 };
 
 export function reviewShouldShow(input: {
@@ -60,8 +61,26 @@ export function deriveReviewVisual(model: ReviewSurfaceModel, forced?: ReviewVis
 
 function designPillLabel(check: DesignCheck): string {
   if (check === 'pass') return 'DESIGN CHECK · PASS';
-  if (check === 'fixes') return 'FIXES NEEDED';
-  return 'PENDING';
+  if (check === 'fixes') return 'DESIGN CHECK · FIXES NEEDED';
+  return 'DESIGN CHECK · PENDING';
+}
+
+function designCheckWords(check: DesignCheck): string {
+  if (check === 'pass') return 'pass';
+  if (check === 'fixes') return 'fixes needed';
+  return 'pending';
+}
+
+function shortReviewDate(ms: number): string {
+  return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone: 'America/New_York' }).format(new Date(ms));
+}
+
+function CheckIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+      <path d="M2.2 6.2 4.7 8.7 9.8 3.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
+    </svg>
+  );
 }
 
 export const REVIEW_CARD_FOOTER = 'Approve marks it complete and lets it merge · going live still needs deploy main';
@@ -74,6 +93,9 @@ function DesignCheckPill({ check }: { check: DesignCheck }) {
       style={{
         border: '1px solid var(--border-2)',
         borderRadius: 999,
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 6,
         padding: '3px 8px',
         fontSize: 12,
         lineHeight: '18px',
@@ -81,6 +103,7 @@ function DesignCheckPill({ check }: { check: DesignCheck }) {
         whiteSpace: 'nowrap',
       }}
     >
+      <CheckIcon />
       {designPillLabel(check)}
     </span>
   );
@@ -148,6 +171,8 @@ export function ReviewScrim({
   onConfirm,
   footer,
   contained = false,
+  cover = false,
+  confirmOnEnter = false,
   children,
 }: {
   phone: boolean;
@@ -157,6 +182,8 @@ export function ReviewScrim({
   onConfirm?: () => void;
   footer?: React.ReactNode;
   contained?: boolean;
+  cover?: boolean;
+  confirmOnEnter?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -168,6 +195,8 @@ export function ReviewScrim({
       onConfirm={onConfirm}
       footer={footer}
       contained={contained}
+      cover={cover}
+      confirmOnEnter={confirmOnEnter}
       trapFocus={!contained}
       testId="milestone-review-dialog"
     >
@@ -184,6 +213,7 @@ export function ReviewDialogBody({
   selected,
   onToggle,
   fieldError,
+  context,
 }: {
   kind: ReviewDialogKind;
   tasks: { id: string; name: string }[];
@@ -192,63 +222,94 @@ export function ReviewDialogBody({
   selected: string[];
   onToggle: (id: string) => void;
   fieldError: string | null;
+  context?: {
+    milestoneName: string;
+    iteration: number;
+    prNumber: number | null;
+    commit: string | null;
+    designCheck: DesignCheck;
+  };
 }) {
   const approve = kind === 'approve';
+  const contextLine = context
+    ? [context.prNumber != null ? `PR #${context.prNumber}` : null, context.commit, `design check ${designCheckWords(context.designCheck)}`]
+        .filter(Boolean)
+        .join(' · ')
+    : null;
   return (
-    <div className="flex flex-col gap-4">
-      <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
-        {approve
-          ? 'Marks milestone complete and lets it merge. Going live still needs deploy main.'
-          : 'Notes become tasks in this milestone. The stage goes back to Building.'}
-      </p>
-      <label className="flex flex-col gap-2" style={{ fontSize: 14 }}>
-        <span>{approve ? 'Log note' : 'What needs to change? *'}</span>
-        <textarea
-          value={notes}
-          onChange={(event) => onNotes(event.target.value)}
-          rows={4}
-          style={{
-            width: '100%',
-            border: '1px solid var(--border)',
-            borderRadius: 12,
-            background: 'var(--bg)',
-            color: 'var(--fg)',
-            padding: 12,
-            font: 'inherit',
-          }}
-        />
-      </label>
+    <div className="flex flex-col gap-3">
+      {context ? (
+        <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', fontWeight: 600 }}>
+          {`${context.milestoneName} · Iteration ${context.iteration}`}
+        </p>
+      ) : null}
+      {contextLine ? (
+        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{contextLine}</p>
+      ) : null}
+      {approve ? (
+        <>
+          <p style={{ margin: 0, border: '1px solid var(--border-2)', borderRadius: 16, padding: '12px 14px', fontSize: 14, lineHeight: '21px' }}>
+            Marks milestone complete and lets it merge. Going live still needs deploy main.
+          </p>
+          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
+            Logged as “Approved by Peter” with the date and time, in the Portal and in Grok Bot chat.
+          </p>
+        </>
+      ) : (
+        <>
+          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
+            {`Starts iteration ${context ? context.iteration + 1 : ''}. Notes become tasks in this milestone. The stage goes back to Building.`}
+          </p>
+          <label className="flex flex-col gap-2" style={{ fontSize: 14 }}>
+            <span>What needs to change? *</span>
+            <textarea
+              value={notes}
+              onChange={(event) => onNotes(event.target.value)}
+              rows={4}
+              style={{
+                width: '100%',
+                border: '1px solid var(--border)',
+                borderRadius: 12,
+                background: 'var(--bg)',
+                color: 'var(--fg)',
+                padding: 12,
+                font: 'inherit',
+              }}
+            />
+          </label>
+          <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+            <legend style={{ fontSize: 14, marginBottom: 8 }}>Applies to (optional)</legend>
+            {tasks.length > 0 ? (
+              <ul className="flex flex-col gap-2" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+                {tasks.map((task) => {
+                  const checked = selected.includes(task.id);
+                  return (
+                    <li key={task.id}>
+                      <label className="flex items-center gap-2" style={{ fontSize: 14 }}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => onToggle(task.id)}
+                          style={{ width: 16, height: 16, accentColor: 'var(--fg)' }}
+                        />
+                        {task.name}
+                      </label>
+                    </li>
+                  );
+                })}
+              </ul>
+            ) : null}
+            <p style={{ margin: tasks.length > 0 ? '8px 0 0' : 0, color: 'var(--muted)', fontSize: 12 }}>
+              Leave all unticked to apply to the whole milestone.
+            </p>
+          </fieldset>
+        </>
+      )}
       {fieldError ? (
-        <p role="alert" style={{ margin: 0, color: 'var(--danger)', fontSize: 14 }}>
+        <p role="alert" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 14 }}>
           {fieldError}
         </p>
       ) : null}
-      {!approve ? (
-        <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
-          <legend style={{ fontSize: 14, marginBottom: 8 }}>Applies to (optional)</legend>
-          {tasks.length > 0 ? (
-            <ul className="flex flex-col gap-2" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-              {tasks.map((task) => (
-                <li key={task.id}>
-                  <label className="flex items-center gap-2" style={{ fontSize: 14 }}>
-                    <input
-                      type="checkbox"
-                      checked={selected.includes(task.id)}
-                      onChange={() => onToggle(task.id)}
-                    />
-                    {task.name}
-                  </label>
-                </li>
-              ))}
-            </ul>
-          ) : null}
-          <p style={{ margin: tasks.length > 0 ? '8px 0 0' : 0, color: 'var(--muted)', fontSize: 12 }}>
-            Leave all unticked to apply to the whole milestone.
-          </p>
-        </fieldset>
-      ) : (
-        <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>{REVIEW_CARD_FOOTER}</p>
-      )}
     </div>
   );
 }
@@ -257,19 +318,22 @@ export function ReviewDialogActions({
   approve,
   iteration,
   busy,
+  phone = false,
   onCancel,
   onSubmit,
 }: {
   approve: boolean;
   iteration: number;
   busy: boolean;
+  phone?: boolean;
   onCancel: () => void;
   onSubmit: () => void;
 }) {
+  const buttonClass = phone ? 'w-full' : undefined;
   return (
     <>
-      <OutlineButton onClick={onCancel} disabled={busy}>Cancel</OutlineButton>
-      <PrimaryButton onClick={onSubmit} disabled={busy}>
+      <OutlineButton onClick={onCancel} disabled={busy} className={buttonClass}>Cancel</OutlineButton>
+      <PrimaryButton onClick={onSubmit} disabled={busy} className={buttonClass}>
         {busy ? (approve ? 'Approving…' : 'Starting…') : approve ? 'Approve' : `Start iteration ${iteration + 1}`}
       </PrimaryButton>
     </>
@@ -349,20 +413,34 @@ export function MilestoneReviewSurface({
         : `READY TO SHIP · ITERATION ${model.iteration}`;
   const dim = visual === 'waiting' ? 0.4 : 0.55;
 
+  const buttonClass = phone ? 'w-full' : undefined;
   const actions = (
-    <div className={phone ? 'flex w-full gap-2' : 'flex gap-2'} style={phone ? { width: '100%' } : undefined}>
+    <div className={phone ? 'flex w-full flex-col gap-2' : 'flex gap-2'} style={phone ? { width: '100%' } : undefined}>
       {visual === 'error' ? (
-        <PrimaryButton
-          onClick={() => {
-            setCardError(false);
-            setDialog(failedKind);
-          }}
-        >
-          Try again
-        </PrimaryButton>
+        <>
+          <OutlineButton
+            className={buttonClass}
+            onClick={() => {
+              setCardError(false);
+              setDialog('changes');
+            }}
+          >
+            Request changes
+          </OutlineButton>
+          <PrimaryButton
+            className={buttonClass}
+            onClick={() => {
+              setCardError(false);
+              setDialog(failedKind ?? 'approve');
+            }}
+          >
+            Try again
+          </PrimaryButton>
+        </>
       ) : (
         <>
           <OutlineButton
+            className={buttonClass}
             disabled={locked}
             disabledOpacity={dim}
             onClick={() => {
@@ -373,6 +451,7 @@ export function MilestoneReviewSurface({
             {busy === 'changes' ? 'Starting…' : 'Request changes'}
           </OutlineButton>
           <PrimaryButton
+            className={buttonClass}
             disabled={locked}
             disabledOpacity={dim}
             onClick={() => {
@@ -389,29 +468,26 @@ export function MilestoneReviewSurface({
 
   const body = (
     <div
-      data-testid={layout === 'row' ? 'task-review-row' : 'milestone-review-card'}
       data-review-state={visual}
-      className={layout === 'row' ? (phone ? 'flex flex-col gap-2.5' : 'flex items-center gap-3') : 'flex flex-col gap-5'}
-      style={{
-        background: layout === 'row' ? 'var(--surface-2)' : 'var(--surface)',
-        border: visual === 'error' ? '1px solid var(--danger)' : visual === 'waiting' ? '1px dashed var(--border)' : `1px solid ${layout === 'row' ? 'var(--border-2, var(--border))' : 'var(--border)'}`,
-        borderRadius: layout === 'row' ? 18 : 28,
-        padding: layout === 'row' ? '12px 16px' : '32px 28px',
-        opacity: visual === 'waiting' ? 1 : 1,
-      }}
+      className="flex flex-col gap-5"
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="flex items-center justify-between gap-3">
+        <div className={phone ? 'flex flex-col items-start gap-2' : 'flex items-center justify-between gap-3'}>
           <div className="flex min-w-0 items-center gap-2">
             <StatusDot color={visual === 'fixes' || visual === 'error' ? 'var(--danger)' : visual === 'approved' ? 'var(--success, var(--fg))' : 'var(--fg)'} />
-            <p className="ds-mono" style={eyebrowStyle}>{eyebrow}</p>
+            <p className="ds-mono" style={{ ...eyebrowStyle, whiteSpace: 'nowrap' }}>{eyebrow}</p>
           </div>
-          <DesignCheckPill check={visual === 'waiting' ? 'pending' : model.designCheck} />
+          {visual === 'changes' ? null : <DesignCheckPill check={visual === 'waiting' ? 'pending' : model.designCheck} />}
         </div>
         {layout === 'card' && model.prNumber ? (
           <h2 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', margin: 0 }}>
             {`PR #${model.prNumber}${model.prTitle ? ` · ${model.prTitle}` : ''}`}
           </h2>
+        ) : null}
+        {layout === 'card' && (model.branch || model.commit) && visual !== 'changes' && visual !== 'approved' ? (
+          <p className="ds-mono" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
+            {[model.branch, model.commit, model.builtAt ? formatReviewStamp(model.builtAt) : null].filter(Boolean).join(' · ')}
+          </p>
         ) : null}
         {visual === 'approved' ? (
           <>
@@ -425,36 +501,41 @@ export function MilestoneReviewSurface({
             <p className="ds-mono" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
               {`${who}${stamp ? ` · ${stamp}` : ''} · applies to ${latest?.taskCount ?? model.resultTasks?.length ?? 0} tasks`}
             </p>
-            {(model.resultTasks ?? []).map((task) => (
-              <p key={task.name} className="ds-mono" style={{ margin: 0, fontSize: 12 }}>
-                {`NEW · IT. ${model.iteration} · ${task.name}`}
-              </p>
+            {(model.resultTasks ?? model.tasks.map((task) => ({ name: task.name }))).map((task) => (
+              <label key={task.name} className="flex items-center justify-between gap-3" style={{ fontSize: 14 }}>
+                <span className="flex items-center gap-2">
+                  <input type="checkbox" disabled style={{ width: 16, height: 16, accentColor: 'var(--fg)' }} />
+                  {task.name}
+                </span>
+                <span className="ds-mono" style={{ whiteSpace: 'nowrap', fontSize: 11, border: '1px solid var(--border-2)', borderRadius: 999, padding: '2px 8px' }}>{`NEW · IT. ${model.iteration}`}</span>
+              </label>
             ))}
             <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{NEXT_BUILD_COPY}</p>
           </>
         ) : (
           <>
-            {model.previewUrl ? <PreviewBox url={model.previewUrl} /> : <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>{WAITING_COPY}</p>}
+            {model.previewUrl ? <PreviewBox url={model.previewUrl} /> : (
+              <div data-testid="review-waiting-box" style={{ border: '1px dashed var(--border-2)', borderRadius: 18, padding: 16 }}>
+                <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>{WAITING_COPY}</p>
+              </div>
+            )}
             {visual === 'fixes' && model.designCheckNote ? (
               <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>{model.designCheckNote}</p>
             ) : null}
             {visual === 'error' ? (
-              <p role="alert" style={{ margin: 0, fontSize: 14, color: 'var(--danger)' }}>{APPROVAL_SAVE_ERROR}</p>
-            ) : null}
-            {layout === 'card' && (model.branch || model.commit) ? (
-              <p className="ds-mono" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
-                {[model.branch, model.commit, model.builtAt ? formatReviewStamp(model.builtAt) : null].filter(Boolean).join(' · ')}
-              </p>
+              <div role="alert" data-testid="review-error-box" style={{ border: '1px solid var(--danger)', borderRadius: 16, padding: '12px 14px' }}>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--danger-text)' }}>{APPROVAL_SAVE_ERROR}</p>
+              </div>
             ) : null}
           </>
         )}
       </div>
       {visual === 'approved' || visual === 'changes' ? null : (
-        <div className="flex flex-col gap-3">
-          {actions}
+        <div className={phone ? 'flex flex-col gap-3' : 'flex items-center justify-between gap-4'}>
           {layout === 'card' ? (
-            <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{REVIEW_CARD_FOOTER}</p>
+            <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', flex: '1 1 auto' }}>{REVIEW_CARD_FOOTER}</p>
           ) : null}
+          {actions}
         </div>
       )}
     </div>
@@ -462,13 +543,13 @@ export function MilestoneReviewSurface({
 
   const listed = new Set(model.history.map((item) => item.iteration));
   const iterationRows = [
-    ...(!listed.has(model.iteration) && visual !== 'approved' && visual !== 'changes'
+    ...(!listed.has(model.iteration) && visual !== 'approved'
       ? [{
           key: `current-${model.iteration}`,
           iteration: model.iteration,
           at: model.builtAt,
-          tag: 'In review' as const,
-          notes: model.prNumber ? `PR #${model.prNumber}${model.prTitle ? ` · ${model.prTitle}` : ''}` : '',
+          tag: (visual === 'changes' ? 'Building' : 'In review') as 'Building' | 'In review',
+          notes: visual === 'changes' ? '2 tasks from your notes + design re-check' : model.prNumber ? `PR #${model.prNumber}${model.prTitle ? ` · ${model.prTitle}` : ''}` : '',
         }]
       : []),
     ...model.history.map((item) => ({
@@ -486,16 +567,17 @@ export function MilestoneReviewSurface({
   ];
 
   const history = layout === 'card' && iterationRows.length > 0 ? (
-    <section data-testid="milestone-iterations" className="flex flex-col gap-3">
-      <h3 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', margin: 0 }}>{`Iterations · ${iterationRows.length}`}</h3>
-      <ul className="flex flex-col gap-2" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+    <section data-testid="milestone-iterations" className="flex flex-col gap-2">
+      <h3 className="type-heading" style={{ fontSize: 16, lineHeight: '24px', margin: 0 }}>{`Iterations · ${iterationRows.length}`}</h3>
+      <ul className="flex flex-col" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
         {iterationRows.map((item) => (
-          <li key={item.key} style={{ border: '1px solid var(--border)', borderRadius: 18, padding: '12px 14px' }}>
+          <li key={item.key} style={{ borderTop: '1px solid var(--border)', padding: '12px 0' }}>
             <div className="flex items-center justify-between gap-3">
-              <span className="ds-mono" style={{ fontSize: 12, lineHeight: '18px' }}>
-                {`ITERATION ${item.iteration}${item.at ? ` · ${formatReviewStamp(item.at)}` : ''}`}
+              <span className="ds-mono" style={{ fontSize: 12, lineHeight: '18px', whiteSpace: 'nowrap' }}>
+                {`ITERATION ${item.iteration}`}
+                {item.at ? <span style={{ color: 'var(--muted)' }}>{` ${shortReviewDate(item.at)}`}</span> : null}
               </span>
-              <span className="ds-mono" style={{ border: '1px solid var(--border-2)', borderRadius: 999, padding: '3px 8px', fontSize: 12, lineHeight: '18px' }}>
+              <span className="ds-mono" style={{ whiteSpace: 'nowrap', border: '1px solid var(--border-2)', borderRadius: 999, padding: '3px 8px', fontSize: 12, lineHeight: '18px' }}>
                 {item.tag}
               </span>
             </div>
@@ -510,7 +592,8 @@ export function MilestoneReviewSurface({
     <ReviewScrim
       phone={phone}
       label={dialog === 'approve' ? 'Approve milestone' : 'Request changes'}
-      hint={dialog === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
+      hint={dialog === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to approve · Esc to close'}
+      confirmOnEnter={dialog === 'approve'}
       onClose={() => setDialog(null)}
       onConfirm={() => void submit()}
       footer={
@@ -518,6 +601,7 @@ export function MilestoneReviewSurface({
           approve={dialog === 'approve'}
           iteration={model.iteration}
           busy={busy != null}
+          phone={phone}
           onCancel={() => setDialog(null)}
           onSubmit={() => void submit()}
         />
@@ -534,29 +618,61 @@ export function MilestoneReviewSurface({
         selected={selected}
         onToggle={(id) => setSelected((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))}
         fieldError={fieldError}
+        context={{
+          milestoneName: model.milestoneName ?? 'Milestone',
+          iteration: model.iteration,
+          prNumber: model.prNumber,
+          commit: model.commit,
+          designCheck: model.designCheck,
+        }}
       />
     </ReviewScrim>
   ) : null;
 
   if (swap && dialogNode) return dialogNode;
 
+  const row = (
+    <div
+      data-testid="task-review-row"
+      data-review-state={visual}
+      className={phone ? 'flex flex-col gap-3' : 'flex items-center justify-between gap-4'}
+      style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '12px 16px' }}
+    >
+      <div className="flex min-w-0 flex-col gap-1">
+        <p className="ds-mono" style={{ ...eyebrowStyle, whiteSpace: 'nowrap' }}>{`${eyebrow} · ${designPillLabel(visual === 'waiting' ? 'pending' : model.designCheck)}`}</p>
+        {model.previewUrl ? (
+          <>
+            <a href={`http://${model.previewUrl}`} style={{ fontSize: 14, color: 'var(--fg)', textDecoration: 'underline' }}>Open local preview</a>
+            <p className="ds-mono" style={{ margin: 0, fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{`${model.previewUrl} · your Mac · test data`}</p>
+          </>
+        ) : null}
+      </div>
+      {visual === 'approved' || visual === 'changes' ? null : actions}
+    </div>
+  );
+
   return (
     <div className="flex flex-col gap-4">
-      {body}
-      {history}
+      {layout === 'row' ? row : (
+        <div data-testid="milestone-review-card" data-review-state={visual} className="flex flex-col gap-5" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 28, padding: '32px 28px' }}>
+          {body}
+          {history}
+        </div>
+      )}
       {dialogNode}
     </div>
   );
 }
 
 export function reviewModelFromMilestone(
-  milestone: Pick<MilestoneRoadmapView, 'id' | 'workStatus' | 'approval' | 'rows'> & { review: MilestoneReviewView },
+  milestone: Pick<MilestoneRoadmapView, 'id' | 'name' | 'workStatus' | 'approval' | 'rows'> & { review: MilestoneReviewView },
 ): ReviewSurfaceModel {
   return {
     milestoneId: milestone.id,
+    milestoneName: milestone.name,
     iteration: milestone.review.iteration,
     workStatus: milestone.workStatus,
-    approval: milestone.approval,
+    approval: milestone.approval ?? 'unreviewed',
     previewUrl: milestone.review.previewUrl,
     prNumber: milestone.review.prNumber,
     prTitle: milestone.review.prTitle,
@@ -582,7 +698,7 @@ export function MilestoneReviewLive({
   const approve = useMutation(api.milestones.approve);
   const requestChanges = useMutation(api.milestones.requestChanges);
   const review = milestone.review;
-  if (!review || !reviewShouldShow({ workStatus: milestone.workStatus, approval: milestone.approval, historyLength: review.history.length })) {
+  if (!review || !reviewShouldShow({ workStatus: milestone.workStatus, approval: milestone.approval ?? 'unreviewed', historyLength: review.history.length })) {
     return null;
   }
   const model = reviewModelFromMilestone({ ...milestone, review });

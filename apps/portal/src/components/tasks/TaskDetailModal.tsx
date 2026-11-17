@@ -64,6 +64,7 @@ export function TaskDetailModal({
   const [attach, setAttach] = useState(false);
   const [asideNote, setAsideNote] = useState<string | null>(null);
   const [reviewing, setReviewing] = useState(false);
+  const [stageConfirm, setStageConfirm] = useState<string | null>(null);
   const [closeReview, setCloseReview] = useState(0);
   const onReviewActive = useCallback((open: boolean) => setReviewing(open), []);
   const moveStage = useMutation(api.tasks.moveStage);
@@ -345,18 +346,53 @@ export function TaskDetailModal({
                   <h3 className="ds-mono" style={{ fontSize: 12, letterSpacing: '2.64px', color: 'var(--fg)', margin: 0 }}>STAGE</h3>
                   <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>visible to client</span>
                 </div>
+                {phone && stageConfirm ? (
+                  <div data-testid="stage-confirm-sheet" className="flex flex-col gap-3">
+                    <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{`Move this task to ${stageConfirm}?`}</p>
+                    <button
+                      type="button"
+                      onClick={() => setStageConfirm(null)}
+                      style={{ width: '100%', background: 'transparent', color: 'var(--fg)', border: '1px solid var(--border-2)', borderRadius: 9, padding: '12px 16px', fontSize: 14 }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const stage = stageConfirm;
+                        setStageConfirm(null);
+                        if (!live || !task.lastEditedTime) return;
+                        void moveStage({
+                          hostSlug,
+                          taskId: task.id as Id<'tasks'>,
+                          stage,
+                          expectedLastEditedTime: task.lastEditedTime,
+                        }).then((result) => {
+                          if (!result.ok) setAsideNote(result.error);
+                        });
+                      }}
+                      style={{ width: '100%', background: 'var(--accent)', color: 'var(--accent-fg)', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 600 }}
+                    >
+                      Confirm
+                    </button>
+                  </div>
+                ) : (
                 <div className="flex flex-wrap gap-2">
                   {TASK_STAGES.map((stage) => {
                     const visualLock = stage !== 'Idea' && stage !== 'Planning';
-                    const current = task.stage === stage;
+                    const current = task.stage === stage && !visualLock;
                     return (
                       <button
                         key={stage}
                         type="button"
-                        disabled={visualLock && !current}
-                        aria-pressed={current}
+                        disabled={visualLock}
+                        aria-pressed={task.stage === stage}
                         onClick={() => {
                           if (visualLock) return;
+                          if (phone) {
+                            setStageConfirm(stage);
+                            return;
+                          }
                           if (!live || !task.lastEditedTime) return;
                           void moveStage({
                             hostSlug,
@@ -372,26 +408,27 @@ export function TaskDetailModal({
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: 8,
-                          border: current
-                            ? '1px solid var(--fg)'
-                            : visualLock
-                              ? '1px dashed var(--border)'
+                          border: visualLock
+                            ? '1px dashed var(--border-2)'
+                            : current
+                              ? '1px solid var(--fg)'
                               : '1px solid var(--border-2, var(--border))',
                           borderRadius: 999,
                           padding: '8px 12px',
                           background: current ? 'var(--fg)' : 'transparent',
-                          color: current ? 'var(--bg)' : visualLock ? 'var(--faint, #636363)' : 'var(--fg)',
-                          opacity: visualLock && !current ? 0.72 : 1,
-                          cursor: visualLock && !current ? 'not-allowed' : 'pointer',
+                          color: current ? 'var(--bg)' : visualLock ? 'var(--muted)' : 'var(--fg)',
+                          cursor: visualLock ? 'not-allowed' : 'pointer',
                           fontSize: 13,
+                          whiteSpace: 'nowrap',
                         }}
                       >
                         {stage}
-                        {visualLock && !current ? <TaskGlyph src="/icons/task-lock.svg" size={8} /> : null}
+                        {visualLock ? <TaskGlyph src="/icons/task-lock.svg" size={8} /> : null}
                       </button>
                     );
                   })}
                 </div>
+                )}
                 <p data-testid="task-stage-hint" style={{ fontSize: 12, lineHeight: '17px', color: 'var(--muted)', margin: 0 }}>
                   {TASK_STAGE_HINT}
                 </p>

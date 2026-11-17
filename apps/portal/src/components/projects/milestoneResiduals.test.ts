@@ -32,7 +32,7 @@ function missingMilestoneApi(onBack: () => void) {
 }
 
 function tasksFailure(error: string) {
-  const failure = tasksMenuFailure({ tab: 'tasks', error, reviewOpen: false, editing: false });
+  const failure = tasksMenuFailure({ tab: 'tasks', error, editing: false });
   return createElement(
     'div',
     null,
@@ -60,16 +60,16 @@ describe('milestone residuals', () => {
       assert.match(html, />Dismiss</);
       assert.equal((html.match(/aria-describedby="milestone-menu-error"/g) ?? []).length >= 3, true);
       assert.equal(html.includes('disabled=""'), false);
-      const failure = tasksMenuFailure({ tab: 'tasks', error, reviewOpen: false, editing: false });
+      const failure = tasksMenuFailure({ tab: 'tasks', error, editing: false });
       assert.equal(failure.show, true);
       assert.equal(failure.describedBy, MENU_ERROR_ID);
     }
     assert.equal(
-      tasksMenuFailure({ tab: 'overview', error: 'Could not publish.', reviewOpen: false, editing: false }).show,
+      tasksMenuFailure({ tab: 'overview', error: 'Could not publish.', editing: false }).show,
       false,
     );
     assert.equal(
-      tasksMenuFailure({ tab: 'tasks', error: 'Could not publish.', reviewOpen: true, editing: false }).show,
+      tasksMenuFailure({ tab: 'tasks', error: 'Could not publish.', editing: true }).show,
       false,
     );
   });
@@ -80,7 +80,7 @@ describe('milestone residuals', () => {
     function Pane() {
       const [error, setError] = useState<string | null>('Could not publish.');
       const [tab] = useState<'tasks' | 'overview'>('tasks');
-      const failure = tasksMenuFailure({ tab, error, reviewOpen: false, editing: false });
+      const failure = tasksMenuFailure({ tab, error, editing: false });
       return createElement(
         'div',
         null,

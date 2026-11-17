@@ -84,7 +84,7 @@ export function TaskSourcesPanel({
         <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)', margin: 0 }}>Loading sources…</p>
       ) : null}
       {!loading && error ? (
-        <p role="alert" data-testid="task-sources-error" style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)', margin: 0 }}>
+        <p role="alert" data-testid="task-sources-error" style={{ color: 'var(--danger-text)', fontSize: 'var(--t-sm)', margin: 0 }}>
           We could not load sources.
         </p>
       ) : null}

@@ -535,10 +535,12 @@ export type MilestoneRoadmapView = {
   objective: string;
   goals: string[];
   workStatus: MilestoneWorkStatus;
-  approval: MilestoneApproval;
+  /** Staff only. Absent for clients, including the key. */
+  approval?: MilestoneApproval;
   note: string | null;
   approverName: string | null;
-  decidedAt: number | null;
+  /** Staff only. Absent for clients, including the key. */
+  decidedAt?: number | null;
   publishToWarehaus: boolean;
   resources: MilestoneResourceView[];
   openCount: number;

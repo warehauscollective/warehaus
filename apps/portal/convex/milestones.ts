@@ -55,7 +55,7 @@ import {
   normalizeLocalPreview,
   planReview,
   reviewChatLine,
-  reviewNotesForAudience,
+  roadmapReviewForAudience,
   reviewForAudience,
   type ReviewSource,
 } from './_lib/milestoneReview';
@@ -271,17 +271,16 @@ async function toRoadmap(
     tasks: inputs,
     projectVisibleToClient: true,
   });
-  const approver = milestone.approverContactId ? await ctx.db.get(milestone.approverContactId) : null;
+  const approver =
+    audience === 'staff' && milestone.approverContactId ? await ctx.db.get(milestone.approverContactId) : null;
   const view: MilestoneRoadmapView = {
     id: milestone._id,
     name: milestone.name,
     objective: milestone.objective,
     goals: milestone.goals,
     workStatus: milestone.workStatus,
-    approval: milestone.approval,
-    note: reviewNotesForAudience(audience, milestone.note),
+    ...roadmapReviewForAudience(audience, milestone),
     approverName: audience === 'staff' ? (approver?.name ?? null) : null,
-    decidedAt: milestone.decidedAt ?? null,
     publishToWarehaus: milestone.publishToWarehaus,
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,

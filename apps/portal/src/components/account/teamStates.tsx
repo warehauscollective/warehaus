@@ -242,7 +242,7 @@ export function TeamStateNotice({
             height: 20,
             borderRadius: 999,
             border: '1.25px solid var(--danger)',
-            color: 'var(--danger)',
+            color: 'var(--danger-text)',
             fontSize: 11,
             fontWeight: 600,
           }}
@@ -250,7 +250,7 @@ export function TeamStateNotice({
           !
         </span>
         <span className="min-w-0 flex-1">
-          <p style={{ margin: 0, color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{title}</p>
+          <p style={{ margin: 0, color: 'var(--danger-text)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{title}</p>
           <p style={{ margin: '4px 0 0', color: 'var(--muted)', fontSize: 13, lineHeight: '19px' }}>{body}</p>
         </span>
       </div>

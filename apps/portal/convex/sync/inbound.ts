@@ -305,6 +305,7 @@ export const applyInbound = internalMutation({
         pullRequestLink: item.url,
         notionPageId: task.notionPageId,
         expectedLastEditedTime: edited,
+        allowReviewStage: true,
       });
       if (!planned.ok) continue;
       if ('Status' in planned.properties || planned.properties.Stage !== MERGE_REVIEW_STAGE) continue;

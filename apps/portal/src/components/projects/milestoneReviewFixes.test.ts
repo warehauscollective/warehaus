@@ -44,7 +44,8 @@ describe('milestone review fixes', () => {
 
   it('shows a save failure inside the open dialog', () => {
     assert.match(roadmap, /saveError=\{error\}/);
-    assert.match(roadmap, /error && !reviewOpen && !editing/);
+    assert.match(roadmap, /error && !editing/);
+    assert.equal(roadmap.includes('reviewOpen'), false);
     const review = readFileSync(new URL('./MilestoneReview.tsx', import.meta.url), 'utf8');
     const edit = roadmap.slice(roadmap.indexOf('function EditDialog'), roadmap.indexOf('function CreateMilestone'));
     assert.match(review, /APPROVAL_SAVE_ERROR/);
@@ -199,7 +200,7 @@ describe('milestone review fixes', () => {
     assert.notEqual(goalKey(0, 'Ship'), goalKey(1, 'Ship'));
     assert.match(roadmap, /goalKey\(index, goal\)/);
     assert.match(roadmap, /reviewStamp\(storedReview\.decidedAt\)/);
-    assert.match(roadmap, /reviewStamp\(input\.decidedAt, input\.now\)/);
+    assert.match(roadmap, /reviewStamp\(input\.decidedAt \?\? null, input\.now\)/);
     assert.match(roadmap, /decidedAt: milestone\.decidedAt/);
     const listCard = roadmap.slice(roadmap.indexOf('function MilestoneListCard'), roadmap.indexOf('type MilestoneMutations'));
     assert.equal(listCard.includes('Updated'), false);

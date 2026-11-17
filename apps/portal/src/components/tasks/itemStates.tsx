@@ -332,7 +332,7 @@ function ItemDangerCard({
           height: 20,
           borderRadius: 999,
           border: '1.25px solid var(--danger)',
-          color: 'var(--danger)',
+          color: 'var(--danger-text)',
           fontSize: 11,
           fontWeight: 600,
         }}
@@ -340,10 +340,10 @@ function ItemDangerCard({
         !
       </span>
       <span className="flex min-w-0 flex-1 flex-col items-start" style={{ gap: 4 }}>
-        <p style={{ margin: 0, color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{title}</p>
+        <p style={{ margin: 0, color: 'var(--danger-text)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>{title}</p>
         <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13, lineHeight: '19px' }}>{body}</p>
         {error ? (
-          <p data-testid="item-save-error" style={{ margin: 0, color: 'var(--danger)', fontSize: 13, lineHeight: '19px' }}>{error}</p>
+          <p data-testid="item-save-error" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 13, lineHeight: '19px' }}>{error}</p>
         ) : null}
         <span style={{ marginTop: 8 }}>
           <ItemOutlineButton testId={actionTestId} onClick={onAction} disabled={busy}>

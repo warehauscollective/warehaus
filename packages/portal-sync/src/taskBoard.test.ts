@@ -211,26 +211,18 @@ describe('move rules and outbox enqueue', () => {
     );
   });
 
-  it('requires a pull request before Ready to Ship', () => {
-    const missing = planTaskStageWrite({
-      actor: 'staff',
-      stage: 'Ready to Ship',
-      notionPageId: 'page-1',
-      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-    });
-    assert.equal(missing.ok, false);
-    const ready = planTaskStageWrite({
-      actor: 'staff',
-      stage: 'Ready to Ship',
-      pullRequestLink: 'github.com/warehauscollective/warehaus/pull/38',
-      notionPageId: 'page-1',
-      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-    });
-    assert.equal(ready.ok, true);
-    if (ready.ok) {
-      assert.equal(ready.properties.Stage, 'Ready to Ship');
-      assert.equal(ready.properties['GitHub Issue/PR'], 'github.com/warehauscollective/warehaus/pull/38');
-      assert.equal('Status' in ready.properties, false);
+  it('refuses staff moves to Awaiting Go and Ready to Ship on every path', () => {
+    for (const stage of ['Awaiting Go', 'Ready to Ship']) {
+      assert.equal(stageMoveRule('staff', stage).kind, 'locked');
+      const moved = planTaskStageWrite({
+        actor: 'staff',
+        stage,
+        pullRequestLink: 'github.com/warehauscollective/warehaus/pull/38',
+        notionPageId: 'page-1',
+        expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
+      });
+      assert.equal(moved.ok, false);
+      if (!moved.ok) assert.match(moved.error, /Peter's call/);
     }
   });
 

@@ -187,12 +187,12 @@ export function NotificationSettings({
           </p>
         ) : null}
         {error ? (
-          <p data-testid="account-save-error" role="alert" style={{ fontSize: 14, fontWeight: 600, color: 'var(--danger)', margin: 0 }}>
+          <p data-testid="account-save-error" role="alert" style={{ fontSize: 14, fontWeight: 600, color: 'var(--danger-text)', margin: 0 }}>
             Could not save your settings. Try again.
           </p>
         ) : null}
         {loadFailed ? (
-          <p data-testid="account-notifications-load-error" style={{ fontSize: 14, color: 'var(--danger)', margin: 0 }}>
+          <p data-testid="account-notifications-load-error" style={{ fontSize: 14, color: 'var(--danger-text)', margin: 0 }}>
             We could not load your notification settings. Try again.
           </p>
         ) : null}

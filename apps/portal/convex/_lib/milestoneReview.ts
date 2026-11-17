@@ -256,6 +256,27 @@ export function reviewNotesForAudience(
   return trimmed.length > 0 ? trimmed : null;
 }
 
+/**
+ * Client roadmap payloads omit approval and decidedAt, including the keys.
+ * Staff still receive both.
+ */
+export function roadmapReviewForAudience(
+  audience: 'staff' | 'client',
+  fields: {
+    approval: 'unreviewed' | 'approved' | 'changes_requested';
+    decidedAt?: number | null;
+    note?: string | null;
+  },
+): {
+  note: string | null;
+  approval?: 'unreviewed' | 'approved' | 'changes_requested';
+  decidedAt?: number | null;
+} {
+  const note = reviewNotesForAudience(audience, fields.note);
+  if (audience !== 'staff') return { note };
+  return { note, approval: fields.approval, decidedAt: fields.decidedAt ?? null };
+}
+
 export const PORTAL_REVIEW_SOURCE = 'portal-review';
 
 export function isPortalReviewTask(source: string | null | undefined): boolean {

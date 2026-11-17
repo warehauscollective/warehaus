@@ -16,7 +16,7 @@ export class PortalPanelBoundary extends Component<Props, State> {
   render() {
     if (this.state.error) {
       return (
-        <p style={{ padding: '1.25rem', fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>
+        <p style={{ padding: '1.25rem', fontSize: 'var(--t-sm)', color: 'var(--danger-text)' }}>
           {this.props.label} could not load. The rest of the portal is still available.
         </p>
       );

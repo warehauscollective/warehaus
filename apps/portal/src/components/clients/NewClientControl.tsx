@@ -205,7 +205,7 @@ export function NewClientForm({
               </p>
             ) : null}
             {note?.tone === 'error' && !note.field ? (
-              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }} role="alert">
+              <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger-text)' }} role="alert">
                 {note.text}
               </p>
             ) : null}
@@ -261,7 +261,7 @@ function ClientField({
         style={inputStyle}
       />
       {error ? (
-        <span id={errorId} role="alert" style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>
+        <span id={errorId} role="alert" style={{ fontSize: 'var(--t-sm)', color: 'var(--danger-text)' }}>
           {error}
         </span>
       ) : null}

@@ -184,8 +184,8 @@ function projectStatusLabel(status?: string | null): string {
 
 /** Approved milestones show their decision day. Anything else has no date line. */
 export function milestoneTileDate(input: {
-  approval: string;
-  decidedAt: number | null;
+  approval?: string | null;
+  decidedAt?: number | null;
 }): string | null {
   if (input.approval !== 'approved') return null;
   if (input.decidedAt == null) return 'Approved';
@@ -198,7 +198,7 @@ export function milestoneTileDate(input: {
  * Shipped waits for deploy main, which this screen does not do.
  */
 export function milestoneTileStage(input: {
-  approval: string;
+  approval?: string | null;
   workStatus: MilestoneRoadmapView['workStatus'];
 }): { status: string; label: 'Planning' | 'Building' | 'Ready to Ship'; glyph: string } {
   if (input.workStatus === 'draft') {
@@ -257,16 +257,16 @@ export function tileMetaLine(input: {
   staff: boolean;
   published: boolean;
   resources: number;
-  decidedAt: number | null;
+  decidedAt?: number | null;
   workStatus: MilestoneRoadmapView['workStatus'];
-  approval: string;
+  approval?: string | null;
   now?: number;
 }): string {
   const parts: string[] = [];
   const approved = input.approval === 'approved';
   if (input.staff && !input.published) parts.push('Not published');
   parts.push(resourceLabel(input.resources));
-  if (!(approved && input.decidedAt == null)) parts.push(reviewStamp(input.decidedAt, input.now));
+  if (!(approved && input.decidedAt == null)) parts.push(reviewStamp(input.decidedAt ?? null, input.now));
   if (input.workStatus === 'ready' && !approved) parts.push('Ready for review');
   return parts.join(' · ');
 }
@@ -523,7 +523,7 @@ export function ProjectRoadmap({
                 <p style={{ fontSize: 14, color: 'var(--muted)' }}>Loading milestones</p>
               ) : null}
               {failed ? (
-                <p data-testid="milestone-query-error" style={{ fontSize: 14, color: 'var(--danger)' }}>
+                <p data-testid="milestone-query-error" style={{ fontSize: 14, color: 'var(--danger-text)' }}>
                   {milestones.length > 0
                     ? 'Milestones could not refresh. Showing the last list that loaded.'
                     : 'The milestones could not load.'}
@@ -812,7 +812,6 @@ export function MilestoneDetailView({
 }) {
   const { save, setWorkStatus, setPublish, attachTask, detachTask } = mutations;
   const [tab, setTab] = useState<MilestoneTab>('overview');
-  const [reviewOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -832,7 +831,7 @@ export function MilestoneDetailView({
   const taken = new Set(milestone.rows.map((row) => row.id));
   const attachable = (milestone.attachableTasks ?? []).filter((task) => !taken.has(task.id));
   const statusStage = milestoneTileStage(milestone);
-  const reviewLine = lastReviewLabel(milestone);
+  const reviewLine = lastReviewLabel({ approverName: milestone.approverName, decidedAt: milestone.decidedAt ?? null });
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -902,7 +901,7 @@ export function MilestoneDetailView({
                     <span data-testid="milestone-stage">{statusStage.label}</span>
                   </FieldValue>
                 </div>
-                {staff && milestone.approval !== 'unreviewed' ? (
+                {staff && milestone.approval && milestone.approval !== 'unreviewed' ? (
                   <div>
                     <FieldLabel>APPROVAL</FieldLabel>
                     <FieldValue>
@@ -1052,7 +1051,7 @@ export function MilestoneDetailView({
                 milestone={milestone}
                 busy={busy}
                 attachable={attachable}
-                describedBy={error && !reviewOpen && !editing ? MENU_ERROR_ID : undefined}
+                describedBy={error && !editing ? MENU_ERROR_ID : undefined}
                 onWorkStatus={(workStatus) => {
                   if (fixtures) {
                     onFixture({ workStatus });
@@ -1108,7 +1107,7 @@ export function MilestoneDetailView({
                 }}
               />
             ) : null}
-            {error && !reviewOpen && !editing ? (
+            {error && !editing ? (
               <MenuActionError error={error} onDismiss={() => setError(null)} />
             ) : null}
           </div>
@@ -1117,7 +1116,7 @@ export function MilestoneDetailView({
 
       {tab === 'tasks' ? (
         <div className="flex flex-col gap-4">
-          {tasksMenuFailure({ tab, error, reviewOpen, editing }).show && error ? (
+          {tasksMenuFailure({ tab, error, editing }).show && error ? (
             <MenuActionError error={error} onDismiss={() => setError(null)} />
           ) : null}
           <Panel>
@@ -1167,7 +1166,7 @@ export function MilestoneDetailView({
               milestone={milestone}
               busy={busy}
               attachable={attachable}
-              describedBy={error && !reviewOpen && !editing ? MENU_ERROR_ID : undefined}
+              describedBy={error && !editing ? MENU_ERROR_ID : undefined}
               onWorkStatus={(workStatus) => {
                 if (fixtures) {
                   onFixture({ workStatus });
@@ -1684,7 +1683,7 @@ function focusField(
 
 function FormAlert({ children }: { children: string }) {
   return (
-    <p data-testid="milestone-error" role="alert" style={{ margin: 0, fontSize: 13, lineHeight: '18px', color: 'var(--danger)' }}>
+    <p data-testid="milestone-error" role="alert" style={{ margin: 0, fontSize: 13, lineHeight: '18px', color: 'var(--danger-text)' }}>
       {children}
     </p>
   );
@@ -1692,7 +1691,7 @@ function FormAlert({ children }: { children: string }) {
 
 function FieldError({ id, children }: { id: string; children: string }) {
   return (
-    <span id={id} role="alert" style={{ fontSize: 13, lineHeight: '18px', color: 'var(--danger)' }}>
+    <span id={id} role="alert" style={{ fontSize: 13, lineHeight: '18px', color: 'var(--danger-text)' }}>
       {children}
     </span>
   );
@@ -1861,7 +1860,7 @@ function ActivityList({
   return (
     <div className="flex flex-col gap-3">
       {error ? (
-        <p data-testid="activity-error" style={{ fontSize: 14, color: 'var(--danger)' }}>
+        <p data-testid="activity-error" style={{ fontSize: 14, color: 'var(--danger-text)' }}>
           {error}
         </p>
       ) : null}

@@ -200,7 +200,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'move_task_stage',
     description:
-      'Move a task stage through the staff update path. Last write wins on stage, and the Notion outbox uses the task-stage write. Ready to Ship needs a pull request link. Send lastEditedTime from get_task and an idempotency key.',
+      'Move a task stage through the staff update path. Last write wins on stage, and the Notion outbox uses the task-stage write. Staff cannot set Awaiting Go or Ready to Ship. Send lastEditedTime from get_task and an idempotency key.',
     write: true,
     schema: {
       taskId: z.string().min(1),
