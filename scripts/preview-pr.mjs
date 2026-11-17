@@ -170,6 +170,15 @@ export function serverLaunch(repoRoot = root) {
   };
 }
 
+/** Env for the Next process. Adds the branch name and nothing else. */
+export function serverEnv(baseEnv, branch) {
+  assertBranchName(branch);
+  return {
+    ...baseEnv,
+    WAREHAUS_PREVIEW_BRANCH: branch,
+  };
+}
+
 /**
  * Commands after a successful fetch. Never includes a Convex CLI.
  * localExists selects checkout of the existing branch versus creating it.
@@ -287,7 +296,7 @@ function main() {
   const child = spawn(launch.command, launch.args, {
     cwd: root,
     stdio: 'inherit',
-    env: process.env,
+    env: serverEnv(process.env, branch),
   });
   let stopping = false;
   const stop = (code) => {

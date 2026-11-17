@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
+import { createServer } from 'node:net';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { describe, it } from 'node:test';
+import { portOverrideCommand } from './dev-app.mjs';
 import {
   PROD_SLUG,
   SHARED_DEV_SLUG,
@@ -12,6 +16,7 @@ import {
   previewBanner,
   previewEnv,
   previewUrl,
+  serverEnv,
   serverLaunch,
   switchAndInstallSteps,
 } from './preview-pr.mjs';
@@ -177,6 +182,65 @@ describe('preview command', () => {
     }
   });
 
+  it('tells a busy preview port to rerun preview:pr, and keeps dev:portal otherwise', async () => {
+    assert.equal(
+      portOverrideCommand('portal', { WAREHAUS_PREVIEW_BRANCH: 'feature/preview' }),
+      'PORTAL_PORT=<free> npm run preview:pr -- feature/preview',
+    );
+    assert.equal(
+      portOverrideCommand('portal', {}),
+      'PORTAL_PORT=<free-port> npm run dev:portal',
+    );
+    assert.equal(
+      portOverrideCommand('web', { WAREHAUS_PREVIEW_BRANCH: 'feature/preview' }),
+      'WEB_PORT=<free-port> npm run dev:web',
+    );
+    const rejected = portOverrideCommand('portal', { WAREHAUS_PREVIEW_BRANCH: `bad ${SECRET}` });
+    assert.equal(rejected, 'PORTAL_PORT=<free-port> npm run dev:portal');
+    assert.equal(rejected.includes(SECRET), false);
+
+    const childEnv = serverEnv({ PATH: '/usr/bin' }, 'feature/preview');
+    assert.equal(childEnv.WAREHAUS_PREVIEW_BRANCH, 'feature/preview');
+    assert.equal(childEnv.PATH, '/usr/bin');
+    assert.equal('NOTION_WAREHAUS_TOKEN' in childEnv, false);
+
+    const held = createServer();
+    const port = await new Promise((resolve, reject) => {
+      held.once('error', reject);
+      held.listen(0, '0.0.0.0', () => resolve(held.address().port));
+    });
+    try {
+      const preview = spawnSync(process.execPath, ['scripts/dev-app.mjs', 'portal'], {
+        cwd: fileURLToPath(new URL('..', import.meta.url)),
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          PORTAL_PORT: String(port),
+          WAREHAUS_PREVIEW_BRANCH: 'feature/preview',
+        },
+      });
+      assert.notEqual(preview.status, 0);
+      assert.match(preview.stderr, /PORTAL_PORT=<free> npm run preview:pr -- feature\/preview/);
+      assert.doesNotMatch(preview.stderr, /npm run dev:portal/);
+      assert.equal(preview.stderr.includes(SECRET), false);
+
+      const plain = spawnSync(process.execPath, ['scripts/dev-app.mjs', 'portal'], {
+        cwd: fileURLToPath(new URL('..', import.meta.url)),
+        encoding: 'utf8',
+        env: {
+          PATH: process.env.PATH,
+          PORTAL_PORT: String(port),
+          WAREHAUS_PREVIEW_BRANCH: `bad ${SECRET}`,
+        },
+      });
+      assert.notEqual(plain.status, 0);
+      assert.match(plain.stderr, /PORTAL_PORT=<free-port> npm run dev:portal/);
+      assert.equal(plain.stderr.includes(SECRET), false);
+    } finally {
+      await new Promise((resolve) => held.close(resolve));
+    }
+  });
+
   it('wires npm run preview:pr to this script and not to convex dev', () => {
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8'));
     assert.equal(pkg.scripts['preview:pr'], 'node scripts/preview-pr.mjs');
@@ -187,6 +251,9 @@ describe('preview command', () => {
     assert.doesNotMatch(source, /convex\s+deploy/);
     assert.doesNotMatch(source, /--prod/);
     assert.match(source, /dev-app\.mjs/);
+    const ci = readFileSync(new URL('../.github/workflows/portal-ci.yml', import.meta.url), 'utf8');
+    assert.equal(ci.split('scripts/**').length - 1, 2);
+    assert.match(ci, /npm run test:preview-pr/);
   });
 });
 

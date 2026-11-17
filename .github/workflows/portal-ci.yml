@@ -15,6 +15,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "turbo.json"
+      - "scripts/**"
       - ".github/workflows/portal-ci.yml"
   pull_request:
     paths:
@@ -27,6 +28,7 @@ on:
       - "package.json"
       - "package-lock.json"
       - "turbo.json"
+      - "scripts/**"
       - ".github/workflows/portal-ci.yml"
 
 concurrency:
@@ -75,3 +77,4 @@ jobs:
         run: |
           npm run test -w @warehaus/portal
           npm run test -w @warehaus/portal-sync
+          npm run test:preview-pr
