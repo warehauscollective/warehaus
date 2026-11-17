@@ -4,6 +4,7 @@ import { describe, it } from 'node:test';
 import { isClientVisibleActivityType } from '@warehaus/portal-sync';
 import { roadmapViewForAudience } from './milestones';
 import {
+  clientReviewDecision,
   clientSeesDetailsRow,
   detailActivitySummary,
   detailStatusDecision,
@@ -18,7 +19,9 @@ import {
   stageOptionLock,
   taskIdsToMove,
   textBlurSave,
+  workStatusWrite,
 } from './milestoneDetails';
+import { workStatusDecision } from './milestones';
 
 describe('peter-only stages', () => {
   it('treats both of Peter’s portal emails as Peter and nobody else', () => {
@@ -86,6 +89,35 @@ describe('peter-only stages', () => {
 });
 
 describe('status, publish, and project decisions', () => {
+  it('lets a non-Peter mark work ready without storing a Peter stage', () => {
+    const ready = workStatusDecision({ actor: 'human', approval: 'unreviewed', from: 'active', to: 'ready' });
+    assert.equal(ready.ok, true);
+    if (!ready.ok) return;
+    assert.equal(ready.workStatus, 'ready');
+    assert.equal(ready.stage, null);
+    const review = detailStatusDecision({ from: 'in_progress', to: 'in_review' });
+    assert.equal(review.ok, true);
+    if (!review.ok) return;
+    assert.equal(review.workStatus, 'ready');
+    assert.equal(review.stage, null);
+    const patch = workStatusWrite('ready');
+    assert.deepEqual(patch, { workStatus: 'ready' });
+    assert.equal('stage' in patch, false);
+    assert.equal(stageChangeDecision({ peter: false, from: 'Building', to: 'Ready to Ship' }).ok, false);
+    assert.equal(stageChangeDecision({ peter: false, from: 'Building', to: 'Awaiting Go' }).ok, false);
+    assert.equal(stageChangeDecision({ peter: true, from: 'Building', to: 'Ready to Ship' }).ok, true);
+  });
+
+  it('refuses a client review', () => {
+    assert.deepEqual(clientReviewDecision(), { ok: false, reason: 'Clients cannot review a milestone' });
+    const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
+    const start = source.indexOf('export const decideAsClient');
+    const end = source.indexOf('export const previewMilestoneOne');
+    const block = source.slice(start, end === -1 ? source.length : end);
+    assert.match(block, /clientReviewDecision/);
+    assert.doesNotMatch(block, /decideMilestone/);
+  });
+
   it('saves a new status and skips the same one', () => {
     assert.deepEqual(detailStatusDecision({ from: 'in_progress', to: 'in_review' }), {
       ok: true,

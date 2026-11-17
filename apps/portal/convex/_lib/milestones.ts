@@ -192,7 +192,7 @@ export function workStatusDecision(input: {
   from: MilestoneWorkStatus;
   to: string;
 }):
-  | { ok: true; workStatus: MilestoneWorkStatus; activityType: 'milestone.ready' | null }
+  | { ok: true; workStatus: MilestoneWorkStatus; activityType: 'milestone.ready' | null; stage: null }
   | { ok: false; reason: string } {
   if (!isWorkStatus(input.to)) {
     return { ok: false, reason: 'Work status must be draft, active, or ready' };
@@ -202,6 +202,8 @@ export function workStatusDecision(input: {
     ok: true,
     workStatus: input.to,
     activityType: input.to === 'ready' && input.from !== 'ready' ? MILESTONE_ACTIVITY.ready : null,
+    // Ready is a work status. It does not store Awaiting Go or Ready to Ship.
+    stage: null,
   };
 }
 

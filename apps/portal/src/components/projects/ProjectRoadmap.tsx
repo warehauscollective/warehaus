@@ -7,6 +7,7 @@ import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
+import { detailStatusLabel, effectiveDetailStatus, effectiveStage } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
 import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
@@ -199,33 +200,30 @@ export function milestoneTileDate(input: {
 }
 
 /**
- * Status and stage from the same stored approval and work status.
- * Ready for review is Ready to Ship. Approve keeps that stage.
- * Shipped waits for deploy main, which this screen does not do.
+ * The tile uses the same status and stage as the details panel.
+ * Shipped appears only after that stage is stored. Approval is not a status.
  */
 export function milestoneTileStage(input: {
   approval?: string | null;
   workStatus: MilestoneRoadmapView['workStatus'];
-}): { status: string; label: 'Planning' | 'Building' | 'Ready to Ship'; glyph: string } {
-  if (input.workStatus === 'draft') {
-    return {
-      status: input.approval === 'approved' ? 'Approved' : 'Draft',
-      label: 'Planning',
-      glyph: '/icons/item-stage.svg',
-    };
-  }
-  if (input.workStatus === 'ready') {
-    return {
-      status: input.approval === 'approved' ? 'Approved' : 'Ready for review',
-      label: 'Ready to Ship',
-      glyph: '/icons/task-stage.svg',
-    };
-  }
-  return {
-    status: input.approval === 'approved' ? 'Approved' : 'In progress',
-    label: 'Building',
-    glyph: '/icons/task-stage.svg',
-  };
+  stage?: string | null;
+  detailStatus?: MilestoneRoadmapView['detailStatus'];
+}): { status: string; label: ReturnType<typeof effectiveStage>; glyph: string } {
+  const label = effectiveStage({
+    stage: input.stage,
+    workStatus: input.workStatus,
+    approval: input.approval ?? 'unreviewed',
+  });
+  const status = detailStatusLabel(effectiveDetailStatus({
+    detailStatus: input.detailStatus,
+    workStatus: input.workStatus,
+  }));
+  const glyph = label === 'Shipped'
+    ? '/icons/task-stage-shipped.svg'
+    : label === 'Planning' || label === 'Idea'
+      ? '/icons/item-stage.svg'
+      : '/icons/task-stage.svg';
+  return { status, label, glyph };
 }
 
 function progressBase(done: number, total: number, phone: boolean): string {
@@ -276,7 +274,7 @@ export function tileMetaLine(input: {
   if (input.staff && !input.published) parts.push('Not published');
   parts.push(resourceLabel(input.resources));
   if (input.staff && !input.omitReview && !(approved && input.decidedAt == null)) parts.push(reviewStamp(input.decidedAt ?? null, input.now));
-  if (input.staff && !input.omitReview && input.workStatus === 'ready' && !approved) parts.push('Ready for review');
+  if (input.staff && !input.omitReview && input.workStatus === 'ready' && !approved) parts.push('In review');
   return parts.join(' · ');
 }
 
@@ -977,7 +975,7 @@ export function MilestoneDetailView({
   mutations: MilestoneMutations;
   isPeter?: boolean;
 }) {
-  const { save, setWorkStatus, setPublish, attachTask, detachTask } = mutations;
+  const { save, setPublish, attachTask, detachTask } = mutations;
   const [tab, setTab] = useState<MilestoneTab>('overview');
   const [editing, setEditing] = useState(false);
   const [more, setMore] = useState(false);
@@ -1196,19 +1194,6 @@ export function MilestoneDetailView({
                 busy={busy}
                 attachable={attachable}
                 describedBy={error && !editing ? MENU_ERROR_ID : undefined}
-                onWorkStatus={(workStatus) => {
-                  if (fixtures) {
-                    onFixture({ workStatus });
-                    return;
-                  }
-                  void run(() =>
-                    setWorkStatus({
-                      hostSlug,
-                      milestoneId: milestone.id as Id<'milestones'>,
-                      workStatus,
-                    }),
-                  );
-                }}
                 onPublish={() => edits.askPublish()}
                 onAttach={(taskId) => {
                   if (fixtures) {
@@ -1299,19 +1284,6 @@ export function MilestoneDetailView({
               busy={busy}
               attachable={attachable}
               describedBy={error && !editing ? MENU_ERROR_ID : undefined}
-              onWorkStatus={(workStatus) => {
-                if (fixtures) {
-                  onFixture({ workStatus });
-                  return;
-                }
-                void run(() =>
-                  setWorkStatus({
-                    hostSlug,
-                    milestoneId: milestone.id as Id<'milestones'>,
-                    workStatus,
-                  }),
-                );
-              }}
               onPublish={() => edits.askPublish()}
               onAttach={(taskId) => {
                 if (fixtures) {
@@ -1454,7 +1426,6 @@ export function MoreMenu({
   busy,
   attachable,
   describedBy,
-  onWorkStatus,
   onPublish,
   onAttach,
   onDetach,
@@ -1463,7 +1434,6 @@ export function MoreMenu({
   busy: boolean;
   attachable: { id: string; name: string }[];
   describedBy?: string;
-  onWorkStatus: (status: MilestoneRoadmapView['workStatus']) => void;
   onPublish: () => void;
   onAttach: (taskId: string) => void;
   onDetach: (taskId: string) => void;
@@ -1471,21 +1441,6 @@ export function MoreMenu({
   return (
     <Panel>
       <div className="flex flex-col gap-4">
-        <label className="flex flex-col gap-2" style={{ fontSize: 13, color: 'var(--muted)' }}>
-          Work status
-          <select
-            data-testid="milestone-work-select"
-            value={milestone.workStatus}
-            aria-describedby={describedBy}
-            disabled={busy}
-            onChange={(event) => onWorkStatus(event.target.value as MilestoneRoadmapView['workStatus'])}
-            style={fieldStyle}
-          >
-            <option value="draft">Draft</option>
-            <option value="active">In progress</option>
-            <option value="ready">Ready for review</option>
-          </select>
-        </label>
         <div>
           <OutlineButton disabled={busy} describedBy={describedBy} onClick={onPublish}>
             {milestone.publishToWarehaus ? 'Unpublish' : 'Publish'}
@@ -1519,6 +1474,7 @@ export function MoreMenu({
             <select
               data-testid="milestone-detach"
               defaultValue=""
+              aria-describedby={describedBy}
               disabled={busy}
               onChange={(event) => {
                 const taskId = event.target.value;

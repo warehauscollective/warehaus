@@ -251,6 +251,11 @@ export function heldTaskProjectId<T extends string>(input: {
   return { projectId: input.incoming, clearHold: false };
 }
 
+/** Clients do not approve or request changes. Peter reviews under the build protocol. */
+export function clientReviewDecision(): { ok: false; reason: string } {
+  return { ok: false, reason: 'Clients cannot review a milestone' };
+}
+
 /** Clients never see Creator, Visibility, Approval, or Last review. */
 export function clientSeesDetailsRow(
   row: 'creator' | 'visibility' | 'approval' | 'review' | 'owner' | 'due' | 'created' | 'project' | 'status' | 'stage',

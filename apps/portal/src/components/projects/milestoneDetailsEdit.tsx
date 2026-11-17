@@ -949,8 +949,7 @@ function DetailsModal({
         (element) => !element.hasAttribute('disabled'),
       );
     };
-    const first = focusable()[0] ?? node;
-    if (first && typeof first.focus === 'function') first.focus({ preventScroll: true });
+    if (node && typeof node.focus === 'function') node.focus({ preventScroll: true });
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onCloseRef.current();
@@ -1008,6 +1007,7 @@ function DetailsModal({
         aria-label={title}
         data-testid={testId}
         tabIndex={-1}
+        className="focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-4"
         onClick={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           if (event.key === 'Escape') {
@@ -1067,7 +1067,7 @@ function ConfirmFrame({
     <div>
       <div className="flex items-center gap-3 px-6 py-4">
         <h2 style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600 }}>{title}</h2>
-        <button type="button" onClick={onCancel} className="ml-auto" style={{ background: 'none', border: 0, color: 'var(--muted)', font: 'inherit', fontSize: 14, cursor: 'pointer' }}>
+        <button type="button" onClick={onCancel} className="ml-auto rounded-[9px] px-3 py-2 focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-2" style={{ background: 'none', border: 0, color: 'var(--muted)', font: 'inherit', fontSize: 14, lineHeight: '21px', cursor: 'pointer' }}>
           Close
         </button>
       </div>
@@ -1254,8 +1254,8 @@ function SheetHeader({ title, onClose }: { title: string; onClose: () => void })
       <button
         type="button"
         onClick={onClose}
-        className="ml-auto"
-        style={{ background: 'none', border: 0, color: 'var(--muted)', font: 'inherit', fontSize: 14, cursor: 'pointer' }}
+        className="ml-auto rounded-[9px] px-3 py-2 focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-2"
+        style={{ background: 'none', border: 0, color: 'var(--muted)', font: 'inherit', fontSize: 14, lineHeight: '21px', cursor: 'pointer' }}
       >
         Close
       </button>

@@ -45,6 +45,7 @@ import {
   detailStatusDecision,
   detailStatusLabel,
   effectiveDetailStatus,
+  clientReviewDecision,
   effectiveStage,
   movedLaneCount,
   projectMoveDecision,
@@ -1239,7 +1240,7 @@ export const decideAsClient = clientMutation({
     note: v.string(),
   },
   handler: async () => {
-    fail('Clients cannot review a milestone');
+    fail(clientReviewDecision().reason);
   },
 });
 

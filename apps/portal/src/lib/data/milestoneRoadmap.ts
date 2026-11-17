@@ -204,7 +204,7 @@ export function applyFixtureMilestonePreview(
       id: 'm-preview-shipped',
       name: 'Brand system',
       objective: 'The brand system is approved.',
-      // Approval is the shipped signal. A stored "in progress" status would disagree with it.
+      // Approval shows Ready to Ship until a stage is stored. Ready work is In review.
       workStatus: 'ready',
       approval: 'approved',
       decidedAt: PREVIEW_REVIEW_AT,

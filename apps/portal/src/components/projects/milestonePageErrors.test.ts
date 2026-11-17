@@ -86,15 +86,7 @@ describe('milestone page mutation errors', () => {
     assert.equal(findByTestId(container, 'milestone-details-modal'), null);
     assert.match(textOf(container), /The brief is ready/);
 
-    const work = findByTestId(container, 'milestone-work-select');
-    assert.ok(work);
-    assert.notEqual(work.disabled, true);
-    work.value = 'ready';
-    await act(async () => {
-      work.dispatchEvent(changeEvent(work));
-    });
-    assert.match(alertText(container), /Could not update the work status/);
-    await click(findButton(container, 'Dismiss'));
+    assert.equal(findByTestId(container, 'milestone-work-select'), null);
 
     const attach = findByTestId(container, 'milestone-attach');
     assert.ok(attach);
@@ -109,7 +101,7 @@ describe('milestone page mutation errors', () => {
     await click(findButton(container, 'Publish'));
     await click(findByTestId(container, 'milestone-confirm-submit'));
     assert.equal(alertText(container), '');
-    assert.deepEqual(calls, ['publish', 'work', 'attach', 'publish']);
+    assert.deepEqual(calls, ['publish', 'attach', 'publish']);
     assert.equal(publishAttempts, 2);
     assert.match(textOf(container), /Assign existing task/);
 
