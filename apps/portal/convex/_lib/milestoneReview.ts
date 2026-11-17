@@ -245,3 +245,29 @@ export function formatReviewStamp(at: number): string {
   const minute = get('minute');
   return `${get('month')} ${get('day')}, ${get('year')} · ${get('hour')}:${minute} ${get('dayPeriod')} ET`;
 }
+
+/** Client milestone payloads never carry review notes. Staff still can. */
+export function reviewNotesForAudience(
+  audience: 'staff' | 'client',
+  note: string | null | undefined,
+): string | null {
+  if (audience !== 'staff') return null;
+  const trimmed = note?.trim() ?? '';
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+export const PORTAL_REVIEW_SOURCE = 'portal-review';
+
+export function isPortalReviewTask(source: string | null | undefined): boolean {
+  return source === PORTAL_REVIEW_SOURCE;
+}
+
+/** Notion pull and outbox must not create, delete, or overwrite a page for these rows. */
+export function notionWriteAllowedForTask(input: {
+  source?: string | null;
+  notionPageId?: string | null;
+}): boolean {
+  if (isPortalReviewTask(input.source)) return false;
+  if ((input.notionPageId ?? '').startsWith(`${PORTAL_REVIEW_SOURCE}:`)) return false;
+  return true;
+}

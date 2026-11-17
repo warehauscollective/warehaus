@@ -3,14 +3,12 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 
 describe('review milestone button', () => {
-  it('locks every Review milestone button, primary and outline, to 148 by 42', () => {
+  it('retires the old Review milestone buttons so the card is the only control', () => {
     const source = readFileSync(new URL('./ProjectRoadmap.tsx', import.meta.url), 'utf8');
     const buttons = [...source.matchAll(/<(PrimaryButton|OutlineButton)\b([^>]*)>\s*Review milestone/g)];
-    assert.equal(buttons.length, 4);
-    for (const [, kind, attrs] of buttons) {
-      assert.match(attrs, /width=\{148\}/);
-      assert.match(attrs, /height=\{42\}/);
-      assert.equal(attrs.includes('minWidth'), false, kind);
-    }
+    assert.equal(buttons.length, 0);
+    assert.equal(source.includes('function ReviewDialog'), false);
+    assert.equal(source.includes('decideAsClient('), false);
+    assert.match(source, /staff && milestone\.review/);
   });
 });

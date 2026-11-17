@@ -1,7 +1,6 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -14,6 +13,7 @@ import {
 } from '@convex/_lib/milestoneReview';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
+import { MilestoneDialog } from './milestoneChrome';
 
 export const APPROVAL_SAVE_ERROR = 'Couldn’t save your approval. Nothing changed. Try again.';
 export const APPROVED_READONLY = 'Read-only · merging now · moves to Shipped when you run deploy main';
@@ -58,10 +58,66 @@ export function deriveReviewVisual(model: ReviewSurfaceModel, forced?: ReviewVis
   return 'ready';
 }
 
-function designLabel(check: DesignCheck): string {
-  if (check === 'pass') return 'DESIGN PASS';
+function designPillLabel(check: DesignCheck): string {
+  if (check === 'pass') return 'DESIGN CHECK · PASS';
   if (check === 'fixes') return 'FIXES NEEDED';
-  return 'DESIGN CHECK · PENDING';
+  return 'PENDING';
+}
+
+export const REVIEW_CARD_FOOTER = 'Approve marks it complete and lets it merge · going live still needs deploy main';
+
+function DesignCheckPill({ check }: { check: DesignCheck }) {
+  return (
+    <span
+      className="ds-mono"
+      data-testid="design-check-pill"
+      style={{
+        border: '1px solid var(--border-2)',
+        borderRadius: 999,
+        padding: '3px 8px',
+        fontSize: 12,
+        lineHeight: '18px',
+        color: 'var(--fg)',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      {designPillLabel(check)}
+    </span>
+  );
+}
+
+function ExternalLinkIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style={{ flex: '0 0 auto', marginTop: 2 }}>
+      <path d="M6 3H3.5A1.5 1.5 0 0 0 2 4.5v8A1.5 1.5 0 0 0 3.5 14h8A1.5 1.5 0 0 0 13 12.5V10" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M9 2h5v5M14 2 7.5 8.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
+    </svg>
+  );
+}
+
+function PreviewBox({ url }: { url: string }) {
+  return (
+    <div
+      data-testid="review-preview-box"
+      style={{
+        border: '1px solid var(--border)',
+        borderRadius: 18,
+        padding: '14px 16px',
+        display: 'flex',
+        gap: 12,
+        alignItems: 'flex-start',
+      }}
+    >
+      <ExternalLinkIcon />
+      <div className="flex min-w-0 flex-col gap-1">
+        <a href={previewHref(url)} target="_blank" rel="noreferrer" style={{ color: 'var(--fg)', textDecoration: 'underline', fontSize: 14, lineHeight: '21px' }}>
+          Open local preview
+        </a>
+        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px' }}>{url}</p>
+        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>Runs on your Mac · test data</p>
+      </div>
+    </div>
+  );
 }
 
 function previewHref(url: string): string {
@@ -87,94 +143,59 @@ const eyebrowStyle = {
 export function ReviewScrim({
   phone,
   label,
+  hint,
   onClose,
+  onConfirm,
+  footer,
+  contained = false,
   children,
 }: {
   phone: boolean;
   label: string;
+  hint?: string;
   onClose: () => void;
+  onConfirm?: () => void;
+  footer?: React.ReactNode;
+  contained?: boolean;
   children: React.ReactNode;
 }) {
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [onClose]);
-  const dialog = (
-    <div
-      className="ds-scope"
-      role="presentation"
-      onClick={onClose}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 90,
-        background: 'rgba(0,0,0,0.1)',
-        backdropFilter: 'blur(40px)',
-        WebkitBackdropFilter: 'blur(40px)',
-        display: 'flex',
-        alignItems: phone ? 'flex-end' : 'center',
-        justifyContent: 'center',
-        padding: phone ? 0 : 24,
-      }}
+  return (
+    <MilestoneDialog
+      title={label}
+      phone={phone}
+      hint={hint}
+      onClose={onClose}
+      onConfirm={onConfirm}
+      footer={footer}
+      contained={contained}
+      trapFocus={!contained}
+      testId="milestone-review-dialog"
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
-        onClick={(event) => event.stopPropagation()}
-        style={{
-          width: phone ? '100%' : 'min(100%, 560px)',
-          maxHeight: phone ? '100dvh' : 'min(880px, calc(100dvh - 72px))',
-          overflow: 'auto',
-          background: 'var(--surface)',
-          color: 'var(--fg)',
-          border: '1px solid var(--border)',
-          borderRadius: phone ? '16px 16px 0 0' : 16,
-          padding: phone ? 20 : 28,
-        }}
-      >
-        {children}
-      </div>
-    </div>
+      {children}
+    </MilestoneDialog>
   );
-  if (typeof document === 'undefined') return dialog;
-  return createPortal(dialog, document.body);
 }
 
 export function ReviewDialogBody({
   kind,
-  iteration,
   tasks,
   notes,
   onNotes,
   selected,
   onToggle,
-  busy,
   fieldError,
-  onCancel,
-  onSubmit,
 }: {
   kind: ReviewDialogKind;
-  iteration: number;
   tasks: { id: string; name: string }[];
   notes: string;
   onNotes: (value: string) => void;
   selected: string[];
   onToggle: (id: string) => void;
-  busy: boolean;
   fieldError: string | null;
-  onCancel: () => void;
-  onSubmit: () => void;
 }) {
   const approve = kind === 'approve';
   return (
     <div className="flex flex-col gap-4">
-      <h2 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', margin: 0 }}>
-        {approve ? 'Approve milestone' : 'Request changes'}
-      </h2>
       <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
         {approve
           ? 'Marks milestone complete and lets it merge. Going live still needs deploy main.'
@@ -205,9 +226,7 @@ export function ReviewDialogBody({
       {!approve ? (
         <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
           <legend style={{ fontSize: 14, marginBottom: 8 }}>Applies to (optional)</legend>
-          {tasks.length === 0 ? (
-            <p style={{ margin: 0, color: 'var(--muted)', fontSize: 13 }}>Leave all unticked to apply to the whole milestone.</p>
-          ) : (
+          {tasks.length > 0 ? (
             <ul className="flex flex-col gap-2" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               {tasks.map((task) => (
                 <li key={task.id}>
@@ -222,19 +241,38 @@ export function ReviewDialogBody({
                 </li>
               ))}
             </ul>
-          )}
-          <p style={{ margin: '8px 0 0', color: 'var(--muted)', fontSize: 12 }}>
+          ) : null}
+          <p style={{ margin: tasks.length > 0 ? '8px 0 0' : 0, color: 'var(--muted)', fontSize: 12 }}>
             Leave all unticked to apply to the whole milestone.
           </p>
         </fieldset>
-      ) : null}
-      <div className="flex flex-wrap justify-end gap-2">
-        <OutlineButton onClick={onCancel} disabled={busy}>Cancel</OutlineButton>
-        <PrimaryButton onClick={onSubmit} disabled={busy}>
-          {busy ? (approve ? 'Approving…' : 'Starting…') : approve ? 'Approve' : `Start iteration ${iteration + 1}`}
-        </PrimaryButton>
-      </div>
+      ) : (
+        <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>{REVIEW_CARD_FOOTER}</p>
+      )}
     </div>
+  );
+}
+
+export function ReviewDialogActions({
+  approve,
+  iteration,
+  busy,
+  onCancel,
+  onSubmit,
+}: {
+  approve: boolean;
+  iteration: number;
+  busy: boolean;
+  onCancel: () => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <>
+      <OutlineButton onClick={onCancel} disabled={busy}>Cancel</OutlineButton>
+      <PrimaryButton onClick={onSubmit} disabled={busy}>
+        {busy ? (approve ? 'Approving…' : 'Starting…') : approve ? 'Approve' : `Start iteration ${iteration + 1}`}
+      </PrimaryButton>
+    </>
   );
 }
 
@@ -308,12 +346,11 @@ export function MilestoneReviewSurface({
       ? `APPROVED · ITERATION ${model.iteration}`
       : visual === 'changes'
         ? `BUILDING · ITERATION ${model.iteration}`
-        : phone && layout === 'row'
-          ? `READY TO SHIP · ITERATION ${model.iteration}`
-          : `READY TO SHIP · ITERATION ${model.iteration} · ${designLabel(visual === 'waiting' ? 'pending' : model.designCheck)}`;
+        : `READY TO SHIP · ITERATION ${model.iteration}`;
+  const dim = visual === 'waiting' ? 0.4 : 0.55;
 
   const actions = (
-    <div className={phone || layout === 'row' && phone ? 'flex w-full gap-2' : 'flex gap-2'} style={phone ? { width: '100%' } : undefined}>
+    <div className={phone ? 'flex w-full gap-2' : 'flex gap-2'} style={phone ? { width: '100%' } : undefined}>
       {visual === 'error' ? (
         <PrimaryButton
           onClick={() => {
@@ -327,6 +364,7 @@ export function MilestoneReviewSurface({
         <>
           <OutlineButton
             disabled={locked}
+            disabledOpacity={dim}
             onClick={() => {
               setFieldError(null);
               setDialog('changes');
@@ -336,6 +374,7 @@ export function MilestoneReviewSurface({
           </OutlineButton>
           <PrimaryButton
             disabled={locked}
+            disabledOpacity={dim}
             onClick={() => {
               setFieldError(null);
               setDialog('approve');
@@ -348,22 +387,6 @@ export function MilestoneReviewSurface({
     </div>
   );
 
-  const preview = model.previewUrl ? (
-    <a href={previewHref(model.previewUrl)} target="_blank" rel="noreferrer" style={{ color: 'var(--fg)', fontSize: 14, lineHeight: '21px' }}>
-      Open local preview ↗
-    </a>
-  ) : (
-    <span style={{ color: 'var(--muted)', fontSize: 14 }}>Waiting on local build</span>
-  );
-
-  const meta = model.previewUrl ? (
-    <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-      {model.previewUrl} · your Mac · test data
-    </p>
-  ) : (
-    <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>{WAITING_COPY}</p>
-  );
-
   const body = (
     <div
       data-testid={layout === 'row' ? 'task-review-row' : 'milestone-review-card'}
@@ -372,15 +395,18 @@ export function MilestoneReviewSurface({
       style={{
         background: layout === 'row' ? 'var(--surface-2)' : 'var(--surface)',
         border: visual === 'error' ? '1px solid var(--danger)' : visual === 'waiting' ? '1px dashed var(--border)' : `1px solid ${layout === 'row' ? 'var(--border-2, var(--border))' : 'var(--border)'}`,
-        borderRadius: layout === 'row' ? 18 : 12,
+        borderRadius: layout === 'row' ? 18 : 28,
         padding: layout === 'row' ? '12px 16px' : '32px 28px',
         opacity: visual === 'waiting' ? 1 : 1,
       }}
     >
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <div className="flex items-center gap-2">
-          <StatusDot color={visual === 'fixes' || visual === 'error' ? 'var(--danger)' : visual === 'approved' ? 'var(--success, var(--fg))' : 'var(--fg)'} />
-          <p className="ds-mono" style={eyebrowStyle}>{eyebrow}</p>
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <StatusDot color={visual === 'fixes' || visual === 'error' ? 'var(--danger)' : visual === 'approved' ? 'var(--success, var(--fg))' : 'var(--fg)'} />
+            <p className="ds-mono" style={eyebrowStyle}>{eyebrow}</p>
+          </div>
+          <DesignCheckPill check={visual === 'waiting' ? 'pending' : model.designCheck} />
         </div>
         {layout === 'card' && model.prNumber ? (
           <h2 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', margin: 0 }}>
@@ -408,8 +434,7 @@ export function MilestoneReviewSurface({
           </>
         ) : (
           <>
-            {preview}
-            {meta}
+            {model.previewUrl ? <PreviewBox url={model.previewUrl} /> : <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>{WAITING_COPY}</p>}
             {visual === 'fixes' && model.designCheckNote ? (
               <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>{model.designCheckNote}</p>
             ) : null}
@@ -424,25 +449,57 @@ export function MilestoneReviewSurface({
           </>
         )}
       </div>
-      {visual === 'approved' || visual === 'changes' ? null : actions}
+      {visual === 'approved' || visual === 'changes' ? null : (
+        <div className="flex flex-col gap-3">
+          {actions}
+          {layout === 'card' ? (
+            <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{REVIEW_CARD_FOOTER}</p>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 
-  const history = layout === 'card' && model.history.length > 0 ? (
-    <section data-testid="milestone-iterations" className="flex flex-col gap-2">
-      <h3 className="ds-mono" style={{ ...eyebrowStyle, color: 'var(--fg)' }}>ITERATIONS</h3>
+  const listed = new Set(model.history.map((item) => item.iteration));
+  const iterationRows = [
+    ...(!listed.has(model.iteration) && visual !== 'approved' && visual !== 'changes'
+      ? [{
+          key: `current-${model.iteration}`,
+          iteration: model.iteration,
+          at: model.builtAt,
+          tag: 'In review' as const,
+          notes: model.prNumber ? `PR #${model.prNumber}${model.prTitle ? ` · ${model.prTitle}` : ''}` : '',
+        }]
+      : []),
+    ...model.history.map((item) => ({
+      key: `${item.iteration}-${item.decidedAt}`,
+      iteration: item.iteration,
+      at: item.decidedAt,
+      tag: iterationOutcome({
+        iteration: item.iteration,
+        currentIteration: model.iteration,
+        decision: item.decision,
+        workStatus: model.workStatus,
+      }),
+      notes: item.notes,
+    })),
+  ];
+
+  const history = layout === 'card' && iterationRows.length > 0 ? (
+    <section data-testid="milestone-iterations" className="flex flex-col gap-3">
+      <h3 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', margin: 0 }}>{`Iterations · ${iterationRows.length}`}</h3>
       <ul className="flex flex-col gap-2" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
-        {model.history.map((item) => (
-          <li key={`${item.iteration}-${item.decidedAt}`} style={{ fontSize: 14, lineHeight: '21px' }}>
-            <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>
-              {`${item.iteration} · ${formatReviewStamp(item.decidedAt)} · ${iterationOutcome({
-                iteration: item.iteration,
-                currentIteration: model.iteration,
-                decision: item.decision,
-                workStatus: model.workStatus,
-              })}`}
-            </span>
-            {item.notes ? ` · ${item.notes}` : ''}
+        {iterationRows.map((item) => (
+          <li key={item.key} style={{ border: '1px solid var(--border)', borderRadius: 18, padding: '12px 14px' }}>
+            <div className="flex items-center justify-between gap-3">
+              <span className="ds-mono" style={{ fontSize: 12, lineHeight: '18px' }}>
+                {`ITERATION ${item.iteration}${item.at ? ` · ${formatReviewStamp(item.at)}` : ''}`}
+              </span>
+              <span className="ds-mono" style={{ border: '1px solid var(--border-2)', borderRadius: 999, padding: '3px 8px', fontSize: 12, lineHeight: '18px' }}>
+                {item.tag}
+              </span>
+            </div>
+            {item.notes ? <p style={{ margin: '8px 0 0', fontSize: 14, lineHeight: '21px' }}>{item.notes}</p> : null}
           </li>
         ))}
       </ul>
@@ -450,22 +507,35 @@ export function MilestoneReviewSurface({
   ) : null;
 
   const dialogNode = dialog ? (
-    <ReviewDialogBody
-      kind={dialog}
-      iteration={model.iteration}
-      tasks={model.tasks}
-      notes={notes}
-      onNotes={(value) => {
-        setNotes(value);
-        if (value.trim()) setFieldError(null);
-      }}
-      selected={selected}
-      onToggle={(id) => setSelected((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))}
-      busy={busy != null}
-      fieldError={fieldError}
-      onCancel={() => setDialog(null)}
-      onSubmit={() => void submit()}
-    />
+    <ReviewScrim
+      phone={phone}
+      label={dialog === 'approve' ? 'Approve milestone' : 'Request changes'}
+      hint={dialog === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
+      onClose={() => setDialog(null)}
+      onConfirm={() => void submit()}
+      footer={
+        <ReviewDialogActions
+          approve={dialog === 'approve'}
+          iteration={model.iteration}
+          busy={busy != null}
+          onCancel={() => setDialog(null)}
+          onSubmit={() => void submit()}
+        />
+      }
+    >
+      <ReviewDialogBody
+        kind={dialog}
+        tasks={model.tasks}
+        notes={notes}
+        onNotes={(value) => {
+          setNotes(value);
+          if (value.trim()) setFieldError(null);
+        }}
+        selected={selected}
+        onToggle={(id) => setSelected((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))}
+        fieldError={fieldError}
+      />
+    </ReviewScrim>
   ) : null;
 
   if (swap && dialogNode) return dialogNode;
@@ -474,11 +544,7 @@ export function MilestoneReviewSurface({
     <div className="flex flex-col gap-4">
       {body}
       {history}
-      {dialogNode && !swap ? (
-        <ReviewScrim phone={phone} label={dialog === 'approve' ? 'Approve milestone' : 'Request changes'} onClose={() => setDialog(null)}>
-          {dialogNode}
-        </ReviewScrim>
-      ) : null}
+      {dialogNode}
     </div>
   );
 }

@@ -372,13 +372,13 @@ describe('roadmap markup', () => {
 
 const idle = async () => undefined;
 
-function renderDetail(milestone: MilestoneRoadmapView, page = false): string {
+function renderDetail(milestone: MilestoneRoadmapView, page = false, staff = true): string {
   return renderToStaticMarkup(
     createElement(MilestoneDetailView, {
       milestone,
       project: site,
       tasks: [],
-      staff: true,
+      staff,
       fixtures: true,
       resourceChoices: [],
       onBack: () => undefined,
@@ -451,65 +451,18 @@ describe('MilestoneDetailView', () => {
     assert.match(html, /class="portal-crumb"/);
   });
 
-  it('keeps Review milestone on every work status and only changes how it looks', () => {
-    const action = (html: string) => html.match(/<button[^>]*data-testid="milestone-review-action"[^>]*>/)?.[0] ?? '';
-    const viewButton = (html: string) => html.match(/<button[^>]*data-testid="milestone-view-review"[^>]*>/)?.[0] ?? '';
-    const view = (html: string) => viewButton(html) !== '';
-    const primary = (html: string) => action(html).includes('background:var(--accent)');
-    const outline = (html: string) =>
-      action(html).includes('background:transparent') &&
-      /data-testid="milestone-review-action"[^>]*>Review milestone/.test(html);
-
-    const ready = renderDetail(tileMilestone({ workStatus: 'ready', approval: 'unreviewed' }));
-    assert.equal(primary(ready), true);
-    assert.match(ready, /data-testid="milestone-review-action"[^>]*>Review milestone</);
-    assert.match(action(ready), /(?:^|;)width:148px/);
-    assert.match(action(ready), /min-width:148px/);
-    assert.match(action(ready), /max-width:148px/);
-    assert.match(action(ready), /height:42px/);
-    assert.equal(view(ready), false);
-
-    const readyChanges = renderDetail(
-      tileMilestone({ workStatus: 'ready', approval: 'changes_requested', note: 'Tighten the type.' }),
-    );
-    assert.equal(primary(readyChanges), true);
-    assert.equal(view(readyChanges), true);
-    assert.match(viewButton(readyChanges), /height:42px/);
-
-    const approved = renderDetail(
-      tileMilestone({ workStatus: 'ready', approval: 'approved', note: 'Approved with the brand file.' }),
-    );
-    assert.equal(outline(approved), true);
-    assert.equal(primary(approved), false);
-    assert.match(action(approved), /(?:^|;)width:148px/);
-    assert.match(action(approved), /min-width:148px/);
-    assert.match(action(approved), /max-width:148px/);
-    assert.match(action(approved), /height:42px/);
-    assert.equal(view(approved), true);
-    assert.match(viewButton(approved), /height:42px/);
-    assert.match(approved, /data-testid="milestone-view-review"[^>]*>View review</);
-
-    const changes = renderDetail(
-      tileMilestone({ workStatus: 'active', approval: 'changes_requested', decidedAt: Date.parse('2026-11-03T15:00:00Z') }),
-    );
-    assert.equal(outline(changes), true);
-    assert.equal(primary(changes), false);
-    assert.equal(view(changes), true);
-
-    const draft = renderDetail(tileMilestone({ workStatus: 'draft', approval: 'unreviewed' }));
-    assert.equal(outline(draft), true);
-    assert.equal(primary(draft), false);
-    assert.match(action(draft), /(?:^|;)width:148px/);
-    assert.match(action(draft), /min-width:148px/);
-    assert.match(action(draft), /height:42px/);
-    assert.equal(view(changes), true);
-    assert.match(viewButton(changes), /height:42px/);
-    assert.equal(view(draft), false);
-
-    const active = renderDetail(tileMilestone({ workStatus: 'active', approval: 'unreviewed' }));
-    assert.equal(outline(active), true);
-    assert.equal(primary(active), false);
-    assert.equal(view(active), false);
+  it('does not offer the old Review milestone control', () => {
+    const ready = renderDetail(tileMilestone({ workStatus: 'ready', approval: 'unreviewed', note: 'Peter wrote this.' }));
+    assert.equal(ready.includes('Review milestone'), false);
+    assert.equal(ready.includes('data-testid="milestone-review-action"'), false);
+    const client = renderDetail(tileMilestone({ workStatus: 'ready', approval: 'approved', note: 'Peter wrote this.', approverName: 'Peter' }), false, false);
+    assert.equal(client.includes('Review milestone'), false);
+    assert.equal(client.includes('Reviews ·'), false);
+    assert.equal(client.includes('data-testid="milestone-approval"'), false);
+    assert.equal(client.includes('data-testid="milestone-last-review"'), false);
+    assert.equal(client.includes('Peter wrote this.'), false);
+    assert.equal(client.includes('APPROVAL'), false);
+    assert.equal(client.includes('LAST REVIEW'), false);
   });
 
   it('shows DETAILS from 768px up', () => {

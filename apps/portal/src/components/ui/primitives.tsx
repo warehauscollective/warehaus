@@ -22,6 +22,27 @@ export function Pill({
   );
 }
 
+/** Status chip from the review spec: border-2, pill, mono 12. Not an accent fill. */
+export function StatusBadge({ children }: { children: ReactNode }) {
+  return (
+    <span
+      className="ds-mono"
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        border: '1px solid var(--border-2)',
+        borderRadius: 999,
+        padding: '3px 8px',
+        fontSize: 12,
+        lineHeight: '18px',
+        color: 'var(--fg)',
+      }}
+    >
+      {children}
+    </span>
+  );
+}
+
 export function Section({
   id,
   children,
@@ -91,6 +112,7 @@ export function PrimaryButton({
   className,
   title,
   solidWhenDisabled = false,
+  disabledOpacity = 0.55,
   width,
   minWidth,
   height,
@@ -105,6 +127,8 @@ export function PrimaryButton({
   title?: string;
   /** Keep the primary fill. The control stays disabled; the tooltip explains why. */
   solidWhenDisabled?: boolean;
+  /** Opacity while disabled. Review actions waiting on a build use 0.4. */
+  disabledOpacity?: number;
   /** Fixed width, border-box. */
   width?: number;
   /** Floor width, border-box. The control can grow with the label. */
@@ -143,7 +167,7 @@ export function PrimaryButton({
         whiteSpace: fixed ? 'nowrap' : undefined,
         padding: height != null ? `0 ${paddingInline ?? 16}px` : paddingInline != null ? `0.65rem ${paddingInline}px` : '0.65rem 1.1rem',
         cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled && !solidWhenDisabled ? 0.55 : 1,
+        opacity: disabled && !solidWhenDisabled ? disabledOpacity : 1,
       }}
     >
       {children}
@@ -163,12 +187,15 @@ export function OutlineButton({
   height,
   paddingInline,
   testId,
+  disabledOpacity = 0.55,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
   onClick?: () => void;
   disabled?: boolean;
   describedBy?: string;
+  /** Opacity while disabled. Review actions waiting on a build use 0.4. */
+  disabledOpacity?: number;
   /** One line, 44 tall. Used by the milestone “View tasks” control. */
   nowrap?: boolean;
   /** Fixed width, border-box. */
@@ -208,7 +235,7 @@ export function OutlineButton({
         padding: height != null ? `0 ${paddingInline ?? 16}px` : nowrap ? '12px 16px' : '0.65rem 1rem',
         whiteSpace: fixed ? 'nowrap' : undefined,
         cursor: disabled ? 'not-allowed' : 'pointer',
-        opacity: disabled ? 0.55 : 1,
+        opacity: disabled ? disabledOpacity : 1,
       }}
     >
       {children}

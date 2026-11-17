@@ -7,7 +7,7 @@ import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEditMode } from '@warehaus/portal-sync';
-import { OutlineButton, Pill, PortalCheckbox, PrimaryButton } from '@/components/ui/primitives';
+import { OutlineButton, Pill, PortalCheckbox, PrimaryButton, StatusBadge } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus, TASK_STAGE_HINT } from '@/lib/data/taskStatus';
@@ -105,6 +105,7 @@ export function TaskDetailModal({
   return (
     <ModalShell
       phone={phone}
+      suspended={reviewing}
       scrim={reviewing ? 'light' : 'solid'}
       onClose={() => {
         if (reviewing) setCloseReview((current) => current + 1);
@@ -208,7 +209,11 @@ export function TaskDetailModal({
                         </span>
                         <span style={{ flex: '1 1 auto', minWidth: 0, fontWeight: 400, fontSize: 15 }}>{child.name}</span>
                         <span className="inline-flex shrink-0 items-center gap-3">
-                          <Pill color={taskStatusColor(displayedTaskStatus(child.status, child.stage), child.isDone)}>{displayedTaskStatus(child.status, child.stage)}</Pill>
+                          {displayedTaskStatus(child.status, child.stage) === 'In review' ? (
+                            <StatusBadge>In review</StatusBadge>
+                          ) : (
+                            <Pill color={taskStatusColor(displayedTaskStatus(child.status, child.stage), child.isDone)}>{displayedTaskStatus(child.status, child.stage)}</Pill>
+                          )}
                           {child.category ? (
                             <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{child.category}</span>
                           ) : null}
@@ -272,6 +277,8 @@ export function TaskDetailModal({
                     });
                   }}
                 />
+              ) : shownStatus === 'In review' ? (
+                <StatusBadge>In review</StatusBadge>
               ) : (
                 <Pill color={taskStatusColor(shownStatus, task.isDone)}>{shownStatus}</Pill>
               )}
@@ -578,7 +585,7 @@ function StatusMenu({ value, onChange }: { value: string; onChange: (status: str
         className="flex w-full items-center justify-between gap-2"
         style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', color: 'var(--fg)', padding: '0.45rem 0.7rem' }}
       >
-        <Pill color={taskStatusColor(value, value === 'Done')}>{value}</Pill>
+        {value === 'In review' ? <StatusBadge>In review</StatusBadge> : <Pill color={taskStatusColor(value, value === 'Done')}>{value}</Pill>}
         <TaskGlyph src="/icons/task-chev-down.svg" />
       </button>
       {open ? (
@@ -887,6 +894,7 @@ function ModalShell({
   label,
   width = 840,
   scrim = 'solid',
+  suspended = false,
   children,
 }: {
   phone: boolean;
@@ -894,10 +902,13 @@ function ModalShell({
   label: string;
   width?: number;
   scrim?: 'solid' | 'light';
+  /** The review dialog is the only modal while a decision is open. */
+  suspended?: boolean;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    if (suspended) return;
     const node = ref.current;
     const previous = document.activeElement as HTMLElement | null;
     node?.focus({ preventScroll: true });
@@ -924,7 +935,8 @@ function ModalShell({
       document.removeEventListener('keydown', onKey);
       previous?.focus({ preventScroll: true });
     };
-  }, [onClose]);
+  }, [onClose, suspended]);
+  if (suspended) return <>{children}</>;
   const dialog = (
     <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: scrim === 'light' ? 'rgba(0,0,0,0.1)' : 'rgb(0 0 0 / 55%)', backdropFilter: scrim === 'light' ? 'blur(40px)' : undefined, WebkitBackdropFilter: scrim === 'light' ? 'blur(40px)' : undefined, display: 'flex', alignItems: phone ? 'stretch' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
       <div

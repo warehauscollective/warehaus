@@ -19,7 +19,6 @@ import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, internalQuery } from './_generated/server';
 import { PortalAuthError } from './_lib/identity';
 import {
-  applyHumanDecision,
   attachTaskDecision,
   buildRoadmap,
   type AttachFailureCode,
@@ -47,6 +46,7 @@ import {
   summarizeMilestoneOne,
 } from './_lib/milestoneOneSeed';
 import {
+  ALREADY_REVIEWED,
   PETER_EMAILS,
   currentIteration,
   historyPageLimit,
@@ -55,6 +55,7 @@ import {
   normalizeLocalPreview,
   planReview,
   reviewChatLine,
+  reviewNotesForAudience,
   reviewForAudience,
   type ReviewSource,
 } from './_lib/milestoneReview';
@@ -278,8 +279,8 @@ async function toRoadmap(
     goals: milestone.goals,
     workStatus: milestone.workStatus,
     approval: milestone.approval,
-    note: milestone.note ?? null,
-    approverName: approver?.name ?? null,
+    note: reviewNotesForAudience(audience, milestone.note),
+    approverName: audience === 'staff' ? (approver?.name ?? null) : null,
     decidedAt: milestone.decidedAt ?? null,
     publishToWarehaus: milestone.publishToWarehaus,
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
@@ -611,52 +612,18 @@ export const detachTaskFromAi = internalMutation({
   handler: async (ctx, args) => unlinkTask(ctx, 'ai', args.milestoneId, args.taskId),
 });
 
-async function decideMilestone(
-  ctx: MutationCtx,
-  milestone: Doc<'milestones'>,
-  approverContactId: Id<'contacts'>,
-  decision: 'approved' | 'changes_requested',
-  note: string,
-) {
-  const tasks = await ctx.db
-    .query('tasks')
-    .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
-    .collect();
-  const applied = applyHumanDecision({
-    actor: 'human',
-    decision,
-    note,
-    approverContactId,
-    at: Date.now(),
-    tasks: tasks.map((task) => ({
-      id: task._id,
-      isDone: task.isDone,
-      status: task.status,
-      stage: task.stage ?? null,
-    })),
-  });
-  if (!applied.ok) fail(applied.reason);
-  await ctx.db.patch(milestone._id, {
-    approval: applied.patch.approval,
-    note: applied.patch.note,
-    approverContactId,
-    decidedAt: applied.patch.decidedAt,
-    ...(applied.patch.workStatus ? { workStatus: applied.patch.workStatus } : {}),
-  });
-  await logMilestone(ctx, milestone, applied.activityType, applied.patch.decidedAt);
-  return { ok: true as const, taskWrites: applied.taskWrites.length };
-}
-
+/**
+ * Retired. This mutation does not call applyHumanDecision and does not write milestone.note.
+ * Approve and requestChanges are the only review writers. They do not close tasks.
+ */
 export const decide = adminMutation({
   args: {
     milestoneId: v.id('milestones'),
     decision: decisionArg,
     note: v.string(),
   },
-  handler: async (ctx, args) => {
-    peterPortalActor(ctx.identity);
-    const milestone = await loadMilestone(ctx, args.milestoneId);
-    return decideMilestone(ctx, milestone, ctx.identity.contactId as Id<'contacts'>, args.decision, args.note);
+  handler: async () => {
+    fail('Use approve or request changes.');
   },
 });
 
@@ -758,7 +725,8 @@ async function applyMilestoneReview(
     appliesTo,
   });
   if (!planned.ok) return { ok: false as const, status: 400, error: planned.reason };
-  if (planned.idempotent && existing) {
+  if (planned.idempotent) {
+    if (!existing) return { ok: false as const, status: 409, error: ALREADY_REVIEWED };
     return {
       ok: true as const,
       status: 200,
@@ -779,7 +747,6 @@ async function applyMilestoneReview(
   if (planned.decision === 'approve') {
     await ctx.db.patch(milestone._id, {
       approval: 'approved',
-      note: planned.notes || milestone.note,
       approverContactId: contactId,
       decidedAt,
       workStatus: 'ready',
@@ -843,7 +810,6 @@ async function applyMilestoneReview(
   }
   await ctx.db.patch(milestone._id, {
     approval: 'changes_requested',
-    note: planned.notes,
     approverContactId: contactId,
     decidedAt,
     workStatus: 'active',

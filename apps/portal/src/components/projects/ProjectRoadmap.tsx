@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useMutation } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
@@ -810,14 +810,11 @@ export function MilestoneDetailView({
   onFixture: (patch: FixturePatch) => void;
   mutations: MilestoneMutations;
 }) {
-  const { decide, decideAsClient, save, setWorkStatus, setPublish, attachTask, detachTask } = mutations;
+  const { save, setWorkStatus, setPublish, attachTask, detachTask } = mutations;
   const [tab, setTab] = useState<MilestoneTab>('overview');
-  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [more, setMore] = useState(false);
-  const [note, setNote] = useState('');
-  const [noteError, setNoteError] = useState<string | null>(null);
-  const [noteAttempt, setNoteAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const locked = milestone.approval === 'approved';
@@ -836,12 +833,6 @@ export function MilestoneDetailView({
   const attachable = (milestone.attachableTasks ?? []).filter((task) => !taken.has(task.id));
   const statusStage = milestoneTileStage(milestone);
   const reviewLine = lastReviewLabel(milestone);
-  const readyForReview = milestone.workStatus === 'ready' && milestone.approval !== 'approved';
-  const reviewExists = milestone.approval !== 'unreviewed' || milestone.decidedAt != null || Boolean(milestone.note);
-  const openReview = () => {
-    setError(null);
-    setReviewOpen(true);
-  };
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -853,42 +844,6 @@ export function MilestoneDetailView({
     } finally {
       setBusy(false);
     }
-  };
-
-  const onDecide = (decision: 'approved' | 'changes_requested') => {
-    const trimmed = note.trim();
-    if (!trimmed) {
-      setNoteError('A note is required.');
-      setNoteAttempt((current) => current + 1);
-      return;
-    }
-    setNoteError(null);
-    if (fixtures) {
-      onFixture({
-        approval: decision,
-        note: trimmed,
-        approverName: 'You',
-        decidedAt: Date.now(),
-        ...(decision === 'changes_requested' ? { workStatus: 'active' } : {}),
-      });
-      setNote('');
-      setReviewOpen(false);
-      setTab('reviews');
-      return;
-    }
-    const payload = {
-      hostSlug,
-      milestoneId: milestone.id as Id<'milestones'>,
-      decision,
-      note: trimmed,
-    };
-    void run(async () => {
-      if (staff) await decide(payload);
-      else await decideAsClient(payload);
-      setNote('');
-      setReviewOpen(false);
-      setTab('reviews');
-    });
   };
 
   return (
@@ -908,33 +863,7 @@ export function MilestoneDetailView({
         testId="milestone-name"
         title={milestone.name}
         subtitle={`Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`}
-        action={
-          readyForReview ? (
-            <span className="flex flex-wrap items-center gap-2">
-              {reviewExists ? (
-                <OutlineButton height={42} paddingInline={16} testId="milestone-view-review" onClick={() => setTab('reviews')}>
-                  View review
-                </OutlineButton>
-              ) : null}
-              <PrimaryButton width={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
-                Review milestone
-              </PrimaryButton>
-            </span>
-          ) : reviewExists ? (
-            <span className="flex flex-wrap items-center gap-2">
-              <OutlineButton height={42} paddingInline={16} testId="milestone-view-review" onClick={() => setTab('reviews')}>
-                View review
-              </OutlineButton>
-              <OutlineButton width={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
-                Review milestone
-              </OutlineButton>
-            </span>
-          ) : (
-            <OutlineButton width={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
-              Review milestone
-            </OutlineButton>
-          )
-        }
+        action={undefined}
       />
       {staff && milestone.review ? (
         <MilestoneReviewLive milestone={milestone} hostSlug={hostSlug} />
@@ -947,7 +876,7 @@ export function MilestoneDetailView({
         tabs={[
           { id: 'overview', label: 'Overview' },
           { id: 'tasks', label: `Tasks · ${board.lanes}` },
-          { id: 'reviews', label: `Reviews · ${reviewCount}` },
+          ...(staff ? [{ id: 'reviews' as const, label: `Reviews · ${reviewCount}` }] : []),
           { id: 'activity', label: 'Activity' },
         ]}
       />
@@ -973,7 +902,7 @@ export function MilestoneDetailView({
                     <span data-testid="milestone-stage">{statusStage.label}</span>
                   </FieldValue>
                 </div>
-                {milestone.approval !== 'unreviewed' ? (
+                {staff && milestone.approval !== 'unreviewed' ? (
                   <div>
                     <FieldLabel>APPROVAL</FieldLabel>
                     <FieldValue>
@@ -995,7 +924,7 @@ export function MilestoneDetailView({
                   <FieldLabel>PROJECT</FieldLabel>
                   <FieldValue>{project.name}</FieldValue>
                 </div>
-                {reviewLine ? (
+                {staff && reviewLine ? (
                   <div className="col-span-2 lg:col-span-1">
                     <FieldLabel>LAST REVIEW</FieldLabel>
                     <FieldValue>
@@ -1094,28 +1023,14 @@ export function MilestoneDetailView({
                 </p>
               )}
             </Panel>
-            <Panel>
-              <h2 style={{ fontSize: 18, lineHeight: '27px', fontWeight: 500 }}>Latest review</h2>
-              {milestone.note ? (
-                <>
-                  <p style={{ marginTop: 12, fontSize: 14, lineHeight: '21px' }}>
-                    {reviewCount > 0 ? `Round ${reviewCount} · ` : ''}
-                    {APPROVAL_LABEL[milestone.approval]}
-                  </p>
-                  <p data-testid="milestone-note-saved" style={{ marginTop: 12, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
-                    {milestone.approverName ? `${milestone.approverName}: ` : ''}“{milestone.note}”
-                    {formatWhen(milestone.decidedAt) ? ` · ${formatWhen(milestone.decidedAt)}` : ''}
-                  </p>
-                  <button type="button" onClick={() => setTab('reviews')} style={{ ...textButton, marginTop: 12 }}>
-                    View review
-                  </button>
-                </>
-              ) : (
+            {staff ? (
+              <Panel>
+                <h2 style={{ fontSize: 18, lineHeight: '27px', fontWeight: 500 }}>Latest review</h2>
                 <p style={{ marginTop: 12, fontSize: 14, color: 'var(--muted)' }}>
-                  No review yet. Open work stays listed until a person decides.
+                  Notes stay on the review card. Clients do not see them.
                 </p>
-              )}
-            </Panel>
+              </Panel>
+            ) : null}
             {staff ? (
               <div className="flex flex-wrap items-center gap-3">
                 <GhostButton testId="milestone-edit" disabled={locked || busy} onClick={() => { setError(null); setEditing(true); }}>
@@ -1316,44 +1231,19 @@ export function MilestoneDetailView({
         </div>
       ) : null}
 
-      {tab === 'reviews' ? (
-        <div className="flex flex-col gap-4">
-          {milestone.note ? (
-            <Panel>
-              <p className="ds-mono" style={{ fontSize: 10, color: 'var(--muted)' }}>
-                REVIEW · {milestone.approval === 'changes_requested' ? 'FEEDBACK SAVED' : 'DECIDED'}
-              </p>
-              <h2 style={{ marginTop: 12, fontSize: 23, lineHeight: '35px', fontWeight: 500 }}>
-                {APPROVAL_LABEL[milestone.approval]}
-              </h2>
-              <p style={{ marginTop: 12, fontSize: 15, lineHeight: '23px', color: 'var(--muted)' }}>
-                {milestone.approverName ? `${milestone.approverName}: ` : ''}
-                {milestone.note}
-              </p>
-              <p style={{ marginTop: 12, fontSize: 13, color: 'var(--muted)' }}>
-                Existing tasks stay as they are. Approving does not close them.
-              </p>
-            </Panel>
-          ) : (
-            <StateCard
-              kicker="REVIEW"
-              title="No review yet"
-              body="A person approves the milestone or sends it back. That decision does not close its tasks."
-              action={
-                <PrimaryButton width={148} height={42} paddingInline={16} testId="milestone-review-empty" onClick={openReview}>
-                  Review milestone
-                </PrimaryButton>
-              }
-            />
-          )}
-        </div>
+      {tab === 'reviews' && staff ? (
+        <StateCard
+          kicker="REVIEW"
+          title="Reviews stay on the milestone card"
+          body="Approve and request changes are on the card. Notes stay in the review record, not on the milestone."
+        />
       ) : null}
 
       {tab === 'activity' ? (
         <div className="flex flex-col gap-4">
           <ActivityList
             items={[
-              ...(storedReview
+              ...(staff && storedReview
                 ? [
                     {
                       id: storedReview.id,
@@ -1375,22 +1265,6 @@ export function MilestoneDetailView({
       ) : null}
       </div>
 
-      {reviewOpen ? (
-        <ReviewDialog
-          milestone={milestone}
-          note={note}
-          error={noteError}
-          noteAttempt={noteAttempt}
-          saveError={error}
-          busy={busy}
-          onNote={setNote}
-          onClose={() => {
-            setReviewOpen(false);
-            setNoteError(null);
-          }}
-          onDecide={onDecide}
-        />
-      ) : null}
       {editing && staff && !locked ? (
         <EditDialog
           milestone={milestone}
@@ -1571,87 +1445,6 @@ function TaskLines({
         </div>
       ))}
     </div>
-  );
-}
-
-function ReviewDialog({
-  milestone,
-  note,
-  error,
-  noteAttempt,
-  saveError,
-  busy,
-  onNote,
-  onClose,
-  onDecide,
-}: {
-  milestone: MilestoneRoadmapView;
-  note: string;
-  error: string | null;
-  noteAttempt: number;
-  saveError: string | null;
-  busy: boolean;
-  onNote: (value: string) => void;
-  onClose: () => void;
-  onDecide: (decision: 'approved' | 'changes_requested') => void;
-}) {
-  const [mode, setMode] = useState<'changes_requested' | 'approved'>('changes_requested');
-  const noteRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    if (!error) return;
-    noteRef.current?.focus();
-    noteRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [error, noteAttempt]);
-  return (
-    <MilestoneDialog title="Review milestone" onClose={onClose} testId="milestone-review">
-      <p style={{ marginTop: 8, fontSize: 14, color: 'var(--muted)' }}>
-        {milestone.name}
-        {milestone.approval === 'changes_requested' ? ' · Changes were requested' : ''}
-      </p>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setMode('changes_requested')}
-          style={mode === 'changes_requested' ? selectedChip : quietChip}
-        >
-          Request changes
-        </button>
-        <button type="button" onClick={() => setMode('approved')} style={mode === 'approved' ? selectedChip : quietChip}>
-          Approve milestone
-        </button>
-      </div>
-      <p style={{ marginTop: 16, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
-        Open work stays listed. The open count is not the decision. Approving does not close tasks.
-      </p>
-      <label className="mt-4 flex flex-col gap-2">
-        <span style={{ fontSize: 14 }}>
-          {mode === 'approved' ? 'Note' : 'What needs to change?'} <span aria-hidden>*</span>
-        </span>
-        <textarea
-          ref={noteRef}
-          data-testid="milestone-note"
-          value={note}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? 'milestone-note-error' : undefined}
-          onChange={(event) => onNote(event.target.value)}
-          rows={4}
-          style={{ ...fieldStyle, resize: 'vertical' }}
-        />
-        {error ? <FieldError id="milestone-note-error">{error}</FieldError> : null}
-      </label>
-      {saveError ? <FormAlert>{saveError}</FormAlert> : null}
-      <div className="mt-6 flex flex-wrap gap-2">
-        <OutlineButton disabled={busy} onClick={onClose}>
-          Cancel
-        </OutlineButton>
-        <span data-testid={mode === 'approved' ? 'milestone-approve' : 'milestone-request'}>
-          <PrimaryButton disabled={busy} onClick={() => onDecide(mode)}>
-            {mode === 'approved' ? 'Approve milestone' : 'Submit feedback'}
-          </PrimaryButton>
-        </span>
-        <span className="sr-only" data-testid={mode === 'approved' ? 'milestone-request' : 'milestone-approve'} />
-      </div>
-    </MilestoneDialog>
   );
 }
 
@@ -2142,26 +1935,4 @@ const textButton = {
   cursor: 'pointer',
   font: 'inherit',
   fontSize: 13,
-} as const;
-
-const selectedChip = {
-  background: 'var(--accent)',
-  color: 'var(--accent-fg)',
-  border: '1px solid var(--accent)',
-  borderRadius: 9,
-  padding: '12px 16px',
-  fontSize: 14,
-  fontWeight: 500,
-  cursor: 'pointer',
-} as const;
-
-const quietChip = {
-  background: 'transparent',
-  color: 'var(--fg)',
-  border: '1px solid var(--border-2)',
-  borderRadius: 9,
-  padding: '12px 16px',
-  fontSize: 14,
-  fontWeight: 500,
-  cursor: 'pointer',
 } as const;

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
   ALREADY_REVIEWED,
@@ -8,11 +9,14 @@ import {
   WAITING_ON_BUILD,
   TASK_STAGE_HINT,
   displayedTaskStatus,
+  isPortalReviewTask,
   iterationTaskDrafts,
   normalizeLocalPreview,
+  notionWriteAllowedForTask,
   planReview,
   reviewChatLine,
   reviewForAudience,
+  reviewNotesForAudience,
   type PlanReviewInput,
 } from './milestoneReview';
 
@@ -206,5 +210,37 @@ describe('iteration tasks', () => {
     });
     assert.equal(drafts.length, 2);
     assert.match(drafts[0]?.name ?? '', /^Iteration 3:/);
+  });
+});
+
+describe('client review notes', () => {
+  it('drops review notes from the client milestone payload', () => {
+    assert.equal(reviewNotesForAudience('client', "Peter's notes on the pay button"), null);
+    assert.equal(reviewNotesForAudience('client', '   '), null);
+    assert.equal(reviewNotesForAudience('client', null), null);
+    assert.equal(reviewNotesForAudience('staff', '  Keep the ring  '), 'Keep the ring');
+    const milestones = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
+    const apply = milestones.slice(milestones.indexOf('async function applyMilestoneReview'), milestones.indexOf('export const decideAsClient'));
+    assert.match(apply, /if \(planned\.idempotent\)/);
+    assert.equal(apply.includes('note: planned.notes'), false);
+    assert.match(milestones, /note: reviewNotesForAudience\(audience, milestone\.note\)/);
+  });
+});
+
+describe('portal-review notion pull', () => {
+  it('preserves Convex-only iteration tasks and never writes a Notion page for them', () => {
+    assert.equal(isPortalReviewTask('portal-review'), true);
+    assert.equal(notionWriteAllowedForTask({ source: 'portal-review', notionPageId: 'real-page' }), false);
+    assert.equal(notionWriteAllowedForTask({ source: 'notion', notionPageId: 'portal-review:m:2:0' }), false);
+    assert.equal(notionWriteAllowedForTask({ source: 'notion', notionPageId: 'page-1' }), true);
+    const hide = readFileSync(new URL('../sync/hide.ts', import.meta.url), 'utf8');
+    const unseen = hide.slice(hide.indexOf('export const hideUnseen'), hide.indexOf('export const contactAuthUserId'));
+    assert.match(unseen, /notionWriteAllowedForTask\(\{ source: row\.source, notionPageId: row\.notionPageId \}\)/);
+    assert.match(unseen, /continue/);
+    const upsert = readFileSync(new URL('../sync/upsert.ts', import.meta.url), 'utf8');
+    assert.match(upsert, /return existing\._id/);
+    assert.match(upsert, /notionWriteAllowedForTask\(\{ source: existing\.source, notionPageId: existing\.notionPageId \}\)/);
+    const outbox = readFileSync(new URL('../sync/outbox.ts', import.meta.url), 'utf8');
+    assert.match(outbox, /Portal review tasks stay in Convex/);
   });
 });

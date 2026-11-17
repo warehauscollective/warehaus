@@ -345,17 +345,34 @@ export function MilestoneDialog({
   onClose,
   children,
   testId,
+  phone,
+  hint,
+  footer,
+  onConfirm,
+  contained = false,
+  trapFocus = true,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   testId?: string;
+  /** Force the phone sheet or the desktop dialog. Omit to follow the viewport. */
+  phone?: boolean;
+  hint?: string;
+  footer?: ReactNode;
+  onConfirm?: () => void;
+  /** Stay in the parent flow. The live dialog is a fixed overlay. */
+  contained?: boolean;
+  trapFocus?: boolean;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const onConfirmRef = useRef(onConfirm);
   onCloseRef.current = onClose;
+  onConfirmRef.current = onConfirm;
   useEffect(() => {
+    if (!trapFocus) return;
     const overlay = overlayRef.current;
     const node = dialogRef.current;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -371,6 +388,11 @@ export function MilestoneDialog({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onCloseRef.current();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault();
+        onConfirmRef.current?.();
         return;
       }
       if (event.key !== 'Tab' || !node) return;
@@ -405,13 +427,32 @@ export function MilestoneDialog({
       release();
       previous?.focus({ preventScroll: true });
     };
-  }, []);
+  }, [trapFocus]);
+
+  const sheet = phone === true;
+  const responsive = phone == null;
+  const overlayClass = [
+    'ds-scope flex justify-center overflow-y-auto',
+    contained ? 'relative min-h-[280px]' : 'fixed inset-0',
+    sheet ? 'items-end' : responsive ? 'items-end md:items-center md:p-6' : 'items-center p-6',
+  ].join(' ');
+  const panelClass = [
+    'flex w-full flex-col',
+    sheet ? 'rounded-t-[28px]' : responsive ? 'rounded-t-[28px] md:max-w-[640px] md:rounded-[28px] md:shadow-[0_16px_48px_rgba(0,0,0,0.24)]' : 'max-w-[640px] rounded-[28px]',
+  ].join(' ');
+  const showGrabber = sheet || responsive;
 
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 flex items-start justify-center overflow-y-auto md:px-4 md:py-16"
-      style={{ zIndex: 80, background: 'color-mix(in oklab, var(--bg) 72%, transparent)', pointerEvents: 'auto' }}
+      className={overlayClass}
+      style={{
+        zIndex: contained ? 1 : 80,
+        background: 'var(--scrim)',
+        backdropFilter: 'blur(var(--scrim-blur))',
+        WebkitBackdropFilter: 'blur(var(--scrim-blur))',
+        pointerEvents: 'auto',
+      }}
     >
       <div
         ref={dialogRef}
@@ -420,23 +461,56 @@ export function MilestoneDialog({
         aria-label={title}
         tabIndex={-1}
         data-testid={testId}
-        className="min-h-full w-full rounded-none md:min-h-0 md:max-w-[760px] md:rounded-[var(--panel-radius,12px)]"
+        className={panelClass}
         style={{
           background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          padding: 24,
+          color: 'var(--fg)',
+          border: '1px solid var(--border-2)',
+          ...(phone === false ? { boxShadow: '0 16px 48px rgba(0, 0, 0, 0.24)' } : sheet ? { boxShadow: 'none' } : {}),
         }}
       >
-        <div className="flex items-center justify-between gap-4 md:items-start">
-          <GhostButton testId="milestone-dialog-close" onClick={onClose}>
-            <span className="md:hidden">Cancel</span>
-            <span className="hidden md:inline">Close</span>
-          </GhostButton>
-          <h2 className="md:order-first md:mr-auto" style={{ fontSize: 30, lineHeight: '39px', fontWeight: 600 }}>
+        {showGrabber ? (
+          <div className={responsive ? 'flex justify-center pt-2 md:hidden' : 'flex justify-center pt-2'} aria-hidden="true">
+            <span style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border-2)' }} />
+          </div>
+        ) : null}
+        <div className="flex items-center justify-between gap-4 px-6 pt-4">
+          <h2 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600, margin: 0 }}>
             {title}
           </h2>
+          <button
+            type="button"
+            data-testid="milestone-dialog-close"
+            onClick={onClose}
+            style={{
+              background: 'transparent',
+              color: 'var(--fg)',
+              border: '1px solid var(--border-2)',
+              borderRadius: 9,
+              fontSize: 14,
+              padding: '8px 14px',
+              cursor: 'pointer',
+            }}
+          >
+            Close
+          </button>
         </div>
-        {children}
+        <div className="px-6 py-4">{children}</div>
+        {hint || footer ? (
+          <div
+            className="flex flex-wrap items-center justify-between gap-3 border-t px-6 pt-4"
+            style={{ borderColor: 'var(--border)', paddingBottom: sheet ? 24 : 16 }}
+          >
+            {hint ? (
+              <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                {hint}
+              </p>
+            ) : (
+              <span />
+            )}
+            <div className="flex flex-wrap justify-end gap-2">{footer}</div>
+          </div>
+        ) : null}
       </div>
     </div>
   );

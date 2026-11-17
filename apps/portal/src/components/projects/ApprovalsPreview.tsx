@@ -2,13 +2,16 @@
 
 import { useEffect } from 'react';
 import { TASK_STAGE_HINT } from '@/lib/data/taskStatus';
-import { Pill } from '@/components/ui/primitives';
+import { StatusBadge } from '@/components/ui/primitives';
 import {
   MilestoneReviewSurface,
+  ReviewDialogActions,
   ReviewDialogBody,
+  ReviewScrim,
   type ReviewSurfaceModel,
   type ReviewVisual,
 } from './MilestoneReview';
+import { MilestoneDialog } from './milestoneChrome';
 
 const STAMP = Date.UTC(2026, 10, 17, 17, 4);
 
@@ -19,7 +22,7 @@ const tasks = [
 
 const ready: ReviewSurfaceModel = {
   milestoneId: 'milestone-preview',
-  iteration: 1,
+  iteration: 2,
   workStatus: 'ready',
   approval: 'unreviewed',
   previewUrl: 'localhost:3100/p/warehaus-portal/t/order-ahead',
@@ -30,7 +33,15 @@ const ready: ReviewSurfaceModel = {
   builtAt: STAMP,
   designCheck: 'pass',
   designCheckNote: null,
-  history: [],
+  history: [{
+    iteration: 1,
+    decision: 'request_changes',
+    notes: 'Tighten the pay button focus ring.',
+    decidedByName: 'Peter',
+    decidedAt: STAMP,
+    source: 'portal',
+    taskCount: 1,
+  }],
   tasks,
 };
 
@@ -43,7 +54,10 @@ const fixes: ReviewSurfaceModel = {
 const approved: ReviewSurfaceModel = {
   ...ready,
   approval: 'approved',
-  history: [{ iteration: 1, decision: 'approve', notes: '', decidedByName: 'Peter', decidedAt: STAMP, source: 'portal', taskCount: 0 }],
+  history: [
+    { iteration: 2, decision: 'approve', notes: '', decidedByName: 'Peter', decidedAt: STAMP, source: 'portal', taskCount: 0 },
+    { iteration: 1, decision: 'request_changes', notes: 'Tighten the pay button focus ring.', decidedByName: 'Peter', decidedAt: STAMP, source: 'portal', taskCount: 1 },
+  ],
 };
 const changes: ReviewSurfaceModel = {
   ...ready,
@@ -116,6 +130,7 @@ function TaskFrame({ phone }: { phone: boolean }) {
   return (
     <section
       data-capture={phone ? 'task-phone' : 'task-desktop'}
+      data-width={phone ? '390' : '1440'}
       className="ds-scope flex flex-col gap-4"
       style={{ width: phone ? 390 : 840, background: 'var(--surface)', color: 'var(--fg)', borderRadius: 16, padding: phone ? 16 : 24, border: '1px solid var(--border)' }}
     >
@@ -125,42 +140,55 @@ function TaskFrame({ phone }: { phone: boolean }) {
       <MilestoneReviewSurface model={ready} layout="row" phone={phone} />
       <div className="flex items-center gap-3">
         <span className="ds-mono" style={{ width: 104, fontSize: 12, color: 'var(--muted)' }}>Status</span>
-        <Pill color="var(--accent)">In review</Pill>
+        <StatusBadge>In review</StatusBadge>
       </div>
       <StageHint current="Ready to Ship" />
     </section>
   );
 }
 
-function DialogFrame({ kind }: { kind: 'approve' | 'changes' }) {
+function DialogFrame({
+  kind,
+  phone = false,
+  busy = false,
+  fieldError = null,
+  capture,
+}: {
+  kind: 'approve' | 'changes';
+  phone?: boolean;
+  busy?: boolean;
+  fieldError?: string | null;
+  capture: string;
+}) {
   return (
-    <section data-capture={kind === 'approve' ? 'dialog-approve' : 'dialog-changes'} style={{ width: 640 }}>
-      <div
-        className="ds-scope"
-        style={{
-          background: 'rgba(0,0,0,0.1)',
-          backdropFilter: 'blur(40px)',
-          WebkitBackdropFilter: 'blur(40px)',
-          padding: 24,
-          borderRadius: 16,
-        }}
-      >
-        <div style={{ background: 'var(--surface)', color: 'var(--fg)', border: '1px solid var(--border)', borderRadius: 16, padding: 28 }}>
-          <ReviewDialogBody
-            kind={kind}
+    <section data-capture={capture} data-width={phone ? '390' : '1440'} style={{ width: phone ? 390 : 680 }}>
+      <ReviewScrim
+        phone={phone}
+        contained
+        label={kind === 'approve' ? 'Approve milestone' : 'Request changes'}
+        hint={kind === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
+        onClose={() => undefined}
+        onConfirm={() => undefined}
+        footer={
+          <ReviewDialogActions
+            approve={kind === 'approve'}
             iteration={ready.iteration}
-            tasks={tasks}
-            notes={kind === 'changes' ? 'Tighten the pay button focus ring.' : ''}
-            onNotes={() => undefined}
-            selected={[]}
-            onToggle={() => undefined}
-            busy={false}
-            fieldError={kind === 'changes' ? null : null}
+            busy={busy}
             onCancel={() => undefined}
             onSubmit={() => undefined}
           />
-        </div>
-      </div>
+        }
+      >
+        <ReviewDialogBody
+          kind={kind}
+          tasks={tasks}
+          notes={kind === 'changes' ? 'Tighten the pay button focus ring.' : ''}
+          onNotes={() => undefined}
+          selected={[]}
+          onToggle={() => undefined}
+          fieldError={fieldError}
+        />
+      </ReviewScrim>
     </section>
   );
 }
@@ -177,22 +205,54 @@ export function ApprovalsPreview({ theme }: { theme: 'dark' | 'light' }) {
       </p>
       <div className="mt-8 flex flex-col gap-10">
         {frames.map((frame) => (
-          <section key={frame.id} data-capture={frame.id} style={{ width: frame.width }}>
+          <section key={frame.id} data-capture={frame.id} data-width="1440" style={{ width: frame.width }}>
             <h2 className="type-heading" style={{ fontSize: 20, margin: '0 0 12px' }}>{frame.title}</h2>
             <MilestoneReviewSurface model={frame.model} layout="card" phone={false} forced={frame.visual ?? null} />
           </section>
         ))}
         {frames.map((frame) => (
-          <section key={`${frame.id}-phone`} data-capture={`${frame.id}-phone`} style={{ width: 390 }}>
+          <section key={`${frame.id}-phone`} data-capture={`${frame.id}-phone`} data-width="390" style={{ width: 390 }}>
             <h2 className="type-heading" style={{ fontSize: 20, margin: '0 0 12px' }}>{`${frame.title} · phone`}</h2>
             <MilestoneReviewSurface model={frame.model} layout="card" phone forced={frame.visual ?? null} />
           </section>
         ))}
         <TaskFrame phone={false} />
         <TaskFrame phone />
-        <DialogFrame kind="approve" />
-        <DialogFrame kind="changes" />
-        <section data-capture="task-phone-card" style={{ width: 390 }}>
+        <DialogFrame kind="approve" capture="dialog-approve" />
+        <DialogFrame kind="changes" capture="dialog-changes" />
+        <DialogFrame kind="changes" capture="r3" />
+        <DialogFrame kind="approve" phone capture="m2" />
+        <DialogFrame kind="changes" phone capture="m4" />
+        <DialogFrame kind="approve" busy capture="dialog-saving" />
+        <DialogFrame kind="changes" fieldError="Add a note so the team knows what to change." capture="dialog-error" />
+        <section data-capture="r5" data-width="1440" style={{ width: 1108 }}>
+          <MilestoneReviewSurface model={approved} layout="card" />
+        </section>
+        <section data-capture="iterations" data-width="1440" style={{ width: 1108 }}>
+          <MilestoneReviewSurface model={ready} layout="card" />
+        </section>
+        <section data-capture="client" data-width="1440" className="flex flex-col gap-3" style={{ width: 1108 }}>
+          <p className="ds-mono" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>CLIENT · NO REVIEW</p>
+          <h2 className="type-heading" style={{ fontSize: 28, lineHeight: '36px', margin: 0 }}>Order-ahead landing page</h2>
+          <p style={{ margin: 0, fontSize: 15 }}>Let people order before they arrive.</p>
+          <p style={{ margin: 0, fontSize: 14, color: 'var(--muted)' }}>Stage · Ready to Ship</p>
+        </section>
+        <section data-capture="stage-confirm" data-width="390" className="flex flex-col gap-4" style={{ width: 390 }}>
+          <StageHint current="Ready to Ship" />
+          <MilestoneDialog
+            title="Confirm stage"
+            phone
+            contained
+            trapFocus={false}
+            hint="↵ to confirm · Esc to close"
+            onClose={() => undefined}
+            onConfirm={() => undefined}
+            footer={<button type="button" style={{ background: 'var(--accent)', color: 'var(--accent-fg)', border: 0, borderRadius: 9, padding: '10px 16px', fontWeight: 600 }}>Confirm</button>}
+          >
+            <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Move this task to Ready to Ship. Peter reviews it from the milestone card.</p>
+          </MilestoneDialog>
+        </section>
+        <section data-capture="task-phone-card" data-width="390" style={{ width: 390 }}>
           <MilestoneReviewSurface model={ready} layout="card" phone />
         </section>
       </div>

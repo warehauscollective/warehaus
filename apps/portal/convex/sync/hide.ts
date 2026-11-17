@@ -1,5 +1,6 @@
 import { isGranolaPortalPage } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
+import { notionWriteAllowedForTask } from '../_lib/milestoneReview';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 
@@ -295,6 +296,7 @@ export const hideUnseen = internalMutation({
     if (args.table === 'tasks') {
       const rows = await ctx.db.query('tasks').collect();
       for (const row of rows) {
+        if (!notionWriteAllowedForTask({ source: row.source, notionPageId: row.notionPageId })) continue;
         if (seen.has(row.notionPageId) || row.syncHiddenReason === 'trashed') continue;
         await ctx.db.patch(row._id, stamp);
         concealed += 1;

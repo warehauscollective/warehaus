@@ -163,6 +163,8 @@ body {
   --faint: oklch(50% 0 0);
   --border-ds: oklch(38% 0 0);
   --border-2: oklch(46% 0 0);
+  --scrim: rgba(0, 0, 0, 0.1);
+  --scrim-blur: 40px;
   /* Keyboard ring from the search spec (portal/ring). */
   --ring: #404040;
 
@@ -207,6 +209,8 @@ body {
   --faint: oklch(66% 0 0);
   --border-ds: oklch(88% 0 0);
   --border-2: oklch(82% 0 0);
+  --scrim: rgba(0, 0, 0, 0.1);
+  --scrim-blur: 40px;
   --ring: #8a8a8a;
 
   --accent-ds: var(--ink);
