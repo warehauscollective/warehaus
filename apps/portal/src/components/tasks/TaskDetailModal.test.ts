@@ -22,7 +22,7 @@ describe('task detail attach swap', () => {
   it('keeps the webkit blur beside the scrim token', () => {
     const css = readFileSync(new URL('../../styles/global.css', import.meta.url), 'utf8');
     const rule = css.slice(css.indexOf('.ds-scope.portal-modal-scrim'), css.indexOf('.ds-scope .portal-modal-panel'));
-    assert.match(rule, /-webkit-backdrop-filter:\s*blur\(40px\)/);
+    assert.match(rule, /-webkit-backdrop-filter:\s*blur\(var\(--scrim-blur\)\)/);
     assert.match(rule, /backdrop-filter:\s*blur\(var\(--scrim-blur\)\)/);
     assert.match(rule, /-webkit-backdrop-filter:\s*none/);
   });

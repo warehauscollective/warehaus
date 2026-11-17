@@ -8,7 +8,7 @@ import { api } from '@convex/_generated/api';
 import { teamInviteActions } from '@convex/_lib/inviteFlow';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { PortalTilePane } from '@/components/layout/PortalWorkspace';
-import { PortalModal } from '@/components/ui/PortalModal';
+import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
@@ -427,37 +427,49 @@ export function TeamInvites({
           </p>
         ) : null}
       </div>
-      {mode !== 'closed' ? (
-        <InviteDialog
-          mode={mode}
-          email={email}
-          busy={busy === 'send'}
-          pending={people?.invites.find((row) => row.email.toLowerCase() === email.trim().toLowerCase())}
-          onEmail={setEmail}
-          onClose={closeModal}
-          onSend={() => void send(email)}
-          onResend={() => {
-            const row = people?.invites.find((invite) => invite.email.toLowerCase() === email.trim().toLowerCase());
-            if (row) void resend(row);
-            else if (fixtures) setMode('sent');
-          }}
-          sentOn={sentOn}
-          expiresOn={composeExpiry(fixtures)}
-          onAnother={() => {
-            setEmail('');
-            setMode('edit');
-          }}
-        />
-      ) : null}
-      {revokeTarget || (fixtures && revokeId) ? (
-        <ConfirmDialog
-          title="Revoke this invite?"
-          body={`${revokeTarget?.email ?? 'jordan@warehaus.studio'} won’t be able to use the current link. You can send a new invite later.`}
-          confirmLabel="Revoke invite"
-          onCancel={() => setRevokeId(null)}
-          onConfirm={() => void confirmRevoke()}
-        />
-      ) : null}
+      <PortalModalStack
+        frames={[
+          {
+            key: 'invite',
+            open: mode !== 'closed',
+            node: (
+              <InviteDialog
+                mode={mode}
+                email={email}
+                busy={busy === 'send'}
+                pending={people?.invites.find((row) => row.email.toLowerCase() === email.trim().toLowerCase())}
+                onEmail={setEmail}
+                onClose={closeModal}
+                onSend={() => void send(email)}
+                onResend={() => {
+                  const row = people?.invites.find((invite) => invite.email.toLowerCase() === email.trim().toLowerCase());
+                  if (row) void resend(row);
+                  else if (fixtures) setMode('sent');
+                }}
+                sentOn={sentOn}
+                expiresOn={composeExpiry(fixtures)}
+                onAnother={() => {
+                  setEmail('');
+                  setMode('edit');
+                }}
+              />
+            ),
+          },
+          {
+            key: 'revoke',
+            open: Boolean(revokeTarget || (fixtures && revokeId)),
+            node: (
+              <ConfirmDialog
+                title="Revoke this invite?"
+                body={`${revokeTarget?.email ?? 'jordan@warehaus.studio'} won’t be able to use the current link. You can send a new invite later.`}
+                confirmLabel="Revoke invite"
+                onCancel={() => setRevokeId(null)}
+                onConfirm={() => void confirmRevoke()}
+              />
+            ),
+          },
+        ]}
+      />
       <style>{`
         .invite-columns { display: none; }
         .invite-row { overflow: visible; }
