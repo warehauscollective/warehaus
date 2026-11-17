@@ -268,7 +268,15 @@ export function NewClientForm({
       width={nested && !narrow ? 520 : 640}
       zIndex={zIndex}
       locked={pending}
-      panelStyle={nested ? { padding: narrow ? 20 : 24, display: 'flex', flexDirection: 'column', gap: 16 } : undefined}
+      maxHeight={narrow ? 'calc(100dvh - 12px)' : undefined}
+      panelStyle={nested || narrow ? {
+        padding: narrow ? 20 : 24,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 16,
+        flex: narrow ? '1 1 auto' : undefined,
+        minHeight: narrow ? 0 : undefined,
+      } : undefined}
     >
         {nested ? (
           <>
@@ -283,7 +291,7 @@ export function NewClientForm({
                 Back
               </button>
             </div>
-            <form className="flex flex-col gap-4" onSubmit={onSubmit}>
+            <form className={narrow ? 'flex min-h-0 flex-1 flex-col gap-4' : 'flex flex-col gap-4'} onSubmit={onSubmit}>
               {network ? <NetworkNotice /> : null}
               <fieldset disabled={pending} style={{ border: 0, margin: 0, padding: 0, opacity: pending ? 0.45 : 1 }}>
                 <ClientField
@@ -297,6 +305,28 @@ export function NewClientForm({
                   placeholder="Company name"
                   appearance="framed"
                 />
+                {reused ? (
+                  <button
+                    type="button"
+                    data-testid="use-existing-client"
+                    onClick={onUseExisting}
+                    style={{
+                      alignSelf: 'flex-start',
+                      marginTop: 6,
+                      padding: 0,
+                      border: 0,
+                      background: 'transparent',
+                      color: 'var(--fg)',
+                      fontFamily: 'var(--font-body)',
+                      fontSize: 13,
+                      lineHeight: '19px',
+                      textDecoration: 'underline',
+                      cursor: 'pointer',
+                    }}
+                  >
+                    {useLabel}
+                  </button>
+                ) : null}
                 <div className="mt-4">
                   <ClientField
                     label="Primary email (optional)"
@@ -336,28 +366,30 @@ export function NewClientForm({
                   </div>
                 </div>
               </fieldset>
-              <div
-                className="flex flex-wrap items-center justify-between gap-3"
-                style={{
-                  borderTop: '1px solid var(--border)',
-                  margin: narrow ? '0 -20px' : '0 -24px',
-                  padding: narrow ? '16px 20px 0' : '16px 24px 0',
-                }}
-              >
-                <p className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>↵ to create · Esc back to project</p>
-                <div className="flex gap-2">
-                  <OutlineButton onClick={onClose} disabled={pending}>Cancel</OutlineButton>
-                  {reused ? (
-                    <PrimaryButton type="button" onClick={onUseExisting} testId="use-existing-client">
-                      {useLabel}
-                    </PrimaryButton>
-                  ) : (
+              {narrow ? (
+                <div style={{ marginTop: 'auto', paddingTop: 16 }}>
+                  <PrimaryButton type="submit" disabled={createDisabled} testId="create-client" className="w-full">
+                    {pending ? 'Creating…' : network ? 'Try again' : 'Create client'}
+                  </PrimaryButton>
+                </div>
+              ) : (
+                <div
+                  className="flex flex-wrap items-center justify-between gap-3"
+                  style={{
+                    borderTop: '1px solid var(--border)',
+                    margin: '0 -24px',
+                    padding: '16px 24px 0',
+                  }}
+                >
+                  <p className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>↵ to create · Esc back to project</p>
+                  <div className="flex gap-2">
+                    <OutlineButton onClick={onClose} disabled={pending}>Cancel</OutlineButton>
                     <PrimaryButton type="submit" disabled={createDisabled} testId="create-client">
                       {pending ? 'Creating…' : network ? 'Try again' : 'Create client'}
                     </PrimaryButton>
-                  )}
+                  </div>
                 </div>
-              </div>
+              )}
             </form>
           </>
         ) : (
@@ -368,7 +400,7 @@ export function NewClientForm({
             <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>
               Starts as a prospect. Portal access stays off. No invite is sent.
             </p>
-            <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
+            <form className={narrow ? 'mt-4 flex min-h-0 flex-1 flex-col gap-3' : 'mt-4 flex flex-col gap-3'} onSubmit={onSubmit}>
               <ClientField
                 label="Company Name"
                 value={companyName}
@@ -380,7 +412,7 @@ export function NewClientForm({
                 required
               />
               <ClientField
-                label="Primary Email"
+                label="Primary email"
                 value={primaryEmail}
                 testId="new-client-email"
                 errorId="new-client-email-error"
@@ -406,14 +438,14 @@ export function NewClientForm({
                   {note.text}
                 </p>
               ) : null}
-              <div className="mt-2 flex justify-end gap-2">
-                <GhostButton onClick={onClose}>Close</GhostButton>
+              <div className={narrow ? 'mt-auto pt-4' : 'mt-2 flex justify-end gap-2'}>
+                {narrow ? null : <GhostButton onClick={onClose}>Close</GhostButton>}
                 {reused ? (
-                  <PrimaryButton type="button" onClick={onUseExisting} testId="use-existing-client">
+                  <PrimaryButton type="button" onClick={onUseExisting} testId="use-existing-client" className={narrow ? 'w-full' : undefined}>
                     Use existing
                   </PrimaryButton>
                 ) : (
-                  <PrimaryButton type="submit" disabled={pending} testId="create-client">
+                  <PrimaryButton type="submit" disabled={pending} testId="create-client" className={narrow ? 'w-full' : undefined}>
                     {pending ? 'Creating…' : 'Create client'}
                   </PrimaryButton>
                 )}

@@ -592,19 +592,13 @@ export function AccountContent() {
       {projectToast && typeof document !== 'undefined'
         ? createPortal(
         <div
-          className="ds-scope portal-create-toast"
+          className="ds-scope portal-create-toast portal-created-toast"
           role="status"
           data-testid="project-created-toast"
           style={{
-            position: 'fixed',
-            zIndex: 120,
-            left: '50%',
-            top: 72,
-            transform: 'translateX(-50%)',
             display: 'flex',
             alignItems: 'center',
             gap: 12,
-            maxWidth: 'calc(100% - 32px)',
             borderRadius: 18,
             padding: '12px 14px',
             background: 'var(--surface)',

@@ -600,6 +600,21 @@ html.light .accept-inset {
   border: 1px solid var(--border-2);
   box-shadow: 0 16px 40px color-mix(in oklab, var(--ink) 35%, transparent);
 }
+/* Phone toast sits above the dock. Desktop keeps it under the header. */
+.portal-created-toast {
+  position: fixed;
+  z-index: 120;
+  left: 50%;
+  bottom: calc(82px + 12px + env(safe-area-inset-bottom, 0px));
+  max-width: calc(100% - 32px);
+  transform: translateX(-50%);
+}
+@media (min-width: 1024px) {
+  .portal-created-toast {
+    top: 72px;
+    bottom: auto;
+  }
+}
 
 @media (max-width: 767px) {
   .client-stat-grid {

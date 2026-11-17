@@ -180,6 +180,36 @@ describe('inline new client', () => {
     assert.match(html, /disabled=""[^>]*data-testid="create-project"|data-testid="create-project"[^>]*disabled/);
     assert.match(html, /value="Harbor site"/);
   });
+
+  it('puts a building icon on Choose a client', () => {
+    const html = markup();
+    assert.match(html, /Choose a client/);
+    assert.match(html, /data-testid="choose-client-icon"/);
+  });
+
+  it('borders the project name when a locked create fails', () => {
+    const html = markup({
+      name: 'Harbor site',
+      orgId: 'c-north',
+      locked: true,
+      lockedName: 'Northwind',
+      note: { tone: 'error', text: 'Could not create the project' },
+    });
+    assert.match(html, /data-testid="locked-project-error"/);
+    assert.match(html, /aria-invalid="true"/);
+    assert.match(html, /border:1px solid var\(--danger\)/);
+  });
+
+  it('names the phone picker Client and fills the sheet', () => {
+    const html = markup({ narrow: true, pickerOpen: true });
+    assert.match(html, /data-testid="client-picker-sheet"/);
+    assert.match(html, />Client</);
+    assert.match(html, />Done</);
+    assert.match(html, /calc\(100dvh - 12px\)/);
+    assert.match(html, /data-testid="modal-grabber"/);
+    assert.equal(html.includes('>Clients<'), false);
+    assert.equal(html.includes('>Cancel<'), false);
+  });
 });
 
 describe('prefilled client', () => {

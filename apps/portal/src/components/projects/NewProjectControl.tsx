@@ -259,6 +259,11 @@ export function NewProjectControl({
       return;
     }
     if (fixtures) {
+      const previewError = new URLSearchParams(window.location.search).get('projectError');
+      if (previewError) {
+        setNote({ tone: 'error', text: 'Could not create the project' });
+        return;
+      }
       onCreated?.({ id: `preview-${externalId}`, name: name.trim(), orgId });
       onClose();
       return;
@@ -432,27 +437,18 @@ export function NewProjectForm({
   const pinned = pinnedClientAction(pickerQuery, visible.length);
   const rowCount = locked ? 0 : visible.length + 1;
   const selected = clients.find((client) => client.id === orgId) ?? null;
+  const nameInvalid = note?.tone === 'error' && note.field !== 'client';
   const listId = 'new-project-client-list';
 
   useEffect(() => {
     setActive(pinned.create ? rowCount - 1 : 0);
   }, [pickerQuery, pinned.create, rowCount]);
 
-  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   useEffect(() => {
     if (!pickerOpen) return;
     const frame = requestAnimationFrame(() => searchRef.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, [pickerOpen]);
-  useEffect(() => {
-    if (!narrow || !pickerOpen) return;
-    const viewport = window.visualViewport;
-    if (!viewport) return;
-    const fit = () => setViewportHeight(viewport.height);
-    fit();
-    viewport.addEventListener('resize', fit);
-    return () => viewport.removeEventListener('resize', fit);
-  }, [narrow, pickerOpen]);
 
   const pickActive = () => {
     if (locked) return;
@@ -484,16 +480,16 @@ export function NewProjectForm({
     return (
       <PortalModal
         testId="client-picker-sheet"
-        label="Clients"
+        label="Client"
         onClose={onPickerClose}
         narrow
         sheet="bottom"
-        maxHeight={viewportHeight ? `${Math.max(viewportHeight - 12, 240)}px` : undefined}
+        maxHeight="calc(100dvh - 12px)"
         panelStyle={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, flex: '1 1 auto', minHeight: 0 }}
       >
         <div className="flex items-start justify-between gap-3">
-          <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 20, fontWeight: 600, lineHeight: '30px' }}>Clients</h2>
-          <button type="button" onClick={onPickerClose} style={textButtonStyle(false)}>Back</button>
+          <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 20, fontWeight: 600, lineHeight: '30px' }}>Client</h2>
+          <button type="button" onClick={onPickerClose} style={textButtonStyle(false)}>Done</button>
         </div>
         <div
           id={listId}
@@ -502,7 +498,7 @@ export function NewProjectForm({
           data-testid="client-picker"
           style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: '1 1 auto' }}
         >
-          <label className="flex items-center gap-2" style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
+          <label className="portal-create-field flex items-center gap-2" style={{ minHeight: 44, borderRadius: 18, border: '1px solid var(--border-2)', background: 'var(--surface-2)', padding: '10px 12px' }}>
             <Search size={16} aria-hidden="true" style={{ color: 'var(--muted)' }} />
             <input
               ref={searchRef}
@@ -547,7 +543,7 @@ export function NewProjectForm({
             data-create={pinned.create ? 'true' : 'false'}
             onMouseEnter={() => setActive(visible.length)}
             onClick={() => onNewClient(pinned.name)}
-            style={{ ...optionStyle(active === visible.length), borderTop: '1px solid var(--border)', width: '100%' }}
+            style={{ ...optionStyle(active === visible.length), borderTop: '1px solid var(--border)', width: '100%', marginTop: 'auto' }}
           >
             <Plus size={16} aria-hidden="true" />
             <span className="min-w-0 flex-1 truncate" style={{ fontWeight: 600 }}>{pinned.label}</span>
@@ -566,7 +562,15 @@ export function NewProjectForm({
       narrow={narrow}
       sheet={narrow ? 'bottom' : 'center'}
       locked={pending}
-      panelStyle={{ padding: narrow ? 20 : 24, display: 'flex', flexDirection: 'column', gap: 20 }}
+      maxHeight={narrow ? 'calc(100dvh - 12px)' : undefined}
+      panelStyle={{
+        padding: narrow ? 20 : 24,
+        display: 'flex',
+        flexDirection: 'column',
+        gap: 20,
+        flex: narrow ? '1 1 auto' : undefined,
+        minHeight: narrow ? 0 : undefined,
+      }}
     >
         <div className="flex items-start justify-between gap-3">
           <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 20, fontWeight: 600, lineHeight: '30px' }}>
@@ -581,7 +585,7 @@ export function NewProjectForm({
             Close
           </button>
         </div>
-        <form className="flex flex-col gap-4" onSubmit={onSubmit}>
+        <form className={narrow ? 'flex min-h-0 flex-1 flex-col gap-4' : 'flex flex-col gap-4'} onSubmit={onSubmit}>
           <fieldset
             disabled={pending}
             style={{ border: 0, margin: 0, padding: 0, opacity: pending ? 0.45 : 1 }}
@@ -592,10 +596,13 @@ export function NewProjectForm({
                 ref={nameRef}
                 value={name}
                 onChange={(event) => onName(event.target.value)}
-                aria-invalid={note?.tone === 'error' && note.field === 'name' ? true : undefined}
+                aria-invalid={nameInvalid ? true : undefined}
                 data-testid="new-project-name"
                 className="portal-create-field"
-                style={fieldStyle()}
+                style={{
+                  ...fieldStyle(),
+                  ...(nameInvalid ? { border: '1px solid var(--danger)' } : {}),
+                }}
               />
             </label>
             {locked ? (
@@ -649,7 +656,11 @@ export function NewProjectForm({
                     borderColor: note?.tone === 'error' && note.field === 'client' ? 'var(--danger)' : undefined,
                   }}
                 >
-                  {selected ? <ClientMark name={selected.name} /> : null}
+                  {selected ? <ClientMark name={selected.name} /> : (
+                    <span data-testid="choose-client-icon" className="inline-flex" style={{ color: 'var(--muted)' }}>
+                      <Building2 size={16} aria-hidden="true" />
+                    </span>
+                  )}
                   <span className="min-w-0 flex-1 truncate" style={{ color: selected ? 'var(--fg)' : 'var(--muted)' }}>
                     {selected?.name ?? 'Choose a client'}
                   </span>
@@ -753,7 +764,7 @@ export function NewProjectForm({
             <p
               style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13, color: 'var(--fg)' }}
               role={note.tone === 'error' ? 'alert' : 'status'}
-              data-testid={note.tone === 'error' ? 'new-project-error' : 'new-project-info'}
+              data-testid={note.tone === 'error' ? (locked ? 'locked-project-error' : 'new-project-error') : 'new-project-info'}
             >
               {note.tone === 'error' ? <AlertCircle size={14} aria-hidden="true" style={{ color: 'var(--danger)' }} /> : null}
               {note.text}
@@ -767,23 +778,29 @@ export function NewProjectForm({
                 <PrimaryButton type="button" onClick={onDiscard}>Discard</PrimaryButton>
               </div>
             </div>
-          ) : (
-            <div
-              className="flex flex-wrap items-center justify-between gap-3"
-              style={{
-                borderTop: '1px solid var(--border)',
-                margin: narrow ? '0 -20px' : '0 -24px',
-                padding: narrow ? '16px 20px 0' : '16px 24px 0',
-              }}
-            >
-              <p className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>↵ to create · Esc to close</p>
-              <div className="flex gap-2">
-                <OutlineButton onClick={onRequestClose} disabled={pending}>Cancel</OutlineButton>
-                <PrimaryButton type="submit" disabled={pending || !name.trim() || !orgId} testId="create-project">
+          ) : narrow ? (
+              <div style={{ marginTop: 'auto', paddingTop: 16 }}>
+                <PrimaryButton type="submit" disabled={pending || !name.trim() || !orgId} testId="create-project" className="w-full">
                   {pending ? 'Creating…' : note?.tone === 'error' ? 'Try again' : 'Create project'}
                 </PrimaryButton>
               </div>
-            </div>
+            ) : (
+              <div
+                className="flex flex-wrap items-center justify-between gap-3"
+                style={{
+                  borderTop: '1px solid var(--border)',
+                  margin: '0 -24px',
+                  padding: '16px 24px 0',
+                }}
+              >
+                <p className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>↵ to create · Esc to close</p>
+                <div className="flex gap-2">
+                  <OutlineButton onClick={onRequestClose} disabled={pending}>Cancel</OutlineButton>
+                  <PrimaryButton type="submit" disabled={pending || !name.trim() || !orgId} testId="create-project">
+                    {pending ? 'Creating…' : note?.tone === 'error' ? 'Try again' : 'Create project'}
+                  </PrimaryButton>
+                </div>
+              </div>
           )}
         </form>
     </PortalModal>

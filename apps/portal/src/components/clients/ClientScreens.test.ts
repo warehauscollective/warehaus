@@ -303,7 +303,10 @@ describe('client team page', () => {
     const headerNew = renderToStaticMarkup(createElement(NewClientButton));
     assert.match(edit, /data-testid="edit-client"/);
     assert.match(edit, /font-family:var\(--font-body\)/);
-    assert.match(edit, /opacity:0.4/);
+    assert.match(edit, /background:var\(--accent\)/);
+    assert.match(edit, /opacity:1/);
+    assert.equal(edit.includes('opacity:0.4'), false);
+    assert.equal(edit.includes('border:1px solid var(--border)'), false);
     assert.match(edit, /Editing turns on with Notion write-back/);
     assert.equal(edit.includes('role="group"'), false);
     assert.match(headerNew, /background:transparent/);
@@ -608,6 +611,10 @@ describe('staff new project on a client', () => {
       createEnabled: true,
     });
     assert.match(html, /No projects yet/);
+    assert.match(html, /Start the first project for Northwind\. It(?:'|&#x27;)s linked to this client automatically\./);
+    assert.match(html, /border:1px dashed var\(--border\)/);
+    assert.match(html, /task-layers\.svg/);
+    assert.match(html, /padding-bottom:\s*calc\(82px \+ env\(safe-area-inset-bottom, 0px\)\)/);
     assert.match(html, /data-testid="client-projects-empty"/);
     assert.match(html, /data-testid="client-new-project"/);
     assert.equal(html.match(/data-testid="client-new-project"/g)?.length, 1);

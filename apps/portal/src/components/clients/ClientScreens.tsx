@@ -1,8 +1,8 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Layers, Lock } from 'lucide-react';
-import { OutlineButton, Pill, PortalCheckbox } from '@/components/ui/primitives';
+import { Lock } from 'lucide-react';
+import { OutlineButton, Pill, PortalCheckbox, PrimaryButton } from '@/components/ui/primitives';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
@@ -349,28 +349,14 @@ export function EditClientButton() {
       className="inline-flex shrink-0"
       style={{ cursor: 'not-allowed' }}
     >
-      <button
-        type="button"
+      <PrimaryButton
         disabled
-        aria-disabled="true"
-        tabIndex={-1}
-        data-testid="edit-client"
-        style={{
-          pointerEvents: 'none',
-          background: 'transparent',
-          color: 'var(--fg)',
-          border: '1px solid var(--border)',
-          borderRadius: 9,
-          fontFamily: 'var(--font-body)',
-          fontSize: 13,
-          fontWeight: 500,
-          padding: '6px 10px',
-          cursor: 'not-allowed',
-          opacity: 0.4,
-        }}
+        solidWhenDisabled
+        title={EDIT_PROJECT_WRITEBACK_HINT}
+        testId="edit-client"
       >
         Edit client
-      </button>
+      </PrimaryButton>
       <span id={hintId} className="sr-only">
         {EDIT_PROJECT_WRITEBACK_HINT}
       </span>
@@ -1022,26 +1008,18 @@ export function ClientDetail({
           <div
             className="mt-6 flex flex-col items-center text-center"
             data-testid="client-projects-empty"
-            style={{ gap: 12, padding: '12px 8px 8px' }}
+            style={{
+              gap: 12,
+              border: '1px dashed var(--border)',
+              borderRadius: 18,
+              background: 'var(--bg-2)',
+              padding: '48px 24px',
+            }}
           >
-            <span
-              aria-hidden="true"
-              style={{
-                width: 44,
-                height: 44,
-                borderRadius: 14,
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                background: 'var(--surface-2)',
-                color: 'var(--muted)',
-              }}
-            >
-              <Layers size={22} />
-            </span>
-            <p style={{ fontWeight: 600 }}>No projects yet</p>
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', maxWidth: 360 }}>
-              Create the first project for this client.
+            <TaskGlyph src="/icons/task-layers.svg" size={28} />
+            <p style={{ margin: 0, fontSize: 16, fontWeight: 500, lineHeight: '19px' }}>No projects yet</p>
+            <p style={{ margin: 0, maxWidth: 440, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
+              Start the first project for {client.name}. {"It's linked to this client automatically."}
             </p>
             {onCreateProject ? (
               <NewProjectButton
@@ -1427,6 +1405,9 @@ function ClampStyle() {
         white-space: nowrap;
       }
       .client-detail { gap: 16px; }
+      @media (max-width: 1023px) {
+        .client-detail { padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
+      }
       .client-detail-card { padding: 20px 16px; }
       .client-detail-kpis { gap: 16px; }
       .client-project-row { padding: 12px 0; }

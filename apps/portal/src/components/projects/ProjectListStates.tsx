@@ -254,7 +254,7 @@ export function ProjectListLoadNotice({
         !
       </span>
       <span className="flex min-w-0 flex-1 flex-col" style={{ gap: 4 }}>
-        <span style={{ color: 'var(--danger-text)', fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>{copy.title}</span>
+        <span data-testid="projects-load-error-title" style={{ color: 'var(--fg)', fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>{copy.title}</span>
         <span
           className={copy.mono ? 'ds-mono' : undefined}
           style={{

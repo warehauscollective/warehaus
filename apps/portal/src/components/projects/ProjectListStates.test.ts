@@ -186,6 +186,8 @@ describe('ProjectListScreen', () => {
     );
     assert.match(html, /data-testid="projects-load-error"/);
     assert.match(html, /Couldn(?:'|&#x27;)t load projects/);
+    assert.match(html, /data-testid="projects-load-error-title"[^>]*color:var\(--fg\)/);
+    assert.equal(/projects-load-error-title[^>]*color:var\(--danger\)/.test(html), false);
     assert.match(html, /Network error/);
     assert.match(html, /Try again/);
     assert.equal(html.includes('project-kpis'), false);

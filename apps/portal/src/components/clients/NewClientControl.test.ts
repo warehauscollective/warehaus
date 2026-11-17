@@ -56,11 +56,13 @@ describe('new client dialog', () => {
 
   it('marks the returned field invalid and shows the error on that input', () => {
     const html = markup({
-      note: { tone: 'error', text: 'Primary Email is not a valid address', field: 'email' },
+      note: { tone: 'error', text: 'Primary email is not a valid address', field: 'email' },
     });
     assert.match(html, /data-testid="new-client-email"[^>]*aria-invalid="true"/);
     assert.match(html, /id="new-client-email-error"/);
-    assert.match(html, /Primary Email is not a valid address/);
+    assert.match(html, /Primary email is not a valid address/);
+    assert.match(html, />Primary email</);
+    assert.equal(html.includes('Primary Email'), false);
     assert.equal(html.includes('data-testid="new-client-name" aria-invalid'), false);
     assert.equal(html.includes('aria-invalid="true" data-testid="new-client-name"') || html.includes('data-testid="new-client-name" aria-invalid'), false);
   });
@@ -76,6 +78,8 @@ describe('new client dialog', () => {
     assert.match(exists, /data-testid="new-client-nested"/);
     assert.match(exists, /A client named “Northwind” already exists\./);
     assert.match(exists, /Use ‘Northwind’ instead/);
+    assert.match(exists, /text-decoration:underline/);
+    assert.match(exists, /data-testid="create-client"/);
     assert.match(exists, /Company name \*/);
     assert.match(exists, /Primary email \(optional\)/);
     assert.match(exists, /Phone \(optional\)/);
@@ -111,5 +115,17 @@ describe('new client dialog', () => {
     assert.match(html, /portal-modal-sheet/);
     assert.match(html, /data-testid="modal-grabber"/);
     assert.equal(html.includes('data-testid="new-client-dialog"'), false);
+    assert.equal(html.includes('>Close<'), false);
+
+    const empty = markup({ narrow: true, layout: 'nested' });
+    const filled = markup({ narrow: true, layout: 'nested', companyName: 'Fieldnote Coffee' });
+    for (const sheet of [empty, filled]) {
+      assert.match(sheet, /data-testid="new-client-nested-sheet"/);
+      assert.match(sheet, /portal-modal-sheet/);
+      assert.match(sheet, /data-testid="modal-grabber"/);
+      assert.match(sheet, /data-testid="create-client"/);
+      assert.match(sheet, /calc\(100dvh - 12px\)/);
+      assert.equal(sheet.includes('>Cancel<'), false);
+    }
   });
 });

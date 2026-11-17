@@ -420,13 +420,21 @@ export function TaskDetailModal({
                 narrow={phone}
                 sheet="bottom"
                 width={640}
-                panelStyle={{ padding: 20 }}
+                maxHeight={phone ? 'calc(100dvh - 12px)' : undefined}
+                panelStyle={{
+                  padding: 20,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  flex: phone ? '1 1 auto' : undefined,
+                  minHeight: phone ? 0 : undefined,
+                }}
               >
                 <AttachPicker
                   task={task}
                   resources={projectResources}
                   attachedIds={resources.map((resource) => resource.id)}
                   hostSlug={hostSlug}
+                  phone={phone}
                   onClose={() => setAttach(false)}
                 />
               </PortalModal>
@@ -757,12 +765,14 @@ function AttachPicker({
   resources,
   attachedIds,
   hostSlug,
+  phone,
   onClose,
 }: {
   task: PortalTask;
   resources: ResourceRow[];
   attachedIds: string[];
   hostSlug?: string;
+  phone: boolean;
   onClose: () => void;
 }) {
   const setResources = useMutation(api.tasks.setResources);
@@ -805,9 +815,27 @@ function AttachPicker({
 
   return (
     <>
-        <div className="mt-3 flex items-center justify-between">
+        <div className="flex items-center justify-between gap-3" style={{ marginTop: phone ? 4 : 12 }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>Attach resources</h2>
-          <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
+          <button
+            type="button"
+            aria-label="Close"
+            data-testid="attach-close"
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 0,
+              color: 'var(--fg)',
+              cursor: 'pointer',
+              width: 36,
+              height: 36,
+              flex: '0 0 auto',
+              fontSize: 20,
+              lineHeight: '36px',
+            }}
+          >
+            ×
+          </button>
         </div>
         <label
           className="mt-3 flex items-center gap-2"
@@ -866,16 +894,25 @@ function AttachPicker({
           </ul>
         )}
         {note ? <p role="status">{note}</p> : null}
-        <div className="mt-4 flex items-center justify-between gap-3" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+        <div
+          className={phone ? 'flex flex-col gap-3' : 'flex items-center justify-between gap-3'}
+          style={{ borderTop: '1px solid var(--border)', marginTop: 16, paddingTop: 16 }}
+        >
           <span className="ds-mono" style={{ color: 'var(--muted)', fontSize: 12 }}>
             {picked.length} selected · {picked.filter((id) => !attachedIds.includes(id)).length} new, {picked.filter((id) => attachedIds.includes(id)).length} already attached
           </span>
-          <div className="flex gap-2">
-            <OutlineButton onClick={onClose}>Cancel</OutlineButton>
-            <PrimaryButton disabled={!dirty} onClick={() => void onSave()}>
+          {phone ? (
+            <PrimaryButton className="w-full" disabled={!dirty} onClick={() => void onSave()}>
               {`Save (attach ${picked.filter((id) => !attachedIds.includes(id)).length})`}
             </PrimaryButton>
-          </div>
+          ) : (
+            <div className="flex gap-2">
+              <OutlineButton onClick={onClose}>Cancel</OutlineButton>
+              <PrimaryButton disabled={!dirty} onClick={() => void onSave()}>
+                {`Save (attach ${picked.filter((id) => !attachedIds.includes(id)).length})`}
+              </PrimaryButton>
+            </div>
+          )}
         </div>
     </>
   );
