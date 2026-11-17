@@ -128,9 +128,10 @@ export function NoticeBell() {
             width: 'min(360px, calc(100vw - 2rem))',
             maxHeight: 420,
             overflow: 'auto',
-            borderRadius: 16,
-            border: '1px solid var(--border)',
+            borderRadius: 28,
+            border: '1px solid var(--border-2)',
             background: 'var(--surface)',
+            boxShadow: 'var(--modal-shadow)',
             padding: 12,
             gap: 8,
           }}

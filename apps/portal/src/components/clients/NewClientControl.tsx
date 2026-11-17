@@ -1,8 +1,8 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type Ref, type RefObject } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type Ref } from 'react';
 import { Lock } from 'lucide-react';
-import { createPortal } from 'react-dom';
+import { PortalModal } from '@/components/ui/PortalModal';
 import { useAction } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
@@ -245,24 +245,12 @@ export function NewClientForm({
 }) {
   const nested = layout === 'nested';
   const nameRef = useRef<HTMLInputElement>(null);
-  const panelRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     const node = nameRef.current;
     if (!node) return;
     node.focus();
     if (selectOnFocus && node.value) node.select();
   }, [selectOnFocus]);
-  useFocusTrap(true, panelRef);
-  useEffect(() => {
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape' || pending) return;
-      event.preventDefault();
-      event.stopPropagation();
-      onClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [pending, onClose]);
 
   const network = nested && note?.tone === 'error' && !note.field;
   const createDisabled = pending || (nested && !companyName.trim());
@@ -271,60 +259,19 @@ export function NewClientForm({
     : 'Use existing';
 
   const dialog = (
-    <div
-      className={nested ? 'ds-scope portal-create-scrim-nested' : 'ds-scope portal-create-scrim'}
-      role="dialog"
-      aria-modal="true"
-      aria-label="New client"
-      data-testid={nested ? (narrow ? 'new-client-nested-sheet' : 'new-client-nested') : (narrow ? 'new-client-sheet' : 'new-client-dialog')}
-      onClick={() => {
-        if (!pending) onClose();
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape' || pending) return;
-        event.stopPropagation();
-        onClose();
-      }}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex,
-        background: nested
-          ? 'color-mix(in oklab, var(--ink) 40%, transparent)'
-          : 'color-mix(in oklab, var(--ink) 55%, transparent)',
-        display: 'flex',
-        alignItems: nested && narrow ? 'flex-start' : narrow ? 'flex-end' : 'center',
-        justifyContent: 'center',
-        padding: nested && narrow ? '56px 0 0' : narrow ? 0 : 16,
-      }}
+    <PortalModal
+      testId={nested ? (narrow ? 'new-client-nested-sheet' : 'new-client-nested') : (narrow ? 'new-client-sheet' : 'new-client-dialog')}
+      label="New client"
+      onClose={onClose}
+      narrow={narrow}
+      sheet={narrow ? 'bottom' : 'center'}
+      width={nested && !narrow ? 520 : 640}
+      zIndex={zIndex}
+      locked={pending}
+      panelStyle={nested ? { padding: narrow ? 20 : 24, display: 'flex', flexDirection: 'column', gap: 16 } : undefined}
     >
-      <div
-        ref={panelRef}
-        onClick={(event) => event.stopPropagation()}
-        style={{
-          width: narrow ? '100%' : nested ? 520 : 'min(100%, 440px)',
-          height: nested && narrow ? 'calc(100dvh - 56px)' : undefined,
-          maxHeight: nested && !narrow ? 'calc(100dvh - 96px)' : undefined,
-          transform: nested && !narrow ? 'translate(60px, 72px)' : undefined,
-        }}
-      >
         {nested ? (
-          <div
-            className="portal-create-panel"
-            style={{
-              height: narrow ? '100%' : undefined,
-              overflow: 'auto',
-              background: 'var(--surface)',
-              color: 'var(--fg)',
-              border: '1px solid var(--border-2)',
-              boxShadow: '0 16px 48px color-mix(in oklab, var(--ink) 45%, transparent)',
-              borderRadius: narrow ? '20px 20px 0 0' : 28,
-              padding: narrow ? 20 : 24,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 16,
-            }}
-          >
+          <>
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="ds-mono" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>NEW PROJECT  ›  CLIENT</p>
@@ -333,7 +280,7 @@ export function NewClientForm({
                 </h2>
               </div>
               <button type="button" onClick={onClose} disabled={pending} style={textButtonStyle(pending)}>
-                Close
+                Back
               </button>
             </div>
             <form className="flex flex-col gap-4" onSubmit={onSubmit}>
@@ -412,9 +359,9 @@ export function NewClientForm({
                 </div>
               </div>
             </form>
-          </div>
+          </>
         ) : (
-          <Surface style={{ padding: 'var(--s-5)', borderRadius: narrow ? '16px 16px 0 0' : undefined }}>
+          <Surface style={{ padding: 'var(--s-5)' }}>
             <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
               New client
             </p>
@@ -474,11 +421,9 @@ export function NewClientForm({
             </form>
           </Surface>
         )}
-      </div>
-    </div>
+    </PortalModal>
   );
-  if (typeof document === 'undefined') return dialog;
-  return createPortal(dialog, document.body);
+  return dialog;
 }
 
 function ClientField({
@@ -535,31 +480,6 @@ function ClientField({
       ) : null}
     </label>
   );
-}
-
-function useFocusTrap(active: boolean, rootRef: RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    if (!active) return;
-    const root = rootRef.current;
-    if (!root) return;
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Tab') return;
-      const nodes = [...root.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
-        .filter((el) => !el.hasAttribute('disabled'));
-      if (nodes.length === 0) return;
-      const first = nodes[0]!;
-      const last = nodes[nodes.length - 1]!;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    root.addEventListener('keydown', onKey);
-    return () => root.removeEventListener('keydown', onKey);
-  }, [active, rootRef]);
 }
 
 function framedInput(invalid: boolean): CSSProperties {

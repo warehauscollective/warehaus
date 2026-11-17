@@ -514,12 +514,10 @@ export function MilestoneDialog({
   return (
     <div
       ref={overlayRef}
-      className={overlayClass}
+      className={`${overlayClass} portal-modal-scrim`}
+      data-portal-scrim=""
       style={{
         zIndex: cover ? 2 : contained ? 1 : 80,
-        background: 'var(--scrim)',
-        backdropFilter: 'blur(var(--scrim-blur))',
-        WebkitBackdropFilter: 'blur(var(--scrim-blur))',
         pointerEvents: 'auto',
       }}
     >
@@ -535,7 +533,7 @@ export function MilestoneDialog({
           background: 'var(--surface)',
           color: 'var(--fg)',
           border: '1px solid var(--border-2)',
-          ...(phone === false ? { boxShadow: '0 16px 48px rgba(0, 0, 0, 0.24)' } : sheet ? { boxShadow: 'none' } : {}),
+          ...(phone === false ? { boxShadow: 'var(--modal-shadow)' } : sheet ? { boxShadow: 'none' } : {}),
         }}
       >
         {showGrabber ? (

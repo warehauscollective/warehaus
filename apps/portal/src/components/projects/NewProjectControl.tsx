@@ -1,14 +1,14 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type ReactElement, type Ref, type RefObject } from 'react';
-import { createPortal } from 'react-dom';
+import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type Ref } from 'react';
 import { useAction } from 'convex/react';
 import { AlertCircle, Building2, Check, ChevronDown, Lock, Plus, Search } from 'lucide-react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { createProjectExternalId } from '@warehaus/portal-sync';
-import { NewClientControl, newClientDialogZ } from '@/components/clients/NewClientControl';
+import { NewClientControl } from '@/components/clients/NewClientControl';
+import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
 import { clientInitials } from '@/lib/data/clientList';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
@@ -158,7 +158,6 @@ export function NewProjectControl({
   const [confirming, setConfirming] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const clientRef = useRef<HTMLButtonElement>(null);
-  const restoreClientFocus = useRef(false);
   const initialOrgId = useRef('');
   const presetId = clientPreset?.id ?? null;
   const locked = clientPreset?.locked === true;
@@ -194,18 +193,16 @@ export function NewProjectControl({
     return () => window.clearTimeout(timer);
   }, [fresh]);
 
+  const focusClientOnReturn = useRef(false);
   useEffect(() => {
-    if (!open || clientSheet || pickerOpen || confirming || restoreClientFocus.current) return;
-    const frame = requestAnimationFrame(() => nameRef.current?.focus());
+    if (!open || clientSheet || pickerOpen || confirming) return;
+    const toClient = focusClientOnReturn.current;
+    focusClientOnReturn.current = false;
+    const frame = requestAnimationFrame(() => {
+      (toClient ? clientRef : nameRef).current?.focus();
+    });
     return () => cancelAnimationFrame(frame);
   }, [open, clientSheet, pickerOpen, confirming]);
-
-  useEffect(() => {
-    if (!open || clientSheet || !restoreClientFocus.current) return;
-    restoreClientFocus.current = false;
-    const frame = requestAnimationFrame(() => clientRef.current?.focus());
-    return () => cancelAnimationFrame(frame);
-  }, [open, clientSheet]);
 
   const options = projectClientOptions(clients, [
     ...(clientPreset ? [{ id: clientPreset.id, name: clientPreset.name }] : []),
@@ -227,7 +224,7 @@ export function NewProjectControl({
 
   const openNewClient = (seed: string) => {
     if (locked || pending) return;
-    restoreClientFocus.current = true;
+    focusClientOnReturn.current = true;
     setClientSeed(seed);
     setPickerOpen(false);
     setClientSheet(true);
@@ -292,7 +289,12 @@ export function NewProjectControl({
   if (!open) return null;
 
   return (
-    <>
+    <PortalModalStack
+      frames={[
+        {
+          key: 'project',
+          open: !clientSheet,
+          node: (
       <NewProjectForm
         name={name}
         orgId={orgId}
@@ -311,6 +313,7 @@ export function NewProjectControl({
         clientRef={clientRef}
         onName={setName}
         onOrgId={(id) => {
+          focusClientOnReturn.current = true;
           setOrgId(id);
           setFresh(false);
           setPickerOpen(false);
@@ -322,7 +325,10 @@ export function NewProjectControl({
           setPickerQuery('');
           setPickerOpen(true);
         }}
-        onPickerClose={() => setPickerOpen(false)}
+        onPickerClose={() => {
+          focusClientOnReturn.current = true;
+          setPickerOpen(false);
+        }}
         onPickerQuery={setPickerQuery}
         onNewClient={openNewClient}
         onSubmit={onSubmit}
@@ -330,7 +336,12 @@ export function NewProjectControl({
         onKeepEditing={() => setConfirming(false)}
         onDiscard={onClose}
       />
-      {clientSheet && !locked ? (
+          ),
+        },
+        {
+          key: 'client',
+          open: clientSheet && !locked,
+          node: (
         <NewClientControl
           open
           fixtures={fixtures}
@@ -342,9 +353,12 @@ export function NewProjectControl({
           existingClients={options}
           onPreviewClient={fixtures ? (client) => selectCreatedClient(client, true) : undefined}
           onClose={() => {
-            if (!pending) setClientSheet(false);
+            if (pending) return;
+            focusClientOnReturn.current = true;
+            setClientSheet(false);
           }}
           onOpen={(clientId, client) => {
+            focusClientOnReturn.current = true;
             selectCreatedClient(
               { clientId, name: client?.name ?? 'New client' },
               client?.created !== false,
@@ -352,8 +366,10 @@ export function NewProjectControl({
             setClientSheet(false);
           }}
         />
-      ) : null}
-    </>
+          ),
+        },
+      ]}
+    />
   );
 }
 
@@ -410,7 +426,6 @@ export function NewProjectForm({
   onKeepEditing: () => void;
   onDiscard: () => void;
 }) {
-  const panelRef = useRef<HTMLDivElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const [active, setActive] = useState(0);
   const visible = visibleProjectClients(clients, pickerQuery);
@@ -423,25 +438,21 @@ export function NewProjectForm({
     setActive(pinned.create ? rowCount - 1 : 0);
   }, [pickerQuery, pinned.create, rowCount]);
 
+  const [viewportHeight, setViewportHeight] = useState<number | null>(null);
   useEffect(() => {
     if (!pickerOpen) return;
     const frame = requestAnimationFrame(() => searchRef.current?.focus());
     return () => cancelAnimationFrame(frame);
   }, [pickerOpen]);
-
   useEffect(() => {
-    if (sheetOpen) return;
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Escape' || pending) return;
-      event.preventDefault();
-      event.stopPropagation();
-      onRequestClose();
-    };
-    document.addEventListener('keydown', onKey);
-    return () => document.removeEventListener('keydown', onKey);
-  }, [sheetOpen, pending, onRequestClose]);
-
-  useFocusTrap(!sheetOpen && !pending, panelRef);
+    if (!narrow || !pickerOpen) return;
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const fit = () => setViewportHeight(viewport.height);
+    fit();
+    viewport.addEventListener('resize', fit);
+    return () => viewport.removeEventListener('resize', fit);
+  }, [narrow, pickerOpen]);
 
   const pickActive = () => {
     if (locked) return;
@@ -467,56 +478,96 @@ export function NewProjectForm({
     }
   };
 
-  const dialog = (
-    <div
-      className="ds-scope portal-create-scrim"
-      role="dialog"
-      aria-modal={sheetOpen ? undefined : true}
-      aria-hidden={sheetOpen || undefined}
-      aria-label="New project"
-      data-testid="new-project-dialog"
-      inert={sheetOpen ? true : undefined}
-      onClick={() => {
-        if (!pending && !sheetOpen) onRequestClose();
-      }}
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape' || sheetOpen) return;
-        event.stopPropagation();
-        if (pending) return;
-        onRequestClose();
-      }}
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: newClientDialogZ.dialog,
-        background: 'color-mix(in oklab, var(--ink) 55%, transparent)',
-        display: 'flex',
-        alignItems: narrow ? 'flex-start' : 'center',
-        justifyContent: 'center',
-        padding: narrow ? '12px 0 0' : 24,
-      }}
-    >
-      <div
-        ref={panelRef}
-        onClick={(event) => event.stopPropagation()}
-        className="portal-create-panel"
-        style={{
-          width: narrow ? '100%' : 640,
-          maxWidth: '100%',
-          height: narrow ? 'calc(100dvh - 12px)' : undefined,
-          maxHeight: narrow ? '100%' : 'calc(100dvh - 48px)',
-          overflow: 'auto',
-          background: 'var(--surface)',
-          color: 'var(--fg)',
-          border: '1px solid var(--border-2)',
-          boxShadow: '0 16px 48px color-mix(in oklab, var(--ink) 45%, transparent)',
-          borderRadius: narrow ? '20px 20px 0 0' : 28,
-          padding: narrow ? 20 : 24,
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 20,
-        }}
+  if (sheetOpen) return null;
+
+  if (narrow && pickerOpen) {
+    return (
+      <PortalModal
+        testId="client-picker-sheet"
+        label="Clients"
+        onClose={onPickerClose}
+        narrow
+        sheet="bottom"
+        maxHeight={viewportHeight ? `${Math.max(viewportHeight - 12, 240)}px` : undefined}
+        panelStyle={{ padding: 20, display: 'flex', flexDirection: 'column', gap: 12, flex: '1 1 auto', minHeight: 0 }}
       >
+        <div className="flex items-start justify-between gap-3">
+          <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 20, fontWeight: 600, lineHeight: '30px' }}>Clients</h2>
+          <button type="button" onClick={onPickerClose} style={textButtonStyle(false)}>Back</button>
+        </div>
+        <div
+          id={listId}
+          role="listbox"
+          aria-label="Clients"
+          data-testid="client-picker"
+          style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: '1 1 auto' }}
+        >
+          <label className="flex items-center gap-2" style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
+            <Search size={16} aria-hidden="true" style={{ color: 'var(--muted)' }} />
+            <input
+              ref={searchRef}
+              value={pickerQuery}
+              aria-label="Search clients"
+              data-testid="client-search"
+              placeholder="Search clients"
+              onChange={(event) => onPickerQuery(event.target.value)}
+              onKeyDown={onSearchKey}
+              style={{ flex: 1, border: 0, background: 'transparent', color: 'var(--fg)', fontFamily: 'var(--font-body)', fontSize: 15, outline: 'none' }}
+            />
+          </label>
+          <div style={{ overflow: 'auto', flex: '1 1 auto', minHeight: 0 }}>
+            {visible.length === 0 ? (
+              <p style={{ padding: '12px 14px', color: 'var(--muted)', fontSize: 14 }} data-testid="client-no-match">
+                {pickerQuery.trim() ? `No clients match “${pickerQuery.trim().replace(/\s+/g, ' ')}”` : 'No clients yet'}
+              </p>
+            ) : (
+              visible.map((client, index) => (
+                <button
+                  key={client.id}
+                  type="button"
+                  role="option"
+                  aria-selected={active === index}
+                  data-testid="client-option"
+                  onMouseEnter={() => setActive(index)}
+                  onClick={() => onOrgId(client.id)}
+                  style={optionStyle(active === index)}
+                >
+                  <ClientMark name={client.name} />
+                  <span className="min-w-0 flex-1 truncate">{client.name}</span>
+                  <span style={{ color: 'var(--muted)', fontSize: 13 }}>{projectClientMeta(client)}</span>
+                </button>
+              ))
+            )}
+          </div>
+          <button
+            type="button"
+            role="option"
+            aria-selected={active === visible.length}
+            data-testid="new-client-row"
+            data-create={pinned.create ? 'true' : 'false'}
+            onMouseEnter={() => setActive(visible.length)}
+            onClick={() => onNewClient(pinned.name)}
+            style={{ ...optionStyle(active === visible.length), borderTop: '1px solid var(--border)', width: '100%' }}
+          >
+            <Plus size={16} aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate" style={{ fontWeight: 600 }}>{pinned.label}</span>
+            <span style={{ color: 'var(--muted)', fontSize: 13 }}>{pinned.meta}</span>
+          </button>
+        </div>
+      </PortalModal>
+    );
+  }
+
+  const dialog = (
+    <PortalModal
+      testId="new-project-dialog"
+      label="New project"
+      onClose={onRequestClose}
+      narrow={narrow}
+      sheet={narrow ? 'bottom' : 'center'}
+      locked={pending}
+      panelStyle={{ padding: narrow ? 20 : 24, display: 'flex', flexDirection: 'column', gap: 20 }}
+    >
         <div className="flex items-start justify-between gap-3">
           <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 20, fontWeight: 600, lineHeight: '30px' }}>
             New project
@@ -605,7 +656,7 @@ export function NewProjectForm({
                   {fresh && selected ? <Tag>New</Tag> : null}
                   <ChevronDown size={16} aria-hidden="true" />
                 </button>
-                {pickerOpen ? (
+                {pickerOpen && !narrow ? (
                   <div
                     id={listId}
                     role="listbox"
@@ -735,15 +786,14 @@ export function NewProjectForm({
             </div>
           )}
         </form>
-      </div>
-    </div>
+    </PortalModal>
   );
-  return mountLayer(dialog);
+  return dialog;
 }
 
 function FieldLabel({ children }: { children: string }) {
   return (
-    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>{children}</span>
+    <span className="ds-mono" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{children}</span>
   );
 }
 
@@ -829,34 +879,4 @@ function textButtonStyle(pending: boolean): CSSProperties {
     cursor: pending ? 'not-allowed' : 'pointer',
     opacity: pending ? 0.45 : 1,
   };
-}
-
-function mountLayer(node: ReactElement) {
-  if (typeof document === 'undefined') return node;
-  return createPortal(node, document.body);
-}
-
-function useFocusTrap(active: boolean, rootRef: RefObject<HTMLElement | null>) {
-  useEffect(() => {
-    if (!active) return;
-    const root = rootRef.current;
-    if (!root) return;
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key !== 'Tab') return;
-      const nodes = [...root.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
-        .filter((el) => !el.hasAttribute('disabled'));
-      if (nodes.length === 0) return;
-      const first = nodes[0]!;
-      const last = nodes[nodes.length - 1]!;
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus();
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus();
-      }
-    };
-    root.addEventListener('keydown', onKey);
-    return () => root.removeEventListener('keydown', onKey);
-  }, [active, rootRef]);
 }

@@ -484,7 +484,7 @@ export function TeamInvites({
             display: block;
             width: 36px;
             height: 4px;
-            border-radius: 999px;
+            border-radius: 2px;
             background: var(--border-2, var(--border));
             margin: -8px auto 4px;
           }
@@ -498,7 +498,9 @@ export function TeamInvites({
             max-height: 100dvh !important;
             overflow: auto !important;
             transform: none !important;
-            border-radius: 16px 16px 0 0 !important;
+            border-radius: 28px 28px 0 0 !important;
+            box-shadow: none !important;
+            border-width: 1px 0 0 !important;
             padding-bottom: 24px !important;
           }
           .invite-actions { flex-direction: column !important; align-items: stretch !important; }
@@ -598,9 +600,9 @@ function InviteDialog({
 }) {
   const locked = mode === 'sending';
   return (
-    <div role="presentation" className="invite-scrim" style={scrim} onClick={onClose}>
+    <div role="presentation" className="ds-scope portal-modal-scrim invite-scrim" data-portal-scrim="" style={scrim} onClick={onClose}>
       <div
-        className="invite-dialog"
+        className="invite-dialog portal-modal-panel"
         role="dialog"
         aria-modal="true"
         aria-labelledby="invite-staff-title"
@@ -738,8 +740,8 @@ function ConfirmDialog({
   onConfirm: () => void;
 }) {
   return (
-    <div role="presentation" style={scrim} onClick={onCancel}>
-      <div role="dialog" aria-modal="true" data-testid="revoke-confirm" style={{ ...dialog, width: 'min(440px, 100%)' }} onClick={(event) => event.stopPropagation()}>
+    <div role="presentation" className="ds-scope portal-modal-scrim" data-portal-scrim="" style={scrim} onClick={onCancel}>
+      <div role="dialog" aria-modal="true" data-testid="revoke-confirm" className="portal-modal-panel" style={{ ...dialog, width: 'min(640px, 100%)' }} onClick={(event) => event.stopPropagation()}>
         <h2 style={{ margin: 0, fontSize: 22 }}>{title}</h2>
         <p style={{ margin: '8px 0 0', fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>{body}</p>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
@@ -834,7 +836,6 @@ const field = {
 const scrim = {
   position: 'fixed' as const,
   inset: 0,
-  background: 'color-mix(in oklab, black 55%, transparent)',
   zIndex: 60,
 };
 
@@ -843,11 +844,12 @@ const dialog = {
   top: '50%',
   left: '50%',
   transform: 'translate(-50%, -50%)',
-  width: 'min(520px, calc(100% - 32px))',
+  width: 'min(640px, calc(100% - 32px))',
   background: 'var(--surface)',
-  color: 'var(--foreground)',
-  border: '1px solid var(--border)',
-  borderRadius: 12,
+  color: 'var(--fg)',
+  border: '1px solid var(--border-2)',
+  borderRadius: 28,
+  boxShadow: 'var(--modal-shadow)',
   padding: 32,
   display: 'flex',
   flexDirection: 'column' as const,

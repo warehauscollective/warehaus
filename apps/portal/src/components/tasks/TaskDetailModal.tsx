@@ -780,8 +780,8 @@ function AttachPicker({
   };
 
   return (
-    <div role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div role="dialog" aria-modal="true" aria-label="Attach resources" onClick={(event) => event.stopPropagation()} style={{ width: 'min(100%, 560px)', maxHeight: '80dvh', overflow: 'auto', background: 'var(--surface)', borderRadius: 16, padding: 20 }}>
+    <div role="presentation" className="ds-scope portal-modal-scrim" data-portal-scrim="" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div role="dialog" aria-modal="true" aria-label="Attach resources" className="portal-modal-panel" onClick={(event) => event.stopPropagation()} style={{ width: 'min(100%, 640px)', maxHeight: '80dvh', overflow: 'auto', borderRadius: 28, padding: 20 }}>
         <div className="mt-3 flex items-center justify-between">
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>Attach resources</h2>
           <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
@@ -909,21 +909,22 @@ function ModalShell({
   }, [onClose, suspended]);
   if (suspended) return <>{children}</>;
   const dialog = (
-    <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: scrim === 'light' ? 'rgba(0,0,0,0.1)' : 'rgb(0 0 0 / 55%)', backdropFilter: scrim === 'light' ? 'blur(40px)' : undefined, WebkitBackdropFilter: scrim === 'light' ? 'blur(40px)' : undefined, display: 'flex', alignItems: phone ? 'stretch' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
+    <div className="ds-scope portal-modal-scrim" data-portal-scrim="" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, display: 'flex', alignItems: phone ? 'flex-end' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
       <div
         ref={ref}
         role="dialog"
         aria-modal="true"
         aria-label={label}
         tabIndex={-1}
+        className={phone ? 'portal-modal-panel portal-modal-sheet' : 'portal-modal-panel'}
         onClick={(event) => event.stopPropagation()}
         style={{
           width: phone ? '100%' : `min(100%, ${width}px)`,
-          maxHeight: phone ? '100dvh' : 'min(880px, calc(100dvh - 72px))',
+          maxHeight: phone ? 'calc(100dvh - 12px)' : 'min(880px, calc(100dvh - 72px))',
           overflow: 'auto',
-          background: 'var(--surface)',
-          borderRadius: phone ? 0 : 16,
+          borderRadius: phone ? '28px 28px 0 0' : 28,
           padding: phone ? 20 : 24,
+          boxShadow: phone ? 'none' : undefined,
         }}
       >
         {children}

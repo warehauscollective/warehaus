@@ -31,6 +31,8 @@ describe('new client dialog', () => {
   it('says the client starts as a prospect with portal access off and no invite', () => {
     const html = markup();
     assert.match(html, /data-testid="new-client-dialog"/);
+    assert.equal(html.includes('portal-modal-sheet'), false);
+    assert.equal(html.includes('data-testid="modal-grabber"'), false);
     assert.match(html, /Starts as a prospect\. Portal access stays off\. No invite is sent\./);
     assert.match(html, /data-testid="create-client"/);
     assert.match(html, /Create client/);
@@ -80,6 +82,8 @@ describe('new client dialog', () => {
     assert.match(exists, /Created as a draft client/);
     assert.match(exists, /Portal access off · unpublished · no invite email/);
     assert.match(exists, /NEW PROJECT {2}› {2}CLIENT/);
+    assert.match(exists, />Back</);
+    assert.match(exists, /width:520/);
     assert.equal(exists.includes('rgb('), false);
     assert.match(exists, /aria-invalid="true"/);
     assert.equal(exists.includes('Publish to client portal'), false);
@@ -103,7 +107,9 @@ describe('new client dialog', () => {
     const html = markup({ narrow: true });
     assert.match(html, /data-testid="new-client-sheet"/);
     assert.match(html, /align-items:flex-end/);
-    assert.match(html, /border-radius:16px 16px 0 0/);
+    assert.match(html, /border-radius:28px 28px 0 0/);
+    assert.match(html, /portal-modal-sheet/);
+    assert.match(html, /data-testid="modal-grabber"/);
     assert.equal(html.includes('data-testid="new-client-dialog"'), false);
   });
 });

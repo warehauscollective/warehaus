@@ -1324,8 +1324,9 @@ function NeedsDialog({
 
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return portalNode(
-    <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: 'flex-end' }}>
-      <div role="dialog" aria-modal="true" aria-label={title} onClick={(event) => event.stopPropagation()} style={{ width: '100%', background: 'var(--surface)', borderRadius: '16px 16px 0 0', padding: 16, maxHeight: '80dvh', overflow: 'auto' }}>
+    <div className="ds-scope portal-modal-scrim" data-portal-scrim="" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, display: 'flex', alignItems: 'flex-end' }}>
+      <div role="dialog" aria-modal="true" aria-label={title} onClick={(event) => event.stopPropagation()} className="portal-modal-panel portal-modal-sheet" style={{ width: '100%', borderRadius: '28px 28px 0 0', padding: 16, maxHeight: 'calc(100dvh - 12px)', overflow: 'auto', boxShadow: 'none' }}>
+        <div className="portal-modal-grabber" data-testid="modal-grabber" aria-hidden="true"><span /></div>
         <div className="mb-3 flex items-center justify-between">
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>{title}</h2>
           <button type="button" aria-label="Close" onClick={onClose}>✕</button>
@@ -1368,8 +1369,8 @@ function Modal({ title, onClose, labelledBy, children }: { title: string; onClos
     };
   }, [onClose]);
   return portalNode(
-    <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 85, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={labelledBy} onClick={(event) => event.stopPropagation()} style={{ width: 'min(100%, 480px)', background: 'var(--surface)', borderRadius: 16, padding: 24 }}>
+    <div className="ds-scope portal-modal-scrim" data-portal-scrim="" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 85, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
+      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={labelledBy} onClick={(event) => event.stopPropagation()} className="portal-modal-panel" style={{ width: 'min(100%, 640px)', borderRadius: 28, padding: 24 }}>
         <h2 id={labelledBy} style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', marginBottom: 12 }}>{title}</h2>
         {children}
       </div>

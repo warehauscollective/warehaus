@@ -14,6 +14,8 @@ const {
   shouldConfirmProjectDiscard,
   visibleProjectClients,
 } = await import('./NewProjectControl');
+const { PortalModalStack } = await import('../ui/PortalModal');
+const { NewClientForm } = await import('../clients/NewClientControl');
 
 const handlers = {
   onName: () => {},
@@ -46,6 +48,74 @@ function markup(extra: Record<string, unknown> = {}) {
     }),
   );
 }
+
+describe('one modal at a time', () => {
+  it('swaps the client step in place and keeps the project draft', () => {
+    const project = createElement(NewProjectForm, {
+      name: 'Harbor site',
+      orgId: 'c-new',
+      clients: [{ id: 'c-new', name: 'North Wind', projectCount: 0 }],
+      locked: false,
+      note: null,
+      pending: false,
+      sheetOpen: false,
+      ...handlers,
+    });
+    const client = createElement(NewClientForm, {
+      narrow: false,
+      layout: 'nested',
+      companyName: 'Fieldnote',
+      primaryEmail: '',
+      phone: '',
+      note: null,
+      pending: false,
+      reused: false,
+      onCompanyName: () => {},
+      onPrimaryEmail: () => {},
+      onPhone: () => {},
+      onSubmit: () => {},
+      onClose: () => {},
+      onUseExisting: () => {},
+    });
+    const swapped = renderToStaticMarkup(createElement(PortalModalStack, {
+      frames: [
+        { key: 'project', open: true, node: project },
+        { key: 'client', open: true, node: client },
+      ],
+    }));
+    assert.equal(swapped.match(/role="dialog"/g)?.length, 1);
+    assert.equal(swapped.match(/data-portal-scrim/g)?.length, 1);
+    assert.match(swapped, /data-testid="new-client-nested"/);
+    assert.match(swapped, /value="Fieldnote"/);
+    assert.equal(swapped.includes('data-testid="new-project-dialog"'), false);
+    assert.equal(swapped.includes('value="Harbor site"'), false);
+
+    const back = renderToStaticMarkup(createElement(PortalModalStack, {
+      frames: [
+        { key: 'project', open: true, node: project },
+        { key: 'client', open: false, node: client },
+      ],
+    }));
+    assert.equal(back.match(/role="dialog"/g)?.length, 1);
+    assert.equal(back.match(/data-portal-scrim/g)?.length, 1);
+    assert.match(back, /data-testid="new-project-dialog"/);
+    assert.match(back, /value="Harbor site"/);
+    assert.match(back, /North Wind/);
+    assert.equal(back.includes('data-testid="new-client-nested"'), false);
+
+    const hidden = markup({ sheetOpen: true, name: 'Harbor site' });
+    assert.equal(hidden.includes('role="dialog"'), false);
+    assert.equal(hidden.includes('data-portal-scrim'), false);
+
+    const phonePicker = markup({ narrow: true, pickerOpen: true, name: 'Harbor site' });
+    assert.equal(phonePicker.match(/role="dialog"/g)?.length, 1);
+    assert.equal(phonePicker.match(/data-portal-scrim/g)?.length, 1);
+    assert.match(phonePicker, /data-testid="client-picker-sheet"/);
+    assert.match(phonePicker, /data-testid="new-client-row"/);
+    assert.equal(phonePicker.includes('data-testid="new-project-dialog"'), false);
+    assert.equal(phonePicker.includes('value="Harbor site"'), false);
+  });
+});
 
 describe('inline new client', () => {
   it('keeps the project draft and selects the created client', () => {

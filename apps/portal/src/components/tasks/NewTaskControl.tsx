@@ -90,22 +90,21 @@ export function NewTaskControl({
       </PrimaryButton>
       {open ? (
         <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="New task"
+          className="ds-scope portal-modal-scrim"
+          data-portal-scrim=""
+          role="presentation"
           onClick={() => setOpen(false)}
           style={{
             position: 'fixed',
             inset: 0,
             zIndex: 80,
-            background: 'color-mix(in oklab, var(--bg) 55%, transparent)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
             padding: 16,
           }}
         >
-          <div onClick={(event) => event.stopPropagation()} style={{ width: 'min(100%, 440px)' }}>
+          <div role="dialog" aria-modal="true" aria-label="New task" onClick={(event) => event.stopPropagation()} className="portal-modal-panel" style={{ width: 'min(100%, 640px)', borderRadius: 28, overflow: 'hidden' }}>
             <Surface style={{ padding: 'var(--s-5)' }}>
               <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
                 New task

@@ -186,6 +186,10 @@ body {
   --danger: oklch(64% 0.2 25);
   /* 14px error text. Lighter than --danger so it clears 4.5:1 on dark surfaces. */
   --danger-text: #ff9b93;
+  /* One scrim for every portal modal. Ten percent ink, plus a 40px blur, in both themes. */
+  --scrim: color-mix(in oklab, var(--ink) 10%, transparent);
+  --scrim-blur: 40px;
+  --modal-shadow: 0 16px 48px color-mix(in oklab, var(--ink) 24%, transparent);
 
   /* Body font (Geist) is now set globally on :root; the scope inherits it. */
 

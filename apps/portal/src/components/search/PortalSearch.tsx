@@ -485,11 +485,12 @@ export function PortalSearch() {
     <div
       role="presentation"
       onClick={close}
+      className="ds-scope portal-modal-scrim"
+      data-portal-scrim=""
       style={{
         position: 'fixed',
         inset: 0,
         zIndex: 90,
-        background: 'rgb(0 0 0 / 45%)',
         display: 'flex',
         alignItems: 'flex-start',
         justifyContent: 'center',
@@ -510,9 +511,9 @@ export function PortalSearch() {
           flexDirection: 'column',
           overflow: 'hidden',
           background: 'var(--surface)',
-          border: '1px solid var(--border)',
+          border: '1px solid var(--border-2)',
           borderRadius: 28,
-          boxShadow: '0 24px 64px rgb(0 0 0 / 45%)',
+          boxShadow: 'var(--modal-shadow)',
           color: 'var(--fg)',
         }}
       >
