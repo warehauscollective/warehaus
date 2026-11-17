@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { isClientVisibleActivityType } from '@warehaus/portal-sync';
+import { roadmapViewForAudience } from './milestones';
 import {
   clientSeesDetailsRow,
   detailActivitySummary,
@@ -10,6 +11,7 @@ import {
   effectiveStage,
   heldTaskProjectId,
   isPeterEmail,
+  movedLaneCount,
   projectMoveDecision,
   publishChangeDecision,
   stageChangeDecision,
@@ -90,6 +92,7 @@ describe('status, publish, and project decisions', () => {
       status: 'in_review',
       wrote: true,
       workStatus: 'ready',
+      stage: null,
     });
     const complete = detailStatusDecision({ from: 'in_progress', to: 'complete' });
     if (complete.ok) assert.equal(complete.workStatus, null);
@@ -136,6 +139,14 @@ describe('text blur and activity', () => {
     });
     assert.match(summary, /Alex Staff · Northwind site → Northwind brand · /);
     assert.match(summary, /ET$/);
+    const withTasks = detailActivitySummary({
+      actor: 'Alex Staff',
+      from: 'Northwind site',
+      to: 'Northwind brand',
+      at: Date.UTC(2026, 10, 17, 18, 19),
+      tasks: 2,
+    });
+    assert.match(withTasks, /Northwind brand · 2 tasks · /);
     assert.equal(summary.includes('@'), false);
     assert.equal(isClientVisibleActivityType('milestone.project'), false);
     assert.equal(isClientVisibleActivityType('milestone.stage'), false);
@@ -179,6 +190,9 @@ describe('task move and client rows', () => {
     assert.equal(clientSeesDetailsRow('visibility', false), false);
     assert.equal(clientSeesDetailsRow('creator', true), true);
     assert.equal(clientSeesDetailsRow('visibility', true), true);
+    assert.equal(clientSeesDetailsRow('approval', false), false);
+    assert.equal(clientSeesDetailsRow('review', false), false);
+    assert.equal(clientSeesDetailsRow('approval', true), true);
     assert.equal(clientSeesDetailsRow('project', false), true);
     assert.equal(clientSeesDetailsRow('status', false), true);
   });
@@ -188,6 +202,29 @@ describe('task move and client rows', () => {
     assert.equal(effectiveStage({ stage: 'Parked', workStatus: 'active', approval: 'unreviewed' }), 'Parked');
     assert.equal(effectiveDetailStatus({ detailStatus: null, workStatus: 'ready' }), 'in_review');
     assert.equal(effectiveDetailStatus({ detailStatus: 'complete', workStatus: 'active' }), 'complete');
+    assert.equal(effectiveStage({ stage: null, workStatus: 'active', approval: 'approved' }), 'Ready to Ship');
+    assert.equal(effectiveStage({ stage: 'Shipped', workStatus: 'active', approval: 'approved' }), 'Shipped');
+    const clientView = roadmapViewForAudience({
+      name: 'Launch',
+      publishToWarehaus: true,
+      approval: 'approved',
+      note: 'Ship it',
+      approverName: 'Peter',
+      decidedAt: 1,
+      creator: 'Peter',
+      workStatus: 'ready',
+    }, 'client');
+    for (const key of ['publishToWarehaus', 'approval', 'note', 'approverName', 'decidedAt', 'creator']) {
+      assert.equal(key in clientView, false, key);
+    }
+    assert.equal(clientView.workStatus, 'ready');
+    const staffView = roadmapViewForAudience({ publishToWarehaus: true, approval: 'approved' }, 'staff');
+    assert.equal(staffView.publishToWarehaus, true);
+    assert.equal(movedLaneCount([
+      { id: 'a', projectId: 'p1', milestoneId: 'm', parentTaskId: null },
+      { id: 'b', projectId: 'p1', milestoneId: 'm', parentTaskId: null },
+      { id: 'c', projectId: 'p1', milestoneId: 'm', parentTaskId: 'a' },
+    ], ['a', 'b', 'c']), 2);
   });
 });
 
@@ -203,8 +240,13 @@ describe('server enforcement', () => {
     assert.match(block, /detailStatusDecision/);
     assert.match(block, /projectMoveDecision/);
     assert.match(block, /taskIdsToMove/);
-    assert.match(block, /by_orgId_projectId/);
+    assert.match(block, /by_parentTaskId/);
     assert.match(block, /by_orgId_milestoneId/);
+    assert.doesNotMatch(block, /by_orgId_projectId/);
+    const statusBlock = source.slice(source.indexOf('export const setDetailStatus'), source.indexOf('export const setStage'));
+    const workBlock = source.slice(source.indexOf('export const setWorkStatus'), source.indexOf('export const setPublish'));
+    assert.doesNotMatch(statusBlock, /\bstage:/);
+    assert.doesNotMatch(workBlock, /\bstage:/);
     assert.match(block, /wrote: false/);
     assert.match(block, /'milestone\.project'/);
     assert.doesNotMatch(block, /clientMutation/);

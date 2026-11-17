@@ -28,6 +28,7 @@ import {
   createMilestoneDecision,
   detachTaskDecision,
   writeMilestoneActivity,
+  roadmapViewForAudience,
   nextMilestoneOrder,
   publishDecision,
   resourceEditDecision,
@@ -45,10 +46,12 @@ import {
   detailStatusLabel,
   effectiveDetailStatus,
   effectiveStage,
+  movedLaneCount,
   projectMoveDecision,
   publishChangeDecision,
   stageChangeDecision,
   taskIdsToMove,
+  workStatusWrite,
 } from './_lib/milestoneDetails';
 import {
   MILESTONE_ONE_NAME,
@@ -311,7 +314,7 @@ async function toRoadmap(
       .map((resource) => ({ id: resource._id, title: resource.title }))
       .sort((a, b) => a.title.localeCompare(b.title));
   }
-  return view;
+  return roadmapViewForAudience(view, audience);
 }
 
 async function listOnProject(
@@ -517,7 +520,7 @@ export const setWorkStatus = adminMutation({
     });
     if (!status.ok) fail(status.reason);
     if (milestone.workStatus === status.workStatus) return { ok: true as const, wrote: false as const };
-    await ctx.db.patch(milestone._id, { workStatus: status.workStatus });
+    await ctx.db.patch(milestone._id, workStatusWrite(status.workStatus));
     if (status.activityType) await logMilestone(ctx, milestone, status.activityType, Date.now());
     return { ok: true as const, wrote: true as const };
   },
@@ -640,20 +643,28 @@ export const moveProject = adminMutation({
     if (!decision.ok) fail(decision.reason);
     if (!target) fail('Project not found');
     if (!decision.wrote) return { ok: true as const, wrote: false as const, movedTasks: 0 };
-    const onProject = await ctx.db
-      .query('tasks')
-      .withIndex('by_orgId_projectId', (q) => q.eq('orgId', milestone.orgId).eq('projectId', milestone.projectId))
-      .collect();
     const linked = await ctx.db
       .query('tasks')
       .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
       .collect();
     const seen = new Set<string>();
     const tasks: Doc<'tasks'>[] = [];
-    for (const task of [...onProject, ...linked]) {
+    for (const task of linked) {
       if (seen.has(task._id)) continue;
       seen.add(task._id);
       tasks.push(task);
+    }
+    for (const task of linked) {
+      if (task.parentTaskId) continue;
+      const children = await ctx.db
+        .query('tasks')
+        .withIndex('by_parentTaskId', (q) => q.eq('parentTaskId', task._id))
+        .collect();
+      for (const child of children) {
+        if (child.orgId !== milestone.orgId || seen.has(child._id)) continue;
+        seen.add(child._id);
+        tasks.push(child);
+      }
     }
     const moving = taskIdsToMove({
       tasks: tasks.map((task) => ({
@@ -666,8 +677,19 @@ export const moveProject = adminMutation({
       toProjectId: target._id,
     });
     const fromName = (await ctx.db.get(milestone.projectId))?.name ?? 'Previous project';
+    const lanes = movedLaneCount(
+      tasks.map((task) => ({
+        id: task._id,
+        projectId: task.projectId,
+        milestoneId: task.milestoneId ?? null,
+        parentTaskId: task.parentTaskId ?? null,
+      })),
+      moving,
+    );
     await ctx.db.patch(milestone._id, { projectId: target._id });
     for (const taskId of moving) {
+      const task = tasks.find((item) => item._id === taskId);
+      if (task && task.projectId === target._id) continue;
       await ctx.db.patch(taskId as Id<'tasks'>, { projectId: target._id, portalProjectId: target._id });
     }
     const at = Date.now();
@@ -681,9 +703,10 @@ export const moveProject = adminMutation({
         from: fromName,
         to: target.name,
         at,
+        tasks: lanes,
       }),
     );
-    return { ok: true as const, wrote: true as const, movedTasks: moving.length };
+    return { ok: true as const, wrote: true as const, movedTasks: lanes };
   },
 });
 

@@ -540,6 +540,16 @@ export type MilestoneResourceView = {
   url: string | null;
 };
 
+const CLIENT_ROADMAP_OMIT = ['publishToWarehaus', 'approval', 'note', 'approverName', 'decidedAt', 'creator'] as const;
+
+/** Staff keep every field. Clients get a copy with the private keys removed, not nulled. */
+export function roadmapViewForAudience<T extends object>(view: T, audience: 'staff' | 'client'): T {
+  if (audience === 'staff') return view;
+  const next = { ...view } as T & Record<string, unknown>;
+  for (const key of CLIENT_ROADMAP_OMIT) delete next[key];
+  return next;
+}
+
 /** Review surface for one milestone. `countIsDecision` is always false. */
 export type MilestoneRoadmapView = {
   id: string;

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { Id } from '@convex/_generated/dataModel';
 import {
   DETAIL_STATUS_LABEL,
@@ -19,6 +19,7 @@ import {
   type MilestoneStage,
 } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
+import { dialogTabBoundary, focusShouldReturnToDialog, isolateOutsideDialog } from './milestoneGuards';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { FieldLabel, FieldValue, Panel } from './milestoneChrome';
@@ -108,11 +109,16 @@ export function useMilestoneDetailEdits({
   );
   const [projectQuery, setProjectQuery] = useState('');
   const [projectNameLocal, setProjectNameLocal] = useState(projectName);
+  const pending = useRef<{ status: MilestoneDetailStatus | null; stage: MilestoneStage | null; project: MoveTarget | null }>({
+    status: null,
+    stage: null,
+    project: null,
+  });
   const shownStage = preview === 'locked' ? 'Awaiting Go' : stageLabel(milestone);
   const shownStatus = statusLabel(milestone);
   const stageNow = preview === 'locked' ? 'Awaiting Go' : effectiveStage(milestone);
   const stageLocked = staff && stageNow === 'Awaiting Go' && !peter;
-  const taskCount = milestone.openCount + milestone.doneCount;
+  const taskCount = milestone.rows.length;
 
   useEffect(() => {
     setReady(true);
@@ -176,6 +182,7 @@ export function useMilestoneDetailEdits({
     const decision = detailStatusDecision({ from: effectiveDetailStatus(milestone), to: status });
     setOverlay(null);
     if (!decision.ok || !decision.wrote) return;
+    pending.current.status = decision.status;
     if (fixtures) {
       const workStatus = workStatusForDetail(decision.status);
       onFixture({
@@ -203,6 +210,7 @@ export function useMilestoneDetailEdits({
       return;
     }
     setOverlay(null);
+    pending.current.stage = stage;
     if (fixtures) {
       onFixture({ stage });
       setTone((current) => ({ ...current, stage: 'saved' }));
@@ -235,6 +243,7 @@ export function useMilestoneDetailEdits({
   };
 
   const confirmMove = (target: MoveTarget) => {
+    pending.current.project = target;
     if (target.id === currentProjectId) {
       setOverlay(null);
       return;
@@ -260,9 +269,13 @@ export function useMilestoneDetailEdits({
       })
       .catch(() => {
         setTone((current) => ({ ...current, project: 'error' }));
+        setFieldError('Couldn’t move.');
         setConfirmError('Couldn’t move the milestone. Nothing changed. Try again.');
+        setOverlay(null);
       });
   };
+
+  const shown = suspended ? null : overlay;
 
   const filteredTargets = moveTargets.filter((target) => {
     const query = projectQuery.trim().toLowerCase();
@@ -283,17 +296,21 @@ export function useMilestoneDetailEdits({
               valueTestId="milestone-work-status"
               label={shownStatus}
               tone={tone.status}
-              open={overlay?.kind === 'status'}
-              onClick={() => openOverlay(overlay?.kind === 'status' ? null : { kind: 'status' })}
+              open={shown?.kind === 'status'}
+              onClick={() => openOverlay(shown?.kind === 'status' ? null : { kind: 'status' })}
             />
           ) : (
             <FieldValue>
               <span data-testid="milestone-work-status">{shownStatus}</span>
             </FieldValue>
           )}
-          {tone.status === 'error' && fieldError ? <FieldError text={fieldError} onRetry={() => pickStatus(effectiveDetailStatus(milestone) === 'draft' ? 'in_progress' : 'draft')} /> : null}
-          {overlay?.kind === 'status' && !phone ? (
-            <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} />
+          {tone.status === 'error' && fieldError ? (
+            <FieldError testId="milestone-status-retry" text={fieldError} onRetry={() => { const status = pending.current.status; if (status) pickStatus(status); }} />
+          ) : null}
+          {shown?.kind === 'status' && !phone ? (
+            <Popover>
+              <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} />
+            </Popover>
           ) : null}
         </DetailRow>
         <DetailRow label="STAGE">
@@ -303,11 +320,11 @@ export function useMilestoneDetailEdits({
               valueTestId="milestone-stage"
               label={shownStage}
               tone={tone.stage}
-              open={overlay?.kind === 'stage'}
+              open={shown?.kind === 'stage'}
               locked={stageLocked}
               onClick={() => {
                 if (stageLocked) return;
-                openOverlay(overlay?.kind === 'stage' ? null : { kind: 'stage' });
+                openOverlay(shown?.kind === 'stage' ? null : { kind: 'stage' });
               }}
             />
           ) : (
@@ -320,9 +337,13 @@ export function useMilestoneDetailEdits({
               Waiting on Peter’s go · only Peter changes it from here
             </p>
           ) : null}
-          {tone.stage === 'error' && fieldError ? <FieldError text={fieldError} onRetry={() => pickStage('Planning')} /> : null}
-          {overlay?.kind === 'stage' && !phone ? (
-            <StageMenu peter={peter} current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} />
+          {tone.stage === 'error' && fieldError ? (
+            <FieldError testId="milestone-stage-retry" text={fieldError} onRetry={() => { const stage = pending.current.stage; if (stage) pickStage(stage); }} />
+          ) : null}
+          {shown?.kind === 'stage' && !phone ? (
+            <Popover>
+              <StageMenu peter={peter} current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} />
+            </Popover>
           ) : null}
         </DetailRow>
         {clientSeesDetailsRow('owner', staff) ? (
@@ -356,28 +377,32 @@ export function useMilestoneDetailEdits({
               valueTestId="milestone-project"
               label={projectNameLocal}
               tone={tone.project}
-              open={overlay?.kind === 'project' || overlay?.kind === 'confirm-move'}
-              onClick={() => openOverlay(overlay?.kind === 'project' ? null : { kind: 'project' })}
+              open={shown?.kind === 'project' || shown?.kind === 'confirm-move'}
+              onClick={() => openOverlay(shown?.kind === 'project' ? null : { kind: 'project' })}
             />
           ) : (
             <FieldValue>
               <span data-testid="milestone-project">{projectNameLocal}</span>
             </FieldValue>
           )}
-          {tone.project === 'error' && fieldError ? <FieldError text={fieldError} onRetry={() => { const target = moveTargets[0]; if (target) confirmMove(target); }} /> : null}
-          {overlay?.kind === 'project' && !phone ? (
-            <ProjectMenu
-              query={projectQuery}
-              onQuery={setProjectQuery}
-              targets={filteredTargets}
-              currentName={projectNameLocal}
-              onPick={(target) => {
-                setTone((current) => ({ ...current, project: 'pending' }));
-                openOverlay({ kind: 'confirm-move', projectId: target.id, projectName: target.name });
-              }}
-              onClose={() => closeOverlay(true)}
-              onLoadMore={onLoadMoreTargets}
-            />
+          {tone.project === 'error' && fieldError ? (
+            <FieldError testId="milestone-project-retry" text={fieldError} onRetry={() => { const target = pending.current.project; if (target) confirmMove(target); }} />
+          ) : null}
+          {shown?.kind === 'project' && !phone ? (
+            <Popover up>
+              <ProjectMenu
+                query={projectQuery}
+                onQuery={setProjectQuery}
+                targets={filteredTargets}
+                currentName={projectNameLocal}
+                onPick={(target) => {
+                  setTone((current) => ({ ...current, project: 'pending' }));
+                  openOverlay({ kind: 'confirm-move', projectId: target.id, projectName: target.name });
+                }}
+                onClose={() => closeOverlay(true)}
+                onLoadMore={onLoadMoreTargets}
+              />
+            </Popover>
           ) : null}
         </DetailRow>
         {clientSeesDetailsRow('visibility', staff) ? (
@@ -385,12 +410,15 @@ export function useMilestoneDetailEdits({
             <ValueButton
               testId="milestone-visibility-edit"
               valueTestId="milestone-publish"
-              label={milestone.publishToWarehaus ? 'Shared with client' : 'Not published'}
+              label={milestone.publishToWarehaus ? 'Published' : 'Not published'}
               tone={tone.visibility}
-              open={overlay?.kind === 'visibility' || overlay?.kind === 'confirm-publish' || overlay?.kind === 'confirm-unpublish'}
-              onClick={() => openOverlay(overlay?.kind === 'visibility' ? null : { kind: 'visibility' })}
+              open={shown?.kind === 'visibility' || shown?.kind === 'confirm-publish' || shown?.kind === 'confirm-unpublish'}
+              onClick={() => openOverlay(shown?.kind === 'visibility' ? null : { kind: 'visibility' })}
             />
-            {overlay?.kind === 'visibility' && !phone ? (
+            <p data-testid="milestone-visibility-note" style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+              Staff only · clients see nothing
+            </p>
+            {shown?.kind === 'visibility' && !phone ? (
               <VisibilitySegment
                 published={milestone.publishToWarehaus}
                 onPick={(publish) => {
@@ -403,17 +431,17 @@ export function useMilestoneDetailEdits({
                 }}
               />
             ) : null}
-            {tone.visibility === 'error' && fieldError ? <FieldError text={fieldError} onRetry={askPublish} /> : null}
+            {tone.visibility === 'error' && fieldError ? <FieldError testId="milestone-visibility-retry" text={fieldError} onRetry={askPublish} /> : null}
           </DetailRow>
         ) : null}
-        {milestone.approval !== 'unreviewed' ? (
+        {clientSeesDetailsRow('approval', staff) && milestone.approval && milestone.approval !== 'unreviewed' ? (
           <DetailRow label="APPROVAL" wide>
             <FieldValue>
               <span data-testid="milestone-approval">{APPROVAL_LABEL[milestone.approval]}</span>
             </FieldValue>
           </DetailRow>
         ) : null}
-        {reviewLine ? (
+        {clientSeesDetailsRow('review', staff) && reviewLine ? (
           <DetailRow label="LAST REVIEW" wide>
             <FieldValue>
               <span data-testid="milestone-last-review">{reviewLine}</span>
@@ -429,20 +457,20 @@ export function useMilestoneDetailEdits({
     </Panel>
   ) : null;
 
-  const sheet = overlay && (phone || isConfirm(overlay)) ? (
+  const sheet = shown && (phone || isConfirm(shown)) ? (
     <DetailsModal
       phone={phone}
-      title={modalTitle(overlay, milestone.name)}
+      title={modalTitle(shown, milestone.name)}
       testId="milestone-details-modal"
       onClose={() => closeOverlay(true)}
     >
-      {overlay.kind === 'stage' ? (
+      {shown.kind === 'stage' ? (
         <StageMenu peter={peter} current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} sheet />
       ) : null}
-      {overlay.kind === 'status' ? (
+      {shown.kind === 'status' ? (
         <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
       ) : null}
-      {overlay.kind === 'project' ? (
+      {shown.kind === 'project' ? (
         <ProjectMenu
           query={projectQuery}
           onQuery={setProjectQuery}
@@ -457,7 +485,7 @@ export function useMilestoneDetailEdits({
           onLoadMore={onLoadMoreTargets}
         />
       ) : null}
-      {overlay.kind === 'visibility' ? (
+      {shown.kind === 'visibility' ? (
         <VisibilityList
           published={milestone.publishToWarehaus}
           onPick={(publish) => {
@@ -471,7 +499,7 @@ export function useMilestoneDetailEdits({
           onClose={() => closeOverlay(true)}
         />
       ) : null}
-      {overlay.kind === 'confirm-publish' ? (
+      {shown.kind === 'confirm-publish' ? (
         <ConfirmPublish
           milestoneName={milestone.name}
           clientName={clientName}
@@ -482,7 +510,7 @@ export function useMilestoneDetailEdits({
           onConfirm={() => confirmPublish(true)}
         />
       ) : null}
-      {overlay.kind === 'confirm-unpublish' ? (
+      {shown.kind === 'confirm-unpublish' ? (
         <ConfirmUnpublish
           milestoneName={milestone.name}
           busy={tone.visibility === 'saving'}
@@ -491,18 +519,18 @@ export function useMilestoneDetailEdits({
           onConfirm={() => confirmPublish(false)}
         />
       ) : null}
-      {overlay.kind === 'confirm-move' ? (
+      {shown.kind === 'confirm-move' ? (
         <ConfirmMove
           milestoneName={milestone.name}
           fromName={projectName}
-          toName={overlay.projectName}
+          toName={shown.projectName}
           taskCount={taskCount}
           doneCount={milestone.doneCount}
           published={milestone.publishToWarehaus}
           busy={tone.project === 'saving'}
           error={confirmError}
           onCancel={() => closeOverlay(true)}
-          onConfirm={() => confirmMove({ id: overlay.projectId, name: overlay.projectName })}
+          onConfirm={() => confirmMove({ id: shown.projectId, name: shown.projectName })}
         />
       ) : null}
     </DetailsModal>
@@ -542,18 +570,11 @@ function initialTone(preview: string | null): Record<FieldKey, FieldTone> {
 }
 
 function statusLabel(milestone: MilestoneRoadmapView): string {
-  if (milestone.detailStatus) return detailStatusLabel(milestone.detailStatus);
-  if (milestone.approval === 'approved') return 'Approved';
-  if (milestone.workStatus === 'draft') return 'Draft';
-  if (milestone.workStatus === 'ready') return 'Ready for review';
-  return 'In progress';
+  return detailStatusLabel(effectiveDetailStatus(milestone));
 }
 
 function stageLabel(milestone: MilestoneRoadmapView): string {
-  if (milestone.stage) return milestone.stage;
-  if (milestone.approval === 'approved') return 'Shipped';
-  if (milestone.workStatus === 'draft') return 'Planning';
-  return 'Building';
+  return effectiveStage(milestone);
 }
 
 function formatCreated(createdAt: number | null | undefined): string {
@@ -574,7 +595,7 @@ function modalTitle(overlay: DetailsOverlay, name: string): string {
 
 function DetailRow({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) {
   return (
-    <div className={wide ? 'col-span-2 lg:col-span-1' : undefined}>
+    <div className={`relative ${wide ? 'col-span-2 lg:col-span-1' : ''}`}>
       <FieldLabel>{label}</FieldLabel>
       {children}
     </div>
@@ -604,12 +625,12 @@ function ValueButton({
       data-testid={testId}
       disabled={locked}
       onClick={onClick}
-      className="group mt-1 flex w-full items-center gap-2 rounded-lg text-left focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2"
+      className="group mt-1 flex w-full items-center gap-2 rounded-lg bg-transparent text-left hover:bg-[var(--surface-2)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2"
       style={{
         minHeight: 32,
         padding: '4px 8px',
         border: locked ? '1px dashed var(--border-2)' : open ? '1px solid var(--accent)' : '1px solid transparent',
-        background: 'transparent',
+        background: open ? 'var(--surface-2)' : undefined,
         color: 'var(--fg)',
         font: 'inherit',
         fontSize: 14,
@@ -625,7 +646,6 @@ function ValueButton({
           Saved
         </span>
       ) : null}
-      {tone === 'pending' ? <ToneText>Confirm…</ToneText> : null}
       {tone === 'discarded' ? <ToneText>Change discarded</ToneText> : null}
       {locked ? (
         <span className="ml-auto text-[var(--muted)]" aria-hidden>
@@ -644,11 +664,11 @@ function ToneText({ children }: { children: string }) {
   return <span style={{ color: 'var(--muted)', fontSize: 12, lineHeight: '18px' }}>{children}</span>;
 }
 
-function FieldError({ text, onRetry }: { text: string; onRetry: () => void }) {
+function FieldError({ text, onRetry, testId }: { text: string; onRetry: () => void; testId: string }) {
   return (
     <p role="alert" data-testid="milestone-details-error" style={{ marginTop: 6, fontSize: 13, lineHeight: '18px', color: 'var(--danger-text)' }}>
       <TaskGlyph src="/icons/docs-alert.svg" size={12} /> {text}{' '}
-      <button type="button" onClick={onRetry} style={{ color: 'var(--danger-text)', background: 'none', border: 0, padding: 0, font: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}>
+      <button type="button" data-testid={testId} onClick={onRetry} style={{ color: 'var(--danger-text)', background: 'none', border: 0, padding: 0, font: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}>
         Retry
       </button>
     </p>
@@ -683,6 +703,7 @@ function StageMenu({
       onKeyDown={(event) => menuKey(event, onClose)}
       style={menuStyle(sheet)}
     >
+      {sheet ? <SheetHeader title="Stage" onClose={onClose} /> : null}
       {MILESTONE_STAGES.map((stage) => {
         const lock = stageOptionLock({ stage, peter });
         const selected = stage === current;
@@ -708,7 +729,7 @@ function StageMenu({
               cursor: lock ? 'not-allowed' : 'pointer',
             }}
           >
-            <span className="min-w-0 flex-1">{stage}</span>
+            <span className="whitespace-nowrap">{stage}</span>
             {lock === 'peter' ? <Tag>PETER’S CALL</Tag> : null}
             {lock === 'shipped' ? <Tag>AFTER DEPLOY MAIN</Tag> : null}
             {lock ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
@@ -736,6 +757,7 @@ function StatusMenu({
 }) {
   return (
     <div role="listbox" aria-label="Status" data-testid="milestone-status-menu" onKeyDown={(event) => menuKey(event, onClose)} style={menuStyle(sheet)}>
+      {sheet ? <SheetHeader title="Status" onClose={onClose} /> : null}
       {MILESTONE_DETAIL_STATUSES.map((status) => {
         const selected = status === current;
         return (
@@ -758,7 +780,7 @@ function StatusMenu({
               cursor: 'pointer',
             }}
           >
-            <span className="flex-1">{DETAIL_STATUS_LABEL[status]}</span>
+            <span className="whitespace-nowrap">{DETAIL_STATUS_LABEL[status]}</span>
             {selected ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
           </button>
         );
@@ -791,6 +813,7 @@ function ProjectMenu({
 }) {
   return (
     <div data-testid="milestone-project-menu" onKeyDown={(event) => menuKey(event, onClose)} style={menuStyle(sheet, 360)}>
+      {sheet ? <SheetHeader title="Project" onClose={onClose} /> : null}
       <input
         aria-label="Search projects"
         value={query}
@@ -889,6 +912,7 @@ function VisibilityList({
   return (
     <div data-testid="milestone-visibility-sheet" onKeyDown={(event) => menuKey(event, onClose)} style={{ padding: 16 }}>
       <h2 style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600 }}>Visibility</h2>
+      <p style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>Staff only · clients see nothing</p>
       <div className="mt-3 flex flex-col gap-1">
         <SegmentButton selected={!published} onClick={() => onPick(false)}>Not published</SegmentButton>
         <SegmentButton selected={published} onClick={() => onPick(true)}>Published</SegmentButton>
@@ -910,24 +934,87 @@ function DetailsModal({
   onClose: () => void;
   children: ReactNode;
 }) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useEffect(() => {
+    const overlay = overlayRef.current;
+    const node = dialogRef.current;
+    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const release = overlay ? isolateOutsideDialog(overlay) : () => undefined;
+    const focusable = () => {
+      if (!node || typeof node.querySelectorAll !== 'function') return [] as HTMLElement[];
+      return [...node.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href]')].filter(
+        (element) => !element.hasAttribute('disabled'),
+      );
+    };
+    const first = focusable()[0] ?? node;
+    if (first && typeof first.focus === 'function') first.focus({ preventScroll: true });
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        onCloseRef.current();
+        return;
+      }
+      if (event.key !== 'Tab' || !node) return;
+      const items = focusable();
+      if (items.length === 0) return;
+      const boundary = dialogTabBoundary({
+        shiftKey: event.shiftKey,
+        atFirst: document.activeElement === items[0],
+        atLast: document.activeElement === items[items.length - 1],
+      });
+      if (boundary === 'first') {
+        event.preventDefault();
+        items[0]?.focus({ preventScroll: true });
+      } else if (boundary === 'last') {
+        event.preventDefault();
+        items[items.length - 1]?.focus({ preventScroll: true });
+      }
+    };
+    const onFocusIn = (event: FocusEvent) => {
+      if (!overlay || typeof overlay.contains !== 'function') return;
+      const target = event.target;
+      const inside = target instanceof Node && overlay.contains(target);
+      if (!focusShouldReturnToDialog({ targetInsideDialog: inside })) return;
+      const next = focusable()[0] ?? node;
+      if (next && typeof next.focus === 'function') next.focus({ preventScroll: true });
+    };
+    document.addEventListener('keydown', onKey);
+    document.addEventListener('focusin', onFocusIn);
+    return () => {
+      document.removeEventListener('keydown', onKey);
+      document.removeEventListener('focusin', onFocusIn);
+      release();
+      if (previous && typeof previous.focus === 'function') previous.focus({ preventScroll: true });
+    };
+  }, []);
   return (
     <div
+      ref={overlayRef}
       role="presentation"
       data-testid="milestone-details-scrim"
       className={phone ? 'fixed inset-0 flex items-end' : 'fixed inset-0 flex items-center justify-center p-4'}
-      style={{ zIndex: 80, background: 'rgba(0, 0, 0, 0.10)', backdropFilter: 'blur(40px)', WebkitBackdropFilter: 'blur(40px)' }}
+      style={{ zIndex: 80, background: 'var(--scrim)', backdropFilter: 'blur(var(--scrim-blur))', WebkitBackdropFilter: 'blur(var(--scrim-blur))' }}
       onClick={onClose}
       onKeyDown={(event) => {
         if (event.key === 'Escape') onClose();
       }}
     >
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}
         data-testid={testId}
         tabIndex={-1}
         onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation();
+            onClose();
+          }
+        }}
         style={
           phone
             ? {
@@ -1108,12 +1195,10 @@ function ConfirmUnpublish(props: {
   );
 }
 
-function menuStyle(sheet?: boolean, width = 320): CSSProperties {
-  if (sheet) return { padding: 12 };
+function menuStyle(sheet?: boolean, _width = 400): CSSProperties {
+  if (sheet) return { padding: '4px 12px 12px' };
   return {
-    marginTop: 8,
-    width,
-    maxWidth: '100%',
+    width: '100%',
     padding: 6,
     background: 'var(--surface)',
     border: '1px solid var(--border-2)',
@@ -1122,9 +1207,65 @@ function menuStyle(sheet?: boolean, width = 320): CSSProperties {
   };
 }
 
+function Popover({ up, children }: { up?: boolean; children: ReactNode }) {
+  const ref = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const node = ref.current;
+    const anchor = node?.parentElement;
+    if (!node || !anchor || typeof anchor.getBoundingClientRect !== 'function') return;
+    const place = () => {
+      const rect = anchor.getBoundingClientRect();
+      const width = up ? 360 : 400;
+      node.style.position = 'fixed';
+      node.style.width = `${width}px`;
+      node.style.left = `${Math.max(16, rect.right - width)}px`;
+      node.style.zIndex = '40';
+      if (up) {
+        node.style.top = 'auto';
+        node.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+      } else {
+        node.style.bottom = 'auto';
+        node.style.top = `${rect.bottom + 8}px`;
+      }
+    };
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [up]);
+  return (
+    <div
+      ref={ref}
+      className="absolute z-30"
+      style={up ? { right: 0, bottom: 'calc(100% + 8px)', width: 360 } : { right: 0, top: 'calc(100% + 8px)', width: 400 }}
+    >
+      {children}
+    </div>
+  );
+}
+
+function SheetHeader({ title, onClose }: { title: string; onClose: () => void }) {
+  return (
+    <div className="mb-1 flex items-center px-2 py-2">
+      <h2 style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600 }}>{title}</h2>
+      <button
+        type="button"
+        onClick={onClose}
+        className="ml-auto"
+        style={{ background: 'none', border: 0, color: 'var(--muted)', font: 'inherit', fontSize: 14, cursor: 'pointer' }}
+      >
+        Close
+      </button>
+    </div>
+  );
+}
+
 function Tag({ children }: { children: string }) {
   return (
-    <span style={{ border: '1px solid var(--border-2)', borderRadius: 999, padding: '3px 8px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+    <span style={{ flexShrink: 0, border: '1px solid var(--border-2)', borderRadius: 999, padding: '3px 8px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
       {children}
     </span>
   );

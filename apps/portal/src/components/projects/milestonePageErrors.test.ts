@@ -196,6 +196,79 @@ describe('milestone page mutation errors', () => {
       root?.unmount();
     });
   });
+
+  it('retries the status, stage, and project the person picked', async () => {
+    const document = installDom();
+    const calls: string[] = [];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let root: Root | null = null;
+    const times = (prefix: string) => calls.filter((call) => call.startsWith(prefix)).length;
+    await act(async () => {
+      root = createRoot(container as unknown as Element);
+      root.render(
+        createElement(MilestoneDetailView, {
+          milestone,
+          project: { id: 'p-site', name: 'Northwind site' },
+          tasks: [],
+          staff: true,
+          fixtures: false,
+          viewerEmail: 'alex@warehaus.co',
+          moveTargets: [
+            { id: 'p-other', name: 'Other project' },
+            { id: 'p-shipped', name: 'Northwind brand' },
+          ],
+          resourceChoices: [],
+          onBack: () => undefined,
+          onFixture: () => undefined,
+          mutations: {
+            decide: async () => undefined,
+            decideAsClient: async () => undefined,
+            save: async () => undefined,
+            setWorkStatus: async () => undefined,
+            setPublish: async () => undefined,
+            setDetailStatus: async (args) => {
+              calls.push(`status:${args.detailStatus}`);
+              if (times('status:') === 1) throw new Error('save');
+            },
+            setStage: async (args) => {
+              calls.push(`stage:${args.stage}`);
+              if (times('stage:') === 1) throw new Error('save');
+            },
+            moveProject: async (args) => {
+              calls.push(`move:${args.projectId}`);
+              if (times('move:') === 1) throw new Error('move');
+            },
+            attachTask: async () => undefined,
+            detachTask: async () => undefined,
+          },
+        }),
+      );
+    });
+
+    await click(findByTestId(container, 'milestone-stage-edit'));
+    await click(findOption(container, 'Parked'));
+    assert.deepEqual(calls, ['stage:Parked']);
+    await click(findByTestId(container, 'milestone-stage-retry'));
+    assert.deepEqual(calls, ['stage:Parked', 'stage:Parked']);
+
+    await click(findByTestId(container, 'milestone-status-edit'));
+    await click(findOption(container, 'Draft'));
+    assert.deepEqual(calls, ['stage:Parked', 'stage:Parked', 'status:draft']);
+    await click(findByTestId(container, 'milestone-status-retry'));
+    assert.deepEqual(calls, ['stage:Parked', 'stage:Parked', 'status:draft', 'status:draft']);
+
+    await click(findByTestId(container, 'milestone-project-edit'));
+    await click(findButton(container, 'Northwind brand'));
+    await click(findByTestId(container, 'milestone-confirm-submit'));
+    assert.deepEqual(calls.filter((call) => call.startsWith('move:')), ['move:p-shipped']);
+    await click(findByTestId(container, 'milestone-project-retry'));
+    assert.deepEqual(calls.filter((call) => call.startsWith('move:')), ['move:p-shipped', 'move:p-shipped']);
+
+    await act(async () => {
+      root?.unmount();
+    });
+  });
 });
 
 async function click(node: TestNode | null) {

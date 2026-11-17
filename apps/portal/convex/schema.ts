@@ -168,6 +168,7 @@ export default defineSchema({
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])
     .index('by_orgId_milestoneId', ['orgId', 'milestoneId'])
+    .index('by_parentTaskId', ['parentTaskId'])
     .index('by_notionPageId', ['notionPageId'])
     .index('by_externalId', ['externalId'])
     .index('by_projectId', ['projectId'])

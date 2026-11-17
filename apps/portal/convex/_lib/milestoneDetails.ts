@@ -61,14 +61,17 @@ export function isDetailStatus(value: string): value is MilestoneDetailStatus {
   return STATUS_SET.has(value);
 }
 
-/** Stored stage, or the same label the detail page already derived. */
+/**
+ * Stored stage wins, including Shipped. Shipped is never derived. An approved
+ * milestone with no stored stage is Ready to Ship, which is still Peter's call.
+ */
 export function effectiveStage(input: {
   stage?: string | null;
   workStatus: MilestoneWorkStatus;
   approval: string;
 }): MilestoneStage {
   if (input.stage && isMilestoneStage(input.stage)) return input.stage;
-  if (input.approval === 'approved') return 'Shipped';
+  if (input.approval === 'approved') return 'Ready to Ship';
   if (input.workStatus === 'draft') return 'Planning';
   return 'Building';
 }
@@ -88,12 +91,21 @@ export function detailStatusLabel(status: MilestoneDetailStatus): string {
   return DETAIL_STATUS_LABEL[status];
 }
 
-/** Work status kept in step with the picker. Complete does not invent a fourth work status. */
+/**
+ * Work status kept in step with the picker. Complete does not invent a fourth
+ * work status. In review sets work status ready. It never sets a protocol stage,
+ * so it cannot land on Ready to Ship.
+ */
 export function workStatusForDetail(status: MilestoneDetailStatus): MilestoneWorkStatus | null {
   if (status === 'draft') return 'draft';
   if (status === 'in_progress') return 'active';
   if (status === 'in_review') return 'ready';
   return null;
+}
+
+/** A work-status write. The patch has no stage. */
+export function workStatusWrite(workStatus: MilestoneWorkStatus): { workStatus: MilestoneWorkStatus } {
+  return { workStatus };
 }
 
 export function stageOptionLock(input: { stage: MilestoneStage; peter: boolean }): 'peter' | 'shipped' | null {
@@ -128,11 +140,11 @@ export function detailStatusDecision(input: {
   from: MilestoneDetailStatus;
   to: string;
 }):
-  | { ok: true; status: MilestoneDetailStatus; wrote: boolean; workStatus: MilestoneWorkStatus | null }
+  | { ok: true; status: MilestoneDetailStatus; wrote: boolean; workStatus: MilestoneWorkStatus | null; stage: null }
   | { ok: false; reason: string } {
   if (!isDetailStatus(input.to)) return { ok: false, reason: 'Unknown status' };
-  if (input.to === input.from) return { ok: true, status: input.to, wrote: false, workStatus: null };
-  return { ok: true, status: input.to, wrote: true, workStatus: workStatusForDetail(input.to) };
+  if (input.to === input.from) return { ok: true, status: input.to, wrote: false, workStatus: null, stage: null };
+  return { ok: true, status: input.to, wrote: true, workStatus: workStatusForDetail(input.to), stage: null };
 }
 
 export function publishChangeDecision(from: boolean, to: boolean): { wrote: boolean } {
@@ -166,6 +178,8 @@ export function detailActivitySummary(input: {
   from: string;
   to: string;
   at: number;
+  /** Lane count, the same number the Tasks tab shows. Omit for other activity. */
+  tasks?: number;
 }): string {
   const when = new Intl.DateTimeFormat('en-US', {
     timeZone: 'America/New_York',
@@ -175,7 +189,8 @@ export function detailActivitySummary(input: {
     hour: 'numeric',
     minute: '2-digit',
   }).format(input.at);
-  return `${input.actor} · ${input.from} → ${input.to} · ${when} ET`;
+  const tasks = input.tasks == null ? '' : ` · ${input.tasks === 1 ? '1 task' : `${input.tasks} tasks`}`;
+  return `${input.actor} · ${input.from} → ${input.to}${tasks} · ${when} ET`;
 }
 
 export type MoveTask = {
@@ -209,6 +224,16 @@ export function taskIdsToMove(input: {
 }
 
 /**
+ * Tasks that count on the Tasks tab: a parent, or a task whose parent is not
+ * in this set. Subtasks nested under a moved parent are not a second lane.
+ */
+export function movedLaneCount(tasks: readonly MoveTask[], movingIds: readonly string[]): number {
+  const moving = new Set(movingIds);
+  const ids = new Set(tasks.map((task) => task.id));
+  return tasks.filter((task) => moving.has(task.id) && (!task.parentTaskId || !ids.has(task.parentTaskId))).length;
+}
+
+/**
  * A portal project move must survive the next Notion pull. Tasks.Projects is
  * SERVER, so the pull is not turned into a Notion write. Once Notion shows
  * the same project, the hold clears and later pulls can move the task again.
@@ -226,8 +251,11 @@ export function heldTaskProjectId<T extends string>(input: {
   return { projectId: input.incoming, clearHold: false };
 }
 
-/** Clients never see Creator or Visibility. Every other details row is text. */
-export function clientSeesDetailsRow(row: 'creator' | 'visibility' | 'owner' | 'due' | 'created' | 'project' | 'status' | 'stage', staff: boolean): boolean {
-  if (row === 'creator' || row === 'visibility') return staff;
+/** Clients never see Creator, Visibility, Approval, or Last review. */
+export function clientSeesDetailsRow(
+  row: 'creator' | 'visibility' | 'approval' | 'review' | 'owner' | 'due' | 'created' | 'project' | 'status' | 'stage',
+  staff: boolean,
+): boolean {
+  if (row === 'creator' || row === 'visibility' || row === 'approval' || row === 'review') return staff;
   return true;
 }

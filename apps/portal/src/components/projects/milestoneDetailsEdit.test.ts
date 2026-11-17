@@ -29,10 +29,10 @@ const milestone = {
   createdAt: Date.UTC(2026, 10, 2),
 } as MilestoneRoadmapView;
 
-function view(input: { staff: boolean; preview?: string; email?: string }): string {
+function view(input: { staff: boolean; preview?: string; email?: string; milestone?: MilestoneRoadmapView }): string {
   return renderToStaticMarkup(
     createElement(MilestoneDetailView, {
-      milestone,
+      milestone: input.milestone ?? milestone,
       project: { id: 'p-site', name: 'Northwind site', clientName: 'Northwind' },
       tasks: [],
       staff: input.staff,
@@ -60,7 +60,7 @@ function view(input: { staff: boolean; preview?: string; email?: string }): stri
 }
 
 function stageOption(html: string, label: string): string {
-  const match = html.match(new RegExp(`<button type="button" role="option"[^>]*>[\\s\\S]*?<span class="min-w-0 flex-1">${label}</span>[\\s\\S]*?</button>`));
+  const match = html.match(new RegExp(`<button type="button" role="option"[^>]*>[\\s\\S]*?<span class="whitespace-nowrap">${label}</span>[\\s\\S]*?</button>`));
   return match?.[0] ?? '';
 }
 
@@ -86,6 +86,10 @@ describe('milestone details panel', () => {
     assert.equal(client.includes('data-testid="milestone-stage-edit"'), false);
     assert.equal(client.includes('data-testid="milestone-project-edit"'), false);
     assert.equal(client.includes('Staff only'), false);
+    assert.equal(client.includes('Review milestone'), false);
+    assert.equal(client.includes('milestone-review-action'), false);
+    assert.match(staff, /Review milestone/);
+    assert.match(staff, /Staff only · clients see nothing/);
     assert.match(client, /data-testid="milestone-work-status"/);
     assert.match(client, /data-testid="milestone-project"/);
   });
@@ -126,8 +130,8 @@ describe('milestone details panel', () => {
     assert.match(publish, /data-testid="milestone-details-scrim"/);
     assert.match(publish, /Publish to client\?/);
     assert.match(publish, /data-testid="milestone-confirm-submit"/);
-    assert.match(publish, /rgba\(0, 0, 0, 0\.10\)/);
-    assert.match(publish, /blur\(40px\)/);
+    assert.match(publish, /var\(--scrim\)/);
+    assert.match(publish, /blur\(var\(--scrim-blur\)\)/);
     assert.match(publish, /border-radius:28px/);
 
     const move = view({ staff: true, preview: 'move' });
@@ -142,5 +146,40 @@ describe('milestone details panel', () => {
     assert.match(error, /data-testid="milestone-details-error"/);
     assert.match(error, /color:var\(--danger-text\)/);
     assert.match(error, /Couldn’t move the milestone/);
+  });
+
+  it('counts the same task lanes the Tasks tab shows', () => {
+    const html = view({
+      staff: true,
+      preview: 'move',
+      milestone: {
+        ...milestone,
+        openCount: 2,
+        doneCount: 1,
+        rows: [
+          { id: 'a', name: 'One', status: 'To Do', isDone: false, stage: null, resourceCount: 0, children: [{ id: 'c', name: 'Sub', status: 'To Do', isDone: false, stage: null, resourceCount: 0 }] },
+          { id: 'b', name: 'Two', status: 'Done', isDone: true, stage: null, resourceCount: 0, children: [] },
+        ],
+      },
+    });
+    assert.match(html, /2 tasks/);
+    assert.equal(html.includes('3 tasks'), false);
+  });
+
+  it('hides approval and the review button from a client', () => {
+    const html = view({
+      staff: false,
+      milestone: {
+        ...milestone,
+        approval: 'approved',
+        note: 'Ship it',
+        approverName: 'Peter',
+        decidedAt: Date.UTC(2026, 10, 1),
+        workStatus: 'ready',
+      },
+    });
+    assert.equal(html.includes('data-testid="milestone-approval"'), false);
+    assert.equal(html.includes('data-testid="milestone-last-review"'), false);
+    assert.equal(html.includes('Review milestone'), false);
   });
 });
