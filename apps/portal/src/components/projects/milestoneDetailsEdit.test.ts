@@ -1,0 +1,146 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import React, { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { textBlurSave } from '@convex/_lib/milestoneDetails';
+import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
+import { MilestoneDetailView } from './ProjectRoadmap';
+
+Object.assign(globalThis, { React });
+
+const idle = async () => undefined;
+
+const milestone = {
+  id: 'm-launch',
+  name: 'Launch the homepage',
+  objective: 'The homepage matches the approved frame and is ready to review.',
+  goals: ['Hero matches the approved frame'],
+  workStatus: 'active',
+  approval: 'unreviewed',
+  note: null,
+  approverName: null,
+  decidedAt: null,
+  publishToWarehaus: false,
+  resources: [],
+  openCount: 1,
+  doneCount: 0,
+  countIsDecision: false,
+  rows: [],
+  createdAt: Date.UTC(2026, 10, 2),
+} as MilestoneRoadmapView;
+
+function view(input: { staff: boolean; preview?: string; email?: string }): string {
+  return renderToStaticMarkup(
+    createElement(MilestoneDetailView, {
+      milestone,
+      project: { id: 'p-site', name: 'Northwind site', clientName: 'Northwind' },
+      tasks: [],
+      staff: input.staff,
+      fixtures: true,
+      preview: input.preview ?? null,
+      viewerEmail: input.email ?? 'alex@warehaus.co',
+      moveTargets: [{ id: 'p-shipped', name: 'Northwind brand' }],
+      resourceChoices: [],
+      onBack: () => undefined,
+      onFixture: () => undefined,
+      mutations: {
+        decide: idle,
+        decideAsClient: idle,
+        save: idle,
+        setWorkStatus: idle,
+        setPublish: idle,
+        setDetailStatus: idle,
+        setStage: idle,
+        moveProject: idle,
+        attachTask: idle,
+        detachTask: idle,
+      },
+    }),
+  );
+}
+
+function stageOption(html: string, label: string): string {
+  const match = html.match(new RegExp(`<button type="button" role="option"[^>]*>[\\s\\S]*?<span class="min-w-0 flex-1">${label}</span>[\\s\\S]*?</button>`));
+  return match?.[0] ?? '';
+}
+
+describe('milestone details panel', () => {
+  it('lets staff edit status, stage, project, and visibility, and hides those controls from clients', () => {
+    const staff = view({ staff: true });
+    assert.match(staff, /data-testid="milestone-status-edit"/);
+    assert.match(staff, /data-testid="milestone-stage-edit"/);
+    assert.match(staff, /data-testid="milestone-project-edit"/);
+    assert.match(staff, /data-testid="milestone-visibility-edit"/);
+    assert.match(staff, /data-testid="milestone-creator"/);
+    assert.match(staff, /Staff only/);
+    assert.match(staff, /data-testid="milestone-owner"[^>]*>—</);
+    assert.match(staff, /data-testid="milestone-due"[^>]*>—</);
+    assert.equal(staff.includes('<input'), false);
+    assert.match(staff, /<p data-testid="milestone-objective"/);
+
+    const client = view({ staff: false });
+    assert.equal(client.includes('data-testid="milestone-creator"'), false);
+    assert.equal(client.includes('data-testid="milestone-visibility-edit"'), false);
+    assert.equal(client.includes('data-testid="milestone-publish"'), false);
+    assert.equal(client.includes('data-testid="milestone-status-edit"'), false);
+    assert.equal(client.includes('data-testid="milestone-stage-edit"'), false);
+    assert.equal(client.includes('data-testid="milestone-project-edit"'), false);
+    assert.equal(client.includes('Staff only'), false);
+    assert.match(client, /data-testid="milestone-work-status"/);
+    assert.match(client, /data-testid="milestone-project"/);
+  });
+
+  it('locks Awaiting Go and Ready to Ship for staff who are not Peter', () => {
+    const menu = view({ staff: true, preview: 'stage' });
+    assert.match(menu, /data-testid="milestone-stage-menu"/);
+    assert.match(stageOption(menu, 'Awaiting Go'), /disabled=""/);
+    assert.match(stageOption(menu, 'Ready to Ship'), /disabled=""/);
+    assert.match(menu, /PETER’S CALL/);
+    assert.match(stageOption(menu, 'Shipped'), /AFTER DEPLOY MAIN/);
+
+    const peter = view({ staff: true, preview: 'stage-peter', email: 'peter@warehaus.studio' });
+    assert.doesNotMatch(stageOption(peter, 'Awaiting Go'), /disabled=""/);
+    assert.doesNotMatch(stageOption(peter, 'Ready to Ship'), /disabled=""/);
+    assert.match(stageOption(peter, 'Shipped'), /disabled=""/);
+  });
+
+  it('locks the whole stage field while the milestone is Awaiting Go', () => {
+    const html = view({ staff: true, preview: 'locked' });
+    assert.match(html, /data-testid="milestone-stage-locked"[^>]*disabled=""/);
+    assert.match(html, /dashed/);
+    assert.match(html, /Waiting on Peter’s go/);
+    assert.equal(html.includes('data-testid="milestone-stage-menu"'), false);
+  });
+
+  it('keeps title and description read-only and skips an unchanged blur', () => {
+    const html = view({ staff: true });
+    assert.match(html, /data-testid="milestone-name"/);
+    assert.equal(html.includes('<textarea'), false);
+    assert.equal(textBlurSave({ previous: 'Launch the homepage', next: 'Launch the homepage', escape: false }).action, 'skip');
+    assert.equal(textBlurSave({ previous: 'Launch the homepage', next: 'Launch', escape: false }).action, 'save');
+    assert.equal(textBlurSave({ previous: 'Launch the homepage', next: 'Launch', escape: true }).action, 'discard');
+  });
+
+  it('opens a publish confirm and a move confirm instead of writing immediately', () => {
+    const publish = view({ staff: true, preview: 'publish' });
+    assert.match(publish, /data-testid="milestone-details-scrim"/);
+    assert.match(publish, /Publish to client\?/);
+    assert.match(publish, /data-testid="milestone-confirm-submit"/);
+    assert.match(publish, /rgba\(0, 0, 0, 0\.10\)/);
+    assert.match(publish, /blur\(40px\)/);
+    assert.match(publish, /border-radius:28px/);
+
+    const move = view({ staff: true, preview: 'move' });
+    assert.match(move, /Move to Northwind brand\?/);
+    assert.match(move, /Nothing changes until you confirm/);
+
+    const unpublish = view({ staff: true, preview: 'unpublish' });
+    assert.match(unpublish, /Hide from client\?/);
+    assert.match(unpublish, />Unpublish</);
+
+    const error = view({ staff: true, preview: 'error' });
+    assert.match(error, /data-testid="milestone-details-error"/);
+    assert.match(error, /color:var\(--danger-text\)/);
+    assert.match(error, /Couldn’t move the milestone/);
+  });
+});

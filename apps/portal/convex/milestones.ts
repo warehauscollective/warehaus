@@ -40,6 +40,17 @@ import {
   type RoadmapTaskInput,
 } from './_lib/milestones';
 import {
+  detailActivitySummary,
+  detailStatusDecision,
+  detailStatusLabel,
+  effectiveDetailStatus,
+  effectiveStage,
+  projectMoveDecision,
+  publishChangeDecision,
+  stageChangeDecision,
+  taskIdsToMove,
+} from './_lib/milestoneDetails';
+import {
   MILESTONE_ONE_NAME,
   MILESTONE_ONE_OBJECTIVE,
   planMilestoneOne,
@@ -94,27 +105,14 @@ async function logMilestone(
   milestone: { _id: Id<'milestones'>; orgId: Id<'clients'>; projectId: Id<'projects'>; name: string },
   type: MilestoneActivityType,
   at: number,
+  summary?: string,
 ) {
   await writeMilestoneActivity(
-    ctx as {
-      db: {
-        insert: (
-          table: 'activity',
-          value: {
-            orgId: string;
-            projectId: string;
-            milestoneId: string;
-            name: string;
-            type: MilestoneActivityType;
-            tone: 'warn' | 'success' | 'accent';
-            timestamp: number;
-          },
-        ) => Promise<unknown>;
-      };
-    },
+    ctx as unknown as Parameters<typeof writeMilestoneActivity>[0],
     milestone,
     type,
     at,
+    summary,
   );
 }
 
@@ -287,6 +285,9 @@ async function toRoadmap(
     ...roadmapReviewForAudience(audience, milestone),
     approverName: audience === 'staff' ? (approver?.name ?? null) : null,
     publishToWarehaus: milestone.publishToWarehaus,
+    detailStatus: milestone.detailStatus ?? null,
+    stage: milestone.stage ?? null,
+    createdAt: milestone._creationTime,
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,
@@ -515,9 +516,10 @@ export const setWorkStatus = adminMutation({
       to: args.workStatus,
     });
     if (!status.ok) fail(status.reason);
+    if (milestone.workStatus === status.workStatus) return { ok: true as const, wrote: false as const };
     await ctx.db.patch(milestone._id, { workStatus: status.workStatus });
     if (status.activityType) await logMilestone(ctx, milestone, status.activityType, Date.now());
-    return { ok: true as const };
+    return { ok: true as const, wrote: true as const };
   },
 });
 
@@ -527,8 +529,178 @@ export const setPublish = adminMutation({
     const milestone = await loadMilestone(ctx, args.milestoneId);
     const published = publishDecision({ actor: 'human', publishToWarehaus: args.publishToWarehaus });
     if (!published.ok) fail(published.reason);
+    const change = publishChangeDecision(milestone.publishToWarehaus, published.publishToWarehaus);
+    if (!change.wrote) return { ok: true as const, wrote: false as const };
     await ctx.db.patch(milestone._id, { publishToWarehaus: published.publishToWarehaus });
-    return { ok: true as const };
+    const at = Date.now();
+    await logMilestone(
+      ctx,
+      milestone,
+      'milestone.publish',
+      at,
+      detailActivitySummary({
+        actor: ctx.identity.name,
+        from: milestone.publishToWarehaus ? 'Shared with client' : 'Not published',
+        to: published.publishToWarehaus ? 'Shared with client' : 'Not published',
+        at,
+      }),
+    );
+    return { ok: true as const, wrote: true as const };
+  },
+});
+
+const detailStatusArg = v.union(
+  v.literal('draft'),
+  v.literal('in_progress'),
+  v.literal('in_review'),
+  v.literal('complete'),
+);
+const stageArg = v.union(
+  v.literal('Idea'),
+  v.literal('Planning'),
+  v.literal('Awaiting Go'),
+  v.literal('Building'),
+  v.literal('Ready to Ship'),
+  v.literal('Shipped'),
+  v.literal('Parked'),
+);
+
+export const setDetailStatus = adminMutation({
+  args: { milestoneId: v.id('milestones'), detailStatus: detailStatusArg },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const decision = detailStatusDecision({
+      from: effectiveDetailStatus(milestone),
+      to: args.detailStatus,
+    });
+    if (!decision.ok) fail(decision.reason);
+    if (!decision.wrote) return { ok: true as const, wrote: false as const };
+    const fromLabel = detailStatusLabel(effectiveDetailStatus(milestone));
+    await ctx.db.patch(milestone._id, {
+      detailStatus: decision.status,
+      ...(decision.workStatus ? { workStatus: decision.workStatus } : {}),
+    });
+    const at = Date.now();
+    await logMilestone(
+      ctx,
+      milestone,
+      'milestone.status',
+      at,
+      detailActivitySummary({
+        actor: ctx.identity.name,
+        from: fromLabel,
+        to: detailStatusLabel(decision.status),
+        at,
+      }),
+    );
+    return { ok: true as const, wrote: true as const };
+  },
+});
+
+export const setStage = adminMutation({
+  args: { milestoneId: v.id('milestones'), stage: stageArg },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const decision = stageChangeDecision({
+      peter: isPeterEmail(ctx.identity.email),
+      from: effectiveStage(milestone),
+      to: args.stage,
+    });
+    if (!decision.ok) fail(decision.reason);
+    if (!decision.wrote) return { ok: true as const, wrote: false as const };
+    const fromLabel = effectiveStage(milestone);
+    await ctx.db.patch(milestone._id, { stage: decision.stage });
+    const at = Date.now();
+    await logMilestone(
+      ctx,
+      milestone,
+      'milestone.stage',
+      at,
+      detailActivitySummary({
+        actor: ctx.identity.name,
+        from: fromLabel,
+        to: decision.stage,
+        at,
+      }),
+    );
+    return { ok: true as const, wrote: true as const };
+  },
+});
+
+export const moveProject = adminMutation({
+  args: { milestoneId: v.id('milestones'), projectId: v.id('projects') },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const target = await ctx.db.get(args.projectId);
+    const decision = projectMoveDecision({
+      fromProjectId: milestone.projectId,
+      toProjectId: args.projectId,
+      sameOrg: target?.orgId === milestone.orgId,
+    });
+    if (!decision.ok) fail(decision.reason);
+    if (!target) fail('Project not found');
+    if (!decision.wrote) return { ok: true as const, wrote: false as const, movedTasks: 0 };
+    const onProject = await ctx.db
+      .query('tasks')
+      .withIndex('by_orgId_projectId', (q) => q.eq('orgId', milestone.orgId).eq('projectId', milestone.projectId))
+      .collect();
+    const linked = await ctx.db
+      .query('tasks')
+      .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
+      .collect();
+    const seen = new Set<string>();
+    const tasks: Doc<'tasks'>[] = [];
+    for (const task of [...onProject, ...linked]) {
+      if (seen.has(task._id)) continue;
+      seen.add(task._id);
+      tasks.push(task);
+    }
+    const moving = taskIdsToMove({
+      tasks: tasks.map((task) => ({
+        id: task._id,
+        projectId: task.projectId,
+        milestoneId: task.milestoneId ?? null,
+        parentTaskId: task.parentTaskId ?? null,
+      })),
+      milestoneId: milestone._id,
+      toProjectId: target._id,
+    });
+    const fromName = (await ctx.db.get(milestone.projectId))?.name ?? 'Previous project';
+    await ctx.db.patch(milestone._id, { projectId: target._id });
+    for (const taskId of moving) {
+      await ctx.db.patch(taskId as Id<'tasks'>, { projectId: target._id, portalProjectId: target._id });
+    }
+    const at = Date.now();
+    await logMilestone(
+      ctx,
+      { ...milestone, projectId: target._id },
+      'milestone.project',
+      at,
+      detailActivitySummary({
+        actor: ctx.identity.name,
+        from: fromName,
+        to: target.name,
+        at,
+      }),
+    );
+    return { ok: true as const, wrote: true as const, movedTasks: moving.length };
+  },
+});
+
+export const listMoveTargets = adminQuery({
+  args: { projectId: v.id('projects'), cursor: v.optional(v.union(v.string(), v.null())) },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project) return { projects: [], continueCursor: null, isDone: !project };
+    const page = await ctx.db
+      .query('projects')
+      .withIndex('by_orgId', (q) => q.eq('orgId', project.orgId))
+      .paginate({ numItems: 20, cursor: args.cursor ?? null });
+    return {
+      projects: page.page.map((row) => ({ id: row._id, name: row.name })),
+      continueCursor: page.isDone ? null : page.continueCursor,
+      isDone: page.isDone,
+    };
   },
 });
 

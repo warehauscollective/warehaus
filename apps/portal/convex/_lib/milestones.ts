@@ -14,6 +14,10 @@ export const MILESTONE_ACTIVITY = {
   ready: 'milestone.ready',
   approved: 'milestone.approved',
   changesRequested: 'milestone.changes_requested',
+  status: 'milestone.status',
+  stage: 'milestone.stage',
+  publish: 'milestone.publish',
+  project: 'milestone.project',
 } as const;
 
 export type MilestoneWorkStatus = (typeof MILESTONE_WORK_STATUSES)[number];
@@ -472,6 +476,7 @@ export function milestoneActivityInsert(input: {
   projectId: string;
   milestoneId: string;
   name: string;
+  summary?: string;
   type: MilestoneActivityType;
   timestamp: number;
 }): {
@@ -479,6 +484,7 @@ export function milestoneActivityInsert(input: {
   projectId: string;
   milestoneId: string;
   name: string;
+  summary?: string;
   type: MilestoneActivityType;
   tone: 'warn' | 'success' | 'accent';
   timestamp: number;
@@ -488,6 +494,7 @@ export function milestoneActivityInsert(input: {
     projectId: input.projectId,
     milestoneId: input.milestoneId,
     name: milestoneActivityName(input.type, input.name),
+    ...(input.summary ? { summary: input.summary } : {}),
     type: input.type,
     tone:
       input.type === 'milestone.changes_requested'
@@ -511,6 +518,7 @@ export async function writeMilestoneActivity(
   milestone: { _id: string; orgId: string; projectId: string; name: string },
   type: MilestoneActivityType,
   at: number,
+  summary?: string,
 ): Promise<void> {
   await ctx.db.insert(
     'activity',
@@ -519,6 +527,7 @@ export async function writeMilestoneActivity(
       projectId: milestone.projectId,
       milestoneId: milestone._id,
       name: milestone.name,
+      summary,
       type,
       timestamp: at,
     }),
@@ -545,6 +554,11 @@ export type MilestoneRoadmapView = {
   /** Staff only. Absent for clients, including the key. */
   decidedAt?: number | null;
   publishToWarehaus: boolean;
+  /** Set when a person picks a details-panel status. */
+  detailStatus?: 'draft' | 'in_progress' | 'in_review' | 'complete' | null;
+  /** Set when a person picks a build-protocol stage. */
+  stage?: 'Idea' | 'Planning' | 'Awaiting Go' | 'Building' | 'Ready to Ship' | 'Shipped' | 'Parked' | null;
+  createdAt?: number | null;
   resources: MilestoneResourceView[];
   openCount: number;
   doneCount: number;

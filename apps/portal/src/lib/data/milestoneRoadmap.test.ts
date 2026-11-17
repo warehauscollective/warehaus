@@ -263,9 +263,10 @@ describe('roadmap markup', () => {
     assert.match(source, /flex flex-col gap-6 lg:gap-4/);
     assert.equal(source.includes('longChip'), false);
     assert.equal(source.includes("get('chip')"), false);
-    assert.match(source, /data-testid="milestone-stage"/);
-    assert.match(source, /<FieldLabel>STATUS<\/FieldLabel>/);
-    assert.match(source, /<FieldLabel>STAGE<\/FieldLabel>/);
+    const details = readFileSync(new URL('../../components/projects/milestoneDetailsEdit.tsx', import.meta.url), 'utf8');
+    assert.match(details, /data-testid="milestone-stage"/);
+    assert.match(details, /label="STATUS"/);
+    assert.match(details, /label="STAGE"/);
 
     const withSubtask = renderTile({
       staff: true,

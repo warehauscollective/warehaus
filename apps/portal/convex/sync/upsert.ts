@@ -16,6 +16,7 @@ import {
   resolveParentLink,
   taskTouchesIncrementalSet,
 } from '@warehaus/portal-sync';
+import { heldTaskProjectId } from '../_lib/milestoneDetails';
 import { v } from 'convex/values';
 import { notionWriteAllowedForTask } from '../_lib/milestoneReview';
 import { internal } from '../_generated/api';
@@ -322,8 +323,16 @@ export const upsertTask = internalMutation({
       fieldsChanged,
       linksChanged,
     });
+    // Tasks.Projects is SERVER. A portal move is not written to Notion, and
+    // this pull must not put the task back on the old project.
+    const heldProject = heldTaskProjectId({
+      held: existing?.portalProjectId,
+      incoming: fields.projectId,
+    });
     const patch = {
       ...fields,
+      projectId: heldProject.projectId,
+      ...(heldProject.clearHold ? { portalProjectId: undefined } : {}),
       stage,
       lastEditedTime: storedPullLastEditedTime(stageResolved.lastEditedTime, existing?.lastEditedTime),
       ...pendingPatch,
