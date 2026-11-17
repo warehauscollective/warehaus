@@ -40,6 +40,8 @@ export type ReviewSurfaceModel = {
   tasks: { id: string; name: string }[];
   resultTasks?: { name: string }[];
   milestoneName?: string;
+  /** Open design fixes. The approve dialog counts them from this, not from copy. */
+  designFixCount?: number;
 };
 
 export function reviewShouldShow(input: {
@@ -83,6 +85,69 @@ function CheckIcon() {
   );
 }
 
+function ClockIcon() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+      <circle cx="6" cy="6" r="4.25" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M6 3.4V6.1L7.7 7.1" fill="none" stroke="currentColor" strokeWidth="1.2" />
+    </svg>
+  );
+}
+
+function AlertIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
+      <path d="M7 1.6 12.6 12H1.4L7 1.6Z" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <path d="M7 5.2v2.6" fill="none" stroke="currentColor" strokeWidth="1.2" />
+      <circle cx="7" cy="9.6" r="0.7" fill="currentColor" />
+    </svg>
+  );
+}
+
+function DesignStatusIcon({ check }: { check: DesignCheck }) {
+  if (check === 'pass') return <CheckIcon />;
+  if (check === 'fixes') return <span style={{ color: 'var(--danger-text)', display: 'inline-flex' }}><AlertIcon /></span>;
+  return <ClockIcon />;
+}
+
+function StyledCheckbox({
+  checked,
+  disabled,
+  onChange,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onChange?: () => void;
+}) {
+  return (
+    <span style={{ position: 'relative', width: 16, height: 16, flex: '0 0 auto' }}>
+      <input
+        type="checkbox"
+        checked={checked}
+        disabled={disabled}
+        onChange={onChange}
+        style={{ position: 'absolute', inset: 0, margin: 0, opacity: 0, cursor: disabled ? 'default' : 'pointer' }}
+      />
+      <span
+        aria-hidden="true"
+        style={{
+          display: 'flex',
+          width: 16,
+          height: 16,
+          alignItems: 'center',
+          justifyContent: 'center',
+          borderRadius: 4,
+          border: '1.5px solid var(--border-2)',
+          background: checked ? 'var(--fg)' : 'transparent',
+          color: 'var(--bg)',
+        }}
+      >
+        {checked ? <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5.2 4.1 7.2 8 2.8" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg> : null}
+      </span>
+    </span>
+  );
+}
+
 export const REVIEW_CARD_FOOTER = 'Approve marks it complete and lets it merge · going live still needs deploy main';
 
 function DesignCheckPill({ check }: { check: DesignCheck }) {
@@ -103,7 +168,7 @@ function DesignCheckPill({ check }: { check: DesignCheck }) {
         whiteSpace: 'nowrap',
       }}
     >
-      <CheckIcon />
+      <DesignStatusIcon check={check} />
       {designPillLabel(check)}
     </span>
   );
@@ -228,6 +293,7 @@ export function ReviewDialogBody({
     prNumber: number | null;
     commit: string | null;
     designCheck: DesignCheck;
+    designFixCount?: number;
   };
 }) {
   const approve = kind === 'approve';
@@ -245,6 +311,11 @@ export function ReviewDialogBody({
       ) : null}
       {contextLine ? (
         <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{contextLine}</p>
+      ) : null}
+      {approve && context?.designCheck === 'fixes' && context.designFixCount ? (
+        <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>
+          {`${context.designFixCount} design ${context.designFixCount === 1 ? 'fix is' : 'fixes are'} still open…`}
+        </p>
       ) : null}
       {approve ? (
         <>
@@ -286,12 +357,7 @@ export function ReviewDialogBody({
                   return (
                     <li key={task.id}>
                       <label className="flex items-center gap-2" style={{ fontSize: 14 }}>
-                        <input
-                          type="checkbox"
-                          checked={checked}
-                          onChange={() => onToggle(task.id)}
-                          style={{ width: 16, height: 16, accentColor: 'var(--fg)' }}
-                        />
+                        <StyledCheckbox checked={checked} onChange={() => onToggle(task.id)} />
                         {task.name}
                       </label>
                     </li>
@@ -306,8 +372,9 @@ export function ReviewDialogBody({
         </>
       )}
       {fieldError ? (
-        <p role="alert" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 14 }}>
-          {fieldError}
+        <p role="alert" className="flex items-start gap-2" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 14, lineHeight: '21px' }}>
+          <AlertIcon />
+          <span>{fieldError}</span>
         </p>
       ) : null}
     </div>
@@ -319,6 +386,7 @@ export function ReviewDialogActions({
   iteration,
   busy,
   phone = false,
+  submitLabel,
   onCancel,
   onSubmit,
 }: {
@@ -326,15 +394,22 @@ export function ReviewDialogActions({
   iteration: number;
   busy: boolean;
   phone?: boolean;
+  /** Replaces the default submit label. A failed save uses Try again. */
+  submitLabel?: string;
   onCancel: () => void;
   onSubmit: () => void;
 }) {
   const buttonClass = phone ? 'w-full' : undefined;
+  const label = busy
+    ? approve
+      ? 'Approving…'
+      : 'Starting…'
+    : submitLabel ?? (approve ? 'Approve' : `Start iteration ${iteration + 1}`);
   return (
     <>
       <OutlineButton onClick={onCancel} disabled={busy} className={buttonClass}>Cancel</OutlineButton>
       <PrimaryButton onClick={onSubmit} disabled={busy} className={buttonClass}>
-        {busy ? (approve ? 'Approving…' : 'Starting…') : approve ? 'Approve' : `Start iteration ${iteration + 1}`}
+        {label}
       </PrimaryButton>
     </>
   );
@@ -414,55 +489,47 @@ export function MilestoneReviewSurface({
   const dim = visual === 'waiting' ? 0.4 : 0.55;
 
   const buttonClass = phone ? 'w-full' : undefined;
+  const requestChanges = (
+    <OutlineButton
+      nowrap={!phone}
+      className={buttonClass}
+      disabled={visual === 'error' ? false : locked}
+      disabledOpacity={visual === 'error' ? undefined : dim}
+      onClick={() => {
+        setCardError(false);
+        setFieldError(null);
+        setDialog('changes');
+      }}
+    >
+      {busy === 'changes' ? 'Starting…' : 'Request changes'}
+    </OutlineButton>
+  );
+  const primary = visual === 'error' ? (
+    <PrimaryButton
+      className={buttonClass}
+      onClick={() => {
+        setCardError(false);
+        setDialog(failedKind ?? 'approve');
+      }}
+    >
+      Try again
+    </PrimaryButton>
+  ) : (
+    <PrimaryButton
+      className={buttonClass}
+      disabled={locked}
+      disabledOpacity={dim}
+      onClick={() => {
+        setFieldError(null);
+        setDialog('approve');
+      }}
+    >
+      {busy === 'approve' || visual === 'saving' ? 'Approving…' : 'Approve'}
+    </PrimaryButton>
+  );
   const actions = (
-    <div className={phone ? 'flex w-full flex-col gap-2' : 'flex gap-2'} style={phone ? { width: '100%' } : undefined}>
-      {visual === 'error' ? (
-        <>
-          <OutlineButton
-            className={buttonClass}
-            onClick={() => {
-              setCardError(false);
-              setDialog('changes');
-            }}
-          >
-            Request changes
-          </OutlineButton>
-          <PrimaryButton
-            className={buttonClass}
-            onClick={() => {
-              setCardError(false);
-              setDialog(failedKind ?? 'approve');
-            }}
-          >
-            Try again
-          </PrimaryButton>
-        </>
-      ) : (
-        <>
-          <OutlineButton
-            className={buttonClass}
-            disabled={locked}
-            disabledOpacity={dim}
-            onClick={() => {
-              setFieldError(null);
-              setDialog('changes');
-            }}
-          >
-            {busy === 'changes' ? 'Starting…' : 'Request changes'}
-          </OutlineButton>
-          <PrimaryButton
-            className={buttonClass}
-            disabled={locked}
-            disabledOpacity={dim}
-            onClick={() => {
-              setFieldError(null);
-              setDialog('approve');
-            }}
-          >
-            {busy === 'approve' || visual === 'saving' ? 'Approving…' : 'Approve'}
-          </PrimaryButton>
-        </>
-      )}
+    <div className={phone ? 'flex w-full flex-col gap-2' : 'flex shrink-0 gap-2'} style={phone ? { width: '100%' } : undefined}>
+      {phone ? <>{primary}{requestChanges}</> : <>{requestChanges}{primary}</>}
     </div>
   );
 
@@ -504,7 +571,7 @@ export function MilestoneReviewSurface({
             {(model.resultTasks ?? model.tasks.map((task) => ({ name: task.name }))).map((task) => (
               <label key={task.name} className="flex items-center justify-between gap-3" style={{ fontSize: 14 }}>
                 <span className="flex items-center gap-2">
-                  <input type="checkbox" disabled style={{ width: 16, height: 16, accentColor: 'var(--fg)' }} />
+                  <StyledCheckbox checked={false} disabled />
                   {task.name}
                 </span>
                 <span className="ds-mono" style={{ whiteSpace: 'nowrap', fontSize: 11, border: '1px solid var(--border-2)', borderRadius: 999, padding: '2px 8px' }}>{`NEW · IT. ${model.iteration}`}</span>
@@ -523,8 +590,9 @@ export function MilestoneReviewSurface({
               <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>{model.designCheckNote}</p>
             ) : null}
             {visual === 'error' ? (
-              <div role="alert" data-testid="review-error-box" style={{ border: '1px solid var(--danger)', borderRadius: 16, padding: '12px 14px' }}>
-                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--danger-text)' }}>{APPROVAL_SAVE_ERROR}</p>
+              <div role="alert" data-testid="review-error-box" className="flex items-start gap-2" style={{ border: '1px solid var(--danger)', borderRadius: 16, padding: '12px 14px', color: 'var(--danger-text)' }}>
+                <AlertIcon />
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{APPROVAL_SAVE_ERROR}</p>
               </div>
             ) : null}
           </>
@@ -624,6 +692,7 @@ export function MilestoneReviewSurface({
           prNumber: model.prNumber,
           commit: model.commit,
           designCheck: model.designCheck,
+          designFixCount: model.designFixCount,
         }}
       />
     </ReviewScrim>
@@ -635,15 +704,17 @@ export function MilestoneReviewSurface({
     <div
       data-testid="task-review-row"
       data-review-state={visual}
-      className={phone ? 'flex flex-col gap-3' : 'flex items-center justify-between gap-4'}
-      style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '12px 16px' }}
+      className={phone ? 'flex w-full min-w-0 flex-col gap-3' : 'flex items-center justify-between gap-4'}
+      style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 18, padding: '12px 16px', boxSizing: 'border-box', maxWidth: '100%' }}
     >
-      <div className="flex min-w-0 flex-col gap-1">
-        <p className="ds-mono" style={{ ...eyebrowStyle, whiteSpace: 'nowrap' }}>{`${eyebrow} · ${designPillLabel(visual === 'waiting' ? 'pending' : model.designCheck)}`}</p>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <p className="ds-mono" style={{ ...eyebrowStyle, whiteSpace: phone ? 'normal' : 'nowrap' }}>
+          {phone ? eyebrow : `${eyebrow} · ${designPillLabel(visual === 'waiting' ? 'pending' : model.designCheck)}`}
+        </p>
         {model.previewUrl ? (
           <>
             <a href={`http://${model.previewUrl}`} style={{ fontSize: 14, color: 'var(--fg)', textDecoration: 'underline' }}>Open local preview</a>
-            <p className="ds-mono" style={{ margin: 0, fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{`${model.previewUrl} · your Mac · test data`}</p>
+            <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: phone ? 'normal' : 'nowrap', overflowWrap: 'anywhere' }}>{`${model.previewUrl} · your Mac · test data`}</p>
           </>
         ) : null}
       </div>

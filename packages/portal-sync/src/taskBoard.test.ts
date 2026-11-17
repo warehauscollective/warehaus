@@ -29,6 +29,7 @@ import {
   visibleChildIds,
   WAREHAUS_STUDIO_PROJECT_NAME,
 } from './taskBoard';
+import { validatePropertyPatch } from './writeback';
 
 const clientProject = {
   name: 'Northwind site',
@@ -224,6 +225,27 @@ describe('move rules and outbox enqueue', () => {
       assert.equal(moved.ok, false);
       if (!moved.ok) assert.match(moved.error, /Peter's call/);
     }
+    const webhookReady = validatePropertyPatch({
+      database: 'tasks',
+      properties: {
+        Stage: 'Ready to Ship',
+        'GitHub Issue/PR': 'github.com/warehauscollective/warehaus/pull/38',
+      },
+    });
+    assert.equal(webhookReady.ok, true);
+    const readyWithoutLink = validatePropertyPatch({
+      database: 'tasks',
+      properties: { Stage: 'Ready to Ship' },
+    });
+    assert.equal(readyWithoutLink.ok, false);
+    const awaitingWithLink = validatePropertyPatch({
+      database: 'tasks',
+      properties: {
+        Stage: 'Awaiting Go',
+        'GitHub Issue/PR': 'github.com/warehauscollective/warehaus/pull/38',
+      },
+    });
+    assert.equal(awaitingWithLink.ok, false);
   });
 
   it('lets staff enqueue a status move and refuses clients', () => {

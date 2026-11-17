@@ -11,6 +11,7 @@ import {
   type ReviewSurfaceModel,
   type ReviewVisual,
 } from './MilestoneReview';
+import { StageConfirmSheet } from './milestoneChrome';
 import { MilestoneDetailView } from './ProjectRoadmap';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 
@@ -47,10 +48,11 @@ const ready: ReviewSurfaceModel = {
   tasks,
 };
 
-const waiting: ReviewSurfaceModel = { ...ready, previewUrl: null, designCheck: 'pending', prNumber: null, prTitle: null, branch: null, commit: null, builtAt: null };
+const waiting: ReviewSurfaceModel = { ...ready, previewUrl: null, designCheck: 'pending' };
 const fixes: ReviewSurfaceModel = {
   ...ready,
   designCheck: 'fixes',
+  designFixCount: 2,
   designCheckNote: '2 design fixes are open (focus ring, mobile sheet radius). You can still approve; they become tasks in the next iteration.',
 };
 const approved: ReviewSurfaceModel = {
@@ -117,13 +119,7 @@ function LockMark() {
 function StageHint({ current, phone = false, confirming = null }: { current: string; phone?: boolean; confirming?: string | null }) {
   const stages = ['Idea', 'Planning', 'Awaiting Go', 'Building', 'Ready to Ship', 'Shipped', 'Parked'];
   if (phone && confirming) {
-    return (
-      <div data-testid="stage-confirm-sheet" className="flex flex-col gap-3">
-        <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{`Move this task to ${confirming}?`}</p>
-        <button type="button" style={{ width: '100%', background: 'transparent', color: 'var(--fg)', border: '1px solid var(--border-2)', borderRadius: 9, padding: '12px 16px' }}>Cancel</button>
-        <button type="button" style={{ width: '100%', background: 'var(--accent)', color: 'var(--accent-fg)', border: 0, borderRadius: 9, padding: '12px 16px', fontWeight: 600 }}>Confirm</button>
-      </div>
-    );
+    return <StageConfirmSheet stage={confirming} onCancel={() => undefined} onConfirm={() => undefined} />;
   }
   return (
     <div className="flex flex-col gap-3">
@@ -133,8 +129,8 @@ function StageHint({ current, phone = false, confirming = null }: { current: str
       </div>
       <div className="flex flex-wrap gap-2">
         {stages.map((stage) => {
-          const locked = stage !== 'Idea' && stage !== 'Planning';
-          const selected = stage === current && !locked;
+          const selected = stage === current;
+          const locked = !selected && stage !== 'Idea' && stage !== 'Planning';
           return (
             <span
               key={stage}
@@ -169,7 +165,7 @@ function TaskFrame({ phone }: { phone: boolean }) {
       data-capture={phone ? 'task-phone' : 'task-desktop'}
       data-width={phone ? '390' : '1440'}
       className="ds-scope flex flex-col gap-4"
-      style={{ width: phone ? 390 : 840, background: 'var(--surface)', color: 'var(--fg)', borderRadius: 16, padding: phone ? 16 : 24, border: '1px solid var(--border)' }}
+      style={{ width: phone ? 390 : 840, boxSizing: 'border-box', background: 'var(--surface)', color: 'var(--fg)', borderRadius: 16, padding: phone ? 16 : 24, border: '1px solid var(--border)' }}
     >
       <p className="ds-mono" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Warehaus Portal / Task</p>
       <p style={{ margin: 0, background: 'var(--surface-2)', borderRadius: 18, padding: '8px 12px', fontSize: 14, fontWeight: 500 }}>Staff only · hidden from clients</p>
@@ -220,6 +216,7 @@ function DialogFrame({
             iteration={model.iteration}
             busy={busy}
             phone={phone}
+            submitLabel={fieldError && kind === 'approve' ? 'Try again' : undefined}
             onCancel={() => undefined}
             onSubmit={() => undefined}
           />
@@ -239,6 +236,7 @@ function DialogFrame({
             prNumber: model.prNumber,
             commit: model.commit,
             designCheck: model.designCheck,
+            designFixCount: model.designFixCount,
           }}
         />
       </ReviewScrim>
@@ -356,8 +354,16 @@ export function ApprovalsPreview({ theme }: { theme: 'dark' | 'light' }) {
           <MilestoneReviewSurface model={approved} layout="card" />
           <article data-testid="milestone-activity-card" style={{ marginTop: 16, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 28, padding: 24 }}>
             <h3 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', margin: '0 0 12px' }}>Activity</h3>
-            <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Peter approved iteration 2.</p>
-            <p className="ds-mono" style={{ margin: '4px 0 0', fontSize: 12, color: 'var(--muted)' }}>Nov 17 · Portal</p>
+            <ul className="flex flex-col gap-3" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              <li className="flex items-start gap-2" style={{ fontSize: 14, lineHeight: '21px' }}>
+                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style={{ marginTop: 3, flex: '0 0 auto' }}>
+                  <path d="M2.5 7.2 5.4 10 11.5 3.8" fill="none" stroke="currentColor" strokeWidth="1.4" />
+                </svg>
+                <span>Approved by Peter · Nov 17</span>
+              </li>
+              <li style={{ fontSize: 14, lineHeight: '21px' }}>Design check passed · Nov 17</li>
+              <li style={{ fontSize: 14, lineHeight: '21px' }}>Changes requested on iteration 1 · Nov 12</li>
+            </ul>
           </article>
         </section>
         <section data-capture="iterations" data-width="1440" style={{ width: 1108, paddingTop: 16 }}>

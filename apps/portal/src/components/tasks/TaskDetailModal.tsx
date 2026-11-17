@@ -12,6 +12,7 @@ import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus, TASK_STAGE_HINT } from '@/lib/data/taskStatus';
 import { MilestoneReviewSurface, type ReviewSurfaceModel } from '@/components/projects/MilestoneReview';
+import { StageConfirmSheet } from '@/components/projects/milestoneChrome';
 import type { MilestoneReviewView } from '@convex/_lib/milestones';
 import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
 import { StaffLiveFields } from './StaffLiveFields';
@@ -347,40 +348,28 @@ export function TaskDetailModal({
                   <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>visible to client</span>
                 </div>
                 {phone && stageConfirm ? (
-                  <div data-testid="stage-confirm-sheet" className="flex flex-col gap-3">
-                    <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{`Move this task to ${stageConfirm}?`}</p>
-                    <button
-                      type="button"
-                      onClick={() => setStageConfirm(null)}
-                      style={{ width: '100%', background: 'transparent', color: 'var(--fg)', border: '1px solid var(--border-2)', borderRadius: 9, padding: '12px 16px', fontSize: 14 }}
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        const stage = stageConfirm;
-                        setStageConfirm(null);
-                        if (!live || !task.lastEditedTime) return;
-                        void moveStage({
-                          hostSlug,
-                          taskId: task.id as Id<'tasks'>,
-                          stage,
-                          expectedLastEditedTime: task.lastEditedTime,
-                        }).then((result) => {
-                          if (!result.ok) setAsideNote(result.error);
-                        });
-                      }}
-                      style={{ width: '100%', background: 'var(--accent)', color: 'var(--accent-fg)', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 600 }}
-                    >
-                      Confirm
-                    </button>
-                  </div>
+                  <StageConfirmSheet
+                    stage={stageConfirm}
+                    onCancel={() => setStageConfirm(null)}
+                    onConfirm={() => {
+                      const stage = stageConfirm;
+                      setStageConfirm(null);
+                      if (!live || !task.lastEditedTime) return;
+                      void moveStage({
+                        hostSlug,
+                        taskId: task.id as Id<'tasks'>,
+                        stage,
+                        expectedLastEditedTime: task.lastEditedTime,
+                      }).then((result) => {
+                        if (!result.ok) setAsideNote(result.error);
+                      });
+                    }}
+                  />
                 ) : (
                 <div className="flex flex-wrap gap-2">
                   {TASK_STAGES.map((stage) => {
-                    const visualLock = stage !== 'Idea' && stage !== 'Planning';
-                    const current = task.stage === stage && !visualLock;
+                    const current = task.stage === stage;
+                    const visualLock = !current && stage !== 'Idea' && stage !== 'Planning';
                     return (
                       <button
                         key={stage}
@@ -388,7 +377,7 @@ export function TaskDetailModal({
                         disabled={visualLock}
                         aria-pressed={task.stage === stage}
                         onClick={() => {
-                          if (visualLock) return;
+                          if (visualLock || current) return;
                           if (phone) {
                             setStageConfirm(stage);
                             return;

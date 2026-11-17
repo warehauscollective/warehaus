@@ -340,6 +340,50 @@ export function StateCard({
   );
 }
 
+/** Phone stage confirm. Replaces the picker in place. It is not a second modal. */
+export function StageConfirmSheet({
+  stage,
+  onCancel,
+  onConfirm,
+}: {
+  stage: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      data-testid="stage-confirm-sheet"
+      style={{
+        background: 'var(--surface)',
+        color: 'var(--fg)',
+        border: '1px solid var(--border-2)',
+        borderTopLeftRadius: 28,
+        borderTopRightRadius: 28,
+        padding: '8px 24px 24px',
+      }}
+    >
+      <div className="flex justify-center" aria-hidden="true">
+        <span style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border-2)' }} />
+      </div>
+      <div className="flex items-center justify-between gap-4 pt-4">
+        <h2 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600, margin: 0 }}>{`Move to ${stage}`}</h2>
+        <button type="button" onClick={onCancel} style={{ background: 'transparent', border: 0, padding: 0, color: 'var(--fg)', fontSize: 14, cursor: 'pointer' }}>
+          Close
+        </button>
+      </div>
+      <p style={{ margin: '16px 0', fontSize: 14, lineHeight: '21px' }}>{`Move this task to ${stage}?`}</p>
+      <div className="flex flex-col gap-2">
+        <button type="button" onClick={onCancel} style={{ width: '100%', background: 'transparent', color: 'var(--fg)', border: '1px solid var(--border-2)', borderRadius: 9, padding: '12px 16px', fontSize: 14 }}>
+          Cancel
+        </button>
+        <button type="button" onClick={onConfirm} style={{ width: '100%', background: 'var(--accent)', color: 'var(--accent-fg)', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 600 }}>
+          Confirm
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function MilestoneDialog({
   title,
   onClose,
