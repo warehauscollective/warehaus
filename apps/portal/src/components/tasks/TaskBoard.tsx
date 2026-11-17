@@ -30,6 +30,7 @@ import { NEW_TASK_HINT } from '@/components/tasks/itemStates';
 import { OutlineButton, Pill, PrimaryButton } from '@/components/ui/primitives';
 import { SyncChip } from '@/components/sync/SyncChip';
 import { formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
+import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from './TaskGlyph';
 
@@ -1100,7 +1101,7 @@ export function TaskCardFace({
         <p style={{ minWidth: 0, fontSize: 14, fontWeight: 500, lineHeight: '21px', overflowWrap: 'anywhere' }}>{task.name}</p>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        {mode === 'stage' ? <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill> : null}
+        {mode === 'stage' ? <Pill color={taskStatusColor(displayedTaskStatus(task.status, task.stage), task.isDone)}>{displayedTaskStatus(task.status, task.stage)}</Pill> : null}
         {mode === 'status' && task.stage ? (
           <span
             className="ds-mono inline-flex items-center gap-1"

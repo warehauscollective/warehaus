@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
@@ -10,6 +10,9 @@ import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEdi
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
+import { displayedTaskStatus, TASK_STAGE_HINT } from '@/lib/data/taskStatus';
+import { MilestoneReviewSurface, type ReviewSurfaceModel } from '@/components/projects/MilestoneReview';
+import type { MilestoneReviewView } from '@convex/_lib/milestones';
 import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
 import { StaffLiveFields } from './StaffLiveFields';
 import { TaskGlyph } from './TaskGlyph';
@@ -60,16 +63,55 @@ export function TaskDetailModal({
 }) {
   const [attach, setAttach] = useState(false);
   const [asideNote, setAsideNote] = useState<string | null>(null);
+  const [reviewing, setReviewing] = useState(false);
+  const [closeReview, setCloseReview] = useState(0);
+  const onReviewActive = useCallback((open: boolean) => setReviewing(open), []);
   const moveStage = useMutation(api.tasks.moveStage);
   const moveStatus = useMutation(api.tasks.moveStatus);
   const updateLiveFields = useMutation(api.tasks.updateLiveFields);
+  const approveReview = useMutation(api.milestones.approve);
+  const requestReviewChanges = useMutation(api.milestones.requestChanges);
+  const reviewQuery = useSafeQuery<MilestoneReviewView | null>(
+    api.milestones.reviewForStaff,
+    live && staff && task?.stage === 'Ready to Ship' && task.milestoneId
+      ? { hostSlug, milestoneId: task.milestoneId as Id<'milestones'> }
+      : 'skip',
+  );
+  const latestReview = reviewQuery.data?.history[0] ?? null;
+  const reviewModel: ReviewSurfaceModel | null = reviewQuery.data && task
+    ? {
+        milestoneId: task.milestoneId ?? '',
+        iteration: reviewQuery.data.iteration,
+        workStatus: latestReview?.decision === 'request_changes' ? 'active' : 'ready',
+        approval: latestReview?.decision === 'approve' ? 'approved' : latestReview?.decision === 'request_changes' ? 'changes_requested' : 'unreviewed',
+        previewUrl: reviewQuery.data.previewUrl,
+        prNumber: reviewQuery.data.prNumber,
+        prTitle: reviewQuery.data.prTitle,
+        branch: reviewQuery.data.branch,
+        commit: reviewQuery.data.commit,
+        builtAt: reviewQuery.data.builtAt,
+        designCheck: reviewQuery.data.designCheck,
+        designCheckNote: reviewQuery.data.designCheckNote,
+        history: reviewQuery.data.history,
+        tasks: [{ id: task.id, name: task.name }],
+      }
+    : null;
+  const shownStatus = task ? displayedTaskStatus(task.status, task.stage) : '';
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     titleRef.current?.focus();
   }, [task?.id, unavailable]);
 
   return (
-    <ModalShell phone={phone} onClose={onClose} label={task?.name ?? 'Task'}>
+    <ModalShell
+      phone={phone}
+      scrim={reviewing ? 'light' : 'solid'}
+      onClose={() => {
+        if (reviewing) setCloseReview((current) => current + 1);
+        else onClose();
+      }}
+      label={task?.name ?? 'Task'}
+    >
       {unavailable || !task ? (
         <div className="flex flex-col items-start gap-3">
           <h2 ref={titleRef} tabIndex={-1} style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>
@@ -82,7 +124,34 @@ export function TaskDetailModal({
         </div>
       ) : (
         <>
-        <div className="mb-4 flex items-center gap-3">
+        {reviewModel ? (
+          <MilestoneReviewSurface
+            model={reviewModel}
+            layout="row"
+            phone={phone}
+            swap={reviewing}
+            closeToken={closeReview}
+            onActive={onReviewActive}
+            onApprove={async (notes) => {
+              await approveReview({
+                hostSlug,
+                milestoneId: reviewModel.milestoneId as Id<'milestones'>,
+                iteration: reviewModel.iteration,
+                notes,
+              });
+            }}
+            onRequestChanges={async (notes, taskIds) => {
+              await requestReviewChanges({
+                hostSlug,
+                milestoneId: reviewModel.milestoneId as Id<'milestones'>,
+                iteration: reviewModel.iteration,
+                notes,
+                taskIds: taskIds as Id<'tasks'>[],
+              });
+            }}
+          />
+        ) : null}
+        <div className="mb-4 flex items-center gap-3" style={{ display: reviewing ? 'none' : undefined }}>
           <p className="min-w-0 flex-1 truncate" style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
             {task.projectName ?? 'Project'}
             <span> / </span>
@@ -109,7 +178,7 @@ export function TaskDetailModal({
           <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>Esc</span>
           <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
         </div>
-        <div className={phone ? 'flex flex-col' : 'grid gap-8'} style={phone ? { gap: 24 } : { gridTemplateColumns: 'minmax(0, 1fr) 296px' }}>
+        <div className={phone ? 'flex flex-col' : 'grid gap-8'} style={{ display: reviewing ? 'none' : undefined, ...(phone ? { gap: 24 } : { gridTemplateColumns: 'minmax(0, 1fr) 296px' }) }}>
           <div className={phone ? undefined : 'flex min-w-0 flex-col gap-4'} style={phone ? { display: 'contents' } : undefined}>
             <h2 ref={titleRef} tabIndex={-1} style={{ fontFamily: 'var(--font-display)', fontSize: phone ? 20 : 28, lineHeight: phone ? '30px' : undefined, outline: 'none', order: phone ? 2 : undefined }}>
               {task.name}
@@ -139,7 +208,7 @@ export function TaskDetailModal({
                         </span>
                         <span style={{ flex: '1 1 auto', minWidth: 0, fontWeight: 400, fontSize: 15 }}>{child.name}</span>
                         <span className="inline-flex shrink-0 items-center gap-3">
-                          <Pill color={taskStatusColor(child.status, child.isDone)}>{child.status}</Pill>
+                          <Pill color={taskStatusColor(displayedTaskStatus(child.status, child.stage), child.isDone)}>{displayedTaskStatus(child.status, child.stage)}</Pill>
                           {child.category ? (
                             <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{child.category}</span>
                           ) : null}
@@ -190,7 +259,7 @@ export function TaskDetailModal({
             <Field label="Status" row={phone}>
               {staff ? (
                 <StatusMenu
-                  value={task.status}
+                  value={shownStatus}
                   onChange={(status) => {
                     if (!live || !task.lastEditedTime) return;
                     void moveStatus({
@@ -204,7 +273,7 @@ export function TaskDetailModal({
                   }}
                 />
               ) : (
-                <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
+                <Pill color={taskStatusColor(shownStatus, task.isDone)}>{shownStatus}</Pill>
               )}
             </Field>
             {task.assigneeName ? <Field label="Assignee" row={phone}>{task.assigneeName}</Field> : staff ? <Field label="Assignee" row={phone}>Unassigned</Field> : null}
@@ -316,8 +385,8 @@ export function TaskDetailModal({
                     );
                   })}
                 </div>
-                <p style={{ fontSize: 12, lineHeight: '17px', color: 'var(--muted)', margin: 0 }}>
-                  Admin can set Idea or Planning here. Later stages are set in Notion by staff and shown read-only.
+                <p data-testid="task-stage-hint" style={{ fontSize: 12, lineHeight: '17px', color: 'var(--muted)', margin: 0 }}>
+                  {TASK_STAGE_HINT}
                 </p>
               </div>
             ) : (
@@ -817,12 +886,14 @@ function ModalShell({
   onClose,
   label,
   width = 840,
+  scrim = 'solid',
   children,
 }: {
   phone: boolean;
   onClose: () => void;
   label: string;
   width?: number;
+  scrim?: 'solid' | 'light';
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
@@ -855,7 +926,7 @@ function ModalShell({
     };
   }, [onClose]);
   const dialog = (
-    <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: phone ? 'stretch' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
+    <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: scrim === 'light' ? 'rgba(0,0,0,0.1)' : 'rgb(0 0 0 / 55%)', backdropFilter: scrim === 'light' ? 'blur(40px)' : undefined, WebkitBackdropFilter: scrim === 'light' ? 'blur(40px)' : undefined, display: 'flex', alignItems: phone ? 'stretch' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
       <div
         ref={ref}
         role="dialog"

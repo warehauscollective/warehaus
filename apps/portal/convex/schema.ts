@@ -209,10 +209,45 @@ export default defineSchema({
     decidedAt: v.optional(v.number()),
     /** Clients do not see a milestone until this is true. Inserts stay false. */
     publishToWarehaus: v.boolean(),
+    /**
+     * Open review iteration. Missing means 1. Clients never receive this.
+     * Ready to Ship is workStatus `ready`. Approve does not move it to Shipped.
+     */
+    iteration: v.optional(v.number()),
+    /** Staff-only localhost:3100 preview. Never returned to a client. */
+    previewUrl: v.optional(v.string()),
+    previewPrNumber: v.optional(v.number()),
+    previewPrTitle: v.optional(v.string()),
+    previewBranch: v.optional(v.string()),
+    previewCommit: v.optional(v.string()),
+    previewBuiltAt: v.optional(v.number()),
+    designCheck: v.optional(v.union(v.literal('pass'), v.literal('fixes'), v.literal('pending'))),
+    designCheckNote: v.optional(v.string()),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])
     .index('by_projectId', ['projectId']),
+
+  /**
+   * One human review of one iteration. Idempotent on milestone + iteration.
+   * Staff-only. No Notion write. Clients never query this table.
+   */
+  milestoneReviews: defineTable({
+    orgId: v.id('clients'),
+    milestoneId: v.id('milestones'),
+    iteration: v.number(),
+    decision: v.union(v.literal('approve'), v.literal('request_changes')),
+    notes: v.string(),
+    decidedBy: v.id('contacts'),
+    decidedAt: v.number(),
+    source: v.union(v.literal('portal'), v.literal('chat')),
+    prNumber: v.optional(v.number()),
+    commit: v.optional(v.string()),
+    /** Tasks created for this change request. Empty on approve. */
+    createdTaskIds: v.array(v.id('tasks')),
+  })
+    .index('by_org_milestone_iteration', ['orgId', 'milestoneId', 'iteration'])
+    .index('by_milestone_iteration', ['milestoneId', 'iteration']),
 
   /**
    * Milestone → Shared Resource. Same org only.

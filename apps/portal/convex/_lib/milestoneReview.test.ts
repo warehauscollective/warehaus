@@ -1,0 +1,210 @@
+import assert from 'node:assert/strict';
+import { describe, it } from 'node:test';
+import {
+  ALREADY_REVIEWED,
+  NOTES_REQUIRED,
+  ONLY_PETER,
+  STAFF_REQUIRED,
+  WAITING_ON_BUILD,
+  TASK_STAGE_HINT,
+  displayedTaskStatus,
+  iterationTaskDrafts,
+  normalizeLocalPreview,
+  planReview,
+  reviewChatLine,
+  reviewForAudience,
+  type PlanReviewInput,
+} from './milestoneReview';
+
+const peter = { source: 'portal' as const, role: 'Warehaus Staff' as const, email: 'Peter@warehaus.studio' };
+const chat = { source: 'chat' as const, tokenName: 'grok-bot' };
+
+function ready(extra: Partial<PlanReviewInput> = {}): PlanReviewInput {
+  return {
+    actor: peter,
+    currentIteration: 2,
+    workStatus: 'ready',
+    hasPreview: true,
+    iteration: 2,
+    decision: 'approve',
+    notes: '',
+    existing: null,
+    appliesTo: [],
+    ...extra,
+  };
+}
+
+describe('milestone review decisions', () => {
+  it('approves once and keeps Ready to Ship', () => {
+    const planned = planReview(ready());
+    assert.equal(planned.ok, true);
+    if (!planned.ok || planned.idempotent || planned.decision !== 'approve') return;
+    assert.equal(planned.workStatus, 'ready');
+  });
+
+  it('is idempotent for the same iteration and decision', () => {
+    const again = planReview(
+      ready({ existing: { decision: 'approve', notes: '' }, decision: 'approve' }),
+    );
+    assert.deepEqual(again, { ok: true, idempotent: true, decision: 'approve' });
+    const changes = planReview(
+      ready({
+        decision: 'request_changes',
+        notes: 'Tighten the mobile card.',
+        existing: { decision: 'request_changes', notes: 'Tighten the mobile card.' },
+      }),
+    );
+    assert.equal(changes.ok, true);
+    if (!changes.ok) return;
+    assert.equal(changes.idempotent, true);
+  });
+
+  it('rejects a different decision on an iteration that already has a review', () => {
+    const planned = planReview(
+      ready({
+        decision: 'request_changes',
+        notes: 'Change the card.',
+        existing: { decision: 'approve', notes: '' },
+      }),
+    );
+    assert.deepEqual(planned, { ok: false, reason: ALREADY_REVIEWED });
+  });
+
+  it('rejects a stale iteration', () => {
+    const planned = planReview(ready({ iteration: 1 }));
+    assert.equal(planned.ok, false);
+    if (planned.ok) return;
+    assert.match(planned.reason, /stale/);
+    assert.match(planned.reason, /2/);
+  });
+
+  it('requires notes to request changes', () => {
+    const empty = planReview(ready({ decision: 'request_changes', notes: '   ' }));
+    assert.deepEqual(empty, { ok: false, reason: NOTES_REQUIRED });
+  });
+
+  it('moves back to Building and writes one task per note group', () => {
+    const planned = planReview(
+      ready({
+        decision: 'request_changes',
+        notes: 'Give the mobile review card more room.\n\nMake the preview link a larger tap target.',
+      }),
+    );
+    assert.equal(planned.ok, true);
+    if (!planned.ok || planned.idempotent || planned.decision !== 'request_changes') return;
+    assert.equal(planned.workStatus, 'active');
+    assert.equal(planned.nextIteration, 3);
+    assert.equal(planned.tasks.length, 2);
+    assert.equal(planned.tasks[0]?.parentTaskId, null);
+    const selected = planReview(
+      ready({
+        decision: 'request_changes',
+        notes: 'Needs more room on mobile.',
+        appliesTo: [
+          { id: 'task-a', name: 'Mobile milestone summary' },
+          { id: 'task-b', name: 'Review card layout' },
+        ],
+      }),
+    );
+    assert.equal(selected.ok, true);
+    if (!selected.ok || selected.idempotent || selected.decision !== 'request_changes') return;
+    assert.equal(selected.tasks.length, 2);
+    assert.equal(selected.tasks[0]?.parentTaskId, 'task-a');
+    assert.match(selected.tasks[1]?.name ?? '', /Review card layout/);
+  });
+
+  it('denies clients, non-staff, and anyone who is not Peter', () => {
+    for (const actor of [
+      { source: 'portal' as const, role: 'Client Admin' as const, email: 'jordan@client.test' },
+      { source: 'portal' as const, role: 'Client Member' as const, email: 'jordan@client.test' },
+      { source: 'portal' as const, role: null, email: 'peter@warehaus.studio' },
+    ]) {
+      const planned = planReview(ready({ actor }));
+      assert.equal(planned.ok, false);
+      if (planned.ok) return;
+      assert.equal(planned.reason, STAFF_REQUIRED);
+    }
+    const otherStaff = planReview(
+      ready({ actor: { source: 'portal', role: 'Warehaus Staff', email: 'alex@warehaus.studio' } }),
+    );
+    assert.deepEqual(otherStaff, { ok: false, reason: ONLY_PETER });
+    const otherBot = planReview(ready({ actor: { source: 'chat', tokenName: 'claude' }, decision: 'approve' }));
+    assert.deepEqual(otherBot, { ok: false, reason: ONLY_PETER });
+    const peterChat = planReview(ready({ actor: chat }));
+    assert.equal(peterChat.ok, true);
+  });
+
+  it('hides the review from clients and keeps it for staff', () => {
+    const review = { iteration: 2, previewUrl: 'localhost:3100/p/demo', history: [{ iteration: 1 }] };
+    assert.equal(reviewForAudience('client', review), null);
+    assert.equal(reviewForAudience('staff', review), review);
+    assert.equal(reviewForAudience('client', null), null);
+  });
+
+  it('refuses a review before the localhost preview exists', () => {
+    const planned = planReview(ready({ hasPreview: false }));
+    assert.deepEqual(planned, { ok: false, reason: WAITING_ON_BUILD });
+  });
+
+  it('keeps Ready to Ship and does not treat approve as shipped', () => {
+    const planned = planReview(ready({ workStatus: 'active' }));
+    assert.equal(planned.ok, false);
+    const shipped = planReview(ready());
+    assert.equal(shipped.ok, true);
+    if (!shipped.ok || shipped.idempotent) return;
+    assert.equal(shipped.workStatus, 'ready');
+    assert.equal('shipped' in shipped, false);
+  });
+});
+
+describe('local preview and chat copy', () => {
+  it('accepts only localhost port 3100', () => {
+    assert.equal(
+      normalizeLocalPreview('http://localhost:3100/p/warehaus-portal/m/client-experience-launch'),
+      'localhost:3100/p/warehaus-portal/m/client-experience-launch',
+    );
+    assert.equal(normalizeLocalPreview('https://localhost:3000/p/demo'), null);
+    assert.equal(normalizeLocalPreview('https://example.com/p/demo'), null);
+  });
+
+  it('uses the chat sentence with port 3100', () => {
+    assert.equal(
+      reviewChatLine({
+        prNumber: 108,
+        iteration: 2,
+        previewUrl: 'localhost:3100/p/warehaus-portal/m/client-experience-launch',
+      }),
+      'PR #108 · Iteration 2 is ready. Open local preview: localhost:3100/p/warehaus-portal/m/client-experience-launch (your Mac, test data). Reply approve, or request changes with your notes.',
+    );
+  });
+});
+
+describe('Ready to Ship status', () => {
+  it('keeps the Portal stage hint', () => {
+    assert.equal(
+      TASK_STAGE_HINT,
+      "Admin can set Idea or Planning here. Later stages are set by staff in the Portal. Awaiting Go and Ready to Ship are Peter's call.",
+    );
+  });
+
+  it('shows In review instead of In progress', () => {
+    assert.equal(displayedTaskStatus('In Progress', 'Ready to Ship'), 'In review');
+    assert.equal(displayedTaskStatus('In progress', 'Ready to Ship'), 'In review');
+    assert.equal(displayedTaskStatus('in_progress', 'Ready to Ship'), 'In review');
+    assert.equal(displayedTaskStatus('Done', 'Ready to Ship'), 'Done');
+    assert.equal(displayedTaskStatus('In Progress', 'Building'), 'In Progress');
+    assert.equal(displayedTaskStatus('In progress', null), 'In progress');
+  });
+});
+
+describe('iteration tasks', () => {
+  it('creates one draft per paragraph when no task is selected', () => {
+    const drafts = iterationTaskDrafts({
+      notes: 'First fix.\n\nSecond fix.',
+      nextIteration: 3,
+      appliesTo: [],
+    });
+    assert.equal(drafts.length, 2);
+    assert.match(drafts[0]?.name ?? '', /^Iteration 3:/);
+  });
+});

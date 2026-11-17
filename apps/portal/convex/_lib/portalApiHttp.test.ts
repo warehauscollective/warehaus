@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { portalApiRoutes } from '../http';
+import { portalApiPrefixRoutes, portalApiRoutes } from '../http';
 import { portalApiHttp } from '../portalApi';
 
 describe('portalApiHttp', () => {
@@ -27,5 +27,6 @@ describe('portalApiHttp', () => {
     ]) {
       assert.equal(paths.has(route), true, route);
     }
+    assert.deepEqual(portalApiPrefixRoutes, [{ pathPrefix: '/api/v1/milestones/', method: 'POST' }]);
   });
 });

@@ -1,4 +1,5 @@
 import { Pill } from '@/components/ui/primitives';
+import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { SyncChip } from '@/components/sync/SyncChip';
 import {
   TASK_BOARD_COLUMNS,
@@ -151,7 +152,7 @@ export function StatusTable({
             <tr key={task.id} onClick={() => onOpen(task)} style={{ cursor: 'pointer' }}>
               <td style={{ overflowWrap: 'anywhere', minWidth: 0 }}>{task.name}</td>
               <td>
-                <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
+                <Pill color={taskStatusColor(displayedTaskStatus(task.status, task.stage), task.isDone)}>{displayedTaskStatus(task.status, task.stage)}</Pill>
               </td>
               <td>{formatPortalDate(task.date)}</td>
               {staff ? (

@@ -34,6 +34,7 @@ import {
   type ClientListRow,
 } from '@/lib/data/clientList';
 import { taskStatusColor } from '@/lib/data/view-models';
+import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { TEAM_CLIENT_EMPTY, TEAM_ERROR_COPY, TEAM_STALE_COPY, TeamEmpty, TeamOutlineButton, TeamSkeletonRows, TeamStateNotice, clientTeamEmptyBody } from '@/components/account/teamStates';
 import { TaskPlatformSetting, type TaskPlatformPanelModel } from '@/components/clients/TaskPlatformSetting';
 
@@ -1083,8 +1084,8 @@ export function ClientDetail({
                 );
               }
               pills.push(
-                <Pill key="status" color={taskStatusColor(task.status, task.isDone)}>
-                  {task.status}
+                <Pill key="status" color={taskStatusColor(displayedTaskStatus(task.status, task.stage), task.isDone)}>
+                  {displayedTaskStatus(task.status, task.stage)}
                 </Pill>,
               );
               if (task.category) pills.push(<Pill key="category">{task.category}</Pill>);

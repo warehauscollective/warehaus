@@ -871,6 +871,8 @@ const LINK_FIELDS = ['taskId', 'kind', 'url', 'title', 'expectedLastEditedTime']
 const CLIENT_CREATE_FIELDS = ['companyName', 'primaryEmail', 'phone'];
 const PROJECT_CREATE_FIELDS = ['name', 'clientId', 'client', 'externalId', 'publishToWarehaus'];
 const ATTACH_FIELDS = ['milestoneId', 'taskId'];
+const REVIEW_FIELDS = ['iteration', 'decision', 'notes', 'taskIds'];
+const REVIEW_PATH = /^\/api\/v1\/milestones\/([^/]+)\/review$/;
 const CLIENT_NESTED_FIELDS = ['companyName', 'primaryEmail', 'phone'];
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -1045,6 +1047,57 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
   if (keyError || !idempotencyKey) return json({ error: keyError ?? 'Idempotency key is required' }, 400);
   const requestHash = await sha256Hex(idempotencyMaterial(method, url.pathname, rawBody));
   const idem = { tokenId: consumed.tokenId, key: idempotencyKey, requestHash };
+
+  const reviewMilestoneId = REVIEW_PATH.exec(url.pathname)?.[1] ?? null;
+  if (reviewMilestoneId) {
+    const unknown = unknownFieldError(parsed, REVIEW_FIELDS);
+    const iteration = parsed.iteration;
+    const decision = parsed.decision;
+    const notes = typeof parsed.notes === 'string' ? parsed.notes : '';
+    const taskIds = Array.isArray(parsed.taskIds)
+      ? parsed.taskIds.filter((id): id is string => typeof id === 'string')
+      : [];
+    const shape =
+      unknown ??
+      (typeof iteration !== 'number' || !Number.isInteger(iteration) || iteration < 1
+        ? 'Iteration is required'
+        : decision !== 'approve' && decision !== 'request_changes'
+          ? 'Decision must be approve or request_changes'
+          : parsed.taskIds != null && !Array.isArray(parsed.taskIds)
+            ? 'taskIds must be a list'
+            : null);
+    if (shape) {
+      const result = await ctx.runMutation(internal.portalApi.rememberResult, {
+        ...idem,
+        status: 400,
+        body: JSON.stringify({ error: shape }),
+      });
+      return json(result.body, result.status);
+    }
+    const result = await finishAction(ctx, { ...idem, tokenName: consumed.name }, async () => {
+      const applied = await ctx.runMutation(internal.milestones.reviewForApi, {
+        milestoneId: reviewMilestoneId as Id<'milestones'>,
+        iteration: iteration as number,
+        decision: String(decision),
+        notes,
+        taskIds: taskIds as Id<'tasks'>[],
+        tokenName: consumed.name,
+      });
+      if (!applied.ok) return { status: applied.status, body: { error: applied.error } };
+      return {
+        status: 200,
+        body: {
+          idempotent: applied.idempotent,
+          iteration: applied.iteration,
+          decision: applied.decision,
+          approval: applied.approval,
+          workStatus: applied.workStatus,
+          createdTaskIds: applied.createdTaskIds,
+        },
+      };
+    });
+    return json(result.body, result.status);
+  }
 
   const visibility = visibilityWriteError(
     parsed,

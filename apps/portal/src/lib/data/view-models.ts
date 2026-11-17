@@ -58,6 +58,8 @@ export type PortalTask = {
   isDone: boolean;
   date: string | null;
   stage?: string | null;
+  /** Staff only. Used to load the milestone review while this task is open. */
+  milestoneId?: string | null;
   lastEditedTime?: string | null;
   parentTaskId?: string | null;
   assigneeName?: string | null;
@@ -340,6 +342,7 @@ export function clientDirectoryMeta(client: {
 export function taskStatusColor(status: string, isDone = false): string {
   if (isDone || /^done$/i.test(status)) return 'var(--success)';
   if (/block/i.test(status)) return 'var(--danger)';
+  if (/review/i.test(status)) return 'var(--accent)';
   if (/progress/i.test(status) || /^doing$/i.test(status)) return 'var(--accent)';
   if (/inbox/i.test(status)) return 'var(--warn)';
   return 'var(--muted)';

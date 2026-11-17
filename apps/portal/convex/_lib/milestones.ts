@@ -547,4 +547,29 @@ export type MilestoneRoadmapView = {
   rows: RoadmapRow[];
   attachableTasks?: { id: string; name: string }[];
   resourceChoices?: { id: string; title: string }[];
+  /** Staff only. Absent for clients, including the key. */
+  review?: MilestoneReviewView;
+};
+
+export type MilestoneReviewHistoryItem = {
+  iteration: number;
+  decision: 'approve' | 'request_changes';
+  notes: string;
+  decidedByName: string;
+  decidedAt: number;
+  source: 'portal' | 'chat';
+  taskCount: number;
+};
+
+export type MilestoneReviewView = {
+  iteration: number;
+  previewUrl: string | null;
+  prNumber: number | null;
+  prTitle: string | null;
+  branch: string | null;
+  commit: string | null;
+  builtAt: number | null;
+  designCheck: 'pass' | 'fixes' | 'pending';
+  designCheckNote: string | null;
+  history: MilestoneReviewHistoryItem[];
 };

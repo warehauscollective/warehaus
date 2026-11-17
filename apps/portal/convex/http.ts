@@ -37,6 +37,11 @@ http.route({
   handler: vercelWebhook,
 });
 
+/** Dynamic staff review. Exact routes above this prefix still win. */
+export const portalApiPrefixRoutes: Array<{ pathPrefix: string; method: 'POST' }> = [
+  { pathPrefix: '/api/v1/milestones/', method: 'POST' },
+];
+
 export const portalApiRoutes: Array<{ path: string; method: 'GET' | 'POST' }> = [
   { path: '/api/v1/session', method: 'GET' },
   { path: '/api/v1/tasks', method: 'GET' },
@@ -60,6 +65,9 @@ export const portalApiRoutes: Array<{ path: string; method: 'GET' | 'POST' }> = 
 ];
 for (const route of portalApiRoutes) {
   http.route({ path: route.path, method: route.method, handler: portalApiHttp });
+}
+for (const route of portalApiPrefixRoutes) {
+  http.route({ pathPrefix: route.pathPrefix, method: route.method, handler: portalApiHttp });
 }
 
 export default http;

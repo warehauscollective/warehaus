@@ -12,6 +12,8 @@ import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
 import { type PortalTask } from '@/lib/data/view-models';
+import { displayedTaskStatus } from '@/lib/data/taskStatus';
+import { MilestoneReviewLive } from './MilestoneReview';
 import {
   FieldLabel,
   FieldValue,
@@ -192,22 +194,32 @@ export function milestoneTileDate(input: {
 
 /**
  * Status and stage from the same stored approval and work status.
- * Tiles use the stage. The detail page uses both. An approval of approved wins.
+ * Ready for review is Ready to Ship. Approve keeps that stage.
+ * Shipped waits for deploy main, which this screen does not do.
  */
 export function milestoneTileStage(input: {
   approval: string;
   workStatus: MilestoneRoadmapView['workStatus'];
-}): { status: string; label: 'Planning' | 'Building' | 'Shipped'; glyph: string } {
-  if (input.approval === 'approved') {
-    return { status: 'Approved', label: 'Shipped', glyph: '/icons/task-stage-shipped.svg' };
-  }
+}): { status: string; label: 'Planning' | 'Building' | 'Ready to Ship'; glyph: string } {
   if (input.workStatus === 'draft') {
-    return { status: 'Draft', label: 'Planning', glyph: '/icons/item-stage.svg' };
+    return {
+      status: input.approval === 'approved' ? 'Approved' : 'Draft',
+      label: 'Planning',
+      glyph: '/icons/item-stage.svg',
+    };
   }
   if (input.workStatus === 'ready') {
-    return { status: 'Ready for review', label: 'Building', glyph: '/icons/task-stage.svg' };
+    return {
+      status: input.approval === 'approved' ? 'Approved' : 'Ready for review',
+      label: 'Ready to Ship',
+      glyph: '/icons/task-stage.svg',
+    };
   }
-  return { status: 'In progress', label: 'Building', glyph: '/icons/task-stage.svg' };
+  return {
+    status: input.approval === 'approved' ? 'Approved' : 'In progress',
+    label: 'Building',
+    glyph: '/icons/task-stage.svg',
+  };
 }
 
 function progressBase(done: number, total: number, phone: boolean): string {
@@ -924,6 +936,9 @@ export function MilestoneDetailView({
           )
         }
       />
+      {staff && milestone.review ? (
+        <MilestoneReviewLive milestone={milestone} hostSlug={hostSlug} />
+      ) : null}
       <TabRow
         label="Milestone"
         idPrefix="milestone"
@@ -2091,7 +2106,7 @@ function TaskLine({
     <>
       <p style={{ fontSize: 14, fontWeight: 550, minWidth: 0 }}>{row.name}</p>
       <p className="flex flex-wrap items-center gap-2" style={{ fontSize: 12, color: 'var(--muted)' }}>
-        <span data-testid="milestone-task-status">{row.status}</span>
+        <span data-testid="milestone-task-status">{displayedTaskStatus(row.status, row.stage)}</span>
         {row.stage ? <span data-testid="milestone-task-stage">{row.stage}</span> : null}
         <span data-testid="milestone-task-resources">{resourceLabel(row.resourceCount)}</span>
         {row.pullRequestUrl ? (
