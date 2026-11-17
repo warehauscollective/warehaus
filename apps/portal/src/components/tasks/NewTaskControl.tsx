@@ -6,8 +6,10 @@ import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { WRITEBACK_OFF_ERROR, createTaskExternalId } from '@warehaus/portal-sync';
+import { PortalModal } from '@/components/ui/PortalModal';
 import { GhostButton, PrimaryButton, Surface } from '@/components/ui/primitives';
 import { LIVE_TASK_STATUSES } from '@/lib/data/view-models';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
 
 /**
  * Dashboard New task. Calls createTask only when the deployment write-back flag is on.
@@ -35,6 +37,7 @@ export function NewTaskControl({
   const [status, setStatus] = useState('');
   const [note, setNote] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const narrow = useMaxWidth(767);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -89,22 +92,15 @@ export function NewTaskControl({
         New task
       </PrimaryButton>
       {open ? (
-        <div
-          className="ds-scope portal-modal-scrim"
-          data-portal-scrim=""
-          role="presentation"
-          onClick={() => setOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 80,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-          }}
+        <PortalModal
+          label="New task"
+          testId="new-task"
+          onClose={() => setOpen(false)}
+          narrow={narrow}
+          sheet="bottom"
+          width={640}
+          panelStyle={{ padding: 0 }}
         >
-          <div role="dialog" aria-modal="true" aria-label="New task" onClick={(event) => event.stopPropagation()} className="portal-modal-panel" style={{ width: 'min(100%, 640px)', borderRadius: 28, overflow: 'hidden' }}>
             <Surface style={{ padding: 'var(--s-5)' }}>
               <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
                 New task
@@ -188,8 +184,7 @@ export function NewTaskControl({
                 </div>
               </form>
             </Surface>
-          </div>
-        </div>
+        </PortalModal>
       ) : null}
     </>
   );

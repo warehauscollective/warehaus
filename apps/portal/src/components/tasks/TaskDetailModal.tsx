@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEditMode } from '@warehaus/portal-sync';
+import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton, StatusBadge } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
@@ -77,15 +77,11 @@ export function TaskDetailModal({
   const shownStatus = task ? displayedTaskStatus(task.status, task.stage) : '';
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    titleRef.current?.focus();
-  }, [task?.id, unavailable]);
+    if (!attach) titleRef.current?.focus();
+  }, [task?.id, unavailable, attach]);
 
-  return (
-    <ModalShell
-      phone={phone}
-      onClose={onClose}
-      label={task?.name ?? 'Task'}
-    >
+  const detail = (
+    <>
       {unavailable || !task ? (
         <div className="flex flex-col items-start gap-3">
           <h2 ref={titleRef} tabIndex={-1} style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>
@@ -388,16 +384,56 @@ export function TaskDetailModal({
         </div>
         </>
       )}
-      {attach && task ? (
-        <AttachPicker
-          task={task}
-          resources={projectResources}
-          attachedIds={resources.map((resource) => resource.id)}
-          hostSlug={hostSlug}
-          onClose={() => setAttach(false)}
-        />
-      ) : null}
-    </ModalShell>
+    </>
+  );
+
+  return (
+    <PortalModalStack
+        frames={[
+          {
+            key: 'detail',
+            open: !attach,
+            keep: true,
+            node: (
+              <PortalModal
+                testId="task-detail"
+                label={task?.name ?? 'Task'}
+                onClose={onClose}
+                narrow={phone}
+                sheet="bottom"
+                width={840}
+                hidden={attach}
+                panelStyle={{ padding: phone ? 20 : 24 }}
+              >
+                {detail}
+              </PortalModal>
+            ),
+          },
+          {
+            key: 'attach',
+            open: attach && Boolean(task),
+            node: task ? (
+              <PortalModal
+                testId="attach-resources"
+                label="Attach resources"
+                onClose={() => setAttach(false)}
+                narrow={phone}
+                sheet="bottom"
+                width={640}
+                panelStyle={{ padding: 20 }}
+              >
+                <AttachPicker
+                  task={task}
+                  resources={projectResources}
+                  attachedIds={resources.map((resource) => resource.id)}
+                  hostSlug={hostSlug}
+                  onClose={() => setAttach(false)}
+                />
+              </PortalModal>
+            ) : null,
+          },
+        ]}
+    />
   );
 }
 
@@ -669,7 +705,7 @@ export function TaskCreateDialog({
   };
 
   return (
-    <ModalShell phone={false} onClose={onClose} label="New task" width={640}>
+    <PortalModal label="New task" testId="task-create" onClose={onClose} width={640} panelStyle={{ padding: 24 }}>
       <form className="flex flex-col gap-3" onSubmit={onSubmit}>
         <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>New task</h2>
         <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)' }}>{projectName}</p>
@@ -704,7 +740,7 @@ export function TaskCreateDialog({
           <PrimaryButton type="submit" disabled={pending || !name.trim()}>{pending ? 'Creating…' : 'Create task'}</PrimaryButton>
         </div>
       </form>
-    </ModalShell>
+    </PortalModal>
   );
 }
 
@@ -746,18 +782,6 @@ function AttachPicker({
     return true;
   });
 
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        event.preventDefault();
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
-
   const onSave = async () => {
     if (!task.notionPageId || !task.lastEditedTime) {
       setNote('This task has no Notion edit time yet. Nothing was sent.');
@@ -780,8 +804,7 @@ function AttachPicker({
   };
 
   return (
-    <div role="presentation" className="ds-scope portal-modal-scrim" data-portal-scrim="" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 90, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div role="dialog" aria-modal="true" aria-label="Attach resources" className="portal-modal-panel" onClick={(event) => event.stopPropagation()} style={{ width: 'min(100%, 640px)', maxHeight: '80dvh', overflow: 'auto', borderRadius: 28, padding: 20 }}>
+    <>
         <div className="mt-3 flex items-center justify-between">
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>Attach resources</h2>
           <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
@@ -854,85 +877,8 @@ function AttachPicker({
             </PrimaryButton>
           </div>
         </div>
-      </div>
-    </div>
+    </>
   );
-}
-
-function ModalShell({
-  phone,
-  onClose,
-  label,
-  width = 840,
-  scrim = 'solid',
-  suspended = false,
-  children,
-}: {
-  phone: boolean;
-  onClose: () => void;
-  label: string;
-  width?: number;
-  scrim?: 'solid' | 'light';
-  /** The review dialog is the only modal while a decision is open. */
-  suspended?: boolean;
-  children: React.ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (suspended) return;
-    const node = ref.current;
-    const previous = document.activeElement as HTMLElement | null;
-    node?.focus({ preventScroll: true });
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-        return;
-      }
-      if (event.key !== 'Tab' || !node) return;
-      const focusable = [...node.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href]')];
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus({ preventScroll: true });
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus({ preventScroll: true });
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      previous?.focus({ preventScroll: true });
-    };
-  }, [onClose, suspended]);
-  if (suspended) return <>{children}</>;
-  const dialog = (
-    <div className="ds-scope portal-modal-scrim" data-portal-scrim="" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, display: 'flex', alignItems: phone ? 'flex-end' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
-        tabIndex={-1}
-        className={phone ? 'portal-modal-panel portal-modal-sheet' : 'portal-modal-panel'}
-        onClick={(event) => event.stopPropagation()}
-        style={{
-          width: phone ? '100%' : `min(100%, ${width}px)`,
-          maxHeight: phone ? 'calc(100dvh - 12px)' : 'min(880px, calc(100dvh - 72px))',
-          overflow: 'auto',
-          borderRadius: phone ? '28px 28px 0 0' : 28,
-          padding: phone ? 20 : 24,
-          boxShadow: phone ? 'none' : undefined,
-        }}
-      >
-        {children}
-      </div>
-    </div>
-  );
-  if (typeof document === 'undefined') return dialog;
-  return createPortal(dialog, document.body);
 }
 
 const inputStyle = {

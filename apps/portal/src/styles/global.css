@@ -515,11 +515,13 @@ html.light .accept-inset {
 .ds-scope.portal-modal-scrim,
 .ds-scope .portal-modal-scrim {
   background: var(--scrim);
+  -webkit-backdrop-filter: blur(40px);
   backdrop-filter: blur(var(--scrim-blur));
 }
 @media (prefers-reduced-transparency: reduce), (prefers-reduced-motion: reduce) {
   .ds-scope.portal-modal-scrim,
   .ds-scope .portal-modal-scrim {
+    -webkit-backdrop-filter: none;
     backdrop-filter: none;
   }
 }

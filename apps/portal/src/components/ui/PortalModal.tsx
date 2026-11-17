@@ -7,13 +7,22 @@ export type ModalFrame = {
   key: string;
   open: boolean;
   node: ReactNode;
+  /** Stay mounted while another frame is open, so its state is still there on the way back. */
+  keep?: boolean;
 };
 
-/** Renders the top open frame. A modal opened from a modal swaps in place. */
+/** Renders the top open frame. A kept frame stays mounted without its shell. */
 export function PortalModalStack({ frames }: { frames: readonly ModalFrame[] }) {
   const active = [...frames].reverse().find((frame) => frame.open);
-  if (!active) return null;
-  return <>{active.node}</>;
+  if (!active && !frames.some((frame) => frame.keep)) return null;
+  return (
+    <>
+      {frames.map((frame) => {
+        if (!frame.keep && frame !== active) return null;
+        return <span key={frame.key} style={{ display: 'contents' }}>{frame.node}</span>;
+      })}
+    </>
+  );
 }
 
 type Sheet = 'center' | 'top' | 'bottom';
@@ -30,6 +39,7 @@ export function PortalModal({
   locked = false,
   panelStyle,
   maxHeight,
+  hidden = false,
 }: {
   testId?: string;
   label: string;
@@ -42,6 +52,8 @@ export function PortalModal({
   locked?: boolean;
   panelStyle?: CSSProperties;
   maxHeight?: string;
+  /** Keep the children mounted without a scrim or dialog. */
+  hidden?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -51,6 +63,7 @@ export function PortalModal({
   const placement = narrow ? sheet : 'center';
 
   useEffect(() => {
+    if (hidden) return;
     const panel = panelRef.current;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const overflow = document.body.style.overflow;
@@ -87,7 +100,7 @@ export function PortalModal({
       document.body.style.overflow = overflow;
       previous?.focus();
     };
-  }, []);
+  }, [hidden]);
 
   const isSheet = placement !== 'center';
   const scrim: CSSProperties = {
@@ -101,22 +114,24 @@ export function PortalModal({
   };
   const node = (
     <div
-      className="ds-scope portal-modal-scrim"
-      data-portal-scrim=""
+      hidden={hidden || undefined}
+      className={hidden ? undefined : 'ds-scope portal-modal-scrim'}
+      data-portal-scrim={hidden ? undefined : ''}
       onClick={() => {
-        if (!lockedRef.current) closeRef.current();
+        if (hidden || lockedRef.current) return;
+        closeRef.current();
       }}
-      style={scrim}
+      style={hidden ? { display: 'none' } : scrim}
     >
       <div
         ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
-        data-testid={testId}
-        className={isSheet ? 'portal-modal-panel portal-modal-sheet' : 'portal-modal-panel'}
+        role={hidden ? undefined : 'dialog'}
+        aria-modal={hidden ? undefined : true}
+        aria-label={hidden ? undefined : label}
+        data-testid={hidden ? undefined : testId}
+        className={hidden ? undefined : isSheet ? 'portal-modal-panel portal-modal-sheet' : 'portal-modal-panel'}
         onClick={(event) => event.stopPropagation()}
-        style={{
+        style={hidden ? undefined : {
           width: narrow ? '100%' : width,
           maxWidth: '100%',
           height: maxHeight,
@@ -127,12 +142,12 @@ export function PortalModal({
           borderRadius: isSheet ? '28px 28px 0 0' : 28,
         }}
       >
-        {isSheet ? (
+        {!hidden && isSheet ? (
           <div className="portal-modal-grabber" data-testid="modal-grabber" aria-hidden="true">
             <span />
           </div>
         ) : null}
-        <div style={{ overflow: 'auto', minHeight: 0, ...panelStyle }}>{children}</div>
+        <div style={hidden ? undefined : { overflow: 'auto', minHeight: 0, ...panelStyle }}>{children}</div>
       </div>
     </div>
   );

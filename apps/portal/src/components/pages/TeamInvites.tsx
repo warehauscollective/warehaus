@@ -8,6 +8,8 @@ import { api } from '@convex/_generated/api';
 import { teamInviteActions } from '@convex/_lib/inviteFlow';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { PortalTilePane } from '@/components/layout/PortalWorkspace';
+import { PortalModal } from '@/components/ui/PortalModal';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isMissingConvexFunction } from '@/lib/data/staffRoster';
@@ -473,36 +475,12 @@ export function TeamInvites({
         @media (max-width: 720px) {
           .team-page-cta { width: 100%; }
         }
-        .invite-grab { display: none; }
         .invite-dialog input:focus-visible {
           outline: 2px solid var(--fg);
           outline-offset: 2px;
           border-color: var(--fg);
         }
         @media (max-width: 720px) {
-          .invite-grab {
-            display: block;
-            width: 36px;
-            height: 4px;
-            border-radius: 2px;
-            background: var(--border-2, var(--border));
-            margin: -8px auto 4px;
-          }
-          .invite-dialog {
-            top: auto !important;
-            bottom: 0 !important;
-            left: 0 !important;
-            right: 0 !important;
-            width: 100% !important;
-            max-width: none !important;
-            max-height: 100dvh !important;
-            overflow: auto !important;
-            transform: none !important;
-            border-radius: 28px 28px 0 0 !important;
-            box-shadow: none !important;
-            border-width: 1px 0 0 !important;
-            padding-bottom: 24px !important;
-          }
           .invite-actions { flex-direction: column !important; align-items: stretch !important; }
           .invite-actions button { width: 100%; }
           .invite-actions .invite-primary { order: 1; }
@@ -599,19 +577,18 @@ function InviteDialog({
   onAnother: () => void;
 }) {
   const locked = mode === 'sending';
+  const narrow = useMaxWidth(720);
   return (
-    <div role="presentation" className="ds-scope portal-modal-scrim invite-scrim" data-portal-scrim="" style={scrim} onClick={onClose}>
-      <div
-        className="invite-dialog portal-modal-panel"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="invite-staff-title"
-        data-testid="invite-staff-dialog"
-        data-mode={mode}
-        style={dialog}
-        onClick={(event) => event.stopPropagation()}
-      >
-        <span className="invite-grab" aria-hidden />
+    <PortalModal
+      testId="invite-staff-dialog"
+      label={mode === 'sent' ? 'Invite sent' : 'Invite staff'}
+      onClose={onClose}
+      narrow={narrow}
+      sheet="bottom"
+      locked={locked}
+      panelStyle={{ padding: 32, display: 'flex', flexDirection: 'column', gap: 20 }}
+    >
+      <div className="invite-dialog" data-mode={mode}>
         <div style={{ display: 'flex', justifyContent: 'space-between', gap: 12 }}>
           <div>
             {mode === 'sent' ? (
@@ -722,7 +699,7 @@ function InviteDialog({
           )}
         </div>
       </div>
-    </div>
+    </PortalModal>
   );
 }
 
@@ -739,19 +716,25 @@ function ConfirmDialog({
   onCancel: () => void;
   onConfirm: () => void;
 }) {
+  const narrow = useMaxWidth(720);
   return (
-    <div role="presentation" className="ds-scope portal-modal-scrim" data-portal-scrim="" style={scrim} onClick={onCancel}>
-      <div role="dialog" aria-modal="true" data-testid="revoke-confirm" className="portal-modal-panel" style={{ ...dialog, width: 'min(640px, 100%)' }} onClick={(event) => event.stopPropagation()}>
+    <PortalModal
+      testId="revoke-confirm"
+      label={title}
+      onClose={onCancel}
+      narrow={narrow}
+      sheet="bottom"
+      panelStyle={{ padding: 32, display: 'flex', flexDirection: 'column', gap: 20 }}
+    >
         <h2 style={{ margin: 0, fontSize: 22 }}>{title}</h2>
         <p style={{ margin: '8px 0 0', fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>{body}</p>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
           <button type="button" style={secondaryButton} onClick={onCancel}>Cancel</button>
-          <button type="button" data-testid="revoke-confirm-submit" style={{ ...primaryButton, background: 'var(--danger)', color: '#fff' }} onClick={onConfirm}>
+          <button type="button" data-testid="revoke-confirm-submit" style={{ ...primaryButton, background: 'var(--danger)', color: 'var(--paper)' }} onClick={onConfirm}>
             {confirmLabel}
           </button>
         </div>
-      </div>
-    </div>
+    </PortalModal>
   );
 }
 
@@ -832,30 +815,6 @@ const field = {
   padding: '0 14px',
   fontSize: 15,
 } as const;
-
-const scrim = {
-  position: 'fixed' as const,
-  inset: 0,
-  zIndex: 60,
-};
-
-const dialog = {
-  position: 'fixed' as const,
-  top: '50%',
-  left: '50%',
-  transform: 'translate(-50%, -50%)',
-  width: 'min(640px, calc(100% - 32px))',
-  background: 'var(--surface)',
-  color: 'var(--fg)',
-  border: '1px solid var(--border-2)',
-  borderRadius: 28,
-  boxShadow: 'var(--modal-shadow)',
-  padding: 32,
-  display: 'flex',
-  flexDirection: 'column' as const,
-  gap: 20,
-  zIndex: 61,
-};
 
 const iconButton = {
   background: 'transparent',

@@ -68,8 +68,10 @@ describe('account team states', () => {
     assert.equal(invites.includes('Invite someone'), false);
     assert.match(invites, /Revoke this invite/);
     assert.match(invites, /from the Clients tab/);
-    assert.match(invites, /zIndex: 60/);
-    assert.match(invites, /zIndex: 61/);
+    assert.match(invites, /<PortalModal/);
+    assert.match(invites, /testId="invite-staff-dialog"/);
+    assert.match(invites, /testId="revoke-confirm"/);
+    assert.equal(invites.includes('invite-grab'), false);
     assert.equal(invites.includes('88px'), false);
     assert.match(invites, /role="menu"/);
     assert.match(invites, /\.invite-row \{ overflow: visible; \}/);
