@@ -872,10 +872,7 @@ function ProjectTaskOverlay({
     taskKey && !staff ? { hostSlug, taskId: taskKey } : 'skip',
   );
   const [phone, setPhone] = useState(false);
-  const [closeLabel, setCloseLabel] = useState('Back to board');
-  useEffect(() => {
-    setCloseLabel(taskCloseLabel(peekPortalReturn()));
-  }, [taskId]);
+  const closeLabel = taskCloseLabel(peekPortalReturn());
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
     const apply = () => setPhone(media.matches);

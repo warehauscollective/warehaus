@@ -146,7 +146,7 @@ describe('stage bars and awaiting go', () => {
       client.awaiting.map((row) => row.name),
       ['Homepage wireframes'],
     );
-    assert.equal(client.awaiting[0]?.stageLabel, 'Pending approval');
+    assert.equal(client.awaiting[0]?.stageLabel, 'Awaiting Go');
     assert.equal('published' in client.awaiting[0]!, false);
     assert.deepEqual(
       client.activity.map((row) => row.name),

@@ -217,7 +217,7 @@ export const SYNC_PULL_STALE_MS = DAY;
  */
 export const OUTBOX_HEALTH_LIMIT = 100;
 
-export const CLIENT_AWAITING_LABEL = 'Pending approval';
+export const CLIENT_AWAITING_LABEL = 'Awaiting Go';
 
 export function isInternalProject(project: {
   name?: string | null;

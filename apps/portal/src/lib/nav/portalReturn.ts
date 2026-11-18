@@ -33,12 +33,23 @@ export function takePortalReturn(): string | null {
   return value;
 }
 
-/** Close label for a task opened from `path`. The board has no stored return. */
-export function taskCloseLabel(path: string | null): string {
-  if (!path) return 'Back to board';
-  const tab = new URLSearchParams(path.split('?')[1] ?? '').get('tab');
+function labelForTab(tab: string | null): string {
   if (tab === 'activity') return 'Back to activity';
   if (tab === 'projects') return 'Back to board';
   if (!tab || tab === 'dashboard') return 'Back to dashboard';
   return 'Back';
+}
+
+/**
+ * Close label for a task opened from `path`. Real routes are path tabs
+ * (`/activity`). Fixture preview keeps the tab in `?tab=`. No stored return
+ * means the board.
+ */
+export function taskCloseLabel(path: string | null): string {
+  if (!path) return 'Back to board';
+  const [pathname = '', search = ''] = path.split('?');
+  const segment = pathname.replace(/\/+$/, '').split('/').filter(Boolean)[0] ?? '';
+  if (segment === '') return labelForTab('dashboard');
+  if (segment === 'preview') return labelForTab(new URLSearchParams(search).get('tab'));
+  return labelForTab(segment);
 }
