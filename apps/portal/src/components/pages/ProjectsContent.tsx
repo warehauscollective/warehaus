@@ -55,7 +55,7 @@ import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam, setSearchParams } from '@/lib/nav/clearSearchParam';
 import { keepProjectWhileLoading, readTaskListView } from '@/lib/nav/taskListLocation';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
-import { clearPortalReturn, takePortalReturn } from '@/lib/nav/portalReturn';
+import { clearPortalReturn, peekPortalReturn, takePortalReturn, taskCloseLabel } from '@/lib/nav/portalReturn';
 import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
@@ -872,6 +872,10 @@ function ProjectTaskOverlay({
     taskKey && !staff ? { hostSlug, taskId: taskKey } : 'skip',
   );
   const [phone, setPhone] = useState(false);
+  const [closeLabel, setCloseLabel] = useState('Back to board');
+  useEffect(() => {
+    setCloseLabel(taskCloseLabel(peekPortalReturn()));
+  }, [taskId]);
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
     const apply = () => setPhone(media.matches);
@@ -904,6 +908,7 @@ function ProjectTaskOverlay({
       clientName={clientName}
       hostSlug={hostSlug}
       live={!fixtures}
+      closeLabel={closeLabel}
       onClose={onClose}
       onOpenTask={onOpenTask}
     />

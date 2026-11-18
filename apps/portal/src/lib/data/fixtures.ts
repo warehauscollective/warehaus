@@ -643,28 +643,13 @@ function pageActivity(audience: 'staff' | 'client') {
     summary: item.summary,
     timestamp: item.timestamp,
     tone: item.tone,
-    projectId: item.projectId,
-    taskId: item.taskId,
-    docId: item.docId,
-    restricted: false,
+    projectId: item.restricted ? null : item.projectId,
+    taskId: item.restricted ? null : item.taskId,
+    docId: item.restricted ? null : item.docId,
+    restricted: item.restricted === true,
     ...(item.lane ? { lane: item.lane } : {}),
     ...(audience === 'staff' ? { clientVisible: item.clientVisible === true } : {}),
   }));
-  if (audience === 'client') {
-    rows.push({
-      id: 'act-staff-only',
-      name: 'Warehaus updated an internal task',
-      type: 'task',
-      summary: 'Task',
-      timestamp: new Date(pageToday(5)).toISOString(),
-      tone: 'muted',
-      projectId: null,
-      taskId: null,
-      docId: null,
-      restricted: true,
-      lane: 'tasks',
-    });
-  }
   return rows;
 }
 

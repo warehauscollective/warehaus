@@ -36,6 +36,7 @@ export function TaskDetailModal({
   unavailable,
   onClose,
   onOpenTask,
+  closeLabel = 'Back to board',
   projectResources,
   clientName = null,
   hostSlug,
@@ -49,6 +50,8 @@ export function TaskDetailModal({
   unavailable: boolean;
   onClose: () => void;
   onOpenTask: (id: string) => void;
+  /** Board opens say "Back to board". A row from another page names that page. */
+  closeLabel?: string;
   projectResources: ResourceRow[];
   clientName?: string | null;
   hostSlug?: string;
@@ -75,7 +78,7 @@ export function TaskDetailModal({
           <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)' }}>
             This task is not available.
           </p>
-          <OutlineButton onClick={onClose}>Back to board</OutlineButton>
+          <OutlineButton onClick={onClose}>{closeLabel}</OutlineButton>
         </div>
       ) : (
         <>
@@ -93,6 +96,15 @@ export function TaskDetailModal({
             style={{ background: 'none', border: 0, color: 'var(--muted)', cursor: 'pointer', fontSize: 13 }}
           >
             Copy link
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            data-testid="task-back"
+            className="ds-mono"
+            style={{ background: 'none', border: 0, color: 'var(--muted)', cursor: 'pointer', fontSize: 13 }}
+          >
+            {closeLabel}
           </button>
           <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>Esc</span>
           <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>

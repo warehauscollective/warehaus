@@ -114,8 +114,13 @@ export type ActivityFeedItem = {
   milestoneId?: string | null;
   /** Filter lane derived from type and tone. Visibility stays on `type`. */
   lane?: ActivityLane;
-  /** Staff feed only. True when the client feed includes this same id. */
+  /** Staff feed only. True when the client feed includes this row unredacted. */
   clientVisible?: boolean;
+  /**
+   * Client feed only. The row is a staff-only subject with a generic label.
+   * Ids and the real title are omitted.
+   */
+  restricted?: boolean;
 };
 
 export type TaskTimelineItem = {
@@ -435,6 +440,24 @@ function clientAuditItem(
   };
 }
 
+/** A staff-only subject the client may see, without its title or any id. */
+function redactedItem(id: string, at: number, label: 'Task' | 'Doc'): ActivityFeedItem {
+  return {
+    id,
+    name: label,
+    summary: label,
+    type: label === 'Doc' ? 'resource' : 'task',
+    tone: 'muted',
+    timestamp: new Date(at).toISOString(),
+    projectId: null,
+    taskId: null,
+    docId: null,
+    milestoneId: null,
+    lane: label === 'Doc' ? 'resources' : 'tasks',
+    restricted: true,
+  };
+}
+
 function staffDetail(after?: string): string {
   const props = readProperties(after);
   if (!props) return sanitizeInlineText(after ?? '').slice(0, 180);
@@ -483,7 +506,10 @@ export function buildActivityFeed(input: {
       task: undefined,
       orgVisible: input.orgVisible,
     });
-    if (input.audience === 'client' && !clientVisible) continue;
+    if (input.audience === 'client' && !clientVisible) {
+      if (row.type === 'task') items.push(redactedItem(row._id, row.timestamp, 'Task'));
+      continue;
+    }
     const lane = activityLane(row.type, row.tone);
     // Activity rows store projectId and, for a milestone, milestoneId. There is no task or resource id to load.
     const clientCopy = clientActivityCopy({
@@ -540,7 +566,11 @@ export function buildActivityFeed(input: {
     });
     if (rawDoc) {
       if (input.audience === 'client') {
-        if (docOpen) {
+        if (!docOpen) {
+          items.push(redactedItem(audit._id, audit.createdAt, 'Doc'));
+          continue;
+        }
+        {
           const title = safeClientTitle(rawDoc.title);
           const copy = clientActivityCopy({
             lane: 'resources',
@@ -587,7 +617,10 @@ export function buildActivityFeed(input: {
       continue;
     }
     if (input.audience === 'client') {
-      if (!clientVisible) continue;
+      if (!clientVisible) {
+        if (rawTask) items.push(redactedItem(audit._id, audit.createdAt, 'Task'));
+        continue;
+      }
       const item = clientAuditItem(audit, task, resource, project);
       if (item) items.push(item);
       continue;
@@ -653,9 +686,17 @@ export function buildActivityFeed(input: {
       input.projects.filter((project) => clientSeesProject(project, input.orgVisible)).map((project) => project._id),
     );
     for (const item of items) {
+      if (item.restricted) {
+        item.taskId = null;
+        item.docId = null;
+        item.projectId = null;
+        item.milestoneId = null;
+        continue;
+      }
       if (item.taskId && !openTasks.has(item.taskId)) item.taskId = null;
       if (item.docId && !openDocs.has(item.docId)) item.docId = null;
       if (item.projectId && !openProjects.has(item.projectId)) item.projectId = null;
+      item.milestoneId = null;
     }
   }
 

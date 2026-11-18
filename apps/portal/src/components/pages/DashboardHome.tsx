@@ -443,39 +443,42 @@ function AwaitingPanel({
               key={row.id}
               href={`/tasks/${row.id}`}
               testId="awaiting-row"
-              className="flex w-full min-w-0 flex-col lg:flex-row lg:flex-nowrap lg:items-center lg:gap-3"
+              className="flex w-full min-w-0 flex-nowrap items-center gap-3"
             >
-              <span className="min-w-0 lg:flex-1">
-                <span className="flex items-center gap-3">
-                  <span className="min-w-0 flex-1 truncate" style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.35 }}>
-                    {row.name}
-                  </span>
-                  <ChevronRight className="portal-row-chevron lg:hidden" aria-hidden />
+              <span className="min-w-0 flex-1">
+                <span className="block break-words" style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.35 }}>
+                  {row.name}
                 </span>
                 <span
-                  className="ds-mono mt-1 hidden truncate lg:block"
+                  className="ds-mono mt-1 hidden lg:block"
                   style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}
                 >
                   {row.meta}
                 </span>
-              </span>
-              <span
-                className="ds-mono mt-1 flex w-full min-w-0 flex-nowrap items-baseline overflow-hidden lg:hidden"
-                data-testid="awaiting-meta"
-                style={{ fontSize: 12, lineHeight: '18px', color: 'var(--faint)' }}
-              >
-                <span className="min-w-0 truncate">{row.meta}</span>
+                <span
+                  className="ds-mono mt-1 block lg:hidden"
+                  data-testid="awaiting-meta"
+                  style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'normal' }}
+                >
+                  {row.meta}
+                </span>
                 {row.when ? (
-                  <span className="shrink-0" data-testid="awaiting-meta-when">{`\u00a0· ${row.when}`}</span>
+                  <span
+                    className="ds-mono mt-1 block lg:hidden"
+                    data-testid="awaiting-meta-when"
+                    style={{ fontSize: 12, lineHeight: '18px', color: 'var(--faint)', whiteSpace: 'normal' }}
+                  >
+                    {row.when}
+                  </span>
                 ) : null}
-              </span>
-              <span className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
-                <AwaitingBadges row={row} staff={false} />
+                <span className="mt-2 flex flex-wrap items-center gap-2 lg:hidden">
+                  <AwaitingBadges row={row} staff={false} />
+                </span>
               </span>
               <span className="hidden shrink-0 flex-wrap items-center justify-end gap-2 lg:flex">
                 <AwaitingBadges row={row} staff={false} includeWhen />
               </span>
-              <ChevronRight className="portal-row-chevron hidden lg:block" aria-hidden />
+              <ChevronRight className="portal-row-chevron shrink-0" aria-hidden />
             </PortalRowLink>
           ),
         )

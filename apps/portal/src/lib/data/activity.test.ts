@@ -154,7 +154,7 @@ describe('activity view model', () => {
       now: NOW,
       clientName: 'Northwind',
     });
-    const clientIds = new Set(clientFeed.map((item) => item.id));
+    const clientIds = new Set(clientFeed.filter((item) => item.restricted !== true).map((item) => item.id));
 
     assert.deepEqual(
       client.rows.map((row) => row.id),
@@ -393,7 +393,8 @@ describe('activity view model', () => {
     assert.equal(chip(client, 'all'), laneSum(client));
     assert.equal(chip(client, 'all'), client.rows.length);
     assert.equal(chip(client, 'people'), client.rows.filter((row) => row.lane === 'people').length);
-    const locked = client.rows.find((row) => row.id === 'act-staff-only');
+    const locked = client.rows.find((row) => row.id === 'act-intake');
+    assert.equal(locked?.name, 'Task');
     assert.equal(locked?.restricted, true);
     assert.equal(locked?.taskId, null);
     assert.equal(locked?.projectId, null);
