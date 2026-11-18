@@ -635,3 +635,94 @@ describe('missing Notion property label', () => {
     assert.equal(timeline[0]?.title.includes('Write conflict'), false);
   });
 });
+
+describe('openable activity ids', () => {
+  it('omits a staff-only task id from the client payload and keeps a doc the client can open', () => {
+    const secretId = 'task-staff-only-secret';
+    const shared = {
+      orgVisible: true,
+      orgId: 'org-northwind',
+      activity: [] as FeedActivity[],
+      outbox: [] as FeedOutbox[],
+      projects: [project],
+      tasks: [
+        ...tasks,
+        {
+          _id: secretId,
+          name: 'Secret draft title',
+          projectId: 'proj-public',
+          notionPageId: 'secret-notion',
+          publishToWarehaus: false,
+          orgId: 'org-northwind',
+        },
+      ],
+      docs: [
+        {
+          _id: 'doc-public',
+          title: 'Kickoff notes',
+          projectId: 'proj-public',
+          notionPageId: 'doc-public-notion',
+          publishToWarehaus: true,
+          status: 'Published' as const,
+          orgId: 'org-northwind',
+        },
+        {
+          _id: 'doc-draft-secret',
+          title: 'Staff note',
+          projectId: 'proj-public',
+          notionPageId: 'doc-draft-notion',
+          publishToWarehaus: false,
+          status: 'Draft' as const,
+          orgId: 'org-northwind',
+        },
+      ],
+      audits: [
+        {
+          _id: 'audit-secret-task',
+          action: 'task.updated',
+          notionPageId: 'secret-notion',
+          after: JSON.stringify({ properties: { Status: 'To Do', Name: 'Secret' } }),
+          actorKind: 'sync',
+          createdAt: 12,
+        },
+        {
+          _id: 'audit-doc',
+          action: 'task.updated',
+          notionPageId: 'doc-public-notion',
+          after: JSON.stringify({ properties: { Status: 'Published', Name: 'Kickoff notes' } }),
+          actorKind: 'sync',
+          createdAt: 11,
+        },
+        {
+          _id: 'audit-draft-doc',
+          action: 'task.updated',
+          notionPageId: 'doc-draft-notion',
+          after: JSON.stringify({ properties: { Status: 'Draft', Name: 'Staff note' } }),
+          actorKind: 'sync',
+          createdAt: 10,
+        },
+        audits[1]!,
+      ],
+    };
+    const client = buildActivityFeed({ audience: 'client', ...shared });
+    const staff = buildActivityFeed({ audience: 'staff', ...shared });
+    const clientBlob = JSON.stringify(client);
+    assert.equal(clientBlob.includes(secretId), false);
+    assert.equal(clientBlob.includes('doc-draft-secret'), false);
+    assert.equal(clientBlob.includes('Secret draft title'), false);
+    assert.equal(clientBlob.includes('Staff note'), false);
+    assert.equal(client.find((item) => item.id === 'audit-secret-task'), undefined);
+    assert.equal(client.find((item) => item.id === 'audit-draft-doc'), undefined);
+    assert.equal(client.find((item) => item.id === 'audit-doc')?.docId, 'doc-public');
+    assert.equal(client.find((item) => item.id === 'audit-doc')?.taskId, null);
+    assert.equal(client.find((item) => item.id === 'audit-public')?.taskId, 'task-public');
+    for (const item of client) {
+      assert.notEqual(item.taskId, secretId);
+      assert.notEqual(item.docId, 'doc-draft-secret');
+    }
+    assert.equal(staff.find((item) => item.id === 'audit-secret-task')?.taskId, secretId);
+    assert.equal(staff.find((item) => item.id === 'audit-draft-doc')?.docId, 'doc-draft-secret');
+    assert.equal(staff.find((item) => item.id === 'audit-doc')?.clientVisible, true);
+    assert.equal(staff.find((item) => item.id === 'audit-draft-doc')?.clientVisible, false);
+  });
+});

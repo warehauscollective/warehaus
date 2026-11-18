@@ -275,7 +275,7 @@ export function ResourcesContent() {
   const fixtures = useFixturePreview();
   const configured = isConvexConfigured();
   const pathname = usePathname() || '';
-  const { sectionFor, setSectionFor, openDetail } = usePortalView();
+  const { sectionFor, setSectionFor } = usePortalView();
   const { data, error } = usePortalData();
   const { portalSession } = usePortalAuth();
   const hostSlug =
@@ -315,6 +315,7 @@ export function ResourcesContent() {
     [fixtures, isStaff, staff.docs, clientDocs.data],
   );
   const [openResourceId, setOpenResourceId] = useState<string | null>(null);
+  const [navDocId, setNavDocId] = useState<string | null>(null);
   const [resourceScreen, setResourceScreen] = useState<ResourceScreen>('ready');
 
   // Preview and deep links pass ?resource= or /resources/:id. The initializer
@@ -361,59 +362,23 @@ export function ResourcesContent() {
   }, [activeSection]);
 
   useEffect(() => {
-    let timer = 0;
-    const unavailable = (id: string) => {
-      openDetail({
-        id,
-        title: 'Not available',
-        body: <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)' }}>That isn&apos;t available.</p>,
-      });
-    };
-    const openFromLocation = (event?: Event) => {
-      window.clearTimeout(timer);
+    const read = (event?: Event) => {
       const detail = event ? portalNavDetail(event) : null;
+      if (event && !detail) return;
       const params = new URLSearchParams(window.location.search);
       const preview = window.location.pathname.startsWith('/preview');
-      const docId = detail ? detail.doc : preview ? params.get('doc') : pathId(window.location.pathname, '/docs/');
-      const resourceId = detail ? detail.resource : preview ? params.get('resource') : pathId(window.location.pathname, '/resources/');
+      const resourceId = detail ? detail.resource : preview ? params.get('resource') : null;
       if (resourceId) setOpenResourceId(resourceId);
-      if (!docId) return;
-      if (docId && !fixtures && !isStaff && clientDocs.loading) return;
-      timer = window.setTimeout(() => {
-        if (docId) {
-          const doc = docs.find((item) => item.id === docId);
-          const allowed = Boolean(doc) && (isStaff || (doc?.publishToWarehaus !== false && doc?.status !== 'Draft' && !doc?.syncHidden));
-          if (!allowed || !doc) {
-            unavailable(docId);
-            return;
-          }
-          openDetail({
-            id: doc.id,
-            title: doc.title,
-            subtitle: doc.docType ?? 'Doc',
-            body: (
-              <div className="flex flex-col gap-2">
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>{doc.summary ?? '—'}</p>
-                <p style={{ fontSize: 'var(--t-sm)' }}>Type {doc.docType ?? '—'}</p>
-                {isStaff && doc.publishToWarehaus != null ? <PublishChip published={doc.publishToWarehaus} /> : null}
-              </div>
-            ),
-          });
-        }
-      }, 0);
+      const docId = detail ? detail.doc : preview ? params.get('doc') : null;
+      setNavDocId(docId);
     };
-    const onNav = (event: Event) => {
-      if (!portalNavDetail(event)) return;
-      openFromLocation(event);
-    };
+    read();
+    const onNav = (event: Event) => read(event);
     window.addEventListener('wh-portal-nav', onNav);
-    return () => {
-      window.clearTimeout(timer);
-      window.removeEventListener('wh-portal-nav', onNav);
-    };
-  }, [docs, rows, isStaff, openDetail, pathname, fixtures, clientDocs.loading]);
+    return () => window.removeEventListener('wh-portal-nav', onNav);
+  }, [pathname]);
 
-  const pathDocId = pathId(pathname, '/docs/');
+  const pathDocId = pathId(pathname, '/docs/') ?? navDocId;
   const pathResourceId = pathId(pathname, '/resources/');
   const docsPending = !fixtures && (isStaff ? staffRosterQueriesDeployed() && staff.docs == null : clientDocs.loading);
   const resourcesPending = !fixtures && (isStaff ? staff.resourcesLoading : clientRows.loading);

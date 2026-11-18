@@ -2,6 +2,7 @@
 
 import type { ReactNode } from 'react';
 import { Check, ChevronRight, CircleCheck, Shield } from 'lucide-react';
+import { PortalRowLink } from '@/components/layout/PortalRowLink';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 import {
@@ -37,8 +38,6 @@ export function DashboardHome({
   preview,
   showLoadError,
   clientName,
-  onOpenTask,
-  onOpenProject,
   joined,
 }: {
   model: DashboardModel;
@@ -47,8 +46,6 @@ export function DashboardHome({
   preview: DashPreview;
   showLoadError: boolean;
   clientName?: string | null;
-  onOpenTask: (row: AwaitingRow) => void;
-  onOpenProject: (row: ProjectRow) => void;
   joined?: { name: string; passwordSet: boolean; inviterName?: string } | null;
 }) {
   if (joined) {
@@ -96,23 +93,13 @@ export function DashboardHome({
       ) : null}
 
       {focus === 'all' && model.audience === 'client' ? (
-        <ProjectPanel
-          projects={model.projects}
-          clientName={clientName}
-          loading={busy}
-          onOpen={onOpenProject}
-        />
+        <ProjectPanel projects={model.projects} clientName={clientName} loading={busy} />
       ) : null}
 
       {focus === 'sync' && sync ? <SyncPanel health={sync} /> : null}
 
       {focus === 'all' || focus === 'awaiting' ? (
-        <AwaitingPanel
-          audience={model.audience}
-          rows={awaiting}
-          loading={busy}
-          onOpen={onOpenTask}
-        />
+        <AwaitingPanel audience={model.audience} rows={awaiting} loading={busy} />
       ) : null}
 
       {focus === 'all' || focus === 'activity' ? (
@@ -326,12 +313,10 @@ function ProjectPanel({
   projects,
   clientName,
   loading,
-  onOpen,
 }: {
   projects: readonly ProjectRow[];
   clientName?: string | null;
   loading: boolean;
-  onOpen: (row: ProjectRow) => void;
 }) {
   const subtitle = clientName
     ? `Everything Warehaus is working on for ${clientName}`
@@ -344,12 +329,11 @@ function ProjectPanel({
         <p style={{ fontSize: 14, color: 'var(--muted)' }}>No active projects yet.</p>
       ) : (
         projects.map((project) => (
-          <button
+          <PortalRowLink
             key={project.id}
-            type="button"
-            onClick={() => onOpen(project)}
-            className="flex w-full flex-nowrap items-center gap-3 border-b py-5 text-left"
-            style={{ borderColor: 'var(--border)', background: 'transparent' }}
+            href={`/projects/${project.id}`}
+            testId="project-row"
+            className="flex w-full flex-nowrap items-center gap-3"
           >
             <span className="flex min-w-0 flex-1 items-center gap-3">
               <span
@@ -392,8 +376,8 @@ function ProjectPanel({
             <span className="ds-mono hidden shrink-0 lg:inline" style={{ fontSize: 12, color: 'var(--faint)' }}>
               {project.updatedLabel}
             </span>
-            <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
-          </button>
+            <ChevronRight className="portal-row-chevron" aria-hidden />
+          </PortalRowLink>
         ))
       )}
     </Panel>
@@ -404,12 +388,10 @@ function AwaitingPanel({
   audience,
   rows,
   loading,
-  onOpen,
 }: {
   audience: DashboardModel['audience'];
   rows: readonly (AwaitingRow | StaffAwaitingRow)[];
   loading: boolean;
-  onOpen: (row: AwaitingRow) => void;
 }) {
   const staff = audience === 'staff';
   return (
@@ -429,12 +411,11 @@ function AwaitingPanel({
       ) : (
         rows.map((row) =>
           staff ? (
-            <button
+            <PortalRowLink
               key={row.id}
-              type="button"
-              onClick={() => onOpen(row)}
-              className="flex w-full flex-nowrap items-center gap-3 border-b py-5 text-left"
-              style={{ borderColor: 'var(--border)', background: 'transparent' }}
+              href={`/tasks/${row.id}`}
+              testId="awaiting-row"
+              className="flex w-full flex-nowrap items-center gap-3"
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img alt="" src="/icons/task-check-open.svg" width={20} height={20} className="shrink-0" />
@@ -455,22 +436,21 @@ function AwaitingPanel({
               <span className="hidden shrink-0 flex-wrap items-center justify-end gap-2 lg:flex">
                 <AwaitingBadges row={row} staff includeWhen />
               </span>
-              <ChevronRight className="h-4 w-4 shrink-0" aria-hidden />
-            </button>
+              <ChevronRight className="portal-row-chevron" aria-hidden />
+            </PortalRowLink>
           ) : (
-            <button
+            <PortalRowLink
               key={row.id}
-              type="button"
-              onClick={() => onOpen(row)}
-              className="flex w-full min-w-0 flex-col border-b py-5 text-left lg:flex-row lg:flex-nowrap lg:items-center lg:gap-3"
-              style={{ borderColor: 'var(--border)', background: 'transparent' }}
+              href={`/tasks/${row.id}`}
+              testId="awaiting-row"
+              className="flex w-full min-w-0 flex-col lg:flex-row lg:flex-nowrap lg:items-center lg:gap-3"
             >
               <span className="min-w-0 lg:flex-1">
                 <span className="flex items-center gap-3">
                   <span className="min-w-0 flex-1 truncate" style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.35 }}>
                     {row.name}
                   </span>
-                  <ChevronRight className="h-4 w-4 shrink-0 lg:hidden" aria-hidden />
+                  <ChevronRight className="portal-row-chevron lg:hidden" aria-hidden />
                 </span>
                 <span
                   className="ds-mono mt-1 hidden truncate lg:block"
@@ -495,8 +475,8 @@ function AwaitingPanel({
               <span className="hidden shrink-0 flex-wrap items-center justify-end gap-2 lg:flex">
                 <AwaitingBadges row={row} staff={false} includeWhen />
               </span>
-              <ChevronRight className="hidden h-4 w-4 shrink-0 lg:block" aria-hidden />
-            </button>
+              <ChevronRight className="portal-row-chevron hidden lg:block" aria-hidden />
+            </PortalRowLink>
           ),
         )
       )}
@@ -525,12 +505,9 @@ function ActivityPanel({
       ) : rows.length === 0 ? (
         <p style={{ fontSize: 14, color: 'var(--muted)' }}>No recent updates.</p>
       ) : (
-        rows.map((row) => (
-          <div
-            key={row.id}
-            className="flex items-center gap-4 border-b py-5"
-            style={{ borderColor: 'var(--border)' }}
-          >
+        rows.map((row) => {
+          const inner = (
+          <>
             <span className="shrink-0" style={{ color: 'var(--fg)' }}>
               <TaskGlyph src="/icons/activity-row.svg" size={16} />
             </span>
@@ -555,8 +532,19 @@ function ActivityPanel({
             <span className="ds-mono shrink-0 text-right" style={{ width: 80, fontSize: 12, color: 'var(--faint)' }}>
               {row.when}
             </span>
-          </div>
-        ))
+            {row.href ? <ChevronRight className="portal-row-chevron" aria-hidden /> : null}
+          </>
+          );
+          return row.href ? (
+            <PortalRowLink key={row.id} href={row.href} testId="dashboard-activity-row" className="flex items-center gap-4">
+              {inner}
+            </PortalRowLink>
+          ) : (
+            <div key={row.id} className="portal-row portal-static-row flex items-center gap-4" data-testid="dashboard-activity-static">
+              {inner}
+            </div>
+          );
+        })
       )}
     </Panel>
   );
@@ -641,7 +629,7 @@ function StageBadge({ label, hot }: { label: string; hot: boolean }) {
         padding: '0 12px',
         borderRadius: 999,
         border: `1px solid ${hot ? 'var(--danger)' : 'var(--border)'}`,
-        color: hot ? 'var(--danger)' : quiet ? 'var(--muted)' : 'var(--fg)',
+        color: hot || quiet ? 'var(--muted)' : 'var(--fg)',
         fontSize: 11,
         letterSpacing: '0.04em',
       }}

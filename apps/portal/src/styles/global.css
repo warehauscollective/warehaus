@@ -50,6 +50,62 @@ main {
   border-color: var(--warning);
 }
 
+/* Linking rows. The 1px border is always there so pressed does not shift layout.
+   Touch devices skip hover and show the pressed fill. Chevron rests at 55%. */
+.portal-row {
+  margin-left: -12px;
+  margin-right: -12px;
+  padding: 16px 12px;
+  border: 1px solid transparent;
+  border-bottom-color: var(--border);
+  border-radius: 10px;
+  box-sizing: border-box;
+  color: inherit;
+  text-decoration: none;
+  text-align: left;
+}
+@media (min-width: 1024px) {
+  .portal-row {
+    padding: 18px 12px;
+  }
+}
+.portal-static-row {
+  cursor: default;
+}
+.portal-link-row {
+  cursor: pointer;
+}
+.portal-row-chevron {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  color: var(--fg);
+  opacity: 0.55;
+}
+@media (hover: hover) and (pointer: fine) {
+  .portal-link-row:hover {
+    background: var(--surface-2);
+    border-bottom-color: transparent;
+  }
+  .portal-link-row:hover .portal-row-chevron {
+    opacity: 1;
+  }
+}
+.portal-link-row:active {
+  background: var(--surface-2);
+  border-color: var(--border-2);
+}
+.portal-link-row:active .portal-row-chevron {
+  opacity: 1;
+}
+.portal-link-row:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 0;
+}
+.portal-link-row:focus-visible .portal-row-chevron {
+  opacity: 1;
+}
+
 /* One hover and focus treatment for the project and milestone trails. */
 .portal-crumb {
   text-decoration: none;

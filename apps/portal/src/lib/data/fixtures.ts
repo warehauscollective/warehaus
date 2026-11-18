@@ -627,7 +627,7 @@ function pageActivity(audience: 'staff' | 'client') {
   const projects = ['p-site', 'p-internal']
     .map((id) => fixtureFeedProject(id))
     .filter((project): project is FeedProject => project != null);
-  return buildActivityFeed({
+  const rows = buildActivityFeed({
     audience,
     orgVisible: true,
     activity: PAGE_ACTIVITY,
@@ -645,9 +645,27 @@ function pageActivity(audience: 'staff' | 'client') {
     tone: item.tone,
     projectId: item.projectId,
     taskId: item.taskId,
+    docId: item.docId,
+    restricted: false,
     ...(item.lane ? { lane: item.lane } : {}),
     ...(audience === 'staff' ? { clientVisible: item.clientVisible === true } : {}),
   }));
+  if (audience === 'client') {
+    rows.push({
+      id: 'act-staff-only',
+      name: 'Warehaus updated an internal task',
+      type: 'task',
+      summary: 'Task',
+      timestamp: new Date(pageToday(5)).toISOString(),
+      tone: 'muted',
+      projectId: null,
+      taskId: null,
+      docId: null,
+      restricted: true,
+      lane: 'tasks',
+    });
+  }
+  return rows;
 }
 
 export const FIXTURE_STAFF_ACTIVITY_PAGE = pageActivity('staff');

@@ -275,6 +275,7 @@ export const listActivityForClient = clientQuery({
     }
     const tasks = [];
     const resources = [];
+    const docs = [];
     const seenNotion = new Set<string>();
     for (const notionPageId of audits
       .map((row) => row.notionPageId)
@@ -297,6 +298,15 @@ export const listActivityForClient = clientQuery({
       if (resource && resource.orgId === orgId) {
         resources.push(resource);
         if (resource.projectId) projectIds.add(resource.projectId);
+        continue;
+      }
+      const doc = await ctx.db
+        .query('clientDocs')
+        .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+        .unique();
+      if (doc && doc.orgId === orgId) {
+        docs.push(doc);
+        if (doc.projectId) projectIds.add(doc.projectId);
         continue;
       }
       const project = await ctx.db
@@ -324,6 +334,7 @@ export const listActivityForClient = clientQuery({
       projects,
       tasks,
       resources,
+      docs,
       contacts: contacts.map((contact) => ({ name: contact.name })),
       orgId,
       limit: CLIENT_FEED_TAKE,
@@ -354,6 +365,7 @@ export const listActivityForStaff = adminQuery({
       if (row.projectId) projectIds.add(row.projectId);
     }
     const tasks = [];
+    const docs = [];
     const seenNotion = new Set<string>();
     for (const notionPageId of [...audits, ...outbox]
       .map((row) => row.notionPageId)
@@ -367,6 +379,15 @@ export const listActivityForStaff = adminQuery({
       if (task) {
         tasks.push(task);
         projectIds.add(task.projectId);
+        continue;
+      }
+      const doc = await ctx.db
+        .query('clientDocs')
+        .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
+        .unique();
+      if (doc) {
+        docs.push(doc);
+        if (doc.projectId) projectIds.add(doc.projectId);
         continue;
       }
       const project = await ctx.db
@@ -389,6 +410,7 @@ export const listActivityForStaff = adminQuery({
       outbox,
       projects,
       tasks,
+      docs,
     });
   },
 });

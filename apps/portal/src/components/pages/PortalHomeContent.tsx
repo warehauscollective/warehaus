@@ -76,7 +76,7 @@ function useJoinedFixture(fixtures: boolean): StaffJoined | null {
 }
 
 export function PortalHomeContent() {
-  const { sectionFor, openDetail } = usePortalView();
+  const { sectionFor } = usePortalView();
   const { data, loading, error } = usePortalData();
   const { portalSession } = usePortalAuth();
   const fixtures = useFixturePreview();
@@ -215,31 +215,6 @@ export function PortalHomeContent() {
           preview={preview}
           showLoadError={!isStaff && Boolean(error)}
           clientName={isStaff ? null : data.tenant.clientName}
-          onOpenTask={(row) =>
-            openDetail({
-              id: row.id,
-              title: row.name,
-              subtitle: row.meta,
-              body: (
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                  {row.stageLabel}
-                  {row.status ? ` · ${row.status}` : ''}
-                </p>
-              ),
-            })
-          }
-          onOpenProject={(row) =>
-            openDetail({
-              id: row.id,
-              title: row.name,
-              subtitle: row.brand,
-              body: (
-                <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
-                  {row.percentLabel} · {row.itemsLabel}
-                </p>
-              ),
-            })
-          }
           joined={joined}
         />
       </PortalTilePane>

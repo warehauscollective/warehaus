@@ -1,5 +1,7 @@
 'use client';
 
+import { ChevronRight, Lock } from 'lucide-react';
+import { PortalRowLink } from '@/components/layout/PortalRowLink';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 
 /**
@@ -20,6 +22,8 @@ export function ActivityFeedRow({
   when,
   lane = 'other',
   published,
+  href,
+  locked = false,
 }: {
   name: string;
   summary: string;
@@ -27,17 +31,28 @@ export function ActivityFeedRow({
   lane?: string;
   /** Undefined hides the mark. A boolean is the staff publish state. */
   published?: boolean;
+  /** Set only when this viewer may open the subject. */
+  href?: string | null;
+  /** Staff-only target. No link, no chevron, lock icon. */
+  locked?: boolean;
 }) {
   const marked = published != null;
-  return (
-    <div
-      className={
-        marked
-          ? 'grid grid-cols-[36px_minmax(0,1fr)_80px] items-start gap-x-4 border-b py-6 lg:grid-cols-[36px_minmax(0,1fr)_130px_80px] lg:items-center'
-          : 'grid grid-cols-[36px_minmax(0,1fr)_80px] items-start gap-x-4 border-b py-6'
-      }
-      style={{ borderColor: 'var(--border)' }}
-    >
+  const link = Boolean(href) && !locked;
+  const meta = locked
+    ? [summary, summary.includes('not shared with you') ? '' : 'not shared with you'].filter(Boolean).join(' · ')
+    : summary;
+  const grid = [
+    'grid w-full items-center gap-x-3',
+    link
+      ? marked
+        ? 'grid-cols-[36px_minmax(0,1fr)_auto_16px] lg:grid-cols-[36px_minmax(0,1fr)_130px_auto_16px]'
+        : 'grid-cols-[36px_minmax(0,1fr)_auto_16px]'
+      : marked
+        ? 'grid-cols-[36px_minmax(0,1fr)_auto] lg:grid-cols-[36px_minmax(0,1fr)_130px_auto]'
+        : 'grid-cols-[36px_minmax(0,1fr)_auto]',
+  ].join(' ');
+  const body = (
+    <>
       <span
         className={`flex items-center justify-center ${marked ? 'row-span-2 lg:row-span-1' : ''}`}
         style={{
@@ -49,7 +64,11 @@ export function ActivityFeedRow({
           color: 'var(--fg)',
         }}
       >
-        <TaskGlyph src={rowIcon(lane)} size={16} />
+        {locked ? (
+          <Lock data-testid="activity-lock" aria-hidden size={18} strokeWidth={1.5} />
+        ) : (
+          <TaskGlyph src={rowIcon(lane)} size={16} />
+        )}
       </span>
       <span className="min-w-0">
         <span
@@ -58,12 +77,12 @@ export function ActivityFeedRow({
         >
           {name}
         </span>
-        {summary ? (
+        {meta ? (
           <span
-            className="ds-mono mt-1 block truncate"
-            style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}
+            className="ds-mono mt-1 block break-words"
+            style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}
           >
-            {summary}
+            {meta}
           </span>
         ) : null}
       </span>
@@ -78,6 +97,25 @@ export function ActivityFeedRow({
       >
         {when}
       </span>
+      {link ? (
+        <ChevronRight
+          className={`portal-row-chevron ${marked ? 'col-start-4 row-start-1 lg:col-start-5' : ''}`}
+          aria-hidden
+          data-testid="row-chevron"
+        />
+      ) : null}
+    </>
+  );
+  if (link && href) {
+    return (
+      <PortalRowLink href={href} className={grid} testId="activity-link">
+        {body}
+      </PortalRowLink>
+    );
+  }
+  return (
+    <div className={`portal-row portal-static-row ${grid}`} data-testid="activity-static" {...(locked ? { 'data-locked': 'true' } : {})}>
+      {body}
     </div>
   );
 }

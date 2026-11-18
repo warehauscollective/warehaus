@@ -12,6 +12,7 @@ import {
   type GranolaRunStatus,
   type TaskStage,
 } from '@warehaus/portal-sync';
+import { activitySubjectHref } from '@/lib/data/activity';
 import { formatPortalDate, noticeDisplayMessage } from '@/lib/data/view-models';
 
 export type DashboardAudience = 'staff' | 'client';
@@ -58,6 +59,7 @@ export type DashboardActivity = {
   type?: string;
   projectId?: string | null;
   taskId?: string | null;
+  docId?: string | null;
   /** Staff feed only. The publish mark reads this. Client lists omit it. */
   clientVisible?: boolean;
 };
@@ -147,6 +149,8 @@ export type ActivityRow = {
   name: string;
   summary: string;
   when: string;
+  /** Null for sync, system, and any target this viewer cannot open. */
+  href: string | null;
 };
 
 export type StaffActivityRow = ActivityRow & { published: boolean };
@@ -552,6 +556,7 @@ function buildStaff(input: DashboardInput, projects: DashboardProject[], tasks: 
       name: item.name,
       summary: item.summary,
       when: activityWhen(item.timestamp, input.now),
+      href: activitySubjectHref(item),
       published: item.clientVisible === true,
     })),
   };
@@ -619,6 +624,7 @@ function buildClient(input: DashboardInput, projects: DashboardProject[], tasks:
       name: item.name,
       summary: item.summary,
       when: activityWhen(item.timestamp, input.now),
+      href: activitySubjectHref(item),
     })),
   };
 }

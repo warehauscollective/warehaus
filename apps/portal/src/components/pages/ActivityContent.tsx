@@ -13,6 +13,7 @@ import {
   CLIENT_ACTIVITY_ERROR,
   STAFF_ACTIVITY_ERROR,
   activityEmptyCopy,
+  activitySubjectHref,
   buildActivityView,
   withActivityLongPreview,
   type ActivityFilter,
@@ -43,7 +44,7 @@ function filterForSection(section: string, staff: boolean): ActivityFilter {
 }
 
 export function ActivityContent() {
-  const { sectionFor, setSectionFor, openDetail } = usePortalView();
+  const { sectionFor, setSectionFor } = usePortalView();
   const { data } = usePortalData();
   const fixtures = useFixturePreview();
   const feed = useActivityFeed();
@@ -142,31 +143,16 @@ export function ActivityContent() {
                       </div>
                       <div>
                         {group.rows.map((row) => (
-                          <button
+                          <ActivityFeedRow
                             key={row.id}
-                            type="button"
-                            className="block w-full border-0 bg-transparent p-0 text-left"
-                            onClick={() =>
-                              openDetail({
-                                id: row.id,
-                                title: row.name,
-                                subtitle: row.summary,
-                                body: (
-                                  <p style={{ fontSize: 14, color: 'var(--muted)' }}>
-                                    {row.summary || row.type}
-                                  </p>
-                                ),
-                              })
-                            }
-                          >
-                            <ActivityFeedRow
-                              name={row.name}
-                              summary={row.summary}
-                              when={row.when}
-                              lane={row.lane}
-                              published={row.published}
-                            />
-                          </button>
+                            name={row.name}
+                            summary={row.summary}
+                            when={row.when}
+                            lane={row.lane}
+                            published={row.published}
+                            href={activitySubjectHref(row)}
+                            locked={row.restricted}
+                          />
                         ))}
                       </div>
                     </div>

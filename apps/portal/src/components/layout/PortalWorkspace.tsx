@@ -1,24 +1,19 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { X } from 'lucide-react';
 import { Bevel } from '@warehaus/ui';
-import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { PORTAL_PANEL_GAP_VAR, PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 import { PHONE_SCROLL_INSET } from '@/components/layout/tabPanelShellLayout';
 
 /**
  * Desktop portal chrome for a single tab: fixed above-the-fold workspace.
- * - No page scroll — the main tile region fills the viewport
- * - Optional persistent right rail (`aside`)
- * - Optional detail inspector (replaces rail while open)
- * - Mobile keeps a simpler stacked scroll (lg: and below)
+ * Rows navigate or open an existing modal. There is no right-side inspector.
+ * Mobile keeps a simpler stacked scroll (lg: and below).
  */
 export function PortalWorkspace({
   eyebrow,
   title,
   actions,
-  aside,
   hideHeader = false,
   breadcrumb,
   titleLines = 1,
@@ -29,18 +24,12 @@ export function PortalWorkspace({
   actions?: ReactNode;
   /** 2 clamps a long title to two lines. The default stays one line. */
   titleLines?: 1 | 2;
-  /** Persistent right rail (e.g. dashboard tasks / activity). */
-  aside?: ReactNode;
   /** When true, skip the eyebrow/title/actions header bar. */
   hideHeader?: boolean;
   /** Nested-route trail. Replaces the eyebrow when set. */
   breadcrumb?: ReactNode;
   children: ReactNode;
 }) {
-  const { detail, closeDetail } = usePortalView();
-  const detailOpen = Boolean(detail);
-  const showRight = detailOpen || Boolean(aside);
-
   return (
     <PortalWorkspaceFrame hideHeader={hideHeader} header={
       <>
@@ -85,88 +74,6 @@ export function PortalWorkspace({
       </>
     }>
         <div className="min-h-0 min-w-0 flex-1 lg:overflow-hidden">{children}</div>
-
-        {showRight ? (
-          <aside
-            className="flex min-h-0 min-w-0 w-full flex-col overflow-y-auto lg:w-[min(300px,32%)]"
-            aria-label={detailOpen ? 'Details' : 'Sidebar'}
-          >
-            {detailOpen && detail ? (
-              <Bevel
-                corners="bl"
-                radius={PORTAL_SURFACE_RADIUS}
-                cut={2}
-                shoulder={0.75}
-                fill="var(--surface)"
-                stroke="var(--border)"
-                className="flex h-full min-h-0 flex-col"
-                style={{ padding: 0, overflow: 'hidden' }}
-              >
-                <div
-                  className="flex items-start justify-between gap-3"
-                  style={{
-                    padding: 'var(--s-5)',
-                    borderBottom: '1px solid var(--border)',
-                  }}
-                >
-                  <div className="min-w-0">
-                    <p
-                      className="ds-mono"
-                      style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}
-                    >
-                      {detail.id}
-                    </p>
-                    <h2
-                      style={{
-                        fontSize: 'var(--t-lg)',
-                        fontWeight: 600,
-                        marginTop: 4,
-                        lineHeight: 1.2,
-                      }}
-                    >
-                      {detail.title}
-                    </h2>
-                    {detail.subtitle ? (
-                      <p
-                        style={{
-                          fontSize: 'var(--t-sm)',
-                          color: 'var(--muted)',
-                          marginTop: 6,
-                        }}
-                      >
-                        {detail.subtitle}
-                      </p>
-                    ) : null}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={closeDetail}
-                    aria-label="Close details"
-                    className="portal-icon-button flex shrink-0 items-center justify-center"
-                    style={{
-                      width: 32,
-                      height: 32,
-                      borderRadius: 8,
-                      color: 'var(--muted)',
-                      border: '1px solid var(--border)',
-                      background: 'transparent',
-                    }}
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
-                <div
-                  className="min-h-0 flex-1 overflow-y-auto"
-                  style={{ padding: 'var(--s-5)' }}
-                >
-                  {detail.body}
-                </div>
-              </Bevel>
-            ) : (
-              aside
-            )}
-          </aside>
-        ) : null}
     </PortalWorkspaceFrame>
   );
 }
