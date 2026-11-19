@@ -69,6 +69,12 @@ describe('PortalToast', () => {
     assert.match(pinned, /position:fixed/);
     assert.match(pinned, /z-index:60/);
     assert.match(pinned, /bottom:calc\(1\.25rem \+ 3\.5rem \+ 16px\)/);
+    assert.match(pinned, /left:16px/);
+    assert.match(pinned, /right:16px/);
+    assert.match(pinned, /margin:0 auto/);
+    assert.match(pinned, /width:fit-content/);
+    assert.match(pinned, /max-width:calc\(100vw - 32px\)/);
+    assert.equal(pinned.includes('translate'), false);
     const flowing = renderToStaticMarkup(createElement(PortalToast, {
       kind: 'moved',
       message: 'Moved “Homepage” to Planning',
@@ -78,6 +84,16 @@ describe('PortalToast', () => {
     }));
     assert.match(flowing, /data-placement="below-board"/);
     assert.match(flowing, /position:relative/);
+    assert.match(flowing, /margin:16px auto 0/);
+    const css = readFileSync(new URL('../../styles/global.css', import.meta.url), 'utf8');
+    const created = css.slice(css.indexOf('.portal-created-toast {'), css.indexOf('@media (min-width: 1024px)', css.indexOf('.portal-created-toast {')));
+    assert.match(created, /left:\s*16px/);
+    assert.match(created, /right:\s*16px/);
+    assert.match(created, /margin:\s*0 auto/);
+    assert.match(created, /width:\s*fit-content/);
+    assert.match(created, /max-width:\s*calc\(100vw - 32px\)/);
+    assert.equal(created.includes('translate'), false);
+    assert.equal(created.includes('left: 50%'), false);
   });
 
   it('hides at 3s when the parent passes a new onDismiss', async () => {
@@ -259,6 +275,11 @@ describe('leftover dialogs on PortalModal', () => {
     assert.match(needs, /<PortalModal/);
     assert.match(needs, /testId="task-needs-dialog"/);
     assert.match(needs, /blueFocus/);
+    assert.match(board, /className="needs-field flex items-center gap-2"/);
+    assert.match(board, /className="needs-field block"/);
+    const css = readFileSync(new URL('../../styles/global.css', import.meta.url), 'utf8');
+    assert.match(css, /\.needs-field:focus-within/);
+    assert.match(css, /\[data-focus-ring='info'\] \.needs-field :focus-visible/);
   });
 
   it('opens a top-aligned dialog under the header without a grabber', () => {

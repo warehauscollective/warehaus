@@ -162,11 +162,11 @@ export function PortalToast({
     fontSize: 14,
     lineHeight: '21px',
     position: fixed ? 'fixed' : placement === 'created' ? undefined : 'relative',
-    left: fixed ? '50%' : undefined,
+    left: fixed ? 16 : undefined,
+    right: fixed ? 16 : undefined,
     bottom: fixed ? 'calc(1.25rem + 3.5rem + 16px)' : undefined,
-    transform: fixed ? 'translateX(-50%)' : undefined,
     zIndex: fixed ? 60 : undefined,
-    marginTop: placement === 'below-board' ? 16 : undefined,
+    margin: fixed ? '0 auto' : placement === 'below-board' ? '16px auto 0' : undefined,
   };
   const node = (
     <div

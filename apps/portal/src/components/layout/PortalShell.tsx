@@ -9,7 +9,6 @@ import { PortalViewProvider } from '@/components/providers/PortalViewProvider';
 import { PORTAL_PANEL_GAP } from '@/lib/design/portal-chrome';
 import { NoticeBell } from '@/components/notices/NoticeBell';
 import { PortalSearch } from '@/components/search/PortalSearch';
-import { PreviewModalFixtures } from '@/components/ui/PreviewModalFixtures';
 import { PortalToastLive } from '@/components/ui/PortalToast';
 import { PortalDock } from './PortalDock';
 import { PortalSwipeWorkspace } from './PortalSwipeWorkspace';
@@ -31,7 +30,6 @@ function PortalChrome({ children }: { children: ReactNode }) {
     <div className="ds-scope relative h-[100dvh] overflow-hidden">
       <PortalToastLive />
       <NoticeBell />
-      <PreviewModalFixtures />
       <PortalSwipeWorkspace />
       <div className="hidden" aria-hidden>
         {children}

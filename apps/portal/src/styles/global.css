@@ -630,6 +630,15 @@ body:has([data-sheet-layer='viewport']) [data-testid='portal-dock'] {
   outline: 2px solid var(--info) !important;
   outline-offset: 2px;
 }
+/* Needs fields: one --info ring on the rounded wrapper. The control itself stays outline-free. */
+.ds-scope .needs-field:focus-within {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+.ds-scope [data-focus-ring='info'] .needs-field :focus,
+.ds-scope [data-focus-ring='info'] .needs-field :focus-visible {
+  outline: none !important;
+}
 .ds-scope .portal-create-field[aria-invalid='true'] {
   border-color: var(--danger);
 }
@@ -658,10 +667,13 @@ body:has([data-sheet-layer='viewport']) [data-testid='portal-dock'] {
 .portal-created-toast {
   position: fixed;
   z-index: 120;
-  left: 50%;
+  left: 16px;
+  right: 16px;
   bottom: calc(82px + 12px + env(safe-area-inset-bottom, 0px));
-  max-width: calc(100% - 32px);
-  transform: translateX(-50%);
+  width: fit-content;
+  max-width: calc(100vw - 32px);
+  margin: 0 auto;
+  transform: none;
 }
 @media (min-width: 1024px) {
   .portal-created-toast {
