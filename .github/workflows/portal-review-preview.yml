@@ -1,0 +1,108 @@
+name: portal-review-preview
+
+on:
+  pull_request:
+    types: [labeled, closed]
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: Pull request number
+        required: true
+        type: string
+      milestone_id:
+        description: Convex milestone id
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  preview:
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request' && github.event.action == 'labeled' && github.event.label.name == 'ready-for-review')
+    runs-on: ubuntu-latest
+    steps:
+      # Without both secrets this job does nothing. A missing token must not fail the check.
+      - name: Stop when preview secrets are missing
+        id: gate
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          REVIEW_PREVIEW_SECRET: ${{ secrets.REVIEW_PREVIEW_SECRET }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$REVIEW_PREVIEW_SECRET" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Review preview secrets are unset. Nothing to do."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      # Check out the default branch, not the pull request head. This job runs
+      # on pull_request labeled and on workflow_dispatch, with VERCEL_TOKEN and
+      # REVIEW_PREVIEW_SECRET. The script deploys HEAD_SHA / pull.sha through
+      # the Vercel API, so the workflow file and script must come from the
+      # default branch. Checking out the PR ref would run untrusted code with
+      # those secrets.
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+        if: steps.gate.outputs.skip != 'true'
+      - name: Build one review preview
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          REVIEW_PREVIEW_SECRET: ${{ secrets.REVIEW_PREVIEW_SECRET }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.inputs.pr_number || github.event.pull_request.number }}
+          MILESTONE_ID: ${{ github.event.inputs.milestone_id }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PR_STATE: ${{ github.event.pull_request.state }}
+        run: node --import tsx apps/portal/scripts/review-preview.ts build
+
+  cleanup:
+    if: github.event_name == 'pull_request' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      # A closed pull request must not fail this check when those secrets are missing.
+      - name: Stop when preview secrets are missing
+        id: gate
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          REVIEW_PREVIEW_SECRET: ${{ secrets.REVIEW_PREVIEW_SECRET }}
+        run: |
+          if [ -z "$VERCEL_TOKEN" ] || [ -z "$REVIEW_PREVIEW_SECRET" ]; then
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "Review preview secrets are unset. Nothing to do."
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
+      # Same default-branch pin as the preview job. Cleanup also holds
+      # VERCEL_TOKEN and REVIEW_PREVIEW_SECRET, and a closed PR's head must
+      # not be the code that runs with them. workflow_dispatch uses the
+      # preview job above, which has the same pin.
+      - uses: actions/checkout@v4
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@v4
+        if: steps.gate.outputs.skip != 'true'
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+        if: steps.gate.outputs.skip != 'true'
+      - name: Delete the review preview
+        if: steps.gate.outputs.skip != 'true'
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          REVIEW_PREVIEW_SECRET: ${{ secrets.REVIEW_PREVIEW_SECRET }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: node --import tsx apps/portal/scripts/review-preview.ts close

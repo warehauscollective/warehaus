@@ -106,6 +106,18 @@ Standing rule (Peter, Oct 25): build and test the portal on localhost. Nothing d
 
 The only approved Vercel production path is a manual `vercel deploy --prod` from `apps/portal` after Peter approves that deploy. Do not run `npx convex deploy` or `npx convex dev --prod`. Both target production `unique-turtle-383`.
 
+## Review preview secrets
+
+Three names. No values belong in the repo, a doc, or chat. Do not set any of them on production `unique-turtle-383`. Without `VERCEL_TOKEN` and `REVIEW_PREVIEW_SECRET`, the preview workflow and the close job do nothing and exit cleanly.
+
+| Name | Where it goes | Minimal scope |
+| --- | --- | --- |
+| `VERCEL_TOKEN` | GitHub Actions secret on `warehauscollective/warehaus`, read by `.github/workflows/portal-review-preview.yml`, and Convex env on the shared dev deployment only | Create and delete deployments on Vercel project `warehaus-portal` only. The workflow uses the GitHub secret. Retry and the scheduled delete read the Convex env. A missing Convex value is a terminal delete failure and does not retry. Not a production deploy, and not a token for any other project. |
+| `REVIEW_PREVIEW_SECRET` | The same GitHub Actions secret, and Convex env on the shared dev deployment only (`npx convex env set` from `apps/portal`) | Bearer shared by that workflow and the `/review-preview` HTTP action. It authorizes preview state writes. It is not a Notion token and not a user password. |
+| `REVIEW_PREVIEW_GITHUB_TOKEN` | Convex env on the shared dev deployment only | Fine-grained GitHub token that can dispatch `portal-review-preview.yml` on this repo (`actions: write`). No contents write, no other repos. |
+
+The workflow's built-in `GITHUB_TOKEN` is separate. It only reads the pull request. It is not one of these three.
+
 ## Preview a pull request on Peter's Mac
 
 From a clean repo root, this fetches the branch, checks it out, installs, and starts the portal:

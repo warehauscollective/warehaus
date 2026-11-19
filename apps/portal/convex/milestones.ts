@@ -16,7 +16,8 @@ import {
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
-import { internalMutation, internalQuery } from './_generated/server';
+import { httpAction, internalAction, internalMutation, internalQuery } from './_generated/server';
+import { internal } from './_generated/api';
 import { PortalAuthError } from './_lib/identity';
 import {
   attachTaskDecision,
@@ -73,11 +74,26 @@ import {
   previewStatusPatch,
   RETRY_WAITS_ON_TOKENS,
   reviewChatLine,
-  reviewPreviewRetryReady,
   roadmapReviewForAudience,
   reviewForAudience,
   type ReviewSource,
 } from './_lib/milestoneReview';
+import {
+  PREVIEW_DELETED_ACTIVITY,
+  PREVIEW_READY_ACTIVITY,
+  VERCEL_TEAM_ID,
+  assertReviewConvexUrl,
+  authorizeReviewPreview,
+  deleteVercelDeployment,
+  previewDeleteAfterFailure,
+  previewDeletedActivity,
+  removalAfterDelete,
+  retryActorAllowed,
+  retryPreviewPatch,
+  reviewPreviewSetPatch,
+  type ReviewPreviewRecord,
+  type ReviewPreviewState,
+} from './_lib/reviewPreview';
 import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/wrappers';
 
 const workStatusArg = v.union(v.literal('draft'), v.literal('active'), v.literal('ready'));
@@ -952,11 +968,14 @@ async function applyMilestoneReview(
   if (!contactId) return { ok: false as const, status: 403, error: chatContactError(planned.decision) };
   const decidedAt = Date.now();
   if (planned.decision === 'approve') {
+    const deploymentId = milestone.previewDeploymentId?.trim() || '';
     await ctx.db.patch(milestone._id, {
       approval: 'approved',
       approverContactId: contactId,
       decidedAt,
       workStatus: 'ready',
+      ...(milestone.previewUrl ? { previewUrl: '' } : {}),
+      ...(deploymentId ? { previewDelete: 'removing' as const } : {}),
     });
     await ctx.db.insert('milestoneReviews', {
       orgId: milestone.orgId,
@@ -972,6 +991,14 @@ async function applyMilestoneReview(
       createdTaskIds: [],
     });
     await logMilestone(ctx, milestone, 'milestone.approved', decidedAt);
+    if (deploymentId) {
+      await ctx.scheduler.runAfter(0, internal.milestones.deleteReviewPreview, {
+        milestoneId: milestone._id,
+        deploymentId,
+        sha: milestone.previewCommit ?? '',
+        scheduledAttempt: 0,
+      });
+    }
     return {
       ok: true as const,
       status: 200,
@@ -1027,6 +1054,10 @@ async function applyMilestoneReview(
     previewBuild: undefined,
     previewBuildAttempt: undefined,
     previewBuildAt: undefined,
+    ...(milestone.previewDeploymentId ? { previewDeploymentId: undefined } : {}),
+    ...(milestone.previewDelete ? { previewDelete: undefined } : {}),
+    ...(milestone.previewDeleteAttempt != null ? { previewDeleteAttempt: undefined } : {}),
+    ...(milestone.previewDeleteAt != null ? { previewDeleteAt: undefined } : {}),
   });
   await ctx.db.insert('milestoneReviews', {
     orgId: milestone.orgId,
@@ -1182,23 +1213,350 @@ export const recordPreviewStatus = adminMutation({
   },
 });
 
-/**
- * Retry a failed preview build or a failed preview delete.
- * Both calls need the GitHub and Vercel tokens from #113. Until those exist
- * this refuses and writes nothing.
- */
-export const retryReviewPreview = adminMutation({
+function previewRecord(milestone: Doc<'milestones'>): ReviewPreviewRecord {
+  const deleteStatus = milestone.previewDelete ?? null;
+  let state: ReviewPreviewState | null = null;
+  if (deleteStatus === 'removed') state = 'removed';
+  else if (milestone.previewBuild === 'building' || milestone.previewBuild === 'failed') state = milestone.previewBuild;
+  else if (milestone.previewUrl) state = 'ready';
+  return {
+    state,
+    url: milestone.previewUrl || null,
+    sha: milestone.previewCommit ?? null,
+    deploymentId: milestone.previewDeploymentId ?? null,
+    prNumber: milestone.previewPrNumber ?? null,
+    iteration: currentIteration(milestone.iteration),
+    branch: milestone.previewBranch ?? null,
+    builtAt: milestone.previewBuiltAt ?? null,
+    deleteState: deleteStatus === 'removing' || deleteStatus === 'failed' ? deleteStatus : null,
+    deleteAttempts: milestone.previewDeleteAttempt ?? null,
+    deleteFailedAt: milestone.previewDeleteAt ?? null,
+  };
+}
+
+const previewStateArg = v.union(v.literal('building'), v.literal('ready'), v.literal('failed'), v.literal('removed'));
+const previewOutcomeArg = v.union(
+  v.literal('deleted'),
+  v.literal('already-gone'),
+  v.literal('failed'),
+  v.literal('unconfigured'),
+);
+
+export const setReviewPreview = internalMutation({
   args: {
     milestoneId: v.id('milestones'),
-    kind: v.union(v.literal('build'), v.literal('delete')),
+    state: previewStateArg,
+    url: v.optional(v.string()),
+    sha: v.optional(v.string()),
+    deploymentId: v.optional(v.string()),
+    prNumber: v.optional(v.number()),
+    iteration: v.optional(v.number()),
+    branch: v.optional(v.string()),
+    builtAt: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
-    await loadMilestone(ctx, args.milestoneId);
-    if (!reviewPreviewRetryReady({ githubToken: process.env.GITHUB_TOKEN, vercelToken: process.env.VERCEL_TOKEN })) {
-      return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
+    const milestone = await ctx.db.get(args.milestoneId);
+    if (!milestone) return { ok: false as const, reason: 'Milestone not found' };
+    const result = reviewPreviewSetPatch({
+      current: previewRecord(milestone),
+      next: {
+        state: args.state,
+        url: args.url ?? null,
+        sha: args.sha ?? null,
+        deploymentId: args.deploymentId ?? null,
+        prNumber: args.prNumber ?? null,
+        iteration: args.iteration ?? null,
+        branch: args.branch ?? null,
+        builtAt: args.builtAt ?? null,
+      },
+    });
+    if (!result.ok) return result;
+    if (!result.patch) return { ok: true as const, changed: false, previousDeploymentId: null };
+    const ready = args.state === 'ready' ? previewStatusPatch(milestone, { build: 'ready' }) : null;
+    await ctx.db.patch(args.milestoneId, {
+      ...result.patch,
+      ...(result.clearUrl ? { previewUrl: '' } : {}),
+      ...(result.clearDeploymentId ? { previewDeploymentId: undefined } : {}),
+      ...(ready ?? {}),
+    });
+    if (result.chat) {
+      await ctx.db.insert('activity', {
+        orgId: milestone.orgId,
+        projectId: milestone.projectId,
+        milestoneId: milestone._id,
+        name: milestone.name,
+        summary: result.chat,
+        type: PREVIEW_READY_ACTIVITY,
+        tone: 'accent',
+        timestamp: Date.now(),
+      });
     }
-    return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
+    return { ok: true as const, changed: true, previousDeploymentId: result.previousDeploymentId };
   },
+});
+
+async function applyPreviewOutcome(
+  ctx: MutationCtx,
+  milestone: Doc<'milestones'>,
+  outcome: 'deleted' | 'already-gone' | 'failed' | 'unconfigured',
+  sha?: string,
+  scheduledAttempt?: number,
+): Promise<boolean> {
+  const record = previewRecord(milestone);
+  if (!record.sha && sha) record.sha = sha;
+  if (
+    (outcome === 'failed' || outcome === 'unconfigured') &&
+    scheduledAttempt != null &&
+    (record.deleteAttempts ?? 0) > scheduledAttempt
+  ) {
+    return false;
+  }
+  const activity = previewDeletedActivity({
+    orgId: milestone.orgId,
+    projectId: milestone.projectId,
+    milestoneId: milestone._id,
+    name: milestone.name,
+    sha: record.sha ?? milestone.previewCommit ?? null,
+    outcome,
+    timestamp: Date.now(),
+  });
+  const writeActivity = async () => {
+    await ctx.db.insert('activity', {
+      orgId: milestone.orgId,
+      projectId: milestone.projectId,
+      milestoneId: milestone._id,
+      name: milestone.name,
+      summary: activity.summary,
+      type: activity.type,
+      tone: activity.tone,
+      timestamp: activity.timestamp,
+    });
+  };
+  if (outcome === 'failed' || outcome === 'unconfigured') {
+    if (!record.deploymentId && !record.url && record.state !== 'ready' && record.state !== 'building' && !record.deleteState) {
+      return false;
+    }
+    const plan = previewDeleteAfterFailure({
+      attempts: (record.deleteAttempts ?? 0) + 1,
+      now: Date.now(),
+      terminal: outcome === 'unconfigured',
+    });
+    if (record.deleteState === plan.state && record.deleteAttempts === plan.attempts && record.deleteFailedAt === plan.failedAt) {
+      return false;
+    }
+    await ctx.db.patch(milestone._id, {
+      previewDelete: plan.state,
+      previewDeleteAttempt: plan.attempts,
+      previewDeleteAt: plan.failedAt,
+    });
+    if (plan.delayMs != null && record.deploymentId) {
+      await ctx.scheduler.runAfter(plan.delayMs, internal.milestones.deleteReviewPreview, {
+        milestoneId: milestone._id,
+        deploymentId: record.deploymentId,
+        sha: record.sha ?? '',
+        scheduledAttempt: plan.attempts,
+      });
+    }
+    await writeActivity();
+    return true;
+  }
+  if (milestone.approval === 'approved') {
+    const removal = removalAfterDelete({ outcome, record });
+    if (!removal.patch) return false;
+    await ctx.db.patch(milestone._id, removal.patch);
+    await writeActivity();
+    return true;
+  }
+  if (!record.state && !record.url && !record.deploymentId && record.prNumber == null && !record.deleteState) return false;
+  await ctx.db.patch(milestone._id, {
+    previewUrl: '',
+    previewCommit: undefined,
+    previewDeploymentId: undefined,
+    previewPrNumber: undefined,
+    previewBranch: undefined,
+    previewBuiltAt: undefined,
+    previewBuild: undefined,
+    previewBuildAttempt: undefined,
+    previewBuildAt: undefined,
+    previewDelete: undefined,
+    previewDeleteAttempt: undefined,
+    previewDeleteAt: undefined,
+  });
+  await writeActivity();
+  return true;
+}
+
+export const finishPreviewDelete = internalMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    outcome: previewOutcomeArg,
+    sha: v.string(),
+    scheduledAttempt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const milestone = await ctx.db.get(args.milestoneId);
+    if (!milestone) return { ok: false as const, reason: 'Milestone not found' };
+    const wrote = await applyPreviewOutcome(ctx, milestone, args.outcome, args.sha, args.scheduledAttempt);
+    return { ok: true as const, wrote };
+  },
+});
+
+export const applyPreviewClose = internalMutation({
+  args: { prNumber: v.number(), outcome: previewOutcomeArg },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query('milestones')
+      .withIndex('by_previewPrNumber', (q) => q.eq('previewPrNumber', args.prNumber))
+      .collect();
+    let writes = 0;
+    for (const milestone of rows) {
+      if (milestone.previewPrNumber !== args.prNumber) continue;
+      if (await applyPreviewOutcome(ctx, milestone, args.outcome)) writes += 1;
+    }
+    return { ok: true as const, writes };
+  },
+});
+
+export const deleteReviewPreview = internalAction({
+  args: {
+    milestoneId: v.id('milestones'),
+    deploymentId: v.string(),
+    sha: v.string(),
+    scheduledAttempt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const cloud = assertReviewConvexUrl(process.env.CONVEX_CLOUD_URL);
+    if (!cloud.ok) return { ok: false as const, reason: cloud.reason };
+    const result = await deleteVercelDeployment({
+      token: process.env.VERCEL_TOKEN,
+      teamId: VERCEL_TEAM_ID,
+      deploymentId: args.deploymentId,
+    });
+    await ctx.runMutation(internal.milestones.finishPreviewDelete, {
+      milestoneId: args.milestoneId,
+      outcome: result.status,
+      sha: args.sha,
+      scheduledAttempt: args.scheduledAttempt,
+    });
+    return { ok: result.status === 'deleted' || result.status === 'already-gone', status: result.status };
+  },
+});
+
+export const dispatchReviewPreview = internalAction({
+  args: { prNumber: v.number(), milestoneId: v.id('milestones') },
+  handler: async (ctx, args) => {
+    const token = process.env.REVIEW_PREVIEW_GITHUB_TOKEN?.trim();
+    if (!token) return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
+    const response = await fetch(
+      'https://api.github.com/repos/warehauscollective/warehaus/actions/workflows/portal-review-preview.yml/dispatches',
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          Accept: 'application/vnd.github+json',
+          'X-GitHub-Api-Version': '2022-11-28',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          ref: 'main',
+          inputs: { pr_number: String(args.prNumber), milestone_id: args.milestoneId },
+        }),
+      },
+    );
+    if (response.status === 204) return { ok: true as const };
+    await ctx.runMutation(internal.milestones.setReviewPreview, {
+      milestoneId: args.milestoneId,
+      state: 'failed',
+      prNumber: args.prNumber,
+    });
+    return { ok: false as const, reason: 'Retry did not start' };
+  },
+});
+
+/**
+ * Retry a failed preview build or a failed preview delete.
+ * Peter cannot retry. Missing tokens write nothing.
+ * A failed delete calls the Vercel DELETE again. A failed build dispatches the workflow.
+ */
+export const retryReviewPreview = adminMutation({
+  args: { milestoneId: v.id('milestones') },
+  handler: async (ctx, args) => {
+    const actor = retryActorAllowed(ctx.identity.email);
+    if (!actor.ok) return actor;
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const record = previewRecord(milestone);
+    if (!process.env.VERCEL_TOKEN?.trim()) return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
+    if (record.deleteState === 'failed' && record.deploymentId) {
+      await ctx.db.patch(milestone._id, { previewDelete: 'removing' });
+      await ctx.scheduler.runAfter(0, internal.milestones.deleteReviewPreview, {
+        milestoneId: milestone._id,
+        deploymentId: record.deploymentId,
+        sha: record.sha ?? '',
+        scheduledAttempt: record.deleteAttempts ?? 0,
+      });
+      return { ok: true as const, changed: true };
+    }
+    const next = retryPreviewPatch(record);
+    if (!next.patch) return { ok: true as const, changed: false };
+    if (!milestone.previewPrNumber) return { ok: false as const, reason: 'Pull request number is missing' };
+    if (!process.env.REVIEW_PREVIEW_GITHUB_TOKEN?.trim()) return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
+    await ctx.db.patch(milestone._id, next.patch);
+    await ctx.scheduler.runAfter(0, internal.milestones.dispatchReviewPreview, {
+      milestoneId: milestone._id,
+      prNumber: milestone.previewPrNumber,
+    });
+    return { ok: true as const, changed: true };
+  },
+});
+
+export const reviewPreviewHttp = httpAction(async (ctx, request) => {
+  const cloud = assertReviewConvexUrl(process.env.CONVEX_CLOUD_URL);
+  if (!cloud.ok) return new Response('Review previews run on shared dev only', { status: 403 });
+  const auth = authorizeReviewPreview({
+    configuredSecret: process.env.REVIEW_PREVIEW_SECRET,
+    authorizationHeader: request.headers.get('authorization'),
+  });
+  if (auth === 'unconfigured') return new Response('Review preview is not configured', { status: 503 });
+  if (auth === 'unauthorized') return new Response('Unauthorized', { status: 401 });
+  let body: {
+    op?: string;
+    milestoneId?: Id<'milestones'>;
+    state?: ReviewPreviewState;
+    url?: string;
+    sha?: string;
+    deploymentId?: string;
+    prNumber?: number;
+    iteration?: number;
+    branch?: string;
+    builtAt?: number;
+    outcome?: 'deleted' | 'already-gone' | 'failed' | 'unconfigured';
+  };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return new Response('Invalid JSON', { status: 400 });
+  }
+  if (body.op === 'close') {
+    if (!body.prNumber || body.prNumber < 1) return new Response('Pull request number is missing', { status: 400 });
+    const result = await ctx.runMutation(internal.milestones.applyPreviewClose, {
+      prNumber: body.prNumber,
+      outcome: body.outcome ?? 'deleted',
+    });
+    return Response.json(result);
+  }
+  if (!body.milestoneId || !body.state) return new Response('Preview payload is incomplete', { status: 400 });
+  const result = await ctx.runMutation(internal.milestones.setReviewPreview, {
+    milestoneId: body.milestoneId,
+    state: body.state,
+    url: body.url,
+    sha: body.sha,
+    deploymentId: body.deploymentId,
+    prNumber: body.prNumber,
+    iteration: body.iteration,
+    branch: body.branch,
+    builtAt: body.builtAt,
+  });
+  return Response.json(result, { status: result.ok ? 200 : 400 });
 });
 
 export const reviewForStaff = adminQuery({

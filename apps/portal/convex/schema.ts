@@ -220,13 +220,18 @@ export default defineSchema({
      * Ready to Ship is workStatus `ready`. Approve does not move it to Shipped.
      */
     iteration: v.optional(v.number()),
-    /** Staff-only localhost:3100 preview. Never returned to a client. */
+    /**
+     * Staff-only preview. A localhost:3100 link, or the Vercel review deployment.
+     * Never returned to a client. Never unique-turtle-383.
+     */
     previewUrl: v.optional(v.string()),
     previewPrNumber: v.optional(v.number()),
     previewPrTitle: v.optional(v.string()),
     previewBranch: v.optional(v.string()),
     previewCommit: v.optional(v.string()),
     previewBuiltAt: v.optional(v.number()),
+    /** Vercel deployment id for the review preview. Cleared once the delete is confirmed. */
+    previewDeploymentId: v.optional(v.string()),
     designCheck: v.optional(v.union(v.literal('pass'), v.literal('fixes'), v.literal('pending'))),
     designCheckNote: v.optional(v.string()),
     /** Preview build for this iteration. Absent once a preview URL is stored. */
@@ -264,7 +269,8 @@ export default defineSchema({
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])
-    .index('by_projectId', ['projectId']),
+    .index('by_projectId', ['projectId'])
+    .index('by_previewPrNumber', ['previewPrNumber']),
 
   /**
    * One human review of one iteration. Idempotent on milestone + iteration.

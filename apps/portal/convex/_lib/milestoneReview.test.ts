@@ -292,7 +292,8 @@ describe('preview lifecycle', () => {
     const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
     const retry = source.slice(source.indexOf('export const retryReviewPreview'), source.indexOf('export const reviewForStaff'));
     assert.match(retry, /RETRY_WAITS_ON_TOKENS/);
-    assert.equal(retry.includes('db.patch'), false);
-    assert.equal(retry.includes('ctx.db'), false);
+    assert.match(retry, /retryActorAllowed\(ctx\.identity\.email\)/);
+    assert.ok(retry.indexOf('retryActorAllowed') < retry.indexOf('ctx.db.patch'));
+    assert.ok(retry.indexOf('RETRY_WAITS_ON_TOKENS') < retry.indexOf('ctx.db.patch'));
   });
 });

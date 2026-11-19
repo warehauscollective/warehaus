@@ -527,14 +527,16 @@ export function ReviewDialogActions({
   );
 }
 
-function RetryControl({ phone, busy = false }: { phone: boolean; busy?: boolean }) {
+function RetryControl({ phone, busy = false, onRetry }: { phone: boolean; busy?: boolean; onRetry?: () => void }) {
+  const live = Boolean(onRetry);
   return (
     <div className={phone ? 'flex w-full flex-col items-start gap-1.5 pt-1.5' : 'flex items-center gap-2.5 pt-1.5'}>
       <button
         type="button"
-        disabled
+        disabled={!live || busy}
         data-testid="review-retry"
-        title={RETRY_WAITS_ON_TOKENS}
+        title={live ? undefined : RETRY_WAITS_ON_TOKENS}
+        onClick={onRetry}
         style={{
           border: '1px solid var(--border-2)',
           borderRadius: 9,
@@ -543,14 +545,16 @@ function RetryControl({ phone, busy = false }: { phone: boolean; busy?: boolean 
           color: 'var(--fg)',
           fontSize: 14,
           fontWeight: 500,
-          opacity: 0.7,
-          cursor: 'not-allowed',
+          opacity: live && !busy ? 1 : 0.7,
+          cursor: live && !busy ? 'pointer' : 'not-allowed',
         }}
       >
         {busy ? 'Retrying…' : 'Retry'}
       </button>
       <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{STAFF_RETRY_LINE}</p>
-      <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{RETRY_WAITS_ON_TOKENS}</p>
+      {live ? null : (
+        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{RETRY_WAITS_ON_TOKENS}</p>
+      )}
     </div>
   );
 }
@@ -561,12 +565,14 @@ function PreviewLifecycle({
   phone,
   isPeter,
   retrying = false,
+  onRetry,
 }: {
   visual: ReviewVisual;
   model: ReviewSurfaceModel;
   phone: boolean;
   isPeter: boolean;
   retrying?: boolean;
+  onRetry?: () => void;
 }) {
   const failedAt = visual === 'preview-failed' ? model.previewBuildAt : model.previewDeleteAt;
   const attempt = visual === 'preview-failed' ? model.previewBuildAttempt : model.previewDeleteAttempt;
@@ -598,7 +604,7 @@ function PreviewLifecycle({
             Staff see this. Peter and clients see the approved card until the delete succeeds.
           </p>
         ) : null}
-        {showRetry ? <RetryControl phone={phone} busy={retrying} /> : null}
+        {showRetry ? <RetryControl phone={phone} busy={retrying} onRetry={onRetry} /> : null}
       </div>
     </div>
   );
@@ -616,6 +622,7 @@ export function MilestoneReviewSurface({
   initialDialog = null,
   initialError = null,
   retrying = false,
+  onRetry,
   saveFailed = false,
   cover = false,
   onApprove,
@@ -637,6 +644,8 @@ export function MilestoneReviewSurface({
   initialError?: string | null;
   /** Visual only. Retry stays disabled until the GitHub and Vercel tokens exist. */
   retrying?: boolean;
+  /** Live retry. Fixtures omit this, so Retry stays disabled there. */
+  onRetry?: () => void;
   /** Confirm dialog after a failed save. The button reads Try again. */
   saveFailed?: boolean;
   /** Keep the dialog inside its frame. The live dialog stays fixed on the page. */
@@ -792,7 +801,7 @@ export function MilestoneReviewSurface({
               <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{PREVIEW_REMOVED}</p>
             ) : null}
             {visual === 'delete-failed' || visual === 'couldnt-remove' ? (
-              <PreviewLifecycle visual={visual} model={model} phone={phone} isPeter={isPeter} retrying={retrying} />
+              <PreviewLifecycle visual={visual} model={model} phone={phone} isPeter={isPeter} retrying={retrying} onRetry={onRetry} />
             ) : null}
           </>
         ) : visual === 'changes' ? (
@@ -816,7 +825,7 @@ export function MilestoneReviewSurface({
         ) : (
           <>
             {model.previewUrl && visual !== 'building' && visual !== 'preview-failed' ? <PreviewBox url={model.previewUrl} commit={model.commit} iteration={model.iteration} /> : visual === 'building' || visual === 'preview-failed' ? (
-              <PreviewLifecycle visual={visual} model={model} phone={phone} isPeter={isPeter} retrying={retrying} />
+              <PreviewLifecycle visual={visual} model={model} phone={phone} isPeter={isPeter} retrying={retrying} onRetry={onRetry} />
             ) : (
               <div data-testid="review-waiting-box" className="flex items-start gap-3" style={{ border: '1px dashed var(--border-2)', borderRadius: 18, padding: 16 }}>
                 <ClockIcon />
@@ -981,6 +990,7 @@ export function MilestoneReviewLive({
   const peter = isPeter ?? isPeterEmail(auth.authUser?.email);
   const approve = useMutation(api.milestones.approve);
   const requestChanges = useMutation(api.milestones.requestChanges);
+  const retryPreview = useMutation(api.milestones.retryReviewPreview);
   const review = milestone.review;
   if (!review || !reviewShouldShow({ workStatus: milestone.workStatus, approval: milestone.approval ?? 'unreviewed', historyLength: review.history.length })) {
     return null;
@@ -992,6 +1002,14 @@ export function MilestoneReviewLive({
       layout="card"
       phone={phone}
       isPeter={peter}
+      onRetry={
+        peter
+          ? undefined
+          : async () => {
+              const result = await retryPreview({ milestoneId: model.milestoneId as Id<'milestones'> });
+              if (!result.ok) throw new Error(result.reason);
+            }
+      }
       onApprove={async (notes) => {
         await approve({
           hostSlug,
