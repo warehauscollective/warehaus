@@ -97,7 +97,20 @@ export function TaskDetailModal({
     setStageConfirm(initialStageConfirm);
   }, [phone, initialStageConfirm]);
   const sheets = taskSheetOpen({ attach, stage: Boolean(stageConfirm) });
-  const cancelStage = () => setStageConfirm(null);
+  const returnStageFocus = useRef<string | null>(null);
+  const cancelStage = () => {
+    returnStageFocus.current = stageConfirm;
+    setStageConfirm(null);
+  };
+  useEffect(() => {
+    if (stageConfirm != null || !returnStageFocus.current) return;
+    const stage = returnStageFocus.current;
+    returnStageFocus.current = null;
+    const chip = [...document.querySelectorAll<HTMLButtonElement>('[data-stage-chip]')].find(
+      (button) => button.getAttribute('data-stage-chip') === stage,
+    );
+    chip?.focus({ preventScroll: true });
+  }, [stageConfirm]);
   const confirmStage = () => {
     const stage = stageConfirm;
     setStageConfirm(null);
@@ -151,7 +164,9 @@ export function TaskDetailModal({
           >
             {closeLabel}
           </button>
-          <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>Esc</span>
+          {phone ? null : (
+            <span data-testid="task-esc-hint" className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>Esc</span>
+          )}
           <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
         </div>
         <div className={phone ? 'flex flex-col' : 'grid gap-8'} style={phone ? { gap: 24 } : { gridTemplateColumns: 'minmax(0, 1fr) 296px' }}>
@@ -328,6 +343,7 @@ export function TaskDetailModal({
                       <button
                         key={stage}
                         type="button"
+                        data-stage-chip={stage}
                         disabled={locked}
                         aria-pressed={task.stage === stage}
                         onClick={() => {

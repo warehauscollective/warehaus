@@ -54,6 +54,7 @@ export function PortalModal({
   confirmOnEnter = false,
   cover = false,
   focusCancel = false,
+  footer,
 }: {
   testId?: string;
   scrimTestId?: string;
@@ -86,6 +87,11 @@ export function PortalModal({
   cover?: boolean;
   /** Confirms open on Cancel, not the first field or Close. */
   focusCancel?: boolean;
+  /**
+   * Pinned under the scroll body. Stays on screen while the body scrolls,
+   * and a centered dialog shortens so this row sits above the dock.
+   */
+  footer?: ReactNode;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -147,6 +153,9 @@ export function PortalModal({
   }, [hidden, cover, confirmOnEnter, focusCancel]);
 
   const isSheet = placement !== 'center';
+  const pinned = Boolean(footer) || showFooter;
+  /** Dock track plus its bottom offset. Centered dialogs stop above it. */
+  const dockClearance = 'calc(82px + env(safe-area-inset-bottom, 0px))';
   const scrim: CSSProperties = {
     position: cover ? 'absolute' : 'fixed',
     inset: 0,
@@ -155,7 +164,7 @@ export function PortalModal({
     display: 'flex',
     alignItems: isSheet ? 'flex-end' : 'center',
     justifyContent: 'center',
-    padding: isSheet ? 0 : 24,
+    padding: isSheet ? 0 : pinned ? `24px 24px ${dockClearance}` : 24,
   };
   const node = (
     <div
@@ -186,8 +195,13 @@ export function PortalModal({
         style={hidden ? undefined : {
           width: narrow ? '100%' : width,
           maxWidth: '100%',
+          minHeight: 0,
           height: maxHeight,
-          maxHeight: maxHeight ?? (isSheet ? 'calc(100dvh - 12px)' : 'calc(100dvh - 48px)'),
+          maxHeight: maxHeight ?? (isSheet
+            ? 'calc(100dvh - 12px)'
+            : pinned
+              ? 'calc(100dvh - 24px - 82px - env(safe-area-inset-bottom, 0px))'
+              : 'calc(100dvh - 48px)'),
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
@@ -210,7 +224,12 @@ export function PortalModal({
             onClose={onClose}
           />
         ) : null}
-        <div style={hidden ? undefined : { overflow: 'auto', minHeight: 0, flex: '1 1 auto', ...panelStyle }}>{children}</div>
+        <div data-portal-modal-body="" style={hidden ? undefined : { overflow: 'auto', minHeight: 0, flex: '1 1 auto', ...panelStyle }}>{children}</div>
+        {!hidden && footer ? (
+          <div data-testid="portal-modal-footer" style={{ flex: '0 0 auto', borderTop: '1px solid var(--border)', padding: isSheet ? '16px 24px 24px' : '16px 24px' }}>
+            {footer}
+          </div>
+        ) : null}
         {!hidden && showFooter ? (
           <ModalFooter narrow={isSheet} confirmLabel={confirmLabel} onClose={onClose} onConfirm={onConfirm} />
         ) : null}

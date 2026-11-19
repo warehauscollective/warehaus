@@ -578,9 +578,6 @@ body:has([data-sheet-layer='viewport']) [data-testid='portal-dock'] {
   border-top-color: var(--fg);
   animation: portal-modal-spin 0.8s linear infinite;
 }
-@media (max-width: 767px) {
-  .ds-scope .portal-confirm-hint { display: none; }
-}
 @media (prefers-reduced-motion: reduce) {
   .portal-modal-spinner { animation: none; }
 }

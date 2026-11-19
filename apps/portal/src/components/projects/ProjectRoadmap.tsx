@@ -26,7 +26,6 @@ import {
   FieldValue,
   GhostButton,
   MenuActionError,
-  MilestoneDialog,
   MissingMilestoneApi,
   MilestoneListButton,
   PageHeading,
@@ -1620,11 +1619,32 @@ function EditDialog({
   const nameRef = useRef<HTMLInputElement>(null);
   const objectiveRef = useRef<HTMLTextAreaElement>(null);
   const goalsRef = useRef<HTMLTextAreaElement>(null);
+  const phone = useMaxWidth(767);
   return (
-    <MilestoneDialog title="Edit all details" onClose={onClose}>
+    <PortalModal
+      testId="milestone-edit-dialog"
+      label="Edit all details"
+      onClose={onClose}
+      narrow={phone}
+      sheet="bottom"
+      width={760}
+      header="default"
+      panelStyle={{ padding: '8px 24px 16px' }}
+      footer={
+        <div className="flex flex-wrap gap-2">
+          <OutlineButton disabled={busy} onClick={onClose}>
+            Cancel
+          </OutlineButton>
+          <PrimaryButton type="submit" form="milestone-edit-form" disabled={busy}>
+            Save milestone
+          </PrimaryButton>
+        </div>
+      }
+    >
       <form
+        id="milestone-edit-form"
         data-testid="milestone-edit-form"
-        className="mt-4 flex flex-col gap-4"
+        className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
           const nextGoals = goals.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -1657,16 +1677,8 @@ function EditDialog({
         />
         {error ? <FormAlert>{error}</FormAlert> : null}
         {saveError ? <FormAlert>{saveError}</FormAlert> : null}
-        <div className="flex flex-wrap gap-2">
-          <OutlineButton disabled={busy} onClick={onClose}>
-            Cancel
-          </OutlineButton>
-          <PrimaryButton type="submit" disabled={busy}>
-            Save milestone
-          </PrimaryButton>
-        </div>
       </form>
-    </MilestoneDialog>
+    </PortalModal>
   );
 }
 
@@ -1696,11 +1708,32 @@ function CreateMilestone({
   const nameRef = useRef<HTMLInputElement>(null);
   const objectiveRef = useRef<HTMLTextAreaElement>(null);
   const goalsRef = useRef<HTMLTextAreaElement>(null);
+  const phone = useMaxWidth(767);
   return (
-    <MilestoneDialog title="New milestone" onClose={onClose}>
+    <PortalModal
+      testId="milestone-create-dialog"
+      label="New milestone"
+      onClose={onClose}
+      narrow={phone}
+      sheet="bottom"
+      width={760}
+      header="default"
+      panelStyle={{ padding: '8px 24px 16px' }}
+      footer={
+        <div className="flex flex-wrap gap-2">
+          <OutlineButton disabled={busy} onClick={onClose}>
+            Cancel
+          </OutlineButton>
+          <PrimaryButton type="submit" form="milestone-create" disabled={busy}>
+            Create milestone
+          </PrimaryButton>
+        </div>
+      }
+    >
       <form
+        id="milestone-create"
         data-testid="milestone-create"
-        className="mt-2 flex flex-col gap-4"
+        className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
           const nextGoals = goals.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -1786,16 +1819,8 @@ function CreateMilestone({
           The milestone is saved first. Its tasks are added on the milestone. A new milestone starts unpublished.
         </p>
         {error ? <FormAlert>{error}</FormAlert> : null}
-        <div className="flex flex-wrap gap-2">
-          <OutlineButton disabled={busy} onClick={onClose}>
-            Cancel
-          </OutlineButton>
-          <PrimaryButton type="submit" disabled={busy}>
-            Create milestone
-          </PrimaryButton>
-        </div>
       </form>
-    </MilestoneDialog>
+    </PortalModal>
   );
 }
 
