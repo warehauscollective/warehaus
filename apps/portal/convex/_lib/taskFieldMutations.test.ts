@@ -258,6 +258,7 @@ describe('task field mutations', () => {
       name: `Child ${index + 1}`,
     }));
     children[2]!.archivedAt = 1;
+    children[3]!.orgId = 'org-other';
     const grandchild: Row = {
       _id: 'grandchild-1',
       orgId: 'org-north',
@@ -274,6 +275,7 @@ describe('task field mutations', () => {
     assert.equal(patched.has('child-50'), true);
     assert.equal(patched.has('child-51'), false);
     assert.equal(patched.has('child-3'), false);
+    assert.equal(patched.has('child-4'), false);
     assert.equal(patched.has('grandchild-1'), false);
     assert.equal(store.deletes.length, 0);
     for (const patch of store.patches) {
@@ -318,6 +320,18 @@ describe('task field mutations', () => {
       if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
       else process.env.NOTION_WRITEBACK_ENABLED = previous;
     }
+  });
+
+  it('rejects a date that is not a calendar day', async () => {
+    const store = memory({ tasks: [{ ...task, date: '2026-10-20' }] });
+    const bad = await run(setDueDate, staffCtx(store), { taskId: 'task-1', date: '2026-02-31' });
+    assert.deepEqual(bad, { ok: false, error: 'Use a calendar day' });
+    assert.equal(store.patches.length, 0);
+    const month = await run(setDueDate, staffCtx(store), { taskId: 'task-1', date: '2026-13-01' });
+    assert.equal(month.ok, false);
+    const saved = await run(setDueDate, staffCtx(store), { taskId: 'task-1', date: '2026-11-02' });
+    assert.equal(saved.ok, true);
+    assert.equal(store.patches[0]?.fields.date, '2026-11-02');
   });
 
   it('refuses a 51st source and does not insert', async () => {

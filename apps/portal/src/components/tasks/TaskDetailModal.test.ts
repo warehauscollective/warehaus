@@ -40,6 +40,9 @@ describe('task detail attach swap', () => {
     assert.match(source, /data-testid="task-archive"/);
     assert.match(source, /data-confirm-kind="archive"/);
     assert.match(source, /testId="task-due"/);
+    const due = source.slice(source.indexOf('testId="task-due"'), source.indexOf('testId="task-project"'));
+    assert.match(due, /<Popover onClose=\{closeFieldMenu\}>/);
+    assert.equal(due.includes('<Popover up'), false);
     assert.match(source, /testId="task-project"/);
     assert.match(source, /data-testid="task-copy-link"/);
     assert.match(source, /data-testid="task-breadcrumb"/);

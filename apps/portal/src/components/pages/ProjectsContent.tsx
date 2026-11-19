@@ -886,6 +886,7 @@ function ProjectTaskOverlay({
   const [fixtureMenu, setFixtureMenu] = useState<'assignee' | 'due' | 'project' | 'add-source' | null>(null);
   const [fixtureFieldError, setFixtureFieldError] = useState<'assignee' | 'due' | 'project' | null>(null);
   const [fixtureSourceError, setFixtureSourceError] = useState<string | null>(null);
+  const [fixtureAssignee, setFixtureAssignee] = useState<'contact' | null>(null);
   const closeLabel = taskCloseLabel(peekPortalReturn());
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
@@ -904,6 +905,7 @@ function ProjectTaskOverlay({
     const field = params.get('fieldError');
     setFixtureFieldError(field === 'assignee' || field === 'due' || field === 'project' ? field : null);
     setFixtureSourceError(params.get('sourceError'));
+    setFixtureAssignee(params.get('assignee') === 'contact' ? 'contact' : null);
   }, [fixtures]);
   const subtasks = staff
     ? tasks.filter((item) => item.parentTaskId === taskId)
@@ -920,7 +922,7 @@ function ProjectTaskOverlay({
     : clientAttached.data ?? [];
   return (
     <TaskDetailModal
-      task={task}
+      task={task && fixtures && fixtureAssignee === 'contact' ? { ...task, assigneeContactId: 'ct-maya', assigneeName: 'Maya Chen' } : task}
       staff={staff}
       phone={phone}
       unavailable={!task}

@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { textBlurSave } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { MilestoneDetailView } from './ProjectRoadmap';
-import { anchoredMenuBox, Popover } from './milestoneDetailsEdit';
+import { anchoredMenuBox, OwnerMenu, Popover } from './milestoneDetailsEdit';
 
 Object.assign(globalThis, { React });
 
@@ -276,6 +276,59 @@ describe('milestone details panel', () => {
     assert.equal(html.includes('data-testid="milestone-approval"'), false);
     assert.equal(html.includes('data-testid="milestone-last-review"'), false);
     assert.equal(html.includes('Review milestone'), false);
+  });
+});
+
+function ownerOption(html: string, name: string): string {
+  const match = html.match(new RegExp(`<button[^>]*>(?:(?!<button).)*${name}(?:(?!<\\/button>).)*<\\/button>`));
+  return match?.[0] ?? '';
+}
+
+describe('assignee menu selection', () => {
+  const people = [{ id: 'ct-maya', name: 'Maya Chen' }];
+
+  it('ticks a name that has no contact, and never Unassigned', () => {
+    const html = renderToStaticMarkup(
+      createElement(OwnerMenu, {
+        people,
+        currentId: null,
+        currentName: 'Alex Bauer',
+        onPick: () => undefined,
+        onClose: () => undefined,
+      }),
+    );
+    assert.match(ownerOption(html, 'Alex Bauer'), /aria-selected="true"/);
+    assert.match(ownerOption(html, 'Unassigned'), /aria-selected="false"/);
+    assert.equal(ownerOption(html, 'Unassigned').includes('docs-check.svg'), false);
+  });
+
+  it('ticks the contact when the assignee is in the list', () => {
+    const html = renderToStaticMarkup(
+      createElement(OwnerMenu, {
+        people,
+        currentId: 'ct-maya',
+        currentName: 'Maya Chen',
+        onPick: () => undefined,
+        onClose: () => undefined,
+      }),
+    );
+    assert.match(ownerOption(html, 'Maya Chen'), /aria-selected="true"/);
+    assert.match(ownerOption(html, 'Unassigned'), /aria-selected="false"/);
+    assert.equal(html.includes('Alex Bauer'), false);
+  });
+
+  it('ticks Unassigned only when nobody is assigned', () => {
+    const html = renderToStaticMarkup(
+      createElement(OwnerMenu, {
+        people,
+        currentId: null,
+        currentName: null,
+        onPick: () => undefined,
+        onClose: () => undefined,
+      }),
+    );
+    assert.match(ownerOption(html, 'Unassigned'), /aria-selected="true"/);
+    assert.equal(html.includes('Alex Bauer'), false);
   });
 });
 

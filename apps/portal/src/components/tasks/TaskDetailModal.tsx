@@ -10,6 +10,7 @@ import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
 import { DueDateMenu, FieldError, OwnerMenu, Popover, ProjectMenu, type MoveTarget, type OwnerChoice } from '@/components/projects/milestoneDetailsEdit';
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton, StatusBadge } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { useWritebackEnabled } from '@/hooks/useWritebackEnabled';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus, TASK_STAGE_HINT } from '@/lib/data/taskStatus';
 import { StageConfirmSheet } from '@/components/projects/milestoneChrome';
@@ -130,6 +131,7 @@ export function TaskDetailModal({
   const addLink = useMutation(api.tasks.addLink);
   const removeLink = useMutation(api.tasks.removeLink);
   const archiveTask = useMutation(api.tasks.archiveTask);
+  const notionArchive = useWritebackEnabled();
   const shownStatus = task ? displayedTaskStatus(task.status, task.stage) : '';
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -494,6 +496,7 @@ export function TaskDetailModal({
                         <OwnerMenu
                           people={peopleChoices}
                           currentId={shownAssigneeId}
+                          currentName={shownAssignee}
                           onPick={pickAssignee}
                           onClose={closeFieldMenu}
                           foot="Saves as soon as you pick. Saved in the Portal."
@@ -521,7 +524,7 @@ export function TaskDetailModal({
                   icon="/icons/task-calendar.svg"
                 >
                   {fieldMenu === 'due' && !phone ? (
-                    <Popover up onClose={closeFieldMenu}>
+                    <Popover onClose={closeFieldMenu}>
                       <DueDateMenu
                         value={shownDate}
                         onPick={pickDate}
@@ -830,7 +833,7 @@ export function TaskDetailModal({
               >
                 <div data-confirm-kind="archive">
                   <p style={{ margin: '8px 24px 16px', fontSize: 14, lineHeight: '21px' }}>
-                    {archiveConfirmCopy(task.name, subtasks.length)}
+                    {archiveConfirmCopy(task.name, subtasks.length, notionArchive)}
                   </p>
                   {archiveError ? (
                     <p role="alert" style={{ margin: '0 24px 12px', color: 'var(--danger-text)', fontSize: 14 }}>{archiveError}</p>
@@ -898,7 +901,7 @@ export function TaskDetailModal({
                 showFooter={false}
               >
                 {fieldMenu === 'assignee' ? (
-                  <OwnerMenu people={peopleChoices} currentId={shownAssigneeId} onPick={pickAssignee} onClose={closeFieldMenu} sheet foot="Saves as soon as you pick. Saved in the Portal." />
+                  <OwnerMenu people={peopleChoices} currentId={shownAssigneeId} currentName={shownAssignee} onPick={pickAssignee} onClose={closeFieldMenu} sheet foot="Saves as soon as you pick. Saved in the Portal." />
                 ) : null}
                 {fieldMenu === 'due' ? (
                   <DueDateMenu value={shownDate} onPick={pickDate} onClose={closeFieldMenu} sheet foot="Saves as soon as you pick. Syncs to Notion (Date) when write-back is on." />

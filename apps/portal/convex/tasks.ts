@@ -452,6 +452,17 @@ type FieldSave =
   | { ok: false; error: string }
   | { ok: true; wrote: boolean; notion: 'off' | 'queued' | 'portal' };
 
+/** A real UTC calendar day, or null to clear. Anything else is rejected. */
+function calendarDay(value: string | null): string | null | 'bad' {
+  if (value == null) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'bad';
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return 'bad';
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return 'bad';
+  return value;
+}
+
 export const setAssignee = adminMutation({
   args: {
     taskId: v.id('tasks'),
@@ -495,7 +506,7 @@ export const setDueDate = adminMutation({
   handler: async (ctx, args): Promise<FieldSave> => {
     const task = await ctx.db.get(args.taskId);
     if (!task || task.archivedAt != null) return { ok: false, error: 'Task not found' };
-    const next = args.date && /^\d{4}-\d{2}-\d{2}$/.test(args.date) ? args.date : args.date == null ? null : 'bad';
+    const next = calendarDay(args.date);
     if (next === 'bad') return { ok: false, error: 'Use a calendar day' };
     if ((task.date ?? null) === next) return { ok: true, wrote: false, notion: 'portal' };
     await ctx.db.patch(task._id, { date: next ?? undefined });
@@ -608,7 +619,8 @@ export const archiveTask = adminMutation({
       .withIndex('by_parentTaskId', (q) => q.eq('parentTaskId', task._id))
       .take(50);
     for (const child of children) {
-      if (child.archivedAt == null) await ctx.db.patch(child._id, { archivedAt: now });
+      if (child.orgId !== task.orgId || child.archivedAt != null) continue;
+      await ctx.db.patch(child._id, { archivedAt: now });
     }
     if (task.archivedAt != null) return { ok: true, wrote: false, notion: 'portal' };
     const queued = await ctx.runMutation(internal.sync.taskWrite.enqueueArchive, {

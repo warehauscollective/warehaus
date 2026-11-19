@@ -3,11 +3,12 @@ import { describe, it } from 'node:test';
 import { archiveConfirmCopy, fieldSaveNote, projectMoveCopy } from './taskFieldCopy';
 
 describe('task field copy', () => {
-  it('names the task, its sub-tasks, and the Notion page', () => {
+  it('names the task and its sub-tasks, and Notion only when write-back is on', () => {
     assert.match(archiveConfirmCopy('Order-ahead landing page', 0), /“Order-ahead landing page” leaves the board/);
     assert.match(archiveConfirmCopy('Order-ahead landing page', 1), /and its 1 sub-task leave/);
     assert.match(archiveConfirmCopy('Order-ahead landing page', 4), /and its 4 sub-tasks leave/);
-    assert.match(archiveConfirmCopy('Order-ahead landing page', 4), /archives the task’s page in Notion/);
+    assert.equal(archiveConfirmCopy('Order-ahead landing page', 4).includes('Notion'), false);
+    assert.match(archiveConfirmCopy('Order-ahead landing page', 4, true), /archives the task’s page in Notion/);
   });
 
   it('names the project move without a visibility change', () => {
