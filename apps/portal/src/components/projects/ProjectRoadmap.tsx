@@ -18,7 +18,7 @@ import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
 import { FIXTURE_CONTACTS, FIXTURE_PROJECTS } from '@/lib/data/fixtures';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
-import { DueDateMenu, OwnerMenu, StageMenu, useMilestoneDetailEdits, type MoveTarget, type OwnerChoice } from './milestoneDetailsEdit';
+import { DueDateMenu, OwnerMenu, StageMenu, anchoredMenuBox, useMilestoneDetailEdits, type MoveTarget, type OwnerChoice } from './milestoneDetailsEdit';
 import { type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { MilestoneReviewLive, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
@@ -2066,6 +2066,74 @@ function EditDialog({
   );
 }
 
+function createDialogBounds(anchor: HTMLElement): { top: number; right: number; bottom: number; left: number } {
+  const dialog = anchor.closest('[role="dialog"]');
+  const dialogRect = dialog?.getBoundingClientRect();
+  const header = dialog?.querySelector('[data-modal-header]');
+  const footer = dialog?.querySelector('[data-testid="portal-modal-footer"]');
+  const top = header ? header.getBoundingClientRect().bottom : (dialogRect?.top ?? 0);
+  const bottom = footer ? footer.getBoundingClientRect().top : (dialogRect?.bottom ?? window.innerHeight);
+  return {
+    top,
+    right: dialogRect?.right ?? window.innerWidth,
+    bottom,
+    left: dialogRect?.left ?? 0,
+  };
+}
+
+/** Desktop owner and due menus. Portaled so the dialog footer cannot cover them. */
+function FieldMenu({
+  anchorRef,
+  children,
+}: {
+  anchorRef: RefObject<HTMLElement | null>;
+  children: ReactNode;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setHost(document.body);
+  }, []);
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const anchor = anchorRef.current;
+    if (!menu || !anchor || !host) return;
+    const place = () => {
+      const rect = anchor.getBoundingClientRect();
+      const box = anchoredMenuBox({
+        anchor: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+        menu: { width: rect.width, height: menu.offsetHeight },
+        bounds: createDialogBounds(anchor),
+        align: 'left',
+      });
+      menu.style.position = 'fixed';
+      menu.style.top = `${box.top}px`;
+      menu.style.left = `${box.left}px`;
+      menu.style.width = `${rect.width}px`;
+      menu.style.zIndex = '90';
+      menu.dataset.placement = box.placement;
+    };
+    place();
+    const observer = new ResizeObserver(place);
+    observer.observe(menu);
+    window.addEventListener('resize', place);
+    const scroll = anchor.closest('[data-portal-modal-body]');
+    scroll?.addEventListener('scroll', place);
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('resize', place);
+      scroll?.removeEventListener('scroll', place);
+    };
+  }, [anchorRef, host]);
+  if (!host) return null;
+  return createPortal(
+    <div ref={menuRef} className="ds-scope" data-testid="milestone-field-menu">
+      {children}
+    </div>,
+    host,
+  );
+}
+
 function CreateMilestone({
   projectId,
   fixtures,
@@ -2100,6 +2168,8 @@ function CreateMilestone({
   const nameRef = useRef<HTMLInputElement>(null);
   const objectiveRef = useRef<HTMLTextAreaElement>(null);
   const goalsRef = useRef<HTMLTextAreaElement>(null);
+  const ownerAnchor = useRef<HTMLButtonElement>(null);
+  const dueAnchor = useRef<HTMLButtonElement>(null);
   const phone = useMaxWidth(767);
   const ownerName = ownerId ? people.find((person) => person.id === ownerId)?.name ?? null : null;
   const menuSwapped = layer === 'attach' || (phone && (layer === 'owner' || layer === 'due'));
@@ -2238,6 +2308,7 @@ function CreateMilestone({
               <div className="relative flex flex-col gap-2">
                 <span style={{ fontSize: 14 }}>Owner</span>
                 <button
+                  ref={ownerAnchor}
                   type="button"
                   data-testid="milestone-create-owner"
                   className="milestone-field text-left"
@@ -2246,11 +2317,12 @@ function CreateMilestone({
                 >
                   {ownerName ?? 'Choose a person'}
                 </button>
-                {layer === 'owner' && !phone ? <div className="absolute left-0 top-full z-10 mt-2 w-full">{picker('owner')}</div> : null}
+                {layer === 'owner' && !phone ? <FieldMenu anchorRef={ownerAnchor}>{picker('owner')}</FieldMenu> : null}
               </div>
               <div className="relative flex flex-col gap-2">
                 <span style={{ fontSize: 14 }}>Due date</span>
                 <button
+                  ref={dueAnchor}
                   type="button"
                   data-testid="milestone-create-due"
                   className="milestone-field text-left"
@@ -2259,7 +2331,7 @@ function CreateMilestone({
                 >
                   {formatDueDate(dueDate) ?? 'Choose a date'}
                 </button>
-                {layer === 'due' && !phone ? <div className="absolute left-0 top-full z-10 mt-2 w-full">{picker('due')}</div> : null}
+                {layer === 'due' && !phone ? <FieldMenu anchorRef={dueAnchor}>{picker('due')}</FieldMenu> : null}
               </div>
             </div>
           }

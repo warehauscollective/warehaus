@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { textBlurSave } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { MilestoneDetailView } from './ProjectRoadmap';
+import { anchoredMenuBox } from './milestoneDetailsEdit';
 
 Object.assign(globalThis, { React });
 
@@ -111,6 +112,29 @@ describe('milestone details panel', () => {
     assert.match(named, /data-testid="milestone-due"[^>]*>Nov 20, 2026</);
     assert.match(named, /data-testid="milestone-creator"[^>]*>Maya Chen</);
     assert.match(named, /Set automatically · read-only/);
+  });
+
+  it('flips a menu above its anchor when the space below is too short', () => {
+    const bounds = { top: 157, right: 1100, bottom: 740, left: 340 };
+    const due = anchoredMenuBox({
+      anchor: { top: 549, bottom: 596, left: 728, right: 1075 },
+      menu: { width: 347, height: 333 },
+      bounds,
+      align: 'left',
+    });
+    assert.equal(due.placement, 'up');
+    assert.equal(due.left, 728);
+    assert.ok(due.top >= bounds.top + 8);
+    assert.ok(due.top + 333 <= bounds.bottom - 8);
+
+    const owner = anchoredMenuBox({
+      anchor: { top: 200, bottom: 247, left: 360, right: 700 },
+      menu: { width: 340, height: 130 },
+      bounds,
+      align: 'left',
+    });
+    assert.equal(owner.placement, 'down');
+    assert.equal(owner.top, 255);
   });
 
   it('shows an owner and due save error from the fixture', () => {

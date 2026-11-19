@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { Id } from '@convex/_generated/dataModel';
 import {
   DETAIL_STATUS_LABEL,
@@ -1231,33 +1231,74 @@ function menuStyle(sheet?: boolean, _width = 400): CSSProperties {
   };
 }
 
+const MENU_GAP = 8;
+
+/** Flip a menu above its anchor when it would not fit below, then clamp it inside the visible bounds. */
+export function anchoredMenuBox(input: {
+  anchor: { top: number; bottom: number; left: number; right: number };
+  menu: { width: number; height: number };
+  bounds: { top: number; right: number; bottom: number; left: number };
+  preferUp?: boolean;
+  align?: 'left' | 'right';
+}): { top: number; left: number; placement: 'up' | 'down' } {
+  const { anchor, menu, bounds, preferUp = false, align = 'right' } = input;
+  const spaceBelow = bounds.bottom - anchor.bottom - MENU_GAP;
+  const spaceAbove = anchor.top - bounds.top - MENU_GAP;
+  const placement = preferUp || (spaceBelow < menu.height && spaceAbove >= menu.height) ? 'up' : 'down';
+  let top = placement === 'up' ? anchor.top - MENU_GAP - menu.height : anchor.bottom + MENU_GAP;
+  const minTop = bounds.top + MENU_GAP;
+  const maxTop = Math.max(minTop, bounds.bottom - menu.height - MENU_GAP);
+  top = Math.min(Math.max(top, minTop), maxTop);
+  let left = align === 'left' ? anchor.left : anchor.right - menu.width;
+  const minLeft = bounds.left + MENU_GAP;
+  const maxLeft = Math.max(minLeft, bounds.right - menu.width - MENU_GAP);
+  left = Math.min(Math.max(left, minLeft), maxLeft);
+  return { top, left, placement };
+}
+
+function menuViewportBounds(): { top: number; right: number; bottom: number; left: number } {
+  let bottom = window.innerHeight;
+  const dock = document.querySelector('[data-testid="portal-dock"]');
+  if (dock instanceof HTMLElement && getComputedStyle(dock).visibility !== 'hidden') {
+    const dockTop = dock.getBoundingClientRect().top;
+    if (dockTop < bottom) bottom = dockTop;
+  }
+  return { top: 0, right: window.innerWidth, bottom, left: 0 };
+}
+
 function Popover({ up, children }: { up?: boolean; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const node = ref.current;
     const anchor = node?.parentElement;
     if (!node || !anchor || typeof anchor.getBoundingClientRect !== 'function') return;
     const place = () => {
       const rect = anchor.getBoundingClientRect();
       const width = up ? 360 : 400;
+      const box = anchoredMenuBox({
+        anchor: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+        menu: { width, height: node.offsetHeight },
+        bounds: menuViewportBounds(),
+        preferUp: up,
+      });
       node.style.position = 'fixed';
       node.style.width = `${width}px`;
-      node.style.left = `${Math.max(16, rect.right - width)}px`;
+      node.style.left = `${box.left}px`;
+      node.style.top = `${box.top}px`;
+      node.style.right = 'auto';
+      node.style.bottom = 'auto';
       node.style.zIndex = '40';
-      if (up) {
-        node.style.top = 'auto';
-        node.style.bottom = `${window.innerHeight - rect.top + 8}px`;
-      } else {
-        node.style.bottom = 'auto';
-        node.style.top = `${rect.bottom + 8}px`;
-      }
+      node.dataset.placement = box.placement;
     };
     place();
     window.addEventListener('scroll', place, true);
     window.addEventListener('resize', place);
+    const observer = new ResizeObserver(place);
+    observer.observe(node);
     return () => {
       window.removeEventListener('scroll', place, true);
       window.removeEventListener('resize', place);
+      observer.disconnect();
     };
   }, [up]);
   return (
