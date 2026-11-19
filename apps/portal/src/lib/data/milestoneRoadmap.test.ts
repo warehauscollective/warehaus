@@ -468,6 +468,11 @@ describe('roadmap markup', () => {
     assert.match(staffChip, /letter-spacing:0\.44px/);
     assert.doesNotMatch(staffChip, /font:\s*inherit/);
     assert.match(desktop, /data-testid="tile-stage-popover"/);
+    const popover = desktop.match(/<div[^>]*data-testid="tile-stage-popover"[^>]*>/)?.[0] ?? '';
+    assert.match(popover, /class="ds-scope"/);
+    const menuAt = desktop.indexOf('data-testid="milestone-stage-menu"');
+    const scopeAt = desktop.lastIndexOf('ds-scope', menuAt);
+    assert.ok(scopeAt >= 0 && scopeAt < menuAt, 'portaled stage menu sits inside ds-scope');
     assert.match(desktop, /data-testid="milestone-stage-menu"/);
     assert.match(desktop, /Staff can set any stage except Shipped\. Shipped is set when the pull request merges\. Saves as soon as you pick\./);
     assert.match(desktop, /task-chev-down\.svg/);

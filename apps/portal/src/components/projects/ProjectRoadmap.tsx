@@ -780,8 +780,16 @@ function TileStagePopover({
   const node = (
     <div
       ref={menuRef}
+      className="ds-scope"
       data-testid="tile-stage-popover"
-      style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: TILE_MENU_WIDTH, zIndex: 40 }}
+      style={{
+        position: 'absolute',
+        top: 'calc(100% + 8px)',
+        right: 0,
+        width: TILE_MENU_WIDTH,
+        zIndex: 40,
+        background: 'transparent',
+      }}
     >
       {children}
     </div>
