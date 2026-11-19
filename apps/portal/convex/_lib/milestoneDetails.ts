@@ -9,9 +9,6 @@
 
 import type { MilestoneWorkStatus } from './milestones';
 
-/** Both addresses already used for Peter in this repo. Compared lowercased. */
-export const PETER_EMAILS = ['peter@warehaus.co', 'peter@warehaus.studio'] as const;
-
 export const MILESTONE_STAGES = [
   'Idea',
   'Planning',
@@ -21,8 +18,6 @@ export const MILESTONE_STAGES = [
   'Shipped',
   'Parked',
 ] as const;
-
-export const PETER_ONLY_STAGES = ['Awaiting Go', 'Ready to Ship'] as const;
 
 export const MILESTONE_DETAIL_STATUSES = ['draft', 'in_progress', 'in_review', 'complete'] as const;
 
@@ -47,12 +42,6 @@ export type DetailActivityType = (typeof DETAIL_ACTIVITY)[keyof typeof DETAIL_AC
 const STAGE_SET = new Set<string>(MILESTONE_STAGES);
 const STATUS_SET = new Set<string>(MILESTONE_DETAIL_STATUSES);
 
-export function isPeterEmail(email: string | null | undefined): boolean {
-  if (!email) return false;
-  const normalized = email.trim().toLowerCase();
-  return (PETER_EMAILS as readonly string[]).includes(normalized);
-}
-
 export function isMilestoneStage(value: string): value is MilestoneStage {
   return STAGE_SET.has(value);
 }
@@ -62,17 +51,19 @@ export function isDetailStatus(value: string): value is MilestoneDetailStatus {
 }
 
 /**
- * Stored stage wins, including Shipped. Shipped is never derived. An approved
- * milestone with no stored stage is Ready to Ship, which is still Peter's call.
+ * Stored stage wins, including Shipped. Shipped is never derived.
+ * With nothing stored, ready work is Ready to Ship and approve keeps that.
  */
 export function effectiveStage(input: {
   stage?: string | null;
   workStatus: MilestoneWorkStatus;
-  approval: string;
+  approval?: string | null;
 }): MilestoneStage {
   if (input.stage && isMilestoneStage(input.stage)) return input.stage;
-  if (input.approval === 'approved') return 'Ready to Ship';
   if (input.workStatus === 'draft') return 'Planning';
+  if (input.workStatus === 'ready') return 'Ready to Ship';
+  // Approve keeps the work-status stage. It does not pick a new one.
+  void input.approval;
   return 'Building';
 }
 
@@ -108,31 +99,21 @@ export function workStatusWrite(workStatus: MilestoneWorkStatus): { workStatus: 
   return { workStatus };
 }
 
-export function stageOptionLock(input: { stage: MilestoneStage; peter: boolean }): 'peter' | 'shipped' | null {
-  if (input.stage === 'Shipped') return 'shipped';
-  if (!input.peter && (input.stage === 'Awaiting Go' || input.stage === 'Ready to Ship')) return 'peter';
-  return null;
+export function stageOptionLock(stage: MilestoneStage): 'shipped' | null {
+  return stage === 'Shipped' ? 'shipped' : null;
 }
 
 /**
- * Awaiting Go and Ready to Ship are Peter's. Leaving Awaiting Go, including
- * to Building, is also Peter's. Shipped is never set by hand. The same value
- * is a no-op, including Shipped, so a repeat click does not write.
+ * Staff can set any stage except Shipped. Shipped is set when the pull
+ * request merges. The same value is a no-op, including Shipped.
  */
 export function stageChangeDecision(input: {
-  peter: boolean;
   from: MilestoneStage;
   to: string;
 }): { ok: true; stage: MilestoneStage; wrote: boolean } | { ok: false; reason: string } {
   if (!isMilestoneStage(input.to)) return { ok: false, reason: 'Unknown stage' };
   if (input.to === input.from) return { ok: true, stage: input.to, wrote: false };
-  if (input.to === 'Shipped') return { ok: false, reason: 'Shipped is set by deploy main' };
-  if (input.from === 'Awaiting Go' && !input.peter) {
-    return { ok: false, reason: 'Only Peter can move a milestone out of Awaiting Go' };
-  }
-  if ((input.to === 'Awaiting Go' || input.to === 'Ready to Ship') && !input.peter) {
-    return { ok: false, reason: 'Only Peter can set Awaiting Go or Ready to Ship' };
-  }
+  if (input.to === 'Shipped') return { ok: false, reason: 'Shipped is set when the pull request merges' };
   return { ok: true, stage: input.to, wrote: true };
 }
 

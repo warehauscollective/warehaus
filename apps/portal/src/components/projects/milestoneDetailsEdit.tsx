@@ -11,7 +11,6 @@ import {
   detailStatusLabel,
   effectiveDetailStatus,
   effectiveStage,
-  isPeterEmail,
   stageOptionLock,
   textBlurSave,
   workStatusForDetail,
@@ -64,7 +63,6 @@ export function useMilestoneDetailEdits({
   staff,
   fixtures,
   hostSlug,
-  viewerEmail,
   moveTargets,
   preview = null,
   showFields,
@@ -98,7 +96,6 @@ export function useMilestoneDetailEdits({
   onLoadMoreTargets?: () => void;
   mutations: DetailMutations;
 }) {
-  const peter = isPeterEmail(viewerEmail) || preview === 'stage-peter';
   const [phone, setPhone] = useState(false);
   const [ready, setReady] = useState(false);
   const [overlay, setOverlay] = useState<DetailsOverlay>(() => initialOverlay(preview, moveTargets));
@@ -117,7 +114,6 @@ export function useMilestoneDetailEdits({
   const shownStage = preview === 'locked' ? 'Awaiting Go' : stageLabel(milestone);
   const shownStatus = statusLabel(milestone);
   const stageNow = preview === 'locked' ? 'Awaiting Go' : effectiveStage(milestone);
-  const stageLocked = staff && stageNow === 'Awaiting Go' && !peter;
   const taskCount = milestone.rows.length;
 
   useEffect(() => {
@@ -202,8 +198,7 @@ export function useMilestoneDetailEdits({
   };
 
   const pickStage = (stage: MilestoneStage) => {
-    if (stageOptionLock({ stage, peter })) return;
-    if (stageLocked) return;
+    if (stageOptionLock(stage)) return;
     const from = preview === 'locked' ? 'Awaiting Go' : effectiveStage(milestone);
     if (stage === from) {
       setOverlay(null);
@@ -316,33 +311,24 @@ export function useMilestoneDetailEdits({
         <DetailRow label="STAGE">
           {staff ? (
             <ValueButton
-              testId={stageLocked ? 'milestone-stage-locked' : 'milestone-stage-edit'}
+              testId="milestone-stage-edit"
               valueTestId="milestone-stage"
               label={shownStage}
               tone={tone.stage}
               open={shown?.kind === 'stage'}
-              locked={stageLocked}
-              onClick={() => {
-                if (stageLocked) return;
-                openOverlay(shown?.kind === 'stage' ? null : { kind: 'stage' });
-              }}
+              onClick={() => openOverlay(shown?.kind === 'stage' ? null : { kind: 'stage' })}
             />
           ) : (
             <FieldValue>
               <span data-testid="milestone-stage">{shownStage}</span>
             </FieldValue>
           )}
-          {stageLocked ? (
-            <p data-testid="milestone-stage-lock-note" style={{ marginTop: 6, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-              Waiting on Peter’s go · only Peter changes it from here
-            </p>
-          ) : null}
           {tone.stage === 'error' && fieldError ? (
             <FieldError testId="milestone-stage-retry" text={fieldError} onRetry={() => { const stage = pending.current.stage; if (stage) pickStage(stage); }} />
           ) : null}
           {shown?.kind === 'stage' && !phone ? (
             <Popover>
-              <StageMenu peter={peter} current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} />
+              <StageMenu current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} />
             </Popover>
           ) : null}
         </DetailRow>
@@ -465,7 +451,7 @@ export function useMilestoneDetailEdits({
       onClose={() => closeOverlay(true)}
     >
       {shown.kind === 'stage' ? (
-        <StageMenu peter={peter} current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} sheet />
+        <StageMenu current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} sheet />
       ) : null}
       {shown.kind === 'status' ? (
         <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
@@ -683,13 +669,11 @@ function menuKey(event: ReactKeyboardEvent<HTMLDivElement>, onClose: () => void)
 }
 
 function StageMenu({
-  peter,
   current,
   onPick,
   onClose,
   sheet,
 }: {
-  peter: boolean;
   current: string;
   onPick: (stage: MilestoneStage) => void;
   onClose: () => void;
@@ -705,7 +689,7 @@ function StageMenu({
     >
       {sheet ? <SheetHeader title="Stage" onClose={onClose} /> : null}
       {MILESTONE_STAGES.map((stage) => {
-        const lock = stageOptionLock({ stage, peter });
+        const lock = stageOptionLock(stage);
         const selected = stage === current;
         return (
           <button
@@ -730,15 +714,14 @@ function StageMenu({
             }}
           >
             <span className="whitespace-nowrap">{stage}</span>
-            {lock === 'peter' ? <Tag>PETER’S CALL</Tag> : null}
-            {lock === 'shipped' ? <Tag>AFTER DEPLOY MAIN</Tag> : null}
+            {lock === 'shipped' ? <Tag>ON MERGE</Tag> : null}
             {lock ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
             {selected && !lock ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
           </button>
         );
       })}
       <p style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-        Only Peter can move a milestone into Awaiting Go or Ready to Ship. Shipped is set by deploy main. Saves as soon as you pick.
+        Staff can set any stage except Shipped. Shipped is set when the pull request merges. Saves as soon as you pick.
       </p>
     </div>
   );

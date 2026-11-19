@@ -159,13 +159,13 @@ describe('roadmap markup', () => {
     });
     assert.deepEqual(milestoneTileStage({ approval: 'unreviewed', workStatus: 'ready' }), {
       status: 'In review',
-      label: 'Building',
+      label: 'Ready to Ship',
       glyph: '/icons/task-stage.svg',
     });
     assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'ready' }).label, 'Ready to Ship');
     assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'ready' }).status, 'In review');
     assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active' }).status, 'In progress');
-    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active' }).label, 'Ready to Ship');
+    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active' }).label, 'Building');
     assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active', stage: 'Shipped' }).label, 'Shipped');
     assert.equal(milestoneTileDate({ approval: 'unreviewed', decidedAt: null }), null);
     assert.equal(milestoneTileDate({ approval: 'approved', decidedAt: null }), 'Approved');
@@ -321,7 +321,7 @@ describe('roadmap markup', () => {
     assert.equal(ready.includes('data-testid="milestone-meta"'), false);
     assert.equal(ready.includes('No review yet'), false);
     assert.equal(ready.includes('Ready for review'), false);
-    assert.match(ready, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Building</);
+    assert.match(ready, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
     assert.equal(ready.includes('Not published'), false);
     assert.equal(ready.includes('Updated'), false);
 
@@ -343,7 +343,7 @@ describe('roadmap markup', () => {
     assert.match(approved, />6 \/ 6 complete</);
     assert.equal(approved.includes('includes'), false);
     assert.match(approved, new RegExp(`data-testid="milestone-meta"[^>]*>2 resources · Last review ${day}<`));
-    assert.match(approved, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
+    assert.match(approved, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Building</);
     assert.equal(approved.includes('Updated'), false);
     assert.equal(approved.includes('Due '), false);
     assert.equal(approved.includes('Ready for review'), false);
@@ -434,9 +434,9 @@ describe('MilestoneDetailView', () => {
     const cases = [
       { workStatus: 'draft' as const, approval: 'unreviewed' as const, status: 'Draft', stage: 'Planning' },
       { workStatus: 'active' as const, approval: 'unreviewed' as const, status: 'In progress', stage: 'Building' },
-      { workStatus: 'ready' as const, approval: 'unreviewed' as const, status: 'In review', stage: 'Building' },
+      { workStatus: 'ready' as const, approval: 'unreviewed' as const, status: 'In review', stage: 'Ready to Ship' },
       { workStatus: 'ready' as const, approval: 'approved' as const, status: 'In review', stage: 'Ready to Ship' },
-      { workStatus: 'active' as const, approval: 'approved' as const, status: 'In progress', stage: 'Ready to Ship' },
+      { workStatus: 'active' as const, approval: 'approved' as const, status: 'In progress', stage: 'Building' },
     ];
     for (const item of cases) {
       const html = renderDetail(tileMilestone({ workStatus: item.workStatus, approval: item.approval }));

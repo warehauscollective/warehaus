@@ -606,7 +606,6 @@ export const setStage = adminMutation({
   handler: async (ctx, args) => {
     const milestone = await loadMilestone(ctx, args.milestoneId);
     const decision = stageChangeDecision({
-      peter: isPeterEmail(ctx.identity.email),
       from: effectiveStage(milestone),
       to: args.stage,
     });

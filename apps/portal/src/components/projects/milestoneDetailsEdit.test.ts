@@ -44,8 +44,6 @@ function view(input: { staff: boolean; preview?: string; email?: string; milesto
       onBack: () => undefined,
       onFixture: () => undefined,
       mutations: {
-        decide: idle,
-        decideAsClient: idle,
         save: idle,
         setWorkStatus: idle,
         setPublish: idle,
@@ -88,32 +86,31 @@ describe('milestone details panel', () => {
     assert.equal(client.includes('Staff only'), false);
     assert.equal(client.includes('Review milestone'), false);
     assert.equal(client.includes('milestone-review-action'), false);
-    assert.match(staff, /Review milestone/);
+    assert.equal(staff.includes('Review milestone'), false);
     assert.match(staff, /Staff only · clients see nothing/);
     assert.match(client, /data-testid="milestone-work-status"/);
     assert.match(client, /data-testid="milestone-project"/);
   });
 
-  it('locks Awaiting Go and Ready to Ship for staff who are not Peter', () => {
+  it('lets staff set every stage except Shipped', () => {
     const menu = view({ staff: true, preview: 'stage' });
     assert.match(menu, /data-testid="milestone-stage-menu"/);
-    assert.match(stageOption(menu, 'Awaiting Go'), /disabled=""/);
-    assert.match(stageOption(menu, 'Ready to Ship'), /disabled=""/);
-    assert.match(menu, /PETER’S CALL/);
-    assert.match(stageOption(menu, 'Shipped'), /AFTER DEPLOY MAIN/);
+    assert.doesNotMatch(stageOption(menu, 'Awaiting Go'), /disabled=""/);
+    assert.doesNotMatch(stageOption(menu, 'Ready to Ship'), /disabled=""/);
+    assert.equal(menu.includes('PETER’S CALL'), false);
+    assert.match(stageOption(menu, 'Shipped'), /disabled=""/);
+    assert.match(stageOption(menu, 'Shipped'), /ON MERGE/);
 
-    const peter = view({ staff: true, preview: 'stage-peter', email: 'peter@warehaus.studio' });
-    assert.doesNotMatch(stageOption(peter, 'Awaiting Go'), /disabled=""/);
-    assert.doesNotMatch(stageOption(peter, 'Ready to Ship'), /disabled=""/);
-    assert.match(stageOption(peter, 'Shipped'), /disabled=""/);
+    const same = view({ staff: true, preview: 'stage-peter', email: 'alex@warehaus.co' });
+    assert.doesNotMatch(stageOption(same, 'Awaiting Go'), /disabled=""/);
+    assert.match(stageOption(same, 'Shipped'), /disabled=""/);
   });
 
-  it('locks the whole stage field while the milestone is Awaiting Go', () => {
+  it('keeps Awaiting Go editable for staff', () => {
     const html = view({ staff: true, preview: 'locked' });
-    assert.match(html, /data-testid="milestone-stage-locked"[^>]*disabled=""/);
-    assert.match(html, /dashed/);
-    assert.match(html, /Waiting on Peter’s go/);
-    assert.equal(html.includes('data-testid="milestone-stage-menu"'), false);
+    assert.match(html, /data-testid="milestone-stage-edit"/);
+    assert.equal(html.includes('milestone-stage-locked'), false);
+    assert.equal(html.includes('Waiting on Peter’s go'), false);
   });
 
   it('keeps title and description read-only and skips an unchanged blur', () => {

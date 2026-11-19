@@ -131,8 +131,6 @@ describe('milestone page mutation errors', () => {
           onBack: () => undefined,
           onFixture: () => undefined,
           mutations: {
-            decide: async () => undefined,
-            decideAsClient: async () => undefined,
             save: async () => undefined,
             setWorkStatus: async () => undefined,
             setPublish: async () => {
@@ -163,8 +161,10 @@ describe('milestone page mutation errors', () => {
     assert.deepEqual(calls, ['status:draft']);
 
     await click(findByTestId(container, 'milestone-stage-edit'));
-    const locked = findOption(container, 'Awaiting Go');
-    assert.equal(locked?.getAttribute('aria-disabled'), 'true');
+    const awaiting = findOption(container, 'Awaiting Go');
+    assert.notEqual(awaiting?.getAttribute('aria-disabled'), 'true');
+    const shipped = findOption(container, 'Shipped');
+    assert.equal(shipped?.getAttribute('aria-disabled'), 'true');
     await click(findOption(container, 'Parked'));
     assert.deepEqual(calls, ['status:draft', 'stage:Parked']);
 
@@ -214,8 +214,6 @@ describe('milestone page mutation errors', () => {
           onBack: () => undefined,
           onFixture: () => undefined,
           mutations: {
-            decide: async () => undefined,
-            decideAsClient: async () => undefined,
             save: async () => undefined,
             setWorkStatus: async () => undefined,
             setPublish: async () => undefined,

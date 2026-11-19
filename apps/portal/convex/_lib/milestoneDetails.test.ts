@@ -11,7 +11,6 @@ import {
   effectiveDetailStatus,
   effectiveStage,
   heldTaskProjectId,
-  isPeterEmail,
   movedLaneCount,
   projectMoveDecision,
   publishChangeDecision,
@@ -21,68 +20,54 @@ import {
   textBlurSave,
   workStatusWrite,
 } from './milestoneDetails';
+import { isPeterEmail } from './milestoneReview';
 import { workStatusDecision } from './milestones';
 
-describe('peter-only stages', () => {
-  it('treats both of Peter’s portal emails as Peter and nobody else', () => {
+describe('staff stages', () => {
+  it('uses the one Peter check from the review protocol', () => {
+    const details = readFileSync(new URL('./milestoneDetails.ts', import.meta.url), 'utf8');
+    assert.equal(details.includes('PETER_EMAILS'), false);
+    assert.equal(details.includes('function isPeterEmail'), false);
     assert.equal(isPeterEmail('Peter@warehaus.co'), true);
-    assert.equal(isPeterEmail(' peter@warehaus.studio '), true);
     assert.equal(isPeterEmail('alex@warehaus.co'), false);
-    assert.equal(isPeterEmail(''), false);
-    assert.equal(isPeterEmail(null), false);
   });
 
-  it('lets only Peter set Awaiting Go and Ready to Ship', () => {
-    assert.deepEqual(stageChangeDecision({ peter: false, from: 'Planning', to: 'Awaiting Go' }), {
-      ok: false,
-      reason: 'Only Peter can set Awaiting Go or Ready to Ship',
-    });
-    assert.deepEqual(stageChangeDecision({ peter: false, from: 'Building', to: 'Ready to Ship' }), {
-      ok: false,
-      reason: 'Only Peter can set Awaiting Go or Ready to Ship',
-    });
-    assert.deepEqual(stageChangeDecision({ peter: true, from: 'Planning', to: 'Awaiting Go' }), {
+  it('lets any staff member set Awaiting Go and Ready to Ship', () => {
+    assert.deepEqual(stageChangeDecision({ from: 'Planning', to: 'Awaiting Go' }), {
       ok: true,
       stage: 'Awaiting Go',
       wrote: true,
     });
-    assert.deepEqual(stageChangeDecision({ peter: true, from: 'Building', to: 'Ready to Ship' }), {
+    assert.deepEqual(stageChangeDecision({ from: 'Building', to: 'Ready to Ship' }), {
       ok: true,
       stage: 'Ready to Ship',
       wrote: true,
     });
-  });
-
-  it('lets only Peter move Awaiting Go to Building', () => {
-    assert.deepEqual(stageChangeDecision({ peter: false, from: 'Awaiting Go', to: 'Building' }), {
-      ok: false,
-      reason: 'Only Peter can move a milestone out of Awaiting Go',
-    });
-    assert.deepEqual(stageChangeDecision({ peter: true, from: 'Awaiting Go', to: 'Building' }), {
+    assert.deepEqual(stageChangeDecision({ from: 'Awaiting Go', to: 'Building' }), {
       ok: true,
       stage: 'Building',
       wrote: true,
     });
   });
 
-  it('lets nobody set Shipped, and locks those options in the menu', () => {
-    assert.deepEqual(stageChangeDecision({ peter: true, from: 'Building', to: 'Shipped' }), {
+  it('lets nobody set Shipped, and locks only that option in the menu', () => {
+    assert.deepEqual(stageChangeDecision({ from: 'Building', to: 'Shipped' }), {
       ok: false,
-      reason: 'Shipped is set by deploy main',
+      reason: 'Shipped is set when the pull request merges',
     });
-    assert.equal(stageOptionLock({ stage: 'Shipped', peter: true }), 'shipped');
-    assert.equal(stageOptionLock({ stage: 'Awaiting Go', peter: false }), 'peter');
-    assert.equal(stageOptionLock({ stage: 'Awaiting Go', peter: true }), null);
-    assert.equal(stageOptionLock({ stage: 'Building', peter: false }), null);
+    assert.equal(stageOptionLock('Shipped'), 'shipped');
+    assert.equal(stageOptionLock('Awaiting Go'), null);
+    assert.equal(stageOptionLock('Ready to Ship'), null);
+    assert.equal(stageOptionLock('Building'), null);
   });
 
   it('skips a no-op stage write, including a repeat of Shipped', () => {
-    assert.deepEqual(stageChangeDecision({ peter: false, from: 'Building', to: 'Building' }), {
+    assert.deepEqual(stageChangeDecision({ from: 'Building', to: 'Building' }), {
       ok: true,
       stage: 'Building',
       wrote: false,
     });
-    const shipped = stageChangeDecision({ peter: true, from: 'Shipped', to: 'Shipped' });
+    const shipped = stageChangeDecision({ from: 'Shipped', to: 'Shipped' });
     assert.equal(shipped.ok, true);
     if (shipped.ok) assert.equal(shipped.wrote, false);
   });
@@ -103,9 +88,9 @@ describe('status, publish, and project decisions', () => {
     const patch = workStatusWrite('ready');
     assert.deepEqual(patch, { workStatus: 'ready' });
     assert.equal('stage' in patch, false);
-    assert.equal(stageChangeDecision({ peter: false, from: 'Building', to: 'Ready to Ship' }).ok, false);
-    assert.equal(stageChangeDecision({ peter: false, from: 'Building', to: 'Awaiting Go' }).ok, false);
-    assert.equal(stageChangeDecision({ peter: true, from: 'Building', to: 'Ready to Ship' }).ok, true);
+    assert.equal(stageChangeDecision({ from: 'Building', to: 'Ready to Ship' }).ok, true);
+    assert.equal(stageChangeDecision({ from: 'Building', to: 'Awaiting Go' }).ok, true);
+    assert.equal(stageChangeDecision({ from: 'Building', to: 'Shipped' }).ok, false);
   });
 
   it('refuses a client review', () => {
@@ -234,7 +219,8 @@ describe('task move and client rows', () => {
     assert.equal(effectiveStage({ stage: 'Parked', workStatus: 'active', approval: 'unreviewed' }), 'Parked');
     assert.equal(effectiveDetailStatus({ detailStatus: null, workStatus: 'ready' }), 'in_review');
     assert.equal(effectiveDetailStatus({ detailStatus: 'complete', workStatus: 'active' }), 'complete');
-    assert.equal(effectiveStage({ stage: null, workStatus: 'active', approval: 'approved' }), 'Ready to Ship');
+    assert.equal(effectiveStage({ stage: null, workStatus: 'ready', approval: 'unreviewed' }), 'Ready to Ship');
+    assert.equal(effectiveStage({ stage: null, workStatus: 'active', approval: 'approved' }), 'Building');
     assert.equal(effectiveStage({ stage: 'Shipped', workStatus: 'active', approval: 'approved' }), 'Shipped');
     const clientView = roadmapViewForAudience({
       name: 'Launch',
@@ -268,7 +254,7 @@ describe('server enforcement', () => {
     const block = source.slice(start, end);
     assert.ok(start > 0 && end > start);
     assert.match(block, /stageChangeDecision/);
-    assert.match(block, /isPeterEmail\(ctx\.identity\.email\)/);
+    assert.doesNotMatch(block, /isPeterEmail/);
     assert.match(block, /detailStatusDecision/);
     assert.match(block, /projectMoveDecision/);
     assert.match(block, /taskIdsToMove/);
