@@ -549,7 +549,15 @@ export type MilestoneResourceView = {
   type?: string | null;
 };
 
-const CLIENT_ROADMAP_OMIT = ['approval', 'note', 'approverName', 'decidedAt', 'creator'] as const;
+const CLIENT_ROADMAP_OMIT = [
+  'approval',
+  'note',
+  'approverName',
+  'decidedAt',
+  'creator',
+  'localPreviewUrl',
+  'figmaUrl',
+] as const;
 
 /** Staff keep every field. Clients get a copy with the private keys removed, not nulled. */
 export function roadmapViewForAudience<T extends object>(view: T, audience: 'staff' | 'client'): T {
@@ -595,6 +603,13 @@ export type MilestoneRoadmapView = {
   resourceChoices?: { id: string; title: string }[];
   /** Staff only. Absent for clients, including the key. */
   review?: MilestoneReviewView;
+  /**
+   * Staff-only localhost preview on the tile. Absent for clients, including
+   * the key. Not the Vercel review link.
+   */
+  localPreviewUrl?: string | null;
+  /** Staff-only Figma link on the tile. Absent for clients, including the key. */
+  figmaUrl?: string | null;
 };
 
 export type MilestoneReviewHistoryItem = {

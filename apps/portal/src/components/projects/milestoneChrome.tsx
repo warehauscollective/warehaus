@@ -60,6 +60,7 @@ export function StatusChip({
   open = false,
   onClick,
   buttonRef,
+  block = false,
 }: {
   label: string;
   glyph?: string;
@@ -68,25 +69,43 @@ export function StatusChip({
   open?: boolean;
   onClick?: () => void;
   buttonRef?: Ref<HTMLButtonElement>;
+  /** Full-width row inside the tile’s stage and approve box. */
+  block?: boolean;
 }) {
-  const style = {
-    boxSizing: 'border-box' as const,
-    width: 'auto',
-    height: 24,
-    gap: interactive ? 6 : 8,
-    border: '1px solid var(--border-2)',
-    borderRadius: 999,
-    padding: interactive ? '4px 8px 4px 10px' : '4px 12px',
-    fontSize: 11,
-    lineHeight: 'normal',
-    letterSpacing: '0.44px',
-    color: 'var(--fg)',
-    background: 'transparent',
-  };
+  const style = block
+    ? {
+        boxSizing: 'border-box' as const,
+        width: '100%',
+        height: 34,
+        gap: 8,
+        border: 0,
+        borderRadius: 0,
+        padding: '4px 12px',
+        fontSize: 12,
+        lineHeight: '1.2',
+        letterSpacing: '0.48px',
+        fontWeight: 500,
+        color: 'var(--fg)',
+        background: 'transparent',
+      }
+    : {
+        boxSizing: 'border-box' as const,
+        width: 'auto',
+        height: 24,
+        gap: interactive ? 6 : 8,
+        border: '1px solid var(--border-2)',
+        borderRadius: 999,
+        padding: interactive ? '4px 8px 4px 10px' : '4px 12px',
+        fontSize: 11,
+        lineHeight: 'normal',
+        letterSpacing: '0.44px',
+        color: 'var(--fg)',
+        background: 'transparent',
+      };
   const body = (
     <>
       <TaskGlyph src={glyph} size={12} />
-      {label}
+      {block ? <span style={{ flex: '1 1 auto', textAlign: 'left' }}>{label}</span> : label}
       {interactive ? (
         <span className="text-[var(--muted)]" aria-hidden>
           <TaskGlyph src="/icons/task-chev-down.svg" size={12} />
@@ -97,7 +116,7 @@ export function StatusChip({
   if (!interactive) {
     return (
       <span
-        className="ds-mono inline-flex shrink-0 items-center self-start whitespace-nowrap"
+        className={`ds-mono inline-flex shrink-0 items-center self-start${block ? ' w-full' : ''} whitespace-nowrap`}
         data-testid="milestone-status-chip"
         style={style}
       >
@@ -108,7 +127,7 @@ export function StatusChip({
   return (
     <button
       type="button"
-      className="ds-mono inline-flex shrink-0 items-center self-start whitespace-nowrap"
+      className={`ds-mono inline-flex shrink-0 items-center self-start${block ? ' w-full justify-start' : ''} whitespace-nowrap`}
       data-testid="milestone-status-chip"
       ref={buttonRef}
       data-milestone-stage-trigger=""

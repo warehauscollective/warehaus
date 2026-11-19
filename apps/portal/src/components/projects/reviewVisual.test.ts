@@ -170,6 +170,7 @@ describe('peter and staff preview visibility', () => {
     const waitingAttach: ReviewSurfaceModel = { ...base, previewUrl: null };
     assert.equal(card(waitingAttach, { isPeter: false, staffAttach: true }).includes('data-testid="approve-deploy"'), false);
     assert.match(card(waitingAttach, { isPeter: false, staffAttach: true }), /Attach preview link/);
+    assert.match(card(waitingAttach, { isPeter: false, staffAttach: true }), /data-testid="attach-preview-link"[^>]*data-focus-ring="info"/);
     assert.equal(card(waitingAttach, { isPeter: true, staffAttach: false }).includes('Attach preview link'), false);
     assert.equal(card(waitingAttach, { isPeter: true, staffAttach: false }).includes('Remove link'), false);
     const attached = card(
@@ -184,6 +185,7 @@ describe('peter and staff preview visibility', () => {
     assert.match(attached, /data-review-state="ready"/);
     assert.match(attached, /data-testid="approve-deploy"/);
     assert.match(attached, /Remove link/);
+    assert.match(attached, /data-testid="remove-preview-link"[^>]*data-focus-ring="info"/);
     const page = readFileSync(new URL('../../../app/preview/approvals/page.tsx', import.meta.url), 'utf8');
     for (const view of ['retry-unavailable', 'retry-pending', 'retry-error', 'peter-delete-removing', 'peter-delete-failed', 'preview-removed', 'approved', 'attach', 'attached', 'remove-confirm', 'preview-link-invalid']) {
       assert.match(page, new RegExp(`'${view}'`));
@@ -193,12 +195,29 @@ describe('peter and staff preview visibility', () => {
   it('describes a manual preview link on the waiting card', () => {
     assert.equal(APPROVE_CONFIRM_COPY, 'This records the approval. Engineering then merges to main and deploys.');
     assert.equal(WAITING_COPY, 'Staff attach a preview link when this is ready for review. The link shows here and in Grok Bot chat.');
-    assert.equal(DEPLOY_FOOTER, 'Approve records the decision. Engineering then merges to main and deploys · Peter only');
+    assert.equal(DEPLOY_FOOTER, 'Approve records the decision, then engineering merges to main and deploys · Peter only');
     const html = card({ ...base, previewUrl: null });
+    assert.match(html, /Waiting for a preview link/);
     assert.match(html, /Staff attach a preview link when this is ready for review/);
-    assert.match(html, /Engineering then merges to main and deploys/);
+    assert.match(html, /then engineering merges to main and deploys · Peter only/);
+    assert.equal(html.includes('Waiting for review build'), false);
     assert.equal(html.includes('protected preview builds'), false);
     assert.equal(html.includes('ships to production'), false);
+    const changes = card({
+      ...base,
+      approval: 'changes_requested',
+      history: [{ iteration: 2, decision: 'request_changes', notes: 'Tighten the type.', decidedByName: 'Peter', decidedAt: 1, source: 'portal', taskCount: 1 }],
+    });
+    assert.equal(changes.includes('The next preview builds'), false);
+    assert.equal(changes.includes('building preview'), false);
+    const building = card({ ...base, previewUrl: null, previewBuild: 'building' });
+    assert.equal(building.includes('building preview'), false);
+    assert.equal(building.includes('The next preview builds'), false);
+    const approve = card({ ...base, previewUrl: null }, { isPeter: true, initialDialog: 'approve' });
+    assert.match(approve, /data-focus-ring="info"/);
+    const request = card({ ...base, previewUrl: null }, { initialDialog: 'changes' });
+    assert.match(request, /data-focus-ring="info"/);
+    assert.match(request, />Cancel</);
   });
 
   it('puts the info ring on attach and remove, and keeps the danger border when invalid', () => {

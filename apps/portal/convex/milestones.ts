@@ -57,6 +57,7 @@ import {
   taskIdsToMove,
   workStatusWrite,
 } from './_lib/milestoneDetails';
+import { tileLinkChangeDecision, type TileLinkField } from './_lib/tileLinks';
 import {
   MILESTONE_ONE_NAME,
   MILESTONE_ONE_OBJECTIVE,
@@ -315,6 +316,8 @@ async function toRoadmap(
     ownerContactId: milestone.ownerContactId ?? null,
     ownerName: await ownerNameFor(ctx, milestone),
     dueDate: milestone.dueDate ?? null,
+    ...(audience === 'staff' && milestone.localPreviewUrl ? { localPreviewUrl: milestone.localPreviewUrl } : {}),
+    ...(audience === 'staff' && milestone.figmaUrl ? { figmaUrl: milestone.figmaUrl } : {}),
     creatorName: await creatorNameFor(ctx, milestone),
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
@@ -758,6 +761,28 @@ export const setOwner = adminMutation({
     await ctx.db.patch(milestone._id, {
       ownerContactId: decision.ownerContactId ? (decision.ownerContactId as Id<'contacts'>) : undefined,
     });
+    return { ok: true as const, wrote: true as const };
+  },
+});
+
+export const setTileLink = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    field: v.union(v.literal('localPreview'), v.literal('figma')),
+    url: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const field = args.field as TileLinkField;
+    const from = field === 'localPreview' ? (milestone.localPreviewUrl ?? null) : (milestone.figmaUrl ?? null);
+    const decision = tileLinkChangeDecision({ field, from, to: args.url });
+    if (!decision.ok) fail(decision.reason);
+    if (!decision.wrote) return { ok: true as const, wrote: false as const };
+    if (field === 'localPreview') {
+      await ctx.db.patch(milestone._id, { localPreviewUrl: decision.url ?? undefined });
+    } else {
+      await ctx.db.patch(milestone._id, { figmaUrl: decision.url ?? undefined });
+    }
     return { ok: true as const, wrote: true as const };
   },
 });

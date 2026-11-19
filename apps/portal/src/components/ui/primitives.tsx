@@ -198,6 +198,7 @@ export function OutlineButton({
   testId,
   className,
   disabledOpacity = 0.55,
+  blueFocus = false,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
@@ -218,6 +219,8 @@ export function OutlineButton({
   /** Horizontal padding in pixels when width or height is fixed. */
   paddingInline?: number;
   testId?: string;
+  /** Focus ring uses --info. Waiting-card attach uses this. */
+  blueFocus?: boolean;
 }) {
   const fixed = nowrap || width != null || minWidth != null;
   return (
@@ -226,6 +229,7 @@ export function OutlineButton({
       onClick={onClick}
       disabled={disabled}
       data-testid={testId}
+      data-focus-ring={blueFocus ? 'info' : undefined}
       aria-describedby={describedBy}
       className={['portal-outline-button', fixed ? 'inline-flex shrink-0 items-center justify-center' : 'inline-flex items-center justify-center', className].filter(Boolean).join(' ')}
       style={{

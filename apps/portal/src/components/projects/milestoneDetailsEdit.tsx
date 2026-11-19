@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { Id } from '@convex/_generated/dataModel';
 import { assertStaffPreviewLink, PREVIEW_LINK_LOCAL } from '@convex/_lib/previewLink';
+import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import {
   DETAIL_STATUS_LABEL,
@@ -24,7 +25,7 @@ import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PortalModal, type PortalModalHeader } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
-import { FieldLabel, FieldValue, Panel } from './milestoneChrome';
+import { FieldLabel, Panel, fieldStyle } from './milestoneChrome';
 
 const APPROVAL_LABEL = {
   unreviewed: 'Unreviewed',
@@ -66,6 +67,12 @@ type DetailMutations = {
   moveProject: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; projectId: Id<'projects'> }) => Promise<unknown>;
   attachPreviewLink?: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; url: string }) => Promise<{ ok: boolean; reason?: string }>;
   clearPreviewLink?: (args: { hostSlug?: string; milestoneId: Id<'milestones'> }) => Promise<unknown>;
+  setTileLink?: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    field: 'localPreview' | 'figma';
+    url: string | null;
+  }) => Promise<unknown>;
 };
 
 export function useMilestoneDetailEdits({
@@ -111,6 +118,8 @@ export function useMilestoneDetailEdits({
     ownerContactId?: string | null;
     ownerName?: string | null;
     dueDate?: string | null;
+    localPreviewUrl?: string | null;
+    figmaUrl?: string | null;
   }) => void;
   onLoadMoreTargets?: () => void;
   /** True only while the move picker or move confirm is open. */
@@ -122,7 +131,7 @@ export function useMilestoneDetailEdits({
 }) {
   const [phone, setPhone] = useState(false);
   const [ready, setReady] = useState(false);
-  const [overlay, setOverlay] = useState<DetailsOverlay>(() => initialOverlay(preview, moveTargets));
+  const [overlay, setOverlay] = useState<DetailsOverlay>(() => initialOverlay(preview, moveTargets, staff));
   const [tone, setTone] = useState<Record<FieldKey, FieldTone>>(() => initialTone(preview));
   const [fieldError, setFieldError] = useState<string | null>(
     preview === 'field-error' || preview === 'owner-due-error' ? 'Couldn’t save.' : null,
@@ -432,9 +441,7 @@ export function useMilestoneDetailEdits({
               onClick={() => openOverlay(shown?.kind === 'status' ? null : { kind: 'status' })}
             />
           ) : (
-            <FieldValue>
-              <span data-testid="milestone-work-status">{shownStatus}</span>
-            </FieldValue>
+            <ReadValue testId="milestone-work-status">{shownStatus}</ReadValue>
           )}
           {tone.status === 'error' && fieldError ? (
             <FieldError testId="milestone-status-retry" text={fieldError} onRetry={() => { const status = pending.current.status; if (status) pickStatus(status); }} />
@@ -456,9 +463,7 @@ export function useMilestoneDetailEdits({
               onClick={() => openOverlay(shown?.kind === 'stage' ? null : { kind: 'stage' })}
             />
           ) : (
-            <FieldValue>
-              <span data-testid="milestone-stage">{shownStage}</span>
-            </FieldValue>
+            <ReadValue testId="milestone-stage">{shownStage}</ReadValue>
           )}
           {tone.stage === 'error' && fieldError ? (
             <FieldError testId="milestone-stage-retry" text={fieldError} onRetry={() => { const stage = pending.current.stage; if (stage) pickStage(stage); }} />
@@ -481,9 +486,7 @@ export function useMilestoneDetailEdits({
                 onClick={() => openOverlay(shown?.kind === 'owner' ? null : { kind: 'owner' })}
               />
             ) : (
-              <FieldValue>
-                <span data-testid="milestone-owner">{milestone.ownerName?.trim() || '—'}</span>
-              </FieldValue>
+              <ReadValue testId="milestone-owner">{milestone.ownerName?.trim() || '—'}</ReadValue>
             )}
             {tone.owner === 'error' && fieldError ? (
               <FieldError testId="milestone-owner-retry" text={fieldError} onRetry={() => pickOwner(pending.current.ownerId)} />
@@ -497,9 +500,7 @@ export function useMilestoneDetailEdits({
         ) : null}
         {clientSeesDetailsRow('creator', staff) ? (
           <DetailRow label="CREATOR">
-            <FieldValue>
-              <span data-testid="milestone-creator">{milestone.creatorName?.trim() || '—'}</span>
-            </FieldValue>
+            <ReadValue testId="milestone-creator">{milestone.creatorName?.trim() || '—'}</ReadValue>
             {staff ? (
               <p data-testid="milestone-creator-note" style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
                 Set automatically · read-only
@@ -508,11 +509,9 @@ export function useMilestoneDetailEdits({
           </DetailRow>
         ) : null}
         <DetailRow label="CREATED">
-          <FieldValue>
-            <span data-testid="milestone-created">{formatCreated(milestone.createdAt)}</span>
-          </FieldValue>
+          <ReadValue testId="milestone-created">{formatCreated(milestone.createdAt)}</ReadValue>
         </DetailRow>
-        <DetailRow label="DUE DATE">
+        <DetailRow label={phone ? 'DUE' : 'DUE DATE'}>
           {staff ? (
             <ValueButton
               testId="milestone-due-edit"
@@ -523,9 +522,7 @@ export function useMilestoneDetailEdits({
               onClick={() => openOverlay(shown?.kind === 'due' ? null : { kind: 'due' })}
             />
           ) : (
-            <FieldValue>
-              <span data-testid="milestone-due">{formatDueDate(milestone.dueDate) ?? '—'}</span>
-            </FieldValue>
+            <ReadValue testId="milestone-due">{formatDueDate(milestone.dueDate) ?? '—'}</ReadValue>
           )}
           {tone.due === 'error' && fieldError ? (
             <FieldError testId="milestone-due-retry" text={fieldError} onRetry={() => pickDue(pending.current.dueDate)} />
@@ -547,9 +544,7 @@ export function useMilestoneDetailEdits({
               onClick={() => openOverlay(shown?.kind === 'project' ? null : { kind: 'project' })}
             />
           ) : (
-            <FieldValue>
-              <span data-testid="milestone-project">{projectNameLocal}</span>
-            </FieldValue>
+            <ReadValue testId="milestone-project">{projectNameLocal}</ReadValue>
           )}
           {tone.project === 'error' && fieldError ? (
             <FieldError testId="milestone-project-retry" text={fieldError} onRetry={() => { const target = pending.current.project; if (target) confirmMove(target); }} />
@@ -583,9 +578,7 @@ export function useMilestoneDetailEdits({
               onClick={() => openOverlay(shown?.kind === 'visibility' ? null : { kind: 'visibility' })}
             />
             ) : (
-              <FieldValue>
-                <span data-testid="milestone-publish">{milestone.publishToWarehaus ? 'Published' : 'Not published'}</span>
-              </FieldValue>
+              <ReadValue testId="milestone-publish">{milestone.publishToWarehaus ? 'Published' : 'Not published'}</ReadValue>
             )}
             {staff && !milestone.publishToWarehaus ? (
             <p data-testid="milestone-visibility-note" style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
@@ -637,18 +630,23 @@ export function useMilestoneDetailEdits({
             ) : null}
           </DetailRow>
         ) : null}
+        {staff ? (
+          <TileLinkRows
+            milestone={milestone}
+            fixtures={fixtures}
+            hostSlug={hostSlug}
+            onFixture={onFixture}
+            setTileLink={mutations.setTileLink}
+          />
+        ) : null}
         {clientSeesDetailsRow('approval', staff) && milestone.approval && milestone.approval !== 'unreviewed' ? (
           <DetailRow label="APPROVAL" wide>
-            <FieldValue>
-              <span data-testid="milestone-approval">{APPROVAL_LABEL[milestone.approval]}</span>
-            </FieldValue>
+            <ReadValue testId="milestone-approval">{APPROVAL_LABEL[milestone.approval]}</ReadValue>
           </DetailRow>
         ) : null}
         {clientSeesDetailsRow('review', staff) && reviewLine ? (
           <DetailRow label="LAST REVIEW" wide>
-            <FieldValue>
-              <span data-testid="milestone-last-review">{reviewLine}</span>
-            </FieldValue>
+            <ReadValue testId="milestone-last-review">{reviewLine}</ReadValue>
           </DetailRow>
         ) : null}
         {staff ? (
@@ -732,7 +730,7 @@ export function useMilestoneDetailEdits({
           onConfirm={() => confirmPublish(false)}
         />
       ) : null}
-      {shown.kind === 'attach-link' ? (
+      {staff && shown.kind === 'attach-link' ? (
         <ConfirmFrame
           busy={linkBusy}
           error={confirmError}
@@ -747,10 +745,14 @@ export function useMilestoneDetailEdits({
               setLinkDraft(value);
               if (confirmError) setConfirmError(null);
             }}
-          />
+          >
+            <span className="ds-mono" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+              https only. Team Vercel previews. Localhost and production stay off this milestone.
+            </span>
+          </PreviewLinkField>
         </ConfirmFrame>
       ) : null}
-      {shown.kind === 'remove-link' ? (
+      {staff && shown.kind === 'remove-link' ? (
         <ConfirmFrame busy={linkBusy} error={confirmError} confirmLabel="Remove link" onCancel={() => closeOverlay(true)} onConfirm={confirmClear}>
           <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>
             Peter won’t see Approve & deploy until a preview link is attached again.
@@ -789,7 +791,7 @@ function previewHost(url: string): string {
   }
 }
 
-function initialOverlay(preview: string | null, targets: readonly MoveTarget[]): DetailsOverlay {
+function initialOverlay(preview: string | null, targets: readonly MoveTarget[], staff: boolean): DetailsOverlay {
   if (preview === 'stage' || preview === 'stage-peter') return { kind: 'stage' };
   if (preview === 'status') return { kind: 'status' };
   if (preview === 'owner') return { kind: 'owner' };
@@ -803,8 +805,8 @@ function initialOverlay(preview: string | null, targets: readonly MoveTarget[]):
     if (!target) return null;
     return { kind: 'confirm-move', projectId: target.id, projectName: target.name };
   }
-  if (preview === 'attach-link' || preview === 'preview-link-error') return { kind: 'attach-link' };
-  if (preview === 'remove-link') return { kind: 'remove-link' };
+  if (staff && (preview === 'attach-link' || preview === 'preview-link-error')) return { kind: 'attach-link' };
+  if (staff && preview === 'remove-link') return { kind: 'remove-link' };
   return null;
 }
 
@@ -849,6 +851,138 @@ function modalTitle(overlay: DetailsOverlay, name: string): string {
   if (overlay.kind === 'attach-link') return 'Attach preview link';
   if (overlay.kind === 'remove-link') return 'Remove preview link?';
   return `Move to ${overlay.projectName}?`;
+}
+
+/** Read-only detail value. Same padded row as a value button, without a chevron. */
+function ReadValue({ testId, children }: { testId: string; children: ReactNode }) {
+  return (
+    <div
+      className="mt-1 flex w-full items-center rounded-lg"
+      style={{
+        minHeight: 32,
+        padding: '4px 8px',
+        border: '1px solid transparent',
+        color: 'var(--fg)',
+        fontSize: 14,
+        lineHeight: '21px',
+      }}
+    >
+      <span data-testid={testId}>{children}</span>
+    </div>
+  );
+}
+
+function TileLinkRows({
+  milestone,
+  fixtures,
+  hostSlug,
+  onFixture,
+  setTileLink,
+}: {
+  milestone: MilestoneRoadmapView;
+  fixtures: boolean;
+  hostSlug?: string;
+  onFixture: (patch: { localPreviewUrl?: string | null; figmaUrl?: string | null }) => void;
+  setTileLink?: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    field: TileLinkField;
+    url: string | null;
+  }) => Promise<unknown>;
+}) {
+  const [field, setField] = useState<TileLinkField | null>(null);
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const current = (next: TileLinkField) => (next === 'localPreview' ? milestone.localPreviewUrl ?? null : milestone.figmaUrl ?? null);
+  const open = (next: TileLinkField) => {
+    setError(null);
+    setDraft(current(next) ?? '');
+    setField(next);
+  };
+  const save = async (next: TileLinkField, url: string | null) => {
+    const decision = tileLinkChangeDecision({ field: next, from: current(next), to: url });
+    if (!decision.ok) {
+      setError(decision.reason);
+      return;
+    }
+    setField(null);
+    if (!decision.wrote) return;
+    if (fixtures) {
+      onFixture(next === 'localPreview' ? { localPreviewUrl: decision.url } : { figmaUrl: decision.url });
+      return;
+    }
+    try {
+      await setTileLink?.({
+        hostSlug,
+        milestoneId: milestone.id as Id<'milestones'>,
+        field: next,
+        url: decision.url,
+      });
+    } catch (err) {
+      setField(next);
+      setError(userFacingErrorMessage(err, 'Couldn’t save. Nothing changed. Try again.'));
+    }
+  };
+  const row = (next: TileLinkField, label: string, testId: string, empty: string) => {
+    const value = current(next);
+    return (
+      <DetailRow label={label} wide>
+        <button
+          type="button"
+          data-testid={testId}
+          onClick={() => open(next)}
+          className="mt-1 flex w-full items-center rounded-lg text-left"
+          style={{
+            minHeight: 32,
+            padding: '4px 8px',
+            border: '1px solid transparent',
+            background: 'transparent',
+            color: 'var(--fg)',
+            font: 'inherit',
+            fontSize: 14,
+            lineHeight: '21px',
+            cursor: 'pointer',
+          }}
+        >
+          <span>{value ? (next === 'localPreview' ? localPreviewHint(value) : 'Figma') : empty}</span>
+        </button>
+        {value ? (
+          <button
+            type="button"
+            data-testid={`${testId}-clear`}
+            onClick={() => void save(next, null)}
+            style={{ marginTop: 6, background: 'none', border: 0, padding: 0, color: 'var(--fg)', font: 'inherit', fontSize: 13, lineHeight: '18px', textDecoration: 'underline', cursor: 'pointer' }}
+          >
+            Clear
+          </button>
+        ) : null}
+        {field === next ? (
+          <div className="mt-2 flex flex-col gap-2">
+            <input
+              data-testid={`${testId}-input`}
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={next === 'localPreview' ? 'http://localhost:3200' : 'https://www.figma.com/design/…'}
+              style={{ ...fieldStyle, width: '100%' }}
+            />
+            {error ? <p role="alert" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 13 }}>{error}</p> : null}
+            <div className="flex justify-end gap-2">
+              <OutlineButton nowrap onClick={() => setField(null)}>Cancel</OutlineButton>
+              <button type="button" onClick={() => void save(next, draft)} style={{ background: 'var(--accent)', color: 'var(--accent-fg)', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, cursor: 'pointer' }}>
+                Save
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </DetailRow>
+    );
+  };
+  return (
+    <>
+      {row('localPreview', 'LOCAL PREVIEW', 'milestone-local-preview-edit', 'Set local preview')}
+      {row('figma', 'FIGMA', 'milestone-figma-edit', 'Set Figma link')}
+    </>
+  );
 }
 
 function DetailRow({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) {

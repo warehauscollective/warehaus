@@ -236,8 +236,10 @@ describe('task move and client rows', () => {
       creator: 'Peter',
       creatorName: 'Peter',
       workStatus: 'ready',
+      localPreviewUrl: 'http://localhost:3200',
+      figmaUrl: 'https://www.figma.com/design/abc',
     }, 'client');
-    for (const key of ['approval', 'note', 'approverName', 'decidedAt', 'creator']) {
+    for (const key of ['approval', 'note', 'approverName', 'decidedAt', 'creator', 'localPreviewUrl', 'figmaUrl']) {
       assert.equal(key in clientView, false, key);
     }
     assert.equal(clientView.creatorName, 'Peter');

@@ -15,6 +15,7 @@ import {
   milestoneDetachOptions,
   clientTileDate,
   milestoneTileDate,
+  milestoneTileHeadline,
   milestoneTileStage,
   tileMetaLine,
   tileProgressLabel,
@@ -30,11 +31,13 @@ function renderTile(input: {
   milestone: MilestoneRoadmapView;
   phone?: boolean;
   stagePreview?: 'menu' | null;
+  isPeter?: boolean;
 }): string {
   return renderToStaticMarkup(
     createElement(MilestoneListCard, {
       milestone: input.milestone,
       staff: input.staff,
+      isPeter: input.isPeter,
       phone: input.phone,
       stagePreview: input.stagePreview,
       onOpen: () => undefined,
@@ -149,6 +152,17 @@ describe('fixture roadmap', () => {
     assert.notEqual(states[4]?.workStatus, 'active');
     assert.equal(states[5]?.id, 'm-preview-shipped');
     assert.equal(states[5]?.stage, 'Shipped');
+    const links = applyFixtureMilestonePreview(staff, '?tiles=links');
+    assert.equal(links[0]?.localPreviewUrl, 'http://localhost:3200');
+    assert.equal(links[0]?.figmaUrl, 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal');
+    assert.equal(links[1]?.figmaUrl ?? null, null);
+    assert.equal(links[1]?.localPreviewUrl ?? null, null);
+    const ready = applyFixtureMilestonePreview(staff, '?tiles=ready');
+    assert.equal(ready[0]?.review?.previewUrl, 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app');
+    assert.equal(ready[0]?.figmaUrl, 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal');
+    const plain = applyFixtureMilestonePreview(staff, '?tiles=nofigma');
+    assert.equal(plain[0]?.localPreviewUrl, 'http://localhost:3201');
+    assert.equal(plain[0]?.figmaUrl ?? null, null);
   });
 });
 
@@ -192,91 +206,27 @@ describe('roadmap markup', () => {
     assert.equal(clientTileDate({ stage: 'Shipped', decidedAt }), `Shipped ${day}`);
     assert.equal(clientTileDate({ stage: 'Ready to Ship', decidedAt }), null);
     assert.equal(clientTileDate({ stage: 'Shipped', decidedAt: null }), 'Shipped');
+    assert.equal(
+      milestoneTileHeadline({ staff: true, approval: 'unreviewed', dueDate: '2026-11-20' }),
+      'Due Nov 20',
+    );
+    assert.equal(
+      milestoneTileHeadline({ staff: true, approval: 'approved', stage: 'Building', dueDate: '2026-11-20' }),
+      null,
+    );
+    assert.equal(
+      milestoneTileHeadline({ staff: true, approval: 'approved', stage: 'Shipped', decidedAt }),
+      `Approved ${day}`,
+    );
     assert.equal(tileProgressLabel(1, 3, 0, false), '1 / 3 complete');
     assert.equal(tileProgressLabel(1, 3, 0, true), '1 / 3 tasks complete');
     assert.equal(tileProgressLabel(1, 3, 1, false), '1 / 3 complete · includes 1 subtask');
     assert.equal(tileProgressLabel(1, 3, 1, true), '1 / 3 tasks complete · includes 1 subtask');
     assert.equal(tileProgressLabel(12, 148, 9, true), '12 / 148 tasks complete · includes 9 subtasks');
-    assert.equal(
-      tileMetaLine({
-        staff: true,
-        published: false,
-        resources: 0,
-        decidedAt: null,
-        workStatus: 'draft',
-        approval: 'unreviewed',
-      }),
-      'Not published · 0 resources · No review yet',
-    );
-    assert.equal(
-      tileMetaLine({
-        staff: false,
-        published: false,
-        resources: 0,
-        decidedAt: null,
-        workStatus: 'draft',
-        approval: 'unreviewed',
-      }),
-      '0 resources',
-    );
-    assert.equal(
-      tileMetaLine({
-        staff: false,
-        published: true,
-        resources: 2,
-        decidedAt: null,
-        workStatus: 'ready',
-        approval: 'unreviewed',
-      }),
-      '',
-    );
-    assert.equal(
-      tileMetaLine({
-        staff: true,
-        published: true,
-        resources: 2,
-        decidedAt: null,
-        workStatus: 'ready',
-        approval: 'unreviewed',
-      }),
-      '2 resources · No review yet · In review',
-    );
-    assert.equal(
-      tileMetaLine({
-        staff: true,
-        published: true,
-        resources: 2,
-        decidedAt: null,
-        workStatus: 'ready',
-        approval: 'unreviewed',
-        omitReview: true,
-      }),
-      '2 resources',
-    );
-    assert.equal(
-      tileMetaLine({
-        staff: true,
-        published: true,
-        resources: 1,
-        decidedAt: null,
-        workStatus: 'ready',
-        approval: 'approved',
-      }),
-      '1 resource',
-    );
-    const reviewedAt = Date.parse('2026-11-03T15:00:00Z');
-    const reviewedDay = new Date(reviewedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    assert.equal(
-      tileMetaLine({
-        staff: true,
-        published: true,
-        resources: 2,
-        decidedAt: reviewedAt,
-        workStatus: 'ready',
-        approval: 'approved',
-      }),
-      `2 resources · Last review ${reviewedDay}`,
-    );
+    assert.equal(tileMetaLine({ resources: 0 }), '0 resources');
+    assert.equal(tileMetaLine({ resources: 1 }), '1 resource');
+    assert.equal(tileMetaLine({ resources: 2 }), '2 resources');
+    assert.equal(tileMetaLine({ resources: 2 }).includes('Updated'), false);
   });
 
   it('renders the chip, date, and meta copy for staff and client tiles', () => {
@@ -285,7 +235,8 @@ describe('roadmap markup', () => {
     assert.equal(source.includes('longChip'), false);
     assert.equal(source.includes("get('chip')"), false);
     const details = readFileSync(new URL('../../components/projects/milestoneDetailsEdit.tsx', import.meta.url), 'utf8');
-    assert.match(details, /data-testid="milestone-stage"/);
+    assert.match(details, /valueTestId="milestone-stage"/);
+    assert.match(details, /testId="milestone-stage"/);
     assert.match(details, /label="STATUS"/);
     assert.match(details, /label="STAGE"/);
 
@@ -300,7 +251,7 @@ describe('roadmap markup', () => {
     assert.equal(withSubtask.includes('Due '), false);
     assert.match(withSubtask, /1 \/ 3 tasks complete · <span style="white-space:nowrap">includes 1 subtask<\/span>/);
     assert.match(withSubtask, /1 \/ 3 complete · <span style="white-space:nowrap">includes 1 subtask<\/span>/);
-    assert.match(withSubtask, /data-testid="milestone-meta"[^>]*>1 resource · No review yet</);
+    assert.match(withSubtask, /data-testid="milestone-meta"[^>]*>1 resource</);
     assert.equal(withSubtask.includes('Not published'), false);
     assert.equal(withSubtask.includes('Ready for review'), false);
     assert.equal(withSubtask.includes('Updated'), false);
@@ -318,7 +269,7 @@ describe('roadmap markup', () => {
       staff: true,
       milestone: tileMilestone({ publishToWarehaus: false, workStatus: 'draft', resources: [] }),
     });
-    assert.match(staffDraft, /data-testid="milestone-meta"[^>]*>Not published · 0 resources · No review yet</);
+    assert.match(staffDraft, /data-testid="milestone-meta"[^>]*>0 resources</);
     assert.match(staffDraft, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Planning</);
     assert.equal(staffDraft.includes('Updated'), false);
 
@@ -338,7 +289,7 @@ describe('roadmap markup', () => {
         resources: [resource, { ...resource, id: 'r-2' }],
       }),
     });
-    assert.equal(ready.includes('data-testid="milestone-meta"'), false);
+    assert.match(ready, /data-testid="milestone-meta"[^>]*>2 resources</);
     assert.equal(ready.includes('No review yet'), false);
     assert.equal(ready.includes('Ready for review'), false);
     assert.match(ready, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
@@ -358,12 +309,13 @@ describe('roadmap markup', () => {
         doneCount: 6,
       }),
     });
-    assert.match(approved, /data-testid="milestone-due"[^>]*>Approved · awaiting merge and deploy</);
+    assert.match(approved, /data-testid="milestone-awaiting"[^>]*>Approved · awaiting merge and deploy</);
+    assert.equal(approved.includes('data-testid="milestone-due"'), false);
     assert.match(approved, />Open milestone</);
     assert.match(approved, />6 \/ 6 tasks complete</);
     assert.match(approved, />6 \/ 6 complete</);
     assert.equal(approved.includes('includes'), false);
-    assert.match(approved, new RegExp(`data-testid="milestone-meta"[^>]*>2 resources · Last review ${day}<`));
+    assert.match(approved, /data-testid="milestone-meta"[^>]*>2 resources</);
     assert.match(approved, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Building</);
     assert.equal(approved.includes('Updated'), false);
     assert.equal(approved.includes('Due '), false);
@@ -373,7 +325,8 @@ describe('roadmap markup', () => {
       staff: true,
       milestone: tileMilestone({ approval: 'approved', decidedAt: null, resources: [resource] }),
     });
-    assert.match(approvedUndated, /data-testid="milestone-due"[^>]*>Approved · awaiting merge and deploy</);
+    assert.match(approvedUndated, /data-testid="milestone-awaiting"[^>]*>Approved · awaiting merge and deploy</);
+    assert.equal(approvedUndated.includes('data-testid="milestone-due"'), false);
     assert.match(approvedUndated, /data-testid="milestone-meta"[^>]*>1 resource</);
     assert.equal(approvedUndated.includes('No review yet'), false);
     assert.equal(approvedUndated.includes('Due '), false);
@@ -388,9 +341,10 @@ describe('roadmap markup', () => {
       }),
     });
     assert.match(approvedReady, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
-    assert.match(approvedReady, /data-testid="milestone-due"[^>]*>Approved · awaiting merge and deploy</);
+    assert.match(approvedReady, /data-testid="milestone-awaiting"[^>]*>Approved · awaiting merge and deploy</);
+    assert.equal(approvedReady.includes('data-testid="milestone-due"'), false);
     assert.match(approvedReady, />Open milestone</);
-    assert.match(approvedReady, new RegExp(`data-testid="milestone-meta"[^>]*>2 resources · Last review ${day}<`));
+    assert.match(approvedReady, /data-testid="milestone-meta"[^>]*>2 resources</);
     assert.equal(approvedReady.includes('Ready for review'), false);
     assert.equal(approvedReady.includes('Approve &amp; deploy'), false);
 
@@ -416,6 +370,71 @@ describe('roadmap markup', () => {
         decidedAt,
       }),
     });
+    const linked = renderTile({
+      staff: true,
+      milestone: tileMilestone({
+        localPreviewUrl: 'http://localhost:3200',
+        figmaUrl: 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal',
+        dueDate: '2026-11-20',
+        workStatus: 'ready',
+      }),
+    });
+    assert.match(linked, /data-testid="milestone-local-preview"/);
+    assert.match(linked, /Local preview/);
+    assert.match(linked, /data-testid="milestone-figma"/);
+    assert.match(linked, /href="http:\/\/localhost:3200"/);
+    assert.match(linked, /data-testid="milestone-preview-hint"[^>]*>localhost:3200</);
+    assert.match(linked, /data-testid="milestone-due"[^>]*>Due Nov 20</);
+    assert.match(linked, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
+    assert.match(linked, /Milestone Details/);
+    assert.match(linked, /lg:order-1/);
+    assert.match(linked, /lg:order-2/);
+    assert.match(linked, /lg:order-3/);
+    const readyApprove = renderTile({
+      staff: true,
+      isPeter: true,
+      milestone: tileMilestone({
+        workStatus: 'ready',
+        approval: 'unreviewed',
+        review: {
+          iteration: 2,
+          previewUrl: 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app',
+          prNumber: 108,
+          prTitle: null,
+          branch: null,
+          commit: null,
+          builtAt: null,
+          designCheck: 'pending',
+          designCheckNote: null,
+          previewBuild: null,
+          previewBuildAttempt: null,
+          previewBuildAt: null,
+          previewDelete: null,
+          previewDeleteAttempt: null,
+          previewDeleteAt: null,
+          deployFinishedAt: null,
+          history: [],
+        },
+      }),
+    });
+    assert.match(readyApprove, /data-testid="milestone-stage-action"/);
+    assert.match(readyApprove, /data-testid="tile-approve-deploy"/);
+    assert.match(readyApprove, /Milestone Details/);
+    const unlinked = renderTile({ staff: true, milestone: tileMilestone({}) });
+    assert.match(unlinked, /data-testid="milestone-local-preview"/);
+    assert.match(unlinked, /preview not running/);
+    assert.equal(unlinked.includes('data-testid="milestone-figma"'), false);
+    const clientLinked = renderTile({
+      staff: false,
+      milestone: tileMilestone({
+        localPreviewUrl: 'http://localhost:3200',
+        figmaUrl: 'https://www.figma.com/design/abc',
+      }),
+    });
+    assert.equal(clientLinked.includes('milestone-local-preview'), false);
+    assert.equal(clientLinked.includes('milestone-figma'), false);
+    assert.equal(clientLinked.includes('preview not running'), false);
+
     assert.match(clientShipped, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Shipped</);
     assert.match(clientShipped, />Open milestone</);
     assert.match(clientShipped, new RegExp(`data-testid="milestone-due"[^>]*>Shipped ${day}<`));
@@ -445,7 +464,7 @@ describe('roadmap markup', () => {
     });
     assert.match(longChip, /12 \/ 148 tasks complete · <span style="white-space:nowrap">includes 9 subtasks<\/span>/);
     assert.match(longChip, /12 \/ 148 complete · <span style="white-space:nowrap">includes 9 subtasks<\/span>/);
-    assert.match(longChip, /data-testid="milestone-progress"[^>]*white-space:normal/);
+    assert.match(longChip, /whitespace-normal lg:w-max lg:max-w-none lg:whitespace-nowrap"[\s\S]*data-testid="milestone-progress"/);
     assert.match(longChip, /overflow-wrap:anywhere/);
     assert.match(longChip, /flex-nowrap items-center/);
     assert.match(longChip, /whitespace-nowrap" data-testid="milestone-status-chip"/);
