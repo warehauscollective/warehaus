@@ -304,26 +304,12 @@ function ProgressCopy({ done, total, nested, phone }: { done: number; total: num
 }
 
 /**
- * Tile meta is the resource count and, when the milestone has a created
- * time, an updated stamp. Review phrases stay off the tile.
+ * Tile meta is the resource count. The milestone has no last-updated
+ * timestamp, so the date line stays Due or Approved and this line does not
+ * invent one. Review phrases stay off the tile.
  */
-export function tileMetaLine(input: {
-  staff?: boolean;
-  published?: boolean;
-  resources: number;
-  decidedAt?: number | null;
-  workStatus?: MilestoneRoadmapView['workStatus'];
-  approval?: string | null;
-  createdAt?: number | null;
-  now?: number;
-  omitReview?: boolean;
-}): string {
-  const resources = resourceLabel(input.resources);
-  if (input.createdAt == null) return resources;
-  const created = localMonthDay(input.createdAt);
-  const today = localMonthDay(input.now ?? Date.now());
-  const updated = created.key === today.key ? 'Updated today' : `Updated ${created.label}`;
-  return `${resources} · ${updated}`;
+export function tileMetaLine(input: { resources: number }): string {
+  return resourceLabel(input.resources);
 }
 
 function resourceLabel(count: number): string {
@@ -451,6 +437,8 @@ export function ProjectRoadmap({
   const [openMilestoneId, setOpenMilestoneId] = useState<string | null>(null);
   const [detailsPreview, setDetailsPreview] = useState<string | null>(null);
   const [tileStagePreview, setTileStagePreview] = useState<string | null>(null);
+  const [tileLinkPreview, setTileLinkPreview] = useState<string | null>(null);
+  const [tileApprove, setTileApprove] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const rememberedMilestones = useRef<MilestoneRoadmapView[]>([]);
   const projectId = project.id as Id<'projects'>;
@@ -473,6 +461,8 @@ export function ProjectRoadmap({
     const params = new URLSearchParams(window.location.search);
     setDetailsPreview(params.get('details'));
     setTileStagePreview(params.get('tileStage'));
+    setTileLinkPreview(params.get('tileLink'));
+    setTileApprove(params.get('tiles') === 'ready');
     if (params.get('create') === 'milestone') setCreateOpen(true);
     if (params.get('tiles')) {
       window.setTimeout(() => {
@@ -689,17 +679,6 @@ export function ProjectRoadmap({
                   kicker="STAFF · EXISTING TASKS"
                   title={`${unassigned.length} ${unassigned.length === 1 ? 'task needs' : 'tasks need'} a milestone`}
                   body="Assign existing tasks before they appear in the new flow. Do not guess which milestone they belong to."
-                  action={
-                    <PrimaryButton
-                      onClick={() => {
-                        const first = milestones[0];
-                        if (first) setOpenMilestoneId(first.id);
-                        else setCreateOpen(true);
-                      }}
-                    >
-                      Assign to milestone
-                    </PrimaryButton>
-                  }
                 />
               ) : null}
 
@@ -709,9 +688,10 @@ export function ProjectRoadmap({
                     key={milestone.id}
                     milestone={milestone}
                     staff={staff}
-                    isPeter={isPeter}
+                    isPeter={isPeter || (fixtures && tileApprove)}
                     fixtures={fixtures}
                     stagePreview={index === 0 ? tileStagePreview : null}
+                    linkPreview={index === 0 ? tileLinkPreview : null}
                     onOpen={() => setOpenMilestoneId(milestone.id)}
                     onStage={async (stage) => {
                       if (fixtures) {
@@ -889,7 +869,7 @@ function TileStagePopover({
 function TileLinkIcon({ kind }: { kind: 'preview' | 'figma' }) {
   const preview = kind === 'preview';
   return (
-    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+    <svg width={preview ? 12 : 16} height={preview ? 12 : 16} viewBox={preview ? '0 0 12 12' : '0 0 16 16'} fill="none" aria-hidden="true" style={preview ? undefined : { color: 'var(--muted)' }}>
       {preview ? (
         <>
           <rect x="1" y="2" width="10" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" />
@@ -897,7 +877,7 @@ function TileLinkIcon({ kind }: { kind: 'preview' | 'figma' }) {
           <path d="M4 10.5H8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
         </>
       ) : (
-        <path d="M2 9.5L6 1.5L10 9.5H2Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+        <path d="M2 5.5V3H6M10 3H14V5.5M14 9.5V12H10M6 12H2V9.5" stroke="currentColor" strokeWidth="1.33" />
       )}
     </svg>
   );
@@ -906,6 +886,8 @@ function TileLinkIcon({ kind }: { kind: 'preview' | 'figma' }) {
 function initialTileMenu(preview?: string | null): boolean {
   return preview === 'menu';
 }
+
+const TILE_LINK_SAVE_ERROR = 'Couldn’t save the link. Nothing changed.';
 
 export function MilestoneListCard({
   milestone,
@@ -920,6 +902,7 @@ export function MilestoneListCard({
   phone = false,
   cover = false,
   stagePreview = null,
+  linkPreview = null,
 }: {
   milestone: MilestoneRoadmapView;
   staff: boolean;
@@ -938,11 +921,14 @@ export function MilestoneListCard({
   cover?: boolean;
   /** Fixture QA. `menu` opens the stage menu. */
   stagePreview?: string | null;
+  /** Fixture QA. `focus` opens the link modal. `error` opens it on the save failure. */
+  linkPreview?: string | null;
 }) {
   const [confirm, setConfirm] = useState(openConfirm);
   const [linkField, setLinkField] = useState<TileLinkField | null>(null);
   const [linkDraft, setLinkDraft] = useState('');
   const [linkError, setLinkError] = useState<string | null>(null);
+  const [linkBusy, setLinkBusy] = useState(false);
   const viewportSheet = useMaxWidth(767);
   // The tile chip switches at lg (1024). Below that, the phone pill is the one on screen.
   const tilePhone = useMaxWidth(1023);
@@ -959,6 +945,12 @@ export function MilestoneListCard({
     setConfirm(false);
     setStageMenuOpen(true);
   }, [staff, stagePreview]);
+  useEffect(() => {
+    if (!fixtures || (linkPreview !== 'focus' && linkPreview !== 'error')) return;
+    setLinkField('localPreview');
+    setLinkDraft(linkPreview === 'error' ? 'http://localhost:3200' : '');
+    setLinkError(linkPreview === 'error' ? TILE_LINK_SAVE_ERROR : null);
+  }, [fixtures, linkPreview]);
   useEffect(() => {
     if (phoneSheet) {
       desktopMenuWasOpen.current = false;
@@ -1024,10 +1016,7 @@ export function MilestoneListCard({
     decidedAt: milestone.decidedAt,
     dueDate: milestone.dueDate,
   });
-  const meta = tileMetaLine({
-    resources: milestone.resources.length,
-    createdAt: milestone.createdAt,
-  });
+  const meta = tileMetaLine({ resources: milestone.resources.length });
   const localUrl = staff ? milestone.localPreviewUrl ?? null : null;
   const figmaUrl = staff ? milestone.figmaUrl ?? null : null;
   const previewHint = staff ? localPreviewHint(localUrl) : null;
@@ -1036,8 +1025,21 @@ export function MilestoneListCard({
     setLinkDraft(field === 'localPreview' ? (localUrl ?? '') : (figmaUrl ?? ''));
     setLinkField(field);
   };
+  const writeLink = async (field: TileLinkField, url: string | null) => {
+    if (linkBusy) return;
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      await onSetLink?.(field, url);
+      setLinkField(null);
+    } catch (err) {
+      setLinkError(userFacingErrorMessage(err, TILE_LINK_SAVE_ERROR));
+    } finally {
+      setLinkBusy(false);
+    }
+  };
   const saveLink = () => {
-    if (!linkField) return;
+    if (!linkField || linkBusy) return;
     const decision = tileLinkChangeDecision({
       field: linkField,
       from: linkField === 'localPreview' ? localUrl : figmaUrl,
@@ -1047,9 +1049,11 @@ export function MilestoneListCard({
       setLinkError(decision.reason);
       return;
     }
-    setLinkField(null);
-    if (!decision.wrote) return;
-    void onSetLink?.(linkField, decision.url);
+    if (!decision.wrote) {
+      setLinkField(null);
+      return;
+    }
+    void writeLink(linkField, decision.url);
   };
   const closeStageMenu = () => setStageMenuOpen(false);
   const toggleMenu = () => {
@@ -1085,8 +1089,19 @@ export function MilestoneListCard({
       open={stageMenuOpen}
       onClick={staff ? toggleMenu : undefined}
       buttonRef={chipRef}
+      block={canDeploy}
     />
   );
+  const approveButton = canDeploy ? (
+    <button
+      type="button"
+      data-testid="tile-approve-deploy"
+      onClick={() => { setStageMenuOpen(false); setConfirm(true); }}
+      style={{ width: '100%', height: 42, border: 0, borderRadius: 0, background: '#f59e0b', color: '#0a0a0b', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}
+    >
+      Approve & deploy
+    </button>
+  ) : null;
   const linkButtonStyle = (dimmed: boolean): CSSProperties => ({
     boxSizing: 'border-box',
     display: 'inline-flex',
@@ -1109,7 +1124,7 @@ export function MilestoneListCard({
   return (
     <article
       data-testid={`milestone-${milestone.id}`}
-      className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_174px] lg:items-start lg:justify-start lg:gap-x-6 lg:gap-y-0"
+      className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_max-content] lg:items-start lg:justify-start lg:gap-x-6 lg:gap-y-0"
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
@@ -1141,16 +1156,25 @@ export function MilestoneListCard({
           </p>
         ) : null}
         <div className="flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center">
-          <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
+          <MilestoneListButton tone="outline" onClick={onOpen}>
+            {stage.label === 'Ready to Ship' ? (
+              <>
+                <span className="lg:hidden">Open milestone</span>
+                <span className="hidden lg:inline">Milestone Details</span>
+              </>
+            ) : (
+              'Open milestone'
+            )}
+          </MilestoneListButton>
           {staff ? (
             localUrl ? (
-              <a data-testid="milestone-local-preview" href={localUrl} style={linkButtonStyle(false)}>
+              <a data-testid="milestone-local-preview" className="lg:order-1" href={localUrl} style={linkButtonStyle(false)}>
                 <TileLinkIcon kind="preview" />
                 <span className="lg:hidden">Preview</span>
                 <span className="hidden lg:inline">Local preview</span>
               </a>
             ) : (
-              <button type="button" data-testid="milestone-local-preview" onClick={() => openLinkEditor('localPreview')} style={linkButtonStyle(true)}>
+              <button type="button" data-testid="milestone-local-preview" className="lg:order-1" onClick={() => openLinkEditor('localPreview')} style={linkButtonStyle(true)}>
                 <TileLinkIcon kind="preview" />
                 <span className="lg:hidden">Preview</span>
                 <span className="hidden lg:inline">Local preview</span>
@@ -1158,21 +1182,30 @@ export function MilestoneListCard({
             )
           ) : null}
           {staff && figmaUrl ? (
-            <a data-testid="milestone-figma" href={figmaUrl} target="_blank" rel="noreferrer" style={linkButtonStyle(false)}>
+            <a data-testid="milestone-figma" className="lg:order-3" href={figmaUrl} target="_blank" rel="noreferrer" style={linkButtonStyle(false)}>
               <TileLinkIcon kind="figma" />
               Figma
             </a>
           ) : null}
           {previewHint ? (
-            <span data-testid="milestone-preview-hint" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+            <span data-testid="milestone-preview-hint" className="lg:order-2" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
               {previewHint}
             </span>
           ) : null}
         </div>
       </div>
-      <div className="flex w-full flex-col items-start gap-3 lg:w-[174px]">
+      <div className="flex w-full flex-col items-start gap-3 lg:ml-auto lg:w-max lg:min-w-[174px] lg:items-end">
         <div className="relative w-full" ref={menuAnchorRef}>
-          {stageTrigger}
+          {canDeploy ? (
+            <div
+              data-testid="milestone-stage-action"
+              className="w-full lg:w-[174px]"
+              style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border-2)', borderRadius: 9, background: 'var(--surface)' }}
+            >
+              {stageTrigger}
+              {approveButton}
+            </div>
+          ) : stageTrigger}
           {staff && stageMenuOpen && !phoneSheet ? (
             <TileStagePopover anchorRef={menuAnchorRef}>
               <StageMenu current={stage.label} onPick={pickStage} onClose={closeStageMenu} />
@@ -1197,13 +1230,8 @@ export function MilestoneListCard({
             {AWAITING_MERGE_LINE}
           </p>
         ) : null}
-        {canDeploy ? (
-          <button type="button" data-testid="tile-approve-deploy" onClick={() => { setStageMenuOpen(false); setConfirm(true); }} className="w-full" style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
-            Approve & deploy
-          </button>
-        ) : null}
         <span
-          className="ds-mono max-w-full"
+          className="ds-mono max-w-full whitespace-normal lg:w-max lg:max-w-none lg:whitespace-nowrap"
           data-testid="milestone-progress"
           style={{
             background: 'var(--surface-2)',
@@ -1213,7 +1241,6 @@ export function MilestoneListCard({
             fontSize: 11,
             lineHeight: '17px',
             color: 'var(--muted)',
-            whiteSpace: 'normal',
           }}
         >
           <span className="lg:hidden">
@@ -1228,34 +1255,45 @@ export function MilestoneListCard({
         <PortalModal
           testId="milestone-tile-link"
           label={linkField === 'localPreview' ? 'Local preview' : 'Figma'}
-          onClose={() => setLinkField(null)}
+          onClose={() => {
+            if (!linkBusy) setLinkField(null);
+          }}
           narrow
           showFooter={false}
+          blueFocus
+          locked={linkBusy}
         >
           <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 24px 20px' }}>
             <input
               data-testid="milestone-tile-link-input"
               value={linkDraft}
-              onChange={(event) => setLinkDraft(event.target.value)}
+              onChange={(event) => {
+                setLinkDraft(event.target.value);
+                if (linkError) setLinkError(null);
+              }}
               placeholder={linkField === 'localPreview' ? 'http://localhost:3200' : 'https://www.figma.com/design/…'}
               style={{ ...fieldStyle, width: '100%' }}
+              disabled={linkBusy}
             />
-            {linkError ? <p role="alert" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 13 }}>{linkError}</p> : null}
+            {linkError ? (
+              <p role="alert" data-testid="milestone-tile-link-error" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 13, lineHeight: '18px' }}>
+                {linkError}
+              </p>
+            ) : null}
             <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
               {(linkField === 'localPreview' ? localUrl : figmaUrl) ? (
                 <OutlineButton
                   nowrap
                   onClick={() => {
-                    const field = linkField;
-                    setLinkField(null);
-                    void onSetLink?.(field, null);
+                    if (!linkField || linkBusy) return;
+                    void writeLink(linkField, null);
                   }}
                 >
                   Clear
                 </OutlineButton>
               ) : null}
-              <OutlineButton nowrap onClick={() => setLinkField(null)}>Cancel</OutlineButton>
-              <button type="button" onClick={saveLink} style={{ background: 'var(--accent)', color: 'var(--accent-fg)', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, cursor: 'pointer' }}>
+              <OutlineButton nowrap onClick={() => { if (!linkBusy) setLinkField(null); }}>Cancel</OutlineButton>
+              <button type="button" onClick={saveLink} disabled={linkBusy} style={{ background: 'var(--accent)', color: 'var(--accent-fg)', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, cursor: 'pointer', opacity: linkBusy ? 0.4 : 1 }}>
                 Save
               </button>
             </div>

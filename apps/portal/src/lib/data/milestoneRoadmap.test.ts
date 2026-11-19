@@ -31,11 +31,13 @@ function renderTile(input: {
   milestone: MilestoneRoadmapView;
   phone?: boolean;
   stagePreview?: 'menu' | null;
+  isPeter?: boolean;
 }): string {
   return renderToStaticMarkup(
     createElement(MilestoneListCard, {
       milestone: input.milestone,
       staff: input.staff,
+      isPeter: input.isPeter,
       phone: input.phone,
       stagePreview: input.stagePreview,
       onOpen: () => undefined,
@@ -155,6 +157,9 @@ describe('fixture roadmap', () => {
     assert.equal(links[0]?.figmaUrl, 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal');
     assert.equal(links[1]?.figmaUrl ?? null, null);
     assert.equal(links[1]?.localPreviewUrl ?? null, null);
+    const ready = applyFixtureMilestonePreview(staff, '?tiles=ready');
+    assert.equal(ready[0]?.review?.previewUrl, 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app');
+    assert.equal(ready[0]?.figmaUrl, 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal');
     const plain = applyFixtureMilestonePreview(staff, '?tiles=nofigma');
     assert.equal(plain[0]?.localPreviewUrl, 'http://localhost:3201');
     assert.equal(plain[0]?.figmaUrl ?? null, null);
@@ -221,13 +226,7 @@ describe('roadmap markup', () => {
     assert.equal(tileMetaLine({ resources: 0 }), '0 resources');
     assert.equal(tileMetaLine({ resources: 1 }), '1 resource');
     assert.equal(tileMetaLine({ resources: 2 }), '2 resources');
-    const createdAt = Date.parse('2026-11-03T15:00:00Z');
-    const createdDay = new Date(createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    assert.equal(tileMetaLine({ resources: 2, createdAt, now: createdAt }), '2 resources · Updated today');
-    assert.equal(
-      tileMetaLine({ resources: 2, createdAt, now: Date.parse('2026-11-19T15:00:00Z') }),
-      `2 resources · Updated ${createdDay}`,
-    );
+    assert.equal(tileMetaLine({ resources: 2 }).includes('Updated'), false);
   });
 
   it('renders the chip, date, and meta copy for staff and client tiles', () => {
@@ -387,6 +386,40 @@ describe('roadmap markup', () => {
     assert.match(linked, /data-testid="milestone-preview-hint"[^>]*>localhost:3200</);
     assert.match(linked, /data-testid="milestone-due"[^>]*>Due Nov 20</);
     assert.match(linked, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
+    assert.match(linked, /Milestone Details/);
+    assert.match(linked, /lg:order-1/);
+    assert.match(linked, /lg:order-2/);
+    assert.match(linked, /lg:order-3/);
+    const readyApprove = renderTile({
+      staff: true,
+      isPeter: true,
+      milestone: tileMilestone({
+        workStatus: 'ready',
+        approval: 'unreviewed',
+        review: {
+          iteration: 2,
+          previewUrl: 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app',
+          prNumber: 108,
+          prTitle: null,
+          branch: null,
+          commit: null,
+          builtAt: null,
+          designCheck: 'pending',
+          designCheckNote: null,
+          previewBuild: null,
+          previewBuildAttempt: null,
+          previewBuildAt: null,
+          previewDelete: null,
+          previewDeleteAttempt: null,
+          previewDeleteAt: null,
+          deployFinishedAt: null,
+          history: [],
+        },
+      }),
+    });
+    assert.match(readyApprove, /data-testid="milestone-stage-action"/);
+    assert.match(readyApprove, /data-testid="tile-approve-deploy"/);
+    assert.match(readyApprove, /Milestone Details/);
     const unlinked = renderTile({ staff: true, milestone: tileMilestone({}) });
     assert.match(unlinked, /data-testid="milestone-local-preview"/);
     assert.match(unlinked, /preview not running/);
@@ -431,7 +464,7 @@ describe('roadmap markup', () => {
     });
     assert.match(longChip, /12 \/ 148 tasks complete · <span style="white-space:nowrap">includes 9 subtasks<\/span>/);
     assert.match(longChip, /12 \/ 148 complete · <span style="white-space:nowrap">includes 9 subtasks<\/span>/);
-    assert.match(longChip, /data-testid="milestone-progress"[^>]*white-space:normal/);
+    assert.match(longChip, /whitespace-normal lg:w-max lg:max-w-none lg:whitespace-nowrap"[\s\S]*data-testid="milestone-progress"/);
     assert.match(longChip, /overflow-wrap:anywhere/);
     assert.match(longChip, /flex-nowrap items-center/);
     assert.match(longChip, /whitespace-nowrap" data-testid="milestone-status-chip"/);

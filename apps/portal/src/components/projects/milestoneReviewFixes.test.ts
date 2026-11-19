@@ -146,6 +146,7 @@ describe('milestone review fixes', () => {
     assert.match(roadmap, /subtitle="Project details · Every task belongs to a milestone"/);
     assert.match(roadmap, /testId="milestone-unassigned"/);
     assert.match(roadmap, /Do not guess which milestone they belong to/);
+    assert.equal(roadmap.includes('Assign to milestone'), false);
     assert.equal(roadmap.includes('tasks stay on Project details'), false);
     assert.equal(roadmap.includes('Nothing is assigned automatically'), false);
     const listCard = roadmap.slice(roadmap.indexOf('function MilestoneListCard'), roadmap.indexOf('function MilestoneDetail'));
@@ -231,8 +232,12 @@ describe('milestone review fixes', () => {
     assert.notEqual(goalKey(0, 'Ship'), goalKey(1, 'Ship'));
     assert.match(roadmap, /goalKey\(index, goal\)/);
     assert.match(roadmap, /reviewStamp\(storedReview\.decidedAt\)/);
-    assert.match(roadmap, /Updated today/);
+    assert.equal(roadmap.includes('Updated today'), false);
     assert.match(roadmap, /decidedAt: milestone\.decidedAt/);
+    const linkModal = roadmap.slice(roadmap.indexOf('testId="milestone-tile-link"'), roadmap.indexOf('milestone-deploy-confirm'));
+    assert.match(linkModal, /blueFocus/);
+    assert.match(linkModal, /milestone-tile-link-error/);
+    assert.match(roadmap, /Couldn’t save the link\. Nothing changed\./);
     const listCard = roadmap.slice(roadmap.indexOf('function MilestoneListCard'), roadmap.indexOf('type MilestoneMutations'));
     assert.equal(listCard.includes('Updated'), false);
   });

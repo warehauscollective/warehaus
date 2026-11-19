@@ -2,9 +2,17 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { readPortalDeepLink } from './nav/portalDeepLink';
-import { resolveSavedTheme } from './themePreference';
+import { previewThemeRequest, resolveSavedTheme } from './themePreference';
 
 describe('saved theme and tab deep link', () => {
+  it('honors a theme query on preview routes only', () => {
+    assert.equal(previewThemeRequest('/preview/approvals', '?theme=light'), 'light');
+    assert.equal(previewThemeRequest('/preview', '?view=waiting&theme=dark'), 'dark');
+    assert.equal(previewThemeRequest('/projects', '?theme=light'), null);
+    assert.equal(previewThemeRequest('/previewer', '?theme=dark'), null);
+    assert.equal(previewThemeRequest('/preview/approvals', '?theme=sepia'), null);
+  });
+
   it('keeps a saved light or dark theme and follows the system when unset', () => {
     assert.equal(resolveSavedTheme('light', true), 'light');
     assert.equal(resolveSavedTheme('dark', false), 'dark');

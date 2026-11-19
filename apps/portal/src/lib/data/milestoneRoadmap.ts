@@ -1,6 +1,7 @@
 import {
   buildRoadmap,
   clientMaySeeMilestone,
+  type MilestoneReviewView,
   type MilestoneRoadmapView,
   type RoadmapTaskInput,
 } from '@convex/_lib/milestones';
@@ -126,6 +127,29 @@ export function fixtureMilestones(
 
 const PREVIEW_REVIEW_AT = Date.parse('2026-11-03T15:00:00Z');
 
+/** Fixture Peter tile: Ready to Ship with a review preview so Approve attaches under the stage. */
+function readyTileReview(): MilestoneReviewView {
+  return {
+    iteration: 2,
+    previewUrl: 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app',
+    prNumber: 108,
+    prTitle: 'Order-ahead landing page',
+    branch: 'feat/order-ahead',
+    commit: 'aacb3e7',
+    builtAt: null,
+    designCheck: 'pending',
+    designCheckNote: null,
+    previewBuild: null,
+    previewBuildAttempt: null,
+    previewBuildAt: null,
+    previewDelete: null,
+    previewDeleteAttempt: null,
+    previewDeleteAt: null,
+    deployFinishedAt: null,
+    history: [],
+  };
+}
+
 function previewChild(id: string) {
   return {
     id,
@@ -192,16 +216,16 @@ export function applyFixtureMilestonePreview(
         : milestone
     ));
   }
-  if (params.get('tiles') === 'links') {
+  if (params.get('tiles') === 'links' || params.get('tiles') === 'ready') {
+    const ready = params.get('tiles') === 'ready';
     return next.map((milestone, index) => {
-      if (index === 0) {
-        return {
-          ...milestone,
-          localPreviewUrl: 'http://localhost:3200',
-          figmaUrl: 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal',
-        };
-      }
-      return { ...milestone, localPreviewUrl: null, figmaUrl: null };
+      if (index !== 0) return { ...milestone, localPreviewUrl: null, figmaUrl: null };
+      return {
+        ...milestone,
+        localPreviewUrl: 'http://localhost:3200',
+        figmaUrl: 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal',
+        ...(ready ? { review: readyTileReview() } : {}),
+      };
     });
   }
   if (params.get('tiles') !== 'states') return next;

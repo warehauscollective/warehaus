@@ -935,6 +935,7 @@ export function MilestoneReviewSurface({
                   nowrap={!phone}
                   className={phone ? 'w-full' : undefined}
                   testId="attach-preview-link"
+                  blueFocus
                   onClick={() => {
                     setDialog(null);
                     setLinkError(null);

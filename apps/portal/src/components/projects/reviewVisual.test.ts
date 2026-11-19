@@ -170,6 +170,7 @@ describe('peter and staff preview visibility', () => {
     const waitingAttach: ReviewSurfaceModel = { ...base, previewUrl: null };
     assert.equal(card(waitingAttach, { isPeter: false, staffAttach: true }).includes('data-testid="approve-deploy"'), false);
     assert.match(card(waitingAttach, { isPeter: false, staffAttach: true }), /Attach preview link/);
+    assert.match(card(waitingAttach, { isPeter: false, staffAttach: true }), /data-testid="attach-preview-link"[^>]*data-focus-ring="info"/);
     assert.equal(card(waitingAttach, { isPeter: true, staffAttach: false }).includes('Attach preview link'), false);
     assert.equal(card(waitingAttach, { isPeter: true, staffAttach: false }).includes('Remove link'), false);
     const attached = card(
