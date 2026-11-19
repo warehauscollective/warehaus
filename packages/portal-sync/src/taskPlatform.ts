@@ -74,6 +74,8 @@ export type PlatformTaskRead = {
   projectStatus: null;
   projectEndDate: null;
   description: string | null;
+  /** Person on the issue. Absent when Linear has no assignee. */
+  assigneeName?: string | null;
 };
 
 export type LinearTaskRead = PlatformTaskRead & {

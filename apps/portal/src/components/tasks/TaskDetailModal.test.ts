@@ -32,9 +32,18 @@ describe('task detail attach swap', () => {
   });
 
   it('swaps the stage confirm in place of the task sheet and returns on cancel', () => {
-    assert.deepEqual(taskSheetOpen({ attach: false, stage: false }), { detail: true, stage: false, attach: false });
-    assert.deepEqual(taskSheetOpen({ attach: false, stage: true }), { detail: false, stage: true, attach: false });
-    assert.deepEqual(taskSheetOpen({ attach: false, stage: false }), { detail: true, stage: false, attach: false });
+    const closed = { detail: true, stage: false, attach: false, archive: false, project: false, menu: false };
+    assert.deepEqual(taskSheetOpen({ attach: false, stage: false }), closed);
+    assert.deepEqual(taskSheetOpen({ attach: false, stage: true }), { ...closed, detail: false, stage: true });
+    assert.deepEqual(taskSheetOpen({ attach: false, stage: false }), closed);
+    assert.deepEqual(taskSheetOpen({ attach: false, stage: false, archive: true }), { ...closed, detail: false, archive: true });
+    assert.match(source, /data-testid="task-archive"/);
+    assert.match(source, /data-confirm-kind="archive"/);
+    assert.match(source, /testId="task-due"/);
+    assert.match(source, /testId="task-project"/);
+    assert.match(source, /data-testid="task-copy-link"/);
+    assert.match(source, /data-testid="task-breadcrumb"/);
+    assert.equal(source.includes('Coming soon'), false);
     assert.match(source, /returnStageFocus\.current = stageConfirm/);
     assert.match(source, /onCancel=\{cancelStage\}/);
     assert.match(source, /data-stage-chip=\{stage\}/);

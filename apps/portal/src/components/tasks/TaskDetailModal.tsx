@@ -5,8 +5,9 @@ import { useMutation } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
-import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEditMode } from '@warehaus/portal-sync';
+import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEditMode, type TaskLinkKind } from '@warehaus/portal-sync';
 import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
+import { DueDateMenu, OwnerMenu, Popover, ProjectMenu, type MoveTarget, type OwnerChoice } from '@/components/projects/milestoneDetailsEdit';
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton, StatusBadge } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
@@ -15,7 +16,9 @@ import { StageConfirmSheet } from '@/components/projects/milestoneChrome';
 import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
 import { StaffLiveFields } from './StaffLiveFields';
 import { TaskGlyph } from './TaskGlyph';
-import { TaskSources } from './TaskSources';
+import { AddSourceForm, TaskSources } from './TaskSources';
+import { archiveConfirmCopy, fieldSaveNote, projectMoveCopy } from './taskFieldCopy';
+import type { TaskSourceLink } from './sourcePanelFixtures';
 
 function ReviewTag() {
   return (
@@ -25,12 +28,26 @@ function ReviewTag() {
   );
 }
 
-/** One sheet at a time. A stage confirm replaces the task sheet. Cancel clears it. */
-export function taskSheetOpen(input: { attach: boolean; stage: boolean }): { detail: boolean; stage: boolean; attach: boolean } {
+/** One sheet at a time. A confirm or phone menu replaces the task sheet. Cancel clears it. */
+export function taskSheetOpen(input: {
+  attach: boolean;
+  stage: boolean;
+  archive?: boolean;
+  project?: boolean;
+  menu?: boolean;
+}): { detail: boolean; stage: boolean; attach: boolean; archive: boolean; project: boolean; menu: boolean } {
+  const archive = Boolean(input.archive);
+  const project = Boolean(input.project) && !archive;
+  const menu = Boolean(input.menu) && !archive && !project;
+  const attach = input.attach && !archive && !project && !menu;
+  const stage = input.stage && !attach && !archive && !project && !menu;
   return {
-    detail: !input.attach && !input.stage,
-    stage: input.stage && !input.attach,
-    attach: input.attach,
+    detail: !attach && !stage && !archive && !project && !menu,
+    stage,
+    attach,
+    archive,
+    project,
+    menu,
   };
 }
 
@@ -61,6 +78,9 @@ export function TaskDetailModal({
   hostSlug,
   live = false,
   initialStageConfirm = null,
+  initialArchive = false,
+  people = [],
+  projects = [],
 }: {
   task: PortalTask | null;
   staff: boolean;
@@ -79,6 +99,11 @@ export function TaskDetailModal({
   live?: boolean;
   /** Fixture preview opens the phone stage confirm without a tap. */
   initialStageConfirm?: string | null;
+  /** Fixture preview opens the archive confirm without a tap. */
+  initialArchive?: boolean;
+  /** Fixture staff. Live rows load choices when a menu opens. */
+  people?: readonly OwnerChoice[];
+  projects?: readonly MoveTarget[];
 }) {
   const [attach, setAttach] = useState(false);
   const [asideNote, setAsideNote] = useState<string | null>(null);
@@ -86,6 +111,12 @@ export function TaskDetailModal({
   const moveStage = useMutation(api.tasks.moveStage);
   const moveStatus = useMutation(api.tasks.moveStatus);
   const updateLiveFields = useMutation(api.tasks.updateLiveFields);
+  const setAssignee = useMutation(api.tasks.setAssignee);
+  const setDueDate = useMutation(api.tasks.setDueDate);
+  const moveTaskProject = useMutation(api.tasks.moveProject);
+  const addLink = useMutation(api.tasks.addLink);
+  const removeLink = useMutation(api.tasks.removeLink);
+  const archiveTask = useMutation(api.tasks.archiveTask);
   const shownStatus = task ? displayedTaskStatus(task.status, task.stage) : '';
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -96,7 +127,155 @@ export function TaskDetailModal({
     if (!(TASK_STAGES as readonly string[]).includes(initialStageConfirm)) return;
     setStageConfirm(initialStageConfirm);
   }, [phone, initialStageConfirm]);
-  const sheets = taskSheetOpen({ attach, stage: Boolean(stageConfirm) });
+  type FieldMenu = 'assignee' | 'due' | 'project' | 'add-source';
+  const [fieldMenu, setFieldMenu] = useState<FieldMenu | null>(null);
+  const [archiveOpen, setArchiveOpen] = useState(initialArchive);
+  const [projectTarget, setProjectTarget] = useState<MoveTarget | null>(null);
+  const [projectQuery, setProjectQuery] = useState('');
+  const [fieldBusy, setFieldBusy] = useState(false);
+  const [fieldError, setFieldError] = useState<string | null>(null);
+  const [draftAssignee, setDraftAssignee] = useState<{ id: string | null; name: string | null } | null>(null);
+  const [draftDate, setDraftDate] = useState<string | null | undefined>(undefined);
+  const [draftProject, setDraftProject] = useState<MoveTarget | null>(null);
+  const [extraLinks, setExtraLinks] = useState<TaskSourceLink[]>([]);
+  const [removedLinkIds, setRemovedLinkIds] = useState<string[]>([]);
+  useEffect(() => {
+    setDraftAssignee(null);
+    setDraftDate(undefined);
+    setDraftProject(null);
+    setExtraLinks([]);
+    setRemovedLinkIds([]);
+    setFieldMenu(null);
+    setArchiveOpen(initialArchive);
+    setProjectTarget(null);
+  }, [task?.id, initialArchive]);
+  const phoneMenu = phone && fieldMenu != null && !archiveOpen && !projectTarget;
+  const sheets = taskSheetOpen({
+    attach,
+    stage: Boolean(stageConfirm),
+    archive: archiveOpen,
+    project: Boolean(projectTarget),
+    menu: phoneMenu,
+  });
+  const closeFieldMenu = () => {
+    setFieldMenu(null);
+    setFieldError(null);
+  };
+  const assigneeRows = useSafeQuery<OwnerChoice[]>(
+    api.tasks.assigneeChoices,
+    live && staff && fieldMenu === 'assignee' && task?.orgId
+      ? { hostSlug, orgId: task.orgId as Id<'clients'> }
+      : 'skip',
+  );
+  const projectRows = useSafeQuery<{ projects: MoveTarget[]; continueCursor: string | null; isDone: boolean }>(
+    api.milestones.listMoveTargets,
+    live && staff && (fieldMenu === 'project' || projectTarget) && task?.projectId
+      ? { hostSlug, projectId: task.projectId as Id<'projects'> }
+      : 'skip',
+  );
+  const peopleChoices = live ? assigneeRows.data ?? [] : people;
+  const projectChoices = (live ? projectRows.data?.projects ?? [] : projects).filter(
+    (item) => item.id !== (draftProject?.id ?? task?.projectId),
+  );
+  const visibleProjects = projectChoices.filter((item) => item.name.toLowerCase().includes(projectQuery.trim().toLowerCase()));
+  const shownAssignee = draftAssignee?.name ?? task?.assigneeName ?? null;
+  const shownAssigneeId = draftAssignee ? draftAssignee.id : task?.assigneeContactId ?? null;
+  const shownDate = draftDate === undefined ? task?.date ?? null : draftDate;
+  const shownProject = draftProject?.name ?? task?.projectName ?? '—';
+  const noteFrom = (result: { ok: boolean; error?: string; wrote?: boolean; notion?: 'off' | 'queued' | 'portal' }) => {
+    if (!result.ok) {
+      setFieldError(result.error ?? 'Could not save');
+      return;
+    }
+    setFieldError(null);
+    const note = result.notion ? fieldSaveNote(result.notion, Boolean(result.wrote)) : null;
+    if (note) setAsideNote(note);
+  };
+  const pickAssignee = (id: string | null) => {
+    const person = peopleChoices.find((item) => item.id === id) ?? null;
+    setDraftAssignee({ id, name: person?.name ?? null });
+    closeFieldMenu();
+    if (!live || !task) return;
+    void setAssignee({ hostSlug, taskId: task.id as Id<'tasks'>, assigneeContactId: id as Id<'contacts'> | null }).then((result) => {
+      if (result.ok) setDraftAssignee({ id, name: result.assigneeName });
+      noteFrom(result);
+    });
+  };
+  const pickDate = (next: string | null) => {
+    setDraftDate(next);
+    closeFieldMenu();
+    if (!live || !task) return;
+    void setDueDate({ hostSlug, taskId: task.id as Id<'tasks'>, date: next }).then(noteFrom);
+  };
+  const confirmProject = () => {
+    const target = projectTarget;
+    if (!target || !task) return;
+    setDraftProject(target);
+    setProjectTarget(null);
+    if (!live) return;
+    setFieldBusy(true);
+    void moveTaskProject({ hostSlug, taskId: task.id as Id<'tasks'>, projectId: target.id as Id<'projects'> })
+      .then((result) => {
+        noteFrom(result);
+        if (!result.ok) setDraftProject(null);
+      })
+      .finally(() => setFieldBusy(false));
+  };
+  const submitSource = (input: { kind: TaskLinkKind; url: string; title: string }) => {
+    const url = input.url.trim();
+    if (!url || !task) return;
+    const local: TaskSourceLink = {
+      id: `local-${Date.now()}`,
+      kind: input.kind,
+      url,
+      title: input.title.trim() || null,
+      addedBy: 'staff',
+      createdAt: Date.now(),
+      state: null,
+    };
+    if (!live) {
+      setExtraLinks((rows) => [...rows, local]);
+      closeFieldMenu();
+      return;
+    }
+    setFieldBusy(true);
+    void addLink({ hostSlug, taskId: task.id as Id<'tasks'>, kind: input.kind, url, title: input.title.trim() || undefined })
+      .then((result) => {
+        noteFrom(result);
+        if (result.ok) {
+          setExtraLinks((rows) => [...rows, { ...local, id: result.id ?? local.id }]);
+          closeFieldMenu();
+        }
+      })
+      .finally(() => setFieldBusy(false));
+  };
+  const dropSource = (id: string) => {
+    setRemovedLinkIds((rows) => (rows.includes(id) ? rows : [...rows, id]));
+    if (!live || !task || id.startsWith('local-')) return;
+    void removeLink({ hostSlug, taskId: task.id as Id<'tasks'>, linkId: id as Id<'taskLinks'> }).then((result) => {
+      if (!result.ok) {
+        setRemovedLinkIds((rows) => rows.filter((item) => item !== id));
+        setAsideNote(result.error);
+      }
+    });
+  };
+  const confirmArchive = () => {
+    if (!task) return;
+    if (!live) {
+      onClose();
+      return;
+    }
+    setFieldBusy(true);
+    void archiveTask({ hostSlug, taskId: task.id as Id<'tasks'> })
+      .then((result) => {
+        if (!result.ok) {
+          setFieldError(result.error);
+          return;
+        }
+        onClose();
+      })
+      .finally(() => setFieldBusy(false));
+  };
   const returnStageFocus = useRef<string | null>(null);
   const cancelStage = () => {
     returnStageFocus.current = stageConfirm;
@@ -139,15 +318,17 @@ export function TaskDetailModal({
         </div>
       ) : (
         <>
-        <div className="mb-4 flex items-center gap-3">
-          <p className="min-w-0 flex-1 truncate" style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
-            {task.projectName ?? 'Project'}
+        <div data-testid="task-sheet-chrome" className={phone ? 'task-sheet-chrome flex min-w-0 items-center gap-3' : 'mb-4 flex min-w-0 items-center gap-3'}>
+          <p data-testid="task-breadcrumb" className="min-w-0 flex-1 truncate" style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
+            {shownProject === '—' ? task.projectName ?? 'Project' : shownProject}
             <span> / </span>
             <span style={{ color: 'var(--fg)' }}>{task.name}</span>
-            {task.source === 'portal-review' ? <ReviewTag /> : null}
           </p>
+          {task.source === 'portal-review' ? <ReviewTag /> : null}
           <button
             type="button"
+            data-testid="task-copy-link"
+            className="shrink-0"
             onClick={() => {
               void navigator.clipboard?.writeText(window.location.href);
             }}
@@ -169,6 +350,7 @@ export function TaskDetailModal({
           )}
           <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
         </div>
+        <div className={phone ? 'task-sheet-scroll' : undefined} data-testid={phone ? 'task-sheet-scroll' : undefined}>
         <div className={phone ? 'flex flex-col' : 'grid gap-8'} style={phone ? { gap: 24 } : { gridTemplateColumns: 'minmax(0, 1fr) 296px' }}>
           <div className={phone ? undefined : 'flex min-w-0 flex-col gap-4'} style={phone ? { display: 'contents' } : undefined}>
             <h2 ref={titleRef} tabIndex={-1} style={{ fontFamily: 'var(--font-display)', fontSize: phone ? 20 : 28, lineHeight: phone ? '30px' : undefined, outline: 'none', order: phone ? 2 : undefined }}>
@@ -273,24 +455,96 @@ export function TaskDetailModal({
                 <Pill color={taskStatusColor(shownStatus, task.isDone)}>{shownStatus}</Pill>
               )}
             </Field>
-            {task.assigneeName ? <Field label="Assignee" row={phone}>{task.assigneeName}</Field> : staff ? <Field label="Assignee" row={phone}>Unassigned</Field> : null}
+            {staff || shownAssignee ? (
+              <Field label="Assignee" row={phone}>
+                {staff ? (
+                  <FieldMenu
+                    testId="task-assignee"
+                    open={fieldMenu === 'assignee'}
+                    onOpen={() => setFieldMenu(fieldMenu === 'assignee' ? null : 'assignee')}
+                    label={shownAssignee || 'Unassigned'}
+                  >
+                    {fieldMenu === 'assignee' && !phone ? (
+                      <Popover onClose={closeFieldMenu}>
+                        <OwnerMenu
+                          people={peopleChoices}
+                          currentId={shownAssigneeId}
+                          onPick={pickAssignee}
+                          onClose={closeFieldMenu}
+                          foot="Saves as soon as you pick. Saved in the Portal."
+                        />
+                      </Popover>
+                    ) : null}
+                  </FieldMenu>
+                ) : (
+                  shownAssignee
+                )}
+              </Field>
+            ) : null}
             <Field label="Due date" row={phone}>
-              <span className="inline-flex items-center gap-2" style={{ color: 'var(--fg)' }}>
-                <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-calendar.svg" size={16} /></span>
-                {formatPortalDate(task.date)}
-              </span>
+              {staff ? (
+                <FieldMenu
+                  testId="task-due"
+                  open={fieldMenu === 'due'}
+                  onOpen={() => setFieldMenu(fieldMenu === 'due' ? null : 'due')}
+                  label={formatPortalDate(shownDate)}
+                  icon="/icons/task-calendar.svg"
+                >
+                  {fieldMenu === 'due' && !phone ? (
+                    <Popover up onClose={closeFieldMenu}>
+                      <DueDateMenu
+                        value={shownDate}
+                        onPick={pickDate}
+                        onClose={closeFieldMenu}
+                        foot="Saves as soon as you pick. Syncs to Notion (Date) when write-back is on."
+                      />
+                    </Popover>
+                  ) : null}
+                </FieldMenu>
+              ) : (
+                <span className="inline-flex items-center gap-2" style={{ color: 'var(--fg)' }}>
+                  <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-calendar.svg" size={16} /></span>
+                  {formatPortalDate(task.date)}
+                </span>
+              )}
             </Field>
             <Field label="Project" row={phone}>
-              <span className="inline-flex flex-wrap items-center gap-2">
-                <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-layers.svg" size={16} /></span>
-                {task.projectName ?? '—'}
-                {clientName ? (
-                  <span className="ds-mono inline-flex items-center gap-1.5" style={{ border: '1px solid var(--border-2, var(--border))', borderRadius: 999, padding: '2px 8px', fontSize: 12, color: 'var(--fg)' }}>
-                    <TaskGlyph src="/icons/task-building.svg" size={12} />
-                    {clientName}
-                  </span>
-                ) : null}
-              </span>
+              {staff ? (
+                <FieldMenu
+                  testId="task-project"
+                  open={fieldMenu === 'project'}
+                  onOpen={() => setFieldMenu(fieldMenu === 'project' ? null : 'project')}
+                  label={shownProject}
+                  icon="/icons/task-layers.svg"
+                >
+                  {fieldMenu === 'project' && !phone ? (
+                    <Popover onClose={closeFieldMenu}>
+                      <ProjectMenu
+                        query={projectQuery}
+                        onQuery={setProjectQuery}
+                        targets={visibleProjects}
+                        currentName={shownProject}
+                        onPick={(target) => {
+                          closeFieldMenu();
+                          setProjectTarget(target);
+                        }}
+                        onClose={closeFieldMenu}
+                      />
+                    </Popover>
+                  ) : null}
+                </FieldMenu>
+              ) : (
+                <span className="inline-flex flex-wrap items-center gap-2">
+                  <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-layers.svg" size={16} /></span>
+                  {task.projectName ?? '—'}
+                  {clientName ? (
+                    <span className="ds-mono inline-flex items-center gap-1.5" style={{ border: '1px solid var(--border-2, var(--border))', borderRadius: 999, padding: '2px 8px', fontSize: 12, color: 'var(--fg)' }}>
+                      <TaskGlyph src="/icons/task-building.svg" size={12} />
+                      {clientName}
+                    </span>
+                  ) : null}
+                </span>
+              )}
             </Field>
             {staff ? (
               <StaffLiveFields
@@ -325,7 +579,29 @@ export function TaskDetailModal({
                   marginTop: phone ? 'calc(var(--s-6) - 24px)' : undefined,
                 }}
               >
-                <TaskSources taskId={task.id} hostSlug={hostSlug} live={live} />
+                <TaskSources
+                  taskId={task.id}
+                  hostSlug={hostSlug}
+                  live={live}
+                  extra={extraLinks}
+                  removedIds={removedLinkIds}
+                  onAdd={() => setFieldMenu(fieldMenu === 'add-source' ? null : 'add-source')}
+                  onRemove={dropSource}
+                />
+                {fieldMenu === 'add-source' && !phone ? (
+                  <div className="relative">
+                    <Popover up onClose={closeFieldMenu}>
+                      <div onKeyDown={(event) => {
+                        if (event.key !== 'Escape') return;
+                        event.preventDefault();
+                        event.stopPropagation();
+                        closeFieldMenu();
+                      }}>
+                        <AddSourceForm busy={fieldBusy} error={fieldError} onSubmit={submitSource} />
+                      </div>
+                    </Popover>
+                  </div>
+                ) : null}
               </div>
             ) : null}
             </div>
@@ -404,16 +680,16 @@ export function TaskDetailModal({
             {staff ? (
               <button
                 type="button"
-                disabled
-                aria-disabled="true"
-                title="Coming soon"
-                style={{ order: phone ? 9 : undefined, background: 'transparent', border: 0, color: 'var(--muted)', textAlign: 'left', cursor: 'not-allowed', padding: 0 }}
+                data-testid="task-archive"
+                onClick={() => setArchiveOpen(true)}
+                style={{ order: phone ? 9 : undefined, background: 'transparent', border: 0, color: 'var(--danger-text)', textAlign: 'left', cursor: 'pointer', padding: 0 }}
               >
                 Archive task
               </button>
             ) : null}
             {asideNote && asideNote !== 'Nothing was sent.' ? <p role="status" style={{ order: phone ? 10 : undefined, fontSize: 13, color: 'var(--muted)', margin: 0 }}>{asideNote}</p> : null}
           </aside>
+        </div>
         </div>
         </>
       )}
@@ -436,7 +712,7 @@ export function TaskDetailModal({
                 sheet="bottom"
                 width={840}
                 hidden={!sheets.detail}
-                panelStyle={{ padding: phone ? 20 : 24 }}
+                panelStyle={phone ? { padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' } : { padding: 24 }}
               >
                 {detail}
               </PortalModal>
@@ -487,6 +763,128 @@ export function TaskDetailModal({
                   phone={phone}
                   onClose={() => setAttach(false)}
                 />
+              </PortalModal>
+            ) : null,
+          },
+          {
+            key: 'archive',
+            open: sheets.archive,
+            node: task && archiveOpen ? (
+              <PortalModal
+                testId="task-archive-confirm"
+                label="Archive this task?"
+                onClose={() => {
+                  setArchiveOpen(false);
+                  setFieldError(null);
+                }}
+                narrow={phone}
+                sheet="bottom"
+                width={440}
+                header="compact"
+                showIcon
+                icon="alert"
+                focusCancel
+                showFooter={false}
+              >
+                <div data-confirm-kind="archive">
+                  <p style={{ margin: '8px 24px 16px', fontSize: 14, lineHeight: '21px' }}>
+                    {archiveConfirmCopy(task.name, subtasks.length)}
+                  </p>
+                  {fieldError ? (
+                    <p role="alert" style={{ margin: '0 24px 12px', color: 'var(--danger-text)', fontSize: 14 }}>{fieldError}</p>
+                  ) : null}
+                  <div className="flex flex-nowrap items-center justify-end gap-2 border-t px-6 py-4" style={{ borderColor: 'var(--border)' }}>
+                    <OutlineButton nowrap height={42} paddingInline={16} disabled={fieldBusy} onClick={() => setArchiveOpen(false)}>
+                      Cancel
+                    </OutlineButton>
+                    <button
+                      type="button"
+                      data-testid="task-archive-submit"
+                      disabled={fieldBusy}
+                      onClick={confirmArchive}
+                      style={{ height: 42, padding: '0 16px', borderRadius: 10, border: '1px solid var(--danger)', background: 'transparent', color: 'var(--danger-text)', font: 'inherit', fontSize: 14, cursor: 'pointer' }}
+                    >
+                      {fieldBusy ? 'Saving…' : 'Archive task'}
+                    </button>
+                  </div>
+                </div>
+              </PortalModal>
+            ) : null,
+          },
+          {
+            key: 'project',
+            open: sheets.project,
+            node: task && projectTarget ? (
+              <PortalModal
+                testId="task-project-confirm"
+                label="Move this task?"
+                onClose={() => setProjectTarget(null)}
+                narrow={phone}
+                sheet="bottom"
+                width={520}
+                header="compact"
+                focusCancel
+                showFooter={false}
+              >
+                <div data-confirm-kind="project">
+                  <p style={{ margin: '8px 24px 16px', fontSize: 14, lineHeight: '21px' }}>
+                    {projectMoveCopy(task.name, task.projectName ?? 'this project', projectTarget.name)}
+                  </p>
+                  <div className="flex flex-nowrap items-center justify-end gap-2 border-t px-6 py-4" style={{ borderColor: 'var(--border)' }}>
+                    <OutlineButton nowrap height={42} paddingInline={16} disabled={fieldBusy} onClick={() => setProjectTarget(null)}>
+                      Cancel
+                    </OutlineButton>
+                    <PrimaryButton testId="task-project-submit" height={42} paddingInline={16} disabled={fieldBusy} onClick={confirmProject}>
+                      {fieldBusy ? 'Saving…' : 'Move task'}
+                    </PrimaryButton>
+                  </div>
+                </div>
+              </PortalModal>
+            ) : null,
+          },
+          {
+            key: 'menu',
+            open: sheets.menu,
+            node: phone && fieldMenu && task ? (
+              <PortalModal
+                testId="task-field-sheet"
+                label={fieldMenu === 'assignee' ? 'Assignee' : fieldMenu === 'due' ? 'Due date' : fieldMenu === 'project' ? 'Project' : 'Add source'}
+                onClose={closeFieldMenu}
+                narrow
+                sheet="bottom"
+                width={440}
+                showFooter={false}
+              >
+                {fieldMenu === 'assignee' ? (
+                  <OwnerMenu people={peopleChoices} currentId={shownAssigneeId} onPick={pickAssignee} onClose={closeFieldMenu} sheet foot="Saves as soon as you pick. Saved in the Portal." />
+                ) : null}
+                {fieldMenu === 'due' ? (
+                  <DueDateMenu value={shownDate} onPick={pickDate} onClose={closeFieldMenu} sheet foot="Saves as soon as you pick. Syncs to Notion (Date) when write-back is on." />
+                ) : null}
+                {fieldMenu === 'project' ? (
+                  <ProjectMenu
+                    query={projectQuery}
+                    onQuery={setProjectQuery}
+                    targets={visibleProjects}
+                    currentName={shownProject}
+                    sheet
+                    onPick={(target) => {
+                      closeFieldMenu();
+                      setProjectTarget(target);
+                    }}
+                    onClose={closeFieldMenu}
+                  />
+                ) : null}
+                {fieldMenu === 'add-source' ? (
+                  <div onKeyDown={(event) => {
+                    if (event.key !== 'Escape') return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    closeFieldMenu();
+                  }}>
+                    <AddSourceForm busy={fieldBusy} error={fieldError} onSubmit={submitSource} />
+                  </div>
+                ) : null}
               </PortalModal>
             ) : null,
           },
@@ -684,6 +1082,39 @@ function StatusMenu({ value, onChange }: { value: string; onChange: (status: str
           ))}
         </ul>
       ) : null}
+    </div>
+  );
+}
+
+function FieldMenu({
+  testId,
+  label,
+  icon,
+  open,
+  onOpen,
+  children,
+}: {
+  testId: string;
+  label: string;
+  icon?: string;
+  open: boolean;
+  onOpen: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        data-testid={testId}
+        aria-expanded={open}
+        onClick={onOpen}
+        className="inline-flex min-w-0 items-center gap-2 text-left"
+        style={{ background: 'transparent', border: 0, color: 'var(--fg)', font: 'inherit', fontSize: 14, cursor: 'pointer', padding: 0 }}
+      >
+        {icon ? <span style={{ color: 'var(--muted)' }}><TaskGlyph src={icon} size={16} /></span> : null}
+        <span className="min-w-0 truncate">{label}</span>
+      </button>
+      {children}
     </div>
   );
 }

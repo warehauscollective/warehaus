@@ -877,6 +877,7 @@ function ProjectTaskOverlay({
   );
   const [phone, setPhone] = useState(false);
   const [fixtureStage, setFixtureStage] = useState<string | null>(null);
+  const [fixtureArchive, setFixtureArchive] = useState(false);
   const closeLabel = taskCloseLabel(peekPortalReturn());
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
@@ -887,7 +888,9 @@ function ProjectTaskOverlay({
   }, []);
   useEffect(() => {
     if (!fixtures) return;
-    setFixtureStage(new URLSearchParams(window.location.search).get('stageConfirm'));
+    const params = new URLSearchParams(window.location.search);
+    setFixtureStage(params.get('stageConfirm'));
+    setFixtureArchive(params.get('confirm') === 'archive');
   }, [fixtures]);
   const subtasks = staff
     ? tasks.filter((item) => item.parentTaskId === taskId)
@@ -915,6 +918,9 @@ function ProjectTaskOverlay({
       hostSlug={hostSlug}
       live={!fixtures}
       initialStageConfirm={phone ? fixtureStage : null}
+      initialArchive={fixtureArchive}
+      people={fixtures && task ? FIXTURE_CONTACTS.filter((contact) => contact.orgId === task.orgId && contact.role === 'Warehaus Staff' && contact.portalAccess === 'Enabled').map((contact) => ({ id: contact.id, name: contact.name })) : []}
+      projects={fixtures && task ? FIXTURE_PROJECTS.filter((project) => project.orgId === task.orgId && !project.internal && !project.syncHidden).map((project) => ({ id: project.id, name: project.name })) : []}
       closeLabel={closeLabel}
       onClose={onClose}
       onOpenTask={onOpenTask}

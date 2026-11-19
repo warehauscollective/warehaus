@@ -63,6 +63,17 @@ export function extractNumber(prop: unknown): number | null {
   return p?.type === 'number' && typeof p.number === 'number' ? p.number : null;
 }
 
+/** First person on a Notion people property. Empty when the property is another type. */
+export function extractPeopleName(prop: unknown): string | null {
+  const people = prop as { type?: string; people?: Array<{ name?: string | null }> };
+  if (people?.type !== 'people' || !Array.isArray(people.people)) return null;
+  for (const person of people.people) {
+    const name = person?.name?.trim() ?? '';
+    if (name) return name;
+  }
+  return null;
+}
+
 export function extractRelationIds(prop: unknown): string[] {
   const p = prop as { type?: string; relation?: Array<{ id?: string }> };
   if (p?.type !== 'relation' || !Array.isArray(p.relation)) return [];

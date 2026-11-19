@@ -63,6 +63,7 @@ export type PortalTask = {
   lastEditedTime?: string | null;
   parentTaskId?: string | null;
   assigneeName?: string | null;
+  assigneeContactId?: string | null;
   resourceCount?: number | null;
   pullRequestUrl?: string | null;
   projectId: string | null;
@@ -151,6 +152,7 @@ export function portalTaskFromLinear(task: LinearTaskRead): PortalTask {
     projectStatus: null,
     projectEndDate: null,
     description: task.description,
+    assigneeName: task.assigneeName ?? null,
     orgId: task.orgId,
     source: task.source,
   };

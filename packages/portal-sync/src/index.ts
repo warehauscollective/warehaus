@@ -334,6 +334,7 @@ export {
   TASK_PRIORITIES,
   TASK_SOURCES,
   planTaskLiveFieldsWrite,
+  planTaskDateWrite,
   taskLiveFieldsWriteError,
   type TaskEstimate,
   type TaskPriority,

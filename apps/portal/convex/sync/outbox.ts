@@ -193,6 +193,11 @@ function validateEnqueueKind(input: {
     if (!input.expectedLastEditedTime) return 'Updates require the last read time';
     return null;
   }
+  if (input.kind === 'task-archive') {
+    if (input.database !== 'tasks') return 'Task archive only writes the Tasks database';
+    if (!input.notionPageId) return 'Archive requires a Notion page';
+    return null;
+  }
   if (input.kind === 'task-fields') {
     if (input.database !== 'tasks') return 'Task field updates only write the Tasks database';
     const fieldError = taskLiveFieldsWriteError(input.properties);

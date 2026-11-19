@@ -941,7 +941,7 @@ function StatusMenu({
   );
 }
 
-function ProjectMenu({
+export function ProjectMenu({
   query,
   onQuery,
   targets,
@@ -1300,7 +1300,7 @@ function menuViewportBounds(): { top: number; right: number; bottom: number; lef
   return { top: 0, right: window.innerWidth, bottom, left: 0 };
 }
 
-function Popover({ up, onClose, children }: { up?: boolean; onClose: () => void; children: ReactNode }) {
+export function Popover({ up, onClose, children }: { up?: boolean; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -1364,7 +1364,7 @@ function Popover({ up, onClose, children }: { up?: boolean; onClose: () => void;
     <div
       ref={ref}
       data-menu-layer=""
-      className="absolute z-30"
+      className="ds-scope absolute z-30"
       style={up ? { right: 0, bottom: 'calc(100% + 8px)', width: 360 } : { right: 0, top: 'calc(100% + 8px)', width: 400 }}
       onKeyDown={(event) => {
         if (event.key === 'Tab') {

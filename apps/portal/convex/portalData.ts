@@ -112,6 +112,7 @@ export const getSnapshot = clientQuery({
       tasks: (() => {
         const visible = tasks
           .filter((t) => {
+            if (t.archivedAt != null) return false;
             const project = projectById.get(t.projectId);
             if (!project) return false;
             return clientMaySeeTask({
@@ -135,6 +136,7 @@ export const getSnapshot = clientQuery({
               status: t.status,
               isDone: t.isDone,
               date: t.date ?? null,
+              ...(t.assigneeName ? { assigneeName: t.assigneeName } : {}),
               stage: t.publishToWarehaus ? (t.stage ?? null) : null,
               lastEditedTime: t.lastEditedTime ?? null,
               projectId: t.projectId,
@@ -143,6 +145,8 @@ export const getSnapshot = clientQuery({
               projectEndDate: project?.endDate ?? null,
               ...(staff
                 ? {
+                    orgId: t.orgId,
+                    assigneeContactId: t.assigneeContactId ?? null,
                     ...(t.milestoneId ? { milestoneId: t.milestoneId } : {}),
                     notionPageId: t.notionPageId,
                     lastSyncedAt: t.lastSyncedAt,

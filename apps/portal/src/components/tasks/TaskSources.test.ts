@@ -64,6 +64,20 @@ describe('task sources panel', () => {
     assert.equal((html.match(/task-source-warn/g) ?? []).length, 2);
   });
 
+  it('adds and removes a source only when those actions are passed', () => {
+    const html = renderToStaticMarkup(
+      createElement(TaskSourcesPanel, {
+        links: SOURCE_PANEL_LINKS.slice(0, 1),
+        loading: false,
+        truncated: false,
+        onAdd: () => undefined,
+        onRemove: () => undefined,
+      }),
+    );
+    assert.match(html, /Add source/);
+    assert.match(html, /Remove/);
+  });
+
   it('keeps an empty list read-only', () => {
     const html = renderToStaticMarkup(
       createElement(TaskSourcesPanel, { links: [], loading: false, truncated: true }),
@@ -111,7 +125,8 @@ describe('task sources panel', () => {
     assert.match(body, /withIndex\('by_taskId'/);
     assert.match(body, /\.take\(TASK_LINK_READ_CAP \+ 1\)/);
     assert.equal(body.includes('.collect('), false);
-    assert.equal(tasks.split("query('taskLinks')").length - 1, 1);
+    assert.equal(tasks.split("query('taskLinks')").length - 1, 3);
+    assert.match(tasks, /withIndex\('by_taskId_url'/);
   });
 
   it('reads fixture screens without treating a live session as fixture data', () => {

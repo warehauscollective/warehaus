@@ -807,6 +807,7 @@ export const pullAll = internalAction({
           status: mapped.row.status,
           isDone: mapped.row.isDone,
           date: mapped.row.date,
+          assigneeName: mapped.row.assigneeName,
           stage: mapped.row.stage ?? null,
           parentNotionPageId: mapped.row.parentNotionId ?? null,
           resourceNotionIds: mapped.row.resourceNotionIds,

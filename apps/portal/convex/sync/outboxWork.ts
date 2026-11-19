@@ -41,6 +41,7 @@ import {
   searchClientCreateHits,
   searchNotionPages,
   searchProjectCreateHits,
+  archiveNotionPage,
   writeNotionPage,
 } from './notionWrite';
 
@@ -303,6 +304,29 @@ async function execute(
           return createNotionProjectPage(shaped);
         },
       });
+    } else if (row.kind === 'task-archive') {
+      if (!row.notionPageId) {
+        outcome = { outcome: 'rejected', reason: 'Archive requires a Notion page' };
+      } else {
+        const archived = await archiveNotionPage(row.notionPageId);
+        outcome = archived.ok && archived.notionPageId
+          ? {
+              outcome: 'confirmed',
+              reused: false,
+              write: {
+                notionPageId: archived.notionPageId,
+                lastEditedTime: archived.lastEditedTime ?? null,
+                properties: {},
+              },
+            }
+          : {
+              outcome: 'retry',
+              attempts: row.attempts + 1,
+              nextAttemptAt: Date.now() + (archived.retryAfterMs ?? 30_000),
+              lastError: archived.error ?? 'Could not archive the Notion page',
+              notifyStaff: false,
+            };
+      }
     } else {
       const clientNotionId = await ctx.runQuery(internal.sync.outbox.clientNotionId, { orgId: row.orgId });
       outcome = await runOutboxAttempt({
