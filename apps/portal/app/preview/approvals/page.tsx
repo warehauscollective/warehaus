@@ -47,6 +47,8 @@ const views = [
   'waiting',
   'changes',
   'building',
+  'tile-unpublished',
+  'tile-unpublished-client',
 ] as const satisfies readonly ApprovalsFocus[];
 
 const sizes = ['1440', '390'] as const satisfies readonly ApprovalsSize[];

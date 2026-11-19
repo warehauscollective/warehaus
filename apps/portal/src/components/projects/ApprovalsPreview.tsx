@@ -498,6 +498,34 @@ function StaffRetryFrame({
   );
 }
 
+const unpublishedTile: MilestoneRoadmapView = {
+  ...tileMilestone,
+  id: 'm-draft',
+  name: 'Billing export draft',
+  objective: 'Invoices export without a second approval step.',
+  workStatus: 'draft',
+  publishToWarehaus: false,
+  resources: [
+    { id: 'r-columns', title: 'Invoice columns', url: null },
+    { id: 'r-notes', title: 'Export notes', url: null },
+  ],
+  openCount: 4,
+  doneCount: 0,
+  review: undefined,
+};
+
+function UnpublishedTileFrame({ staff, phone }: { staff: boolean; phone: boolean }) {
+  return (
+    <section
+      data-overlay={staff ? 'tile-unpublished' : 'tile-unpublished-client'}
+      data-width={phone ? '390' : '1440'}
+      style={{ width: phone ? '100%' : 1108, maxWidth: '100%', paddingTop: 16 }}
+    >
+      <MilestoneListCard milestone={unpublishedTile} staff={staff} isPeter={false} fixtures phone={phone} onOpen={() => undefined} />
+    </section>
+  );
+}
+
 function TileFrame({ peter, staff = true, phone }: { peter: boolean; staff?: boolean; phone: boolean }) {
   const id = !staff ? 'tile-client' : peter ? 'tile-peter' : 'tile-staff';
   return (
@@ -568,7 +596,9 @@ export type ApprovalsFocus =
   | 'preview-link-invalid'
   | 'waiting'
   | 'changes'
-  | 'building';
+  | 'building'
+  | 'tile-unpublished'
+  | 'tile-unpublished-client';
 
 export type ApprovalsSize = '1440' | '390';
 
@@ -684,6 +714,9 @@ export function ApprovalsPreview({
             <TaskFromReview phone={false} />
             <TaskFromReview phone />
           </>
+        ) : null}
+        {view === 'tile-unpublished' || view === 'tile-unpublished-client' ? (
+          <UnpublishedTileFrame staff={view === 'tile-unpublished'} phone={size === '390'} />
         ) : null}
         {view === 'tile-peter' || view === 'tile-staff' || view === 'tile-client' ? (
           <>

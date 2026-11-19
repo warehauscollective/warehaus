@@ -316,6 +316,49 @@ function resourceLabel(count: number): string {
   return count === 1 ? '1 resource' : `${count} resources`;
 }
 
+/** Core Links / Visibility tag, Staff only. Staff see it on unpublished tiles. Clients never do. */
+function StaffOnlyChip() {
+  return (
+    <span
+      data-testid="milestone-staff-only"
+      className="inline-flex shrink-0 items-center"
+      style={{
+        gap: 5,
+        boxSizing: 'border-box',
+        height: 23,
+        padding: '2px 7px',
+        border: '1px solid var(--border-2)',
+        borderRadius: 999,
+        color: 'var(--muted)',
+        fontFamily: 'var(--font-geist), var(--font-body)',
+        fontWeight: 500,
+        fontSize: 11,
+        lineHeight: '17px',
+        whiteSpace: 'nowrap',
+      }}
+    >
+      <span
+        aria-hidden
+        style={{
+          width: 12,
+          height: 12,
+          flex: '0 0 12px',
+          backgroundColor: 'currentColor',
+          WebkitMaskImage: 'url(/icons/links-lock.svg)',
+          maskImage: 'url(/icons/links-lock.svg)',
+          WebkitMaskRepeat: 'no-repeat',
+          maskRepeat: 'no-repeat',
+          WebkitMaskPosition: 'center',
+          maskPosition: 'center',
+          WebkitMaskSize: 'contain',
+          maskSize: 'contain',
+        }}
+      />
+      Staff only
+    </span>
+  );
+}
+
 /** Resource row under a milestone. Unpublished staff rows name the type and stay staff-only. */
 export function resourceAudienceLine(type: string | null | undefined, staff: boolean, published: boolean): string {
   const kind = type?.trim() || 'Resource';
@@ -1017,6 +1060,7 @@ export function MilestoneListCard({
     dueDate: milestone.dueDate,
   });
   const meta = tileMetaLine({ resources: milestone.resources.length });
+  const showStaffOnly = staff && milestone.publishToWarehaus === false;
   const localUrl = staff ? milestone.localPreviewUrl ?? null : null;
   const figmaUrl = staff ? milestone.figmaUrl ?? null : null;
   const previewHint = staff ? localPreviewHint(localUrl) : null;
@@ -1147,13 +1191,16 @@ export function MilestoneListCard({
           {milestone.objective}
         </p>
         {meta ? (
-          <p
-            data-testid="milestone-meta"
-            className="min-w-0 max-w-full truncate"
-            style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}
-          >
-            {meta}
-          </p>
+          <div className={showStaffOnly ? 'flex min-w-0 max-w-full items-center' : undefined} style={showStaffOnly ? { gap: 16 } : undefined}>
+            <p
+              data-testid="milestone-meta"
+              className="min-w-0 max-w-full truncate"
+              style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}
+            >
+              {meta}
+            </p>
+            {showStaffOnly ? <StaffOnlyChip /> : null}
+          </div>
         ) : null}
         <div className="flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center">
           <MilestoneListButton tone="outline" onClick={onOpen}>
