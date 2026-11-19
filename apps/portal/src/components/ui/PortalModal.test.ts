@@ -1,21 +1,27 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import React, { createElement } from 'react';
+import React, { createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 Object.assign(globalThis, { React });
 const { PortalModal } = await import('./PortalModal');
+const PinnedModal = PortalModal as (
+  props: Omit<ComponentProps<typeof PortalModal>, 'children'>,
+) => ReactElement;
 
 describe('pinned modal footer', () => {
   it('keeps the footer outside the scroll region', () => {
     const html = renderToStaticMarkup(
-      createElement(PortalModal, {
-        label: 'New milestone',
-        onClose: () => undefined,
-        footer: createElement('button', { type: 'submit' }, 'Create milestone'),
-        children: createElement('p', null, 'Describe the outcome'),
-      }),
+      createElement(
+        PinnedModal,
+        {
+          label: 'New milestone',
+          onClose: () => undefined,
+          footer: createElement('button', { type: 'submit' }, 'Create milestone'),
+        },
+        createElement('p', null, 'Describe the outcome'),
+      ),
     );
     const bodyAt = html.indexOf('data-portal-modal-body');
     const footerAt = html.indexOf('data-testid="portal-modal-footer"');
