@@ -189,6 +189,15 @@ export async function createNotionProjectPage(
   return readResult(res);
 }
 
+/** Archive the Notion page. The portal row stays and is hidden by archivedAt. */
+export async function archiveNotionPage(notionPageId: string): Promise<NotionWriteResult> {
+  const res = await notionWriteFetch(`/pages/${notionPageId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ archived: true }),
+  });
+  return readResult(res);
+}
+
 export async function writeNotionPage(
   database: Exclude<WritebackDatabase, 'activity'>,
   request: { method: 'create' | 'update'; notionPageId?: string; properties: WriteProperties },

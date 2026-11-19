@@ -9,6 +9,7 @@
 import {
   WRITEBACK_OFF_ERROR,
   planTaskCreate,
+  planTaskDateWrite,
   planTaskDescriptionWrite,
   planTaskLiveFieldsWrite,
   planTaskResourceWrite,
@@ -327,6 +328,66 @@ export const enqueueLiveFields = internalMutation({
       notionPageId: task.notionPageId,
       expectedLastEditedTime: args.expectedLastEditedTime,
       payload: JSON.stringify({ properties: planned.properties }),
+      actor: 'staff' as const,
+      actorId: args.actorId,
+      schedule: true,
+    });
+  },
+});
+
+/** Queues the Notion Date. The caller has already saved the portal copy. */
+export const enqueueDate = internalMutation({
+  args: {
+    taskId: v.id('tasks'),
+    date: v.union(v.string(), v.null()),
+    expectedLastEditedTime: v.string(),
+    actorId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<EnqueueStatusResult> => {
+    if (!writebackOn()) return { ok: false as const, error: WRITEBACK_OFF_ERROR };
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { ok: false as const, error: 'Task not found' };
+    const planned = planTaskDateWrite({
+      date: args.date,
+      notionPageId: task.notionPageId,
+      expectedLastEditedTime: args.expectedLastEditedTime,
+    });
+    if (!planned.ok) return { ok: false as const, error: planned.error };
+    return ctx.runMutation(internal.sync.outbox.enqueue, {
+      idempotencyKey: planned.idempotencyKey,
+      kind: 'update',
+      orgId: task.orgId,
+      database: 'tasks',
+      notionPageId: task.notionPageId,
+      expectedLastEditedTime: args.expectedLastEditedTime,
+      payload: JSON.stringify({ properties: planned.properties }),
+      actor: 'staff' as const,
+      actorId: args.actorId,
+      schedule: true,
+    });
+  },
+});
+
+/** Queues a Notion page archive. The caller has already hidden the portal row. */
+export const enqueueArchive = internalMutation({
+  args: {
+    taskId: v.id('tasks'),
+    actorId: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<EnqueueStatusResult> => {
+    if (!writebackOn()) return { ok: false as const, error: WRITEBACK_OFF_ERROR };
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { ok: false as const, error: 'Task not found' };
+    if (!task.notionPageId || task.notionPageId.startsWith('portal:')) {
+      return { ok: false as const, error: 'This task has no Notion page' };
+    }
+    return ctx.runMutation(internal.sync.outbox.enqueue, {
+      idempotencyKey: `task-archive:${task.notionPageId}`,
+      kind: 'task-archive',
+      orgId: task.orgId,
+      database: 'tasks',
+      notionPageId: task.notionPageId,
+      payload: JSON.stringify({ properties: {} }),
       actor: 'staff' as const,
       actorId: args.actorId,
       schedule: true,

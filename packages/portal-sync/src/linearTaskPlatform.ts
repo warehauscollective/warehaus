@@ -26,6 +26,7 @@ const ISSUES_QUERY = `query LinearIssues($first: Int!, $after: String) {
       updatedAt
       completedAt
       state { type }
+      assignee { name }
       project { id name }
     }
     pageInfo { hasNextPage endCursor }
@@ -128,6 +129,7 @@ export function mapLinearIssue(node: unknown): PlatformTaskRead | null {
     projectStatus: null,
     projectEndDate: null,
     description: description ? description.slice(0, TASK_DESCRIPTION_MAX) : null,
+    assigneeName: text(asRecord(issue.assignee)?.name),
   };
 }
 

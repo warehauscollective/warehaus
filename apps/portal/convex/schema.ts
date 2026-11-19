@@ -92,6 +92,14 @@ export default defineSchema({
     status: v.string(),
     isDone: v.boolean(),
     date: v.optional(v.string()),
+    /**
+     * Person on this client. The name is stored beside the id so a task list
+     * can return it without another read. Absent until a pull or a staff edit.
+     */
+    assigneeContactId: v.optional(v.id('contacts')),
+    assigneeName: v.optional(v.string()),
+    /** Set when staff archive the task. The row stays. Clients and the board skip it. */
+    archivedAt: v.optional(v.number()),
     /** CLIENT select. Missing until Notion has the property. */
     stage: v.optional(v.union(v.string(), v.null())),
     /**

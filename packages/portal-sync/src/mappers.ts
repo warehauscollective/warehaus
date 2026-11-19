@@ -16,6 +16,7 @@ import {
   extractCheckbox,
   extractDateStart,
   extractEmail,
+  extractPeopleName,
   extractFiles,
   extractFormulaBoolean,
   extractMultiSelect,
@@ -81,6 +82,8 @@ export type MappedTask = {
   status: string;
   isDone: boolean;
   date?: string;
+  /** Display name from Owner / DRI. Absent when Notion has no person. */
+  assigneeName?: string;
   stage?: string;
   parentNotionId?: string;
   resourceNotionIds: string[];
@@ -289,6 +292,7 @@ export function mapNotionTask(
     status,
     isDone: formulaDone ?? status === 'Done',
     date: extractDateStart(properties.Date) ?? undefined,
+    assigneeName: extractPeopleName(properties['Owner / DRI']) ?? undefined,
     stage: stage.stage ?? undefined,
     parentNotionId: parent.parentNotionId ?? undefined,
     resourceNotionIds: extractRelationIds(properties.Resources),

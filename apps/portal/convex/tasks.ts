@@ -1,4 +1,5 @@
 import {
+  TASK_LINK_KINDS,
   TASK_LINK_READ_CAP,
   TASK_STAGES,
   TASK_UNAVAILABLE,
@@ -98,6 +99,7 @@ export const listForClient = clientQuery({
       .collect();
 
     const visible = rows
+      .filter((task) => task.archivedAt == null)
       .filter((task) =>
         clientMaySeeTask({
           publishToWarehaus: task.publishToWarehaus,
@@ -128,7 +130,7 @@ export const getForClient = clientQuery({
         hidden: row.syncHiddenAt != null,
         project: projectGate(project, orgVisible),
       });
-    if (!visible || !row || !project) {
+    if (!visible || !row || !project || row.archivedAt != null) {
       throw new PortalAuthError(TASK_UNAVAILABLE, 'FORBIDDEN');
     }
     const blocked = taskPlatformBlockedMessage(
@@ -183,7 +185,7 @@ export const listSubtasksForClient = clientQuery({
         })),
       ),
     );
-    return children.filter((row) => ids.has(row._id)).map(toClientTask);
+    return children.filter((row) => ids.has(row._id) && row.archivedAt == null).map(toClientTask);
   },
 });
 
@@ -211,6 +213,7 @@ export const listForStaff = adminQuery({
     );
     const rows = serveTasksByOrg(await ctx.db.query('tasks').collect(), (orgId) => platformByOrg.get(orgId));
     return rows
+      .filter((row) => row.archivedAt == null)
       .map((row) => {
         const project = projectById.get(row.projectId);
         return {
@@ -222,6 +225,9 @@ export const listForStaff = adminQuery({
           projectName: project?.name ?? null,
           projectStatus: project?.status ?? null,
           projectEndDate: project?.endDate ?? null,
+          orgId: row.orgId,
+          assigneeName: row.assigneeName ?? null,
+          assigneeContactId: row.assigneeContactId ?? null,
           estimate: row.estimate ?? null,
           priority: row.priority ?? null,
           source: row.source ?? null,
@@ -415,6 +421,214 @@ export const linksForStaff = adminQuery({
       })),
       truncated: rows.length > TASK_LINK_READ_CAP,
     };
+  },
+});
+
+const ASSIGNEE_TAKE = 40;
+
+/** Staff who can be assigned on this client. One indexed page, capped. */
+export const assigneeChoices = adminQuery({
+  args: { orgId: v.id('clients') },
+  handler: async (ctx, { orgId }) => {
+    const contacts = await ctx.db
+      .query('contacts')
+      .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+      .take(ASSIGNEE_TAKE);
+    return contacts
+      .filter(
+        (contact) =>
+          contact.orgId === orgId &&
+          contact.role === 'Warehaus Staff' &&
+          contact.portalAccess === 'Enabled' &&
+          contact.syncHiddenAt == null &&
+          contact.name.trim().length > 0,
+      )
+      .map((contact) => ({ id: contact._id, name: contact.name.trim() }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  },
+});
+
+type FieldSave =
+  | { ok: false; error: string }
+  | { ok: true; wrote: boolean; notion: 'off' | 'queued' | 'portal' };
+
+/** A real UTC calendar day, or null to clear. Anything else is rejected. */
+function calendarDay(value: string | null): string | null | 'bad' {
+  if (value == null) return null;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'bad';
+  const [year, month, day] = value.split('-').map(Number);
+  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return 'bad';
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return 'bad';
+  return value;
+}
+
+export const setAssignee = adminMutation({
+  args: {
+    taskId: v.id('tasks'),
+    assigneeContactId: v.union(v.id('contacts'), v.null()),
+  },
+  handler: async (ctx, args): Promise<FieldSave & { assigneeName: string | null }> => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.archivedAt != null) return { ok: false, error: 'Task not found', assigneeName: null };
+    if (!args.assigneeContactId) {
+      if (task.assigneeContactId == null && !task.assigneeName) {
+        return { ok: true, wrote: false, notion: 'portal', assigneeName: task.assigneeName ?? null };
+      }
+      await ctx.db.patch(task._id, { assigneeContactId: undefined, assigneeName: undefined });
+      return { ok: true, wrote: true, notion: 'portal', assigneeName: null };
+    }
+    const contact = await ctx.db.get(args.assigneeContactId);
+    const name = contact?.name.trim() ?? '';
+    if (
+      !contact ||
+      contact.orgId !== task.orgId ||
+      contact.role !== 'Warehaus Staff' ||
+      contact.portalAccess !== 'Enabled' ||
+      contact.syncHiddenAt != null ||
+      !name
+    ) {
+      return { ok: false, error: 'Choose someone on this client', assigneeName: task.assigneeName ?? null };
+    }
+    if (task.assigneeContactId === contact._id && task.assigneeName === name) {
+      return { ok: true, wrote: false, notion: 'portal', assigneeName: name };
+    }
+    await ctx.db.patch(task._id, { assigneeContactId: contact._id, assigneeName: name });
+    return { ok: true, wrote: true, notion: 'portal', assigneeName: name };
+  },
+});
+
+export const setDueDate = adminMutation({
+  args: {
+    taskId: v.id('tasks'),
+    date: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args): Promise<FieldSave> => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.archivedAt != null) return { ok: false, error: 'Task not found' };
+    const next = calendarDay(args.date);
+    if (next === 'bad') return { ok: false, error: 'Use a calendar day' };
+    if ((task.date ?? null) === next) return { ok: true, wrote: false, notion: 'portal' };
+    await ctx.db.patch(task._id, { date: next ?? undefined });
+    if (!task.lastEditedTime || task.notionPageId.startsWith('portal:')) {
+      return { ok: true, wrote: true, notion: 'portal' };
+    }
+    const queued = await ctx.runMutation(internal.sync.taskWrite.enqueueDate, {
+      taskId: task._id,
+      date: next,
+      expectedLastEditedTime: task.lastEditedTime,
+      actorId: ctx.identity.contactId,
+    });
+    if (!queued.ok) return { ok: true, wrote: true, notion: 'off' };
+    return { ok: true, wrote: true, notion: 'queued' };
+  },
+});
+
+export const moveProject = adminMutation({
+  args: {
+    taskId: v.id('tasks'),
+    projectId: v.id('projects'),
+  },
+  handler: async (ctx, args): Promise<FieldSave & { projectName?: string }> => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.archivedAt != null) return { ok: false, error: 'Task not found' };
+    if (task.projectId === args.projectId) return { ok: true, wrote: false, notion: 'portal' };
+    const project = await ctx.db.get(args.projectId);
+    if (!project || project.orgId !== task.orgId || project.archive || project.syncHiddenAt != null) {
+      return { ok: false, error: 'Choose a project on this client' };
+    }
+    await ctx.db.patch(task._id, {
+      projectId: project._id,
+      portalProjectId: project._id,
+      milestoneId: undefined,
+      milestoneOrder: undefined,
+    });
+    return { ok: true, wrote: true, notion: 'portal', projectName: project.name };
+  },
+});
+
+export const addLink = adminMutation({
+  args: {
+    taskId: v.id('tasks'),
+    kind: v.union(
+      v.literal('chat request'),
+      v.literal('PR'),
+      v.literal('deploy'),
+      v.literal('agent'),
+      v.literal('Figma frame'),
+      v.literal('Notion page or doc'),
+      v.literal('Repo branch'),
+    ),
+    url: v.string(),
+    title: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<FieldSave & { id?: Id<'taskLinks'> }> => {
+    if (!(TASK_LINK_KINDS as readonly string[]).includes(args.kind)) {
+      return { ok: false, error: 'Choose a source kind' };
+    }
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.archivedAt != null) return { ok: false, error: 'Task not found' };
+    const url = args.url.trim();
+    if (!url || url.length > 2000) return { ok: false, error: 'Add a link' };
+    const title = args.title?.trim() ?? '';
+    const existing = await ctx.db
+      .query('taskLinks')
+      .withIndex('by_taskId_url', (q) => q.eq('taskId', task._id).eq('url', url))
+      .unique();
+    if (existing) return { ok: true, wrote: false, notion: 'portal', id: existing._id };
+    const page = await ctx.db
+      .query('taskLinks')
+      .withIndex('by_taskId', (q) => q.eq('taskId', task._id))
+      .take(TASK_LINK_READ_CAP + 1);
+    if (page.length >= TASK_LINK_READ_CAP) return { ok: false, error: 'This task already has 50 sources' };
+    const id = await ctx.db.insert('taskLinks', {
+      orgId: task.orgId,
+      taskId: task._id,
+      kind: args.kind,
+      url,
+      ...(title ? { title } : {}),
+      addedBy: 'staff',
+      createdAt: Date.now(),
+    });
+    return { ok: true, wrote: true, notion: 'portal', id };
+  },
+});
+
+export const removeLink = adminMutation({
+  args: {
+    taskId: v.id('tasks'),
+    linkId: v.id('taskLinks'),
+  },
+  handler: async (ctx, args): Promise<FieldSave> => {
+    const link = await ctx.db.get(args.linkId);
+    if (!link || link.taskId !== args.taskId) return { ok: false, error: 'Source not found' };
+    await ctx.db.delete(link._id);
+    return { ok: true, wrote: true, notion: 'portal' };
+  },
+});
+
+export const archiveTask = adminMutation({
+  args: { taskId: v.id('tasks') },
+  handler: async (ctx, args): Promise<FieldSave> => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { ok: false, error: 'Task not found' };
+    const now = Date.now();
+    if (task.archivedAt == null) await ctx.db.patch(task._id, { archivedAt: now });
+    const children = await ctx.db
+      .query('tasks')
+      .withIndex('by_parentTaskId', (q) => q.eq('parentTaskId', task._id))
+      .take(50);
+    for (const child of children) {
+      if (child.orgId !== task.orgId || child.archivedAt != null) continue;
+      await ctx.db.patch(child._id, { archivedAt: now });
+    }
+    if (task.archivedAt != null) return { ok: true, wrote: false, notion: 'portal' };
+    const queued = await ctx.runMutation(internal.sync.taskWrite.enqueueArchive, {
+      taskId: task._id,
+      actorId: ctx.identity.contactId,
+    });
+    if (!queued.ok) return { ok: true, wrote: true, notion: 'off' };
+    return { ok: true, wrote: true, notion: 'queued' };
   },
 });
 

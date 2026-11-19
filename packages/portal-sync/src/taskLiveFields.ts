@@ -4,7 +4,7 @@
  * Is Done stays read-only. Clients never receive these fields.
  */
 
-import type { WriteProperties, WriteValue } from './writeback';
+import { validatePropertyPatch, type WriteProperties, type WriteValue } from './writeback';
 
 /** Notion Tasks Estimate select. Unknown names fail closed. */
 export const TASK_ESTIMATES = ['XS', 'S', 'M', 'L', 'XL'] as const;
@@ -100,5 +100,26 @@ export function planTaskLiveFieldsWrite(
     ok: true,
     properties,
     idempotencyKey: `task-fields:${input.notionPageId}:${fieldToken(properties)}:${input.expectedLastEditedTime}`,
+  };
+}
+
+const DAY = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Notion Date. Null clears the day. The caller still saves the portal copy when this is refused. */
+export function planTaskDateWrite(input: {
+  date: string | null;
+  notionPageId: string;
+  expectedLastEditedTime: string;
+}): { ok: true; properties: WriteProperties; idempotencyKey: string } | { ok: false; error: string } {
+  if (!input.notionPageId) return { ok: false, error: 'Updates require a Notion page' };
+  if (!input.expectedLastEditedTime) return { ok: false, error: 'Updates require the last read time' };
+  if (input.date != null && !DAY.test(input.date)) return { ok: false, error: 'Use a calendar day' };
+  const properties: WriteProperties = { Date: input.date };
+  const validated = validatePropertyPatch({ database: 'tasks', properties });
+  if (!validated.ok) return { ok: false, error: validated.errors.join('; ') };
+  return {
+    ok: true,
+    properties,
+    idempotencyKey: `task-date:${input.notionPageId}:${input.date ?? ''}:${input.expectedLastEditedTime}`,
   };
 }

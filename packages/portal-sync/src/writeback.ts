@@ -463,6 +463,10 @@ export function toNotionProperties(
       out[name] = { select: null };
       continue;
     }
+    if (name === 'Date') {
+      out[name] = typeof value === 'string' && value ? { date: { start: value } } : { date: null };
+      continue;
+    }
     if (value == null) continue;
     if (name === title && typeof value === 'string') {
       out[name] = { title: [{ type: 'text', text: { content: value } }] };
@@ -482,10 +486,6 @@ export function toNotionProperties(
     }
     if (name === 'Order' && typeof value === 'number') {
       out[name] = { number: value };
-      continue;
-    }
-    if (name === 'Date' && typeof value === 'string') {
-      out[name] = { date: { start: value } };
       continue;
     }
     if (name === 'Type' && database === 'projects' && Array.isArray(value)) {

@@ -429,7 +429,7 @@ export function useMilestoneDetailEdits({
             ) : null}
             {shown?.kind === 'owner' && !phone ? (
               <Popover onClose={() => closeOverlay(true)}>
-                <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} onPick={pickOwner} onClose={() => closeOverlay(true)} />
+                <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} currentName={milestone.ownerName} onPick={pickOwner} onClose={() => closeOverlay(true)} />
               </Popover>
             ) : null}
           </DetailRow>
@@ -587,7 +587,7 @@ export function useMilestoneDetailEdits({
         <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
       ) : null}
       {shown.kind === 'owner' ? (
-        <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} onPick={pickOwner} onClose={() => closeOverlay(true)} sheet />
+        <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} currentName={milestone.ownerName} onPick={pickOwner} onClose={() => closeOverlay(true)} sheet />
       ) : null}
       {shown.kind === 'due' ? (
         <DueDateMenu value={milestone.dueDate ?? null} onPick={pickDue} onClose={() => closeOverlay(true)} sheet />
@@ -794,7 +794,7 @@ function ToneText({ children }: { children: string }) {
   return <span style={{ color: 'var(--muted)', fontSize: 12, lineHeight: '18px' }}>{children}</span>;
 }
 
-function FieldError({ text, onRetry, testId }: { text: string; onRetry: () => void; testId: string }) {
+export function FieldError({ text, onRetry, testId }: { text: string; onRetry: () => void; testId: string }) {
   return (
     <p role="alert" data-testid="milestone-details-error" style={{ marginTop: 6, fontSize: 13, lineHeight: '18px', color: 'var(--danger-text)' }}>
       <TaskGlyph src="/icons/docs-alert.svg" size={12} /> {text}{' '}
@@ -941,7 +941,7 @@ function StatusMenu({
   );
 }
 
-function ProjectMenu({
+export function ProjectMenu({
   query,
   onQuery,
   targets,
@@ -1300,7 +1300,7 @@ function menuViewportBounds(): { top: number; right: number; bottom: number; lef
   return { top: 0, right: window.innerWidth, bottom, left: 0 };
 }
 
-function Popover({ up, onClose, children }: { up?: boolean; onClose: () => void; children: ReactNode }) {
+export function Popover({ up, onClose, children }: { up?: boolean; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
   const returnFocus = useRef<HTMLElement | null>(null);
@@ -1364,8 +1364,10 @@ function Popover({ up, onClose, children }: { up?: boolean; onClose: () => void;
     <div
       ref={ref}
       data-menu-layer=""
-      className="absolute z-30"
-      style={up ? { right: 0, bottom: 'calc(100% + 8px)', width: 360 } : { right: 0, top: 'calc(100% + 8px)', width: 400 }}
+      className="ds-scope absolute z-30"
+      style={up
+        ? { right: 0, bottom: 'calc(100% + 8px)', width: 360, background: 'transparent' }
+        : { right: 0, top: 'calc(100% + 8px)', width: 400, background: 'transparent' }}
       onKeyDown={(event) => {
         if (event.key === 'Tab') {
           event.preventDefault();
@@ -1425,6 +1427,7 @@ function optionStyle(selected: boolean): CSSProperties {
 export function OwnerMenu({
   people,
   currentId,
+  currentName,
   onPick,
   onClose,
   sheet,
@@ -1432,25 +1435,40 @@ export function OwnerMenu({
 }: {
   people: readonly OwnerChoice[];
   currentId: string | null;
+  /** Shown when the saved name has no contact in this list. Never marks Unassigned. */
+  currentName?: string | null;
   onPick: (id: string | null) => void;
   onClose: () => void;
   sheet?: boolean;
   foot?: string;
 }) {
-  const options = [...people.map((person) => ({ id: person.id, name: person.name })), { id: null as string | null, name: 'Unassigned' }];
+  const known = currentId != null && people.some((person) => person.id === currentId);
+  const savedName = currentName?.trim() ?? '';
+  const nameOnly = !known && savedName.length > 0;
+  const options: Array<{ key: string; id: string | null; name: string; kind: 'name' | 'person' | 'none' }> = [
+    ...(nameOnly ? [{ key: 'name-only', id: null, name: savedName, kind: 'name' as const }] : []),
+    ...people.map((person) => ({ key: person.id, id: person.id, name: person.name, kind: 'person' as const })),
+    { key: 'unassigned', id: null, name: 'Unassigned', kind: 'none' as const },
+  ];
   return (
     <div role="listbox" aria-label="Owner" data-testid="milestone-owner-menu" onKeyDown={(event) => menuKey(event, onClose)} style={menuStyle(sheet)}>
       {sheet ? <SheetHeader title="Owner" onClose={onClose} /> : null}
       {options.map((option) => {
-        const selected = option.id === currentId;
+        const selected = option.kind === 'name' || (option.kind === 'person' && option.id === currentId) || (option.kind === 'none' && !nameOnly && currentId == null);
         return (
           <button
-            key={option.id ?? 'unassigned'}
+            key={option.key}
             type="button"
             role="option"
             aria-selected={selected}
             data-menu-initial-focus={selected ? '' : undefined}
-            onClick={() => onPick(option.id)}
+            onClick={() => {
+              if (option.kind === 'name') {
+                onClose();
+                return;
+              }
+              onPick(option.id);
+            }}
             className="milestone-field flex w-full items-center gap-2 text-left"
             style={optionStyle(selected)}
           >

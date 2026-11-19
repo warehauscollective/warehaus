@@ -216,6 +216,10 @@ html.light .ds-scope {
   outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
+.portal-outline-button.task-confirm-cancel:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
 .portal-icon-button:focus-visible {
   outline: 2px solid var(--fg);
   outline-offset: 2px;
@@ -559,7 +563,24 @@ body:has([data-sheet-layer='viewport']) [data-testid='portal-dock'] {
   display: flex;
   justify-content: center;
   padding-top: 8px;
+  padding-bottom: 4px;
   flex: 0 0 auto;
+  position: relative;
+  z-index: 2;
+  background: var(--surface);
+}
+.task-sheet-chrome {
+  flex: 0 0 auto;
+  position: relative;
+  z-index: 1;
+  background: var(--surface);
+  padding: 4px 20px 12px;
+}
+.task-sheet-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0 20px 20px;
 }
 .ds-scope .portal-modal-grabber > span {
   width: 36px;

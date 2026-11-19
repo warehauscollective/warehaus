@@ -111,6 +111,7 @@ export function ProjectsContent() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
   const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
+  const [archivedFixtureIds, setArchivedFixtureIds] = useState<string[]>([]);
   const [queuedStage, setQueuedStage] = useState<{
     taskId: string;
     stage: string;
@@ -194,7 +195,7 @@ export function ProjectsContent() {
   }, [fixtures, isStaff, staff.projects, data.projects]);
   const tasks = (
     fixtures
-      ? FIXTURE_TASKS.filter((task) => isStaff || (task.publishToWarehaus && !task.syncHidden))
+      ? FIXTURE_TASKS.filter((task) => (isStaff || (task.publishToWarehaus && !task.syncHidden)) && !archivedFixtureIds.includes(task.id))
       : isStaff
         ? staff.tasks ?? data.tasks
         : data.tasks
@@ -566,6 +567,7 @@ export function ProjectsContent() {
             clientName={openProject.internal ? null : openProject.clientName ?? null}
             resources={(fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[]}
             onClose={closeTask}
+            onArchived={setArchivedFixtureIds}
             onOpenTask={(id) => {
               clearPortalReturn();
               if (fixtures) setFixtureTaskId(id);
@@ -770,6 +772,7 @@ export function ProjectsContent() {
           })()}
           resources={(fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[]}
           onClose={closeTask}
+          onArchived={setArchivedFixtureIds}
           onOpenTask={(id) => {
             clearPortalReturn();
             if (fixtures) setFixtureTaskId(id);
@@ -850,6 +853,7 @@ function ProjectTaskOverlay({
   clientName = null,
   onClose,
   onOpenTask,
+  onArchived,
 }: {
   taskId: string;
   tasks: PortalTask[];
@@ -860,6 +864,7 @@ function ProjectTaskOverlay({
   clientName?: string | null;
   onClose: () => void;
   onOpenTask: (id: string) => void;
+  onArchived?: (ids: string[]) => void;
 }) {
   const task = tasks.find((item) => item.id === taskId) ?? null;
   const taskKey = !fixtures && task ? (task.id as Id<'tasks'>) : null;
@@ -877,6 +882,11 @@ function ProjectTaskOverlay({
   );
   const [phone, setPhone] = useState(false);
   const [fixtureStage, setFixtureStage] = useState<string | null>(null);
+  const [fixtureArchive, setFixtureArchive] = useState(false);
+  const [fixtureMenu, setFixtureMenu] = useState<'assignee' | 'due' | 'project' | 'add-source' | null>(null);
+  const [fixtureFieldError, setFixtureFieldError] = useState<'assignee' | 'due' | 'project' | null>(null);
+  const [fixtureSourceError, setFixtureSourceError] = useState<string | null>(null);
+  const [fixtureAssignee, setFixtureAssignee] = useState<'contact' | null>(null);
   const closeLabel = taskCloseLabel(peekPortalReturn());
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
@@ -887,7 +897,15 @@ function ProjectTaskOverlay({
   }, []);
   useEffect(() => {
     if (!fixtures) return;
-    setFixtureStage(new URLSearchParams(window.location.search).get('stageConfirm'));
+    const params = new URLSearchParams(window.location.search);
+    setFixtureStage(params.get('stageConfirm'));
+    setFixtureArchive(params.get('confirm') === 'archive');
+    const menu = params.get('menu');
+    setFixtureMenu(menu === 'assignee' || menu === 'due' || menu === 'project' || menu === 'add-source' ? menu : null);
+    const field = params.get('fieldError');
+    setFixtureFieldError(field === 'assignee' || field === 'due' || field === 'project' ? field : null);
+    setFixtureSourceError(params.get('sourceError'));
+    setFixtureAssignee(params.get('assignee') === 'contact' ? 'contact' : null);
   }, [fixtures]);
   const subtasks = staff
     ? tasks.filter((item) => item.parentTaskId === taskId)
@@ -904,7 +922,7 @@ function ProjectTaskOverlay({
     : clientAttached.data ?? [];
   return (
     <TaskDetailModal
-      task={task}
+      task={task && fixtures && fixtureAssignee === 'contact' ? { ...task, assigneeContactId: 'ct-maya', assigneeName: 'Maya Chen' } : task}
       staff={staff}
       phone={phone}
       unavailable={!task}
@@ -915,6 +933,13 @@ function ProjectTaskOverlay({
       hostSlug={hostSlug}
       live={!fixtures}
       initialStageConfirm={phone ? fixtureStage : null}
+      initialArchive={fixtureArchive}
+      initialMenu={fixtureMenu}
+      initialFieldError={fixtureFieldError}
+      initialSourceError={fixtureSourceError}
+      onArchived={onArchived}
+      people={fixtures && task ? FIXTURE_CONTACTS.filter((contact) => contact.orgId === task.orgId && contact.role === 'Warehaus Staff' && contact.portalAccess === 'Enabled').map((contact) => ({ id: contact.id, name: contact.name })) : []}
+      projects={fixtures && task ? FIXTURE_PROJECTS.filter((project) => project.orgId === task.orgId && !project.internal && !project.syncHidden).map((project) => ({ id: project.id, name: project.name })) : []}
       closeLabel={closeLabel}
       onClose={onClose}
       onOpenTask={onOpenTask}

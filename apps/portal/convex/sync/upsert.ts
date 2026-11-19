@@ -155,6 +155,7 @@ export const upsertTask = internalMutation({
     status: v.string(),
     isDone: v.boolean(),
     date: v.optional(v.string()),
+    assigneeName: v.optional(v.string()),
     stage: v.optional(v.union(v.string(), v.null())),
     parentNotionPageId: v.optional(v.union(v.string(), v.null())),
     resourceNotionIds: v.optional(v.array(v.string())),
@@ -176,7 +177,7 @@ export const upsertTask = internalMutation({
     syncNotice: v.optional(v.union(v.string(), v.null())),
   },
   handler: async (ctx, args) => {
-    const { hiddenReason, syncNotice, description, descriptionSource, nextAction, figmaFrame, repoBranch, ...fields } = args;
+    const { hiddenReason, syncNotice, description, descriptionSource, nextAction, figmaFrame, repoBranch, assigneeName, ...fields } = args;
     const existing = await ctx.db
       .query('tasks')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
@@ -343,6 +344,13 @@ export const upsertTask = internalMutation({
       isDone,
       ...(priorityMerge.applied ? { priority: fields.priority } : existing ? { priority: existing.priority } : {}),
       nextAction: mergedNextAction,
+      ...(existing?.assigneeContactId
+        ? {}
+        : assigneeName?.trim()
+          ? { assigneeName: assigneeName.trim() }
+          : existing
+            ? { assigneeName: undefined }
+            : {}),
       figmaFrame: figmaFrame ?? null,
       repoBranch: repoBranch ?? null,
       ...(Object.keys(fieldStamps).length > 0 ? { fieldStamps } : {}),
