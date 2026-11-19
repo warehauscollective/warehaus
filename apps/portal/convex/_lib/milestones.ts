@@ -547,7 +547,7 @@ export type MilestoneResourceView = {
   url: string | null;
 };
 
-const CLIENT_ROADMAP_OMIT = ['publishToWarehaus', 'approval', 'note', 'approverName', 'decidedAt', 'creator', 'creatorName'] as const;
+const CLIENT_ROADMAP_OMIT = ['approval', 'note', 'approverName', 'decidedAt', 'creator'] as const;
 
 /** Staff keep every field. Clients get a copy with the private keys removed, not nulled. */
 export function roadmapViewForAudience<T extends object>(view: T, audience: 'staff' | 'client'): T {
@@ -582,7 +582,7 @@ export type MilestoneRoadmapView = {
   ownerName?: string | null;
   /** Calendar day, YYYY-MM-DD. Absent when not set. */
   dueDate?: string | null;
-  /** Staff only. The person who created the milestone. Absent on older rows and for clients. */
+  /** The person who created the milestone. Absent on older rows. Clients see it read-only. */
   creatorName?: string | null;
   resources: MilestoneResourceView[];
   openCount: number;

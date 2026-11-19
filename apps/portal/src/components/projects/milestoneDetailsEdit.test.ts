@@ -80,9 +80,10 @@ describe('milestone details panel', () => {
     assert.match(staff, /<p data-testid="milestone-objective"/);
 
     const client = view({ staff: false });
-    assert.equal(client.includes('data-testid="milestone-creator"'), false);
+    assert.match(client, /data-testid="milestone-creator"[^>]*>—</);
+    assert.equal(client.includes('milestone-creator-note'), false);
     assert.equal(client.includes('data-testid="milestone-visibility-edit"'), false);
-    assert.equal(client.includes('data-testid="milestone-publish"'), false);
+    assert.match(client, /data-testid="milestone-publish"[^>]*>Not published</);
     assert.equal(client.includes('data-testid="milestone-status-edit"'), false);
     assert.equal(client.includes('data-testid="milestone-stage-edit"'), false);
     assert.equal(client.includes('data-testid="milestone-project-edit"'), false);
@@ -112,6 +113,20 @@ describe('milestone details panel', () => {
     assert.match(named, /data-testid="milestone-due"[^>]*>Nov 20, 2026</);
     assert.match(named, /data-testid="milestone-creator"[^>]*>Maya Chen</);
     assert.match(named, /Set automatically · read-only/);
+
+    const shared = view({
+      staff: false,
+      milestone: {
+        ...milestone,
+        creatorName: 'Maya Chen',
+        publishToWarehaus: true,
+      },
+    });
+    assert.match(shared, /data-testid="milestone-creator"[^>]*>Maya Chen</);
+    assert.match(shared, /data-testid="milestone-publish"[^>]*>Shared with client</);
+    assert.equal(shared.includes('milestone-visibility-edit'), false);
+    assert.equal(shared.includes('milestone-owner-edit'), false);
+    assert.equal(shared.includes('Staff only'), false);
   });
 
   it('flips a menu above its anchor when the space below is too short', () => {

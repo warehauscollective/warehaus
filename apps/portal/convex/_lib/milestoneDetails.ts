@@ -238,12 +238,12 @@ export function clientReviewDecision(): { ok: false; reason: string } {
   return { ok: false, reason: 'Clients cannot review a milestone' };
 }
 
-/** Clients never see Creator, Visibility, Approval, or Last review. */
+/** Clients see Creator and Visibility read-only. Approval and Last review stay staff-only. */
 export function clientSeesDetailsRow(
   row: 'creator' | 'visibility' | 'approval' | 'review' | 'owner' | 'due' | 'created' | 'project' | 'status' | 'stage',
   staff: boolean,
 ): boolean {
-  if (row === 'creator' || row === 'visibility' || row === 'approval' || row === 'review') return staff;
+  if (row === 'approval' || row === 'review') return staff;
   return true;
 }
 

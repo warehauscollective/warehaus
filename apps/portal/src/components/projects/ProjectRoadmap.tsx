@@ -18,7 +18,7 @@ import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
 import { FIXTURE_CONTACTS, FIXTURE_PROJECTS } from '@/lib/data/fixtures';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
-import { DueDateMenu, OwnerMenu, StageMenu, anchoredMenuBox, useMilestoneDetailEdits, type MoveTarget, type OwnerChoice } from './milestoneDetailsEdit';
+import { DueDateMenu, OwnerMenu, StageMenu, anchoredMenuBox, menuButtons, nextDialogFocus, useMilestoneDetailEdits, type MoveTarget, type OwnerChoice } from './milestoneDetailsEdit';
 import { type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { MilestoneReviewLive, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
@@ -2082,14 +2082,19 @@ function createDialogBounds(anchor: HTMLElement): { top: number; right: number; 
 }
 
 /** Desktop owner and due menus. Portaled so the dialog footer cannot cover them. */
-function FieldMenu({
+export function FieldMenu({
   anchorRef,
+  onClose,
   children,
 }: {
   anchorRef: RefObject<HTMLElement | null>;
+  onClose: () => void;
   children: ReactNode;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   const [host, setHost] = useState<HTMLElement | null>(null);
   useLayoutEffect(() => {
     setHost(document.body);
@@ -2097,7 +2102,7 @@ function FieldMenu({
   useLayoutEffect(() => {
     const menu = menuRef.current;
     const anchor = anchorRef.current;
-    if (!menu || !anchor || !host) return;
+    if (!menu || !anchor || !host || typeof anchor.getBoundingClientRect !== 'function') return;
     const place = () => {
       const rect = anchor.getBoundingClientRect();
       const box = anchoredMenuBox({
@@ -2114,20 +2119,71 @@ function FieldMenu({
       menu.dataset.placement = box.placement;
     };
     place();
-    const observer = new ResizeObserver(place);
-    observer.observe(menu);
+    menu.querySelector<HTMLElement>('[data-menu-initial-focus]')?.focus({ preventScroll: true });
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    observer?.observe(menu);
     window.addEventListener('resize', place);
     const scroll = anchor.closest('[data-portal-modal-body]');
     scroll?.addEventListener('scroll', place);
     return () => {
-      observer.disconnect();
+      observer?.disconnect();
       window.removeEventListener('resize', place);
       scroll?.removeEventListener('scroll', place);
     };
   }, [anchorRef, host]);
+  useEffect(() => {
+    if (!host) return;
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (menuRef.current?.contains(target)) return;
+      if (anchorRef.current?.contains(target)) return;
+      onCloseRef.current();
+    };
+    document.addEventListener('pointerdown', onPointer);
+    return () => document.removeEventListener('pointerdown', onPointer);
+  }, [anchorRef, host]);
+  useEffect(() => {
+    const anchor = anchorRef.current;
+    return () => {
+      const target = returnFocus.current ?? anchor;
+      target?.focus({ preventScroll: true });
+      window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+    };
+  }, [anchorRef]);
   if (!host) return null;
   return createPortal(
-    <div ref={menuRef} className="ds-scope" data-testid="milestone-field-menu">
+    <div
+      ref={menuRef}
+      className="ds-scope"
+      data-testid="milestone-field-menu"
+      data-menu-layer=""
+      style={{ background: 'transparent' }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          returnFocus.current = anchorRef.current;
+          onCloseRef.current();
+          return;
+        }
+        if (event.key === 'Tab') {
+          event.preventDefault();
+          event.stopPropagation();
+          const anchor = anchorRef.current;
+          returnFocus.current = anchor ? nextDialogFocus(anchor, event.shiftKey) : null;
+          onCloseRef.current();
+          return;
+        }
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        const items = menuButtons(menuRef.current);
+        const index = items.indexOf(document.activeElement as HTMLElement);
+        if (index < 0 || items.length === 0) return;
+        event.preventDefault();
+        const next = event.key === 'ArrowDown' ? index + 1 : index - 1;
+        items[(next + items.length) % items.length]?.focus({ preventScroll: true });
+      }}
+    >
       {children}
     </div>,
     host,
@@ -2317,7 +2373,7 @@ function CreateMilestone({
                 >
                   {ownerName ?? 'Choose a person'}
                 </button>
-                {layer === 'owner' && !phone ? <FieldMenu anchorRef={ownerAnchor}>{picker('owner')}</FieldMenu> : null}
+                {layer === 'owner' && !phone ? <FieldMenu anchorRef={ownerAnchor} onClose={() => setLayer('form')}>{picker('owner')}</FieldMenu> : null}
               </div>
               <div className="relative flex flex-col gap-2">
                 <span style={{ fontSize: 14 }}>Due date</span>
@@ -2331,7 +2387,7 @@ function CreateMilestone({
                 >
                   {formatDueDate(dueDate) ?? 'Choose a date'}
                 </button>
-                {layer === 'due' && !phone ? <FieldMenu anchorRef={dueAnchor}>{picker('due')}</FieldMenu> : null}
+                {layer === 'due' && !phone ? <FieldMenu anchorRef={dueAnchor} onClose={() => setLayer('form')}>{picker('due')}</FieldMenu> : null}
               </div>
             </div>
           }

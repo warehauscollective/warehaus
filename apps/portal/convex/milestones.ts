@@ -313,7 +313,7 @@ async function toRoadmap(
     ownerContactId: milestone.ownerContactId ?? null,
     ownerName: await ownerNameFor(ctx, milestone),
     dueDate: milestone.dueDate ?? null,
-    ...(audience === 'staff' ? { creatorName: await creatorNameFor(ctx, milestone) } : {}),
+    creatorName: await creatorNameFor(ctx, milestone),
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,

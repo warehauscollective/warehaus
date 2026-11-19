@@ -206,9 +206,9 @@ describe('task move and client rows', () => {
     });
   });
 
-  it('hides Creator and Visibility from clients and shows the other rows', () => {
-    assert.equal(clientSeesDetailsRow('creator', false), false);
-    assert.equal(clientSeesDetailsRow('visibility', false), false);
+  it('shows Creator and Visibility to clients and keeps approval private', () => {
+    assert.equal(clientSeesDetailsRow('creator', false), true);
+    assert.equal(clientSeesDetailsRow('visibility', false), true);
     assert.equal(clientSeesDetailsRow('creator', true), true);
     assert.equal(clientSeesDetailsRow('visibility', true), true);
     assert.equal(clientSeesDetailsRow('approval', false), false);
@@ -237,9 +237,11 @@ describe('task move and client rows', () => {
       creatorName: 'Peter',
       workStatus: 'ready',
     }, 'client');
-    for (const key of ['publishToWarehaus', 'approval', 'note', 'approverName', 'decidedAt', 'creator', 'creatorName']) {
+    for (const key of ['approval', 'note', 'approverName', 'decidedAt', 'creator']) {
       assert.equal(key in clientView, false, key);
     }
+    assert.equal(clientView.creatorName, 'Peter');
+    assert.equal(clientView.publishToWarehaus, true);
     assert.equal(clientView.workStatus, 'ready');
     const staffView = roadmapViewForAudience({ publishToWarehaus: true, approval: 'approved' }, 'staff');
     assert.equal(staffView.publishToWarehaus, true);

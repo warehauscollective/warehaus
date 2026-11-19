@@ -379,7 +379,7 @@ export function useMilestoneDetailEdits({
             <FieldError testId="milestone-status-retry" text={fieldError} onRetry={() => { const status = pending.current.status; if (status) pickStatus(status); }} />
           ) : null}
           {shown?.kind === 'status' && !phone ? (
-            <Popover>
+            <Popover onClose={() => closeOverlay(true)}>
               <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} />
             </Popover>
           ) : null}
@@ -403,7 +403,7 @@ export function useMilestoneDetailEdits({
             <FieldError testId="milestone-stage-retry" text={fieldError} onRetry={() => { const stage = pending.current.stage; if (stage) pickStage(stage); }} />
           ) : null}
           {shown?.kind === 'stage' && !phone ? (
-            <Popover>
+            <Popover onClose={() => closeOverlay(true)}>
               <StageMenu current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} />
             </Popover>
           ) : null}
@@ -428,7 +428,7 @@ export function useMilestoneDetailEdits({
               <FieldError testId="milestone-owner-retry" text={fieldError} onRetry={() => pickOwner(pending.current.ownerId)} />
             ) : null}
             {shown?.kind === 'owner' && !phone ? (
-              <Popover>
+              <Popover onClose={() => closeOverlay(true)}>
                 <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} onPick={pickOwner} onClose={() => closeOverlay(true)} />
               </Popover>
             ) : null}
@@ -439,9 +439,11 @@ export function useMilestoneDetailEdits({
             <FieldValue>
               <span data-testid="milestone-creator">{milestone.creatorName?.trim() || '—'}</span>
             </FieldValue>
-            <p data-testid="milestone-creator-note" style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-              Set automatically · read-only
-            </p>
+            {staff ? (
+              <p data-testid="milestone-creator-note" style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                Set automatically · read-only
+              </p>
+            ) : null}
           </DetailRow>
         ) : null}
         <DetailRow label="CREATED">
@@ -468,7 +470,7 @@ export function useMilestoneDetailEdits({
             <FieldError testId="milestone-due-retry" text={fieldError} onRetry={() => pickDue(pending.current.dueDate)} />
           ) : null}
           {shown?.kind === 'due' && !phone ? (
-            <Popover>
+            <Popover onClose={() => closeOverlay(true)}>
               <DueDateMenu value={milestone.dueDate ?? null} onPick={pickDue} onClose={() => closeOverlay(true)} />
             </Popover>
           ) : null}
@@ -492,7 +494,7 @@ export function useMilestoneDetailEdits({
             <FieldError testId="milestone-project-retry" text={fieldError} onRetry={() => { const target = pending.current.project; if (target) confirmMove(target); }} />
           ) : null}
           {shown?.kind === 'project' && !phone ? (
-            <Popover up>
+            <Popover up onClose={() => closeOverlay(true)}>
               <ProjectMenu
                 query={projectQuery}
                 onQuery={setProjectQuery}
@@ -510,6 +512,7 @@ export function useMilestoneDetailEdits({
         </DetailRow>
         {clientSeesDetailsRow('visibility', staff) ? (
           <DetailRow label="VISIBILITY" wide>
+            {staff ? (
             <ValueButton
               testId="milestone-visibility-edit"
               valueTestId="milestone-publish"
@@ -518,10 +521,17 @@ export function useMilestoneDetailEdits({
               open={shown?.kind === 'visibility' || shown?.kind === 'confirm-publish' || shown?.kind === 'confirm-unpublish'}
               onClick={() => openOverlay(shown?.kind === 'visibility' ? null : { kind: 'visibility' })}
             />
+            ) : (
+              <FieldValue>
+                <span data-testid="milestone-publish">{milestone.publishToWarehaus ? 'Shared with client' : 'Not published'}</span>
+              </FieldValue>
+            )}
+            {staff ? (
             <p data-testid="milestone-visibility-note" style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
               Staff only · clients see nothing
             </p>
-            {shown?.kind === 'visibility' && !phone ? (
+            ) : null}
+            {staff && shown?.kind === 'visibility' && !phone ? (
               <VisibilitySegment
                 published={milestone.publishToWarehaus}
                 onPick={(publish) => {
@@ -798,8 +808,30 @@ function FieldError({ text, onRetry, testId }: { text: string; onRetry: () => vo
 function menuKey(event: ReactKeyboardEvent<HTMLDivElement>, onClose: () => void) {
   if (event.key === 'Escape') {
     event.preventDefault();
+    event.stopPropagation();
     onClose();
   }
+}
+
+const DIALOG_FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/** Next or previous control inside the dialog, skipping an open menu layer. */
+export function nextDialogFocus(anchor: HTMLElement, shiftKey: boolean): HTMLElement | null {
+  const root = anchor.closest('[role="dialog"]') ?? anchor.closest('[data-page-scroll]') ?? anchor.ownerDocument.body;
+  const nodes = [...root.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE)].filter((el) => {
+    if (el.hasAttribute('disabled') || el.closest('[data-menu-layer]')) return false;
+    return el.tabIndex >= 0;
+  });
+  if (nodes.length === 0) return anchor;
+  const index = nodes.indexOf(anchor);
+  if (index < 0) return shiftKey ? nodes[nodes.length - 1]! : nodes[0]!;
+  const next = shiftKey ? index - 1 : index + 1;
+  return nodes[(next + nodes.length) % nodes.length] ?? anchor;
+}
+
+export function menuButtons(root: ParentNode | null): HTMLElement[] {
+  if (!root) return [];
+  return [...root.querySelectorAll<HTMLElement>('button')].filter((button) => !button.hasAttribute('disabled'));
 }
 
 export function StageMenu({
@@ -1266,14 +1298,20 @@ function menuViewportBounds(): { top: number; right: number; bottom: number; lef
   return { top: 0, right: window.innerWidth, bottom, left: 0 };
 }
 
-function Popover({ up, children }: { up?: boolean; children: ReactNode }) {
+function Popover({ up, onClose, children }: { up?: boolean; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
+  const anchorRef = useRef<HTMLElement | null>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useLayoutEffect(() => {
     const node = ref.current;
-    const anchor = node?.parentElement;
-    if (!node || !anchor || typeof anchor.getBoundingClientRect !== 'function') return;
+    const row = node?.parentElement;
+    const anchor = row?.querySelector<HTMLElement>('button') ?? null;
+    anchorRef.current = anchor;
+    if (!node || !row || typeof row.getBoundingClientRect !== 'function') return;
     const place = () => {
-      const rect = anchor.getBoundingClientRect();
+      const rect = row.getBoundingClientRect();
       const width = up ? 360 : 400;
       const box = anchoredMenuBox({
         anchor: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
@@ -1291,21 +1329,58 @@ function Popover({ up, children }: { up?: boolean; children: ReactNode }) {
       node.dataset.placement = box.placement;
     };
     place();
+    node.querySelector<HTMLElement>('[data-menu-initial-focus]')?.focus({ preventScroll: true });
     window.addEventListener('scroll', place, true);
     window.addEventListener('resize', place);
-    const observer = new ResizeObserver(place);
-    observer.observe(node);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    observer?.observe(node);
     return () => {
       window.removeEventListener('scroll', place, true);
       window.removeEventListener('resize', place);
-      observer.disconnect();
+      observer?.disconnect();
     };
   }, [up]);
+  useEffect(() => {
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (ref.current?.contains(target)) return;
+      if (anchorRef.current?.contains(target)) return;
+      onCloseRef.current();
+    };
+    document.addEventListener('pointerdown', onPointer);
+    return () => document.removeEventListener('pointerdown', onPointer);
+  }, []);
+  useEffect(() => {
+    return () => {
+      const target = returnFocus.current ?? anchorRef.current;
+      target?.focus({ preventScroll: true });
+      window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+    };
+  }, []);
   return (
     <div
       ref={ref}
+      data-menu-layer=""
       className="absolute z-30"
       style={up ? { right: 0, bottom: 'calc(100% + 8px)', width: 360 } : { right: 0, top: 'calc(100% + 8px)', width: 400 }}
+      onKeyDown={(event) => {
+        if (event.key === 'Tab') {
+          event.preventDefault();
+          event.stopPropagation();
+          const anchor = anchorRef.current ?? (event.currentTarget as HTMLElement);
+          returnFocus.current = nextDialogFocus(anchor, event.shiftKey);
+          onCloseRef.current();
+          return;
+        }
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        const items = menuButtons(ref.current);
+        const index = items.indexOf(document.activeElement as HTMLElement);
+        if (index < 0 || items.length === 0) return;
+        event.preventDefault();
+        const next = event.key === 'ArrowDown' ? index + 1 : index - 1;
+        items[(next + items.length) % items.length]?.focus({ preventScroll: true });
+      }}
     >
       {children}
     </div>
@@ -1319,7 +1394,7 @@ function SheetHeader({ title, onClose }: { title: string; onClose: () => void })
       <button
         type="button"
         onClick={onClose}
-        className="ml-auto rounded-[9px] px-3 py-2 focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-2"
+        className="ml-auto rounded-[9px] px-3 py-2 focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
         style={{ background: 'none', border: 0, color: 'var(--muted)', font: 'inherit', fontSize: 14, lineHeight: '21px', cursor: 'pointer' }}
       >
         Close
@@ -1372,6 +1447,7 @@ export function OwnerMenu({
             type="button"
             role="option"
             aria-selected={selected}
+            data-menu-initial-focus={selected ? '' : undefined}
             onClick={() => onPick(option.id)}
             className="milestone-field flex w-full items-center gap-2 text-left"
             style={optionStyle(selected)}
@@ -1408,6 +1484,11 @@ function dateParts(value: string | null): { year: number; month: number; day: nu
 
 function pad(value: number): string {
   return String(value).padStart(2, '0');
+}
+
+function todayIso(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
 }
 
 export function DueDateMenu({
@@ -1452,12 +1533,14 @@ export function DueDateMenu({
           if (!day) return <span key={`empty-${index}`} />;
           const iso = `${cursor.year}-${pad(cursor.month)}-${pad(day)}`;
           const selected = iso === value;
+          const today = todayIso();
           return (
             <button
               key={iso}
               type="button"
               aria-label={iso}
               aria-pressed={selected}
+              data-menu-initial-focus={selected || (value == null && iso === today) ? '' : undefined}
               onClick={() => onPick(iso)}
               className="milestone-field"
               style={{
@@ -1465,7 +1548,7 @@ export function DueDateMenu({
                 height: 32,
                 margin: '0 auto',
                 border: 0,
-                borderRadius: 999,
+                borderRadius: selected ? 8 : 999,
                 background: selected ? 'var(--fg)' : 'transparent',
                 color: selected ? 'var(--bg)' : 'var(--fg)',
                 font: 'inherit',

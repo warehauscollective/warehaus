@@ -133,7 +133,9 @@ export function PortalModal({
     }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (lockedRef.current) return;
+        // A portaled field menu calls preventDefault before this listener.
+        // That closes the menu and leaves this dialog open.
+        if (event.defaultPrevented || lockedRef.current) return;
         event.preventDefault();
         event.stopPropagation();
         closeRef.current();
