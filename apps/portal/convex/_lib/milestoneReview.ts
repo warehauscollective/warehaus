@@ -6,6 +6,11 @@
  */
 
 export const ONLY_PETER = 'Only Peter can approve a milestone';
+export const CHAT_CONTACT_MISSING = 'Request changes needs Peter’s staff contact.';
+
+export function chatContactError(decision: 'approve' | 'request_changes'): string {
+  return decision === 'request_changes' ? CHAT_CONTACT_MISSING : ONLY_PETER;
+}
 export const STAFF_REQUIRED = 'Staff role required';
 export const NOTES_REQUIRED = 'Add a note so the team knows what to change.';
 export const STALE_ITERATION = 'That iteration is stale.';
@@ -21,6 +26,74 @@ export const PETER_CHAT_TOKEN = 'grok-bot';
 
 export const TASK_STAGE_HINT =
   'Staff can set any stage except Shipped. Shipped is set when the pull request merges.';
+
+/** Shown on a disabled Retry. The rebuild and the preview delete need the tokens in #113. */
+export const RETRY_WAITS_ON_TOKENS = 'Retry waits on the GitHub and Vercel tokens.';
+
+export type PreviewBuildStatus = 'building' | 'failed';
+export type PreviewDeleteStatus = 'removing' | 'failed' | 'removed';
+
+export function reviewPreviewRetryReady(env: {
+  githubToken?: string | null;
+  vercelToken?: string | null;
+}): boolean {
+  return Boolean(env.githubToken && env.vercelToken);
+}
+
+/** Fields to write for a preview lifecycle change. Null when nothing changed. */
+export function previewStatusPatch(
+  current: {
+    previewBuild?: PreviewBuildStatus | null;
+    previewBuildAttempt?: number | null;
+    previewBuildAt?: number | null;
+    previewDelete?: PreviewDeleteStatus | null;
+    previewDeleteAttempt?: number | null;
+    previewDeleteAt?: number | null;
+  },
+  next: {
+    build?: PreviewBuildStatus | 'ready';
+    buildAttempt?: number;
+    buildAt?: number;
+    deleteStatus?: PreviewDeleteStatus;
+    deleteAttempt?: number;
+    deleteAt?: number;
+  },
+): {
+  previewBuild?: PreviewBuildStatus;
+  previewBuildAttempt?: number;
+  previewBuildAt?: number;
+  previewDelete?: PreviewDeleteStatus;
+  previewDeleteAttempt?: number;
+  previewDeleteAt?: number;
+} | null {
+  const patch: {
+    previewBuild?: PreviewBuildStatus;
+    previewBuildAttempt?: number;
+    previewBuildAt?: number;
+    previewDelete?: PreviewDeleteStatus;
+    previewDeleteAttempt?: number;
+    previewDeleteAt?: number;
+  } = {};
+  if (next.build === 'ready') {
+    if (current.previewBuild) patch.previewBuild = undefined;
+    if (current.previewBuildAttempt != null) patch.previewBuildAttempt = undefined;
+    if (current.previewBuildAt != null) patch.previewBuildAt = undefined;
+  } else if (next.build && current.previewBuild !== next.build) {
+    patch.previewBuild = next.build;
+    if (next.buildAt != null && current.previewBuildAt !== next.buildAt) patch.previewBuildAt = next.buildAt;
+    if (next.buildAttempt != null && current.previewBuildAttempt !== next.buildAttempt) {
+      patch.previewBuildAttempt = next.buildAttempt;
+    }
+  }
+  if (next.deleteStatus && current.previewDelete !== next.deleteStatus) {
+    patch.previewDelete = next.deleteStatus;
+    if (next.deleteAt != null && current.previewDeleteAt !== next.deleteAt) patch.previewDeleteAt = next.deleteAt;
+    if (next.deleteAttempt != null && current.previewDeleteAttempt !== next.deleteAttempt) {
+      patch.previewDeleteAttempt = next.deleteAttempt;
+    }
+  }
+  return Object.keys(patch).length > 0 ? patch : null;
+}
 
 export type ReviewDecision = 'approve' | 'request_changes';
 export type ReviewSource = 'portal' | 'chat';

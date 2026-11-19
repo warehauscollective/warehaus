@@ -5,6 +5,8 @@ import {
   ALREADY_REVIEWED,
   NOTES_REQUIRED,
   ONLY_PETER,
+  CHAT_CONTACT_MISSING,
+  chatContactError,
   STAFF_REQUIRED,
   WAITING_ON_BUILD,
   TASK_STAGE_HINT,
@@ -14,7 +16,10 @@ import {
   normalizeLocalPreview,
   notionWriteAllowedForTask,
   planReview,
+  previewStatusPatch,
+  RETRY_WAITS_ON_TOKENS,
   reviewChatLine,
+  reviewPreviewRetryReady,
   reviewForAudience,
   reviewNotesForAudience,
   roadmapReviewForAudience,
@@ -145,6 +150,9 @@ describe('milestone review decisions', () => {
     assert.deepEqual(otherBot, { ok: false, reason: ONLY_PETER });
     const peterChat = planReview(ready({ actor: chat }));
     assert.equal(peterChat.ok, true);
+    assert.equal(chatContactError('approve'), ONLY_PETER);
+    assert.equal(chatContactError('request_changes'), CHAT_CONTACT_MISSING);
+    assert.equal(CHAT_CONTACT_MISSING.includes('approve'), false);
   });
 
   it('hides the review from clients and keeps it for staff', () => {
@@ -262,5 +270,29 @@ describe('portal-review notion pull', () => {
     assert.match(upsert, /notionWriteAllowedForTask\(\{ source: existing\.source, notionPageId: existing\.notionPageId \}\)/);
     const outbox = readFileSync(new URL('../sync/outbox.ts', import.meta.url), 'utf8');
     assert.match(outbox, /Portal review tasks stay in Convex/);
+  });
+});
+
+describe('preview lifecycle', () => {
+  it('skips a no-op status write and clears a finished build', () => {
+    assert.equal(previewStatusPatch({ previewBuild: 'building' }, { build: 'building' }), null);
+    assert.equal(previewStatusPatch({}, { deleteStatus: 'removing' })?.previewDelete, 'removing');
+    const cleared = previewStatusPatch(
+      { previewBuild: 'failed', previewBuildAttempt: 2, previewBuildAt: 5 },
+      { build: 'ready' },
+    );
+    assert.equal(cleared?.previewBuild, undefined);
+    assert.equal('previewBuild' in (cleared ?? {}), true);
+  });
+
+  it('refuses preview retry until the GitHub and Vercel tokens exist', () => {
+    assert.equal(reviewPreviewRetryReady({}), false);
+    assert.equal(reviewPreviewRetryReady({ githubToken: 'gh', vercelToken: null }), false);
+    assert.equal(reviewPreviewRetryReady({ githubToken: 'gh', vercelToken: 'vc' }), true);
+    const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
+    const retry = source.slice(source.indexOf('export const retryReviewPreview'), source.indexOf('export const reviewForStaff'));
+    assert.match(retry, /RETRY_WAITS_ON_TOKENS/);
+    assert.equal(retry.includes('db.patch'), false);
+    assert.equal(retry.includes('ctx.db'), false);
   });
 });

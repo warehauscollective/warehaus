@@ -48,13 +48,17 @@ import {
 import {
   ALREADY_REVIEWED,
   PETER_EMAILS,
+  chatContactError,
   currentIteration,
   historyPageLimit,
   isPeterEmail,
   NEW_ITERATION_TASK_DONE,
   normalizeLocalPreview,
   planReview,
+  previewStatusPatch,
+  RETRY_WAITS_ON_TOKENS,
   reviewChatLine,
+  reviewPreviewRetryReady,
   roadmapReviewForAudience,
   reviewForAudience,
   type ReviewSource,
@@ -662,6 +666,13 @@ async function staffReview(
     builtAt: milestone.previewBuiltAt ?? null,
     designCheck: milestone.designCheck ?? 'pending',
     designCheckNote: milestone.designCheckNote ?? null,
+    previewBuild: milestone.previewBuild ?? null,
+    previewBuildAttempt: milestone.previewBuildAttempt ?? null,
+    previewBuildAt: milestone.previewBuildAt ?? null,
+    previewDelete: milestone.previewDelete ?? null,
+    previewDeleteAttempt: milestone.previewDeleteAttempt ?? null,
+    previewDeleteAt: milestone.previewDeleteAt ?? null,
+    deployFinishedAt: milestone.deployFinishedAt ?? null,
     history: rows,
   };
 }
@@ -742,7 +753,7 @@ async function applyMilestoneReview(
     args.source === 'portal'
       ? args.contactId
       : await peterContactId(ctx);
-  if (!contactId) return { ok: false as const, status: 403, error: 'Only Peter can approve a milestone' };
+  if (!contactId) return { ok: false as const, status: 403, error: chatContactError(planned.decision) };
   const decidedAt = Date.now();
   if (planned.decision === 'approve') {
     await ctx.db.patch(milestone._id, {
@@ -817,6 +828,9 @@ async function applyMilestoneReview(
     previewUrl: '',
     designCheck: 'pending',
     designCheckNote: undefined,
+    previewBuild: undefined,
+    previewBuildAttempt: undefined,
+    previewBuildAt: undefined,
   });
   await ctx.db.insert('milestoneReviews', {
     orgId: milestone.orgId,
@@ -925,6 +939,7 @@ export const setReviewBuild = adminMutation({
       designCheck: args.designCheck ?? 'pending',
       designCheckNote: args.designCheckNote?.trim() || undefined,
     };
+    const clearBuild = previewStatusPatch(milestone, { build: 'ready' });
     const unchanged =
       milestone.previewUrl === next.previewUrl &&
       milestone.previewPrNumber === next.previewPrNumber &&
@@ -932,14 +947,61 @@ export const setReviewBuild = adminMutation({
       milestone.previewBranch === next.previewBranch &&
       milestone.previewCommit === next.previewCommit &&
       milestone.designCheck === next.designCheck &&
-      (milestone.designCheckNote ?? undefined) === next.designCheckNote;
-    if (!unchanged) await ctx.db.patch(milestone._id, next);
+      (milestone.designCheckNote ?? undefined) === next.designCheckNote &&
+      clearBuild == null;
+    if (!unchanged) await ctx.db.patch(milestone._id, { ...next, ...clearBuild });
     const iteration = currentIteration(milestone.iteration);
     return {
       ok: true as const,
       wrote: !unchanged,
       chat: reviewChatLine({ prNumber: args.prNumber, iteration, previewUrl }),
     };
+  },
+});
+
+/** Records a preview build or preview-delete phase. Does not call GitHub or Vercel. */
+export const recordPreviewStatus = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    build: v.optional(v.union(v.literal('building'), v.literal('failed'), v.literal('ready'))),
+    buildAttempt: v.optional(v.number()),
+    buildAt: v.optional(v.number()),
+    deleteStatus: v.optional(v.union(v.literal('removing'), v.literal('failed'), v.literal('removed'))),
+    deleteAttempt: v.optional(v.number()),
+    deleteAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const patch = previewStatusPatch(milestone, {
+      build: args.build,
+      buildAttempt: args.buildAttempt,
+      buildAt: args.buildAt,
+      deleteStatus: args.deleteStatus,
+      deleteAttempt: args.deleteAttempt,
+      deleteAt: args.deleteAt,
+    });
+    if (!patch) return { ok: true as const, wrote: false };
+    await ctx.db.patch(milestone._id, patch);
+    return { ok: true as const, wrote: true };
+  },
+});
+
+/**
+ * Retry a failed preview build or a failed preview delete.
+ * Both calls need the GitHub and Vercel tokens from #113. Until those exist
+ * this refuses and writes nothing.
+ */
+export const retryReviewPreview = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    kind: v.union(v.literal('build'), v.literal('delete')),
+  },
+  handler: async (ctx, args) => {
+    await loadMilestone(ctx, args.milestoneId);
+    if (!reviewPreviewRetryReady({ githubToken: process.env.GITHUB_TOKEN, vercelToken: process.env.VERCEL_TOKEN })) {
+      return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
+    }
+    return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
   },
 });
 

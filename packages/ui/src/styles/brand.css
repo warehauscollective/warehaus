@@ -180,6 +180,9 @@ body {
   --warn: oklch(80% 0.15 85);
   /* Amber on ink. Light theme overrides this; #f59e0b fails AA on white. */
   --warning: #f59e0b;
+  /* Figma portal/warning. Warning text, icons, and the delete-failed border.
+     Dark stays #F59E0B. The Approve & deploy fill is separate and stays #f59e0b. */
+  --portal-warning: #f59e0b;
   --danger: oklch(64% 0.2 25);
   /* 14px error text. Lighter than --danger so it clears 4.5:1 on dark surfaces. */
   --danger-text: #ff9b93;
@@ -222,6 +225,8 @@ body {
   --accent-tint: oklch(25% 0 0 / 0.1);
   /* Amber-700. 5.02:1 on white, 4.94:1 on paper. Small stale text needs 4.5:1. */
   --warning: #b45309;
+  /* Figma portal/warning. Amber-800, 5.8–7.1:1 on every Light surface. */
+  --portal-warning: #92400e;
   /* Darker than --danger. 7.9:1 on paper, so 14px error text clears 4.5:1. */
   --danger-text: #9b1e22;
 }

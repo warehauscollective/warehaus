@@ -223,6 +223,16 @@ export default defineSchema({
     previewBuiltAt: v.optional(v.number()),
     designCheck: v.optional(v.union(v.literal('pass'), v.literal('fixes'), v.literal('pending'))),
     designCheckNote: v.optional(v.string()),
+    /** Preview build for this iteration. Absent once a preview URL is stored. */
+    previewBuild: v.optional(v.union(v.literal('building'), v.literal('failed'))),
+    previewBuildAttempt: v.optional(v.number()),
+    previewBuildAt: v.optional(v.number()),
+    /** After approve, removing the preview. Absent until a delete is attempted. */
+    previewDelete: v.optional(v.union(v.literal('removing'), v.literal('failed'), v.literal('removed'))),
+    previewDeleteAttempt: v.optional(v.number()),
+    previewDeleteAt: v.optional(v.number()),
+    /** Set only when a real production deploy finishes. Absent means it has not finished. */
+    deployFinishedAt: v.optional(v.number()),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])

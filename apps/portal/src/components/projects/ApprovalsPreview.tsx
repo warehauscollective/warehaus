@@ -1,6 +1,13 @@
 'use client';
 
 import { useEffect } from 'react';
+import { NOTES_REQUIRED } from '@convex/_lib/milestoneReview';
+import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
+import { PortalDock } from '@/components/layout/PortalDock';
+import { PortalTabSidebar } from '@/components/layout/PortalSidebar';
+import { PortalDataRetryProvider } from '@/components/providers/PortalDataRetry';
+import { PortalTabProvider } from '@/components/providers/PortalTabProvider';
+import { PortalViewProvider } from '@/components/providers/PortalViewProvider';
 import { TASK_STAGE_HINT } from '@/lib/data/taskStatus';
 import { StatusBadge } from '@/components/ui/primitives';
 import {
@@ -12,7 +19,7 @@ import {
   type ReviewVisual,
 } from './MilestoneReview';
 import { StageConfirmSheet } from './milestoneChrome';
-import { MilestoneDetailView } from './ProjectRoadmap';
+import { MilestoneDetailView, MilestoneListCard } from './ProjectRoadmap';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 
 const STAMP = Date.UTC(2026, 10, 17, 17, 4);
@@ -97,18 +104,44 @@ const changes: ReviewSurfaceModel = {
   ],
 };
 
+const buildingModel: ReviewSurfaceModel = {
+  ...ready,
+  previewUrl: null,
+  previewBuild: 'building',
+  previewBuildAt: STAMP,
+};
+const previewFailed: ReviewSurfaceModel = {
+  ...ready,
+  previewUrl: null,
+  previewBuild: 'failed',
+  previewBuildAttempt: 2,
+  previewBuildAt: STAMP,
+};
+const deleteFailed: ReviewSurfaceModel = {
+  ...approved,
+  previewDelete: 'removing',
+  previewDeleteAttempt: 2,
+  previewDeleteAt: STAMP,
+};
+const couldntRemove: ReviewSurfaceModel = {
+  ...approved,
+  previewDelete: 'failed',
+  previewDeleteAttempt: 3,
+  previewDeleteAt: STAMP,
+};
+
 const frames: Array<{ id: string; title: string; visual?: ReviewVisual; model: ReviewSurfaceModel; width: number; isPeter?: boolean }> = [
   { id: 'ready', title: 'Ready', model: ready, width: 1108, isPeter: true },
   { id: 'ready-staff', title: 'Ready · staff', model: ready, width: 1108, isPeter: false },
   { id: 'waiting', title: 'No preview yet', model: waiting, width: 1108, isPeter: true },
-  { id: 'building', title: 'Building preview', visual: 'building', model: ready, width: 1108, isPeter: true },
-  { id: 'preview-failed', title: 'Preview failed', visual: 'preview-failed', model: ready, width: 1108, isPeter: true },
+  { id: 'building', title: 'Building preview', model: buildingModel, width: 1108, isPeter: true },
+  { id: 'preview-failed', title: 'Preview failed', model: previewFailed, width: 1108, isPeter: false },
   { id: 'fixes', title: 'Design fixes needed', model: fixes, width: 1108, isPeter: true },
   { id: 'saving', title: 'Saving', visual: 'saving', model: ready, width: 1108, isPeter: true },
   { id: 'error', title: 'Error', visual: 'error', model: ready, width: 1108, isPeter: true },
-  { id: 'approved', title: 'Approved', model: { ...approved, designApprovedCopy: true }, width: 1108 },
-  { id: 'delete-failed', title: 'Delete failed', visual: 'delete-failed', model: approved, width: 1108 },
-  { id: 'couldnt-remove', title: 'Couldn’t remove preview', visual: 'couldnt-remove', model: approved, width: 1108 },
+  { id: 'approved', title: 'Approved', model: approved, width: 1108 },
+  { id: 'delete-failed', title: 'Delete failed', model: deleteFailed, width: 1108, isPeter: false },
+  { id: 'couldnt-remove', title: 'Couldn’t remove preview', model: couldntRemove, width: 1108, isPeter: false },
   { id: 'changes', title: 'Changes requested', model: changes, width: 1108 },
 ];
 
@@ -214,7 +247,10 @@ function DialogFrame({
         cover
         confirmOnEnter={kind === 'approve'}
         label={kind === 'approve' ? 'Approve and ship to production?' : 'Request changes'}
-        hint={kind === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
+        hint={phone && kind === 'approve' ? undefined : kind === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
+        hideClose={phone && kind === 'approve'}
+        actionsRow={phone && kind === 'approve'}
+        hideChromeBelow={kind === 'approve'}
         onClose={() => undefined}
         onConfirm={() => undefined}
         footer={
@@ -291,6 +327,13 @@ function pageMilestone(staffReview: boolean): MilestoneRoadmapView {
       designCheck: changes.designCheck,
       designCheckNote: changes.designCheckNote,
       history: changes.history,
+      previewBuild: null,
+      previewBuildAttempt: null,
+      previewBuildAt: null,
+      previewDelete: null,
+      previewDeleteAttempt: null,
+      previewDeleteAt: null,
+      deployFinishedAt: null,
     };
   }
   return milestone;
@@ -310,8 +353,6 @@ function MilestonePage({ capture, width, staff }: { capture: string; width: numb
         onBack={() => undefined}
         onFixture={() => undefined}
         mutations={{
-          decide: idle,
-          decideAsClient: idle,
           save: idle,
           setWorkStatus: idle,
           setPublish: idle,
@@ -323,7 +364,163 @@ function MilestonePage({ capture, width, staff }: { capture: string; width: numb
   );
 }
 
-export function ApprovalsPreview({ theme }: { theme: 'dark' | 'light' }) {
+const tileMilestone: MilestoneRoadmapView = {
+  id: 'm-ready',
+  name: 'Client experience launch',
+  objective: 'Launch the new client experience.',
+  goals: ['Clients can review the finished flow.'],
+  workStatus: 'ready',
+  approval: 'unreviewed',
+  note: null,
+  approverName: null,
+  publishToWarehaus: true,
+  resources: [],
+  openCount: 2,
+  doneCount: 1,
+  countIsDecision: false,
+  rows: [],
+  review: {
+    iteration: ready.iteration,
+    previewUrl: ready.previewUrl,
+    prNumber: ready.prNumber,
+    prTitle: ready.prTitle,
+    branch: ready.branch,
+    commit: ready.commit,
+    builtAt: ready.builtAt,
+    designCheck: ready.designCheck,
+    designCheckNote: ready.designCheckNote,
+    previewBuild: null,
+    previewBuildAttempt: null,
+    previewBuildAt: null,
+    previewDelete: null,
+    previewDeleteAttempt: null,
+    previewDeleteAt: null,
+    deployFinishedAt: null,
+    history: ready.history,
+  },
+};
+
+function TaskFromReview({ phone }: { phone: boolean }) {
+  return (
+    <section data-capture={phone ? 'task-from-review-phone' : 'task-from-review'} data-width={phone ? '390' : '1440'} style={{ width: phone ? 390 : 1108, paddingTop: 16 }}>
+      <article className="flex items-center justify-between gap-3" style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 16, padding: 16 }}>
+        <span style={{ fontSize: 14 }}>Give the mobile review card more room</span>
+        <span data-testid="review-tag" className="ds-mono" style={{ border: '1px solid var(--border-2)', borderRadius: 999, padding: '2px 8px', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>From review</span>
+      </article>
+    </section>
+  );
+}
+
+function OverlayFrame({ kind, phone }: { kind: ApprovalsOverlay; phone: boolean }) {
+  const width = phone ? 390 : 1108;
+  return (
+    <section data-overlay={kind} data-width={phone ? '390' : '1440'} style={{ width, paddingTop: 16 }}>
+      {kind === 'confirm-tile' ? (
+        <MilestoneListCard
+          milestone={tileMilestone}
+          staff
+          isPeter
+          fixtures
+          openConfirm
+          phone={phone}
+          onOpen={() => undefined}
+        />
+      ) : (
+        <MilestoneReviewSurface
+          model={ready}
+          layout="card"
+          phone={phone}
+          isPeter
+          initialDialog={kind === 'request-changes' || kind === 'request-changes-error' ? 'changes' : 'approve'}
+          initialError={kind === 'request-changes-error' ? NOTES_REQUIRED : null}
+          saveFailed={kind === 'confirm-failed'}
+        />
+      )}
+    </section>
+  );
+}
+
+function StaffRetryFrame({
+  kind,
+  phone,
+}: {
+  kind: 'preview-failed' | 'preview-failed-retrying' | 'preview-failed-after' | 'couldnt-remove' | 'couldnt-remove-retrying' | 'couldnt-remove-after';
+  phone: boolean;
+}) {
+  const after = kind.endsWith('-after');
+  const retrying = kind.endsWith('-retrying');
+  const remove = kind.startsWith('couldnt-remove');
+  const model = after ? (remove ? approved : buildingModel) : remove ? couldntRemove : previewFailed;
+  return (
+    <section data-overlay={kind} data-width={phone ? '390' : '1440'} style={{ width: phone ? 390 : 1108, paddingTop: 16 }}>
+      <MilestoneReviewSurface model={model} layout="card" phone={phone} isPeter={false} retrying={retrying} />
+    </section>
+  );
+}
+
+function TileFrame({ peter, phone }: { peter: boolean; phone: boolean }) {
+  return (
+    <section data-overlay={peter ? 'tile-peter' : 'tile-staff'} data-width={phone ? '390' : '1440'} style={{ width: phone ? 390 : 1108, paddingTop: 16 }}>
+      <MilestoneListCard milestone={tileMilestone} staff isPeter={peter} fixtures onOpen={() => undefined} />
+    </section>
+  );
+}
+
+function MilestoneChrome({ phone }: { phone: boolean }) {
+  const sections = getPortalSidebarSections('projects', 'team');
+  return (
+    <PortalDataRetryProvider>
+      <PortalTabProvider>
+        <PortalViewProvider>
+          <section data-overlay="milestone-page" data-width={phone ? '390' : '1440'} className="relative" style={{ width: phone ? 390 : 1440, minHeight: 720, paddingBottom: 96 }}>
+            <div className="flex items-start">
+              {phone ? null : <PortalTabSidebar tab="projects" />}
+              <div className="min-w-0 flex-1">
+                {phone ? (
+                  <nav aria-label="Project sections" data-testid="portal-sidebar">
+                    {sections.map((section) => (
+                      <span key={section.key} style={{ marginRight: 12, fontSize: 14 }}>{section.label}</span>
+                    ))}
+                  </nav>
+                ) : null}
+                <MilestonePage capture={phone ? 'milestone-page-phone' : 'milestone-page'} width={phone ? 390 : 1108} staff />
+              </div>
+            </div>
+            <PortalDock />
+          </section>
+        </PortalViewProvider>
+      </PortalTabProvider>
+    </PortalDataRetryProvider>
+  );
+}
+
+export type ApprovalsOverlay =
+  | 'confirm-card'
+  | 'confirm-tile'
+  | 'request-changes'
+  | 'request-changes-error'
+  | 'confirm-failed';
+export type ApprovalsFocus =
+  | 'task-from-review'
+  | 'tile-peter'
+  | 'tile-staff'
+  | 'preview-failed'
+  | 'preview-failed-retrying'
+  | 'preview-failed-after'
+  | 'couldnt-remove'
+  | 'couldnt-remove-retrying'
+  | 'couldnt-remove-after'
+  | 'milestone-page';
+
+export function ApprovalsPreview({
+  theme,
+  overlay = null,
+  view = null,
+}: {
+  theme: 'dark' | 'light';
+  overlay?: ApprovalsOverlay | null;
+  view?: ApprovalsFocus | null;
+}) {
   useEffect(() => {
     document.documentElement.classList.toggle('light', theme === 'light');
     return () => document.documentElement.classList.remove('light');
@@ -335,6 +532,39 @@ export function ApprovalsPreview({ theme }: { theme: 'dark' | 'light' }) {
         {`APPROVALS PREVIEW · ${theme.toUpperCase()}`}
       </p>
       <div className="mt-8 flex flex-col gap-10">
+        {overlay === 'confirm-failed' ? (
+          <OverlayFrame kind={overlay} phone />
+        ) : overlay ? (
+          <>
+            <OverlayFrame kind={overlay} phone={false} />
+            <OverlayFrame kind={overlay} phone />
+          </>
+        ) : null}
+        {view === 'task-from-review' ? (
+          <>
+            <TaskFromReview phone={false} />
+            <TaskFromReview phone />
+          </>
+        ) : null}
+        {view === 'tile-peter' || view === 'tile-staff' ? (
+          <>
+            <TileFrame peter={view === 'tile-peter'} phone={false} />
+            <TileFrame peter={view === 'tile-peter'} phone />
+          </>
+        ) : null}
+        {view === 'preview-failed' || view === 'preview-failed-retrying' || view === 'preview-failed-after' || view === 'couldnt-remove' || view === 'couldnt-remove-retrying' || view === 'couldnt-remove-after' ? (
+          <>
+            <StaffRetryFrame kind={view} phone={false} />
+            <StaffRetryFrame kind={view} phone />
+          </>
+        ) : null}
+        {view === 'milestone-page' ? (
+          <>
+            <MilestoneChrome phone={false} />
+            <MilestoneChrome phone />
+          </>
+        ) : null}
+        {overlay || view ? null : <>
         {frames.map((frame) => (
           <section key={frame.id} data-capture={frame.id} data-width="1440" style={{ width: frame.width, paddingTop: 16 }}>
             <h2 className="type-heading" style={{ fontSize: 20, margin: '0 0 12px' }}>{frame.title}</h2>
@@ -360,7 +590,7 @@ export function ApprovalsPreview({ theme }: { theme: 'dark' | 'light' }) {
         <MilestonePage capture="r3" width={1108} staff />
         <MilestonePage capture="r3-phone" width={390} staff />
         <section data-capture="r5" data-width="1440" style={{ width: 1108, paddingTop: 16 }}>
-          <MilestoneReviewSurface model={{ ...approved, designApprovedCopy: true }} layout="card" isPeter />
+          <MilestoneReviewSurface model={approved} layout="card" isPeter />
           <article data-testid="milestone-activity-card" style={{ marginTop: 16, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 28, padding: 24 }}>
             <h3 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', margin: '0 0 12px' }}>Activity</h3>
             <ul className="flex flex-col gap-3" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
@@ -389,6 +619,7 @@ export function ApprovalsPreview({ theme }: { theme: 'dark' | 'light' }) {
         <section data-capture="task-phone-card" data-width="390" style={{ width: 390 }}>
           <MilestoneReviewSurface model={ready} layout="card" phone isPeter />
         </section>
+        </>}
       </div>
     </main>
   );

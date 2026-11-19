@@ -397,6 +397,9 @@ export function MilestoneDialog({
   cover = false,
   confirmOnEnter = false,
   trapFocus = true,
+  hideClose = false,
+  actionsRow = false,
+  hideChromeBelow = false,
 }: {
   title: string;
   onClose: () => void;
@@ -414,6 +417,12 @@ export function MilestoneDialog({
   /** Plain Enter confirms. Text fields still insert a newline. */
   confirmOnEnter?: boolean;
   trapFocus?: boolean;
+  /** Phone confirm has no second close control. */
+  hideClose?: boolean;
+  /** Phone confirm keeps Cancel and Approve side by side. */
+  actionsRow?: boolean;
+  /** Live approve confirm hides the hint and Close below the desktop breakpoint. */
+  hideChromeBelow?: boolean;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -535,37 +544,40 @@ export function MilestoneDialog({
           <h2 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600, margin: 0 }}>
             {title}
           </h2>
-          <button
-            type="button"
-            data-testid="milestone-dialog-close"
-            onClick={onClose}
-            style={{
-              background: 'transparent',
-              color: 'var(--fg)',
-              border: 0,
-              padding: 0,
-              fontSize: 14,
-              lineHeight: '21px',
-              cursor: 'pointer',
-            }}
-          >
-            Close
-          </button>
+          {hideClose ? null : (
+            <button
+              type="button"
+              className={hideChromeBelow ? 'hidden md:inline' : undefined}
+              data-testid="milestone-dialog-close"
+              onClick={onClose}
+              style={{
+                background: 'transparent',
+                color: 'var(--fg)',
+                border: 0,
+                padding: 0,
+                fontSize: 14,
+                lineHeight: '21px',
+                cursor: 'pointer',
+              }}
+            >
+              Close
+            </button>
+          )}
         </div>
         <div className="px-6 py-4">{children}</div>
         {hint || footer ? (
           <div
-            className={sheet ? 'flex flex-col gap-3 border-t px-6 pt-4' : 'flex flex-wrap items-center justify-between gap-3 border-t px-6 pt-4'}
+            className={sheet && !actionsRow ? 'flex flex-col gap-3 border-t px-6 pt-4' : 'flex flex-wrap items-center justify-between gap-3 border-t px-6 pt-4'}
             style={{ borderColor: 'var(--border)', paddingBottom: sheet ? 24 : 16 }}
           >
             {hint ? (
-              <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+              <p className={hideChromeBelow ? 'ds-mono hidden md:block' : 'ds-mono'} style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
                 {hint}
               </p>
             ) : (
               <span />
             )}
-            <div className={sheet ? 'flex w-full flex-col gap-2' : 'flex flex-wrap justify-end gap-2'}>{footer}</div>
+            <div className={sheet && !actionsRow ? 'flex w-full flex-col gap-2' : 'flex flex-wrap justify-end gap-2'}>{footer}</div>
           </div>
         ) : null}
       </div>

@@ -186,7 +186,7 @@ describe('resource links', () => {
 });
 
 describe('move rules and outbox enqueue', () => {
-  it('changes stage without touching status, and locks Building and Shipped', () => {
+  it('changes stage without touching status, and locks only Shipped', () => {
     const planning = planTaskStageWrite({
       actor: 'staff',
       stage: 'Planning',

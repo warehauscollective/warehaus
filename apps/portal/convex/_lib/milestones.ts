@@ -576,5 +576,13 @@ export type MilestoneReviewView = {
   builtAt: number | null;
   designCheck: 'pass' | 'fixes' | 'pending';
   designCheckNote: string | null;
+  previewBuild: 'building' | 'failed' | null;
+  previewBuildAttempt: number | null;
+  previewBuildAt: number | null;
+  previewDelete: 'removing' | 'failed' | 'removed' | null;
+  previewDeleteAttempt: number | null;
+  previewDeleteAt: number | null;
+  /** Absent until a production deploy finishes. Approval alone does not set it. */
+  deployFinishedAt: number | null;
   history: MilestoneReviewHistoryItem[];
 };

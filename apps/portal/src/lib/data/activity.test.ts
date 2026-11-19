@@ -9,6 +9,7 @@ import {
   type FeedProject,
   type FeedTask,
 } from '../../../convex/_lib/activityFeed';
+import { getPortalTabForPath } from '@warehaus/logic';
 import { activitySubjectHref, buildActivityView, activityFiltersFor, withActivityLongPreview } from './activity';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -496,5 +497,16 @@ describe('activity row targets', () => {
       tasks = '';
     }
     assert.equal(tasks, '');
+  });
+
+  it('opens /resources and /account as pages, not a side panel', () => {
+    assert.equal(getPortalTabForPath('/resources'), 'resources');
+    assert.equal(getPortalTabForPath('/resources/res-1'), 'resources');
+    assert.equal(getPortalTabForPath('/account'), 'account');
+    for (const file of ['../../components/pages/ResourcesContent.tsx', '../../components/pages/AccountContent.tsx']) {
+      const source = readFileSync(new URL(file, import.meta.url), 'utf8');
+      assert.equal(source.includes('Close details'), false);
+      assert.equal(source.includes('aria-label="Details"'), false);
+    }
   });
 });

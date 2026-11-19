@@ -196,7 +196,18 @@ describe('roadmap markup', () => {
         workStatus: 'draft',
         approval: 'unreviewed',
       }),
-      '0 resources · No review yet',
+      '0 resources',
+    );
+    assert.equal(
+      tileMetaLine({
+        staff: false,
+        published: true,
+        resources: 2,
+        decidedAt: null,
+        workStatus: 'ready',
+        approval: 'unreviewed',
+      }),
+      '',
     );
     assert.equal(
       tileMetaLine({
@@ -281,17 +292,21 @@ describe('roadmap markup', () => {
       staff: false,
       milestone: tileMilestone({ publishToWarehaus: false, workStatus: 'draft', resources: [] }),
     });
-    assert.match(clientDraft, /data-testid="milestone-meta"[^>]*>0 resources · No review yet</);
+    assert.match(clientDraft, /data-testid="milestone-meta"[^>]*>0 resources</);
+    assert.equal(clientDraft.includes('No review yet'), false);
     assert.equal(clientDraft.includes('Not published'), false);
 
     const ready = renderTile({
       staff: false,
       milestone: tileMilestone({
         workStatus: 'ready',
+        publishToWarehaus: true,
         resources: [resource, { ...resource, id: 'r-2' }],
       }),
     });
-    assert.match(ready, /data-testid="milestone-meta"[^>]*>2 resources · No review yet · Ready for review</);
+    assert.equal(ready.includes('data-testid="milestone-meta"'), false);
+    assert.equal(ready.includes('No review yet'), false);
+    assert.equal(ready.includes('Ready for review'), false);
     assert.match(ready, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
     assert.equal(ready.includes('Not published'), false);
     assert.equal(ready.includes('Updated'), false);
@@ -385,8 +400,6 @@ function renderDetail(milestone: MilestoneRoadmapView, page = false, staff = tru
       ...(page ? { onBackToProjects: () => undefined } : {}),
       onFixture: () => undefined,
       mutations: {
-        decide: idle,
-        decideAsClient: idle,
         save: idle,
         setWorkStatus: idle,
         setPublish: idle,

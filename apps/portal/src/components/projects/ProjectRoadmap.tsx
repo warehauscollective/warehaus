@@ -2,7 +2,7 @@
 
 import { useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useMutation } from 'convex/react';
-import { isPeterEmail } from '@convex/_lib/milestoneReview';
+import { formatReviewStamp, isPeterEmail, iterationOutcome } from '@convex/_lib/milestoneReview';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
@@ -99,7 +99,7 @@ type FixturePatch = Partial<
 };
 
 type ProjectTab = 'milestones' | 'resources' | 'activity' | 'details';
-type MilestoneTab = 'overview' | 'tasks' | 'reviews' | 'activity';
+type MilestoneTab = 'overview' | 'tasks' | 'activity' | 'reviews';
 
 function mergePatch(milestone: MilestoneRoadmapView, patch: FixturePatch | undefined): MilestoneRoadmapView {
   if (!patch) return milestone;
@@ -264,12 +264,13 @@ export function tileMetaLine(input: {
   approval?: string | null;
   now?: number;
 }): string {
+  if (!input.staff && input.workStatus === 'ready') return '';
   const parts: string[] = [];
   const approved = input.approval === 'approved';
   if (input.staff && !input.published) parts.push('Not published');
   parts.push(resourceLabel(input.resources));
-  if (!(approved && input.decidedAt == null)) parts.push(reviewStamp(input.decidedAt ?? null, input.now));
-  if (input.workStatus === 'ready' && !approved) parts.push('Ready for review');
+  if (input.staff && !(approved && input.decidedAt == null)) parts.push(reviewStamp(input.decidedAt ?? null, input.now));
+  if (input.staff && input.workStatus === 'ready' && !approved) parts.push('Ready for review');
   return parts.join(' · ');
 }
 
@@ -632,6 +633,8 @@ export function MilestoneListCard({
   fixtures = false,
   onOpen,
   onApprove,
+  openConfirm = false,
+  phone = false,
 }: {
   milestone: MilestoneRoadmapView;
   staff: boolean;
@@ -639,8 +642,12 @@ export function MilestoneListCard({
   fixtures?: boolean;
   onOpen: () => void;
   onApprove?: (iteration: number) => Promise<unknown>;
+  /** Fixture QA opens the one confirm without a click. */
+  openConfirm?: boolean;
+  /** Fixture phone sheet. The live tile follows the viewport. */
+  phone?: boolean;
 }) {
-  const [confirm, setConfirm] = useState(false);
+  const [confirm, setConfirm] = useState(openConfirm);
   const [deploying, setDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
   const canDeploy = Boolean(staff && isPeter && milestone.workStatus === 'ready' && milestone.approval !== 'approved' && milestone.review?.previewUrl);
@@ -715,13 +722,15 @@ export function MilestoneListCard({
               <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone={false} />
             </span>
           </span>
-          <span
-            data-testid="milestone-meta"
-            className="min-w-0 max-w-full"
-            style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}
-          >
-            {meta}
-          </span>
+          {meta ? (
+            <span
+              data-testid="milestone-meta"
+              className="min-w-0 max-w-full"
+              style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}
+            >
+              {meta}
+            </span>
+          ) : null}
         </div>
       </div>
       <div className="hidden w-[174px] shrink-0 flex-col items-start gap-3 lg:flex">
@@ -749,13 +758,17 @@ export function MilestoneListCard({
       {confirm ? (
         <MilestoneDialog
           title="Approve and ship to production?"
+          phone={phone || undefined}
+          hideClose={phone}
+          actionsRow={phone}
+          hideChromeBelow
           onClose={() => setConfirm(false)}
           onConfirm={confirmDeploy}
           footer={
             <>
               <OutlineButton onClick={() => setConfirm(false)}>Cancel</OutlineButton>
               <button type="button" disabled={deploying} onClick={confirmDeploy} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, opacity: deploying ? 0.7 : 1 }}>
-                {deploying ? 'Merging and deploying…' : 'Approve & deploy'}
+                {deploying ? 'Recording approval…' : 'Approve & deploy'}
               </button>
             </>
           }
@@ -763,9 +776,6 @@ export function MilestoneListCard({
           <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Marks approved. Engineering merges to main and deploys production next.</p>
           <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>This ships to production.</p>
           <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>You can’t undo this from the Portal.</p>
-          <p style={{ margin: '8px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-            Merge and deploy wait on GitHub and Vercel. This records the approval and leaves the stage at Ready to Ship.
-          </p>
           {deployError ? <p role="alert" style={{ color: 'var(--danger-text)', fontSize: 14 }}>{deployError}</p> : null}
         </MilestoneDialog>
       ) : null}
@@ -774,18 +784,6 @@ export function MilestoneListCard({
 }
 
 type MilestoneMutations = {
-  decide: (args: {
-    hostSlug?: string;
-    milestoneId: Id<'milestones'>;
-    decision: 'approved' | 'changes_requested';
-    note: string;
-  }) => Promise<unknown>;
-  decideAsClient: (args: {
-    hostSlug?: string;
-    milestoneId: Id<'milestones'>;
-    decision: 'approved' | 'changes_requested';
-    note: string;
-  }) => Promise<unknown>;
   save: (args: {
     hostSlug?: string;
     milestoneId: Id<'milestones'>;
@@ -833,8 +831,6 @@ function MilestoneDetail(props: {
   onBackToProjects?: () => void;
   onFixture: (patch: FixturePatch) => void;
 }) {
-  const decide = useMutation(api.milestones.decide);
-  const decideAsClient = useMutation(api.milestones.decideAsClient);
   const save = useMutation(api.milestones.save);
   const setWorkStatus = useMutation(api.milestones.setWorkStatus);
   const setPublish = useMutation(api.milestones.setPublish);
@@ -843,7 +839,7 @@ function MilestoneDetail(props: {
   return (
     <MilestoneDetailView
       {...props}
-      mutations={{ decide, decideAsClient, save, setWorkStatus, setPublish, attachTask, detachTask }}
+      mutations={{ save, setWorkStatus, setPublish, attachTask, detachTask }}
     />
   );
 }
@@ -895,7 +891,6 @@ export function MilestoneDetailView({
   const shownTasks = milestoneTasks(tasks, milestone);
   const board = boardCountsFromTasks(shownTasks);
   const storedReview = storedMilestoneReview(milestone);
-  const reviewCount = storedReview ? 1 : 0;
   const milestoneActivity = activityForMilestone(activity, milestone.id);
   const choices = milestoneResourceChoices(
     resourceChoices,
@@ -945,8 +940,8 @@ export function MilestoneDetailView({
         tabs={[
           { id: 'overview', label: 'Overview' },
           { id: 'tasks', label: `Tasks · ${board.lanes}` },
-          ...(staff ? [{ id: 'reviews' as const, label: `Reviews · ${reviewCount}` }] : []),
           { id: 'activity', label: 'Activity' },
+          ...(staff ? [{ id: 'reviews' as const, label: `Reviews · ${milestone.review?.history.length ?? 0}` }] : []),
         ]}
       />
       <div role="tabpanel" id={tabIds('milestone', tab).panel} aria-labelledby={tabIds('milestone', tab).tab}>
@@ -1306,11 +1301,32 @@ export function MilestoneDetailView({
       ) : null}
 
       {tab === 'reviews' && staff ? (
-        <StateCard
-          kicker="REVIEW"
-          title="Reviews stay on the milestone card"
-          body="Approve and request changes are on the card. Notes stay in the review record, not on the milestone."
-        />
+        <section data-testid="milestone-reviews" className="flex flex-col gap-2">
+          {(milestone.review?.history.length ?? 0) === 0 ? (
+            <StateCard kicker="Reviews" title="No reviews yet" body="Approvals and change requests land here." />
+          ) : (
+            <ul className="flex flex-col" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {milestone.review?.history.map((item) => (
+                <li key={`${item.iteration}-${item.decidedAt}`} style={{ borderTop: '1px solid var(--border)', padding: '12px 0' }}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="ds-mono" style={{ fontSize: 12, lineHeight: '18px' }}>
+                      {`ITERATION ${item.iteration} · ${formatReviewStamp(item.decidedAt)}`}
+                    </span>
+                    <span className="ds-mono" style={{ border: '1px solid var(--border-2)', borderRadius: 999, padding: '3px 8px', fontSize: 12 }}>
+                      {iterationOutcome({
+                        iteration: item.iteration,
+                        currentIteration: milestone.review?.iteration ?? item.iteration,
+                        decision: item.decision,
+                        workStatus: milestone.workStatus,
+                      })}
+                    </span>
+                  </div>
+                  {item.notes ? <p style={{ margin: '8px 0 0', fontSize: 14, lineHeight: '21px' }}>{item.notes}</p> : null}
+                </li>
+              ))}
+            </ul>
+          )}
+        </section>
       ) : null}
 
       {tab === 'activity' ? (
