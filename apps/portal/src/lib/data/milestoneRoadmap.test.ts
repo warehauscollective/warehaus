@@ -393,6 +393,7 @@ describe('roadmap markup', () => {
     assert.match(clientAwaiting, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
     assert.equal(clientAwaiting.includes('Approved · awaiting merge and deploy'), false);
     assert.equal(clientAwaiting.includes('milestone-due'), false);
+    assert.equal(clientAwaiting.includes('Open milestone'), false);
 
     const shipped = renderTile({
       staff: true,

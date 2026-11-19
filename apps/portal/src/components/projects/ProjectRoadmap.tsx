@@ -716,6 +716,7 @@ export function MilestoneListCard({
   const dateLine = awaitingMerge
     ? (staff ? AWAITING_MERGE_LINE : null)
     : milestoneTileDate({ approval: milestone.approval, decidedAt: milestone.decidedAt });
+  const showOpen = staff || !awaitingMerge;
   const meta = tileMetaLine({
     staff,
     published: milestone.publishToWarehaus,
@@ -796,16 +797,18 @@ export function MilestoneListCard({
             Approve & deploy
           </button>
         ) : null}
-        <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
+        {showOpen ? <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton> : null}
       </div>
+      {showOpen || canDeploy ? (
       <div className="flex flex-col gap-2 lg:hidden">
         {canDeploy ? (
           <button type="button" data-testid="tile-approve-deploy-phone" onClick={() => setConfirm(true)} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, width: '100%', cursor: 'pointer' }}>
             Approve & deploy
           </button>
         ) : null}
-        <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
+        {showOpen ? <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton> : null}
       </div>
+      ) : null}
       {confirm ? (
         <PortalModal
           testId="milestone-deploy-confirm"
