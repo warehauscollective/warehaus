@@ -1361,7 +1361,7 @@ async function applyPreviewOutcome(
     return true;
   }
   if (milestone.approval === 'approved') {
-    const removal = removalAfterDelete({ outcome, record });
+    const removal = removalAfterDelete({ outcome, record, removedAt: Date.now() });
     if (!removal.patch) return false;
     await ctx.db.patch(milestone._id, removal.patch);
     await writeActivity();
@@ -1445,6 +1445,8 @@ export const deleteReviewPreview = internalAction({
 export const dispatchReviewPreview = internalAction({
   args: { prNumber: v.number(), milestoneId: v.id('milestones') },
   handler: async (ctx, args) => {
+    const cloud = assertReviewConvexUrl(process.env.CONVEX_CLOUD_URL);
+    if (!cloud.ok) return { ok: false as const, reason: cloud.reason };
     const token = process.env.REVIEW_PREVIEW_GITHUB_TOKEN?.trim();
     if (!token) return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
     const response = await fetch(

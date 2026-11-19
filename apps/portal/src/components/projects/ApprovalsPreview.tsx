@@ -13,6 +13,7 @@ import { StatusBadge } from '@/components/ui/primitives';
 import {
   MilestoneReviewSurface,
   RECORDING_APPROVAL,
+  RETRY_FAILED,
   ReviewDialogActions,
   ReviewDialogBody,
   ReviewScrim,
@@ -130,6 +131,13 @@ const couldntRemove: ReviewSurfaceModel = {
   previewDeleteAttempt: 3,
   previewDeleteAt: STAMP,
 };
+const previewRemoved: ReviewSurfaceModel = {
+  ...approved,
+  previewUrl: null,
+  previewDelete: 'removed',
+  previewDeleteAttempt: null,
+  previewDeleteAt: STAMP,
+};
 
 const frames: Array<{ id: string; title: string; visual?: ReviewVisual; model: ReviewSurfaceModel; width: number; isPeter?: boolean }> = [
   { id: 'ready', title: 'Ready', model: ready, width: 1108, isPeter: true },
@@ -141,6 +149,9 @@ const frames: Array<{ id: string; title: string; visual?: ReviewVisual; model: R
   { id: 'saving', title: 'Saving', visual: 'saving', model: ready, width: 1108, isPeter: true },
   { id: 'error', title: 'Error', visual: 'error', model: ready, width: 1108, isPeter: true },
   { id: 'approved', title: 'Approved', model: approved, width: 1108 },
+  { id: 'preview-removed', title: 'Preview removed', model: previewRemoved, width: 1108 },
+  { id: 'peter-delete-removing', title: 'Peter · delete in progress', model: deleteFailed, width: 1108, isPeter: true },
+  { id: 'peter-delete-failed', title: 'Peter · delete failed', model: couldntRemove, width: 1108, isPeter: true },
   { id: 'delete-failed', title: 'Delete failed', model: deleteFailed, width: 1108, isPeter: false },
   { id: 'couldnt-remove', title: 'Couldn’t remove preview', model: couldntRemove, width: 1108, isPeter: false },
   { id: 'changes', title: 'Changes requested', model: changes, width: 1108 },
@@ -463,8 +474,15 @@ function StaffRetryFrame({
   const remove = kind.startsWith('couldnt-remove');
   const model = after ? (remove ? approved : buildingModel) : remove ? couldntRemove : previewFailed;
   return (
-    <section data-overlay={kind} data-width={phone ? '390' : '1440'} style={{ width: phone ? 390 : 1108, paddingTop: 16 }}>
-      <MilestoneReviewSurface model={model} layout="card" phone={phone} isPeter={false} retrying={retrying} />
+    <section data-overlay={kind} data-width={phone ? '390' : '1440'} style={{ width: phone ? '100%' : 1108, maxWidth: phone ? 390 : undefined, paddingTop: 16 }}>
+      <MilestoneReviewSurface
+        model={model}
+        layout="card"
+        phone={phone}
+        isPeter={false}
+        retrying={retrying}
+        onRetry={retrying ? () => undefined : undefined}
+      />
     </section>
   );
 }
@@ -523,23 +541,81 @@ export type ApprovalsFocus =
   | 'couldnt-remove'
   | 'couldnt-remove-retrying'
   | 'couldnt-remove-after'
+  | 'retry-unavailable'
+  | 'retry-pending'
+  | 'retry-error'
+  | 'peter-delete-removing'
+  | 'peter-delete-failed'
+  | 'preview-removed'
+  | 'approved'
+  | 'staff-delete-removing'
+  | 'staff-couldnt-remove'
   | 'milestone-page';
+
+export type ApprovalsSize = '1440' | '390';
+
+const noopRetry = () => undefined;
+
+function ReviewStateFrame({ kind, phone }: { kind: ApprovalsFocus; phone: boolean }) {
+  const width = phone ? '100%' : 1108;
+  const shared = { layout: 'card' as const, phone };
+  let node = null;
+  if (kind === 'retry-unavailable' || kind === 'preview-failed') {
+    node = <MilestoneReviewSurface {...shared} model={previewFailed} isPeter={false} />;
+  } else if (kind === 'retry-pending' || kind === 'preview-failed-retrying') {
+    node = <MilestoneReviewSurface {...shared} model={previewFailed} isPeter={false} retrying onRetry={noopRetry} />;
+  } else if (kind === 'retry-error') {
+    node = <MilestoneReviewSurface {...shared} model={previewFailed} isPeter={false} onRetry={noopRetry} retryError={RETRY_FAILED} />;
+  } else if (kind === 'peter-delete-removing') {
+    node = <MilestoneReviewSurface {...shared} model={deleteFailed} isPeter />;
+  } else if (kind === 'peter-delete-failed') {
+    node = <MilestoneReviewSurface {...shared} model={couldntRemove} isPeter />;
+  } else if (kind === 'preview-removed') {
+    node = <MilestoneReviewSurface {...shared} model={previewRemoved} isPeter />;
+  } else if (kind === 'approved') {
+    node = <MilestoneReviewSurface {...shared} model={approved} isPeter />;
+  } else if (kind === 'staff-delete-removing') {
+    node = <MilestoneReviewSurface {...shared} model={deleteFailed} isPeter={false} />;
+  } else if (kind === 'staff-couldnt-remove') {
+    node = <MilestoneReviewSurface {...shared} model={couldntRemove} isPeter={false} />;
+  }
+  if (!node) return null;
+  return (
+    <section data-overlay={kind} data-width={phone ? '390' : '1440'} style={{ width, maxWidth: phone ? 390 : undefined, paddingTop: 16 }}>
+      {node}
+    </section>
+  );
+}
+
+function isReviewState(view: ApprovalsFocus): boolean {
+  return view === 'retry-unavailable'
+    || view === 'retry-pending'
+    || view === 'retry-error'
+    || view === 'peter-delete-removing'
+    || view === 'peter-delete-failed'
+    || view === 'preview-removed'
+    || view === 'approved'
+    || view === 'staff-delete-removing'
+    || view === 'staff-couldnt-remove';
+}
 
 export function ApprovalsPreview({
   theme,
   overlay = null,
   view = null,
+  size = null,
 }: {
   theme: 'dark' | 'light';
   overlay?: ApprovalsOverlay | null;
   view?: ApprovalsFocus | null;
+  size?: ApprovalsSize | null;
 }) {
   useEffect(() => {
     document.documentElement.classList.toggle('light', theme === 'light');
     return () => document.documentElement.classList.remove('light');
   }, [theme]);
   return (
-    <main className="ds-scope" style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--fg)', padding: '48px 32px 32px' }}>
+    <main className="ds-scope" style={{ minHeight: '100vh', background: 'var(--bg)', color: 'var(--fg)', padding: size === '390' ? 16 : size === '1440' ? 32 : '48px 32px 32px' }}>
       <style>{'nextjs-portal{display:none !important}'}</style>
       <p className="ds-mono" style={{ letterSpacing: '2.64px', fontSize: 12, color: 'var(--muted)' }}>
         {`APPROVALS PREVIEW · ${theme.toUpperCase()}`}
@@ -563,10 +639,16 @@ export function ApprovalsPreview({
             <TileFrame peter={view === 'tile-peter'} staff={view !== 'tile-client'} phone />
           </>
         ) : null}
+        {view && isReviewState(view) ? (
+          <>
+            {size === '390' ? null : <ReviewStateFrame kind={view} phone={false} />}
+            {size === '1440' ? null : <ReviewStateFrame kind={view} phone />}
+          </>
+        ) : null}
         {view === 'preview-failed' || view === 'preview-failed-retrying' || view === 'preview-failed-after' || view === 'couldnt-remove' || view === 'couldnt-remove-retrying' || view === 'couldnt-remove-after' ? (
           <>
-            <StaffRetryFrame kind={view} phone={false} />
-            <StaffRetryFrame kind={view} phone />
+            {size === '390' ? null : <StaffRetryFrame kind={view} phone={false} />}
+            {size === '1440' ? null : <StaffRetryFrame kind={view} phone />}
           </>
         ) : null}
         {view === 'milestone-page' ? (

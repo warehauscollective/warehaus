@@ -286,6 +286,7 @@ describe('preview lifecycle', () => {
   });
 
   it('refuses preview retry until the GitHub and Vercel tokens exist', () => {
+    assert.equal(RETRY_WAITS_ON_TOKENS, "Retry isn't available yet. Review previews are still being set up.");
     assert.equal(reviewPreviewRetryReady({}), false);
     assert.equal(reviewPreviewRetryReady({ githubToken: 'gh', vercelToken: null }), false);
     assert.equal(reviewPreviewRetryReady({ githubToken: 'gh', vercelToken: 'vc' }), true);

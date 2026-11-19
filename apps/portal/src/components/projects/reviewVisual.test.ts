@@ -1,7 +1,22 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { deriveReviewVisual, type ReviewSurfaceModel } from './MilestoneReview';
+import React, { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+import { RETRY_WAITS_ON_TOKENS } from '@convex/_lib/milestoneReview';
+import {
+  APPROVED_AWAITING,
+  MilestoneReviewSurface,
+  PREVIEW_REMOVED,
+  RETRY_DISABLED_OPACITY,
+  RETRY_FAILED,
+  deriveReviewVisual,
+  previewRemovalRecorded,
+  reviewVisualForViewer,
+  type ReviewSurfaceModel,
+} from './MilestoneReview';
+
+Object.assign(globalThis, { React });
 
 const base: ReviewSurfaceModel = {
   milestoneId: 'm',
@@ -47,5 +62,92 @@ describe('review card state from milestone data', () => {
     assert.match(source, /const changesHeld = visual === 'building' \|\| visual === 'preview-failed'/);
     assert.match(source, /disabled=\{changesHeld \|\|/);
     assert.match(source, /disabledOpacity=\{changesHeld \? 0\.4/);
+    assert.equal(source.includes('The team has been told'), false);
+  });
+});
+
+function card(model: ReviewSurfaceModel, extra: Record<string, unknown> = {}) {
+  return renderToStaticMarkup(
+    createElement(MilestoneReviewSurface, {
+      model,
+      layout: 'card',
+      ...extra,
+    }),
+  );
+}
+
+describe('peter and staff preview visibility', () => {
+  const removing: ReviewSurfaceModel = {
+    ...base,
+    approval: 'approved',
+    previewDelete: 'removing',
+    previewDeleteAttempt: 2,
+    previewDeleteAt: 1,
+    history: [{ iteration: 2, decision: 'approve', notes: '', decidedByName: 'Peter', decidedAt: 1, source: 'portal', taskCount: 0 }],
+  };
+  const failedDelete: ReviewSurfaceModel = { ...removing, previewDelete: 'failed', previewDeleteAttempt: 3 };
+  const removed: ReviewSurfaceModel = { ...removing, previewDelete: 'removed', previewDeleteAttempt: null, previewDeleteAt: 9 };
+  const approved: ReviewSurfaceModel = { ...removing, previewDelete: null, previewDeleteAt: null };
+
+  it('keeps Peter on the plain approved card while a delete is failing', () => {
+    assert.equal(reviewVisualForViewer('delete-failed', true), 'approved');
+    assert.equal(reviewVisualForViewer('couldnt-remove', true), 'approved');
+    assert.equal(reviewVisualForViewer('delete-failed', false), 'delete-failed');
+    assert.equal(reviewVisualForViewer('couldnt-remove', false), 'couldnt-remove');
+    for (const model of [removing, failedDelete]) {
+      const peter = card(model, { isPeter: true });
+      const staff = card(model, { isPeter: false });
+      assert.match(peter, /data-review-state="approved"/);
+      assert.match(peter, new RegExp(APPROVED_AWAITING.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+      assert.equal(peter.includes('Removing preview'), false);
+      assert.equal(peter.includes('remove preview'), false);
+      assert.equal(peter.includes('data-testid="review-retry"'), false);
+      assert.equal(peter.includes(PREVIEW_REMOVED), false);
+      if (model.previewDelete === 'removing') {
+        assert.match(staff, /data-review-state="delete-failed"/);
+        assert.match(staff, /Removing preview/);
+        assert.equal(staff.includes('data-testid="review-retry"'), false);
+      } else {
+        assert.match(staff, /data-review-state="couldnt-remove"/);
+        assert.match(staff, /remove preview/);
+        assert.match(staff, /data-testid="review-retry"/);
+      }
+    }
+  });
+
+  it('mutes a disabled Retry the same way as a held Request changes', () => {
+    const html = card({ ...base, previewUrl: null, previewBuild: 'failed' }, { isPeter: false });
+    assert.match(html, /isn(?:'|&#x27;)t available yet\. Review previews are still being set up\./);
+    assert.equal(RETRY_WAITS_ON_TOKENS, "Retry isn't available yet. Review previews are still being set up.");
+    assert.equal(html.includes('Retry waits on the GitHub and Vercel tokens.'), false);
+    assert.match(html, /data-testid="review-retry"[^>]*style="[^"]*opacity:0\.4/);
+    assert.match(html, /data-testid="request-changes"[^>]*style="[^"]*opacity:0\.4/);
+    assert.equal(RETRY_DISABLED_OPACITY, 0.4);
+  });
+
+  it('shows a live Retry as pending, then an inline error', () => {
+    const failed = { ...base, previewUrl: null, previewBuild: 'failed' } satisfies ReviewSurfaceModel;
+    const pending = card(failed, { isPeter: false, retrying: true, onRetry: () => undefined });
+    assert.match(pending, /aria-busy="true"/);
+    assert.match(pending, /Retrying…/);
+    assert.equal(pending.includes('data-testid="review-retry-unavailable"'), false);
+    const errored = card(failed, { isPeter: false, onRetry: () => undefined, retryError: RETRY_FAILED });
+    assert.match(errored, /role="alert"/);
+    assert.match(errored, /data-testid="review-retry-error"/);
+    assert.match(errored, /Retry didn’t start/);
+    assert.equal(errored.includes('aria-busy'), false);
+  });
+
+  it('shows the removal line only after a recorded delete', () => {
+    assert.equal(previewRemovalRecorded(approved), false);
+    assert.equal(previewRemovalRecorded(removing), false);
+    assert.equal(previewRemovalRecorded({ ...removed, previewDeleteAt: null }), false);
+    assert.equal(previewRemovalRecorded(removed), true);
+    assert.equal(card(approved, { isPeter: true }).includes(PREVIEW_REMOVED), false);
+    assert.match(card(removed, { isPeter: true }), new RegExp(PREVIEW_REMOVED.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    const page = readFileSync(new URL('../../../app/preview/approvals/page.tsx', import.meta.url), 'utf8');
+    for (const view of ['retry-unavailable', 'retry-pending', 'retry-error', 'peter-delete-removing', 'peter-delete-failed', 'preview-removed', 'approved']) {
+      assert.match(page, new RegExp(`'${view}'`));
+    }
   });
 });
