@@ -1258,7 +1258,9 @@ export function MilestoneListCard({
           onClose={() => {
             if (!linkBusy) setLinkField(null);
           }}
-          narrow
+          narrow={viewportSheet}
+          sheet="bottom"
+          width={480}
           showFooter={false}
           blueFocus
           locked={linkBusy}

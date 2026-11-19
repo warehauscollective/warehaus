@@ -235,6 +235,9 @@ describe('milestone review fixes', () => {
     assert.equal(roadmap.includes('Updated today'), false);
     assert.match(roadmap, /decidedAt: milestone\.decidedAt/);
     const linkModal = roadmap.slice(roadmap.indexOf('testId="milestone-tile-link"'), roadmap.indexOf('milestone-deploy-confirm'));
+    assert.match(linkModal, /narrow=\{viewportSheet\}/);
+    assert.match(linkModal, /sheet="bottom"/);
+    assert.match(linkModal, /width=\{480\}/);
     assert.match(linkModal, /blueFocus/);
     assert.match(linkModal, /milestone-tile-link-error/);
     assert.match(roadmap, /Couldn’t save the link\. Nothing changed\./);
