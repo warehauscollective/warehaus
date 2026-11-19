@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref } from 'react';
 import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -52,29 +52,73 @@ export function FieldValue({ children }: { children: ReactNode }) {
   );
 }
 
-/** Work status chip. The glyph follows the existing status; the label stays the status value. */
-export function StatusChip({ label, glyph = '/icons/task-stage.svg' }: { label: string; glyph?: string }) {
-  return (
-    <span
-      className="ds-mono inline-flex shrink-0 items-center self-start whitespace-nowrap"
-      data-testid="milestone-status-chip"
-      style={{
-        boxSizing: 'border-box',
-        width: 'auto',
-        height: 24,
-        gap: 8,
-        border: '1px solid var(--border-2)',
-        borderRadius: 999,
-        padding: '4px 12px',
-        fontSize: 11,
-        lineHeight: 'normal',
-        letterSpacing: '0.44px',
-        color: 'var(--fg)',
-      }}
-    >
+/** Work status chip. Staff tiles turn it into the stage menu trigger. */
+export function StatusChip({
+  label,
+  glyph = '/icons/task-stage.svg',
+  interactive = false,
+  open = false,
+  onClick,
+  buttonRef,
+}: {
+  label: string;
+  glyph?: string;
+  /** Staff control. Clients stay a plain pill. */
+  interactive?: boolean;
+  open?: boolean;
+  onClick?: () => void;
+  buttonRef?: Ref<HTMLButtonElement>;
+}) {
+  const style = {
+    boxSizing: 'border-box' as const,
+    width: 'auto',
+    height: 24,
+    gap: interactive ? 6 : 8,
+    border: '1px solid var(--border-2)',
+    borderRadius: 999,
+    padding: interactive ? '4px 8px 4px 10px' : '4px 12px',
+    fontSize: 11,
+    lineHeight: 'normal',
+    letterSpacing: '0.44px',
+    color: 'var(--fg)',
+    background: 'transparent',
+  };
+  const body = (
+    <>
       <TaskGlyph src={glyph} size={12} />
       {label}
-    </span>
+      {interactive ? (
+        <span className="text-[var(--muted)]" aria-hidden>
+          <TaskGlyph src="/icons/task-chev-down.svg" size={12} />
+        </span>
+      ) : null}
+    </>
+  );
+  if (!interactive) {
+    return (
+      <span
+        className="ds-mono inline-flex shrink-0 items-center self-start whitespace-nowrap"
+        data-testid="milestone-status-chip"
+        style={style}
+      >
+        {body}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="ds-mono inline-flex shrink-0 items-center self-start whitespace-nowrap"
+      data-testid="milestone-status-chip"
+      ref={buttonRef}
+      data-milestone-stage-trigger=""
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      onClick={onClick}
+      style={{ ...style, cursor: 'pointer' }}
+    >
+      {body}
+    </button>
   );
 }
 

@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { formatReviewStamp, isPeterEmail, iterationOutcome } from '@convex/_lib/milestoneReview';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
-import { detailStatusLabel, effectiveDetailStatus, effectiveStage } from '@convex/_lib/milestoneDetails';
+import { detailStatusLabel, effectiveDetailStatus, effectiveStage, stageOptionLock, type MilestoneStage } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
 import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
 import { PortalModal } from '@/components/ui/PortalModal';
@@ -17,7 +18,7 @@ import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
 import { FIXTURE_PROJECTS } from '@/lib/data/fixtures';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
-import { useMilestoneDetailEdits, type MoveTarget } from './milestoneDetailsEdit';
+import { StageMenu, useMilestoneDetailEdits, type MoveTarget } from './milestoneDetailsEdit';
 import { type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { MilestoneReviewLive, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
@@ -389,11 +390,13 @@ export function ProjectRoadmap({
   const auth = usePortalAuth();
   const isPeter = isPeterEmail(auth.authUser?.email);
   const approveMilestone = useMutation(api.milestones.approve);
+  const setMilestoneStage = useMutation(api.milestones.setStage);
   const [patches, setPatches] = useState<Record<string, FixturePatch>>({});
   const [created, setCreated] = useState<MilestoneRoadmapView[]>([]);
   const [projectTab, setProjectTab] = useState<ProjectTab>('milestones');
   const [openMilestoneId, setOpenMilestoneId] = useState<string | null>(null);
   const [detailsPreview, setDetailsPreview] = useState<string | null>(null);
+  const [tileStagePreview, setTileStagePreview] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const rememberedMilestones = useRef<MilestoneRoadmapView[]>([]);
   const projectId = project.id as Id<'projects'>;
@@ -413,7 +416,9 @@ export function ProjectRoadmap({
   const fixtureRows = useFixtureMilestonePreview(fixtureBase, fixtures);
   useEffect(() => {
     if (!fixtures) return;
-    setDetailsPreview(new URLSearchParams(window.location.search).get('details'));
+    const params = new URLSearchParams(window.location.search);
+    setDetailsPreview(params.get('details'));
+    setTileStagePreview(params.get('tileStage'));
   }, [fixtures]);
   const previewMilestoneId = fixtures ? fixtureRows[0]?.id ?? null : null;
   useEffect(() => {
@@ -625,14 +630,26 @@ export function ProjectRoadmap({
               ) : null}
 
               <div className="flex flex-col gap-6 lg:gap-4">
-                {milestones.map((milestone) => (
+                {milestones.map((milestone, index) => (
                   <MilestoneListCard
                     key={milestone.id}
                     milestone={milestone}
                     staff={staff}
                     isPeter={isPeter}
                     fixtures={fixtures}
+                    stagePreview={index === 0 ? tileStagePreview : null}
                     onOpen={() => setOpenMilestoneId(milestone.id)}
+                    onStage={async (stage) => {
+                      if (fixtures) {
+                        patchMilestone(milestone.id, { stage });
+                        return;
+                      }
+                      await setMilestoneStage({
+                        hostSlug,
+                        milestoneId: milestone.id as Id<'milestones'>,
+                        stage,
+                      });
+                    }}
                     onApprove={(iteration) =>
                       approveMilestone({
                         hostSlug,
@@ -675,22 +692,134 @@ export function ProjectRoadmap({
   );
 }
 
+const TILE_MENU_WIDTH = 320;
+const TILE_MENU_GAP = 8;
+
+/** Place the desktop stage menu inside the visible scroll area. Flip above the chip when the menu fits there and not below. */
+export function tileStageMenuBox(input: {
+  chip: { top: number; right: number; bottom: number };
+  menu: { width: number; height: number };
+  bounds: { top: number; right: number; bottom: number; left: number };
+}): { top: number; left: number; placement: 'up' | 'down' } {
+  const { chip, menu, bounds } = input;
+  const spaceBelow = bounds.bottom - chip.bottom - TILE_MENU_GAP;
+  const spaceAbove = chip.top - bounds.top - TILE_MENU_GAP;
+  const placement = spaceBelow < menu.height && spaceAbove >= menu.height ? 'up' : 'down';
+  let top = placement === 'up' ? chip.top - TILE_MENU_GAP - menu.height : chip.bottom + TILE_MENU_GAP;
+  const minTop = bounds.top + TILE_MENU_GAP;
+  const maxTop = Math.max(minTop, bounds.bottom - menu.height - TILE_MENU_GAP);
+  top = Math.min(Math.max(top, minTop), maxTop);
+  let left = chip.right - menu.width;
+  const minLeft = bounds.left + TILE_MENU_GAP;
+  const maxLeft = Math.max(minLeft, bounds.right - menu.width - TILE_MENU_GAP);
+  left = Math.min(Math.max(left, minLeft), maxLeft);
+  return { top, left, placement };
+}
+
+function visibleMenuBounds(anchor: HTMLElement): { top: number; right: number; bottom: number; left: number } {
+  const scroll = anchor.closest('[data-page-scroll]');
+  const scrollRect = scroll?.getBoundingClientRect();
+  const top = scrollRect ? Math.max(0, scrollRect.top) : 0;
+  const left = scrollRect ? Math.max(0, scrollRect.left) : 0;
+  const right = scrollRect ? Math.min(window.innerWidth, scrollRect.right) : window.innerWidth;
+  let bottom = scrollRect ? Math.min(window.innerHeight, scrollRect.bottom) : window.innerHeight;
+  const dock = document.querySelector('[data-testid="portal-dock"]');
+  if (dock instanceof HTMLElement && getComputedStyle(dock).visibility !== 'hidden') {
+    const dockTop = dock.getBoundingClientRect().top;
+    if (dockTop < bottom) bottom = dockTop;
+  }
+  return { top, right, bottom, left };
+}
+
+function TileStagePopover({
+  anchorRef,
+  children,
+}: {
+  anchorRef: RefObject<HTMLDivElement | null>;
+  children: ReactNode;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setHost(document.body);
+  }, []);
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const anchor = anchorRef.current;
+    if (!menu || !anchor || !host) return;
+    const place = () => {
+      const chip = anchor.getBoundingClientRect();
+      const box = tileStageMenuBox({
+        chip: { top: chip.top, right: chip.right, bottom: chip.bottom },
+        menu: { width: TILE_MENU_WIDTH, height: menu.offsetHeight },
+        bounds: visibleMenuBounds(anchor),
+      });
+      menu.style.position = 'fixed';
+      menu.style.top = `${box.top}px`;
+      menu.style.left = `${box.left}px`;
+      menu.style.right = 'auto';
+      menu.style.bottom = 'auto';
+      menu.style.width = `${TILE_MENU_WIDTH}px`;
+      menu.style.zIndex = '60';
+      menu.dataset.placement = box.placement;
+    };
+    place();
+    const current = menu.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]:not(:disabled)');
+    current?.focus({ preventScroll: true });
+    const scroll = anchor.closest('[data-page-scroll]');
+    scroll?.addEventListener('scroll', place, { passive: true });
+    window.addEventListener('resize', place);
+    const observer = new ResizeObserver(place);
+    observer.observe(menu);
+    return () => {
+      scroll?.removeEventListener('scroll', place);
+      window.removeEventListener('resize', place);
+      observer.disconnect();
+    };
+  }, [anchorRef, host]);
+  const node = (
+    <div
+      ref={menuRef}
+      className="ds-scope"
+      data-testid="tile-stage-popover"
+      style={{
+        position: 'absolute',
+        top: 'calc(100% + 8px)',
+        right: 0,
+        width: TILE_MENU_WIDTH,
+        zIndex: 40,
+        background: 'transparent',
+      }}
+    >
+      {children}
+    </div>
+  );
+  return host ? createPortal(node, host) : node;
+}
+
+function initialTileMenu(preview?: string | null): boolean {
+  return preview === 'menu';
+}
+
 export function MilestoneListCard({
   milestone,
   staff,
   isPeter = false,
   fixtures = false,
   onOpen,
+  onStage,
   onApprove,
   openConfirm = false,
   phone = false,
   cover = false,
+  stagePreview = null,
 }: {
   milestone: MilestoneRoadmapView;
   staff: boolean;
   isPeter?: boolean;
   fixtures?: boolean;
   onOpen: () => void;
+  onStage?: (stage: MilestoneStage) => void | Promise<unknown>;
   onApprove?: (iteration: number) => Promise<unknown>;
   /** Fixture QA opens the one confirm without a click. */
   openConfirm?: boolean;
@@ -698,11 +827,62 @@ export function MilestoneListCard({
   phone?: boolean;
   /** Fixture dialog stays inside its frame instead of covering the page. */
   cover?: boolean;
+  /** Fixture QA. `menu` opens the stage menu. */
+  stagePreview?: string | null;
 }) {
   const [confirm, setConfirm] = useState(openConfirm);
   const viewportSheet = useMaxWidth(767);
+  // The tile chip switches at lg (1024). Below that, the phone pill is the one on screen.
+  const tilePhone = useMaxWidth(1023);
+  const phoneSheet = phone || tilePhone;
+  const [stageMenuOpen, setStageMenuOpen] = useState(() => (staff ? initialTileMenu(stagePreview) : false));
+  const [stageError, setStageError] = useState<string | null>(null);
+  const menuAnchorRef = useRef<HTMLDivElement>(null);
+  const chipRef = useRef<HTMLButtonElement>(null);
+  const desktopMenuWasOpen = useRef(false);
   const [deploying, setDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!staff || stagePreview !== 'menu') return;
+    setConfirm(false);
+    setStageMenuOpen(true);
+  }, [staff, stagePreview]);
+  useEffect(() => {
+    if (phoneSheet) {
+      desktopMenuWasOpen.current = false;
+      return;
+    }
+    if (stageMenuOpen) {
+      desktopMenuWasOpen.current = true;
+      return;
+    }
+    if (!desktopMenuWasOpen.current) return;
+    desktopMenuWasOpen.current = false;
+    const chip = chipRef.current;
+    chip?.focus({ preventScroll: true });
+    const frame = window.requestAnimationFrame(() => chip?.focus({ preventScroll: true }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [stageMenuOpen, phoneSheet]);
+  useEffect(() => {
+    if (!stageMenuOpen || phoneSheet) return;
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (target instanceof Element && target.closest('[data-testid="tile-stage-popover"]')) return;
+      if (target instanceof Element && target.closest('[data-milestone-stage-trigger]')) return;
+      setStageMenuOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setStageMenuOpen(false);
+    };
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [stageMenuOpen, phoneSheet]);
   const canDeploy = Boolean(staff && isPeter && milestone.workStatus === 'ready' && milestone.approval !== 'approved' && milestone.review?.previewUrl);
   const confirmDeploy = () => {
     if (fixtures || !milestone.review || !onApprove) {
@@ -731,6 +911,51 @@ export function MilestoneListCard({
     approval: milestone.approval,
     omitReview: canDeploy,
   });
+  const closeStageMenu = () => setStageMenuOpen(false);
+  const toggleMenu = () => {
+    setConfirm(false);
+    setStageError(null);
+    setStageMenuOpen((current) => !current);
+  };
+  const saveStage = (next: MilestoneStage) => {
+    if (stageOptionLock(next)) return;
+    setStageMenuOpen(false);
+    setStageError(null);
+    const result = onStage?.(next);
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      void (result as Promise<unknown>).catch((err) => {
+        setStageError(userFacingErrorMessage(err, 'Couldn’t save. Nothing changed. Try again.'));
+      });
+    }
+  };
+  const pickStage = (next: MilestoneStage) => {
+    if (stageOptionLock(next)) return;
+    if (next === stage.label) {
+      setStageMenuOpen(false);
+      return;
+    }
+    saveStage(next);
+  };
+  const showDeploy = confirm && !stageMenuOpen;
+  const stageTrigger = (
+    <StatusChip
+      label={stage.label}
+      glyph={stage.glyph}
+      interactive={staff}
+      open={stageMenuOpen}
+      onClick={staff ? toggleMenu : undefined}
+      buttonRef={chipRef}
+    />
+  );
+  const phoneTrigger = (
+    <StatusChip
+      label={stage.label}
+      glyph={stage.glyph}
+      interactive={staff}
+      open={stageMenuOpen}
+      onClick={staff ? toggleMenu : undefined}
+    />
+  );
   return (
     <article
       data-testid={`milestone-${milestone.id}`}
@@ -743,7 +968,7 @@ export function MilestoneListCard({
       }}
     >
       <div className="flex min-w-0 flex-nowrap items-center gap-3 lg:hidden">
-        <StatusChip label={stage.label} glyph={stage.glyph} />
+        {phoneTrigger}
         {dateLine ? (
           <p data-testid="milestone-due" className="min-w-0 truncate" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
             {dateLine}
@@ -791,14 +1016,21 @@ export function MilestoneListCard({
         </div>
       </div>
       <div className="hidden w-[174px] shrink-0 flex-col items-start gap-3 lg:flex">
-        <StatusChip label={stage.label} glyph={stage.glyph} />
+        <div className="relative" ref={menuAnchorRef}>
+          {stageTrigger}
+          {staff && stageMenuOpen && !phoneSheet ? (
+            <TileStagePopover anchorRef={menuAnchorRef}>
+              <StageMenu current={stage.label} onPick={pickStage} onClose={closeStageMenu} />
+            </TileStagePopover>
+          ) : null}
+        </div>
         {dateLine ? (
           <p data-testid="milestone-due" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
             {dateLine}
           </p>
         ) : null}
         {canDeploy ? (
-          <button type="button" data-testid="tile-approve-deploy" onClick={() => setConfirm(true)} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
+          <button type="button" data-testid="tile-approve-deploy" onClick={() => { setStageMenuOpen(false); setConfirm(true); }} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
             Approve & deploy
           </button>
         ) : null}
@@ -806,13 +1038,18 @@ export function MilestoneListCard({
       </div>
       <div className="flex flex-col gap-2 lg:hidden">
         {canDeploy ? (
-          <button type="button" data-testid="tile-approve-deploy-phone" onClick={() => setConfirm(true)} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, width: '100%', cursor: 'pointer' }}>
+          <button type="button" data-testid="tile-approve-deploy-phone" onClick={() => { setStageMenuOpen(false); setConfirm(true); }} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, width: '100%', cursor: 'pointer' }}>
             Approve & deploy
           </button>
         ) : null}
         <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
-      {confirm ? (
+      {stageError ? (
+        <p role="alert" data-testid="tile-stage-error" className="lg:col-span-2" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 13, lineHeight: '18px' }}>
+          {stageError}
+        </p>
+      ) : null}
+      {showDeploy ? (
         <PortalModal
           testId="milestone-deploy-confirm"
           label={deploying ? RECORDING_APPROVAL : 'Approve and ship to production?'}
@@ -852,6 +1089,20 @@ export function MilestoneListCard({
               {deploying ? 'Approving…' : 'Approve & deploy'}
             </button>
           </div>
+        </PortalModal>
+      ) : null}
+      {stageMenuOpen && phoneSheet ? (
+        <PortalModal
+          testId="tile-stage-menu"
+          scrimTestId="tile-stage-scrim"
+          label="Stage"
+          onClose={closeStageMenu}
+          narrow
+          sheet="bottom"
+          showFooter={false}
+          cover={cover}
+        >
+          <StageMenu current={stage.label} onPick={pickStage} onClose={closeStageMenu} sheet />
         </PortalModal>
       ) : null}
     </article>

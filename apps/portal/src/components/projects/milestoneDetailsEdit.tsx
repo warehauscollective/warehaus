@@ -679,7 +679,7 @@ function menuKey(event: ReactKeyboardEvent<HTMLDivElement>, onClose: () => void)
   }
 }
 
-function StageMenu({
+export function StageMenu({
   current,
   onPick,
   onClose,
