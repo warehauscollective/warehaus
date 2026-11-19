@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { formatReviewStamp, isPeterEmail, iterationOutcome } from '@convex/_lib/milestoneReview';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
@@ -10,7 +11,7 @@ import type { Id } from '@convex/_generated/dataModel';
 import { detailStatusLabel, effectiveDetailStatus, effectiveStage, stageOptionLock, type MilestoneStage } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
 import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
-import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
+import { PortalModal } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
@@ -30,7 +31,6 @@ import {
   MilestoneListButton,
   PageHeading,
   Panel,
-  StageConfirmSheet,
   StatusChip,
   StateCard,
   TabRow,
@@ -692,14 +692,105 @@ export function ProjectRoadmap({
   );
 }
 
-const TILE_PHONE_STAGE_HINT = 'Nothing changes until you confirm.';
+const TILE_MENU_WIDTH = 320;
+const TILE_MENU_GAP = 8;
 
-type TileStage = null | { kind: 'menu' } | { kind: 'confirm'; stage: MilestoneStage };
+/** Place the desktop stage menu inside the visible scroll area. Flip above the chip when the menu fits there and not below. */
+export function tileStageMenuBox(input: {
+  chip: { top: number; right: number; bottom: number };
+  menu: { width: number; height: number };
+  bounds: { top: number; right: number; bottom: number; left: number };
+}): { top: number; left: number; placement: 'up' | 'down' } {
+  const { chip, menu, bounds } = input;
+  const spaceBelow = bounds.bottom - chip.bottom - TILE_MENU_GAP;
+  const spaceAbove = chip.top - bounds.top - TILE_MENU_GAP;
+  const placement = spaceBelow < menu.height && spaceAbove >= menu.height ? 'up' : 'down';
+  let top = placement === 'up' ? chip.top - TILE_MENU_GAP - menu.height : chip.bottom + TILE_MENU_GAP;
+  const minTop = bounds.top + TILE_MENU_GAP;
+  const maxTop = Math.max(minTop, bounds.bottom - menu.height - TILE_MENU_GAP);
+  top = Math.min(Math.max(top, minTop), maxTop);
+  let left = chip.right - menu.width;
+  const minLeft = bounds.left + TILE_MENU_GAP;
+  const maxLeft = Math.max(minLeft, bounds.right - menu.width - TILE_MENU_GAP);
+  left = Math.min(Math.max(left, minLeft), maxLeft);
+  return { top, left, placement };
+}
 
-function initialTileStage(preview?: string | null): TileStage {
-  if (preview === 'menu') return { kind: 'menu' };
-  if (preview === 'confirm') return { kind: 'confirm', stage: 'Planning' };
-  return null;
+function visibleMenuBounds(anchor: HTMLElement): { top: number; right: number; bottom: number; left: number } {
+  const scroll = anchor.closest('[data-page-scroll]');
+  const scrollRect = scroll?.getBoundingClientRect();
+  const top = scrollRect ? Math.max(0, scrollRect.top) : 0;
+  const left = scrollRect ? Math.max(0, scrollRect.left) : 0;
+  const right = scrollRect ? Math.min(window.innerWidth, scrollRect.right) : window.innerWidth;
+  let bottom = scrollRect ? Math.min(window.innerHeight, scrollRect.bottom) : window.innerHeight;
+  const dock = document.querySelector('[data-testid="portal-dock"]');
+  if (dock instanceof HTMLElement && getComputedStyle(dock).visibility !== 'hidden') {
+    const dockTop = dock.getBoundingClientRect().top;
+    if (dockTop < bottom) bottom = dockTop;
+  }
+  return { top, right, bottom, left };
+}
+
+function TileStagePopover({
+  anchorRef,
+  children,
+}: {
+  anchorRef: RefObject<HTMLDivElement | null>;
+  children: ReactNode;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setHost(document.body);
+  }, []);
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const anchor = anchorRef.current;
+    if (!menu || !anchor || !host) return;
+    const place = () => {
+      const chip = anchor.getBoundingClientRect();
+      const box = tileStageMenuBox({
+        chip: { top: chip.top, right: chip.right, bottom: chip.bottom },
+        menu: { width: TILE_MENU_WIDTH, height: menu.offsetHeight },
+        bounds: visibleMenuBounds(anchor),
+      });
+      menu.style.position = 'fixed';
+      menu.style.top = `${box.top}px`;
+      menu.style.left = `${box.left}px`;
+      menu.style.right = 'auto';
+      menu.style.bottom = 'auto';
+      menu.style.width = `${TILE_MENU_WIDTH}px`;
+      menu.style.zIndex = '60';
+      menu.dataset.placement = box.placement;
+    };
+    place();
+    const current = menu.querySelector<HTMLButtonElement>('[role="option"][aria-selected="true"]:not(:disabled)');
+    current?.focus({ preventScroll: true });
+    const scroll = anchor.closest('[data-page-scroll]');
+    scroll?.addEventListener('scroll', place, { passive: true });
+    window.addEventListener('resize', place);
+    const observer = new ResizeObserver(place);
+    observer.observe(menu);
+    return () => {
+      scroll?.removeEventListener('scroll', place);
+      window.removeEventListener('resize', place);
+      observer.disconnect();
+    };
+  }, [anchorRef, host]);
+  const node = (
+    <div
+      ref={menuRef}
+      data-testid="tile-stage-popover"
+      style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: TILE_MENU_WIDTH, zIndex: 40 }}
+    >
+      {children}
+    </div>
+  );
+  return host ? createPortal(node, host) : node;
+}
+
+function initialTileMenu(preview?: string | null): boolean {
+  return preview === 'menu';
 }
 
 export function MilestoneListCard({
@@ -728,7 +819,7 @@ export function MilestoneListCard({
   phone?: boolean;
   /** Fixture dialog stays inside its frame instead of covering the page. */
   cover?: boolean;
-  /** Fixture QA. `menu` opens the stage menu. `confirm` opens the phone confirm. */
+  /** Fixture QA. `menu` opens the stage menu. */
   stagePreview?: string | null;
 }) {
   const [confirm, setConfirm] = useState(openConfirm);
@@ -736,28 +827,46 @@ export function MilestoneListCard({
   // The tile chip switches at lg (1024). Below that, the phone pill is the one on screen.
   const tilePhone = useMaxWidth(1023);
   const phoneSheet = phone || tilePhone;
-  const [overlay, setOverlay] = useState<TileStage>(() => (staff ? initialTileStage(stagePreview) : null));
+  const [stageMenuOpen, setStageMenuOpen] = useState(() => (staff ? initialTileMenu(stagePreview) : false));
   const [stageError, setStageError] = useState<string | null>(null);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const menuAnchorRef = useRef<HTMLDivElement>(null);
+  const chipRef = useRef<HTMLButtonElement>(null);
+  const desktopMenuWasOpen = useRef(false);
   const [deploying, setDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
   useEffect(() => {
-    if (!staff || !stagePreview) return;
+    if (!staff || stagePreview !== 'menu') return;
     setConfirm(false);
-    setOverlay(initialTileStage(stagePreview));
+    setStageMenuOpen(true);
   }, [staff, stagePreview]);
   useEffect(() => {
-    if (overlay?.kind !== 'menu' || phoneSheet) return;
+    if (phoneSheet) {
+      desktopMenuWasOpen.current = false;
+      return;
+    }
+    if (stageMenuOpen) {
+      desktopMenuWasOpen.current = true;
+      return;
+    }
+    if (!desktopMenuWasOpen.current) return;
+    desktopMenuWasOpen.current = false;
+    const chip = chipRef.current;
+    chip?.focus({ preventScroll: true });
+    const frame = window.requestAnimationFrame(() => chip?.focus({ preventScroll: true }));
+    return () => window.cancelAnimationFrame(frame);
+  }, [stageMenuOpen, phoneSheet]);
+  useEffect(() => {
+    if (!stageMenuOpen || phoneSheet) return;
     const onPointer = (event: PointerEvent) => {
       const target = event.target;
       if (!(target instanceof Node)) return;
-      if (menuRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest('[data-testid="tile-stage-popover"]')) return;
       if (target instanceof Element && target.closest('[data-milestone-stage-trigger]')) return;
-      setOverlay(null);
+      setStageMenuOpen(false);
     };
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
-      setOverlay(null);
+      setStageMenuOpen(false);
     };
     document.addEventListener('pointerdown', onPointer);
     document.addEventListener('keydown', onKey);
@@ -765,7 +874,7 @@ export function MilestoneListCard({
       document.removeEventListener('pointerdown', onPointer);
       document.removeEventListener('keydown', onKey);
     };
-  }, [overlay, phoneSheet]);
+  }, [stageMenuOpen, phoneSheet]);
   const canDeploy = Boolean(staff && isPeter && milestone.workStatus === 'ready' && milestone.approval !== 'approved' && milestone.review?.previewUrl);
   const confirmDeploy = () => {
     if (fixtures || !milestone.review || !onApprove) {
@@ -794,14 +903,15 @@ export function MilestoneListCard({
     approval: milestone.approval,
     omitReview: canDeploy,
   });
+  const closeStageMenu = () => setStageMenuOpen(false);
   const toggleMenu = () => {
     setConfirm(false);
     setStageError(null);
-    setOverlay((current) => (current?.kind === 'menu' ? null : { kind: 'menu' }));
+    setStageMenuOpen((current) => !current);
   };
   const saveStage = (next: MilestoneStage) => {
     if (stageOptionLock(next)) return;
-    setOverlay(null);
+    setStageMenuOpen(false);
     setStageError(null);
     const result = onStage?.(next);
     if (result && typeof (result as Promise<unknown>).then === 'function') {
@@ -813,19 +923,12 @@ export function MilestoneListCard({
   const pickStage = (next: MilestoneStage) => {
     if (stageOptionLock(next)) return;
     if (next === stage.label) {
-      setOverlay(null);
-      return;
-    }
-    if (phoneSheet) {
-      setConfirm(false);
-      setOverlay({ kind: 'confirm', stage: next });
+      setStageMenuOpen(false);
       return;
     }
     saveStage(next);
   };
-  const stageMenuOpen = overlay?.kind === 'menu';
-  const stageConfirm = overlay?.kind === 'confirm';
-  const showDeploy = confirm && !stageMenuOpen && !stageConfirm;
+  const showDeploy = confirm && !stageMenuOpen;
   const stageTrigger = (
     <StatusChip
       label={stage.label}
@@ -833,6 +936,7 @@ export function MilestoneListCard({
       interactive={staff}
       open={stageMenuOpen}
       onClick={staff ? toggleMenu : undefined}
+      buttonRef={chipRef}
     />
   );
   const phoneTrigger = (
@@ -904,16 +1008,12 @@ export function MilestoneListCard({
         </div>
       </div>
       <div className="hidden w-[174px] shrink-0 flex-col items-start gap-3 lg:flex">
-        <div className="relative">
+        <div className="relative" ref={menuAnchorRef}>
           {stageTrigger}
           {staff && stageMenuOpen && !phoneSheet ? (
-            <div
-              ref={menuRef}
-              data-testid="tile-stage-popover"
-              style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 320, zIndex: 40 }}
-            >
-              <StageMenu current={stage.label} onPick={pickStage} onClose={() => setOverlay(null)} />
-            </div>
+            <TileStagePopover anchorRef={menuAnchorRef}>
+              <StageMenu current={stage.label} onPick={pickStage} onClose={closeStageMenu} />
+            </TileStagePopover>
           ) : null}
         </div>
         {dateLine ? (
@@ -922,7 +1022,7 @@ export function MilestoneListCard({
           </p>
         ) : null}
         {canDeploy ? (
-          <button type="button" data-testid="tile-approve-deploy" onClick={() => { setOverlay(null); setConfirm(true); }} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
+          <button type="button" data-testid="tile-approve-deploy" onClick={() => { setStageMenuOpen(false); setConfirm(true); }} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
             Approve & deploy
           </button>
         ) : null}
@@ -930,7 +1030,7 @@ export function MilestoneListCard({
       </div>
       <div className="flex flex-col gap-2 lg:hidden">
         {canDeploy ? (
-          <button type="button" data-testid="tile-approve-deploy-phone" onClick={() => { setOverlay(null); setConfirm(true); }} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, width: '100%', cursor: 'pointer' }}>
+          <button type="button" data-testid="tile-approve-deploy-phone" onClick={() => { setStageMenuOpen(false); setConfirm(true); }} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, width: '100%', cursor: 'pointer' }}>
             Approve & deploy
           </button>
         ) : null}
@@ -983,59 +1083,20 @@ export function MilestoneListCard({
           </div>
         </PortalModal>
       ) : null}
-      <PortalModalStack
-        frames={[
-          {
-            key: 'menu',
-            open: Boolean(stageMenuOpen && phoneSheet),
-            node: stageMenuOpen && phoneSheet ? (
-              <PortalModal
-                testId="tile-stage-menu"
-                scrimTestId="tile-stage-scrim"
-                label="Stage"
-                onClose={() => setOverlay(null)}
-                narrow
-                sheet="bottom"
-                showFooter={false}
-                cover={cover}
-              >
-                <StageMenu
-                  current={stage.label}
-                  onPick={pickStage}
-                  onClose={() => setOverlay(null)}
-                  sheet
-                  hint={TILE_PHONE_STAGE_HINT}
-                />
-              </PortalModal>
-            ) : null,
-          },
-          {
-            key: 'confirm',
-            open: stageConfirm,
-            node: overlay?.kind === 'confirm' ? (
-              <PortalModal
-                testId="stage-confirm"
-                scrimTestId="tile-stage-scrim"
-                label={`Move to ${overlay.stage}`}
-                onClose={() => setOverlay({ kind: 'menu' })}
-                narrow
-                sheet="bottom"
-                focusCancel
-                showFooter={false}
-                cover={cover}
-              >
-                <StageConfirmSheet
-                  hideGrabber
-                  stage={overlay.stage}
-                  subject="milestone"
-                  onCancel={() => setOverlay({ kind: 'menu' })}
-                  onConfirm={() => saveStage(overlay.stage)}
-                />
-              </PortalModal>
-            ) : null,
-          },
-        ]}
-      />
+      {stageMenuOpen && phoneSheet ? (
+        <PortalModal
+          testId="tile-stage-menu"
+          scrimTestId="tile-stage-scrim"
+          label="Stage"
+          onClose={closeStageMenu}
+          narrow
+          sheet="bottom"
+          showFooter={false}
+          cover={cover}
+        >
+          <StageMenu current={stage.label} onPick={pickStage} onClose={closeStageMenu} sheet />
+        </PortalModal>
+      ) : null}
     </article>
   );
 }

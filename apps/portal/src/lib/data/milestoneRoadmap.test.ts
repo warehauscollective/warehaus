@@ -18,6 +18,7 @@ import {
   milestoneTileStage,
   tileMetaLine,
   tileProgressLabel,
+  tileStageMenuBox,
 } from '@/components/projects/ProjectRoadmap';
 
 Object.assign(globalThis, { React });
@@ -28,7 +29,7 @@ function renderTile(input: {
   staff: boolean;
   milestone: MilestoneRoadmapView;
   phone?: boolean;
-  stagePreview?: 'menu' | 'confirm' | null;
+  stagePreview?: 'menu' | null;
 }): string {
   return renderToStaticMarkup(
     createElement(MilestoneListCard, {
@@ -453,7 +454,7 @@ describe('roadmap markup', () => {
     assert.match(longChip, /flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center/);
   });
 
-  it('opens the tile stage menu for staff and confirms on the phone before saving', () => {
+  it('opens the tile stage menu for staff and saves on pick', () => {
     const milestone = tileMilestone({});
     const client = renderTile({ staff: false, milestone, stagePreview: 'menu' });
     assert.match(client, /<span[^>]*data-testid="milestone-status-chip"/);
@@ -462,9 +463,13 @@ describe('roadmap markup', () => {
 
     const desktop = renderTile({ staff: true, milestone, stagePreview: 'menu' });
     assert.match(desktop, /<button[^>]*data-testid="milestone-status-chip"/);
+    const staffChip = desktop.match(/<button[^>]*data-testid="milestone-status-chip"[^>]*>/)?.[0] ?? '';
+    assert.match(staffChip, /font-size:11px/);
+    assert.match(staffChip, /letter-spacing:0\.44px/);
+    assert.doesNotMatch(staffChip, /font:\s*inherit/);
     assert.match(desktop, /data-testid="tile-stage-popover"/);
     assert.match(desktop, /data-testid="milestone-stage-menu"/);
-    assert.match(desktop, /Saves as soon as you pick/);
+    assert.match(desktop, /Staff can set any stage except Shipped\. Shipped is set when the pull request merges\. Saves as soon as you pick\./);
     assert.match(desktop, /task-chev-down\.svg/);
     assert.equal(desktop.includes('tile-stage-menu'), false);
     assert.equal(desktop.includes('stage-confirm-sheet'), false);
@@ -477,19 +482,44 @@ describe('roadmap markup', () => {
     assert.equal(phoneMenu.includes('tile-stage-popover'), false);
     assert.match(phoneMenu, /data-testid="tile-stage-menu"/);
     assert.match(phoneMenu, /data-testid="milestone-stage-menu"/);
-    assert.match(phoneMenu, /Nothing changes until you confirm/);
+    assert.match(phoneMenu, /Staff can set any stage except Shipped\. Shipped is set when the pull request merges\. Saves as soon as you pick\./);
+    assert.equal(phoneMenu.includes('Nothing changes until you confirm'), false);
     assert.match(phoneMenu, />Close</);
+    assert.equal(phoneMenu.includes('stage-confirm'), false);
     assert.equal(phoneMenu.includes('stage-confirm-sheet'), false);
     assert.equal(phoneMenu.split('portal-modal-scrim').length - 1, 1);
+  });
 
-    const phoneConfirm = renderTile({ staff: true, milestone, phone: true, stagePreview: 'confirm' });
-    assert.match(phoneConfirm, /data-testid="stage-confirm"/);
-    assert.match(phoneConfirm, /data-testid="stage-confirm-sheet"/);
-    assert.match(phoneConfirm, /Move this milestone to Planning\?/);
-    assert.match(phoneConfirm, /Move to Planning/);
-    assert.equal(phoneConfirm.includes('milestone-stage-menu'), false);
-    assert.equal(phoneConfirm.includes('tile-stage-menu'), false);
-    assert.equal(phoneConfirm.split('portal-modal-scrim').length - 1, 1);
+  it('flips the desktop stage menu above the chip only when it fits there', () => {
+    const menu = { width: 320, height: 360 };
+    const bounds = { top: 80, right: 1400, bottom: 820, left: 280 };
+    const first = tileStageMenuBox({
+      chip: { top: 180, right: 1200, bottom: 204 },
+      menu,
+      bounds,
+    });
+    assert.equal(first.placement, 'down');
+    assert.equal(first.top, 212);
+    assert.ok(first.top + menu.height <= bounds.bottom - 8);
+
+    const last = tileStageMenuBox({
+      chip: { top: 640, right: 1200, bottom: 664 },
+      menu,
+      bounds,
+    });
+    assert.equal(last.placement, 'up');
+    assert.equal(last.top, 640 - 8 - menu.height);
+    assert.ok(last.top >= bounds.top + 8);
+    assert.ok(last.top + menu.height <= bounds.bottom - 8);
+
+    const tight = tileStageMenuBox({
+      chip: { top: 400, right: 1200, bottom: 424 },
+      menu: { width: 320, height: 500 },
+      bounds,
+    });
+    assert.equal(tight.placement, 'down');
+    assert.equal(tight.top, bounds.bottom - 500 - 8);
+    assert.ok(tight.top + 500 <= bounds.bottom - 8);
   });
 
   it('names subtasks in the inclusive progress and leaves a plain count when there are none', () => {

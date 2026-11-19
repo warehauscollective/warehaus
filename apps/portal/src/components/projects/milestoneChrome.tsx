@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref } from 'react';
 import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -59,6 +59,7 @@ export function StatusChip({
   interactive = false,
   open = false,
   onClick,
+  buttonRef,
 }: {
   label: string;
   glyph?: string;
@@ -66,6 +67,7 @@ export function StatusChip({
   interactive?: boolean;
   open?: boolean;
   onClick?: () => void;
+  buttonRef?: Ref<HTMLButtonElement>;
 }) {
   const style = {
     boxSizing: 'border-box' as const,
@@ -108,11 +110,12 @@ export function StatusChip({
       type="button"
       className="ds-mono inline-flex shrink-0 items-center self-start whitespace-nowrap"
       data-testid="milestone-status-chip"
+      ref={buttonRef}
       data-milestone-stage-trigger=""
       aria-haspopup="listbox"
       aria-expanded={open}
       onClick={onClick}
-      style={{ ...style, font: 'inherit', cursor: 'pointer' }}
+      style={{ ...style, cursor: 'pointer' }}
     >
       {body}
     </button>
@@ -392,15 +395,12 @@ export function StageConfirmSheet({
   onCancel,
   onConfirm,
   hideGrabber = false,
-  subject = 'task',
 }: {
   stage: string;
   onCancel: () => void;
   onConfirm: () => void;
   /** The shared sheet already draws the grabber. */
   hideGrabber?: boolean;
-  /** "task" on the board. The milestone tile says "milestone". */
-  subject?: 'task' | 'milestone';
 }) {
   return (
     <div
@@ -444,7 +444,7 @@ export function StageConfirmSheet({
           Close
         </button>
       </div>
-      <p style={{ margin: 0, padding: '8px 24px', fontSize: 14, lineHeight: '21px' }}>{`Move this ${subject} to ${stage}?`}</p>
+      <p style={{ margin: 0, padding: '8px 24px', fontSize: 14, lineHeight: '21px' }}>{`Move this task to ${stage}?`}</p>
       <div className="flex flex-nowrap items-center justify-end gap-2 border-t px-6 pt-4" style={{ borderColor: 'var(--border)', paddingBottom: 24 }}>
         <span className="ml-auto flex shrink-0 flex-nowrap items-center gap-2">
           <OutlineButton nowrap height={42} paddingInline={16} onClick={onCancel}>
