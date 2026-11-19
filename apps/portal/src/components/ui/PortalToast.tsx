@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 
@@ -40,11 +40,72 @@ export function PortalToast({
   /** 0 keeps the toast up. The spec hides a visible toast after 3s. */
   autoHideMs?: number;
 }) {
+  const onDismissRef = useRef(onDismiss);
+  onDismissRef.current = onDismiss;
+  const nodeRef = useRef<HTMLDivElement>(null);
+  const dismissible = onDismiss != null && autoHideMs > 0;
+
   useEffect(() => {
-    if (!onDismiss || autoHideMs <= 0) return;
-    const timer = window.setTimeout(onDismiss, autoHideMs);
-    return () => window.clearTimeout(timer);
-  }, [onDismiss, autoHideMs, kind, message]);
+    if (!dismissible) return;
+    const node = nodeRef.current;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let remaining = autoHideMs;
+    let started = 0;
+    let holds = 0;
+    let done = false;
+
+    const clear = () => {
+      if (timer == null) return;
+      clearTimeout(timer);
+      timer = null;
+    };
+    const finish = () => {
+      if (done) return;
+      done = true;
+      clear();
+      onDismissRef.current?.();
+    };
+    const arm = (ms: number) => {
+      clear();
+      remaining = ms;
+      started = Date.now();
+      timer = setTimeout(finish, ms);
+    };
+    const pause = () => {
+      holds += 1;
+      if (holds !== 1 || timer == null) return;
+      remaining = Math.max(0, remaining - (Date.now() - started));
+      clear();
+    };
+    const resume = () => {
+      if (holds === 0) return;
+      holds -= 1;
+      if (holds !== 0 || done) return;
+      if (remaining <= 0) {
+        finish();
+        return;
+      }
+      arm(remaining);
+    };
+    const onFocusOut = (event: FocusEvent) => {
+      const next = event.relatedTarget;
+      if (next instanceof Node && node?.contains(next)) return;
+      resume();
+    };
+
+    arm(autoHideMs);
+    node?.addEventListener('mouseenter', pause);
+    node?.addEventListener('mouseleave', resume);
+    node?.addEventListener('focusin', pause);
+    node?.addEventListener('focusout', onFocusOut);
+    return () => {
+      clear();
+      node?.removeEventListener('mouseenter', pause);
+      node?.removeEventListener('mouseleave', resume);
+      node?.removeEventListener('focusin', pause);
+      node?.removeEventListener('focusout', onFocusOut);
+    };
+  }, [dismissible, autoHideMs, kind, message]);
 
   const text = message ?? DEFAULT_MESSAGE[kind];
   const fixed = placement === 'above-dock';
@@ -72,6 +133,7 @@ export function PortalToast({
   };
   const node = (
     <div
+      ref={nodeRef}
       role="status"
       data-testid={testId}
       data-kind={kind}

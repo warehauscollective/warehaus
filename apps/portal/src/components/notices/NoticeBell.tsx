@@ -12,6 +12,7 @@ import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { FIXTURE_NOTICES, FIXTURE_TASKS } from '@/lib/data/fixtures';
 import { noticeDisplayMessage } from '@/lib/data/view-models';
+import { useNoticePopoverKeys } from '@/components/notices/noticePopoverKeys';
 
 type NoticeRow = {
   id: Id<'notices'>;
@@ -54,10 +55,8 @@ export function NoticeBell() {
     window.addEventListener('wh-open-notices', onOpen);
     return () => window.removeEventListener('wh-open-notices', onOpen);
   }, []);
-  const returnFocus = useRef<HTMLElement | null>(null);
   useEffect(() => {
     if (!open) return;
-    returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const place = () => {
       const rect = buttonRef.current?.getBoundingClientRect();
       const visible = rect != null && rect.width > 0;
@@ -68,47 +67,9 @@ export function NoticeBell() {
     };
     place();
     window.addEventListener('resize', place);
-    return () => {
-      window.removeEventListener('resize', place);
-      returnFocus.current?.focus({ preventScroll: true });
-      returnFocus.current = null;
-    };
+    return () => window.removeEventListener('resize', place);
   }, [open]);
-  useEffect(() => {
-    if (!open || !box) return;
-    const frame = window.requestAnimationFrame(() => {
-      panelRef.current?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
-    });
-    const onKey = (event: KeyboardEvent) => {
-      const panel = panelRef.current;
-      if (event.key === 'Escape') {
-        event.preventDefault();
-        event.stopPropagation();
-        setOpen(false);
-        return;
-      }
-      if (event.key !== 'Tab' || !panel) return;
-      const nodes = [...panel.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
-        .filter((el) => !el.hasAttribute('disabled'));
-      if (nodes.length === 0) return;
-      const first = nodes[0];
-      const last = nodes[nodes.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        event.stopPropagation();
-        last?.focus({ preventScroll: true });
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        event.stopPropagation();
-        first?.focus({ preventScroll: true });
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      window.cancelAnimationFrame(frame);
-      document.removeEventListener('keydown', onKey);
-    };
-  }, [open, box]);
+  useNoticePopoverKeys(open && box != null, panelRef, () => setOpen(false));
   const [fixtureRows, setFixtureRows] = useState<
     Array<{ id: string; message: string; createdAt: number; readAt: number | null; edgeCase: string; unread: boolean }>
   >(FIXTURE_NOTICES);
