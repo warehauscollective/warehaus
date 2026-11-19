@@ -105,6 +105,7 @@ describe('script wiring', () => {
 
   it('disables git deploys for the portal project only', () => {
     assert.equal(portalVercel.git.deploymentEnabled, false);
+    assert.equal(portalVercel.ignoreCommand, 'node scripts/vercel-ignore-build.mjs');
     assert.equal(portalVercel.crons.length, 0);
     assert.doesNotMatch(webVercel, /deploymentEnabled/);
   });

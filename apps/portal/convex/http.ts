@@ -2,6 +2,8 @@ import { httpRouter } from 'convex/server';
 import { authComponent, createAuth } from './auth';
 import { stripeWebhook } from './billing/stripe';
 import { portalApiHttp } from './portalApi';
+import { reviewPreviewHttp } from './milestones';
+import { REVIEW_PREVIEW_PATH } from './_lib/reviewPreview';
 import { githubWebhook, vercelWebhook } from './sync/inbound';
 import { notionWebhook } from './sync/queue';
 
@@ -35,6 +37,12 @@ http.route({
   path: VERCEL_WEBHOOK_PATH,
   method: 'POST',
   handler: vercelWebhook,
+});
+
+http.route({
+  path: REVIEW_PREVIEW_PATH,
+  method: 'POST',
+  handler: reviewPreviewHttp,
 });
 
 /** Dynamic staff review. Exact routes above this prefix still win. */
