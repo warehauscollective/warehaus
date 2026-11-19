@@ -1,18 +1,21 @@
 'use client';
 
-import { useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useMutation } from 'convex/react';
 import { formatReviewStamp, isPeterEmail, iterationOutcome } from '@convex/_lib/milestoneReview';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
+import { detailStatusLabel, effectiveDetailStatus, effectiveStage } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
 import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
+import { FIXTURE_PROJECTS } from '@/lib/data/fixtures';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
+import { useMilestoneDetailEdits, type MoveTarget } from './milestoneDetailsEdit';
 import { type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { MilestoneReviewLive, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
@@ -92,6 +95,8 @@ type FixturePatch = Partial<
     | 'decidedAt'
     | 'publishToWarehaus'
     | 'resources'
+    | 'detailStatus'
+    | 'stage'
   >
 > & {
   attachedIds?: string[];
@@ -195,33 +200,30 @@ export function milestoneTileDate(input: {
 }
 
 /**
- * Status and stage from the same stored approval and work status.
- * Ready for review is Ready to Ship. Approve keeps that stage.
- * Shipped waits for deploy main, which this screen does not do.
+ * The tile uses the same status and stage as the details panel.
+ * Shipped appears only after that stage is stored. Approval is not a status.
  */
 export function milestoneTileStage(input: {
   approval?: string | null;
   workStatus: MilestoneRoadmapView['workStatus'];
-}): { status: string; label: 'Planning' | 'Building' | 'Ready to Ship'; glyph: string } {
-  if (input.workStatus === 'draft') {
-    return {
-      status: input.approval === 'approved' ? 'Approved' : 'Draft',
-      label: 'Planning',
-      glyph: '/icons/item-stage.svg',
-    };
-  }
-  if (input.workStatus === 'ready') {
-    return {
-      status: input.approval === 'approved' ? 'Approved' : 'Ready for review',
-      label: 'Ready to Ship',
-      glyph: '/icons/task-stage.svg',
-    };
-  }
-  return {
-    status: input.approval === 'approved' ? 'Approved' : 'In progress',
-    label: 'Building',
-    glyph: '/icons/task-stage.svg',
-  };
+  stage?: string | null;
+  detailStatus?: MilestoneRoadmapView['detailStatus'];
+}): { status: string; label: ReturnType<typeof effectiveStage>; glyph: string } {
+  const label = effectiveStage({
+    stage: input.stage,
+    workStatus: input.workStatus,
+    approval: input.approval ?? 'unreviewed',
+  });
+  const status = detailStatusLabel(effectiveDetailStatus({
+    detailStatus: input.detailStatus,
+    workStatus: input.workStatus,
+  }));
+  const glyph = label === 'Shipped'
+    ? '/icons/task-stage-shipped.svg'
+    : label === 'Planning' || label === 'Idea'
+      ? '/icons/item-stage.svg'
+      : '/icons/task-stage.svg';
+  return { status, label, glyph };
 }
 
 function progressBase(done: number, total: number, phone: boolean): string {
@@ -272,7 +274,7 @@ export function tileMetaLine(input: {
   if (input.staff && !input.published) parts.push('Not published');
   parts.push(resourceLabel(input.resources));
   if (input.staff && !input.omitReview && !(approved && input.decidedAt == null)) parts.push(reviewStamp(input.decidedAt ?? null, input.now));
-  if (input.staff && !input.omitReview && input.workStatus === 'ready' && !approved) parts.push('Ready for review');
+  if (input.staff && !input.omitReview && input.workStatus === 'ready' && !approved) parts.push('In review');
   return parts.join(' · ');
 }
 
@@ -327,6 +329,7 @@ export function ProjectRoadmap({
   live,
   hostSlug,
   clientName,
+  viewerEmail = null,
   activity = [],
   activityError = null,
   onBackToProjects,
@@ -343,6 +346,7 @@ export function ProjectRoadmap({
   live: boolean;
   hostSlug?: string;
   clientName?: string | null;
+  viewerEmail?: string | null;
   activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
   onBackToProjects?: () => void;
@@ -359,6 +363,7 @@ export function ProjectRoadmap({
   const [created, setCreated] = useState<MilestoneRoadmapView[]>([]);
   const [projectTab, setProjectTab] = useState<ProjectTab>('milestones');
   const [openMilestoneId, setOpenMilestoneId] = useState<string | null>(null);
+  const [detailsPreview, setDetailsPreview] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const rememberedMilestones = useRef<MilestoneRoadmapView[]>([]);
   const projectId = project.id as Id<'projects'>;
@@ -376,6 +381,15 @@ export function ProjectRoadmap({
     [fixtures, project, tasks, staff],
   );
   const fixtureRows = useFixtureMilestonePreview(fixtureBase, fixtures);
+  useEffect(() => {
+    if (!fixtures) return;
+    setDetailsPreview(new URLSearchParams(window.location.search).get('details'));
+  }, [fixtures]);
+  const previewMilestoneId = fixtures ? fixtureRows[0]?.id ?? null : null;
+  useEffect(() => {
+    if (!detailsPreview || !previewMilestoneId) return;
+    setOpenMilestoneId((current) => current ?? previewMilestoneId);
+  }, [detailsPreview, previewMilestoneId]);
 
   const milestoneApi = milestoneQueryAvailability({ fixtures, error: query.error });
   if (milestoneApi === 'fallback') {
@@ -447,6 +461,9 @@ export function ProjectRoadmap({
           fixtures={fixtures}
           hostSlug={hostSlug}
           isPeter={isPeter}
+          viewerEmail={viewerEmail}
+          clientName={clientName ?? project.clientName ?? null}
+          preview={detailsPreview}
           activity={projectActivity}
           activityError={activityError}
           onOpenTask={onOpenTask}
@@ -819,6 +836,21 @@ type MilestoneMutations = {
     milestoneId: Id<'milestones'>;
     publishToWarehaus: boolean;
   }) => Promise<unknown>;
+  setDetailStatus?: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    detailStatus: 'draft' | 'in_progress' | 'in_review' | 'complete';
+  }) => Promise<unknown>;
+  setStage?: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    stage: 'Idea' | 'Planning' | 'Awaiting Go' | 'Building' | 'Ready to Ship' | 'Shipped' | 'Parked';
+  }) => Promise<unknown>;
+  moveProject?: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    projectId: Id<'projects'>;
+  }) => Promise<unknown>;
   attachTask: (args: {
     hostSlug?: string;
     milestoneId: Id<'milestones'>;
@@ -839,6 +871,9 @@ function MilestoneDetail(props: {
   fixtures: boolean;
   hostSlug?: string;
   isPeter?: boolean;
+  viewerEmail?: string | null;
+  clientName?: string | null;
+  preview?: string | null;
   activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
   onOpenTask?: (task: PortalTask) => void;
@@ -851,12 +886,46 @@ function MilestoneDetail(props: {
   const save = useMutation(api.milestones.save);
   const setWorkStatus = useMutation(api.milestones.setWorkStatus);
   const setPublish = useMutation(api.milestones.setPublish);
+  const setDetailStatus = useMutation(api.milestones.setDetailStatus);
+  const setStage = useMutation(api.milestones.setStage);
+  const moveProject = useMutation(api.milestones.moveProject);
   const attachTask = useMutation(api.milestones.attachTask);
   const detachTask = useMutation(api.milestones.detachTask);
+  const [cursor, setCursor] = useState<string | null>(null);
+  const [loadedTargets, setLoadedTargets] = useState<MoveTarget[]>([]);
+  const targetPage = useSafeQuery<{ projects: MoveTarget[]; continueCursor: string | null; isDone: boolean }>(
+    api.milestones.listMoveTargets,
+    !props.fixtures && props.staff
+      ? { projectId: props.project.id as Id<'projects'>, hostSlug: props.hostSlug, cursor }
+      : 'skip',
+  );
+  useEffect(() => {
+    const rows = targetPage.data?.projects;
+    if (!rows) return;
+    setLoadedTargets((current) => {
+      const seen = new Set(current.map((item) => item.id));
+      const next = [...current];
+      for (const row of rows) {
+        if (row.id === props.project.id || seen.has(row.id)) continue;
+        next.push(row);
+        seen.add(row.id);
+      }
+      return next.length === current.length ? current : next;
+    });
+  }, [targetPage.data, props.project.id]);
+  const moveTargets = props.fixtures
+    ? FIXTURE_PROJECTS.filter((item) => item.id !== props.project.id).map((item) => ({ id: item.id, name: item.name }))
+    : loadedTargets;
   return (
     <MilestoneDetailView
       {...props}
-      mutations={{ save, setWorkStatus, setPublish, attachTask, detachTask }}
+      moveTargets={moveTargets}
+      onLoadMoreTargets={
+        targetPage.data?.continueCursor
+          ? () => setCursor(targetPage.data?.continueCursor ?? null)
+          : undefined
+      }
+      mutations={{ save, setWorkStatus, setPublish, setDetailStatus, setStage, moveProject, attachTask, detachTask }}
     />
   );
 }
@@ -868,6 +937,11 @@ export function MilestoneDetailView({
   staff,
   fixtures,
   hostSlug,
+  viewerEmail = null,
+  clientName = null,
+  preview = null,
+  moveTargets = [],
+  onLoadMoreTargets,
   activity = [],
   activityError = null,
   onOpenTask,
@@ -885,6 +959,11 @@ export function MilestoneDetailView({
   staff: boolean;
   fixtures: boolean;
   hostSlug?: string;
+  viewerEmail?: string | null;
+  clientName?: string | null;
+  preview?: string | null;
+  moveTargets?: readonly MoveTarget[];
+  onLoadMoreTargets?: () => void;
   activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
   onOpenTask?: (task: PortalTask) => void;
@@ -896,7 +975,7 @@ export function MilestoneDetailView({
   mutations: MilestoneMutations;
   isPeter?: boolean;
 }) {
-  const { save, setWorkStatus, setPublish, attachTask, detachTask } = mutations;
+  const { save, setPublish, attachTask, detachTask } = mutations;
   const [tab, setTab] = useState<MilestoneTab>('overview');
   const [editing, setEditing] = useState(false);
   const [more, setMore] = useState(false);
@@ -915,8 +994,33 @@ export function MilestoneDetailView({
   );
   const taken = new Set(milestone.rows.map((row) => row.id));
   const attachable = (milestone.attachableTasks ?? []).filter((task) => !taken.has(task.id));
-  const statusStage = milestoneTileStage(milestone);
   const reviewLine = lastReviewLabel({ approverName: milestone.approverName, decidedAt: milestone.decidedAt ?? null });
+  const edits = useMilestoneDetailEdits({
+    milestone,
+    projectName: project.name,
+    currentProjectId: project.id,
+    clientName: clientName ?? project.clientName,
+    staff,
+    fixtures,
+    hostSlug,
+    viewerEmail,
+    moveTargets,
+    preview,
+    showFields: tab === 'overview',
+    reviewLine,
+    suspended: editing,
+    onClaim: () => {
+      setEditing(false);
+    },
+    onFixture,
+    onLoadMoreTargets,
+    mutations: {
+      setDetailStatus: mutations.setDetailStatus ?? (async () => undefined),
+      setStage: mutations.setStage ?? (async () => undefined),
+      setPublish,
+      moveProject: mutations.moveProject ?? (async () => undefined),
+    },
+  });
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -970,55 +1074,7 @@ export function MilestoneDetailView({
           ) : null}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
           <div className="order-first w-full lg:order-last lg:w-[292px] lg:shrink-0">
-            <Panel>
-              <div className="grid grid-cols-2 gap-5 lg:grid-cols-1">
-                <p className="ds-mono col-span-2 hidden md:block lg:col-span-1" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--muted)' }}>
-                  DETAILS
-                </p>
-                <div>
-                  <FieldLabel>STATUS</FieldLabel>
-                  <FieldValue>
-                    <span data-testid="milestone-work-status">{statusStage.status}</span>
-                  </FieldValue>
-                </div>
-                <div>
-                  <FieldLabel>STAGE</FieldLabel>
-                  <FieldValue>
-                    <span data-testid="milestone-stage">{statusStage.label}</span>
-                  </FieldValue>
-                </div>
-                {staff && milestone.approval && milestone.approval !== 'unreviewed' ? (
-                  <div>
-                    <FieldLabel>APPROVAL</FieldLabel>
-                    <FieldValue>
-                      <span data-testid="milestone-approval">{APPROVAL_LABEL[milestone.approval]}</span>
-                    </FieldValue>
-                  </div>
-                ) : null}
-                {staff ? (
-                  <div className="col-span-2 lg:col-span-1">
-                    <FieldLabel>VISIBILITY</FieldLabel>
-                    <FieldValue>
-                      <span data-testid="milestone-publish">
-                        {milestone.publishToWarehaus ? 'Shared with client' : 'Not published'}
-                      </span>
-                    </FieldValue>
-                  </div>
-                ) : null}
-                <div className="col-span-2 lg:col-span-1">
-                  <FieldLabel>PROJECT</FieldLabel>
-                  <FieldValue>{project.name}</FieldValue>
-                </div>
-                {staff && reviewLine ? (
-                  <div className="col-span-2 lg:col-span-1">
-                    <FieldLabel>LAST REVIEW</FieldLabel>
-                    <FieldValue>
-                      <span data-testid="milestone-last-review">{reviewLine}</span>
-                    </FieldValue>
-                  </div>
-                ) : null}
-              </div>
-            </Panel>
+            {edits.fields}
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-6">
             <Panel>
@@ -1119,7 +1175,7 @@ export function MilestoneDetailView({
             {staff ? (
               <div className="flex flex-wrap items-center gap-3">
                 <GhostButton testId="milestone-edit" disabled={locked || busy} onClick={() => { setError(null); setEditing(true); }}>
-                  Edit milestone
+                  Edit all details
                 </GhostButton>
                 <GhostButton onClick={() => setMore((current) => !current)}>More ···</GhostButton>
                 <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
@@ -1138,33 +1194,7 @@ export function MilestoneDetailView({
                 busy={busy}
                 attachable={attachable}
                 describedBy={error && !editing ? MENU_ERROR_ID : undefined}
-                onWorkStatus={(workStatus) => {
-                  if (fixtures) {
-                    onFixture({ workStatus });
-                    return;
-                  }
-                  void run(() =>
-                    setWorkStatus({
-                      hostSlug,
-                      milestoneId: milestone.id as Id<'milestones'>,
-                      workStatus,
-                    }),
-                  );
-                }}
-                onPublish={() => {
-                  const publishToWarehaus = !milestone.publishToWarehaus;
-                  if (fixtures) {
-                    onFixture({ publishToWarehaus });
-                    return;
-                  }
-                  void run(() =>
-                    setPublish({
-                      hostSlug,
-                      milestoneId: milestone.id as Id<'milestones'>,
-                      publishToWarehaus,
-                    }),
-                  );
-                }}
+                onPublish={() => edits.askPublish()}
                 onAttach={(taskId) => {
                   if (fixtures) {
                     onFixture({ attachedIds: [taskId] });
@@ -1254,33 +1284,7 @@ export function MilestoneDetailView({
               busy={busy}
               attachable={attachable}
               describedBy={error && !editing ? MENU_ERROR_ID : undefined}
-              onWorkStatus={(workStatus) => {
-                if (fixtures) {
-                  onFixture({ workStatus });
-                  return;
-                }
-                void run(() =>
-                  setWorkStatus({
-                    hostSlug,
-                    milestoneId: milestone.id as Id<'milestones'>,
-                    workStatus,
-                  }),
-                );
-              }}
-              onPublish={() => {
-                const publishToWarehaus = !milestone.publishToWarehaus;
-                if (fixtures) {
-                  onFixture({ publishToWarehaus });
-                  return;
-                }
-                void run(() =>
-                  setPublish({
-                    hostSlug,
-                    milestoneId: milestone.id as Id<'milestones'>,
-                    publishToWarehaus,
-                  }),
-                );
-              }}
+              onPublish={() => edits.askPublish()}
               onAttach={(taskId) => {
                 if (fixtures) {
                   onFixture({ attachedIds: [taskId] });
@@ -1372,6 +1376,7 @@ export function MilestoneDetailView({
       ) : null}
       </div>
 
+      {edits.overlay}
       {editing && staff && !locked ? (
         <EditDialog
           milestone={milestone}
@@ -1421,7 +1426,6 @@ export function MoreMenu({
   busy,
   attachable,
   describedBy,
-  onWorkStatus,
   onPublish,
   onAttach,
   onDetach,
@@ -1430,7 +1434,6 @@ export function MoreMenu({
   busy: boolean;
   attachable: { id: string; name: string }[];
   describedBy?: string;
-  onWorkStatus: (status: MilestoneRoadmapView['workStatus']) => void;
   onPublish: () => void;
   onAttach: (taskId: string) => void;
   onDetach: (taskId: string) => void;
@@ -1438,21 +1441,6 @@ export function MoreMenu({
   return (
     <Panel>
       <div className="flex flex-col gap-4">
-        <label className="flex flex-col gap-2" style={{ fontSize: 13, color: 'var(--muted)' }}>
-          Work status
-          <select
-            data-testid="milestone-work-select"
-            value={milestone.workStatus}
-            aria-describedby={describedBy}
-            disabled={busy}
-            onChange={(event) => onWorkStatus(event.target.value as MilestoneRoadmapView['workStatus'])}
-            style={fieldStyle}
-          >
-            <option value="draft">Draft</option>
-            <option value="active">In progress</option>
-            <option value="ready">Ready for review</option>
-          </select>
-        </label>
         <div>
           <OutlineButton disabled={busy} describedBy={describedBy} onClick={onPublish}>
             {milestone.publishToWarehaus ? 'Unpublish' : 'Publish'}
@@ -1486,6 +1474,7 @@ export function MoreMenu({
             <select
               data-testid="milestone-detach"
               defaultValue=""
+              aria-describedby={describedBy}
               disabled={busy}
               onChange={(event) => {
                 const taskId = event.target.value;
@@ -1580,7 +1569,7 @@ function EditDialog({
   const objectiveRef = useRef<HTMLTextAreaElement>(null);
   const goalsRef = useRef<HTMLTextAreaElement>(null);
   return (
-    <MilestoneDialog title="Edit milestone" onClose={onClose}>
+    <MilestoneDialog title="Edit all details" onClose={onClose}>
       <form
         data-testid="milestone-edit-form"
         className="mt-4 flex flex-col gap-4"

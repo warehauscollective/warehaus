@@ -158,14 +158,15 @@ describe('roadmap markup', () => {
       glyph: '/icons/task-stage.svg',
     });
     assert.deepEqual(milestoneTileStage({ approval: 'unreviewed', workStatus: 'ready' }), {
-      status: 'Ready for review',
+      status: 'In review',
       label: 'Ready to Ship',
       glyph: '/icons/task-stage.svg',
     });
-    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'ready' }).status, 'Approved');
     assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'ready' }).label, 'Ready to Ship');
-    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active' }).status, 'Approved');
+    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'ready' }).status, 'In review');
+    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active' }).status, 'In progress');
     assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active' }).label, 'Building');
+    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active', stage: 'Shipped' }).label, 'Shipped');
     assert.equal(milestoneTileDate({ approval: 'unreviewed', decidedAt: null }), null);
     assert.equal(milestoneTileDate({ approval: 'approved', decidedAt: null }), 'Approved');
     const decidedAt = Date.parse('2026-11-06T15:00:00Z');
@@ -218,7 +219,7 @@ describe('roadmap markup', () => {
         workStatus: 'ready',
         approval: 'unreviewed',
       }),
-      '2 resources · No review yet · Ready for review',
+      '2 resources · No review yet · In review',
     );
     assert.equal(
       tileMetaLine({
@@ -263,9 +264,10 @@ describe('roadmap markup', () => {
     assert.match(source, /flex flex-col gap-6 lg:gap-4/);
     assert.equal(source.includes('longChip'), false);
     assert.equal(source.includes("get('chip')"), false);
-    assert.match(source, /data-testid="milestone-stage"/);
-    assert.match(source, /<FieldLabel>STATUS<\/FieldLabel>/);
-    assert.match(source, /<FieldLabel>STAGE<\/FieldLabel>/);
+    const details = readFileSync(new URL('../../components/projects/milestoneDetailsEdit.tsx', import.meta.url), 'utf8');
+    assert.match(details, /data-testid="milestone-stage"/);
+    assert.match(details, /label="STATUS"/);
+    assert.match(details, /label="STAGE"/);
 
     const withSubtask = renderTile({
       staff: true,
@@ -432,9 +434,9 @@ describe('MilestoneDetailView', () => {
     const cases = [
       { workStatus: 'draft' as const, approval: 'unreviewed' as const, status: 'Draft', stage: 'Planning' },
       { workStatus: 'active' as const, approval: 'unreviewed' as const, status: 'In progress', stage: 'Building' },
-      { workStatus: 'ready' as const, approval: 'unreviewed' as const, status: 'Ready for review', stage: 'Ready to Ship' },
-      { workStatus: 'ready' as const, approval: 'approved' as const, status: 'Approved', stage: 'Ready to Ship' },
-      { workStatus: 'active' as const, approval: 'approved' as const, status: 'Approved', stage: 'Building' },
+      { workStatus: 'ready' as const, approval: 'unreviewed' as const, status: 'In review', stage: 'Ready to Ship' },
+      { workStatus: 'ready' as const, approval: 'approved' as const, status: 'In review', stage: 'Ready to Ship' },
+      { workStatus: 'active' as const, approval: 'approved' as const, status: 'In progress', stage: 'Building' },
     ];
     for (const item of cases) {
       const html = renderDetail(tileMilestone({ workStatus: item.workStatus, approval: item.approval }));

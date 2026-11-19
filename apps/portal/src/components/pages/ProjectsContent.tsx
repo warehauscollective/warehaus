@@ -455,6 +455,7 @@ export function ProjectsContent() {
               live={!fixtures && configured && !settling}
               hostSlug={hostSlug}
               clientName={openProject.internal ? null : openProject.clientName ?? null}
+              viewerEmail={portalSession?.email ?? null}
               activity={activityFeed.items}
               activityError={activityFeed.error}
               onBackToProjects={closeProject}

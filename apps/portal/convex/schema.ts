@@ -142,6 +142,11 @@ export default defineSchema({
     /** Roadmap order while milestoneId is set. Cleared with that link. */
     milestoneOrder: v.optional(v.number()),
     /**
+     * Portal project move. Tasks.Projects is SERVER, so this is not written
+     * to Notion. The next pull keeps this project until Notion already matches.
+     */
+    portalProjectId: v.optional(v.id('projects')),
+    /**
      * Staff-only copies of NEVER Notion fields, so task links can be rebuilt.
      * Client serializers do not read them.
      */
@@ -163,6 +168,7 @@ export default defineSchema({
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])
     .index('by_orgId_milestoneId', ['orgId', 'milestoneId'])
+    .index('by_parentTaskId', ['parentTaskId'])
     .index('by_notionPageId', ['notionPageId'])
     .index('by_externalId', ['externalId'])
     .index('by_projectId', ['projectId'])
@@ -233,6 +239,28 @@ export default defineSchema({
     previewDeleteAt: v.optional(v.number()),
     /** Set only when a real production deploy finishes. Absent means it has not finished. */
     deployFinishedAt: v.optional(v.number()),
+    /**
+     * Details-panel status. Absent until a person picks one. Draft, in
+     * progress, and in review also keep workStatus in step. Complete does not.
+     */
+    detailStatus: v.optional(
+      v.union(v.literal('draft'), v.literal('in_progress'), v.literal('in_review'), v.literal('complete')),
+    ),
+    /**
+     * Build-protocol stage. Absent until a person picks one. Staff can set
+     * any stage except Shipped. Shipped is set when the pull request merges.
+     */
+    stage: v.optional(
+      v.union(
+        v.literal('Idea'),
+        v.literal('Planning'),
+        v.literal('Awaiting Go'),
+        v.literal('Building'),
+        v.literal('Ready to Ship'),
+        v.literal('Shipped'),
+        v.literal('Parked'),
+      ),
+    ),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])

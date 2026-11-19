@@ -76,21 +76,17 @@ describe('milestone page mutation errors', () => {
     await click(findButton(container, 'Assign existing task'));
 
     await click(findButton(container, 'Publish'));
-    assert.match(alertText(container), /Could not change who can see this milestone/);
+    assert.equal(publishAttempts, 0);
+    assert.ok(findByTestId(container, 'milestone-details-modal'));
+    await click(findByTestId(container, 'milestone-confirm-submit'));
+    assert.match(alertText(container), /Couldn’t save/);
+    assert.match(alertText(container), /Nothing changed/);
     assert.equal(findButton(container, 'Publish')?.disabled, undefined);
-    await click(findButton(container, 'Dismiss'));
-    assert.equal(alertText(container), '');
+    await click(findButton(container, 'Cancel'));
+    assert.equal(findByTestId(container, 'milestone-details-modal'), null);
     assert.match(textOf(container), /The brief is ready/);
 
-    const work = findByTestId(container, 'milestone-work-select');
-    assert.ok(work);
-    assert.notEqual(work.disabled, true);
-    work.value = 'ready';
-    await act(async () => {
-      work.dispatchEvent(changeEvent(work));
-    });
-    assert.match(alertText(container), /Could not update the work status/);
-    await click(findButton(container, 'Dismiss'));
+    assert.equal(findByTestId(container, 'milestone-work-select'), null);
 
     const attach = findByTestId(container, 'milestone-attach');
     assert.ok(attach);
@@ -103,10 +99,161 @@ describe('milestone page mutation errors', () => {
     await click(findButton(container, 'Dismiss'));
 
     await click(findButton(container, 'Publish'));
+    await click(findByTestId(container, 'milestone-confirm-submit'));
     assert.equal(alertText(container), '');
-    assert.deepEqual(calls, ['publish', 'work', 'attach', 'publish']);
+    assert.deepEqual(calls, ['publish', 'attach', 'publish']);
     assert.equal(publishAttempts, 2);
     assert.match(textOf(container), /Assign existing task/);
+
+    await act(async () => {
+      root?.unmount();
+    });
+  });
+
+  it('saves a status on pick, skips the current value, and confirms a project move before writing', async () => {
+    const document = installDom();
+    const calls: string[] = [];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let root: Root | null = null;
+    await act(async () => {
+      root = createRoot(container as unknown as Element);
+      root.render(
+        createElement(MilestoneDetailView, {
+          milestone,
+          project: { id: 'p-site', name: 'Northwind site' },
+          tasks: [],
+          staff: true,
+          fixtures: false,
+          viewerEmail: 'alex@warehaus.co',
+          moveTargets: [{ id: 'p-shipped', name: 'Northwind brand' }],
+          resourceChoices: [],
+          onBack: () => undefined,
+          onFixture: () => undefined,
+          mutations: {
+            save: async () => undefined,
+            setWorkStatus: async () => undefined,
+            setPublish: async () => {
+              calls.push('publish');
+            },
+            setDetailStatus: async (args) => {
+              calls.push(`status:${args.detailStatus}`);
+            },
+            setStage: async (args) => {
+              calls.push(`stage:${args.stage}`);
+            },
+            moveProject: async (args) => {
+              calls.push(`move:${args.projectId}`);
+            },
+            attachTask: async () => undefined,
+            detachTask: async () => undefined,
+          },
+        }),
+      );
+    });
+
+    await click(findByTestId(container, 'milestone-status-edit'));
+    await click(findOption(container, 'In progress'));
+    assert.deepEqual(calls, []);
+
+    await click(findByTestId(container, 'milestone-status-edit'));
+    await click(findOption(container, 'Draft'));
+    assert.deepEqual(calls, ['status:draft']);
+
+    await click(findByTestId(container, 'milestone-stage-edit'));
+    const awaiting = findOption(container, 'Awaiting Go');
+    assert.notEqual(awaiting?.getAttribute('aria-disabled'), 'true');
+    const shipped = findOption(container, 'Shipped');
+    assert.equal(shipped?.getAttribute('aria-disabled'), 'true');
+    await click(findOption(container, 'Parked'));
+    assert.deepEqual(calls, ['status:draft', 'stage:Parked']);
+
+    await click(findByTestId(container, 'milestone-project-edit'));
+    await click(findButton(container, 'Northwind brand'));
+    assert.deepEqual(calls, ['status:draft', 'stage:Parked']);
+    assert.match(textOf(container), /Move to Northwind brand\?/);
+    const dialog = findByTestId(container, 'milestone-details-scrim');
+    await act(async () => {
+      dialog?.dispatchEvent({ ...clickEvent(), type: 'keydown', key: 'Escape' } as EventLike & { key: string });
+    });
+    assert.equal(findByTestId(container, 'milestone-details-modal'), null);
+    assert.deepEqual(calls, ['status:draft', 'stage:Parked']);
+
+    await click(findByTestId(container, 'milestone-project-edit'));
+    await click(findButton(container, 'Northwind brand'));
+    await click(findByTestId(container, 'milestone-confirm-submit'));
+    assert.deepEqual(calls, ['status:draft', 'stage:Parked', 'move:p-shipped']);
+
+    await act(async () => {
+      root?.unmount();
+    });
+  });
+
+  it('retries the status, stage, and project the person picked', async () => {
+    const document = installDom();
+    const calls: string[] = [];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let root: Root | null = null;
+    const times = (prefix: string) => calls.filter((call) => call.startsWith(prefix)).length;
+    await act(async () => {
+      root = createRoot(container as unknown as Element);
+      root.render(
+        createElement(MilestoneDetailView, {
+          milestone,
+          project: { id: 'p-site', name: 'Northwind site' },
+          tasks: [],
+          staff: true,
+          fixtures: false,
+          viewerEmail: 'alex@warehaus.co',
+          moveTargets: [
+            { id: 'p-other', name: 'Other project' },
+            { id: 'p-shipped', name: 'Northwind brand' },
+          ],
+          resourceChoices: [],
+          onBack: () => undefined,
+          onFixture: () => undefined,
+          mutations: {
+            save: async () => undefined,
+            setWorkStatus: async () => undefined,
+            setPublish: async () => undefined,
+            setDetailStatus: async (args) => {
+              calls.push(`status:${args.detailStatus}`);
+              if (times('status:') === 1) throw new Error('save');
+            },
+            setStage: async (args) => {
+              calls.push(`stage:${args.stage}`);
+              if (times('stage:') === 1) throw new Error('save');
+            },
+            moveProject: async (args) => {
+              calls.push(`move:${args.projectId}`);
+              if (times('move:') === 1) throw new Error('move');
+            },
+            attachTask: async () => undefined,
+            detachTask: async () => undefined,
+          },
+        }),
+      );
+    });
+
+    await click(findByTestId(container, 'milestone-stage-edit'));
+    await click(findOption(container, 'Parked'));
+    assert.deepEqual(calls, ['stage:Parked']);
+    await click(findByTestId(container, 'milestone-stage-retry'));
+    assert.deepEqual(calls, ['stage:Parked', 'stage:Parked']);
+
+    await click(findByTestId(container, 'milestone-status-edit'));
+    await click(findOption(container, 'Draft'));
+    assert.deepEqual(calls, ['stage:Parked', 'stage:Parked', 'status:draft']);
+    await click(findByTestId(container, 'milestone-status-retry'));
+    assert.deepEqual(calls, ['stage:Parked', 'stage:Parked', 'status:draft', 'status:draft']);
+
+    await click(findByTestId(container, 'milestone-project-edit'));
+    await click(findButton(container, 'Northwind brand'));
+    await click(findByTestId(container, 'milestone-confirm-submit'));
+    assert.deepEqual(calls.filter((call) => call.startsWith('move:')), ['move:p-shipped']);
+    await click(findByTestId(container, 'milestone-project-retry'));
+    assert.deepEqual(calls.filter((call) => call.startsWith('move:')), ['move:p-shipped', 'move:p-shipped']);
 
     await act(async () => {
       root?.unmount();
@@ -310,6 +457,15 @@ function textOf(node: { childNodes?: TestNode[]; textContent?: string; text?: st
   const children = node.childNodes ?? [];
   if (children.length > 0) return children.map((child) => textOf(child)).join('');
   return node.textContent || node.text || '';
+}
+
+function findOption(node: TestNode, label: string): TestNode | null {
+  if (node.nodeName === 'BUTTON' && node.getAttribute('role') === 'option' && textOf(node).startsWith(label)) return node;
+  for (const child of node.childNodes) {
+    const found = findOption(child, label);
+    if (found) return found;
+  }
+  return null;
 }
 
 function findButton(node: TestNode, label: string): TestNode | null {

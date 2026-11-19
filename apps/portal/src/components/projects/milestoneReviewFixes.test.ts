@@ -61,6 +61,10 @@ describe('milestone review fixes', () => {
     const menu = roadmap.slice(roadmap.indexOf('function MoreMenu'), roadmap.indexOf('function EditDialog'));
     assert.match(menu, /data-testid="milestone-attach"/);
     assert.equal(menu.includes('New task'), false);
+    assert.equal(menu.includes('milestone-work-select'), false);
+    assert.equal(menu.includes('Ready for review'), false);
+    assert.match(roadmap, /MilestoneReviewLive/);
+    assert.equal(roadmap.includes('function ReviewDialog'), false);
     assert.equal(roadmap.includes('>New task<'), false);
     const create = tasks.slice(tasks.indexOf('export const createTask'), tasks.indexOf('export const updateLiveFields'));
     assert.match(create, /milestoneId: v\.optional\(v\.id\('milestones'\)\)/);

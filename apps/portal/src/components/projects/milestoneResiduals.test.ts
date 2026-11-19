@@ -42,7 +42,6 @@ function tasksFailure(error: string) {
       busy: false,
       attachable: [{ id: 't2', name: 'Loose task' }],
       describedBy: failure.describedBy,
-      onWorkStatus: () => undefined,
       onPublish: () => undefined,
       onAttach: () => undefined,
       onDetach: () => undefined,

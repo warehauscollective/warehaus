@@ -80,6 +80,7 @@ export function fixtureMilestones(
       approverName: null,
       decidedAt: null,
       publishToWarehaus: true,
+      createdAt: Date.UTC(2026, 9, 12),
       resources: [{ id: 'r-notes', title: 'Kickoff recap', url: 'https://example.com/recap' }],
       openCount: launchRoad.openCount,
       doneCount: launchRoad.doneCount,
@@ -103,6 +104,7 @@ export function fixtureMilestones(
       approverName: null,
       decidedAt: null,
       publishToWarehaus: false,
+      createdAt: Date.UTC(2026, 9, 20),
       resources: [],
       openCount: draftRoad.openCount,
       doneCount: draftRoad.doneCount,
@@ -202,7 +204,7 @@ export function applyFixtureMilestonePreview(
       id: 'm-preview-shipped',
       name: 'Brand system',
       objective: 'The brand system is approved.',
-      // Approval is the shipped signal. A stored "in progress" status would disagree with it.
+      // Approval shows Ready to Ship until a stage is stored. Ready work is In review.
       workStatus: 'ready',
       approval: 'approved',
       decidedAt: PREVIEW_REVIEW_AT,
