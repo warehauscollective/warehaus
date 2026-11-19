@@ -268,7 +268,14 @@ function PreviewBox({ url, commit, iteration }: { url: string; commit: string | 
     >
       <ExternalLinkIcon />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <a href={previewHref(url)} target="_blank" rel="noreferrer" style={{ color: 'var(--fg)', textDecoration: 'underline', fontSize: 14, lineHeight: '21px' }}>
+        <a
+          href={previewHref(url)}
+          target="_blank"
+          rel="noreferrer"
+          data-testid="review-open-preview"
+          className="rounded-sm focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
+          style={{ color: 'var(--fg)', textDecoration: 'underline', fontSize: 14, lineHeight: '21px' }}
+        >
           Open preview
         </a>
         <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', overflowWrap: 'anywhere' }}>{url}</p>

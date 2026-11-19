@@ -270,16 +270,34 @@ describe('roadmap markup', () => {
       milestone: tileMilestone({ publishToWarehaus: false, workStatus: 'draft', resources: [] }),
     });
     assert.match(staffDraft, /data-testid="milestone-meta"[^>]*>0 resources</);
+    assert.match(staffDraft, /data-testid="milestone-staff-only"/);
+    assert.match(staffDraft, />Staff only</);
+    assert.match(staffDraft, /gap:16px/);
+    assert.match(staffDraft, /items-center/);
     assert.match(staffDraft, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Planning</);
     assert.equal(staffDraft.includes('Updated'), false);
+
+    const staffUnpublishedReady = renderTile({
+      staff: true,
+      milestone: tileMilestone({
+        publishToWarehaus: false,
+        workStatus: 'ready',
+        resources: [resource, { ...resource, id: 'r-2' }],
+      }),
+    });
+    assert.match(staffUnpublishedReady, /data-testid="milestone-meta"[^>]*>2 resources</);
+    assert.match(staffUnpublishedReady, /data-testid="milestone-staff-only"/);
 
     const clientDraft = renderTile({
       staff: false,
       milestone: tileMilestone({ publishToWarehaus: false, workStatus: 'draft', resources: [] }),
     });
     assert.match(clientDraft, /data-testid="milestone-meta"[^>]*>0 resources</);
+    assert.equal(clientDraft.includes('milestone-staff-only'), false);
+    assert.equal(clientDraft.includes('Staff only'), false);
     assert.equal(clientDraft.includes('No review yet'), false);
     assert.equal(clientDraft.includes('Not published'), false);
+    assert.equal(plain.includes('milestone-staff-only'), false);
 
     const ready = renderTile({
       staff: false,

@@ -67,6 +67,15 @@ describe('milestone review fixes', () => {
     assert.equal(create.slice(create.indexOf('<form'), create.indexOf('</form>')).includes('Create milestone'), false);
   });
 
+  it('gives the review card Open preview link the blue focus ring', () => {
+    const review = readFileSync(new URL('./MilestoneReview.tsx', import.meta.url), 'utf8');
+    const box = review.slice(review.indexOf('function PreviewBox'), review.indexOf('function previewHref'));
+    assert.match(box, /data-testid="review-open-preview"/);
+    assert.match(box, /focus-visible:outline-\[var\(--info\)\]/);
+    assert.match(box, /focus-visible:outline-offset-2/);
+    assert.match(box, /Open preview/);
+  });
+
   it('shows a save failure inside the open dialog', () => {
     assert.match(roadmap, /saveError=\{error\}/);
     assert.match(roadmap, /error && !editing/);
