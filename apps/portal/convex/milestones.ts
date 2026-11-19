@@ -1593,6 +1593,9 @@ export const clearPreviewLink = adminMutation({
       previewUrl: milestone.previewUrl,
       previewAttachedBy: milestone.previewAttachedBy,
       previewAttachedAt: milestone.previewAttachedAt,
+      previewBuild: milestone.previewBuild,
+      previewBuildAttempt: milestone.previewBuildAttempt,
+      previewBuildAt: milestone.previewBuildAt,
     });
     if (!planned.wrote) return { ok: true as const, wrote: false as const };
     await ctx.db.patch(milestone._id, planned.patch);

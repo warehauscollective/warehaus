@@ -22,18 +22,19 @@ const PREVIEW = 'https://warehaus-portal-git-order-ahead-warehaus-collective.ver
 const NOW = 1_700_000_000_000;
 
 describe('staff preview link url', () => {
+  const reason = (url: string) => {
+    const checked = assertStaffPreviewLink(url);
+    assert.equal(checked.ok, false);
+    if (checked.ok) return '';
+    return checked.reason;
+  };
+
   it('accepts an https team preview and drops the query', () => {
     const checked = assertStaffPreviewLink(`${PREVIEW}/review?token=secret`);
     assert.deepEqual(checked, { ok: true, href: `${PREVIEW}/review` });
   });
 
   it('rejects http, localhost, the production alias, and anything else', () => {
-    const reason = (url: string) => {
-      const checked = assertStaffPreviewLink(url);
-      assert.equal(checked.ok, false);
-      if (checked.ok) return '';
-      return checked.reason;
-    };
     assert.equal(reason('http://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app'), PREVIEW_LINK_HTTPS);
     assert.equal(reason('https://localhost:3100/p/demo'), PREVIEW_LINK_LOCAL);
     assert.equal(reason('https://127.0.0.1/p/demo'), PREVIEW_LINK_LOCAL);
@@ -42,6 +43,37 @@ describe('staff preview link url', () => {
     assert.equal(reason('https://example.com'), PREVIEW_LINK_HOST);
     assert.equal(reason('https://warehaus-portal-warehaus-collective.vercel.app'), PREVIEW_LINK_HOST);
     assert.equal(reason('not a url'), PREVIEW_LINK_HOST);
+  });
+
+  it('rejects a suffix on the preview host', () => {
+    assert.equal(reason(`${PREVIEW}.evil.com`), PREVIEW_LINK_HOST);
+    assert.equal(reason(`${PREVIEW}.`), PREVIEW_LINK_HOST);
+    assert.equal(reason(`${PREVIEW}%2Eevil.com`), PREVIEW_LINK_HOST);
+  });
+
+  it('rejects userinfo', () => {
+    const host = new URL(PREVIEW).host;
+    assert.equal(reason(`https://staff@${host}/review`), PREVIEW_LINK_HOST);
+    assert.equal(reason(`https://staff:secret@${host}/review`), PREVIEW_LINK_HOST);
+  });
+
+  it('rejects a non-443 port', () => {
+    assert.equal(reason(`${PREVIEW}:8443/review`), PREVIEW_LINK_HOST);
+    assert.equal(reason(`${PREVIEW}:80`), PREVIEW_LINK_HOST);
+    assert.deepEqual(assertStaffPreviewLink(`${PREVIEW}:443/review`), { ok: true, href: `${PREVIEW}/review` });
+  });
+
+  it('rejects uppercase', () => {
+    assert.equal(reason('https://Warehaus-Portal-git-order-ahead-warehaus-collective.vercel.app'), PREVIEW_LINK_HOST);
+    assert.equal(reason(PREVIEW.replace('vercel.app', 'VERCEL.APP')), PREVIEW_LINK_HOST);
+    const listed = assertStaffPreviewLink('https://Preview.warehaus.studio/m', ['preview.warehaus.studio']);
+    assert.equal(listed.ok, false);
+    if (!listed.ok) assert.equal(listed.reason, PREVIEW_LINK_HOST);
+  });
+
+  it('rejects IDN', () => {
+    assert.equal(reason(PREVIEW.replace('a', '\uFF41')), PREVIEW_LINK_HOST);
+    assert.equal(reason(PREVIEW.replace('a', '\u0430')), PREVIEW_LINK_HOST);
   });
 
   it('accepts an explicit allowlist host and still rejects production', () => {
@@ -96,6 +128,35 @@ describe('attach and clear plans', () => {
       previewAttachedAt: undefined,
     });
     assert.deepEqual(planClearPreviewLink({}), { wrote: false });
+  });
+
+  it('clears leftover previewBuild fields when the link is removed', () => {
+    const cleared = planClearPreviewLink({
+      previewUrl: PREVIEW,
+      previewAttachedBy: 'contact-staff',
+      previewAttachedAt: NOW,
+      previewBuild: 'failed',
+      previewBuildAttempt: 2,
+      previewBuildAt: 9,
+    });
+    assert.equal(cleared.wrote, true);
+    if (!cleared.wrote) return;
+    assert.equal(cleared.patch.previewUrl, undefined);
+    assert.equal(cleared.patch.previewAttachedBy, undefined);
+    assert.equal(cleared.patch.previewAttachedAt, undefined);
+    assert.equal(cleared.patch.previewBuild, undefined);
+    assert.equal(cleared.patch.previewBuildAttempt, undefined);
+    assert.equal(cleared.patch.previewBuildAt, undefined);
+    assert.equal('previewBuild' in cleared.patch, true);
+    assert.equal('previewBuildAttempt' in cleared.patch, true);
+    assert.equal('previewBuildAt' in cleared.patch, true);
+    const leftover = planClearPreviewLink({ previewBuild: 'building', previewBuildAt: 4 });
+    assert.equal(leftover.wrote, true);
+    if (!leftover.wrote) return;
+    assert.equal(leftover.patch.previewBuild, undefined);
+    assert.equal(leftover.patch.previewBuildAt, undefined);
+    assert.equal('previewBuildAttempt' in leftover.patch, false);
+    assert.equal(leftover.patch.previewUrl, undefined);
   });
 });
 
@@ -160,6 +221,9 @@ describe('staff and peter gates', () => {
     assert.ok(attach.indexOf('planAttachPreviewLink') < attach.indexOf('ctx.db.patch'));
     assert.match(clear, /adminMutation/);
     assert.match(clear, /planClearPreviewLink/);
+    assert.match(clear, /previewBuild: milestone\.previewBuild/);
+    assert.match(clear, /previewBuildAttempt: milestone\.previewBuildAttempt/);
+    assert.match(clear, /previewBuildAt: milestone\.previewBuildAt/);
     assert.ok(clear.indexOf('planClearPreviewLink') < clear.indexOf('ctx.db.patch'));
     assert.equal(attach.includes('VERCEL_TOKEN'), false);
     assert.equal(clear.includes('REVIEW_PREVIEW_SECRET'), false);

@@ -81,6 +81,20 @@ export function reviewRetryAvailable(env: {
   return Boolean(env.vercelToken?.trim() && env.githubToken?.trim());
 }
 
+/** Host text as typed, before the URL parser lowercases, maps IDN, or drops a port. */
+function hostLiteral(raw: string): string | null {
+  const match = /^https:\/\/([^/?#]*)/i.exec(raw);
+  if (!match) return null;
+  const authority = match[1];
+  if (!authority || authority.includes('@') || authority.includes('%') || /[^\x21-\x7E]/.test(authority)) return null;
+  if (authority.startsWith('[')) return null;
+  const colon = authority.lastIndexOf(':');
+  if (colon === -1) return authority;
+  const port = authority.slice(colon + 1);
+  if (!/^\d+$/.test(port)) return null;
+  return authority.slice(0, colon);
+}
+
 function deniedHost(host: string): string | null {
   const name = host.trim().toLowerCase();
   if (
@@ -121,6 +135,10 @@ export function assertStaffPreviewLink(
   const host = parsed.hostname.toLowerCase();
   const denied = deniedHost(host);
   if (denied) return { ok: false, reason: denied };
+  // The URL parser lowercases and maps IDN onto ASCII. The typed host has to
+  // be that same literal, so a suffix, uppercase, or lookalike cannot sneak in.
+  const literal = hostLiteral(raw);
+  if (!literal || literal !== host) return { ok: false, reason: PREVIEW_LINK_HOST };
   if (parsed.port && parsed.port !== '443') return { ok: false, reason: PREVIEW_LINK_HOST };
   const listed = allowlist.some((item) => item.trim().toLowerCase() === host);
   if (!listed && !PREVIEW_LINK_HOST_PATTERN.test(host)) {
@@ -161,17 +179,32 @@ export function planAttachPreviewLink(input: {
   return { ok: true, wrote: true, patch };
 }
 
+export type PreviewLinkClear = {
+  previewUrl: undefined;
+  previewAttachedBy: undefined;
+  previewAttachedAt: undefined;
+  previewBuild?: undefined;
+  previewBuildAttempt?: undefined;
+  previewBuildAt?: undefined;
+};
+
 export function planClearPreviewLink(
   current: PreviewLinkSnapshot,
-): { wrote: false } | {
-  wrote: true;
-  patch: { previewUrl: undefined; previewAttachedBy: undefined; previewAttachedAt: undefined };
-} {
+): { wrote: false } | { wrote: true; patch: PreviewLinkClear } {
   const hasUrl = Boolean(current.previewUrl?.trim());
   const hasActor = Boolean(current.previewAttachedBy) || current.previewAttachedAt != null;
-  if (!hasUrl && !hasActor) return { wrote: false };
-  return {
-    wrote: true,
-    patch: { previewUrl: undefined, previewAttachedBy: undefined, previewAttachedAt: undefined },
+  const hasBuild =
+    current.previewBuild != null ||
+    current.previewBuildAttempt != null ||
+    current.previewBuildAt != null;
+  if (!hasUrl && !hasActor && !hasBuild) return { wrote: false };
+  const patch: PreviewLinkClear = {
+    previewUrl: undefined,
+    previewAttachedBy: undefined,
+    previewAttachedAt: undefined,
   };
+  if (current.previewBuild != null) patch.previewBuild = undefined;
+  if (current.previewBuildAttempt != null) patch.previewBuildAttempt = undefined;
+  if (current.previewBuildAt != null) patch.previewBuildAt = undefined;
+  return { wrote: true, patch };
 }
