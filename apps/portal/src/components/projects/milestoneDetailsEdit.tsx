@@ -794,7 +794,7 @@ function ToneText({ children }: { children: string }) {
   return <span style={{ color: 'var(--muted)', fontSize: 12, lineHeight: '18px' }}>{children}</span>;
 }
 
-function FieldError({ text, onRetry, testId }: { text: string; onRetry: () => void; testId: string }) {
+export function FieldError({ text, onRetry, testId }: { text: string; onRetry: () => void; testId: string }) {
   return (
     <p role="alert" data-testid="milestone-details-error" style={{ marginTop: 6, fontSize: 13, lineHeight: '18px', color: 'var(--danger-text)' }}>
       <TaskGlyph src="/icons/docs-alert.svg" size={12} /> {text}{' '}
@@ -1365,7 +1365,9 @@ export function Popover({ up, onClose, children }: { up?: boolean; onClose: () =
       ref={ref}
       data-menu-layer=""
       className="ds-scope absolute z-30"
-      style={up ? { right: 0, bottom: 'calc(100% + 8px)', width: 360 } : { right: 0, top: 'calc(100% + 8px)', width: 400 }}
+      style={up
+        ? { right: 0, bottom: 'calc(100% + 8px)', width: 360, background: 'transparent' }
+        : { right: 0, top: 'calc(100% + 8px)', width: 400, background: 'transparent' }}
       onKeyDown={(event) => {
         if (event.key === 'Tab') {
           event.preventDefault();

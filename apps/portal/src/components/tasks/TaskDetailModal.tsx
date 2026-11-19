@@ -7,7 +7,7 @@ import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEditMode, type TaskLinkKind } from '@warehaus/portal-sync';
 import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
-import { DueDateMenu, OwnerMenu, Popover, ProjectMenu, type MoveTarget, type OwnerChoice } from '@/components/projects/milestoneDetailsEdit';
+import { DueDateMenu, FieldError, OwnerMenu, Popover, ProjectMenu, type MoveTarget, type OwnerChoice } from '@/components/projects/milestoneDetailsEdit';
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton, StatusBadge } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
@@ -18,6 +18,7 @@ import { StaffLiveFields } from './StaffLiveFields';
 import { TaskGlyph } from './TaskGlyph';
 import { AddSourceForm, TaskSources } from './TaskSources';
 import { archiveConfirmCopy, fieldSaveNote, projectMoveCopy } from './taskFieldCopy';
+import { beginFieldSave, FIELD_SAVE_ERROR, finishFieldSave, idleField, retryFieldSave, type FieldAttempt } from './taskFieldSave';
 import type { TaskSourceLink } from './sourcePanelFixtures';
 
 function ReviewTag() {
@@ -79,8 +80,12 @@ export function TaskDetailModal({
   live = false,
   initialStageConfirm = null,
   initialArchive = false,
+  initialMenu = null,
+  initialFieldError = null,
+  initialSourceError = null,
   people = [],
   projects = [],
+  onArchived,
 }: {
   task: PortalTask | null;
   staff: boolean;
@@ -101,9 +106,17 @@ export function TaskDetailModal({
   initialStageConfirm?: string | null;
   /** Fixture preview opens the archive confirm without a tap. */
   initialArchive?: boolean;
+  /** Fixture preview opens one field menu or the add-source form. */
+  initialMenu?: 'assignee' | 'due' | 'project' | 'add-source' | null;
+  /** Fixture preview shows a failed save under one field. */
+  initialFieldError?: 'assignee' | 'due' | 'project' | null;
+  /** Fixture preview shows the add-source form with this error. */
+  initialSourceError?: string | null;
   /** Fixture staff. Live rows load choices when a menu opens. */
   people?: readonly OwnerChoice[];
   projects?: readonly MoveTarget[];
+  /** Fixture board hides these tasks after archive. */
+  onArchived?: (ids: string[]) => void;
 }) {
   const [attach, setAttach] = useState(false);
   const [asideNote, setAsideNote] = useState<string | null>(null);
@@ -133,22 +146,27 @@ export function TaskDetailModal({
   const [projectTarget, setProjectTarget] = useState<MoveTarget | null>(null);
   const [projectQuery, setProjectQuery] = useState('');
   const [fieldBusy, setFieldBusy] = useState(false);
-  const [fieldError, setFieldError] = useState<string | null>(null);
-  const [draftAssignee, setDraftAssignee] = useState<{ id: string | null; name: string | null } | null>(null);
-  const [draftDate, setDraftDate] = useState<string | null | undefined>(undefined);
-  const [draftProject, setDraftProject] = useState<MoveTarget | null>(null);
+  const [sourceError, setSourceError] = useState<string | null>(initialSourceError);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [assigneeSlot, setAssigneeSlot] = useState<FieldAttempt<{ id: string | null; name: string | null }>>(idleField);
+  const [dueSlot, setDueSlot] = useState<FieldAttempt<string | null>>(idleField);
+  const [projectSlot, setProjectSlot] = useState<FieldAttempt<MoveTarget>>(idleField);
   const [extraLinks, setExtraLinks] = useState<TaskSourceLink[]>([]);
   const [removedLinkIds, setRemovedLinkIds] = useState<string[]>([]);
   useEffect(() => {
-    setDraftAssignee(null);
-    setDraftDate(undefined);
-    setDraftProject(null);
+    const failed = <T,>(field: 'assignee' | 'due' | 'project'): FieldAttempt<T> =>
+      initialFieldError === field ? { draft: undefined, error: FIELD_SAVE_ERROR, pending: undefined } : idleField<T>();
+    setAssigneeSlot(failed('assignee'));
+    setDueSlot(failed('due'));
+    setProjectSlot(failed('project'));
     setExtraLinks([]);
     setRemovedLinkIds([]);
-    setFieldMenu(null);
+    setFieldMenu(initialMenu);
+    setSourceError(initialSourceError);
+    setArchiveError(null);
     setArchiveOpen(initialArchive);
     setProjectTarget(null);
-  }, [task?.id, initialArchive]);
+  }, [task?.id, initialArchive, initialMenu, initialFieldError, initialSourceError]);
   const phoneMenu = phone && fieldMenu != null && !archiveOpen && !projectTarget;
   const sheets = taskSheetOpen({
     attach,
@@ -159,7 +177,7 @@ export function TaskDetailModal({
   });
   const closeFieldMenu = () => {
     setFieldMenu(null);
-    setFieldError(null);
+    setSourceError(null);
   };
   const assigneeRows = useSafeQuery<OwnerChoice[]>(
     api.tasks.assigneeChoices,
@@ -175,52 +193,55 @@ export function TaskDetailModal({
   );
   const peopleChoices = live ? assigneeRows.data ?? [] : people;
   const projectChoices = (live ? projectRows.data?.projects ?? [] : projects).filter(
-    (item) => item.id !== (draftProject?.id ?? task?.projectId),
+    (item) => item.id !== (projectSlot.draft?.id ?? task?.projectId),
   );
   const visibleProjects = projectChoices.filter((item) => item.name.toLowerCase().includes(projectQuery.trim().toLowerCase()));
-  const shownAssignee = draftAssignee?.name ?? task?.assigneeName ?? null;
-  const shownAssigneeId = draftAssignee ? draftAssignee.id : task?.assigneeContactId ?? null;
-  const shownDate = draftDate === undefined ? task?.date ?? null : draftDate;
-  const shownProject = draftProject?.name ?? task?.projectName ?? '—';
-  const noteFrom = (result: { ok: boolean; error?: string; wrote?: boolean; notion?: 'off' | 'queued' | 'portal' }) => {
-    if (!result.ok) {
-      setFieldError(result.error ?? 'Could not save');
-      return;
-    }
-    setFieldError(null);
-    const note = result.notion ? fieldSaveNote(result.notion, Boolean(result.wrote)) : null;
-    if (note) setAsideNote(note);
+  const shownAssignee = assigneeSlot.draft !== undefined ? assigneeSlot.draft.name : task?.assigneeName ?? null;
+  const shownAssigneeId = assigneeSlot.draft !== undefined ? assigneeSlot.draft.id : task?.assigneeContactId ?? null;
+  const shownDate = dueSlot.draft !== undefined ? dueSlot.draft : task?.date ?? null;
+  const shownProject = projectSlot.draft?.name ?? task?.projectName ?? '—';
+  const saveAssignee = (pending: { id: string | null; name: string | null }) => {
+    setAssigneeSlot(beginFieldSave(pending));
+    setFieldMenu(null);
+    if (!live || !task) return;
+    void setAssignee({ hostSlug, taskId: task.id as Id<'tasks'>, assigneeContactId: pending.id as Id<'contacts'> | null })
+      .then((result) => {
+        setAssigneeSlot((current) => {
+          const next = finishFieldSave(current, result.ok);
+          return result.ok ? { ...next, draft: { id: pending.id, name: result.assigneeName } } : next;
+        });
+      })
+      .catch(() => setAssigneeSlot((current) => finishFieldSave(current, false)));
+  };
+  const saveDue = (pending: string | null) => {
+    setDueSlot(beginFieldSave(pending));
+    setFieldMenu(null);
+    if (!live || !task) return;
+    void setDueDate({ hostSlug, taskId: task.id as Id<'tasks'>, date: pending })
+      .then((result) => {
+        setDueSlot((current) => finishFieldSave(current, result.ok));
+        if (result.ok) {
+          const note = fieldSaveNote(result.notion, result.wrote);
+          if (note) setAsideNote(note);
+        }
+      })
+      .catch(() => setDueSlot((current) => finishFieldSave(current, false)));
+  };
+  const saveProject = (pending: MoveTarget) => {
+    setProjectSlot(beginFieldSave(pending));
+    setProjectTarget(null);
+    if (!live || !task) return;
+    setFieldBusy(true);
+    void moveTaskProject({ hostSlug, taskId: task.id as Id<'tasks'>, projectId: pending.id as Id<'projects'> })
+      .then((result) => setProjectSlot((current) => finishFieldSave(current, result.ok)))
+      .catch(() => setProjectSlot((current) => finishFieldSave(current, false)))
+      .finally(() => setFieldBusy(false));
   };
   const pickAssignee = (id: string | null) => {
     const person = peopleChoices.find((item) => item.id === id) ?? null;
-    setDraftAssignee({ id, name: person?.name ?? null });
-    closeFieldMenu();
-    if (!live || !task) return;
-    void setAssignee({ hostSlug, taskId: task.id as Id<'tasks'>, assigneeContactId: id as Id<'contacts'> | null }).then((result) => {
-      if (result.ok) setDraftAssignee({ id, name: result.assigneeName });
-      noteFrom(result);
-    });
+    saveAssignee({ id, name: person?.name ?? null });
   };
-  const pickDate = (next: string | null) => {
-    setDraftDate(next);
-    closeFieldMenu();
-    if (!live || !task) return;
-    void setDueDate({ hostSlug, taskId: task.id as Id<'tasks'>, date: next }).then(noteFrom);
-  };
-  const confirmProject = () => {
-    const target = projectTarget;
-    if (!target || !task) return;
-    setDraftProject(target);
-    setProjectTarget(null);
-    if (!live) return;
-    setFieldBusy(true);
-    void moveTaskProject({ hostSlug, taskId: task.id as Id<'tasks'>, projectId: target.id as Id<'projects'> })
-      .then((result) => {
-        noteFrom(result);
-        if (!result.ok) setDraftProject(null);
-      })
-      .finally(() => setFieldBusy(false));
-  };
+  const pickDate = saveDue;
   const submitSource = (input: { kind: TaskLinkKind; url: string; title: string }) => {
     const url = input.url.trim();
     if (!url || !task) return;
@@ -241,11 +262,13 @@ export function TaskDetailModal({
     setFieldBusy(true);
     void addLink({ hostSlug, taskId: task.id as Id<'tasks'>, kind: input.kind, url, title: input.title.trim() || undefined })
       .then((result) => {
-        noteFrom(result);
-        if (result.ok) {
-          setExtraLinks((rows) => [...rows, { ...local, id: result.id ?? local.id }]);
-          closeFieldMenu();
+        if (!result.ok) {
+          setSourceError(result.error ?? null);
+          return;
         }
+        setSourceError(null);
+        setExtraLinks((rows) => [...rows, { ...local, id: result.id ?? local.id }]);
+        closeFieldMenu();
       })
       .finally(() => setFieldBusy(false));
   };
@@ -262,6 +285,7 @@ export function TaskDetailModal({
   const confirmArchive = () => {
     if (!task) return;
     if (!live) {
+      onArchived?.([task.id, ...subtasks.map((child) => child.id)]);
       onClose();
       return;
     }
@@ -269,7 +293,7 @@ export function TaskDetailModal({
     void archiveTask({ hostSlug, taskId: task.id as Id<'tasks'> })
       .then((result) => {
         if (!result.ok) {
-          setFieldError(result.error);
+          setArchiveError(result.error ?? null);
           return;
         }
         onClose();
@@ -458,6 +482,7 @@ export function TaskDetailModal({
             {staff || shownAssignee ? (
               <Field label="Assignee" row={phone}>
                 {staff ? (
+                  <div>
                   <FieldMenu
                     testId="task-assignee"
                     open={fieldMenu === 'assignee'}
@@ -476,6 +501,10 @@ export function TaskDetailModal({
                       </Popover>
                     ) : null}
                   </FieldMenu>
+                  {assigneeSlot.error ? (
+                    <FieldError testId="task-assignee-retry" text={assigneeSlot.error} onRetry={() => retryFieldSave(assigneeSlot, saveAssignee)} />
+                  ) : null}
+                  </div>
                 ) : (
                   shownAssignee
                 )}
@@ -483,6 +512,7 @@ export function TaskDetailModal({
             ) : null}
             <Field label="Due date" row={phone}>
               {staff ? (
+                <div>
                 <FieldMenu
                   testId="task-due"
                   open={fieldMenu === 'due'}
@@ -501,6 +531,10 @@ export function TaskDetailModal({
                     </Popover>
                   ) : null}
                 </FieldMenu>
+                {dueSlot.error ? (
+                  <FieldError testId="task-due-retry" text={dueSlot.error} onRetry={() => retryFieldSave(dueSlot, saveDue)} />
+                ) : null}
+                </div>
               ) : (
                 <span className="inline-flex items-center gap-2" style={{ color: 'var(--fg)' }}>
                   <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-calendar.svg" size={16} /></span>
@@ -510,6 +544,7 @@ export function TaskDetailModal({
             </Field>
             <Field label="Project" row={phone}>
               {staff ? (
+                <div>
                 <FieldMenu
                   testId="task-project"
                   open={fieldMenu === 'project'}
@@ -533,6 +568,10 @@ export function TaskDetailModal({
                     </Popover>
                   ) : null}
                 </FieldMenu>
+                {projectSlot.error ? (
+                  <FieldError testId="task-project-retry" text={projectSlot.error} onRetry={() => retryFieldSave(projectSlot, saveProject)} />
+                ) : null}
+                </div>
               ) : (
                 <span className="inline-flex flex-wrap items-center gap-2">
                   <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-layers.svg" size={16} /></span>
@@ -564,7 +603,7 @@ export function TaskDetailModal({
                       ...patch,
                     });
                   } catch (err) {
-                    return { ok: false, error: userFacingErrorMessage(err, 'Could not save') };
+                    return { ok: false, error: userFacingErrorMessage(err, 'Nothing was sent.') };
                   }
                 }}
               />
@@ -591,13 +630,16 @@ export function TaskDetailModal({
                 {fieldMenu === 'add-source' && !phone ? (
                   <div className="relative">
                     <Popover up onClose={closeFieldMenu}>
-                      <div onKeyDown={(event) => {
-                        if (event.key !== 'Escape') return;
-                        event.preventDefault();
-                        event.stopPropagation();
-                        closeFieldMenu();
-                      }}>
-                        <AddSourceForm busy={fieldBusy} error={fieldError} onSubmit={submitSource} />
+                      <div
+                        onKeyDown={(event) => {
+                          if (event.key !== 'Escape') return;
+                          event.preventDefault();
+                          event.stopPropagation();
+                          closeFieldMenu();
+                        }}
+                        style={{ background: 'var(--surface)', border: '1px solid var(--border-2)', borderRadius: 18, boxShadow: '0 16px 40px rgba(0,0,0,0.28)' }}
+                      >
+                        <AddSourceForm busy={fieldBusy} error={sourceError} onSubmit={submitSource} />
                       </div>
                     </Popover>
                   </div>
@@ -775,14 +817,14 @@ export function TaskDetailModal({
                 label="Archive this task?"
                 onClose={() => {
                   setArchiveOpen(false);
-                  setFieldError(null);
+                  setArchiveError(null);
                 }}
                 narrow={phone}
                 sheet="bottom"
                 width={440}
                 header="compact"
                 showIcon
-                icon="alert"
+                headerIcon={<WarningTriangle />}
                 focusCancel
                 showFooter={false}
               >
@@ -790,11 +832,11 @@ export function TaskDetailModal({
                   <p style={{ margin: '8px 24px 16px', fontSize: 14, lineHeight: '21px' }}>
                     {archiveConfirmCopy(task.name, subtasks.length)}
                   </p>
-                  {fieldError ? (
-                    <p role="alert" style={{ margin: '0 24px 12px', color: 'var(--danger-text)', fontSize: 14 }}>{fieldError}</p>
+                  {archiveError ? (
+                    <p role="alert" style={{ margin: '0 24px 12px', color: 'var(--danger-text)', fontSize: 14 }}>{archiveError}</p>
                   ) : null}
-                  <div className="flex flex-nowrap items-center justify-end gap-2 border-t px-6 py-4" style={{ borderColor: 'var(--border)' }}>
-                    <OutlineButton nowrap height={42} paddingInline={16} disabled={fieldBusy} onClick={() => setArchiveOpen(false)}>
+                  <div className="flex flex-nowrap items-center justify-end gap-2 px-6 py-4">
+                    <OutlineButton className="task-confirm-cancel" nowrap height={42} paddingInline={16} disabled={fieldBusy} onClick={() => setArchiveOpen(false)}>
                       Cancel
                     </OutlineButton>
                     <button
@@ -830,11 +872,11 @@ export function TaskDetailModal({
                   <p style={{ margin: '8px 24px 16px', fontSize: 14, lineHeight: '21px' }}>
                     {projectMoveCopy(task.name, task.projectName ?? 'this project', projectTarget.name)}
                   </p>
-                  <div className="flex flex-nowrap items-center justify-end gap-2 border-t px-6 py-4" style={{ borderColor: 'var(--border)' }}>
-                    <OutlineButton nowrap height={42} paddingInline={16} disabled={fieldBusy} onClick={() => setProjectTarget(null)}>
+                  <div className="flex flex-nowrap items-center justify-end gap-2 px-6 py-4">
+                    <OutlineButton className="task-confirm-cancel" nowrap height={42} paddingInline={16} disabled={fieldBusy} onClick={() => setProjectTarget(null)}>
                       Cancel
                     </OutlineButton>
-                    <PrimaryButton testId="task-project-submit" height={42} paddingInline={16} disabled={fieldBusy} onClick={confirmProject}>
+                    <PrimaryButton testId="task-project-submit" height={42} paddingInline={16} disabled={fieldBusy} onClick={() => { if (projectTarget) saveProject(projectTarget); }}>
                       {fieldBusy ? 'Saving…' : 'Move task'}
                     </PrimaryButton>
                   </div>
@@ -882,7 +924,7 @@ export function TaskDetailModal({
                     event.stopPropagation();
                     closeFieldMenu();
                   }}>
-                    <AddSourceForm busy={fieldBusy} error={fieldError} onSubmit={submitSource} />
+                    <AddSourceForm busy={fieldBusy} error={sourceError} onSubmit={submitSource} />
                   </div>
                 ) : null}
               </PortalModal>
@@ -1086,6 +1128,16 @@ function StatusMenu({ value, onChange }: { value: string; onChange: (status: str
   );
 }
 
+function WarningTriangle() {
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M10 3.2 17.4 16.4H2.6L10 3.2Z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path d="M10 8.2v3.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <circle cx="10" cy="14.2" r="0.7" fill="currentColor" />
+    </svg>
+  );
+}
+
 function FieldMenu({
   testId,
   label,
@@ -1108,11 +1160,14 @@ function FieldMenu({
         data-testid={testId}
         aria-expanded={open}
         onClick={onOpen}
-        className="inline-flex min-w-0 items-center gap-2 text-left"
-        style={{ background: 'transparent', border: 0, color: 'var(--fg)', font: 'inherit', fontSize: 14, cursor: 'pointer', padding: 0 }}
+        className="milestone-field group mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg bg-transparent text-left hover:bg-[var(--surface-2)] focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
+        style={{ minHeight: 32, padding: '4px 8px', border: open ? '1px solid var(--accent)' : '1px solid transparent', background: open ? 'var(--surface-2)' : undefined, color: 'var(--fg)', font: 'inherit', fontSize: 14, lineHeight: '21px', cursor: 'pointer' }}
       >
         {icon ? <span style={{ color: 'var(--muted)' }}><TaskGlyph src={icon} size={16} /></span> : null}
         <span className="min-w-0 truncate">{label}</span>
+        <span className="ml-auto text-[var(--muted)]" aria-hidden>
+          <TaskGlyph src="/icons/task-chev-down.svg" size={14} />
+        </span>
       </button>
       {children}
     </div>

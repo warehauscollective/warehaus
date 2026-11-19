@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { textBlurSave } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { MilestoneDetailView } from './ProjectRoadmap';
-import { anchoredMenuBox } from './milestoneDetailsEdit';
+import { anchoredMenuBox, Popover } from './milestoneDetailsEdit';
 
 Object.assign(globalThis, { React });
 
@@ -275,5 +276,28 @@ describe('milestone details panel', () => {
     assert.equal(html.includes('data-testid="milestone-approval"'), false);
     assert.equal(html.includes('data-testid="milestone-last-review"'), false);
     assert.equal(html.includes('Review milestone'), false);
+  });
+});
+
+describe('milestone popover fill', () => {
+  it('keeps ds-scope and paints no square behind the rounded menu', () => {
+    const html = renderToStaticMarkup(
+      // createElement's extra-child overload rejects a component whose props require children.
+      // eslint-disable-next-line react/no-children-prop
+      createElement(Popover, {
+        onClose: () => undefined,
+        children: createElement('div', { 'data-testid': 'menu-card', style: { borderRadius: 18 } }, 'Owner'),
+      }),
+    );
+    assert.match(html, /class="ds-scope absolute z-30"/);
+    assert.match(html, /background:\s*transparent/);
+    const source = readFileSync(new URL('./milestoneDetailsEdit.tsx', import.meta.url), 'utf8');
+    const popover = source.slice(source.indexOf('export function Popover'), source.indexOf('export function OwnerMenu'));
+    assert.match(popover, /preventScroll:\s*true/);
+    assert.match(popover, /nextDialogFocus/);
+    assert.match(popover, /event\.key === 'Tab'/);
+    assert.match(popover, /background: 'transparent'/);
+    assert.match(source, /function menuKey/);
+    assert.match(source, /event\.key === 'Escape'/);
   });
 });
