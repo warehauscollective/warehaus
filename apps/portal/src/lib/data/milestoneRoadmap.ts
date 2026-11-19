@@ -149,7 +149,7 @@ function withLongChip(milestone: MilestoneRoadmapView): MilestoneRoadmapView {
 
 function previewMilestone(
   patch: Pick<MilestoneRoadmapView, 'id' | 'name' | 'objective' | 'workStatus' | 'approval'> &
-    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName'>>,
+    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName' | 'stage'>>,
 ): MilestoneRoadmapView {
   return {
     goals: [],
@@ -168,7 +168,7 @@ function previewMilestone(
 
 /**
  * Fixture-only list previews. `?chip=long` stretches the first chip.
- * `?tiles=states` adds an in-progress tile, a reviewed tile, and a shipped tile.
+ * `?tiles=states` adds an in-progress tile, a reviewed tile, an approved tile awaiting merge, and a tile whose stored stage is Shipped.
  * An empty search leaves the list alone.
  */
 export function applyFixtureMilestonePreview(
@@ -201,8 +201,8 @@ export function applyFixtureMilestonePreview(
       resources: [{ id: 'r-nav', title: 'Navigation notes', url: null }],
     }),
     previewMilestone({
-      id: 'm-preview-shipped',
-      name: 'Brand system',
+      id: 'm-preview-approved',
+      name: 'Approved, awaiting merge',
       objective: 'The brand system is approved.',
       // Approval shows Ready to Ship until a stage is stored. Ready work is In review.
       workStatus: 'ready',
@@ -214,6 +214,16 @@ export function applyFixtureMilestonePreview(
         { id: 'r-brand', title: 'Brand file', url: null },
         { id: 'r-brand-2', title: 'Logo sheet', url: null },
       ],
+    }),
+    previewMilestone({
+      id: 'm-preview-shipped',
+      name: 'Production launch',
+      objective: 'The homepage is shipped.',
+      workStatus: 'ready',
+      approval: 'approved',
+      stage: 'Shipped',
+      decidedAt: PREVIEW_REVIEW_AT,
+      approverName: 'Northwind',
     }),
   ];
 }

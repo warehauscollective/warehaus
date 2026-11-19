@@ -128,14 +128,18 @@ describe('fixture roadmap', () => {
     const states = applyFixtureMilestonePreview(staff, '?tiles=states');
     assert.deepEqual(
       states.map((milestone) => milestone.name),
-      ['Launch the homepage', 'Billing export draft', 'Case study', 'Navigation pass', 'Brand system'],
+      ['Launch the homepage', 'Billing export draft', 'Case study', 'Navigation pass', 'Approved, awaiting merge', 'Production launch'],
     );
     assert.equal(states[2]?.workStatus, 'active');
     assert.equal(states[2]?.approval, 'unreviewed');
     assert.equal(states[3]?.decidedAt, Date.parse('2026-11-03T15:00:00Z'));
+    assert.equal(states[4]?.id, 'm-preview-approved');
     assert.equal(states[4]?.approval, 'approved');
     assert.equal(states[4]?.workStatus, 'ready');
+    assert.equal(states[4]?.stage ?? null, null);
     assert.notEqual(states[4]?.workStatus, 'active');
+    assert.equal(states[5]?.id, 'm-preview-shipped');
+    assert.equal(states[5]?.stage, 'Shipped');
   });
 });
 
@@ -342,7 +346,8 @@ describe('roadmap markup', () => {
         doneCount: 6,
       }),
     });
-    assert.match(approved, new RegExp(`data-testid="milestone-due"[^>]*>Approved ${day}<`));
+    assert.match(approved, /data-testid="milestone-due"[^>]*>Approved · awaiting merge and deploy</);
+    assert.match(approved, />Open milestone</);
     assert.match(approved, />6 \/ 6 tasks complete</);
     assert.match(approved, />6 \/ 6 complete</);
     assert.equal(approved.includes('includes'), false);
@@ -356,7 +361,7 @@ describe('roadmap markup', () => {
       staff: true,
       milestone: tileMilestone({ approval: 'approved', decidedAt: null, resources: [resource] }),
     });
-    assert.match(approvedUndated, /data-testid="milestone-due"[^>]*>Approved</);
+    assert.match(approvedUndated, /data-testid="milestone-due"[^>]*>Approved · awaiting merge and deploy</);
     assert.match(approvedUndated, /data-testid="milestone-meta"[^>]*>1 resource</);
     assert.equal(approvedUndated.includes('No review yet'), false);
     assert.equal(approvedUndated.includes('Due '), false);
@@ -371,8 +376,36 @@ describe('roadmap markup', () => {
       }),
     });
     assert.match(approvedReady, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
+    assert.match(approvedReady, /data-testid="milestone-due"[^>]*>Approved · awaiting merge and deploy</);
+    assert.match(approvedReady, />Open milestone</);
     assert.match(approvedReady, new RegExp(`data-testid="milestone-meta"[^>]*>2 resources · Last review ${day}<`));
     assert.equal(approvedReady.includes('Ready for review'), false);
+    assert.equal(approvedReady.includes('Approve &amp; deploy'), false);
+
+    const clientAwaiting = renderTile({
+      staff: false,
+      milestone: tileMilestone({
+        approval: 'approved',
+        workStatus: 'ready',
+        decidedAt,
+      }),
+    });
+    assert.match(clientAwaiting, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
+    assert.equal(clientAwaiting.includes('Approved · awaiting merge and deploy'), false);
+    assert.equal(clientAwaiting.includes('milestone-due'), false);
+
+    const shipped = renderTile({
+      staff: true,
+      milestone: tileMilestone({
+        approval: 'approved',
+        workStatus: 'ready',
+        stage: 'Shipped',
+        decidedAt,
+      }),
+    });
+    assert.match(shipped, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Shipped</);
+    assert.equal(shipped.includes('Approved · awaiting merge and deploy'), false);
+    assert.match(shipped, new RegExp(`data-testid="milestone-due"[^>]*>Approved ${day}<`));
 
     const longChip = renderTile({
       staff: true,
@@ -527,7 +560,6 @@ describe('MilestoneDetailView', () => {
           { id: 'sub-free', name: 'Unlinked subtask' },
           { id: 'loose', name: 'Loose subtask' },
         ],
-        onWorkStatus: () => undefined,
         onPublish: () => undefined,
         onAttach: () => undefined,
         onDetach: () => undefined,

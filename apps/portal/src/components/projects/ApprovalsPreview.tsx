@@ -169,7 +169,7 @@ function StageHint({ current, phone = false, confirming = null }: { current: str
       <div className="flex flex-wrap gap-2">
         {stages.map((stage) => {
           const selected = stage === current;
-          const locked = stage === 'Shipped' && !selected;
+          const locked = stage === 'Shipped';
           return (
             <span
               key={stage}
@@ -182,12 +182,17 @@ function StageHint({ current, phone = false, confirming = null }: { current: str
                 border: locked ? '1px dashed var(--border-2)' : selected ? '1px solid var(--fg)' : '1px solid var(--border-2)',
                 borderRadius: 999,
                 padding: '8px 12px',
-                background: selected ? 'var(--fg)' : 'transparent',
-                color: selected ? 'var(--bg)' : locked ? 'var(--muted)' : 'var(--fg)',
+                background: locked && selected ? 'var(--surface-2)' : selected ? 'var(--fg)' : 'transparent',
+                color: locked ? 'var(--muted)' : selected ? 'var(--bg)' : 'var(--fg)',
                 fontSize: 13,
               }}
             >
               {stage}
+              {locked ? (
+                <span style={{ flexShrink: 0, border: '1px solid var(--border-2)', borderRadius: 999, padding: '3px 8px', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                  ON MERGE
+                </span>
+              ) : null}
               {locked ? <LockMark /> : null}
             </span>
           );
@@ -253,6 +258,7 @@ function DialogFrame({
         hideClose={phone && kind === 'approve' || busy && kind === 'approve'}
         actionsRow={phone && kind === 'approve'}
         hideChromeBelow={kind === 'approve' || kind === 'changes'}
+        header={kind === 'approve' ? 'compact' : undefined}
         onClose={() => undefined}
         onConfirm={() => undefined}
         footer={

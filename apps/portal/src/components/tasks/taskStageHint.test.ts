@@ -19,6 +19,8 @@ describe('Ready to Ship task status', () => {
     assert.equal(TASK_STAGE_HINT, HINT);
     const source = readFileSync(new URL('./TaskDetailModal.tsx', import.meta.url), 'utf8');
     assert.match(source, /TASK_STAGE_HINT/);
+    assert.match(source, /ON MERGE/);
+    assert.match(source, /task-lock\.svg/);
     assert.equal(source.includes('set in Notion'), false);
     assert.match(source, /displayedTaskStatus/);
   });

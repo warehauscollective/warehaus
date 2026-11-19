@@ -18,8 +18,8 @@ import {
   type MilestoneStage,
 } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
-import { dialogTabBoundary, focusShouldReturnToDialog, isolateOutsideDialog } from './milestoneGuards';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { PortalModal, type PortalModalHeader } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { FieldLabel, FieldValue, Panel } from './milestoneChrome';
 
@@ -71,6 +71,7 @@ export function useMilestoneDetailEdits({
   onClaim,
   onFixture,
   onLoadMoreTargets,
+  onMoveListOpen,
   mutations,
 }: {
   milestone: MilestoneRoadmapView;
@@ -94,6 +95,8 @@ export function useMilestoneDetailEdits({
     publishToWarehaus?: boolean;
   }) => void;
   onLoadMoreTargets?: () => void;
+  /** True only while the move picker or move confirm is open. */
+  onMoveListOpen?: (open: boolean) => void;
   mutations: DetailMutations;
 }) {
   const [phone, setPhone] = useState(false);
@@ -133,6 +136,11 @@ export function useMilestoneDetailEdits({
   useEffect(() => {
     setProjectNameLocal(projectName);
   }, [projectName]);
+
+  useEffect(() => {
+    const open = overlay?.kind === 'project' || overlay?.kind === 'confirm-move';
+    onMoveListOpen?.(open);
+  }, [overlay, onMoveListOpen]);
 
   const openOverlay = (next: DetailsOverlay) => {
     onClaim();
@@ -448,6 +456,7 @@ export function useMilestoneDetailEdits({
       phone={phone}
       title={modalTitle(shown, milestone.name)}
       testId="milestone-details-modal"
+      header={confirmHeader(shown)}
       onClose={() => closeOverlay(true)}
     >
       {shown.kind === 'stage' ? (
@@ -904,133 +913,46 @@ function VisibilityList({
   );
 }
 
+function confirmHeader(overlay: DetailsOverlay): PortalModalHeader | undefined {
+  if (overlay?.kind === 'confirm-move' || overlay?.kind === 'confirm-publish' || overlay?.kind === 'confirm-unpublish') {
+    return 'default';
+  }
+  return undefined;
+}
+
 function DetailsModal({
   title,
   phone,
   testId,
+  header,
   onClose,
   children,
 }: {
   title: string;
   phone: boolean;
   testId: string;
+  header?: PortalModalHeader;
   onClose: () => void;
   children: ReactNode;
 }) {
-  const overlayRef = useRef<HTMLDivElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  useEffect(() => {
-    const overlay = overlayRef.current;
-    const node = dialogRef.current;
-    const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    const release = overlay ? isolateOutsideDialog(overlay) : () => undefined;
-    const focusable = () => {
-      if (!node || typeof node.querySelectorAll !== 'function') return [] as HTMLElement[];
-      return [...node.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href]')].filter(
-        (element) => !element.hasAttribute('disabled'),
-      );
-    };
-    if (node && typeof node.focus === 'function') node.focus({ preventScroll: true });
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onCloseRef.current();
-        return;
-      }
-      if (event.key !== 'Tab' || !node) return;
-      const items = focusable();
-      if (items.length === 0) return;
-      const boundary = dialogTabBoundary({
-        shiftKey: event.shiftKey,
-        atFirst: document.activeElement === items[0],
-        atLast: document.activeElement === items[items.length - 1],
-      });
-      if (boundary === 'first') {
-        event.preventDefault();
-        items[0]?.focus({ preventScroll: true });
-      } else if (boundary === 'last') {
-        event.preventDefault();
-        items[items.length - 1]?.focus({ preventScroll: true });
-      }
-    };
-    const onFocusIn = (event: FocusEvent) => {
-      if (!overlay || typeof overlay.contains !== 'function') return;
-      const target = event.target;
-      const inside = target instanceof Node && overlay.contains(target);
-      if (!focusShouldReturnToDialog({ targetInsideDialog: inside })) return;
-      const next = focusable()[0] ?? node;
-      if (next && typeof next.focus === 'function') next.focus({ preventScroll: true });
-    };
-    document.addEventListener('keydown', onKey);
-    document.addEventListener('focusin', onFocusIn);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      document.removeEventListener('focusin', onFocusIn);
-      release();
-      if (previous && typeof previous.focus === 'function') previous.focus({ preventScroll: true });
-    };
-  }, []);
   return (
-    <div
-      ref={overlayRef}
-      role="presentation"
-      data-testid="milestone-details-scrim"
-      className={phone ? 'fixed inset-0 flex items-end' : 'fixed inset-0 flex items-center justify-center p-4'}
-      style={{ zIndex: 80, background: 'var(--scrim)', backdropFilter: 'blur(var(--scrim-blur))', WebkitBackdropFilter: 'blur(var(--scrim-blur))' }}
-      onClick={onClose}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose();
-      }}
+    <PortalModal
+      testId={testId}
+      scrimTestId="milestone-details-scrim"
+      label={title}
+      onClose={onClose}
+      narrow={phone}
+      sheet="bottom"
+      width={640}
+      header={header}
+      showFooter={false}
     >
-      <div
-        ref={dialogRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label={title}
-        data-testid={testId}
-        tabIndex={-1}
-        className="focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-4"
-        onClick={(event) => event.stopPropagation()}
-        onKeyDown={(event) => {
-          if (event.key === 'Escape') {
-            event.stopPropagation();
-            onClose();
-          }
-        }}
-        style={
-          phone
-            ? {
-                width: '100%',
-                maxHeight: '92dvh',
-                overflow: 'auto',
-                background: 'var(--surface)',
-                borderTop: '2px solid var(--border-2)',
-                borderRadius: '28px 28px 0 0',
-                boxShadow: 'none',
-              }
-            : {
-                width: 'min(100%, 640px)',
-                maxHeight: '90dvh',
-                overflow: 'auto',
-                background: 'var(--surface)',
-                border: '2px solid var(--border-2)',
-                borderRadius: 28,
-                boxShadow: '0 16px 48px rgba(0,0,0,0.24)',
-              }
-        }
-      >
-        {phone ? (
-          <div aria-hidden style={{ width: 36, height: 4, borderRadius: 99, background: 'var(--border-2)', margin: '10px auto 0' }} />
-        ) : null}
-        {children}
-      </div>
-    </div>
+      {children}
+    </PortalModal>
   );
 }
 
 function ConfirmFrame({
-  title,
   busy,
   error,
   confirmLabel,
@@ -1038,7 +960,6 @@ function ConfirmFrame({
   onConfirm,
   children,
 }: {
-  title: string;
   busy: boolean;
   error: string | null;
   confirmLabel: string;
@@ -1048,28 +969,24 @@ function ConfirmFrame({
 }) {
   return (
     <div>
-      <div className="flex items-center gap-3 px-6 py-4">
-        <h2 style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600 }}>{title}</h2>
-        <button type="button" onClick={onCancel} className="ml-auto rounded-[9px] px-3 py-2 focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-2" style={{ background: 'none', border: 0, color: 'var(--muted)', font: 'inherit', fontSize: 14, lineHeight: '21px', cursor: 'pointer' }}>
-          Close
-        </button>
-      </div>
       <div className="px-6 py-2">{children}</div>
       {error ? (
         <p role="alert" data-testid="milestone-details-error" className="mx-6 mb-2" style={{ color: 'var(--danger-text)', fontSize: 14, lineHeight: '21px' }}>
           {error}
         </p>
       ) : null}
-      <div className="flex flex-wrap items-center gap-2 border-t px-6 py-4" style={{ borderColor: 'var(--border)' }}>
-        <span className="mr-auto" style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)' }}>
+      <div className="flex flex-nowrap items-center gap-2 border-t px-6 py-4" style={{ borderColor: 'var(--border)' }}>
+        <span className="portal-confirm-hint mr-auto min-w-0" style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
           Esc to cancel
         </span>
-        <OutlineButton height={42} paddingInline={16} disabled={busy} onClick={onCancel}>
-          Cancel
-        </OutlineButton>
-        <PrimaryButton testId="milestone-confirm-submit" height={42} paddingInline={16} disabled={busy} onClick={onConfirm}>
-          {busy ? 'Saving…' : confirmLabel}
-        </PrimaryButton>
+        <span className="ml-auto flex shrink-0 flex-nowrap items-center gap-2">
+          <OutlineButton nowrap height={42} paddingInline={16} disabled={busy} onClick={onCancel}>
+            Cancel
+          </OutlineButton>
+          <PrimaryButton testId="milestone-confirm-submit" className="shrink-0" height={42} paddingInline={16} disabled={busy} onClick={onConfirm}>
+            {busy ? 'Saving…' : confirmLabel}
+          </PrimaryButton>
+        </span>
       </div>
     </div>
   );
@@ -1103,7 +1020,6 @@ function ConfirmMove(props: {
   const tasks = props.taskCount === 1 ? '1 task' : `${props.taskCount} tasks`;
   return (
     <ConfirmFrame
-      title={`Move to ${props.toName}?`}
       busy={props.busy}
       error={props.error}
       confirmLabel={`Move milestone + ${props.taskCount} ${props.taskCount === 1 ? 'task' : 'tasks'}`}
@@ -1141,7 +1057,7 @@ function ConfirmPublish(props: {
 }) {
   const who = props.clientName ? `${props.clientName}’s client users` : 'Client users';
   return (
-    <ConfirmFrame title="Publish to client?" busy={props.busy} error={props.error} confirmLabel="Publish" onCancel={props.onCancel} onConfirm={props.onConfirm}>
+    <ConfirmFrame busy={props.busy} error={props.error} confirmLabel="Publish" onCancel={props.onCancel} onConfirm={props.onConfirm}>
       <p style={{ fontSize: 14, lineHeight: '21px' }}>
         {who} will see {props.milestoneName} in their Portal.
       </p>
@@ -1169,7 +1085,7 @@ function ConfirmUnpublish(props: {
   onConfirm: () => void;
 }) {
   return (
-    <ConfirmFrame title="Hide from client?" busy={props.busy} error={props.error} confirmLabel="Unpublish" onCancel={props.onCancel} onConfirm={props.onConfirm}>
+    <ConfirmFrame busy={props.busy} error={props.error} confirmLabel="Unpublish" onCancel={props.onCancel} onConfirm={props.onConfirm}>
       <p style={{ fontSize: 14, lineHeight: '21px' }}>{props.milestoneName} leaves the client Portal. Staff can still open it.</p>
       <p className="mt-3" style={{ fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
         Nothing changes until you confirm.

@@ -171,7 +171,7 @@ describe('milestone page mutation errors', () => {
     await click(findByTestId(container, 'milestone-project-edit'));
     await click(findButton(container, 'Northwind brand'));
     assert.deepEqual(calls, ['status:draft', 'stage:Parked']);
-    assert.match(textOf(container), /Move to Northwind brand\?/);
+    assert.match(textOf(document.body), /Move to Northwind brand\?/);
     const dialog = findByTestId(container, 'milestone-details-scrim');
     await act(async () => {
       dialog?.dispatchEvent({ ...clickEvent(), type: 'keydown', key: 'Escape' } as EventLike & { key: string });
@@ -269,7 +269,8 @@ async function click(node: TestNode | null) {
 }
 
 function alertText(node: TestNode): string {
-  const alert = findByRole(node, 'alert');
+  const alert = findByRole(node, 'alert')
+    ?? (node.ownerDocument?.body && node.ownerDocument.body !== node ? findByRole(node.ownerDocument.body, 'alert') : null);
   return alert ? textOf(alert) : '';
 }
 
@@ -469,18 +470,34 @@ function findOption(node: TestNode, label: string): TestNode | null {
 }
 
 function findButton(node: TestNode, label: string): TestNode | null {
+  const found = findButtonIn(node, label);
+  if (found) return found;
+  const body = node.ownerDocument?.body;
+  if (body && body !== node) return findButtonIn(body, label);
+  return null;
+}
+
+function findButtonIn(node: TestNode, label: string): TestNode | null {
   if (node.nodeName === 'BUTTON' && textOf(node) === label) return node;
   for (const child of node.childNodes) {
-    const found = findButton(child, label);
+    const found = findButtonIn(child, label);
     if (found) return found;
   }
   return null;
 }
 
 function findByTestId(node: TestNode, id: string): TestNode | null {
+  const found = findByTestIdIn(node, id);
+  if (found) return found;
+  const body = node.ownerDocument?.body;
+  if (body && body !== node) return findByTestIdIn(body, id);
+  return null;
+}
+
+function findByTestIdIn(node: TestNode, id: string): TestNode | null {
   if (node.getAttribute('data-testid') === id) return node;
   for (const child of node.childNodes) {
-    const found = findByTestId(child, id);
+    const found = findByTestIdIn(child, id);
     if (found) return found;
   }
   return null;

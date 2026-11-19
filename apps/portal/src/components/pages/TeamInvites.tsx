@@ -736,13 +736,13 @@ function ConfirmDialog({
       onClose={onCancel}
       narrow={narrow}
       sheet="bottom"
-      panelStyle={{ padding: 32, display: 'flex', flexDirection: 'column', gap: 20 }}
+      header="compact"
+      showFooter={false}
     >
-        <h2 style={{ margin: 0, fontSize: 22 }}>{title}</h2>
-        <p style={{ margin: '8px 0 0', fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>{body}</p>
-        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
-          <button type="button" style={secondaryButton} onClick={onCancel}>Cancel</button>
-          <button type="button" data-testid="revoke-confirm-submit" style={{ ...primaryButton, background: 'var(--danger)', color: 'var(--paper)' }} onClick={onConfirm}>
+        <p style={{ margin: 0, padding: narrow ? '8px 16px' : '8px 24px', fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>{body}</p>
+        <div style={{ display: 'flex', flexWrap: 'nowrap', justifyContent: 'flex-end', gap: 8, padding: narrow ? '16px 16px 24px' : '16px 24px 20px' }}>
+          <button type="button" style={{ ...secondaryButton, flexShrink: 0, whiteSpace: 'nowrap' }} onClick={onCancel}>Cancel</button>
+          <button type="button" data-testid="revoke-confirm-submit" style={{ ...primaryButton, flexShrink: 0, whiteSpace: 'nowrap', background: 'var(--danger)', color: 'var(--paper)' }} onClick={onConfirm}>
             {confirmLabel}
           </button>
         </div>

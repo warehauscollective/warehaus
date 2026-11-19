@@ -310,15 +310,15 @@ export function TaskDetailModal({
                 <div className="flex flex-wrap gap-2">
                   {TASK_STAGES.map((stage) => {
                     const current = task.stage === stage;
-                    const visualLock = stage === 'Shipped' && !current;
+                    const locked = stage === 'Shipped';
                     return (
                       <button
                         key={stage}
                         type="button"
-                        disabled={visualLock}
+                        disabled={locked}
                         aria-pressed={task.stage === stage}
                         onClick={() => {
-                          if (visualLock || current) return;
+                          if (locked || current) return;
                           if (phone) {
                             setStageConfirm(stage);
                             return;
@@ -338,22 +338,27 @@ export function TaskDetailModal({
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: 8,
-                          border: visualLock
+                          border: locked
                             ? '1px dashed var(--border-2)'
                             : current
                               ? '1px solid var(--fg)'
                               : '1px solid var(--border-2, var(--border))',
                           borderRadius: 999,
                           padding: '8px 12px',
-                          background: current ? 'var(--fg)' : 'transparent',
-                          color: current ? 'var(--bg)' : visualLock ? 'var(--muted)' : 'var(--fg)',
-                          cursor: visualLock ? 'not-allowed' : 'pointer',
+                          background: locked && current ? 'var(--surface-2)' : current ? 'var(--fg)' : 'transparent',
+                          color: locked ? 'var(--muted)' : current ? 'var(--bg)' : 'var(--fg)',
+                          cursor: locked ? 'not-allowed' : 'pointer',
                           fontSize: 13,
                           whiteSpace: 'nowrap',
                         }}
                       >
                         {stage}
-                        {visualLock ? <TaskGlyph src="/icons/task-lock.svg" size={8} /> : null}
+                        {locked ? (
+                          <span style={{ flexShrink: 0, border: '1px solid var(--border-2)', borderRadius: 999, padding: '3px 8px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                            ON MERGE
+                          </span>
+                        ) : null}
+                        {locked ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
                       </button>
                     );
                   })}

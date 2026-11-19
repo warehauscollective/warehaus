@@ -654,12 +654,12 @@ export const moveProject = adminMutation({
       seen.add(task._id);
       tasks.push(task);
     }
-    for (const task of linked) {
-      if (task.parentTaskId) continue;
+    const parents = linked.filter((task) => !task.parentTaskId).slice(0, 40);
+    for (const task of parents) {
       const children = await ctx.db
         .query('tasks')
         .withIndex('by_parentTaskId', (q) => q.eq('parentTaskId', task._id))
-        .collect();
+        .take(50);
       for (const child of children) {
         if (child.orgId !== milestone.orgId || seen.has(child._id)) continue;
         seen.add(child._id);

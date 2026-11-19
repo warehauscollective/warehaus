@@ -10,8 +10,10 @@ import type { Id } from '@convex/_generated/dataModel';
 import { detailStatusLabel, effectiveDetailStatus, effectiveStage } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
 import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
+import { PortalModal } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
 import { FIXTURE_PROJECTS } from '@/lib/data/fixtures';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
@@ -190,6 +192,9 @@ function projectStatusLabel(status?: string | null): string {
   if (/^in progress$/i.test(status)) return 'In progress';
   return status;
 }
+
+/** Staff and Peter see this while approval is stored and Shipped is not. */
+export const AWAITING_MERGE_LINE = 'Approved · awaiting merge and deploy';
 
 /** Approved milestones show their decision day. Anything else has no date line. */
 export function milestoneTileDate(input: {
@@ -689,6 +694,7 @@ export function MilestoneListCard({
   cover?: boolean;
 }) {
   const [confirm, setConfirm] = useState(openConfirm);
+  const viewportSheet = useMaxWidth(767);
   const [deploying, setDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
   const canDeploy = Boolean(staff && isPeter && milestone.workStatus === 'ready' && milestone.approval !== 'approved' && milestone.review?.previewUrl);
@@ -706,7 +712,10 @@ export function MilestoneListCard({
   const total = taskTotal(milestone);
   const stage = milestoneTileStage(milestone);
   const subtasks = boardTaskCounts(milestone).nested;
-  const dateLine = milestoneTileDate({ approval: milestone.approval, decidedAt: milestone.decidedAt });
+  const awaitingMerge = milestone.approval === 'approved' && milestone.stage !== 'Shipped';
+  const dateLine = awaitingMerge
+    ? (staff ? AWAITING_MERGE_LINE : null)
+    : milestoneTileDate({ approval: milestone.approval, decidedAt: milestone.decidedAt });
   const meta = tileMetaLine({
     staff,
     published: milestone.publishToWarehaus,
@@ -798,39 +807,45 @@ export function MilestoneListCard({
         <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
       {confirm ? (
-        <MilestoneDialog
-          title={deploying ? RECORDING_APPROVAL : 'Approve and ship to production?'}
-          phone={phone || undefined}
-          hideClose={phone || deploying}
-          actionsRow={phone}
-          hideChromeBelow
-          spinner={deploying}
+        <PortalModal
+          testId="milestone-deploy-confirm"
+          label={deploying ? RECORDING_APPROVAL : 'Approve and ship to production?'}
+          onClose={() => {
+            if (!deploying) setConfirm(false);
+          }}
+          narrow={phone || viewportSheet}
+          sheet="bottom"
+          header="compact"
+          showIcon={deploying}
+          icon="spinner"
+          showFooter={false}
           cover={cover}
-          onClose={() => setConfirm(false)}
+          locked={deploying}
           onConfirm={confirmDeploy}
-          footer={
-            <>
-              {deploying ? null : <OutlineButton onClick={() => setConfirm(false)}>Cancel</OutlineButton>}
-              <button type="button" disabled={deploying} onClick={confirmDeploy} className="inline-flex items-center justify-center gap-2" style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, opacity: deploying ? 0.4 : 1 }}>
-                {deploying ? 'Approving…' : 'Approve & deploy'}
-              </button>
-            </>
-          }
+          confirmOnEnter
         >
-          {deploying ? (
-            <>
-              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{SAVING_APPROVAL_COPY}</p>
-              <p className="ds-mono" style={{ margin: '8px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>This ships to production.</p>
-            </>
-          ) : (
-            <>
-              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Marks approved. Engineering merges to main and deploys production next.</p>
-              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>This ships to production.</p>
-              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>You can’t undo this from the Portal.</p>
-            </>
-          )}
-          {deployError ? <p role="alert" style={{ color: 'var(--danger-text)', fontSize: 14 }}>{deployError}</p> : null}
-        </MilestoneDialog>
+          <div style={{ padding: phone || viewportSheet ? '8px 16px' : '8px 24px' }}>
+            {deploying ? (
+              <>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{SAVING_APPROVAL_COPY}</p>
+                <p className="ds-mono" style={{ margin: '8px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>This ships to production.</p>
+              </>
+            ) : (
+              <>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Marks approved. Engineering merges to main and deploys production next.</p>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>This ships to production.</p>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>You can’t undo this from the Portal.</p>
+              </>
+            )}
+            {deployError ? <p role="alert" style={{ color: 'var(--danger-text)', fontSize: 14 }}>{deployError}</p> : null}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'nowrap', justifyContent: 'flex-end', gap: 8, padding: phone || viewportSheet ? '16px 16px 24px' : '16px 24px 20px' }}>
+            {deploying ? null : <OutlineButton nowrap onClick={() => setConfirm(false)}>Cancel</OutlineButton>}
+            <button type="button" disabled={deploying} onClick={confirmDeploy} className="inline-flex shrink-0 items-center justify-center gap-2" style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap', opacity: deploying ? 0.4 : 1 }}>
+              {deploying ? 'Approving…' : 'Approve & deploy'}
+            </button>
+          </div>
+        </PortalModal>
       ) : null}
     </article>
   );
@@ -912,9 +927,10 @@ function MilestoneDetail(props: {
   const detachTask = useMutation(api.milestones.detachTask);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadedTargets, setLoadedTargets] = useState<MoveTarget[]>([]);
+  const [moveListOpen, setMoveListOpen] = useState(false);
   const targetPage = useSafeQuery<{ projects: MoveTarget[]; continueCursor: string | null; isDone: boolean }>(
     api.milestones.listMoveTargets,
-    !props.fixtures && props.staff
+    !props.fixtures && props.staff && moveListOpen
       ? { projectId: props.project.id as Id<'projects'>, hostSlug: props.hostSlug, cursor }
       : 'skip',
   );
@@ -939,6 +955,7 @@ function MilestoneDetail(props: {
     <MilestoneDetailView
       {...props}
       moveTargets={moveTargets}
+      onMoveListOpen={setMoveListOpen}
       onLoadMoreTargets={
         targetPage.data?.continueCursor
           ? () => setCursor(targetPage.data?.continueCursor ?? null)
@@ -960,6 +977,7 @@ export function MilestoneDetailView({
   clientName = null,
   preview = null,
   moveTargets = [],
+  onMoveListOpen,
   onLoadMoreTargets,
   activity = [],
   activityError = null,
@@ -982,6 +1000,7 @@ export function MilestoneDetailView({
   clientName?: string | null;
   preview?: string | null;
   moveTargets?: readonly MoveTarget[];
+  onMoveListOpen?: (open: boolean) => void;
   onLoadMoreTargets?: () => void;
   activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
@@ -1033,6 +1052,7 @@ export function MilestoneDetailView({
     },
     onFixture,
     onLoadMoreTargets,
+    onMoveListOpen,
     mutations: {
       setDetailStatus: mutations.setDetailStatus ?? (async () => undefined),
       setStage: mutations.setStage ?? (async () => undefined),

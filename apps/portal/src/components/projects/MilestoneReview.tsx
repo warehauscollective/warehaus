@@ -16,6 +16,7 @@ import {
 } from '@convex/_lib/milestoneReview';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
+import { PortalModal, type PortalModalHeader } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { MilestoneDialog } from './milestoneChrome';
 
@@ -291,6 +292,7 @@ export function ReviewScrim({
   actionsRow = false,
   hideChromeBelow = false,
   spinner = false,
+  header,
   children,
 }: {
   phone: boolean;
@@ -306,8 +308,36 @@ export function ReviewScrim({
   actionsRow?: boolean;
   hideChromeBelow?: boolean;
   spinner?: boolean;
+  /** Approve uses the compact confirm header. Request changes keeps the dialog chrome. */
+  header?: PortalModalHeader;
   children: React.ReactNode;
 }) {
+  if (header) {
+    return (
+      <PortalModal
+        testId="milestone-review-dialog"
+        label={label}
+        onClose={onClose}
+        narrow={phone}
+        sheet="bottom"
+        header={header}
+        showIcon={spinner}
+        icon="spinner"
+        showFooter={false}
+        cover={cover}
+        locked={spinner}
+        confirmOnEnter={confirmOnEnter}
+        onConfirm={onConfirm}
+      >
+        <div style={{ padding: phone ? '8px 16px' : '8px 24px' }}>{children}</div>
+        {footer ? (
+          <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', justifyContent: 'flex-end', gap: 8, padding: phone ? '16px 16px 24px' : '16px 24px 20px' }}>
+            {footer}
+          </div>
+        ) : null}
+      </PortalModal>
+    );
+  }
   return (
     <MilestoneDialog
       title={label}
@@ -828,6 +858,7 @@ export function MilestoneReviewSurface({
       hideClose={phoneConfirm || savingApproval}
       actionsRow={phoneConfirm}
       hideChromeBelow={dialog === 'approve' || dialog === 'changes'}
+      header={dialog === 'approve' ? 'compact' : undefined}
       cover={cover}
       onClose={() => setDialog(null)}
       onConfirm={() => void submit()}

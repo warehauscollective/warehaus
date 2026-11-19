@@ -559,6 +559,24 @@ html.light .accept-inset {
   border-radius: 2px;
   background: var(--border-2);
 }
+@keyframes portal-modal-spin {
+  to { transform: rotate(360deg); }
+}
+.portal-modal-spinner {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-2);
+  border-top-color: var(--fg);
+  animation: portal-modal-spin 0.8s linear infinite;
+}
+@media (max-width: 767px) {
+  .ds-scope .portal-confirm-hint { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .portal-modal-spinner { animation: none; }
+}
 .ds-scope .portal-create-panel {
   background: var(--surface);
   color: var(--fg);

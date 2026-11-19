@@ -27,8 +27,12 @@ export function PortalModalStack({ frames }: { frames: readonly ModalFrame[] }) 
 
 type Sheet = 'center' | 'top' | 'bottom';
 
+export type PortalModalHeader = 'default' | 'compact';
+export type PortalModalIcon = 'spinner' | 'check' | 'alert';
+
 export function PortalModal({
   testId,
+  scrimTestId,
   label,
   onClose,
   children,
@@ -40,8 +44,18 @@ export function PortalModal({
   panelStyle,
   maxHeight,
   hidden = false,
+  header,
+  showFooter = false,
+  showIcon = false,
+  icon = 'spinner',
+  headerIcon,
+  confirmLabel = 'Confirm',
+  onConfirm,
+  confirmOnEnter = false,
+  cover = false,
 }: {
   testId?: string;
+  scrimTestId?: string;
   label: string;
   onClose: () => void;
   children: ReactNode;
@@ -54,12 +68,29 @@ export function PortalModal({
   maxHeight?: string;
   /** Keep the children mounted without a scrim or dialog. */
   hidden?: boolean;
+  /**
+   * Spec chrome. Omit it when the body already draws its own title.
+   * default is the 132px header with Close. compact is the 58px confirm header with no Close.
+   */
+  header?: PortalModalHeader;
+  /** The standard footer. Leave it off when the body brings its own actions. */
+  showFooter?: boolean;
+  showIcon?: boolean;
+  icon?: PortalModalIcon;
+  headerIcon?: ReactNode;
+  confirmLabel?: string;
+  onConfirm?: () => void;
+  confirmOnEnter?: boolean;
+  /** Stay inside a positioned parent instead of covering the page. */
+  cover?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
   const lockedRef = useRef(locked);
+  const confirmRef = useRef(onConfirm);
   closeRef.current = onClose;
   lockedRef.current = locked;
+  confirmRef.current = onConfirm;
   const placement = narrow ? sheet : 'center';
 
   useEffect(() => {
@@ -67,7 +98,7 @@ export function PortalModal({
     const panel = panelRef.current;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
+    if (!cover) document.body.style.overflow = 'hidden';
     const field = panel?.querySelector<HTMLElement>('input, textarea, select');
     if (panel && !panel.contains(document.activeElement)) {
       (field ?? panel.querySelector<HTMLElement>('button'))?.focus();
@@ -78,6 +109,13 @@ export function PortalModal({
         event.preventDefault();
         event.stopPropagation();
         closeRef.current();
+        return;
+      }
+      if (confirmOnEnter && event.key === 'Enter' && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey) {
+        const target = event.target;
+        if (target instanceof HTMLTextAreaElement || (target instanceof HTMLInputElement && target.type !== 'button' && target.type !== 'submit')) return;
+        event.preventDefault();
+        confirmRef.current?.();
         return;
       }
       if (event.key !== 'Tab' || !panel) return;
@@ -97,16 +135,16 @@ export function PortalModal({
     document.addEventListener('keydown', onKey);
     return () => {
       document.removeEventListener('keydown', onKey);
-      document.body.style.overflow = overflow;
+      if (!cover) document.body.style.overflow = overflow;
       previous?.focus();
     };
-  }, [hidden]);
+  }, [hidden, cover, confirmOnEnter]);
 
   const isSheet = placement !== 'center';
   const scrim: CSSProperties = {
-    position: 'fixed',
+    position: cover ? 'absolute' : 'fixed',
     inset: 0,
-    zIndex,
+    zIndex: cover ? 2 : zIndex,
     display: 'flex',
     alignItems: isSheet ? 'flex-end' : 'center',
     justifyContent: 'center',
@@ -117,8 +155,14 @@ export function PortalModal({
       hidden={hidden || undefined}
       className={hidden ? undefined : 'ds-scope portal-modal-scrim'}
       data-portal-scrim={hidden ? undefined : ''}
+      data-testid={hidden ? undefined : scrimTestId}
       onClick={() => {
         if (hidden || lockedRef.current) return;
+        closeRef.current();
+      }}
+      onKeyDown={(event) => {
+        if (hidden || event.key !== 'Escape' || lockedRef.current) return;
+        event.preventDefault();
         closeRef.current();
       }}
       style={hidden ? { display: 'none' } : scrim}
@@ -147,11 +191,167 @@ export function PortalModal({
             <span />
           </div>
         ) : null}
-        <div style={hidden ? undefined : { overflow: 'auto', minHeight: 0, ...panelStyle }}>{children}</div>
+        {!hidden && header ? (
+          <ModalHeader
+            label={label}
+            header={header}
+            narrow={isSheet}
+            showIcon={showIcon}
+            icon={icon}
+            headerIcon={headerIcon}
+            onClose={onClose}
+          />
+        ) : null}
+        <div style={hidden ? undefined : { overflow: 'auto', minHeight: 0, flex: '1 1 auto', ...panelStyle }}>{children}</div>
+        {!hidden && showFooter ? (
+          <ModalFooter narrow={isSheet} confirmLabel={confirmLabel} onClose={onClose} onConfirm={onConfirm} />
+        ) : null}
       </div>
     </div>
   );
-  return mountLayer(node);
+  return cover ? node : mountLayer(node);
+}
+
+function ModalHeader({
+  label,
+  header,
+  narrow,
+  showIcon,
+  icon,
+  headerIcon,
+  onClose,
+}: {
+  label: string;
+  header: PortalModalHeader;
+  narrow: boolean;
+  showIcon: boolean;
+  icon: PortalModalIcon;
+  headerIcon?: ReactNode;
+  onClose: () => void;
+}) {
+  const compact = header === 'compact';
+  const phoneCompact = compact && narrow;
+  return (
+    <div
+      data-modal-header={header}
+      style={{
+        display: 'flex',
+        alignItems: 'center',
+        gap: phoneCompact ? 8 : 12,
+        flex: '0 0 auto',
+        boxSizing: 'border-box',
+        minHeight: compact ? undefined : 132,
+        padding: phoneCompact ? '8px 16px 0' : compact ? '20px 24px 8px' : '16px 24px',
+      }}
+    >
+      {showIcon || headerIcon ? <HeaderGlyph icon={icon} headerIcon={headerIcon} /> : null}
+      <h2
+        style={{
+          margin: 0,
+          flex: '1 1 auto',
+          minWidth: 0,
+          fontSize: phoneCompact ? 16 : 20,
+          lineHeight: phoneCompact ? '24px' : '30px',
+          fontWeight: compact ? 500 : 600,
+        }}
+      >
+        {label}
+      </h2>
+      {compact ? null : (
+        <button
+          type="button"
+          data-testid="portal-modal-close"
+          onClick={onClose}
+          className="focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-2"
+          style={{
+            flex: '0 0 auto',
+            background: 'none',
+            border: 0,
+            borderRadius: 9,
+            color: 'var(--muted)',
+            font: 'inherit',
+            fontSize: 14,
+            fontWeight: 500,
+            lineHeight: '21px',
+            padding: '12px 16px',
+            cursor: 'pointer',
+          }}
+        >
+          Close
+        </button>
+      )}
+    </div>
+  );
+}
+
+function HeaderGlyph({ icon, headerIcon }: { icon: PortalModalIcon; headerIcon?: ReactNode }) {
+  if (headerIcon) {
+    return <span style={{ width: 20, height: 20, flex: '0 0 auto', display: 'inline-flex' }}>{headerIcon}</span>;
+  }
+  if (icon === 'spinner') return <span className="portal-modal-spinner" aria-hidden="true" />;
+  return (
+    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" style={{ flex: '0 0 auto' }}>
+      {icon === 'check' ? (
+        <path d="M5 10.5 8.2 14 15 6" fill="none" stroke="currentColor" strokeWidth="1.5" />
+      ) : (
+        <>
+          <circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" strokeWidth="1.5" />
+          <path d="M10 6.5v4.5" stroke="currentColor" strokeWidth="1.5" />
+          <circle cx="10" cy="13.6" r="0.8" fill="currentColor" />
+        </>
+      )}
+    </svg>
+  );
+}
+
+function ModalFooter({
+  narrow,
+  confirmLabel,
+  onClose,
+  onConfirm,
+}: {
+  narrow: boolean;
+  confirmLabel: string;
+  onClose: () => void;
+  onConfirm?: () => void;
+}) {
+  const button: CSSProperties = {
+    flex: '0 0 auto',
+    borderRadius: 9,
+    padding: '12px 16px',
+    font: 'inherit',
+    fontSize: 14,
+    fontWeight: 500,
+    lineHeight: '20px',
+    whiteSpace: 'nowrap',
+    cursor: 'pointer',
+  };
+  return (
+    <div
+      style={{
+        display: 'flex',
+        flexWrap: 'nowrap',
+        alignItems: 'center',
+        gap: 8,
+        flex: '0 0 auto',
+        borderTop: '1px solid var(--border)',
+        padding: narrow ? '16px 24px 24px' : '16px 24px',
+      }}
+    >
+      {narrow ? null : (
+        <span className="ds-mono" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+          ↵ to confirm · Esc to close
+        </span>
+      )}
+      <span style={{ flex: '1 1 auto' }} />
+      <button type="button" onClick={onClose} style={{ ...button, background: 'transparent', color: 'var(--fg)', border: '2px solid var(--border-2)' }}>
+        Cancel
+      </button>
+      <button type="button" onClick={onConfirm} style={{ ...button, background: 'var(--accent)', color: 'var(--accent-fg)', border: 0 }}>
+        {confirmLabel}
+      </button>
+    </div>
+  );
 }
 
 function mountLayer(node: ReactElement) {
