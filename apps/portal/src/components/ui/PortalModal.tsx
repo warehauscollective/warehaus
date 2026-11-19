@@ -115,8 +115,21 @@ export function PortalModal({
       ? [...(panel?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((button) => button.textContent?.trim() === 'Cancel')
       : null;
     const field = panel?.querySelector<HTMLElement>('input, textarea, select');
+    const sheetOpen = narrow && sheet !== 'center';
     if (panel && !panel.contains(document.activeElement)) {
-      (cancel ?? field ?? panel.querySelector<HTMLElement>('button'))?.focus();
+      // A phone sheet focuses the name field on open. preventScroll keeps the
+      // intro and label below the header instead of sliding them under it.
+      (cancel ?? field ?? panel.querySelector<HTMLElement>('button'))?.focus(
+        sheetOpen ? { preventScroll: true } : undefined,
+      );
+      if (sheetOpen) {
+        const reset = () => {
+          const body = panel.querySelector<HTMLElement>('[data-portal-modal-body]');
+          if (body) body.scrollTop = 0;
+        };
+        reset();
+        requestAnimationFrame(reset);
+      }
     }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -153,7 +166,7 @@ export function PortalModal({
       if (!cover) document.body.style.overflow = overflow;
       previous?.focus();
     };
-  }, [hidden, cover, confirmOnEnter, focusCancel]);
+  }, [hidden, cover, confirmOnEnter, focusCancel, narrow, sheet]);
 
   const isSheet = placement !== 'center';
   const pinned = Boolean(footer) || showFooter;

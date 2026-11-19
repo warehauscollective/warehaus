@@ -110,6 +110,15 @@ describe('milestone details panel', () => {
     assert.match(named, /data-testid="milestone-owner"[^>]*>Maya Chen</);
     assert.match(named, /data-testid="milestone-due"[^>]*>Nov 20, 2026</);
     assert.match(named, /data-testid="milestone-creator"[^>]*>Maya Chen</);
+    assert.match(named, /Set automatically · read-only/);
+  });
+
+  it('shows an owner and due save error from the fixture', () => {
+    const html = view({ staff: true, preview: 'owner-due-error' });
+    assert.match(html, /data-details-state="owner-due-error"/);
+    assert.match(html, /data-testid="milestone-owner-retry"/);
+    assert.match(html, /data-testid="milestone-due-retry"/);
+    assert.match(html, /Couldn’t save\./);
   });
 
   it('opens the owner menu and the due date menu', () => {

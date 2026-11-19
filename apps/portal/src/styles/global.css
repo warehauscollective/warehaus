@@ -284,17 +284,18 @@ html[data-density='compact'] .ds-data th {
 [data-testid="project-detail"] {
   scrollbar-width: none;
 }
-/* The phone project scroller reaches the viewport bottom. Clearance is padding inside that scroll. */
+/* The project scroller reaches the viewport bottom on phone and at 1440.
+   Clearance is padding inside that scroll, equal to the dock height. */
+[data-testid="project-detail"] {
+  padding-bottom: 82px;
+  padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
+}
 @media (max-width: 1023px) {
   .portal-tab-shell {
     --portal-tile-pad: calc(82px + env(safe-area-inset-bottom, 0px));
   }
   .project-open-pane {
     --portal-tile-pad: 0px;
-  }
-  [data-testid="project-detail"] {
-    padding-bottom: 82px;
-    padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px));
   }
 }
 [data-testid="project-detail"]::-webkit-scrollbar {

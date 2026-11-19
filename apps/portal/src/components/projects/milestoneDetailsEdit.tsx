@@ -118,7 +118,9 @@ export function useMilestoneDetailEdits({
   const [ready, setReady] = useState(false);
   const [overlay, setOverlay] = useState<DetailsOverlay>(() => initialOverlay(preview, moveTargets));
   const [tone, setTone] = useState<Record<FieldKey, FieldTone>>(() => initialTone(preview));
-  const [fieldError, setFieldError] = useState<string | null>(preview === 'field-error' ? 'Couldn’t save.' : null);
+  const [fieldError, setFieldError] = useState<string | null>(
+    preview === 'field-error' || preview === 'owner-due-error' ? 'Couldn’t save.' : null,
+  );
   const [confirmError, setConfirmError] = useState<string | null>(
     preview === 'error' ? 'Couldn’t move the milestone. Nothing changed. Try again.' : null,
   );
@@ -437,6 +439,9 @@ export function useMilestoneDetailEdits({
             <FieldValue>
               <span data-testid="milestone-creator">{milestone.creatorName?.trim() || '—'}</span>
             </FieldValue>
+            <p data-testid="milestone-creator-note" style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+              Set automatically · read-only
+            </p>
           </DetailRow>
         ) : null}
         <DetailRow label="CREATED">
@@ -672,6 +677,10 @@ function initialTone(preview: string | null): Record<FieldKey, FieldTone> {
   if (preview === 'saving') tone.stage = 'saving';
   if (preview === 'saved') tone.stage = 'saved';
   if (preview === 'field-error') tone.stage = 'error';
+  if (preview === 'owner-due-error') {
+    tone.owner = 'error';
+    tone.due = 'error';
+  }
   if (preview === 'discarded') tone.stage = 'discarded';
   if (preview === 'publish' || preview === 'unpublish' || preview === 'visibility') tone.visibility = 'pending';
   if (preview === 'move' || preview === 'error') tone.project = preview === 'error' ? 'error' : 'pending';
