@@ -123,6 +123,7 @@ export function PrimaryButton({
   height,
   paddingInline,
   testId,
+  form,
 }: {
   children: ReactNode;
   type?: 'button' | 'submit';
@@ -143,6 +144,8 @@ export function PrimaryButton({
   /** Horizontal padding in pixels. Replaces the default 1.1rem when set. */
   paddingInline?: number;
   testId?: string;
+  /** Associate a submit control that sits outside the form, in a pinned footer. */
+  form?: string;
 }) {
   const fixed = width != null || minWidth != null || height != null;
   return (
@@ -153,6 +156,7 @@ export function PrimaryButton({
       aria-disabled={disabled || undefined}
       title={title}
       data-testid={testId}
+      form={form}
       className={['inline-flex items-center justify-center gap-2', className].filter(Boolean).join(' ')}
       style={{
         background: 'var(--accent)',

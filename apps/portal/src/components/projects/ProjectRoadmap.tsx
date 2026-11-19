@@ -1627,11 +1627,22 @@ function EditDialog({
       onClose={onClose}
       narrow={phone}
       sheet="bottom"
-      width={640}
+      width={760}
       header="default"
-      panelStyle={{ padding: '8px 24px 24px' }}
+      panelStyle={{ padding: '8px 24px 16px' }}
+      footer={
+        <div className="flex flex-wrap gap-2">
+          <OutlineButton disabled={busy} onClick={onClose}>
+            Cancel
+          </OutlineButton>
+          <PrimaryButton type="submit" form="milestone-edit-form" disabled={busy}>
+            Save milestone
+          </PrimaryButton>
+        </div>
+      }
     >
       <form
+        id="milestone-edit-form"
         data-testid="milestone-edit-form"
         className="flex flex-col gap-4"
         onSubmit={(event) => {
@@ -1666,14 +1677,6 @@ function EditDialog({
         />
         {error ? <FormAlert>{error}</FormAlert> : null}
         {saveError ? <FormAlert>{saveError}</FormAlert> : null}
-        <div className="flex flex-wrap gap-2">
-          <OutlineButton disabled={busy} onClick={onClose}>
-            Cancel
-          </OutlineButton>
-          <PrimaryButton type="submit" disabled={busy}>
-            Save milestone
-          </PrimaryButton>
-        </div>
       </form>
     </PortalModal>
   );
@@ -1713,11 +1716,22 @@ function CreateMilestone({
       onClose={onClose}
       narrow={phone}
       sheet="bottom"
-      width={640}
+      width={760}
       header="default"
-      panelStyle={{ padding: '8px 24px 24px' }}
+      panelStyle={{ padding: '8px 24px 16px' }}
+      footer={
+        <div className="flex flex-wrap gap-2">
+          <OutlineButton disabled={busy} onClick={onClose}>
+            Cancel
+          </OutlineButton>
+          <PrimaryButton type="submit" form="milestone-create" disabled={busy}>
+            Create milestone
+          </PrimaryButton>
+        </div>
+      }
     >
       <form
+        id="milestone-create"
         data-testid="milestone-create"
         className="flex flex-col gap-4"
         onSubmit={(event) => {
@@ -1805,14 +1819,6 @@ function CreateMilestone({
           The milestone is saved first. Its tasks are added on the milestone. A new milestone starts unpublished.
         </p>
         {error ? <FormAlert>{error}</FormAlert> : null}
-        <div className="flex flex-wrap gap-2">
-          <OutlineButton disabled={busy} onClick={onClose}>
-            Cancel
-          </OutlineButton>
-          <PrimaryButton type="submit" disabled={busy}>
-            Create milestone
-          </PrimaryButton>
-        </div>
       </form>
     </PortalModal>
   );

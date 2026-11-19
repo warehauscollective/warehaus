@@ -53,6 +53,12 @@ describe('milestone review fixes', () => {
     }
     assert.match(edit, /label="Edit all details"/);
     assert.match(create, /label="New milestone"/);
+    assert.match(edit, /header="default"/);
+    assert.match(create, /header="default"/);
+    assert.match(edit, /width=\{760\}/);
+    assert.match(create, /width=\{760\}/);
+    assert.match(create, /footer=\{/);
+    assert.equal(create.slice(create.indexOf('<form'), create.indexOf('</form>')).includes('Create milestone'), false);
   });
 
   it('shows a save failure inside the open dialog', () => {
