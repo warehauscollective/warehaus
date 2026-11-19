@@ -400,6 +400,7 @@ export function MilestoneDialog({
   hideClose = false,
   actionsRow = false,
   hideChromeBelow = false,
+  spinner = false,
 }: {
   title: string;
   onClose: () => void;
@@ -423,6 +424,8 @@ export function MilestoneDialog({
   actionsRow?: boolean;
   /** Live approve confirm hides the hint and Close below the desktop breakpoint. */
   hideChromeBelow?: boolean;
+  /** Spinner beside the title while an approval is saving. */
+  spinner?: boolean;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
@@ -541,7 +544,24 @@ export function MilestoneDialog({
           </div>
         ) : null}
         <div className="flex items-center justify-between gap-4 px-6 pt-4">
-          <h2 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600, margin: 0 }}>
+          <h2 className="type-heading flex items-center gap-3" style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600, margin: 0 }}>
+            {spinner ? (
+              <>
+                <style>{'@keyframes review-spin{to{transform:rotate(360deg)}}'}</style>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 18,
+                    height: 18,
+                    flex: '0 0 auto',
+                    borderRadius: '50%',
+                    border: '1.5px solid var(--border-2)',
+                    borderTopColor: 'var(--fg)',
+                    animation: 'review-spin 0.8s linear infinite',
+                  }}
+                />
+              </>
+            ) : null}
             {title}
           </h2>
           {hideClose ? null : (

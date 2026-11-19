@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { deriveReviewVisual, type ReviewSurfaceModel } from './MilestoneReview';
 
@@ -39,5 +40,12 @@ describe('review card state from milestone data', () => {
     assert.equal(deriveReviewVisual({ ...base, previewUrl: null }), 'waiting');
     assert.equal(deriveReviewVisual({ ...base, designCheck: 'fixes' }), 'fixes');
     assert.equal(deriveReviewVisual({ ...base, approval: 'changes_requested' }), 'changes');
+  });
+
+  it('disables Request changes while a preview is building or failed', () => {
+    const source = readFileSync(new URL('./MilestoneReview.tsx', import.meta.url), 'utf8');
+    assert.match(source, /const changesHeld = visual === 'building' \|\| visual === 'preview-failed'/);
+    assert.match(source, /disabled=\{changesHeld \|\|/);
+    assert.match(source, /disabledOpacity=\{changesHeld \? 0\.4/);
   });
 });

@@ -223,7 +223,7 @@ export function OutlineButton({
       disabled={disabled}
       data-testid={testId}
       aria-describedby={describedBy}
-      className={[fixed ? 'inline-flex shrink-0 items-center justify-center' : 'inline-flex items-center justify-center', className].filter(Boolean).join(' ')}
+      className={['portal-outline-button', fixed ? 'inline-flex shrink-0 items-center justify-center' : 'inline-flex items-center justify-center', className].filter(Boolean).join(' ')}
       style={{
         boxSizing: 'border-box',
         background: 'transparent',

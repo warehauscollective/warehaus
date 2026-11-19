@@ -23,8 +23,10 @@ export const APPROVAL_SAVE_ERROR = 'Couldn’t save your approval. Nothing chang
 export const APPROVED_AWAITING = 'Approved · awaiting merge and deploy.';
 export const APPROVED_DEPLOYING = 'Merging and deploying…';
 export const RECORDING_APPROVAL = 'Recording approval…';
+export const APPROVING_LABEL = 'Approving…';
+export const SAVING_APPROVAL_COPY = 'Saving your approval in the Portal. Engineering will merge to main and deploy production next.';
 export const PREVIEW_REMOVED = 'Preview removed after approval · Vercel build deleted';
-export const STAFF_RETRY_LINE = 'STAFF ONLY · Peter and clients don’t see Retry';
+export const STAFF_RETRY_LINE = 'STAFF ONLY · Peter and clients don’t see Retry.';
 export const WAITING_COPY = 'A protected preview builds when this is ready for review. The link shows here and in Grok Bot chat.';
 export const NEXT_BUILD_COPY = 'The next preview builds when iteration 3 is ready for review. The link shows here and in Grok Bot chat.';
 export const DEPLOY_FOOTER = 'Approve & deploy merges to main and ships to production · Peter only';
@@ -111,19 +113,19 @@ function CheckIcon() {
   );
 }
 
-function Spinner() {
+function Spinner({ size = 16 }: { size?: number }) {
   return (
     <>
       <style>{'@keyframes review-spin{to{transform:rotate(360deg)}}'}</style>
       <span
         aria-hidden="true"
         style={{
-          width: 16,
-          height: 16,
+          width: size,
+          height: size,
           flex: '0 0 auto',
           borderRadius: '50%',
           border: '1.5px solid var(--border-2)',
-          borderTopColor: 'var(--fg)',
+          borderTopColor: 'currentColor',
           animation: 'review-spin 0.8s linear infinite',
         }}
       />
@@ -288,6 +290,7 @@ export function ReviewScrim({
   hideClose = false,
   actionsRow = false,
   hideChromeBelow = false,
+  spinner = false,
   children,
 }: {
   phone: boolean;
@@ -302,6 +305,7 @@ export function ReviewScrim({
   hideClose?: boolean;
   actionsRow?: boolean;
   hideChromeBelow?: boolean;
+  spinner?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -318,6 +322,7 @@ export function ReviewScrim({
       hideClose={hideClose}
       actionsRow={actionsRow}
       hideChromeBelow={hideChromeBelow}
+      spinner={spinner}
       trapFocus={!contained}
       testId="milestone-review-dialog"
     >
@@ -334,6 +339,7 @@ export function ReviewDialogBody({
   selected,
   onToggle,
   fieldError,
+  saving = false,
   context,
 }: {
   kind: ReviewDialogKind;
@@ -343,6 +349,8 @@ export function ReviewDialogBody({
   selected: string[];
   onToggle: (id: string) => void;
   fieldError: string | null;
+  /** Phase-1 save. The title is “Recording approval…” and the button is “Approving…”. */
+  saving?: boolean;
   context?: {
     milestoneName: string;
     iteration: number;
@@ -356,11 +364,18 @@ export function ReviewDialogBody({
   return (
     <div className="flex flex-col gap-3">
       {approve ? (
-        <div style={{ fontSize: 14, lineHeight: '21px' }}>
-          <p style={{ margin: 0 }}>Marks approved. Engineering merges to main and deploys production next.</p>
-          <p style={{ margin: 0 }}>This ships to production.</p>
-          <p style={{ margin: 0 }}>You can’t undo this from the Portal.</p>
-        </div>
+        saving ? (
+          <div style={{ fontSize: 14, lineHeight: '21px' }}>
+            <p style={{ margin: 0 }}>{SAVING_APPROVAL_COPY}</p>
+            <p className="ds-mono" style={{ margin: '8px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>This ships to production.</p>
+          </div>
+        ) : (
+          <div style={{ fontSize: 14, lineHeight: '21px' }}>
+            <p style={{ margin: 0 }}>Marks approved. Engineering merges to main and deploys production next.</p>
+            <p style={{ margin: 0 }}>This ships to production.</p>
+            <p style={{ margin: 0 }}>You can’t undo this from the Portal.</p>
+          </div>
+        )
       ) : (
         <>
           <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', letterSpacing: '2.64px', textTransform: 'uppercase', color: 'var(--muted)' }}>
@@ -404,6 +419,9 @@ export function ReviewDialogBody({
               Leave all unticked to apply to the whole milestone.
             </p>
           </fieldset>
+          <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+            {`Starts iteration ${context ? context.iteration + 1 : ''}. Your notes become tasks in this milestone and the stage moves back to Building.`}
+          </p>
         </>
       )}
       {fieldError ? (
@@ -437,19 +455,21 @@ export function ReviewDialogActions({
   const buttonClass = phone ? 'w-full' : undefined;
   const label = busy
     ? approve
-      ? RECORDING_APPROVAL
+      ? APPROVING_LABEL
       : 'Starting…'
     : submitLabel ?? (approve ? 'Approve & deploy' : `Start iteration ${iteration + 1}`);
   const row = phone && approve;
   return (
     <>
-      <OutlineButton onClick={onCancel} disabled={busy} className={row ? undefined : buttonClass}>Cancel</OutlineButton>
+      {busy && approve ? null : (
+        <OutlineButton onClick={onCancel} disabled={busy} className={row ? undefined : buttonClass}>Cancel</OutlineButton>
+      )}
       {approve ? (
         <button
           type="button"
           onClick={onSubmit}
           disabled={busy}
-          className={row ? undefined : buttonClass}
+          className={row ? 'inline-flex items-center justify-center gap-2' : `inline-flex items-center justify-center gap-2 ${buttonClass ?? ''}`}
           style={{
             background: '#f59e0b',
             color: '#0a0a0b',
@@ -458,10 +478,11 @@ export function ReviewDialogActions({
             padding: '12px 16px',
             fontSize: 14,
             fontWeight: 500,
-            opacity: busy ? 0.7 : 1,
+            opacity: busy ? 0.4 : 1,
             cursor: busy ? 'wait' : 'pointer',
           }}
         >
+          {busy ? <Spinner size={14} /> : null}
           {label}
         </button>
       ) : (
@@ -563,6 +584,7 @@ export function MilestoneReviewSurface({
   initialError = null,
   retrying = false,
   saveFailed = false,
+  cover = false,
   onApprove,
   onRequestChanges,
 }: {
@@ -584,6 +606,8 @@ export function MilestoneReviewSurface({
   retrying?: boolean;
   /** Confirm dialog after a failed save. The button reads Try again. */
   saveFailed?: boolean;
+  /** Keep the dialog inside its frame. The live dialog stays fixed on the page. */
+  cover?: boolean;
   onApprove?: (notes: string) => Promise<void>;
   onRequestChanges?: (notes: string, taskIds: string[]) => Promise<void>;
 }) {
@@ -642,12 +666,14 @@ export function MilestoneReviewSurface({
   const dim = visual === 'waiting' ? 0.4 : 0.55;
 
   const buttonClass = phone ? 'w-full' : undefined;
+  const changesHeld = visual === 'building' || visual === 'preview-failed';
   const requestChanges = (
     <OutlineButton
       nowrap={!phone}
       className={buttonClass}
-      disabled={visual === 'error' ? false : blocked}
-      disabledOpacity={visual === 'error' ? undefined : dim}
+      testId="request-changes"
+      disabled={changesHeld || (visual === 'error' ? false : blocked)}
+      disabledOpacity={changesHeld ? 0.4 : visual === 'error' ? undefined : dim}
       onClick={() => {
         setCardError(false);
         setFieldError(null);
@@ -791,15 +817,18 @@ export function MilestoneReviewSurface({
   );
 
   const phoneConfirm = phone && dialog === 'approve';
+  const savingApproval = busy === 'approve';
   const dialogNode = dialog ? (
     <ReviewScrim
       phone={phone}
-      label={dialog === 'approve' ? 'Approve and ship to production?' : 'Request changes'}
-      hint={phoneConfirm ? undefined : dialog === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
+      label={dialog === 'approve' ? (savingApproval ? RECORDING_APPROVAL : 'Approve and ship to production?') : 'Request changes'}
+      spinner={savingApproval}
+      hint={phone || savingApproval ? undefined : dialog === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
       confirmOnEnter={dialog === 'approve'}
-      hideClose={phoneConfirm}
+      hideClose={phoneConfirm || savingApproval}
       actionsRow={phoneConfirm}
-      hideChromeBelow={dialog === 'approve'}
+      hideChromeBelow={dialog === 'approve' || dialog === 'changes'}
+      cover={cover}
       onClose={() => setDialog(null)}
       onConfirm={() => void submit()}
       footer={
@@ -825,6 +854,7 @@ export function MilestoneReviewSurface({
         selected={selected}
         onToggle={(id) => setSelected((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))}
         fieldError={saveFailed && dialog === 'approve' ? APPROVAL_SAVE_ERROR : fieldError}
+        saving={savingApproval}
         context={{
           milestoneName: model.milestoneName ?? 'Milestone',
           iteration: model.iteration,

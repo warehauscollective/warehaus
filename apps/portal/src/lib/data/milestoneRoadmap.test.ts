@@ -224,6 +224,18 @@ describe('roadmap markup', () => {
       tileMetaLine({
         staff: true,
         published: true,
+        resources: 2,
+        decidedAt: null,
+        workStatus: 'ready',
+        approval: 'unreviewed',
+        omitReview: true,
+      }),
+      '2 resources',
+    );
+    assert.equal(
+      tileMetaLine({
+        staff: true,
+        published: true,
         resources: 1,
         decidedAt: null,
         workStatus: 'ready',

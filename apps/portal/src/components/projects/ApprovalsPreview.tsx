@@ -12,6 +12,7 @@ import { TASK_STAGE_HINT } from '@/lib/data/taskStatus';
 import { StatusBadge } from '@/components/ui/primitives';
 import {
   MilestoneReviewSurface,
+  RECORDING_APPROVAL,
   ReviewDialogActions,
   ReviewDialogBody,
   ReviewScrim,
@@ -246,11 +247,12 @@ function DialogFrame({
         phone={phone}
         cover
         confirmOnEnter={kind === 'approve'}
-        label={kind === 'approve' ? 'Approve and ship to production?' : 'Request changes'}
-        hint={phone && kind === 'approve' ? undefined : kind === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
-        hideClose={phone && kind === 'approve'}
+        label={busy && kind === 'approve' ? RECORDING_APPROVAL : kind === 'approve' ? 'Approve and ship to production?' : 'Request changes'}
+        spinner={busy && kind === 'approve'}
+        hint={phone || (busy && kind === 'approve') ? undefined : kind === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
+        hideClose={phone && kind === 'approve' || busy && kind === 'approve'}
         actionsRow={phone && kind === 'approve'}
-        hideChromeBelow={kind === 'approve'}
+        hideChromeBelow={kind === 'approve' || kind === 'changes'}
         onClose={() => undefined}
         onConfirm={() => undefined}
         footer={
@@ -273,6 +275,7 @@ function DialogFrame({
           selected={[]}
           onToggle={() => undefined}
           fieldError={fieldError}
+          saving={busy && kind === 'approve'}
           context={{
             milestoneName: model.milestoneName ?? 'Client experience launch',
             iteration: model.iteration,
@@ -414,7 +417,7 @@ function TaskFromReview({ phone }: { phone: boolean }) {
 function OverlayFrame({ kind, phone }: { kind: ApprovalsOverlay; phone: boolean }) {
   const width = phone ? 390 : 1108;
   return (
-    <section data-overlay={kind} data-width={phone ? '390' : '1440'} style={{ width, paddingTop: 16 }}>
+    <section data-overlay={kind} data-width={phone ? '390' : '1440'} style={{ position: 'relative', width, minHeight: phone ? 760 : 640, overflow: 'hidden', paddingTop: 16 }}>
       {kind === 'confirm-tile' ? (
         <MilestoneListCard
           milestone={tileMilestone}
@@ -423,6 +426,7 @@ function OverlayFrame({ kind, phone }: { kind: ApprovalsOverlay; phone: boolean 
           fixtures
           openConfirm
           phone={phone}
+          cover
           onOpen={() => undefined}
         />
       ) : (
@@ -431,6 +435,7 @@ function OverlayFrame({ kind, phone }: { kind: ApprovalsOverlay; phone: boolean 
           layout="card"
           phone={phone}
           isPeter
+          cover
           initialDialog={kind === 'request-changes' || kind === 'request-changes-error' ? 'changes' : 'approve'}
           initialError={kind === 'request-changes-error' ? NOTES_REQUIRED : null}
           saveFailed={kind === 'confirm-failed'}
@@ -458,10 +463,11 @@ function StaffRetryFrame({
   );
 }
 
-function TileFrame({ peter, phone }: { peter: boolean; phone: boolean }) {
+function TileFrame({ peter, staff = true, phone }: { peter: boolean; staff?: boolean; phone: boolean }) {
+  const id = !staff ? 'tile-client' : peter ? 'tile-peter' : 'tile-staff';
   return (
-    <section data-overlay={peter ? 'tile-peter' : 'tile-staff'} data-width={phone ? '390' : '1440'} style={{ width: phone ? 390 : 1108, paddingTop: 16 }}>
-      <MilestoneListCard milestone={tileMilestone} staff isPeter={peter} fixtures onOpen={() => undefined} />
+    <section data-overlay={id} data-width={phone ? '390' : '1440'} style={{ width: phone ? 390 : 1108, paddingTop: 16 }}>
+      <MilestoneListCard milestone={tileMilestone} staff={staff} isPeter={peter} fixtures onOpen={() => undefined} />
     </section>
   );
 }
@@ -504,6 +510,7 @@ export type ApprovalsFocus =
   | 'task-from-review'
   | 'tile-peter'
   | 'tile-staff'
+  | 'tile-client'
   | 'preview-failed'
   | 'preview-failed-retrying'
   | 'preview-failed-after'
@@ -532,9 +539,7 @@ export function ApprovalsPreview({
         {`APPROVALS PREVIEW · ${theme.toUpperCase()}`}
       </p>
       <div className="mt-8 flex flex-col gap-10">
-        {overlay === 'confirm-failed' ? (
-          <OverlayFrame kind={overlay} phone />
-        ) : overlay ? (
+        {overlay ? (
           <>
             <OverlayFrame kind={overlay} phone={false} />
             <OverlayFrame kind={overlay} phone />
@@ -546,10 +551,10 @@ export function ApprovalsPreview({
             <TaskFromReview phone />
           </>
         ) : null}
-        {view === 'tile-peter' || view === 'tile-staff' ? (
+        {view === 'tile-peter' || view === 'tile-staff' || view === 'tile-client' ? (
           <>
-            <TileFrame peter={view === 'tile-peter'} phone={false} />
-            <TileFrame peter={view === 'tile-peter'} phone />
+            <TileFrame peter={view === 'tile-peter'} staff={view !== 'tile-client'} phone={false} />
+            <TileFrame peter={view === 'tile-peter'} staff={view !== 'tile-client'} phone />
           </>
         ) : null}
         {view === 'preview-failed' || view === 'preview-failed-retrying' || view === 'preview-failed-after' || view === 'couldnt-remove' || view === 'couldnt-remove-retrying' || view === 'couldnt-remove-after' ? (

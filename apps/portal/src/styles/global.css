@@ -208,6 +208,14 @@ html.light .ds-scope {
   outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
+/* Dialog Cancel. Replaces the browser's blue ring with the portal ring. */
+.portal-outline-button:focus {
+  outline: none;
+}
+.portal-outline-button:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
 .portal-icon-button:focus-visible {
   outline: 2px solid var(--fg);
   outline-offset: 2px;

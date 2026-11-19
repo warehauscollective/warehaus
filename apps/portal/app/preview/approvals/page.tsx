@@ -22,6 +22,7 @@ const views = [
   'task-from-review',
   'tile-peter',
   'tile-staff',
+  'tile-client',
   'preview-failed',
   'preview-failed-retrying',
   'preview-failed-after',

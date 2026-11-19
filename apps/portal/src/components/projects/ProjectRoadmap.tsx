@@ -15,7 +15,7 @@ import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
 import { type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
-import { MilestoneReviewLive } from './MilestoneReview';
+import { MilestoneReviewLive, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
 import {
   FieldLabel,
   FieldValue,
@@ -263,14 +263,16 @@ export function tileMetaLine(input: {
   workStatus: MilestoneRoadmapView['workStatus'];
   approval?: string | null;
   now?: number;
+  /** Peter's deploy tile drops “No review yet · Ready for review”. */
+  omitReview?: boolean;
 }): string {
   if (!input.staff && input.workStatus === 'ready') return '';
   const parts: string[] = [];
   const approved = input.approval === 'approved';
   if (input.staff && !input.published) parts.push('Not published');
   parts.push(resourceLabel(input.resources));
-  if (input.staff && !(approved && input.decidedAt == null)) parts.push(reviewStamp(input.decidedAt ?? null, input.now));
-  if (input.staff && input.workStatus === 'ready' && !approved) parts.push('Ready for review');
+  if (input.staff && !input.omitReview && !(approved && input.decidedAt == null)) parts.push(reviewStamp(input.decidedAt ?? null, input.now));
+  if (input.staff && !input.omitReview && input.workStatus === 'ready' && !approved) parts.push('Ready for review');
   return parts.join(' · ');
 }
 
@@ -635,6 +637,7 @@ export function MilestoneListCard({
   onApprove,
   openConfirm = false,
   phone = false,
+  cover = false,
 }: {
   milestone: MilestoneRoadmapView;
   staff: boolean;
@@ -646,6 +649,8 @@ export function MilestoneListCard({
   openConfirm?: boolean;
   /** Fixture phone sheet. The live tile follows the viewport. */
   phone?: boolean;
+  /** Fixture dialog stays inside its frame instead of covering the page. */
+  cover?: boolean;
 }) {
   const [confirm, setConfirm] = useState(openConfirm);
   const [deploying, setDeploying] = useState(false);
@@ -673,6 +678,7 @@ export function MilestoneListCard({
     decidedAt: milestone.decidedAt,
     workStatus: milestone.workStatus,
     approval: milestone.approval,
+    omitReview: canDeploy,
   });
   return (
     <article
@@ -740,12 +746,12 @@ export function MilestoneListCard({
             {dateLine}
           </p>
         ) : null}
-        <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
         {canDeploy ? (
           <button type="button" data-testid="tile-approve-deploy" onClick={() => setConfirm(true)} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
             Approve & deploy
           </button>
         ) : null}
+        <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
       <div className="flex flex-col gap-2 lg:hidden">
         {canDeploy ? (
@@ -757,25 +763,36 @@ export function MilestoneListCard({
       </div>
       {confirm ? (
         <MilestoneDialog
-          title="Approve and ship to production?"
+          title={deploying ? RECORDING_APPROVAL : 'Approve and ship to production?'}
           phone={phone || undefined}
-          hideClose={phone}
+          hideClose={phone || deploying}
           actionsRow={phone}
           hideChromeBelow
+          spinner={deploying}
+          cover={cover}
           onClose={() => setConfirm(false)}
           onConfirm={confirmDeploy}
           footer={
             <>
-              <OutlineButton onClick={() => setConfirm(false)}>Cancel</OutlineButton>
-              <button type="button" disabled={deploying} onClick={confirmDeploy} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, opacity: deploying ? 0.7 : 1 }}>
-                {deploying ? 'Recording approval…' : 'Approve & deploy'}
+              {deploying ? null : <OutlineButton onClick={() => setConfirm(false)}>Cancel</OutlineButton>}
+              <button type="button" disabled={deploying} onClick={confirmDeploy} className="inline-flex items-center justify-center gap-2" style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, opacity: deploying ? 0.4 : 1 }}>
+                {deploying ? 'Approving…' : 'Approve & deploy'}
               </button>
             </>
           }
         >
-          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Marks approved. Engineering merges to main and deploys production next.</p>
-          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>This ships to production.</p>
-          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>You can’t undo this from the Portal.</p>
+          {deploying ? (
+            <>
+              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{SAVING_APPROVAL_COPY}</p>
+              <p className="ds-mono" style={{ margin: '8px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>This ships to production.</p>
+            </>
+          ) : (
+            <>
+              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Marks approved. Engineering merges to main and deploys production next.</p>
+              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>This ships to production.</p>
+              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>You can’t undo this from the Portal.</p>
+            </>
+          )}
           {deployError ? <p role="alert" style={{ color: 'var(--danger-text)', fontSize: 14 }}>{deployError}</p> : null}
         </MilestoneDialog>
       ) : null}
@@ -940,8 +957,8 @@ export function MilestoneDetailView({
         tabs={[
           { id: 'overview', label: 'Overview' },
           { id: 'tasks', label: `Tasks · ${board.lanes}` },
-          { id: 'activity', label: 'Activity' },
           ...(staff ? [{ id: 'reviews' as const, label: `Reviews · ${milestone.review?.history.length ?? 0}` }] : []),
+          { id: 'activity', label: 'Activity' },
         ]}
       />
       <div role="tabpanel" id={tabIds('milestone', tab).panel} aria-labelledby={tabIds('milestone', tab).tab}>
