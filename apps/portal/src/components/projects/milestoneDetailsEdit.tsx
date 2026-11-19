@@ -453,10 +453,12 @@ export function useMilestoneDetailEdits({
 
   const sheet = shown && (phone || isConfirm(shown)) ? (
     <DetailsModal
+      key={shown.kind}
       phone={phone}
       title={modalTitle(shown, milestone.name)}
       testId="milestone-details-modal"
       header={confirmHeader(shown)}
+      focusCancel={isConfirm(shown)}
       onClose={() => closeOverlay(true)}
     >
       {shown.kind === 'stage' ? (
@@ -925,6 +927,7 @@ function DetailsModal({
   phone,
   testId,
   header,
+  focusCancel = false,
   onClose,
   children,
 }: {
@@ -932,6 +935,7 @@ function DetailsModal({
   phone: boolean;
   testId: string;
   header?: PortalModalHeader;
+  focusCancel?: boolean;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -945,6 +949,7 @@ function DetailsModal({
       sheet="bottom"
       width={640}
       header={header}
+      focusCancel={focusCancel}
       showFooter={false}
     >
       {children}
@@ -975,10 +980,7 @@ function ConfirmFrame({
           {error}
         </p>
       ) : null}
-      <div className="flex flex-nowrap items-center gap-2 border-t px-6 py-4" style={{ borderColor: 'var(--border)' }}>
-        <span className="portal-confirm-hint mr-auto min-w-0" style={{ fontFamily: 'var(--font-mono)', fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-          Esc to cancel
-        </span>
+      <div className="flex flex-nowrap items-center justify-end gap-2 border-t px-6 py-4" style={{ borderColor: 'var(--border)' }}>
         <span className="ml-auto flex shrink-0 flex-nowrap items-center gap-2">
           <OutlineButton nowrap height={42} paddingInline={16} disabled={busy} onClick={onCancel}>
             Cancel

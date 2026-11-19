@@ -53,6 +53,7 @@ export function PortalModal({
   onConfirm,
   confirmOnEnter = false,
   cover = false,
+  focusCancel = false,
 }: {
   testId?: string;
   scrimTestId?: string;
@@ -83,6 +84,8 @@ export function PortalModal({
   confirmOnEnter?: boolean;
   /** Stay inside a positioned parent instead of covering the page. */
   cover?: boolean;
+  /** Confirms open on Cancel, not the first field or Close. */
+  focusCancel?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -99,9 +102,12 @@ export function PortalModal({
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const overflow = document.body.style.overflow;
     if (!cover) document.body.style.overflow = 'hidden';
+    const cancel = focusCancel
+      ? [...(panel?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((button) => button.textContent?.trim() === 'Cancel')
+      : null;
     const field = panel?.querySelector<HTMLElement>('input, textarea, select');
     if (panel && !panel.contains(document.activeElement)) {
-      (field ?? panel.querySelector<HTMLElement>('button'))?.focus();
+      (cancel ?? field ?? panel.querySelector<HTMLElement>('button'))?.focus();
     }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
@@ -138,13 +144,14 @@ export function PortalModal({
       if (!cover) document.body.style.overflow = overflow;
       previous?.focus();
     };
-  }, [hidden, cover, confirmOnEnter]);
+  }, [hidden, cover, confirmOnEnter, focusCancel]);
 
   const isSheet = placement !== 'center';
   const scrim: CSSProperties = {
     position: cover ? 'absolute' : 'fixed',
     inset: 0,
-    zIndex: cover ? 2 : zIndex,
+    zIndex: cover ? 2 : isSheet ? Math.max(zIndex, 140) : zIndex,
+    transform: cover ? undefined : 'translateZ(0)',
     display: 'flex',
     alignItems: isSheet ? 'flex-end' : 'center',
     justifyContent: 'center',
@@ -155,6 +162,7 @@ export function PortalModal({
       hidden={hidden || undefined}
       className={hidden ? undefined : 'ds-scope portal-modal-scrim'}
       data-portal-scrim={hidden ? undefined : ''}
+      data-sheet-layer={hidden || cover || !isSheet ? undefined : 'viewport'}
       data-testid={hidden ? undefined : scrimTestId}
       onClick={() => {
         if (hidden || lockedRef.current) return;
@@ -338,11 +346,6 @@ function ModalFooter({
         padding: narrow ? '16px 24px 24px' : '16px 24px',
       }}
     >
-      {narrow ? null : (
-        <span className="ds-mono" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-          ↵ to confirm · Esc to close
-        </span>
-      )}
       <span style={{ flex: '1 1 auto' }} />
       <button type="button" onClick={onClose} style={{ ...button, background: 'transparent', color: 'var(--fg)', border: '2px solid var(--border-2)' }}>
         Cancel

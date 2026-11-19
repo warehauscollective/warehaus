@@ -254,11 +254,11 @@ function DialogFrame({
         confirmOnEnter={kind === 'approve'}
         label={busy && kind === 'approve' ? RECORDING_APPROVAL : kind === 'approve' ? 'Approve and ship to production?' : 'Request changes'}
         spinner={busy && kind === 'approve'}
-        hint={phone || (busy && kind === 'approve') ? undefined : kind === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
         hideClose={phone && kind === 'approve' || busy && kind === 'approve'}
         actionsRow={phone && kind === 'approve'}
         hideChromeBelow={kind === 'approve' || kind === 'changes'}
-        header={kind === 'approve' ? 'compact' : undefined}
+        header={kind === 'approve' ? 'compact' : 'default'}
+        focusCancel={kind === 'approve'}
         onClose={() => undefined}
         onConfirm={() => undefined}
         footer={

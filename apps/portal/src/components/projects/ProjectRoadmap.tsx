@@ -196,6 +196,13 @@ function projectStatusLabel(status?: string | null): string {
 /** Staff and Peter see this while approval is stored and Shipped is not. */
 export const AWAITING_MERGE_LINE = 'Approved · awaiting merge and deploy';
 
+/** Clients see a ship date, never an approval date. */
+export function clientTileDate(input: { stage?: string | null; decidedAt?: number | null }): string | null {
+  if (input.stage !== 'Shipped') return null;
+  if (input.decidedAt == null) return 'Shipped';
+  return `Shipped ${localMonthDay(input.decidedAt).label}`;
+}
+
 /** Approved milestones show their decision day. Anything else has no date line. */
 export function milestoneTileDate(input: {
   approval?: string | null;
@@ -713,10 +720,9 @@ export function MilestoneListCard({
   const stage = milestoneTileStage(milestone);
   const subtasks = boardTaskCounts(milestone).nested;
   const awaitingMerge = milestone.approval === 'approved' && milestone.stage !== 'Shipped';
-  const dateLine = awaitingMerge
-    ? (staff ? AWAITING_MERGE_LINE : null)
-    : milestoneTileDate({ approval: milestone.approval, decidedAt: milestone.decidedAt });
-  const showOpen = staff || !awaitingMerge;
+  const dateLine = staff
+    ? (awaitingMerge ? AWAITING_MERGE_LINE : milestoneTileDate({ approval: milestone.approval, decidedAt: milestone.decidedAt }))
+    : clientTileDate({ stage: milestone.stage, decidedAt: milestone.decidedAt });
   const meta = tileMetaLine({
     staff,
     published: milestone.publishToWarehaus,
@@ -737,10 +743,10 @@ export function MilestoneListCard({
         padding: 24,
       }}
     >
-      <div className="flex items-center gap-6 lg:hidden">
+      <div className="flex min-w-0 flex-nowrap items-center gap-3 lg:hidden">
         <StatusChip label={stage.label} glyph={stage.glyph} />
         {dateLine ? (
-          <p data-testid="milestone-due" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+          <p data-testid="milestone-due" className="min-w-0 truncate" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
             {dateLine}
           </p>
         ) : null}
@@ -777,7 +783,7 @@ export function MilestoneListCard({
           {meta ? (
             <span
               data-testid="milestone-meta"
-              className="min-w-0 max-w-full"
+              className="min-w-0 max-w-full truncate"
               style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}
             >
               {meta}
@@ -797,18 +803,16 @@ export function MilestoneListCard({
             Approve & deploy
           </button>
         ) : null}
-        {showOpen ? <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton> : null}
+        <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
-      {showOpen || canDeploy ? (
       <div className="flex flex-col gap-2 lg:hidden">
         {canDeploy ? (
           <button type="button" data-testid="tile-approve-deploy-phone" onClick={() => setConfirm(true)} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, width: '100%', cursor: 'pointer' }}>
             Approve & deploy
           </button>
         ) : null}
-        {showOpen ? <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton> : null}
+        <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
-      ) : null}
       {confirm ? (
         <PortalModal
           testId="milestone-deploy-confirm"
@@ -823,6 +827,7 @@ export function MilestoneListCard({
           icon="spinner"
           showFooter={false}
           cover={cover}
+          focusCancel
           locked={deploying}
           onConfirm={confirmDeploy}
           confirmOnEnter

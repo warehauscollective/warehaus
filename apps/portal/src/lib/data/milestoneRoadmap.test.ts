@@ -13,6 +13,7 @@ import {
   MilestoneListCard,
   MoreMenu,
   milestoneDetachOptions,
+  clientTileDate,
   milestoneTileDate,
   milestoneTileStage,
   tileMetaLine,
@@ -180,6 +181,9 @@ describe('roadmap markup', () => {
     const decidedAt = Date.parse('2026-11-06T15:00:00Z');
     const day = new Date(decidedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     assert.equal(milestoneTileDate({ approval: 'approved', decidedAt }), `Approved ${day}`);
+    assert.equal(clientTileDate({ stage: 'Shipped', decidedAt }), `Shipped ${day}`);
+    assert.equal(clientTileDate({ stage: 'Ready to Ship', decidedAt }), null);
+    assert.equal(clientTileDate({ stage: 'Shipped', decidedAt: null }), 'Shipped');
     assert.equal(tileProgressLabel(1, 3, 0, false), '1 / 3 complete');
     assert.equal(tileProgressLabel(1, 3, 0, true), '1 / 3 tasks complete');
     assert.equal(tileProgressLabel(1, 3, 1, false), '1 / 3 complete · includes 1 subtask');
@@ -393,7 +397,21 @@ describe('roadmap markup', () => {
     assert.match(clientAwaiting, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
     assert.equal(clientAwaiting.includes('Approved · awaiting merge and deploy'), false);
     assert.equal(clientAwaiting.includes('milestone-due'), false);
-    assert.equal(clientAwaiting.includes('Open milestone'), false);
+    assert.match(clientAwaiting, />Open milestone</);
+
+    const clientShipped = renderTile({
+      staff: false,
+      milestone: tileMilestone({
+        approval: 'approved',
+        workStatus: 'ready',
+        stage: 'Shipped',
+        decidedAt,
+      }),
+    });
+    assert.match(clientShipped, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Shipped</);
+    assert.match(clientShipped, />Open milestone</);
+    assert.match(clientShipped, new RegExp(`data-testid="milestone-due"[^>]*>Shipped ${day}<`));
+    assert.equal(clientShipped.includes('Approved'), false);
 
     const shipped = renderTile({
       staff: true,
@@ -419,13 +437,12 @@ describe('roadmap markup', () => {
     });
     assert.match(longChip, /12 \/ 148 tasks complete · <span style="white-space:nowrap">includes 9 subtasks<\/span>/);
     assert.match(longChip, /12 \/ 148 complete · <span style="white-space:nowrap">includes 9 subtasks<\/span>/);
-    assert.match(longChip, /white-space:normal/);
+    assert.match(longChip, /data-testid="milestone-progress"[^>]*white-space:normal/);
     assert.match(longChip, /overflow-wrap:anywhere/);
-    assert.doesNotMatch(longChip, /flex-nowrap/);
-    assert.doesNotMatch(longChip, /truncate/);
-    assert.doesNotMatch(longChip, /whitespace-nowrap/);
+    assert.match(longChip, /flex-nowrap items-center/);
+    assert.match(longChip, /whitespace-nowrap" data-testid="milestone-status-chip"/);
+    assert.match(longChip, /data-testid="milestone-meta"[^>]*truncate/);
     assert.doesNotMatch(longChip, /line-clamp/);
-    assert.match(longChip, /data-testid="milestone-meta"[^>]*class="min-w-0 max-w-full"/);
     assert.match(longChip, /flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center/);
   });
 

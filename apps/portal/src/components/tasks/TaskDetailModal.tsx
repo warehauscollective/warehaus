@@ -25,6 +25,15 @@ function ReviewTag() {
   );
 }
 
+/** One sheet at a time. A stage confirm replaces the task sheet. Cancel clears it. */
+export function taskSheetOpen(input: { attach: boolean; stage: boolean }): { detail: boolean; stage: boolean; attach: boolean } {
+  return {
+    detail: !input.attach && !input.stage,
+    stage: input.stage && !input.attach,
+    attach: input.attach,
+  };
+}
+
 type ResourceRow = {
   id: string;
   name: string;
@@ -51,6 +60,7 @@ export function TaskDetailModal({
   clientName = null,
   hostSlug,
   live = false,
+  initialStageConfirm = null,
 }: {
   task: PortalTask | null;
   staff: boolean;
@@ -67,6 +77,8 @@ export function TaskDetailModal({
   hostSlug?: string;
   /** Convex task id. Fixture rows skip the timeline query. */
   live?: boolean;
+  /** Fixture preview opens the phone stage confirm without a tap. */
+  initialStageConfirm?: string | null;
 }) {
   const [attach, setAttach] = useState(false);
   const [asideNote, setAsideNote] = useState<string | null>(null);
@@ -79,6 +91,26 @@ export function TaskDetailModal({
   useEffect(() => {
     if (!attach) titleRef.current?.focus();
   }, [task?.id, unavailable, attach]);
+  useEffect(() => {
+    if (!phone || !initialStageConfirm || initialStageConfirm === 'Shipped') return;
+    if (!(TASK_STAGES as readonly string[]).includes(initialStageConfirm)) return;
+    setStageConfirm(initialStageConfirm);
+  }, [phone, initialStageConfirm]);
+  const sheets = taskSheetOpen({ attach, stage: Boolean(stageConfirm) });
+  const cancelStage = () => setStageConfirm(null);
+  const confirmStage = () => {
+    const stage = stageConfirm;
+    setStageConfirm(null);
+    if (!stage || !live || !task?.lastEditedTime) return;
+    void moveStage({
+      hostSlug,
+      taskId: task.id as Id<'tasks'>,
+      stage,
+      expectedLastEditedTime: task.lastEditedTime,
+    }).then((result) => {
+      if (!result.ok) setAsideNote(result.error);
+    });
+  };
 
   const detail = (
     <>
@@ -288,25 +320,6 @@ export function TaskDetailModal({
                   <h3 className="ds-mono" style={{ fontSize: 12, letterSpacing: '2.64px', color: 'var(--fg)', margin: 0 }}>STAGE</h3>
                   <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>visible to client</span>
                 </div>
-                {phone && stageConfirm ? (
-                  <StageConfirmSheet
-                    stage={stageConfirm}
-                    onCancel={() => setStageConfirm(null)}
-                    onConfirm={() => {
-                      const stage = stageConfirm;
-                      setStageConfirm(null);
-                      if (!live || !task.lastEditedTime) return;
-                      void moveStage({
-                        hostSlug,
-                        taskId: task.id as Id<'tasks'>,
-                        stage,
-                        expectedLastEditedTime: task.lastEditedTime,
-                      }).then((result) => {
-                        if (!result.ok) setAsideNote(result.error);
-                      });
-                    }}
-                  />
-                ) : (
                 <div className="flex flex-wrap gap-2">
                   {TASK_STAGES.map((stage) => {
                     const current = task.stage === stage;
@@ -363,7 +376,6 @@ export function TaskDetailModal({
                     );
                   })}
                 </div>
-                )}
                 <p data-testid="task-stage-hint" style={{ fontSize: 12, lineHeight: '17px', color: 'var(--muted)', margin: 0 }}>
                   {TASK_STAGE_HINT}
                 </p>
@@ -397,7 +409,7 @@ export function TaskDetailModal({
         frames={[
           {
             key: 'detail',
-            open: !attach,
+            open: sheets.detail,
             keep: true,
             node: (
               <PortalModal
@@ -407,12 +419,29 @@ export function TaskDetailModal({
                 narrow={phone}
                 sheet="bottom"
                 width={840}
-                hidden={attach}
+                hidden={!sheets.detail}
                 panelStyle={{ padding: phone ? 20 : 24 }}
               >
                 {detail}
               </PortalModal>
             ),
+          },
+          {
+            key: 'stage',
+            open: sheets.stage,
+            node: stageConfirm ? (
+              <PortalModal
+                testId="stage-confirm"
+                label={`Move to ${stageConfirm}`}
+                onClose={cancelStage}
+                narrow
+                sheet="bottom"
+                focusCancel
+                showFooter={false}
+              >
+                <StageConfirmSheet hideGrabber stage={stageConfirm} onCancel={cancelStage} onConfirm={confirmStage} />
+              </PortalModal>
+            ) : null,
           },
           {
             key: 'attach',

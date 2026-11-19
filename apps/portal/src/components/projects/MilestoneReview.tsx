@@ -293,6 +293,7 @@ export function ReviewScrim({
   hideChromeBelow = false,
   spinner = false,
   header,
+  focusCancel = false,
   children,
 }: {
   phone: boolean;
@@ -310,6 +311,7 @@ export function ReviewScrim({
   spinner?: boolean;
   /** Approve uses the compact confirm header. Request changes keeps the dialog chrome. */
   header?: PortalModalHeader;
+  focusCancel?: boolean;
   children: React.ReactNode;
 }) {
   if (header) {
@@ -326,6 +328,7 @@ export function ReviewScrim({
         showFooter={false}
         cover={cover}
         locked={spinner}
+        focusCancel={focusCancel}
         confirmOnEnter={confirmOnEnter}
         onConfirm={onConfirm}
       >
@@ -853,12 +856,12 @@ export function MilestoneReviewSurface({
       phone={phone}
       label={dialog === 'approve' ? (savingApproval ? RECORDING_APPROVAL : 'Approve and ship to production?') : 'Request changes'}
       spinner={savingApproval}
-      hint={phone || savingApproval ? undefined : dialog === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
       confirmOnEnter={dialog === 'approve'}
       hideClose={phoneConfirm || savingApproval}
       actionsRow={phoneConfirm}
       hideChromeBelow={dialog === 'approve' || dialog === 'changes'}
-      header={dialog === 'approve' ? 'compact' : undefined}
+      header={dialog === 'approve' ? 'compact' : 'default'}
+      focusCancel={dialog === 'approve'}
       cover={cover}
       onClose={() => setDialog(null)}
       onConfirm={() => void submit()}

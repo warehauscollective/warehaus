@@ -536,6 +536,13 @@ html.light .accept-inset {
   border-radius: 28px 28px 0 0;
   border-width: 1px 0 0;
   box-shadow: none;
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+/* The dock is a translated layer. WebKit paints it over a blurred scrim, so a
+   viewport bottom sheet hides the dock and keeps its actions on screen. */
+body:has([data-sheet-layer='viewport']) [data-testid='portal-dock'] {
+  visibility: hidden;
+  pointer-events: none;
 }
 @media (min-width: 768px) {
   .ds-scope .portal-modal-panel.portal-modal-sheet.portal-modal-sheet-desktop {

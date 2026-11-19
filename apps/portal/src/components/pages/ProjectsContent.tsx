@@ -876,6 +876,7 @@ function ProjectTaskOverlay({
     taskKey && !staff ? { hostSlug, taskId: taskKey } : 'skip',
   );
   const [phone, setPhone] = useState(false);
+  const [fixtureStage, setFixtureStage] = useState<string | null>(null);
   const closeLabel = taskCloseLabel(peekPortalReturn());
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
@@ -884,6 +885,10 @@ function ProjectTaskOverlay({
     media.addEventListener('change', apply);
     return () => media.removeEventListener('change', apply);
   }, []);
+  useEffect(() => {
+    if (!fixtures) return;
+    setFixtureStage(new URLSearchParams(window.location.search).get('stageConfirm'));
+  }, [fixtures]);
   const subtasks = staff
     ? tasks.filter((item) => item.parentTaskId === taskId)
     : (clientSubs.data ?? []).filter((item) => item.publishToWarehaus !== false);
@@ -909,6 +914,7 @@ function ProjectTaskOverlay({
       clientName={clientName}
       hostSlug={hostSlug}
       live={!fixtures}
+      initialStageConfirm={phone ? fixtureStage : null}
       closeLabel={closeLabel}
       onClose={onClose}
       onOpenTask={onOpenTask}

@@ -737,6 +737,7 @@ function ConfirmDialog({
       narrow={narrow}
       sheet="bottom"
       header="compact"
+      focusCancel
       showFooter={false}
     >
         <p style={{ margin: 0, padding: narrow ? '8px 16px' : '8px 24px', fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>{body}</p>
