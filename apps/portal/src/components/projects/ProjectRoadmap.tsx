@@ -7,17 +7,17 @@ import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
-import { detailStatusLabel, effectiveDetailStatus, effectiveStage } from '@convex/_lib/milestoneDetails';
+import { detailStatusLabel, effectiveDetailStatus, effectiveStage, stageOptionLock, type MilestoneStage } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
 import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
-import { PortalModal } from '@/components/ui/PortalModal';
+import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
 import { FIXTURE_PROJECTS } from '@/lib/data/fixtures';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
-import { useMilestoneDetailEdits, type MoveTarget } from './milestoneDetailsEdit';
+import { StageMenu, useMilestoneDetailEdits, type MoveTarget } from './milestoneDetailsEdit';
 import { type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { MilestoneReviewLive, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
@@ -30,6 +30,7 @@ import {
   MilestoneListButton,
   PageHeading,
   Panel,
+  StageConfirmSheet,
   StatusChip,
   StateCard,
   TabRow,
@@ -389,11 +390,13 @@ export function ProjectRoadmap({
   const auth = usePortalAuth();
   const isPeter = isPeterEmail(auth.authUser?.email);
   const approveMilestone = useMutation(api.milestones.approve);
+  const setMilestoneStage = useMutation(api.milestones.setStage);
   const [patches, setPatches] = useState<Record<string, FixturePatch>>({});
   const [created, setCreated] = useState<MilestoneRoadmapView[]>([]);
   const [projectTab, setProjectTab] = useState<ProjectTab>('milestones');
   const [openMilestoneId, setOpenMilestoneId] = useState<string | null>(null);
   const [detailsPreview, setDetailsPreview] = useState<string | null>(null);
+  const [tileStagePreview, setTileStagePreview] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const rememberedMilestones = useRef<MilestoneRoadmapView[]>([]);
   const projectId = project.id as Id<'projects'>;
@@ -413,7 +416,9 @@ export function ProjectRoadmap({
   const fixtureRows = useFixtureMilestonePreview(fixtureBase, fixtures);
   useEffect(() => {
     if (!fixtures) return;
-    setDetailsPreview(new URLSearchParams(window.location.search).get('details'));
+    const params = new URLSearchParams(window.location.search);
+    setDetailsPreview(params.get('details'));
+    setTileStagePreview(params.get('tileStage'));
   }, [fixtures]);
   const previewMilestoneId = fixtures ? fixtureRows[0]?.id ?? null : null;
   useEffect(() => {
@@ -625,14 +630,26 @@ export function ProjectRoadmap({
               ) : null}
 
               <div className="flex flex-col gap-6 lg:gap-4">
-                {milestones.map((milestone) => (
+                {milestones.map((milestone, index) => (
                   <MilestoneListCard
                     key={milestone.id}
                     milestone={milestone}
                     staff={staff}
                     isPeter={isPeter}
                     fixtures={fixtures}
+                    stagePreview={index === 0 ? tileStagePreview : null}
                     onOpen={() => setOpenMilestoneId(milestone.id)}
+                    onStage={async (stage) => {
+                      if (fixtures) {
+                        patchMilestone(milestone.id, { stage });
+                        return;
+                      }
+                      await setMilestoneStage({
+                        hostSlug,
+                        milestoneId: milestone.id as Id<'milestones'>,
+                        stage,
+                      });
+                    }}
                     onApprove={(iteration) =>
                       approveMilestone({
                         hostSlug,
@@ -675,22 +692,35 @@ export function ProjectRoadmap({
   );
 }
 
+const TILE_PHONE_STAGE_HINT = 'Nothing changes until you confirm.';
+
+type TileStage = null | { kind: 'menu' } | { kind: 'confirm'; stage: MilestoneStage };
+
+function initialTileStage(preview?: string | null): TileStage {
+  if (preview === 'menu') return { kind: 'menu' };
+  if (preview === 'confirm') return { kind: 'confirm', stage: 'Planning' };
+  return null;
+}
+
 export function MilestoneListCard({
   milestone,
   staff,
   isPeter = false,
   fixtures = false,
   onOpen,
+  onStage,
   onApprove,
   openConfirm = false,
   phone = false,
   cover = false,
+  stagePreview = null,
 }: {
   milestone: MilestoneRoadmapView;
   staff: boolean;
   isPeter?: boolean;
   fixtures?: boolean;
   onOpen: () => void;
+  onStage?: (stage: MilestoneStage) => void | Promise<unknown>;
   onApprove?: (iteration: number) => Promise<unknown>;
   /** Fixture QA opens the one confirm without a click. */
   openConfirm?: boolean;
@@ -698,11 +728,44 @@ export function MilestoneListCard({
   phone?: boolean;
   /** Fixture dialog stays inside its frame instead of covering the page. */
   cover?: boolean;
+  /** Fixture QA. `menu` opens the stage menu. `confirm` opens the phone confirm. */
+  stagePreview?: string | null;
 }) {
   const [confirm, setConfirm] = useState(openConfirm);
   const viewportSheet = useMaxWidth(767);
+  // The tile chip switches at lg (1024). Below that, the phone pill is the one on screen.
+  const tilePhone = useMaxWidth(1023);
+  const phoneSheet = phone || tilePhone;
+  const [overlay, setOverlay] = useState<TileStage>(() => (staff ? initialTileStage(stagePreview) : null));
+  const [stageError, setStageError] = useState<string | null>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
   const [deploying, setDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!staff || !stagePreview) return;
+    setConfirm(false);
+    setOverlay(initialTileStage(stagePreview));
+  }, [staff, stagePreview]);
+  useEffect(() => {
+    if (overlay?.kind !== 'menu' || phoneSheet) return;
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (menuRef.current?.contains(target)) return;
+      if (target instanceof Element && target.closest('[data-milestone-stage-trigger]')) return;
+      setOverlay(null);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setOverlay(null);
+    };
+    document.addEventListener('pointerdown', onPointer);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('pointerdown', onPointer);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [overlay, phoneSheet]);
   const canDeploy = Boolean(staff && isPeter && milestone.workStatus === 'ready' && milestone.approval !== 'approved' && milestone.review?.previewUrl);
   const confirmDeploy = () => {
     if (fixtures || !milestone.review || !onApprove) {
@@ -731,6 +794,56 @@ export function MilestoneListCard({
     approval: milestone.approval,
     omitReview: canDeploy,
   });
+  const toggleMenu = () => {
+    setConfirm(false);
+    setStageError(null);
+    setOverlay((current) => (current?.kind === 'menu' ? null : { kind: 'menu' }));
+  };
+  const saveStage = (next: MilestoneStage) => {
+    if (stageOptionLock(next)) return;
+    setOverlay(null);
+    setStageError(null);
+    const result = onStage?.(next);
+    if (result && typeof (result as Promise<unknown>).then === 'function') {
+      void (result as Promise<unknown>).catch((err) => {
+        setStageError(userFacingErrorMessage(err, 'Couldn’t save. Nothing changed. Try again.'));
+      });
+    }
+  };
+  const pickStage = (next: MilestoneStage) => {
+    if (stageOptionLock(next)) return;
+    if (next === stage.label) {
+      setOverlay(null);
+      return;
+    }
+    if (phoneSheet) {
+      setConfirm(false);
+      setOverlay({ kind: 'confirm', stage: next });
+      return;
+    }
+    saveStage(next);
+  };
+  const stageMenuOpen = overlay?.kind === 'menu';
+  const stageConfirm = overlay?.kind === 'confirm';
+  const showDeploy = confirm && !stageMenuOpen && !stageConfirm;
+  const stageTrigger = (
+    <StatusChip
+      label={stage.label}
+      glyph={stage.glyph}
+      interactive={staff}
+      open={stageMenuOpen}
+      onClick={staff ? toggleMenu : undefined}
+    />
+  );
+  const phoneTrigger = (
+    <StatusChip
+      label={stage.label}
+      glyph={stage.glyph}
+      interactive={staff}
+      open={stageMenuOpen}
+      onClick={staff ? toggleMenu : undefined}
+    />
+  );
   return (
     <article
       data-testid={`milestone-${milestone.id}`}
@@ -743,7 +856,7 @@ export function MilestoneListCard({
       }}
     >
       <div className="flex min-w-0 flex-nowrap items-center gap-3 lg:hidden">
-        <StatusChip label={stage.label} glyph={stage.glyph} />
+        {phoneTrigger}
         {dateLine ? (
           <p data-testid="milestone-due" className="min-w-0 truncate" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
             {dateLine}
@@ -791,14 +904,25 @@ export function MilestoneListCard({
         </div>
       </div>
       <div className="hidden w-[174px] shrink-0 flex-col items-start gap-3 lg:flex">
-        <StatusChip label={stage.label} glyph={stage.glyph} />
+        <div className="relative">
+          {stageTrigger}
+          {staff && stageMenuOpen && !phoneSheet ? (
+            <div
+              ref={menuRef}
+              data-testid="tile-stage-popover"
+              style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 320, zIndex: 40 }}
+            >
+              <StageMenu current={stage.label} onPick={pickStage} onClose={() => setOverlay(null)} />
+            </div>
+          ) : null}
+        </div>
         {dateLine ? (
           <p data-testid="milestone-due" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
             {dateLine}
           </p>
         ) : null}
         {canDeploy ? (
-          <button type="button" data-testid="tile-approve-deploy" onClick={() => setConfirm(true)} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
+          <button type="button" data-testid="tile-approve-deploy" onClick={() => { setOverlay(null); setConfirm(true); }} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
             Approve & deploy
           </button>
         ) : null}
@@ -806,13 +930,18 @@ export function MilestoneListCard({
       </div>
       <div className="flex flex-col gap-2 lg:hidden">
         {canDeploy ? (
-          <button type="button" data-testid="tile-approve-deploy-phone" onClick={() => setConfirm(true)} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, width: '100%', cursor: 'pointer' }}>
+          <button type="button" data-testid="tile-approve-deploy-phone" onClick={() => { setOverlay(null); setConfirm(true); }} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, width: '100%', cursor: 'pointer' }}>
             Approve & deploy
           </button>
         ) : null}
         <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
-      {confirm ? (
+      {stageError ? (
+        <p role="alert" data-testid="tile-stage-error" className="lg:col-span-2" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 13, lineHeight: '18px' }}>
+          {stageError}
+        </p>
+      ) : null}
+      {showDeploy ? (
         <PortalModal
           testId="milestone-deploy-confirm"
           label={deploying ? RECORDING_APPROVAL : 'Approve and ship to production?'}
@@ -854,6 +983,59 @@ export function MilestoneListCard({
           </div>
         </PortalModal>
       ) : null}
+      <PortalModalStack
+        frames={[
+          {
+            key: 'menu',
+            open: Boolean(stageMenuOpen && phoneSheet),
+            node: stageMenuOpen && phoneSheet ? (
+              <PortalModal
+                testId="tile-stage-menu"
+                scrimTestId="tile-stage-scrim"
+                label="Stage"
+                onClose={() => setOverlay(null)}
+                narrow
+                sheet="bottom"
+                showFooter={false}
+                cover={cover}
+              >
+                <StageMenu
+                  current={stage.label}
+                  onPick={pickStage}
+                  onClose={() => setOverlay(null)}
+                  sheet
+                  hint={TILE_PHONE_STAGE_HINT}
+                />
+              </PortalModal>
+            ) : null,
+          },
+          {
+            key: 'confirm',
+            open: stageConfirm,
+            node: overlay?.kind === 'confirm' ? (
+              <PortalModal
+                testId="stage-confirm"
+                scrimTestId="tile-stage-scrim"
+                label={`Move to ${overlay.stage}`}
+                onClose={() => setOverlay({ kind: 'menu' })}
+                narrow
+                sheet="bottom"
+                focusCancel
+                showFooter={false}
+                cover={cover}
+              >
+                <StageConfirmSheet
+                  hideGrabber
+                  stage={overlay.stage}
+                  subject="milestone"
+                  onCancel={() => setOverlay({ kind: 'menu' })}
+                  onConfirm={() => saveStage(overlay.stage)}
+                />
+              </PortalModal>
+            ) : null,
+          },
+        ]}
+      />
     </article>
   );
 }

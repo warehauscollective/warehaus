@@ -679,16 +679,19 @@ function menuKey(event: ReactKeyboardEvent<HTMLDivElement>, onClose: () => void)
   }
 }
 
-function StageMenu({
+export function StageMenu({
   current,
   onPick,
   onClose,
   sheet,
+  hint = 'Staff can set any stage except Shipped. Shipped is set when the pull request merges. Saves as soon as you pick.',
 }: {
   current: string;
   onPick: (stage: MilestoneStage) => void;
   onClose: () => void;
   sheet?: boolean;
+  /** Phone tile menu waits for a confirm. Desktop still saves on pick. */
+  hint?: string;
 }) {
   return (
     <div
@@ -732,7 +735,7 @@ function StageMenu({
         );
       })}
       <p style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-        Staff can set any stage except Shipped. Shipped is set when the pull request merges. Saves as soon as you pick.
+        {hint}
       </p>
     </div>
   );

@@ -24,11 +24,18 @@ Object.assign(globalThis, { React });
 
 const resource = { id: 'r-notes', title: 'Kickoff recap', url: null };
 
-function renderTile(input: { staff: boolean; milestone: MilestoneRoadmapView }): string {
+function renderTile(input: {
+  staff: boolean;
+  milestone: MilestoneRoadmapView;
+  phone?: boolean;
+  stagePreview?: 'menu' | 'confirm' | null;
+}): string {
   return renderToStaticMarkup(
     createElement(MilestoneListCard, {
       milestone: input.milestone,
       staff: input.staff,
+      phone: input.phone,
+      stagePreview: input.stagePreview,
       onOpen: () => undefined,
     }),
   );
@@ -444,6 +451,45 @@ describe('roadmap markup', () => {
     assert.match(longChip, /data-testid="milestone-meta"[^>]*truncate/);
     assert.doesNotMatch(longChip, /line-clamp/);
     assert.match(longChip, /flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center/);
+  });
+
+  it('opens the tile stage menu for staff and confirms on the phone before saving', () => {
+    const milestone = tileMilestone({});
+    const client = renderTile({ staff: false, milestone, stagePreview: 'menu' });
+    assert.match(client, /<span[^>]*data-testid="milestone-status-chip"/);
+    assert.equal(client.includes('milestone-stage-menu'), false);
+    assert.equal(client.includes('data-milestone-stage-trigger'), false);
+
+    const desktop = renderTile({ staff: true, milestone, stagePreview: 'menu' });
+    assert.match(desktop, /<button[^>]*data-testid="milestone-status-chip"/);
+    assert.match(desktop, /data-testid="tile-stage-popover"/);
+    assert.match(desktop, /data-testid="milestone-stage-menu"/);
+    assert.match(desktop, /Saves as soon as you pick/);
+    assert.match(desktop, /task-chev-down\.svg/);
+    assert.equal(desktop.includes('tile-stage-menu'), false);
+    assert.equal(desktop.includes('stage-confirm-sheet'), false);
+    assert.equal(desktop.includes('>Close<'), false);
+    const shipped = desktop.split('<button').find((part) => part.includes('>Shipped<')) ?? '';
+    assert.match(shipped, /disabled=""/);
+    assert.match(shipped, /ON MERGE/);
+
+    const phoneMenu = renderTile({ staff: true, milestone, phone: true, stagePreview: 'menu' });
+    assert.equal(phoneMenu.includes('tile-stage-popover'), false);
+    assert.match(phoneMenu, /data-testid="tile-stage-menu"/);
+    assert.match(phoneMenu, /data-testid="milestone-stage-menu"/);
+    assert.match(phoneMenu, /Nothing changes until you confirm/);
+    assert.match(phoneMenu, />Close</);
+    assert.equal(phoneMenu.includes('stage-confirm-sheet'), false);
+    assert.equal(phoneMenu.split('portal-modal-scrim').length - 1, 1);
+
+    const phoneConfirm = renderTile({ staff: true, milestone, phone: true, stagePreview: 'confirm' });
+    assert.match(phoneConfirm, /data-testid="stage-confirm"/);
+    assert.match(phoneConfirm, /data-testid="stage-confirm-sheet"/);
+    assert.match(phoneConfirm, /Move this milestone to Planning\?/);
+    assert.match(phoneConfirm, /Move to Planning/);
+    assert.equal(phoneConfirm.includes('milestone-stage-menu'), false);
+    assert.equal(phoneConfirm.includes('tile-stage-menu'), false);
+    assert.equal(phoneConfirm.split('portal-modal-scrim').length - 1, 1);
   });
 
   it('names subtasks in the inclusive progress and leaves a plain count when there are none', () => {

@@ -52,29 +52,70 @@ export function FieldValue({ children }: { children: ReactNode }) {
   );
 }
 
-/** Work status chip. The glyph follows the existing status; the label stays the status value. */
-export function StatusChip({ label, glyph = '/icons/task-stage.svg' }: { label: string; glyph?: string }) {
-  return (
-    <span
-      className="ds-mono inline-flex shrink-0 items-center self-start whitespace-nowrap"
-      data-testid="milestone-status-chip"
-      style={{
-        boxSizing: 'border-box',
-        width: 'auto',
-        height: 24,
-        gap: 8,
-        border: '1px solid var(--border-2)',
-        borderRadius: 999,
-        padding: '4px 12px',
-        fontSize: 11,
-        lineHeight: 'normal',
-        letterSpacing: '0.44px',
-        color: 'var(--fg)',
-      }}
-    >
+/** Work status chip. Staff tiles turn it into the stage menu trigger. */
+export function StatusChip({
+  label,
+  glyph = '/icons/task-stage.svg',
+  interactive = false,
+  open = false,
+  onClick,
+}: {
+  label: string;
+  glyph?: string;
+  /** Staff control. Clients stay a plain pill. */
+  interactive?: boolean;
+  open?: boolean;
+  onClick?: () => void;
+}) {
+  const style = {
+    boxSizing: 'border-box' as const,
+    width: 'auto',
+    height: 24,
+    gap: interactive ? 6 : 8,
+    border: '1px solid var(--border-2)',
+    borderRadius: 999,
+    padding: interactive ? '4px 8px 4px 10px' : '4px 12px',
+    fontSize: 11,
+    lineHeight: 'normal',
+    letterSpacing: '0.44px',
+    color: 'var(--fg)',
+    background: 'transparent',
+  };
+  const body = (
+    <>
       <TaskGlyph src={glyph} size={12} />
       {label}
-    </span>
+      {interactive ? (
+        <span className="text-[var(--muted)]" aria-hidden>
+          <TaskGlyph src="/icons/task-chev-down.svg" size={12} />
+        </span>
+      ) : null}
+    </>
+  );
+  if (!interactive) {
+    return (
+      <span
+        className="ds-mono inline-flex shrink-0 items-center self-start whitespace-nowrap"
+        data-testid="milestone-status-chip"
+        style={style}
+      >
+        {body}
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className="ds-mono inline-flex shrink-0 items-center self-start whitespace-nowrap"
+      data-testid="milestone-status-chip"
+      data-milestone-stage-trigger=""
+      aria-haspopup="listbox"
+      aria-expanded={open}
+      onClick={onClick}
+      style={{ ...style, font: 'inherit', cursor: 'pointer' }}
+    >
+      {body}
+    </button>
   );
 }
 
@@ -351,12 +392,15 @@ export function StageConfirmSheet({
   onCancel,
   onConfirm,
   hideGrabber = false,
+  subject = 'task',
 }: {
   stage: string;
   onCancel: () => void;
   onConfirm: () => void;
   /** The shared sheet already draws the grabber. */
   hideGrabber?: boolean;
+  /** "task" on the board. The milestone tile says "milestone". */
+  subject?: 'task' | 'milestone';
 }) {
   return (
     <div
@@ -400,7 +444,7 @@ export function StageConfirmSheet({
           Close
         </button>
       </div>
-      <p style={{ margin: 0, padding: '8px 24px', fontSize: 14, lineHeight: '21px' }}>{`Move this task to ${stage}?`}</p>
+      <p style={{ margin: 0, padding: '8px 24px', fontSize: 14, lineHeight: '21px' }}>{`Move this ${subject} to ${stage}?`}</p>
       <div className="flex flex-nowrap items-center justify-end gap-2 border-t px-6 pt-4" style={{ borderColor: 'var(--border)', paddingBottom: 24 }}>
         <span className="ml-auto flex shrink-0 flex-nowrap items-center gap-2">
           <OutlineButton nowrap height={42} paddingInline={16} onClick={onCancel}>
