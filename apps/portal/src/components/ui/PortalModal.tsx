@@ -56,6 +56,8 @@ export function PortalModal({
   focusCancel = false,
   footer,
   blueFocus = false,
+  align = 'center',
+  scroll = true,
 }: {
   testId?: string;
   scrimTestId?: string;
@@ -95,6 +97,10 @@ export function PortalModal({
   footer?: ReactNode;
   /** Keyboard ring uses the blue --info token. New milestone and edit fields. */
   blueFocus?: boolean;
+  /** Search sits under the header. Center is the default dialog. */
+  align?: 'center' | 'start';
+  /** Search scrolls its own results. Other dialogs scroll the body. */
+  scroll?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -103,7 +109,8 @@ export function PortalModal({
   closeRef.current = onClose;
   lockedRef.current = locked;
   confirmRef.current = onConfirm;
-  const placement = narrow ? sheet : 'center';
+  const topAligned = align === 'start';
+  const placement = topAligned ? 'center' : (narrow ? sheet : 'center');
 
   useEffect(() => {
     if (hidden) return;
@@ -115,12 +122,12 @@ export function PortalModal({
       ? [...(panel?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((button) => button.textContent?.trim() === 'Cancel')
       : null;
     const field = panel?.querySelector<HTMLElement>('input, textarea, select');
-    const sheetOpen = narrow && sheet !== 'center';
+    const sheetOpen = !topAligned && narrow && sheet !== 'center';
     if (panel && !panel.contains(document.activeElement)) {
       // A phone sheet focuses the name field on open. preventScroll keeps the
       // intro and label below the header instead of sliding them under it.
       (cancel ?? field ?? panel.querySelector<HTMLElement>('button'))?.focus(
-        sheetOpen ? { preventScroll: true } : undefined,
+        sheetOpen || topAligned ? { preventScroll: true } : undefined,
       );
       if (sheetOpen) {
         const reset = () => {
@@ -168,9 +175,9 @@ export function PortalModal({
       if (!cover) document.body.style.overflow = overflow;
       previous?.focus();
     };
-  }, [hidden, cover, confirmOnEnter, focusCancel, narrow, sheet]);
+  }, [hidden, cover, confirmOnEnter, focusCancel, narrow, sheet, topAligned]);
 
-  const isSheet = placement !== 'center';
+  const isSheet = !topAligned && placement !== 'center';
   const pinned = Boolean(footer) || showFooter;
   /** Dock track plus its bottom offset. Centered dialogs stop above it. */
   const dockClearance = 'calc(82px + env(safe-area-inset-bottom, 0px))';
@@ -180,9 +187,9 @@ export function PortalModal({
     zIndex: cover ? 2 : isSheet ? Math.max(zIndex, 140) : zIndex,
     transform: cover ? undefined : 'translateZ(0)',
     display: 'flex',
-    alignItems: isSheet ? 'flex-end' : 'center',
+    alignItems: isSheet ? 'flex-end' : topAligned ? 'flex-start' : 'center',
     justifyContent: 'center',
-    padding: isSheet ? 0 : pinned ? `24px 24px ${dockClearance}` : 24,
+    padding: isSheet ? 0 : topAligned ? (narrow ? '56px 20px 24px' : '72px 20px 24px') : pinned ? `24px 24px ${dockClearance}` : 24,
   };
   const node = (
     <div
@@ -218,9 +225,11 @@ export function PortalModal({
           height: maxHeight,
           maxHeight: maxHeight ?? (isSheet
             ? 'calc(100dvh - 12px)'
-            : pinned
-              ? 'calc(100dvh - 24px - 82px - env(safe-area-inset-bottom, 0px))'
-              : 'calc(100dvh - 48px)'),
+            : topAligned
+              ? (narrow ? 'calc(100dvh - 80px)' : 'min(780px, calc(100dvh - 96px))')
+              : pinned
+                ? 'calc(100dvh - 24px - 82px - env(safe-area-inset-bottom, 0px))'
+                : 'calc(100dvh - 48px)'),
           overflow: 'hidden',
           display: 'flex',
           flexDirection: 'column',
@@ -244,7 +253,14 @@ export function PortalModal({
             blueFocus={blueFocus}
           />
         ) : null}
-        <div data-portal-modal-body="" style={hidden ? undefined : { overflow: 'auto', minHeight: 0, flex: '1 1 auto', ...panelStyle }}>{children}</div>
+        <div data-portal-modal-body="" style={hidden ? undefined : {
+          overflow: scroll ? 'auto' : 'hidden',
+          minHeight: 0,
+          flex: '1 1 auto',
+          display: scroll ? undefined : 'flex',
+          flexDirection: scroll ? undefined : 'column',
+          ...panelStyle,
+        }}>{children}</div>
         {!hidden && footer ? (
           <div data-testid="portal-modal-footer" style={{ flex: '0 0 auto', borderTop: '1px solid var(--border)', padding: isSheet ? '16px 24px 24px' : '16px 24px' }}>
             {footer}

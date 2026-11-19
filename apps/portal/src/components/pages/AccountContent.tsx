@@ -1,11 +1,11 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TeamInvites } from '@/components/pages/TeamInvites';
+import { PortalToast } from '@/components/ui/PortalToast';
 import {
   LONG_TEAM_EMAIL,
   LONG_TEAM_NAME,
@@ -147,12 +147,6 @@ export function AccountContent() {
   const writebackEnabled = useWritebackEnabled();
   const fixtureCreate = useFixtureCreatePreview();
   const createEnabled = writebackEnabled || fixtureCreate;
-
-  useEffect(() => {
-    if (!projectToast) return;
-    const timer = window.setTimeout(() => setProjectToast(null), 4000);
-    return () => window.clearTimeout(timer);
-  }, [projectToast]);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -589,38 +583,18 @@ export function AccountContent() {
         />
       ) : null}
 
-      {projectToast && typeof document !== 'undefined'
-        ? createPortal(
-        <div
-          className="ds-scope portal-create-toast portal-created-toast"
-          role="status"
-          data-testid="project-created-toast"
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 12,
-            borderRadius: 18,
-            padding: '12px 14px',
-            background: 'var(--surface)',
-            color: 'var(--fg)',
-            border: '1px solid var(--border-2)',
-            boxShadow: '0 16px 40px color-mix(in oklab, var(--ink) 35%, transparent)',
+      {projectToast ? (
+        <PortalToast
+          kind="success"
+          message={`Project created · ${projectToast.name}`}
+          testId="project-created-toast"
+          placement="created"
+          onOpen={() => {
+            document.getElementById(`client-project-${projectToast.id}`)?.scrollIntoView({ block: 'center' });
           }}
-        >
-          <span>Project created · {projectToast.name}</span>
-          <button
-            type="button"
-            onClick={() => {
-              document.getElementById(`client-project-${projectToast.id}`)?.scrollIntoView({ block: 'center' });
-            }}
-            style={{ border: 0, background: 'transparent', color: 'var(--fg)', fontWeight: 600, cursor: 'pointer' }}
-          >
-            Open
-          </button>
-        </div>,
-        document.body,
-        )
-        : null}
+          onDismiss={() => setProjectToast(null)}
+        />
+      ) : null}
 
       {isStaff && activeSection === 'tokens' && (
         <PortalTilePane>

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation';
 import { PortalShell } from '@/components/layout/PortalShell';
 import { FixturePreviewProvider } from '@/components/providers/FixturePreviewProvider';
+import { PreviewModalFixtures } from '@/components/ui/PreviewModalFixtures';
 import { fixturePreviewAllowed } from '@/lib/data/fixturePreviewGate';
 import { isNotionProjectCreateEnabled } from '@warehaus/portal-sync';
 
@@ -24,6 +25,8 @@ export default async function PortalFixturePreview({
       <PortalShell projectCreateEnabled={projectCreateEnabled}>
         <span className="sr-only">Fixture preview</span>
       </PortalShell>
+      {/* Only this route. A shell import would ship the board and dnd-kit on every signed-in page. */}
+      <PreviewModalFixtures />
     </FixturePreviewProvider>
   );
 }

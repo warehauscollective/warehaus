@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -11,6 +12,7 @@ import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { isConvexConfigured } from '@/lib/convex/client';
 import { FIXTURE_NOTICES, FIXTURE_TASKS } from '@/lib/data/fixtures';
 import { noticeDisplayMessage } from '@/lib/data/view-models';
+import { useNoticePopoverKeys } from '@/components/notices/noticePopoverKeys';
 
 type NoticeRow = {
   id: Id<'notices'>;
@@ -43,11 +45,31 @@ export function NoticeBell() {
   const markRead = useMutation(api.invitesSync.markNoticeRead);
   const markAll = useMutation(api.invitesSync.markAllNoticesRead);
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<{ top: number; right: number } | null>(null);
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (window.location.pathname === '/preview' && params.get('fixture') === 'notice') setOpen(true);
     const onOpen = () => setOpen(true);
     window.addEventListener('wh-open-notices', onOpen);
     return () => window.removeEventListener('wh-open-notices', onOpen);
   }, []);
+  useEffect(() => {
+    if (!open) return;
+    const place = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      const visible = rect != null && rect.width > 0;
+      const next = visible && rect
+        ? { top: rect.bottom + 8, right: Math.max(16, window.innerWidth - rect.right) }
+        : { top: 72, right: 16 };
+      setBox((current) => (current && current.top === next.top && current.right === next.right ? current : next));
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => window.removeEventListener('resize', place);
+  }, [open]);
+  useNoticePopoverKeys(open && box != null, panelRef, () => setOpen(false));
   const [fixtureRows, setFixtureRows] = useState<
     Array<{ id: string; message: string; createdAt: number; readAt: number | null; edgeCase: string; unread: boolean }>
   >(FIXTURE_NOTICES);
@@ -75,6 +97,7 @@ export function NoticeBell() {
   return (
     <div className="fixed z-40" style={{ top: '1.25rem', right: '1.25rem' }}>
       <button
+        ref={buttonRef}
         type="button"
         aria-label={unread ? `Notices, ${unread} unread` : 'Notices'}
         aria-expanded={open}
@@ -117,14 +140,20 @@ export function NoticeBell() {
           </span>
         ) : null}
       </button>
-      {open ? (
+      {open && box ? createPortal(
+        <div className="ds-scope" style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'transparent', pointerEvents: 'none' }}>
         <div
+          ref={panelRef}
           role="dialog"
           aria-label="Notices"
-          className="absolute flex flex-col"
+          data-testid="notice-popover"
+          data-focus-ring="info"
+          className="flex flex-col"
           style={{
-            top: 50,
-            right: 0,
+            pointerEvents: 'auto',
+            position: 'absolute',
+            top: box.top,
+            right: box.right,
             width: 'min(360px, calc(100vw - 2rem))',
             maxHeight: 420,
             overflow: 'auto',
@@ -141,7 +170,7 @@ export function NoticeBell() {
               Notices
             </p>
             {unread > 0 ? (
-              <button type="button" onClick={markEvery} style={{ color: 'var(--accent)', fontSize: 'var(--t-xs)' }}>
+              <button type="button" className="milestone-field" onClick={markEvery} style={{ color: 'var(--accent)', fontSize: 'var(--t-xs)' }}>
                 Mark all read
               </button>
             ) : null}
@@ -159,7 +188,7 @@ export function NoticeBell() {
               onClick={() => {
                 if (row.unread) markOne(row.id);
               }}
-              className="w-full text-left"
+              className="milestone-field w-full text-left"
               style={{
                 border: '1px solid var(--border)',
                 borderRadius: 12,
@@ -177,6 +206,8 @@ export function NoticeBell() {
             </button>
           ))}
         </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

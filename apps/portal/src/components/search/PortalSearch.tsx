@@ -8,6 +8,7 @@ import type { SearchGroups, SearchHit } from '@convex/_lib/portalSearch';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { PortalModal } from '@/components/ui/PortalModal';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { isConvexConfigured } from '@/lib/convex/client';
@@ -304,7 +305,7 @@ export function PortalSearch() {
     clearSearchParam('q');
     const trigger = triggerRef.current;
     triggerRef.current = null;
-    window.requestAnimationFrame(() => trigger?.focus());
+    window.requestAnimationFrame(() => trigger?.focus({ preventScroll: true }));
   }, []);
 
   const loadRecents = useCallback(() => {
@@ -325,6 +326,8 @@ export function PortalSearch() {
     if (initial) {
       setQuery(initial);
       openSearch(null);
+    } else if (window.location.pathname === '/preview' && params.get('fixture') === 'search') {
+      openSearch(document.body);
     }
     const onOpen = (event: Event) => {
       const detail = event instanceof CustomEvent ? event.detail : null;
@@ -340,7 +343,7 @@ export function PortalSearch() {
             const trigger = triggerRef.current;
             triggerRef.current = null;
             clearSearchParam('q');
-            window.requestAnimationFrame(() => trigger?.focus());
+            window.requestAnimationFrame(() => trigger?.focus({ preventScroll: true }));
             return false;
           }
           triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -468,7 +471,7 @@ export function PortalSearch() {
 
   useEffect(() => {
     if (!open) return;
-    inputRef.current?.focus();
+    inputRef.current?.focus({ preventScroll: true });
   }, [open]);
 
   if (!open) return null;
@@ -482,41 +485,19 @@ export function PortalSearch() {
   };
 
   return (
-    <div
-      role="presentation"
-      onClick={close}
-      className="ds-scope portal-modal-scrim"
-      data-portal-scrim=""
-      style={{
-        position: 'fixed',
-        inset: 0,
-        zIndex: 90,
-        display: 'flex',
-        alignItems: 'flex-start',
-        justifyContent: 'center',
-        padding: narrow ? '56px 20px 24px' : '72px 20px 24px',
-      }}
+    <PortalModal
+      testId="portal-search"
+      label="Search"
+      onClose={close}
+      align="start"
+      narrow={narrow}
+      width={640}
+      zIndex={90}
+      scroll={false}
+      blueFocus
+      panelStyle={{ padding: 0 }}
     >
-      <div
-        role="dialog"
-        aria-modal="true"
-        aria-label="Search"
-        data-testid="portal-search"
-        onClick={(event) => event.stopPropagation()}
-        style={{
-          width: narrow ? '100%' : 640,
-          maxWidth: '100%',
-          maxHeight: narrow ? 'calc(100dvh - 80px)' : 'min(780px, calc(100dvh - 96px))',
-          display: 'flex',
-          flexDirection: 'column',
-          overflow: 'hidden',
-          background: 'var(--surface)',
-          border: '1px solid var(--border-2)',
-          borderRadius: 28,
-          boxShadow: 'var(--modal-shadow)',
-          color: 'var(--fg)',
-        }}
-      >
+      <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }}>
         <div style={{ padding: narrow ? '20px 20px 12px' : '20px 20px 12px', display: 'flex', flexDirection: 'column', gap: 12 }}>
           <label
             className="flex min-w-0 items-center gap-2.5"
@@ -788,7 +769,7 @@ export function PortalSearch() {
           <span className="ds-mono ml-auto" style={{ fontSize: 11, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{countLabel}</span>
         </div>
       </div>
-    </div>
+    </PortalModal>
   );
 }
 

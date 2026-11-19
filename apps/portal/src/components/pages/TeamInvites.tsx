@@ -9,6 +9,7 @@ import { teamInviteActions } from '@convex/_lib/inviteFlow';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { PortalTilePane } from '@/components/layout/PortalWorkspace';
 import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
+import { PortalToast } from '@/components/ui/PortalToast';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
@@ -159,6 +160,7 @@ export function TeamInvites({
   const [revokeId, setRevokeId] = useState<string | null>(previewUi === 'revoke' ? 'ct-jordan' : null);
   const [menuId, setMenuId] = useState<string | null>(previewUi === 'menu' ? 'ct-jordan' : null);
   const [sentOn, setSentOn] = useState<number | null>(null);
+  const [inviteToast, setInviteToast] = useState(false);
   useEffect(() => {
     if (team.data) setCached(team.data);
   }, [team.data]);
@@ -228,6 +230,7 @@ export function TeamInvites({
       }
       onDraftChange({ name: '', email: '' });
       setSentOn(Date.now() + 7 * 24 * 60 * 60 * 1000);
+      setInviteToast(true);
       setMode('sent');
     } catch (err) {
       setNote(userFacingErrorMessage(err, "We couldn't send this invite"));
@@ -250,7 +253,10 @@ export function TeamInvites({
         requestId: crypto.randomUUID(),
       });
       setNote(result.ok ? 'Resend pending. The old link stops working.' : (result.message ?? "We couldn't send this invite"));
-      if (mode === 'invited' && result.ok) setMode('sent');
+      if (mode === 'invited' && result.ok) {
+        setInviteToast(true);
+        setMode('sent');
+      }
     } catch (err) {
       setNote(userFacingErrorMessage(err, "We couldn't send this invite"));
     } finally {
@@ -444,7 +450,10 @@ export function TeamInvites({
                 onResend={() => {
                   const row = people?.invites.find((invite) => invite.email.toLowerCase() === email.trim().toLowerCase());
                   if (row) void resend(row);
-                  else if (fixtures) setMode('sent');
+                  else if (fixtures) {
+                    setInviteToast(true);
+                    setMode('sent');
+                  }
                 }}
                 sentOn={sentOn}
                 expiresOn={composeExpiry(fixtures)}
@@ -499,6 +508,9 @@ export function TeamInvites({
           .invite-actions .invite-cancel { order: 2; }
         }
       `}</style>
+      {inviteToast ? (
+        <PortalToast kind="invite-sent" onDismiss={() => setInviteToast(false)} />
+      ) : null}
     </PortalTilePane>
   );
 }

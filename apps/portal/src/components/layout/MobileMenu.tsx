@@ -118,7 +118,7 @@ export function MobileMenu({
     } else {
       pushed.current = false;
     }
-    window.requestAnimationFrame(() => menuRef.current?.focus());
+    window.requestAnimationFrame(() => menuRef.current?.focus({ preventScroll: true }));
   };
 
   const openSheet = () => {
@@ -128,6 +128,20 @@ export function MobileMenu({
       pushed.current = true;
     }
   };
+
+  useEffect(() => {
+    const onOpen = () => {
+      setOpen(true);
+      if (!pushed.current) {
+        history.pushState({ whMenu: true }, '');
+        pushed.current = true;
+      }
+    };
+    const params = new URLSearchParams(window.location.search);
+    if (window.location.pathname === '/preview' && params.get('fixture') === 'menu') onOpen();
+    window.addEventListener('wh-open-menu', onOpen);
+    return () => window.removeEventListener('wh-open-menu', onOpen);
+  }, []);
 
   return (
     <>
@@ -256,7 +270,7 @@ export function MenuSheetDialog({
     const previousOverflow = document.body.style.overflow;
     const scrollY = window.scrollY;
     document.body.style.overflow = 'hidden';
-    closeRef.current?.focus();
+    closeRef.current?.focus({ preventScroll: true });
     const onPop = () => dismissRef.current(true);
     window.addEventListener('popstate', onPop);
     const viewport = window.visualViewport;
