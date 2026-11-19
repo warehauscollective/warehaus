@@ -37,7 +37,7 @@ describe('pinned modal footer', () => {
 
   it('puts New milestone actions in the pinned footer', () => {
     const roadmap = readFileSync(new URL('../projects/ProjectRoadmap.tsx', import.meta.url), 'utf8');
-    const create = roadmap.slice(roadmap.indexOf('function CreateMilestone'), roadmap.indexOf('type MilestoneFieldErrors'));
+    const create = roadmap.slice(roadmap.indexOf('function CreateMilestone'), roadmap.indexOf('function milestoneFieldErrors'));
     const form = create.slice(create.indexOf('<form'), create.indexOf('</form>'));
     assert.match(create, /data-testid="portal-modal-footer"|footer=\{/);
     assert.match(create, /form="milestone-create"/);

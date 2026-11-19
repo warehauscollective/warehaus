@@ -69,10 +69,12 @@ describe('milestone details panel', () => {
     assert.match(staff, /data-testid="milestone-stage-edit"/);
     assert.match(staff, /data-testid="milestone-project-edit"/);
     assert.match(staff, /data-testid="milestone-visibility-edit"/);
-    assert.match(staff, /data-testid="milestone-creator"/);
+    assert.match(staff, /data-testid="milestone-creator"[^>]*>—</);
     assert.match(staff, /Staff only/);
-    assert.match(staff, /data-testid="milestone-owner"[^>]*>—</);
-    assert.match(staff, /data-testid="milestone-due"[^>]*>—</);
+    assert.match(staff, /data-testid="milestone-owner-edit"/);
+    assert.match(staff, /data-testid="milestone-owner"[^>]*>Unassigned</);
+    assert.match(staff, /data-testid="milestone-due-edit"/);
+    assert.match(staff, /data-testid="milestone-due"[^>]*>Not set</);
     assert.equal(staff.includes('<input'), false);
     assert.match(staff, /<p data-testid="milestone-objective"/);
 
@@ -90,6 +92,35 @@ describe('milestone details panel', () => {
     assert.match(staff, /Staff only · clients see nothing/);
     assert.match(client, /data-testid="milestone-work-status"/);
     assert.match(client, /data-testid="milestone-project"/);
+    assert.match(client, /data-testid="milestone-owner"[^>]*>—</);
+    assert.match(client, /data-testid="milestone-due"[^>]*>—</);
+    assert.equal(client.includes('milestone-owner-edit'), false);
+    assert.equal(client.includes('milestone-due-edit'), false);
+
+    const named = view({
+      staff: true,
+      milestone: {
+        ...milestone,
+        ownerContactId: 'ct-maya',
+        ownerName: 'Maya Chen',
+        dueDate: '2026-11-20',
+        creatorName: 'Maya Chen',
+      },
+    });
+    assert.match(named, /data-testid="milestone-owner"[^>]*>Maya Chen</);
+    assert.match(named, /data-testid="milestone-due"[^>]*>Nov 20, 2026</);
+    assert.match(named, /data-testid="milestone-creator"[^>]*>Maya Chen</);
+  });
+
+  it('opens the owner menu and the due date menu', () => {
+    const owner = view({ staff: true, preview: 'owner' });
+    assert.match(owner, /data-testid="milestone-owner-menu"/);
+    assert.match(owner, /Unassigned/);
+    assert.match(owner, /Saved in the Portal/);
+    const due = view({ staff: true, preview: 'due' });
+    assert.match(due, /data-testid="milestone-due-menu"/);
+    assert.match(due, /Clear date/);
+    assert.match(due, /Saved in the Portal/);
   });
 
   it('lets staff set every stage except Shipped', () => {

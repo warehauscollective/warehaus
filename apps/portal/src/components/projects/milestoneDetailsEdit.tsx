@@ -11,6 +11,7 @@ import {
   detailStatusLabel,
   effectiveDetailStatus,
   effectiveStage,
+  formatDueDate,
   stageOptionLock,
   textBlurSave,
   workStatusForDetail,
@@ -35,13 +36,17 @@ export type DetailsOverlay =
   | null
   | { kind: 'stage' }
   | { kind: 'status' }
+  | { kind: 'owner' }
+  | { kind: 'due' }
   | { kind: 'project' }
   | { kind: 'visibility' }
   | { kind: 'confirm-publish' }
   | { kind: 'confirm-unpublish' }
   | { kind: 'confirm-move'; projectId: string; projectName: string };
 
-type FieldKey = 'status' | 'stage' | 'project' | 'visibility';
+export type OwnerChoice = { id: string; name: string };
+
+type FieldKey = 'status' | 'stage' | 'owner' | 'due' | 'project' | 'visibility';
 type FieldTone = 'idle' | 'saving' | 'saved' | 'error' | 'pending' | 'discarded';
 
 type DetailMutations = {
@@ -51,6 +56,8 @@ type DetailMutations = {
     detailStatus: MilestoneDetailStatus;
   }) => Promise<unknown>;
   setStage: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; stage: MilestoneStage }) => Promise<unknown>;
+  setOwner: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; ownerContactId: Id<'contacts'> | null }) => Promise<unknown>;
+  setDueDate: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; dueDate: string | null }) => Promise<unknown>;
   setPublish: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; publishToWarehaus: boolean }) => Promise<unknown>;
   moveProject: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; projectId: Id<'projects'> }) => Promise<unknown>;
 };
@@ -72,6 +79,8 @@ export function useMilestoneDetailEdits({
   onFixture,
   onLoadMoreTargets,
   onMoveListOpen,
+  onOwnerListOpen,
+  owners = [],
   mutations,
 }: {
   milestone: MilestoneRoadmapView;
@@ -93,10 +102,16 @@ export function useMilestoneDetailEdits({
     stage?: MilestoneStage;
     workStatus?: MilestoneRoadmapView['workStatus'];
     publishToWarehaus?: boolean;
+    ownerContactId?: string | null;
+    ownerName?: string | null;
+    dueDate?: string | null;
   }) => void;
   onLoadMoreTargets?: () => void;
   /** True only while the move picker or move confirm is open. */
   onMoveListOpen?: (open: boolean) => void;
+  /** True only while the owner menu is open. */
+  onOwnerListOpen?: (open: boolean) => void;
+  owners?: readonly OwnerChoice[];
   mutations: DetailMutations;
 }) {
   const [phone, setPhone] = useState(false);
@@ -109,10 +124,18 @@ export function useMilestoneDetailEdits({
   );
   const [projectQuery, setProjectQuery] = useState('');
   const [projectNameLocal, setProjectNameLocal] = useState(projectName);
-  const pending = useRef<{ status: MilestoneDetailStatus | null; stage: MilestoneStage | null; project: MoveTarget | null }>({
+  const pending = useRef<{
+    status: MilestoneDetailStatus | null;
+    stage: MilestoneStage | null;
+    project: MoveTarget | null;
+    ownerId: string | null;
+    dueDate: string | null;
+  }>({
     status: null,
     stage: null,
     project: null,
+    ownerId: null,
+    dueDate: null,
   });
   const shownStage = preview === 'locked' ? 'Awaiting Go' : stageLabel(milestone);
   const shownStatus = statusLabel(milestone);
@@ -141,6 +164,10 @@ export function useMilestoneDetailEdits({
     const open = overlay?.kind === 'project' || overlay?.kind === 'confirm-move';
     onMoveListOpen?.(open);
   }, [overlay, onMoveListOpen]);
+
+  useEffect(() => {
+    onOwnerListOpen?.(overlay?.kind === 'owner');
+  }, [overlay, onOwnerListOpen]);
 
   const openOverlay = (next: DetailsOverlay) => {
     onClaim();
@@ -221,6 +248,45 @@ export function useMilestoneDetailEdits({
     }
     void runField('stage', () =>
       mutations.setStage({ hostSlug, milestoneId: milestone.id as Id<'milestones'>, stage }),
+    );
+  };
+
+  const pickOwner = (ownerId: string | null) => {
+    const from = milestone.ownerContactId ?? null;
+    setOverlay(null);
+    if (ownerId === from) return;
+    pending.current.ownerId = ownerId;
+    const ownerName = ownerId ? (owners.find((person) => person.id === ownerId)?.name ?? null) : null;
+    if (fixtures) {
+      onFixture({ ownerContactId: ownerId, ownerName });
+      setTone((current) => ({ ...current, owner: 'saved' }));
+      return;
+    }
+    void runField('owner', () =>
+      mutations.setOwner({
+        hostSlug,
+        milestoneId: milestone.id as Id<'milestones'>,
+        ownerContactId: ownerId as Id<'contacts'> | null,
+      }),
+    );
+  };
+
+  const pickDue = (dueDate: string | null) => {
+    const from = milestone.dueDate ?? null;
+    setOverlay(null);
+    if (dueDate === from) return;
+    pending.current.dueDate = dueDate;
+    if (fixtures) {
+      onFixture({ dueDate });
+      setTone((current) => ({ ...current, due: 'saved' }));
+      return;
+    }
+    void runField('due', () =>
+      mutations.setDueDate({
+        hostSlug,
+        milestoneId: milestone.id as Id<'milestones'>,
+        dueDate,
+      }),
     );
   };
 
@@ -342,15 +408,34 @@ export function useMilestoneDetailEdits({
         </DetailRow>
         {clientSeesDetailsRow('owner', staff) ? (
           <DetailRow label="OWNER">
-            <FieldValue>
-              <span data-testid="milestone-owner">—</span>
-            </FieldValue>
+            {staff ? (
+              <ValueButton
+                testId="milestone-owner-edit"
+                valueTestId="milestone-owner"
+                label={milestone.ownerName?.trim() || 'Unassigned'}
+                tone={tone.owner}
+                open={shown?.kind === 'owner'}
+                onClick={() => openOverlay(shown?.kind === 'owner' ? null : { kind: 'owner' })}
+              />
+            ) : (
+              <FieldValue>
+                <span data-testid="milestone-owner">{milestone.ownerName?.trim() || '—'}</span>
+              </FieldValue>
+            )}
+            {tone.owner === 'error' && fieldError ? (
+              <FieldError testId="milestone-owner-retry" text={fieldError} onRetry={() => pickOwner(pending.current.ownerId)} />
+            ) : null}
+            {shown?.kind === 'owner' && !phone ? (
+              <Popover>
+                <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} onPick={pickOwner} onClose={() => closeOverlay(true)} />
+              </Popover>
+            ) : null}
           </DetailRow>
         ) : null}
         {clientSeesDetailsRow('creator', staff) ? (
           <DetailRow label="CREATOR">
             <FieldValue>
-              <span data-testid="milestone-creator">—</span>
+              <span data-testid="milestone-creator">{milestone.creatorName?.trim() || '—'}</span>
             </FieldValue>
           </DetailRow>
         ) : null}
@@ -360,9 +445,28 @@ export function useMilestoneDetailEdits({
           </FieldValue>
         </DetailRow>
         <DetailRow label="DUE DATE">
-          <FieldValue>
-            <span data-testid="milestone-due">—</span>
-          </FieldValue>
+          {staff ? (
+            <ValueButton
+              testId="milestone-due-edit"
+              valueTestId="milestone-due"
+              label={formatDueDate(milestone.dueDate) ?? 'Not set'}
+              tone={tone.due}
+              open={shown?.kind === 'due'}
+              onClick={() => openOverlay(shown?.kind === 'due' ? null : { kind: 'due' })}
+            />
+          ) : (
+            <FieldValue>
+              <span data-testid="milestone-due">{formatDueDate(milestone.dueDate) ?? '—'}</span>
+            </FieldValue>
+          )}
+          {tone.due === 'error' && fieldError ? (
+            <FieldError testId="milestone-due-retry" text={fieldError} onRetry={() => pickDue(pending.current.dueDate)} />
+          ) : null}
+          {shown?.kind === 'due' && !phone ? (
+            <Popover>
+              <DueDateMenu value={milestone.dueDate ?? null} onPick={pickDue} onClose={() => closeOverlay(true)} />
+            </Popover>
+          ) : null}
         </DetailRow>
         <DetailRow label="PROJECT" wide>
           {staff ? (
@@ -467,6 +571,12 @@ export function useMilestoneDetailEdits({
       {shown.kind === 'status' ? (
         <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
       ) : null}
+      {shown.kind === 'owner' ? (
+        <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} onPick={pickOwner} onClose={() => closeOverlay(true)} sheet />
+      ) : null}
+      {shown.kind === 'due' ? (
+        <DueDateMenu value={milestone.dueDate ?? null} onPick={pickDue} onClose={() => closeOverlay(true)} sheet />
+      ) : null}
       {shown.kind === 'project' ? (
         <ProjectMenu
           query={projectQuery}
@@ -543,6 +653,8 @@ function isConfirm(overlay: DetailsOverlay): boolean {
 function initialOverlay(preview: string | null, targets: readonly MoveTarget[]): DetailsOverlay {
   if (preview === 'stage' || preview === 'stage-peter') return { kind: 'stage' };
   if (preview === 'status') return { kind: 'status' };
+  if (preview === 'owner') return { kind: 'owner' };
+  if (preview === 'due') return { kind: 'due' };
   if (preview === 'project') return { kind: 'project' };
   if (preview === 'visibility') return { kind: 'visibility' };
   if (preview === 'publish') return { kind: 'confirm-publish' };
@@ -556,7 +668,7 @@ function initialOverlay(preview: string | null, targets: readonly MoveTarget[]):
 }
 
 function initialTone(preview: string | null): Record<FieldKey, FieldTone> {
-  const tone: Record<FieldKey, FieldTone> = { status: 'idle', stage: 'idle', project: 'idle', visibility: 'idle' };
+  const tone: Record<FieldKey, FieldTone> = { status: 'idle', stage: 'idle', owner: 'idle', due: 'idle', project: 'idle', visibility: 'idle' };
   if (preview === 'saving') tone.stage = 'saving';
   if (preview === 'saved') tone.stage = 'saved';
   if (preview === 'field-error') tone.stage = 'error';
@@ -583,6 +695,8 @@ function modalTitle(overlay: DetailsOverlay, name: string): string {
   if (!overlay) return name;
   if (overlay.kind === 'stage') return 'Stage';
   if (overlay.kind === 'status') return 'Status';
+  if (overlay.kind === 'owner') return 'Owner';
+  if (overlay.kind === 'due') return 'Due date';
   if (overlay.kind === 'project') return 'Project';
   if (overlay.kind === 'visibility') return 'Visibility';
   if (overlay.kind === 'confirm-publish') return 'Publish to client?';
@@ -622,7 +736,7 @@ function ValueButton({
       data-testid={testId}
       disabled={locked}
       onClick={onClick}
-      className="group mt-1 flex w-full items-center gap-2 rounded-lg bg-transparent text-left hover:bg-[var(--surface-2)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2"
+      className="milestone-field group mt-1 flex w-full items-center gap-2 rounded-lg bg-transparent text-left hover:bg-[var(--surface-2)] focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
       style={{
         minHeight: 32,
         padding: '4px 8px',
@@ -1163,6 +1277,178 @@ function SheetHeader({ title, onClose }: { title: string; onClose: () => void })
     </div>
   );
 }
+
+const MENU_FOOT = 'Saves as soon as you pick. Saved in the Portal.';
+
+function optionStyle(selected: boolean): CSSProperties {
+  return {
+    padding: 10,
+    border: 0,
+    borderRadius: 12,
+    background: selected ? 'var(--surface-2)' : 'transparent',
+    color: 'var(--fg)',
+    font: 'inherit',
+    fontSize: 14,
+    lineHeight: '21px',
+    cursor: 'pointer',
+    width: '100%',
+  };
+}
+
+export function OwnerMenu({
+  people,
+  currentId,
+  onPick,
+  onClose,
+  sheet,
+  foot = MENU_FOOT,
+}: {
+  people: readonly OwnerChoice[];
+  currentId: string | null;
+  onPick: (id: string | null) => void;
+  onClose: () => void;
+  sheet?: boolean;
+  foot?: string;
+}) {
+  const options = [...people.map((person) => ({ id: person.id, name: person.name })), { id: null as string | null, name: 'Unassigned' }];
+  return (
+    <div role="listbox" aria-label="Owner" data-testid="milestone-owner-menu" onKeyDown={(event) => menuKey(event, onClose)} style={menuStyle(sheet)}>
+      {sheet ? <SheetHeader title="Owner" onClose={onClose} /> : null}
+      {options.map((option) => {
+        const selected = option.id === currentId;
+        return (
+          <button
+            key={option.id ?? 'unassigned'}
+            type="button"
+            role="option"
+            aria-selected={selected}
+            onClick={() => onPick(option.id)}
+            className="milestone-field flex w-full items-center gap-2 text-left"
+            style={optionStyle(selected)}
+          >
+            <span className="min-w-0 flex-1">{option.name}</span>
+            {selected ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
+          </button>
+        );
+      })}
+      <p style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{foot}</p>
+    </div>
+  );
+}
+
+const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const;
+
+function monthCells(year: number, month: number): Array<number | null> {
+  const first = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+  const count = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const cells: Array<number | null> = Array.from({ length: first }, () => null);
+  for (let day = 1; day <= count; day += 1) cells.push(day);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+function dateParts(value: string | null): { year: number; month: number; day: number | null } {
+  if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    return { year: year!, month: month!, day: day! };
+  }
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1, day: null };
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+export function DueDateMenu({
+  value,
+  onPick,
+  onClose,
+  sheet,
+  foot = MENU_FOOT,
+}: {
+  value: string | null;
+  onPick: (next: string | null) => void;
+  onClose: () => void;
+  sheet?: boolean;
+  foot?: string;
+}) {
+  const initial = dateParts(value);
+  const [cursor, setCursor] = useState({ year: initial.year, month: initial.month });
+  const label = new Date(Date.UTC(cursor.year, cursor.month - 1, 1)).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+  const shift = (delta: number) => {
+    const next = new Date(Date.UTC(cursor.year, cursor.month - 1 + delta, 1));
+    setCursor({ year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 });
+  };
+  return (
+    <div role="dialog" aria-label="Due date" data-testid="milestone-due-menu" onKeyDown={(event) => menuKey(event, onClose)} style={menuStyle(sheet)}>
+      {sheet ? <SheetHeader title="Due date" onClose={onClose} /> : null}
+      <div className="flex items-center justify-between gap-2 px-2 py-2">
+        <button type="button" className="milestone-field" aria-label="Previous month" onClick={() => shift(-1)} style={monthButton}>‹</button>
+        <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', fontWeight: 500 }}>{label}</p>
+        <button type="button" className="milestone-field" aria-label="Next month" onClick={() => shift(1)} style={monthButton}>›</button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 px-2" aria-hidden>
+        {WEEKDAYS.map((day, index) => (
+          <span key={`${day}-${index}`} className="ds-mono text-center" style={{ fontSize: 11, lineHeight: '16px', color: 'var(--muted)' }}>{day}</span>
+        ))}
+      </div>
+      <div className="mt-1 grid grid-cols-7 gap-1 px-2">
+        {monthCells(cursor.year, cursor.month).map((day, index) => {
+          if (!day) return <span key={`empty-${index}`} />;
+          const iso = `${cursor.year}-${pad(cursor.month)}-${pad(day)}`;
+          const selected = iso === value;
+          return (
+            <button
+              key={iso}
+              type="button"
+              aria-label={iso}
+              aria-pressed={selected}
+              onClick={() => onPick(iso)}
+              className="milestone-field"
+              style={{
+                width: 32,
+                height: 32,
+                margin: '0 auto',
+                border: 0,
+                borderRadius: 999,
+                background: selected ? 'var(--fg)' : 'transparent',
+                color: selected ? 'var(--bg)' : 'var(--fg)',
+                font: 'inherit',
+                fontSize: 14,
+                lineHeight: '32px',
+                cursor: 'pointer',
+              }}
+            >
+              {day}
+            </button>
+          );
+        })}
+      </div>
+      <button type="button" className="milestone-field mt-2 text-left" onClick={() => onPick(null)} style={{ background: 'none', border: 0, color: 'var(--fg)', font: 'inherit', fontSize: 14, lineHeight: '21px', padding: '8px 10px', cursor: 'pointer' }}>
+        Clear date
+      </button>
+      <p style={{ margin: '4px 10px 8px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{foot}</p>
+    </div>
+  );
+}
+
+const monthButton: CSSProperties = {
+  width: 32,
+  height: 32,
+  border: 0,
+  borderRadius: 9,
+  background: 'transparent',
+  color: 'var(--fg)',
+  font: 'inherit',
+  fontSize: 18,
+  lineHeight: '32px',
+  cursor: 'pointer',
+};
 
 function Tag({ children }: { children: string }) {
   return (

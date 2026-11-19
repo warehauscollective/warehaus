@@ -267,6 +267,12 @@ export default defineSchema({
         v.literal('Parked'),
       ),
     ),
+    /** Optional person on this client. Convex only. Not written to Notion. */
+    ownerContactId: v.optional(v.id('contacts')),
+    /** Calendar day, YYYY-MM-DD. Absent means not set. */
+    dueDate: v.optional(v.string()),
+    /** Person who created the milestone in the Portal. Absent on older rows. */
+    createdByContactId: v.optional(v.id('contacts')),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])

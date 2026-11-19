@@ -2,9 +2,10 @@
  * Editable milestone details. Pure rules. The mutations call these and skip
  * a write when `wrote` is false.
  *
- * Title, objective, owner, and due date stay read-only. `textBlurSave` is the
- * rule for a later text field: blur saves a real change, an unchanged blur
- * does not write, and Escape discards.
+ * Title and objective stay read-only. Owner and due date save on pick, and an
+ * unchanged pick does not write. `textBlurSave` is the rule for a later text
+ * field: blur saves a real change, an unchanged blur does not write, and
+ * Escape discards.
  */
 
 import type { MilestoneWorkStatus } from './milestones';
@@ -244,4 +245,55 @@ export function clientSeesDetailsRow(
 ): boolean {
   if (row === 'creator' || row === 'visibility' || row === 'approval' || row === 'review') return staff;
   return true;
+}
+
+/** A real calendar day. Rejects 2026-02-31 and any other shape. */
+export function isCalendarDate(value: string): boolean {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (month < 1 || month > 12 || day < 1) return false;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day;
+}
+
+/** Nov 20, 2026. Null when the stored day is missing or not a calendar day. */
+export function formatDueDate(value: string | null | undefined): string | null {
+  if (!value || !isCalendarDate(value)) return null;
+  const [year, month, day] = value.split('-').map(Number);
+  return new Date(Date.UTC(year!, month! - 1, day!)).toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+}
+
+/** Owner saves on pick. The same person, or clearing an empty owner, writes nothing. */
+export function ownerChangeDecision(input: {
+  from: string | null;
+  to: string | null;
+  allowed: boolean;
+}):
+  | { ok: true; wrote: false }
+  | { ok: true; wrote: true; ownerContactId: string | null }
+  | { ok: false; reason: string } {
+  if (input.to && !input.allowed) return { ok: false, reason: 'Choose a person on this client' };
+  if ((input.from ?? null) === (input.to ?? null)) return { ok: true, wrote: false };
+  return { ok: true, wrote: true, ownerContactId: input.to };
+}
+
+/** Due date saves on pick. The same day, or clearing an empty date, writes nothing. */
+export function dueDateChangeDecision(input: {
+  from: string | null;
+  to: string | null;
+}):
+  | { ok: true; wrote: false }
+  | { ok: true; wrote: true; dueDate: string | null }
+  | { ok: false; reason: string } {
+  if (input.to && !isCalendarDate(input.to)) return { ok: false, reason: 'Choose a real date' };
+  if ((input.from ?? null) === (input.to ?? null)) return { ok: true, wrote: false };
+  return { ok: true, wrote: true, dueDate: input.to };
 }

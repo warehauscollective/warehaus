@@ -55,6 +55,7 @@ export function PortalModal({
   cover = false,
   focusCancel = false,
   footer,
+  blueFocus = false,
 }: {
   testId?: string;
   scrimTestId?: string;
@@ -92,6 +93,8 @@ export function PortalModal({
    * and a centered dialog shortens so this row sits above the dock.
    */
   footer?: ReactNode;
+  /** Keyboard ring uses the blue --info token. New milestone and edit fields. */
+  blueFocus?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -190,6 +193,7 @@ export function PortalModal({
         aria-modal={hidden ? undefined : true}
         aria-label={hidden ? undefined : label}
         data-testid={hidden ? undefined : testId}
+        data-focus-ring={hidden || !blueFocus ? undefined : 'info'}
         className={hidden ? undefined : isSheet ? 'portal-modal-panel portal-modal-sheet' : 'portal-modal-panel'}
         onClick={(event) => event.stopPropagation()}
         style={hidden ? undefined : {
@@ -222,6 +226,7 @@ export function PortalModal({
             icon={icon}
             headerIcon={headerIcon}
             onClose={onClose}
+            blueFocus={blueFocus}
           />
         ) : null}
         <div data-portal-modal-body="" style={hidden ? undefined : { overflow: 'auto', minHeight: 0, flex: '1 1 auto', ...panelStyle }}>{children}</div>
@@ -247,6 +252,7 @@ function ModalHeader({
   icon,
   headerIcon,
   onClose,
+  blueFocus = false,
 }: {
   label: string;
   header: PortalModalHeader;
@@ -255,6 +261,7 @@ function ModalHeader({
   icon: PortalModalIcon;
   headerIcon?: ReactNode;
   onClose: () => void;
+  blueFocus?: boolean;
 }) {
   const compact = header === 'compact';
   const phoneCompact = compact && narrow;
@@ -289,7 +296,9 @@ function ModalHeader({
           type="button"
           data-testid="portal-modal-close"
           onClick={onClose}
-          className="focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-2"
+          className={blueFocus
+            ? 'focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2'
+            : 'focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-2'}
           style={{
             flex: '0 0 auto',
             background: 'none',

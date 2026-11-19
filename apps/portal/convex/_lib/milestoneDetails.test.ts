@@ -8,10 +8,14 @@ import {
   clientSeesDetailsRow,
   detailActivitySummary,
   detailStatusDecision,
+  dueDateChangeDecision,
   effectiveDetailStatus,
   effectiveStage,
+  formatDueDate,
   heldTaskProjectId,
+  isCalendarDate,
   movedLaneCount,
+  ownerChangeDecision,
   projectMoveDecision,
   publishChangeDecision,
   stageChangeDecision,
@@ -230,9 +234,10 @@ describe('task move and client rows', () => {
       approverName: 'Peter',
       decidedAt: 1,
       creator: 'Peter',
+      creatorName: 'Peter',
       workStatus: 'ready',
     }, 'client');
-    for (const key of ['publishToWarehaus', 'approval', 'note', 'approverName', 'decidedAt', 'creator']) {
+    for (const key of ['publishToWarehaus', 'approval', 'note', 'approverName', 'decidedAt', 'creator', 'creatorName']) {
       assert.equal(key in clientView, false, key);
     }
     assert.equal(clientView.workStatus, 'ready');
@@ -243,6 +248,39 @@ describe('task move and client rows', () => {
       { id: 'b', projectId: 'p1', milestoneId: 'm', parentTaskId: null },
       { id: 'c', projectId: 'p1', milestoneId: 'm', parentTaskId: 'a' },
     ], ['a', 'b', 'c']), 2);
+  });
+});
+
+describe('owner and due date', () => {
+  it('writes a new person or day and skips the same value', () => {
+    assert.equal(isCalendarDate('2026-11-20'), true);
+    assert.equal(isCalendarDate('2026-02-31'), false);
+    assert.equal(formatDueDate('2026-11-20'), 'Nov 20, 2026');
+    assert.equal(formatDueDate(null), null);
+    assert.deepEqual(ownerChangeDecision({ from: null, to: null, allowed: true }), { ok: true, wrote: false });
+    assert.deepEqual(ownerChangeDecision({ from: 'a', to: 'a', allowed: true }), { ok: true, wrote: false });
+    assert.deepEqual(ownerChangeDecision({ from: null, to: 'a', allowed: true }), { ok: true, wrote: true, ownerContactId: 'a' });
+    assert.equal(ownerChangeDecision({ from: null, to: 'a', allowed: false }).ok, false);
+    assert.deepEqual(dueDateChangeDecision({ from: null, to: null }), { ok: true, wrote: false });
+    assert.deepEqual(dueDateChangeDecision({ from: '2026-11-20', to: '2026-11-20' }), { ok: true, wrote: false });
+    assert.deepEqual(dueDateChangeDecision({ from: null, to: '2026-11-20' }), { ok: true, wrote: true, dueDate: '2026-11-20' });
+    assert.equal(dueDateChangeDecision({ from: null, to: 'tomorrow' }).ok, false);
+  });
+
+  it('resolves names with point reads and lists owners with one capped index read', () => {
+    const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
+    const names = source.slice(source.indexOf('async function personName'), source.indexOf('async function insertMilestone'));
+    assert.match(names, /ctx\.db\.get\(contactId\)/);
+    assert.match(names, /\.take\(OWNER_TAKE\)/);
+    assert.match(names, /by_orgId/);
+    assert.doesNotMatch(names, /\.collect\(\)/);
+    assert.match(source, /ownerNameFor/);
+    assert.match(source, /creatorNameFor/);
+    const schema = readFileSync(new URL('../schema.ts', import.meta.url), 'utf8');
+    const table = schema.slice(schema.indexOf('milestones: defineTable'), schema.indexOf('contacts: defineTable'));
+    assert.match(table, /ownerContactId: v\.optional\(v\.id\('contacts'\)\)/);
+    assert.match(table, /dueDate: v\.optional\(v\.string\(\)\)/);
+    assert.match(table, /createdByContactId: v\.optional\(v\.id\('contacts'\)\)/);
   });
 });
 

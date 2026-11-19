@@ -598,6 +598,16 @@ body:has([data-sheet-layer='viewport']) [data-testid='portal-dock'] {
 .ds-scope .portal-create-field:focus {
   border: 2px solid var(--accent) !important;
 }
+/* New milestone and edit fields. Explicit blue token, not the neutral --fg ring. */
+.ds-scope .milestone-field:focus,
+.ds-scope .milestone-field:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+.ds-scope [data-focus-ring='info'] :focus-visible {
+  outline: 2px solid var(--info) !important;
+  outline-offset: 2px;
+}
 .ds-scope .portal-create-field[aria-invalid='true'] {
   border-color: var(--danger);
 }
