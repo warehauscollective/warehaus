@@ -23,7 +23,7 @@ import { MilestoneDialog } from './milestoneChrome';
 import { ConfirmFrame, PreviewLinkField } from './milestoneDetailsEdit';
 
 export const APPROVAL_SAVE_ERROR = 'Couldn’t save your approval. Nothing changed. Try again.';
-export const APPROVED_AWAITING = 'Approved · awaiting merge and deploy.';
+export const APPROVED_AWAITING = 'Approved · awaiting merge and deploy · Shipped is set automatically on merge';
 export const APPROVED_DEPLOYING = 'Merging and deploying…';
 export const RECORDING_APPROVAL = 'Recording approval…';
 export const APPROVING_LABEL = 'Approving…';
@@ -33,6 +33,7 @@ export const APPROVE_CONFIRM_TITLE = 'Approve this milestone?';
 export const PREVIEW_REMOVED = 'Preview removed after approval · Vercel build deleted';
 export const RETRY_FAILED = 'Retry didn’t start. Nothing changed.';
 export const STAFF_RETRY_LINE = 'STAFF ONLY · Peter and clients don’t see Retry.';
+export const STAFF_DELETE_LINE = 'STAFF ONLY · Peter and clients see the normal Approved card, with no preview line, until the delete succeeds';
 /** Same muted opacity as Request changes while a preview build is held. */
 export const RETRY_DISABLED_OPACITY = 0.4;
 export const WAITING_COPY = 'Staff attach a preview link when this is ready for review. The link shows here and in Grok Bot chat.';
@@ -127,9 +128,9 @@ function designPillLabel(check: DesignCheck): string {
   return 'DESIGN CHECK · PENDING';
 }
 
-function CheckIcon() {
+function CheckIcon({ size = 12 }: { size?: number }) {
   return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
+    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
       <path d="M2.2 6.2 4.7 8.7 9.8 3.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
     </svg>
   );
@@ -630,6 +631,7 @@ function PreviewLifecycle({
   const failedAt = visual === 'preview-failed' ? model.previewBuildAt : model.previewDeleteAt;
   const attempt = visual === 'preview-failed' ? model.previewBuildAttempt : model.previewDeleteAttempt;
   const stamp = failedAt ? formatReviewStamp(failedAt) : null;
+  const clock = stamp?.split(' · ')[1] ?? stamp;
   const border = visual === 'building' ? '1px dashed var(--border)' : visual === 'delete-failed' ? '1px solid var(--portal-warning)' : '1px solid var(--danger)';
   const title = visual === 'building'
     ? 'Waiting for a preview link'
@@ -643,18 +645,18 @@ function PreviewLifecycle({
     : visual === 'preview-failed'
       ? 'Nothing changed. The milestone stays at Ready to Ship until a preview exists.'
       : visual === 'delete-failed'
-        ? `Delete failed${stamp ? ` at ${stamp}` : ''}${attempt ? ` · attempt ${attempt}` : ''}`
+        ? `Delete failed${clock ? ` at ${clock}` : ''}${attempt ? ` · attempt ${attempt}` : ''}`
         : `Vercel build still exists${stamp ? ` · last attempt ${stamp}` : ''}${attempt ? ` · ${attempt} attempts` : ''}`;
   const showRetry = !isPeter && (visual === 'preview-failed' || visual === 'couldnt-remove');
   return (
     <div role="status" className="flex items-start gap-3" style={{ border, borderRadius: 18, padding: '14px 16px' }}>
       {visual === 'building' ? <Spinner /> : <span style={{ color: visual === 'delete-failed' ? 'var(--portal-warning)' : 'var(--danger-text)', display: 'inline-flex' }}><AlertIcon /></span>}
       <div className="flex min-w-0 flex-1 flex-col gap-1">
-        <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: visual === 'delete-failed' ? 'var(--portal-warning)' : undefined }}>{title}</p>
-        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: visual === 'delete-failed' ? 'var(--portal-warning)' : 'var(--muted)' }}>{detail}</p>
+        <p data-testid="review-status-title" style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--fg)' }}>{title}</p>
+        <p data-testid="review-status-detail" className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: visual === 'delete-failed' ? 'var(--portal-warning)' : 'var(--muted)' }}>{detail}</p>
         {visual === 'delete-failed' ? (
-          <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-            Staff see this. Peter and clients see the approved card until the delete succeeds.
+          <p data-testid="review-staff-delete-line" className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+            {STAFF_DELETE_LINE}
           </p>
         ) : null}
         {showRetry ? <RetryControl phone={phone} busy={retrying} onRetry={onRetry} error={retryError} /> : null}
@@ -875,34 +877,41 @@ export function MilestoneReviewSurface({
             {`PR #${model.prNumber}${model.prTitle ? ` · ${model.prTitle}` : ''}`}
           </h2>
         ) : null}
-        {layout === 'card' && (model.branch || model.commit) && visual !== 'changes' && visual !== 'approved' && visual !== 'delete-failed' && visual !== 'couldnt-remove' ? (
-          <p className="ds-mono" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
+        {layout === 'card' && (model.branch || model.commit) && visual !== 'changes' ? (
+          <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
             {visual === 'building'
               ? (model.branch ?? '')
               : visual === 'preview-failed'
                 ? `${model.branch ?? 'branch'} · preview build failed`
-                : [model.branch, model.commit, model.builtAt ? formatReviewStamp(model.builtAt) : null].filter(Boolean).join(' · ')}
+                : [model.branch, model.commit, model.builtAt ? `${visual === 'approved' || visual === 'delete-failed' || visual === 'couldnt-remove' ? 'built ' : ''}${formatReviewStamp(model.builtAt)}` : null].filter(Boolean).join(' · ')}
           </p>
         ) : null}
         {visual === 'approved' || visual === 'delete-failed' || visual === 'couldnt-remove' ? (
-          <>
-            <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{`Approved by ${who}${stamp ? ` · ${stamp}` : ''}`}</p>
-            {model.deployFinishedAt ? (
-              <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-                Read-only · deploy finished · Shipped is set automatically on merge
-              </p>
-            ) : model.deployStartedAt ? (
-              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{APPROVED_DEPLOYING}</p>
-            ) : (
-              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{APPROVED_AWAITING}</p>
-            )}
-            {visual === 'approved' && previewRemovalRecorded(model) ? (
-              <p data-testid="preview-removed" className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{PREVIEW_REMOVED}</p>
-            ) : null}
+          <div className="flex flex-col gap-5" style={{ marginTop: 16 }}>
+            <div className="flex items-start gap-2">
+              <span data-testid="review-approved-check" style={{ color: 'var(--fg)', display: 'inline-flex', flex: '0 0 auto' }}>
+                <CheckIcon size={16} />
+              </span>
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--fg)' }}>{`Approved by ${who}${stamp ? ` · ${stamp}` : ''}`}</p>
+                {model.deployFinishedAt ? (
+                  <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                    Read-only · deploy finished · Shipped is set automatically on merge
+                  </p>
+                ) : model.deployStartedAt ? (
+                  <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{APPROVED_DEPLOYING}</p>
+                ) : (
+                  <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{APPROVED_AWAITING}</p>
+                )}
+                {visual === 'approved' && previewRemovalRecorded(model) ? (
+                  <p data-testid="preview-removed" className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{PREVIEW_REMOVED}</p>
+                ) : null}
+              </div>
+            </div>
             {visual === 'delete-failed' || visual === 'couldnt-remove' ? (
               <PreviewLifecycle visual={visual} model={model} phone={phone} isPeter={isPeter} retrying={retryPending} retryError={retryMessage} onRetry={runRetry} />
             ) : null}
-          </>
+          </div>
         ) : visual === 'changes' ? (
           <>
             <h2 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', margin: 0 }}>Changes requested</h2>

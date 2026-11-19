@@ -8,6 +8,7 @@ import {
   APPROVE_CONFIRM_COPY,
   APPROVED_AWAITING,
   DEPLOY_FOOTER,
+  STAFF_DELETE_LINE,
   MilestoneReviewSurface,
   PREVIEW_REMOVED,
   RETRY_DISABLED_OPACITY,
@@ -129,6 +130,23 @@ describe('peter and staff preview visibility', () => {
         assert.match(staff, /data-review-state="delete-failed"/);
         assert.match(staff, /Removing preview/);
         assert.equal(staff.includes('data-testid="review-retry"'), false);
+        assert.equal(STAFF_DELETE_LINE, 'STAFF ONLY · Peter and clients see the normal Approved card, with no preview line, until the delete succeeds');
+        assert.match(staff, /data-testid="review-staff-delete-line"[^>]*>STAFF ONLY · Peter and clients see the normal Approved card, with no preview line, until the delete succeeds</);
+        assert.equal(staff.includes('Staff see this'), false);
+        const openingTag = (html: string, testId: string) => {
+          const at = html.indexOf(`data-testid="${testId}"`);
+          assert.ok(at > 0);
+          return html.slice(html.lastIndexOf('<', at), html.indexOf('>', at) + 1);
+        };
+        const title = openingTag(staff, 'review-status-title');
+        const detail = openingTag(staff, 'review-status-detail');
+        assert.equal(title.includes('portal-warning'), false);
+        assert.match(title, /var\(--fg\)/);
+        assert.match(detail, /var\(--portal-warning\)/);
+        assert.match(staff, /Delete failed at \d{1,2}:\d{2} [AP]M ET · attempt 2/);
+        assert.match(staff, /built /);
+        assert.match(staff, /data-testid="review-approved-check"/);
+        assert.match(staff, /Shipped is set automatically on merge/);
       } else {
         assert.match(staff, /data-review-state="couldnt-remove"/);
         assert.match(staff, /remove preview/);
@@ -166,7 +184,11 @@ describe('peter and staff preview visibility', () => {
     assert.equal(previewRemovalRecorded({ ...removed, previewDeleteAt: null }), false);
     assert.equal(previewRemovalRecorded(removed), true);
     assert.equal(card(approved, { isPeter: true }).includes(PREVIEW_REMOVED), false);
-    assert.match(card(removed, { isPeter: true }), new RegExp(PREVIEW_REMOVED.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    const settled = card(removed, { isPeter: true });
+    assert.match(settled, new RegExp(PREVIEW_REMOVED.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(settled, /data-testid="review-approved-check"/);
+    assert.match(settled, new RegExp(APPROVED_AWAITING.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.equal(APPROVED_AWAITING, 'Approved · awaiting merge and deploy · Shipped is set automatically on merge');
     const waitingAttach: ReviewSurfaceModel = { ...base, previewUrl: null };
     assert.equal(card(waitingAttach, { isPeter: false, staffAttach: true }).includes('data-testid="approve-deploy"'), false);
     assert.match(card(waitingAttach, { isPeter: false, staffAttach: true }), /Attach preview link/);
