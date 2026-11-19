@@ -2,6 +2,8 @@
 
 import { useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useMutation } from 'convex/react';
+import { isPeterEmail } from '@convex/_lib/milestoneReview';
+import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -347,6 +349,9 @@ export function ProjectRoadmap({
   renderTasks?: (tasks: PortalTask[]) => ReactNode;
   details?: ReactNode;
 }) {
+  const auth = usePortalAuth();
+  const isPeter = isPeterEmail(auth.authUser?.email);
+  const approveMilestone = useMutation(api.milestones.approve);
   const [patches, setPatches] = useState<Record<string, FixturePatch>>({});
   const [created, setCreated] = useState<MilestoneRoadmapView[]>([]);
   const [projectTab, setProjectTab] = useState<ProjectTab>('milestones');
@@ -438,6 +443,7 @@ export function ProjectRoadmap({
           staff={staff}
           fixtures={fixtures}
           hostSlug={hostSlug}
+          isPeter={isPeter}
           activity={projectActivity}
           activityError={activityError}
           onOpenTask={onOpenTask}
@@ -574,7 +580,17 @@ export function ProjectRoadmap({
                     key={milestone.id}
                     milestone={milestone}
                     staff={staff}
+                    isPeter={isPeter}
+                    fixtures={fixtures}
                     onOpen={() => setOpenMilestoneId(milestone.id)}
+                    onApprove={(iteration) =>
+                      approveMilestone({
+                        hostSlug,
+                        milestoneId: milestone.id as Id<'milestones'>,
+                        iteration,
+                        notes: '',
+                      })
+                    }
                   />
                 ))}
               </div>
@@ -612,12 +628,33 @@ export function ProjectRoadmap({
 export function MilestoneListCard({
   milestone,
   staff,
+  isPeter = false,
+  fixtures = false,
   onOpen,
+  onApprove,
 }: {
   milestone: MilestoneRoadmapView;
   staff: boolean;
+  isPeter?: boolean;
+  fixtures?: boolean;
   onOpen: () => void;
+  onApprove?: (iteration: number) => Promise<unknown>;
 }) {
+  const [confirm, setConfirm] = useState(false);
+  const [deploying, setDeploying] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const canDeploy = Boolean(staff && isPeter && milestone.workStatus === 'ready' && milestone.approval !== 'approved' && milestone.review?.previewUrl);
+  const confirmDeploy = () => {
+    if (fixtures || !milestone.review || !onApprove) {
+      setConfirm(false);
+      return;
+    }
+    setDeploying(true);
+    setDeployError(null);
+    void onApprove(milestone.review.iteration).then(() => setConfirm(false)).catch((err) => {
+      setDeployError(userFacingErrorMessage(err, 'Couldn’t save your approval. Nothing changed. Try again.'));
+    }).finally(() => setDeploying(false));
+  };
   const total = taskTotal(milestone);
   const stage = milestoneTileStage(milestone);
   const subtasks = boardTaskCounts(milestone).nested;
@@ -695,10 +732,43 @@ export function MilestoneListCard({
           </p>
         ) : null}
         <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
+        {canDeploy ? (
+          <button type="button" data-testid="tile-approve-deploy" onClick={() => setConfirm(true)} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
+            Approve & deploy
+          </button>
+        ) : null}
       </div>
-      <div className="lg:hidden">
+      <div className="flex flex-col gap-2 lg:hidden">
+        {canDeploy ? (
+          <button type="button" data-testid="tile-approve-deploy-phone" onClick={() => setConfirm(true)} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, width: '100%', cursor: 'pointer' }}>
+            Approve & deploy
+          </button>
+        ) : null}
         <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
+      {confirm ? (
+        <MilestoneDialog
+          title="Approve and ship to production?"
+          onClose={() => setConfirm(false)}
+          onConfirm={confirmDeploy}
+          footer={
+            <>
+              <OutlineButton onClick={() => setConfirm(false)}>Cancel</OutlineButton>
+              <button type="button" disabled={deploying} onClick={confirmDeploy} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, opacity: deploying ? 0.7 : 1 }}>
+                {deploying ? 'Merging and deploying…' : 'Approve & deploy'}
+              </button>
+            </>
+          }
+        >
+          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Marks approved. Engineering merges to main and deploys production next.</p>
+          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>This ships to production.</p>
+          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>You can’t undo this from the Portal.</p>
+          <p style={{ margin: '8px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+            Merge and deploy wait on GitHub and Vercel. This records the approval and leaves the stage at Ready to Ship.
+          </p>
+          {deployError ? <p role="alert" style={{ color: 'var(--danger-text)', fontSize: 14 }}>{deployError}</p> : null}
+        </MilestoneDialog>
+      ) : null}
     </article>
   );
 }
@@ -753,6 +823,7 @@ function MilestoneDetail(props: {
   staff: boolean;
   fixtures: boolean;
   hostSlug?: string;
+  isPeter?: boolean;
   activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
   onOpenTask?: (task: PortalTask) => void;
@@ -793,6 +864,7 @@ export function MilestoneDetailView({
   onBackToProjects,
   onFixture,
   mutations,
+  isPeter,
 }: {
   milestone: MilestoneRoadmapView;
   project: RoadmapProject;
@@ -809,6 +881,7 @@ export function MilestoneDetailView({
   onBackToProjects?: () => void;
   onFixture: (patch: FixturePatch) => void;
   mutations: MilestoneMutations;
+  isPeter?: boolean;
 }) {
   const { save, setWorkStatus, setPublish, attachTask, detachTask } = mutations;
   const [tab, setTab] = useState<MilestoneTab>('overview');
@@ -864,9 +937,6 @@ export function MilestoneDetailView({
         subtitle={`Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`}
         action={undefined}
       />
-      {staff && milestone.review ? (
-        <MilestoneReviewLive milestone={milestone} hostSlug={hostSlug} />
-      ) : null}
       <TabRow
         label="Milestone"
         idPrefix="milestone"
@@ -882,6 +952,10 @@ export function MilestoneDetailView({
       <div role="tabpanel" id={tabIds('milestone', tab).panel} aria-labelledby={tabIds('milestone', tab).tab}>
 
       {tab === 'overview' ? (
+        <div className="flex flex-col gap-6">
+          {staff && milestone.review ? (
+            <MilestoneReviewLive milestone={milestone} hostSlug={hostSlug} isPeter={isPeter} />
+          ) : null}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
           <div className="order-first w-full lg:order-last lg:w-[292px] lg:shrink-0">
             <Panel>
@@ -1111,6 +1185,7 @@ export function MilestoneDetailView({
               <MenuActionError error={error} onDismiss={() => setError(null)} />
             ) : null}
           </div>
+        </div>
         </div>
       ) : null}
 
@@ -1900,6 +1975,7 @@ function TaskLine({
       <p className="flex flex-wrap items-center gap-2" style={{ fontSize: 12, color: 'var(--muted)' }}>
         <span data-testid="milestone-task-status">{displayedTaskStatus(row.status, row.stage)}</span>
         {row.stage ? <span data-testid="milestone-task-stage">{row.stage}</span> : null}
+        {row.source === 'portal-review' ? <span data-testid="review-tag" className="ds-mono" style={{ border: '1px solid var(--border-2)', borderRadius: 999, padding: '2px 8px' }}>From review</span> : null}
         <span data-testid="milestone-task-resources">{resourceLabel(row.resourceCount)}</span>
         {row.pullRequestUrl ? (
           <a data-testid="milestone-task-pr" href={row.pullRequestUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>

@@ -97,13 +97,18 @@ const changes: ReviewSurfaceModel = {
   ],
 };
 
-const frames: Array<{ id: string; title: string; visual?: ReviewVisual; model: ReviewSurfaceModel; width: number }> = [
-  { id: 'ready', title: 'Ready', model: ready, width: 1108 },
-  { id: 'waiting', title: 'No preview yet', model: waiting, width: 1108 },
-  { id: 'fixes', title: 'Design fixes needed', model: fixes, width: 1108 },
-  { id: 'saving', title: 'Saving', visual: 'saving', model: ready, width: 1108 },
-  { id: 'error', title: 'Error', visual: 'error', model: ready, width: 1108 },
-  { id: 'approved', title: 'Approved', model: approved, width: 1108 },
+const frames: Array<{ id: string; title: string; visual?: ReviewVisual; model: ReviewSurfaceModel; width: number; isPeter?: boolean }> = [
+  { id: 'ready', title: 'Ready', model: ready, width: 1108, isPeter: true },
+  { id: 'ready-staff', title: 'Ready · staff', model: ready, width: 1108, isPeter: false },
+  { id: 'waiting', title: 'No preview yet', model: waiting, width: 1108, isPeter: true },
+  { id: 'building', title: 'Building preview', visual: 'building', model: ready, width: 1108, isPeter: true },
+  { id: 'preview-failed', title: 'Preview failed', visual: 'preview-failed', model: ready, width: 1108, isPeter: true },
+  { id: 'fixes', title: 'Design fixes needed', model: fixes, width: 1108, isPeter: true },
+  { id: 'saving', title: 'Saving', visual: 'saving', model: ready, width: 1108, isPeter: true },
+  { id: 'error', title: 'Error', visual: 'error', model: ready, width: 1108, isPeter: true },
+  { id: 'approved', title: 'Approved', model: { ...approved, designApprovedCopy: true }, width: 1108 },
+  { id: 'delete-failed', title: 'Delete failed', visual: 'delete-failed', model: approved, width: 1108 },
+  { id: 'couldnt-remove', title: 'Couldn’t remove preview', visual: 'couldnt-remove', model: approved, width: 1108 },
   { id: 'changes', title: 'Changes requested', model: changes, width: 1108 },
 ];
 
@@ -130,7 +135,7 @@ function StageHint({ current, phone = false, confirming = null }: { current: str
       <div className="flex flex-wrap gap-2">
         {stages.map((stage) => {
           const selected = stage === current;
-          const locked = !selected && stage !== 'Idea' && stage !== 'Planning';
+          const locked = stage === 'Shipped' && !selected;
           return (
             <span
               key={stage}
@@ -169,8 +174,10 @@ function TaskFrame({ phone }: { phone: boolean }) {
     >
       <p className="ds-mono" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>Warehaus Portal / Task</p>
       <p style={{ margin: 0, background: 'var(--surface-2)', borderRadius: 18, padding: '8px 12px', fontSize: 14, fontWeight: 500 }}>Staff only · hidden from clients</p>
-      <h2 className="type-heading" style={{ fontSize: phone ? 20 : 28, lineHeight: phone ? '30px' : '36px', margin: 0 }}>Order-ahead landing page</h2>
-      <MilestoneReviewSurface model={ready} layout="row" phone={phone} />
+      <h2 className="type-heading" style={{ fontSize: phone ? 20 : 28, lineHeight: phone ? '30px' : '36px', margin: 0 }}>
+        Order-ahead landing page
+        <span data-testid="review-tag" className="ds-mono" style={{ marginLeft: 8, border: '1px solid var(--border-2)', borderRadius: 999, padding: '2px 8px', fontSize: 12, color: 'var(--muted)' }}>From review</span>
+      </h2>
       <div className="flex items-center gap-3">
         <span className="ds-mono" style={{ width: 104, fontSize: 12, color: 'var(--muted)' }}>Status</span>
         <StatusBadge>In review</StatusBadge>
@@ -201,13 +208,13 @@ function DialogFrame({
       data-width={phone ? '390' : '1440'}
       style={{ position: 'relative', width: phone ? 390 : 1108, minHeight: phone ? 760 : 720, overflow: 'hidden', paddingTop: 16 }}
     >
-      <MilestoneReviewSurface model={model} layout="card" phone={phone} />
+      <MilestoneReviewSurface model={model} layout="card" phone={phone} isPeter />
       <ReviewScrim
         phone={phone}
         cover
         confirmOnEnter={kind === 'approve'}
-        label={kind === 'approve' ? 'Approve milestone' : 'Request changes'}
-        hint={kind === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to approve · Esc to close'}
+        label={kind === 'approve' ? 'Approve and ship to production?' : 'Request changes'}
+        hint={kind === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
         onClose={() => undefined}
         onConfirm={() => undefined}
         footer={
@@ -297,6 +304,7 @@ function MilestonePage({ capture, width, staff }: { capture: string; width: numb
         project={{ id: 'p-portal', name: 'Warehaus Portal', publishToWarehaus: true }}
         tasks={[]}
         staff={staff}
+        isPeter={staff}
         fixtures
         resourceChoices={[]}
         onBack={() => undefined}
@@ -330,18 +338,19 @@ export function ApprovalsPreview({ theme }: { theme: 'dark' | 'light' }) {
         {frames.map((frame) => (
           <section key={frame.id} data-capture={frame.id} data-width="1440" style={{ width: frame.width, paddingTop: 16 }}>
             <h2 className="type-heading" style={{ fontSize: 20, margin: '0 0 12px' }}>{frame.title}</h2>
-            <MilestoneReviewSurface model={frame.model} layout="card" phone={false} forced={frame.visual ?? null} />
+            <MilestoneReviewSurface model={frame.model} layout="card" phone={false} isPeter={frame.isPeter !== false} forced={frame.visual ?? null} />
           </section>
         ))}
         {frames.map((frame) => (
           <section key={`${frame.id}-phone`} data-capture={`${frame.id}-phone`} data-width="390" style={{ width: 390, paddingTop: 16 }}>
             <h2 className="type-heading" style={{ fontSize: 20, margin: '0 0 12px' }}>{`${frame.title} · phone`}</h2>
-            <MilestoneReviewSurface model={frame.model} layout="card" phone forced={frame.visual ?? null} />
+            <MilestoneReviewSurface model={frame.model} layout="card" phone isPeter={frame.isPeter !== false} forced={frame.visual ?? null} />
           </section>
         ))}
         <TaskFrame phone={false} />
         <TaskFrame phone />
         <DialogFrame kind="approve" capture="dialog-approve" />
+        <DialogFrame kind="approve" busy capture="dialog-approve-pending" />
         <DialogFrame kind="approve" model={fixes} capture="dialog-approve-fixes" />
         <DialogFrame kind="approve" fieldError="Couldn’t save your approval. Nothing changed. Try again." capture="dialog-error" />
         <DialogFrame kind="changes" capture="dialog-changes" />
@@ -351,7 +360,7 @@ export function ApprovalsPreview({ theme }: { theme: 'dark' | 'light' }) {
         <MilestonePage capture="r3" width={1108} staff />
         <MilestonePage capture="r3-phone" width={390} staff />
         <section data-capture="r5" data-width="1440" style={{ width: 1108, paddingTop: 16 }}>
-          <MilestoneReviewSurface model={approved} layout="card" />
+          <MilestoneReviewSurface model={{ ...approved, designApprovedCopy: true }} layout="card" isPeter />
           <article data-testid="milestone-activity-card" style={{ marginTop: 16, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 28, padding: 24 }}>
             <h3 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', margin: '0 0 12px' }}>Activity</h3>
             <ul className="flex flex-col gap-3" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
@@ -367,7 +376,7 @@ export function ApprovalsPreview({ theme }: { theme: 'dark' | 'light' }) {
           </article>
         </section>
         <section data-capture="iterations" data-width="1440" style={{ width: 1108, paddingTop: 16 }}>
-          <MilestoneReviewSurface model={ready} layout="card" />
+          <MilestoneReviewSurface model={ready} layout="card" isPeter />
         </section>
         <MilestonePage capture="client" width={1108} staff={false} />
         <MilestonePage capture="client-phone" width={390} staff={false} />
@@ -378,7 +387,7 @@ export function ApprovalsPreview({ theme }: { theme: 'dark' | 'light' }) {
           <StageHint current="Ready to Ship" phone confirming="Planning" />
         </section>
         <section data-capture="task-phone-card" data-width="390" style={{ width: 390 }}>
-          <MilestoneReviewSurface model={ready} layout="card" phone />
+          <MilestoneReviewSurface model={ready} layout="card" phone isPeter />
         </section>
       </div>
     </main>

@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
@@ -11,13 +11,19 @@ import { OutlineButton, Pill, PortalCheckbox, PrimaryButton, StatusBadge } from 
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus, TASK_STAGE_HINT } from '@/lib/data/taskStatus';
-import { MilestoneReviewSurface, type ReviewSurfaceModel } from '@/components/projects/MilestoneReview';
 import { StageConfirmSheet } from '@/components/projects/milestoneChrome';
-import type { MilestoneReviewView } from '@convex/_lib/milestones';
 import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
 import { StaffLiveFields } from './StaffLiveFields';
 import { TaskGlyph } from './TaskGlyph';
 import { TaskSources } from './TaskSources';
+
+function ReviewTag() {
+  return (
+    <span data-testid="review-tag" className="ds-mono" style={{ border: '1px solid var(--border-2)', borderRadius: 999, padding: '2px 8px', fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+      From review
+    </span>
+  );
+}
 
 type ResourceRow = {
   id: string;
@@ -64,40 +70,10 @@ export function TaskDetailModal({
 }) {
   const [attach, setAttach] = useState(false);
   const [asideNote, setAsideNote] = useState<string | null>(null);
-  const [reviewing, setReviewing] = useState(false);
   const [stageConfirm, setStageConfirm] = useState<string | null>(null);
-  const [closeReview, setCloseReview] = useState(0);
-  const onReviewActive = useCallback((open: boolean) => setReviewing(open), []);
   const moveStage = useMutation(api.tasks.moveStage);
   const moveStatus = useMutation(api.tasks.moveStatus);
   const updateLiveFields = useMutation(api.tasks.updateLiveFields);
-  const approveReview = useMutation(api.milestones.approve);
-  const requestReviewChanges = useMutation(api.milestones.requestChanges);
-  const reviewQuery = useSafeQuery<MilestoneReviewView | null>(
-    api.milestones.reviewForStaff,
-    live && staff && task?.stage === 'Ready to Ship' && task.milestoneId
-      ? { hostSlug, milestoneId: task.milestoneId as Id<'milestones'> }
-      : 'skip',
-  );
-  const latestReview = reviewQuery.data?.history[0] ?? null;
-  const reviewModel: ReviewSurfaceModel | null = reviewQuery.data && task
-    ? {
-        milestoneId: task.milestoneId ?? '',
-        iteration: reviewQuery.data.iteration,
-        workStatus: latestReview?.decision === 'request_changes' ? 'active' : 'ready',
-        approval: latestReview?.decision === 'approve' ? 'approved' : latestReview?.decision === 'request_changes' ? 'changes_requested' : 'unreviewed',
-        previewUrl: reviewQuery.data.previewUrl,
-        prNumber: reviewQuery.data.prNumber,
-        prTitle: reviewQuery.data.prTitle,
-        branch: reviewQuery.data.branch,
-        commit: reviewQuery.data.commit,
-        builtAt: reviewQuery.data.builtAt,
-        designCheck: reviewQuery.data.designCheck,
-        designCheckNote: reviewQuery.data.designCheckNote,
-        history: reviewQuery.data.history,
-        tasks: [{ id: task.id, name: task.name }],
-      }
-    : null;
   const shownStatus = task ? displayedTaskStatus(task.status, task.stage) : '';
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -107,12 +83,7 @@ export function TaskDetailModal({
   return (
     <ModalShell
       phone={phone}
-      suspended={reviewing}
-      scrim={reviewing ? 'light' : 'solid'}
-      onClose={() => {
-        if (reviewing) setCloseReview((current) => current + 1);
-        else onClose();
-      }}
+      onClose={onClose}
       label={task?.name ?? 'Task'}
     >
       {unavailable || !task ? (
@@ -127,38 +98,12 @@ export function TaskDetailModal({
         </div>
       ) : (
         <>
-        {reviewModel ? (
-          <MilestoneReviewSurface
-            model={reviewModel}
-            layout="row"
-            phone={phone}
-            swap={reviewing}
-            closeToken={closeReview}
-            onActive={onReviewActive}
-            onApprove={async (notes) => {
-              await approveReview({
-                hostSlug,
-                milestoneId: reviewModel.milestoneId as Id<'milestones'>,
-                iteration: reviewModel.iteration,
-                notes,
-              });
-            }}
-            onRequestChanges={async (notes, taskIds) => {
-              await requestReviewChanges({
-                hostSlug,
-                milestoneId: reviewModel.milestoneId as Id<'milestones'>,
-                iteration: reviewModel.iteration,
-                notes,
-                taskIds: taskIds as Id<'tasks'>[],
-              });
-            }}
-          />
-        ) : null}
-        <div className="mb-4 flex items-center gap-3" style={{ display: reviewing ? 'none' : undefined }}>
+        <div className="mb-4 flex items-center gap-3">
           <p className="min-w-0 flex-1 truncate" style={{ fontSize: 13, color: 'var(--muted)', margin: 0 }}>
             {task.projectName ?? 'Project'}
             <span> / </span>
             <span style={{ color: 'var(--fg)' }}>{task.name}</span>
+            {task.source === 'portal-review' ? <ReviewTag /> : null}
           </p>
           <button
             type="button"
@@ -181,7 +126,7 @@ export function TaskDetailModal({
           <span className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>Esc</span>
           <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
         </div>
-        <div className={phone ? 'flex flex-col' : 'grid gap-8'} style={{ display: reviewing ? 'none' : undefined, ...(phone ? { gap: 24 } : { gridTemplateColumns: 'minmax(0, 1fr) 296px' }) }}>
+        <div className={phone ? 'flex flex-col' : 'grid gap-8'} style={phone ? { gap: 24 } : { gridTemplateColumns: 'minmax(0, 1fr) 296px' }}>
           <div className={phone ? undefined : 'flex min-w-0 flex-col gap-4'} style={phone ? { display: 'contents' } : undefined}>
             <h2 ref={titleRef} tabIndex={-1} style={{ fontFamily: 'var(--font-display)', fontSize: phone ? 20 : 28, lineHeight: phone ? '30px' : undefined, outline: 'none', order: phone ? 2 : undefined }}>
               {task.name}
@@ -369,7 +314,7 @@ export function TaskDetailModal({
                 <div className="flex flex-wrap gap-2">
                   {TASK_STAGES.map((stage) => {
                     const current = task.stage === stage;
-                    const visualLock = !current && stage !== 'Idea' && stage !== 'Planning';
+                    const visualLock = stage === 'Shipped' && !current;
                     return (
                       <button
                         key={stage}
@@ -743,7 +688,7 @@ export function TaskCreateDialog({
             Stage
             <select value={stage} onChange={(event) => setStage(event.target.value)} style={inputStyle}>
               <option value="">Leave empty</option>
-              {TASK_STAGES.filter((value) => value !== 'Building' && value !== 'Shipped' && value !== 'Ready to Ship').map((value) => (
+              {TASK_STAGES.filter((value) => value !== 'Shipped').map((value) => (
                 <option key={value}>{value}</option>
               ))}
             </select>

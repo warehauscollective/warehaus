@@ -118,7 +118,7 @@ describe('milestone review decisions', () => {
     assert.match(selected.tasks[1]?.name ?? '', /Review card layout/);
   });
 
-  it('denies clients, non-staff, and anyone who is not Peter', () => {
+  it('record_milestone_review rejects a non-Peter approve and still lets other staff request changes', () => {
     for (const actor of [
       { source: 'portal' as const, role: 'Client Admin' as const, email: 'jordan@client.test' },
       { source: 'portal' as const, role: 'Client Member' as const, email: 'jordan@client.test' },
@@ -130,9 +130,17 @@ describe('milestone review decisions', () => {
       assert.equal(planned.reason, STAFF_REQUIRED);
     }
     const otherStaff = planReview(
-      ready({ actor: { source: 'portal', role: 'Warehaus Staff', email: 'alex@warehaus.studio' } }),
+      ready({ actor: { source: 'portal', role: 'Warehaus Staff', email: 'alex@warehaus.studio' }, decision: 'approve' }),
     );
     assert.deepEqual(otherStaff, { ok: false, reason: ONLY_PETER });
+    const staffChanges = planReview(
+      ready({
+        actor: { source: 'portal', role: 'Warehaus Staff', email: 'alex@warehaus.studio' },
+        decision: 'request_changes',
+        notes: 'Give the card more room.',
+      }),
+    );
+    assert.equal(staffChanges.ok, true);
     const otherBot = planReview(ready({ actor: { source: 'chat', tokenName: 'claude' }, decision: 'approve' }));
     assert.deepEqual(otherBot, { ok: false, reason: ONLY_PETER });
     const peterChat = planReview(ready({ actor: chat }));
@@ -188,7 +196,7 @@ describe('Ready to Ship status', () => {
   it('keeps the Portal stage hint', () => {
     assert.equal(
       TASK_STAGE_HINT,
-      "Admin can set Idea or Planning here. Later stages are set by staff in the Portal. Awaiting Go and Ready to Ship are Peter's call.",
+      'Staff can set any stage except Shipped. Shipped is set when the pull request merges.',
     );
   });
 

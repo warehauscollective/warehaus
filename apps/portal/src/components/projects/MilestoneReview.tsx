@@ -8,19 +8,34 @@ import type { MilestoneReviewHistoryItem, MilestoneReviewView, MilestoneRoadmapV
 import {
   NOTES_REQUIRED,
   formatReviewStamp,
+  isPeterEmail,
   iterationOutcome,
   type DesignCheck,
 } from '@convex/_lib/milestoneReview';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
+import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { MilestoneDialog } from './milestoneChrome';
 
 export const APPROVAL_SAVE_ERROR = 'Couldn’t save your approval. Nothing changed. Try again.';
-export const APPROVED_READONLY = 'Read-only · merging now · moves to Shipped when you run deploy main';
-export const WAITING_COPY = 'App Developer Lead posts the localhost link here and in Grok Bot chat when the build is ready.';
-export const NEXT_BUILD_COPY = 'Waiting on local build. The next preview link shows here and in Grok Bot chat.';
+export const APPROVED_READONLY = 'Read-only · stage stays Ready to Ship. Merge and deploy wait on GitHub and Vercel.';
+export const APPROVED_DESIGN = 'Read-only · merging and deploying · Shipped is set automatically on merge';
+export const WAITING_COPY = 'A protected preview builds when this is ready for review. The link shows here and in Grok Bot chat.';
+export const NEXT_BUILD_COPY = 'The next preview builds when iteration 3 is ready for review. The link shows here and in Grok Bot chat.';
+export const DEPLOY_FOOTER = 'Approve & deploy merges to main and ships to production · Peter only';
 
-export type ReviewVisual = 'ready' | 'waiting' | 'fixes' | 'saving' | 'error' | 'approved' | 'changes';
+export type ReviewVisual =
+  | 'ready'
+  | 'waiting'
+  | 'building'
+  | 'preview-failed'
+  | 'fixes'
+  | 'saving'
+  | 'error'
+  | 'approved'
+  | 'changes'
+  | 'delete-failed'
+  | 'couldnt-remove';
 export type ReviewDialogKind = 'approve' | 'changes';
 
 export type ReviewSurfaceModel = {
@@ -42,6 +57,8 @@ export type ReviewSurfaceModel = {
   milestoneName?: string;
   /** Open design fixes. The approve dialog counts them from this, not from copy. */
   designFixCount?: number;
+  /** Fixture-only. The live card does not claim a deploy is running. */
+  designApprovedCopy?: boolean;
 };
 
 export function reviewShouldShow(input: {
@@ -148,7 +165,7 @@ function StyledCheckbox({
   );
 }
 
-export const REVIEW_CARD_FOOTER = 'Approve marks it complete and lets it merge · going live still needs deploy main';
+export const REVIEW_CARD_FOOTER = DEPLOY_FOOTER;
 
 function DesignCheckPill({ check }: { check: DesignCheck }) {
   return (
@@ -183,7 +200,7 @@ function ExternalLinkIcon() {
   );
 }
 
-function PreviewBox({ url }: { url: string }) {
+function PreviewBox({ url, commit, iteration }: { url: string; commit: string | null; iteration: number }) {
   return (
     <div
       data-testid="review-preview-box"
@@ -197,12 +214,13 @@ function PreviewBox({ url }: { url: string }) {
       }}
     >
       <ExternalLinkIcon />
-      <div className="flex min-w-0 flex-col gap-1">
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
         <a href={previewHref(url)} target="_blank" rel="noreferrer" style={{ color: 'var(--fg)', textDecoration: 'underline', fontSize: 14, lineHeight: '21px' }}>
-          Open local preview
+          Open preview
         </a>
-        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px' }}>{url}</p>
-        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>Runs on your Mac · test data</p>
+        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', overflowWrap: 'anywhere' }}>{url}</p>
+        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px' }}>{`Built from ${commit ?? 'the latest commit'} · Iteration ${iteration}`}</p>
+        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>Protected Vercel preview · test data · sign in</p>
       </div>
     </div>
   );
@@ -318,18 +336,18 @@ export function ReviewDialogBody({
         </p>
       ) : null}
       {approve ? (
-        <>
-          <p style={{ margin: 0, border: '1px solid var(--border-2)', borderRadius: 16, padding: '12px 14px', fontSize: 14, lineHeight: '21px' }}>
-            Marks milestone complete and lets it merge. Going live still needs deploy main.
+        <div style={{ fontSize: 14, lineHeight: '21px' }}>
+          <p style={{ margin: 0 }}>Marks approved. Engineering merges to main and deploys production next.</p>
+          <p style={{ margin: 0 }}>This ships to production.</p>
+          <p style={{ margin: 0 }}>You can’t undo this from the Portal.</p>
+          <p style={{ margin: '8px 0 0', color: 'var(--muted)', fontSize: 12, lineHeight: '18px' }}>
+            Merge and deploy wait on GitHub and Vercel. This records the approval and leaves the stage at Ready to Ship.
           </p>
-          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
-            Logged as “Approved by Peter” with the date and time, in the Portal and in Grok Bot chat.
-          </p>
-        </>
+        </div>
       ) : (
         <>
-          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
-            {`Starts iteration ${context ? context.iteration + 1 : ''}. Notes become tasks in this milestone. The stage goes back to Building.`}
+          <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', letterSpacing: '2.64px', textTransform: 'uppercase', color: 'var(--muted)' }}>
+            {context ? `${context.milestoneName} · Iteration ${context.iteration}${context.prNumber != null ? ` · PR #${context.prNumber}` : ''}` : ''}
           </p>
           <label className="flex flex-col gap-2" style={{ fontSize: 14 }}>
             <span>What needs to change? *</span>
@@ -339,9 +357,9 @@ export function ReviewDialogBody({
               rows={4}
               style={{
                 width: '100%',
-                border: '1px solid var(--border)',
+                border: fieldError ? '1px solid var(--danger)' : '1px solid var(--border)',
                 borderRadius: 12,
-                background: 'var(--bg)',
+                background: 'var(--surface-2)',
                 color: 'var(--fg)',
                 padding: 12,
                 font: 'inherit',
@@ -369,6 +387,9 @@ export function ReviewDialogBody({
               Leave all unticked to apply to the whole milestone.
             </p>
           </fieldset>
+          <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+            {`Starts iteration ${context ? context.iteration + 1 : ''}. Your notes become tasks in this milestone and the stage moves back to Building.`}
+          </p>
         </>
       )}
       {fieldError ? (
@@ -402,15 +423,37 @@ export function ReviewDialogActions({
   const buttonClass = phone ? 'w-full' : undefined;
   const label = busy
     ? approve
-      ? 'Approving…'
+      ? 'Merging and deploying…'
       : 'Starting…'
-    : submitLabel ?? (approve ? 'Approve' : `Start iteration ${iteration + 1}`);
+    : submitLabel ?? (approve ? 'Approve & deploy' : `Start iteration ${iteration + 1}`);
   return (
     <>
       <OutlineButton onClick={onCancel} disabled={busy} className={buttonClass}>Cancel</OutlineButton>
-      <PrimaryButton onClick={onSubmit} disabled={busy} className={buttonClass}>
-        {label}
-      </PrimaryButton>
+      {approve ? (
+        <button
+          type="button"
+          onClick={onSubmit}
+          disabled={busy}
+          className={buttonClass}
+          style={{
+            background: '#f59e0b',
+            color: '#0a0a0b',
+            border: 0,
+            borderRadius: 9,
+            padding: '12px 16px',
+            fontSize: 14,
+            fontWeight: 500,
+            opacity: busy ? 0.7 : 1,
+            cursor: busy ? 'wait' : 'pointer',
+          }}
+        >
+          {label}
+        </button>
+      ) : (
+        <PrimaryButton onClick={onSubmit} disabled={busy} className={buttonClass}>
+          {label}
+        </PrimaryButton>
+      )}
     </>
   );
 }
@@ -423,6 +466,7 @@ export function MilestoneReviewSurface({
   swap = false,
   closeToken = 0,
   onActive,
+  isPeter = false,
   onApprove,
   onRequestChanges,
 }: {
@@ -434,6 +478,8 @@ export function MilestoneReviewSurface({
   swap?: boolean;
   closeToken?: number;
   onActive?: (open: boolean) => void;
+  /** Approve & deploy is Peter only. Request changes stays for staff. */
+  isPeter?: boolean;
   onApprove?: (notes: string) => Promise<void>;
   onRequestChanges?: (notes: string, taskIds: string[]) => Promise<void>;
 }) {
@@ -451,7 +497,8 @@ export function MilestoneReviewSurface({
   const [fieldError, setFieldError] = useState<string | null>(null);
   const [cardError, setCardError] = useState(false);
   const visual = cardError && !forced ? 'error' : busy && !forced ? 'saving' : deriveReviewVisual(model, forced);
-  const locked = visual === 'approved' || visual === 'changes' || visual === 'waiting' || visual === 'saving';
+  const locked = visual === 'approved' || visual === 'changes' || visual === 'waiting' || visual === 'building' || visual === 'preview-failed' || visual === 'delete-failed' || visual === 'couldnt-remove';
+  const blocked = locked || visual === 'saving';
   const latest = model.history[0] ?? null;
   const stamp = latest ? formatReviewStamp(latest.decidedAt) : null;
   const who = latest?.decidedByName ?? 'Peter';
@@ -485,7 +532,9 @@ export function MilestoneReviewSurface({
       ? `APPROVED · ITERATION ${model.iteration}`
       : visual === 'changes'
         ? `BUILDING · ITERATION ${model.iteration}`
-        : `READY TO SHIP · ITERATION ${model.iteration}`;
+        : visual === 'delete-failed' || visual === 'couldnt-remove'
+      ? `APPROVED · ITERATION ${model.iteration}`
+      : `READY TO SHIP · ITERATION ${model.iteration}`;
   const dim = visual === 'waiting' ? 0.4 : 0.55;
 
   const buttonClass = phone ? 'w-full' : undefined;
@@ -493,7 +542,7 @@ export function MilestoneReviewSurface({
     <OutlineButton
       nowrap={!phone}
       className={buttonClass}
-      disabled={visual === 'error' ? false : locked}
+      disabled={visual === 'error' ? false : blocked}
       disabledOpacity={visual === 'error' ? undefined : dim}
       onClick={() => {
         setCardError(false);
@@ -504,32 +553,36 @@ export function MilestoneReviewSurface({
       {busy === 'changes' ? 'Starting…' : 'Request changes'}
     </OutlineButton>
   );
-  const primary = visual === 'error' ? (
-    <PrimaryButton
+  const primary = (
+    <button
+      type="button"
       className={buttonClass}
+      data-testid="approve-deploy"
+      disabled={visual === 'error' ? false : blocked}
       onClick={() => {
         setCardError(false);
-        setDialog(failedKind ?? 'approve');
-      }}
-    >
-      Try again
-    </PrimaryButton>
-  ) : (
-    <PrimaryButton
-      className={buttonClass}
-      disabled={locked}
-      disabledOpacity={dim}
-      onClick={() => {
         setFieldError(null);
-        setDialog('approve');
+        setDialog(visual === 'error' ? failedKind ?? 'approve' : 'approve');
+      }}
+      style={{
+        background: '#f59e0b',
+        color: '#0a0a0b',
+        border: 0,
+        borderRadius: 9,
+        padding: '12px 16px',
+        fontSize: 14,
+        fontWeight: 500,
+        opacity: visual === 'error' ? 1 : visual === 'saving' ? 0.7 : blocked ? dim : 1,
+        cursor: visual === 'error' || !blocked ? 'pointer' : 'not-allowed',
+        whiteSpace: 'nowrap',
       }}
     >
-      {busy === 'approve' || visual === 'saving' ? 'Approving…' : 'Approve'}
-    </PrimaryButton>
+      {visual === 'error' ? 'Try again' : busy === 'approve' || visual === 'saving' ? 'Approving…' : 'Approve & deploy'}
+    </button>
   );
   const actions = (
     <div className={phone ? 'flex w-full flex-col gap-2' : 'flex shrink-0 gap-2'} style={phone ? { width: '100%' } : undefined}>
-      {phone ? <>{primary}{requestChanges}</> : <>{requestChanges}{primary}</>}
+      {phone ? <>{isPeter ? primary : null}{requestChanges}</> : <>{requestChanges}{isPeter ? primary : null}</>}
     </div>
   );
 
@@ -559,7 +612,7 @@ export function MilestoneReviewSurface({
         {visual === 'approved' ? (
           <>
             <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{`Approved by ${who}${stamp ? ` · ${stamp}` : ''}`}</p>
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{APPROVED_READONLY}</p>
+            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{model.designApprovedCopy ? APPROVED_DESIGN : APPROVED_READONLY}</p>
           </>
         ) : visual === 'changes' ? (
           <>
@@ -581,9 +634,28 @@ export function MilestoneReviewSurface({
           </>
         ) : (
           <>
-            {model.previewUrl ? <PreviewBox url={model.previewUrl} /> : (
-              <div data-testid="review-waiting-box" style={{ border: '1px dashed var(--border-2)', borderRadius: 18, padding: 16 }}>
-                <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>{WAITING_COPY}</p>
+            {model.previewUrl && visual !== 'building' && visual !== 'preview-failed' && visual !== 'delete-failed' && visual !== 'couldnt-remove' ? <PreviewBox url={model.previewUrl} commit={model.commit} iteration={model.iteration} /> : visual === 'building' || visual === 'preview-failed' || visual === 'delete-failed' || visual === 'couldnt-remove' ? (
+              <div role="status" style={{ border: visual === 'building' ? '1px dashed var(--border)' : `1px solid ${visual === 'delete-failed' ? '#f59e0b' : 'var(--danger)'}`, borderRadius: 18, padding: 16 }}>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>
+                  {visual === 'building' ? 'Building preview…' : visual === 'preview-failed' ? 'Preview failed to build' : visual === 'delete-failed' ? 'Removing preview… · retrying automatically' : "Couldn't remove preview"}
+                </p>
+                <p className="ds-mono" style={{ margin: '4px 0 0', fontSize: 12, lineHeight: '18px', color: visual === 'delete-failed' ? '#f59e0b' : 'var(--muted)' }}>
+                  {visual === 'building'
+                    ? 'Protected Vercel preview for this iteration · usually a few minutes. The link shows here and in Grok Bot chat.'
+                    : visual === 'preview-failed'
+                      ? 'Nothing changed. The milestone stays at Ready to Ship until a preview exists.'
+                      : visual === 'delete-failed'
+                        ? 'Delete failed · retrying automatically. Staff see this. Peter and clients see the approved card.'
+                        : 'Vercel build still exists. Staff can retry. Peter and clients do not see Retry.'}
+                </p>
+              </div>
+            ) : (
+              <div data-testid="review-waiting-box" className="flex items-start gap-3" style={{ border: '1px dashed var(--border-2)', borderRadius: 18, padding: 16 }}>
+                <ClockIcon />
+                <div>
+                  <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Waiting for review build</p>
+                  <p className="ds-mono" style={{ margin: '4px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{WAITING_COPY}</p>
+                </div>
               </div>
             )}
             {visual === 'fixes' && model.designCheckNote ? (
@@ -598,7 +670,7 @@ export function MilestoneReviewSurface({
           </>
         )}
       </div>
-      {visual === 'approved' || visual === 'changes' ? null : (
+      {visual === 'approved' || visual === 'changes' || visual === 'delete-failed' || visual === 'couldnt-remove' ? null : (
         <div className={phone ? 'flex flex-col gap-3' : 'flex items-center justify-between gap-4'}>
           {layout === 'card' ? (
             <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', flex: '1 1 auto' }}>{REVIEW_CARD_FOOTER}</p>
@@ -659,8 +731,8 @@ export function MilestoneReviewSurface({
   const dialogNode = dialog ? (
     <ReviewScrim
       phone={phone}
-      label={dialog === 'approve' ? 'Approve milestone' : 'Request changes'}
-      hint={dialog === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to approve · Esc to close'}
+      label={dialog === 'approve' ? 'Approve and ship to production?' : 'Request changes'}
+      hint={dialog === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
       confirmOnEnter={dialog === 'approve'}
       onClose={() => setDialog(null)}
       onConfirm={() => void submit()}
@@ -713,8 +785,8 @@ export function MilestoneReviewSurface({
         </p>
         {model.previewUrl ? (
           <>
-            <a href={`http://${model.previewUrl}`} style={{ fontSize: 14, color: 'var(--fg)', textDecoration: 'underline' }}>Open local preview</a>
-            <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: phone ? 'normal' : 'nowrap', overflowWrap: 'anywhere' }}>{`${model.previewUrl} · your Mac · test data`}</p>
+            <a href={previewHref(model.previewUrl)} style={{ fontSize: 14, color: 'var(--fg)', textDecoration: 'underline' }}>Open preview</a>
+            <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: phone ? 'normal' : 'nowrap', overflowWrap: 'anywhere' }}>{`${model.previewUrl} · Protected Vercel preview · test data`}</p>
           </>
         ) : null}
       </div>
@@ -761,11 +833,15 @@ export function MilestoneReviewLive({
   milestone,
   hostSlug,
   phone = false,
+  isPeter,
 }: {
   milestone: MilestoneRoadmapView;
   hostSlug?: string;
   phone?: boolean;
+  isPeter?: boolean;
 }) {
+  const auth = usePortalAuth();
+  const peter = isPeter ?? isPeterEmail(auth.authUser?.email);
   const approve = useMutation(api.milestones.approve);
   const requestChanges = useMutation(api.milestones.requestChanges);
   const review = milestone.review;
@@ -778,6 +854,7 @@ export function MilestoneReviewLive({
       model={model}
       layout="card"
       phone={phone}
+      isPeter={peter}
       onApprove={async (notes) => {
         await approve({
           hostSlug,

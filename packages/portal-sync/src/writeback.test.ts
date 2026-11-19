@@ -207,7 +207,7 @@ describe('search before create', () => {
     assert.equal(create.ok, true);
     const locked = validateWriteback({
       database: 'tasks',
-      properties: { ...task, Stage: 'Building' },
+      properties: { ...task, Stage: 'Shipped' },
       actor: 'staff',
     });
     assert.equal(locked.ok, false);

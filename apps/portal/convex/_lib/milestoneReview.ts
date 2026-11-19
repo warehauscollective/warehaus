@@ -20,7 +20,7 @@ export const PETER_EMAILS = ['peter@warehaus.studio', 'peter@warehaus.co'] as co
 export const PETER_CHAT_TOKEN = 'grok-bot';
 
 export const TASK_STAGE_HINT =
-  "Admin can set Idea or Planning here. Later stages are set by staff in the Portal. Awaiting Go and Ready to Ship are Peter's call.";
+  'Staff can set any stage except Shipped. Shipped is set when the pull request merges.';
 
 export type ReviewDecision = 'approve' | 'request_changes';
 export type ReviewSource = 'portal' | 'chat';
@@ -88,14 +88,20 @@ export function isPeterEmail(email: string | null | undefined): boolean {
   return (PETER_EMAILS as readonly string[]).includes(value);
 }
 
-/** Chat approvals come only from Peter's grok-bot token. Portal approvals come only from Peter's staff contact. */
-export function reviewActorDecision(actor: ReviewActor): { ok: true } | { ok: false; reason: string } {
+/**
+ * Approve & deploy is Peter only, in the Portal and in chat.
+ * Request changes is any Warehaus Staff member. Chat still uses Peter's grok-bot token.
+ */
+export function reviewActorDecision(
+  actor: ReviewActor,
+  decision: string,
+): { ok: true } | { ok: false; reason: string } {
   if (actor.source === 'chat') {
     if (actor.tokenName !== PETER_CHAT_TOKEN) return { ok: false, reason: ONLY_PETER };
     return { ok: true };
   }
   if (actor.role !== 'Warehaus Staff') return { ok: false, reason: STAFF_REQUIRED };
-  if (!isPeterEmail(actor.email)) return { ok: false, reason: ONLY_PETER };
+  if (decision === 'approve' && !isPeterEmail(actor.email)) return { ok: false, reason: ONLY_PETER };
   return { ok: true };
 }
 
@@ -179,7 +185,7 @@ export function historyPageLimit(value: number | null | undefined): number {
 }
 
 export function planReview(input: PlanReviewInput): PlanReview {
-  const actor = reviewActorDecision(input.actor);
+  const actor = reviewActorDecision(input.actor, input.decision);
   if (!actor.ok) return actor;
   if (!isReviewDecision(input.decision)) {
     return { ok: false, reason: 'Decision must be approve or request_changes' };

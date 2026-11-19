@@ -403,7 +403,7 @@ describe('taskWriteGuards stage save', () => {
       });
       const denied = result as { ok: boolean; error?: string };
       assert.equal(denied.ok, false);
-      assert.match(denied.error ?? '', /Peter's call/);
+      assert.equal(denied.error, WRITEBACK_OFF_ERROR);
       assert.equal(row.stage, 'Idea');
       assert.equal(row.stagePendingPullRequest, undefined);
       assert.equal(row.pullRequestUrl, 'https://github.com/warehaus/secret/pull/1');

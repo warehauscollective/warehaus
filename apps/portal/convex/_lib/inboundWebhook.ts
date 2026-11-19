@@ -15,10 +15,10 @@ export const INBOUND_RATE_WINDOW_MS = 60_000;
 export const INBOUND_RATE_KEY = 'inbound-webhook-rate';
 
 /**
- * Ready to Ship is the review / final-checks stage already on the task enum.
+ * Shipped is set here when a pull request merges. Staff cannot set it.
  * A merged pull request never moves a task to Done or Shipped.
  */
-export const MERGE_REVIEW_STAGE = 'Ready to Ship' as const;
+export const MERGE_REVIEW_STAGE = 'Shipped' as const;
 
 export const VERCEL_PROJECT_NAME = 'warehaus-portal';
 
@@ -124,7 +124,7 @@ export function linkWriteAction(
 
 /**
  * Stage change for a merged pull request.
- * Ready to Ship only. Done and a backwards stage, including Shipped, stay put.
+ * Shipped only. Done and a parked task stay put. A task already Shipped stays put.
  */
 export function stageMoveForMerge(input: {
   moveStage: boolean;

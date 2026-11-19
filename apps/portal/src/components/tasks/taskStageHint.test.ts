@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import { TASK_STAGE_HINT, displayedTaskStatus } from '../../lib/data/taskStatus';
 
 const HINT =
-  "Admin can set Idea or Planning here. Later stages are set by staff in the Portal. Awaiting Go and Ready to Ship are Peter's call.";
+  'Staff can set any stage except Shipped. Shipped is set when the pull request merges.';
 
 describe('Ready to Ship task status', () => {
   it('maps In progress at Ready to Ship to In review', () => {

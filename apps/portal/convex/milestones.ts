@@ -216,6 +216,7 @@ async function roadmapTasks(
       resourceCount: await countTaskResources(ctx, orgId, task._id, audience, orgVisible),
       publishToWarehaus: task.publishToWarehaus,
       hidden: task.syncHiddenAt != null,
+      source: task.source ?? null,
     });
   }
   return rows;
@@ -879,7 +880,7 @@ export const requestChanges = adminMutation({
     taskIds: v.optional(v.array(v.id('tasks'))),
   },
   handler: async (ctx, args) => {
-    const contactId = peterPortalActor(ctx.identity);
+    const contactId = ctx.identity.contactId as Id<'contacts'>;
     const result = await applyMilestoneReview(ctx, {
       milestoneId: args.milestoneId,
       iteration: args.iteration,

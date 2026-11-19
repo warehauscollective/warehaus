@@ -164,7 +164,7 @@ export function validatePropertyPatch(input: {
     const stage = input.properties.Stage;
     const rule = typeof stage === 'string' ? stageMoveRule('staff', stage) : { kind: 'denied' as const, reason: 'Stage must be one of the portal stages' };
     const link = input.properties['GitHub Issue/PR'];
-    const mergedReview = stage === 'Ready to Ship' && typeof link === 'string' && isPullRequestLink(link);
+    const mergedReview = stage === 'Shipped' && typeof link === 'string' && isPullRequestLink(link);
     if ((rule.kind === 'denied' || rule.kind === 'locked') && !mergedReview) errors.push(rule.reason);
     if (rule.kind === 'needs') {
       const link = input.properties['GitHub Issue/PR'];

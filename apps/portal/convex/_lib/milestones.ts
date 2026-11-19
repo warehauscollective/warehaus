@@ -351,6 +351,7 @@ export type RoadmapTaskInput = {
   resourceCount: number;
   publishToWarehaus: boolean;
   hidden: boolean;
+  source?: string | null;
 };
 
 export type RoadmapChild = {
@@ -361,6 +362,7 @@ export type RoadmapChild = {
   stage: string | null;
   resourceCount: number;
   pullRequestUrl?: string;
+  source?: string | null;
 };
 
 export type RoadmapRow = RoadmapChild & {
@@ -391,6 +393,7 @@ function roadmapTask(
     stage: task.stage,
     resourceCount: task.resourceCount,
     ...(href ? { pullRequestUrl: href } : {}),
+    ...(audience === 'staff' && task.source ? { source: task.source } : {}),
   };
 }
 
