@@ -246,6 +246,23 @@ describe('milestone details panel', () => {
     assert.match(error, /data-testid="milestone-details-error"/);
     assert.match(error, /color:var\(--danger-text\)/);
     assert.match(error, /Couldn’t move the milestone/);
+    assert.equal(publish.includes('data-focus-ring'), false);
+  });
+
+  it('uses the info ring on the details attach and remove confirms', () => {
+    const attach = view({ staff: true, preview: 'attach-link' });
+    assert.match(attach, /data-focus-ring="info"/);
+    assert.match(attach, /class="needs-field block"/);
+    assert.match(attach, /data-testid="preview-link-input"/);
+    assert.match(attach, /outline:none/);
+    const invalid = view({ staff: true, preview: 'preview-link-error' });
+    assert.match(invalid, /data-focus-ring="info"/);
+    assert.match(invalid, /border:1px solid var\(--danger\)/);
+    assert.match(invalid, /http:\/\/localhost:3100/);
+    const remove = view({ staff: true, preview: 'remove-link' });
+    assert.match(remove, /data-focus-ring="info"/);
+    assert.match(remove, /Remove preview link\?/);
+    assert.match(remove, />Cancel</);
   });
 
   it('counts the same task lanes the Tasks tab shows', () => {

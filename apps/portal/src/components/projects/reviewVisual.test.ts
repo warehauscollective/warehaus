@@ -5,11 +5,14 @@ import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { RETRY_WAITS_ON_TOKENS } from '@convex/_lib/milestoneReview';
 import {
+  APPROVE_CONFIRM_COPY,
   APPROVED_AWAITING,
+  DEPLOY_FOOTER,
   MilestoneReviewSurface,
   PREVIEW_REMOVED,
   RETRY_DISABLED_OPACITY,
   RETRY_FAILED,
+  WAITING_COPY,
   deriveReviewVisual,
   previewRemovalRecorded,
   reviewVisualForViewer,
@@ -185,5 +188,37 @@ describe('peter and staff preview visibility', () => {
     for (const view of ['retry-unavailable', 'retry-pending', 'retry-error', 'peter-delete-removing', 'peter-delete-failed', 'preview-removed', 'approved', 'attach', 'attached', 'remove-confirm', 'preview-link-invalid']) {
       assert.match(page, new RegExp(`'${view}'`));
     }
+  });
+
+  it('describes a manual preview link on the waiting card', () => {
+    assert.equal(APPROVE_CONFIRM_COPY, 'This records the approval. Engineering then merges to main and deploys.');
+    assert.equal(WAITING_COPY, 'Staff attach a preview link when this is ready for review. The link shows here and in Grok Bot chat.');
+    assert.equal(DEPLOY_FOOTER, 'Approve records the decision. Engineering then merges to main and deploys · Peter only');
+    const html = card({ ...base, previewUrl: null });
+    assert.match(html, /Staff attach a preview link when this is ready for review/);
+    assert.match(html, /Engineering then merges to main and deploys/);
+    assert.equal(html.includes('protected preview builds'), false);
+    assert.equal(html.includes('ships to production'), false);
+  });
+
+  it('puts the info ring on attach and remove, and keeps the danger border when invalid', () => {
+    const waiting = { ...base, previewUrl: null } satisfies ReviewSurfaceModel;
+    const attach = card(waiting, { staffAttach: true, initialLink: 'attach' });
+    assert.match(attach, /data-focus-ring="info"/);
+    assert.match(attach, /class="needs-field block"/);
+    assert.match(attach, /outline:none/);
+    const remove = card(waiting, { staffAttach: true, initialLink: 'remove' });
+    assert.match(remove, /data-focus-ring="info"/);
+    assert.match(remove, />Cancel</);
+    assert.equal(remove.includes('preview-link-input'), false);
+    const invalid = card(waiting, {
+      staffAttach: true,
+      initialLink: 'attach',
+      initialLinkUrl: 'http://localhost:3100',
+      initialLinkError: 'Localhost links can’t be attached.',
+    });
+    assert.match(invalid, /data-focus-ring="info"/);
+    assert.match(invalid, /border:1px solid var\(--danger\)/);
+    assert.match(invalid, /outline:none/);
   });
 });

@@ -668,6 +668,7 @@ export function useMilestoneDetailEdits({
       testId="milestone-details-modal"
       header={confirmHeader(shown)}
       focusCancel={isConfirm(shown) && shown.kind !== 'attach-link'}
+      blueFocus={shown.kind === 'attach-link' || shown.kind === 'remove-link'}
       onClose={() => closeOverlay(true)}
     >
       {shown.kind === 'stage' ? (
@@ -739,31 +740,14 @@ export function useMilestoneDetailEdits({
           onCancel={() => closeOverlay(true)}
           onConfirm={confirmAttach}
         >
-          <label className="flex flex-col gap-2" style={{ fontSize: 14, lineHeight: '21px' }}>
-            <span>Preview link</span>
-            <input
-              aria-label="Preview link"
-              data-testid="preview-link-input"
-              value={linkDraft}
-              onChange={(event) => {
-                setLinkDraft(event.target.value);
-                if (confirmError) setConfirmError(null);
-              }}
-              placeholder="https://warehaus-portal-…-warehaus-collective.vercel.app"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              style={{
-                width: '100%',
-                border: confirmError ? '1px solid var(--danger)' : '1px solid var(--border)',
-                borderRadius: 12,
-                background: 'var(--surface-2)',
-                color: 'var(--fg)',
-                padding: 12,
-                font: 'inherit',
-              }}
-            />
-          </label>
+          <PreviewLinkField
+            value={linkDraft}
+            invalid={Boolean(confirmError)}
+            onChange={(value) => {
+              setLinkDraft(value);
+              if (confirmError) setConfirmError(null);
+            }}
+          />
         </ConfirmFrame>
       ) : null}
       {shown.kind === 'remove-link' ? (
@@ -1229,6 +1213,7 @@ function DetailsModal({
   testId,
   header,
   focusCancel = false,
+  blueFocus = false,
   onClose,
   children,
 }: {
@@ -1237,6 +1222,7 @@ function DetailsModal({
   testId: string;
   header?: PortalModalHeader;
   focusCancel?: boolean;
+  blueFocus?: boolean;
   onClose: () => void;
   children: ReactNode;
 }) {
@@ -1251,10 +1237,60 @@ function DetailsModal({
       width={640}
       header={header}
       focusCancel={focusCancel}
+      blueFocus={blueFocus}
       showFooter={false}
     >
       {children}
     </PortalModal>
+  );
+}
+
+export function PreviewLinkField({
+  value,
+  invalid,
+  onChange,
+  children,
+}: {
+  value: string;
+  invalid: boolean;
+  onChange: (value: string) => void;
+  children?: ReactNode;
+}) {
+  return (
+    <label className="flex flex-col gap-2" style={{ fontSize: 14, lineHeight: '21px' }}>
+      <span>Preview link</span>
+      <span
+        className="needs-field block"
+        style={{
+          border: invalid ? '1px solid var(--danger)' : '1px solid var(--border)',
+          borderRadius: 12,
+          background: 'var(--surface-2)',
+        }}
+      >
+        <input
+          aria-label="Preview link"
+          aria-invalid={invalid || undefined}
+          data-testid="preview-link-input"
+          value={value}
+          onChange={(event) => onChange(event.target.value)}
+          placeholder="https://warehaus-portal-…-warehaus-collective.vercel.app"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          style={{
+            width: '100%',
+            border: 0,
+            borderRadius: 12,
+            background: 'transparent',
+            color: 'var(--fg)',
+            padding: 12,
+            font: 'inherit',
+            outline: 'none',
+          }}
+        />
+      </span>
+      {children}
+    </label>
   );
 }
 

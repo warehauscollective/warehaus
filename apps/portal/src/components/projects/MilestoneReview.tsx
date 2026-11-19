@@ -20,7 +20,7 @@ import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { PortalModal, type PortalModalHeader } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { MilestoneDialog } from './milestoneChrome';
-import { ConfirmFrame } from './milestoneDetailsEdit';
+import { ConfirmFrame, PreviewLinkField } from './milestoneDetailsEdit';
 
 export const APPROVAL_SAVE_ERROR = 'Couldn’t save your approval. Nothing changed. Try again.';
 export const APPROVED_AWAITING = 'Approved · awaiting merge and deploy.';
@@ -28,16 +28,16 @@ export const APPROVED_DEPLOYING = 'Merging and deploying…';
 export const RECORDING_APPROVAL = 'Recording approval…';
 export const APPROVING_LABEL = 'Approving…';
 export const SAVING_APPROVAL_COPY = 'Saving your approval in the Portal. Engineering will merge to main and deploy production next.';
-export const APPROVE_CONFIRM_COPY = 'Approve records the decision, then engineering merges to main and deploys.';
+export const APPROVE_CONFIRM_COPY = 'This records the approval. Engineering then merges to main and deploys.';
 export const APPROVE_CONFIRM_TITLE = 'Approve this milestone?';
 export const PREVIEW_REMOVED = 'Preview removed after approval · Vercel build deleted';
 export const RETRY_FAILED = 'Retry didn’t start. Nothing changed.';
 export const STAFF_RETRY_LINE = 'STAFF ONLY · Peter and clients don’t see Retry.';
 /** Same muted opacity as Request changes while a preview build is held. */
 export const RETRY_DISABLED_OPACITY = 0.4;
-export const WAITING_COPY = 'A protected preview builds when this is ready for review. The link shows here and in Grok Bot chat.';
+export const WAITING_COPY = 'Staff attach a preview link when this is ready for review. The link shows here and in Grok Bot chat.';
 export const NEXT_BUILD_COPY = 'The next preview builds when iteration 3 is ready for review. The link shows here and in Grok Bot chat.';
-export const DEPLOY_FOOTER = 'Approve & deploy merges to main and ships to production · Peter only';
+export const DEPLOY_FOOTER = 'Approve records the decision. Engineering then merges to main and deploys · Peter only';
 
 export type ReviewVisual =
   | 'ready'
@@ -1084,6 +1084,7 @@ export function MilestoneReviewSurface({
       cover={cover}
       locked={linkBusy}
       focusCancel={linkMode === 'remove'}
+      blueFocus
       onConfirm={() => void submitLink()}
       confirmOnEnter={linkMode === 'remove'}
     >
@@ -1095,34 +1096,18 @@ export function MilestoneReviewSurface({
         onConfirm={() => void submitLink()}
       >
         {linkMode === 'attach' ? (
-          <label className="flex flex-col gap-2" style={{ fontSize: 14, lineHeight: '21px' }}>
-            <span>Preview link</span>
-            <input
-              aria-label="Preview link"
-              data-testid="preview-link-input"
-              value={linkUrl}
-              onChange={(event) => {
-                setLinkUrl(event.target.value);
-                if (linkError) setLinkError(null);
-              }}
-              placeholder="https://warehaus-portal-…-warehaus-collective.vercel.app"
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              style={{
-                width: '100%',
-                border: linkError ? '1px solid var(--danger)' : '1px solid var(--border)',
-                borderRadius: 12,
-                background: 'var(--surface-2)',
-                color: 'var(--fg)',
-                padding: 12,
-                font: 'inherit',
-              }}
-            />
+          <PreviewLinkField
+            value={linkUrl}
+            invalid={Boolean(linkError)}
+            onChange={(value) => {
+              setLinkUrl(value);
+              if (linkError) setLinkError(null);
+            }}
+          >
             <span className="ds-mono" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
               https only. Team Vercel previews. Localhost and production stay off this milestone.
             </span>
-          </label>
+          </PreviewLinkField>
         ) : (
           <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>
             Peter won’t see Approve & deploy until a preview link is attached again.
