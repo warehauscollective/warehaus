@@ -147,6 +147,7 @@ export function NoticeBell() {
           role="dialog"
           aria-label="Notices"
           data-testid="notice-popover"
+          data-focus-ring="info"
           className="flex flex-col"
           style={{
             pointerEvents: 'auto',
@@ -169,7 +170,7 @@ export function NoticeBell() {
               Notices
             </p>
             {unread > 0 ? (
-              <button type="button" onClick={markEvery} style={{ color: 'var(--accent)', fontSize: 'var(--t-xs)' }}>
+              <button type="button" className="milestone-field" onClick={markEvery} style={{ color: 'var(--accent)', fontSize: 'var(--t-xs)' }}>
                 Mark all read
               </button>
             ) : null}
@@ -187,7 +188,7 @@ export function NoticeBell() {
               onClick={() => {
                 if (row.unread) markOne(row.id);
               }}
-              className="w-full text-left"
+              className="milestone-field w-full text-left"
               style={{
                 border: '1px solid var(--border)',
                 borderRadius: 12,

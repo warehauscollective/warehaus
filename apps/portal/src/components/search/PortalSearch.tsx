@@ -494,6 +494,7 @@ export function PortalSearch() {
       width={640}
       zIndex={90}
       scroll={false}
+      blueFocus
       panelStyle={{ padding: 0 }}
     >
       <div style={{ display: 'flex', flexDirection: 'column', flex: '1 1 auto', minHeight: 0, overflow: 'hidden' }}>

@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import React, { act, createElement, useRef, useState } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -8,6 +9,13 @@ import { handleNoticePopoverKey, useNoticePopoverKeys } from './noticePopoverKey
 Object.assign(globalThis, { React });
 
 describe('notice popover keys', () => {
+  it('uses the info focus ring on the popover buttons', () => {
+    const source = readFileSync(new URL('./NoticeBell.tsx', import.meta.url), 'utf8');
+    assert.match(source, /data-focus-ring="info"/);
+    assert.match(source, /className="milestone-field"/);
+    assert.match(source, /milestone-field w-full text-left/);
+  });
+
   it('stops Escape at the popover and keeps Tab inside', () => {
     const first = control('first');
     const last = control('last');

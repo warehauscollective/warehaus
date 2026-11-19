@@ -9,6 +9,20 @@ export type PortalToastKind = 'success' | 'error' | 'moved' | 'invite-sent';
 
 export type PortalToastPlacement = 'above-dock' | 'below-board' | 'created' | 'flow';
 
+/** One polite live region for the life of the page. Error toasts use role="alert" instead. */
+export function PortalToastLive() {
+  return (
+    <div
+      id="portal-toast-live"
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      className="sr-only"
+      data-testid="portal-toast-live"
+    />
+  );
+}
+
 const DEFAULT_MESSAGE: Record<PortalToastKind, string> = {
   success: 'Project created',
   error: 'Couldn’t save the change. Nothing moved.',
@@ -51,8 +65,10 @@ export function PortalToast({
     let timer: ReturnType<typeof setTimeout> | null = null;
     let remaining = autoHideMs;
     let started = 0;
-    let holds = 0;
     let done = false;
+    let paused = false;
+    let pointer = false;
+    let within = false;
 
     const clear = () => {
       if (timer == null) return;
@@ -72,42 +88,63 @@ export function PortalToast({
       timer = setTimeout(finish, ms);
     };
     const pause = () => {
-      holds += 1;
-      if (holds !== 1 || timer == null) return;
+      if (paused || timer == null) return;
       remaining = Math.max(0, remaining - (Date.now() - started));
       clear();
+      paused = true;
     };
     const resume = () => {
-      if (holds === 0) return;
-      holds -= 1;
-      if (holds !== 0 || done) return;
+      if (!paused || done) return;
+      paused = false;
       if (remaining <= 0) {
         finish();
         return;
       }
       arm(remaining);
     };
+    const sync = () => {
+      if (pointer || within) pause();
+      else resume();
+    };
     const onFocusOut = (event: FocusEvent) => {
       const next = event.relatedTarget;
       if (next instanceof Node && node?.contains(next)) return;
-      resume();
+      within = false;
+      sync();
     };
 
     arm(autoHideMs);
-    node?.addEventListener('mouseenter', pause);
-    node?.addEventListener('mouseleave', resume);
-    node?.addEventListener('focusin', pause);
+    const onEnter = () => {
+      pointer = true;
+      sync();
+    };
+    const onLeave = () => {
+      pointer = false;
+      sync();
+    };
+    const onFocusIn = () => {
+      within = true;
+      sync();
+    };
+    node?.addEventListener('mouseenter', onEnter);
+    node?.addEventListener('mouseleave', onLeave);
+    node?.addEventListener('focusin', onFocusIn);
     node?.addEventListener('focusout', onFocusOut);
     return () => {
       clear();
-      node?.removeEventListener('mouseenter', pause);
-      node?.removeEventListener('mouseleave', resume);
-      node?.removeEventListener('focusin', pause);
+      node?.removeEventListener('mouseenter', onEnter);
+      node?.removeEventListener('mouseleave', onLeave);
+      node?.removeEventListener('focusin', onFocusIn);
       node?.removeEventListener('focusout', onFocusOut);
     };
   }, [dismissible, autoHideMs, kind, message]);
 
   const text = message ?? DEFAULT_MESSAGE[kind];
+  useEffect(() => {
+    if (kind === 'error' || typeof document === 'undefined' || typeof document.getElementById !== 'function') return;
+    const live = document.getElementById('portal-toast-live');
+    if (live) live.textContent = text;
+  }, [kind, text]);
   const fixed = placement === 'above-dock';
   const style: CSSProperties = {
     display: 'flex',
@@ -121,7 +158,7 @@ export function PortalToast({
     border: kind === 'error' ? '1px solid var(--danger)' : '1px solid var(--border-2)',
     borderRadius: 18,
     padding: '12px 16px',
-    boxShadow: placement === 'below-board' ? 'none' : '0 8px 12px rgb(0 0 0 / 35%)',
+    boxShadow: placement === 'below-board' ? 'none' : '0 8px 24px rgb(0 0 0 / 18%)',
     fontSize: 14,
     lineHeight: '21px',
     position: fixed ? 'fixed' : placement === 'created' ? undefined : 'relative',
@@ -134,7 +171,7 @@ export function PortalToast({
   const node = (
     <div
       ref={nodeRef}
-      role="status"
+      role={kind === 'error' ? 'alert' : undefined}
       data-testid={testId}
       data-kind={kind}
       data-placement={placement}
@@ -165,6 +202,12 @@ export function PortalToast({
 
 const retryStyle: CSSProperties = {
   flex: '0 0 auto',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  boxSizing: 'border-box',
+  minWidth: 44,
+  minHeight: 44,
   border: '1px solid var(--border-2)',
   borderRadius: 9,
   background: 'transparent',
@@ -173,16 +216,22 @@ const retryStyle: CSSProperties = {
   fontWeight: 500,
   fontSize: 14,
   lineHeight: 'normal',
-  padding: '6px 12px',
+  padding: '0 12px',
   cursor: 'pointer',
 };
 
 const undoStyle: CSSProperties = {
   flex: '0 0 auto',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  boxSizing: 'border-box',
+  minWidth: 44,
+  minHeight: 44,
   border: 0,
   background: 'none',
   color: 'var(--muted)',
-  padding: '6px 4px',
+  padding: '0 12px',
   cursor: 'pointer',
   font: 'inherit',
   fontWeight: 500,

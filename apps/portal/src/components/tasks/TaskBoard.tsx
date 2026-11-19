@@ -787,6 +787,7 @@ export function BoardToast({
   undo,
   onDismiss,
   pinned = false,
+  autoHideMs = 3000,
 }: {
   message: string;
   retry?: () => void;
@@ -795,6 +796,8 @@ export function BoardToast({
   /** Desktop: fixed, centered, 16px above the dock. Phone stays in the board flow.
    * The flag-off “Not saved” toast is always pinned so the dock cannot cover it. */
   pinned?: boolean;
+  /** Fixture captures pass 0. Live toasts hide after 3s. */
+  autoHideMs?: number;
 }) {
   const aboveDock = pinned || message === MOVE_NOT_SAVED;
   return (
@@ -806,6 +809,7 @@ export function BoardToast({
       onDismiss={onDismiss}
       testId="board-toast"
       placement={aboveDock ? 'above-dock' : 'below-board'}
+      autoHideMs={autoHideMs}
     />
   );
 }
@@ -1178,7 +1182,7 @@ function QuickAdd({
   );
 }
 
-function MoveSheet({
+export function MoveSheet({
   task,
   columns,
   current,
@@ -1221,20 +1225,27 @@ function MoveSheet({
   );
 }
 
-function NeedsDialog({
+export function NeedsDialog({
   taskName,
   rule,
   onCancel,
   onSave,
+  initialValue = '',
+  initialNote = '',
+  initialError = null,
 }: {
   taskName: string;
   rule: Extract<MoveRule, { kind: 'needs' }>;
   onCancel: () => void;
   onSave: (value: string) => void;
+  /** Fixture captures only. Live moves start empty. */
+  initialValue?: string;
+  initialNote?: string;
+  initialError?: string | null;
 }) {
-  const [value, setValue] = useState('');
-  const [clientNote, setClientNote] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [value, setValue] = useState(initialValue);
+  const [clientNote, setClientNote] = useState(initialNote);
+  const [error, setError] = useState<string | null>(initialError);
   const field = rule.fields[0];
   return (
     <Modal title="Move to Ready to Ship" onClose={onCancel} labelledBy="needs-title">
@@ -1289,7 +1300,7 @@ function NeedsDialog({
 
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <PortalModal testId="task-move-sheet" label={title} onClose={onClose} narrow sheet="bottom" width={640} panelStyle={{ padding: '0 16px 16px' }}>
+    <PortalModal testId="task-move-sheet" label={title} onClose={onClose} narrow sheet="bottom" width={640} blueFocus panelStyle={{ padding: '0 16px 16px' }}>
       <div className="mb-3 flex items-center justify-between">
         <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>{title}</h2>
         <button type="button" aria-label="Close" onClick={onClose}>Close</button>
@@ -1301,7 +1312,7 @@ function Sheet({ title, onClose, children }: { title: string; onClose: () => voi
 
 function Modal({ title, onClose, labelledBy, children }: { title: string; onClose: () => void; labelledBy: string; children: React.ReactNode }) {
   return (
-    <PortalModal testId="task-needs-dialog" label={title} onClose={onClose} width={640} zIndex={85} panelStyle={{ padding: 24 }}>
+    <PortalModal testId="task-needs-dialog" label={title} onClose={onClose} width={640} zIndex={85} blueFocus panelStyle={{ padding: 24 }}>
       <h2 id={labelledBy} style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: '0 0 12px' }}>{title}</h2>
       {children}
     </PortalModal>

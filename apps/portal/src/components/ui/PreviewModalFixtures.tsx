@@ -2,13 +2,43 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname } from 'next/navigation';
-import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
-import { PortalModal } from '@/components/ui/PortalModal';
+import { resolveBoardDrop, type MoveRule } from '@warehaus/portal-sync';
+import { BoardToast, MoveSheet, NeedsDialog, TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
 import { PortalToast, type PortalToastKind } from '@/components/ui/PortalToast';
+import { FIXTURE_TASKS } from '@/lib/data/fixtures';
+import type { PortalTask } from '@/lib/data/view-models';
 
 const TOAST_KINDS: PortalToastKind[] = ['success', 'error', 'moved', 'invite-sent'];
 
 type Fixture = 'toast' | 'move' | 'needs' | 'search' | 'notice' | 'menu';
+type ToastPlace = 'dock' | 'board' | 'created' | 'invite';
+type NeedsState = 'empty' | 'filled' | 'error';
+
+const MOVE_TASK: PortalTask = {
+  id: 't-doing',
+  name: 'Build the project page',
+  status: 'In Progress',
+  isDone: false,
+  date: null,
+  stage: 'Building',
+  projectId: 'p-site',
+  projectName: 'Site',
+  projectStatus: null,
+  projectEndDate: null,
+};
+
+const MOVE_COLUMNS = ['Idea', 'Planning', 'Building', 'Awaiting Go', 'Ready to Ship', 'Shipped', 'Parked'].map((key) => ({
+  key,
+  label: key,
+}));
+
+const NEEDS_RULE: Extract<MoveRule, { kind: 'needs' }> = {
+  kind: 'needs',
+  reason: 'Ready to Ship needs a pull request link.',
+  fields: [{ key: 'pullRequestLink', label: 'Pull request link', placeholder: 'github.com/…/pull/123' }],
+};
+
+const BOARD_RULES: BoardRules = { actor: 'staff', statuses: [], stages: [] };
 
 /**
  * Unsigned /preview captures. `?fixture=` opens one consolidated surface.
@@ -18,6 +48,8 @@ export function PreviewModalFixtures() {
   const pathname = usePathname();
   const [fixture, setFixture] = useState<Fixture | null>(null);
   const [kind, setKind] = useState<PortalToastKind | null>(null);
+  const [place, setPlace] = useState<ToastPlace | null>(null);
+  const [needsState, setNeedsState] = useState<NeedsState>('empty');
   const active = pathname === '/preview';
 
   useEffect(() => {
@@ -36,6 +68,10 @@ export function PreviewModalFixtures() {
     }
     const asked = params.get('kind');
     setKind(TOAST_KINDS.includes(asked as PortalToastKind) ? asked as PortalToastKind : null);
+    const askedPlace = params.get('place');
+    setPlace(askedPlace === 'dock' || askedPlace === 'board' || askedPlace === 'created' || askedPlace === 'invite' ? askedPlace : null);
+    const askedNeeds = params.get('state');
+    setNeedsState(askedNeeds === 'filled' || askedNeeds === 'error' ? askedNeeds : 'empty');
     const openSurface = () => {
       if (next === 'search') {
         window.dispatchEvent(new CustomEvent('wh-open-search', { detail: { trigger: document.body } }));
@@ -53,6 +89,70 @@ export function PreviewModalFixtures() {
 
   if (!active) return null;
   if (fixture === 'toast') {
+    if (place === 'dock') {
+      return (
+        <BoardToast
+          message="Moved “Build the project page” to Planning"
+          undo={() => undefined}
+          onDismiss={() => undefined}
+          pinned
+          autoHideMs={0}
+        />
+      );
+    }
+    if (place === 'board') {
+      const tasks = FIXTURE_TASKS.filter((task) => task.projectId === 'p-site' && !task.syncHidden).slice(0, 2);
+      return (
+        <div
+          data-testid="board-toast-fixture"
+          className="ds-scope"
+          style={{ position: 'fixed', zIndex: 30, top: 72, left: 16, right: 16, bottom: 96, overflow: 'auto' }}
+        >
+          <TaskBoard
+            tasks={tasks}
+            staff
+            loading={false}
+            rules={BOARD_RULES}
+            onOpen={() => undefined}
+            onMove={async () => ({ ok: true })}
+            onQuickAdd={async () => ({ ok: true })}
+            quickAddEnabled={false}
+            showQuickAdd={false}
+            hideGroupToggle
+          />
+          <BoardToast
+            message="Moved “Build the project page” to Planning"
+            undo={() => undefined}
+            onDismiss={() => undefined}
+            pinned={false}
+            autoHideMs={0}
+          />
+        </div>
+      );
+    }
+    if (place === 'created') {
+      return (
+        <PortalToast
+          kind="success"
+          message="Project created · Northwind"
+          testId="project-created-toast"
+          placement="created"
+          autoHideMs={0}
+          onOpen={() => undefined}
+          onDismiss={() => undefined}
+        />
+      );
+    }
+    if (place === 'invite') {
+      return (
+        <PortalToast
+          kind="invite-sent"
+          placement="above-dock"
+          autoHideMs={0}
+          onDismiss={() => undefined}
+        />
+      );
+    }
     const kinds = kind ? [kind] : TOAST_KINDS;
     return (
       <div
@@ -85,35 +185,27 @@ export function PreviewModalFixtures() {
   }
   if (fixture === 'move') {
     return (
-      <PortalModal testId="task-move-sheet" label="Move to" onClose={() => undefined} narrow sheet="bottom" width={640} panelStyle={{ padding: '0 16px 16px' }}>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>Move to</h2>
-          <button type="button" aria-label="Close">Close</button>
-        </div>
-        <ul className="flex flex-col gap-2">
-          {['To Do', 'In Progress · Current', 'Done'].map((label) => (
-            <li key={label}>
-              <button type="button" className="flex w-full items-center justify-between text-left" style={{ minHeight: 44, border: '1px solid var(--border)', borderRadius: 12, padding: '0.7rem 0.85rem', background: 'var(--surface)', color: 'var(--fg)' }}>
-                {label}
-              </button>
-            </li>
-          ))}
-        </ul>
-      </PortalModal>
+      <MoveSheet
+        task={MOVE_TASK}
+        columns={MOVE_COLUMNS}
+        current="Building"
+        decisionFor={(value) => resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Building', to: value })}
+        onClose={() => undefined}
+        onPick={() => undefined}
+      />
     );
   }
   if (fixture === 'needs') {
     return (
-      <PortalModal testId="task-needs-dialog" label="Move to Ready to Ship" onClose={() => undefined} width={640} panelStyle={{ padding: 24 }}>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: '0 0 12px' }}>Move to Ready to Ship</h2>
-        <p style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)', margin: '0 0 16px' }}>
-          “Homepage” needs a linked pull request before it can be Ready to Ship.
-        </p>
-        <div className="flex justify-end gap-2">
-          <OutlineButton>Cancel</OutlineButton>
-          <PrimaryButton>Move to Ready to Ship</PrimaryButton>
-        </div>
-      </PortalModal>
+      <NeedsDialog
+        taskName="Homepage"
+        rule={NEEDS_RULE}
+        onCancel={() => undefined}
+        onSave={() => undefined}
+        initialValue={needsState === 'filled' ? 'github.com/warehauscollective/warehaus/pull/120' : ''}
+        initialNote={needsState === 'filled' ? 'Ready for the client to review.' : ''}
+        initialError={needsState === 'error' ? 'Pull request link is required.' : null}
+      />
     );
   }
   return null;

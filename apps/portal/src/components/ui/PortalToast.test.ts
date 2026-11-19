@@ -7,7 +7,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { installTestDom, type DomNode } from '../auth/testDom';
 
 Object.assign(globalThis, { React });
-const { PortalToast } = await import('./PortalToast');
+const { PortalToast, PortalToastLive } = await import('./PortalToast');
 const { PortalModal } = await import('./PortalModal');
 const SearchModal = PortalModal as (
   props: Omit<ComponentProps<typeof PortalModal>, 'children'>,
@@ -17,10 +17,16 @@ describe('PortalToast', () => {
   it('renders the four approved kinds', () => {
     const success = renderToStaticMarkup(createElement(PortalToast, { kind: 'success', placement: 'flow', autoHideMs: 0 }));
     assert.match(success, /Project created/);
-    assert.match(success, /role="status"/);
+    assert.equal(success.includes('role="status"'), false);
+    assert.equal(success.includes('role="alert"'), false);
+    assert.match(success, /0 8px 24px/);
     assert.match(success, /docs-check\.svg/);
     assert.match(success, /data-kind="success"/);
     assert.equal(success.includes('Retry'), false);
+    const live = renderToStaticMarkup(createElement(PortalToastLive));
+    assert.match(live, /role="status"/);
+    assert.match(live, /aria-live="polite"/);
+    assert.match(live, /data-testid="portal-toast-live"/);
 
     const error = renderToStaticMarkup(createElement(PortalToast, {
       kind: 'error',
@@ -32,6 +38,9 @@ describe('PortalToast', () => {
     assert.match(error, /docs-alert\.svg/);
     assert.match(error, />Retry</);
     assert.match(error, /1px solid var\(--danger\)/);
+    assert.match(error, /role="alert"/);
+    assert.match(error, /min-height:44px/);
+    assert.match(error, /min-width:44px/);
 
     const moved = renderToStaticMarkup(createElement(PortalToast, {
       kind: 'moved',
@@ -42,6 +51,7 @@ describe('PortalToast', () => {
     assert.match(moved, /Moved to In Progress/);
     assert.match(moved, />Undo</);
     assert.match(moved, /var\(--muted\)/);
+    assert.match(moved, /min-height:44px/);
 
     const invite = renderToStaticMarkup(createElement(PortalToast, { kind: 'invite-sent', placement: 'flow', autoHideMs: 0 }));
     assert.match(invite, /Invite sent/);
@@ -186,6 +196,7 @@ describe('PortalToast', () => {
       host.contains = (other: DomNode) => other === host || other === child;
       await act(async () => {
         host.dispatchEvent(domEvent('focusout', child));
+        host.dispatchEvent(domEvent('focusin'));
         mock.timers.tick(5000);
       });
       assert.equal(seen, 0);
@@ -236,15 +247,18 @@ describe('leftover dialogs on PortalModal', () => {
     const search = readFileSync(new URL('../search/PortalSearch.tsx', import.meta.url), 'utf8');
     assert.match(search, /<PortalModal/);
     assert.match(search, /align="start"/);
+    assert.match(search, /blueFocus/);
     assert.match(search, /data-testid="portal-search"|testId="portal-search"/);
     const board = readFileSync(new URL('../tasks/TaskBoard.tsx', import.meta.url), 'utf8');
     const sheet = board.slice(board.indexOf('function Sheet'), board.indexOf('function Modal'));
     assert.match(sheet, /<PortalModal/);
     assert.match(sheet, /sheet="bottom"/);
+    assert.match(sheet, /blueFocus/);
     assert.equal(sheet.includes('portalNode'), false);
     const needs = board.slice(board.indexOf('function Modal'), board.indexOf('function BoardScroller'));
     assert.match(needs, /<PortalModal/);
     assert.match(needs, /testId="task-needs-dialog"/);
+    assert.match(needs, /blueFocus/);
   });
 
   it('opens a top-aligned dialog under the header without a grabber', () => {
