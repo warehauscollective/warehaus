@@ -36,8 +36,7 @@ export const STAFF_RETRY_LINE = 'STAFF ONLY · Peter and clients don’t see Ret
 /** Same muted opacity as Request changes while a preview build is held. */
 export const RETRY_DISABLED_OPACITY = 0.4;
 export const WAITING_COPY = 'Staff attach a preview link when this is ready for review. The link shows here and in Grok Bot chat.';
-export const NEXT_BUILD_COPY = 'The next preview builds when iteration 3 is ready for review. The link shows here and in Grok Bot chat.';
-export const DEPLOY_FOOTER = 'Approve records the decision. Engineering then merges to main and deploys · Peter only';
+export const DEPLOY_FOOTER = 'Approve records the decision, then engineering merges to main and deploys · Peter only';
 
 export type ReviewVisual =
   | 'ready'
@@ -316,6 +315,7 @@ export function ReviewScrim({
   spinner = false,
   header,
   focusCancel = false,
+  blueFocus = false,
   children,
 }: {
   phone: boolean;
@@ -334,6 +334,8 @@ export function ReviewScrim({
   /** Approve uses the compact confirm header. Request changes keeps the dialog chrome. */
   header?: PortalModalHeader;
   focusCancel?: boolean;
+  /** Cancel uses the info ring instead of the white portal ring. */
+  blueFocus?: boolean;
   children: React.ReactNode;
 }) {
   if (header) {
@@ -353,6 +355,7 @@ export function ReviewScrim({
         focusCancel={focusCancel}
         confirmOnEnter={confirmOnEnter}
         onConfirm={onConfirm}
+        blueFocus={blueFocus}
       >
         <div style={{ padding: phone ? '8px 16px' : '8px 24px' }}>{children}</div>
         {footer ? (
@@ -622,14 +625,14 @@ function PreviewLifecycle({
   const stamp = failedAt ? formatReviewStamp(failedAt) : null;
   const border = visual === 'building' ? '1px dashed var(--border)' : visual === 'delete-failed' ? '1px solid var(--portal-warning)' : '1px solid var(--danger)';
   const title = visual === 'building'
-    ? 'Building preview…'
+    ? 'Waiting for a preview link'
     : visual === 'preview-failed'
       ? 'Preview failed to build'
       : visual === 'delete-failed'
         ? 'Removing preview… · retrying automatically'
         : "Couldn't remove preview";
   const detail = visual === 'building'
-    ? `Protected Vercel preview for iteration ${model.iteration} · usually a few minutes. The link shows here and in Grok Bot chat.`
+    ? WAITING_COPY
     : visual === 'preview-failed'
       ? 'Nothing changed. The milestone stays at Ready to Ship until a preview exists.'
       : visual === 'delete-failed'
@@ -868,7 +871,7 @@ export function MilestoneReviewSurface({
         {layout === 'card' && (model.branch || model.commit) && visual !== 'changes' && visual !== 'approved' && visual !== 'delete-failed' && visual !== 'couldnt-remove' ? (
           <p className="ds-mono" style={{ margin: 0, fontSize: 12, color: 'var(--muted)' }}>
             {visual === 'building'
-              ? `${model.branch ?? 'branch'} · building preview`
+              ? (model.branch ?? '')
               : visual === 'preview-failed'
                 ? `${model.branch ?? 'branch'} · preview build failed`
                 : [model.branch, model.commit, model.builtAt ? formatReviewStamp(model.builtAt) : null].filter(Boolean).join(' · ')}
@@ -909,7 +912,6 @@ export function MilestoneReviewSurface({
                 <span className="ds-mono" style={{ whiteSpace: 'nowrap', fontSize: 11, border: '1px solid var(--border-2)', borderRadius: 999, padding: '2px 8px' }}>{`NEW · IT. ${model.iteration}`}</span>
               </label>
             ))}
-            <p style={{ margin: 0, fontSize: 13, color: 'var(--muted)' }}>{NEXT_BUILD_COPY}</p>
           </>
         ) : (
           <>
@@ -919,7 +921,7 @@ export function MilestoneReviewSurface({
               <div data-testid="review-waiting-box" className="flex items-start gap-3" style={{ border: '1px dashed var(--border-2)', borderRadius: 18, padding: 16 }}>
                 <ClockIcon />
                 <div>
-                  <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Waiting for review build</p>
+                  <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Waiting for a preview link</p>
                   <p className="ds-mono" style={{ margin: '4px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{WAITING_COPY}</p>
                 </div>
               </div>
@@ -1031,6 +1033,7 @@ export function MilestoneReviewSurface({
       hideChromeBelow={dialog === 'approve' || dialog === 'changes'}
       header={dialog === 'approve' ? 'compact' : 'default'}
       focusCancel={dialog === 'approve'}
+      blueFocus
       cover={cover}
       onClose={() => setDialog(null)}
       onConfirm={() => void submit()}

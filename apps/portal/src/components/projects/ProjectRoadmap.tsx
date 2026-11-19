@@ -1,10 +1,11 @@
 'use client';
 
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { formatReviewStamp, isPeterEmail, iterationOutcome } from '@convex/_lib/milestoneReview';
 import { peterMayApproveDeploy } from '@convex/_lib/previewLink';
+import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
@@ -104,6 +105,8 @@ type FixturePatch = Partial<
     | 'ownerName'
     | 'dueDate'
     | 'creatorName'
+    | 'localPreviewUrl'
+    | 'figmaUrl'
   >
 > & {
   attachedIds?: string[];
@@ -219,6 +222,30 @@ export function milestoneTileDate(input: {
 }
 
 /**
+ * Title-row date. Due while the milestone is open. Approved once it has
+ * shipped. The awaiting-merge line stays in the status control, so this
+ * returns null for that case.
+ */
+export function milestoneTileHeadline(input: {
+  staff: boolean;
+  approval?: string | null;
+  stage?: string | null;
+  decidedAt?: number | null;
+  dueDate?: string | null;
+}): string | null {
+  const awaiting = input.staff && input.approval === 'approved' && input.stage !== 'Shipped';
+  if (awaiting) return null;
+  if (input.staff && input.approval === 'approved' && input.stage === 'Shipped') {
+    return milestoneTileDate({ approval: 'approved', decidedAt: input.decidedAt });
+  }
+  if (!input.staff && input.stage === 'Shipped') {
+    return clientTileDate({ stage: 'Shipped', decidedAt: input.decidedAt });
+  }
+  if (!input.dueDate) return null;
+  return `Due ${formatCalendarDate(input.dueDate, false)}`;
+}
+
+/**
  * The tile uses the same status and stage as the details panel.
  * Shipped appears only after that stage is stored. Approval is not a status.
  */
@@ -276,29 +303,38 @@ function ProgressCopy({ done, total, nested, phone }: { done: number; total: num
   );
 }
 
+/**
+ * Tile meta is the resource count and, when the milestone has a created
+ * time, an updated stamp. Review phrases stay off the tile.
+ */
 export function tileMetaLine(input: {
-  staff: boolean;
-  published: boolean;
+  staff?: boolean;
+  published?: boolean;
   resources: number;
   decidedAt?: number | null;
-  workStatus: MilestoneRoadmapView['workStatus'];
+  workStatus?: MilestoneRoadmapView['workStatus'];
   approval?: string | null;
+  createdAt?: number | null;
   now?: number;
-  /** Peter's deploy tile drops “No review yet · Ready for review”. */
   omitReview?: boolean;
 }): string {
-  if (!input.staff && input.workStatus === 'ready') return '';
-  const parts: string[] = [];
-  const approved = input.approval === 'approved';
-  if (input.staff && !input.published) parts.push('Not published');
-  parts.push(resourceLabel(input.resources));
-  if (input.staff && !input.omitReview && !(approved && input.decidedAt == null)) parts.push(reviewStamp(input.decidedAt ?? null, input.now));
-  if (input.staff && !input.omitReview && input.workStatus === 'ready' && !approved) parts.push('In review');
-  return parts.join(' · ');
+  const resources = resourceLabel(input.resources);
+  if (input.createdAt == null) return resources;
+  const created = localMonthDay(input.createdAt);
+  const today = localMonthDay(input.now ?? Date.now());
+  const updated = created.key === today.key ? 'Updated today' : `Updated ${created.label}`;
+  return `${resources} · ${updated}`;
 }
 
 function resourceLabel(count: number): string {
   return count === 1 ? '1 resource' : `${count} resources`;
+}
+
+/** Resource row under a milestone. Unpublished staff rows name the type and stay staff-only. */
+export function resourceAudienceLine(type: string | null | undefined, staff: boolean, published: boolean): string {
+  const kind = type?.trim() || 'Resource';
+  if (!staff) return `${kind} · Shared with you`;
+  return published ? `${kind} · Shared with client` : `${kind} · Staff only`;
 }
 
 function taskTotal(milestone: MilestoneRoadmapView): number {
@@ -408,6 +444,7 @@ export function ProjectRoadmap({
   const isPeter = isPeterEmail(auth.authUser?.email);
   const approveMilestone = useMutation(api.milestones.approve);
   const setMilestoneStage = useMutation(api.milestones.setStage);
+  const setTileLink = useMutation(api.milestones.setTileLink);
   const [patches, setPatches] = useState<Record<string, FixturePatch>>({});
   const [created, setCreated] = useState<MilestoneRoadmapView[]>([]);
   const [projectTab, setProjectTab] = useState<ProjectTab>('milestones');
@@ -437,6 +474,11 @@ export function ProjectRoadmap({
     setDetailsPreview(params.get('details'));
     setTileStagePreview(params.get('tileStage'));
     if (params.get('create') === 'milestone') setCreateOpen(true);
+    if (params.get('tiles')) {
+      window.setTimeout(() => {
+        document.querySelector('[data-testid^="milestone-m-"]')?.scrollIntoView({ block: 'start' });
+      }, 50);
+    }
   }, [fixtures]);
   const previewMilestoneId = fixtures ? fixtureRows[0]?.id ?? null : null;
   useEffect(() => {
@@ -531,7 +573,7 @@ export function ProjectRoadmap({
           <PageHeading
             measure
             title={project.name}
-            subtitle="Project details · Review the work by milestone"
+            subtitle="Project details · Every task belongs to a milestone"
             action={
               staff ? (
                 <MilestoneListButton onClick={() => setCreateOpen(true)}>New milestone</MilestoneListButton>
@@ -615,7 +657,7 @@ export function ProjectRoadmap({
                     testId="milestone-empty"
                     kicker="PROJECT · NO MILESTONES"
                     title="Start with a milestone"
-                    body="Describe an outcome, attach resources, and let its tasks show the work needed to finish it."
+                    body="Describe an outcome, attach resources and let its tasks show the work needed to finish it."
                     action={<PrimaryButton onClick={() => setCreateOpen(true)}>New milestone</PrimaryButton>}
                   />
                 ) : clientMilestoneEmptyKind(project) === 'unavailable' ? (
@@ -633,18 +675,32 @@ export function ProjectRoadmap({
                 ) : (
                   <StateCard
                     testId="milestone-none-shared"
-                    kicker="MILESTONES"
+                    kicker="PROJECT · NO MILESTONES"
                     title="No milestones shared yet"
-                    body="This project is available to you. Nothing on it has been shared as a milestone."
+                    body="Nothing on this project has been shared with you yet. Check back when a milestone is published."
                   />
                 )
               ) : null}
 
               {!loading && !failed && staff && unassigned.length > 0 ? (
-                <p data-testid="milestone-unassigned" style={{ fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
-                  {unassigned.length} {unassigned.length === 1 ? 'task stays' : 'tasks stay'} on Project details until someone
-                  attaches {unassigned.length === 1 ? 'it' : 'them'}. Nothing is assigned automatically.
-                </p>
+                <StateCard
+                  testId="milestone-unassigned"
+                  tone="warning"
+                  kicker="STAFF · EXISTING TASKS"
+                  title={`${unassigned.length} ${unassigned.length === 1 ? 'task needs' : 'tasks need'} a milestone`}
+                  body="Assign existing tasks before they appear in the new flow. Do not guess which milestone they belong to."
+                  action={
+                    <PrimaryButton
+                      onClick={() => {
+                        const first = milestones[0];
+                        if (first) setOpenMilestoneId(first.id);
+                        else setCreateOpen(true);
+                      }}
+                    >
+                      Assign to milestone
+                    </PrimaryButton>
+                  }
+                />
               ) : null}
 
               <div className="flex flex-col gap-6 lg:gap-4">
@@ -676,6 +732,21 @@ export function ProjectRoadmap({
                         notes: '',
                       })
                     }
+                    onSetLink={async (field, url) => {
+                      if (fixtures) {
+                        patchMilestone(
+                          milestone.id,
+                          field === 'localPreview' ? { localPreviewUrl: url } : { figmaUrl: url },
+                        );
+                        return;
+                      }
+                      await setTileLink({
+                        hostSlug,
+                        milestoneId: milestone.id as Id<'milestones'>,
+                        field,
+                        url,
+                      });
+                    }}
                   />
                 ))}
               </div>
@@ -815,6 +886,23 @@ function TileStagePopover({
   return host ? createPortal(node, host) : node;
 }
 
+function TileLinkIcon({ kind }: { kind: 'preview' | 'figma' }) {
+  const preview = kind === 'preview';
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true">
+      {preview ? (
+        <>
+          <rect x="1" y="2" width="10" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M5 4.5L7.2 5.5L5 6.5V4.5Z" fill="currentColor" />
+          <path d="M4 10.5H8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+        </>
+      ) : (
+        <path d="M2 9.5L6 1.5L10 9.5H2Z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      )}
+    </svg>
+  );
+}
+
 function initialTileMenu(preview?: string | null): boolean {
   return preview === 'menu';
 }
@@ -827,6 +915,7 @@ export function MilestoneListCard({
   onOpen,
   onStage,
   onApprove,
+  onSetLink,
   openConfirm = false,
   phone = false,
   cover = false,
@@ -839,6 +928,8 @@ export function MilestoneListCard({
   onOpen: () => void;
   onStage?: (stage: MilestoneStage) => void | Promise<unknown>;
   onApprove?: (iteration: number) => Promise<unknown>;
+  /** Staff set or clear a tile link. Empty url clears it. */
+  onSetLink?: (field: TileLinkField, url: string | null) => void | Promise<unknown>;
   /** Fixture QA opens the one confirm without a click. */
   openConfirm?: boolean;
   /** Fixture phone sheet. The live tile follows the viewport. */
@@ -849,6 +940,9 @@ export function MilestoneListCard({
   stagePreview?: string | null;
 }) {
   const [confirm, setConfirm] = useState(openConfirm);
+  const [linkField, setLinkField] = useState<TileLinkField | null>(null);
+  const [linkDraft, setLinkDraft] = useState('');
+  const [linkError, setLinkError] = useState<string | null>(null);
   const viewportSheet = useMaxWidth(767);
   // The tile chip switches at lg (1024). Below that, the phone pill is the one on screen.
   const tilePhone = useMaxWidth(1023);
@@ -922,19 +1016,41 @@ export function MilestoneListCard({
   const total = taskTotal(milestone);
   const stage = milestoneTileStage(milestone);
   const subtasks = boardTaskCounts(milestone).nested;
-  const awaitingMerge = milestone.approval === 'approved' && milestone.stage !== 'Shipped';
-  const dateLine = staff
-    ? (awaitingMerge ? AWAITING_MERGE_LINE : milestoneTileDate({ approval: milestone.approval, decidedAt: milestone.decidedAt }))
-    : clientTileDate({ stage: milestone.stage, decidedAt: milestone.decidedAt });
-  const meta = tileMetaLine({
+  const awaitingMerge = staff && milestone.approval === 'approved' && milestone.stage !== 'Shipped';
+  const dateLine = milestoneTileHeadline({
     staff,
-    published: milestone.publishToWarehaus,
-    resources: milestone.resources.length,
-    decidedAt: milestone.decidedAt,
-    workStatus: milestone.workStatus,
     approval: milestone.approval,
-    omitReview: canDeploy,
+    stage: milestone.stage,
+    decidedAt: milestone.decidedAt,
+    dueDate: milestone.dueDate,
   });
+  const meta = tileMetaLine({
+    resources: milestone.resources.length,
+    createdAt: milestone.createdAt,
+  });
+  const localUrl = staff ? milestone.localPreviewUrl ?? null : null;
+  const figmaUrl = staff ? milestone.figmaUrl ?? null : null;
+  const previewHint = staff ? localPreviewHint(localUrl) : null;
+  const openLinkEditor = (field: TileLinkField) => {
+    setLinkError(null);
+    setLinkDraft(field === 'localPreview' ? (localUrl ?? '') : (figmaUrl ?? ''));
+    setLinkField(field);
+  };
+  const saveLink = () => {
+    if (!linkField) return;
+    const decision = tileLinkChangeDecision({
+      field: linkField,
+      from: linkField === 'localPreview' ? localUrl : figmaUrl,
+      to: linkDraft,
+    });
+    if (!decision.ok) {
+      setLinkError(decision.reason);
+      return;
+    }
+    setLinkField(null);
+    if (!decision.wrote) return;
+    void onSetLink?.(linkField, decision.url);
+  };
   const closeStageMenu = () => setStageMenuOpen(false);
   const toggleMenu = () => {
     setConfirm(false);
@@ -971,19 +1087,29 @@ export function MilestoneListCard({
       buttonRef={chipRef}
     />
   );
-  const phoneTrigger = (
-    <StatusChip
-      label={stage.label}
-      glyph={stage.glyph}
-      interactive={staff}
-      open={stageMenuOpen}
-      onClick={staff ? toggleMenu : undefined}
-    />
-  );
+  const linkButtonStyle = (dimmed: boolean): CSSProperties => ({
+    boxSizing: 'border-box',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    height: 32,
+    border: '1px solid var(--border-2)',
+    borderRadius: 9,
+    padding: '0 10px',
+    background: 'transparent',
+    color: 'var(--fg)',
+    fontFamily: 'var(--font-mono), ui-monospace, monospace',
+    fontSize: 11,
+    lineHeight: '16px',
+    letterSpacing: '0.04em',
+    textDecoration: 'none',
+    cursor: 'pointer',
+    opacity: dimmed ? 0.4 : 1,
+  });
   return (
     <article
       data-testid={`milestone-${milestone.id}`}
-      className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,838px)_174px] lg:items-start lg:justify-start lg:gap-x-6 lg:gap-y-0"
+      className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_174px] lg:items-start lg:justify-start lg:gap-x-6 lg:gap-y-0"
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
@@ -991,56 +1117,61 @@ export function MilestoneListCard({
         padding: 24,
       }}
     >
-      <div className="flex min-w-0 flex-nowrap items-center gap-3 lg:hidden">
-        {phoneTrigger}
-        {dateLine ? (
-          <p data-testid="milestone-due" className="min-w-0 truncate" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-            {dateLine}
-          </p>
-        ) : null}
-      </div>
-      <div className="flex min-w-0 flex-1 flex-col gap-4 lg:gap-3">
-        <h2 data-testid="milestone-name" className="text-[21px] leading-[32px] lg:text-[20px] lg:leading-[30px]" style={{ fontFamily: 'var(--font-geist), var(--font-body)', fontWeight: 500 }}>
-          {milestone.name}
-        </h2>
+      <div className="flex min-w-0 flex-1 flex-col gap-3">
+        <div className="flex min-w-0 flex-nowrap items-center justify-between gap-3">
+          <h2 data-testid="milestone-name" className="text-[21px] leading-[32px] lg:text-[20px] lg:leading-[30px]" style={{ fontFamily: 'var(--font-geist), var(--font-body)', fontWeight: 500 }}>
+            {milestone.name}
+          </h2>
+          {dateLine ? (
+            <p data-testid="milestone-due" className="shrink-0" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+              {dateLine}
+            </p>
+          ) : null}
+        </div>
         <p data-testid="milestone-objective" style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
           {milestone.objective}
         </p>
-        <div className="flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center">
-          <span
-            className="ds-mono max-w-full"
-            data-testid="milestone-progress"
-            style={{
-              background: 'var(--surface-2)',
-              border: '1px solid var(--border)',
-              borderRadius: 12,
-              padding: '4px 12px',
-              fontSize: 11,
-              lineHeight: '17px',
-              color: 'var(--muted)',
-              whiteSpace: 'normal',
-            }}
+        {meta ? (
+          <p
+            data-testid="milestone-meta"
+            className="min-w-0 max-w-full truncate"
+            style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}
           >
-            <span className="lg:hidden">
-              <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone />
-            </span>
-            <span className="hidden lg:inline">
-              <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone={false} />
-            </span>
-          </span>
-          {meta ? (
-            <span
-              data-testid="milestone-meta"
-              className="min-w-0 max-w-full truncate"
-              style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}
-            >
-              {meta}
+            {meta}
+          </p>
+        ) : null}
+        <div className="flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center">
+          <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
+          {staff ? (
+            localUrl ? (
+              <a data-testid="milestone-local-preview" href={localUrl} style={linkButtonStyle(false)}>
+                <TileLinkIcon kind="preview" />
+                <span className="lg:hidden">Preview</span>
+                <span className="hidden lg:inline">Local preview</span>
+              </a>
+            ) : (
+              <button type="button" data-testid="milestone-local-preview" onClick={() => openLinkEditor('localPreview')} style={linkButtonStyle(true)}>
+                <TileLinkIcon kind="preview" />
+                <span className="lg:hidden">Preview</span>
+                <span className="hidden lg:inline">Local preview</span>
+              </button>
+            )
+          ) : null}
+          {staff && figmaUrl ? (
+            <a data-testid="milestone-figma" href={figmaUrl} target="_blank" rel="noreferrer" style={linkButtonStyle(false)}>
+              <TileLinkIcon kind="figma" />
+              Figma
+            </a>
+          ) : null}
+          {previewHint ? (
+            <span data-testid="milestone-preview-hint" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+              {previewHint}
             </span>
           ) : null}
         </div>
       </div>
-      <div className="hidden w-[174px] shrink-0 flex-col items-start gap-3 lg:flex">
-        <div className="relative" ref={menuAnchorRef}>
+      <div className="flex w-full flex-col items-start gap-3 lg:w-[174px]">
+        <div className="relative w-full" ref={menuAnchorRef}>
           {stageTrigger}
           {staff && stageMenuOpen && !phoneSheet ? (
             <TileStagePopover anchorRef={menuAnchorRef}>
@@ -1048,26 +1179,89 @@ export function MilestoneListCard({
             </TileStagePopover>
           ) : null}
         </div>
-        {dateLine ? (
-          <p data-testid="milestone-due" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-            {dateLine}
+        {awaitingMerge ? (
+          <p
+            data-testid="milestone-awaiting"
+            style={{
+              margin: 0,
+              width: '100%',
+              boxSizing: 'border-box',
+              border: '1px solid var(--border)',
+              borderRadius: 9,
+              padding: '8px 10px',
+              fontSize: 12,
+              lineHeight: '18px',
+              color: 'var(--fg)',
+            }}
+          >
+            {AWAITING_MERGE_LINE}
           </p>
         ) : null}
         {canDeploy ? (
-          <button type="button" data-testid="tile-approve-deploy" onClick={() => { setStageMenuOpen(false); setConfirm(true); }} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
+          <button type="button" data-testid="tile-approve-deploy" onClick={() => { setStageMenuOpen(false); setConfirm(true); }} className="w-full" style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
             Approve & deploy
           </button>
         ) : null}
-        <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
+        <span
+          className="ds-mono max-w-full"
+          data-testid="milestone-progress"
+          style={{
+            background: 'var(--surface-2)',
+            border: '1px solid var(--border)',
+            borderRadius: 12,
+            padding: '4px 12px',
+            fontSize: 11,
+            lineHeight: '17px',
+            color: 'var(--muted)',
+            whiteSpace: 'normal',
+          }}
+        >
+          <span className="lg:hidden">
+            <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone />
+          </span>
+          <span className="hidden lg:inline">
+            <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone={false} />
+          </span>
+        </span>
       </div>
-      <div className="flex flex-col gap-2 lg:hidden">
-        {canDeploy ? (
-          <button type="button" data-testid="tile-approve-deploy-phone" onClick={() => { setStageMenuOpen(false); setConfirm(true); }} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, width: '100%', cursor: 'pointer' }}>
-            Approve & deploy
-          </button>
-        ) : null}
-        <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
-      </div>
+      {linkField ? (
+        <PortalModal
+          testId="milestone-tile-link"
+          label={linkField === 'localPreview' ? 'Local preview' : 'Figma'}
+          onClose={() => setLinkField(null)}
+          narrow
+          showFooter={false}
+        >
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12, padding: '8px 24px 20px' }}>
+            <input
+              data-testid="milestone-tile-link-input"
+              value={linkDraft}
+              onChange={(event) => setLinkDraft(event.target.value)}
+              placeholder={linkField === 'localPreview' ? 'http://localhost:3200' : 'https://www.figma.com/design/…'}
+              style={{ ...fieldStyle, width: '100%' }}
+            />
+            {linkError ? <p role="alert" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 13 }}>{linkError}</p> : null}
+            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8 }}>
+              {(linkField === 'localPreview' ? localUrl : figmaUrl) ? (
+                <OutlineButton
+                  nowrap
+                  onClick={() => {
+                    const field = linkField;
+                    setLinkField(null);
+                    void onSetLink?.(field, null);
+                  }}
+                >
+                  Clear
+                </OutlineButton>
+              ) : null}
+              <OutlineButton nowrap onClick={() => setLinkField(null)}>Cancel</OutlineButton>
+              <button type="button" onClick={saveLink} style={{ background: 'var(--accent)', color: 'var(--accent-fg)', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, cursor: 'pointer' }}>
+                Save
+              </button>
+            </div>
+          </div>
+        </PortalModal>
+      ) : null}
       {stageError ? (
         <p role="alert" data-testid="tile-stage-error" className="lg:col-span-2" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 13, lineHeight: '18px' }}>
           {stageError}
@@ -1083,6 +1277,7 @@ export function MilestoneListCard({
           narrow={phone || viewportSheet}
           sheet="bottom"
           header="compact"
+          blueFocus
           showIcon={deploying}
           icon="spinner"
           showFooter={false}
@@ -1170,6 +1365,12 @@ type MilestoneMutations = {
     milestoneId: Id<'milestones'>;
     dueDate: string | null;
   }) => Promise<unknown>;
+  setTileLink?: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    field: 'localPreview' | 'figma';
+    url: string | null;
+  }) => Promise<unknown>;
   moveProject?: (args: {
     hostSlug?: string;
     milestoneId: Id<'milestones'>;
@@ -1220,6 +1421,7 @@ function MilestoneDetail(props: {
   const setStage = useMutation(api.milestones.setStage);
   const setOwner = useMutation(api.milestones.setOwner);
   const setDueDate = useMutation(api.milestones.setDueDate);
+  const setTileLink = useMutation(api.milestones.setTileLink);
   const moveProject = useMutation(api.milestones.moveProject);
   const attachTask = useMutation(api.milestones.attachTask);
   const detachTask = useMutation(api.milestones.detachTask);
@@ -1271,7 +1473,7 @@ function MilestoneDetail(props: {
           ? () => setCursor(targetPage.data?.continueCursor ?? null)
           : undefined
       }
-      mutations={{ save, setWorkStatus, setPublish, setDetailStatus, setStage, setOwner, setDueDate, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink }}
+      mutations={{ save, setWorkStatus, setPublish, setDetailStatus, setStage, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink }}
     />
   );
 }
@@ -1374,6 +1576,7 @@ export function MilestoneDetailView({
       setStage: mutations.setStage ?? (async () => undefined),
       setOwner: mutations.setOwner ?? (async () => undefined),
       setDueDate: mutations.setDueDate ?? (async () => undefined),
+      setTileLink: mutations.setTileLink,
       setPublish,
       moveProject: mutations.moveProject ?? (async () => undefined),
       attachPreviewLink: mutations.attachPreviewLink,
@@ -1499,11 +1702,7 @@ export function MilestoneDetailView({
                       <span>
                         <span style={{ display: 'block', fontSize: 14, fontWeight: 500 }}>{resource.title}</span>
                         <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                          {staff
-                            ? milestone.publishToWarehaus
-                              ? 'Shared with client'
-                              : 'On this milestone'
-                            : `${resource.type?.trim() || 'Resource'} · Shared with you`}
+                          {resourceAudienceLine(resource.type, staff, milestone.publishToWarehaus)}
                         </span>
                       </span>
                       {resource.url ? (

@@ -251,6 +251,7 @@ describe('milestone details panel', () => {
 
   it('uses the info ring on the details attach and remove confirms', () => {
     const attach = view({ staff: true, preview: 'attach-link' });
+    assert.match(attach, /https only\. Team Vercel previews\. Localhost and production stay off this milestone\./);
     assert.match(attach, /data-focus-ring="info"/);
     assert.match(attach, /class="needs-field block"/);
     assert.match(attach, /data-testid="preview-link-input"/);
@@ -261,6 +262,13 @@ describe('milestone details panel', () => {
     assert.match(invalid, /http:\/\/localhost:3100/);
     const remove = view({ staff: true, preview: 'remove-link' });
     assert.match(remove, /data-focus-ring="info"/);
+    const clientAttach = view({ staff: false, preview: 'attach-link' });
+    assert.equal(clientAttach.includes('Attach preview link'), false);
+    assert.equal(clientAttach.includes('preview-link-input'), false);
+    assert.equal(clientAttach.includes('https only'), false);
+    const clientRemove = view({ staff: false, preview: 'remove-link' });
+    assert.equal(clientRemove.includes('Remove preview link'), false);
+    assert.equal(clientRemove.includes('Remove link'), false);
     assert.match(remove, /Remove preview link\?/);
     assert.match(remove, />Cancel</);
   });

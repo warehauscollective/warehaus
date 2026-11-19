@@ -185,6 +185,25 @@ export function applyFixtureMilestonePreview(
     const first = next[0];
     next = [withLongChip(first), ...next.slice(1)];
   }
+  if (params.get('tiles') === 'nofigma') {
+    return next.map((milestone, index) => (
+      index === 0
+        ? { ...milestone, localPreviewUrl: 'http://localhost:3201', figmaUrl: null }
+        : milestone
+    ));
+  }
+  if (params.get('tiles') === 'links') {
+    return next.map((milestone, index) => {
+      if (index === 0) {
+        return {
+          ...milestone,
+          localPreviewUrl: 'http://localhost:3200',
+          figmaUrl: 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal',
+        };
+      }
+      return { ...milestone, localPreviewUrl: null, figmaUrl: null };
+    });
+  }
   if (params.get('tiles') !== 'states') return next;
   return [
     ...next,

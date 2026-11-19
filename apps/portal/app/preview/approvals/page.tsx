@@ -44,6 +44,9 @@ const views = [
   'attached',
   'remove-confirm',
   'preview-link-invalid',
+  'waiting',
+  'changes',
+  'building',
 ] as const satisfies readonly ApprovalsFocus[];
 
 const sizes = ['1440', '390'] as const satisfies readonly ApprovalsSize[];

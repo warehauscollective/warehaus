@@ -7,6 +7,11 @@ import { resolveSavedTheme } from '@/lib/themePreference';
 export function ThemeBoot() {
   useEffect(() => {
     try {
+      const requested = new URLSearchParams(window.location.search).get('theme');
+      if (requested === 'light' || requested === 'dark') {
+        document.documentElement.classList.toggle('light', requested === 'light');
+        return;
+      }
       const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
       const resolved = resolveSavedTheme(localStorage.getItem('warehaus-theme'), prefersDark);
       document.documentElement.classList.toggle('light', resolved === 'light');

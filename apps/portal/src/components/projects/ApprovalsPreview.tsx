@@ -280,6 +280,7 @@ function DialogFrame({
         hideChromeBelow={kind === 'approve' || kind === 'changes'}
         header={kind === 'approve' ? 'compact' : 'default'}
         focusCancel={kind === 'approve'}
+        blueFocus
         onClose={() => undefined}
         onConfirm={() => undefined}
         footer={
@@ -564,7 +565,10 @@ export type ApprovalsFocus =
   | 'attach'
   | 'attached'
   | 'remove-confirm'
-  | 'preview-link-invalid';
+  | 'preview-link-invalid'
+  | 'waiting'
+  | 'changes'
+  | 'building';
 
 export type ApprovalsSize = '1440' | '390';
 
@@ -660,9 +664,20 @@ export function ApprovalsPreview({
       <div className="mt-8 flex flex-col gap-10">
         {overlay ? (
           <>
-            <OverlayFrame kind={overlay} phone={false} />
-            <OverlayFrame kind={overlay} phone />
+            {size === '390' ? null : <OverlayFrame kind={overlay} phone={false} />}
+            {size === '1440' ? null : <OverlayFrame kind={overlay} phone />}
           </>
+        ) : null}
+        {view === 'waiting' || view === 'changes' || view === 'building' ? (
+          <section style={{ width: size === '390' ? '100%' : 1108, maxWidth: '100%' }}>
+            <MilestoneReviewSurface
+              model={view === 'changes' ? changes : view === 'building' ? buildingModel : waiting}
+              layout="card"
+              phone={size === '390'}
+              isPeter
+              staffAttach={view === 'waiting'}
+            />
+          </section>
         ) : null}
         {view === 'task-from-review' ? (
           <>

@@ -288,6 +288,16 @@ export default defineSchema({
     dueDate: v.optional(v.string()),
     /** Person who created the milestone in the Portal. Absent on older rows. */
     createdByContactId: v.optional(v.id('contacts')),
+    /**
+     * Staff-only localhost link shown on the milestone tile. Not previewUrl,
+     * and not used for Approve & deploy. Read with the milestone. No index.
+     */
+    localPreviewUrl: v.optional(v.string()),
+    /**
+     * Staff-only Figma link shown on the milestone tile. Read with the
+     * milestone. No index. Clients never receive it.
+     */
+    figmaUrl: v.optional(v.string()),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])

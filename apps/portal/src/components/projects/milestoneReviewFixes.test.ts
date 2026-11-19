@@ -143,9 +143,11 @@ describe('milestone review fixes', () => {
     assert.match(roadmap, /useState<ProjectTab>\('milestones'\)/);
     assert.match(roadmap, /\{ id: 'details', label: 'Project details' \}/);
     assert.match(roadmap, /projectTab === 'details' && page \? details : null/);
-    assert.match(roadmap, /subtitle="Project details · Review the work by milestone"/);
-    assert.match(roadmap, /data-testid="milestone-unassigned"/);
-    assert.match(roadmap, /Nothing is assigned automatically/);
+    assert.match(roadmap, /subtitle="Project details · Every task belongs to a milestone"/);
+    assert.match(roadmap, /testId="milestone-unassigned"/);
+    assert.match(roadmap, /Do not guess which milestone they belong to/);
+    assert.equal(roadmap.includes('tasks stay on Project details'), false);
+    assert.equal(roadmap.includes('Nothing is assigned automatically'), false);
     const listCard = roadmap.slice(roadmap.indexOf('function MilestoneListCard'), roadmap.indexOf('function MilestoneDetail'));
     assert.equal(listCard.includes('TaskBoard'), false);
     assert.match(listCard, /Open milestone/);
@@ -229,7 +231,7 @@ describe('milestone review fixes', () => {
     assert.notEqual(goalKey(0, 'Ship'), goalKey(1, 'Ship'));
     assert.match(roadmap, /goalKey\(index, goal\)/);
     assert.match(roadmap, /reviewStamp\(storedReview\.decidedAt\)/);
-    assert.match(roadmap, /reviewStamp\(input\.decidedAt \?\? null, input\.now\)/);
+    assert.match(roadmap, /Updated today/);
     assert.match(roadmap, /decidedAt: milestone\.decidedAt/);
     const listCard = roadmap.slice(roadmap.indexOf('function MilestoneListCard'), roadmap.indexOf('type MilestoneMutations'));
     assert.equal(listCard.includes('Updated'), false);
