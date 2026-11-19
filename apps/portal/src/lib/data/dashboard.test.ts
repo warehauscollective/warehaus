@@ -146,7 +146,7 @@ describe('stage bars and awaiting go', () => {
       client.awaiting.map((row) => row.name),
       ['Homepage wireframes'],
     );
-    assert.equal(client.awaiting[0]?.stageLabel, 'Pending approval');
+    assert.equal(client.awaiting[0]?.stageLabel, 'Awaiting Go');
     assert.equal('published' in client.awaiting[0]!, false);
     assert.deepEqual(
       client.activity.map((row) => row.name),
@@ -606,9 +606,13 @@ describe('staff activity publish marks', () => {
       ],
     });
     assert.equal(feed.some((item) => 'clientVisible' in item), false);
+    assert.equal(feed.find((item) => item.id === 'act-task')?.restricted, true);
+    assert.equal(feed.find((item) => item.id === 'act-task')?.name, 'Task');
+    assert.equal(feed.find((item) => item.id === 'act-task')?.taskId, null);
+    assert.equal(JSON.stringify(feed).includes('Task moved'), false);
     assert.deepEqual(
       feed.map((item) => item.id),
-      ['act-project', 'audit-public'],
+      ['act-task', 'act-project', 'audit-public'],
     );
     const fromFeed = buildDashboard(
       input({
@@ -628,7 +632,7 @@ describe('staff activity publish marks', () => {
     if (fromFeed.audience !== 'client') return;
     assert.deepEqual(
       fromFeed.activity.map((row) => row.id),
-      ['act-project', 'audit-public'],
+      ['act-task', 'act-project', 'audit-public'],
     );
     assert.equal(fromFeed.activity.some((row) => 'published' in row), false);
 

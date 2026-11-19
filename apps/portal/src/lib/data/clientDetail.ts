@@ -129,7 +129,7 @@ export function clientVisiblePerson(person: { role?: string | null; email?: stri
 }
 
 /** Client stage badge. Matches the dashboard awaiting label. */
-export const CLIENT_TEAM_STAGE_LABEL = 'Pending approval';
+export const CLIENT_TEAM_STAGE_LABEL = 'Awaiting Go';
 
 export function clientPersonStatus(person: {
   invitePending?: boolean;

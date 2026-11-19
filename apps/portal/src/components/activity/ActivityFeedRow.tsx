@@ -1,5 +1,7 @@
 'use client';
 
+import { ChevronRight, Lock } from 'lucide-react';
+import { PortalRowLink } from '@/components/layout/PortalRowLink';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 
 /**
@@ -20,6 +22,8 @@ export function ActivityFeedRow({
   when,
   lane = 'other',
   published,
+  href,
+  locked = false,
 }: {
   name: string;
   summary: string;
@@ -27,19 +31,21 @@ export function ActivityFeedRow({
   lane?: string;
   /** Undefined hides the mark. A boolean is the staff publish state. */
   published?: boolean;
+  /** Set only when this viewer may open the subject. */
+  href?: string | null;
+  /** Staff-only target. No link, no chevron, lock icon. */
+  locked?: boolean;
 }) {
   const marked = published != null;
-  return (
-    <div
-      className={
-        marked
-          ? 'grid grid-cols-[36px_minmax(0,1fr)_80px] items-start gap-x-4 border-b py-6 lg:grid-cols-[36px_minmax(0,1fr)_130px_80px] lg:items-center'
-          : 'grid grid-cols-[36px_minmax(0,1fr)_80px] items-start gap-x-4 border-b py-6'
-      }
-      style={{ borderColor: 'var(--border)' }}
-    >
+  const link = Boolean(href) && !locked;
+  const meta = locked
+    ? [summary, summary.includes('not shared with you') ? '' : 'not shared with you'].filter(Boolean).join(' · ')
+    : summary;
+  const rowClass = 'flex w-full min-w-0 flex-nowrap items-center gap-3';
+  const body = (
+    <>
       <span
-        className={`flex items-center justify-center ${marked ? 'row-span-2 lg:row-span-1' : ''}`}
+        className="flex shrink-0 items-center justify-center"
         style={{
           width: 36,
           height: 36,
@@ -49,35 +55,57 @@ export function ActivityFeedRow({
           color: 'var(--fg)',
         }}
       >
-        <TaskGlyph src={rowIcon(lane)} size={16} />
+        {locked ? (
+          <Lock data-testid="activity-lock" aria-hidden size={18} strokeWidth={1.5} />
+        ) : (
+          <TaskGlyph src={rowIcon(lane)} size={16} />
+        )}
       </span>
-      <span className="min-w-0">
+      <span className="min-w-0 flex-1">
         <span
           className="block break-words"
           style={{ fontSize: 16, fontWeight: 500, lineHeight: 1.35, color: 'var(--fg)' }}
         >
           {name}
         </span>
-        {summary ? (
+        {meta ? (
           <span
-            className="ds-mono mt-1 block truncate"
-            style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}
+            className="ds-mono mt-1 block"
+            data-testid={locked ? 'activity-locked-meta' : undefined}
+            style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'normal', overflow: 'visible' }}
           >
-            {summary}
+            {meta}
+          </span>
+        ) : null}
+        {marked ? (
+          <span className="mt-2 flex lg:hidden" data-testid="publish-column">
+            <PublishMark published={published} />
           </span>
         ) : null}
       </span>
       {marked ? (
-        <span className="col-start-2 row-start-2 mt-2 lg:col-start-3 lg:row-start-1 lg:mt-0" data-testid="publish-column">
+        <span className="hidden shrink-0 lg:flex" data-testid="publish-column-desktop">
           <PublishMark published={published} />
         </span>
       ) : null}
-      <span
-        className={`ds-mono text-right ${marked ? 'col-start-3 row-start-1 lg:col-start-4' : ''}`}
-        style={{ fontSize: 12, color: 'var(--faint)' }}
-      >
+      <span className="ds-mono shrink-0 text-right" style={{ fontSize: 12, color: 'var(--faint)' }}>
         {when}
       </span>
+      {link ? (
+        <ChevronRight className="portal-row-chevron shrink-0" aria-hidden data-testid="row-chevron" />
+      ) : null}
+    </>
+  );
+  if (link && href) {
+    return (
+      <PortalRowLink href={href} className={rowClass} testId="activity-link">
+        {body}
+      </PortalRowLink>
+    );
+  }
+  return (
+    <div className={`portal-row portal-static-row ${rowClass}`} data-testid="activity-static" {...(locked ? { 'data-locked': 'true' } : {})}>
+      {body}
     </div>
   );
 }

@@ -427,8 +427,6 @@ describe('staff accept waits for the link', () => {
           loading: false,
           preview: null,
           showLoadError: false,
-          onOpenTask: () => undefined,
-          onOpenProject: () => undefined,
           joined: { name: 'Jordan', passwordSet: true },
         }),
       );

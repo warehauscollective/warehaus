@@ -627,7 +627,7 @@ function pageActivity(audience: 'staff' | 'client') {
   const projects = ['p-site', 'p-internal']
     .map((id) => fixtureFeedProject(id))
     .filter((project): project is FeedProject => project != null);
-  return buildActivityFeed({
+  const rows = buildActivityFeed({
     audience,
     orgVisible: true,
     activity: PAGE_ACTIVITY,
@@ -643,11 +643,14 @@ function pageActivity(audience: 'staff' | 'client') {
     summary: item.summary,
     timestamp: item.timestamp,
     tone: item.tone,
-    projectId: item.projectId,
-    taskId: item.taskId,
+    projectId: item.restricted ? null : item.projectId,
+    taskId: item.restricted ? null : item.taskId,
+    docId: item.restricted ? null : item.docId,
+    restricted: item.restricted === true,
     ...(item.lane ? { lane: item.lane } : {}),
     ...(audience === 'staff' ? { clientVisible: item.clientVisible === true } : {}),
   }));
+  return rows;
 }
 
 export const FIXTURE_STAFF_ACTIVITY_PAGE = pageActivity('staff');

@@ -21,6 +21,12 @@ export type ActivityInputItem = {
   lane?: ActivityLane;
   /** Staff feed only. Omitted on the client feed. */
   clientVisible?: boolean;
+  /** Present only when this viewer may open that record. */
+  projectId?: string | null;
+  taskId?: string | null;
+  docId?: string | null;
+  /** Client row for a target this viewer cannot open. Carries no record id. */
+  restricted?: boolean;
 };
 
 export type ActivityRow = {
@@ -32,7 +38,34 @@ export type ActivityRow = {
   lane: ActivityLane | 'other';
   /** Staff rows only. */
   published?: boolean;
+  projectId: string | null;
+  taskId: string | null;
+  docId: string | null;
+  restricted: boolean;
 };
+
+/**
+ * Where a row goes. Sync, system, people, and anything without an openable
+ * id stay put. A restricted client row never links.
+ */
+export function activitySubjectHref(row: {
+  type?: string;
+  lane?: string | null;
+  taskId?: string | null;
+  projectId?: string | null;
+  docId?: string | null;
+  restricted?: boolean;
+}): string | null {
+  if (row.restricted) return null;
+  const type = (row.type ?? '').trim().toLowerCase();
+  const lane = (row.lane ?? '').trim().toLowerCase();
+  if (type === 'sync' || type === 'exception' || type === 'system' || lane === 'sync') return null;
+  if (lane === 'people') return null;
+  if (row.taskId) return `/tasks/${row.taskId}`;
+  if (row.docId) return `/docs/${row.docId}`;
+  if (row.projectId && type !== 'task') return `/projects/${row.projectId}`;
+  return null;
+}
 
 export type ActivityGroup = {
   key: 'today' | 'yesterday' | 'week' | 'earlier';
@@ -211,6 +244,7 @@ function heading(audience: ActivityAudience, filter: ActivityFilter, clientName?
 }
 
 function toRow(item: ActivityInputItem, audience: ActivityAudience, now: number, timeZone: string): ActivityRow {
+  const restricted = item.restricted === true;
   const row: ActivityRow = {
     id: item.id,
     name: item.name,
@@ -218,8 +252,17 @@ function toRow(item: ActivityInputItem, audience: ActivityAudience, now: number,
     when: whenLabel(item.timestamp, now, timeZone),
     type: item.type,
     lane: laneOf(item),
+    projectId: restricted ? null : item.projectId ?? null,
+    taskId: restricted ? null : item.taskId ?? null,
+    docId: restricted ? null : item.docId ?? null,
+    restricted,
   };
   if (audience === 'staff') row.published = item.clientVisible === true;
+  if (audience === 'client' && restricted) {
+    row.projectId = null;
+    row.taskId = null;
+    row.docId = null;
+  }
   return row;
 }
 
@@ -295,6 +338,10 @@ export function withActivityLongPreview(view: ActivityView, filter: ActivityFilt
     when: '2h ago',
     type: 'project',
     lane: 'tasks',
+    projectId: null,
+    taskId: null,
+    docId: null,
+    restricted: false,
     ...(view.audience === 'staff' ? { published: sample.published === true } : {}),
   };
   const filters = view.filters.map((chip) =>

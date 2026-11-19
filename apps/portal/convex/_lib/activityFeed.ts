@@ -48,6 +48,18 @@ export type FeedResource = {
   source?: string | null;
 };
 
+/** Doc already loaded by notion page id. The activity table does not store this id. */
+export type FeedDoc = {
+  _id: string;
+  title: string;
+  projectId?: string;
+  notionPageId: string;
+  publishToWarehaus: boolean;
+  status: 'Draft' | 'Published';
+  syncHiddenAt?: number;
+  orgId?: string;
+};
+
 /** Activity row as stored. Lane and client copy are derived, not columns. */
 export type FeedActivity = {
   _id: string;
@@ -96,12 +108,19 @@ export type ActivityFeedItem = {
   timestamp: string;
   projectId: string | null;
   taskId: string | null;
+  /** Set only when this viewer may open the doc. Never a staff-only id. */
+  docId: string | null;
   /** Set for a milestone activity row. Absent on audit and outbox items. */
   milestoneId?: string | null;
   /** Filter lane derived from type and tone. Visibility stays on `type`. */
   lane?: ActivityLane;
-  /** Staff feed only. True when the client feed includes this same id. */
+  /** Staff feed only. True when the client feed includes this row unredacted. */
   clientVisible?: boolean;
+  /**
+   * Client feed only. The row is a staff-only subject with a generic label.
+   * Ids and the real title are omitted.
+   */
+  restricted?: boolean;
 };
 
 export type TaskTimelineItem = {
@@ -354,6 +373,22 @@ function visibleTask(
   return task;
 }
 
+function clientMayOpenDoc(
+  doc: FeedDoc | undefined,
+  projectsById: Map<string, FeedProject>,
+  orgVisible: boolean,
+  orgId?: string,
+): boolean {
+  if (!doc) return false;
+  if (doc.orgId && orgId && doc.orgId !== orgId) return false;
+  if (!orgVisible || doc.status !== 'Published' || !doc.publishToWarehaus || doc.syncHiddenAt != null) {
+    return false;
+  }
+  if (!doc.projectId) return true;
+  const project = projectsById.get(doc.projectId);
+  return clientSeesProject(project, orgVisible);
+}
+
 function visibleResource(
   resource: FeedResource | undefined,
   projectsById: Map<string, FeedProject>,
@@ -400,7 +435,26 @@ function clientAuditItem(
     timestamp: new Date(audit.createdAt).toISOString(),
     projectId: task?.projectId ?? resource?.projectId ?? project?._id ?? null,
     taskId: task?._id ?? null,
+    docId: null,
     lane,
+  };
+}
+
+/** A staff-only subject the client may see, without its title or any id. */
+function redactedItem(id: string, at: number, label: 'Task' | 'Doc'): ActivityFeedItem {
+  return {
+    id,
+    name: label,
+    summary: label,
+    type: label === 'Doc' ? 'resource' : 'task',
+    tone: 'muted',
+    timestamp: new Date(at).toISOString(),
+    projectId: null,
+    taskId: null,
+    docId: null,
+    milestoneId: null,
+    lane: label === 'Doc' ? 'resources' : 'tasks',
+    restricted: true,
   };
 }
 
@@ -424,6 +478,8 @@ export function buildActivityFeed(input: {
   tasks: readonly FeedTask[];
   /** Resources already loaded by id. Activity rows have no resource id to join. */
   resources?: readonly FeedResource[];
+  /** Docs already loaded by notion page id. Ids are returned only when this viewer may open them. */
+  docs?: readonly FeedDoc[];
   /** Org contacts, name only. Used to allow an actor onto client meta. */
   contacts?: readonly FeedContact[];
   /** When set, a task or resource from another org cannot supply a client title. */
@@ -433,6 +489,7 @@ export function buildActivityFeed(input: {
   const projectsById = new Map(input.projects.map((project) => [project._id, project]));
   const tasksByNotion = new Map(input.tasks.map((task) => [task.notionPageId, task]));
   const resourcesByNotion = new Map((input.resources ?? []).map((resource) => [resource.notionPageId, resource]));
+  const docsByNotion = new Map((input.docs ?? []).map((doc) => [doc.notionPageId, doc]));
   const projectsByNotion = new Map(
     input.projects.flatMap((project) => (project.notionPageId ? [[project.notionPageId, project] as const] : [])),
   );
@@ -449,7 +506,10 @@ export function buildActivityFeed(input: {
       task: undefined,
       orgVisible: input.orgVisible,
     });
-    if (input.audience === 'client' && !clientVisible) continue;
+    if (input.audience === 'client' && !clientVisible) {
+      if (row.type === 'task') items.push(redactedItem(row._id, row.timestamp, 'Task'));
+      continue;
+    }
     const lane = activityLane(row.type, row.tone);
     // Activity rows store projectId and, for a milestone, milestoneId. There is no task or resource id to load.
     const clientCopy = clientActivityCopy({
@@ -472,6 +532,7 @@ export function buildActivityFeed(input: {
           timestamp: new Date(row.timestamp).toISOString(),
           projectId: row.projectId ?? null,
           taskId: null,
+          docId: null,
           milestoneId: row.milestoneId ?? null,
           ...(input.audience === 'staff' ? { clientVisible } : {}),
         },
@@ -487,6 +548,9 @@ export function buildActivityFeed(input: {
     const rawResource =
       !rawTask && audit.notionPageId ? resourcesByNotion.get(audit.notionPageId) : undefined;
     const resource = visibleResource(rawResource, projectsById, input.orgVisible, input.orgId);
+    const rawDoc =
+      !rawTask && !rawResource && audit.notionPageId ? docsByNotion.get(audit.notionPageId) : undefined;
+    const docOpen = clientMayOpenDoc(rawDoc, projectsById, input.orgVisible, input.orgId);
     const project =
       (task ? projectsById.get(task.projectId) : undefined) ??
       (resource?.projectId ? projectsById.get(resource.projectId) : undefined) ??
@@ -500,8 +564,63 @@ export function buildActivityFeed(input: {
       orgVisible: input.orgVisible,
       audit,
     });
+    if (rawDoc) {
+      if (input.audience === 'client') {
+        if (!docOpen) {
+          items.push(redactedItem(audit._id, audit.createdAt, 'Doc'));
+          continue;
+        }
+        {
+          const title = safeClientTitle(rawDoc.title);
+          const copy = clientActivityCopy({
+            lane: 'resources',
+            title,
+            linkedItem: title != null,
+            type: 'resource',
+            summary: undefined,
+            contacts: [],
+          });
+          items.push({
+            id: audit._id,
+            name: copy.name,
+            summary: copy.summary,
+            type: 'resource',
+            tone: 'resource',
+            timestamp: new Date(audit.createdAt).toISOString(),
+            projectId: rawDoc.projectId && clientSeesProject(projectsById.get(rawDoc.projectId), input.orgVisible)
+              ? rawDoc.projectId
+              : null,
+            taskId: null,
+            docId: rawDoc._id,
+            lane: 'resources',
+          });
+        }
+        continue;
+      }
+      items.push(
+        withLane(
+          {
+            id: audit._id,
+            name: rawDoc.title ? `${rawDoc.title} · ${audit.action}` : audit.action,
+            summary: staffDetail(audit.after),
+            type: 'resource',
+            tone: 'muted',
+            timestamp: new Date(audit.createdAt).toISOString(),
+            projectId: rawDoc.projectId ?? null,
+            taskId: null,
+            docId: rawDoc._id,
+            clientVisible: docOpen,
+          },
+          'resource',
+        ),
+      );
+      continue;
+    }
     if (input.audience === 'client') {
-      if (!clientVisible) continue;
+      if (!clientVisible) {
+        if (rawTask) items.push(redactedItem(audit._id, audit.createdAt, 'Task'));
+        continue;
+      }
       const item = clientAuditItem(audit, task, resource, project);
       if (item) items.push(item);
       continue;
@@ -519,6 +638,7 @@ export function buildActivityFeed(input: {
           timestamp: new Date(audit.createdAt).toISOString(),
           projectId: rawTask?.projectId ?? staffProject?._id ?? null,
           taskId: rawTask?._id ?? null,
+          docId: null,
           clientVisible,
         },
         staffType,
@@ -542,11 +662,41 @@ export function buildActivityFeed(input: {
             timestamp: new Date(row.createdAt).toISOString(),
             projectId: task?.projectId ?? null,
             taskId: task?._id ?? null,
+            docId: null,
             clientVisible: false,
           },
           staffType,
         ),
       );
+    }
+  }
+
+  if (input.audience === 'client') {
+    const openTasks = new Set(
+      input.tasks
+        .filter((task) => visibleTask(task, projectsById, input.orgVisible, input.orgId))
+        .map((task) => task._id),
+    );
+    const openDocs = new Set(
+      (input.docs ?? [])
+        .filter((doc) => clientMayOpenDoc(doc, projectsById, input.orgVisible, input.orgId))
+        .map((doc) => doc._id),
+    );
+    const openProjects = new Set(
+      input.projects.filter((project) => clientSeesProject(project, input.orgVisible)).map((project) => project._id),
+    );
+    for (const item of items) {
+      if (item.restricted) {
+        item.taskId = null;
+        item.docId = null;
+        item.projectId = null;
+        item.milestoneId = null;
+        continue;
+      }
+      if (item.taskId && !openTasks.has(item.taskId)) item.taskId = null;
+      if (item.docId && !openDocs.has(item.docId)) item.docId = null;
+      if (item.projectId && !openProjects.has(item.projectId)) item.projectId = null;
+      item.milestoneId = null;
     }
   }
 

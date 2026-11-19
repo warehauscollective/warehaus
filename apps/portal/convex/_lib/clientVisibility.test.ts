@@ -709,12 +709,13 @@ describe('client identity against warehaus.studio', () => {
     assert.deepEqual(snapshotBody.tasks.map((task) => task.name), ['Homepage']);
     assert.deepEqual(
       snapshotBody.activity.map((item) => item.name),
-      ['A task in Northwind site is ready for your review', 'A task in Northwind site is ready for your review'],
+      ['A task in Northwind site is ready for your review', 'A task in Northwind site is ready for your review', 'Task'],
     );
     assert.deepEqual(
       snapshotBody.activity.map((item) => item.summary),
-      ['', ''],
+      ['', '', 'Task'],
     );
+    assert.equal(JSON.stringify(snapshotBody.activity).includes('Staff only task copy'), false);
     const snapshotText = text(snapshot);
     assert.equal((snapshot as { leadName?: string }).leadName, 'Maya Internal');
     assert.equal(snapshotText.includes('maya@warehaus.studio'), false);

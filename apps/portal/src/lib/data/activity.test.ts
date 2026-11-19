@@ -9,7 +9,12 @@ import {
   type FeedProject,
   type FeedTask,
 } from '../../../convex/_lib/activityFeed';
-import { buildActivityView, activityFiltersFor, withActivityLongPreview } from './activity';
+import { activitySubjectHref, buildActivityView, activityFiltersFor, withActivityLongPreview } from './activity';
+import React, { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
+
+Object.assign(globalThis, { React });
+import { ActivityFeedRow } from '@/components/activity/ActivityFeedRow';
 import { FIXTURE_CLIENT_ACTIVITY_PAGE, FIXTURE_STAFF_ACTIVITY_PAGE } from './fixtures';
 
 const NOW = Date.parse('2026-10-29T16:00:00Z');
@@ -149,7 +154,7 @@ describe('activity view model', () => {
       now: NOW,
       clientName: 'Northwind',
     });
-    const clientIds = new Set(clientFeed.map((item) => item.id));
+    const clientIds = new Set(clientFeed.filter((item) => item.restricted !== true).map((item) => item.id));
 
     assert.deepEqual(
       client.rows.map((row) => row.id),
@@ -384,11 +389,18 @@ describe('activity view model', () => {
     assert.equal(chip(staff, 'all'), staff.rows.length);
     assert.equal(chip(staff, 'people'), staff.rows.filter((row) => row.lane === 'people').length);
     assert.equal(staff.filters.some((item) => item.label === 'People'), true);
-    assert.equal(chip(client, 'all'), 3);
+    assert.equal(chip(client, 'all'), 4);
     assert.equal(chip(client, 'all'), laneSum(client));
     assert.equal(chip(client, 'all'), client.rows.length);
     assert.equal(chip(client, 'people'), client.rows.filter((row) => row.lane === 'people').length);
+    const locked = client.rows.find((row) => row.id === 'act-intake');
+    assert.equal(locked?.name, 'Task');
+    assert.equal(locked?.restricted, true);
+    assert.equal(locked?.taskId, null);
+    assert.equal(locked?.projectId, null);
+    assert.equal(locked?.docId, null);
     for (const row of client.rows) {
+      if (row.restricted) continue;
       if (row.lane === 'tasks') {
         assert.equal(row.name, 'A task in Northwind site is ready for your review');
       }
@@ -407,5 +419,82 @@ describe('activity view model', () => {
     });
     assert.equal(clientPeople.rows.length, chip(client, 'people'));
     assert.equal(clientPeople.rows.every((row) => row.lane === 'people'), true);
+  });
+});
+
+describe('activity row targets', () => {
+  it('links a task, project, or doc and leaves sync and staff-only rows inert', () => {
+    assert.equal(activitySubjectHref({ type: 'task', taskId: 'task-1', projectId: 'proj-1' }), '/tasks/task-1');
+    assert.equal(activitySubjectHref({ type: 'project', projectId: 'proj-1' }), '/projects/proj-1');
+    assert.equal(activitySubjectHref({ type: 'resource', docId: 'doc-1', projectId: 'proj-1' }), '/docs/doc-1');
+    assert.equal(activitySubjectHref({ type: 'sync', lane: 'sync', projectId: 'proj-1', taskId: 'task-1' }), null);
+    assert.equal(activitySubjectHref({ type: 'exception', projectId: 'proj-1' }), null);
+    assert.equal(activitySubjectHref({ type: 'project', lane: 'people', projectId: 'proj-1' }), null);
+    assert.equal(activitySubjectHref({ type: 'task', projectId: 'proj-1' }), null);
+    assert.equal(
+      activitySubjectHref({ type: 'task', taskId: 'task-secret', restricted: true }),
+      null,
+    );
+  });
+
+  it('renders a staff-only client row with a lock and no link', () => {
+    const view = buildActivityView({
+      audience: 'client',
+      items: [
+        {
+          id: 'secret-row',
+          name: 'Warehaus updated an internal task',
+          summary: 'Task',
+          type: 'task',
+          timestamp: new Date(NOW).toISOString(),
+          restricted: true,
+          taskId: 'task-staff-only-secret',
+          projectId: 'proj-secret',
+          docId: 'doc-secret',
+        },
+      ],
+      filter: 'all',
+      now: NOW,
+      timeZone: 'UTC',
+    });
+    const row = view.rows[0];
+    assert.ok(row);
+    assert.equal(row.taskId, null);
+    assert.equal(row.projectId, null);
+    assert.equal(row.docId, null);
+    assert.equal(JSON.stringify(view).includes('task-staff-only-secret'), false);
+    assert.equal(JSON.stringify(view).includes('proj-secret'), false);
+    assert.equal(JSON.stringify(view).includes('doc-secret'), false);
+    const html = renderToStaticMarkup(
+      createElement(ActivityFeedRow, {
+        name: row.name,
+        summary: row.summary,
+        when: row.when,
+        lane: row.lane,
+        href: activitySubjectHref(row),
+        locked: row.restricted,
+      }),
+    );
+    assert.equal(html.includes('href='), false);
+    assert.equal(html.includes('<button'), false);
+    assert.equal(html.includes('tabindex'), false);
+    assert.match(html, /data-testid="activity-lock"/);
+    assert.match(html, /not shared with you/);
+    assert.equal(html.includes('data-testid="activity-link"'), false);
+    assert.equal(html.includes('data-testid="row-chevron"'), false);
+  });
+
+  it('removes the right-side inspector and the unused tasks page', () => {
+    const workspace = readFileSync(new URL('../../components/layout/PortalWorkspace.tsx', import.meta.url), 'utf8');
+    assert.equal(workspace.includes('Close details'), false);
+    assert.equal(workspace.includes('aria-label="Details"'), false);
+    assert.equal(workspace.includes('aria-label={detailOpen'), false);
+    let tasks = '';
+    try {
+      tasks = readFileSync(new URL('../../components/pages/TasksContent.tsx', import.meta.url), 'utf8');
+    } catch {
+      tasks = '';
+    }
+    assert.equal(tasks, '');
   });
 });

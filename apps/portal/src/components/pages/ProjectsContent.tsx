@@ -55,6 +55,7 @@ import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam, setSearchParams } from '@/lib/nav/clearSearchParam';
 import { keepProjectWhileLoading, readTaskListView } from '@/lib/nav/taskListLocation';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
+import { clearPortalReturn, peekPortalReturn, takePortalReturn, taskCloseLabel } from '@/lib/nav/portalReturn';
 import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
@@ -267,9 +268,31 @@ export function ProjectsContent() {
   };
 
   const closeTask = () => {
+    const back = takePortalReturn();
     if (fixtures) {
       setFixtureTaskId(null);
+      if (back) {
+        window.history.pushState(window.history.state, '', back);
+        const params = new URLSearchParams(back.split('?')[1] ?? '');
+        const tab = params.get('tab');
+        window.dispatchEvent(
+          new CustomEvent('wh-portal-nav', {
+            detail: {
+              tab: tab === 'projects' || tab === 'resources' || tab === 'activity' || tab === 'account' || tab === 'dashboard' ? tab : 'dashboard',
+              project: params.get('project'),
+              task: null,
+              doc: params.get('doc'),
+              resource: params.get('resource'),
+            },
+          }),
+        );
+        return;
+      }
       clearSearchParam('task');
+      return;
+    }
+    if (back) {
+      router.push(back);
       return;
     }
     if (openProject) router.push(`/projects/${openProject.id}`);
@@ -410,6 +433,7 @@ export function ProjectsContent() {
     });
     const summary = projectSummaryVisibility(isStaff, openProject);
     const openTask = (task: PortalTask) => {
+      clearPortalReturn();
       setOpenId(openProject.id);
       if (fixtures) setFixtureTaskId(task.id);
       else router.push(`/tasks/${task.id}`);
@@ -539,6 +563,7 @@ export function ProjectsContent() {
             resources={(fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[]}
             onClose={closeTask}
             onOpenTask={(id) => {
+              clearPortalReturn();
               if (fixtures) setFixtureTaskId(id);
               else router.push(`/tasks/${id}`);
             }}
@@ -742,6 +767,7 @@ export function ProjectsContent() {
           resources={(fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[]}
           onClose={closeTask}
           onOpenTask={(id) => {
+            clearPortalReturn();
             if (fixtures) setFixtureTaskId(id);
             else router.push(`/tasks/${id}`);
           }}
@@ -846,6 +872,7 @@ function ProjectTaskOverlay({
     taskKey && !staff ? { hostSlug, taskId: taskKey } : 'skip',
   );
   const [phone, setPhone] = useState(false);
+  const closeLabel = taskCloseLabel(peekPortalReturn());
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
     const apply = () => setPhone(media.matches);
@@ -878,6 +905,7 @@ function ProjectTaskOverlay({
       clientName={clientName}
       hostSlug={hostSlug}
       live={!fixtures}
+      closeLabel={closeLabel}
       onClose={onClose}
       onOpenTask={onOpenTask}
     />

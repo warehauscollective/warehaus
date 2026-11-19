@@ -15,13 +15,6 @@ import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { setSearchParams } from '@/lib/nav/clearSearchParam';
 import { readPortalDeepLink } from '@/lib/nav/portalDeepLink';
 
-export type PortalDetail = {
-  id: string;
-  title: string;
-  subtitle?: string;
-  body?: ReactNode;
-} | null;
-
 function defaultSections(): Record<PortalTab, string> {
   return Object.fromEntries(
     PORTAL_TABS.map((t) => [t.value, PORTAL_SIDEBAR_SECTIONS[t.value][0]?.key ?? 'overview']),
@@ -35,9 +28,6 @@ interface PortalViewContextValue {
   /** Per-tab section (each swipe panel keeps its own). */
   sectionFor: (tab: PortalTab) => string;
   setSectionFor: (tab: PortalTab, key: string) => void;
-  detail: PortalDetail;
-  openDetail: (detail: NonNullable<PortalDetail>) => void;
-  closeDetail: () => void;
   /**
    * Client id requested from another tab (project Client chip).
    * Account applies it with setClientId, then clears it.
@@ -55,14 +45,8 @@ const PortalViewContext = createContext<PortalViewContextValue | null>(null);
 export function PortalViewProvider({ children }: { children: ReactNode }) {
   const { activeTab, setActiveTab } = usePortalTab();
   const [sectionsByTab, setSectionsByTab] = useState<Record<PortalTab, string>>(defaultSections);
-  const [detail, setDetail] = useState<PortalDetail>(null);
   const [linkedClientId, setLinkedClientId] = useState<string | null>(null);
   const [openProjectId, setOpenProjectId] = useState<string | null>(null);
-
-  // Clear inspector when switching dock tabs (section state is kept per tab).
-  useEffect(() => {
-    setDetail(null);
-  }, [activeTab]);
 
   useEffect(() => {
     const link = readPortalDeepLink(window.location.search);
@@ -79,7 +63,6 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
 
   const setSectionFor = useCallback((tab: PortalTab, key: string) => {
     setSectionsByTab((prev) => ({ ...prev, [tab]: key }));
-    setDetail(null);
   }, []);
 
   const setActiveSection = useCallback(
@@ -89,19 +72,12 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
     [activeTab, setSectionFor],
   );
 
-  const openDetail = useCallback((next: NonNullable<PortalDetail>) => {
-    setDetail(next);
-  }, []);
-
-  const closeDetail = useCallback(() => setDetail(null), []);
-
   const openLinkedClient = useCallback(
     (clientId: string) => {
       const id = clientId.trim();
       if (!id) return;
       setLinkedClientId(id);
       setSectionsByTab((prev) => ({ ...prev, account: 'clients' }));
-      setDetail(null);
       setSearchParams({ client: id, section: 'clients', tab: 'account' });
       setActiveTab('account');
     },
@@ -116,9 +92,6 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
       setActiveSection,
       sectionFor,
       setSectionFor,
-      detail,
-      openDetail,
-      closeDetail,
       linkedClientId,
       openLinkedClient,
       clearLinkedClient,
@@ -130,9 +103,6 @@ export function PortalViewProvider({ children }: { children: ReactNode }) {
       sectionFor,
       setActiveSection,
       setSectionFor,
-      detail,
-      openDetail,
-      closeDetail,
       linkedClientId,
       openLinkedClient,
       clearLinkedClient,

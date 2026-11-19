@@ -348,7 +348,16 @@ describe('client activity copy', () => {
     assert.equal(feed.find((item) => item.id === 'act-brand')?.name, 'New file shared in Northwind site');
     assert.equal(feed.find((item) => item.id === 'audit-wires')?.name, 'Homepage wireframes is ready for your review');
     assert.equal(feed.find((item) => item.id === 'audit-brand')?.name, 'Brand guidelines v2 shared');
-    assert.equal(feed.some((item) => item.id === 'audit-secret' || item.id === 'audit-other' || item.id === 'audit-hidden'), false);
+    for (const id of ['audit-secret', 'audit-other']) {
+      const hidden = feed.find((item) => item.id === id);
+      assert.equal(hidden?.restricted, true, id);
+      assert.equal(hidden?.name, 'Task', id);
+      assert.equal(hidden?.taskId, null, id);
+      assert.equal(hidden?.docId, null, id);
+      assert.equal(hidden?.projectId, null, id);
+      assert.equal(hidden?.milestoneId ?? null, null, id);
+    }
+    assert.equal(feed.find((item) => item.id === 'audit-hidden'), undefined);
     const blob = JSON.stringify(feed);
     assert.equal(blob.includes('Secret draft title'), false);
     assert.equal(blob.includes('Other org task'), false);
@@ -359,7 +368,7 @@ describe('client activity copy', () => {
 });
 
 describe('client activity feed', () => {
-  it('drops a task-type row and an unpublished task audit', () => {
+  it('redacts a task-type row and an unpublished task audit', () => {
     const feed = buildActivityFeed({
       audience: 'client',
       orgVisible: true,
@@ -369,12 +378,24 @@ describe('client activity feed', () => {
       projects: [project],
       tasks,
     });
-    const ids = feed.map((item) => item.id);
-    assert.equal(ids.includes('act-task'), false);
-    assert.equal(ids.includes('audit-draft'), false);
-    assert.equal(JSON.stringify(feed).includes('Draft estimate'), false);
-    assert.equal(ids.includes('act-project'), true);
-    assert.equal(ids.includes('audit-public'), true);
+    const taskRow = feed.find((item) => item.id === 'act-task');
+    const draft = feed.find((item) => item.id === 'audit-draft');
+    for (const row of [taskRow, draft]) {
+      assert.equal(row?.restricted, true);
+      assert.equal(row?.name, 'Task');
+      assert.equal(row?.summary, 'Task');
+      assert.equal(row?.taskId, null);
+      assert.equal(row?.docId, null);
+      assert.equal(row?.projectId, null);
+      assert.equal(row?.milestoneId ?? null, null);
+    }
+    const blob = JSON.stringify([taskRow, draft]);
+    assert.equal(blob.includes('Draft estimate'), false);
+    assert.equal(blob.includes('Task moved'), false);
+    assert.equal(blob.includes('task-draft'), false);
+    assert.equal(blob.includes('proj-public'), false);
+    assert.equal(feed.some((item) => item.id === 'act-project'), true);
+    assert.equal(feed.some((item) => item.id === 'audit-public'), true);
   });
 });
 
@@ -528,11 +549,25 @@ describe('staff and client activity agree', () => {
 
     for (const item of staff) {
       assert.equal(typeof item.clientVisible, 'boolean', item.id);
-      assert.equal(item.clientVisible, clientIds.has(item.id), item.id);
+      const clientItem = client.find((row) => row.id === item.id);
+      if (clientItem?.restricted) {
+        assert.equal(item.clientVisible, false, item.id);
+        continue;
+      }
+      assert.equal(item.clientVisible, clientItem != null, item.id);
     }
     for (const item of client) {
       const staffItem = staff.find((row) => row.id === item.id);
       assert.ok(staffItem, item.id);
+      if (item.restricted) {
+        assert.equal(staffItem?.clientVisible, false, item.id);
+        assert.equal(item.taskId, null, item.id);
+        assert.equal(item.docId, null, item.id);
+        assert.equal(item.projectId, null, item.id);
+        assert.equal(item.milestoneId ?? null, null, item.id);
+        assert.equal(item.name === 'Task' || item.name === 'Doc', true, item.id);
+        continue;
+      }
       assert.equal(staffItem?.clientVisible, true, item.id);
     }
 
@@ -547,7 +582,7 @@ describe('staff and client activity agree', () => {
     assert.equal(staff.find((row) => row.id === 'audit-staff')?.clientVisible, false);
     assert.equal(staff.find((row) => row.id === 'audit-notask')?.clientVisible, false);
     assert.equal(staff.find((row) => row.id === 'out-1')?.clientVisible, false);
-    assert.equal(clientIds.has('act-task'), false);
+    assert.equal(client.find((row) => row.id === 'act-task')?.restricted, true);
     assert.equal(clientIds.has('audit-public'), true);
     assert.equal(staffIds.has('audit-public'), true);
     assert.equal(JSON.stringify(client).includes('Draft estimate'), false);
@@ -633,5 +668,107 @@ describe('missing Notion property label', () => {
     });
     assert.equal(timeline[0]?.title, reason);
     assert.equal(timeline[0]?.title.includes('Write conflict'), false);
+  });
+});
+
+describe('openable activity ids', () => {
+  it('omits a staff-only task id from the client payload and keeps a doc the client can open', () => {
+    const secretId = 'task-staff-only-secret';
+    const shared = {
+      orgVisible: true,
+      orgId: 'org-northwind',
+      activity: [] as FeedActivity[],
+      outbox: [] as FeedOutbox[],
+      projects: [project],
+      tasks: [
+        ...tasks,
+        {
+          _id: secretId,
+          name: 'Secret draft title',
+          projectId: 'proj-public',
+          notionPageId: 'secret-notion',
+          publishToWarehaus: false,
+          orgId: 'org-northwind',
+        },
+      ],
+      docs: [
+        {
+          _id: 'doc-public',
+          title: 'Kickoff notes',
+          projectId: 'proj-public',
+          notionPageId: 'doc-public-notion',
+          publishToWarehaus: true,
+          status: 'Published' as const,
+          orgId: 'org-northwind',
+        },
+        {
+          _id: 'doc-draft-secret',
+          title: 'Staff note',
+          projectId: 'proj-public',
+          notionPageId: 'doc-draft-notion',
+          publishToWarehaus: false,
+          status: 'Draft' as const,
+          orgId: 'org-northwind',
+        },
+      ],
+      audits: [
+        {
+          _id: 'audit-secret-task',
+          action: 'task.updated',
+          notionPageId: 'secret-notion',
+          after: JSON.stringify({ properties: { Status: 'To Do', Name: 'Secret' } }),
+          actorKind: 'sync',
+          createdAt: 12,
+        },
+        {
+          _id: 'audit-doc',
+          action: 'task.updated',
+          notionPageId: 'doc-public-notion',
+          after: JSON.stringify({ properties: { Status: 'Published', Name: 'Kickoff notes' } }),
+          actorKind: 'sync',
+          createdAt: 11,
+        },
+        {
+          _id: 'audit-draft-doc',
+          action: 'task.updated',
+          notionPageId: 'doc-draft-notion',
+          after: JSON.stringify({ properties: { Status: 'Draft', Name: 'Staff note' } }),
+          actorKind: 'sync',
+          createdAt: 10,
+        },
+        audits[1]!,
+      ],
+    };
+    const client = buildActivityFeed({ audience: 'client', ...shared });
+    const staff = buildActivityFeed({ audience: 'staff', ...shared });
+    const clientBlob = JSON.stringify(client);
+    assert.equal(clientBlob.includes(secretId), false);
+    assert.equal(clientBlob.includes('doc-draft-secret'), false);
+    assert.equal(clientBlob.includes('Secret draft title'), false);
+    assert.equal(clientBlob.includes('Staff note'), false);
+    const secretTask = client.find((item) => item.id === 'audit-secret-task');
+    const draftDoc = client.find((item) => item.id === 'audit-draft-doc');
+    assert.equal(secretTask?.restricted, true);
+    assert.equal(secretTask?.name, 'Task');
+    assert.equal(secretTask?.taskId, null);
+    assert.equal(secretTask?.projectId, null);
+    assert.equal(secretTask?.docId, null);
+    assert.equal(secretTask?.milestoneId ?? null, null);
+    assert.equal(draftDoc?.restricted, true);
+    assert.equal(draftDoc?.name, 'Doc');
+    assert.equal(draftDoc?.docId, null);
+    assert.equal(JSON.stringify(secretTask).includes('secret-notion'), false);
+    assert.equal(JSON.stringify(draftDoc).includes('doc-draft-notion'), false);
+    assert.equal(client.find((item) => item.id === 'audit-doc')?.docId, 'doc-public');
+    assert.equal(client.find((item) => item.id === 'audit-doc')?.taskId, null);
+    assert.equal(client.find((item) => item.id === 'audit-public')?.taskId, 'task-public');
+    for (const item of client) {
+      assert.notEqual(item.taskId, secretId);
+      assert.notEqual(item.docId, 'doc-draft-secret');
+    }
+    assert.equal(staff.find((item) => item.id === 'audit-secret-task')?.taskId, secretId);
+    assert.equal(staff.find((item) => item.id === 'audit-draft-doc')?.docId, 'doc-draft-secret');
+    assert.equal(staff.find((item) => item.id === 'audit-doc')?.clientVisible, true);
+    assert.equal(staff.find((item) => item.id === 'audit-draft-doc')?.clientVisible, false);
   });
 });
