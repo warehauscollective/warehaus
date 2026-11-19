@@ -238,9 +238,10 @@ export default defineSchema({
     previewBuild: v.optional(v.union(v.literal('building'), v.literal('failed'))),
     previewBuildAttempt: v.optional(v.number()),
     previewBuildAt: v.optional(v.number()),
-    /** After approve, removing the preview. Absent until a delete is attempted. */
+    /** After approve, removing the preview. `removed` means the Vercel build is gone. Absent until a delete is attempted. */
     previewDelete: v.optional(v.union(v.literal('removing'), v.literal('failed'), v.literal('removed'))),
     previewDeleteAttempt: v.optional(v.number()),
+    /** Last delete attempt. When `previewDelete` is `removed`, this is the time the preview was deleted. */
     previewDeleteAt: v.optional(v.number()),
     /** Set only when a real production deploy finishes. Absent means it has not finished. */
     deployFinishedAt: v.optional(v.number()),

@@ -220,61 +220,6 @@ export function reviewPreviewForAudience(
   };
 }
 
-export type RoadmapPreviewDelete = {
-  state?: PreviewDeleteState | null;
-  attempts?: number | null;
-  failedAt?: number | null;
-};
-
-/**
- * Query-path copy of the preview onto a roadmap view.
- * Clients lose the key entirely, even when the input view already has one.
- */
-export function reviewPreviewOnRoadmap<T extends Record<string, unknown>>(
-  audience: 'staff' | 'client',
-  view: T,
-  record: ReviewPreviewRecord | null | undefined,
-  deletion?: RoadmapPreviewDelete | null,
-): Omit<T, 'reviewPreview'> & {
-  reviewPreview?: {
-    state: ReviewPreviewState;
-    url: string | null;
-    sha: string | null;
-    prNumber: number | null;
-    iteration: number | null;
-    branch: string | null;
-    builtAt: number | null;
-    deleteState?: PreviewDeleteState;
-    deleteAttempts?: number | null;
-    deleteFailedAt?: number | null;
-  };
-} {
-  const { reviewPreview: _drop, ...rest } = view;
-  if (audience !== 'staff') return rest;
-  const preview = reviewPreviewForAudience('staff', record);
-  if (!preview?.state) return rest;
-  const deleteState = deletion?.state === 'removing' || deletion?.state === 'failed' ? deletion.state : null;
-  return {
-    ...rest,
-    reviewPreview: {
-      state: preview.state,
-      url: preview.url ?? null,
-      sha: preview.sha ?? null,
-      prNumber: preview.prNumber ?? null,
-      iteration: preview.iteration ?? null,
-      branch: preview.branch ?? null,
-      builtAt: preview.builtAt ?? null,
-      ...(deleteState
-        ? {
-            deleteState,
-            deleteAttempts: deletion?.attempts ?? null,
-            deleteFailedAt: deletion?.failedAt ?? null,
-          }
-        : {}),
-    },
-  };
-}
-
 export function previewDeleteAfterFailure(input: { attempts: number; now: number; terminal?: boolean }): {
   state: PreviewDeleteState;
   attempts: number;
@@ -429,6 +374,8 @@ export function clearPreviewOnApprove(input: {
 export function removalAfterDelete(input: {
   outcome: 'deleted' | 'already-gone' | 'failed' | 'unconfigured';
   record: ReviewPreviewRecord;
+  /** Recorded only when the deployment is actually gone. */
+  removedAt: number;
 }): { patch: null } | {
   patch: {
     previewDelete: 'removed';
@@ -436,10 +383,11 @@ export function removalAfterDelete(input: {
     previewDeploymentId: undefined;
     previewBuild: undefined;
     previewDeleteAttempt: undefined;
-    previewDeleteAt: undefined;
+    previewDeleteAt: number;
   };
 } {
   if (input.outcome !== 'deleted' && input.outcome !== 'already-gone') return { patch: null };
+  if (!Number.isFinite(input.removedAt)) return { patch: null };
   if (input.record.state === 'removed' && !input.record.url && !input.record.deploymentId) return { patch: null };
   return {
     patch: {
@@ -448,7 +396,7 @@ export function removalAfterDelete(input: {
       previewDeploymentId: undefined,
       previewBuild: undefined,
       previewDeleteAttempt: undefined,
-      previewDeleteAt: undefined,
+      previewDeleteAt: input.removedAt,
     },
   };
 }

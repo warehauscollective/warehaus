@@ -133,13 +133,16 @@ describe('clear on approve', () => {
   });
 
   it('marks the preview removed only after the deployment delete succeeds', () => {
-    const gone = removalAfterDelete({ outcome: 'deleted', record: { state: 'ready', url: READY_URL, deploymentId: 'dpl_1' } });
+    const gone = removalAfterDelete({ outcome: 'deleted', record: { state: 'ready', url: READY_URL, deploymentId: 'dpl_1' }, removedAt: 50 });
     assert.equal(gone.patch && 'previewDelete' in gone.patch ? gone.patch.previewDelete : null, 'removed');
-    const already = removalAfterDelete({ outcome: 'already-gone', record: { state: 'ready', deploymentId: 'dpl_1' } });
-    assert.ok(already.patch);
-    const failed = removalAfterDelete({ outcome: 'failed', record: { state: 'ready', deploymentId: 'dpl_1' } });
+    assert.equal(gone.patch && 'previewDeleteAt' in gone.patch ? gone.patch.previewDeleteAt : null, 50);
+    const already = removalAfterDelete({ outcome: 'already-gone', record: { state: 'ready', deploymentId: 'dpl_1' }, removedAt: 60 });
+    assert.equal(already.patch && 'previewDeleteAt' in already.patch ? already.patch.previewDeleteAt : null, 60);
+    const failed = removalAfterDelete({ outcome: 'failed', record: { state: 'ready', deploymentId: 'dpl_1' }, removedAt: 70 });
     assert.equal(failed.patch, null);
-    const second = removalAfterDelete({ outcome: 'deleted', record: { state: 'removed' } });
+    const untimed = removalAfterDelete({ outcome: 'deleted', record: { state: 'ready', deploymentId: 'dpl_1' }, removedAt: Number.NaN });
+    assert.equal(untimed.patch, null);
+    const second = removalAfterDelete({ outcome: 'deleted', record: { state: 'removed' }, removedAt: 80 });
     assert.equal(second.patch, null);
   });
 
@@ -296,6 +299,18 @@ describe('peter and delete retry', () => {
     const retry = milestones.slice(milestones.indexOf('export const retryReviewPreview'), milestones.indexOf('export const reviewPreviewHttp'));
     assert.match(retry, /retryActorAllowed\(ctx\.identity\.email\)/);
     assert.ok(retry.indexOf('retryActorAllowed') < retry.indexOf('ctx.db.patch'));
+  });
+
+  it('re-checks the shared dev host before a retry dispatch', () => {
+    const milestones = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
+    const dispatch = milestones.slice(
+      milestones.indexOf('export const dispatchReviewPreview'),
+      milestones.indexOf('export const retryReviewPreview'),
+    );
+    const preview = readFileSync(new URL('./reviewPreview.ts', import.meta.url), 'utf8');
+    assert.match(dispatch, /assertReviewConvexUrl\(process\.env\.CONVEX_CLOUD_URL\)/);
+    assert.ok(dispatch.indexOf('assertReviewConvexUrl') < dispatch.indexOf('fetch('));
+    assert.equal(preview.includes('reviewPreviewOnRoadmap'), false);
   });
 
   it('checks the workflow out from the default branch and skips when secrets are unset', () => {

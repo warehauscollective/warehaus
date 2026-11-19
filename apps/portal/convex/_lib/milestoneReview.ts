@@ -27,8 +27,8 @@ export const PETER_CHAT_TOKEN = 'grok-bot';
 export const TASK_STAGE_HINT =
   'Staff can set any stage except Shipped. Shipped is set when the pull request merges.';
 
-/** Shown on a disabled Retry. The rebuild and the preview delete need the tokens in #113. */
-export const RETRY_WAITS_ON_TOKENS = 'Retry waits on the GitHub and Vercel tokens.';
+/** Shown on a disabled Retry while review previews are still being set up. */
+export const RETRY_WAITS_ON_TOKENS = "Retry isn't available yet. Review previews are still being set up.";
 
 export type PreviewBuildStatus = 'building' | 'failed';
 export type PreviewDeleteStatus = 'removing' | 'failed' | 'removed';

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -27,7 +27,10 @@ export const RECORDING_APPROVAL = 'Recording approval…';
 export const APPROVING_LABEL = 'Approving…';
 export const SAVING_APPROVAL_COPY = 'Saving your approval in the Portal. Engineering will merge to main and deploy production next.';
 export const PREVIEW_REMOVED = 'Preview removed after approval · Vercel build deleted';
+export const RETRY_FAILED = 'Retry didn’t start. Nothing changed.';
 export const STAFF_RETRY_LINE = 'STAFF ONLY · Peter and clients don’t see Retry.';
+/** Same muted opacity as Request changes while a preview build is held. */
+export const RETRY_DISABLED_OPACITY = 0.4;
 export const WAITING_COPY = 'A protected preview builds when this is ready for review. The link shows here and in Grok Bot chat.';
 export const NEXT_BUILD_COPY = 'The next preview builds when iteration 3 is ready for review. The link shows here and in Grok Bot chat.';
 export const DEPLOY_FOOTER = 'Approve & deploy merges to main and ships to production · Peter only';
@@ -98,6 +101,17 @@ export function deriveReviewVisual(model: ReviewSurfaceModel, forced?: ReviewVis
   if (!model.previewUrl) return 'waiting';
   if (model.designCheck === 'fixes') return 'fixes';
   return 'ready';
+}
+
+/** Peter keeps the plain Approved card while a delete is still failing. Staff keep the status cards. */
+export function reviewVisualForViewer(visual: ReviewVisual, isPeter: boolean): ReviewVisual {
+  if (isPeter && (visual === 'delete-failed' || visual === 'couldnt-remove')) return 'approved';
+  return visual;
+}
+
+/** The removal line needs a recorded delete, not approval by itself. */
+export function previewRemovalRecorded(model: Pick<ReviewSurfaceModel, 'previewDelete' | 'previewDeleteAt'>): boolean {
+  return model.previewDelete === 'removed' && typeof model.previewDeleteAt === 'number';
 }
 
 function designPillLabel(check: DesignCheck): string {
@@ -527,34 +541,55 @@ export function ReviewDialogActions({
   );
 }
 
-function RetryControl({ phone, busy = false, onRetry }: { phone: boolean; busy?: boolean; onRetry?: () => void }) {
+function RetryControl({
+  phone,
+  busy = false,
+  onRetry,
+  error = null,
+}: {
+  phone: boolean;
+  busy?: boolean;
+  onRetry?: () => void;
+  error?: string | null;
+}) {
   const live = Boolean(onRetry);
   return (
-    <div className={phone ? 'flex w-full flex-col items-start gap-1.5 pt-1.5' : 'flex items-center gap-2.5 pt-1.5'}>
+    <div className={phone ? 'flex w-full flex-col items-start gap-1.5 pt-1.5' : 'flex flex-wrap items-center gap-2.5 pt-1.5'}>
       <button
         type="button"
         disabled={!live || busy}
+        aria-busy={busy || undefined}
         data-testid="review-retry"
         title={live ? undefined : RETRY_WAITS_ON_TOKENS}
         onClick={onRetry}
         style={{
-          border: '1px solid var(--border-2)',
+          boxSizing: 'border-box',
+          border: '1px solid var(--border)',
           borderRadius: 9,
-          padding: '12px 16px',
+          height: 44,
+          padding: '0 16px',
           background: 'transparent',
           color: 'var(--fg)',
+          fontFamily: 'var(--font-body)',
           fontSize: 14,
           fontWeight: 500,
-          opacity: live && !busy ? 1 : 0.7,
-          cursor: live && !busy ? 'pointer' : 'not-allowed',
+          width: phone ? '100%' : undefined,
+          opacity: live || busy ? 1 : RETRY_DISABLED_OPACITY,
+          cursor: !live ? 'not-allowed' : busy ? 'wait' : 'pointer',
         }}
       >
         {busy ? 'Retrying…' : 'Retry'}
       </button>
       <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{STAFF_RETRY_LINE}</p>
-      {live ? null : (
-        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{RETRY_WAITS_ON_TOKENS}</p>
+      {live || busy ? null : (
+        <p data-testid="review-retry-unavailable" className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{RETRY_WAITS_ON_TOKENS}</p>
       )}
+      {error ? (
+        <p role="alert" data-testid="review-retry-error" className="flex items-start gap-2" style={{ margin: 0, flex: '1 0 100%', color: 'var(--danger-text)', fontSize: 14, lineHeight: '21px' }}>
+          <AlertIcon />
+          <span>{error}</span>
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -565,6 +600,7 @@ function PreviewLifecycle({
   phone,
   isPeter,
   retrying = false,
+  retryError = null,
   onRetry,
 }: {
   visual: ReviewVisual;
@@ -572,6 +608,7 @@ function PreviewLifecycle({
   phone: boolean;
   isPeter: boolean;
   retrying?: boolean;
+  retryError?: string | null;
   onRetry?: () => void;
 }) {
   const failedAt = visual === 'preview-failed' ? model.previewBuildAt : model.previewDeleteAt;
@@ -604,7 +641,7 @@ function PreviewLifecycle({
             Staff see this. Peter and clients see the approved card until the delete succeeds.
           </p>
         ) : null}
-        {showRetry ? <RetryControl phone={phone} busy={retrying} onRetry={onRetry} /> : null}
+        {showRetry ? <RetryControl phone={phone} busy={retrying} onRetry={onRetry} error={retryError} /> : null}
       </div>
     </div>
   );
@@ -622,6 +659,7 @@ export function MilestoneReviewSurface({
   initialDialog = null,
   initialError = null,
   retrying = false,
+  retryError = null,
   onRetry,
   saveFailed = false,
   cover = false,
@@ -642,10 +680,12 @@ export function MilestoneReviewSurface({
   initialDialog?: ReviewDialogKind | null;
   /** Notes-missing error for the request-changes fixture. */
   initialError?: string | null;
-  /** Visual only. Retry stays disabled until the GitHub and Vercel tokens exist. */
+  /** Pending Retry. Live clicks set this while the mutation is in flight. */
   retrying?: boolean;
+  /** Inline Retry failure. Live clicks set this when the mutation fails. */
+  retryError?: string | null;
   /** Live retry. Fixtures omit this, so Retry stays disabled there. */
-  onRetry?: () => void;
+  onRetry?: () => void | Promise<void>;
   /** Confirm dialog after a failed save. The button reads Try again. */
   saveFailed?: boolean;
   /** Keep the dialog inside its frame. The live dialog stays fixed on the page. */
@@ -666,7 +706,27 @@ export function MilestoneReviewSurface({
   }, [closeToken]);
   const [fieldError, setFieldError] = useState<string | null>(initialError);
   const [cardError, setCardError] = useState(false);
-  const visual = cardError && !forced ? 'error' : busy && !forced ? 'saving' : deriveReviewVisual(model, forced);
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [retryFailure, setRetryFailure] = useState<string | null>(null);
+  const retryLock = useRef(false);
+  const retryPending = Boolean(retrying || retryBusy);
+  const retryMessage = retryFailure ?? retryError;
+  const runRetry = onRetry
+    ? () => {
+        if (retryLock.current || retryPending) return;
+        retryLock.current = true;
+        setRetryFailure(null);
+        setRetryBusy(true);
+        void Promise.resolve(onRetry()).catch((err: unknown) => {
+          setRetryFailure(userFacingErrorMessage(err, RETRY_FAILED));
+        }).finally(() => {
+          retryLock.current = false;
+          setRetryBusy(false);
+        });
+      }
+    : undefined;
+  const derived = cardError && !forced ? 'error' : busy && !forced ? 'saving' : deriveReviewVisual(model, forced);
+  const visual = reviewVisualForViewer(derived, isPeter);
   const locked = visual === 'approved' || visual === 'changes' || visual === 'waiting' || visual === 'building' || visual === 'preview-failed' || visual === 'delete-failed' || visual === 'couldnt-remove';
   const blocked = locked || visual === 'saving';
   const latest = model.history[0] ?? null;
@@ -797,11 +857,11 @@ export function MilestoneReviewSurface({
             ) : (
               <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{APPROVED_AWAITING}</p>
             )}
-            {visual === 'approved' ? (
-              <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{PREVIEW_REMOVED}</p>
+            {visual === 'approved' && previewRemovalRecorded(model) ? (
+              <p data-testid="preview-removed" className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{PREVIEW_REMOVED}</p>
             ) : null}
             {visual === 'delete-failed' || visual === 'couldnt-remove' ? (
-              <PreviewLifecycle visual={visual} model={model} phone={phone} isPeter={isPeter} retrying={retrying} onRetry={onRetry} />
+              <PreviewLifecycle visual={visual} model={model} phone={phone} isPeter={isPeter} retrying={retryPending} retryError={retryMessage} onRetry={runRetry} />
             ) : null}
           </>
         ) : visual === 'changes' ? (
@@ -825,7 +885,7 @@ export function MilestoneReviewSurface({
         ) : (
           <>
             {model.previewUrl && visual !== 'building' && visual !== 'preview-failed' ? <PreviewBox url={model.previewUrl} commit={model.commit} iteration={model.iteration} /> : visual === 'building' || visual === 'preview-failed' ? (
-              <PreviewLifecycle visual={visual} model={model} phone={phone} isPeter={isPeter} retrying={retrying} onRetry={onRetry} />
+              <PreviewLifecycle visual={visual} model={model} phone={phone} isPeter={isPeter} retrying={retryPending} retryError={retryMessage} onRetry={runRetry} />
             ) : (
               <div data-testid="review-waiting-box" className="flex items-start gap-3" style={{ border: '1px dashed var(--border-2)', borderRadius: 18, padding: 16 }}>
                 <ClockIcon />
