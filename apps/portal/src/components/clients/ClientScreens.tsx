@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { Lock } from 'lucide-react';
-import { OutlineButton, Pill, PortalCheckbox } from '@/components/ui/primitives';
+import { OutlineButton, Pill, PortalCheckbox, PrimaryButton } from '@/components/ui/primitives';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
@@ -22,6 +22,7 @@ import {
   staffHeaderLine,
 } from '@/lib/data/clientDetail';
 import { EDIT_PROJECT_WRITEBACK_HINT } from '@/lib/data/projectList';
+import { NewProjectButton } from '@/components/projects/ProjectListStates';
 import {
   clientDirectoryErrorMode,
   clientDirectoryShowsFilters,
@@ -348,28 +349,14 @@ export function EditClientButton() {
       className="inline-flex shrink-0"
       style={{ cursor: 'not-allowed' }}
     >
-      <button
-        type="button"
+      <PrimaryButton
         disabled
-        aria-disabled="true"
-        tabIndex={-1}
-        data-testid="edit-client"
-        style={{
-          pointerEvents: 'none',
-          background: 'transparent',
-          color: 'var(--fg)',
-          border: '1px solid var(--border)',
-          borderRadius: 9,
-          fontFamily: 'var(--font-body)',
-          fontSize: 13,
-          fontWeight: 500,
-          padding: '6px 10px',
-          cursor: 'not-allowed',
-          opacity: 0.4,
-        }}
+        solidWhenDisabled
+        title={EDIT_PROJECT_WRITEBACK_HINT}
+        testId="edit-client"
       >
         Edit client
-      </button>
+      </PrimaryButton>
       <span id={hintId} className="sr-only">
         {EDIT_PROJECT_WRITEBACK_HINT}
       </span>
@@ -876,6 +863,9 @@ export function ClientDetail({
   brandName,
   screen = 'ready',
   taskPlatform = null,
+  onCreateProject,
+  createEnabled = false,
+  highlightProjectId = null,
 }: {
   client: DirectoryClient;
   projects: ClientProjectRow[];
@@ -887,6 +877,10 @@ export function ClientDetail({
   brandName?: string | null;
   screen?: ClientScreen;
   taskPlatform?: TaskPlatformPanelModel | null;
+  /** Staff only. Client pages omit this, so the control is not rendered. */
+  onCreateProject?: () => void;
+  createEnabled?: boolean;
+  highlightProjectId?: string | null;
 }) {
   const { scrollerRef, active, choose } = useDetailSection(screen);
   if (screen === 'error') {
@@ -996,10 +990,46 @@ export function ClientDetail({
         })}
       </div>
       <Panel padded={false} className="client-detail-card">
-        <h3 id="client-projects" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', scrollMarginTop: 8 }}>Projects</h3>
-        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Brand is attached to each project</p>
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h3 id="client-projects" style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', scrollMarginTop: 8 }}>Projects</h3>
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 4 }}>Brand is attached to each project</p>
+          </div>
+          {onCreateProject && projectRows.length > 0 ? (
+            <NewProjectButton
+              variant="outline"
+              enabled={createEnabled}
+              onCreate={onCreateProject}
+              testId="client-new-project"
+            />
+          ) : null}
+        </div>
         {projectRows.length === 0 ? (
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 12 }}>No projects.</p>
+          <div
+            className="mt-6 flex flex-col items-center text-center"
+            data-testid="client-projects-empty"
+            style={{
+              gap: 12,
+              border: '1px dashed var(--border)',
+              borderRadius: 18,
+              background: 'var(--bg-2)',
+              padding: '48px 24px',
+            }}
+          >
+            <TaskGlyph src="/icons/task-layers.svg" size={28} />
+            <p style={{ margin: 0, fontSize: 16, fontWeight: 500, lineHeight: '19px' }}>No projects yet</p>
+            <p style={{ margin: 0, maxWidth: 440, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
+              Start the first project for {client.name}. {"It's linked to this client automatically."}
+            </p>
+            {onCreateProject ? (
+              <NewProjectButton
+                variant="outline"
+                enabled={createEnabled}
+                onCreate={onCreateProject}
+                testId="client-new-project"
+              />
+            ) : null}
+          </div>
         ) : (
           <ul className="mt-2">
             {projectRows.map((project) => {
@@ -1009,9 +1039,14 @@ export function ClientDetail({
               return (
                 <li
                   key={project.id}
+                  id={`client-project-${project.id}`}
                   data-testid="client-project-row"
+                  data-highlight={project.id === highlightProjectId ? 'true' : undefined}
                   className="client-project-row grid grid-cols-[minmax(0,1fr)_16px] items-center gap-x-3 gap-y-2 md:grid-cols-[minmax(0,1fr)_176px_80px_140px_16px] md:gap-4"
-                  style={{ borderTop: '1px solid var(--border)' }}
+                  style={{
+                    borderTop: '1px solid var(--border)',
+                    animation: project.id === highlightProjectId ? 'client-project-in 4s ease' : undefined,
+                  }}
                 >
                   <div className="col-span-2 flex min-w-0 items-center gap-3 md:col-span-1">
                     <Mark name={project.name} />
@@ -1370,9 +1405,16 @@ function ClampStyle() {
         white-space: nowrap;
       }
       .client-detail { gap: 16px; }
+      @media (max-width: 1023px) {
+        .client-detail { padding-bottom: calc(82px + env(safe-area-inset-bottom, 0px)); }
+      }
       .client-detail-card { padding: 20px 16px; }
       .client-detail-kpis { gap: 16px; }
       .client-project-row { padding: 12px 0; }
+      @keyframes client-project-in {
+        from { background: color-mix(in oklab, var(--fg) 14%, transparent); }
+        to { background: transparent; }
+      }
       .client-task-row { padding: 14px 0; }
       .client-directory-kpis {
         grid-template-columns: minmax(0, 1fr);

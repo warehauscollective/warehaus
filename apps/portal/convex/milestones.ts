@@ -302,7 +302,7 @@ async function toRoadmap(
   if (review) view.review = review;
   if (audience === 'staff') {
     view.attachableTasks = tasks
-      .filter((task) => !task.parentTaskId && !task.milestoneId)
+      .filter((task) => !task.milestoneId)
       .map((task) => ({ id: task._id, name: task.name }))
       .sort((a, b) => a.name.localeCompare(b.name));
     const choices = await ctx.db
@@ -654,12 +654,12 @@ export const moveProject = adminMutation({
       seen.add(task._id);
       tasks.push(task);
     }
-    for (const task of linked) {
-      if (task.parentTaskId) continue;
+    const parents = linked.filter((task) => !task.parentTaskId).slice(0, 40);
+    for (const task of parents) {
       const children = await ctx.db
         .query('tasks')
         .withIndex('by_parentTaskId', (q) => q.eq('parentTaskId', task._id))
-        .collect();
+        .take(50);
       for (const child of children) {
         if (child.orgId !== milestone.orgId || seen.has(child._id)) continue;
         seen.add(child._id);
@@ -757,6 +757,7 @@ async function linkTask(
   });
   if (!decision.ok) return { ok: false, code: decision.code, error: decision.reason };
   if (decision.alreadyAttached) return { ok: true };
+  // One task. Attaching a subtask does not write the parent or its siblings.
   const siblings = await ctx.db
     .query('tasks')
     .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))

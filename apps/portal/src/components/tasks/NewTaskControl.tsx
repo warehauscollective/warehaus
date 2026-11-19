@@ -6,8 +6,10 @@ import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { WRITEBACK_OFF_ERROR, createTaskExternalId } from '@warehaus/portal-sync';
+import { PortalModal } from '@/components/ui/PortalModal';
 import { GhostButton, PrimaryButton, Surface } from '@/components/ui/primitives';
 import { LIVE_TASK_STATUSES } from '@/lib/data/view-models';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
 
 /**
  * Dashboard New task. Calls createTask only when the deployment write-back flag is on.
@@ -35,6 +37,7 @@ export function NewTaskControl({
   const [status, setStatus] = useState('');
   const [note, setNote] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const narrow = useMaxWidth(767);
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -89,23 +92,15 @@ export function NewTaskControl({
         New task
       </PrimaryButton>
       {open ? (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-label="New task"
-          onClick={() => setOpen(false)}
-          style={{
-            position: 'fixed',
-            inset: 0,
-            zIndex: 80,
-            background: 'color-mix(in oklab, var(--bg) 55%, transparent)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 16,
-          }}
+        <PortalModal
+          label="New task"
+          testId="new-task"
+          onClose={() => setOpen(false)}
+          narrow={narrow}
+          sheet="bottom"
+          width={640}
+          panelStyle={{ padding: 0 }}
         >
-          <div onClick={(event) => event.stopPropagation()} style={{ width: 'min(100%, 440px)' }}>
             <Surface style={{ padding: 'var(--s-5)' }}>
               <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--muted)' }}>
                 New task
@@ -189,8 +184,7 @@ export function NewTaskControl({
                 </div>
               </form>
             </Surface>
-          </div>
-        </div>
+        </PortalModal>
       ) : null}
     </>
   );

@@ -303,7 +303,10 @@ describe('client team page', () => {
     const headerNew = renderToStaticMarkup(createElement(NewClientButton));
     assert.match(edit, /data-testid="edit-client"/);
     assert.match(edit, /font-family:var\(--font-body\)/);
-    assert.match(edit, /opacity:0.4/);
+    assert.match(edit, /background:var\(--accent\)/);
+    assert.match(edit, /opacity:1/);
+    assert.equal(edit.includes('opacity:0.4'), false);
+    assert.equal(edit.includes('border:1px solid var(--border)'), false);
     assert.match(edit, /Editing turns on with Notion write-back/);
     assert.equal(edit.includes('role="group"'), false);
     assert.match(headerNew, /background:transparent/);
@@ -560,5 +563,72 @@ describe('client states', () => {
     assert.match(empty, /data-testid="new-client"/);
     assert.equal(empty.includes('aria-disabled'), false);
     assert.equal(empty.includes('opacity:0.4'), false);
+  });
+});
+
+function detailMarkup(extra: Record<string, unknown> = {}) {
+  return renderToStaticMarkup(
+    createElement(ClientDetail, {
+      client: staffClient,
+      projects: [{ id: 'p-site', name: 'Northwind site', status: 'In Progress', progress: 0.4 }],
+      tasks: [],
+      docs: [],
+      contacts: [],
+      ...extra,
+    }),
+  );
+}
+
+describe('staff new project on a client', () => {
+  it('hides New project from the client company and from a detail without the action', () => {
+    const company = renderToStaticMarkup(
+      createElement(ClientCompany, {
+        name: 'Northwind',
+        projects: [],
+        tasks: [],
+        docs: [],
+        people: [],
+        showTeam: false,
+        onShowTeam: () => {},
+        onBack: () => {},
+      }),
+    );
+    assert.equal(company.includes('New project'), false);
+    assert.equal(detailMarkup().includes('New project'), false);
+  });
+
+  it('shows New project on the section when the client has projects', () => {
+    const html = detailMarkup({ onCreateProject: () => {}, createEnabled: true });
+    assert.match(html, /data-testid="client-new-project"/);
+    assert.match(html, />New project</);
+    assert.equal(html.includes('data-testid="new-project-hint"'), false);
+  });
+
+  it('shows New project in the empty state', () => {
+    const html = detailMarkup({
+      projects: [],
+      onCreateProject: () => {},
+      createEnabled: true,
+    });
+    assert.match(html, /No projects yet/);
+    assert.match(html, /Start the first project for Northwind\. It(?:'|&#x27;)s linked to this client automatically\./);
+    assert.match(html, /border:1px dashed var\(--border\)/);
+    assert.match(html, /task-layers\.svg/);
+    assert.match(html, /padding-bottom:\s*calc\(82px \+ env\(safe-area-inset-bottom, 0px\)\)/);
+    assert.match(html, /data-testid="client-projects-empty"/);
+    assert.match(html, /data-testid="client-new-project"/);
+    assert.equal(html.match(/data-testid="client-new-project"/g)?.length, 1);
+  });
+
+  it('keeps the control on screen and disabled when create is off', () => {
+    const html = detailMarkup({
+      projects: [],
+      onCreateProject: () => {},
+      createEnabled: false,
+    });
+    assert.match(html, /data-testid="client-new-project"/);
+    assert.match(html, /data-testid="new-project-hint"/);
+    assert.match(html, /Creating a project turns on with Notion write-back/);
+    assert.match(html, /opacity:0\.4/);
   });
 });

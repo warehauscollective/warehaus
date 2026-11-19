@@ -59,7 +59,7 @@ import { clearPortalReturn, peekPortalReturn, takePortalReturn, taskCloseLabel }
 import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
-import { useWritebackEnabled } from '@/hooks/useWritebackEnabled';
+import { useFixtureCreatePreview, useWritebackEnabled } from '@/hooks/useWritebackEnabled';
 import {
   NewProjectButton,
   ProjectKpiSkeleton,
@@ -92,7 +92,8 @@ export function ProjectsContent() {
   const { sectionFor, setSectionFor, openLinkedClient, setOpenProjectId } = usePortalView();
   const [createOpen, setCreateOpen] = useState(false);
   const writebackEnabled = useWritebackEnabled();
-  const createEnabled = writebackEnabled;
+  const fixtureCreate = useFixtureCreatePreview();
+  const createEnabled = writebackEnabled || fixtureCreate;
   const { data, loading, error } = usePortalData();
   const activityFeed = useActivityFeed();
   const retryPortalData = useRetryPortalData();
@@ -389,10 +390,12 @@ export function ProjectsContent() {
   const openCreate = () => {
     requestProjectCreate(createEnabled, () => setCreateOpen(true));
   };
-  const projectClients = (fixtures ? FIXTURE_CLIENTS : directory.data ?? []).map((client) => ({
-    id: client.id,
-    name: client.name,
-  }));
+  const projectClients = (fixtures ? FIXTURE_CLIENTS : directory.data ?? []).map((client) => {
+    const rows = projects.filter((project) => project.orgId === client.id);
+    const counted = 'projectCount' in client && typeof client.projectCount === 'number' ? client.projectCount : rows.length;
+    const internal = 'internal' in client ? Boolean(client.internal) : rows.some((project) => project.internal);
+    return { id: client.id, name: client.name, projectCount: counted, internal };
+  });
   const retryQueuedStage = async () => {
     if (!queuedStage || fixtures || stageRetry.busy) return;
     setStageRetry({ busy: true, error: null });
@@ -873,6 +876,7 @@ function ProjectTaskOverlay({
     taskKey && !staff ? { hostSlug, taskId: taskKey } : 'skip',
   );
   const [phone, setPhone] = useState(false);
+  const [fixtureStage, setFixtureStage] = useState<string | null>(null);
   const closeLabel = taskCloseLabel(peekPortalReturn());
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
@@ -881,6 +885,10 @@ function ProjectTaskOverlay({
     media.addEventListener('change', apply);
     return () => media.removeEventListener('change', apply);
   }, []);
+  useEffect(() => {
+    if (!fixtures) return;
+    setFixtureStage(new URLSearchParams(window.location.search).get('stageConfirm'));
+  }, [fixtures]);
   const subtasks = staff
     ? tasks.filter((item) => item.parentTaskId === taskId)
     : (clientSubs.data ?? []).filter((item) => item.publishToWarehaus !== false);
@@ -906,6 +914,7 @@ function ProjectTaskOverlay({
       clientName={clientName}
       hostSlug={hostSlug}
       live={!fixtures}
+      initialStageConfirm={phone ? fixtureStage : null}
       closeLabel={closeLabel}
       onClose={onClose}
       onOpenTask={onOpenTask}

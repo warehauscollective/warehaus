@@ -37,7 +37,7 @@ export const Dialog: Story = {
 export const FieldError: Story = {
   args: {
     ...Dialog.args,
-    note: { tone: 'error', text: 'Primary Email is not a valid address', field: 'email' },
+    note: { tone: 'error', text: 'Primary email is not a valid address', field: 'email' },
     primaryEmail: 'not-an-email',
   },
 };

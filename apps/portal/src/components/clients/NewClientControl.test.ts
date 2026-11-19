@@ -31,6 +31,8 @@ describe('new client dialog', () => {
   it('says the client starts as a prospect with portal access off and no invite', () => {
     const html = markup();
     assert.match(html, /data-testid="new-client-dialog"/);
+    assert.equal(html.includes('portal-modal-sheet'), false);
+    assert.equal(html.includes('data-testid="modal-grabber"'), false);
     assert.match(html, /Starts as a prospect\. Portal access stays off\. No invite is sent\./);
     assert.match(html, /data-testid="create-client"/);
     assert.match(html, /Create client/);
@@ -54,20 +56,76 @@ describe('new client dialog', () => {
 
   it('marks the returned field invalid and shows the error on that input', () => {
     const html = markup({
-      note: { tone: 'error', text: 'Primary Email is not a valid address', field: 'email' },
+      note: { tone: 'error', text: 'Primary email is not a valid address', field: 'email' },
     });
     assert.match(html, /data-testid="new-client-email"[^>]*aria-invalid="true"/);
     assert.match(html, /id="new-client-email-error"/);
-    assert.match(html, /Primary Email is not a valid address/);
+    assert.match(html, /Primary email is not a valid address/);
+    assert.match(html, />Primary email</);
+    assert.equal(html.includes('Primary Email'), false);
     assert.equal(html.includes('data-testid="new-client-name" aria-invalid'), false);
     assert.equal(html.includes('aria-invalid="true" data-testid="new-client-name"') || html.includes('data-testid="new-client-name" aria-invalid'), false);
+  });
+
+  it('shows the exists error and a network retry on the nested sheet', () => {
+    const exists = markup({
+      layout: 'nested',
+      companyName: 'Northwind',
+      reused: true,
+      reusedName: 'Northwind',
+      note: { tone: 'error', text: 'A client named “Northwind” already exists.', field: 'companyName' },
+    });
+    assert.match(exists, /data-testid="new-client-nested"/);
+    assert.match(exists, /A client named “Northwind” already exists\./);
+    assert.match(exists, /Use ‘Northwind’ instead/);
+    assert.match(exists, /text-decoration:underline/);
+    assert.match(exists, /data-testid="create-client"/);
+    assert.match(exists, /Company name \*/);
+    assert.match(exists, /Primary email \(optional\)/);
+    assert.match(exists, /Phone \(optional\)/);
+    assert.match(exists, /Created as a draft client/);
+    assert.match(exists, /Portal access off · unpublished · no invite email/);
+    assert.match(exists, /NEW PROJECT {2}› {2}CLIENT/);
+    assert.match(exists, />Back</);
+    assert.match(exists, /width:520/);
+    assert.equal(exists.includes('rgb('), false);
+    assert.match(exists, /aria-invalid="true"/);
+    assert.equal(exists.includes('Publish to client portal'), false);
+
+    const network = markup({
+      layout: 'nested',
+      companyName: 'Fieldnote',
+      note: { tone: 'error', text: 'Couldn’t create the client. The connection dropped. Nothing was saved — your entries are kept.' },
+    });
+    assert.match(network, /border:1px solid var\(--danger\)/);
+    assert.match(network, /data-testid="new-client-network"/);
+    assert.match(network, /data-testid="new-client-network-title"[^>]*color:var\(--fg\)/);
+    assert.match(network, /Couldn’t create the client/);
+    assert.match(network, /The connection dropped\. Nothing was saved — your entries are kept\./);
+    assert.equal(/new-client-network-title[^>]*color:var\(--danger\)/.test(network), false);
+    assert.match(network, /Try again/);
+    assert.match(network, /value="Fieldnote"/);
   });
 
   it('is a bottom sheet at 390px', () => {
     const html = markup({ narrow: true });
     assert.match(html, /data-testid="new-client-sheet"/);
     assert.match(html, /align-items:flex-end/);
-    assert.match(html, /border-radius:16px 16px 0 0/);
+    assert.match(html, /border-radius:28px 28px 0 0/);
+    assert.match(html, /portal-modal-sheet/);
+    assert.match(html, /data-testid="modal-grabber"/);
     assert.equal(html.includes('data-testid="new-client-dialog"'), false);
+    assert.equal(html.includes('>Close<'), false);
+
+    const empty = markup({ narrow: true, layout: 'nested' });
+    const filled = markup({ narrow: true, layout: 'nested', companyName: 'Fieldnote Coffee' });
+    for (const sheet of [empty, filled]) {
+      assert.match(sheet, /data-testid="new-client-nested-sheet"/);
+      assert.match(sheet, /portal-modal-sheet/);
+      assert.match(sheet, /data-testid="modal-grabber"/);
+      assert.match(sheet, /data-testid="create-client"/);
+      assert.match(sheet, /calc\(100dvh - 12px\)/);
+      assert.equal(sheet.includes('>Cancel<'), false);
+    }
   });
 });

@@ -55,7 +55,7 @@ export function FieldValue({ children }: { children: ReactNode }) {
 export function StatusChip({ label, glyph = '/icons/task-stage.svg' }: { label: string; glyph?: string }) {
   return (
     <span
-      className="ds-mono inline-flex items-center self-start"
+      className="ds-mono inline-flex shrink-0 items-center self-start whitespace-nowrap"
       data-testid="milestone-status-chip"
       style={{
         boxSizing: 'border-box',
@@ -345,10 +345,13 @@ export function StageConfirmSheet({
   stage,
   onCancel,
   onConfirm,
+  hideGrabber = false,
 }: {
   stage: string;
   onCancel: () => void;
   onConfirm: () => void;
+  /** The shared sheet already draws the grabber. */
+  hideGrabber?: boolean;
 }) {
   return (
     <div
@@ -362,9 +365,11 @@ export function StageConfirmSheet({
         padding: '8px 24px 24px',
       }}
     >
+      {hideGrabber ? null : (
       <div className="flex justify-center" aria-hidden="true">
         <span style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border-2)' }} />
       </div>
+      )}
       <div className="flex items-center justify-between gap-4 pt-4">
         <h2 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600, margin: 0 }}>{`Move to ${stage}`}</h2>
         <button type="button" onClick={onCancel} style={{ background: 'transparent', border: 0, padding: 0, color: 'var(--fg)', fontSize: 14, cursor: 'pointer' }}>
@@ -514,12 +519,10 @@ export function MilestoneDialog({
   return (
     <div
       ref={overlayRef}
-      className={overlayClass}
+      className={`${overlayClass} portal-modal-scrim`}
+      data-portal-scrim=""
       style={{
         zIndex: cover ? 2 : contained ? 1 : 80,
-        background: 'var(--scrim)',
-        backdropFilter: 'blur(var(--scrim-blur))',
-        WebkitBackdropFilter: 'blur(var(--scrim-blur))',
         pointerEvents: 'auto',
       }}
     >
@@ -535,7 +538,7 @@ export function MilestoneDialog({
           background: 'var(--surface)',
           color: 'var(--fg)',
           border: '1px solid var(--border-2)',
-          ...(phone === false ? { boxShadow: '0 16px 48px rgba(0, 0, 0, 0.24)' } : sheet ? { boxShadow: 'none' } : {}),
+          ...(phone === false ? { boxShadow: 'var(--modal-shadow)' } : sheet ? { boxShadow: 'none' } : {}),
         }}
       >
         {showGrabber ? (

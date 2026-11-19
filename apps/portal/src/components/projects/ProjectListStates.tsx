@@ -96,20 +96,22 @@ export function NewProjectButton({
   enabled,
   onCreate,
   variant,
+  testId = 'new-project',
 }: {
   enabled: boolean;
   onCreate: () => void;
   variant: 'primary' | 'outline';
+  testId?: string;
 }) {
   const hintId = useId();
   if (enabled) {
     return variant === 'primary' ? (
       <PrimaryButton onClick={onCreate}>
-        <span data-testid="new-project">New project</span>
+        <span data-testid={testId}>New project</span>
       </PrimaryButton>
     ) : (
       <OutlineButton onClick={onCreate}>
-        <span data-testid="new-project">New project</span>
+        <span data-testid={testId}>New project</span>
       </OutlineButton>
     );
   }
@@ -119,7 +121,7 @@ export function NewProjectButton({
       disabled
       aria-disabled="true"
       tabIndex={-1}
-      data-testid="new-project"
+      data-testid={testId}
       style={{
         pointerEvents: 'none',
         background: variant === 'primary' ? 'var(--accent)' : 'transparent',
@@ -252,7 +254,7 @@ export function ProjectListLoadNotice({
         !
       </span>
       <span className="flex min-w-0 flex-1 flex-col" style={{ gap: 4 }}>
-        <span style={{ color: 'var(--danger-text)', fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>{copy.title}</span>
+        <span data-testid="projects-load-error-title" style={{ color: 'var(--fg)', fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>{copy.title}</span>
         <span
           className={copy.mono ? 'ds-mono' : undefined}
           style={{

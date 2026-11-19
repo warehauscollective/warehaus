@@ -16,6 +16,7 @@ import {
 } from '@convex/_lib/milestoneReview';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
+import { PortalModal, type PortalModalHeader } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { MilestoneDialog } from './milestoneChrome';
 
@@ -291,6 +292,8 @@ export function ReviewScrim({
   actionsRow = false,
   hideChromeBelow = false,
   spinner = false,
+  header,
+  focusCancel = false,
   children,
 }: {
   phone: boolean;
@@ -306,8 +309,38 @@ export function ReviewScrim({
   actionsRow?: boolean;
   hideChromeBelow?: boolean;
   spinner?: boolean;
+  /** Approve uses the compact confirm header. Request changes keeps the dialog chrome. */
+  header?: PortalModalHeader;
+  focusCancel?: boolean;
   children: React.ReactNode;
 }) {
+  if (header) {
+    return (
+      <PortalModal
+        testId="milestone-review-dialog"
+        label={label}
+        onClose={onClose}
+        narrow={phone}
+        sheet="bottom"
+        header={header}
+        showIcon={spinner}
+        icon="spinner"
+        showFooter={false}
+        cover={cover}
+        locked={spinner}
+        focusCancel={focusCancel}
+        confirmOnEnter={confirmOnEnter}
+        onConfirm={onConfirm}
+      >
+        <div style={{ padding: phone ? '8px 16px' : '8px 24px' }}>{children}</div>
+        {footer ? (
+          <div style={{ display: 'flex', flexWrap: 'nowrap', alignItems: 'center', justifyContent: 'flex-end', gap: 8, padding: phone ? '16px 16px 24px' : '16px 24px 20px' }}>
+            {footer}
+          </div>
+        ) : null}
+      </PortalModal>
+    );
+  }
   return (
     <MilestoneDialog
       title={label}
@@ -823,11 +856,12 @@ export function MilestoneReviewSurface({
       phone={phone}
       label={dialog === 'approve' ? (savingApproval ? RECORDING_APPROVAL : 'Approve and ship to production?') : 'Request changes'}
       spinner={savingApproval}
-      hint={phone || savingApproval ? undefined : dialog === 'changes' ? '⌘↵ to submit · Esc to close' : '↵ to confirm · Esc to close'}
       confirmOnEnter={dialog === 'approve'}
       hideClose={phoneConfirm || savingApproval}
       actionsRow={phoneConfirm}
       hideChromeBelow={dialog === 'approve' || dialog === 'changes'}
+      header={dialog === 'approve' ? 'compact' : 'default'}
+      focusCancel={dialog === 'approve'}
       cover={cover}
       onClose={() => setDialog(null)}
       onConfirm={() => void submit()}

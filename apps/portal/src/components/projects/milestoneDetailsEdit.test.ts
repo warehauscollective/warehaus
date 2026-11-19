@@ -100,6 +100,8 @@ describe('milestone details panel', () => {
     assert.equal(menu.includes('PETER’S CALL'), false);
     assert.match(stageOption(menu, 'Shipped'), /disabled=""/);
     assert.match(stageOption(menu, 'Shipped'), /ON MERGE/);
+    assert.match(stageOption(menu, 'Shipped'), /task-lock\.svg/);
+    assert.equal(menu.includes('>Close<'), false);
 
     const same = view({ staff: true, preview: 'stage-peter', email: 'alex@warehaus.co' });
     assert.doesNotMatch(stageOption(same, 'Awaiting Go'), /disabled=""/);
@@ -125,11 +127,12 @@ describe('milestone details panel', () => {
   it('opens a publish confirm and a move confirm instead of writing immediately', () => {
     const publish = view({ staff: true, preview: 'publish' });
     assert.match(publish, /data-testid="milestone-details-scrim"/);
+    assert.match(publish, /portal-modal-scrim/);
     assert.match(publish, /Publish to client\?/);
     assert.match(publish, /data-testid="milestone-confirm-submit"/);
-    assert.match(publish, /var\(--scrim\)/);
-    assert.match(publish, /blur\(var\(--scrim-blur\)\)/);
+    assert.match(publish, /data-modal-header="default"/);
     assert.match(publish, /border-radius:28px/);
+    assert.equal(publish.includes('border:2px solid'), false);
 
     const move = view({ staff: true, preview: 'move' });
     assert.match(move, /Move to Northwind brand\?/);

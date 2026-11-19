@@ -114,7 +114,7 @@ export function buildClientCreateProperties(input: {
   const email = input.primaryEmail?.trim() ?? '';
   if (email) {
     if (UNSAFE_TEXT.test(email) || !EMAIL.test(email)) {
-      return { ok: false, error: 'Primary Email is not a valid address', field: 'email' };
+      return { ok: false, error: 'Primary email is not a valid address', field: 'email' };
     }
   }
 
@@ -153,7 +153,7 @@ export function clientCreateEnqueueError(properties: WriteProperties): string | 
   }
   const email = properties['Primary Email'];
   if (email != null && email !== '') {
-    if (typeof email !== 'string' || !EMAIL.test(email)) return 'Primary Email is not a valid address';
+    if (typeof email !== 'string' || !EMAIL.test(email)) return 'Primary email is not a valid address';
   }
   const phone = properties.Phone;
   if (phone != null && phone !== '') {

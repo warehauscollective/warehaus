@@ -308,7 +308,8 @@ export function MenuSheetDialog({
           aria-modal="true"
           aria-labelledby={titleId}
           data-testid="menu-sheet"
-          className="menu-sheet fixed inset-x-0 top-0 z-[60] flex flex-col"
+          className="ds-scope menu-sheet portal-modal-scrim fixed inset-x-0 top-0 z-[60] flex flex-col"
+          data-portal-scrim=""
           style={{
             height: sheetHeight ?? '100dvh',
             background: 'var(--bg)',

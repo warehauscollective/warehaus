@@ -175,7 +175,7 @@ describe('who may edit', () => {
 describe('tasks on a milestone', () => {
   const milestone = { id: 'm-1', orgId: 'org-1', projectId: 'p-1', approval: 'unreviewed' as const };
 
-  it('attaches a subtask on the same project and leaves a second link alone', () => {
+  it('attaches a same-project subtask and does not treat that as linking the parent', () => {
     const top = attachTaskDecision({
       actor: 'ai',
       milestone,
@@ -188,6 +188,7 @@ describe('tasks on a milestone', () => {
       task: { id: 't-2', orgId: 'org-1', projectId: 'p-1', parentTaskId: 't-1', milestoneId: null },
     });
     assert.deepEqual(child, { ok: true, alreadyAttached: false });
+    assert.deepEqual(taskLinkPatch('m-1', 0), { milestoneId: 'm-1', milestoneOrder: 0 });
     const again = attachTaskDecision({
       actor: 'human',
       milestone,
@@ -254,6 +255,11 @@ describe('tasks on a milestone', () => {
     assert.equal('isDone' in patch, false);
     assert.equal('status' in patch, false);
     assert.equal('stage' in patch, false);
+    const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
+    const link = source.slice(source.indexOf('async function linkTask'), source.indexOf('export const attachTask'));
+    assert.equal(link.split('.patch(').length - 1, 1);
+    assert.match(link, /ctx\.db\.patch\(task\._id/);
+    assert.doesNotMatch(link, /parent\._id/);
   });
 });
 
@@ -510,6 +516,8 @@ describe('roadmap', () => {
       both.rows[0]?.children.map((child) => child.id),
       ['sib', 'sub'],
     );
+    assert.equal(both.rows[0]?.children.find((child) => child.id === 'sib')?.onMilestone, false);
+    assert.equal(both.rows[0]?.children.find((child) => child.id === 'sub')?.onMilestone, true);
     const shown = both.rows.flatMap((row) => [row.id, ...row.children.map((child) => child.id)]);
     assert.equal(new Set(shown).size, shown.length);
     assert.equal(both.openCount, 2);

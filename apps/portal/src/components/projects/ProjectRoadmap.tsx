@@ -10,8 +10,10 @@ import type { Id } from '@convex/_generated/dataModel';
 import { detailStatusLabel, effectiveDetailStatus, effectiveStage } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
 import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
+import { PortalModal } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
 import { FIXTURE_PROJECTS } from '@/lib/data/fixtures';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
@@ -119,8 +121,10 @@ function applyFixtureTasks(
 ): MilestoneRoadmapView {
   const base = mergePatch(milestone, patch);
   const detached = new Set(patch?.detachedIds ?? []);
-  const rows = base.rows.filter((row) => !detached.has(row.id));
-  const present = new Set(rows.map((row) => row.id));
+  const rows = base.rows
+    .filter((row) => !detached.has(row.id))
+    .map((row) => ({ ...row, children: row.children.filter((child) => !detached.has(child.id)) }));
+  const present = new Set(rows.flatMap((row) => [row.id, ...row.children.map((child) => child.id)]));
   const attached = (patch?.attachedIds ?? [])
     .filter((id) => !present.has(id) && !detached.has(id))
     .map((id) => tasks.find((task) => task.id === id))
@@ -187,6 +191,16 @@ function projectStatusLabel(status?: string | null): string {
   if (!status) return '—';
   if (/^in progress$/i.test(status)) return 'In progress';
   return status;
+}
+
+/** Staff and Peter see this while approval is stored and Shipped is not. */
+export const AWAITING_MERGE_LINE = 'Approved · awaiting merge and deploy';
+
+/** Clients see a ship date, never an approval date. */
+export function clientTileDate(input: { stage?: string | null; decidedAt?: number | null }): string | null {
+  if (input.stage !== 'Shipped') return null;
+  if (input.decidedAt == null) return 'Shipped';
+  return `Shipped ${localMonthDay(input.decidedAt).label}`;
 }
 
 /** Approved milestones show their decision day. Anything else has no date line. */
@@ -286,7 +300,7 @@ function taskTotal(milestone: MilestoneRoadmapView): number {
   return milestone.openCount + milestone.doneCount;
 }
 
-/** Lane cards are parent tasks. Subtasks stay on the parent card, so they are not a lane. */
+/** Nested subtasks on the milestone rows. Lane badges on the board come from boardCountsFromTasks. */
 function boardTaskCounts(milestone: MilestoneRoadmapView): { lanes: number; laneDone: number; nested: number } {
   return {
     lanes: milestone.rows.length,
@@ -298,6 +312,23 @@ function boardTaskCounts(milestone: MilestoneRoadmapView): { lanes: number; lane
 function nestedCopy(nested: number): string {
   if (nested === 1) return '1 subtask stays on its parent card, not in its own lane.';
   return `${nested} subtasks stay on their parent cards, not in their own lanes.`;
+}
+
+/** Tasks the detach menu can unlink. A nested child is included only when it is linked to this milestone. */
+export function milestoneDetachOptions(
+  rows: readonly {
+    id: string;
+    name: string;
+    onMilestone?: boolean;
+    children?: readonly { id: string; name: string; onMilestone?: boolean }[];
+  }[],
+): { id: string; name: string }[] {
+  return rows.flatMap((row) => [
+    ...(row.onMilestone === false ? [] : [{ id: row.id, name: row.name }]),
+    ...(row.children ?? [])
+      .filter((child) => child.onMilestone === true)
+      .map((child) => ({ id: child.id, name: child.name })),
+  ]);
 }
 
 /** Inclusive list and overview progress. Lane badges stay on the board. */
@@ -670,6 +701,7 @@ export function MilestoneListCard({
   cover?: boolean;
 }) {
   const [confirm, setConfirm] = useState(openConfirm);
+  const viewportSheet = useMaxWidth(767);
   const [deploying, setDeploying] = useState(false);
   const [deployError, setDeployError] = useState<string | null>(null);
   const canDeploy = Boolean(staff && isPeter && milestone.workStatus === 'ready' && milestone.approval !== 'approved' && milestone.review?.previewUrl);
@@ -687,7 +719,10 @@ export function MilestoneListCard({
   const total = taskTotal(milestone);
   const stage = milestoneTileStage(milestone);
   const subtasks = boardTaskCounts(milestone).nested;
-  const dateLine = milestoneTileDate({ approval: milestone.approval, decidedAt: milestone.decidedAt });
+  const awaitingMerge = milestone.approval === 'approved' && milestone.stage !== 'Shipped';
+  const dateLine = staff
+    ? (awaitingMerge ? AWAITING_MERGE_LINE : milestoneTileDate({ approval: milestone.approval, decidedAt: milestone.decidedAt }))
+    : clientTileDate({ stage: milestone.stage, decidedAt: milestone.decidedAt });
   const meta = tileMetaLine({
     staff,
     published: milestone.publishToWarehaus,
@@ -708,10 +743,10 @@ export function MilestoneListCard({
         padding: 24,
       }}
     >
-      <div className="flex items-center gap-6 lg:hidden">
+      <div className="flex min-w-0 flex-nowrap items-center gap-3 lg:hidden">
         <StatusChip label={stage.label} glyph={stage.glyph} />
         {dateLine ? (
-          <p data-testid="milestone-due" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+          <p data-testid="milestone-due" className="min-w-0 truncate" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
             {dateLine}
           </p>
         ) : null}
@@ -748,7 +783,7 @@ export function MilestoneListCard({
           {meta ? (
             <span
               data-testid="milestone-meta"
-              className="min-w-0 max-w-full"
+              className="min-w-0 max-w-full truncate"
               style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}
             >
               {meta}
@@ -779,39 +814,46 @@ export function MilestoneListCard({
         <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
       {confirm ? (
-        <MilestoneDialog
-          title={deploying ? RECORDING_APPROVAL : 'Approve and ship to production?'}
-          phone={phone || undefined}
-          hideClose={phone || deploying}
-          actionsRow={phone}
-          hideChromeBelow
-          spinner={deploying}
+        <PortalModal
+          testId="milestone-deploy-confirm"
+          label={deploying ? RECORDING_APPROVAL : 'Approve and ship to production?'}
+          onClose={() => {
+            if (!deploying) setConfirm(false);
+          }}
+          narrow={phone || viewportSheet}
+          sheet="bottom"
+          header="compact"
+          showIcon={deploying}
+          icon="spinner"
+          showFooter={false}
           cover={cover}
-          onClose={() => setConfirm(false)}
+          focusCancel
+          locked={deploying}
           onConfirm={confirmDeploy}
-          footer={
-            <>
-              {deploying ? null : <OutlineButton onClick={() => setConfirm(false)}>Cancel</OutlineButton>}
-              <button type="button" disabled={deploying} onClick={confirmDeploy} className="inline-flex items-center justify-center gap-2" style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, opacity: deploying ? 0.4 : 1 }}>
-                {deploying ? 'Approving…' : 'Approve & deploy'}
-              </button>
-            </>
-          }
+          confirmOnEnter
         >
-          {deploying ? (
-            <>
-              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{SAVING_APPROVAL_COPY}</p>
-              <p className="ds-mono" style={{ margin: '8px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>This ships to production.</p>
-            </>
-          ) : (
-            <>
-              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Marks approved. Engineering merges to main and deploys production next.</p>
-              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>This ships to production.</p>
-              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>You can’t undo this from the Portal.</p>
-            </>
-          )}
-          {deployError ? <p role="alert" style={{ color: 'var(--danger-text)', fontSize: 14 }}>{deployError}</p> : null}
-        </MilestoneDialog>
+          <div style={{ padding: phone || viewportSheet ? '8px 16px' : '8px 24px' }}>
+            {deploying ? (
+              <>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{SAVING_APPROVAL_COPY}</p>
+                <p className="ds-mono" style={{ margin: '8px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>This ships to production.</p>
+              </>
+            ) : (
+              <>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Marks approved. Engineering merges to main and deploys production next.</p>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>This ships to production.</p>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>You can’t undo this from the Portal.</p>
+              </>
+            )}
+            {deployError ? <p role="alert" style={{ color: 'var(--danger-text)', fontSize: 14 }}>{deployError}</p> : null}
+          </div>
+          <div style={{ display: 'flex', flexWrap: 'nowrap', justifyContent: 'flex-end', gap: 8, padding: phone || viewportSheet ? '16px 16px 24px' : '16px 24px 20px' }}>
+            {deploying ? null : <OutlineButton nowrap onClick={() => setConfirm(false)}>Cancel</OutlineButton>}
+            <button type="button" disabled={deploying} onClick={confirmDeploy} className="inline-flex shrink-0 items-center justify-center gap-2" style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap', opacity: deploying ? 0.4 : 1 }}>
+              {deploying ? 'Approving…' : 'Approve & deploy'}
+            </button>
+          </div>
+        </PortalModal>
       ) : null}
     </article>
   );
@@ -893,9 +935,10 @@ function MilestoneDetail(props: {
   const detachTask = useMutation(api.milestones.detachTask);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadedTargets, setLoadedTargets] = useState<MoveTarget[]>([]);
+  const [moveListOpen, setMoveListOpen] = useState(false);
   const targetPage = useSafeQuery<{ projects: MoveTarget[]; continueCursor: string | null; isDone: boolean }>(
     api.milestones.listMoveTargets,
-    !props.fixtures && props.staff
+    !props.fixtures && props.staff && moveListOpen
       ? { projectId: props.project.id as Id<'projects'>, hostSlug: props.hostSlug, cursor }
       : 'skip',
   );
@@ -920,6 +963,7 @@ function MilestoneDetail(props: {
     <MilestoneDetailView
       {...props}
       moveTargets={moveTargets}
+      onMoveListOpen={setMoveListOpen}
       onLoadMoreTargets={
         targetPage.data?.continueCursor
           ? () => setCursor(targetPage.data?.continueCursor ?? null)
@@ -941,6 +985,7 @@ export function MilestoneDetailView({
   clientName = null,
   preview = null,
   moveTargets = [],
+  onMoveListOpen,
   onLoadMoreTargets,
   activity = [],
   activityError = null,
@@ -963,6 +1008,7 @@ export function MilestoneDetailView({
   clientName?: string | null;
   preview?: string | null;
   moveTargets?: readonly MoveTarget[];
+  onMoveListOpen?: (open: boolean) => void;
   onLoadMoreTargets?: () => void;
   activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
@@ -992,7 +1038,7 @@ export function MilestoneDetailView({
     resourceChoices,
     milestone.resources.map((resource) => ({ id: resource.id, title: resource.title })),
   );
-  const taken = new Set(milestone.rows.map((row) => row.id));
+  const taken = new Set(milestoneDetachOptions(milestone.rows).map((task) => task.id));
   const attachable = (milestone.attachableTasks ?? []).filter((task) => !taken.has(task.id));
   const reviewLine = lastReviewLabel({ approverName: milestone.approverName, decidedAt: milestone.decidedAt ?? null });
   const edits = useMilestoneDetailEdits({
@@ -1014,6 +1060,7 @@ export function MilestoneDetailView({
     },
     onFixture,
     onLoadMoreTargets,
+    onMoveListOpen,
     mutations: {
       setDetailStatus: mutations.setDetailStatus ?? (async () => undefined),
       setStage: mutations.setStage ?? (async () => undefined),
@@ -1468,7 +1515,7 @@ export function MoreMenu({
             ))}
           </select>
         </label>
-        {milestone.rows.length > 0 ? (
+        {milestoneDetachOptions(milestone.rows).length > 0 ? (
           <label className="flex flex-col gap-2" style={{ fontSize: 13, color: 'var(--muted)' }}>
             Remove from milestone
             <select
@@ -1484,9 +1531,9 @@ export function MoreMenu({
               style={fieldStyle}
             >
               <option value="">Choose a task</option>
-              {milestone.rows.map((row) => (
-                <option key={row.id} value={row.id}>
-                  {row.name}
+              {milestoneDetachOptions(milestone.rows).map((task) => (
+                <option key={task.id} value={task.id}>
+                  {task.name}
                 </option>
               ))}
             </select>
@@ -1536,6 +1583,11 @@ function TaskLines({
           {row.children.map((child) => (
             <div key={child.id} className="pl-4">
               <TaskLine row={child} testId="milestone-subtask" />
+              {staff && child.onMilestone ? (
+                <button type="button" data-testid="milestone-detach-subtask" disabled={busy} onClick={() => onDetach(child.id)} style={textButton}>
+                  Remove from milestone
+                </button>
+              ) : null}
             </div>
           ))}
         </div>

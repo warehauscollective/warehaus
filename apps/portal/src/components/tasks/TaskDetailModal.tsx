@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEditMode } from '@warehaus/portal-sync';
+import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton, StatusBadge } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
@@ -23,6 +23,15 @@ function ReviewTag() {
       From review
     </span>
   );
+}
+
+/** One sheet at a time. A stage confirm replaces the task sheet. Cancel clears it. */
+export function taskSheetOpen(input: { attach: boolean; stage: boolean }): { detail: boolean; stage: boolean; attach: boolean } {
+  return {
+    detail: !input.attach && !input.stage,
+    stage: input.stage && !input.attach,
+    attach: input.attach,
+  };
 }
 
 type ResourceRow = {
@@ -51,6 +60,7 @@ export function TaskDetailModal({
   clientName = null,
   hostSlug,
   live = false,
+  initialStageConfirm = null,
 }: {
   task: PortalTask | null;
   staff: boolean;
@@ -67,6 +77,8 @@ export function TaskDetailModal({
   hostSlug?: string;
   /** Convex task id. Fixture rows skip the timeline query. */
   live?: boolean;
+  /** Fixture preview opens the phone stage confirm without a tap. */
+  initialStageConfirm?: string | null;
 }) {
   const [attach, setAttach] = useState(false);
   const [asideNote, setAsideNote] = useState<string | null>(null);
@@ -77,15 +89,31 @@ export function TaskDetailModal({
   const shownStatus = task ? displayedTaskStatus(task.status, task.stage) : '';
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
-    titleRef.current?.focus();
-  }, [task?.id, unavailable]);
+    if (!attach) titleRef.current?.focus();
+  }, [task?.id, unavailable, attach]);
+  useEffect(() => {
+    if (!phone || !initialStageConfirm || initialStageConfirm === 'Shipped') return;
+    if (!(TASK_STAGES as readonly string[]).includes(initialStageConfirm)) return;
+    setStageConfirm(initialStageConfirm);
+  }, [phone, initialStageConfirm]);
+  const sheets = taskSheetOpen({ attach, stage: Boolean(stageConfirm) });
+  const cancelStage = () => setStageConfirm(null);
+  const confirmStage = () => {
+    const stage = stageConfirm;
+    setStageConfirm(null);
+    if (!stage || !live || !task?.lastEditedTime) return;
+    void moveStage({
+      hostSlug,
+      taskId: task.id as Id<'tasks'>,
+      stage,
+      expectedLastEditedTime: task.lastEditedTime,
+    }).then((result) => {
+      if (!result.ok) setAsideNote(result.error);
+    });
+  };
 
-  return (
-    <ModalShell
-      phone={phone}
-      onClose={onClose}
-      label={task?.name ?? 'Task'}
-    >
+  const detail = (
+    <>
       {unavailable || !task ? (
         <div className="flex flex-col items-start gap-3">
           <h2 ref={titleRef} tabIndex={-1} style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>
@@ -292,37 +320,18 @@ export function TaskDetailModal({
                   <h3 className="ds-mono" style={{ fontSize: 12, letterSpacing: '2.64px', color: 'var(--fg)', margin: 0 }}>STAGE</h3>
                   <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>visible to client</span>
                 </div>
-                {phone && stageConfirm ? (
-                  <StageConfirmSheet
-                    stage={stageConfirm}
-                    onCancel={() => setStageConfirm(null)}
-                    onConfirm={() => {
-                      const stage = stageConfirm;
-                      setStageConfirm(null);
-                      if (!live || !task.lastEditedTime) return;
-                      void moveStage({
-                        hostSlug,
-                        taskId: task.id as Id<'tasks'>,
-                        stage,
-                        expectedLastEditedTime: task.lastEditedTime,
-                      }).then((result) => {
-                        if (!result.ok) setAsideNote(result.error);
-                      });
-                    }}
-                  />
-                ) : (
                 <div className="flex flex-wrap gap-2">
                   {TASK_STAGES.map((stage) => {
                     const current = task.stage === stage;
-                    const visualLock = stage === 'Shipped' && !current;
+                    const locked = stage === 'Shipped';
                     return (
                       <button
                         key={stage}
                         type="button"
-                        disabled={visualLock}
+                        disabled={locked}
                         aria-pressed={task.stage === stage}
                         onClick={() => {
-                          if (visualLock || current) return;
+                          if (locked || current) return;
                           if (phone) {
                             setStageConfirm(stage);
                             return;
@@ -342,27 +351,31 @@ export function TaskDetailModal({
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: 8,
-                          border: visualLock
+                          border: locked
                             ? '1px dashed var(--border-2)'
                             : current
                               ? '1px solid var(--fg)'
                               : '1px solid var(--border-2, var(--border))',
                           borderRadius: 999,
                           padding: '8px 12px',
-                          background: current ? 'var(--fg)' : 'transparent',
-                          color: current ? 'var(--bg)' : visualLock ? 'var(--muted)' : 'var(--fg)',
-                          cursor: visualLock ? 'not-allowed' : 'pointer',
+                          background: locked && current ? 'var(--surface-2)' : current ? 'var(--fg)' : 'transparent',
+                          color: locked ? 'var(--muted)' : current ? 'var(--bg)' : 'var(--fg)',
+                          cursor: locked ? 'not-allowed' : 'pointer',
                           fontSize: 13,
                           whiteSpace: 'nowrap',
                         }}
                       >
                         {stage}
-                        {visualLock ? <TaskGlyph src="/icons/task-lock.svg" size={8} /> : null}
+                        {locked ? (
+                          <span style={{ flexShrink: 0, border: '1px solid var(--border-2)', borderRadius: 999, padding: '3px 8px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                            ON MERGE
+                          </span>
+                        ) : null}
+                        {locked ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
                       </button>
                     );
                   })}
                 </div>
-                )}
                 <p data-testid="task-stage-hint" style={{ fontSize: 12, lineHeight: '17px', color: 'var(--muted)', margin: 0 }}>
                   {TASK_STAGE_HINT}
                 </p>
@@ -388,16 +401,81 @@ export function TaskDetailModal({
         </div>
         </>
       )}
-      {attach && task ? (
-        <AttachPicker
-          task={task}
-          resources={projectResources}
-          attachedIds={resources.map((resource) => resource.id)}
-          hostSlug={hostSlug}
-          onClose={() => setAttach(false)}
-        />
-      ) : null}
-    </ModalShell>
+    </>
+  );
+
+  return (
+    <PortalModalStack
+        frames={[
+          {
+            key: 'detail',
+            open: sheets.detail,
+            keep: true,
+            node: (
+              <PortalModal
+                testId="task-detail"
+                label={task?.name ?? 'Task'}
+                onClose={onClose}
+                narrow={phone}
+                sheet="bottom"
+                width={840}
+                hidden={!sheets.detail}
+                panelStyle={{ padding: phone ? 20 : 24 }}
+              >
+                {detail}
+              </PortalModal>
+            ),
+          },
+          {
+            key: 'stage',
+            open: sheets.stage,
+            node: stageConfirm ? (
+              <PortalModal
+                testId="stage-confirm"
+                label={`Move to ${stageConfirm}`}
+                onClose={cancelStage}
+                narrow
+                sheet="bottom"
+                focusCancel
+                showFooter={false}
+              >
+                <StageConfirmSheet hideGrabber stage={stageConfirm} onCancel={cancelStage} onConfirm={confirmStage} />
+              </PortalModal>
+            ) : null,
+          },
+          {
+            key: 'attach',
+            open: attach && Boolean(task),
+            node: task ? (
+              <PortalModal
+                testId="attach-resources"
+                label="Attach resources"
+                onClose={() => setAttach(false)}
+                narrow={phone}
+                sheet="bottom"
+                width={640}
+                maxHeight={phone ? 'calc(100dvh - 12px)' : undefined}
+                panelStyle={{
+                  padding: 20,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  flex: phone ? '1 1 auto' : undefined,
+                  minHeight: phone ? 0 : undefined,
+                }}
+              >
+                <AttachPicker
+                  task={task}
+                  resources={projectResources}
+                  attachedIds={resources.map((resource) => resource.id)}
+                  hostSlug={hostSlug}
+                  phone={phone}
+                  onClose={() => setAttach(false)}
+                />
+              </PortalModal>
+            ) : null,
+          },
+        ]}
+    />
   );
 }
 
@@ -669,7 +747,7 @@ export function TaskCreateDialog({
   };
 
   return (
-    <ModalShell phone={false} onClose={onClose} label="New task" width={640}>
+    <PortalModal label="New task" testId="task-create" onClose={onClose} width={640} panelStyle={{ padding: 24 }}>
       <form className="flex flex-col gap-3" onSubmit={onSubmit}>
         <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>New task</h2>
         <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)' }}>{projectName}</p>
@@ -704,7 +782,7 @@ export function TaskCreateDialog({
           <PrimaryButton type="submit" disabled={pending || !name.trim()}>{pending ? 'Creating…' : 'Create task'}</PrimaryButton>
         </div>
       </form>
-    </ModalShell>
+    </PortalModal>
   );
 }
 
@@ -721,12 +799,14 @@ function AttachPicker({
   resources,
   attachedIds,
   hostSlug,
+  phone,
   onClose,
 }: {
   task: PortalTask;
   resources: ResourceRow[];
   attachedIds: string[];
   hostSlug?: string;
+  phone: boolean;
   onClose: () => void;
 }) {
   const setResources = useMutation(api.tasks.setResources);
@@ -745,18 +825,6 @@ function AttachPicker({
     if (filter === 'Links') return /link|url/.test(type) || (!resource.type && true);
     return true;
   });
-
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        event.preventDefault();
-        onClose();
-      }
-    };
-    document.addEventListener('keydown', onKey, true);
-    return () => document.removeEventListener('keydown', onKey, true);
-  }, [onClose]);
 
   const onSave = async () => {
     if (!task.notionPageId || !task.lastEditedTime) {
@@ -780,11 +848,28 @@ function AttachPicker({
   };
 
   return (
-    <div role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 90, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div role="dialog" aria-modal="true" aria-label="Attach resources" onClick={(event) => event.stopPropagation()} style={{ width: 'min(100%, 560px)', maxHeight: '80dvh', overflow: 'auto', background: 'var(--surface)', borderRadius: 16, padding: 20 }}>
-        <div className="mt-3 flex items-center justify-between">
+    <>
+        <div className="flex items-center justify-between gap-3" style={{ marginTop: phone ? 4 : 12 }}>
           <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: 0 }}>Attach resources</h2>
-          <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
+          <button
+            type="button"
+            aria-label="Close"
+            data-testid="attach-close"
+            onClick={onClose}
+            style={{
+              background: 'none',
+              border: 0,
+              color: 'var(--fg)',
+              cursor: 'pointer',
+              width: 36,
+              height: 36,
+              flex: '0 0 auto',
+              fontSize: 20,
+              lineHeight: '36px',
+            }}
+          >
+            ×
+          </button>
         </div>
         <label
           className="mt-3 flex items-center gap-2"
@@ -843,95 +928,28 @@ function AttachPicker({
           </ul>
         )}
         {note ? <p role="status">{note}</p> : null}
-        <div className="mt-4 flex items-center justify-between gap-3" style={{ borderTop: '1px solid var(--border)', paddingTop: 16 }}>
+        <div
+          className={phone ? 'flex flex-col gap-3' : 'flex items-center justify-between gap-3'}
+          style={{ borderTop: '1px solid var(--border)', marginTop: 16, paddingTop: 16 }}
+        >
           <span className="ds-mono" style={{ color: 'var(--muted)', fontSize: 12 }}>
             {picked.length} selected · {picked.filter((id) => !attachedIds.includes(id)).length} new, {picked.filter((id) => attachedIds.includes(id)).length} already attached
           </span>
-          <div className="flex gap-2">
-            <OutlineButton onClick={onClose}>Cancel</OutlineButton>
-            <PrimaryButton disabled={!dirty} onClick={() => void onSave()}>
+          {phone ? (
+            <PrimaryButton className="w-full" disabled={!dirty} onClick={() => void onSave()}>
               {`Save (attach ${picked.filter((id) => !attachedIds.includes(id)).length})`}
             </PrimaryButton>
-          </div>
+          ) : (
+            <div className="flex gap-2">
+              <OutlineButton onClick={onClose}>Cancel</OutlineButton>
+              <PrimaryButton disabled={!dirty} onClick={() => void onSave()}>
+                {`Save (attach ${picked.filter((id) => !attachedIds.includes(id)).length})`}
+              </PrimaryButton>
+            </div>
+          )}
         </div>
-      </div>
-    </div>
+    </>
   );
-}
-
-function ModalShell({
-  phone,
-  onClose,
-  label,
-  width = 840,
-  scrim = 'solid',
-  suspended = false,
-  children,
-}: {
-  phone: boolean;
-  onClose: () => void;
-  label: string;
-  width?: number;
-  scrim?: 'solid' | 'light';
-  /** The review dialog is the only modal while a decision is open. */
-  suspended?: boolean;
-  children: React.ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (suspended) return;
-    const node = ref.current;
-    const previous = document.activeElement as HTMLElement | null;
-    node?.focus({ preventScroll: true });
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        onClose();
-        return;
-      }
-      if (event.key !== 'Tab' || !node) return;
-      const focusable = [...node.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href]')];
-      if (focusable.length === 0) return;
-      const first = focusable[0];
-      const last = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus({ preventScroll: true });
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus({ preventScroll: true });
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      previous?.focus({ preventScroll: true });
-    };
-  }, [onClose, suspended]);
-  if (suspended) return <>{children}</>;
-  const dialog = (
-    <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: scrim === 'light' ? 'rgba(0,0,0,0.1)' : 'rgb(0 0 0 / 55%)', backdropFilter: scrim === 'light' ? 'blur(40px)' : undefined, WebkitBackdropFilter: scrim === 'light' ? 'blur(40px)' : undefined, display: 'flex', alignItems: phone ? 'stretch' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-label={label}
-        tabIndex={-1}
-        onClick={(event) => event.stopPropagation()}
-        style={{
-          width: phone ? '100%' : `min(100%, ${width}px)`,
-          maxHeight: phone ? '100dvh' : 'min(880px, calc(100dvh - 72px))',
-          overflow: 'auto',
-          background: 'var(--surface)',
-          borderRadius: phone ? 0 : 16,
-          padding: phone ? 20 : 24,
-        }}
-      >
-        {children}
-      </div>
-    </div>
-  );
-  if (typeof document === 'undefined') return dialog;
-  return createPortal(dialog, document.body);
 }
 
 const inputStyle = {

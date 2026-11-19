@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { api } from '@convex/_generated/api';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
@@ -26,4 +27,21 @@ export function useWritebackEnabled(): boolean {
     configured && isStaff && !fixtures ? { hostSlug } : 'skip',
   );
   return health.data?.writebackEnabled === true;
+}
+
+/**
+ * Fixture preview only. `?create=1` lets staff open the create forms.
+ * Nothing is sent. Production and shared dev ignore the query.
+ */
+export function useFixtureCreatePreview(): boolean {
+  const fixtures = useFixturePreview();
+  const [on, setOn] = useState(false);
+  useEffect(() => {
+    if (!fixtures) {
+      setOn(false);
+      return;
+    }
+    setOn(new URLSearchParams(window.location.search).get('create') === '1');
+  }, [fixtures]);
+  return fixtures && on;
 }

@@ -8,7 +8,7 @@ import {
   resolveIdentityFromContact,
   type PortalIdentity,
 } from './identity';
-import { convexFailureText, userFacingErrorMessage } from './userFacingError';
+import { CONVEX_FAILURE_GENERIC, convexFailureText, userFacingErrorMessage } from './userFacingError';
 
 const sugarShark: PortalIdentity = {
   authUserId: 'user_sugar',
@@ -51,7 +51,7 @@ describe('PortalAuthError', () => {
 });
 
 describe('convexFailureText', () => {
-  it('reads the sentence after a nested PortalAuthError loses its data', () => {
+  it('keeps a real sentence and hides a function name or request id', () => {
     const nested = new Error('Uncaught PortalAuthError: Task is on another project\n    at linkTask');
     assert.equal(convexFailureText(nested), 'Task is on another project');
     assert.equal(convexFailureText(new ConvexError('Task not found')), 'Task not found');
@@ -59,6 +59,19 @@ describe('convexFailureText', () => {
     assert.equal(convexFailureText(invalid), 'Value does not match validator.');
     assert.equal(convexFailureText(new Error('Uncaught Error: ArgumentValidationError: Invalid ID')), 'Invalid ID');
     assert.equal(convexFailureText(null), 'Request failed');
+    const wrapped = new Error(
+      '[CONVEX M(milestones:attachTask)] [Request ID: abc] Server Error\nUncaught PortalAuthError: Task is on another project',
+    );
+    assert.equal(convexFailureText(wrapped), 'Task is on another project');
+    const transport = new Error('[CONVEX M(milestones:attachTask)] [Request ID: abc] Server Error');
+    assert.equal(convexFailureText(transport), CONVEX_FAILURE_GENERIC);
+    assert.equal(transport.message.includes('attachTask'), true);
+    assert.equal(convexFailureText(transport).includes('attachTask'), false);
+    assert.equal(convexFailureText(transport).includes('Request ID'), false);
+    assert.equal(
+      userFacingErrorMessage(transport, 'Could not save the milestone.'),
+      'Could not save the milestone.',
+    );
   });
 });
 
