@@ -5,6 +5,7 @@ import {
   BLOCKED_SIGNUP_IGNORE,
   BLOCKED_SIGNUP_SUBJECT,
   blockedSignupDelivery,
+  devMailboxEnabled,
   rewriteVerificationCallback,
   verificationEmail,
 } from './email';
@@ -49,5 +50,15 @@ describe('verification email', () => {
     assert.match(delivery.html, /Warehaus Studio/);
     assert.doesNotMatch(delivery.html, /href=/);
     assert.doesNotMatch(delivery.text, /https?:/);
+  });
+});
+
+describe('dev mailbox', () => {
+  it('captures mail only when Resend is unset and the flag is exactly true', () => {
+    assert.equal(devMailboxEnabled({ DEV_MAILBOX_ENABLED: 'true' }), true);
+    assert.equal(devMailboxEnabled({ DEV_MAILBOX_ENABLED: 'true', RESEND_API_KEY: 're_test' }), false);
+    assert.equal(devMailboxEnabled({ DEV_MAILBOX_ENABLED: 'true', RESEND_API_KEY: '  ' }), true);
+    assert.equal(devMailboxEnabled({ DEV_MAILBOX_ENABLED: '1' }), false);
+    assert.equal(devMailboxEnabled({}), false);
   });
 });
