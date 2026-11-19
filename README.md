@@ -50,6 +50,7 @@ npm run dev:web        # website → http://localhost:3000
 npm run dev:local      # Mac portal: preflight, shared dev Convex, :3100
 npm run dev:portal     # portal Next only → http://localhost:3100
 npm run dev:portal:local  # fixture /preview, no Convex
+npm run preview:pr -- <branch>  # Peter's Mac: that branch, shared dev, :3100, no convex dev
 
 # If :3000 is taken by another project on your machine:
 WEB_PORT=3020 npm run dev:web

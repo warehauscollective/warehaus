@@ -1,0 +1,20 @@
+---
+description: Milestone-first builds with a local Mac preview on shared dev Convex
+alwaysApply: true
+---
+
+# Milestone Build Protocol
+
+Approved by Peter in Grok Bot (Portal room), 2026-11-17, 11:46 AM ET. Full writeup: `AGENTS.md`. Heading font stays Eurostile (`CLAUDE.md`).
+
+- Every change belongs to a Portal milestone or a task inside one. The PR names that task.
+- Design tasks come first, in Dark and Light at 1440 and 390. Peter approves design in Grok Bot or the Portal before any build.
+- Post dev updates on the milestone (next action and the PR link).
+- Product Design Lead checks the build against Figma from screenshots, then Peter previews.
+- Previews for Peter are local builds on his Mac against shared dev Convex `graceful-mastiff-960`. Never a Vercel or cloud preview. Never production `unique-turtle-383`.
+- On his Mac: `npm run preview:pr -- <branch>`. It prints the localhost URL, refuses a production Convex URL, and does not start `convex dev`.
+- Peter's feedback becomes iteration tasks in the same milestone.
+- Nothing merges or goes live until Peter approves in Grok Bot chat or the Portal. Peter never approves in Notion. Merging does not deploy. Production still needs his explicit "deploy main", from `main` only.
+- Keep Convex usage low: indexed reads, bounded pagination, no whole-table scans, skip no-op writes, no lingering `convex dev`.
+
+Open item: shared dev still uses the production Notion token, so a local preview that writes can touch the real Warehaus Notion. The test Notion spec is coming.

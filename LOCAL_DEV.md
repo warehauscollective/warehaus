@@ -106,6 +106,20 @@ Standing rule (Peter, Oct 25): build and test the portal on localhost. Nothing d
 
 The only approved Vercel production path is a manual `vercel deploy --prod` from `apps/portal` after Peter approves that deploy. Do not run `npx convex deploy` or `npx convex dev --prod`. Both target production `unique-turtle-383`.
 
+## Preview a pull request on Peter's Mac
+
+From a clean repo root, this fetches the branch, checks it out, installs, and starts the portal:
+
+```bash
+npm run preview:pr -- <branch>
+```
+
+The portal is [http://localhost:3100](http://localhost:3100) unless `PORTAL_PORT` is set. The command reads `apps/portal/.env.local` and refuses to start unless `CONVEX_DEPLOYMENT` is `dev:graceful-mastiff-960` and the Convex URL is that shared dev host. Production `unique-turtle-383`, a `prod:` deployment, a Vercel host, and any other Convex host are refused. Nothing from the env file is printed.
+
+This does not run `convex dev` and does not push functions. Day-to-day function pushes stay on `npm run dev:local`, which is a different command.
+
+Open item: shared dev still uses the production Notion token, so a local preview that writes can touch the real Warehaus Notion. The test Notion spec is coming.
+
 ## Start on a Mac
 
 From the repo root:
