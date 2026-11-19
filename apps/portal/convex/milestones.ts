@@ -80,6 +80,7 @@ import {
   reviewForAudience,
   type ReviewSource,
 } from './_lib/milestoneReview';
+import { planAttachPreviewLink, planClearPreviewLink, reviewRetryLiveOnClient } from './_lib/previewLink';
 import {
   PREVIEW_DELETED_ACTIVITY,
   PREVIEW_READY_ACTIVITY,
@@ -1004,6 +1005,8 @@ async function staffReview(
   return {
     iteration: currentIteration(milestone.iteration),
     previewUrl: milestone.previewUrl || null,
+    previewAttachedBy: milestone.previewAttachedBy ?? null,
+    previewAttachedAt: milestone.previewAttachedAt ?? null,
     prNumber: milestone.previewPrNumber ?? null,
     prTitle: milestone.previewPrTitle ?? null,
     branch: milestone.previewBranch ?? null,
@@ -1550,6 +1553,53 @@ export const applyPreviewClose = internalMutation({
   },
 });
 
+/**
+ * Staff attach a Vercel preview link on production without running the preview worker.
+ * Clients cannot call this. A repeat of the stored link writes nothing.
+ */
+export const attachPreviewLink = adminMutation({
+  args: { milestoneId: v.id('milestones'), url: v.string() },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const planned = planAttachPreviewLink({
+      url: args.url,
+      contactId: ctx.identity.contactId,
+      now: Date.now(),
+      current: {
+        previewUrl: milestone.previewUrl,
+        previewAttachedBy: milestone.previewAttachedBy,
+        previewAttachedAt: milestone.previewAttachedAt,
+        previewBuild: milestone.previewBuild,
+        previewBuildAttempt: milestone.previewBuildAttempt,
+        previewBuildAt: milestone.previewBuildAt,
+      },
+    });
+    if (!planned.ok) return planned;
+    if (!planned.wrote) return { ok: true as const, wrote: false as const };
+    await ctx.db.patch(milestone._id, {
+      ...planned.patch,
+      previewAttachedBy: ctx.identity.contactId as Id<'contacts'>,
+    });
+    return { ok: true as const, wrote: true as const, previewUrl: planned.patch.previewUrl };
+  },
+});
+
+/** Staff clear the attached link. A milestone with no link writes nothing. */
+export const clearPreviewLink = adminMutation({
+  args: { milestoneId: v.id('milestones') },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const planned = planClearPreviewLink({
+      previewUrl: milestone.previewUrl,
+      previewAttachedBy: milestone.previewAttachedBy,
+      previewAttachedAt: milestone.previewAttachedAt,
+    });
+    if (!planned.wrote) return { ok: true as const, wrote: false as const };
+    await ctx.db.patch(milestone._id, planned.patch);
+    return { ok: true as const, wrote: true as const };
+  },
+});
+
 export const deleteReviewPreview = internalAction({
   args: {
     milestoneId: v.id('milestones'),
@@ -1618,6 +1668,9 @@ export const retryReviewPreview = adminMutation({
   handler: async (ctx, args) => {
     const actor = retryActorAllowed(ctx.identity.email);
     if (!actor.ok) return actor;
+    if (!reviewRetryLiveOnClient(process.env.CONVEX_CLOUD_URL)) {
+      return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
+    }
     const milestone = await loadMilestone(ctx, args.milestoneId);
     const record = previewRecord(milestone);
     if (!process.env.VERCEL_TOKEN?.trim()) return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };

@@ -15,10 +15,12 @@ import {
   type PreviewDeleteStatus,
 } from '@convex/_lib/milestoneReview';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
+import { assertStaffPreviewLink, reviewRetryLiveOnClient, staffMayAttachPreviewLink } from '@convex/_lib/previewLink';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { PortalModal, type PortalModalHeader } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { MilestoneDialog } from './milestoneChrome';
+import { ConfirmFrame } from './milestoneDetailsEdit';
 
 export const APPROVAL_SAVE_ERROR = 'Couldn’t save your approval. Nothing changed. Try again.';
 export const APPROVED_AWAITING = 'Approved · awaiting merge and deploy.';
@@ -26,6 +28,8 @@ export const APPROVED_DEPLOYING = 'Merging and deploying…';
 export const RECORDING_APPROVAL = 'Recording approval…';
 export const APPROVING_LABEL = 'Approving…';
 export const SAVING_APPROVAL_COPY = 'Saving your approval in the Portal. Engineering will merge to main and deploy production next.';
+export const APPROVE_CONFIRM_COPY = 'Approve records the decision, then engineering merges to main and deploys.';
+export const APPROVE_CONFIRM_TITLE = 'Approve this milestone?';
 export const PREVIEW_REMOVED = 'Preview removed after approval · Vercel build deleted';
 export const RETRY_FAILED = 'Retry didn’t start. Nothing changed.';
 export const STAFF_RETRY_LINE = 'STAFF ONLY · Peter and clients don’t see Retry.';
@@ -48,6 +52,7 @@ export type ReviewVisual =
   | 'delete-failed'
   | 'couldnt-remove';
 export type ReviewDialogKind = 'approve' | 'changes';
+export type PreviewLinkMode = 'attach' | 'remove';
 
 export type ReviewSurfaceModel = {
   milestoneId: string;
@@ -72,6 +77,8 @@ export type ReviewSurfaceModel = {
   deployFinishedAt?: number | null;
   /** Set only once merge and deploy have actually started. Absent until #113. */
   deployStartedAt?: number | null;
+  /** Set when staff attach the link. A worker preview leaves this empty. */
+  previewAttachedAt?: number | null;
   history: MilestoneReviewHistoryItem[];
   tasks: { id: string; name: string }[];
   resultTasks?: { name: string }[];
@@ -98,6 +105,7 @@ export function deriveReviewVisual(model: ReviewSurfaceModel, forced?: ReviewVis
   if (model.approval === 'changes_requested') return 'changes';
   if (model.previewBuild === 'building') return 'building';
   if (model.previewBuild === 'failed') return 'preview-failed';
+  if (model.workStatus === 'ready' && model.previewUrl && model.previewAttachedAt != null) return 'ready';
   if (!model.previewUrl) return 'waiting';
   if (model.designCheck === 'fixes') return 'fixes';
   return 'ready';
@@ -414,12 +422,10 @@ export function ReviewDialogBody({
         saving ? (
           <div style={{ fontSize: 14, lineHeight: '21px' }}>
             <p style={{ margin: 0 }}>{SAVING_APPROVAL_COPY}</p>
-            <p className="ds-mono" style={{ margin: '8px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>This ships to production.</p>
           </div>
         ) : (
           <div style={{ fontSize: 14, lineHeight: '21px' }}>
-            <p style={{ margin: 0 }}>Marks approved. Engineering merges to main and deploys production next.</p>
-            <p style={{ margin: 0 }}>This ships to production.</p>
+            <p style={{ margin: 0 }}>{APPROVE_CONFIRM_COPY}</p>
             <p style={{ margin: 0 }}>You can’t undo this from the Portal.</p>
           </div>
         )
@@ -665,6 +671,12 @@ export function MilestoneReviewSurface({
   cover = false,
   onApprove,
   onRequestChanges,
+  staffAttach = false,
+  initialLink = null,
+  initialLinkError = null,
+  initialLinkUrl = '',
+  onAttach,
+  onClear,
 }: {
   model: ReviewSurfaceModel;
   layout: 'card' | 'row';
@@ -692,17 +704,32 @@ export function MilestoneReviewSurface({
   cover?: boolean;
   onApprove?: (notes: string) => Promise<void>;
   onRequestChanges?: (notes: string, taskIds: string[]) => Promise<void>;
+  /** Staff only. Clients never receive this control. */
+  staffAttach?: boolean;
+  initialLink?: PreviewLinkMode | null;
+  initialLinkError?: string | null;
+  initialLinkUrl?: string;
+  onAttach?: (url: string) => Promise<void>;
+  onClear?: () => Promise<void>;
 }) {
   const [dialog, setDialog] = useState<ReviewDialogKind | null>(initialDialog);
+  const [linkMode, setLinkMode] = useState<PreviewLinkMode | null>(initialLink);
+  const [linkUrl, setLinkUrl] = useState(initialLinkUrl);
+  const [linkError, setLinkError] = useState<string | null>(initialLinkError);
+  const [linkBusy, setLinkBusy] = useState(false);
+  const showAttach = staffMayAttachPreviewLink({ staff: staffAttach });
   const [notes, setNotes] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [busy, setBusy] = useState<'approve' | 'changes' | null>(null);
   const [failedKind, setFailedKind] = useState<ReviewDialogKind>('approve');
   useEffect(() => {
-    onActive?.(dialog != null);
-  }, [dialog, onActive]);
+    onActive?.(dialog != null || linkMode != null);
+  }, [dialog, linkMode, onActive]);
   useEffect(() => {
-    if (closeToken > 0) setDialog(null);
+    if (closeToken > 0) {
+      setDialog(null);
+      setLinkMode(null);
+    }
   }, [closeToken]);
   const [fieldError, setFieldError] = useState<string | null>(initialError);
   const [cardError, setCardError] = useState(false);
@@ -777,10 +804,11 @@ export function MilestoneReviewSurface({
       disabled={changesHeld || (visual === 'error' ? false : blocked)}
       disabledOpacity={changesHeld ? 0.4 : visual === 'error' ? undefined : dim}
       onClick={() => {
-        setCardError(false);
-        setFieldError(null);
-        setDialog('changes');
-      }}
+      setCardError(false);
+      setFieldError(null);
+      setLinkMode(null);
+      setDialog('changes');
+    }}
     >
       {busy === 'changes' ? 'Starting…' : 'Request changes'}
     </OutlineButton>
@@ -794,6 +822,7 @@ export function MilestoneReviewSurface({
       onClick={() => {
         setCardError(false);
         setFieldError(null);
+        setLinkMode(null);
         setDialog(visual === 'error' ? failedKind ?? 'approve' : 'approve');
       }}
       style={{
@@ -898,6 +927,37 @@ export function MilestoneReviewSurface({
             {visual === 'fixes' && model.designCheckNote ? (
               <p style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>{model.designCheckNote}</p>
             ) : null}
+            {showAttach ? (
+              <div data-testid="preview-link-actions" className={phone ? 'flex w-full flex-col gap-2' : 'flex flex-wrap gap-2'}>
+                <OutlineButton
+                  nowrap={!phone}
+                  className={phone ? 'w-full' : undefined}
+                  testId="attach-preview-link"
+                  onClick={() => {
+                    setDialog(null);
+                    setLinkError(null);
+                    setLinkUrl(model.previewUrl ?? '');
+                    setLinkMode('attach');
+                  }}
+                >
+                  Attach preview link
+                </OutlineButton>
+                {model.previewUrl ? (
+                  <OutlineButton
+                    nowrap={!phone}
+                    className={phone ? 'w-full' : undefined}
+                    testId="remove-preview-link"
+                    onClick={() => {
+                      setDialog(null);
+                      setLinkError(null);
+                      setLinkMode('remove');
+                    }}
+                  >
+                    Remove link
+                  </OutlineButton>
+                ) : null}
+              </div>
+            ) : null}
             {visual === 'error' ? (
               <div role="alert" data-testid="review-error-box" className="flex items-start gap-2" style={{ border: '1px solid var(--danger)', borderRadius: 16, padding: '12px 14px', color: 'var(--danger-text)' }}>
                 <AlertIcon />
@@ -918,12 +978,52 @@ export function MilestoneReviewSurface({
     </div>
   );
 
+  const submitLink = async () => {
+    if (linkBusy || !linkMode) return;
+    if (linkMode === 'attach') {
+      const checked = assertStaffPreviewLink(linkUrl);
+      if (!checked.ok) {
+        setLinkError(checked.reason);
+        return;
+      }
+      if (!onAttach) {
+        setLinkMode(null);
+        return;
+      }
+      setLinkBusy(true);
+      setLinkError(null);
+      try {
+        await onAttach(checked.href);
+        setLinkMode(null);
+      } catch (err) {
+        setLinkError(userFacingErrorMessage(err, 'Couldn’t save the preview link. Nothing changed.'));
+      } finally {
+        setLinkBusy(false);
+      }
+      return;
+    }
+    if (!onClear) {
+      setLinkMode(null);
+      return;
+    }
+    setLinkBusy(true);
+    setLinkError(null);
+    try {
+      await onClear();
+      setLinkMode(null);
+    } catch (err) {
+      setLinkError(userFacingErrorMessage(err, 'Couldn’t remove the preview link. Nothing changed.'));
+    } finally {
+      setLinkBusy(false);
+    }
+  };
+
   const phoneConfirm = phone && dialog === 'approve';
   const savingApproval = busy === 'approve';
   const dialogNode = dialog ? (
     <ReviewScrim
       phone={phone}
-      label={dialog === 'approve' ? (savingApproval ? RECORDING_APPROVAL : 'Approve and ship to production?') : 'Request changes'}
+      label={dialog === 'approve' ? (savingApproval ? RECORDING_APPROVAL : APPROVE_CONFIRM_TITLE) : 'Request changes'}
       spinner={savingApproval}
       confirmOnEnter={dialog === 'approve'}
       hideClose={phoneConfirm || savingApproval}
@@ -970,7 +1070,69 @@ export function MilestoneReviewSurface({
     </ReviewScrim>
   ) : null;
 
-  if (swap && dialogNode) return dialogNode;
+  const linkDialog = linkMode ? (
+    <PortalModal
+      testId="preview-link-dialog"
+      label={linkMode === 'attach' ? 'Attach preview link' : 'Remove preview link?'}
+      onClose={() => {
+        if (!linkBusy) setLinkMode(null);
+      }}
+      narrow={phone}
+      sheet="bottom"
+      header="default"
+      showFooter={false}
+      cover={cover}
+      locked={linkBusy}
+      focusCancel={linkMode === 'remove'}
+      onConfirm={() => void submitLink()}
+      confirmOnEnter={linkMode === 'remove'}
+    >
+      <ConfirmFrame
+        busy={linkBusy}
+        error={linkError}
+        confirmLabel={linkMode === 'attach' ? 'Attach link' : 'Remove link'}
+        onCancel={() => setLinkMode(null)}
+        onConfirm={() => void submitLink()}
+      >
+        {linkMode === 'attach' ? (
+          <label className="flex flex-col gap-2" style={{ fontSize: 14, lineHeight: '21px' }}>
+            <span>Preview link</span>
+            <input
+              aria-label="Preview link"
+              data-testid="preview-link-input"
+              value={linkUrl}
+              onChange={(event) => {
+                setLinkUrl(event.target.value);
+                if (linkError) setLinkError(null);
+              }}
+              placeholder="https://warehaus-portal-…-warehaus-collective.vercel.app"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              style={{
+                width: '100%',
+                border: linkError ? '1px solid var(--danger)' : '1px solid var(--border)',
+                borderRadius: 12,
+                background: 'var(--surface-2)',
+                color: 'var(--fg)',
+                padding: 12,
+                font: 'inherit',
+              }}
+            />
+            <span className="ds-mono" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+              https only. Team Vercel previews. Localhost and production stay off this milestone.
+            </span>
+          </label>
+        ) : (
+          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>
+            Peter won’t see Approve & deploy until a preview link is attached again.
+          </p>
+        )}
+      </ConfirmFrame>
+    </PortalModal>
+  ) : null;
+
+  if (swap && (dialogNode || linkDialog)) return dialogNode ?? linkDialog;
 
   const row = (
     <div
@@ -1001,7 +1163,7 @@ export function MilestoneReviewSurface({
           {body}
         </div>
       )}
-      {dialogNode}
+      {dialog ? dialogNode : linkDialog}
     </div>
   );
 }
@@ -1030,6 +1192,7 @@ export function reviewModelFromMilestone(
     previewDeleteAttempt: milestone.review.previewDeleteAttempt,
     previewDeleteAt: milestone.review.previewDeleteAt,
     deployFinishedAt: milestone.review.deployFinishedAt,
+    previewAttachedAt: milestone.review.previewAttachedAt,
     history: milestone.review.history,
     tasks: milestone.rows.map((row) => ({ id: row.id, name: row.name })),
   };
@@ -1051,6 +1214,9 @@ export function MilestoneReviewLive({
   const approve = useMutation(api.milestones.approve);
   const requestChanges = useMutation(api.milestones.requestChanges);
   const retryPreview = useMutation(api.milestones.retryReviewPreview);
+  const attachPreviewLink = useMutation(api.milestones.attachPreviewLink);
+  const clearPreviewLink = useMutation(api.milestones.clearPreviewLink);
+  const retryLive = reviewRetryLiveOnClient(process.env.NEXT_PUBLIC_CONVEX_URL);
   const review = milestone.review;
   if (!review || !reviewShouldShow({ workStatus: milestone.workStatus, approval: milestone.approval ?? 'unreviewed', historyLength: review.history.length })) {
     return null;
@@ -1062,8 +1228,16 @@ export function MilestoneReviewLive({
       layout="card"
       phone={phone}
       isPeter={peter}
+      staffAttach
+      onAttach={async (url) => {
+        const result = await attachPreviewLink({ milestoneId: model.milestoneId as Id<'milestones'>, url });
+        if (!result.ok) throw new Error(result.reason);
+      }}
+      onClear={async () => {
+        await clearPreviewLink({ milestoneId: model.milestoneId as Id<'milestones'> });
+      }}
       onRetry={
-        peter
+        peter || !retryLive
           ? undefined
           : async () => {
               const result = await retryPreview({ milestoneId: model.milestoneId as Id<'milestones'> });

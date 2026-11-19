@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import { NOTES_REQUIRED } from '@convex/_lib/milestoneReview';
+import { PREVIEW_LINK_LOCAL } from '@convex/_lib/previewLink';
 import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { PortalDock } from '@/components/layout/PortalDock';
 import { PortalTabSidebar } from '@/components/layout/PortalSidebar';
@@ -11,6 +12,7 @@ import { PortalViewProvider } from '@/components/providers/PortalViewProvider';
 import { TASK_STAGE_HINT } from '@/lib/data/taskStatus';
 import { StatusBadge } from '@/components/ui/primitives';
 import {
+  APPROVE_CONFIRM_TITLE,
   MilestoneReviewSurface,
   RECORDING_APPROVAL,
   RETRY_FAILED,
@@ -58,6 +60,14 @@ const ready: ReviewSurfaceModel = {
 };
 
 const waiting: ReviewSurfaceModel = { ...ready, previewUrl: null, designCheck: 'pending' };
+const ATTACHED_PREVIEW = 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app';
+const attachedLink: ReviewSurfaceModel = {
+  ...ready,
+  workStatus: 'ready',
+  previewUrl: ATTACHED_PREVIEW,
+  previewAttachedAt: STAMP,
+  designCheck: 'pass',
+};
 const fixes: ReviewSurfaceModel = {
   ...ready,
   designCheck: 'fixes',
@@ -263,7 +273,7 @@ function DialogFrame({
         phone={phone}
         cover
         confirmOnEnter={kind === 'approve'}
-        label={busy && kind === 'approve' ? RECORDING_APPROVAL : kind === 'approve' ? 'Approve and ship to production?' : 'Request changes'}
+        label={busy && kind === 'approve' ? RECORDING_APPROVAL : kind === 'approve' ? APPROVE_CONFIRM_TITLE : 'Request changes'}
         spinner={busy && kind === 'approve'}
         hideClose={phone && kind === 'approve' || busy && kind === 'approve'}
         actionsRow={phone && kind === 'approve'}
@@ -550,7 +560,11 @@ export type ApprovalsFocus =
   | 'approved'
   | 'staff-delete-removing'
   | 'staff-couldnt-remove'
-  | 'milestone-page';
+  | 'milestone-page'
+  | 'attach'
+  | 'attached'
+  | 'remove-confirm'
+  | 'preview-link-invalid';
 
 export type ApprovalsSize = '1440' | '390';
 
@@ -585,6 +599,29 @@ function ReviewStateFrame({ kind, phone }: { kind: ApprovalsFocus; phone: boolea
       {node}
     </section>
   );
+}
+
+function PreviewLinkFrame({ kind, phone }: { kind: 'attach' | 'attached' | 'remove-confirm' | 'preview-link-invalid'; phone: boolean }) {
+  const attaching = kind === 'attach' || kind === 'preview-link-invalid';
+  return (
+    <section data-overlay={kind} data-width={phone ? '390' : '1440'} style={{ width: phone ? '100%' : 1108, maxWidth: phone ? 390 : undefined, paddingTop: 16 }}>
+      <MilestoneReviewSurface
+        model={attaching ? waiting : attachedLink}
+        layout="card"
+        phone={phone}
+        isPeter
+        staffAttach
+        cover={false}
+        initialLink={kind === 'attached' ? null : kind === 'remove-confirm' ? 'remove' : 'attach'}
+        initialLinkUrl={kind === 'preview-link-invalid' ? 'http://localhost:3100' : attaching ? '' : ATTACHED_PREVIEW}
+        initialLinkError={kind === 'preview-link-invalid' ? PREVIEW_LINK_LOCAL : null}
+      />
+    </section>
+  );
+}
+
+function isPreviewLinkState(view: ApprovalsFocus): view is 'attach' | 'attached' | 'remove-confirm' | 'preview-link-invalid' {
+  return view === 'attach' || view === 'attached' || view === 'remove-confirm' || view === 'preview-link-invalid';
 }
 
 function isReviewState(view: ApprovalsFocus): boolean {
@@ -637,6 +674,12 @@ export function ApprovalsPreview({
           <>
             <TileFrame peter={view === 'tile-peter'} staff={view !== 'tile-client'} phone={false} />
             <TileFrame peter={view === 'tile-peter'} staff={view !== 'tile-client'} phone />
+          </>
+        ) : null}
+        {view && isPreviewLinkState(view) ? (
+          <>
+            {size === '390' ? null : <PreviewLinkFrame kind={view} phone={false} />}
+            {size === '1440' ? null : <PreviewLinkFrame kind={view} phone />}
           </>
         ) : null}
         {view && isReviewState(view) ? (

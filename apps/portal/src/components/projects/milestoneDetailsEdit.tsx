@@ -2,6 +2,8 @@
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { Id } from '@convex/_generated/dataModel';
+import { assertStaffPreviewLink, PREVIEW_LINK_LOCAL } from '@convex/_lib/previewLink';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import {
   DETAIL_STATUS_LABEL,
   MILESTONE_DETAIL_STATUSES,
@@ -42,7 +44,9 @@ export type DetailsOverlay =
   | { kind: 'visibility' }
   | { kind: 'confirm-publish' }
   | { kind: 'confirm-unpublish' }
-  | { kind: 'confirm-move'; projectId: string; projectName: string };
+  | { kind: 'confirm-move'; projectId: string; projectName: string }
+  | { kind: 'attach-link' }
+  | { kind: 'remove-link' };
 
 export type OwnerChoice = { id: string; name: string };
 
@@ -60,6 +64,8 @@ type DetailMutations = {
   setDueDate: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; dueDate: string | null }) => Promise<unknown>;
   setPublish: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; publishToWarehaus: boolean }) => Promise<unknown>;
   moveProject: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; projectId: Id<'projects'> }) => Promise<unknown>;
+  attachPreviewLink?: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; url: string }) => Promise<{ ok: boolean; reason?: string }>;
+  clearPreviewLink?: (args: { hostSlug?: string; milestoneId: Id<'milestones'> }) => Promise<unknown>;
 };
 
 export function useMilestoneDetailEdits({
@@ -122,8 +128,14 @@ export function useMilestoneDetailEdits({
     preview === 'field-error' || preview === 'owner-due-error' ? 'Couldn’t save.' : null,
   );
   const [confirmError, setConfirmError] = useState<string | null>(
-    preview === 'error' ? 'Couldn’t move the milestone. Nothing changed. Try again.' : null,
+    preview === 'error'
+      ? 'Couldn’t move the milestone. Nothing changed. Try again.'
+      : preview === 'preview-link-error'
+        ? PREVIEW_LINK_LOCAL
+        : null,
   );
+  const [linkDraft, setLinkDraft] = useState(preview === 'preview-link-error' ? 'http://localhost:3100' : (milestone.review?.previewUrl ?? ''));
+  const [linkBusy, setLinkBusy] = useState(false);
   const [projectQuery, setProjectQuery] = useState('');
   const [projectNameLocal, setProjectNameLocal] = useState(projectName);
   const pending = useRef<{
@@ -175,6 +187,55 @@ export function useMilestoneDetailEdits({
     onClaim();
     setConfirmError(preview === 'error' ? confirmError : null);
     setOverlay(next);
+  };
+
+  const confirmAttach = () => {
+    const checked = assertStaffPreviewLink(linkDraft);
+    if (!checked.ok) {
+      setConfirmError(checked.reason);
+      return;
+    }
+    if (fixtures || !mutations.attachPreviewLink) {
+      setOverlay(null);
+      setConfirmError(null);
+      return;
+    }
+    setLinkBusy(true);
+    void mutations
+      .attachPreviewLink({ hostSlug, milestoneId: milestone.id as Id<'milestones'>, url: checked.href })
+      .then((result) => {
+        if (!result.ok) {
+          setConfirmError(result.reason ?? 'Couldn’t save the preview link. Nothing changed.');
+          return;
+        }
+        setOverlay(null);
+        setConfirmError(null);
+      })
+      .catch((err: unknown) => {
+        setConfirmError(userFacingErrorMessage(err, 'Couldn’t save the preview link. Nothing changed.'));
+      })
+      .finally(() => setLinkBusy(false));
+  };
+
+  const confirmClear = () => {
+    if (fixtures || !mutations.clearPreviewLink) {
+      setLinkDraft('');
+      setOverlay(null);
+      setConfirmError(null);
+      return;
+    }
+    setLinkBusy(true);
+    void mutations
+      .clearPreviewLink({ hostSlug, milestoneId: milestone.id as Id<'milestones'> })
+      .then(() => {
+        setLinkDraft('');
+        setOverlay(null);
+        setConfirmError(null);
+      })
+      .catch((err: unknown) => {
+        setConfirmError(userFacingErrorMessage(err, 'Couldn’t remove the preview link. Nothing changed.'));
+      })
+      .finally(() => setLinkBusy(false));
   };
 
   const askPublish = () => {
@@ -547,6 +608,35 @@ export function useMilestoneDetailEdits({
             {tone.visibility === 'error' && fieldError ? <FieldError testId="milestone-visibility-retry" text={fieldError} onRetry={askPublish} /> : null}
           </DetailRow>
         ) : null}
+        {staff ? (
+          <DetailRow label="PREVIEW LINK" wide>
+            <ValueButton
+              testId="milestone-preview-link-edit"
+              valueTestId="milestone-preview-link"
+              label={milestone.review?.previewUrl ? previewHost(milestone.review.previewUrl) : 'Attach preview link'}
+              tone="idle"
+              open={shown?.kind === 'attach-link' || shown?.kind === 'remove-link'}
+              onClick={() => {
+                setLinkDraft(milestone.review?.previewUrl ?? '');
+                setConfirmError(null);
+                openOverlay(shown?.kind === 'attach-link' ? null : { kind: 'attach-link' });
+              }}
+            />
+            {milestone.review?.previewUrl ? (
+              <button
+                type="button"
+                data-testid="milestone-preview-link-remove"
+                onClick={() => {
+                  setConfirmError(null);
+                  openOverlay(shown?.kind === 'remove-link' ? null : { kind: 'remove-link' });
+                }}
+                style={{ marginTop: 6, background: 'none', border: 0, padding: 0, color: 'var(--fg)', font: 'inherit', fontSize: 13, lineHeight: '18px', textDecoration: 'underline', cursor: 'pointer' }}
+              >
+                Remove link
+              </button>
+            ) : null}
+          </DetailRow>
+        ) : null}
         {clientSeesDetailsRow('approval', staff) && milestone.approval && milestone.approval !== 'unreviewed' ? (
           <DetailRow label="APPROVAL" wide>
             <FieldValue>
@@ -577,7 +667,7 @@ export function useMilestoneDetailEdits({
       title={modalTitle(shown, milestone.name)}
       testId="milestone-details-modal"
       header={confirmHeader(shown)}
-      focusCancel={isConfirm(shown)}
+      focusCancel={isConfirm(shown) && shown.kind !== 'attach-link'}
       onClose={() => closeOverlay(true)}
     >
       {shown.kind === 'stage' ? (
@@ -641,6 +731,48 @@ export function useMilestoneDetailEdits({
           onConfirm={() => confirmPublish(false)}
         />
       ) : null}
+      {shown.kind === 'attach-link' ? (
+        <ConfirmFrame
+          busy={linkBusy}
+          error={confirmError}
+          confirmLabel="Attach link"
+          onCancel={() => closeOverlay(true)}
+          onConfirm={confirmAttach}
+        >
+          <label className="flex flex-col gap-2" style={{ fontSize: 14, lineHeight: '21px' }}>
+            <span>Preview link</span>
+            <input
+              aria-label="Preview link"
+              data-testid="preview-link-input"
+              value={linkDraft}
+              onChange={(event) => {
+                setLinkDraft(event.target.value);
+                if (confirmError) setConfirmError(null);
+              }}
+              placeholder="https://warehaus-portal-…-warehaus-collective.vercel.app"
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
+              style={{
+                width: '100%',
+                border: confirmError ? '1px solid var(--danger)' : '1px solid var(--border)',
+                borderRadius: 12,
+                background: 'var(--surface-2)',
+                color: 'var(--fg)',
+                padding: 12,
+                font: 'inherit',
+              }}
+            />
+          </label>
+        </ConfirmFrame>
+      ) : null}
+      {shown.kind === 'remove-link' ? (
+        <ConfirmFrame busy={linkBusy} error={confirmError} confirmLabel="Remove link" onCancel={() => closeOverlay(true)} onConfirm={confirmClear}>
+          <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>
+            Peter won’t see Approve & deploy until a preview link is attached again.
+          </p>
+        </ConfirmFrame>
+      ) : null}
       {shown.kind === 'confirm-move' ? (
         <ConfirmMove
           milestoneName={milestone.name}
@@ -662,7 +794,15 @@ export function useMilestoneDetailEdits({
 }
 
 function isConfirm(overlay: DetailsOverlay): boolean {
-  return overlay?.kind === 'confirm-publish' || overlay?.kind === 'confirm-unpublish' || overlay?.kind === 'confirm-move';
+  return overlay?.kind === 'confirm-publish' || overlay?.kind === 'confirm-unpublish' || overlay?.kind === 'confirm-move' || overlay?.kind === 'attach-link' || overlay?.kind === 'remove-link';
+}
+
+function previewHost(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return 'Preview attached';
+  }
 }
 
 function initialOverlay(preview: string | null, targets: readonly MoveTarget[]): DetailsOverlay {
@@ -679,6 +819,8 @@ function initialOverlay(preview: string | null, targets: readonly MoveTarget[]):
     if (!target) return null;
     return { kind: 'confirm-move', projectId: target.id, projectName: target.name };
   }
+  if (preview === 'attach-link' || preview === 'preview-link-error') return { kind: 'attach-link' };
+  if (preview === 'remove-link') return { kind: 'remove-link' };
   return null;
 }
 
@@ -720,6 +862,8 @@ function modalTitle(overlay: DetailsOverlay, name: string): string {
   if (overlay.kind === 'visibility') return 'Visibility';
   if (overlay.kind === 'confirm-publish') return 'Publish to client?';
   if (overlay.kind === 'confirm-unpublish') return 'Hide from client?';
+  if (overlay.kind === 'attach-link') return 'Attach preview link';
+  if (overlay.kind === 'remove-link') return 'Remove preview link?';
   return `Move to ${overlay.projectName}?`;
 }
 
@@ -1073,7 +1217,7 @@ function VisibilityList({
 }
 
 function confirmHeader(overlay: DetailsOverlay): PortalModalHeader | undefined {
-  if (overlay?.kind === 'confirm-move' || overlay?.kind === 'confirm-publish' || overlay?.kind === 'confirm-unpublish') {
+  if (overlay?.kind === 'confirm-move' || overlay?.kind === 'confirm-publish' || overlay?.kind === 'confirm-unpublish' || overlay?.kind === 'attach-link' || overlay?.kind === 'remove-link') {
     return 'default';
   }
   return undefined;
@@ -1114,7 +1258,7 @@ function DetailsModal({
   );
 }
 
-function ConfirmFrame({
+export function ConfirmFrame({
   busy,
   error,
   confirmLabel,

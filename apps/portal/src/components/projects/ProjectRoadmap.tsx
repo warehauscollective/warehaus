@@ -4,6 +4,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode, 
 import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { formatReviewStamp, isPeterEmail, iterationOutcome } from '@convex/_lib/milestoneReview';
+import { peterMayApproveDeploy } from '@convex/_lib/previewLink';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
@@ -21,7 +22,7 @@ import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
 import { DueDateMenu, OwnerMenu, StageMenu, anchoredMenuBox, menuButtons, nextDialogFocus, useMilestoneDetailEdits, type MoveTarget, type OwnerChoice } from './milestoneDetailsEdit';
 import { type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
-import { MilestoneReviewLive, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
+import { MilestoneReviewLive, APPROVE_CONFIRM_COPY, APPROVE_CONFIRM_TITLE, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
 import {
   FieldLabel,
   FieldValue,
@@ -900,7 +901,13 @@ export function MilestoneListCard({
       document.removeEventListener('keydown', onKey);
     };
   }, [stageMenuOpen, phoneSheet]);
-  const canDeploy = Boolean(staff && isPeter && milestone.workStatus === 'ready' && milestone.approval !== 'approved' && milestone.review?.previewUrl);
+  const canDeploy = peterMayApproveDeploy({
+    staff,
+    isPeter,
+    workStatus: milestone.workStatus,
+    approval: milestone.approval,
+    previewUrl: milestone.review?.previewUrl,
+  });
   const confirmDeploy = () => {
     if (fixtures || !milestone.review || !onApprove) {
       setConfirm(false);
@@ -1069,7 +1076,7 @@ export function MilestoneListCard({
       {showDeploy ? (
         <PortalModal
           testId="milestone-deploy-confirm"
-          label={deploying ? RECORDING_APPROVAL : 'Approve and ship to production?'}
+          label={deploying ? RECORDING_APPROVAL : APPROVE_CONFIRM_TITLE}
           onClose={() => {
             if (!deploying) setConfirm(false);
           }}
@@ -1089,12 +1096,10 @@ export function MilestoneListCard({
             {deploying ? (
               <>
                 <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{SAVING_APPROVAL_COPY}</p>
-                <p className="ds-mono" style={{ margin: '8px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>This ships to production.</p>
               </>
             ) : (
               <>
-                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Marks approved. Engineering merges to main and deploys production next.</p>
-                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>This ships to production.</p>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{APPROVE_CONFIRM_COPY}</p>
                 <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>You can’t undo this from the Portal.</p>
               </>
             )}
@@ -1180,6 +1185,12 @@ type MilestoneMutations = {
     milestoneId: Id<'milestones'>;
     taskId: Id<'tasks'>;
   }) => Promise<unknown>;
+  attachPreviewLink?: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    url: string;
+  }) => Promise<{ ok: boolean; reason?: string }>;
+  clearPreviewLink?: (args: { hostSlug?: string; milestoneId: Id<'milestones'> }) => Promise<unknown>;
 };
 
 function MilestoneDetail(props: {
@@ -1212,6 +1223,8 @@ function MilestoneDetail(props: {
   const moveProject = useMutation(api.milestones.moveProject);
   const attachTask = useMutation(api.milestones.attachTask);
   const detachTask = useMutation(api.milestones.detachTask);
+  const attachPreviewLink = useMutation(api.milestones.attachPreviewLink);
+  const clearPreviewLink = useMutation(api.milestones.clearPreviewLink);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadedTargets, setLoadedTargets] = useState<MoveTarget[]>([]);
   const [moveListOpen, setMoveListOpen] = useState(false);
@@ -1258,7 +1271,7 @@ function MilestoneDetail(props: {
           ? () => setCursor(targetPage.data?.continueCursor ?? null)
           : undefined
       }
-      mutations={{ save, setWorkStatus, setPublish, setDetailStatus, setStage, setOwner, setDueDate, moveProject, attachTask, detachTask }}
+      mutations={{ save, setWorkStatus, setPublish, setDetailStatus, setStage, setOwner, setDueDate, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink }}
     />
   );
 }
@@ -1363,6 +1376,8 @@ export function MilestoneDetailView({
       setDueDate: mutations.setDueDate ?? (async () => undefined),
       setPublish,
       moveProject: mutations.moveProject ?? (async () => undefined),
+      attachPreviewLink: mutations.attachPreviewLink,
+      clearPreviewLink: mutations.clearPreviewLink,
     },
   });
 

@@ -610,6 +610,9 @@ export type MilestoneReviewHistoryItem = {
 export type MilestoneReviewView = {
   iteration: number;
   previewUrl: string | null;
+  /** Set when staff attach the link by hand. Absent on worker previews and older rows. */
+  previewAttachedBy?: string | null;
+  previewAttachedAt?: number | null;
   prNumber: number | null;
   prTitle: string | null;
   branch: string | null;
