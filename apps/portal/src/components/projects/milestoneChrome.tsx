@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, 
 import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import {
   dialogTabBoundary,
   focusShouldReturnToDialog,
@@ -340,7 +341,11 @@ export function StateCard({
   );
 }
 
-/** Phone stage confirm. Replaces the picker in place. It is not a second modal. */
+/**
+ * Phone stage confirm body. Figma 809:14549 is one sheet: title, the question,
+ * and the move/publish footer (Cancel beside Move to <stage>). No second panel.
+ * A parent PortalModal already draws the grabber, so hideGrabber drops it.
+ */
 export function StageConfirmSheet({
   stage,
   onCancel,
@@ -356,34 +361,55 @@ export function StageConfirmSheet({
   return (
     <div
       data-testid="stage-confirm-sheet"
-      style={{
-        background: 'var(--surface)',
-        color: 'var(--fg)',
-        border: '1px solid var(--border-2)',
-        borderTopLeftRadius: 28,
-        borderTopRightRadius: 28,
-        padding: '8px 24px 24px',
-      }}
+      style={
+        hideGrabber
+          ? undefined
+          : {
+              background: 'var(--surface)',
+              color: 'var(--fg)',
+              borderTop: '1px solid var(--border-2)',
+              borderTopLeftRadius: 28,
+              borderTopRightRadius: 28,
+            }
+      }
     >
       {hideGrabber ? null : (
-      <div className="flex justify-center" aria-hidden="true">
-        <span style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border-2)' }} />
-      </div>
+        <div className="flex justify-center pt-2" aria-hidden="true">
+          <span style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border-2)' }} />
+        </div>
       )}
-      <div className="flex items-center justify-between gap-4 pt-4">
-        <h2 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600, margin: 0 }}>{`Move to ${stage}`}</h2>
-        <button type="button" onClick={onCancel} style={{ background: 'transparent', border: 0, padding: 0, color: 'var(--fg)', fontSize: 14, cursor: 'pointer' }}>
+      <div className="flex items-center" style={{ padding: '16px 24px' }}>
+        <h2 className="type-heading" style={{ flex: '1 1 auto', margin: 0, fontSize: 20, lineHeight: '30px', fontWeight: 600 }}>{`Move to ${stage}`}</h2>
+        <button
+          type="button"
+          onClick={onCancel}
+          style={{
+            flex: '0 0 auto',
+            background: 'none',
+            border: 0,
+            borderRadius: 9,
+            color: 'var(--muted)',
+            font: 'inherit',
+            fontSize: 14,
+            fontWeight: 500,
+            lineHeight: '21px',
+            padding: '12px 16px',
+            cursor: 'pointer',
+          }}
+        >
           Close
         </button>
       </div>
-      <p style={{ margin: '16px 0', fontSize: 14, lineHeight: '21px' }}>{`Move this task to ${stage}?`}</p>
-      <div className="flex flex-col gap-2">
-        <button type="button" onClick={onCancel} style={{ width: '100%', background: 'transparent', color: 'var(--fg)', border: '1px solid var(--border-2)', borderRadius: 9, padding: '12px 16px', fontSize: 14 }}>
-          Cancel
-        </button>
-        <button type="button" onClick={onConfirm} style={{ width: '100%', background: 'var(--accent)', color: 'var(--accent-fg)', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 600 }}>
-          Confirm
-        </button>
+      <p style={{ margin: 0, padding: '8px 24px', fontSize: 14, lineHeight: '21px' }}>{`Move this task to ${stage}?`}</p>
+      <div className="flex flex-nowrap items-center justify-end gap-2 border-t px-6 pt-4" style={{ borderColor: 'var(--border)', paddingBottom: 24 }}>
+        <span className="ml-auto flex shrink-0 flex-nowrap items-center gap-2">
+          <OutlineButton nowrap height={42} paddingInline={16} onClick={onCancel}>
+            Cancel
+          </OutlineButton>
+          <PrimaryButton className="shrink-0" height={42} paddingInline={16} onClick={onConfirm}>
+            {`Move to ${stage}`}
+          </PrimaryButton>
+        </span>
       </div>
     </div>
   );

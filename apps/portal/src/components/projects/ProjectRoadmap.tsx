@@ -26,7 +26,6 @@ import {
   FieldValue,
   GhostButton,
   MenuActionError,
-  MilestoneDialog,
   MissingMilestoneApi,
   MilestoneListButton,
   PageHeading,
@@ -1620,11 +1619,21 @@ function EditDialog({
   const nameRef = useRef<HTMLInputElement>(null);
   const objectiveRef = useRef<HTMLTextAreaElement>(null);
   const goalsRef = useRef<HTMLTextAreaElement>(null);
+  const phone = useMaxWidth(767);
   return (
-    <MilestoneDialog title="Edit all details" onClose={onClose}>
+    <PortalModal
+      testId="milestone-edit-dialog"
+      label="Edit all details"
+      onClose={onClose}
+      narrow={phone}
+      sheet="bottom"
+      width={640}
+      header="default"
+      panelStyle={{ padding: '8px 24px 24px' }}
+    >
       <form
         data-testid="milestone-edit-form"
-        className="mt-4 flex flex-col gap-4"
+        className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
           const nextGoals = goals.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -1666,7 +1675,7 @@ function EditDialog({
           </PrimaryButton>
         </div>
       </form>
-    </MilestoneDialog>
+    </PortalModal>
   );
 }
 
@@ -1696,11 +1705,21 @@ function CreateMilestone({
   const nameRef = useRef<HTMLInputElement>(null);
   const objectiveRef = useRef<HTMLTextAreaElement>(null);
   const goalsRef = useRef<HTMLTextAreaElement>(null);
+  const phone = useMaxWidth(767);
   return (
-    <MilestoneDialog title="New milestone" onClose={onClose}>
+    <PortalModal
+      testId="milestone-create-dialog"
+      label="New milestone"
+      onClose={onClose}
+      narrow={phone}
+      sheet="bottom"
+      width={640}
+      header="default"
+      panelStyle={{ padding: '8px 24px 24px' }}
+    >
       <form
         data-testid="milestone-create"
-        className="mt-2 flex flex-col gap-4"
+        className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
           const nextGoals = goals.split('\n').map((line) => line.trim()).filter(Boolean);
@@ -1795,7 +1814,7 @@ function CreateMilestone({
           </PrimaryButton>
         </div>
       </form>
-    </MilestoneDialog>
+    </PortalModal>
   );
 }
 

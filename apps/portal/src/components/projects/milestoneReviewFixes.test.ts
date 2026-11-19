@@ -42,6 +42,19 @@ describe('milestone review fixes', () => {
     assert.equal(roadmap.includes('milestone.resourceChoices'), false);
   });
 
+  it('opens edit and create as one viewport sheet', () => {
+    const edit = roadmap.slice(roadmap.indexOf('function EditDialog'), roadmap.indexOf('function CreateMilestone'));
+    const create = roadmap.slice(roadmap.indexOf('function CreateMilestone'), roadmap.indexOf('type MilestoneFieldErrors'));
+    for (const block of [edit, create]) {
+      assert.match(block, /<PortalModal/);
+      assert.match(block, /narrow=\{phone\}/);
+      assert.match(block, /sheet="bottom"/);
+      assert.equal(block.includes('MilestoneDialog'), false);
+    }
+    assert.match(edit, /label="Edit all details"/);
+    assert.match(create, /label="New milestone"/);
+  });
+
   it('shows a save failure inside the open dialog', () => {
     assert.match(roadmap, /saveError=\{error\}/);
     assert.match(roadmap, /error && !editing/);
