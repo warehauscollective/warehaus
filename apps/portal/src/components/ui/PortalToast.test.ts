@@ -1,12 +1,15 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import React, { createElement } from 'react';
+import React, { createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 
 Object.assign(globalThis, { React });
 const { PortalToast } = await import('./PortalToast');
 const { PortalModal } = await import('./PortalModal');
+const SearchModal = PortalModal as (
+  props: Omit<ComponentProps<typeof PortalModal>, 'children'>,
+) => ReactElement;
 
 describe('PortalToast', () => {
   it('renders the four approved kinds', () => {
@@ -82,14 +85,13 @@ describe('leftover dialogs on PortalModal', () => {
   });
 
   it('opens a top-aligned dialog under the header without a grabber', () => {
-    const html = renderToStaticMarkup(createElement(PortalModal, {
+    const html = renderToStaticMarkup(createElement(SearchModal, {
       label: 'Search',
       onClose: () => undefined,
       align: 'start',
       narrow: false,
       width: 640,
-      children: createElement('p', null, 'Results'),
-    }));
+    }, createElement('p', null, 'Results')));
     assert.match(html, /align-items:flex-start/);
     assert.match(html, /padding:72px 20px 24px/);
     assert.equal(html.includes('data-testid="modal-grabber"'), false);
