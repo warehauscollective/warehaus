@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import type { Id } from '@convex/_generated/dataModel';
 import {
   DETAIL_STATUS_LABEL,
@@ -11,6 +11,7 @@ import {
   detailStatusLabel,
   effectiveDetailStatus,
   effectiveStage,
+  formatDueDate,
   stageOptionLock,
   textBlurSave,
   workStatusForDetail,
@@ -35,13 +36,17 @@ export type DetailsOverlay =
   | null
   | { kind: 'stage' }
   | { kind: 'status' }
+  | { kind: 'owner' }
+  | { kind: 'due' }
   | { kind: 'project' }
   | { kind: 'visibility' }
   | { kind: 'confirm-publish' }
   | { kind: 'confirm-unpublish' }
   | { kind: 'confirm-move'; projectId: string; projectName: string };
 
-type FieldKey = 'status' | 'stage' | 'project' | 'visibility';
+export type OwnerChoice = { id: string; name: string };
+
+type FieldKey = 'status' | 'stage' | 'owner' | 'due' | 'project' | 'visibility';
 type FieldTone = 'idle' | 'saving' | 'saved' | 'error' | 'pending' | 'discarded';
 
 type DetailMutations = {
@@ -51,6 +56,8 @@ type DetailMutations = {
     detailStatus: MilestoneDetailStatus;
   }) => Promise<unknown>;
   setStage: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; stage: MilestoneStage }) => Promise<unknown>;
+  setOwner: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; ownerContactId: Id<'contacts'> | null }) => Promise<unknown>;
+  setDueDate: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; dueDate: string | null }) => Promise<unknown>;
   setPublish: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; publishToWarehaus: boolean }) => Promise<unknown>;
   moveProject: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; projectId: Id<'projects'> }) => Promise<unknown>;
 };
@@ -72,6 +79,8 @@ export function useMilestoneDetailEdits({
   onFixture,
   onLoadMoreTargets,
   onMoveListOpen,
+  onOwnerListOpen,
+  owners = [],
   mutations,
 }: {
   milestone: MilestoneRoadmapView;
@@ -93,26 +102,42 @@ export function useMilestoneDetailEdits({
     stage?: MilestoneStage;
     workStatus?: MilestoneRoadmapView['workStatus'];
     publishToWarehaus?: boolean;
+    ownerContactId?: string | null;
+    ownerName?: string | null;
+    dueDate?: string | null;
   }) => void;
   onLoadMoreTargets?: () => void;
   /** True only while the move picker or move confirm is open. */
   onMoveListOpen?: (open: boolean) => void;
+  /** True only while the owner menu is open. */
+  onOwnerListOpen?: (open: boolean) => void;
+  owners?: readonly OwnerChoice[];
   mutations: DetailMutations;
 }) {
   const [phone, setPhone] = useState(false);
   const [ready, setReady] = useState(false);
   const [overlay, setOverlay] = useState<DetailsOverlay>(() => initialOverlay(preview, moveTargets));
   const [tone, setTone] = useState<Record<FieldKey, FieldTone>>(() => initialTone(preview));
-  const [fieldError, setFieldError] = useState<string | null>(preview === 'field-error' ? 'Couldn’t save.' : null);
+  const [fieldError, setFieldError] = useState<string | null>(
+    preview === 'field-error' || preview === 'owner-due-error' ? 'Couldn’t save.' : null,
+  );
   const [confirmError, setConfirmError] = useState<string | null>(
     preview === 'error' ? 'Couldn’t move the milestone. Nothing changed. Try again.' : null,
   );
   const [projectQuery, setProjectQuery] = useState('');
   const [projectNameLocal, setProjectNameLocal] = useState(projectName);
-  const pending = useRef<{ status: MilestoneDetailStatus | null; stage: MilestoneStage | null; project: MoveTarget | null }>({
+  const pending = useRef<{
+    status: MilestoneDetailStatus | null;
+    stage: MilestoneStage | null;
+    project: MoveTarget | null;
+    ownerId: string | null;
+    dueDate: string | null;
+  }>({
     status: null,
     stage: null,
     project: null,
+    ownerId: null,
+    dueDate: null,
   });
   const shownStage = preview === 'locked' ? 'Awaiting Go' : stageLabel(milestone);
   const shownStatus = statusLabel(milestone);
@@ -141,6 +166,10 @@ export function useMilestoneDetailEdits({
     const open = overlay?.kind === 'project' || overlay?.kind === 'confirm-move';
     onMoveListOpen?.(open);
   }, [overlay, onMoveListOpen]);
+
+  useEffect(() => {
+    onOwnerListOpen?.(overlay?.kind === 'owner');
+  }, [overlay, onOwnerListOpen]);
 
   const openOverlay = (next: DetailsOverlay) => {
     onClaim();
@@ -221,6 +250,45 @@ export function useMilestoneDetailEdits({
     }
     void runField('stage', () =>
       mutations.setStage({ hostSlug, milestoneId: milestone.id as Id<'milestones'>, stage }),
+    );
+  };
+
+  const pickOwner = (ownerId: string | null) => {
+    const from = milestone.ownerContactId ?? null;
+    setOverlay(null);
+    if (ownerId === from) return;
+    pending.current.ownerId = ownerId;
+    const ownerName = ownerId ? (owners.find((person) => person.id === ownerId)?.name ?? null) : null;
+    if (fixtures) {
+      onFixture({ ownerContactId: ownerId, ownerName });
+      setTone((current) => ({ ...current, owner: 'saved' }));
+      return;
+    }
+    void runField('owner', () =>
+      mutations.setOwner({
+        hostSlug,
+        milestoneId: milestone.id as Id<'milestones'>,
+        ownerContactId: ownerId as Id<'contacts'> | null,
+      }),
+    );
+  };
+
+  const pickDue = (dueDate: string | null) => {
+    const from = milestone.dueDate ?? null;
+    setOverlay(null);
+    if (dueDate === from) return;
+    pending.current.dueDate = dueDate;
+    if (fixtures) {
+      onFixture({ dueDate });
+      setTone((current) => ({ ...current, due: 'saved' }));
+      return;
+    }
+    void runField('due', () =>
+      mutations.setDueDate({
+        hostSlug,
+        milestoneId: milestone.id as Id<'milestones'>,
+        dueDate,
+      }),
     );
   };
 
@@ -311,7 +379,7 @@ export function useMilestoneDetailEdits({
             <FieldError testId="milestone-status-retry" text={fieldError} onRetry={() => { const status = pending.current.status; if (status) pickStatus(status); }} />
           ) : null}
           {shown?.kind === 'status' && !phone ? (
-            <Popover>
+            <Popover onClose={() => closeOverlay(true)}>
               <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} />
             </Popover>
           ) : null}
@@ -335,23 +403,47 @@ export function useMilestoneDetailEdits({
             <FieldError testId="milestone-stage-retry" text={fieldError} onRetry={() => { const stage = pending.current.stage; if (stage) pickStage(stage); }} />
           ) : null}
           {shown?.kind === 'stage' && !phone ? (
-            <Popover>
+            <Popover onClose={() => closeOverlay(true)}>
               <StageMenu current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} />
             </Popover>
           ) : null}
         </DetailRow>
         {clientSeesDetailsRow('owner', staff) ? (
           <DetailRow label="OWNER">
-            <FieldValue>
-              <span data-testid="milestone-owner">—</span>
-            </FieldValue>
+            {staff ? (
+              <ValueButton
+                testId="milestone-owner-edit"
+                valueTestId="milestone-owner"
+                label={milestone.ownerName?.trim() || 'Unassigned'}
+                tone={tone.owner}
+                open={shown?.kind === 'owner'}
+                onClick={() => openOverlay(shown?.kind === 'owner' ? null : { kind: 'owner' })}
+              />
+            ) : (
+              <FieldValue>
+                <span data-testid="milestone-owner">{milestone.ownerName?.trim() || '—'}</span>
+              </FieldValue>
+            )}
+            {tone.owner === 'error' && fieldError ? (
+              <FieldError testId="milestone-owner-retry" text={fieldError} onRetry={() => pickOwner(pending.current.ownerId)} />
+            ) : null}
+            {shown?.kind === 'owner' && !phone ? (
+              <Popover onClose={() => closeOverlay(true)}>
+                <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} onPick={pickOwner} onClose={() => closeOverlay(true)} />
+              </Popover>
+            ) : null}
           </DetailRow>
         ) : null}
         {clientSeesDetailsRow('creator', staff) ? (
           <DetailRow label="CREATOR">
             <FieldValue>
-              <span data-testid="milestone-creator">—</span>
+              <span data-testid="milestone-creator">{milestone.creatorName?.trim() || '—'}</span>
             </FieldValue>
+            {staff ? (
+              <p data-testid="milestone-creator-note" style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                Set automatically · read-only
+              </p>
+            ) : null}
           </DetailRow>
         ) : null}
         <DetailRow label="CREATED">
@@ -360,9 +452,28 @@ export function useMilestoneDetailEdits({
           </FieldValue>
         </DetailRow>
         <DetailRow label="DUE DATE">
-          <FieldValue>
-            <span data-testid="milestone-due">—</span>
-          </FieldValue>
+          {staff ? (
+            <ValueButton
+              testId="milestone-due-edit"
+              valueTestId="milestone-due"
+              label={formatDueDate(milestone.dueDate) ?? 'Not set'}
+              tone={tone.due}
+              open={shown?.kind === 'due'}
+              onClick={() => openOverlay(shown?.kind === 'due' ? null : { kind: 'due' })}
+            />
+          ) : (
+            <FieldValue>
+              <span data-testid="milestone-due">{formatDueDate(milestone.dueDate) ?? '—'}</span>
+            </FieldValue>
+          )}
+          {tone.due === 'error' && fieldError ? (
+            <FieldError testId="milestone-due-retry" text={fieldError} onRetry={() => pickDue(pending.current.dueDate)} />
+          ) : null}
+          {shown?.kind === 'due' && !phone ? (
+            <Popover onClose={() => closeOverlay(true)}>
+              <DueDateMenu value={milestone.dueDate ?? null} onPick={pickDue} onClose={() => closeOverlay(true)} />
+            </Popover>
+          ) : null}
         </DetailRow>
         <DetailRow label="PROJECT" wide>
           {staff ? (
@@ -383,7 +494,7 @@ export function useMilestoneDetailEdits({
             <FieldError testId="milestone-project-retry" text={fieldError} onRetry={() => { const target = pending.current.project; if (target) confirmMove(target); }} />
           ) : null}
           {shown?.kind === 'project' && !phone ? (
-            <Popover up>
+            <Popover up onClose={() => closeOverlay(true)}>
               <ProjectMenu
                 query={projectQuery}
                 onQuery={setProjectQuery}
@@ -401,6 +512,7 @@ export function useMilestoneDetailEdits({
         </DetailRow>
         {clientSeesDetailsRow('visibility', staff) ? (
           <DetailRow label="VISIBILITY" wide>
+            {staff ? (
             <ValueButton
               testId="milestone-visibility-edit"
               valueTestId="milestone-publish"
@@ -409,10 +521,17 @@ export function useMilestoneDetailEdits({
               open={shown?.kind === 'visibility' || shown?.kind === 'confirm-publish' || shown?.kind === 'confirm-unpublish'}
               onClick={() => openOverlay(shown?.kind === 'visibility' ? null : { kind: 'visibility' })}
             />
+            ) : (
+              <FieldValue>
+                <span data-testid="milestone-publish">{milestone.publishToWarehaus ? 'Published' : 'Not published'}</span>
+              </FieldValue>
+            )}
+            {staff && !milestone.publishToWarehaus ? (
             <p data-testid="milestone-visibility-note" style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
               Staff only · clients see nothing
             </p>
-            {shown?.kind === 'visibility' && !phone ? (
+            ) : null}
+            {staff && shown?.kind === 'visibility' && !phone ? (
               <VisibilitySegment
                 published={milestone.publishToWarehaus}
                 onPick={(publish) => {
@@ -466,6 +585,12 @@ export function useMilestoneDetailEdits({
       ) : null}
       {shown.kind === 'status' ? (
         <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
+      ) : null}
+      {shown.kind === 'owner' ? (
+        <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} onPick={pickOwner} onClose={() => closeOverlay(true)} sheet />
+      ) : null}
+      {shown.kind === 'due' ? (
+        <DueDateMenu value={milestone.dueDate ?? null} onPick={pickDue} onClose={() => closeOverlay(true)} sheet />
       ) : null}
       {shown.kind === 'project' ? (
         <ProjectMenu
@@ -543,6 +668,8 @@ function isConfirm(overlay: DetailsOverlay): boolean {
 function initialOverlay(preview: string | null, targets: readonly MoveTarget[]): DetailsOverlay {
   if (preview === 'stage' || preview === 'stage-peter') return { kind: 'stage' };
   if (preview === 'status') return { kind: 'status' };
+  if (preview === 'owner') return { kind: 'owner' };
+  if (preview === 'due') return { kind: 'due' };
   if (preview === 'project') return { kind: 'project' };
   if (preview === 'visibility') return { kind: 'visibility' };
   if (preview === 'publish') return { kind: 'confirm-publish' };
@@ -556,10 +683,14 @@ function initialOverlay(preview: string | null, targets: readonly MoveTarget[]):
 }
 
 function initialTone(preview: string | null): Record<FieldKey, FieldTone> {
-  const tone: Record<FieldKey, FieldTone> = { status: 'idle', stage: 'idle', project: 'idle', visibility: 'idle' };
+  const tone: Record<FieldKey, FieldTone> = { status: 'idle', stage: 'idle', owner: 'idle', due: 'idle', project: 'idle', visibility: 'idle' };
   if (preview === 'saving') tone.stage = 'saving';
   if (preview === 'saved') tone.stage = 'saved';
   if (preview === 'field-error') tone.stage = 'error';
+  if (preview === 'owner-due-error') {
+    tone.owner = 'error';
+    tone.due = 'error';
+  }
   if (preview === 'discarded') tone.stage = 'discarded';
   if (preview === 'publish' || preview === 'unpublish' || preview === 'visibility') tone.visibility = 'pending';
   if (preview === 'move' || preview === 'error') tone.project = preview === 'error' ? 'error' : 'pending';
@@ -583,6 +714,8 @@ function modalTitle(overlay: DetailsOverlay, name: string): string {
   if (!overlay) return name;
   if (overlay.kind === 'stage') return 'Stage';
   if (overlay.kind === 'status') return 'Status';
+  if (overlay.kind === 'owner') return 'Owner';
+  if (overlay.kind === 'due') return 'Due date';
   if (overlay.kind === 'project') return 'Project';
   if (overlay.kind === 'visibility') return 'Visibility';
   if (overlay.kind === 'confirm-publish') return 'Publish to client?';
@@ -622,7 +755,7 @@ function ValueButton({
       data-testid={testId}
       disabled={locked}
       onClick={onClick}
-      className="group mt-1 flex w-full items-center gap-2 rounded-lg bg-transparent text-left hover:bg-[var(--surface-2)] focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2"
+      className="milestone-field group mt-1 flex w-full items-center gap-2 rounded-lg bg-transparent text-left hover:bg-[var(--surface-2)] focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
       style={{
         minHeight: 32,
         padding: '4px 8px',
@@ -675,8 +808,30 @@ function FieldError({ text, onRetry, testId }: { text: string; onRetry: () => vo
 function menuKey(event: ReactKeyboardEvent<HTMLDivElement>, onClose: () => void) {
   if (event.key === 'Escape') {
     event.preventDefault();
+    event.stopPropagation();
     onClose();
   }
+}
+
+const DIALOG_FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+
+/** Next or previous control inside the dialog, skipping an open menu layer. */
+export function nextDialogFocus(anchor: HTMLElement, shiftKey: boolean): HTMLElement | null {
+  const root = anchor.closest('[role="dialog"]') ?? anchor.closest('[data-page-scroll]') ?? anchor.ownerDocument.body;
+  const nodes = [...root.querySelectorAll<HTMLElement>(DIALOG_FOCUSABLE)].filter((el) => {
+    if (el.hasAttribute('disabled') || el.closest('[data-menu-layer]')) return false;
+    return el.tabIndex >= 0;
+  });
+  if (nodes.length === 0) return anchor;
+  const index = nodes.indexOf(anchor);
+  if (index < 0) return shiftKey ? nodes[nodes.length - 1]! : nodes[0]!;
+  const next = shiftKey ? index - 1 : index + 1;
+  return nodes[(next + nodes.length) % nodes.length] ?? anchor;
+}
+
+export function menuButtons(root: ParentNode | null): HTMLElement[] {
+  if (!root) return [];
+  return [...root.querySelectorAll<HTMLElement>('button')].filter((button) => !button.hasAttribute('disabled'));
 }
 
 export function StageMenu({
@@ -906,7 +1061,9 @@ function VisibilityList({
   return (
     <div data-testid="milestone-visibility-sheet" onKeyDown={(event) => menuKey(event, onClose)} style={{ padding: 16 }}>
       <h2 style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600 }}>Visibility</h2>
-      <p style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>Staff only · clients see nothing</p>
+      {published ? null : (
+        <p style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>Staff only · clients see nothing</p>
+      )}
       <div className="mt-3 flex flex-col gap-1">
         <SegmentButton selected={!published} onClick={() => onPick(false)}>Not published</SegmentButton>
         <SegmentButton selected={published} onClick={() => onPick(true)}>Published</SegmentButton>
@@ -1108,40 +1265,124 @@ function menuStyle(sheet?: boolean, _width = 400): CSSProperties {
   };
 }
 
-function Popover({ up, children }: { up?: boolean; children: ReactNode }) {
+const MENU_GAP = 8;
+
+/** Flip a menu above its anchor when it would not fit below, then clamp it inside the visible bounds. */
+export function anchoredMenuBox(input: {
+  anchor: { top: number; bottom: number; left: number; right: number };
+  menu: { width: number; height: number };
+  bounds: { top: number; right: number; bottom: number; left: number };
+  preferUp?: boolean;
+  align?: 'left' | 'right';
+}): { top: number; left: number; placement: 'up' | 'down' } {
+  const { anchor, menu, bounds, preferUp = false, align = 'right' } = input;
+  const spaceBelow = bounds.bottom - anchor.bottom - MENU_GAP;
+  const spaceAbove = anchor.top - bounds.top - MENU_GAP;
+  const placement = preferUp || (spaceBelow < menu.height && spaceAbove >= menu.height) ? 'up' : 'down';
+  let top = placement === 'up' ? anchor.top - MENU_GAP - menu.height : anchor.bottom + MENU_GAP;
+  const minTop = bounds.top + MENU_GAP;
+  const maxTop = Math.max(minTop, bounds.bottom - menu.height - MENU_GAP);
+  top = Math.min(Math.max(top, minTop), maxTop);
+  let left = align === 'left' ? anchor.left : anchor.right - menu.width;
+  const minLeft = bounds.left + MENU_GAP;
+  const maxLeft = Math.max(minLeft, bounds.right - menu.width - MENU_GAP);
+  left = Math.min(Math.max(left, minLeft), maxLeft);
+  return { top, left, placement };
+}
+
+function menuViewportBounds(): { top: number; right: number; bottom: number; left: number } {
+  let bottom = window.innerHeight;
+  const dock = document.querySelector('[data-testid="portal-dock"]');
+  if (dock instanceof HTMLElement && getComputedStyle(dock).visibility !== 'hidden') {
+    const dockTop = dock.getBoundingClientRect().top;
+    if (dockTop < bottom) bottom = dockTop;
+  }
+  return { top: 0, right: window.innerWidth, bottom, left: 0 };
+}
+
+function Popover({ up, onClose, children }: { up?: boolean; onClose: () => void; children: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
+  const anchorRef = useRef<HTMLElement | null>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useLayoutEffect(() => {
     const node = ref.current;
-    const anchor = node?.parentElement;
-    if (!node || !anchor || typeof anchor.getBoundingClientRect !== 'function') return;
+    const row = node?.parentElement;
+    const anchor = row?.querySelector<HTMLElement>('button') ?? null;
+    anchorRef.current = anchor;
+    if (!node || !row || typeof row.getBoundingClientRect !== 'function') return;
     const place = () => {
-      const rect = anchor.getBoundingClientRect();
+      const rect = row.getBoundingClientRect();
       const width = up ? 360 : 400;
+      const box = anchoredMenuBox({
+        anchor: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+        menu: { width, height: node.offsetHeight },
+        bounds: menuViewportBounds(),
+        preferUp: up,
+      });
       node.style.position = 'fixed';
       node.style.width = `${width}px`;
-      node.style.left = `${Math.max(16, rect.right - width)}px`;
+      node.style.left = `${box.left}px`;
+      node.style.top = `${box.top}px`;
+      node.style.right = 'auto';
+      node.style.bottom = 'auto';
       node.style.zIndex = '40';
-      if (up) {
-        node.style.top = 'auto';
-        node.style.bottom = `${window.innerHeight - rect.top + 8}px`;
-      } else {
-        node.style.bottom = 'auto';
-        node.style.top = `${rect.bottom + 8}px`;
-      }
+      node.dataset.placement = box.placement;
     };
     place();
+    node.querySelector<HTMLElement>('[data-menu-initial-focus]')?.focus({ preventScroll: true });
     window.addEventListener('scroll', place, true);
     window.addEventListener('resize', place);
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    observer?.observe(node);
     return () => {
       window.removeEventListener('scroll', place, true);
       window.removeEventListener('resize', place);
+      observer?.disconnect();
     };
   }, [up]);
+  useEffect(() => {
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (ref.current?.contains(target)) return;
+      if (anchorRef.current?.contains(target)) return;
+      onCloseRef.current();
+    };
+    document.addEventListener('pointerdown', onPointer);
+    return () => document.removeEventListener('pointerdown', onPointer);
+  }, []);
+  useEffect(() => {
+    return () => {
+      const target = returnFocus.current ?? anchorRef.current;
+      target?.focus({ preventScroll: true });
+      window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+    };
+  }, []);
   return (
     <div
       ref={ref}
+      data-menu-layer=""
       className="absolute z-30"
       style={up ? { right: 0, bottom: 'calc(100% + 8px)', width: 360 } : { right: 0, top: 'calc(100% + 8px)', width: 400 }}
+      onKeyDown={(event) => {
+        if (event.key === 'Tab') {
+          event.preventDefault();
+          event.stopPropagation();
+          const anchor = anchorRef.current ?? (event.currentTarget as HTMLElement);
+          returnFocus.current = nextDialogFocus(anchor, event.shiftKey);
+          onCloseRef.current();
+          return;
+        }
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        const items = menuButtons(ref.current);
+        const index = items.indexOf(document.activeElement as HTMLElement);
+        if (index < 0 || items.length === 0) return;
+        event.preventDefault();
+        const next = event.key === 'ArrowDown' ? index + 1 : index - 1;
+        items[(next + items.length) % items.length]?.focus({ preventScroll: true });
+      }}
     >
       {children}
     </div>
@@ -1155,7 +1396,7 @@ function SheetHeader({ title, onClose }: { title: string; onClose: () => void })
       <button
         type="button"
         onClick={onClose}
-        className="ml-auto rounded-[9px] px-3 py-2 focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-2"
+        className="ml-auto rounded-[9px] px-3 py-2 focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
         style={{ background: 'none', border: 0, color: 'var(--muted)', font: 'inherit', fontSize: 14, lineHeight: '21px', cursor: 'pointer' }}
       >
         Close
@@ -1163,6 +1404,186 @@ function SheetHeader({ title, onClose }: { title: string; onClose: () => void })
     </div>
   );
 }
+
+const MENU_FOOT = 'Saves as soon as you pick. Saved in the Portal.';
+
+function optionStyle(selected: boolean): CSSProperties {
+  return {
+    padding: 10,
+    border: 0,
+    borderRadius: 12,
+    background: selected ? 'var(--surface-2)' : 'transparent',
+    color: 'var(--fg)',
+    font: 'inherit',
+    fontSize: 14,
+    lineHeight: '21px',
+    cursor: 'pointer',
+    width: '100%',
+  };
+}
+
+export function OwnerMenu({
+  people,
+  currentId,
+  onPick,
+  onClose,
+  sheet,
+  foot = MENU_FOOT,
+}: {
+  people: readonly OwnerChoice[];
+  currentId: string | null;
+  onPick: (id: string | null) => void;
+  onClose: () => void;
+  sheet?: boolean;
+  foot?: string;
+}) {
+  const options = [...people.map((person) => ({ id: person.id, name: person.name })), { id: null as string | null, name: 'Unassigned' }];
+  return (
+    <div role="listbox" aria-label="Owner" data-testid="milestone-owner-menu" onKeyDown={(event) => menuKey(event, onClose)} style={menuStyle(sheet)}>
+      {sheet ? <SheetHeader title="Owner" onClose={onClose} /> : null}
+      {options.map((option) => {
+        const selected = option.id === currentId;
+        return (
+          <button
+            key={option.id ?? 'unassigned'}
+            type="button"
+            role="option"
+            aria-selected={selected}
+            data-menu-initial-focus={selected ? '' : undefined}
+            onClick={() => onPick(option.id)}
+            className="milestone-field flex w-full items-center gap-2 text-left"
+            style={optionStyle(selected)}
+          >
+            <span className="min-w-0 flex-1">{option.name}</span>
+            {selected ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
+          </button>
+        );
+      })}
+      <p style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{foot}</p>
+    </div>
+  );
+}
+
+const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'] as const;
+
+function monthCells(year: number, month: number): Array<number | null> {
+  const first = new Date(Date.UTC(year, month - 1, 1)).getUTCDay();
+  const count = new Date(Date.UTC(year, month, 0)).getUTCDate();
+  const cells: Array<number | null> = Array.from({ length: first }, () => null);
+  for (let day = 1; day <= count; day += 1) cells.push(day);
+  while (cells.length % 7 !== 0) cells.push(null);
+  return cells;
+}
+
+function dateParts(value: string | null): { year: number; month: number; day: number | null } {
+  if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const [year, month, day] = value.split('-').map(Number);
+    return { year: year!, month: month!, day: day! };
+  }
+  const now = new Date();
+  return { year: now.getFullYear(), month: now.getMonth() + 1, day: null };
+}
+
+function pad(value: number): string {
+  return String(value).padStart(2, '0');
+}
+
+function todayIso(): string {
+  const now = new Date();
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+export function DueDateMenu({
+  value,
+  onPick,
+  onClose,
+  sheet,
+  foot = MENU_FOOT,
+}: {
+  value: string | null;
+  onPick: (next: string | null) => void;
+  onClose: () => void;
+  sheet?: boolean;
+  foot?: string;
+}) {
+  const initial = dateParts(value);
+  const [cursor, setCursor] = useState({ year: initial.year, month: initial.month });
+  const label = new Date(Date.UTC(cursor.year, cursor.month - 1, 1)).toLocaleDateString('en-US', {
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'UTC',
+  });
+  const shift = (delta: number) => {
+    const next = new Date(Date.UTC(cursor.year, cursor.month - 1 + delta, 1));
+    setCursor({ year: next.getUTCFullYear(), month: next.getUTCMonth() + 1 });
+  };
+  return (
+    <div role="dialog" aria-label="Due date" data-testid="milestone-due-menu" onKeyDown={(event) => menuKey(event, onClose)} style={menuStyle(sheet)}>
+      {sheet ? <SheetHeader title="Due date" onClose={onClose} /> : null}
+      <div className="flex items-center justify-between gap-2 px-2 py-2">
+        <button type="button" className="milestone-field" aria-label="Previous month" onClick={() => shift(-1)} style={monthButton}>‹</button>
+        <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', fontWeight: 500 }}>{label}</p>
+        <button type="button" className="milestone-field" aria-label="Next month" onClick={() => shift(1)} style={monthButton}>›</button>
+      </div>
+      <div className="grid grid-cols-7 gap-1 px-2" aria-hidden>
+        {WEEKDAYS.map((day, index) => (
+          <span key={`${day}-${index}`} className="ds-mono text-center" style={{ fontSize: 11, lineHeight: '16px', color: 'var(--muted)' }}>{day}</span>
+        ))}
+      </div>
+      <div className="mt-1 grid grid-cols-7 gap-1 px-2">
+        {monthCells(cursor.year, cursor.month).map((day, index) => {
+          if (!day) return <span key={`empty-${index}`} />;
+          const iso = `${cursor.year}-${pad(cursor.month)}-${pad(day)}`;
+          const selected = iso === value;
+          const today = todayIso();
+          return (
+            <button
+              key={iso}
+              type="button"
+              aria-label={iso}
+              aria-pressed={selected}
+              data-menu-initial-focus={selected || (value == null && iso === today) ? '' : undefined}
+              onClick={() => onPick(iso)}
+              className="milestone-field"
+              style={{
+                width: 32,
+                height: 32,
+                margin: '0 auto',
+                border: 0,
+                borderRadius: selected ? 8 : 999,
+                background: selected ? 'var(--fg)' : 'transparent',
+                color: selected ? 'var(--bg)' : 'var(--fg)',
+                font: 'inherit',
+                fontSize: 14,
+                lineHeight: '32px',
+                cursor: 'pointer',
+              }}
+            >
+              {day}
+            </button>
+          );
+        })}
+      </div>
+      <button type="button" className="milestone-field mt-2 text-left" onClick={() => onPick(null)} style={{ background: 'none', border: 0, color: 'var(--fg)', font: 'inherit', fontSize: 14, lineHeight: '21px', padding: '8px 10px', cursor: 'pointer' }}>
+        Clear date
+      </button>
+      <p style={{ margin: '4px 10px 8px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{foot}</p>
+    </div>
+  );
+}
+
+const monthButton: CSSProperties = {
+  width: 32,
+  height: 32,
+  border: 0,
+  borderRadius: 9,
+  background: 'transparent',
+  color: 'var(--fg)',
+  font: 'inherit',
+  fontSize: 18,
+  lineHeight: '32px',
+  cursor: 'pointer',
+};
 
 function Tag({ children }: { children: string }) {
   return (

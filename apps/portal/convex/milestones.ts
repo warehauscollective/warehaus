@@ -45,10 +45,12 @@ import {
   detailActivitySummary,
   detailStatusDecision,
   detailStatusLabel,
+  dueDateChangeDecision,
   effectiveDetailStatus,
   clientReviewDecision,
   effectiveStage,
   movedLaneCount,
+  ownerChangeDecision,
   projectMoveDecision,
   publishChangeDecision,
   stageChangeDecision,
@@ -275,6 +277,7 @@ async function milestoneResources(
       id: resource._id,
       title: resource.title,
       url: resource.blobUrl ?? resource.url ?? null,
+      ...(resource.type ? { type: resource.type } : {}),
     });
   }
   return resources;
@@ -308,6 +311,10 @@ async function toRoadmap(
     detailStatus: milestone.detailStatus ?? null,
     stage: milestone.stage ?? null,
     createdAt: milestone._creationTime,
+    ownerContactId: milestone.ownerContactId ?? null,
+    ownerName: await ownerNameFor(ctx, milestone),
+    dueDate: milestone.dueDate ?? null,
+    creatorName: await creatorNameFor(ctx, milestone),
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,
@@ -386,6 +393,63 @@ export const listForClientProject = clientQuery({
   },
 });
 
+async function personName(
+  ctx: QueryCtx,
+  orgId: Id<'clients'>,
+  contactId: Id<'contacts'> | undefined,
+): Promise<string | null> {
+  if (!contactId) return null;
+  const contact = await ctx.db.get(contactId);
+  if (!contact || contact.orgId !== orgId) return null;
+  const name = contact.name.trim();
+  return name || null;
+}
+
+async function ownerNameFor(ctx: QueryCtx, milestone: Doc<'milestones'>): Promise<string | null> {
+  return personName(ctx, milestone.orgId, milestone.ownerContactId);
+}
+
+async function creatorNameFor(ctx: QueryCtx, milestone: Doc<'milestones'>): Promise<string | null> {
+  return personName(ctx, milestone.orgId, milestone.createdByContactId);
+}
+
+const OWNER_TAKE = 40;
+
+/** Staff on this client who can own a milestone. One indexed read, capped. */
+async function ownerChoicesFor(ctx: QueryCtx, orgId: Id<'clients'>) {
+  const contacts = await ctx.db
+    .query('contacts')
+    .withIndex('by_orgId', (q) => q.eq('orgId', orgId))
+    .take(OWNER_TAKE);
+  return contacts
+    .filter(
+      (contact) =>
+        contact.orgId === orgId &&
+        contact.role === 'Warehaus Staff' &&
+        contact.portalAccess === 'Enabled' &&
+        contact.syncHiddenAt == null &&
+        contact.name.trim().length > 0,
+    )
+    .map((contact) => ({ id: contact._id, name: contact.name.trim() }))
+    .sort((a, b) => a.name.localeCompare(b.name));
+}
+
+async function ownerAllowed(
+  ctx: QueryCtx | MutationCtx,
+  orgId: Id<'clients'>,
+  contactId: Id<'contacts'> | null,
+): Promise<boolean> {
+  if (!contactId) return true;
+  const contact = await ctx.db.get(contactId);
+  return (
+    contact != null &&
+    contact.orgId === orgId &&
+    contact.role === 'Warehaus Staff' &&
+    contact.portalAccess === 'Enabled' &&
+    contact.syncHiddenAt == null
+  );
+}
+
 async function insertMilestone(
   ctx: MutationCtx,
   actor: 'human' | 'ai',
@@ -396,6 +460,9 @@ async function insertMilestone(
     goals: string[];
     workStatus?: 'draft' | 'active' | 'ready';
     resourceIds?: Id<'sharedResources'>[];
+    ownerContactId?: Id<'contacts'>;
+    dueDate?: string;
+    createdByContactId?: Id<'contacts'>;
   },
 ) {
   const created = createMilestoneDecision({
@@ -415,6 +482,9 @@ async function insertMilestone(
     workStatus: created.milestone.workStatus,
     approval: created.milestone.approval,
     publishToWarehaus: created.milestone.publishToWarehaus,
+    ...(args.ownerContactId ? { ownerContactId: args.ownerContactId } : {}),
+    ...(args.dueDate ? { dueDate: args.dueDate } : {}),
+    ...(args.createdByContactId ? { createdByContactId: args.createdByContactId } : {}),
   });
   const milestone = await ctx.db.get(milestoneId);
   if (!milestone) fail('Milestone not found');
@@ -436,11 +506,25 @@ export const create = adminMutation({
     goals: v.array(v.string()),
     workStatus: v.optional(workStatusArg),
     resourceIds: v.optional(v.array(v.id('sharedResources'))),
+    ownerContactId: v.optional(v.id('contacts')),
+    dueDate: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
     if (!project) fail('Project not found');
-    const id = await insertMilestone(ctx, 'human', project, args);
+    if (args.dueDate) {
+      const dated = dueDateChangeDecision({ from: null, to: args.dueDate });
+      if (!dated.ok) fail(dated.reason);
+    }
+    if (args.ownerContactId) {
+      const allowed = await ownerAllowed(ctx, project.orgId, args.ownerContactId);
+      const owned = ownerChangeDecision({ from: null, to: args.ownerContactId, allowed });
+      if (!owned.ok) fail(owned.reason);
+    }
+    const id = await insertMilestone(ctx, 'human', project, {
+      ...args,
+      ...(ctx.identity.contactId ? { createdByContactId: ctx.identity.contactId as Id<'contacts'> } : {}),
+    });
     return { id };
   },
 });
@@ -642,6 +726,55 @@ export const setStage = adminMutation({
         at,
       }),
     );
+    return { ok: true as const, wrote: true as const };
+  },
+});
+
+export const ownerChoices = adminQuery({
+  args: { projectId: v.id('projects') },
+  handler: async (ctx, { projectId }) => {
+    const project = await ctx.db.get(projectId);
+    if (!project) return [];
+    return ownerChoicesFor(ctx, project.orgId);
+  },
+});
+
+export const setOwner = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    ownerContactId: v.union(v.id('contacts'), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const allowed = await ownerAllowed(ctx, milestone.orgId, args.ownerContactId);
+    const decision = ownerChangeDecision({
+      from: milestone.ownerContactId ?? null,
+      to: args.ownerContactId,
+      allowed,
+    });
+    if (!decision.ok) fail(decision.reason);
+    if (!decision.wrote) return { ok: true as const, wrote: false as const };
+    await ctx.db.patch(milestone._id, {
+      ownerContactId: decision.ownerContactId ? (decision.ownerContactId as Id<'contacts'>) : undefined,
+    });
+    return { ok: true as const, wrote: true as const };
+  },
+});
+
+export const setDueDate = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    dueDate: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const decision = dueDateChangeDecision({
+      from: milestone.dueDate ?? null,
+      to: args.dueDate,
+    });
+    if (!decision.ok) fail(decision.reason);
+    if (!decision.wrote) return { ok: true as const, wrote: false as const };
+    await ctx.db.patch(milestone._id, { dueDate: decision.dueDate ?? undefined });
     return { ok: true as const, wrote: true as const };
   },
 });

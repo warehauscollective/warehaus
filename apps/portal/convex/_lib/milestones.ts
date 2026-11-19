@@ -545,9 +545,11 @@ export type MilestoneResourceView = {
   id: string;
   title: string;
   url: string | null;
+  /** Resource type already stored on the row. Omitted when the row has none. */
+  type?: string | null;
 };
 
-const CLIENT_ROADMAP_OMIT = ['publishToWarehaus', 'approval', 'note', 'approverName', 'decidedAt', 'creator'] as const;
+const CLIENT_ROADMAP_OMIT = ['approval', 'note', 'approverName', 'decidedAt', 'creator'] as const;
 
 /** Staff keep every field. Clients get a copy with the private keys removed, not nulled. */
 export function roadmapViewForAudience<T extends object>(view: T, audience: 'staff' | 'client'): T {
@@ -576,6 +578,14 @@ export type MilestoneRoadmapView = {
   /** Set when a person picks a build-protocol stage. */
   stage?: 'Idea' | 'Planning' | 'Awaiting Go' | 'Building' | 'Ready to Ship' | 'Shipped' | 'Parked' | null;
   createdAt?: number | null;
+  /** Contact id of the owner. Absent when unassigned. */
+  ownerContactId?: string | null;
+  /** Display name for the owner. Absent when unassigned. */
+  ownerName?: string | null;
+  /** Calendar day, YYYY-MM-DD. Absent when not set. */
+  dueDate?: string | null;
+  /** The person who created the milestone. Absent on older rows. Clients see it read-only. */
+  creatorName?: string | null;
   resources: MilestoneResourceView[];
   openCount: number;
   doneCount: number;

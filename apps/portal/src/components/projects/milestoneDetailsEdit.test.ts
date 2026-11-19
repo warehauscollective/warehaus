@@ -5,6 +5,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { textBlurSave } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { MilestoneDetailView } from './ProjectRoadmap';
+import { anchoredMenuBox } from './milestoneDetailsEdit';
 
 Object.assign(globalThis, { React });
 
@@ -69,17 +70,20 @@ describe('milestone details panel', () => {
     assert.match(staff, /data-testid="milestone-stage-edit"/);
     assert.match(staff, /data-testid="milestone-project-edit"/);
     assert.match(staff, /data-testid="milestone-visibility-edit"/);
-    assert.match(staff, /data-testid="milestone-creator"/);
+    assert.match(staff, /data-testid="milestone-creator"[^>]*>—</);
     assert.match(staff, /Staff only/);
-    assert.match(staff, /data-testid="milestone-owner"[^>]*>—</);
-    assert.match(staff, /data-testid="milestone-due"[^>]*>—</);
+    assert.match(staff, /data-testid="milestone-owner-edit"/);
+    assert.match(staff, /data-testid="milestone-owner"[^>]*>Unassigned</);
+    assert.match(staff, /data-testid="milestone-due-edit"/);
+    assert.match(staff, /data-testid="milestone-due"[^>]*>Not set</);
     assert.equal(staff.includes('<input'), false);
     assert.match(staff, /<p data-testid="milestone-objective"/);
 
     const client = view({ staff: false });
-    assert.equal(client.includes('data-testid="milestone-creator"'), false);
+    assert.match(client, /data-testid="milestone-creator"[^>]*>—</);
+    assert.equal(client.includes('milestone-creator-note'), false);
     assert.equal(client.includes('data-testid="milestone-visibility-edit"'), false);
-    assert.equal(client.includes('data-testid="milestone-publish"'), false);
+    assert.match(client, /data-testid="milestone-publish"[^>]*>Not published</);
     assert.equal(client.includes('data-testid="milestone-status-edit"'), false);
     assert.equal(client.includes('data-testid="milestone-stage-edit"'), false);
     assert.equal(client.includes('data-testid="milestone-project-edit"'), false);
@@ -90,6 +94,96 @@ describe('milestone details panel', () => {
     assert.match(staff, /Staff only · clients see nothing/);
     assert.match(client, /data-testid="milestone-work-status"/);
     assert.match(client, /data-testid="milestone-project"/);
+    assert.match(client, /data-testid="milestone-owner"[^>]*>—</);
+    assert.match(client, /data-testid="milestone-due"[^>]*>—</);
+    assert.equal(client.includes('milestone-owner-edit'), false);
+    assert.equal(client.includes('milestone-due-edit'), false);
+
+    const named = view({
+      staff: true,
+      milestone: {
+        ...milestone,
+        ownerContactId: 'ct-maya',
+        ownerName: 'Maya Chen',
+        dueDate: '2026-11-20',
+        creatorName: 'Maya Chen',
+      },
+    });
+    assert.match(named, /data-testid="milestone-owner"[^>]*>Maya Chen</);
+    assert.match(named, /data-testid="milestone-due"[^>]*>Nov 20, 2026</);
+    assert.match(named, /data-testid="milestone-creator"[^>]*>Maya Chen</);
+    assert.match(named, /Set automatically · read-only/);
+
+    const shared = view({
+      staff: false,
+      milestone: {
+        ...milestone,
+        creatorName: 'Maya Chen',
+        publishToWarehaus: true,
+        resources: [{ id: 'r-notes', title: 'Kickoff recap', url: 'https://example.com/recap', type: 'Meeting notes' }],
+      },
+    });
+    assert.match(shared, /data-testid="milestone-creator"[^>]*>Maya Chen</);
+    assert.match(shared, /data-testid="milestone-publish"[^>]*>Published</);
+    assert.match(shared, /Meeting notes · Shared with you/);
+    assert.equal(shared.includes('Shared with client'), false);
+    assert.equal(shared.includes('milestone-visibility-edit'), false);
+    assert.equal(shared.includes('milestone-owner-edit'), false);
+    assert.equal(shared.includes('Staff only'), false);
+
+    const publishedStaff = view({
+      staff: true,
+      milestone: {
+        ...milestone,
+        publishToWarehaus: true,
+        resources: [{ id: 'r-notes', title: 'Kickoff recap', url: null, type: 'Meeting notes' }],
+      },
+    });
+    assert.equal(publishedStaff.includes('clients see nothing'), false);
+    assert.match(publishedStaff, /Shared with client/);
+    assert.equal(publishedStaff.includes('Shared with you'), false);
+  });
+
+  it('flips a menu above its anchor when the space below is too short', () => {
+    const bounds = { top: 157, right: 1100, bottom: 740, left: 340 };
+    const due = anchoredMenuBox({
+      anchor: { top: 549, bottom: 596, left: 728, right: 1075 },
+      menu: { width: 347, height: 333 },
+      bounds,
+      align: 'left',
+    });
+    assert.equal(due.placement, 'up');
+    assert.equal(due.left, 728);
+    assert.ok(due.top >= bounds.top + 8);
+    assert.ok(due.top + 333 <= bounds.bottom - 8);
+
+    const owner = anchoredMenuBox({
+      anchor: { top: 200, bottom: 247, left: 360, right: 700 },
+      menu: { width: 340, height: 130 },
+      bounds,
+      align: 'left',
+    });
+    assert.equal(owner.placement, 'down');
+    assert.equal(owner.top, 255);
+  });
+
+  it('shows an owner and due save error from the fixture', () => {
+    const html = view({ staff: true, preview: 'owner-due-error' });
+    assert.match(html, /data-details-state="owner-due-error"/);
+    assert.match(html, /data-testid="milestone-owner-retry"/);
+    assert.match(html, /data-testid="milestone-due-retry"/);
+    assert.match(html, /Couldn’t save\./);
+  });
+
+  it('opens the owner menu and the due date menu', () => {
+    const owner = view({ staff: true, preview: 'owner' });
+    assert.match(owner, /data-testid="milestone-owner-menu"/);
+    assert.match(owner, /Unassigned/);
+    assert.match(owner, /Saved in the Portal/);
+    const due = view({ staff: true, preview: 'due' });
+    assert.match(due, /data-testid="milestone-due-menu"/);
+    assert.match(due, /Clear date/);
+    assert.match(due, /Saved in the Portal/);
   });
 
   it('lets staff set every stage except Shipped', () => {

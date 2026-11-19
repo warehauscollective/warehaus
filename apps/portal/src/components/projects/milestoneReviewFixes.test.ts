@@ -44,7 +44,7 @@ describe('milestone review fixes', () => {
 
   it('opens edit and create as one viewport sheet', () => {
     const edit = roadmap.slice(roadmap.indexOf('function EditDialog'), roadmap.indexOf('function CreateMilestone'));
-    const create = roadmap.slice(roadmap.indexOf('function CreateMilestone'), roadmap.indexOf('type MilestoneFieldErrors'));
+    const create = roadmap.slice(roadmap.indexOf('function CreateMilestone'), roadmap.indexOf('function milestoneFieldErrors'));
     for (const block of [edit, create]) {
       assert.match(block, /<PortalModal/);
       assert.match(block, /narrow=\{phone\}/);
@@ -57,6 +57,12 @@ describe('milestone review fixes', () => {
     assert.match(create, /header="default"/);
     assert.match(edit, /width=\{760\}/);
     assert.match(create, /width=\{760\}/);
+    assert.match(create, /blueFocus/);
+    assert.match(create, /Choose a person/);
+    assert.match(create, /Choose a date/);
+    assert.match(roadmap.slice(roadmap.indexOf('function FormFields'), roadmap.indexOf('function ProjectResources')), /Attach resources/);
+    assert.match(create, /Tasks are added on the milestone/);
+    assert.equal(create.includes('generated from the brief'), false);
     assert.match(create, /footer=\{/);
     assert.equal(create.slice(create.indexOf('<form'), create.indexOf('</form>')).includes('Create milestone'), false);
   });

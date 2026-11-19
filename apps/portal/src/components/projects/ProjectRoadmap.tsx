@@ -8,7 +8,7 @@ import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
-import { detailStatusLabel, effectiveDetailStatus, effectiveStage, stageOptionLock, type MilestoneStage } from '@convex/_lib/milestoneDetails';
+import { detailStatusLabel, effectiveDetailStatus, effectiveStage, formatDueDate, stageOptionLock, type MilestoneStage } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
 import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
 import { PortalModal } from '@/components/ui/PortalModal';
@@ -16,9 +16,9 @@ import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
-import { FIXTURE_PROJECTS } from '@/lib/data/fixtures';
+import { FIXTURE_CONTACTS, FIXTURE_PROJECTS } from '@/lib/data/fixtures';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
-import { StageMenu, useMilestoneDetailEdits, type MoveTarget } from './milestoneDetailsEdit';
+import { DueDateMenu, OwnerMenu, StageMenu, anchoredMenuBox, menuButtons, nextDialogFocus, useMilestoneDetailEdits, type MoveTarget, type OwnerChoice } from './milestoneDetailsEdit';
 import { type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { MilestoneReviewLive, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
@@ -99,6 +99,10 @@ type FixturePatch = Partial<
     | 'resources'
     | 'detailStatus'
     | 'stage'
+    | 'ownerContactId'
+    | 'ownerName'
+    | 'dueDate'
+    | 'creatorName'
   >
 > & {
   attachedIds?: string[];
@@ -352,6 +356,18 @@ function createdStamp(): string {
   return Math.random().toString(36).slice(2, 8);
 }
 
+function fixtureOwnerChoices(projectId: string): OwnerChoice[] {
+  const project = FIXTURE_PROJECTS.find((row) => row.id === projectId);
+  if (!project) return [];
+  return FIXTURE_CONTACTS.filter(
+    (contact) =>
+      contact.orgId === project.orgId &&
+      contact.role === 'Warehaus Staff' &&
+      contact.portalAccess === 'Enabled' &&
+      !contact.syncHidden,
+  ).map((contact) => ({ id: contact.id, name: contact.name }));
+}
+
 export function ProjectRoadmap({
   project,
   tasks,
@@ -419,6 +435,7 @@ export function ProjectRoadmap({
     const params = new URLSearchParams(window.location.search);
     setDetailsPreview(params.get('details'));
     setTileStagePreview(params.get('tileStage'));
+    if (params.get('create') === 'milestone') setCreateOpen(true);
   }, [fixtures]);
   const previewMilestoneId = fixtures ? fixtureRows[0]?.id ?? null : null;
   useEffect(() => {
@@ -1138,6 +1155,16 @@ type MilestoneMutations = {
     milestoneId: Id<'milestones'>;
     stage: 'Idea' | 'Planning' | 'Awaiting Go' | 'Building' | 'Ready to Ship' | 'Shipped' | 'Parked';
   }) => Promise<unknown>;
+  setOwner?: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    ownerContactId: Id<'contacts'> | null;
+  }) => Promise<unknown>;
+  setDueDate?: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    dueDate: string | null;
+  }) => Promise<unknown>;
   moveProject?: (args: {
     hostSlug?: string;
     milestoneId: Id<'milestones'>;
@@ -1180,12 +1207,22 @@ function MilestoneDetail(props: {
   const setPublish = useMutation(api.milestones.setPublish);
   const setDetailStatus = useMutation(api.milestones.setDetailStatus);
   const setStage = useMutation(api.milestones.setStage);
+  const setOwner = useMutation(api.milestones.setOwner);
+  const setDueDate = useMutation(api.milestones.setDueDate);
   const moveProject = useMutation(api.milestones.moveProject);
   const attachTask = useMutation(api.milestones.attachTask);
   const detachTask = useMutation(api.milestones.detachTask);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadedTargets, setLoadedTargets] = useState<MoveTarget[]>([]);
   const [moveListOpen, setMoveListOpen] = useState(false);
+  const [ownerListOpen, setOwnerListOpen] = useState(false);
+  const ownerQuery = useSafeQuery<OwnerChoice[]>(
+    api.milestones.ownerChoices,
+    !props.fixtures && props.staff && ownerListOpen
+      ? { projectId: props.project.id as Id<'projects'>, hostSlug: props.hostSlug }
+      : 'skip',
+  );
+  const owners = props.fixtures ? fixtureOwnerChoices(props.project.id) : (ownerQuery.data ?? []);
   const targetPage = useSafeQuery<{ projects: MoveTarget[]; continueCursor: string | null; isDone: boolean }>(
     api.milestones.listMoveTargets,
     !props.fixtures && props.staff && moveListOpen
@@ -1214,12 +1251,14 @@ function MilestoneDetail(props: {
       {...props}
       moveTargets={moveTargets}
       onMoveListOpen={setMoveListOpen}
+      onOwnerListOpen={setOwnerListOpen}
+      owners={owners}
       onLoadMoreTargets={
         targetPage.data?.continueCursor
           ? () => setCursor(targetPage.data?.continueCursor ?? null)
           : undefined
       }
-      mutations={{ save, setWorkStatus, setPublish, setDetailStatus, setStage, moveProject, attachTask, detachTask }}
+      mutations={{ save, setWorkStatus, setPublish, setDetailStatus, setStage, setOwner, setDueDate, moveProject, attachTask, detachTask }}
     />
   );
 }
@@ -1236,6 +1275,8 @@ export function MilestoneDetailView({
   preview = null,
   moveTargets = [],
   onMoveListOpen,
+  onOwnerListOpen,
+  owners = [],
   onLoadMoreTargets,
   activity = [],
   activityError = null,
@@ -1259,6 +1300,8 @@ export function MilestoneDetailView({
   preview?: string | null;
   moveTargets?: readonly MoveTarget[];
   onMoveListOpen?: (open: boolean) => void;
+  onOwnerListOpen?: (open: boolean) => void;
+  owners?: readonly OwnerChoice[];
   onLoadMoreTargets?: () => void;
   activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
@@ -1311,9 +1354,13 @@ export function MilestoneDetailView({
     onFixture,
     onLoadMoreTargets,
     onMoveListOpen,
+    onOwnerListOpen,
+    owners,
     mutations: {
       setDetailStatus: mutations.setDetailStatus ?? (async () => undefined),
       setStage: mutations.setStage ?? (async () => undefined),
+      setOwner: mutations.setOwner ?? (async () => undefined),
+      setDueDate: mutations.setDueDate ?? (async () => undefined),
       setPublish,
       moveProject: mutations.moveProject ?? (async () => undefined),
     },
@@ -1437,7 +1484,11 @@ export function MilestoneDetailView({
                       <span>
                         <span style={{ display: 'block', fontSize: 14, fontWeight: 500 }}>{resource.title}</span>
                         <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                          {milestone.publishToWarehaus ? 'Shared with client' : 'On this milestone'}
+                          {staff
+                            ? milestone.publishToWarehaus
+                              ? 'Shared with client'
+                              : 'On this milestone'
+                            : `${resource.type?.trim() || 'Resource'} · Shared with you`}
                         </span>
                       </span>
                       {resource.url ? (
@@ -1846,6 +1897,78 @@ function TaskLines({
   );
 }
 
+function resourceSummary(ids: readonly string[], choices: readonly ResourceChoice[]): string {
+  if (ids.length === 0) return 'No resources attached yet';
+  const titles = ids
+    .map((id) => choices.find((choice) => choice.id === id)?.title)
+    .filter((title): title is string => Boolean(title));
+  return titles.length > 0 ? titles.join(', ') : `${ids.length} attached`;
+}
+
+function AttachResourcesModal({
+  choices,
+  resourceIds,
+  phone,
+  onChange,
+  onClose,
+}: {
+  choices: readonly ResourceChoice[];
+  resourceIds: readonly string[];
+  phone: boolean;
+  onChange: (ids: string[]) => void;
+  onClose: () => void;
+}) {
+  return (
+    <PortalModal
+      testId="milestone-attach-dialog"
+      label="Attach resources"
+      onClose={onClose}
+      narrow={phone}
+      sheet="bottom"
+      width={760}
+      header="default"
+      blueFocus
+      panelStyle={{ padding: '8px 24px 16px' }}
+      footer={
+        <div className="flex flex-wrap gap-2">
+          <OutlineButton onClick={onClose}>Done</OutlineButton>
+        </div>
+      }
+    >
+      {choices.length === 0 ? (
+        <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>No resources to attach.</p>
+      ) : (
+        <ul className="flex flex-col gap-2" aria-label="Project resources">
+          {choices.map((choice) => {
+            const selected = resourceIds.includes(choice.id);
+            return (
+              <li key={choice.id}>
+                <button
+                  type="button"
+                  aria-pressed={selected}
+                  onClick={() => onChange(selected ? resourceIds.filter((id) => id !== choice.id) : [...resourceIds, choice.id])}
+                  className="milestone-field flex w-full items-center gap-3 text-left"
+                  style={{
+                    border: selected ? '1px solid var(--fg)' : '1px solid var(--border)',
+                    borderRadius: 12,
+                    padding: '10px 12px',
+                    background: selected ? 'var(--surface-2)' : 'transparent',
+                    color: 'var(--fg)',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <span className="min-w-0 flex-1" style={{ fontSize: 14, fontWeight: 500 }}>{choice.title}</span>
+                  <span style={{ fontSize: 13, color: selected ? 'var(--fg)' : 'var(--muted)' }}>{selected ? 'Selected' : 'Attach'}</span>
+                </button>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </PortalModal>
+  );
+}
+
 function EditDialog({
   milestone,
   choices,
@@ -1867,11 +1990,13 @@ function EditDialog({
   const [resourceIds, setResourceIds] = useState(milestone.resources.map((resource) => resource.id));
   const [fieldErrors, setFieldErrors] = useState<MilestoneFieldErrors>({});
   const [error, setError] = useState<string | null>(null);
+  const [attachOpen, setAttachOpen] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const objectiveRef = useRef<HTMLTextAreaElement>(null);
   const goalsRef = useRef<HTMLTextAreaElement>(null);
   const phone = useMaxWidth(767);
   return (
+    <>
     <PortalModal
       testId="milestone-edit-dialog"
       label="Edit all details"
@@ -1880,6 +2005,8 @@ function EditDialog({
       sheet="bottom"
       width={760}
       header="default"
+      blueFocus
+      hidden={attachOpen}
       panelStyle={{ padding: '8px 24px 16px' }}
       footer={
         <div className="flex flex-wrap gap-2">
@@ -1924,12 +2051,146 @@ function EditDialog({
           onName={setName}
           onObjective={setObjective}
           onGoals={setGoals}
-          onResources={setResourceIds}
+          onOpenAttach={() => setAttachOpen(true)}
         />
         {error ? <FormAlert>{error}</FormAlert> : null}
         {saveError ? <FormAlert>{saveError}</FormAlert> : null}
       </form>
     </PortalModal>
+    {attachOpen ? (
+      <AttachResourcesModal
+        choices={choices}
+        resourceIds={resourceIds}
+        phone={phone}
+        onChange={setResourceIds}
+        onClose={() => setAttachOpen(false)}
+      />
+    ) : null}
+    </>
+  );
+}
+
+function createDialogBounds(anchor: HTMLElement): { top: number; right: number; bottom: number; left: number } {
+  const dialog = anchor.closest('[role="dialog"]');
+  const dialogRect = dialog?.getBoundingClientRect();
+  const header = dialog?.querySelector('[data-modal-header]');
+  const footer = dialog?.querySelector('[data-testid="portal-modal-footer"]');
+  const top = header ? header.getBoundingClientRect().bottom : (dialogRect?.top ?? 0);
+  const bottom = footer ? footer.getBoundingClientRect().top : (dialogRect?.bottom ?? window.innerHeight);
+  return {
+    top,
+    right: dialogRect?.right ?? window.innerWidth,
+    bottom,
+    left: dialogRect?.left ?? 0,
+  };
+}
+
+/** Desktop owner and due menus. Portaled so the dialog footer cannot cover them. */
+export function FieldMenu({
+  anchorRef,
+  onClose,
+  children,
+}: {
+  anchorRef: RefObject<HTMLElement | null>;
+  onClose: () => void;
+  children: ReactNode;
+}) {
+  const menuRef = useRef<HTMLDivElement>(null);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const [host, setHost] = useState<HTMLElement | null>(null);
+  useLayoutEffect(() => {
+    setHost(document.body);
+  }, []);
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    const anchor = anchorRef.current;
+    if (!menu || !anchor || !host || typeof anchor.getBoundingClientRect !== 'function') return;
+    const place = () => {
+      const rect = anchor.getBoundingClientRect();
+      const box = anchoredMenuBox({
+        anchor: { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right },
+        menu: { width: rect.width, height: menu.offsetHeight },
+        bounds: createDialogBounds(anchor),
+        align: 'left',
+      });
+      menu.style.position = 'fixed';
+      menu.style.top = `${box.top}px`;
+      menu.style.left = `${box.left}px`;
+      menu.style.width = `${rect.width}px`;
+      menu.style.zIndex = '90';
+      menu.dataset.placement = box.placement;
+    };
+    place();
+    menu.querySelector<HTMLElement>('[data-menu-initial-focus]')?.focus({ preventScroll: true });
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    observer?.observe(menu);
+    window.addEventListener('resize', place);
+    const scroll = anchor.closest('[data-portal-modal-body]');
+    scroll?.addEventListener('scroll', place);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', place);
+      scroll?.removeEventListener('scroll', place);
+    };
+  }, [anchorRef, host]);
+  useEffect(() => {
+    if (!host) return;
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
+      if (menuRef.current?.contains(target)) return;
+      if (anchorRef.current?.contains(target)) return;
+      onCloseRef.current();
+    };
+    document.addEventListener('pointerdown', onPointer);
+    return () => document.removeEventListener('pointerdown', onPointer);
+  }, [anchorRef, host]);
+  useEffect(() => {
+    const anchor = anchorRef.current;
+    return () => {
+      const target = returnFocus.current ?? anchor;
+      target?.focus({ preventScroll: true });
+      window.requestAnimationFrame(() => target?.focus({ preventScroll: true }));
+    };
+  }, [anchorRef]);
+  if (!host) return null;
+  return createPortal(
+    <div
+      ref={menuRef}
+      className="ds-scope"
+      data-testid="milestone-field-menu"
+      data-menu-layer=""
+      style={{ background: 'transparent' }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.preventDefault();
+          event.stopPropagation();
+          returnFocus.current = anchorRef.current;
+          onCloseRef.current();
+          return;
+        }
+        if (event.key === 'Tab') {
+          event.preventDefault();
+          event.stopPropagation();
+          const anchor = anchorRef.current;
+          returnFocus.current = anchor ? nextDialogFocus(anchor, event.shiftKey) : null;
+          onCloseRef.current();
+          return;
+        }
+        if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+        const items = menuButtons(menuRef.current);
+        const index = items.indexOf(document.activeElement as HTMLElement);
+        if (index < 0 || items.length === 0) return;
+        event.preventDefault();
+        const next = event.key === 'ArrowDown' ? index + 1 : index - 1;
+        items[(next + items.length) % items.length]?.focus({ preventScroll: true });
+      }}
+    >
+      {children}
+    </div>,
+    host,
   );
 }
 
@@ -1949,18 +2210,57 @@ function CreateMilestone({
   onFixture: (milestone: MilestoneRoadmapView) => void;
 }) {
   const create = useMutation(api.milestones.create);
+  const ownerQuery = useSafeQuery<OwnerChoice[]>(
+    api.milestones.ownerChoices,
+    fixtures ? 'skip' : { projectId, hostSlug },
+  );
+  const people = fixtures ? fixtureOwnerChoices(projectId) : (ownerQuery.data ?? []);
   const [name, setName] = useState('');
   const [objective, setObjective] = useState('');
   const [goals, setGoals] = useState('');
   const [resourceIds, setResourceIds] = useState<string[]>([]);
+  const [ownerId, setOwnerId] = useState<string | null>(null);
+  const [dueDate, setDueDate] = useState<string | null>(null);
+  const [layer, setLayer] = useState<'form' | 'attach' | 'owner' | 'due'>('form');
   const [fieldErrors, setFieldErrors] = useState<MilestoneFieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);
   const objectiveRef = useRef<HTMLTextAreaElement>(null);
   const goalsRef = useRef<HTMLTextAreaElement>(null);
+  const ownerAnchor = useRef<HTMLButtonElement>(null);
+  const dueAnchor = useRef<HTMLButtonElement>(null);
   const phone = useMaxWidth(767);
+  const ownerName = ownerId ? people.find((person) => person.id === ownerId)?.name ?? null : null;
+  const menuSwapped = layer === 'attach' || (phone && (layer === 'owner' || layer === 'due'));
+  const picker = (kind: 'owner' | 'due') => (
+    kind === 'owner' ? (
+      <OwnerMenu
+        people={people}
+        currentId={ownerId}
+        sheet={phone}
+        foot="Saved when you create the milestone."
+        onPick={(id) => {
+          setOwnerId(id);
+          setLayer('form');
+        }}
+        onClose={() => setLayer('form')}
+      />
+    ) : (
+      <DueDateMenu
+        value={dueDate}
+        sheet={phone}
+        foot="Saved when you create the milestone."
+        onPick={(next) => {
+          setDueDate(next);
+          setLayer('form');
+        }}
+        onClose={() => setLayer('form')}
+      />
+    )
+  );
   return (
+    <>
     <PortalModal
       testId="milestone-create-dialog"
       label="New milestone"
@@ -1969,6 +2269,8 @@ function CreateMilestone({
       sheet="bottom"
       width={760}
       header="default"
+      blueFocus
+      hidden={menuSwapped}
       panelStyle={{ padding: '8px 24px 16px' }}
       footer={
         <div className="flex flex-wrap gap-2">
@@ -2017,6 +2319,10 @@ function CreateMilestone({
               doneCount: 0,
               countIsDecision: false,
               rows: [],
+              ownerContactId: ownerId,
+              ownerName,
+              dueDate,
+              creatorName: people[0]?.name ?? null,
             });
             onClose();
             return;
@@ -2030,6 +2336,8 @@ function CreateMilestone({
             objective,
             goals: nextGoals,
             ...(resourceIds.length > 0 ? { resourceIds: resourceIds as Id<'sharedResources'>[] } : {}),
+            ...(ownerId ? { ownerContactId: ownerId as Id<'contacts'> } : {}),
+            ...(dueDate ? { dueDate } : {}),
           })
             .then(() => onClose())
             .catch((err: unknown) => {
@@ -2039,7 +2347,7 @@ function CreateMilestone({
         }}
       >
         <p style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
-          Describe the outcome. The milestone is saved first and stays unpublished until you publish it.
+          Describe the outcome. Tasks are added on the milestone.
         </p>
         <FormFields
           name={name}
@@ -2054,7 +2362,39 @@ function CreateMilestone({
           onName={setName}
           onObjective={setObjective}
           onGoals={setGoals}
-          onResources={setResourceIds}
+          onOpenAttach={() => setLayer('attach')}
+          plan={
+            <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+              <div className="relative flex flex-col gap-2">
+                <span style={{ fontSize: 14 }}>Owner</span>
+                <button
+                  ref={ownerAnchor}
+                  type="button"
+                  data-testid="milestone-create-owner"
+                  className="milestone-field text-left"
+                  onClick={() => setLayer(layer === 'owner' ? 'form' : 'owner')}
+                  style={{ ...fieldStyle, cursor: 'pointer' }}
+                >
+                  {ownerName ?? 'Choose a person'}
+                </button>
+                {layer === 'owner' && !phone ? <FieldMenu anchorRef={ownerAnchor} onClose={() => setLayer('form')}>{picker('owner')}</FieldMenu> : null}
+              </div>
+              <div className="relative flex flex-col gap-2">
+                <span style={{ fontSize: 14 }}>Due date</span>
+                <button
+                  ref={dueAnchor}
+                  type="button"
+                  data-testid="milestone-create-due"
+                  className="milestone-field text-left"
+                  onClick={() => setLayer(layer === 'due' ? 'form' : 'due')}
+                  style={{ ...fieldStyle, cursor: 'pointer' }}
+                >
+                  {formatDueDate(dueDate) ?? 'Choose a date'}
+                </button>
+                {layer === 'due' && !phone ? <FieldMenu anchorRef={dueAnchor} onClose={() => setLayer('form')}>{picker('due')}</FieldMenu> : null}
+              </div>
+            </div>
+          }
         />
         <p
           style={{
@@ -2062,16 +2402,36 @@ function CreateMilestone({
             border: '1px solid var(--border)',
             borderRadius: 12,
             padding: 16,
-            fontSize: 14,
-            lineHeight: '21px',
+            fontSize: 13,
+            lineHeight: '20px',
             color: 'var(--muted)',
           }}
         >
-          The milestone is saved first. Its tasks are added on the milestone. A new milestone starts unpublished.
+          The milestone is saved first. Its tasks are added on the milestone.
         </p>
         {error ? <FormAlert>{error}</FormAlert> : null}
       </form>
     </PortalModal>
+    {layer === 'attach' ? (
+      <AttachResourcesModal
+        choices={resourceChoices}
+        resourceIds={resourceIds}
+        phone={phone}
+        onChange={setResourceIds}
+        onClose={() => setLayer('form')}
+      />
+    ) : null}
+    {phone && layer === 'owner' ? (
+      <PortalModal testId="milestone-create-owner-sheet" label="Owner" onClose={() => setLayer('form')} narrow sheet="bottom" width={390} blueFocus>
+        {picker('owner')}
+      </PortalModal>
+    ) : null}
+    {phone && layer === 'due' ? (
+      <PortalModal testId="milestone-create-due-sheet" label="Due date" onClose={() => setLayer('form')} narrow sheet="bottom" width={390} blueFocus>
+        {picker('due')}
+      </PortalModal>
+    ) : null}
+    </>
   );
 }
 
@@ -2135,7 +2495,8 @@ function FormFields({
   onName,
   onObjective,
   onGoals,
-  onResources,
+  onOpenAttach,
+  plan,
 }: {
   name: string;
   objective: string;
@@ -2149,7 +2510,8 @@ function FormFields({
   onName: (value: string) => void;
   onObjective: (value: string) => void;
   onGoals: (value: string) => void;
-  onResources: (value: string[]) => void;
+  onOpenAttach: () => void;
+  plan?: ReactNode;
 }) {
   return (
     <>
@@ -2161,6 +2523,7 @@ function FormFields({
           aria-invalid={fieldErrors.name ? true : undefined}
           aria-describedby={fieldErrors.name ? 'milestone-name-error' : undefined}
           onChange={(event) => onName(event.target.value)}
+          className="milestone-field"
           style={fieldStyle}
         />
         {fieldErrors.name ? <FieldError id="milestone-name-error">{fieldErrors.name}</FieldError> : null}
@@ -2173,7 +2536,8 @@ function FormFields({
           aria-invalid={fieldErrors.objective ? true : undefined}
           aria-describedby={fieldErrors.objective ? 'milestone-brief-error' : undefined}
           onChange={(event) => onObjective(event.target.value)}
-          rows={3}
+          rows={2}
+          className="milestone-field"
           placeholder="What should be delivered, and what needs to happen?"
           style={{ ...fieldStyle, resize: 'vertical' }}
         />
@@ -2187,55 +2551,24 @@ function FormFields({
           aria-invalid={fieldErrors.goals ? true : undefined}
           aria-describedby={fieldErrors.goals ? 'milestone-goals-error' : undefined}
           onChange={(event) => onGoals(event.target.value)}
-          rows={3}
-          placeholder="One completion line per row. These are not tasks."
+          rows={2}
+          className="milestone-field"
+          placeholder="Describe the acceptance criteria for this milestone."
           style={{ ...fieldStyle, resize: 'vertical' }}
         />
         {fieldErrors.goals ? <FieldError id="milestone-goals-error">{fieldErrors.goals}</FieldError> : null}
       </label>
-      <div>
-        <div className="flex items-center justify-between gap-3">
+      {plan}
+      <div className="flex items-center justify-between gap-4">
+        <div className="min-w-0">
           <FieldLabel>RESOURCES</FieldLabel>
-          <span data-testid="milestone-resource-count" aria-live="polite" style={{ fontSize: 13, color: 'var(--muted)' }}>
-            {resourceIds.length} selected
-          </span>
+          <p data-testid="milestone-resource-count" aria-live="polite" style={{ margin: '4px 0 0', fontSize: 14, lineHeight: '21px' }}>
+            {resourceSummary(resourceIds, choices)}
+          </p>
         </div>
-        {choices.length === 0 ? (
-          <p style={{ marginTop: 8, fontSize: 14 }}>No resources to attach.</p>
-        ) : (
-          <ul className="mt-2 flex flex-col gap-2" aria-label="Attach resources">
-            {choices.map((choice) => {
-              const selected = resourceIds.includes(choice.id);
-              return (
-                <li key={choice.id}>
-                  <button
-                    type="button"
-                    aria-pressed={selected}
-                    onClick={() =>
-                      onResources(selected ? resourceIds.filter((id) => id !== choice.id) : [...resourceIds, choice.id])
-                    }
-                    className="flex w-full items-center gap-3 text-left"
-                    style={{
-                      border: selected ? '1px solid var(--fg)' : '1px solid var(--border)',
-                      borderRadius: 12,
-                      padding: '10px 12px',
-                      background: selected ? 'var(--surface-2)' : 'transparent',
-                      color: 'var(--fg)',
-                      cursor: 'pointer',
-                    }}
-                  >
-                    <span className="min-w-0 flex-1" style={{ fontSize: 14, fontWeight: 500 }}>
-                      {choice.title}
-                    </span>
-                    <span style={{ fontSize: 13, color: selected ? 'var(--fg)' : 'var(--muted)' }}>
-                      {selected ? 'Selected' : 'Attach'}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        <OutlineButton testId="milestone-attach-resources" onClick={onOpenAttach}>
+          Attach resources
+        </OutlineButton>
       </div>
     </>
   );

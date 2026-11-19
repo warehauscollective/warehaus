@@ -55,6 +55,7 @@ export function PortalModal({
   cover = false,
   focusCancel = false,
   footer,
+  blueFocus = false,
 }: {
   testId?: string;
   scrimTestId?: string;
@@ -92,6 +93,8 @@ export function PortalModal({
    * and a centered dialog shortens so this row sits above the dock.
    */
   footer?: ReactNode;
+  /** Keyboard ring uses the blue --info token. New milestone and edit fields. */
+  blueFocus?: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -112,12 +115,27 @@ export function PortalModal({
       ? [...(panel?.querySelectorAll<HTMLButtonElement>('button') ?? [])].find((button) => button.textContent?.trim() === 'Cancel')
       : null;
     const field = panel?.querySelector<HTMLElement>('input, textarea, select');
+    const sheetOpen = narrow && sheet !== 'center';
     if (panel && !panel.contains(document.activeElement)) {
-      (cancel ?? field ?? panel.querySelector<HTMLElement>('button'))?.focus();
+      // A phone sheet focuses the name field on open. preventScroll keeps the
+      // intro and label below the header instead of sliding them under it.
+      (cancel ?? field ?? panel.querySelector<HTMLElement>('button'))?.focus(
+        sheetOpen ? { preventScroll: true } : undefined,
+      );
+      if (sheetOpen) {
+        const reset = () => {
+          const body = panel.querySelector<HTMLElement>('[data-portal-modal-body]');
+          if (body) body.scrollTop = 0;
+        };
+        reset();
+        requestAnimationFrame(reset);
+      }
     }
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
-        if (lockedRef.current) return;
+        // A portaled field menu calls preventDefault before this listener.
+        // That closes the menu and leaves this dialog open.
+        if (event.defaultPrevented || lockedRef.current) return;
         event.preventDefault();
         event.stopPropagation();
         closeRef.current();
@@ -150,7 +168,7 @@ export function PortalModal({
       if (!cover) document.body.style.overflow = overflow;
       previous?.focus();
     };
-  }, [hidden, cover, confirmOnEnter, focusCancel]);
+  }, [hidden, cover, confirmOnEnter, focusCancel, narrow, sheet]);
 
   const isSheet = placement !== 'center';
   const pinned = Boolean(footer) || showFooter;
@@ -190,6 +208,7 @@ export function PortalModal({
         aria-modal={hidden ? undefined : true}
         aria-label={hidden ? undefined : label}
         data-testid={hidden ? undefined : testId}
+        data-focus-ring={hidden || !blueFocus ? undefined : 'info'}
         className={hidden ? undefined : isSheet ? 'portal-modal-panel portal-modal-sheet' : 'portal-modal-panel'}
         onClick={(event) => event.stopPropagation()}
         style={hidden ? undefined : {
@@ -222,6 +241,7 @@ export function PortalModal({
             icon={icon}
             headerIcon={headerIcon}
             onClose={onClose}
+            blueFocus={blueFocus}
           />
         ) : null}
         <div data-portal-modal-body="" style={hidden ? undefined : { overflow: 'auto', minHeight: 0, flex: '1 1 auto', ...panelStyle }}>{children}</div>
@@ -247,6 +267,7 @@ function ModalHeader({
   icon,
   headerIcon,
   onClose,
+  blueFocus = false,
 }: {
   label: string;
   header: PortalModalHeader;
@@ -255,6 +276,7 @@ function ModalHeader({
   icon: PortalModalIcon;
   headerIcon?: ReactNode;
   onClose: () => void;
+  blueFocus?: boolean;
 }) {
   const compact = header === 'compact';
   const phoneCompact = compact && narrow;
@@ -289,7 +311,9 @@ function ModalHeader({
           type="button"
           data-testid="portal-modal-close"
           onClick={onClose}
-          className="focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-2"
+          className={blueFocus
+            ? 'focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2'
+            : 'focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-2'}
           style={{
             flex: '0 0 auto',
             background: 'none',
