@@ -126,7 +126,7 @@ describe('peter and staff preview visibility', () => {
   });
 
   it('shows a live Retry as pending, then an inline error', () => {
-    const failed = { ...base, previewUrl: null, previewBuild: 'failed' };
+    const failed: ReviewSurfaceModel = { ...base, previewUrl: null, previewBuild: 'failed' };
     const pending = card(failed, { isPeter: false, retrying: true, onRetry: () => undefined });
     assert.match(pending, /aria-busy="true"/);
     assert.match(pending, /Retrying…/);
