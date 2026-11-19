@@ -124,6 +124,7 @@ describe('peter and staff preview visibility', () => {
       assert.match(peter, new RegExp(APPROVED_AWAITING.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
       assert.equal(peter.includes('Removing preview'), false);
       assert.equal(peter.includes('remove preview'), false);
+      assert.equal(peter.includes('STAFF ONLY'), false);
       assert.equal(peter.includes('data-testid="review-retry"'), false);
       assert.equal(peter.includes(PREVIEW_REMOVED), false);
       if (model.previewDelete === 'removing') {
@@ -205,6 +206,8 @@ describe('peter and staff preview visibility', () => {
       { isPeter: true, staffAttach: true },
     );
     assert.match(attached, /data-review-state="ready"/);
+    assert.match(attached, /feat\/client-project-create · aacb3e7 · built /);
+    assert.equal(attached.includes('STAFF ONLY'), false);
     assert.match(attached, /data-testid="approve-deploy"/);
     assert.match(attached, /Remove link/);
     assert.match(attached, /data-testid="remove-preview-link"[^>]*data-focus-ring="info"/);

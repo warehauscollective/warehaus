@@ -883,7 +883,7 @@ export function MilestoneReviewSurface({
               ? (model.branch ?? '')
               : visual === 'preview-failed'
                 ? `${model.branch ?? 'branch'} · preview build failed`
-                : [model.branch, model.commit, model.builtAt ? `${visual === 'approved' || visual === 'delete-failed' || visual === 'couldnt-remove' ? 'built ' : ''}${formatReviewStamp(model.builtAt)}` : null].filter(Boolean).join(' · ')}
+                : [model.branch, model.commit, model.builtAt ? `${visual === 'ready' || visual === 'approved' || visual === 'delete-failed' || visual === 'couldnt-remove' ? 'built ' : ''}${formatReviewStamp(model.builtAt)}` : null].filter(Boolean).join(' · ')}
           </p>
         ) : null}
         {visual === 'approved' || visual === 'delete-failed' || visual === 'couldnt-remove' ? (
