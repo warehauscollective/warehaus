@@ -1,6 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -43,11 +44,71 @@ export function NoticeBell() {
   const markRead = useMutation(api.invitesSync.markNoticeRead);
   const markAll = useMutation(api.invitesSync.markAllNoticesRead);
   const [open, setOpen] = useState(false);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const [box, setBox] = useState<{ top: number; right: number } | null>(null);
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (window.location.pathname === '/preview' && params.get('fixture') === 'notice') setOpen(true);
     const onOpen = () => setOpen(true);
     window.addEventListener('wh-open-notices', onOpen);
     return () => window.removeEventListener('wh-open-notices', onOpen);
   }, []);
+  const returnFocus = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!open) return;
+    returnFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const place = () => {
+      const rect = buttonRef.current?.getBoundingClientRect();
+      const visible = rect != null && rect.width > 0;
+      const next = visible && rect
+        ? { top: rect.bottom + 8, right: Math.max(16, window.innerWidth - rect.right) }
+        : { top: 72, right: 16 };
+      setBox((current) => (current && current.top === next.top && current.right === next.right ? current : next));
+    };
+    place();
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('resize', place);
+      returnFocus.current?.focus({ preventScroll: true });
+      returnFocus.current = null;
+    };
+  }, [open]);
+  useEffect(() => {
+    if (!open || !box) return;
+    const frame = window.requestAnimationFrame(() => {
+      panelRef.current?.querySelector<HTMLElement>('button')?.focus({ preventScroll: true });
+    });
+    const onKey = (event: KeyboardEvent) => {
+      const panel = panelRef.current;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        event.stopPropagation();
+        setOpen(false);
+        return;
+      }
+      if (event.key !== 'Tab' || !panel) return;
+      const nodes = [...panel.querySelectorAll<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')]
+        .filter((el) => !el.hasAttribute('disabled'));
+      if (nodes.length === 0) return;
+      const first = nodes[0];
+      const last = nodes[nodes.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        event.stopPropagation();
+        last?.focus({ preventScroll: true });
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        event.stopPropagation();
+        first?.focus({ preventScroll: true });
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open, box]);
   const [fixtureRows, setFixtureRows] = useState<
     Array<{ id: string; message: string; createdAt: number; readAt: number | null; edgeCase: string; unread: boolean }>
   >(FIXTURE_NOTICES);
@@ -75,6 +136,7 @@ export function NoticeBell() {
   return (
     <div className="fixed z-40" style={{ top: '1.25rem', right: '1.25rem' }}>
       <button
+        ref={buttonRef}
         type="button"
         aria-label={unread ? `Notices, ${unread} unread` : 'Notices'}
         aria-expanded={open}
@@ -117,14 +179,19 @@ export function NoticeBell() {
           </span>
         ) : null}
       </button>
-      {open ? (
+      {open && box ? createPortal(
+        <div className="ds-scope" style={{ position: 'fixed', inset: 0, zIndex: 70, background: 'transparent', pointerEvents: 'none' }}>
         <div
+          ref={panelRef}
           role="dialog"
           aria-label="Notices"
-          className="absolute flex flex-col"
+          data-testid="notice-popover"
+          className="flex flex-col"
           style={{
-            top: 50,
-            right: 0,
+            pointerEvents: 'auto',
+            position: 'absolute',
+            top: box.top,
+            right: box.right,
             width: 'min(360px, calc(100vw - 2rem))',
             maxHeight: 420,
             overflow: 'auto',
@@ -177,6 +244,8 @@ export function NoticeBell() {
             </button>
           ))}
         </div>
+        </div>,
+        document.body,
       ) : null}
     </div>
   );

@@ -1,7 +1,8 @@
 'use client';
 
 import { useEffect, useId, useMemo, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type MouseEvent, type PointerEvent, type ReactNode } from 'react';
-import { createPortal } from 'react-dom';
+import { PortalModal } from '@/components/ui/PortalModal';
+import { PortalToast } from '@/components/ui/PortalToast';
 import {
   DndContext,
   DragOverlay,
@@ -796,53 +797,17 @@ export function BoardToast({
   pinned?: boolean;
 }) {
   const aboveDock = pinned || message === MOVE_NOT_SAVED;
-  const quiet = {
-    color: 'var(--muted)',
-    background: 'none',
-    border: 0,
-    padding: 0,
-    cursor: 'pointer',
-    fontWeight: 500,
-    fontSize: 14,
-    lineHeight: '21px',
-  } as const;
-  const node = (
-    <div
-      role="status"
-      data-testid="board-toast"
-      data-placement={aboveDock ? 'above-dock' : 'below-board'}
-      className="ds-scope mx-auto flex w-fit max-w-full items-center"
-      style={{
-        position: aboveDock ? 'fixed' : 'relative',
-        left: aboveDock ? '50%' : undefined,
-        bottom: aboveDock ? 'calc(1.25rem + 3.5rem + 16px)' : undefined,
-        transform: aboveDock ? 'translateX(-50%)' : undefined,
-        zIndex: aboveDock ? 60 : undefined,
-        marginTop: aboveDock ? 0 : 16,
-        gap: 12,
-        background: 'var(--surface-2)',
-        color: 'var(--fg)',
-        border: retry ? '1px solid var(--danger)' : '1px solid var(--border-2)',
-        borderRadius: 18,
-        padding: '12px 16px',
-        boxShadow: aboveDock ? '0 8px 12px rgb(0 0 0 / 35%)' : 'none',
-        fontSize: 14,
-        lineHeight: '21px',
-        maxWidth: aboveDock ? 'calc(100vw - 32px)' : undefined,
-      }}
-    >
-      {undo ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
-      <span>{message}</span>
-      {retry ? (
-        <button type="button" onClick={retry} style={{ color: 'var(--accent)', background: 'none', border: 0, cursor: 'pointer' }}>Retry</button>
-      ) : null}
-      {undo ? (
-        <button type="button" onClick={undo} style={quiet}>Undo</button>
-      ) : null}
-      <button type="button" aria-label="Dismiss" onClick={onDismiss} style={quiet}>✕</button>
-    </div>
+  return (
+    <PortalToast
+      kind={undo ? 'moved' : 'error'}
+      message={message}
+      onRetry={retry}
+      onUndo={undo}
+      onDismiss={onDismiss}
+      testId="board-toast"
+      placement={aboveDock ? 'above-dock' : 'below-board'}
+    />
   );
-  return aboveDock ? portalNode(node) : node;
 }
 
 function PhoneColumnTabs({
@@ -1323,64 +1288,24 @@ function NeedsDialog({
 }
 
 function Sheet({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return portalNode(
-    <div className="ds-scope portal-modal-scrim" data-portal-scrim="" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, display: 'flex', alignItems: 'flex-end' }}>
-      <div role="dialog" aria-modal="true" aria-label={title} onClick={(event) => event.stopPropagation()} className="portal-modal-panel portal-modal-sheet" style={{ width: '100%', borderRadius: '28px 28px 0 0', padding: 16, maxHeight: 'calc(100dvh - 12px)', overflow: 'auto', boxShadow: 'none' }}>
-        <div className="portal-modal-grabber" data-testid="modal-grabber" aria-hidden="true"><span /></div>
-        <div className="mb-3 flex items-center justify-between">
-          <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>{title}</h2>
-          <button type="button" aria-label="Close" onClick={onClose}>✕</button>
-        </div>
-        {children}
+  return (
+    <PortalModal testId="task-move-sheet" label={title} onClose={onClose} narrow sheet="bottom" width={640} panelStyle={{ padding: '0 16px 16px' }}>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 style={{ margin: 0, fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)' }}>{title}</h2>
+        <button type="button" aria-label="Close" onClick={onClose}>Close</button>
       </div>
-    </div>
+      {children}
+    </PortalModal>
   );
 }
 
 function Modal({ title, onClose, labelledBy, children }: { title: string; onClose: () => void; labelledBy: string; children: React.ReactNode }) {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    const node = ref.current;
-    const previous = document.activeElement as HTMLElement | null;
-    const focusable = () => [...(node?.querySelectorAll<HTMLElement>('button, input, select, textarea, a[href]') ?? [])];
-    focusable()[0]?.focus({ preventScroll: true });
-    const onKey = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Escape') {
-        event.stopPropagation();
-        onClose();
-      }
-      if (event.key !== 'Tab' || !node) return;
-      const items = focusable();
-      if (items.length === 0) return;
-      const first = items[0];
-      const last = items[items.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault();
-        last.focus({ preventScroll: true });
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault();
-        first.focus({ preventScroll: true });
-      }
-    };
-    document.addEventListener('keydown', onKey);
-    return () => {
-      document.removeEventListener('keydown', onKey);
-      previous?.focus({ preventScroll: true });
-    };
-  }, [onClose]);
-  return portalNode(
-    <div className="ds-scope portal-modal-scrim" data-portal-scrim="" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 85, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 16 }}>
-      <div ref={ref} role="dialog" aria-modal="true" aria-labelledby={labelledBy} onClick={(event) => event.stopPropagation()} className="portal-modal-panel" style={{ width: 'min(100%, 640px)', borderRadius: 28, padding: 24 }}>
-        <h2 id={labelledBy} style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', marginBottom: 12 }}>{title}</h2>
-        {children}
-      </div>
-    </div>,
+  return (
+    <PortalModal testId="task-needs-dialog" label={title} onClose={onClose} width={640} zIndex={85} panelStyle={{ padding: 24 }}>
+      <h2 id={labelledBy} style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-md)', margin: '0 0 12px' }}>{title}</h2>
+      {children}
+    </PortalModal>
   );
-}
-
-function portalNode(node: ReactNode) {
-  if (typeof document === 'undefined') return node;
-  return createPortal(node, document.body);
 }
 
 function BoardScroller({ children, tracks, shared }: { children: ReactNode; tracks: string; shared: boolean }) {
