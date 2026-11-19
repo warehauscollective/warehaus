@@ -1,7 +1,9 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useMemo, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { useMutation } from 'convex/react';
+import { formatReviewStamp, isPeterEmail, iterationOutcome } from '@convex/_lib/milestoneReview';
+import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -12,6 +14,8 @@ import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
 import { type PortalTask } from '@/lib/data/view-models';
+import { displayedTaskStatus } from '@/lib/data/taskStatus';
+import { MilestoneReviewLive, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
 import {
   FieldLabel,
   FieldValue,
@@ -95,7 +99,7 @@ type FixturePatch = Partial<
 };
 
 type ProjectTab = 'milestones' | 'resources' | 'activity' | 'details';
-type MilestoneTab = 'overview' | 'tasks' | 'reviews' | 'activity';
+type MilestoneTab = 'overview' | 'tasks' | 'activity' | 'reviews';
 
 function mergePatch(milestone: MilestoneRoadmapView, patch: FixturePatch | undefined): MilestoneRoadmapView {
   if (!patch) return milestone;
@@ -182,8 +186,8 @@ function projectStatusLabel(status?: string | null): string {
 
 /** Approved milestones show their decision day. Anything else has no date line. */
 export function milestoneTileDate(input: {
-  approval: string;
-  decidedAt: number | null;
+  approval?: string | null;
+  decidedAt?: number | null;
 }): string | null {
   if (input.approval !== 'approved') return null;
   if (input.decidedAt == null) return 'Approved';
@@ -192,22 +196,32 @@ export function milestoneTileDate(input: {
 
 /**
  * Status and stage from the same stored approval and work status.
- * Tiles use the stage. The detail page uses both. An approval of approved wins.
+ * Ready for review is Ready to Ship. Approve keeps that stage.
+ * Shipped waits for deploy main, which this screen does not do.
  */
 export function milestoneTileStage(input: {
-  approval: string;
+  approval?: string | null;
   workStatus: MilestoneRoadmapView['workStatus'];
-}): { status: string; label: 'Planning' | 'Building' | 'Shipped'; glyph: string } {
-  if (input.approval === 'approved') {
-    return { status: 'Approved', label: 'Shipped', glyph: '/icons/task-stage-shipped.svg' };
-  }
+}): { status: string; label: 'Planning' | 'Building' | 'Ready to Ship'; glyph: string } {
   if (input.workStatus === 'draft') {
-    return { status: 'Draft', label: 'Planning', glyph: '/icons/item-stage.svg' };
+    return {
+      status: input.approval === 'approved' ? 'Approved' : 'Draft',
+      label: 'Planning',
+      glyph: '/icons/item-stage.svg',
+    };
   }
   if (input.workStatus === 'ready') {
-    return { status: 'Ready for review', label: 'Building', glyph: '/icons/task-stage.svg' };
+    return {
+      status: input.approval === 'approved' ? 'Approved' : 'Ready for review',
+      label: 'Ready to Ship',
+      glyph: '/icons/task-stage.svg',
+    };
   }
-  return { status: 'In progress', label: 'Building', glyph: '/icons/task-stage.svg' };
+  return {
+    status: input.approval === 'approved' ? 'Approved' : 'In progress',
+    label: 'Building',
+    glyph: '/icons/task-stage.svg',
+  };
 }
 
 function progressBase(done: number, total: number, phone: boolean): string {
@@ -245,17 +259,20 @@ export function tileMetaLine(input: {
   staff: boolean;
   published: boolean;
   resources: number;
-  decidedAt: number | null;
+  decidedAt?: number | null;
   workStatus: MilestoneRoadmapView['workStatus'];
-  approval: string;
+  approval?: string | null;
   now?: number;
+  /** Peter's deploy tile drops “No review yet · Ready for review”. */
+  omitReview?: boolean;
 }): string {
+  if (!input.staff && input.workStatus === 'ready') return '';
   const parts: string[] = [];
   const approved = input.approval === 'approved';
   if (input.staff && !input.published) parts.push('Not published');
   parts.push(resourceLabel(input.resources));
-  if (!(approved && input.decidedAt == null)) parts.push(reviewStamp(input.decidedAt, input.now));
-  if (input.workStatus === 'ready' && !approved) parts.push('Ready for review');
+  if (input.staff && !input.omitReview && !(approved && input.decidedAt == null)) parts.push(reviewStamp(input.decidedAt ?? null, input.now));
+  if (input.staff && !input.omitReview && input.workStatus === 'ready' && !approved) parts.push('Ready for review');
   return parts.join(' · ');
 }
 
@@ -335,6 +352,9 @@ export function ProjectRoadmap({
   renderTasks?: (tasks: PortalTask[]) => ReactNode;
   details?: ReactNode;
 }) {
+  const auth = usePortalAuth();
+  const isPeter = isPeterEmail(auth.authUser?.email);
+  const approveMilestone = useMutation(api.milestones.approve);
   const [patches, setPatches] = useState<Record<string, FixturePatch>>({});
   const [created, setCreated] = useState<MilestoneRoadmapView[]>([]);
   const [projectTab, setProjectTab] = useState<ProjectTab>('milestones');
@@ -426,6 +446,7 @@ export function ProjectRoadmap({
           staff={staff}
           fixtures={fixtures}
           hostSlug={hostSlug}
+          isPeter={isPeter}
           activity={projectActivity}
           activityError={activityError}
           onOpenTask={onOpenTask}
@@ -511,7 +532,7 @@ export function ProjectRoadmap({
                 <p style={{ fontSize: 14, color: 'var(--muted)' }}>Loading milestones</p>
               ) : null}
               {failed ? (
-                <p data-testid="milestone-query-error" style={{ fontSize: 14, color: 'var(--danger)' }}>
+                <p data-testid="milestone-query-error" style={{ fontSize: 14, color: 'var(--danger-text)' }}>
                   {milestones.length > 0
                     ? 'Milestones could not refresh. Showing the last list that loaded.'
                     : 'The milestones could not load.'}
@@ -562,7 +583,17 @@ export function ProjectRoadmap({
                     key={milestone.id}
                     milestone={milestone}
                     staff={staff}
+                    isPeter={isPeter}
+                    fixtures={fixtures}
                     onOpen={() => setOpenMilestoneId(milestone.id)}
+                    onApprove={(iteration) =>
+                      approveMilestone({
+                        hostSlug,
+                        milestoneId: milestone.id as Id<'milestones'>,
+                        iteration,
+                        notes: '',
+                      })
+                    }
                   />
                 ))}
               </div>
@@ -600,12 +631,42 @@ export function ProjectRoadmap({
 export function MilestoneListCard({
   milestone,
   staff,
+  isPeter = false,
+  fixtures = false,
   onOpen,
+  onApprove,
+  openConfirm = false,
+  phone = false,
+  cover = false,
 }: {
   milestone: MilestoneRoadmapView;
   staff: boolean;
+  isPeter?: boolean;
+  fixtures?: boolean;
   onOpen: () => void;
+  onApprove?: (iteration: number) => Promise<unknown>;
+  /** Fixture QA opens the one confirm without a click. */
+  openConfirm?: boolean;
+  /** Fixture phone sheet. The live tile follows the viewport. */
+  phone?: boolean;
+  /** Fixture dialog stays inside its frame instead of covering the page. */
+  cover?: boolean;
 }) {
+  const [confirm, setConfirm] = useState(openConfirm);
+  const [deploying, setDeploying] = useState(false);
+  const [deployError, setDeployError] = useState<string | null>(null);
+  const canDeploy = Boolean(staff && isPeter && milestone.workStatus === 'ready' && milestone.approval !== 'approved' && milestone.review?.previewUrl);
+  const confirmDeploy = () => {
+    if (fixtures || !milestone.review || !onApprove) {
+      setConfirm(false);
+      return;
+    }
+    setDeploying(true);
+    setDeployError(null);
+    void onApprove(milestone.review.iteration).then(() => setConfirm(false)).catch((err) => {
+      setDeployError(userFacingErrorMessage(err, 'Couldn’t save your approval. Nothing changed. Try again.'));
+    }).finally(() => setDeploying(false));
+  };
   const total = taskTotal(milestone);
   const stage = milestoneTileStage(milestone);
   const subtasks = boardTaskCounts(milestone).nested;
@@ -617,6 +678,7 @@ export function MilestoneListCard({
     decidedAt: milestone.decidedAt,
     workStatus: milestone.workStatus,
     approval: milestone.approval,
+    omitReview: canDeploy,
   });
   return (
     <article
@@ -666,13 +728,15 @@ export function MilestoneListCard({
               <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone={false} />
             </span>
           </span>
-          <span
-            data-testid="milestone-meta"
-            className="min-w-0 max-w-full"
-            style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}
-          >
-            {meta}
-          </span>
+          {meta ? (
+            <span
+              data-testid="milestone-meta"
+              className="min-w-0 max-w-full"
+              style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}
+            >
+              {meta}
+            </span>
+          ) : null}
         </div>
       </div>
       <div className="hidden w-[174px] shrink-0 flex-col items-start gap-3 lg:flex">
@@ -682,28 +746,61 @@ export function MilestoneListCard({
             {dateLine}
           </p>
         ) : null}
+        {canDeploy ? (
+          <button type="button" data-testid="tile-approve-deploy" onClick={() => setConfirm(true)} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}>
+            Approve & deploy
+          </button>
+        ) : null}
         <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
-      <div className="lg:hidden">
+      <div className="flex flex-col gap-2 lg:hidden">
+        {canDeploy ? (
+          <button type="button" data-testid="tile-approve-deploy-phone" onClick={() => setConfirm(true)} style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 500, width: '100%', cursor: 'pointer' }}>
+            Approve & deploy
+          </button>
+        ) : null}
         <MilestoneListButton tone="outline" onClick={onOpen}>Open milestone</MilestoneListButton>
       </div>
+      {confirm ? (
+        <MilestoneDialog
+          title={deploying ? RECORDING_APPROVAL : 'Approve and ship to production?'}
+          phone={phone || undefined}
+          hideClose={phone || deploying}
+          actionsRow={phone}
+          hideChromeBelow
+          spinner={deploying}
+          cover={cover}
+          onClose={() => setConfirm(false)}
+          onConfirm={confirmDeploy}
+          footer={
+            <>
+              {deploying ? null : <OutlineButton onClick={() => setConfirm(false)}>Cancel</OutlineButton>}
+              <button type="button" disabled={deploying} onClick={confirmDeploy} className="inline-flex items-center justify-center gap-2" style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, opacity: deploying ? 0.4 : 1 }}>
+                {deploying ? 'Approving…' : 'Approve & deploy'}
+              </button>
+            </>
+          }
+        >
+          {deploying ? (
+            <>
+              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{SAVING_APPROVAL_COPY}</p>
+              <p className="ds-mono" style={{ margin: '8px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>This ships to production.</p>
+            </>
+          ) : (
+            <>
+              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Marks approved. Engineering merges to main and deploys production next.</p>
+              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>This ships to production.</p>
+              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>You can’t undo this from the Portal.</p>
+            </>
+          )}
+          {deployError ? <p role="alert" style={{ color: 'var(--danger-text)', fontSize: 14 }}>{deployError}</p> : null}
+        </MilestoneDialog>
+      ) : null}
     </article>
   );
 }
 
 type MilestoneMutations = {
-  decide: (args: {
-    hostSlug?: string;
-    milestoneId: Id<'milestones'>;
-    decision: 'approved' | 'changes_requested';
-    note: string;
-  }) => Promise<unknown>;
-  decideAsClient: (args: {
-    hostSlug?: string;
-    milestoneId: Id<'milestones'>;
-    decision: 'approved' | 'changes_requested';
-    note: string;
-  }) => Promise<unknown>;
   save: (args: {
     hostSlug?: string;
     milestoneId: Id<'milestones'>;
@@ -741,6 +838,7 @@ function MilestoneDetail(props: {
   staff: boolean;
   fixtures: boolean;
   hostSlug?: string;
+  isPeter?: boolean;
   activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
   onOpenTask?: (task: PortalTask) => void;
@@ -750,8 +848,6 @@ function MilestoneDetail(props: {
   onBackToProjects?: () => void;
   onFixture: (patch: FixturePatch) => void;
 }) {
-  const decide = useMutation(api.milestones.decide);
-  const decideAsClient = useMutation(api.milestones.decideAsClient);
   const save = useMutation(api.milestones.save);
   const setWorkStatus = useMutation(api.milestones.setWorkStatus);
   const setPublish = useMutation(api.milestones.setPublish);
@@ -760,7 +856,7 @@ function MilestoneDetail(props: {
   return (
     <MilestoneDetailView
       {...props}
-      mutations={{ decide, decideAsClient, save, setWorkStatus, setPublish, attachTask, detachTask }}
+      mutations={{ save, setWorkStatus, setPublish, attachTask, detachTask }}
     />
   );
 }
@@ -781,6 +877,7 @@ export function MilestoneDetailView({
   onBackToProjects,
   onFixture,
   mutations,
+  isPeter,
 }: {
   milestone: MilestoneRoadmapView;
   project: RoadmapProject;
@@ -797,15 +894,12 @@ export function MilestoneDetailView({
   onBackToProjects?: () => void;
   onFixture: (patch: FixturePatch) => void;
   mutations: MilestoneMutations;
+  isPeter?: boolean;
 }) {
-  const { decide, decideAsClient, save, setWorkStatus, setPublish, attachTask, detachTask } = mutations;
+  const { save, setWorkStatus, setPublish, attachTask, detachTask } = mutations;
   const [tab, setTab] = useState<MilestoneTab>('overview');
-  const [reviewOpen, setReviewOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [more, setMore] = useState(false);
-  const [note, setNote] = useState('');
-  const [noteError, setNoteError] = useState<string | null>(null);
-  const [noteAttempt, setNoteAttempt] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const locked = milestone.approval === 'approved';
@@ -814,7 +908,6 @@ export function MilestoneDetailView({
   const shownTasks = milestoneTasks(tasks, milestone);
   const board = boardCountsFromTasks(shownTasks);
   const storedReview = storedMilestoneReview(milestone);
-  const reviewCount = storedReview ? 1 : 0;
   const milestoneActivity = activityForMilestone(activity, milestone.id);
   const choices = milestoneResourceChoices(
     resourceChoices,
@@ -823,13 +916,7 @@ export function MilestoneDetailView({
   const taken = new Set(milestone.rows.map((row) => row.id));
   const attachable = (milestone.attachableTasks ?? []).filter((task) => !taken.has(task.id));
   const statusStage = milestoneTileStage(milestone);
-  const reviewLine = lastReviewLabel(milestone);
-  const readyForReview = milestone.workStatus === 'ready' && milestone.approval !== 'approved';
-  const reviewExists = milestone.approval !== 'unreviewed' || milestone.decidedAt != null || Boolean(milestone.note);
-  const openReview = () => {
-    setError(null);
-    setReviewOpen(true);
-  };
+  const reviewLine = lastReviewLabel({ approverName: milestone.approverName, decidedAt: milestone.decidedAt ?? null });
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -841,42 +928,6 @@ export function MilestoneDetailView({
     } finally {
       setBusy(false);
     }
-  };
-
-  const onDecide = (decision: 'approved' | 'changes_requested') => {
-    const trimmed = note.trim();
-    if (!trimmed) {
-      setNoteError('A note is required.');
-      setNoteAttempt((current) => current + 1);
-      return;
-    }
-    setNoteError(null);
-    if (fixtures) {
-      onFixture({
-        approval: decision,
-        note: trimmed,
-        approverName: 'You',
-        decidedAt: Date.now(),
-        ...(decision === 'changes_requested' ? { workStatus: 'active' } : {}),
-      });
-      setNote('');
-      setReviewOpen(false);
-      setTab('reviews');
-      return;
-    }
-    const payload = {
-      hostSlug,
-      milestoneId: milestone.id as Id<'milestones'>,
-      decision,
-      note: trimmed,
-    };
-    void run(async () => {
-      if (staff) await decide(payload);
-      else await decideAsClient(payload);
-      setNote('');
-      setReviewOpen(false);
-      setTab('reviews');
-    });
   };
 
   return (
@@ -896,33 +947,7 @@ export function MilestoneDetailView({
         testId="milestone-name"
         title={milestone.name}
         subtitle={`Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`}
-        action={
-          readyForReview ? (
-            <span className="flex flex-wrap items-center gap-2">
-              {reviewExists ? (
-                <OutlineButton height={42} paddingInline={16} testId="milestone-view-review" onClick={() => setTab('reviews')}>
-                  View review
-                </OutlineButton>
-              ) : null}
-              <PrimaryButton width={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
-                Review milestone
-              </PrimaryButton>
-            </span>
-          ) : reviewExists ? (
-            <span className="flex flex-wrap items-center gap-2">
-              <OutlineButton height={42} paddingInline={16} testId="milestone-view-review" onClick={() => setTab('reviews')}>
-                View review
-              </OutlineButton>
-              <OutlineButton width={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
-                Review milestone
-              </OutlineButton>
-            </span>
-          ) : (
-            <OutlineButton width={148} height={42} paddingInline={16} testId="milestone-review-action" onClick={openReview}>
-              Review milestone
-            </OutlineButton>
-          )
-        }
+        action={undefined}
       />
       <TabRow
         label="Milestone"
@@ -932,13 +957,17 @@ export function MilestoneDetailView({
         tabs={[
           { id: 'overview', label: 'Overview' },
           { id: 'tasks', label: `Tasks · ${board.lanes}` },
-          { id: 'reviews', label: `Reviews · ${reviewCount}` },
+          ...(staff ? [{ id: 'reviews' as const, label: `Reviews · ${milestone.review?.history.length ?? 0}` }] : []),
           { id: 'activity', label: 'Activity' },
         ]}
       />
       <div role="tabpanel" id={tabIds('milestone', tab).panel} aria-labelledby={tabIds('milestone', tab).tab}>
 
       {tab === 'overview' ? (
+        <div className="flex flex-col gap-6">
+          {staff && milestone.review ? (
+            <MilestoneReviewLive milestone={milestone} hostSlug={hostSlug} isPeter={isPeter} />
+          ) : null}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
           <div className="order-first w-full lg:order-last lg:w-[292px] lg:shrink-0">
             <Panel>
@@ -958,7 +987,7 @@ export function MilestoneDetailView({
                     <span data-testid="milestone-stage">{statusStage.label}</span>
                   </FieldValue>
                 </div>
-                {milestone.approval !== 'unreviewed' ? (
+                {staff && milestone.approval && milestone.approval !== 'unreviewed' ? (
                   <div>
                     <FieldLabel>APPROVAL</FieldLabel>
                     <FieldValue>
@@ -980,7 +1009,7 @@ export function MilestoneDetailView({
                   <FieldLabel>PROJECT</FieldLabel>
                   <FieldValue>{project.name}</FieldValue>
                 </div>
-                {reviewLine ? (
+                {staff && reviewLine ? (
                   <div className="col-span-2 lg:col-span-1">
                     <FieldLabel>LAST REVIEW</FieldLabel>
                     <FieldValue>
@@ -1079,28 +1108,14 @@ export function MilestoneDetailView({
                 </p>
               )}
             </Panel>
-            <Panel>
-              <h2 style={{ fontSize: 18, lineHeight: '27px', fontWeight: 500 }}>Latest review</h2>
-              {milestone.note ? (
-                <>
-                  <p style={{ marginTop: 12, fontSize: 14, lineHeight: '21px' }}>
-                    {reviewCount > 0 ? `Round ${reviewCount} · ` : ''}
-                    {APPROVAL_LABEL[milestone.approval]}
-                  </p>
-                  <p data-testid="milestone-note-saved" style={{ marginTop: 12, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
-                    {milestone.approverName ? `${milestone.approverName}: ` : ''}“{milestone.note}”
-                    {formatWhen(milestone.decidedAt) ? ` · ${formatWhen(milestone.decidedAt)}` : ''}
-                  </p>
-                  <button type="button" onClick={() => setTab('reviews')} style={{ ...textButton, marginTop: 12 }}>
-                    View review
-                  </button>
-                </>
-              ) : (
+            {staff ? (
+              <Panel>
+                <h2 style={{ fontSize: 18, lineHeight: '27px', fontWeight: 500 }}>Latest review</h2>
                 <p style={{ marginTop: 12, fontSize: 14, color: 'var(--muted)' }}>
-                  No review yet. Open work stays listed until a person decides.
+                  Notes stay on the review card. Clients do not see them.
                 </p>
-              )}
-            </Panel>
+              </Panel>
+            ) : null}
             {staff ? (
               <div className="flex flex-wrap items-center gap-3">
                 <GhostButton testId="milestone-edit" disabled={locked || busy} onClick={() => { setError(null); setEditing(true); }}>
@@ -1122,7 +1137,7 @@ export function MilestoneDetailView({
                 milestone={milestone}
                 busy={busy}
                 attachable={attachable}
-                describedBy={error && !reviewOpen && !editing ? MENU_ERROR_ID : undefined}
+                describedBy={error && !editing ? MENU_ERROR_ID : undefined}
                 onWorkStatus={(workStatus) => {
                   if (fixtures) {
                     onFixture({ workStatus });
@@ -1178,16 +1193,17 @@ export function MilestoneDetailView({
                 }}
               />
             ) : null}
-            {error && !reviewOpen && !editing ? (
+            {error && !editing ? (
               <MenuActionError error={error} onDismiss={() => setError(null)} />
             ) : null}
           </div>
+        </div>
         </div>
       ) : null}
 
       {tab === 'tasks' ? (
         <div className="flex flex-col gap-4">
-          {tasksMenuFailure({ tab, error, reviewOpen, editing }).show && error ? (
+          {tasksMenuFailure({ tab, error, editing }).show && error ? (
             <MenuActionError error={error} onDismiss={() => setError(null)} />
           ) : null}
           <Panel>
@@ -1237,7 +1253,7 @@ export function MilestoneDetailView({
               milestone={milestone}
               busy={busy}
               attachable={attachable}
-              describedBy={error && !reviewOpen && !editing ? MENU_ERROR_ID : undefined}
+              describedBy={error && !editing ? MENU_ERROR_ID : undefined}
               onWorkStatus={(workStatus) => {
                 if (fixtures) {
                   onFixture({ workStatus });
@@ -1301,44 +1317,40 @@ export function MilestoneDetailView({
         </div>
       ) : null}
 
-      {tab === 'reviews' ? (
-        <div className="flex flex-col gap-4">
-          {milestone.note ? (
-            <Panel>
-              <p className="ds-mono" style={{ fontSize: 10, color: 'var(--muted)' }}>
-                REVIEW · {milestone.approval === 'changes_requested' ? 'FEEDBACK SAVED' : 'DECIDED'}
-              </p>
-              <h2 style={{ marginTop: 12, fontSize: 23, lineHeight: '35px', fontWeight: 500 }}>
-                {APPROVAL_LABEL[milestone.approval]}
-              </h2>
-              <p style={{ marginTop: 12, fontSize: 15, lineHeight: '23px', color: 'var(--muted)' }}>
-                {milestone.approverName ? `${milestone.approverName}: ` : ''}
-                {milestone.note}
-              </p>
-              <p style={{ marginTop: 12, fontSize: 13, color: 'var(--muted)' }}>
-                Existing tasks stay as they are. Approving does not close them.
-              </p>
-            </Panel>
+      {tab === 'reviews' && staff ? (
+        <section data-testid="milestone-reviews" className="flex flex-col gap-2">
+          {(milestone.review?.history.length ?? 0) === 0 ? (
+            <StateCard kicker="Reviews" title="No reviews yet" body="Approvals and change requests land here." />
           ) : (
-            <StateCard
-              kicker="REVIEW"
-              title="No review yet"
-              body="A person approves the milestone or sends it back. That decision does not close its tasks."
-              action={
-                <PrimaryButton width={148} height={42} paddingInline={16} testId="milestone-review-empty" onClick={openReview}>
-                  Review milestone
-                </PrimaryButton>
-              }
-            />
+            <ul className="flex flex-col" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
+              {milestone.review?.history.map((item) => (
+                <li key={`${item.iteration}-${item.decidedAt}`} style={{ borderTop: '1px solid var(--border)', padding: '12px 0' }}>
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="ds-mono" style={{ fontSize: 12, lineHeight: '18px' }}>
+                      {`ITERATION ${item.iteration} · ${formatReviewStamp(item.decidedAt)}`}
+                    </span>
+                    <span className="ds-mono" style={{ border: '1px solid var(--border-2)', borderRadius: 999, padding: '3px 8px', fontSize: 12 }}>
+                      {iterationOutcome({
+                        iteration: item.iteration,
+                        currentIteration: milestone.review?.iteration ?? item.iteration,
+                        decision: item.decision,
+                        workStatus: milestone.workStatus,
+                      })}
+                    </span>
+                  </div>
+                  {item.notes ? <p style={{ margin: '8px 0 0', fontSize: 14, lineHeight: '21px' }}>{item.notes}</p> : null}
+                </li>
+              ))}
+            </ul>
           )}
-        </div>
+        </section>
       ) : null}
 
       {tab === 'activity' ? (
         <div className="flex flex-col gap-4">
           <ActivityList
             items={[
-              ...(storedReview
+              ...(staff && storedReview
                 ? [
                     {
                       id: storedReview.id,
@@ -1360,22 +1372,6 @@ export function MilestoneDetailView({
       ) : null}
       </div>
 
-      {reviewOpen ? (
-        <ReviewDialog
-          milestone={milestone}
-          note={note}
-          error={noteError}
-          noteAttempt={noteAttempt}
-          saveError={error}
-          busy={busy}
-          onNote={setNote}
-          onClose={() => {
-            setReviewOpen(false);
-            setNoteError(null);
-          }}
-          onDecide={onDecide}
-        />
-      ) : null}
       {editing && staff && !locked ? (
         <EditDialog
           milestone={milestone}
@@ -1556,87 +1552,6 @@ function TaskLines({
         </div>
       ))}
     </div>
-  );
-}
-
-function ReviewDialog({
-  milestone,
-  note,
-  error,
-  noteAttempt,
-  saveError,
-  busy,
-  onNote,
-  onClose,
-  onDecide,
-}: {
-  milestone: MilestoneRoadmapView;
-  note: string;
-  error: string | null;
-  noteAttempt: number;
-  saveError: string | null;
-  busy: boolean;
-  onNote: (value: string) => void;
-  onClose: () => void;
-  onDecide: (decision: 'approved' | 'changes_requested') => void;
-}) {
-  const [mode, setMode] = useState<'changes_requested' | 'approved'>('changes_requested');
-  const noteRef = useRef<HTMLTextAreaElement>(null);
-  useEffect(() => {
-    if (!error) return;
-    noteRef.current?.focus();
-    noteRef.current?.scrollIntoView({ block: 'nearest' });
-  }, [error, noteAttempt]);
-  return (
-    <MilestoneDialog title="Review milestone" onClose={onClose} testId="milestone-review">
-      <p style={{ marginTop: 8, fontSize: 14, color: 'var(--muted)' }}>
-        {milestone.name}
-        {milestone.approval === 'changes_requested' ? ' · Changes were requested' : ''}
-      </p>
-      <div className="mt-4 flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() => setMode('changes_requested')}
-          style={mode === 'changes_requested' ? selectedChip : quietChip}
-        >
-          Request changes
-        </button>
-        <button type="button" onClick={() => setMode('approved')} style={mode === 'approved' ? selectedChip : quietChip}>
-          Approve milestone
-        </button>
-      </div>
-      <p style={{ marginTop: 16, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
-        Open work stays listed. The open count is not the decision. Approving does not close tasks.
-      </p>
-      <label className="mt-4 flex flex-col gap-2">
-        <span style={{ fontSize: 14 }}>
-          {mode === 'approved' ? 'Note' : 'What needs to change?'} <span aria-hidden>*</span>
-        </span>
-        <textarea
-          ref={noteRef}
-          data-testid="milestone-note"
-          value={note}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? 'milestone-note-error' : undefined}
-          onChange={(event) => onNote(event.target.value)}
-          rows={4}
-          style={{ ...fieldStyle, resize: 'vertical' }}
-        />
-        {error ? <FieldError id="milestone-note-error">{error}</FieldError> : null}
-      </label>
-      {saveError ? <FormAlert>{saveError}</FormAlert> : null}
-      <div className="mt-6 flex flex-wrap gap-2">
-        <OutlineButton disabled={busy} onClick={onClose}>
-          Cancel
-        </OutlineButton>
-        <span data-testid={mode === 'approved' ? 'milestone-approve' : 'milestone-request'}>
-          <PrimaryButton disabled={busy} onClick={() => onDecide(mode)}>
-            {mode === 'approved' ? 'Approve milestone' : 'Submit feedback'}
-          </PrimaryButton>
-        </span>
-        <span className="sr-only" data-testid={mode === 'approved' ? 'milestone-request' : 'milestone-approve'} />
-      </div>
-    </MilestoneDialog>
   );
 }
 
@@ -1876,7 +1791,7 @@ function focusField(
 
 function FormAlert({ children }: { children: string }) {
   return (
-    <p data-testid="milestone-error" role="alert" style={{ margin: 0, fontSize: 13, lineHeight: '18px', color: 'var(--danger)' }}>
+    <p data-testid="milestone-error" role="alert" style={{ margin: 0, fontSize: 13, lineHeight: '18px', color: 'var(--danger-text)' }}>
       {children}
     </p>
   );
@@ -1884,7 +1799,7 @@ function FormAlert({ children }: { children: string }) {
 
 function FieldError({ id, children }: { id: string; children: string }) {
   return (
-    <span id={id} role="alert" style={{ fontSize: 13, lineHeight: '18px', color: 'var(--danger)' }}>
+    <span id={id} role="alert" style={{ fontSize: 13, lineHeight: '18px', color: 'var(--danger-text)' }}>
       {children}
     </span>
   );
@@ -2053,7 +1968,7 @@ function ActivityList({
   return (
     <div className="flex flex-col gap-3">
       {error ? (
-        <p data-testid="activity-error" style={{ fontSize: 14, color: 'var(--danger)' }}>
+        <p data-testid="activity-error" style={{ fontSize: 14, color: 'var(--danger-text)' }}>
           {error}
         </p>
       ) : null}
@@ -2091,8 +2006,9 @@ function TaskLine({
     <>
       <p style={{ fontSize: 14, fontWeight: 550, minWidth: 0 }}>{row.name}</p>
       <p className="flex flex-wrap items-center gap-2" style={{ fontSize: 12, color: 'var(--muted)' }}>
-        <span data-testid="milestone-task-status">{row.status}</span>
+        <span data-testid="milestone-task-status">{displayedTaskStatus(row.status, row.stage)}</span>
         {row.stage ? <span data-testid="milestone-task-stage">{row.stage}</span> : null}
+        {row.source === 'portal-review' ? <span data-testid="review-tag" className="ds-mono" style={{ border: '1px solid var(--border-2)', borderRadius: 999, padding: '2px 8px' }}>From review</span> : null}
         <span data-testid="milestone-task-resources">{resourceLabel(row.resourceCount)}</span>
         {row.pullRequestUrl ? (
           <a data-testid="milestone-task-pr" href={row.pullRequestUrl} target="_blank" rel="noreferrer" style={{ color: 'var(--accent)' }}>
@@ -2127,26 +2043,4 @@ const textButton = {
   cursor: 'pointer',
   font: 'inherit',
   fontSize: 13,
-} as const;
-
-const selectedChip = {
-  background: 'var(--accent)',
-  color: 'var(--accent-fg)',
-  border: '1px solid var(--accent)',
-  borderRadius: 9,
-  padding: '12px 16px',
-  fontSize: 14,
-  fontWeight: 500,
-  cursor: 'pointer',
-} as const;
-
-const quietChip = {
-  background: 'transparent',
-  color: 'var(--fg)',
-  border: '1px solid var(--border-2)',
-  borderRadius: 9,
-  padding: '12px 16px',
-  fontSize: 14,
-  fontWeight: 500,
-  cursor: 'pointer',
 } as const;

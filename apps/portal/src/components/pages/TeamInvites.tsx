@@ -398,7 +398,7 @@ export function TeamInvites({
                               role="menuitem"
                               data-testid={`team-revoke-${invite.notionPageId}`}
                               disabled={busy !== null}
-                              style={{ ...menuItem, color: 'var(--danger)' }}
+                              style={{ ...menuItem, color: 'var(--danger-text)' }}
                               onClick={() => {
                                 setMenuId(null);
                                 setRevokeId(invite.notionPageId);
@@ -654,7 +654,7 @@ function InviteDialog({
                 style={{ ...field, borderColor: mode === 'invalid' ? 'var(--danger)' : 'var(--border)', opacity: locked ? 0.5 : 1 }}
               />
               {mode === 'invalid' ? (
-                <span style={{ color: 'var(--danger)', fontSize: 14 }}>
+                <span style={{ color: 'var(--danger-text)', fontSize: 14 }}>
                   Enter a valid email address, like name@warehaus.studio.
                 </span>
               ) : null}

@@ -388,10 +388,10 @@ export function AccountContent() {
       ) : null}
 
       {error && isStaff && docsPreview !== 'states' ? (
-        <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)', marginBottom: 12 }}>{error}</p>
+        <p style={{ color: 'var(--danger-text)', fontSize: 'var(--t-sm)', marginBottom: 12 }}>{error}</p>
       ) : null}
       {error && isClient && !companyOpen ? (
-        <p style={{ color: 'var(--danger)', fontSize: 'var(--t-sm)', marginBottom: 12 }}>
+        <p style={{ color: 'var(--danger-text)', fontSize: 'var(--t-sm)', marginBottom: 12 }}>
           We could not load your company
         </p>
       ) : null}

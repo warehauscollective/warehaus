@@ -90,7 +90,7 @@ export function SyncChip({
         </button>
       ) : null}
       {retryNote ? (
-        <span style={{ fontSize: 'var(--t-xs)', color: 'var(--danger)' }}>{retryNote}</span>
+        <span style={{ fontSize: 'var(--t-xs)', color: 'var(--danger-text)' }}>{retryNote}</span>
       ) : null}
     </span>
   );

@@ -351,6 +351,7 @@ export type RoadmapTaskInput = {
   resourceCount: number;
   publishToWarehaus: boolean;
   hidden: boolean;
+  source?: string | null;
 };
 
 export type RoadmapChild = {
@@ -361,6 +362,7 @@ export type RoadmapChild = {
   stage: string | null;
   resourceCount: number;
   pullRequestUrl?: string;
+  source?: string | null;
 };
 
 export type RoadmapRow = RoadmapChild & {
@@ -391,6 +393,7 @@ function roadmapTask(
     stage: task.stage,
     resourceCount: task.resourceCount,
     ...(href ? { pullRequestUrl: href } : {}),
+    ...(audience === 'staff' && task.source ? { source: task.source } : {}),
   };
 }
 
@@ -535,10 +538,12 @@ export type MilestoneRoadmapView = {
   objective: string;
   goals: string[];
   workStatus: MilestoneWorkStatus;
-  approval: MilestoneApproval;
+  /** Staff only. Absent for clients, including the key. */
+  approval?: MilestoneApproval;
   note: string | null;
   approverName: string | null;
-  decidedAt: number | null;
+  /** Staff only. Absent for clients, including the key. */
+  decidedAt?: number | null;
   publishToWarehaus: boolean;
   resources: MilestoneResourceView[];
   openCount: number;
@@ -547,4 +552,37 @@ export type MilestoneRoadmapView = {
   rows: RoadmapRow[];
   attachableTasks?: { id: string; name: string }[];
   resourceChoices?: { id: string; title: string }[];
+  /** Staff only. Absent for clients, including the key. */
+  review?: MilestoneReviewView;
+};
+
+export type MilestoneReviewHistoryItem = {
+  iteration: number;
+  decision: 'approve' | 'request_changes';
+  notes: string;
+  decidedByName: string;
+  decidedAt: number;
+  source: 'portal' | 'chat';
+  taskCount: number;
+};
+
+export type MilestoneReviewView = {
+  iteration: number;
+  previewUrl: string | null;
+  prNumber: number | null;
+  prTitle: string | null;
+  branch: string | null;
+  commit: string | null;
+  builtAt: number | null;
+  designCheck: 'pass' | 'fixes' | 'pending';
+  designCheckNote: string | null;
+  previewBuild: 'building' | 'failed' | null;
+  previewBuildAttempt: number | null;
+  previewBuildAt: number | null;
+  previewDelete: 'removing' | 'failed' | 'removed' | null;
+  previewDeleteAttempt: number | null;
+  previewDeleteAt: number | null;
+  /** Absent until a production deploy finishes. Approval alone does not set it. */
+  deployFinishedAt: number | null;
+  history: MilestoneReviewHistoryItem[];
 };

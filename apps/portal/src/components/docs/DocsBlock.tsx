@@ -285,7 +285,7 @@ function DocListRow({ doc, staff }: { doc: DocRow; staff: boolean }) {
             </Clamp>
           ) : null}
           {staff && failed ? (
-            <span className="ds-mono" style={{ fontSize: 12, color: 'var(--danger)' }}>
+            <span className="ds-mono" style={{ fontSize: 12, color: 'var(--danger-text)' }}>
               Notion could not be reached{synced ? ` · last synced ${synced}` : ''}
             </span>
           ) : updated ? (

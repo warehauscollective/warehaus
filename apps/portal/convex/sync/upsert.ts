@@ -17,6 +17,7 @@ import {
   taskTouchesIncrementalSet,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
+import { notionWriteAllowedForTask } from '../_lib/milestoneReview';
 import { internal } from '../_generated/api';
 import { internalMutation, internalQuery, type MutationCtx } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
@@ -179,6 +180,15 @@ export const upsertTask = internalMutation({
       .query('tasks')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
       .unique();
+    if (
+      existing &&
+      !notionWriteAllowedForTask({ source: existing.source, notionPageId: existing.notionPageId })
+    ) {
+      return existing._id;
+    }
+    if (!notionWriteAllowedForTask({ source: args.source, notionPageId: args.notionPageId })) {
+      return existing?._id ?? null;
+    }
     const merge = mergePulledStage({
       notionStage: fields.stage ?? null,
       notionLastEditedTime: fields.lastEditedTime ?? null,

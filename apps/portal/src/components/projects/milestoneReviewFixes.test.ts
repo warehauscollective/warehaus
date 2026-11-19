@@ -44,10 +44,12 @@ describe('milestone review fixes', () => {
 
   it('shows a save failure inside the open dialog', () => {
     assert.match(roadmap, /saveError=\{error\}/);
-    assert.match(roadmap, /error && !reviewOpen && !editing/);
-    const review = roadmap.slice(roadmap.indexOf('function ReviewDialog'), roadmap.indexOf('function EditDialog'));
+    assert.match(roadmap, /error && !editing/);
+    assert.equal(roadmap.includes('reviewOpen'), false);
+    const review = readFileSync(new URL('./MilestoneReview.tsx', import.meta.url), 'utf8');
     const edit = roadmap.slice(roadmap.indexOf('function EditDialog'), roadmap.indexOf('function CreateMilestone'));
-    assert.match(review, /saveError \? <FormAlert>/);
+    assert.match(review, /APPROVAL_SAVE_ERROR/);
+    assert.match(review, /fieldError/);
     assert.match(edit, /saveError \? <FormAlert>/);
   });
 
@@ -56,7 +58,7 @@ describe('milestone review fixes', () => {
     assert.match(tasksTab, /Assign existing task/);
     assert.match(tasksTab, /<MoreMenu/);
     assert.equal(tasksTab.includes('New task'), false);
-    const menu = roadmap.slice(roadmap.indexOf('function MoreMenu'), roadmap.indexOf('function ReviewDialog'));
+    const menu = roadmap.slice(roadmap.indexOf('function MoreMenu'), roadmap.indexOf('function EditDialog'));
     assert.match(menu, /data-testid="milestone-attach"/);
     assert.equal(menu.includes('New task'), false);
     assert.equal(roadmap.includes('>New task<'), false);
@@ -160,7 +162,7 @@ describe('milestone review fixes', () => {
     assert.match(chrome, /dialogTabBoundary\(/);
     assert.match(chrome, /previous\?\.focus\(\{ preventScroll: true \}\)/);
     assert.match(chrome, /tabIndex=\{-1\}/);
-    assert.match(roadmap, /\[error, noteAttempt\]/);
+    assert.match(chrome, /isolateOutsideDialog\(/);
   });
 
   it('announces the resource count and uses a tab pattern', () => {
@@ -198,7 +200,7 @@ describe('milestone review fixes', () => {
     assert.notEqual(goalKey(0, 'Ship'), goalKey(1, 'Ship'));
     assert.match(roadmap, /goalKey\(index, goal\)/);
     assert.match(roadmap, /reviewStamp\(storedReview\.decidedAt\)/);
-    assert.match(roadmap, /reviewStamp\(input\.decidedAt, input\.now\)/);
+    assert.match(roadmap, /reviewStamp\(input\.decidedAt \?\? null, input\.now\)/);
     assert.match(roadmap, /decidedAt: milestone\.decidedAt/);
     const listCard = roadmap.slice(roadmap.indexOf('function MilestoneListCard'), roadmap.indexOf('type MilestoneMutations'));
     assert.equal(listCard.includes('Updated'), false);

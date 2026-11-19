@@ -200,7 +200,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'move_task_stage',
     description:
-      'Move a task stage through the staff update path. Last write wins on stage, and the Notion outbox uses the task-stage write. Ready to Ship needs a pull request link. Send lastEditedTime from get_task and an idempotency key.',
+      'Move a task stage through the staff update path. Last write wins on stage, and the Notion outbox uses the task-stage write. Staff can set any stage except Shipped, which the merge webhook sets. Send lastEditedTime from get_task and an idempotency key.',
     write: true,
     schema: {
       taskId: z.string().min(1),
@@ -325,6 +325,31 @@ export const portalTools: PortalTool[] = [
         url: args.url,
         title: args.title,
         expectedLastEditedTime: args.expectedLastEditedTime,
+      }),
+    }),
+  },
+  {
+    name: 'record_milestone_review',
+    description:
+      "Record Peter's chat approval or change request for one milestone iteration. Only the grok-bot token is accepted. The same iteration is idempotent with the Portal. Notes are required to request changes. A stale iteration is rejected. This does not write Notion and does not move the stage to Shipped.",
+    write: true,
+    schema: {
+      milestoneId: z.string().min(1),
+      iteration: z.number().int().positive(),
+      decision: z.enum(['approve', 'request_changes']),
+      notes: z.string().max(8000).optional(),
+      taskIds: z.array(z.string().min(1)).max(50).optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: `/api/v1/milestones/${String(args.milestoneId)}/review`,
+      idempotencyKey: String(args.idempotencyKey),
+      body: defined({
+        iteration: args.iteration,
+        decision: args.decision,
+        notes: args.notes ?? '',
+        taskIds: args.taskIds,
       }),
     }),
   },

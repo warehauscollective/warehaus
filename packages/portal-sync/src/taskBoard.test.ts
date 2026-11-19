@@ -29,6 +29,7 @@ import {
   visibleChildIds,
   WAREHAUS_STUDIO_PROJECT_NAME,
 } from './taskBoard';
+import { validatePropertyPatch } from './writeback';
 
 const clientProject = {
   name: 'Northwind site',
@@ -185,7 +186,7 @@ describe('resource links', () => {
 });
 
 describe('move rules and outbox enqueue', () => {
-  it('changes stage without touching status, and locks Building and Shipped', () => {
+  it('changes stage without touching status, and locks only Shipped', () => {
     const planning = planTaskStageWrite({
       actor: 'staff',
       stage: 'Planning',
@@ -198,7 +199,7 @@ describe('move rules and outbox enqueue', () => {
       assert.equal('Status' in planning.properties, false);
       assert.match(planning.idempotencyKey, /^task-stage:page-1:Planning:/);
     }
-    assert.equal(stageMoveRule('staff', 'Building').kind, 'locked');
+    assert.equal(stageMoveRule('staff', 'Building').kind, 'allowed');
     assert.equal(stageMoveRule('staff', 'Shipped').kind, 'locked');
     assert.equal(
       planTaskStageWrite({
@@ -207,31 +208,48 @@ describe('move rules and outbox enqueue', () => {
         notionPageId: 'page-1',
         expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
       }).ok,
-      false,
+      true,
     );
   });
 
-  it('requires a pull request before Ready to Ship', () => {
-    const missing = planTaskStageWrite({
+  it('lets staff set every stage except Shipped, which stays on the merge webhook', () => {
+    for (const stage of ['Awaiting Go', 'Building', 'Ready to Ship', 'Parked']) {
+      assert.equal(stageMoveRule('staff', stage).kind, 'allowed');
+      const moved = planTaskStageWrite({
+        actor: 'staff',
+        stage,
+        notionPageId: 'page-1',
+        expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
+      });
+      assert.equal(moved.ok, true);
+    }
+    const staffShipped = planTaskStageWrite({
       actor: 'staff',
-      stage: 'Ready to Ship',
-      notionPageId: 'page-1',
-      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-    });
-    assert.equal(missing.ok, false);
-    const ready = planTaskStageWrite({
-      actor: 'staff',
-      stage: 'Ready to Ship',
+      stage: 'Shipped',
       pullRequestLink: 'github.com/warehauscollective/warehaus/pull/38',
       notionPageId: 'page-1',
       expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
     });
-    assert.equal(ready.ok, true);
-    if (ready.ok) {
-      assert.equal(ready.properties.Stage, 'Ready to Ship');
-      assert.equal(ready.properties['GitHub Issue/PR'], 'github.com/warehauscollective/warehaus/pull/38');
-      assert.equal('Status' in ready.properties, false);
-    }
+    assert.equal(staffShipped.ok, false);
+    if (!staffShipped.ok) assert.match(staffShipped.error, /pull request merges/);
+    const webhookShipped = validatePropertyPatch({
+      database: 'tasks',
+      properties: {
+        Stage: 'Shipped',
+        'GitHub Issue/PR': 'github.com/warehauscollective/warehaus/pull/38',
+      },
+    });
+    assert.equal(webhookShipped.ok, true);
+    const shippedWithoutLink = validatePropertyPatch({
+      database: 'tasks',
+      properties: { Stage: 'Shipped' },
+    });
+    assert.equal(shippedWithoutLink.ok, false);
+    const readyWithoutLink = validatePropertyPatch({
+      database: 'tasks',
+      properties: { Stage: 'Ready to Ship' },
+    });
+    assert.equal(readyWithoutLink.ok, true);
   });
 
   it('lets staff enqueue a status move and refuses clients', () => {
@@ -418,19 +436,21 @@ describe('board sort', () => {
     );
   });
 
-  it('blocks drags into and out of Building and Shipped', () => {
-    for (const locked of ['Building', 'Shipped'] as const) {
-      const into = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Idea', to: locked });
-      assert.equal(into.kind, 'reject');
-      if (into.kind === 'reject') assert.match(into.reason, new RegExp(locked));
-      const out = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: locked, to: 'Planning' });
-      assert.equal(out.kind, 'reject');
-      if (out.kind === 'reject') assert.match(out.reason, new RegExp(locked));
-      assert.equal(
-        resolveBoardDrop({ actor: 'staff', mode: 'stage', from: locked, to: locked }).kind,
-        'ignore',
-      );
-    }
+  it('lets staff drag into Building and still blocks Shipped', () => {
+    const intoBuilding = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Idea', to: 'Building' });
+    assert.deepEqual(intoBuilding, { kind: 'move', value: 'Building' });
+    const outOfBuilding = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Building', to: 'Planning' });
+    assert.deepEqual(outOfBuilding, { kind: 'move', value: 'Planning' });
+    const intoShipped = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Idea', to: 'Shipped' });
+    assert.equal(intoShipped.kind, 'reject');
+    if (intoShipped.kind === 'reject') assert.match(intoShipped.reason, /pull request merges/);
+    const outOfShipped = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Shipped', to: 'Planning' });
+    assert.equal(outOfShipped.kind, 'reject');
+    if (outOfShipped.kind === 'reject') assert.match(outOfShipped.reason, /pull request merges/);
+    assert.equal(
+      resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Shipped', to: 'Shipped' }).kind,
+      'ignore',
+    );
     assert.equal(resolveBoardDrop({ actor: 'client', mode: 'status', from: 'To Do', to: 'Done' }).kind, 'reject');
     assert.equal(resolveBoardDrop({ actor: 'client', mode: 'stage', from: 'Idea', to: 'Planning' }).kind, 'reject');
   });

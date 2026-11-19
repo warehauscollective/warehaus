@@ -19,7 +19,6 @@ import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, internalQuery } from './_generated/server';
 import { PortalAuthError } from './_lib/identity';
 import {
-  applyHumanDecision,
   attachTaskDecision,
   buildRoadmap,
   type AttachFailureCode,
@@ -46,6 +45,24 @@ import {
   planMilestoneOne,
   summarizeMilestoneOne,
 } from './_lib/milestoneOneSeed';
+import {
+  ALREADY_REVIEWED,
+  PETER_EMAILS,
+  chatContactError,
+  currentIteration,
+  historyPageLimit,
+  isPeterEmail,
+  NEW_ITERATION_TASK_DONE,
+  normalizeLocalPreview,
+  planReview,
+  previewStatusPatch,
+  RETRY_WAITS_ON_TOKENS,
+  reviewChatLine,
+  reviewPreviewRetryReady,
+  roadmapReviewForAudience,
+  reviewForAudience,
+  type ReviewSource,
+} from './_lib/milestoneReview';
 import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/wrappers';
 
 const workStatusArg = v.union(v.literal('draft'), v.literal('active'), v.literal('ready'));
@@ -203,6 +220,7 @@ async function roadmapTasks(
       resourceCount: await countTaskResources(ctx, orgId, task._id, audience, orgVisible),
       publishToWarehaus: task.publishToWarehaus,
       hidden: task.syncHiddenAt != null,
+      source: task.source ?? null,
     });
   }
   return rows;
@@ -258,17 +276,16 @@ async function toRoadmap(
     tasks: inputs,
     projectVisibleToClient: true,
   });
-  const approver = milestone.approverContactId ? await ctx.db.get(milestone.approverContactId) : null;
+  const approver =
+    audience === 'staff' && milestone.approverContactId ? await ctx.db.get(milestone.approverContactId) : null;
   const view: MilestoneRoadmapView = {
     id: milestone._id,
     name: milestone.name,
     objective: milestone.objective,
     goals: milestone.goals,
     workStatus: milestone.workStatus,
-    approval: milestone.approval,
-    note: milestone.note ?? null,
-    approverName: approver?.name ?? null,
-    decidedAt: milestone.decidedAt ?? null,
+    ...roadmapReviewForAudience(audience, milestone),
+    approverName: audience === 'staff' ? (approver?.name ?? null) : null,
     publishToWarehaus: milestone.publishToWarehaus,
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
@@ -276,6 +293,8 @@ async function toRoadmap(
     countIsDecision: false,
     rows: roadmap.rows,
   };
+  const review = reviewForAudience(audience, await staffReview(ctx, milestone, audience));
+  if (review) view.review = review;
   if (audience === 'staff') {
     view.attachableTasks = tasks
       .filter((task) => !task.parentTaskId && !task.milestoneId)
@@ -597,52 +616,425 @@ export const detachTaskFromAi = internalMutation({
   handler: async (ctx, args) => unlinkTask(ctx, 'ai', args.milestoneId, args.taskId),
 });
 
-async function decideMilestone(
-  ctx: MutationCtx,
-  milestone: Doc<'milestones'>,
-  approverContactId: Id<'contacts'>,
-  decision: 'approved' | 'changes_requested',
-  note: string,
-) {
-  const tasks = await ctx.db
-    .query('tasks')
-    .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
-    .collect();
-  const applied = applyHumanDecision({
-    actor: 'human',
-    decision,
-    note,
-    approverContactId,
-    at: Date.now(),
-    tasks: tasks.map((task) => ({
-      id: task._id,
-      isDone: task.isDone,
-      status: task.status,
-      stage: task.stage ?? null,
-    })),
-  });
-  if (!applied.ok) fail(applied.reason);
-  await ctx.db.patch(milestone._id, {
-    approval: applied.patch.approval,
-    note: applied.patch.note,
-    approverContactId,
-    decidedAt: applied.patch.decidedAt,
-    ...(applied.patch.workStatus ? { workStatus: applied.patch.workStatus } : {}),
-  });
-  await logMilestone(ctx, milestone, applied.activityType, applied.patch.decidedAt);
-  return { ok: true as const, taskWrites: applied.taskWrites.length };
-}
-
+/**
+ * Retired. This mutation does not call applyHumanDecision and does not write milestone.note.
+ * Approve and requestChanges are the only review writers. They do not close tasks.
+ */
 export const decide = adminMutation({
   args: {
     milestoneId: v.id('milestones'),
     decision: decisionArg,
     note: v.string(),
   },
+  handler: async () => {
+    fail('Use approve or request changes.');
+  },
+});
+
+async function staffReview(
+  ctx: QueryCtx,
+  milestone: Doc<'milestones'>,
+  audience: 'staff' | 'client',
+): Promise<import('./_lib/milestones').MilestoneReviewView | null> {
+  if (audience !== 'staff') return null;
+  const history = await ctx.db
+    .query('milestoneReviews')
+    .withIndex('by_org_milestone_iteration', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
+    .order('desc')
+    .take(historyPageLimit(20));
+  const rows = [];
+  for (const row of history) {
+    if (row.orgId !== milestone.orgId || row.milestoneId !== milestone._id) continue;
+    const contact = await ctx.db.get(row.decidedBy);
+    rows.push({
+      iteration: row.iteration,
+      decision: row.decision,
+      notes: row.notes,
+      decidedByName: contact?.name ?? 'Peter',
+      decidedAt: row.decidedAt,
+      source: row.source,
+      taskCount: row.createdTaskIds.length,
+    });
+  }
+  return {
+    iteration: currentIteration(milestone.iteration),
+    previewUrl: milestone.previewUrl || null,
+    prNumber: milestone.previewPrNumber ?? null,
+    prTitle: milestone.previewPrTitle ?? null,
+    branch: milestone.previewBranch ?? null,
+    commit: milestone.previewCommit ?? null,
+    builtAt: milestone.previewBuiltAt ?? null,
+    designCheck: milestone.designCheck ?? 'pending',
+    designCheckNote: milestone.designCheckNote ?? null,
+    previewBuild: milestone.previewBuild ?? null,
+    previewBuildAttempt: milestone.previewBuildAttempt ?? null,
+    previewBuildAt: milestone.previewBuildAt ?? null,
+    previewDelete: milestone.previewDelete ?? null,
+    previewDeleteAttempt: milestone.previewDeleteAttempt ?? null,
+    previewDeleteAt: milestone.previewDeleteAt ?? null,
+    deployFinishedAt: milestone.deployFinishedAt ?? null,
+    history: rows,
+  };
+}
+
+async function peterContactId(ctx: MutationCtx): Promise<Id<'contacts'> | null> {
+  for (const email of PETER_EMAILS) {
+    const contact = await ctx.db
+      .query('contacts')
+      .withIndex('by_email', (q) => q.eq('email', email))
+      .unique();
+    if (contact && contact.role === 'Warehaus Staff') return contact._id;
+  }
+  return null;
+}
+
+async function applyMilestoneReview(
+  ctx: MutationCtx,
+  args: {
+    milestoneId: Id<'milestones'>;
+    iteration: number;
+    decision: string;
+    notes: string;
+    taskIds: readonly Id<'tasks'>[];
+    source: ReviewSource;
+    actorEmail: string | null;
+    actorRole: 'Warehaus Staff' | 'Client Admin' | 'Client Member' | null;
+    tokenName: string | null;
+    contactId: Id<'contacts'> | null;
+  },
+) {
+  const milestone = await ctx.db.get(args.milestoneId);
+  if (!milestone) return { ok: false as const, status: 404, error: 'Milestone not found' };
+  const existing = await ctx.db
+    .query('milestoneReviews')
+    .withIndex('by_milestone_iteration', (q) => q.eq('milestoneId', milestone._id).eq('iteration', args.iteration))
+    .unique();
+  if (existing && existing.orgId !== milestone.orgId) {
+    return { ok: false as const, status: 404, error: 'Milestone not found' };
+  }
+  const appliesTo = [];
+  for (const taskId of args.taskIds) {
+    const task = await ctx.db.get(taskId);
+    if (!task || task.orgId !== milestone.orgId || task.projectId !== milestone.projectId) continue;
+    if (task.milestoneId && task.milestoneId !== milestone._id) continue;
+    appliesTo.push({ id: task._id, name: task.name });
+  }
+  const planned = planReview({
+    actor: {
+      source: args.source,
+      role: args.actorRole,
+      email: args.actorEmail,
+      tokenName: args.tokenName,
+    },
+    currentIteration: currentIteration(milestone.iteration),
+    workStatus: milestone.workStatus,
+    hasPreview: Boolean(milestone.previewUrl),
+    iteration: args.iteration,
+    decision: args.decision,
+    notes: args.notes,
+    existing: existing ? { decision: existing.decision, notes: existing.notes } : null,
+    appliesTo,
+  });
+  if (!planned.ok) return { ok: false as const, status: 400, error: planned.reason };
+  if (planned.idempotent) {
+    if (!existing) return { ok: false as const, status: 409, error: ALREADY_REVIEWED };
+    return {
+      ok: true as const,
+      status: 200,
+      idempotent: true,
+      iteration: existing.iteration,
+      decision: existing.decision,
+      approval: milestone.approval,
+      workStatus: milestone.workStatus,
+      createdTaskIds: existing.createdTaskIds,
+    };
+  }
+  const contactId =
+    args.source === 'portal'
+      ? args.contactId
+      : await peterContactId(ctx);
+  if (!contactId) return { ok: false as const, status: 403, error: chatContactError(planned.decision) };
+  const decidedAt = Date.now();
+  if (planned.decision === 'approve') {
+    await ctx.db.patch(milestone._id, {
+      approval: 'approved',
+      approverContactId: contactId,
+      decidedAt,
+      workStatus: 'ready',
+    });
+    await ctx.db.insert('milestoneReviews', {
+      orgId: milestone.orgId,
+      milestoneId: milestone._id,
+      iteration: args.iteration,
+      decision: 'approve',
+      notes: planned.notes,
+      decidedBy: contactId,
+      decidedAt,
+      source: args.source,
+      prNumber: milestone.previewPrNumber,
+      commit: milestone.previewCommit,
+      createdTaskIds: [],
+    });
+    await logMilestone(ctx, milestone, 'milestone.approved', decidedAt);
+    return {
+      ok: true as const,
+      status: 200,
+      idempotent: false,
+      iteration: args.iteration,
+      decision: 'approve' as const,
+      approval: 'approved' as const,
+      workStatus: 'ready' as const,
+      createdTaskIds: [],
+    };
+  }
+  const createdTaskIds: Id<'tasks'>[] = [];
+  let order = nextMilestoneOrder(
+    (
+      await ctx.db
+        .query('tasks')
+        .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
+        .collect()
+    ).map((task) => task.milestoneOrder),
+  );
+  for (const [index, draft] of planned.tasks.entries()) {
+    const taskId = await ctx.db.insert('tasks', {
+      orgId: milestone.orgId,
+      projectId: milestone.projectId,
+      notionPageId: `portal-review:${milestone._id}:${planned.nextIteration}:${index}`,
+      externalId: `portal-review:${milestone._id}:${planned.nextIteration}:${index}`,
+      lastSyncedAt: decidedAt,
+      name: draft.name,
+      description: draft.description,
+      descriptionSource: 'property',
+      status: 'To Do',
+      isDone: NEW_ITERATION_TASK_DONE,
+      stage: 'Building',
+      publishToWarehaus: false,
+      source: 'portal-review',
+      milestoneId: milestone._id,
+      milestoneOrder: order,
+      parentTaskId: draft.parentTaskId ? (draft.parentTaskId as Id<'tasks'>) : undefined,
+      updatedAt: decidedAt,
+    });
+    createdTaskIds.push(taskId);
+    order += 1;
+  }
+  await ctx.db.patch(milestone._id, {
+    approval: 'changes_requested',
+    approverContactId: contactId,
+    decidedAt,
+    workStatus: 'active',
+    iteration: planned.nextIteration,
+    previewUrl: '',
+    designCheck: 'pending',
+    designCheckNote: undefined,
+    previewBuild: undefined,
+    previewBuildAttempt: undefined,
+    previewBuildAt: undefined,
+  });
+  await ctx.db.insert('milestoneReviews', {
+    orgId: milestone.orgId,
+    milestoneId: milestone._id,
+    iteration: args.iteration,
+    decision: 'request_changes',
+    notes: planned.notes,
+    decidedBy: contactId,
+    decidedAt,
+    source: args.source,
+    prNumber: milestone.previewPrNumber,
+    commit: milestone.previewCommit,
+    createdTaskIds,
+  });
+  await logMilestone(ctx, milestone, 'milestone.changes_requested', decidedAt);
+  return {
+    ok: true as const,
+    status: 200,
+    idempotent: false,
+    iteration: planned.nextIteration,
+    decision: 'request_changes' as const,
+    approval: 'changes_requested' as const,
+    workStatus: 'active' as const,
+    createdTaskIds,
+  };
+}
+
+function peterPortalActor(identity: { role: string; email: string; contactId: string }) {
+  if (identity.role !== 'Warehaus Staff' || !isPeterEmail(identity.email)) {
+    fail('Only Peter can approve a milestone');
+  }
+  return identity.contactId as Id<'contacts'>;
+}
+
+export const approve = adminMutation({
+  args: { milestoneId: v.id('milestones'), iteration: v.number(), notes: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const contactId = peterPortalActor(ctx.identity);
+    const result = await applyMilestoneReview(ctx, {
+      milestoneId: args.milestoneId,
+      iteration: args.iteration,
+      decision: 'approve',
+      notes: args.notes ?? '',
+      taskIds: [],
+      source: 'portal',
+      actorEmail: ctx.identity.email,
+      actorRole: 'Warehaus Staff',
+      tokenName: null,
+      contactId,
+    });
+    if (!result.ok) fail(result.error);
+    return result;
+  },
+});
+
+export const requestChanges = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    iteration: v.number(),
+    notes: v.string(),
+    taskIds: v.optional(v.array(v.id('tasks'))),
+  },
+  handler: async (ctx, args) => {
+    const contactId = ctx.identity.contactId as Id<'contacts'>;
+    const result = await applyMilestoneReview(ctx, {
+      milestoneId: args.milestoneId,
+      iteration: args.iteration,
+      decision: 'request_changes',
+      notes: args.notes,
+      taskIds: args.taskIds ?? [],
+      source: 'portal',
+      actorEmail: ctx.identity.email,
+      actorRole: 'Warehaus Staff',
+      tokenName: null,
+      contactId,
+    });
+    if (!result.ok) fail(result.error);
+    return result;
+  },
+});
+
+/** Staff posts the localhost preview. Does not write Notion and does not approve. */
+export const setReviewBuild = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    previewUrl: v.string(),
+    prNumber: v.number(),
+    prTitle: v.string(),
+    branch: v.string(),
+    commit: v.string(),
+    builtAt: v.optional(v.number()),
+    designCheck: v.optional(v.union(v.literal('pass'), v.literal('fixes'), v.literal('pending'))),
+    designCheckNote: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const milestone = await loadMilestone(ctx, args.milestoneId);
-    return decideMilestone(ctx, milestone, ctx.identity.contactId as Id<'contacts'>, args.decision, args.note);
+    const previewUrl = normalizeLocalPreview(args.previewUrl);
+    if (!previewUrl) fail('Preview must be a localhost:3100 link');
+    const next = {
+      previewUrl,
+      previewPrNumber: args.prNumber,
+      previewPrTitle: args.prTitle.trim(),
+      previewBranch: args.branch.trim(),
+      previewCommit: args.commit.trim(),
+      previewBuiltAt: args.builtAt ?? Date.now(),
+      designCheck: args.designCheck ?? 'pending',
+      designCheckNote: args.designCheckNote?.trim() || undefined,
+    };
+    const clearBuild = previewStatusPatch(milestone, { build: 'ready' });
+    const unchanged =
+      milestone.previewUrl === next.previewUrl &&
+      milestone.previewPrNumber === next.previewPrNumber &&
+      milestone.previewPrTitle === next.previewPrTitle &&
+      milestone.previewBranch === next.previewBranch &&
+      milestone.previewCommit === next.previewCommit &&
+      milestone.designCheck === next.designCheck &&
+      (milestone.designCheckNote ?? undefined) === next.designCheckNote &&
+      clearBuild == null;
+    if (!unchanged) await ctx.db.patch(milestone._id, { ...next, ...clearBuild });
+    const iteration = currentIteration(milestone.iteration);
+    return {
+      ok: true as const,
+      wrote: !unchanged,
+      chat: reviewChatLine({ prNumber: args.prNumber, iteration, previewUrl }),
+    };
   },
+});
+
+/** Records a preview build or preview-delete phase. Does not call GitHub or Vercel. */
+export const recordPreviewStatus = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    build: v.optional(v.union(v.literal('building'), v.literal('failed'), v.literal('ready'))),
+    buildAttempt: v.optional(v.number()),
+    buildAt: v.optional(v.number()),
+    deleteStatus: v.optional(v.union(v.literal('removing'), v.literal('failed'), v.literal('removed'))),
+    deleteAttempt: v.optional(v.number()),
+    deleteAt: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const patch = previewStatusPatch(milestone, {
+      build: args.build,
+      buildAttempt: args.buildAttempt,
+      buildAt: args.buildAt,
+      deleteStatus: args.deleteStatus,
+      deleteAttempt: args.deleteAttempt,
+      deleteAt: args.deleteAt,
+    });
+    if (!patch) return { ok: true as const, wrote: false };
+    await ctx.db.patch(milestone._id, patch);
+    return { ok: true as const, wrote: true };
+  },
+});
+
+/**
+ * Retry a failed preview build or a failed preview delete.
+ * Both calls need the GitHub and Vercel tokens from #113. Until those exist
+ * this refuses and writes nothing.
+ */
+export const retryReviewPreview = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    kind: v.union(v.literal('build'), v.literal('delete')),
+  },
+  handler: async (ctx, args) => {
+    await loadMilestone(ctx, args.milestoneId);
+    if (!reviewPreviewRetryReady({ githubToken: process.env.GITHUB_TOKEN, vercelToken: process.env.VERCEL_TOKEN })) {
+      return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
+    }
+    return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
+  },
+});
+
+export const reviewForStaff = adminQuery({
+  args: { milestoneId: v.id('milestones'), limit: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const milestone = await ctx.db.get(args.milestoneId);
+    if (!milestone) return null;
+    const view = await staffReview(ctx, milestone, 'staff');
+    if (!view) return null;
+    const limit = historyPageLimit(args.limit);
+    return { ...view, history: view.history.slice(0, limit) };
+  },
+});
+
+export const reviewForApi = internalMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    iteration: v.number(),
+    decision: v.string(),
+    notes: v.string(),
+    taskIds: v.array(v.id('tasks')),
+    tokenName: v.string(),
+  },
+  handler: async (ctx, args) =>
+    applyMilestoneReview(ctx, {
+      ...args,
+      source: 'chat',
+      actorEmail: null,
+      actorRole: null,
+      tokenName: args.tokenName,
+      contactId: null,
+    }),
 });
 
 export const decideAsClient = clientMutation({
@@ -651,17 +1043,8 @@ export const decideAsClient = clientMutation({
     decision: decisionArg,
     note: v.string(),
   },
-  handler: async (ctx, args) => {
-    const milestone = await loadMilestone(ctx, args.milestoneId);
-    if (milestone.orgId !== ctx.orgId) fail('Milestone not found');
-    const project = await ctx.db.get(milestone.projectId);
-    const org = await ctx.db.get(ctx.orgId);
-    const visible = clientMaySeeMilestone({
-      publishToWarehaus: milestone.publishToWarehaus,
-      project: projectGate(project, isOrgVisibleToClients(org)),
-    });
-    if (!visible) fail('Milestone not found');
-    return decideMilestone(ctx, milestone, ctx.identity.contactId as Id<'contacts'>, args.decision, args.note);
+  handler: async () => {
+    fail('Clients cannot review a milestone');
   },
 });
 

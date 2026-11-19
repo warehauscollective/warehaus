@@ -298,10 +298,14 @@ describe('enqueueStage actor', () => {
     else process.env.NOTION_WRITEBACK_ENABLED = previous;
   });
 
-  it('refuses moves into or out of Building and Shipped', async () => {
+  it('lets staff enter and leave Building and still refuses Shipped', async () => {
     const calls: unknown[] = [];
     const ctxFor = (stage?: string) => ({
-      db: { get: async () => ({ ...task, stage }) },
+      db: {
+        get: async () => ({ ...task, stage }),
+        patch: async () => undefined,
+        query: () => ({ withIndex: () => ({ collect: async () => [] }) }),
+      },
       runMutation: async () => {
         calls.push(stage ?? '');
         return { ok: true, outboxId: 'out-1', duplicate: false };
@@ -313,19 +317,24 @@ describe('enqueueStage actor', () => {
       actor: 'staff' as const,
       actorId: 'contact-staff',
     };
-    const intoBuilding = await run(enqueueStage, ctxFor('Idea'), { ...base, stage: 'Building' });
-    assert.equal(intoBuilding.ok, false);
-    if (!intoBuilding.ok) assert.match(intoBuilding.error ?? '', /Building/);
-    const intoShipped = await run(enqueueStage, ctxFor('Planning'), { ...base, stage: 'Shipped' });
-    assert.equal(intoShipped.ok, false);
-    if (!intoShipped.ok) assert.match(intoShipped.error ?? '', /Shipped/);
-    const outOfBuilding = await run(enqueueStage, ctxFor('Building'), { ...base, stage: 'Idea' });
-    assert.equal(outOfBuilding.ok, false);
-    if (!outOfBuilding.ok) assert.match(outOfBuilding.error ?? '', /Building/);
-    const outOfShipped = await run(enqueueStage, ctxFor('Shipped'), { ...base, stage: 'Planning' });
-    assert.equal(outOfShipped.ok, false);
-    if (!outOfShipped.ok) assert.match(outOfShipped.error ?? '', /Shipped/);
-    assert.equal(calls.length, 0);
+    const previous = process.env.NOTION_WRITEBACK_ENABLED;
+    process.env.NOTION_WRITEBACK_ENABLED = 'true';
+    try {
+      const intoBuilding = await run(enqueueStage, ctxFor('Idea'), { ...base, stage: 'Building' });
+      assert.equal(intoBuilding.ok, true);
+      const outOfBuilding = await run(enqueueStage, ctxFor('Building'), { ...base, stage: 'Idea' });
+      assert.equal(outOfBuilding.ok, true);
+      const intoShipped = await run(enqueueStage, ctxFor('Planning'), { ...base, stage: 'Shipped' });
+      assert.equal(intoShipped.ok, false);
+      if (!intoShipped.ok) assert.match(intoShipped.error ?? '', /pull request merges/);
+      const outOfShipped = await run(enqueueStage, ctxFor('Shipped'), { ...base, stage: 'Planning' });
+      assert.equal(outOfShipped.ok, false);
+      if (!outOfShipped.ok) assert.match(outOfShipped.error ?? '', /pull request merges/);
+      assert.equal(calls.length, 2);
+    } finally {
+      if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+      else process.env.NOTION_WRITEBACK_ENABLED = previous;
+    }
   });
 
   it('stores the actor argument on the outbox row', async () => {

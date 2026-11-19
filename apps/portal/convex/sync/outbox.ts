@@ -20,6 +20,7 @@ import {
   type WritebackDatabase,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
+import { notionWriteAllowedForTask } from '../_lib/milestoneReview';
 import { internal } from '../_generated/api';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
@@ -83,6 +84,9 @@ export const enqueue = internalMutation({
     schedule: v.boolean(),
   },
   handler: async (ctx, args): Promise<EnqueueResult> => {
+    if (!notionWriteAllowedForTask({ notionPageId: args.notionPageId })) {
+      return { ok: false, error: 'Portal review tasks stay in Convex' };
+    }
     const existing = await ctx.db
       .query('notionOutbox')
       .withIndex('by_idempotencyKey', (q) => q.eq('idempotencyKey', args.idempotencyKey))

@@ -486,7 +486,7 @@ describe('inbound webhook replays', () => {
 });
 
 describe('inbound webhook stage moves', () => {
-  it('moves a merged pull request to Ready to Ship and never to Done', async () => {
+  it('moves a merged pull request to Shipped and never to Done', async () => {
     const { decision } = await decidePull('closed', { delivery: 'delivery-merge' });
     assert.equal(decision.ok, true);
     if (decision.ok && decision.plan.action === 'apply') {
@@ -508,11 +508,10 @@ describe('inbound webhook stage moves', () => {
     const payload = JSON.parse(String(stored.notionOutbox[0]?.payload)) as {
       properties: Record<string, string>;
     };
-    assert.equal(payload.properties.Stage, 'Ready to Ship');
+    assert.equal(payload.properties.Stage, 'Shipped');
     assert.equal(payload.properties['GitHub Issue/PR'], 'https://github.com/warehauscollective/warehaus/pull/12');
     assert.equal('Status' in payload.properties, false);
     assert.equal(Object.values(payload.properties).includes('Done'), false);
-    assert.equal(Object.values(payload.properties).includes('Shipped'), false);
     assert.equal(stored.taskLinks[0]?.kind, 'PR');
     assert.equal(stored.taskLinks[0]?.sha, SHA);
     assert.equal(stored.taskLinks[0]?.state, 'merged');
@@ -564,7 +563,7 @@ describe('inbound webhook stage moves', () => {
       now: 10,
     });
     assert.equal(forward.ok, true);
-    if (forward.ok) assert.equal(forward.stage, 'Ready to Ship');
+    if (forward.ok) assert.equal(forward.stage, 'Shipped');
     const parked = stageMoveForMerge({
       moveStage: true,
       status: 'In Progress',

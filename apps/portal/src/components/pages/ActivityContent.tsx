@@ -337,12 +337,12 @@ function ErrorState({
       >
         <span
           className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
-          style={{ border: '1.25px solid var(--danger)', color: 'var(--danger)', fontSize: 11, fontWeight: 600 }}
+          style={{ border: '1.25px solid var(--danger)', color: 'var(--danger-text)', fontSize: 11, fontWeight: 600 }}
         >
           !
         </span>
         <span>
-          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--danger)' }}>{copy.title}</p>
+          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--danger-text)' }}>{copy.title}</p>
           <p style={{ marginTop: 4, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>{body}</p>
         </span>
       </div>

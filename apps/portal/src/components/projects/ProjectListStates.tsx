@@ -243,7 +243,7 @@ export function ProjectListLoadNotice({
           height: 20,
           borderRadius: 999,
           border: '1.25px solid var(--danger)',
-          color: 'var(--danger)',
+          color: 'var(--danger-text)',
           fontSize: 11,
           fontWeight: 600,
           lineHeight: '20px',
@@ -252,7 +252,7 @@ export function ProjectListLoadNotice({
         !
       </span>
       <span className="flex min-w-0 flex-1 flex-col" style={{ gap: 4 }}>
-        <span style={{ color: 'var(--danger)', fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>{copy.title}</span>
+        <span style={{ color: 'var(--danger-text)', fontSize: 14, fontWeight: 600, lineHeight: '20px' }}>{copy.title}</span>
         <span
           className={copy.mono ? 'ds-mono' : undefined}
           style={{

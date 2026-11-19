@@ -83,7 +83,7 @@ export function ForgotPasswordForm() {
           </label>
 
           {error && (
-            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>{error}</p>
+            <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger-text)' }}>{error}</p>
           )}
 
           <div className="mt-2 flex flex-wrap items-center justify-between gap-2">

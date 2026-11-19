@@ -88,10 +88,10 @@ export function boardCountsFromTasks(
 /** The decision stored on the milestone row. Activity names are not an input. */
 export function storedMilestoneReview(milestone: {
   id: string;
-  approval: string;
+  approval?: string | null;
   note: string | null;
   approverName: string | null;
-  decidedAt: number | null;
+  decidedAt?: number | null;
 }): {
   id: string;
   approval: string;
@@ -102,10 +102,10 @@ export function storedMilestoneReview(milestone: {
   if (!milestone.note && milestone.decidedAt == null) return null;
   return {
     id: milestone.id,
-    approval: milestone.approval,
+    approval: milestone.approval ?? 'unreviewed',
     note: milestone.note ?? '',
     approverName: milestone.approverName,
-    decidedAt: milestone.decidedAt,
+    decidedAt: milestone.decidedAt ?? null,
   };
 }
 
@@ -169,10 +169,9 @@ export const MENU_ERROR_ID = 'milestone-menu-error';
 export function tasksMenuFailure(input: {
   tab: 'overview' | 'tasks' | 'reviews' | 'activity';
   error: string | null;
-  reviewOpen: boolean;
   editing: boolean;
 }): { show: boolean; describedBy: string | undefined } {
-  const show = input.tab === 'tasks' && input.error != null && !input.reviewOpen && !input.editing;
+  const show = input.tab === 'tasks' && input.error != null && !input.editing;
   return { show, describedBy: show ? MENU_ERROR_ID : undefined };
 }
 

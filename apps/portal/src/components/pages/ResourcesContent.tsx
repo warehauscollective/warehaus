@@ -89,7 +89,7 @@ function GranolaFailedNotice({ onRetry, pending }: { onRetry?: () => void; pendi
             height: 20,
             borderRadius: 999,
             border: '1.25px solid var(--danger)',
-            color: 'var(--danger)',
+            color: 'var(--danger-text)',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -101,7 +101,7 @@ function GranolaFailedNotice({ onRetry, pending }: { onRetry?: () => void; pendi
           !
         </span>
         <span>
-          <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>Granola import failed</p>
+          <p style={{ color: 'var(--danger-text)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>Granola import failed</p>
           <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 4, lineHeight: '19px' }}>
             The last import did not finish. Existing notes are unchanged.
           </p>
@@ -167,7 +167,7 @@ function ResourcePreviewState({
             height: 20,
             borderRadius: 999,
             border: '1.25px solid var(--danger)',
-            color: 'var(--danger)',
+            color: 'var(--danger-text)',
             display: 'inline-flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -179,7 +179,7 @@ function ResourcePreviewState({
           !
         </span>
         <span>
-          <p style={{ color: 'var(--danger)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>We could not load your resources</p>
+          <p style={{ color: 'var(--danger-text)', fontWeight: 600, fontSize: 14, lineHeight: '20px' }}>We could not load your resources</p>
           <p style={{ color: 'var(--muted)', fontSize: 13, marginTop: 4, lineHeight: '19px' }}>Try again in a moment.</p>
         </span>
       </div>
@@ -608,7 +608,7 @@ export function ResourcesContent() {
                   })}
                 </div>
                 {resourceScreen === 'ready' && (error || staff.resourcesError) ? (
-                  <p style={{ fontSize: 13, color: 'var(--danger)', marginTop: 16 }}>
+                  <p style={{ fontSize: 13, color: 'var(--danger-text)', marginTop: 16 }}>
                     {isStaff ? error || staff.resourcesError : 'We could not load your resources'}
                   </p>
                 ) : null}

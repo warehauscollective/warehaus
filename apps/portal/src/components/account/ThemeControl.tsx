@@ -158,7 +158,7 @@ export function ThemeControl() {
         </span>
       </div>
       {error ? (
-        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)', margin: 0 }}>
+        <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger-text)', margin: 0 }}>
           {error}. Try again.
         </p>
       ) : null}

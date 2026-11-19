@@ -38,6 +38,13 @@ const samples: Record<string, Record<string, unknown>> = {
     url: 'https://example.com/ship',
     idempotencyKey: 'link-1',
   },
+  record_milestone_review: {
+    milestoneId: 'milestone-1',
+    iteration: 2,
+    decision: 'approve',
+    notes: '',
+    idempotencyKey: 'review-1',
+  },
 };
 
 const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
@@ -55,6 +62,7 @@ const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   create_project: { method: 'POST', path: '/api/v1/projects' },
   attach_task_to_milestone: { method: 'POST', path: '/api/v1/milestones/attach' },
   add_task_link: { method: 'POST', path: '/api/v1/links' },
+  record_milestone_review: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },
 };
 
 describe('portal MCP tools', () => {

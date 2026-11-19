@@ -6,6 +6,7 @@ import { PublishChip, SyncChip } from '@/components/sync/SyncChip';
 import { staffNotesHref } from '@warehaus/portal-sync';
 import { notionNotesHref, recapSections, resourceMeta, usedInTasksSubtitle } from '@/lib/data/resourceDetail';
 import { taskStatusColor } from '@/lib/data/view-models';
+import { displayedTaskStatus } from '@/lib/data/taskStatus';
 
 export type ResourceTaskRow = {
   id: string;
@@ -330,7 +331,7 @@ export function ResourceDetail({
                     </span>
                     <span className="used-in-chips flex max-w-full flex-wrap items-center gap-2">
                       {task.stage === 'Awaiting Go' ? <Pill color="var(--danger)">Awaiting Go</Pill> : task.stage ? <Pill>{task.stage}</Pill> : null}
-                      <Pill color={taskStatusColor(task.status, task.isDone === true)}>{task.status}</Pill>
+                      <Pill color={taskStatusColor(displayedTaskStatus(task.status, task.stage), task.isDone === true)}>{displayedTaskStatus(task.status, task.stage)}</Pill>
                       {resource.staff && task.category ? <Pill>{task.category}</Pill> : null}
                       {resource.staff && task.publishToWarehaus != null && !task.projectInternal ? (
                         <PublishChip published={task.publishToWarehaus} />

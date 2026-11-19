@@ -401,7 +401,9 @@ describe('taskWriteGuards stage save', () => {
         expectedLastEditedTime: TIME,
         actor: 'staff',
       });
-      assert.deepEqual(result, { ok: false, error: WRITEBACK_OFF_ERROR });
+      const denied = result as { ok: boolean; error?: string };
+      assert.equal(denied.ok, false);
+      assert.equal(denied.error, WRITEBACK_OFF_ERROR);
       assert.equal(row.stage, 'Idea');
       assert.equal(row.stagePendingPullRequest, undefined);
       assert.equal(row.pullRequestUrl, 'https://github.com/warehaus/secret/pull/1');

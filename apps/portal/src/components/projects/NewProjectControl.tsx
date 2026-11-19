@@ -141,7 +141,7 @@ export function NewProjectControl({
                   </select>
                 </label>
                 {note ? (
-                  <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }} role="status">
+                  <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger-text)' }} role="status">
                     {note}
                   </p>
                 ) : null}

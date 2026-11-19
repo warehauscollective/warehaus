@@ -8,6 +8,7 @@ import * as portalCatalog from '../portalCatalog';
 import { portalApiHttp } from '../portalApi';
 import * as portalApi from '../portalApi';
 import * as projectCreate from '../projectCreate';
+import * as milestones from '../milestones';
 
 const BEARER = 'Bearer whp_testtokenvalue0001';
 const ACCEPT = 'application/json, text/event-stream';
@@ -39,6 +40,7 @@ const functions: Record<string, Registered> = {
   'portalCatalog:tokenHomeOrg': portalCatalog.tokenHomeOrg as unknown as Registered,
   'clientCreate:createForToken': clientCreate.createForToken as unknown as Registered,
   'projectCreate:createForToken': projectCreate.createForToken as unknown as Registered,
+  'milestones:reviewForApi': milestones.reviewForApi as unknown as Registered,
 };
 
 const functionName = Symbol.for('functionName');
@@ -232,6 +234,13 @@ const writeTools: Record<string, Record<string, unknown>> = {
     kind: 'agent',
     url: 'https://cursor.com/agents/bc-example',
     idempotencyKey: 'link-1',
+  },
+  record_milestone_review: {
+    milestoneId: 'milestones:1',
+    iteration: 2,
+    decision: 'approve',
+    notes: '',
+    idempotencyKey: 'review-1',
   },
 };
 

@@ -7,13 +7,23 @@ import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEditMode } from '@warehaus/portal-sync';
-import { OutlineButton, Pill, PortalCheckbox, PrimaryButton } from '@/components/ui/primitives';
+import { OutlineButton, Pill, PortalCheckbox, PrimaryButton, StatusBadge } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
+import { displayedTaskStatus, TASK_STAGE_HINT } from '@/lib/data/taskStatus';
+import { StageConfirmSheet } from '@/components/projects/milestoneChrome';
 import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
 import { StaffLiveFields } from './StaffLiveFields';
 import { TaskGlyph } from './TaskGlyph';
 import { TaskSources } from './TaskSources';
+
+function ReviewTag() {
+  return (
+    <span data-testid="review-tag" className="ds-mono" style={{ border: '1px solid var(--border-2)', borderRadius: 999, padding: '2px 8px', fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+      From review
+    </span>
+  );
+}
 
 type ResourceRow = {
   id: string;
@@ -60,16 +70,22 @@ export function TaskDetailModal({
 }) {
   const [attach, setAttach] = useState(false);
   const [asideNote, setAsideNote] = useState<string | null>(null);
+  const [stageConfirm, setStageConfirm] = useState<string | null>(null);
   const moveStage = useMutation(api.tasks.moveStage);
   const moveStatus = useMutation(api.tasks.moveStatus);
   const updateLiveFields = useMutation(api.tasks.updateLiveFields);
+  const shownStatus = task ? displayedTaskStatus(task.status, task.stage) : '';
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
     titleRef.current?.focus();
   }, [task?.id, unavailable]);
 
   return (
-    <ModalShell phone={phone} onClose={onClose} label={task?.name ?? 'Task'}>
+    <ModalShell
+      phone={phone}
+      onClose={onClose}
+      label={task?.name ?? 'Task'}
+    >
       {unavailable || !task ? (
         <div className="flex flex-col items-start gap-3">
           <h2 ref={titleRef} tabIndex={-1} style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>
@@ -87,6 +103,7 @@ export function TaskDetailModal({
             {task.projectName ?? 'Project'}
             <span> / </span>
             <span style={{ color: 'var(--fg)' }}>{task.name}</span>
+            {task.source === 'portal-review' ? <ReviewTag /> : null}
           </p>
           <button
             type="button"
@@ -139,7 +156,11 @@ export function TaskDetailModal({
                         </span>
                         <span style={{ flex: '1 1 auto', minWidth: 0, fontWeight: 400, fontSize: 15 }}>{child.name}</span>
                         <span className="inline-flex shrink-0 items-center gap-3">
-                          <Pill color={taskStatusColor(child.status, child.isDone)}>{child.status}</Pill>
+                          {displayedTaskStatus(child.status, child.stage) === 'In review' ? (
+                            <StatusBadge>In review</StatusBadge>
+                          ) : (
+                            <Pill color={taskStatusColor(displayedTaskStatus(child.status, child.stage), child.isDone)}>{displayedTaskStatus(child.status, child.stage)}</Pill>
+                          )}
                           {child.category ? (
                             <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)', whiteSpace: 'nowrap' }}>{child.category}</span>
                           ) : null}
@@ -190,7 +211,7 @@ export function TaskDetailModal({
             <Field label="Status" row={phone}>
               {staff ? (
                 <StatusMenu
-                  value={task.status}
+                  value={shownStatus}
                   onChange={(status) => {
                     if (!live || !task.lastEditedTime) return;
                     void moveStatus({
@@ -203,8 +224,10 @@ export function TaskDetailModal({
                     });
                   }}
                 />
+              ) : shownStatus === 'In review' ? (
+                <StatusBadge>In review</StatusBadge>
               ) : (
-                <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill>
+                <Pill color={taskStatusColor(shownStatus, task.isDone)}>{shownStatus}</Pill>
               )}
             </Field>
             {task.assigneeName ? <Field label="Assignee" row={phone}>{task.assigneeName}</Field> : staff ? <Field label="Assignee" row={phone}>Unassigned</Field> : null}
@@ -269,18 +292,41 @@ export function TaskDetailModal({
                   <h3 className="ds-mono" style={{ fontSize: 12, letterSpacing: '2.64px', color: 'var(--fg)', margin: 0 }}>STAGE</h3>
                   <span className="ds-mono" style={{ fontSize: 12, color: 'var(--muted)' }}>visible to client</span>
                 </div>
+                {phone && stageConfirm ? (
+                  <StageConfirmSheet
+                    stage={stageConfirm}
+                    onCancel={() => setStageConfirm(null)}
+                    onConfirm={() => {
+                      const stage = stageConfirm;
+                      setStageConfirm(null);
+                      if (!live || !task.lastEditedTime) return;
+                      void moveStage({
+                        hostSlug,
+                        taskId: task.id as Id<'tasks'>,
+                        stage,
+                        expectedLastEditedTime: task.lastEditedTime,
+                      }).then((result) => {
+                        if (!result.ok) setAsideNote(result.error);
+                      });
+                    }}
+                  />
+                ) : (
                 <div className="flex flex-wrap gap-2">
                   {TASK_STAGES.map((stage) => {
-                    const visualLock = stage !== 'Idea' && stage !== 'Planning';
                     const current = task.stage === stage;
+                    const visualLock = stage === 'Shipped' && !current;
                     return (
                       <button
                         key={stage}
                         type="button"
-                        disabled={visualLock && !current}
-                        aria-pressed={current}
+                        disabled={visualLock}
+                        aria-pressed={task.stage === stage}
                         onClick={() => {
-                          if (visualLock) return;
+                          if (visualLock || current) return;
+                          if (phone) {
+                            setStageConfirm(stage);
+                            return;
+                          }
                           if (!live || !task.lastEditedTime) return;
                           void moveStage({
                             hostSlug,
@@ -296,28 +342,29 @@ export function TaskDetailModal({
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: 8,
-                          border: current
-                            ? '1px solid var(--fg)'
-                            : visualLock
-                              ? '1px dashed var(--border)'
+                          border: visualLock
+                            ? '1px dashed var(--border-2)'
+                            : current
+                              ? '1px solid var(--fg)'
                               : '1px solid var(--border-2, var(--border))',
                           borderRadius: 999,
                           padding: '8px 12px',
                           background: current ? 'var(--fg)' : 'transparent',
-                          color: current ? 'var(--bg)' : visualLock ? 'var(--faint, #636363)' : 'var(--fg)',
-                          opacity: visualLock && !current ? 0.72 : 1,
-                          cursor: visualLock && !current ? 'not-allowed' : 'pointer',
+                          color: current ? 'var(--bg)' : visualLock ? 'var(--muted)' : 'var(--fg)',
+                          cursor: visualLock ? 'not-allowed' : 'pointer',
                           fontSize: 13,
+                          whiteSpace: 'nowrap',
                         }}
                       >
                         {stage}
-                        {visualLock && !current ? <TaskGlyph src="/icons/task-lock.svg" size={8} /> : null}
+                        {visualLock ? <TaskGlyph src="/icons/task-lock.svg" size={8} /> : null}
                       </button>
                     );
                   })}
                 </div>
-                <p style={{ fontSize: 12, lineHeight: '17px', color: 'var(--muted)', margin: 0 }}>
-                  Admin can set Idea or Planning here. Later stages are set in Notion by staff and shown read-only.
+                )}
+                <p data-testid="task-stage-hint" style={{ fontSize: 12, lineHeight: '17px', color: 'var(--muted)', margin: 0 }}>
+                  {TASK_STAGE_HINT}
                 </p>
               </div>
             ) : (
@@ -509,7 +556,7 @@ function StatusMenu({ value, onChange }: { value: string; onChange: (status: str
         className="flex w-full items-center justify-between gap-2"
         style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', color: 'var(--fg)', padding: '0.45rem 0.7rem' }}
       >
-        <Pill color={taskStatusColor(value, value === 'Done')}>{value}</Pill>
+        {value === 'In review' ? <StatusBadge>In review</StatusBadge> : <Pill color={taskStatusColor(value, value === 'Done')}>{value}</Pill>}
         <TaskGlyph src="/icons/task-chev-down.svg" />
       </button>
       {open ? (
@@ -641,7 +688,7 @@ export function TaskCreateDialog({
             Stage
             <select value={stage} onChange={(event) => setStage(event.target.value)} style={inputStyle}>
               <option value="">Leave empty</option>
-              {TASK_STAGES.filter((value) => value !== 'Building' && value !== 'Shipped' && value !== 'Ready to Ship').map((value) => (
+              {TASK_STAGES.filter((value) => value !== 'Shipped').map((value) => (
                 <option key={value}>{value}</option>
               ))}
             </select>
@@ -817,16 +864,22 @@ function ModalShell({
   onClose,
   label,
   width = 840,
+  scrim = 'solid',
+  suspended = false,
   children,
 }: {
   phone: boolean;
   onClose: () => void;
   label: string;
   width?: number;
+  scrim?: 'solid' | 'light';
+  /** The review dialog is the only modal while a decision is open. */
+  suspended?: boolean;
   children: React.ReactNode;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
+    if (suspended) return;
     const node = ref.current;
     const previous = document.activeElement as HTMLElement | null;
     node?.focus({ preventScroll: true });
@@ -853,9 +906,10 @@ function ModalShell({
       document.removeEventListener('keydown', onKey);
       previous?.focus({ preventScroll: true });
     };
-  }, [onClose]);
+  }, [onClose, suspended]);
+  if (suspended) return <>{children}</>;
   const dialog = (
-    <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: 'rgb(0 0 0 / 55%)', display: 'flex', alignItems: phone ? 'stretch' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
+    <div className="ds-scope" role="presentation" onClick={onClose} style={{ position: 'fixed', inset: 0, zIndex: 80, background: scrim === 'light' ? 'rgba(0,0,0,0.1)' : 'rgb(0 0 0 / 55%)', backdropFilter: scrim === 'light' ? 'blur(40px)' : undefined, WebkitBackdropFilter: scrim === 'light' ? 'blur(40px)' : undefined, display: 'flex', alignItems: phone ? 'stretch' : 'center', justifyContent: 'center', padding: phone ? 0 : 24 }}>
       <div
         ref={ref}
         role="dialog"

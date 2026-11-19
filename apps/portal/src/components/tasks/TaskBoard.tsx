@@ -30,6 +30,7 @@ import { NEW_TASK_HINT } from '@/components/tasks/itemStates';
 import { OutlineButton, Pill, PrimaryButton } from '@/components/ui/primitives';
 import { SyncChip } from '@/components/sync/SyncChip';
 import { formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
+import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from './TaskGlyph';
 
@@ -1100,7 +1101,7 @@ export function TaskCardFace({
         <p style={{ minWidth: 0, fontSize: 14, fontWeight: 500, lineHeight: '21px', overflowWrap: 'anywhere' }}>{task.name}</p>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        {mode === 'stage' ? <Pill color={taskStatusColor(task.status, task.isDone)}>{task.status}</Pill> : null}
+        {mode === 'stage' ? <Pill color={taskStatusColor(displayedTaskStatus(task.status, task.stage), task.isDone)}>{displayedTaskStatus(task.status, task.stage)}</Pill> : null}
         {mode === 'status' && task.stage ? (
           <span
             className="ds-mono inline-flex items-center gap-1"
@@ -1287,7 +1288,7 @@ function NeedsDialog({
           “{taskName}” needs a linked pull request before it can be Ready to Ship. Add it now to move it.
         </p>
         <label htmlFor="pr-link" className="flex flex-col gap-2" style={{ fontSize: 14 }}>
-          <span>{field?.label ?? 'Pull request link'} <span aria-hidden style={{ color: 'var(--danger)' }}>*</span></span>
+          <span>{field?.label ?? 'Pull request link'} <span aria-hidden style={{ color: 'var(--danger-text)' }}>*</span></span>
           <span className="flex items-center gap-2" style={{ border: error ? '2px solid var(--danger)' : '2px solid var(--accent)', borderRadius: 18, background: 'var(--surface-2, var(--bg))', padding: '0.7rem 0.85rem' }}>
             <span aria-hidden style={{ color: 'var(--muted)' }}>🔗</span>
             <input
@@ -1311,7 +1312,7 @@ function NeedsDialog({
             style={{ border: '1px solid var(--border)', borderRadius: 18, background: 'var(--surface-2, var(--bg))', color: 'var(--fg)', padding: '0.7rem 0.85rem' }}
           />
         </label>
-        {error ? <p style={{ color: 'var(--danger)', fontSize: 14, margin: 0 }}>{error}</p> : null}
+        {error ? <p style={{ color: 'var(--danger-text)', fontSize: 14, margin: 0 }}>{error}</p> : null}
         <div className="flex justify-end gap-2">
           <OutlineButton onClick={onCancel}>Cancel</OutlineButton>
           <PrimaryButton type="submit">Move to Ready to Ship</PrimaryButton>

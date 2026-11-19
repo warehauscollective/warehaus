@@ -33,8 +33,6 @@ describe('milestone page mutation errors', () => {
     const calls: string[] = [];
     let publishAttempts = 0;
     const mutations = {
-      decide: async () => undefined,
-      decideAsClient: async () => undefined,
       save: async () => undefined,
       setWorkStatus: async () => {
         calls.push('work');

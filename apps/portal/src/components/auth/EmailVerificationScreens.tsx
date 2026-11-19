@@ -190,7 +190,7 @@ export function CantRegisterMessage() {
           marginTop: 1,
           borderRadius: 999,
           border: '1.25px solid var(--danger)',
-          color: 'var(--danger)',
+          color: 'var(--danger-text)',
           fontSize: 10,
           fontWeight: 600,
           display: 'inline-flex',
@@ -201,7 +201,7 @@ export function CantRegisterMessage() {
       >
         !
       </span>
-      <span style={{ fontSize: 13, lineHeight: '18px', color: 'var(--danger)' }}>
+      <span style={{ fontSize: 13, lineHeight: '18px', color: 'var(--danger-text)' }}>
         {CANT_REGISTER_MESSAGE}
       </span>
     </span>

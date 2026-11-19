@@ -606,12 +606,12 @@ function ErrorNotice({ title, body }: { title: string; body: string }) {
     >
       <span
         className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full"
-        style={{ border: '1.25px solid var(--danger)', color: 'var(--danger)', fontSize: 11, fontWeight: 600 }}
+        style={{ border: '1.25px solid var(--danger)', color: 'var(--danger-text)', fontSize: 11, fontWeight: 600 }}
       >
         !
       </span>
       <span className="min-w-0">
-        <span className="block" style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px', color: 'var(--danger)' }}>
+        <span className="block" style={{ fontSize: 14, fontWeight: 600, lineHeight: '20px', color: 'var(--danger-text)' }}>
           {title}
         </span>
         <span className="mt-1 block" style={{ fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>

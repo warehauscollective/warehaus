@@ -227,6 +227,7 @@ export const listForStaff = adminQuery({
           source: row.source ?? null,
           description: row.description ?? null,
           descriptionSource: row.descriptionSource ?? null,
+          milestoneId: row.milestoneId ?? null,
           notionPageId: row.notionPageId,
           lastSyncedAt: row.lastSyncedAt,
           syncHidden: row.syncHiddenAt != null,

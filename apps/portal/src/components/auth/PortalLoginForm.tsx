@@ -217,7 +217,7 @@ export function PortalLoginForm({
         )}
 
         {error && (
-          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger)' }}>{error}</p>
+          <p style={{ fontSize: 'var(--t-sm)', color: 'var(--danger-text)' }}>{error}</p>
         )}
 
         {authUser && linkStatus === 'unlinked' && !error && !emailError && (

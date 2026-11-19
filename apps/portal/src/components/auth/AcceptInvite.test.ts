@@ -66,6 +66,15 @@ function typeInto(node: DomNode, value: string) {
   fire(node, 'keyup');
 }
 
+async function untilText(view: { text: () => string }, pattern: RegExp) {
+  for (let attempt = 0; attempt < 15; attempt += 1) {
+    if (pattern.test(view.text())) return;
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+}
+
 async function render(node: ReturnType<typeof createElement>) {
   const document = installTestDom();
   const container = document.createElement('div');
@@ -336,9 +345,7 @@ describe('AcceptInvite sign-up, sign-in, and confirm', () => {
     await act(async () => {
       fire(button, 'click');
     });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await untilText(view, /Finishing setup/);
     assert.deepEqual(harness.calls, ['accept']);
     assert.match(view.text(), /Finishing setup/);
     await view.unmount();
@@ -352,7 +359,9 @@ describe('AcceptInvite sign-up, sign-in, and confirm', () => {
       },
     });
     const view = await render(createElement(AcceptInvite, { io: harness }));
+    await untilText(view, /Join Warehaus/);
     const inputs = nodes(view.container, 'input');
+    assert.equal(inputs.length >= 2, true);
     await act(async () => {
       typeInto(inputs[0]!, 'password1');
       typeInto(inputs[1]!, 'password1');
@@ -362,9 +371,7 @@ describe('AcceptInvite sign-up, sign-in, and confirm', () => {
     await act(async () => {
       fire(form, 'submit');
     });
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
+    await untilText(view, /Finishing setup/);
     assert.deepEqual(harness.calls, ['sign-up', 'sign-in', 'accept']);
     assert.match(view.text(), /Finishing setup/);
     assert.match(view.text(), /Try again/);

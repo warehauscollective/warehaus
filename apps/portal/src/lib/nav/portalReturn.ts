@@ -36,6 +36,8 @@ export function takePortalReturn(): string | null {
 function labelForTab(tab: string | null): string {
   if (tab === 'activity') return 'Back to activity';
   if (tab === 'projects') return 'Back to board';
+  if (tab === 'resources') return 'Back to resources';
+  if (tab === 'account') return 'Back to account';
   if (!tab || tab === 'dashboard') return 'Back to dashboard';
   return 'Back';
 }

@@ -340,22 +340,101 @@ export function StateCard({
   );
 }
 
+/** Phone stage confirm. Replaces the picker in place. It is not a second modal. */
+export function StageConfirmSheet({
+  stage,
+  onCancel,
+  onConfirm,
+}: {
+  stage: string;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div
+      data-testid="stage-confirm-sheet"
+      style={{
+        background: 'var(--surface)',
+        color: 'var(--fg)',
+        border: '1px solid var(--border-2)',
+        borderTopLeftRadius: 28,
+        borderTopRightRadius: 28,
+        padding: '8px 24px 24px',
+      }}
+    >
+      <div className="flex justify-center" aria-hidden="true">
+        <span style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border-2)' }} />
+      </div>
+      <div className="flex items-center justify-between gap-4 pt-4">
+        <h2 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600, margin: 0 }}>{`Move to ${stage}`}</h2>
+        <button type="button" onClick={onCancel} style={{ background: 'transparent', border: 0, padding: 0, color: 'var(--fg)', fontSize: 14, cursor: 'pointer' }}>
+          Close
+        </button>
+      </div>
+      <p style={{ margin: '16px 0', fontSize: 14, lineHeight: '21px' }}>{`Move this task to ${stage}?`}</p>
+      <div className="flex flex-col gap-2">
+        <button type="button" onClick={onCancel} style={{ width: '100%', background: 'transparent', color: 'var(--fg)', border: '1px solid var(--border-2)', borderRadius: 9, padding: '12px 16px', fontSize: 14 }}>
+          Cancel
+        </button>
+        <button type="button" onClick={onConfirm} style={{ width: '100%', background: 'var(--accent)', color: 'var(--accent-fg)', border: 0, borderRadius: 9, padding: '12px 16px', fontSize: 14, fontWeight: 600 }}>
+          Confirm
+        </button>
+      </div>
+    </div>
+  );
+}
+
 export function MilestoneDialog({
   title,
   onClose,
   children,
   testId,
+  phone,
+  hint,
+  footer,
+  onConfirm,
+  contained = false,
+  cover = false,
+  confirmOnEnter = false,
+  trapFocus = true,
+  hideClose = false,
+  actionsRow = false,
+  hideChromeBelow = false,
+  spinner = false,
 }: {
   title: string;
   onClose: () => void;
   children: ReactNode;
   testId?: string;
+  /** Force the phone sheet or the desktop dialog. Omit to follow the viewport. */
+  phone?: boolean;
+  hint?: string;
+  footer?: ReactNode;
+  onConfirm?: () => void;
+  /** Stay in the parent flow. The live dialog is a fixed overlay. */
+  contained?: boolean;
+  /** Cover the parent frame so the scrim sits on the page behind it. */
+  cover?: boolean;
+  /** Plain Enter confirms. Text fields still insert a newline. */
+  confirmOnEnter?: boolean;
+  trapFocus?: boolean;
+  /** Phone confirm has no second close control. */
+  hideClose?: boolean;
+  /** Phone confirm keeps Cancel and Approve side by side. */
+  actionsRow?: boolean;
+  /** Live approve confirm hides the hint and Close below the desktop breakpoint. */
+  hideChromeBelow?: boolean;
+  /** Spinner beside the title while an approval is saving. */
+  spinner?: boolean;
 }) {
   const overlayRef = useRef<HTMLDivElement>(null);
   const dialogRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
+  const onConfirmRef = useRef(onConfirm);
   onCloseRef.current = onClose;
+  onConfirmRef.current = onConfirm;
   useEffect(() => {
+    if (!trapFocus) return;
     const overlay = overlayRef.current;
     const node = dialogRef.current;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -371,6 +450,18 @@ export function MilestoneDialog({
     const onKey = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         onCloseRef.current();
+        return;
+      }
+      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+        event.preventDefault();
+        onConfirmRef.current?.();
+        return;
+      }
+      if (confirmOnEnter && event.key === 'Enter' && !event.shiftKey && !event.altKey) {
+        const target = event.target;
+        if (target instanceof HTMLTextAreaElement || (target instanceof HTMLInputElement && target.type !== 'button')) return;
+        event.preventDefault();
+        onConfirmRef.current?.();
         return;
       }
       if (event.key !== 'Tab' || !node) return;
@@ -405,13 +496,32 @@ export function MilestoneDialog({
       release();
       previous?.focus({ preventScroll: true });
     };
-  }, []);
+  }, [trapFocus, confirmOnEnter]);
+
+  const sheet = phone === true;
+  const responsive = phone == null;
+  const overlayClass = [
+    'ds-scope flex justify-center overflow-y-auto',
+    cover ? 'absolute inset-0' : contained ? 'relative min-h-[280px]' : 'fixed inset-0',
+    sheet ? 'items-end' : responsive ? 'items-end md:items-center md:p-6' : 'items-center p-6',
+  ].join(' ');
+  const panelClass = [
+    'flex w-full flex-col',
+    sheet ? 'rounded-t-[28px]' : responsive ? 'rounded-t-[28px] md:max-w-[640px] md:rounded-[28px] md:shadow-[0_16px_48px_rgba(0,0,0,0.24)]' : 'max-w-[640px] rounded-[28px]',
+  ].join(' ');
+  const showGrabber = sheet || responsive;
 
   return (
     <div
       ref={overlayRef}
-      className="fixed inset-0 flex items-start justify-center overflow-y-auto md:px-4 md:py-16"
-      style={{ zIndex: 80, background: 'color-mix(in oklab, var(--bg) 72%, transparent)', pointerEvents: 'auto' }}
+      className={overlayClass}
+      style={{
+        zIndex: cover ? 2 : contained ? 1 : 80,
+        background: 'var(--scrim)',
+        backdropFilter: 'blur(var(--scrim-blur))',
+        WebkitBackdropFilter: 'blur(var(--scrim-blur))',
+        pointerEvents: 'auto',
+      }}
     >
       <div
         ref={dialogRef}
@@ -420,23 +530,76 @@ export function MilestoneDialog({
         aria-label={title}
         tabIndex={-1}
         data-testid={testId}
-        className="min-h-full w-full rounded-none md:min-h-0 md:max-w-[760px] md:rounded-[var(--panel-radius,12px)]"
+        className={panelClass}
         style={{
           background: 'var(--surface)',
-          border: '1px solid var(--border)',
-          padding: 24,
+          color: 'var(--fg)',
+          border: '1px solid var(--border-2)',
+          ...(phone === false ? { boxShadow: '0 16px 48px rgba(0, 0, 0, 0.24)' } : sheet ? { boxShadow: 'none' } : {}),
         }}
       >
-        <div className="flex items-center justify-between gap-4 md:items-start">
-          <GhostButton testId="milestone-dialog-close" onClick={onClose}>
-            <span className="md:hidden">Cancel</span>
-            <span className="hidden md:inline">Close</span>
-          </GhostButton>
-          <h2 className="md:order-first md:mr-auto" style={{ fontSize: 30, lineHeight: '39px', fontWeight: 600 }}>
+        {showGrabber ? (
+          <div className={responsive ? 'flex justify-center pt-2 md:hidden' : 'flex justify-center pt-2'} aria-hidden="true">
+            <span style={{ width: 36, height: 4, borderRadius: 2, background: 'var(--border-2)' }} />
+          </div>
+        ) : null}
+        <div className="flex items-center justify-between gap-4 px-6 pt-4">
+          <h2 className="type-heading flex items-center gap-3" style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600, margin: 0 }}>
+            {spinner ? (
+              <>
+                <style>{'@keyframes review-spin{to{transform:rotate(360deg)}}'}</style>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    width: 18,
+                    height: 18,
+                    flex: '0 0 auto',
+                    borderRadius: '50%',
+                    border: '1.5px solid var(--border-2)',
+                    borderTopColor: 'var(--fg)',
+                    animation: 'review-spin 0.8s linear infinite',
+                  }}
+                />
+              </>
+            ) : null}
             {title}
           </h2>
+          {hideClose ? null : (
+            <button
+              type="button"
+              className={hideChromeBelow ? 'hidden md:inline' : undefined}
+              data-testid="milestone-dialog-close"
+              onClick={onClose}
+              style={{
+                background: 'transparent',
+                color: 'var(--fg)',
+                border: 0,
+                padding: 0,
+                fontSize: 14,
+                lineHeight: '21px',
+                cursor: 'pointer',
+              }}
+            >
+              Close
+            </button>
+          )}
         </div>
-        {children}
+        <div className="px-6 py-4">{children}</div>
+        {hint || footer ? (
+          <div
+            className={sheet && !actionsRow ? 'flex flex-col gap-3 border-t px-6 pt-4' : 'flex flex-wrap items-center justify-between gap-3 border-t px-6 pt-4'}
+            style={{ borderColor: 'var(--border)', paddingBottom: sheet ? 24 : 16 }}
+          >
+            {hint ? (
+              <p className={hideChromeBelow ? 'ds-mono hidden md:block' : 'ds-mono'} style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                {hint}
+              </p>
+            ) : (
+              <span />
+            )}
+            <div className={sheet && !actionsRow ? 'flex w-full flex-col gap-2' : 'flex flex-wrap justify-end gap-2'}>{footer}</div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
@@ -475,7 +638,7 @@ export function MenuActionError({
 }) {
   return (
     <div id={MENU_ERROR_ID} role="alert" data-testid="milestone-error" className="flex flex-col items-start gap-2">
-      <p style={{ fontSize: 13, color: 'var(--danger)' }}>{error}</p>
+      <p style={{ fontSize: 13, color: 'var(--danger-text)' }}>{error}</p>
       <button type="button" onClick={onDismiss} style={{ font: 'inherit', fontSize: 13, color: 'var(--fg)', background: 'none', border: 0, padding: 0, cursor: 'pointer' }}>
         Dismiss
       </button>
