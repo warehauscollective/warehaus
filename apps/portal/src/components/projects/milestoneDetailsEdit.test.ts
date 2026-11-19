@@ -99,6 +99,11 @@ describe('milestone details panel', () => {
     assert.match(client, /data-testid="milestone-due"[^>]*>—</);
     assert.equal(client.includes('milestone-owner-edit'), false);
     assert.equal(client.includes('milestone-due-edit'), false);
+    assert.match(staff, /data-testid="milestone-preview-link-edit"/);
+    assert.match(staff, /Attach preview link/);
+    assert.equal(client.includes('milestone-preview-link-edit'), false);
+    assert.equal(client.includes('Attach preview link'), false);
+    assert.equal(client.includes('Remove link'), false);
 
     const named = view({
       staff: true,

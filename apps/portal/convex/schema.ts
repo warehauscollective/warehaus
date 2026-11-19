@@ -233,6 +233,13 @@ export default defineSchema({
      * Never returned to a client. Never unique-turtle-383.
      */
     previewUrl: v.optional(v.string()),
+    /**
+     * Staff contact who attached previewUrl by hand. Absent when the preview
+     * worker stored the link, or when no link is attached. No index: reads
+     * stay on the milestone document.
+     */
+    previewAttachedBy: v.optional(v.id('contacts')),
+    previewAttachedAt: v.optional(v.number()),
     previewPrNumber: v.optional(v.number()),
     previewPrTitle: v.optional(v.string()),
     previewBranch: v.optional(v.string()),

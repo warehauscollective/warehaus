@@ -40,6 +40,10 @@ const views = [
   'staff-delete-removing',
   'staff-couldnt-remove',
   'milestone-page',
+  'attach',
+  'attached',
+  'remove-confirm',
+  'preview-link-invalid',
 ] as const satisfies readonly ApprovalsFocus[];
 
 const sizes = ['1440', '390'] as const satisfies readonly ApprovalsSize[];

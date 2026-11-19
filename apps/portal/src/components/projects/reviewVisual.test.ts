@@ -53,6 +53,25 @@ describe('review card state from milestone data', () => {
     assert.equal(deriveReviewVisual({ ...base, approval: 'approved', deployFinishedAt: null }), 'approved');
     assert.equal(deriveReviewVisual({ ...base, approval: 'approved', previewDelete: 'removed' }), 'approved');
     assert.equal(deriveReviewVisual({ ...base, previewUrl: null }), 'waiting');
+    assert.equal(
+      deriveReviewVisual({
+        ...base,
+        workStatus: 'ready',
+        previewUrl: 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app',
+        previewAttachedAt: 1,
+        designCheck: 'fixes',
+      }),
+      'ready',
+    );
+    assert.equal(
+      deriveReviewVisual({
+        ...base,
+        previewUrl: 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app',
+        previewAttachedAt: 1,
+        previewBuild: 'failed',
+      }),
+      'preview-failed',
+    );
     assert.equal(deriveReviewVisual({ ...base, designCheck: 'fixes' }), 'fixes');
     assert.equal(deriveReviewVisual({ ...base, approval: 'changes_requested' }), 'changes');
   });
@@ -145,8 +164,25 @@ describe('peter and staff preview visibility', () => {
     assert.equal(previewRemovalRecorded(removed), true);
     assert.equal(card(approved, { isPeter: true }).includes(PREVIEW_REMOVED), false);
     assert.match(card(removed, { isPeter: true }), new RegExp(PREVIEW_REMOVED.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    const waitingAttach: ReviewSurfaceModel = { ...base, previewUrl: null };
+    assert.equal(card(waitingAttach, { isPeter: false, staffAttach: true }).includes('data-testid="approve-deploy"'), false);
+    assert.match(card(waitingAttach, { isPeter: false, staffAttach: true }), /Attach preview link/);
+    assert.equal(card(waitingAttach, { isPeter: true, staffAttach: false }).includes('Attach preview link'), false);
+    assert.equal(card(waitingAttach, { isPeter: true, staffAttach: false }).includes('Remove link'), false);
+    const attached = card(
+      {
+        ...base,
+        workStatus: 'ready',
+        previewUrl: 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app',
+        previewAttachedAt: 1,
+      },
+      { isPeter: true, staffAttach: true },
+    );
+    assert.match(attached, /data-review-state="ready"/);
+    assert.match(attached, /data-testid="approve-deploy"/);
+    assert.match(attached, /Remove link/);
     const page = readFileSync(new URL('../../../app/preview/approvals/page.tsx', import.meta.url), 'utf8');
-    for (const view of ['retry-unavailable', 'retry-pending', 'retry-error', 'peter-delete-removing', 'peter-delete-failed', 'preview-removed', 'approved']) {
+    for (const view of ['retry-unavailable', 'retry-pending', 'retry-error', 'peter-delete-removing', 'peter-delete-failed', 'preview-removed', 'approved', 'attach', 'attached', 'remove-confirm', 'preview-link-invalid']) {
       assert.match(page, new RegExp(`'${view}'`));
     }
   });
