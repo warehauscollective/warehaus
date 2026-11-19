@@ -545,6 +545,8 @@ export type MilestoneResourceView = {
   id: string;
   title: string;
   url: string | null;
+  /** Resource type already stored on the row. Omitted when the row has none. */
+  type?: string | null;
 };
 
 const CLIENT_ROADMAP_OMIT = ['approval', 'note', 'approverName', 'decidedAt', 'creator'] as const;

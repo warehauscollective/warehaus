@@ -1484,7 +1484,11 @@ export function MilestoneDetailView({
                       <span>
                         <span style={{ display: 'block', fontSize: 14, fontWeight: 500 }}>{resource.title}</span>
                         <span style={{ display: 'block', marginTop: 4, fontSize: 12, color: 'var(--muted)' }}>
-                          {milestone.publishToWarehaus ? 'Shared with client' : 'On this milestone'}
+                          {staff
+                            ? milestone.publishToWarehaus
+                              ? 'Shared with client'
+                              : 'On this milestone'
+                            : `${resource.type?.trim() || 'Resource'} · Shared with you`}
                         </span>
                       </span>
                       {resource.url ? (

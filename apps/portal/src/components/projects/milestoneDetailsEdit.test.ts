@@ -120,13 +120,28 @@ describe('milestone details panel', () => {
         ...milestone,
         creatorName: 'Maya Chen',
         publishToWarehaus: true,
+        resources: [{ id: 'r-notes', title: 'Kickoff recap', url: 'https://example.com/recap', type: 'Meeting notes' }],
       },
     });
     assert.match(shared, /data-testid="milestone-creator"[^>]*>Maya Chen</);
-    assert.match(shared, /data-testid="milestone-publish"[^>]*>Shared with client</);
+    assert.match(shared, /data-testid="milestone-publish"[^>]*>Published</);
+    assert.match(shared, /Meeting notes · Shared with you/);
+    assert.equal(shared.includes('Shared with client'), false);
     assert.equal(shared.includes('milestone-visibility-edit'), false);
     assert.equal(shared.includes('milestone-owner-edit'), false);
     assert.equal(shared.includes('Staff only'), false);
+
+    const publishedStaff = view({
+      staff: true,
+      milestone: {
+        ...milestone,
+        publishToWarehaus: true,
+        resources: [{ id: 'r-notes', title: 'Kickoff recap', url: null, type: 'Meeting notes' }],
+      },
+    });
+    assert.equal(publishedStaff.includes('clients see nothing'), false);
+    assert.match(publishedStaff, /Shared with client/);
+    assert.equal(publishedStaff.includes('Shared with you'), false);
   });
 
   it('flips a menu above its anchor when the space below is too short', () => {

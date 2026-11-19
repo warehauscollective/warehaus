@@ -85,7 +85,7 @@ export function fixtureMilestones(
       ownerName: 'Maya Chen',
       dueDate: '2026-11-20',
       creatorName: 'Maya Chen',
-      resources: [{ id: 'r-notes', title: 'Kickoff recap', url: 'https://example.com/recap' }],
+      resources: [{ id: 'r-notes', title: 'Kickoff recap', url: 'https://example.com/recap', type: 'Meeting notes' }],
       openCount: launchRoad.openCount,
       doneCount: launchRoad.doneCount,
       countIsDecision: false,

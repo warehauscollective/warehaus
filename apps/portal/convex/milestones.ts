@@ -277,6 +277,7 @@ async function milestoneResources(
       id: resource._id,
       title: resource.title,
       url: resource.blobUrl ?? resource.url ?? null,
+      ...(resource.type ? { type: resource.type } : {}),
     });
   }
   return resources;

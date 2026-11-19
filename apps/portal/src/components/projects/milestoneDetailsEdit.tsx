@@ -523,10 +523,10 @@ export function useMilestoneDetailEdits({
             />
             ) : (
               <FieldValue>
-                <span data-testid="milestone-publish">{milestone.publishToWarehaus ? 'Shared with client' : 'Not published'}</span>
+                <span data-testid="milestone-publish">{milestone.publishToWarehaus ? 'Published' : 'Not published'}</span>
               </FieldValue>
             )}
-            {staff ? (
+            {staff && !milestone.publishToWarehaus ? (
             <p data-testid="milestone-visibility-note" style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
               Staff only · clients see nothing
             </p>
@@ -1061,7 +1061,9 @@ function VisibilityList({
   return (
     <div data-testid="milestone-visibility-sheet" onKeyDown={(event) => menuKey(event, onClose)} style={{ padding: 16 }}>
       <h2 style={{ fontSize: 20, lineHeight: '30px', fontWeight: 600 }}>Visibility</h2>
-      <p style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>Staff only · clients see nothing</p>
+      {published ? null : (
+        <p style={{ marginTop: 4, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>Staff only · clients see nothing</p>
+      )}
       <div className="mt-3 flex flex-col gap-1">
         <SegmentButton selected={!published} onClick={() => onPick(false)}>Not published</SegmentButton>
         <SegmentButton selected={published} onClick={() => onPick(true)}>Published</SegmentButton>
