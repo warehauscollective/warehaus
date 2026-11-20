@@ -54,6 +54,7 @@ import {
   STATUS_ACTIVITY,
   backfillPageSize,
   milestoneStatusOf,
+  planRetiredFieldsPage,
   planStatusBackfillPage,
   transitionMilestone,
   type MilestoneStatus,
@@ -1936,6 +1937,60 @@ export const backfillStatus = internalMutation({
       alreadySet: report.alreadySet,
       [apply ? 'updated' : 'wouldUpdate']: report.toSet,
       disagreements: report.disagreements,
+      continueCursor: page.isDone ? null : page.continueCursor,
+      isDone: page.isDone,
+    };
+  },
+});
+
+/**
+ * The step before the schema narrows. Removes the retired `stage`,
+ * `workStatus` and `detailStatus` values from rows that already have a
+ * status, so the narrowed schema accepts every row. One page per call on the
+ * `by_orgId` index. A row with no status is listed and left alone. A second
+ * run writes nothing.
+ *
+ * Dry run, writes nothing. Repeat with the returned cursor until isDone:
+ *   npx convex run milestones:clearRetiredStatusFields
+ * Apply, after the dry run has been read:
+ *   npx convex run milestones:clearRetiredStatusFields '{"apply":true}'
+ * Shared dev first. Do not pass --prod without Peter's explicit go-ahead.
+ */
+export const clearRetiredStatusFields = internalMutation({
+  args: {
+    apply: v.optional(v.boolean()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query('milestones')
+      .withIndex('by_orgId')
+      .paginate({ numItems: backfillPageSize(args.limit), cursor: args.cursor ?? null });
+    const report = planRetiredFieldsPage(
+      page.page.map((row) => ({
+        id: row._id,
+        name: row.name,
+        status: row.status ?? null,
+        stage: row.stage ?? null,
+        workStatus: row.workStatus ?? null,
+        detailStatus: row.detailStatus ?? null,
+      })),
+    );
+    const apply = args.apply === true;
+    if (apply) {
+      for (const write of report.writes) {
+        const patch: { stage?: undefined; workStatus?: undefined; detailStatus?: undefined } = {};
+        for (const field of write.fields) patch[field] = undefined;
+        await ctx.db.patch(write.id as Id<'milestones'>, patch);
+      }
+    }
+    return {
+      dryRun: !apply,
+      scanned: report.scanned,
+      alreadyClear: report.alreadyClear,
+      [apply ? 'cleared' : 'wouldClear']: report.toClear,
+      missingStatus: report.missingStatus,
       continueCursor: page.isDone ? null : page.continueCursor,
       isDone: page.isDone,
     };
