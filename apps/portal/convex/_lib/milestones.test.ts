@@ -21,9 +21,9 @@ import {
   resourceEditDecision,
   resourceLinkDecision,
   taskLinkPatch,
-  workStatusDecision,
   type RoadmapTaskInput,
 } from './milestones';
+import { transitionMilestone } from './milestoneStatus';
 
 const projectOpen = {
   name: 'Northwind site',
@@ -59,7 +59,7 @@ describe('milestone create', () => {
       name: ' Launch ',
       objective: ' The homepage is up ',
       goals: [' Hero ', '', ' Menu '],
-      workStatus: 'ready',
+      status: 'Ready to Ship',
     });
     assert.equal(created.ok, true);
     if (!created.ok) return;
@@ -127,7 +127,10 @@ describe('who may edit', () => {
     assert.equal(locked.ok, false);
     if (locked.ok) return;
     assert.equal(locked.reason, AI_LOCKED);
-    assert.equal(workStatusDecision({ actor: 'ai', approval: 'approved', from: 'ready', to: 'active' }).ok, false);
+    assert.equal(
+      transitionMilestone({ from: 'Ready to Ship', cause: 'set', to: 'Building', actor: 'ai', approval: 'approved' }).ok,
+      false,
+    );
     assert.equal(resourceEditDecision({ actor: 'ai', approval: 'approved' }).ok, false);
     assert.equal(publishDecision({ actor: 'ai', publishToWarehaus: true }).ok, false);
   });
@@ -144,26 +147,31 @@ describe('who may edit', () => {
     assert.equal(resourceEditDecision({ actor: 'human', approval: 'approved' }).ok, false);
   });
 
-  it('lets a human move work status, including after approval', () => {
-    const moved = workStatusDecision({
+  it('lets a human move the status, including after approval', () => {
+    const moved = transitionMilestone({
+      from: 'Building',
+      cause: 'set',
+      to: 'Ready to Ship',
       actor: 'human',
       approval: 'approved',
-      from: 'active',
-      to: 'ready',
     });
-    assert.equal(moved.ok, true);
-    if (!moved.ok) return;
-    assert.equal(moved.workStatus, 'ready');
-    assert.equal(moved.activityType, 'milestone.ready');
-    assert.equal(
-      workStatusDecision({ actor: 'human', approval: 'approved', from: 'ready', to: 'ready' }).ok &&
-        workStatusDecision({ actor: 'human', approval: 'approved', from: 'ready', to: 'ready' }).ok,
-      true,
-    );
-    const again = workStatusDecision({ actor: 'human', approval: 'unreviewed', from: 'ready', to: 'ready' });
-    assert.equal(again.ok, true);
-    if (!again.ok) return;
-    assert.equal(again.activityType, null);
+    assert.deepEqual(moved, { ok: true, from: 'Building', status: 'Ready to Ship', wrote: true });
+    const again = transitionMilestone({ from: 'Ready to Ship', cause: 'set', to: 'Ready to Ship' });
+    assert.deepEqual(again, { ok: true, from: 'Ready to Ship', status: 'Ready to Ship', wrote: false });
+  });
+
+  it('starts a new milestone at Planning and never at Shipped', () => {
+    const base = { actor: 'human' as const, name: 'Launch', objective: 'Up', goals: [] };
+    const plain = createMilestoneDecision(base);
+    assert.equal(plain.ok && plain.milestone.status, 'Planning');
+    assert.equal(plain.ok && plain.activityType, null);
+    const idea = createMilestoneDecision({ ...base, status: 'Idea' });
+    assert.equal(idea.ok && idea.milestone.status, 'Idea');
+    assert.deepEqual(createMilestoneDecision({ ...base, status: 'Shipped' }), {
+      ok: false,
+      reason: 'Shipped is set when the pull request merges',
+    });
+    assert.deepEqual(createMilestoneDecision({ ...base, status: 'ready' }), { ok: false, reason: 'Unknown status' });
   });
 
   it('lets a human publish without changing approval', () => {
@@ -281,7 +289,7 @@ describe('human decision', () => {
     assert.equal(decided.patch.note, 'The homepage matches the frame');
     assert.equal(decided.patch.approverContactId, 'contact-1');
     assert.equal(decided.patch.decidedAt, 100);
-    assert.equal(decided.patch.workStatus, undefined);
+    assert.equal(decided.patch.status, undefined);
     assert.deepEqual(decided.taskWrites, []);
     assert.equal(decided.tasks[0]?.isDone, false);
     assert.equal(decided.tasks[0]?.status, 'In Progress');
@@ -299,7 +307,7 @@ describe('human decision', () => {
     });
     assert.equal(decided.ok, true);
     if (!decided.ok) return;
-    assert.equal(decided.patch.workStatus, 'active');
+    assert.equal(decided.patch.status, 'Building');
     assert.equal(decided.activityType, 'milestone.changes_requested');
     assert.equal(decided.tasks[0]?.isDone, false);
   });

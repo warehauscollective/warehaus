@@ -17,6 +17,15 @@ Every plan or feature follows this. Cursor agents, Claude agents, and Grok bots 
 - Product Design Lead checks the build against Figma from screenshots (Dark and Light, desktop and phone) and posts pass or fixes on the milestone. Then Peter opens the build.
 - Peter's feedback becomes iteration tasks in the same milestone ("Iteration N: …"). If the design changes, Product Design Lead updates Figma first so Figma and the build match. Rebuild and preview again on his Mac.
 
+### Milestone status
+
+- A milestone has one field, Status: Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, Parked.
+- Every status write goes through `transitionMilestone()` in `apps/portal/convex/_lib/milestoneStatus.ts`.
+- Staff can set any status except Shipped. Shipped is set when the pull request merges, never by hand.
+- The play button moves one step: Idea, Planning, Awaiting Go, Building, Ready to Ship. No play on Ready to Ship, Shipped, or Parked.
+- Approval is not a status. It is the review result. Approve unlocks when Status is Ready to Ship and a preview is attached. Request changes moves Status back to Building.
+- The staff API and MCP return and accept `status`. `stage` and `workStatus` are aliases for one release.
+
 ### Preview
 
 - Previews for Peter are local builds on his Mac against shared dev Convex `graceful-mastiff-960`.

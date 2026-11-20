@@ -35,7 +35,6 @@ import {
   resourceEditDecision,
   resourceLinkDecision,
   taskLinkPatch,
-  workStatusDecision,
   type MilestoneActivityType,
   type MilestoneProjectGate,
   type MilestoneRoadmapView,
@@ -43,20 +42,23 @@ import {
 } from './_lib/milestones';
 import {
   detailActivitySummary,
-  detailStatusDecision,
-  detailStatusLabel,
   dueDateChangeDecision,
-  effectiveDetailStatus,
   clientReviewDecision,
-  effectiveStage,
   movedLaneCount,
   ownerChangeDecision,
   projectMoveDecision,
   publishChangeDecision,
-  stageChangeDecision,
   taskIdsToMove,
-  workStatusWrite,
 } from './_lib/milestoneDetails';
+import {
+  STATUS_ACTIVITY,
+  backfillPageSize,
+  milestoneStatusOf,
+  planStatusBackfillPage,
+  transitionMilestone,
+  type MilestoneStatus,
+  type Transition,
+} from './_lib/milestoneStatus';
 import { tileLinkChangeDecision, type TileLinkField } from './_lib/tileLinks';
 import {
   MILESTONE_ONE_NAME,
@@ -100,7 +102,15 @@ import {
 } from './_lib/reviewPreview';
 import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/wrappers';
 
-const workStatusArg = v.union(v.literal('draft'), v.literal('active'), v.literal('ready'));
+const statusArg = v.union(
+  v.literal('Idea'),
+  v.literal('Planning'),
+  v.literal('Awaiting Go'),
+  v.literal('Building'),
+  v.literal('Ready to Ship'),
+  v.literal('Shipped'),
+  v.literal('Parked'),
+);
 const decisionArg = v.union(v.literal('approved'), v.literal('changes_requested'));
 
 function fail(reason: string): never {
@@ -138,6 +148,29 @@ async function logMilestone(
     at,
     summary,
   );
+}
+
+/**
+ * The one writer of a milestone's status outside a review. Skips the write
+ * and the activity row when nothing changed. One activity row per change.
+ */
+async function writeStatus(
+  ctx: MutationCtx,
+  milestone: Doc<'milestones'>,
+  decision: Extract<Transition, { ok: true }>,
+  actorName: string,
+): Promise<boolean> {
+  if (!decision.wrote) return false;
+  await ctx.db.patch(milestone._id, { status: decision.status });
+  const at = Date.now();
+  await logMilestone(
+    ctx,
+    milestone,
+    STATUS_ACTIVITY,
+    at,
+    detailActivitySummary({ actor: actorName, from: decision.from, to: decision.status, at }),
+  );
+  return true;
 }
 
 async function replaceResources(
@@ -306,12 +339,10 @@ async function toRoadmap(
     name: milestone.name,
     objective: milestone.objective,
     goals: milestone.goals,
-    workStatus: milestone.workStatus,
+    status: milestoneStatusOf(milestone),
     ...roadmapReviewForAudience(audience, milestone),
     approverName: audience === 'staff' ? (approver?.name ?? null) : null,
     publishToWarehaus: milestone.publishToWarehaus,
-    detailStatus: milestone.detailStatus ?? null,
-    stage: milestone.stage ?? null,
     createdAt: milestone._creationTime,
     ownerContactId: milestone.ownerContactId ?? null,
     ownerName: await ownerNameFor(ctx, milestone),
@@ -462,7 +493,7 @@ async function insertMilestone(
     name: string;
     objective: string;
     goals: string[];
-    workStatus?: 'draft' | 'active' | 'ready';
+    status?: MilestoneStatus;
     resourceIds?: Id<'sharedResources'>[];
     ownerContactId?: Id<'contacts'>;
     dueDate?: string;
@@ -474,7 +505,7 @@ async function insertMilestone(
     name: args.name,
     objective: args.objective,
     goals: args.goals,
-    workStatus: args.workStatus,
+    status: args.status,
   });
   if (!created.ok) fail(created.reason);
   const milestoneId = await ctx.db.insert('milestones', {
@@ -483,7 +514,7 @@ async function insertMilestone(
     name: created.milestone.name,
     objective: created.milestone.objective,
     goals: created.milestone.goals,
-    workStatus: created.milestone.workStatus,
+    status: created.milestone.status,
     approval: created.milestone.approval,
     publishToWarehaus: created.milestone.publishToWarehaus,
     ...(args.ownerContactId ? { ownerContactId: args.ownerContactId } : {}),
@@ -508,7 +539,7 @@ export const create = adminMutation({
     name: v.string(),
     objective: v.string(),
     goals: v.array(v.string()),
-    workStatus: v.optional(workStatusArg),
+    status: v.optional(statusArg),
     resourceIds: v.optional(v.array(v.id('sharedResources'))),
     ownerContactId: v.optional(v.id('contacts')),
     dueDate: v.optional(v.string()),
@@ -540,7 +571,7 @@ export const createFromAi = internalMutation({
     name: v.string(),
     objective: v.string(),
     goals: v.array(v.string()),
-    workStatus: v.optional(workStatusArg),
+    status: v.optional(statusArg),
     resourceIds: v.optional(v.array(v.id('sharedResources'))),
   },
   handler: async (ctx, args) => {
@@ -579,7 +610,7 @@ export const saveFromAi = internalMutation({
     name: v.optional(v.string()),
     objective: v.optional(v.string()),
     goals: v.optional(v.array(v.string())),
-    workStatus: v.optional(workStatusArg),
+    status: v.optional(statusArg),
     resourceIds: v.optional(v.array(v.id('sharedResources'))),
   },
   handler: async (ctx, args) => {
@@ -590,16 +621,16 @@ export const saveFromAi = internalMutation({
       patch: { name: args.name, objective: args.objective, goals: args.goals },
     });
     if (!edited.ok) fail(edited.reason);
-    if (args.workStatus != null) {
-      const status = workStatusDecision({
+    if (args.status != null) {
+      const moved = transitionMilestone({
+        from: milestoneStatusOf(milestone),
+        cause: 'set',
+        to: args.status,
         actor: 'ai',
         approval: milestone.approval,
-        from: milestone.workStatus,
-        to: args.workStatus,
       });
-      if (!status.ok) fail(status.reason);
-      await ctx.db.patch(milestone._id, { workStatus: status.workStatus });
-      if (status.activityType) await logMilestone(ctx, milestone, status.activityType, Date.now());
+      if (!moved.ok) fail(moved.reason);
+      await writeStatus(ctx, milestone, moved, 'AI');
     }
     if (args.resourceIds) {
       const resources = resourceEditDecision({ actor: 'ai', approval: milestone.approval });
@@ -610,24 +641,6 @@ export const saveFromAi = internalMutation({
       await ctx.db.patch(milestone._id, edited.patch);
     }
     return { ok: true as const };
-  },
-});
-
-export const setWorkStatus = adminMutation({
-  args: { milestoneId: v.id('milestones'), workStatus: workStatusArg },
-  handler: async (ctx, args) => {
-    const milestone = await loadMilestone(ctx, args.milestoneId);
-    const status = workStatusDecision({
-      actor: 'human',
-      approval: milestone.approval,
-      from: milestone.workStatus,
-      to: args.workStatus,
-    });
-    if (!status.ok) fail(status.reason);
-    if (milestone.workStatus === status.workStatus) return { ok: true as const, wrote: false as const };
-    await ctx.db.patch(milestone._id, workStatusWrite(status.workStatus));
-    if (status.activityType) await logMilestone(ctx, milestone, status.activityType, Date.now());
-    return { ok: true as const, wrote: true as const };
   },
 });
 
@@ -657,80 +670,48 @@ export const setPublish = adminMutation({
   },
 });
 
-const detailStatusArg = v.union(
-  v.literal('draft'),
-  v.literal('in_progress'),
-  v.literal('in_review'),
-  v.literal('complete'),
-);
-const stageArg = v.union(
-  v.literal('Idea'),
-  v.literal('Planning'),
-  v.literal('Awaiting Go'),
-  v.literal('Building'),
-  v.literal('Ready to Ship'),
-  v.literal('Shipped'),
-  v.literal('Parked'),
-);
-
-export const setDetailStatus = adminMutation({
-  args: { milestoneId: v.id('milestones'), detailStatus: detailStatusArg },
+/**
+ * Staff pick a status from the menu, or undo a play. Any status except
+ * Shipped. The same value writes nothing. `expectedStatus` is what the
+ * caller last saw; when it no longer matches, nothing is written.
+ */
+export const setStatus = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    status: statusArg,
+    expectedStatus: v.optional(statusArg),
+  },
   handler: async (ctx, args) => {
     const milestone = await loadMilestone(ctx, args.milestoneId);
-    const decision = detailStatusDecision({
-      from: effectiveDetailStatus(milestone),
-      to: args.detailStatus,
+    const moved = transitionMilestone({
+      from: milestoneStatusOf(milestone),
+      cause: 'set',
+      to: args.status,
+      expected: args.expectedStatus,
     });
-    if (!decision.ok) fail(decision.reason);
-    if (!decision.wrote) return { ok: true as const, wrote: false as const };
-    const fromLabel = detailStatusLabel(effectiveDetailStatus(milestone));
-    await ctx.db.patch(milestone._id, {
-      detailStatus: decision.status,
-      ...(decision.workStatus ? { workStatus: decision.workStatus } : {}),
-    });
-    const at = Date.now();
-    await logMilestone(
-      ctx,
-      milestone,
-      'milestone.status',
-      at,
-      detailActivitySummary({
-        actor: ctx.identity.name,
-        from: fromLabel,
-        to: detailStatusLabel(decision.status),
-        at,
-      }),
-    );
-    return { ok: true as const, wrote: true as const };
+    if (!moved.ok) fail(moved.reason);
+    const wrote = await writeStatus(ctx, milestone, moved, ctx.identity.name);
+    return { ok: true as const, wrote, status: moved.status, previous: moved.from };
   },
 });
 
-export const setStage = adminMutation({
-  args: { milestoneId: v.id('milestones'), stage: stageArg },
+/**
+ * The play button. Staff only. One step forward: Idea, Planning, Awaiting
+ * Go, Building, Ready to Ship. Never Shipped. A status that changed since
+ * the caller read it is rejected. The same click sent twice writes once.
+ */
+export const advance = adminMutation({
+  args: { milestoneId: v.id('milestones'), expectedStatus: statusArg },
   handler: async (ctx, args) => {
     const milestone = await loadMilestone(ctx, args.milestoneId);
-    const decision = stageChangeDecision({
-      from: effectiveStage(milestone),
-      to: args.stage,
+    const moved = transitionMilestone({
+      from: milestoneStatusOf(milestone),
+      cause: 'advance',
+      expected: args.expectedStatus,
     });
-    if (!decision.ok) fail(decision.reason);
-    if (!decision.wrote) return { ok: true as const, wrote: false as const };
-    const fromLabel = effectiveStage(milestone);
-    await ctx.db.patch(milestone._id, { stage: decision.stage });
-    const at = Date.now();
-    await logMilestone(
-      ctx,
-      milestone,
-      'milestone.stage',
-      at,
-      detailActivitySummary({
-        actor: ctx.identity.name,
-        from: fromLabel,
-        to: decision.stage,
-        at,
-      }),
-    );
-    return { ok: true as const, wrote: true as const };
+    if (!moved.ok) fail(moved.reason);
+    const wrote = await writeStatus(ctx, milestone, moved, ctx.identity.name);
+    return { ok: true as const, wrote, status: moved.status, previous: moved.from };
   },
 });
 
@@ -1100,7 +1081,7 @@ async function applyMilestoneReview(
       tokenName: args.tokenName,
     },
     currentIteration: currentIteration(milestone.iteration),
-    workStatus: milestone.workStatus,
+    status: milestoneStatusOf(milestone),
     hasPreview: Boolean(milestone.previewUrl),
     iteration: args.iteration,
     decision: args.decision,
@@ -1118,7 +1099,7 @@ async function applyMilestoneReview(
       iteration: existing.iteration,
       decision: existing.decision,
       approval: milestone.approval,
-      workStatus: milestone.workStatus,
+      milestoneStatus: milestoneStatusOf(milestone),
       createdTaskIds: existing.createdTaskIds,
     };
   }
@@ -1134,7 +1115,8 @@ async function applyMilestoneReview(
       approval: 'approved',
       approverContactId: contactId,
       decidedAt,
-      workStatus: 'ready',
+      // Approve keeps Ready to Ship. Stored here so an old row gains the field.
+      ...(milestone.status !== planned.status ? { status: planned.status } : {}),
       ...(milestone.previewUrl ? { previewUrl: '' } : {}),
       ...(deploymentId ? { previewDelete: 'removing' as const } : {}),
     });
@@ -1167,7 +1149,7 @@ async function applyMilestoneReview(
       iteration: args.iteration,
       decision: 'approve' as const,
       approval: 'approved' as const,
-      workStatus: 'ready' as const,
+      milestoneStatus: planned.status,
       createdTaskIds: [],
     };
   }
@@ -1207,7 +1189,7 @@ async function applyMilestoneReview(
     approval: 'changes_requested',
     approverContactId: contactId,
     decidedAt,
-    workStatus: 'active',
+    status: planned.status,
     iteration: planned.nextIteration,
     previewUrl: '',
     designCheck: 'pending',
@@ -1241,7 +1223,7 @@ async function applyMilestoneReview(
     iteration: planned.nextIteration,
     decision: 'request_changes' as const,
     approval: 'changes_requested' as const,
-    workStatus: 'active' as const,
+    milestoneStatus: planned.status,
     createdTaskIds,
   };
 }
@@ -1902,6 +1884,60 @@ export const migrateMilestoneOne = internalMutation({
       attached,
       counts: report.counts,
       projects: report.projects,
+    };
+  },
+});
+
+/**
+ * One-time backfill for the Status field. One page per call, walked on the
+ * `by_orgId` index. Sets `status` from the old stage, else from the old work
+ * status (draft is Planning, active is Building, ready is Ready to Ship).
+ * Rows that already have a status are skipped, so a second run writes nothing.
+ * Each page lists the rows where the old fields disagreed.
+ *
+ * Dry run, writes nothing. Repeat with the returned cursor until isDone:
+ *   npx convex run milestones:backfillStatus
+ *   npx convex run milestones:backfillStatus '{"cursor":"<continueCursor>"}'
+ * Apply, after the dry run has been read:
+ *   npx convex run milestones:backfillStatus '{"apply":true}'
+ *   npx convex run milestones:backfillStatus '{"apply":true,"cursor":"<continueCursor>"}'
+ * Shared dev first. Do not pass --prod without Peter's explicit go-ahead.
+ */
+export const backfillStatus = internalMutation({
+  args: {
+    apply: v.optional(v.boolean()),
+    cursor: v.optional(v.union(v.string(), v.null())),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query('milestones')
+      .withIndex('by_orgId')
+      .paginate({ numItems: backfillPageSize(args.limit), cursor: args.cursor ?? null });
+    const report = planStatusBackfillPage(
+      page.page.map((row) => ({
+        id: row._id,
+        name: row.name,
+        status: row.status ?? null,
+        stage: row.stage ?? null,
+        workStatus: row.workStatus ?? null,
+        detailStatus: row.detailStatus ?? null,
+      })),
+    );
+    const apply = args.apply === true;
+    if (apply) {
+      for (const write of report.writes) {
+        await ctx.db.patch(write.id as Id<'milestones'>, { status: write.status });
+      }
+    }
+    return {
+      dryRun: !apply,
+      scanned: report.scanned,
+      alreadySet: report.alreadySet,
+      [apply ? 'updated' : 'wouldUpdate']: report.toSet,
+      disagreements: report.disagreements,
+      continueCursor: page.isDone ? null : page.continueCursor,
+      isDone: page.isDone,
     };
   },
 });

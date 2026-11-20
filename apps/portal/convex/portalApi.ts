@@ -44,10 +44,17 @@ import {
   attachFailureStatus,
   contentEditDecision,
   createMilestoneDecision,
-  workStatusDecision,
   writeMilestoneActivity,
   type AttachFailureCode,
 } from './_lib/milestones';
+import { detailActivitySummary } from './_lib/milestoneDetails';
+import {
+  STATUS_ACTIVITY,
+  apiStatusFields,
+  apiStatusInput,
+  milestoneStatusOf,
+  transitionMilestone,
+} from './_lib/milestoneStatus';
 import { convexFailureText } from './_lib/userFacingError';
 
 const PAGE_CAP = 50;
@@ -94,7 +101,8 @@ function staffMilestone(row: Doc<'milestones'>) {
     name: row.name,
     objective: row.objective,
     goals: row.goals,
-    workStatus: row.workStatus,
+    // `status` is the field. `stage` and `workStatus` are aliases for one release.
+    ...apiStatusFields(milestoneStatusOf(row)),
     approval: row.approval,
     publishToWarehaus: row.publishToWarehaus,
   };
@@ -636,6 +644,8 @@ export const createMilestone = internalMutation({
     name: v.string(),
     objective: v.string(),
     goals: v.array(v.string()),
+    status: v.optional(v.string()),
+    stage: v.optional(v.string()),
     workStatus: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ApiResult> => {
@@ -645,12 +655,14 @@ export const createMilestone = internalMutation({
     if (!project || !(await orgVisible(ctx, project.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
     }
+    const wanted = apiStatusInput(args);
+    if (!wanted.ok) return finishIdempotency(ctx, opened.id, fail(400, wanted.reason));
     const created = createMilestoneDecision({
       actor: 'human',
       name: args.name,
       objective: args.objective,
       goals: args.goals,
-      workStatus: args.workStatus,
+      status: wanted.status ?? undefined,
     });
     if (!created.ok) return finishIdempotency(ctx, opened.id, fail(400, created.reason));
     const milestoneId = await ctx.db.insert('milestones', {
@@ -659,7 +671,7 @@ export const createMilestone = internalMutation({
       name: created.milestone.name,
       objective: created.milestone.objective,
       goals: created.milestone.goals,
-      workStatus: created.milestone.workStatus,
+      status: created.milestone.status,
       approval: created.milestone.approval,
       publishToWarehaus: created.milestone.publishToWarehaus,
     });
@@ -685,6 +697,8 @@ export const updateMilestone = internalMutation({
     name: v.optional(v.string()),
     objective: v.optional(v.string()),
     goals: v.optional(v.array(v.string())),
+    status: v.optional(v.string()),
+    stage: v.optional(v.string()),
     workStatus: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ApiResult> => {
@@ -700,32 +714,29 @@ export const updateMilestone = internalMutation({
       patch: { name: args.name, objective: args.objective, goals: args.goals },
     });
     if (!edited.ok) return finishIdempotency(ctx, opened.id, fail(400, edited.reason));
-    let workStatus = milestone.workStatus;
-    let activity: 'milestone.ready' | null = null;
-    if (args.workStatus != null) {
-      const status = workStatusDecision({
-        actor: 'human',
-        approval: milestone.approval,
-        from: milestone.workStatus,
-        to: args.workStatus,
-      });
-      if (!status.ok) return finishIdempotency(ctx, opened.id, fail(400, status.reason));
-      workStatus = status.workStatus;
-      activity = status.activityType;
-    }
-    if (Object.keys(edited.patch).length === 0 && args.workStatus == null) {
+    const wanted = apiStatusInput(args);
+    if (!wanted.ok) return finishIdempotency(ctx, opened.id, fail(400, wanted.reason));
+    const from = milestoneStatusOf(milestone);
+    const moved =
+      wanted.status == null ? null : transitionMilestone({ from, cause: 'set', to: wanted.status });
+    if (moved && !moved.ok) return finishIdempotency(ctx, opened.id, fail(400, moved.reason));
+    if (Object.keys(edited.patch).length === 0 && wanted.status == null) {
       return finishIdempotency(ctx, opened.id, fail(400, 'At least one field is required'));
     }
-    await ctx.db.patch(milestone._id, {
+    const patch = {
       ...edited.patch,
-      ...(args.workStatus != null ? { workStatus } : {}),
-    });
-    if (activity) {
+      ...(moved?.ok && moved.wrote ? { status: moved.status } : {}),
+    };
+    // A repeat of the stored values writes nothing.
+    if (Object.keys(patch).length > 0) await ctx.db.patch(milestone._id, patch);
+    if (moved?.ok && moved.wrote) {
+      const at = Date.now();
       await writeMilestoneActivity(
         ctx as Parameters<typeof writeMilestoneActivity>[0],
         milestone,
-        activity,
-        Date.now(),
+        STATUS_ACTIVITY,
+        at,
+        detailActivitySummary({ actor: 'Staff API', from, to: moved.status, at }),
       );
     }
     return finishIdempotency(ctx, opened.id, { status: 200, body: { id: milestone._id } });
@@ -864,8 +875,9 @@ function json(body: unknown, status: number): Response {
 
 const TASK_UPDATE_FIELDS = ['taskId', 'expectedLastEditedTime', 'status', 'priority', 'nextAction', 'stage', 'pullRequestLink'];
 const TASK_CREATE_FIELDS = ['projectId', 'name', 'status', 'date', 'stage', 'milestoneId'];
-const MILESTONE_CREATE_FIELDS = ['projectId', 'name', 'objective', 'goals', 'workStatus'];
-const MILESTONE_UPDATE_FIELDS = ['milestoneId', 'name', 'objective', 'goals', 'workStatus'];
+// `stage` and `workStatus` are aliases of `status` for one release.
+const MILESTONE_CREATE_FIELDS = ['projectId', 'name', 'objective', 'goals', 'status', 'stage', 'workStatus'];
+const MILESTONE_UPDATE_FIELDS = ['milestoneId', 'name', 'objective', 'goals', 'status', 'stage', 'workStatus'];
 const COMMENT_FIELDS = ['taskId', 'body'];
 const LINK_FIELDS = ['taskId', 'kind', 'url', 'title', 'expectedLastEditedTime'];
 const CLIENT_CREATE_FIELDS = ['companyName', 'primaryEmail', 'phone'];
@@ -1091,7 +1103,7 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
           iteration: applied.iteration,
           decision: applied.decision,
           approval: applied.approval,
-          workStatus: applied.workStatus,
+          ...apiStatusFields(applied.milestoneStatus),
           createdTaskIds: applied.createdTaskIds,
         },
       };
@@ -1185,6 +1197,8 @@ async function dispatchWrite(
       name: String(body.name ?? ''),
       objective: String(body.objective ?? ''),
       goals: Array.isArray(body.goals) ? body.goals.filter((goal): goal is string => typeof goal === 'string') : [],
+      status: typeof body.status === 'string' ? body.status : undefined,
+      stage: typeof body.stage === 'string' ? body.stage : undefined,
       workStatus: typeof body.workStatus === 'string' ? body.workStatus : undefined,
     });
   }
@@ -1195,6 +1209,8 @@ async function dispatchWrite(
       name: typeof body.name === 'string' ? body.name : undefined,
       objective: typeof body.objective === 'string' ? body.objective : undefined,
       goals: Array.isArray(body.goals) ? body.goals.filter((goal): goal is string => typeof goal === 'string') : undefined,
+      status: typeof body.status === 'string' ? body.status : undefined,
+      stage: typeof body.stage === 'string' ? body.stage : undefined,
       workStatus: typeof body.workStatus === 'string' ? body.workStatus : undefined,
     });
   }

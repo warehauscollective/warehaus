@@ -19,7 +19,7 @@ import { MoreMenu } from './ProjectRoadmap';
 Object.assign(globalThis, { React });
 
 const milestone = {
-  workStatus: 'active',
+  status: 'Building',
   publishToWarehaus: false,
   rows: [{ id: 't1', name: 'Write brief' }],
 } as MilestoneRoadmapView;

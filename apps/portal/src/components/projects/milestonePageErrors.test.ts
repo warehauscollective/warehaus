@@ -13,7 +13,7 @@ const milestone = {
   name: 'Launch the homepage',
   objective: 'Ship the homepage.',
   goals: ['The homepage is live'],
-  workStatus: 'active',
+  status: 'Building',
   approval: 'unreviewed',
   note: null,
   approverName: null,
@@ -28,16 +28,12 @@ const milestone = {
 } as MilestoneRoadmapView;
 
 describe('milestone page mutation errors', () => {
-  it('shows publish, work-status, and attach failures from the thrown mutations and keeps the tasks tab usable', async () => {
+  it('shows publish and attach failures from the thrown mutations and keeps the tasks tab usable', async () => {
     const document = installDom();
     const calls: string[] = [];
     let publishAttempts = 0;
     const mutations = {
       save: async () => undefined,
-      setWorkStatus: async () => {
-        calls.push('work');
-        throw new Error('Could not update the work status.');
-      },
       setPublish: async () => {
         publishAttempts += 1;
         calls.push('publish');
@@ -132,15 +128,14 @@ describe('milestone page mutation errors', () => {
           onFixture: () => undefined,
           mutations: {
             save: async () => undefined,
-            setWorkStatus: async () => undefined,
             setPublish: async () => {
               calls.push('publish');
             },
-            setDetailStatus: async (args) => {
-              calls.push(`status:${args.detailStatus}`);
+            setStatus: async (args) => {
+              calls.push(`status:${args.status}:from:${args.expectedStatus}`);
             },
-            setStage: async (args) => {
-              calls.push(`stage:${args.stage}`);
+            advance: async (args) => {
+              calls.push(`advance:${args.expectedStatus}`);
             },
             moveProject: async (args) => {
               calls.push(`move:${args.projectId}`);
@@ -152,44 +147,44 @@ describe('milestone page mutation errors', () => {
       );
     });
 
+    assert.equal(findByTestId(container, 'milestone-stage-edit'), null);
     await click(findByTestId(container, 'milestone-status-edit'));
-    await click(findOption(container, 'In progress'));
+    await click(findOption(container, 'Building'));
     assert.deepEqual(calls, []);
 
     await click(findByTestId(container, 'milestone-status-edit'));
-    await click(findOption(container, 'Draft'));
-    assert.deepEqual(calls, ['status:draft']);
-
-    await click(findByTestId(container, 'milestone-stage-edit'));
     const awaiting = findOption(container, 'Awaiting Go');
     assert.notEqual(awaiting?.getAttribute('aria-disabled'), 'true');
     const shipped = findOption(container, 'Shipped');
     assert.equal(shipped?.getAttribute('aria-disabled'), 'true');
+    assert.equal(findOption(container, 'In review'), null);
     await click(findOption(container, 'Parked'));
-    assert.deepEqual(calls, ['status:draft', 'stage:Parked']);
+    assert.deepEqual(calls, ['status:Parked:from:Building']);
+    // A menu pick has no Undo toast. Play does.
+    assert.equal(findByTestId(document.body, 'milestone-status-toast'), null);
 
     await click(findByTestId(container, 'milestone-project-edit'));
     await click(findButton(container, 'Northwind brand'));
-    assert.deepEqual(calls, ['status:draft', 'stage:Parked']);
+    assert.deepEqual(calls, ['status:Parked:from:Building']);
     assert.match(textOf(document.body), /Move to Northwind brand\?/);
     const dialog = findByTestId(container, 'milestone-details-scrim');
     await act(async () => {
       dialog?.dispatchEvent({ ...clickEvent(), type: 'keydown', key: 'Escape' } as EventLike & { key: string });
     });
     assert.equal(findByTestId(container, 'milestone-details-modal'), null);
-    assert.deepEqual(calls, ['status:draft', 'stage:Parked']);
+    assert.deepEqual(calls, ['status:Parked:from:Building']);
 
     await click(findByTestId(container, 'milestone-project-edit'));
     await click(findButton(container, 'Northwind brand'));
     await click(findByTestId(container, 'milestone-confirm-submit'));
-    assert.deepEqual(calls, ['status:draft', 'stage:Parked', 'move:p-shipped']);
+    assert.deepEqual(calls, ['status:Parked:from:Building', 'move:p-shipped']);
 
     await act(async () => {
       root?.unmount();
     });
   });
 
-  it('retries the status, stage, and project the person picked', async () => {
+  it('retries the status and project the person picked', async () => {
     const document = installDom();
     const calls: string[] = [];
     const container = document.createElement('div');
@@ -215,16 +210,12 @@ describe('milestone page mutation errors', () => {
           onFixture: () => undefined,
           mutations: {
             save: async () => undefined,
-            setWorkStatus: async () => undefined,
             setPublish: async () => undefined,
-            setDetailStatus: async (args) => {
-              calls.push(`status:${args.detailStatus}`);
+            setStatus: async (args) => {
+              calls.push(`status:${args.status}`);
               if (times('status:') === 1) throw new Error('save');
             },
-            setStage: async (args) => {
-              calls.push(`stage:${args.stage}`);
-              if (times('stage:') === 1) throw new Error('save');
-            },
+            advance: async () => undefined,
             moveProject: async (args) => {
               calls.push(`move:${args.projectId}`);
               if (times('move:') === 1) throw new Error('move');
@@ -236,17 +227,13 @@ describe('milestone page mutation errors', () => {
       );
     });
 
-    await click(findByTestId(container, 'milestone-stage-edit'));
-    await click(findOption(container, 'Parked'));
-    assert.deepEqual(calls, ['stage:Parked']);
-    await click(findByTestId(container, 'milestone-stage-retry'));
-    assert.deepEqual(calls, ['stage:Parked', 'stage:Parked']);
-
     await click(findByTestId(container, 'milestone-status-edit'));
-    await click(findOption(container, 'Draft'));
-    assert.deepEqual(calls, ['stage:Parked', 'stage:Parked', 'status:draft']);
+    await click(findOption(container, 'Parked'));
+    assert.deepEqual(calls, ['status:Parked']);
+    // The failed pick rolled back to the stored status.
+    assert.equal(textOf(findByTestId(container, 'milestone-status')!), 'Building');
     await click(findByTestId(container, 'milestone-status-retry'));
-    assert.deepEqual(calls, ['stage:Parked', 'stage:Parked', 'status:draft', 'status:draft']);
+    assert.deepEqual(calls, ['status:Parked', 'status:Parked']);
 
     await click(findByTestId(container, 'milestone-project-edit'));
     await click(findButton(container, 'Northwind brand'));
@@ -254,6 +241,121 @@ describe('milestone page mutation errors', () => {
     assert.deepEqual(calls.filter((call) => call.startsWith('move:')), ['move:p-shipped']);
     await click(findByTestId(container, 'milestone-project-retry'));
     assert.deepEqual(calls.filter((call) => call.startsWith('move:')), ['move:p-shipped', 'move:p-shipped']);
+
+    await act(async () => {
+      root?.unmount();
+    });
+  });
+
+  it('play advances one step, shows the new status at once, and offers Undo', async () => {
+    const document = installDom();
+    const calls: string[] = [];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let root: Root | null = null;
+    let release: (() => void) | null = null;
+    const render = (status: MilestoneRoadmapView['status']) =>
+      createElement(MilestoneDetailView, {
+        milestone: { ...milestone, status },
+        project: { id: 'p-site', name: 'Northwind site' },
+        tasks: [],
+        staff: true,
+        fixtures: false,
+        viewerEmail: 'alex@warehaus.co',
+        resourceChoices: [],
+        onBack: () => undefined,
+        onFixture: () => undefined,
+        mutations: {
+          save: async () => undefined,
+          setPublish: async () => undefined,
+          setStatus: async (args) => {
+            calls.push(`status:${args.status}:from:${args.expectedStatus}`);
+          },
+          advance: (args) => {
+            calls.push(`advance:${args.expectedStatus}`);
+            return new Promise<void>((resolve) => {
+              release = resolve;
+            });
+          },
+          attachTask: async () => undefined,
+          detachTask: async () => undefined,
+        },
+      });
+    await act(async () => {
+      root = createRoot(container as unknown as Element);
+      root.render(render('Awaiting Go'));
+    });
+
+    const play = findByTestId(container, 'milestone-status-play');
+    assert.equal(play?.getAttribute('aria-label'), 'Move to Building');
+    assert.equal(textOf(findByTestId(container, 'milestone-status-play-tip')!), 'Next: Building');
+    await click(play);
+    // No confirm dialog. One write, with the status the person saw.
+    assert.deepEqual(calls, ['advance:Awaiting Go']);
+    assert.equal(findByTestId(container, 'milestone-details-modal'), null);
+    // The new status shows while the write is in flight, and play hides.
+    assert.equal(textOf(findByTestId(container, 'milestone-status')!), 'Building…');
+    assert.equal(findByTestId(container, 'milestone-status-play'), null);
+    assert.equal(findByTestId(document.body, 'milestone-status-toast'), null);
+
+    await act(async () => {
+      root?.render(render('Building'));
+      release?.();
+    });
+    assert.equal(textOf(findByTestId(container, 'milestone-status')!), 'Building');
+    const toast = findByTestId(document.body, 'milestone-status-toast');
+    assert.match(textOf(toast!), /Moved to Building/);
+    assert.equal(findByTestId(container, 'milestone-status-play')?.getAttribute('aria-label'), 'Move to Ready to Ship');
+
+    await click(findByTestIdIn(toast!, 'portal-toast-undo'));
+    assert.deepEqual(calls, ['advance:Awaiting Go', 'status:Awaiting Go:from:Building']);
+    assert.equal(findByTestId(document.body, 'milestone-status-toast'), null);
+
+    await act(async () => {
+      root?.unmount();
+    });
+  });
+
+  it('rolls a failed play back and says nothing changed', async () => {
+    const document = installDom();
+    const calls: string[] = [];
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let root: Root | null = null;
+    await act(async () => {
+      root = createRoot(container as unknown as Element);
+      root.render(
+        createElement(MilestoneDetailView, {
+          milestone: { ...milestone, status: 'Planning' },
+          project: { id: 'p-site', name: 'Northwind site' },
+          tasks: [],
+          staff: true,
+          fixtures: false,
+          viewerEmail: 'alex@warehaus.co',
+          resourceChoices: [],
+          onBack: () => undefined,
+          onFixture: () => undefined,
+          mutations: {
+            save: async () => undefined,
+            setPublish: async () => undefined,
+            setStatus: async () => undefined,
+            advance: async (args) => {
+              calls.push(`advance:${args.expectedStatus}`);
+              throw new Error('The status changed. Refresh and try again.');
+            },
+            attachTask: async () => undefined,
+            detachTask: async () => undefined,
+          },
+        }),
+      );
+    });
+
+    await click(findByTestId(container, 'milestone-status-play'));
+    assert.deepEqual(calls, ['advance:Planning']);
+    assert.equal(textOf(findByTestId(container, 'milestone-status')!), 'Planning');
+    assert.equal(textOf(findByTestId(container, 'milestone-status-error')!), 'Couldn’t save. Nothing changed.');
+    assert.equal(findByTestId(document.body, 'milestone-status-toast'), null);
+    assert.equal(findByTestId(container, 'milestone-status-play')?.getAttribute('aria-label'), 'Move to Awaiting Go');
 
     await act(async () => {
       root?.unmount();

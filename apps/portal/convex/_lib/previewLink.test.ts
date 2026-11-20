@@ -163,7 +163,7 @@ describe('attach and clear plans', () => {
 describe('staff and peter gates', () => {
   const ready = {
     staff: true,
-    workStatus: 'ready',
+    status: 'Ready to Ship',
     approval: 'unreviewed',
     previewUrl: PREVIEW,
   };
@@ -177,7 +177,7 @@ describe('staff and peter gates', () => {
     assert.equal(peterMayApproveDeploy({ ...ready, isPeter: isPeterEmail('alex@warehaus.co') }), false);
     assert.equal(peterMayApproveDeploy({ ...ready, staff: false, isPeter: true }), false);
     assert.equal(peterMayApproveDeploy({ ...ready, isPeter: true, previewUrl: null }), false);
-    assert.equal(peterMayApproveDeploy({ ...ready, isPeter: true, workStatus: 'active' }), false);
+    assert.equal(peterMayApproveDeploy({ ...ready, isPeter: true, status: 'Building' }), false);
     assert.equal(peterMayApproveDeploy({ ...ready, isPeter: true, approval: 'approved' }), false);
   });
 

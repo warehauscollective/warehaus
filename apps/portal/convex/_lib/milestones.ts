@@ -5,8 +5,14 @@
  */
 
 import { clientMaySeeProject } from '@warehaus/portal-sync';
+import {
+  DEFAULT_MILESTONE_STATUS,
+  SHIPPED_ON_MERGE,
+  UNKNOWN_STATUS,
+  isMilestoneStatus,
+  type MilestoneStatus,
+} from './milestoneStatus';
 
-export const MILESTONE_WORK_STATUSES = ['draft', 'active', 'ready'] as const;
 export const MILESTONE_APPROVALS = ['unreviewed', 'approved', 'changes_requested'] as const;
 export const HUMAN_DECISIONS = ['approved', 'changes_requested'] as const;
 
@@ -15,12 +21,10 @@ export const MILESTONE_ACTIVITY = {
   approved: 'milestone.approved',
   changesRequested: 'milestone.changes_requested',
   status: 'milestone.status',
-  stage: 'milestone.stage',
   publish: 'milestone.publish',
   project: 'milestone.project',
 } as const;
 
-export type MilestoneWorkStatus = (typeof MILESTONE_WORK_STATUSES)[number];
 export type MilestoneApproval = (typeof MILESTONE_APPROVALS)[number];
 export type HumanDecision = (typeof HUMAN_DECISIONS)[number];
 export type MilestoneActor = 'human' | 'ai';
@@ -42,10 +46,6 @@ export type MilestoneProjectGate = {
 };
 
 type Rule = { ok: true } | { ok: false; reason: string };
-
-export function isWorkStatus(value: string): value is MilestoneWorkStatus {
-  return (MILESTONE_WORK_STATUSES as readonly string[]).includes(value);
-}
 
 export function isHumanDecision(value: string): value is HumanDecision {
   return (HUMAN_DECISIONS as readonly string[]).includes(value);
@@ -81,7 +81,8 @@ export function createMilestoneDecision(input: {
   name: string;
   objective: string;
   goals: readonly string[];
-  workStatus?: string;
+  /** Any status except Shipped. Missing means Planning. */
+  status?: string;
   publishToWarehaus?: boolean;
   approval?: string;
 }):
@@ -91,7 +92,7 @@ export function createMilestoneDecision(input: {
         name: string;
         objective: string;
         goals: string[];
-        workStatus: MilestoneWorkStatus;
+        status: MilestoneStatus;
         approval: 'unreviewed';
         publishToWarehaus: false;
       };
@@ -111,21 +112,20 @@ export function createMilestoneDecision(input: {
   const objective = input.objective.trim();
   if (!name) return { ok: false, reason: 'Name is required' };
   if (!objective) return { ok: false, reason: 'Objective is required' };
-  const workStatus = input.workStatus ?? 'draft';
-  if (!isWorkStatus(workStatus)) {
-    return { ok: false, reason: 'Work status must be draft, active, or ready' };
-  }
+  const status = input.status ?? DEFAULT_MILESTONE_STATUS;
+  if (!isMilestoneStatus(status)) return { ok: false, reason: UNKNOWN_STATUS };
+  if (status === 'Shipped') return { ok: false, reason: SHIPPED_ON_MERGE };
   return {
     ok: true,
     milestone: {
       name,
       objective,
       goals: normalizeGoals(input.goals),
-      workStatus,
+      status,
       approval: 'unreviewed',
       publishToWarehaus: false,
     },
-    activityType: workStatus === 'ready' ? MILESTONE_ACTIVITY.ready : null,
+    activityType: status === 'Ready to Ship' ? MILESTONE_ACTIVITY.ready : null,
   };
 }
 
@@ -184,27 +184,6 @@ export function resourceEditDecision(input: {
     return { ok: false, reason: HUMAN_CONTENT_LOCKED };
   }
   return { ok: true };
-}
-
-export function workStatusDecision(input: {
-  actor: MilestoneActor;
-  approval: MilestoneApproval;
-  from: MilestoneWorkStatus;
-  to: string;
-}):
-  | { ok: true; workStatus: MilestoneWorkStatus; activityType: 'milestone.ready' | null; stage: null }
-  | { ok: false; reason: string } {
-  if (!isWorkStatus(input.to)) {
-    return { ok: false, reason: 'Work status must be draft, active, or ready' };
-  }
-  if (input.actor === 'ai' && input.approval === 'approved') return { ok: false, reason: AI_LOCKED };
-  return {
-    ok: true,
-    workStatus: input.to,
-    activityType: input.to === 'ready' && input.from !== 'ready' ? MILESTONE_ACTIVITY.ready : null,
-    // Ready is a work status. It does not store Awaiting Go or Ready to Ship.
-    stage: null,
-  };
 }
 
 export function publishDecision(input: {
@@ -314,7 +293,7 @@ export function applyHumanDecision(input: {
         note: string;
         approverContactId: string;
         decidedAt: number;
-        workStatus?: 'active';
+        status?: 'Building';
       };
       activityType: 'milestone.approved' | 'milestone.changes_requested';
       taskWrites: readonly [];
@@ -335,7 +314,7 @@ export function applyHumanDecision(input: {
       note,
       approverContactId: input.approverContactId,
       decidedAt: input.at,
-      ...(input.decision === 'changes_requested' ? { workStatus: 'active' as const } : {}),
+      ...(input.decision === 'changes_requested' ? { status: 'Building' as const } : {}),
     },
     activityType:
       input.decision === 'approved' ? MILESTONE_ACTIVITY.approved : MILESTONE_ACTIVITY.changesRequested,
@@ -573,7 +552,8 @@ export type MilestoneRoadmapView = {
   name: string;
   objective: string;
   goals: string[];
-  workStatus: MilestoneWorkStatus;
+  /** The one Status field. Approval is the review result, not a status. */
+  status: MilestoneStatus;
   /** Staff only. Absent for clients, including the key. */
   approval?: MilestoneApproval;
   note: string | null;
@@ -581,10 +561,6 @@ export type MilestoneRoadmapView = {
   /** Staff only. Absent for clients, including the key. */
   decidedAt?: number | null;
   publishToWarehaus: boolean;
-  /** Set when a person picks a details-panel status. */
-  detailStatus?: 'draft' | 'in_progress' | 'in_review' | 'complete' | null;
-  /** Set when a person picks a build-protocol stage. */
-  stage?: 'Idea' | 'Planning' | 'Awaiting Go' | 'Building' | 'Ready to Ship' | 'Shipped' | 'Parked' | null;
   createdAt?: number | null;
   /** Contact id of the owner. Absent when unassigned. */
   ownerContactId?: string | null;

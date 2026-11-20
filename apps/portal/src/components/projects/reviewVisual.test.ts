@@ -25,7 +25,7 @@ Object.assign(globalThis, { React });
 const base: ReviewSurfaceModel = {
   milestoneId: 'm',
   iteration: 2,
-  workStatus: 'ready',
+  status: 'Ready to Ship',
   approval: 'unreviewed',
   previewUrl: 'localhost:3100/p/demo',
   prNumber: 108,
@@ -60,7 +60,7 @@ describe('review card state from milestone data', () => {
     assert.equal(
       deriveReviewVisual({
         ...base,
-        workStatus: 'ready',
+        status: 'Ready to Ship',
         previewUrl: 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app',
         previewAttachedAt: 1,
         designCheck: 'fixes',
@@ -199,7 +199,7 @@ describe('peter and staff preview visibility', () => {
     const attached = card(
       {
         ...base,
-        workStatus: 'ready',
+        status: 'Ready to Ship',
         previewUrl: 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app',
         previewAttachedAt: 1,
       },

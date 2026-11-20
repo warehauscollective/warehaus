@@ -53,14 +53,14 @@ export function staffMayAttachPreviewLink(input: { staff: boolean }): boolean {
 export function peterMayApproveDeploy(input: {
   staff: boolean;
   isPeter: boolean;
-  workStatus: string;
+  status: string;
   approval?: string | null;
   previewUrl?: string | null;
 }): boolean {
   return Boolean(
     input.staff &&
       input.isPeter &&
-      input.workStatus === 'ready' &&
+      input.status === 'Ready to Ship' &&
       input.approval !== 'approved' &&
       input.previewUrl,
   );

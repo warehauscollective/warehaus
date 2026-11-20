@@ -17,7 +17,7 @@ const milestone = {
   name: 'Launch the homepage',
   objective: 'The homepage matches the approved frame and is ready to review.',
   goals: ['Hero matches the approved frame'],
-  workStatus: 'active',
+  status: 'Building',
   approval: 'unreviewed',
   note: null,
   approverName: null,
@@ -47,10 +47,9 @@ function view(input: { staff: boolean; preview?: string; email?: string; milesto
       onFixture: () => undefined,
       mutations: {
         save: idle,
-        setWorkStatus: idle,
         setPublish: idle,
-        setDetailStatus: idle,
-        setStage: idle,
+        setStatus: idle,
+        advance: idle,
         moveProject: idle,
         attachTask: idle,
         detachTask: idle,
@@ -65,10 +64,11 @@ function stageOption(html: string, label: string): string {
 }
 
 describe('milestone details panel', () => {
-  it('lets staff edit status, stage, project, and visibility, and hides those controls from clients', () => {
+  it('lets staff edit status, project, and visibility, and hides those controls from clients', () => {
     const staff = view({ staff: true });
     assert.match(staff, /data-testid="milestone-status-edit"/);
-    assert.match(staff, /data-testid="milestone-stage-edit"/);
+    assert.equal(staff.includes('milestone-stage-edit'), false);
+    assert.equal(staff.includes('>STAGE<'), false);
     assert.match(staff, /data-testid="milestone-project-edit"/);
     assert.match(staff, /data-testid="milestone-visibility-edit"/);
     assert.match(staff, /data-testid="milestone-creator"[^>]*>—</);
@@ -86,14 +86,13 @@ describe('milestone details panel', () => {
     assert.equal(client.includes('data-testid="milestone-visibility-edit"'), false);
     assert.match(client, /data-testid="milestone-publish"[^>]*>Not published</);
     assert.equal(client.includes('data-testid="milestone-status-edit"'), false);
-    assert.equal(client.includes('data-testid="milestone-stage-edit"'), false);
     assert.equal(client.includes('data-testid="milestone-project-edit"'), false);
     assert.equal(client.includes('Staff only'), false);
     assert.equal(client.includes('Review milestone'), false);
     assert.equal(client.includes('milestone-review-action'), false);
     assert.equal(staff.includes('Review milestone'), false);
     assert.match(staff, /Staff only · clients see nothing/);
-    assert.match(client, /data-testid="milestone-work-status"/);
+    assert.match(client, /data-testid="milestone-status"/);
     assert.match(client, /data-testid="milestone-project"/);
     assert.match(client, /data-testid="milestone-owner"[^>]*>—</);
     assert.match(client, /data-testid="milestone-due"[^>]*>—</);
@@ -192,9 +191,15 @@ describe('milestone details panel', () => {
     assert.match(due, /Saved in the Portal/);
   });
 
-  it('lets staff set every stage except Shipped', () => {
-    const menu = view({ staff: true, preview: 'stage' });
-    assert.match(menu, /data-testid="milestone-stage-menu"/);
+  it('lets staff set every status except Shipped', () => {
+    const menu = view({ staff: true, preview: 'status' });
+    assert.match(menu, /data-testid="milestone-status-menu"/);
+    for (const status of ['Idea', 'Planning', 'Awaiting Go', 'Building', 'Ready to Ship', 'Shipped', 'Parked']) {
+      assert.ok(stageOption(menu, status), status);
+    }
+    for (const retired of ['Draft', 'In progress', 'In review', 'Complete']) {
+      assert.equal(stageOption(menu, retired), '', retired);
+    }
     assert.doesNotMatch(stageOption(menu, 'Awaiting Go'), /disabled=""/);
     assert.doesNotMatch(stageOption(menu, 'Ready to Ship'), /disabled=""/);
     assert.equal(menu.includes('PETER’S CALL'), false);
@@ -210,7 +215,8 @@ describe('milestone details panel', () => {
 
   it('keeps Awaiting Go editable for staff', () => {
     const html = view({ staff: true, preview: 'locked' });
-    assert.match(html, /data-testid="milestone-stage-edit"/);
+    assert.match(html, /data-testid="milestone-status-edit"/);
+    assert.match(html, /data-testid="milestone-status"[^>]*>Awaiting Go</);
     assert.equal(html.includes('milestone-stage-locked'), false);
     assert.equal(html.includes('Waiting on Peter’s go'), false);
   });
@@ -300,7 +306,7 @@ describe('milestone details panel', () => {
         note: 'Ship it',
         approverName: 'Peter',
         decidedAt: Date.UTC(2026, 10, 1),
-        workStatus: 'ready',
+        status: 'Ready to Ship',
       },
     });
     assert.equal(html.includes('data-testid="milestone-approval"'), false);

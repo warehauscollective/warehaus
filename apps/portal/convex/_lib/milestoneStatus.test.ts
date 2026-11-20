@@ -6,8 +6,12 @@ import {
   MILESTONE_STATUSES,
   MILESTONE_STATUS_CATEGORY,
   SHIPPED_ON_MERGE,
+  STATUS_ALIAS_CONFLICT,
   STATUS_STALE,
   UNKNOWN_STATUS,
+  WORK_STATUS_ALIAS_INVALID,
+  apiStatusFields,
+  apiStatusInput,
   backfillPageSize,
   isMilestoneStatus,
   legacyWorkStatus,
@@ -380,5 +384,34 @@ describe('status backfill', () => {
     assert.equal(backfillPageSize(0), 1);
     assert.equal(backfillPageSize(1000), 100);
     assert.equal(backfillPageSize(25.9), 25);
+  });
+});
+
+describe('staff API aliases', () => {
+  it('reads status, and stage and workStatus as aliases', () => {
+    assert.deepEqual(apiStatusInput({}), { ok: true, status: null });
+    assert.deepEqual(apiStatusInput({ status: 'Building' }), { ok: true, status: 'Building' });
+    assert.deepEqual(apiStatusInput({ stage: 'Awaiting Go' }), { ok: true, status: 'Awaiting Go' });
+    assert.deepEqual(apiStatusInput({ workStatus: 'draft' }), { ok: true, status: 'Planning' });
+    assert.deepEqual(apiStatusInput({ workStatus: 'active' }), { ok: true, status: 'Building' });
+    assert.deepEqual(apiStatusInput({ workStatus: 'ready' }), { ok: true, status: 'Ready to Ship' });
+  });
+
+  it('accepts aliases that agree and rejects ones that do not', () => {
+    assert.deepEqual(apiStatusInput({ status: 'Idea', stage: 'Idea', workStatus: 'draft' }), { ok: true, status: 'Idea' });
+    assert.deepEqual(apiStatusInput({ status: 'Idea', stage: 'Building' }), { ok: false, reason: STATUS_ALIAS_CONFLICT });
+    assert.deepEqual(apiStatusInput({ status: 'Idea', workStatus: 'ready' }), { ok: false, reason: STATUS_ALIAS_CONFLICT });
+    assert.deepEqual(apiStatusInput({ workStatus: 'done' }), { ok: false, reason: WORK_STATUS_ALIAS_INVALID });
+  });
+
+  it('passes an unknown status through for the transition to reject', () => {
+    const wanted = apiStatusInput({ status: 'Shipping soon' });
+    assert.deepEqual(wanted, { ok: true, status: 'Shipping soon' });
+    assert.equal(transitionMilestone({ from: 'Planning', cause: 'set', to: wanted.ok ? wanted.status : null }).ok, false);
+  });
+
+  it('returns status with both aliases', () => {
+    assert.deepEqual(apiStatusFields('Awaiting Go'), { status: 'Awaiting Go', stage: 'Awaiting Go', workStatus: 'draft' });
+    assert.deepEqual(apiStatusFields('Ready to Ship'), { status: 'Ready to Ship', stage: 'Ready to Ship', workStatus: 'ready' });
   });
 });
