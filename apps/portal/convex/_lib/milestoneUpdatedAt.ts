@@ -28,6 +28,23 @@ export function touched<T extends object>(patch: T, now = Date.now()): T & { upd
   return { ...patch, updatedAt: now };
 }
 
+/**
+ * An unchanged Notion pull still rewrites lastSyncedAt. That is not a change
+ * to the task, so it must not move the parent milestone's updatedAt.
+ */
+export function milestoneStampOnPull(input: {
+  existing: boolean;
+  fieldsChanged: boolean;
+  linksChanged: boolean;
+}): boolean {
+  return !input.existing || input.fieldsChanged || input.linksChanged;
+}
+
+/** True when a hide or reveal actually changes the hidden reason. */
+export function hiddenStateFlips(before: string | null | undefined, after: string | null): boolean {
+  return (before ?? null) !== after;
+}
+
 type StampTask = {
   milestoneId?: Id<'milestones'> | string | null;
   parentTaskId?: Id<'tasks'> | string | null;

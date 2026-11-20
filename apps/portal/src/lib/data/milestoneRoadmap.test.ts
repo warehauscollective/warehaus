@@ -220,10 +220,10 @@ describe('roadmap markup', () => {
       `Approved ${day}`,
     );
     assert.equal(tileProgressLabel(1, 3, 0, false), '1 / 3 complete');
-    assert.equal(tileProgressLabel(1, 3, 0, true), '1 / 3 complete');
+    assert.equal(tileProgressLabel(1, 3, 0, true), '1 / 3 tasks complete');
     assert.equal(tileProgressLabel(1, 3, 1, false), '1 / 3 complete');
-    assert.equal(tileProgressLabel(1, 3, 1, true), '1 / 3 complete');
-    assert.equal(tileProgressLabel(12, 148, 9, true), '12 / 148 complete');
+    assert.equal(tileProgressLabel(1, 3, 1, true), '1 / 3 tasks complete');
+    assert.equal(tileProgressLabel(12, 148, 9, true), '12 / 148 tasks complete');
     const today = Date.parse('2026-11-20T15:00:00Z');
     assert.equal(tileMetaLine({ resources: 0 }), '0 resources');
     assert.equal(tileMetaLine({ resources: 1 }), '1 resource');
@@ -265,9 +265,9 @@ describe('roadmap markup', () => {
     });
     assert.equal(withSubtask.includes('milestone-due'), false);
     assert.equal(withSubtask.includes('Due '), false);
+    assert.match(withSubtask, />1 \/ 3 tasks complete</);
     assert.match(withSubtask, />1 \/ 3 complete</);
     assert.equal(withSubtask.includes('includes'), false);
-    assert.equal(withSubtask.includes('tasks complete'), false);
     assert.match(withSubtask, /data-testid="milestone-meta"[^>]*>1 resource</);
     assert.equal(withSubtask.includes('Not published'), false);
     assert.equal(withSubtask.includes('Ready for review'), false);
@@ -278,8 +278,8 @@ describe('roadmap markup', () => {
       staff: true,
       milestone: tileMilestone({ resources: [resource], rows: [] }),
     });
+    assert.match(plain, />1 \/ 3 tasks complete</);
     assert.match(plain, />1 \/ 3 complete</);
-    assert.equal(plain.includes('tasks complete'), false);
     assert.equal(plain.includes('includes'), false);
 
     const staffDraft = renderTile({
@@ -347,8 +347,8 @@ describe('roadmap markup', () => {
     assert.match(approved, /data-testid="milestone-awaiting"[^>]*>Approved · awaiting merge and deploy</);
     assert.equal(approved.includes('data-testid="milestone-due"'), false);
     assert.match(approved, />Milestone Details</);
+    assert.match(approved, />6 \/ 6 tasks complete</);
     assert.match(approved, />6 \/ 6 complete</);
-    assert.equal(approved.includes('tasks complete'), false);
     assert.equal(approved.includes('includes'), false);
     assert.match(approved, /data-testid="milestone-meta"[^>]*>2 resources</);
     assert.match(approved, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Building</);
@@ -498,9 +498,9 @@ describe('roadmap markup', () => {
         rows: [rowWithSubtasks(9)],
       }),
     });
+    assert.match(longChip, />12 \/ 148 tasks complete</);
     assert.match(longChip, />12 \/ 148 complete</);
     assert.equal(longChip.includes('includes'), false);
-    assert.equal(longChip.includes('tasks complete'), false);
     assert.match(longChip, /whitespace-nowrap"[\s\S]*data-testid="milestone-progress"/);
     assert.match(longChip, /overflow-wrap:anywhere/);
     assert.match(longChip, /flex-nowrap items-center/);

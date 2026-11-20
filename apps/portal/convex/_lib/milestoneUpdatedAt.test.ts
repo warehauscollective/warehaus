@@ -3,7 +3,20 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import type { Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
-import { displayUpdatedAt, stampParentMilestone, touched } from './milestoneUpdatedAt';
+import { displayUpdatedAt, hiddenStateFlips, milestoneStampOnPull, stampParentMilestone, touched } from './milestoneUpdatedAt';
+
+function fake(parentMilestoneId: string | null) {
+  const patches: Array<{ id: string; patch: { updatedAt: number } }> = [];
+  const ctx = {
+    db: {
+      get: async () => (parentMilestoneId ? { milestoneId: parentMilestoneId } : null),
+      patch: async (id: string, patch: { updatedAt: number }) => {
+        patches.push({ id, patch });
+      },
+    },
+  } as unknown as Pick<MutationCtx, 'db'>;
+  return { ctx, patches };
+}
 
 describe('displayUpdatedAt', () => {
   it('uses the stored write even when a loaded time is newer', () => {
@@ -24,20 +37,29 @@ describe('touched', () => {
   });
 });
 
-describe('stampParentMilestone', () => {
-  function fake(parentMilestoneId: string | null) {
-    const patches: Array<{ id: string; patch: { updatedAt: number } }> = [];
-    const ctx = {
-      db: {
-        get: async () => (parentMilestoneId ? { milestoneId: parentMilestoneId } : null),
-        patch: async (id: string, patch: { updatedAt: number }) => {
-          patches.push({ id, patch });
-        },
-      },
-    } as unknown as Pick<MutationCtx, 'db'>;
-    return { ctx, patches };
-  }
+describe('milestoneStampOnPull', () => {
+  it('leaves the milestone updatedAt untouched when a pull changes nothing', async () => {
+    const { ctx, patches } = fake(null);
+    const stamp = milestoneStampOnPull({ existing: true, fieldsChanged: false, linksChanged: false });
+    assert.equal(stamp, false);
+    if (stamp) await stampParentMilestone(ctx, { milestoneId: 'm-1' as Id<'milestones'> }, 99);
+    assert.deepEqual(patches, []);
+    assert.equal(milestoneStampOnPull({ existing: false, fieldsChanged: false, linksChanged: false }), true);
+    assert.equal(milestoneStampOnPull({ existing: true, fieldsChanged: true, linksChanged: false }), true);
+    assert.equal(milestoneStampOnPull({ existing: true, fieldsChanged: false, linksChanged: true }), true);
+  });
+});
 
+describe('hiddenStateFlips', () => {
+  it('stamps only when the hidden reason changes', () => {
+    assert.equal(hiddenStateFlips('ancestor', 'ancestor'), false);
+    assert.equal(hiddenStateFlips(undefined, 'ancestor'), true);
+    assert.equal(hiddenStateFlips('ancestor', null), true);
+    assert.equal(hiddenStateFlips(null, null), false);
+  });
+});
+
+describe('stampParentMilestone', () => {
   it('patches only the milestone on the task', async () => {
     const { ctx, patches } = fake(null);
     await stampParentMilestone(ctx, { milestoneId: 'm-1' as Id<'milestones'> }, 11);
@@ -62,6 +84,10 @@ describe('write paths stamp the parent milestone', () => {
 
   it('stamps Notion pulls, task edits, and hides, and records milestone writes', () => {
     const upsert = read('../sync/upsert.ts');
+    assert.match(upsert, /milestoneStampOnPull\(\{/);
+    assert.match(upsert, /fieldsChanged/);
+    assert.match(upsert, /linksChanged/);
+    assert.doesNotMatch(upsert, /updatedAt != null \|\| linksChanged/);
     assert.match(upsert, /stampParentMilestone\(ctx, row, now\)/);
     assert.match(upsert, /stampParentMilestone\(ctx, \{ \.\.\.task, parentTaskId/);
 
@@ -73,6 +99,10 @@ describe('write paths stamp the parent milestone', () => {
 
     const portal = read('../portalApi.ts');
     assert.match(portal, /stampParentMilestone\(ctx, task, now\)/);
+    const create = portal.slice(portal.indexOf('export const createMilestone'), portal.indexOf('export const updateMilestone'));
+    const update = portal.slice(portal.indexOf('export const updateMilestone'), portal.indexOf('export const addComment'));
+    assert.match(create, /insert\('milestones', touched\(/);
+    assert.match(update, /ctx\.db\.patch\(milestone\._id, touched\(/);
 
     const outbox = read('../sync/outbox.ts');
     assert.equal(outbox.split('stampParentMilestone(').length - 1, 2);
@@ -85,6 +115,9 @@ describe('write paths stamp the parent milestone', () => {
 
     const hide = read('../sync/hide.ts');
     assert.equal(hide.split('stampParentMilestone(').length - 1, 6);
+    assert.match(hide, /hiddenStateFlips\(row\.syncHiddenReason, 'ancestor'\)/);
+    assert.match(hide, /hiddenStateFlips\(row\.syncHiddenReason, null\)/);
+    assert.match(hide, /if \(flips\) await stampParentMilestone/);
 
     const milestones = read('../milestones.ts');
     assert.match(milestones, /updatedAt: Date\.now\(\)/);
@@ -92,6 +125,12 @@ describe('write paths stamp the parent milestone', () => {
     assert.match(milestones, /displayUpdatedAt\(milestone\.updatedAt, loadedTimes\)/);
     assert.doesNotMatch(milestones, /loadedTimes\.push\(milestone\._creationTime\)/);
     assert.doesNotMatch(milestones, /by_updatedAt/);
+    const preview = milestones.slice(milestones.indexOf('export const setReviewPreview'), milestones.indexOf('async function applyPreviewOutcome'));
+    assert.match(preview, /ctx\.db\.patch\(args\.milestoneId, touched\(/);
+    const fallback = milestones.slice(milestones.indexOf('const loadedTimes'), milestones.indexOf('view.updatedAt = displayUpdatedAt'));
+    assert.match(fallback, /if \(audience === 'staff'\) \{\s*loadedTimes\.push\(\s*milestone\.decidedAt/);
+    assert.match(fallback, /if \(audience === 'staff' && review\)/);
+    assert.doesNotMatch(fallback, /lastSyncedAt/);
 
     const linear = read('../../../../packages/portal-sync/src/linearTaskPlatform.ts');
     assert.doesNotMatch(linear, /ctx\.db\.(patch|insert)/);

@@ -1,7 +1,7 @@
 import { isGranolaPortalPage } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { notionWriteAllowedForTask } from '../_lib/milestoneReview';
-import { stampParentMilestone } from '../_lib/milestoneUpdatedAt';
+import { hiddenStateFlips, stampParentMilestone } from '../_lib/milestoneUpdatedAt';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 
@@ -137,8 +137,9 @@ export const hideClientChildren = internalMutation({
       .collect();
     for (const row of tasks) {
       if (row.syncHiddenReason === 'gate' || row.syncHiddenReason === 'trashed') continue;
+      const flips = hiddenStateFlips(row.syncHiddenReason, 'ancestor');
       await ctx.db.patch(row._id, stamp);
-      await stampParentMilestone(ctx, row, now);
+      if (flips) await stampParentMilestone(ctx, row, now);
     }
 
     const resources = await ctx.db
@@ -189,12 +190,13 @@ export const hideProjectTasks = internalMutation({
       .collect();
     for (const row of tasks) {
       if (row.syncHiddenReason === 'gate' || row.syncHiddenReason === 'trashed') continue;
+      const flips = hiddenStateFlips(row.syncHiddenReason, 'ancestor');
       await ctx.db.patch(row._id, {
         syncHiddenAt: now,
         syncHiddenReason: 'ancestor' as const,
         lastSyncedAt: now,
       });
-      await stampParentMilestone(ctx, row, now);
+      if (flips) await stampParentMilestone(ctx, row, now);
     }
   },
 });
@@ -219,8 +221,9 @@ export const clearAncestorHides = internalMutation({
         .collect();
       for (const row of rows) {
         if (row.syncHiddenReason !== 'ancestor') continue;
+        const flips = hiddenStateFlips(row.syncHiddenReason, null);
         await ctx.db.patch(row._id, { syncHiddenAt: undefined, syncHiddenReason: undefined });
-        if (table === 'tasks') {
+        if (table === 'tasks' && flips) {
           await stampParentMilestone(
             ctx,
             row as { milestoneId?: Id<'milestones'> | null; parentTaskId?: Id<'tasks'> | null },
@@ -243,8 +246,9 @@ export const clearProjectTaskAncestors = internalMutation({
       .collect();
     for (const row of tasks) {
       if (row.syncHiddenReason !== 'ancestor') continue;
+      const flips = hiddenStateFlips(row.syncHiddenReason, null);
       await ctx.db.patch(row._id, { syncHiddenAt: undefined, syncHiddenReason: undefined });
-      await stampParentMilestone(ctx, row, Date.now());
+      if (flips) await stampParentMilestone(ctx, row, Date.now());
     }
   },
 });

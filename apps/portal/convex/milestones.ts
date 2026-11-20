@@ -254,14 +254,13 @@ async function milestoneResources(
   milestone: Doc<'milestones'>,
   audience: 'staff' | 'client',
   orgVisible: boolean,
-): Promise<{ resources: MilestoneRoadmapView['resources']; syncedAt: number | null }> {
+): Promise<MilestoneRoadmapView['resources']> {
   const links = await ctx.db
     .query('milestoneResources')
     .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
     .collect();
   const ordered = links.filter((link) => link.orgId === milestone.orgId).sort((a, b) => a.sortOrder - b.sortOrder);
   const resources: MilestoneRoadmapView['resources'] = [];
-  let syncedAt: number | null = null;
   for (const link of ordered) {
     const resource = await ctx.db.get(link.resourceId);
     if (!resource || resource.orgId !== milestone.orgId) continue;
@@ -277,9 +276,6 @@ async function milestoneResources(
       });
       if (!visible) continue;
     }
-    if (typeof resource.lastSyncedAt === 'number' && (syncedAt == null || resource.lastSyncedAt > syncedAt)) {
-      syncedAt = resource.lastSyncedAt;
-    }
     resources.push({
       id: resource._id,
       title: resource.title,
@@ -287,7 +283,7 @@ async function milestoneResources(
       ...(resource.type ? { type: resource.type } : {}),
     });
   }
-  return { resources, syncedAt };
+  return resources;
 }
 
 async function toRoadmap(
@@ -306,7 +302,7 @@ async function toRoadmap(
   });
   const approver =
     audience === 'staff' && milestone.approverContactId ? await ctx.db.get(milestone.approverContactId) : null;
-  const loadedResources = await milestoneResources(ctx, milestone, audience, orgVisible);
+  const resources = await milestoneResources(ctx, milestone, audience, orgVisible);
   const view: MilestoneRoadmapView = {
     id: milestone._id,
     name: milestone.name,
@@ -325,7 +321,7 @@ async function toRoadmap(
     ...(audience === 'staff' && milestone.localPreviewUrl ? { localPreviewUrl: milestone.localPreviewUrl } : {}),
     ...(audience === 'staff' && milestone.figmaUrl ? { figmaUrl: milestone.figmaUrl } : {}),
     creatorName: await creatorNameFor(ctx, milestone),
-    resources: loadedResources.resources,
+    resources,
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,
     countIsDecision: false,
@@ -333,25 +329,26 @@ async function toRoadmap(
   };
   const review = reviewForAudience(audience, await staffReview(ctx, milestone, audience));
   if (review) view.review = review;
-  const memberIds = new Set(
-    tasks.filter((task) => task.milestoneId === milestone._id).map((task) => String(task._id)),
-  );
-  const loadedTimes: Array<number | null | undefined> = [
-    milestone.decidedAt,
-    milestone.previewAttachedAt,
-    milestone.previewBuiltAt,
-    milestone.previewBuildAt,
-    milestone.previewDeleteAt,
-    milestone.deployFinishedAt,
-    loadedResources.syncedAt,
-  ];
-  for (const task of tasks) {
-    const onMilestone =
-      task.milestoneId === milestone._id ||
-      (task.parentTaskId != null && memberIds.has(String(task.parentTaskId)));
-    if (onMilestone) loadedTimes.push(task.updatedAt);
+  const shownIds = new Set<string>();
+  for (const row of roadmap.rows) {
+    shownIds.add(row.id);
+    for (const child of row.children) shownIds.add(child.id);
   }
-  if (review) {
+  const loadedTimes: Array<number | null | undefined> = [];
+  if (audience === 'staff') {
+    loadedTimes.push(
+      milestone.decidedAt,
+      milestone.previewAttachedAt,
+      milestone.previewBuiltAt,
+      milestone.previewBuildAt,
+      milestone.previewDeleteAt,
+      milestone.deployFinishedAt,
+    );
+  }
+  for (const task of tasks) {
+    if (shownIds.has(String(task._id))) loadedTimes.push(task.updatedAt);
+  }
+  if (audience === 'staff' && review) {
     loadedTimes.push(
       review.builtAt,
       review.previewAttachedAt,
@@ -1472,12 +1469,12 @@ export const setReviewPreview = internalMutation({
     if (!result.ok) return result;
     if (!result.patch) return { ok: true as const, changed: false, previousDeploymentId: null };
     const ready = args.state === 'ready' ? previewStatusPatch(milestone, { build: 'ready' }) : null;
-    await ctx.db.patch(args.milestoneId, {
+    await ctx.db.patch(args.milestoneId, touched({
       ...result.patch,
       ...(result.clearUrl ? { previewUrl: '' } : {}),
       ...(result.clearDeploymentId ? { previewDeploymentId: undefined } : {}),
       ...(ready ?? {}),
-    });
+    }));
     if (result.chat) {
       await ctx.db.insert('activity', {
         orgId: milestone.orgId,

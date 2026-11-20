@@ -23,7 +23,7 @@ import { internal } from '../_generated/api';
 import { internalMutation, internalQuery, type MutationCtx } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import { matchingQuarantineId } from '../_lib/quarantineRow';
-import { stampParentMilestone } from '../_lib/milestoneUpdatedAt';
+import { milestoneStampOnPull, stampParentMilestone } from '../_lib/milestoneUpdatedAt';
 import { linkTaskToCreateMilestone, milestoneIdFromPayload } from '../_lib/taskMilestoneLink';
 import { ensureSourceLinks } from '../_lib/taskSourceLinks';
 
@@ -386,7 +386,11 @@ export const upsertTask = internalMutation({
         if (milestoneId) await linkTaskToCreateMilestone(ctx, created, milestoneId);
       }
     }
-    const changed = !existing || updatedAt != null || linksChanged;
+    const changed = milestoneStampOnPull({
+      existing: Boolean(existing),
+      fieldsChanged,
+      linksChanged,
+    });
     if (changed) {
       const row = existing ?? (await ctx.db.get(taskId));
       if (row) await stampParentMilestone(ctx, row, now);

@@ -274,17 +274,13 @@ export function milestoneTileStage(input: {
   return { status, label, glyph };
 }
 
-function progressBase(done: number, total: number): string {
-  return `${done} / ${total} complete`;
+/** Desktop is `3 / 8 complete`. The 390 frame keeps the word tasks. */
+export function tileProgressLabel(done: number, total: number, _nested: number, phone: boolean): string {
+  return phone ? `${done} / ${total} tasks complete` : `${done} / ${total} complete`;
 }
 
-/** Tile badge is `3 / 8 complete`. The subtask phrase stays on the milestone page. */
-export function tileProgressLabel(done: number, total: number, _nested: number, _phone: boolean): string {
-  return progressBase(done, total);
-}
-
-function ProgressCopy({ done, total }: { done: number; total: number; nested: number; phone: boolean }) {
-  return progressBase(done, total);
+function ProgressCopy({ done, total, phone }: { done: number; total: number; nested: number; phone: boolean }) {
+  return tileProgressLabel(done, total, 0, phone);
 }
 
 /**
@@ -1278,7 +1274,12 @@ export function MilestoneListCard({
             color: 'var(--muted)',
           }}
         >
-          <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone={false} />
+          <span className="lg:hidden">
+            <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone />
+          </span>
+          <span className="hidden lg:inline">
+            <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone={false} />
+          </span>
         </span>
       </div>
       {linkField ? (

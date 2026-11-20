@@ -39,7 +39,7 @@ import {
 } from './_generated/server';
 import { sha256Hex } from './_lib/tokenCrypto';
 import { ensureSourceLinks } from './_lib/taskSourceLinks';
-import { stampParentMilestone } from './_lib/milestoneUpdatedAt';
+import { stampParentMilestone, touched } from './_lib/milestoneUpdatedAt';
 import {
   attachFailureCode,
   attachFailureStatus,
@@ -655,7 +655,7 @@ export const createMilestone = internalMutation({
       workStatus: args.workStatus,
     });
     if (!created.ok) return finishIdempotency(ctx, opened.id, fail(400, created.reason));
-    const milestoneId = await ctx.db.insert('milestones', {
+    const milestoneId = await ctx.db.insert('milestones', touched({
       orgId: project.orgId,
       projectId: project._id,
       name: created.milestone.name,
@@ -664,7 +664,7 @@ export const createMilestone = internalMutation({
       workStatus: created.milestone.workStatus,
       approval: created.milestone.approval,
       publishToWarehaus: created.milestone.publishToWarehaus,
-    });
+    }));
     if (created.activityType) {
       const milestone = await ctx.db.get(milestoneId);
       if (milestone) {
@@ -718,10 +718,10 @@ export const updateMilestone = internalMutation({
     if (Object.keys(edited.patch).length === 0 && args.workStatus == null) {
       return finishIdempotency(ctx, opened.id, fail(400, 'At least one field is required'));
     }
-    await ctx.db.patch(milestone._id, {
+    await ctx.db.patch(milestone._id, touched({
       ...edited.patch,
       ...(args.workStatus != null ? { workStatus } : {}),
-    });
+    }));
     if (activity) {
       await writeMilestoneActivity(
         ctx as Parameters<typeof writeMilestoneActivity>[0],
