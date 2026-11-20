@@ -204,7 +204,7 @@ export function TileStatusControl({
 }) {
   return (
     <div
-      className="milestone-status-control ds-mono w-full lg:w-[174px]"
+      className="milestone-status-control ds-mono w-full lg:ml-auto lg:w-max lg:min-w-[174px]"
       data-testid="milestone-status-control"
       data-status={status}
       style={{
