@@ -89,8 +89,9 @@ export const hideSyncedPage = internalMutation({
         .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.notionPageId))
         .unique();
       if (!existing) return empty;
+      const flips = hiddenStateFlips(existing.syncHiddenReason, args.reason);
       await ctx.db.patch(existing._id, stamp);
-      await stampParentMilestone(ctx, existing, now);
+      if (flips) await stampParentMilestone(ctx, existing, now);
       return { hidden: true, authUserIds: [], orgId: existing.orgId, projectId: existing.projectId };
     }
 

@@ -538,7 +538,7 @@ function UnpublishedTileFrame({ staff, phone }: { staff: boolean; phone: boolean
 function TileFrame({ peter, staff = true, phone }: { peter: boolean; staff?: boolean; phone: boolean }) {
   const id = !staff ? 'tile-client' : peter ? 'tile-peter' : 'tile-staff';
   return (
-    <section data-overlay={id} data-width={phone ? '390' : '1440'} style={{ width: phone ? 390 : 1108, paddingTop: 16 }}>
+    <section data-overlay={id} data-width={phone ? '390' : '1440'} style={{ width: phone ? 390 : 1108, maxWidth: '100%', paddingTop: 16 }}>
       <MilestoneListCard milestone={tileMilestone} staff={staff} isPeter={peter} fixtures onOpen={() => undefined} />
     </section>
   );

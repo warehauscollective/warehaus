@@ -118,6 +118,12 @@ describe('write paths stamp the parent milestone', () => {
     assert.match(hide, /hiddenStateFlips\(row\.syncHiddenReason, 'ancestor'\)/);
     assert.match(hide, /hiddenStateFlips\(row\.syncHiddenReason, null\)/);
     assert.match(hide, /if \(flips\) await stampParentMilestone/);
+    const syncedPage = hide.slice(
+      hide.indexOf("if (args.table === 'tasks')"),
+      hide.indexOf("if (args.table === 'sharedResources')"),
+    );
+    assert.match(syncedPage, /hiddenStateFlips\(existing\.syncHiddenReason, args\.reason\)/);
+    assert.match(syncedPage, /if \(flips\) await stampParentMilestone\(ctx, existing, now\)/);
 
     const milestones = read('../milestones.ts');
     assert.match(milestones, /updatedAt: Date\.now\(\)/);
