@@ -8,126 +8,13 @@
  * Escape discards.
  */
 
-import type { MilestoneWorkStatus } from './milestones';
-
-export const MILESTONE_STAGES = [
-  'Idea',
-  'Planning',
-  'Awaiting Go',
-  'Building',
-  'Ready to Ship',
-  'Shipped',
-  'Parked',
-] as const;
-
-export const MILESTONE_DETAIL_STATUSES = ['draft', 'in_progress', 'in_review', 'complete'] as const;
-
-export const DETAIL_STATUS_LABEL = {
-  draft: 'Draft',
-  in_progress: 'In progress',
-  in_review: 'In review',
-  complete: 'Complete',
-} as const;
-
 export const DETAIL_ACTIVITY = {
   status: 'milestone.status',
-  stage: 'milestone.stage',
   publish: 'milestone.publish',
   project: 'milestone.project',
 } as const;
 
-export type MilestoneStage = (typeof MILESTONE_STAGES)[number];
-export type MilestoneDetailStatus = (typeof MILESTONE_DETAIL_STATUSES)[number];
 export type DetailActivityType = (typeof DETAIL_ACTIVITY)[keyof typeof DETAIL_ACTIVITY];
-
-const STAGE_SET = new Set<string>(MILESTONE_STAGES);
-const STATUS_SET = new Set<string>(MILESTONE_DETAIL_STATUSES);
-
-export function isMilestoneStage(value: string): value is MilestoneStage {
-  return STAGE_SET.has(value);
-}
-
-export function isDetailStatus(value: string): value is MilestoneDetailStatus {
-  return STATUS_SET.has(value);
-}
-
-/**
- * Stored stage wins, including Shipped. Shipped is never derived.
- * With nothing stored, ready work is Ready to Ship and approve keeps that.
- */
-export function effectiveStage(input: {
-  stage?: string | null;
-  workStatus: MilestoneWorkStatus;
-  approval?: string | null;
-}): MilestoneStage {
-  if (input.stage && isMilestoneStage(input.stage)) return input.stage;
-  if (input.workStatus === 'draft') return 'Planning';
-  if (input.workStatus === 'ready') return 'Ready to Ship';
-  // Approve keeps the work-status stage. It does not pick a new one.
-  void input.approval;
-  return 'Building';
-}
-
-/** Stored status, or the work-status equivalent. Approval stays on its own row. */
-export function effectiveDetailStatus(input: {
-  detailStatus?: string | null;
-  workStatus: MilestoneWorkStatus;
-}): MilestoneDetailStatus {
-  if (input.detailStatus && isDetailStatus(input.detailStatus)) return input.detailStatus;
-  if (input.workStatus === 'draft') return 'draft';
-  if (input.workStatus === 'ready') return 'in_review';
-  return 'in_progress';
-}
-
-export function detailStatusLabel(status: MilestoneDetailStatus): string {
-  return DETAIL_STATUS_LABEL[status];
-}
-
-/**
- * Work status kept in step with the picker. Complete does not invent a fourth
- * work status. In review sets work status ready. It never sets a protocol stage,
- * so it cannot land on Ready to Ship.
- */
-export function workStatusForDetail(status: MilestoneDetailStatus): MilestoneWorkStatus | null {
-  if (status === 'draft') return 'draft';
-  if (status === 'in_progress') return 'active';
-  if (status === 'in_review') return 'ready';
-  return null;
-}
-
-/** A work-status write. The patch has no stage. */
-export function workStatusWrite(workStatus: MilestoneWorkStatus): { workStatus: MilestoneWorkStatus } {
-  return { workStatus };
-}
-
-export function stageOptionLock(stage: MilestoneStage): 'shipped' | null {
-  return stage === 'Shipped' ? 'shipped' : null;
-}
-
-/**
- * Staff can set any stage except Shipped. Shipped is set when the pull
- * request merges. The same value is a no-op, including Shipped.
- */
-export function stageChangeDecision(input: {
-  from: MilestoneStage;
-  to: string;
-}): { ok: true; stage: MilestoneStage; wrote: boolean } | { ok: false; reason: string } {
-  if (!isMilestoneStage(input.to)) return { ok: false, reason: 'Unknown stage' };
-  if (input.to === input.from) return { ok: true, stage: input.to, wrote: false };
-  if (input.to === 'Shipped') return { ok: false, reason: 'Shipped is set when the pull request merges' };
-  return { ok: true, stage: input.to, wrote: true };
-}
-
-export function detailStatusDecision(input: {
-  from: MilestoneDetailStatus;
-  to: string;
-}):
-  | { ok: true; status: MilestoneDetailStatus; wrote: boolean; workStatus: MilestoneWorkStatus | null; stage: null }
-  | { ok: false; reason: string } {
-  if (!isDetailStatus(input.to)) return { ok: false, reason: 'Unknown status' };
-  if (input.to === input.from) return { ok: true, status: input.to, wrote: false, workStatus: null, stage: null };
-  return { ok: true, status: input.to, wrote: true, workStatus: workStatusForDetail(input.to), stage: null };
-}
 
 export function publishChangeDecision(from: boolean, to: boolean): { wrote: boolean } {
   return { wrote: from !== to };
@@ -240,7 +127,7 @@ export function clientReviewDecision(): { ok: false; reason: string } {
 
 /** Clients see Creator and Visibility read-only. Approval and Last review stay staff-only. */
 export function clientSeesDetailsRow(
-  row: 'creator' | 'visibility' | 'approval' | 'review' | 'owner' | 'due' | 'created' | 'project' | 'status' | 'stage',
+  row: 'creator' | 'visibility' | 'approval' | 'review' | 'owner' | 'due' | 'created' | 'project' | 'status',
   staff: boolean,
 ): boolean {
   if (row === 'approval' || row === 'review') return staff;

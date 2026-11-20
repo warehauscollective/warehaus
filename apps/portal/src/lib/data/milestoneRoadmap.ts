@@ -75,7 +75,7 @@ export function fixtureMilestones(
       name: 'Launch the homepage',
       objective: 'The homepage matches the approved frame and is ready to review.',
       goals: ['Hero matches the approved frame', 'Menu page stays one column'],
-      workStatus: 'ready',
+      status: 'Ready to Ship',
       approval: 'unreviewed',
       note: null,
       approverName: null,
@@ -103,7 +103,7 @@ export function fixtureMilestones(
       name: 'Billing export draft',
       objective: 'Invoices export without a second approval step.',
       goals: ['Export uses the published columns'],
-      workStatus: 'draft',
+      status: 'Planning',
       approval: 'unreviewed',
       note: null,
       approverName: null,
@@ -176,8 +176,8 @@ function withLongChip(milestone: MilestoneRoadmapView): MilestoneRoadmapView {
 }
 
 function previewMilestone(
-  patch: Pick<MilestoneRoadmapView, 'id' | 'name' | 'objective' | 'workStatus' | 'approval'> &
-    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName' | 'stage'>>,
+  patch: Pick<MilestoneRoadmapView, 'id' | 'name' | 'objective' | 'status' | 'approval'> &
+    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName'>>,
 ): MilestoneRoadmapView {
   return {
     goals: [],
@@ -196,7 +196,7 @@ function previewMilestone(
 
 /**
  * Fixture-only list previews. `?chip=long` stretches the first chip.
- * `?tiles=states` adds an in-progress tile, a reviewed tile, an approved tile awaiting merge, and a tile whose stored stage is Shipped.
+ * `?tiles=states` adds an in-progress tile, a reviewed tile, an approved tile awaiting merge, and a tile whose status is Shipped.
  * An empty search leaves the list alone.
  */
 export function applyFixtureMilestonePreview(
@@ -235,14 +235,14 @@ export function applyFixtureMilestonePreview(
       id: 'm-preview-active',
       name: 'Case study',
       objective: 'The case study is in progress.',
-      workStatus: 'active',
+      status: 'Building',
       approval: 'unreviewed',
     }),
     previewMilestone({
       id: 'm-preview-reviewed',
       name: 'Navigation pass',
       objective: 'The navigation notes were reviewed.',
-      workStatus: 'active',
+      status: 'Building',
       approval: 'changes_requested',
       decidedAt: PREVIEW_REVIEW_AT,
       resources: [{ id: 'r-nav', title: 'Navigation notes', url: null }],
@@ -251,8 +251,8 @@ export function applyFixtureMilestonePreview(
       id: 'm-preview-approved',
       name: 'Approved, awaiting merge',
       objective: 'The brand system is approved.',
-      // Approval shows Ready to Ship until a stage is stored. Ready work is In review.
-      workStatus: 'ready',
+      // Approval keeps Ready to Ship. Shipped is set on merge.
+      status: 'Ready to Ship',
       approval: 'approved',
       decidedAt: PREVIEW_REVIEW_AT,
       approverName: 'Northwind',
@@ -266,9 +266,8 @@ export function applyFixtureMilestonePreview(
       id: 'm-preview-shipped',
       name: 'Production launch',
       objective: 'The homepage is shipped.',
-      workStatus: 'ready',
+      status: 'Shipped',
       approval: 'approved',
-      stage: 'Shipped',
       decidedAt: PREVIEW_REVIEW_AT,
       approverName: 'Northwind',
     }),

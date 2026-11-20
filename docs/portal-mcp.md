@@ -46,6 +46,21 @@ Claude Desktop uses that block. Claude Code uses the same URL and the same `Auth
 
 `create_client` uses the staff client-create path and stays disabled and unpublished. `create_project` uses the same project-create path. Pass `clientId`, or `client` to create the client first. The project stays unpublished unless `publishToWarehaus` is `true`. The staff form still publishes, because that path passes publish on. Tasks and milestones stay unpublished.
 
+## Milestone status
+
+A milestone has one field, `status`: `Idea`, `Planning`, `Awaiting Go`, `Building`, `Ready to Ship`, `Shipped`, or `Parked`. Approval is the separate review result in `approval`.
+
+`GET /api/v1/milestones` and `list_milestones` return `status`. `POST /api/v1/milestones` and `POST /api/v1/milestones/update` accept `status`. A new milestone is `Planning` unless `status` says otherwise. Any status can be set except `Shipped`, which is set when the pull request merges. Sending the stored status again writes nothing.
+
+`record_milestone_review` needs `status` `Ready to Ship` and a preview. Approve keeps that status. Request changes moves it back to `Building`. The result returns `status`.
+
+For one release the old names still work, so current bot tokens do not break:
+- `stage` is returned with the same value as `status`, and is accepted in its place.
+- `workStatus` is returned as `draft`, `active`, or `ready`, and is accepted as `Planning`, `Building`, or `Ready to Ship`.
+- If more than one of the three is sent, they must agree, or the call is a 400.
+
+Read and send `status`. The two aliases are removed in a later release.
+
 If a write stops after the outbox row is stored and before the response is saved, the idempotency key stays pending. Retrying that key returns 409, `A request with this idempotency key is already in progress`, while the key is inside its 15 minute lease. That lease is longer than the Convex action limit, so a request that is still running is not replaced.
 
 After the lease, the retry reads the matching outbox row and does not start a second Notion create while that row is in flight:

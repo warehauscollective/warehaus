@@ -7,10 +7,7 @@ import {
   clientReviewDecision,
   clientSeesDetailsRow,
   detailActivitySummary,
-  detailStatusDecision,
   dueDateChangeDecision,
-  effectiveDetailStatus,
-  effectiveStage,
   formatDueDate,
   heldTaskProjectId,
   isCalendarDate,
@@ -18,14 +15,11 @@ import {
   ownerChangeDecision,
   projectMoveDecision,
   publishChangeDecision,
-  stageChangeDecision,
-  stageOptionLock,
   taskIdsToMove,
   textBlurSave,
-  workStatusWrite,
 } from './milestoneDetails';
 import { isPeterEmail } from './milestoneReview';
-import { workStatusDecision } from './milestones';
+import { milestoneStatusOf, statusOptionLock, transitionMilestone } from './milestoneStatus';
 
 describe('staff stages', () => {
   it('uses the one Peter check from the review protocol', () => {
@@ -37,64 +31,58 @@ describe('staff stages', () => {
   });
 
   it('lets any staff member set Awaiting Go and Ready to Ship', () => {
-    assert.deepEqual(stageChangeDecision({ from: 'Planning', to: 'Awaiting Go' }), {
+    assert.deepEqual(transitionMilestone({ from: 'Planning', cause: 'set', to: 'Awaiting Go' }), {
       ok: true,
-      stage: 'Awaiting Go',
+      from: 'Planning',
+      status: 'Awaiting Go',
       wrote: true,
     });
-    assert.deepEqual(stageChangeDecision({ from: 'Building', to: 'Ready to Ship' }), {
+    assert.deepEqual(transitionMilestone({ from: 'Building', cause: 'set', to: 'Ready to Ship' }), {
       ok: true,
-      stage: 'Ready to Ship',
+      from: 'Building',
+      status: 'Ready to Ship',
       wrote: true,
     });
-    assert.deepEqual(stageChangeDecision({ from: 'Awaiting Go', to: 'Building' }), {
+    assert.deepEqual(transitionMilestone({ from: 'Awaiting Go', cause: 'set', to: 'Building' }), {
       ok: true,
-      stage: 'Building',
+      from: 'Awaiting Go',
+      status: 'Building',
       wrote: true,
     });
   });
 
   it('lets nobody set Shipped, and locks only that option in the menu', () => {
-    assert.deepEqual(stageChangeDecision({ from: 'Building', to: 'Shipped' }), {
+    assert.deepEqual(transitionMilestone({ from: 'Building', cause: 'set', to: 'Shipped' }), {
       ok: false,
       reason: 'Shipped is set when the pull request merges',
+      code: 'shipped',
     });
-    assert.equal(stageOptionLock('Shipped'), 'shipped');
-    assert.equal(stageOptionLock('Awaiting Go'), null);
-    assert.equal(stageOptionLock('Ready to Ship'), null);
-    assert.equal(stageOptionLock('Building'), null);
+    assert.equal(statusOptionLock('Shipped'), 'shipped');
+    assert.equal(statusOptionLock('Awaiting Go'), null);
+    assert.equal(statusOptionLock('Ready to Ship'), null);
+    assert.equal(statusOptionLock('Building'), null);
   });
 
-  it('skips a no-op stage write, including a repeat of Shipped', () => {
-    assert.deepEqual(stageChangeDecision({ from: 'Building', to: 'Building' }), {
+  it('skips a no-op status write, including a repeat of Shipped', () => {
+    assert.deepEqual(transitionMilestone({ from: 'Building', cause: 'set', to: 'Building' }), {
       ok: true,
-      stage: 'Building',
+      from: 'Building',
+      status: 'Building',
       wrote: false,
     });
-    const shipped = stageChangeDecision({ from: 'Shipped', to: 'Shipped' });
+    const shipped = transitionMilestone({ from: 'Shipped', cause: 'set', to: 'Shipped' });
     assert.equal(shipped.ok, true);
     if (shipped.ok) assert.equal(shipped.wrote, false);
   });
 });
 
 describe('status, publish, and project decisions', () => {
-  it('lets a non-Peter mark work ready without storing a Peter stage', () => {
-    const ready = workStatusDecision({ actor: 'human', approval: 'unreviewed', from: 'active', to: 'ready' });
-    assert.equal(ready.ok, true);
-    if (!ready.ok) return;
-    assert.equal(ready.workStatus, 'ready');
-    assert.equal(ready.stage, null);
-    const review = detailStatusDecision({ from: 'in_progress', to: 'in_review' });
-    assert.equal(review.ok, true);
-    if (!review.ok) return;
-    assert.equal(review.workStatus, 'ready');
-    assert.equal(review.stage, null);
-    const patch = workStatusWrite('ready');
-    assert.deepEqual(patch, { workStatus: 'ready' });
-    assert.equal('stage' in patch, false);
-    assert.equal(stageChangeDecision({ from: 'Building', to: 'Ready to Ship' }).ok, true);
-    assert.equal(stageChangeDecision({ from: 'Building', to: 'Awaiting Go' }).ok, true);
-    assert.equal(stageChangeDecision({ from: 'Building', to: 'Shipped' }).ok, false);
+  it('lets a non-Peter move to Ready to Ship without approving anything', () => {
+    const ready = transitionMilestone({ from: 'Building', cause: 'advance', expected: 'Building' });
+    assert.deepEqual(ready, { ok: true, from: 'Building', status: 'Ready to Ship', wrote: true });
+    assert.equal('approval' in ready, false);
+    assert.equal(transitionMilestone({ from: 'Building', cause: 'set', to: 'Awaiting Go' }).ok, true);
+    assert.equal(transitionMilestone({ from: 'Building', cause: 'set', to: 'Shipped' }).ok, false);
   });
 
   it('refuses a client review', () => {
@@ -107,19 +95,13 @@ describe('status, publish, and project decisions', () => {
     assert.doesNotMatch(block, /decideMilestone/);
   });
 
-  it('saves a new status and skips the same one', () => {
-    assert.deepEqual(detailStatusDecision({ from: 'in_progress', to: 'in_review' }), {
-      ok: true,
-      status: 'in_review',
-      wrote: true,
-      workStatus: 'ready',
-      stage: null,
-    });
-    const complete = detailStatusDecision({ from: 'in_progress', to: 'complete' });
-    if (complete.ok) assert.equal(complete.workStatus, null);
-    const same = detailStatusDecision({ from: 'draft', to: 'draft' });
-    if (same.ok) assert.equal(same.wrote, false);
-    assert.equal(detailStatusDecision({ from: 'draft', to: 'later' }).ok, false);
+  it('has one Status and no second status picker', () => {
+    const details = readFileSync(new URL('./milestoneDetails.ts', import.meta.url), 'utf8');
+    for (const retired of ['detailStatus', 'workStatus', 'effectiveStage', 'MILESTONE_STAGES']) {
+      assert.equal(details.includes(retired), false, retired);
+    }
+    assert.equal(transitionMilestone({ from: 'Planning', cause: 'set', to: 'later' }).ok, false);
+    assert.equal(transitionMilestone({ from: 'Planning', cause: 'set', to: 'in_review' }).ok, false);
   });
 
   it('confirms publish only when the value changes', () => {
@@ -170,7 +152,6 @@ describe('text blur and activity', () => {
     assert.match(withTasks, /Northwind brand · 2 tasks · /);
     assert.equal(summary.includes('@'), false);
     assert.equal(isClientVisibleActivityType('milestone.project'), false);
-    assert.equal(isClientVisibleActivityType('milestone.stage'), false);
     assert.equal(isClientVisibleActivityType('milestone.status'), false);
     assert.equal(isClientVisibleActivityType('milestone.publish'), false);
   });
@@ -218,14 +199,13 @@ describe('task move and client rows', () => {
     assert.equal(clientSeesDetailsRow('status', false), true);
   });
 
-  it('derives a stage and status when nothing has been stored yet', () => {
-    assert.equal(effectiveStage({ stage: null, workStatus: 'draft', approval: 'unreviewed' }), 'Planning');
-    assert.equal(effectiveStage({ stage: 'Parked', workStatus: 'active', approval: 'unreviewed' }), 'Parked');
-    assert.equal(effectiveDetailStatus({ detailStatus: null, workStatus: 'ready' }), 'in_review');
-    assert.equal(effectiveDetailStatus({ detailStatus: 'complete', workStatus: 'active' }), 'complete');
-    assert.equal(effectiveStage({ stage: null, workStatus: 'ready', approval: 'unreviewed' }), 'Ready to Ship');
-    assert.equal(effectiveStage({ stage: null, workStatus: 'active', approval: 'approved' }), 'Building');
-    assert.equal(effectiveStage({ stage: 'Shipped', workStatus: 'active', approval: 'approved' }), 'Shipped');
+  it('reads the status of a row from before the Status field', () => {
+    assert.equal(milestoneStatusOf({ stage: null, workStatus: 'draft' }), 'Planning');
+    assert.equal(milestoneStatusOf({ stage: 'Parked', workStatus: 'active' }), 'Parked');
+    assert.equal(milestoneStatusOf({ stage: null, workStatus: 'ready' }), 'Ready to Ship');
+    assert.equal(milestoneStatusOf({ stage: null, workStatus: 'active' }), 'Building');
+    assert.equal(milestoneStatusOf({ stage: 'Shipped', workStatus: 'active' }), 'Shipped');
+    assert.equal(milestoneStatusOf({ status: 'Idea', stage: 'Shipped', workStatus: 'ready' }), 'Idea');
     const clientView = roadmapViewForAudience({
       name: 'Launch',
       publishToWarehaus: true,
@@ -235,7 +215,7 @@ describe('task move and client rows', () => {
       decidedAt: 1,
       creator: 'Peter',
       creatorName: 'Peter',
-      workStatus: 'ready',
+      status: 'Ready to Ship',
       localPreviewUrl: 'http://localhost:3200',
       figmaUrl: 'https://www.figma.com/design/abc',
     }, 'client');
@@ -244,7 +224,7 @@ describe('task move and client rows', () => {
     }
     assert.equal(clientView.creatorName, 'Peter');
     assert.equal(clientView.publishToWarehaus, true);
-    assert.equal(clientView.workStatus, 'ready');
+    assert.equal(clientView.status, 'Ready to Ship');
     const staffView = roadmapViewForAudience({ publishToWarehaus: true, approval: 'approved' }, 'staff');
     assert.equal(staffView.publishToWarehaus, true);
     assert.equal(movedLaneCount([
@@ -291,22 +271,30 @@ describe('owner and due date', () => {
 describe('server enforcement', () => {
   it('keeps the detail mutations staff-only and off the Notion outbox', () => {
     const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
-    const start = source.indexOf('export const setDetailStatus');
+    const start = source.indexOf('export const setStatus');
     const end = source.indexOf('export const decide');
     const block = source.slice(start, end);
     assert.ok(start > 0 && end > start);
-    assert.match(block, /stageChangeDecision/);
+    assert.match(block, /transitionMilestone/);
     assert.doesNotMatch(block, /isPeterEmail/);
-    assert.match(block, /detailStatusDecision/);
     assert.match(block, /projectMoveDecision/);
     assert.match(block, /taskIdsToMove/);
     assert.match(block, /by_parentTaskId/);
     assert.match(block, /by_orgId_milestoneId/);
     assert.doesNotMatch(block, /by_orgId_projectId/);
-    const statusBlock = source.slice(source.indexOf('export const setDetailStatus'), source.indexOf('export const setStage'));
-    const workBlock = source.slice(source.indexOf('export const setWorkStatus'), source.indexOf('export const setPublish'));
-    assert.doesNotMatch(statusBlock, /\bstage:/);
-    assert.doesNotMatch(workBlock, /\bstage:/);
+    for (const retired of ['export const setStage', 'export const setDetailStatus', 'export const setWorkStatus']) {
+      assert.equal(source.includes(retired), false, retired);
+    }
+    const statusBlock = source.slice(start, source.indexOf('export const ownerChoices'));
+    assert.match(statusBlock, /export const advance = adminMutation/);
+    assert.match(statusBlock, /cause: 'advance'/);
+    assert.match(statusBlock, /expected: args\.expectedStatus/);
+    // Every status write goes through the one writer, which skips a no-op.
+    assert.equal(statusBlock.includes('ctx.db.patch'), false);
+    assert.match(statusBlock, /writeStatus\(ctx, milestone, moved, ctx\.identity\.name\)/);
+    const writer = source.slice(source.indexOf('async function writeStatus'), source.indexOf('async function replaceResources'));
+    assert.match(writer, /if \(!decision\.wrote\) return false;/);
+    assert.equal(writer.match(/logMilestone\(/g)?.length, 1);
     assert.match(block, /wrote: false/);
     assert.match(block, /'milestone\.project'/);
     assert.doesNotMatch(block, /clientMutation/);

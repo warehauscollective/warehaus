@@ -630,6 +630,96 @@ body:has([data-sheet-layer='viewport']) [data-testid='portal-dock'] {
   outline: 2px solid var(--info);
   outline-offset: 2px;
 }
+/*
+ * Editable picker triggers: Status, Owner, Due date, Project, Visibility and
+ * the new-milestone form pickers. A 1px --border outline with 10px corners at
+ * rest, --border-2 on hover, focus and open. Read-only rows have no outline.
+ */
+.ds-scope .milestone-picker {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.ds-scope .milestone-picker:hover,
+.ds-scope .milestone-picker:focus-within,
+.ds-scope .milestone-picker:focus-visible,
+.ds-scope .milestone-picker[data-open='true'] {
+  border-color: var(--border-2);
+}
+.ds-scope .milestone-picker-field:hover,
+.ds-scope .milestone-picker-field[data-open='true'] {
+  background: var(--surface-2);
+}
+.ds-scope .milestone-picker-field button:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+/* Milestone status play button. 24px box. The button is the hit area. */
+.ds-scope .milestone-play-wrap {
+  position: relative;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+.ds-scope .milestone-play {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  padding: 0;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+.ds-scope .milestone-play-box {
+  box-sizing: border-box;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 1px solid var(--border-2);
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+.ds-scope .milestone-play:hover .milestone-play-box,
+.ds-scope .milestone-play:focus-visible .milestone-play-box {
+  background: var(--fg);
+  color: var(--bg);
+}
+.ds-scope .milestone-play:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+.ds-scope .milestone-play-tip {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 30;
+  display: none;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: var(--fg);
+  color: var(--bg);
+  font-size: 11px;
+  line-height: 17px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.ds-scope .milestone-play:hover + .milestone-play-tip,
+.ds-scope .milestone-play:focus-visible + .milestone-play-tip {
+  display: block;
+}
+/* Phones: a 44px hit area around the same 24px box. The row does not grow. */
+@media (max-width: 767px), (pointer: coarse) {
+  .ds-scope .milestone-play {
+    width: 44px;
+    height: 44px;
+    margin: -10px;
+  }
+}
 .ds-scope [data-focus-ring='info'] :focus-visible {
   outline: 2px solid var(--info) !important;
   outline-offset: 2px;

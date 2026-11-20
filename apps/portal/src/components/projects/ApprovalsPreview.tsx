@@ -37,7 +37,7 @@ const ready: ReviewSurfaceModel = {
   milestoneId: 'milestone-preview',
   milestoneName: 'Client experience launch',
   iteration: 2,
-  workStatus: 'ready',
+  status: 'Ready to Ship',
   approval: 'unreviewed',
   previewUrl: 'localhost:3100/p/warehaus-portal/t/order-ahead',
   prNumber: 108,
@@ -63,7 +63,7 @@ const waiting: ReviewSurfaceModel = { ...ready, previewUrl: null, designCheck: '
 const ATTACHED_PREVIEW = 'https://warehaus-portal-git-order-ahead-warehaus-collective.vercel.app';
 const attachedLink: ReviewSurfaceModel = {
   ...ready,
-  workStatus: 'ready',
+  status: 'Ready to Ship',
   previewUrl: ATTACHED_PREVIEW,
   previewAttachedAt: STAMP,
   designCheck: 'pass',
@@ -85,7 +85,7 @@ const approved: ReviewSurfaceModel = {
 const changes: ReviewSurfaceModel = {
   ...ready,
   iteration: 3,
-  workStatus: 'active',
+  status: 'Building',
   approval: 'changes_requested',
   previewUrl: null,
   designCheck: 'pending',
@@ -326,7 +326,7 @@ function pageMilestone(staffReview: boolean): MilestoneRoadmapView {
     name: 'Client experience launch',
     objective: 'Launch the new client experience: a clear project overview and milestones that carry the brief.',
     goals: ['Clients can review the finished flow at desktop and mobile sizes.'],
-    workStatus: staffReview ? 'active' : 'active',
+    status: 'Building',
     note: null,
     approverName: staffReview ? 'Peter' : null,
     publishToWarehaus: true,
@@ -385,7 +385,7 @@ function MilestonePage({ capture, width, staff }: { capture: string; width: numb
         onFixture={() => undefined}
         mutations={{
           save: idle,
-          setWorkStatus: idle,
+          setStatus: idle, advance: idle,
           setPublish: idle,
           attachTask: idle,
           detachTask: idle,
@@ -400,7 +400,7 @@ const tileMilestone: MilestoneRoadmapView = {
   name: 'Client experience launch',
   objective: 'Launch the new client experience.',
   goals: ['Clients can review the finished flow.'],
-  workStatus: 'ready',
+  status: 'Ready to Ship',
   approval: 'unreviewed',
   note: null,
   approverName: null,
@@ -503,7 +503,7 @@ const unpublishedTile: MilestoneRoadmapView = {
   id: 'm-draft',
   name: 'Billing export draft',
   objective: 'Invoices export without a second approval step.',
-  workStatus: 'draft',
+  status: 'Planning',
   publishToWarehaus: false,
   resources: [
     { id: 'r-columns', title: 'Invoice columns', url: null },

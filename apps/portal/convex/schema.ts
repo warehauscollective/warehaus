@@ -210,7 +210,30 @@ export default defineSchema({
     objective: v.string(),
     /** Ordered outcome lines. Text only — not tasks and not checkboxes. */
     goals: v.array(v.string()),
-    workStatus: v.union(v.literal('draft'), v.literal('active'), v.literal('ready')),
+    /**
+     * The one Status field. Every write goes through `transitionMilestone`
+     * in `_lib/milestoneStatus.ts`. Staff can set any status except Shipped.
+     * Shipped is set when the pull request merges. Optional until the
+     * backfill has run on every deployment; `milestoneStatusOf` reads the
+     * old fields below for rows that do not have it yet.
+     */
+    status: v.optional(
+      v.union(
+        v.literal('Idea'),
+        v.literal('Planning'),
+        v.literal('Awaiting Go'),
+        v.literal('Building'),
+        v.literal('Ready to Ship'),
+        v.literal('Shipped'),
+        v.literal('Parked'),
+      ),
+    ),
+    /**
+     * Retired. Replaced by `status`. No code writes it. Kept, and made
+     * optional, so rows from before the backfill still validate. Remove in
+     * the narrow push, after `milestones:backfillStatus` has been applied.
+     */
+    workStatus: v.optional(v.union(v.literal('draft'), v.literal('active'), v.literal('ready'))),
     approval: v.union(
       v.literal('unreviewed'),
       v.literal('approved'),
@@ -225,7 +248,7 @@ export default defineSchema({
     publishToWarehaus: v.boolean(),
     /**
      * Open review iteration. Missing means 1. Clients never receive this.
-     * Ready to Ship is workStatus `ready`. Approve does not move it to Shipped.
+     * Approve needs Status Ready to Ship. Approve does not move it to Shipped.
      */
     iteration: v.optional(v.number()),
     /**
@@ -260,17 +283,11 @@ export default defineSchema({
     previewDeleteAt: v.optional(v.number()),
     /** Set only when a real production deploy finishes. Absent means it has not finished. */
     deployFinishedAt: v.optional(v.number()),
-    /**
-     * Details-panel status. Absent until a person picks one. Draft, in
-     * progress, and in review also keep workStatus in step. Complete does not.
-     */
+    /** Retired with `workStatus`. No code writes it. Remove in the narrow push. */
     detailStatus: v.optional(
       v.union(v.literal('draft'), v.literal('in_progress'), v.literal('in_review'), v.literal('complete')),
     ),
-    /**
-     * Build-protocol stage. Absent until a person picks one. Staff can set
-     * any stage except Shipped. Shipped is set when the pull request merges.
-     */
+    /** Retired. Its seven values moved to `status`. Remove in the narrow push. */
     stage: v.optional(
       v.union(
         v.literal('Idea'),

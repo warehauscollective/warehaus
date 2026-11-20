@@ -33,7 +33,7 @@ function ready(extra: Partial<PlanReviewInput> = {}): PlanReviewInput {
   return {
     actor: peter,
     currentIteration: 2,
-    workStatus: 'ready',
+    status: 'Ready to Ship',
     hasPreview: true,
     iteration: 2,
     decision: 'approve',
@@ -49,7 +49,7 @@ describe('milestone review decisions', () => {
     const planned = planReview(ready());
     assert.equal(planned.ok, true);
     if (!planned.ok || planned.idempotent || planned.decision !== 'approve') return;
-    assert.equal(planned.workStatus, 'ready');
+    assert.equal(planned.status, 'Ready to Ship');
   });
 
   it('is idempotent for the same iteration and decision', () => {
@@ -102,7 +102,7 @@ describe('milestone review decisions', () => {
     );
     assert.equal(planned.ok, true);
     if (!planned.ok || planned.idempotent || planned.decision !== 'request_changes') return;
-    assert.equal(planned.workStatus, 'active');
+    assert.equal(planned.status, 'Building');
     assert.equal(planned.nextIteration, 3);
     assert.equal(planned.tasks.length, 2);
     assert.equal(planned.tasks[0]?.parentTaskId, null);
@@ -168,12 +168,12 @@ describe('milestone review decisions', () => {
   });
 
   it('keeps Ready to Ship and does not treat approve as shipped', () => {
-    const planned = planReview(ready({ workStatus: 'active' }));
+    const planned = planReview(ready({ status: 'Building' }));
     assert.equal(planned.ok, false);
     const shipped = planReview(ready());
     assert.equal(shipped.ok, true);
     if (!shipped.ok || shipped.idempotent) return;
-    assert.equal(shipped.workStatus, 'ready');
+    assert.equal(shipped.status, 'Ready to Ship');
     assert.equal('shipped' in shipped, false);
   });
 });

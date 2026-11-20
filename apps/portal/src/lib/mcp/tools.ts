@@ -126,7 +126,8 @@ export const portalTools: PortalTool[] = [
   },
   {
     name: 'list_milestones',
-    description: 'List milestones on one project. New milestones stay unpublished. Page size is 1 to 50.',
+    description:
+      'List milestones on one project. Each has one status: Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, or Parked. Approval is the separate review result. The stage and workStatus fields repeat status for one release; read status. New milestones stay unpublished. Page size is 1 to 50.',
     write: false,
     schema: { projectId: z.string().min(1), cursor, limit },
     call: (args) => ({
@@ -331,7 +332,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'record_milestone_review',
     description:
-      "Record Peter's chat approval or change request for one milestone iteration. Only the grok-bot token is accepted. The same iteration is idempotent with the Portal. Notes are required to request changes. A stale iteration is rejected. This does not write Notion and does not move the stage to Shipped.",
+      "Record Peter's chat approval or change request for one milestone iteration. Only the grok-bot token is accepted. The same iteration is idempotent with the Portal. Notes are required to request changes. A stale iteration is rejected. Approve needs status Ready to Ship and a preview, and keeps that status. Request changes moves status back to Building. The result returns status. This does not write Notion and does not move the status to Shipped.",
     write: true,
     schema: {
       milestoneId: z.string().min(1),

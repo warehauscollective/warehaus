@@ -5,27 +5,14 @@ import type { Id } from '@convex/_generated/dataModel';
 import { assertStaffPreviewLink, PREVIEW_LINK_LOCAL } from '@convex/_lib/previewLink';
 import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
-import {
-  DETAIL_STATUS_LABEL,
-  MILESTONE_DETAIL_STATUSES,
-  MILESTONE_STAGES,
-  clientSeesDetailsRow,
-  detailStatusDecision,
-  detailStatusLabel,
-  effectiveDetailStatus,
-  effectiveStage,
-  formatDueDate,
-  stageOptionLock,
-  textBlurSave,
-  workStatusForDetail,
-  type MilestoneDetailStatus,
-  type MilestoneStage,
-} from '@convex/_lib/milestoneDetails';
+import { clientSeesDetailsRow, formatDueDate, textBlurSave } from '@convex/_lib/milestoneDetails';
+import { MILESTONE_STATUSES, nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PortalModal, type PortalModalHeader } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { FieldLabel, Panel, fieldStyle } from './milestoneChrome';
+import { StatusPlayButton, useMilestoneStatusMoves } from './MilestoneStatusControl';
 
 const APPROVAL_LABEL = {
   unreviewed: 'Unreviewed',
@@ -37,7 +24,6 @@ export type MoveTarget = { id: string; name: string };
 
 export type DetailsOverlay =
   | null
-  | { kind: 'stage' }
   | { kind: 'status' }
   | { kind: 'owner' }
   | { kind: 'due' }
@@ -51,16 +37,17 @@ export type DetailsOverlay =
 
 export type OwnerChoice = { id: string; name: string };
 
-type FieldKey = 'status' | 'stage' | 'owner' | 'due' | 'project' | 'visibility';
+type FieldKey = 'status' | 'owner' | 'due' | 'project' | 'visibility';
 type FieldTone = 'idle' | 'saving' | 'saved' | 'error' | 'pending' | 'discarded';
 
 type DetailMutations = {
-  setDetailStatus: (args: {
+  setStatus: (args: {
     hostSlug?: string;
     milestoneId: Id<'milestones'>;
-    detailStatus: MilestoneDetailStatus;
+    status: MilestoneStatus;
+    expectedStatus?: MilestoneStatus;
   }) => Promise<unknown>;
-  setStage: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; stage: MilestoneStage }) => Promise<unknown>;
+  advance: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; expectedStatus: MilestoneStatus }) => Promise<unknown>;
   setOwner: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; ownerContactId: Id<'contacts'> | null }) => Promise<unknown>;
   setDueDate: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; dueDate: string | null }) => Promise<unknown>;
   setPublish: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; publishToWarehaus: boolean }) => Promise<unknown>;
@@ -111,9 +98,7 @@ export function useMilestoneDetailEdits({
   suspended: boolean;
   onClaim: () => void;
   onFixture: (patch: {
-    detailStatus?: MilestoneDetailStatus;
-    stage?: MilestoneStage;
-    workStatus?: MilestoneRoadmapView['workStatus'];
+    status?: MilestoneStatus;
     publishToWarehaus?: boolean;
     ownerContactId?: string | null;
     ownerName?: string | null;
@@ -148,21 +133,39 @@ export function useMilestoneDetailEdits({
   const [projectQuery, setProjectQuery] = useState('');
   const [projectNameLocal, setProjectNameLocal] = useState(projectName);
   const pending = useRef<{
-    status: MilestoneDetailStatus | null;
-    stage: MilestoneStage | null;
+    status: MilestoneStatus | null;
     project: MoveTarget | null;
     ownerId: string | null;
     dueDate: string | null;
   }>({
     status: null,
-    stage: null,
     project: null,
     ownerId: null,
     dueDate: null,
   });
-  const shownStage = preview === 'locked' ? 'Awaiting Go' : stageLabel(milestone);
-  const shownStatus = statusLabel(milestone);
-  const stageNow = preview === 'locked' ? 'Awaiting Go' : effectiveStage(milestone);
+  const moves = useMilestoneStatusMoves({
+    status: milestone.status,
+    onAdvance: (expected) => {
+      if (fixtures) {
+        onFixture({ status: nextStatus(expected) ?? expected });
+        return;
+      }
+      return mutations.advance({ hostSlug, milestoneId: milestone.id as Id<'milestones'>, expectedStatus: expected });
+    },
+    onSet: (next, expected) => {
+      if (fixtures) {
+        onFixture({ status: next });
+        return;
+      }
+      return mutations.setStatus({
+        hostSlug,
+        milestoneId: milestone.id as Id<'milestones'>,
+        status: next,
+        expectedStatus: expected,
+      });
+    },
+  });
+  const statusNow: MilestoneStatus = preview === 'locked' ? 'Awaiting Go' : moves.shown;
   const taskCount = milestone.rows.length;
 
   useEffect(() => {
@@ -253,7 +256,7 @@ export function useMilestoneDetailEdits({
   };
 
   const closeOverlay = (discarded = false) => {
-    if (discarded && overlay?.kind === 'stage') setTone((current) => ({ ...current, stage: 'discarded' }));
+    if (discarded && overlay?.kind === 'status') setTone((current) => ({ ...current, status: 'discarded' }));
     if (overlay?.kind === 'confirm-publish' || overlay?.kind === 'confirm-unpublish' || overlay?.kind === 'visibility') {
       setTone((current) => ({ ...current, visibility: 'idle' }));
     }
@@ -281,46 +284,16 @@ export function useMilestoneDetailEdits({
     }
   };
 
-  const pickStatus = (status: MilestoneDetailStatus) => {
-    const decision = detailStatusDecision({ from: effectiveDetailStatus(milestone), to: status });
+  const pickStatus = (status: MilestoneStatus) => {
     setOverlay(null);
-    if (!decision.ok || !decision.wrote) return;
-    pending.current.status = decision.status;
+    if (statusOptionLock(status) || status === statusNow) return;
+    pending.current.status = status;
     if (fixtures) {
-      const workStatus = workStatusForDetail(decision.status);
-      onFixture({
-        detailStatus: decision.status,
-        ...(workStatus ? { workStatus } : {}),
-      });
+      onFixture({ status });
       setTone((current) => ({ ...current, status: 'saved' }));
       return;
     }
-    void runField('status', () =>
-      mutations.setDetailStatus({
-        hostSlug,
-        milestoneId: milestone.id as Id<'milestones'>,
-        detailStatus: decision.status,
-      }),
-    );
-  };
-
-  const pickStage = (stage: MilestoneStage) => {
-    if (stageOptionLock(stage)) return;
-    const from = preview === 'locked' ? 'Awaiting Go' : effectiveStage(milestone);
-    if (stage === from) {
-      setOverlay(null);
-      return;
-    }
-    setOverlay(null);
-    pending.current.stage = stage;
-    if (fixtures) {
-      onFixture({ stage });
-      setTone((current) => ({ ...current, stage: 'saved' }));
-      return;
-    }
-    void runField('stage', () =>
-      mutations.setStage({ hostSlug, milestoneId: milestone.id as Id<'milestones'>, stage }),
-    );
+    void runField('status', () => moves.pick(status));
   };
 
   const pickOwner = (ownerId: string | null) => {
@@ -430,54 +403,54 @@ export function useMilestoneDetailEdits({
         <p className="ds-mono col-span-2 hidden md:block lg:col-span-1" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--muted)' }}>
           DETAILS
         </p>
-        <DetailRow label="STATUS">
+        <DetailRow label="STATUS" outlined={staff}>
           {staff ? (
             <ValueButton
+              fieldLabel="STATUS"
               testId="milestone-status-edit"
-              valueTestId="milestone-work-status"
-              label={shownStatus}
-              tone={tone.status}
+              valueTestId="milestone-status"
+              label={moves.saving ? `${statusNow}…` : statusNow}
+              tone={moves.saving ? 'idle' : tone.status}
               open={shown?.kind === 'status'}
-              onClick={() => openOverlay(shown?.kind === 'status' ? null : { kind: 'status' })}
+              onClick={() => {
+                moves.clearError();
+                openOverlay(shown?.kind === 'status' ? null : { kind: 'status' });
+              }}
+              after={
+                moves.playTo && preview !== 'locked' ? (
+                  <StatusPlayButton
+                    next={moves.playTo}
+                    onPlay={() => {
+                      setOverlay(null);
+                      setTone((current) => ({ ...current, status: 'idle' }));
+                      setFieldError(null);
+                      moves.play();
+                    }}
+                  />
+                ) : null
+              }
             />
           ) : (
-            <ReadValue testId="milestone-work-status">{shownStatus}</ReadValue>
+            <ReadValue testId="milestone-status">{statusNow}</ReadValue>
           )}
           {tone.status === 'error' && fieldError ? (
             <FieldError testId="milestone-status-retry" text={fieldError} onRetry={() => { const status = pending.current.status; if (status) pickStatus(status); }} />
+          ) : moves.error ? (
+            <p role="alert" data-testid="milestone-status-error" style={{ marginTop: 6, fontSize: 13, lineHeight: '18px', color: 'var(--danger-text)' }}>
+              {moves.error}
+            </p>
           ) : null}
           {shown?.kind === 'status' && !phone ? (
             <Popover onClose={() => closeOverlay(true)}>
-              <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} />
-            </Popover>
-          ) : null}
-        </DetailRow>
-        <DetailRow label="STAGE">
-          {staff ? (
-            <ValueButton
-              testId="milestone-stage-edit"
-              valueTestId="milestone-stage"
-              label={shownStage}
-              tone={tone.stage}
-              open={shown?.kind === 'stage'}
-              onClick={() => openOverlay(shown?.kind === 'stage' ? null : { kind: 'stage' })}
-            />
-          ) : (
-            <ReadValue testId="milestone-stage">{shownStage}</ReadValue>
-          )}
-          {tone.stage === 'error' && fieldError ? (
-            <FieldError testId="milestone-stage-retry" text={fieldError} onRetry={() => { const stage = pending.current.stage; if (stage) pickStage(stage); }} />
-          ) : null}
-          {shown?.kind === 'stage' && !phone ? (
-            <Popover onClose={() => closeOverlay(true)}>
-              <StageMenu current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} />
+              <StatusMenu current={statusNow} onPick={pickStatus} onClose={() => closeOverlay(true)} />
             </Popover>
           ) : null}
         </DetailRow>
         {clientSeesDetailsRow('owner', staff) ? (
-          <DetailRow label="OWNER">
+          <DetailRow label="OWNER" outlined={staff}>
             {staff ? (
               <ValueButton
+                fieldLabel="OWNER"
                 testId="milestone-owner-edit"
                 valueTestId="milestone-owner"
                 label={milestone.ownerName?.trim() || 'Unassigned'}
@@ -511,9 +484,10 @@ export function useMilestoneDetailEdits({
         <DetailRow label="CREATED">
           <ReadValue testId="milestone-created">{formatCreated(milestone.createdAt)}</ReadValue>
         </DetailRow>
-        <DetailRow label={phone ? 'DUE' : 'DUE DATE'}>
+        <DetailRow label={phone ? 'DUE' : 'DUE DATE'} outlined={staff}>
           {staff ? (
             <ValueButton
+              fieldLabel={phone ? 'DUE' : 'DUE DATE'}
               testId="milestone-due-edit"
               valueTestId="milestone-due"
               label={formatDueDate(milestone.dueDate) ?? 'Not set'}
@@ -533,9 +507,10 @@ export function useMilestoneDetailEdits({
             </Popover>
           ) : null}
         </DetailRow>
-        <DetailRow label="PROJECT" wide>
+        <DetailRow label="PROJECT" wide outlined={staff}>
           {staff ? (
             <ValueButton
+              fieldLabel="PROJECT"
               testId="milestone-project-edit"
               valueTestId="milestone-project"
               label={projectNameLocal}
@@ -567,9 +542,10 @@ export function useMilestoneDetailEdits({
           ) : null}
         </DetailRow>
         {clientSeesDetailsRow('visibility', staff) ? (
-          <DetailRow label="VISIBILITY" wide>
+          <DetailRow label="VISIBILITY" wide outlined={staff}>
             {staff ? (
             <ValueButton
+              fieldLabel="VISIBILITY"
               testId="milestone-visibility-edit"
               valueTestId="milestone-publish"
               label={milestone.publishToWarehaus ? 'Published' : 'Not published'}
@@ -602,8 +578,9 @@ export function useMilestoneDetailEdits({
           </DetailRow>
         ) : null}
         {staff ? (
-          <DetailRow label="PREVIEW LINK" wide>
+          <DetailRow label="PREVIEW LINK" wide outlined>
             <ValueButton
+              fieldLabel="PREVIEW LINK"
               testId="milestone-preview-link-edit"
               valueTestId="milestone-preview-link"
               label={milestone.review?.previewUrl ? previewHost(milestone.review.previewUrl) : 'Attach preview link'}
@@ -669,11 +646,8 @@ export function useMilestoneDetailEdits({
       blueFocus={shown.kind === 'attach-link' || shown.kind === 'remove-link'}
       onClose={() => closeOverlay(true)}
     >
-      {shown.kind === 'stage' ? (
-        <StageMenu current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} sheet />
-      ) : null}
       {shown.kind === 'status' ? (
-        <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
+        <StatusMenu current={statusNow} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
       ) : null}
       {shown.kind === 'owner' ? (
         <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} currentName={milestone.ownerName} onPick={pickOwner} onClose={() => closeOverlay(true)} sheet />
@@ -776,7 +750,14 @@ export function useMilestoneDetailEdits({
     </DetailsModal>
   ) : null;
 
-  return { fields, overlay: sheet, askPublish, textBlurSave };
+  const overlayNode = (
+    <>
+      {sheet}
+      {staff ? moves.toast : null}
+    </>
+  );
+
+  return { fields, overlay: overlayNode, askPublish, textBlurSave };
 }
 
 function isConfirm(overlay: DetailsOverlay): boolean {
@@ -792,8 +773,7 @@ function previewHost(url: string): string {
 }
 
 function initialOverlay(preview: string | null, targets: readonly MoveTarget[], staff: boolean): DetailsOverlay {
-  if (preview === 'stage' || preview === 'stage-peter') return { kind: 'stage' };
-  if (preview === 'status') return { kind: 'status' };
+  if (preview === 'stage' || preview === 'stage-peter' || preview === 'status') return { kind: 'status' };
   if (preview === 'owner') return { kind: 'owner' };
   if (preview === 'due') return { kind: 'due' };
   if (preview === 'project') return { kind: 'project' };
@@ -811,26 +791,18 @@ function initialOverlay(preview: string | null, targets: readonly MoveTarget[], 
 }
 
 function initialTone(preview: string | null): Record<FieldKey, FieldTone> {
-  const tone: Record<FieldKey, FieldTone> = { status: 'idle', stage: 'idle', owner: 'idle', due: 'idle', project: 'idle', visibility: 'idle' };
-  if (preview === 'saving') tone.stage = 'saving';
-  if (preview === 'saved') tone.stage = 'saved';
-  if (preview === 'field-error') tone.stage = 'error';
+  const tone: Record<FieldKey, FieldTone> = { status: 'idle', owner: 'idle', due: 'idle', project: 'idle', visibility: 'idle' };
+  if (preview === 'saving') tone.status = 'saving';
+  if (preview === 'saved') tone.status = 'saved';
+  if (preview === 'field-error') tone.status = 'error';
   if (preview === 'owner-due-error') {
     tone.owner = 'error';
     tone.due = 'error';
   }
-  if (preview === 'discarded') tone.stage = 'discarded';
+  if (preview === 'discarded') tone.status = 'discarded';
   if (preview === 'publish' || preview === 'unpublish' || preview === 'visibility') tone.visibility = 'pending';
   if (preview === 'move' || preview === 'error') tone.project = preview === 'error' ? 'error' : 'pending';
   return tone;
-}
-
-function statusLabel(milestone: MilestoneRoadmapView): string {
-  return detailStatusLabel(effectiveDetailStatus(milestone));
-}
-
-function stageLabel(milestone: MilestoneRoadmapView): string {
-  return effectiveStage(milestone);
 }
 
 function formatCreated(createdAt: number | null | undefined): string {
@@ -840,7 +812,6 @@ function formatCreated(createdAt: number | null | undefined): string {
 
 function modalTitle(overlay: DetailsOverlay, name: string): string {
   if (!overlay) return name;
-  if (overlay.kind === 'stage') return 'Stage';
   if (overlay.kind === 'status') return 'Status';
   if (overlay.kind === 'owner') return 'Owner';
   if (overlay.kind === 'due') return 'Due date';
@@ -985,16 +956,33 @@ function TileLinkRows({
   );
 }
 
-function DetailRow({ label, wide, children }: { label: string; wide?: boolean; children: ReactNode }) {
+function DetailRow({
+  label,
+  wide,
+  outlined,
+  children,
+}: {
+  label: string;
+  wide?: boolean;
+  /** An editable picker draws its own label inside the outline. */
+  outlined?: boolean;
+  children: ReactNode;
+}) {
   return (
     <div className={`relative ${wide ? 'col-span-2 lg:col-span-1' : ''}`}>
-      <FieldLabel>{label}</FieldLabel>
+      {outlined ? null : <FieldLabel>{label}</FieldLabel>}
       {children}
     </div>
   );
 }
 
+/**
+ * Editable picker trigger. A 1px outline with 10px corners, the field label
+ * inside it, and the value below. `after` sits beside the trigger as its own
+ * control (the status play button), never inside the button.
+ */
 function ValueButton({
+  fieldLabel,
   label,
   testId,
   valueTestId,
@@ -1002,7 +990,9 @@ function ValueButton({
   open,
   locked,
   onClick,
+  after,
 }: {
+  fieldLabel: string;
   label: string;
   testId: string;
   valueTestId: string;
@@ -1010,45 +1000,63 @@ function ValueButton({
   open: boolean;
   locked?: boolean;
   onClick: () => void;
+  after?: ReactNode;
 }) {
   return (
-    <button
-      type="button"
-      data-testid={testId}
-      disabled={locked}
-      onClick={onClick}
-      className="milestone-field group mt-1 flex w-full items-center gap-2 rounded-lg bg-transparent text-left hover:bg-[var(--surface-2)] focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
+    <div
+      className="milestone-picker milestone-picker-field group flex w-full items-end gap-2"
+      data-open={open ? 'true' : 'false'}
+      data-picker-outline=""
       style={{
-        minHeight: 32,
-        padding: '4px 8px',
-        border: locked ? '1px dashed var(--border-2)' : open ? '1px solid var(--accent)' : '1px solid transparent',
-        background: open ? 'var(--surface-2)' : undefined,
-        color: 'var(--fg)',
-        font: 'inherit',
-        fontSize: 14,
-        lineHeight: '21px',
-        cursor: locked ? 'not-allowed' : 'pointer',
+        boxSizing: 'border-box',
+        padding: '6px 8px',
+        ...(locked ? { borderStyle: 'dashed', borderColor: 'var(--border-2)' } : {}),
       }}
     >
-      <span data-testid={valueTestId}>{label}</span>
-      {tone === 'saving' ? <ToneText>Saving…</ToneText> : null}
-      {tone === 'saved' ? (
-        <span className="inline-flex items-center gap-1" style={{ color: 'var(--muted)', fontSize: 12 }}>
-          <TaskGlyph src="/icons/docs-check.svg" size={12} />
-          Saved
+      <button
+        type="button"
+        data-testid={testId}
+        disabled={locked}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        onClick={onClick}
+        className="flex min-w-0 flex-1 flex-col gap-1 bg-transparent text-left"
+        style={{
+          border: 0,
+          padding: 0,
+          color: 'var(--fg)',
+          font: 'inherit',
+          fontSize: 14,
+          lineHeight: '21px',
+          cursor: locked ? 'not-allowed' : 'pointer',
+        }}
+      >
+        <span className="ds-mono" style={{ fontSize: 10, lineHeight: '15px', color: 'var(--muted)' }}>
+          {fieldLabel}
         </span>
-      ) : null}
-      {tone === 'discarded' ? <ToneText>Change discarded</ToneText> : null}
-      {locked ? (
-        <span className="ml-auto text-[var(--muted)]" aria-hidden>
-          <TaskGlyph src="/icons/task-lock.svg" size={14} />
+        <span className="flex w-full items-center gap-2">
+          <span data-testid={valueTestId}>{label}</span>
+          {tone === 'saving' ? <ToneText>Saving…</ToneText> : null}
+          {tone === 'saved' ? (
+            <span className="inline-flex items-center gap-1" style={{ color: 'var(--muted)', fontSize: 12 }}>
+              <TaskGlyph src="/icons/docs-check.svg" size={12} />
+              Saved
+            </span>
+          ) : null}
+          {tone === 'discarded' ? <ToneText>Change discarded</ToneText> : null}
+          {locked ? (
+            <span className="ml-auto text-[var(--muted)]" aria-hidden>
+              <TaskGlyph src="/icons/task-lock.svg" size={14} />
+            </span>
+          ) : (
+            <span className="ml-auto text-[var(--muted)] opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100" aria-hidden>
+              <TaskGlyph src="/icons/task-chev-down.svg" size={14} />
+            </span>
+          )}
         </span>
-      ) : (
-        <span className="ml-auto text-[var(--muted)] opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-visible:opacity-100" aria-hidden>
-          <TaskGlyph src="/icons/task-chev-down.svg" size={14} />
-        </span>
-      )}
-    </button>
+      </button>
+      {after}
+    </div>
   );
 }
 
@@ -1096,38 +1104,39 @@ export function menuButtons(root: ParentNode | null): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>('button')].filter((button) => !button.hasAttribute('disabled'));
 }
 
-export function StageMenu({
+/** The Status menu. Any jump, forward or back. Shipped is listed but locked. */
+export function StatusMenu({
   current,
   onPick,
   onClose,
   sheet,
 }: {
   current: string;
-  onPick: (stage: MilestoneStage) => void;
+  onPick: (status: MilestoneStatus) => void;
   onClose: () => void;
   sheet?: boolean;
 }) {
   return (
     <div
       role="listbox"
-      aria-label="Stage"
-      data-testid="milestone-stage-menu"
+      aria-label="Status"
+      data-testid="milestone-status-menu"
       onKeyDown={(event) => menuKey(event, onClose)}
       style={menuStyle(sheet)}
     >
-      {sheet ? <SheetHeader title="Stage" onClose={onClose} /> : null}
-      {MILESTONE_STAGES.map((stage) => {
-        const lock = stageOptionLock(stage);
-        const selected = stage === current;
+      {sheet ? <SheetHeader title="Status" onClose={onClose} /> : null}
+      {MILESTONE_STATUSES.map((status) => {
+        const lock = statusOptionLock(status);
+        const selected = status === current;
         return (
           <button
-            key={stage}
+            key={status}
             type="button"
             role="option"
             aria-selected={selected}
             aria-disabled={lock != null}
             disabled={lock != null}
-            onClick={() => onPick(stage)}
+            onClick={() => onPick(status)}
             className="flex w-full items-center gap-2 text-left"
             style={{
               padding: 10,
@@ -1141,7 +1150,7 @@ export function StageMenu({
               cursor: lock ? 'not-allowed' : 'pointer',
             }}
           >
-            <span className="whitespace-nowrap">{stage}</span>
+            <span className="whitespace-nowrap">{status}</span>
             {lock === 'shipped' ? <Tag>ON MERGE</Tag> : null}
             {lock ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
             {selected && !lock ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
@@ -1149,55 +1158,7 @@ export function StageMenu({
         );
       })}
       <p style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-        Staff can set any stage except Shipped. Shipped is set when the pull request merges. Saves as soon as you pick.
-      </p>
-    </div>
-  );
-}
-
-function StatusMenu({
-  current,
-  onPick,
-  onClose,
-  sheet,
-}: {
-  current: MilestoneDetailStatus;
-  onPick: (status: MilestoneDetailStatus) => void;
-  onClose: () => void;
-  sheet?: boolean;
-}) {
-  return (
-    <div role="listbox" aria-label="Status" data-testid="milestone-status-menu" onKeyDown={(event) => menuKey(event, onClose)} style={menuStyle(sheet)}>
-      {sheet ? <SheetHeader title="Status" onClose={onClose} /> : null}
-      {MILESTONE_DETAIL_STATUSES.map((status) => {
-        const selected = status === current;
-        return (
-          <button
-            key={status}
-            type="button"
-            role="option"
-            aria-selected={selected}
-            onClick={() => onPick(status)}
-            className="flex w-full items-center gap-2 text-left"
-            style={{
-              padding: 10,
-              border: 0,
-              borderRadius: 12,
-              background: selected ? 'var(--surface-2)' : 'transparent',
-              color: 'var(--fg)',
-              font: 'inherit',
-              fontSize: 14,
-              lineHeight: '21px',
-              cursor: 'pointer',
-            }}
-          >
-            <span className="whitespace-nowrap">{DETAIL_STATUS_LABEL[status]}</span>
-            {selected ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
-          </button>
-        );
-      })}
-      <p style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-        Saves as soon as you pick.
+        Staff can set any status except Shipped. Shipped is set when the pull request merges. Saves as soon as you pick.
       </p>
     </div>
   );
@@ -1537,7 +1498,7 @@ function ConfirmPublish(props: {
       <div className="mt-3">
         <SummaryTable
           rows={[
-            ['THEY SEE', 'Title, What we’re delivering, Done when, stage, status and progress'],
+            ['THEY SEE', 'Title, What we’re delivering, Done when, status and progress'],
             ['HIDDEN', 'Staff-only tasks, resources, notes and preview links'],
             ['WHO', `Client users on ${props.projectName}`],
           ]}

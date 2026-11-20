@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
+import type { MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneReviewHistoryItem, MilestoneReviewView, MilestoneRoadmapView } from '@convex/_lib/milestones';
 import {
   NOTES_REQUIRED,
@@ -57,7 +58,7 @@ export type PreviewLinkMode = 'attach' | 'remove';
 export type ReviewSurfaceModel = {
   milestoneId: string;
   iteration: number;
-  workStatus: 'draft' | 'active' | 'ready';
+  status: MilestoneStatus;
   approval: 'unreviewed' | 'approved' | 'changes_requested';
   previewUrl: string | null;
   prNumber: number | null;
@@ -88,11 +89,11 @@ export type ReviewSurfaceModel = {
 };
 
 export function reviewShouldShow(input: {
-  workStatus: string;
+  status: string;
   approval: string;
   historyLength: number;
 }): boolean {
-  return input.workStatus === 'ready' || input.approval !== 'unreviewed' || input.historyLength > 0;
+  return input.status === 'Ready to Ship' || input.approval !== 'unreviewed' || input.historyLength > 0;
 }
 
 export function deriveReviewVisual(model: ReviewSurfaceModel, forced?: ReviewVisual | null): ReviewVisual {
@@ -105,7 +106,7 @@ export function deriveReviewVisual(model: ReviewSurfaceModel, forced?: ReviewVis
   if (model.approval === 'changes_requested') return 'changes';
   if (model.previewBuild === 'building') return 'building';
   if (model.previewBuild === 'failed') return 'preview-failed';
-  if (model.workStatus === 'ready' && model.previewUrl && model.previewAttachedAt != null) return 'ready';
+  if (model.status === 'Ready to Ship' && model.previewUrl && model.previewAttachedAt != null) return 'ready';
   if (!model.previewUrl) return 'waiting';
   if (model.designCheck === 'fixes') return 'fixes';
   return 'ready';
@@ -484,7 +485,7 @@ export function ReviewDialogBody({
             </p>
           </fieldset>
           <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-            {`Starts iteration ${context ? context.iteration + 1 : ''}. Your notes become tasks in this milestone and the stage moves back to Building.`}
+            {`Starts iteration ${context ? context.iteration + 1 : ''}. Your notes become tasks in this milestone and the status moves back to Building.`}
           </p>
         </>
       )}
@@ -1175,13 +1176,13 @@ export function MilestoneReviewSurface({
 }
 
 export function reviewModelFromMilestone(
-  milestone: Pick<MilestoneRoadmapView, 'id' | 'name' | 'workStatus' | 'approval' | 'rows'> & { review: MilestoneReviewView },
+  milestone: Pick<MilestoneRoadmapView, 'id' | 'name' | 'status' | 'approval' | 'rows'> & { review: MilestoneReviewView },
 ): ReviewSurfaceModel {
   return {
     milestoneId: milestone.id,
     milestoneName: milestone.name,
     iteration: milestone.review.iteration,
-    workStatus: milestone.workStatus,
+    status: milestone.status,
     approval: milestone.approval ?? 'unreviewed',
     previewUrl: milestone.review.previewUrl,
     prNumber: milestone.review.prNumber,
@@ -1224,7 +1225,7 @@ export function MilestoneReviewLive({
   const clearPreviewLink = useMutation(api.milestones.clearPreviewLink);
   const retryLive = reviewRetryLiveOnClient(process.env.NEXT_PUBLIC_CONVEX_URL);
   const review = milestone.review;
-  if (!review || !reviewShouldShow({ workStatus: milestone.workStatus, approval: milestone.approval ?? 'unreviewed', historyLength: review.history.length })) {
+  if (!review || !reviewShouldShow({ status: milestone.status, approval: milestone.approval ?? 'unreviewed', historyLength: review.history.length })) {
     return null;
   }
   const model = reviewModelFromMilestone({ ...milestone, review });

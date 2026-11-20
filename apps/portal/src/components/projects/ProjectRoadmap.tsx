@@ -10,7 +10,8 @@ import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
-import { detailStatusLabel, effectiveDetailStatus, effectiveStage, formatDueDate, stageOptionLock, type MilestoneStage } from '@convex/_lib/milestoneDetails';
+import { formatDueDate } from '@convex/_lib/milestoneDetails';
+import { nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
 import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
 import { PortalModal } from '@/components/ui/PortalModal';
@@ -20,9 +21,10 @@ import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
 import { FIXTURE_CONTACTS, FIXTURE_PROJECTS } from '@/lib/data/fixtures';
 import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
-import { DueDateMenu, OwnerMenu, StageMenu, anchoredMenuBox, menuButtons, nextDialogFocus, useMilestoneDetailEdits, type MoveTarget, type OwnerChoice } from './milestoneDetailsEdit';
+import { DueDateMenu, OwnerMenu, StatusMenu, anchoredMenuBox, menuButtons, nextDialogFocus, useMilestoneDetailEdits, type MoveTarget, type OwnerChoice } from './milestoneDetailsEdit';
 import { type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
+import { TileStatusControl, milestoneStatusGlyph, useMilestoneStatusMoves } from './MilestoneStatusControl';
 import { MilestoneReviewLive, APPROVE_CONFIRM_COPY, APPROVE_CONFIRM_TITLE, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
 import {
   FieldLabel,
@@ -92,15 +94,13 @@ type FixturePatch = Partial<
     | 'name'
     | 'objective'
     | 'goals'
-    | 'workStatus'
+    | 'status'
     | 'approval'
     | 'note'
     | 'approverName'
     | 'decidedAt'
     | 'publishToWarehaus'
     | 'resources'
-    | 'detailStatus'
-    | 'stage'
     | 'ownerContactId'
     | 'ownerName'
     | 'dueDate'
@@ -205,8 +205,8 @@ function projectStatusLabel(status?: string | null): string {
 export const AWAITING_MERGE_LINE = 'Approved · awaiting merge and deploy';
 
 /** Clients see a ship date, never an approval date. */
-export function clientTileDate(input: { stage?: string | null; decidedAt?: number | null }): string | null {
-  if (input.stage !== 'Shipped') return null;
+export function clientTileDate(input: { status?: string | null; decidedAt?: number | null }): string | null {
+  if (input.status !== 'Shipped') return null;
   if (input.decidedAt == null) return 'Shipped';
   return `Shipped ${localMonthDay(input.decidedAt).label}`;
 }
@@ -229,47 +229,28 @@ export function milestoneTileDate(input: {
 export function milestoneTileHeadline(input: {
   staff: boolean;
   approval?: string | null;
-  stage?: string | null;
+  status?: string | null;
   decidedAt?: number | null;
   dueDate?: string | null;
 }): string | null {
-  const awaiting = input.staff && input.approval === 'approved' && input.stage !== 'Shipped';
+  const awaiting = input.staff && input.approval === 'approved' && input.status !== 'Shipped';
   if (awaiting) return null;
-  if (input.staff && input.approval === 'approved' && input.stage === 'Shipped') {
+  if (input.staff && input.approval === 'approved' && input.status === 'Shipped') {
     return milestoneTileDate({ approval: 'approved', decidedAt: input.decidedAt });
   }
-  if (!input.staff && input.stage === 'Shipped') {
-    return clientTileDate({ stage: 'Shipped', decidedAt: input.decidedAt });
+  if (!input.staff && input.status === 'Shipped') {
+    return clientTileDate({ status: 'Shipped', decidedAt: input.decidedAt });
   }
   if (!input.dueDate) return null;
   return `Due ${formatCalendarDate(input.dueDate, false)}`;
 }
 
 /**
- * The tile uses the same status and stage as the details panel.
- * Shipped appears only after that stage is stored. Approval is not a status.
+ * The tile shows the same Status as the details panel. Shipped appears only
+ * once it is stored. Approval is the review result, not a status.
  */
-export function milestoneTileStage(input: {
-  approval?: string | null;
-  workStatus: MilestoneRoadmapView['workStatus'];
-  stage?: string | null;
-  detailStatus?: MilestoneRoadmapView['detailStatus'];
-}): { status: string; label: ReturnType<typeof effectiveStage>; glyph: string } {
-  const label = effectiveStage({
-    stage: input.stage,
-    workStatus: input.workStatus,
-    approval: input.approval ?? 'unreviewed',
-  });
-  const status = detailStatusLabel(effectiveDetailStatus({
-    detailStatus: input.detailStatus,
-    workStatus: input.workStatus,
-  }));
-  const glyph = label === 'Shipped'
-    ? '/icons/task-stage-shipped.svg'
-    : label === 'Planning' || label === 'Idea'
-      ? '/icons/item-stage.svg'
-      : '/icons/task-stage.svg';
-  return { status, label, glyph };
+export function milestoneTileStatus(input: { status: MilestoneStatus }): { label: MilestoneStatus; glyph: string } {
+  return { label: input.status, glyph: milestoneStatusGlyph(input.status) };
 }
 
 function progressBase(done: number, total: number, phone: boolean): string {
@@ -472,7 +453,8 @@ export function ProjectRoadmap({
   const auth = usePortalAuth();
   const isPeter = isPeterEmail(auth.authUser?.email);
   const approveMilestone = useMutation(api.milestones.approve);
-  const setMilestoneStage = useMutation(api.milestones.setStage);
+  const setMilestoneStatus = useMutation(api.milestones.setStatus);
+  const advanceMilestone = useMutation(api.milestones.advance);
   const setTileLink = useMutation(api.milestones.setTileLink);
   const [patches, setPatches] = useState<Record<string, FixturePatch>>({});
   const [created, setCreated] = useState<MilestoneRoadmapView[]>([]);
@@ -736,15 +718,27 @@ export function ProjectRoadmap({
                     stagePreview={index === 0 ? tileStagePreview : null}
                     linkPreview={index === 0 ? tileLinkPreview : null}
                     onOpen={() => setOpenMilestoneId(milestone.id)}
-                    onStage={async (stage) => {
+                    onSetStatus={async (status, expectedStatus) => {
                       if (fixtures) {
-                        patchMilestone(milestone.id, { stage });
+                        patchMilestone(milestone.id, { status });
                         return;
                       }
-                      await setMilestoneStage({
+                      await setMilestoneStatus({
                         hostSlug,
                         milestoneId: milestone.id as Id<'milestones'>,
-                        stage,
+                        status,
+                        expectedStatus,
+                      });
+                    }}
+                    onAdvance={async (expectedStatus, next) => {
+                      if (fixtures) {
+                        patchMilestone(milestone.id, { status: next });
+                        return;
+                      }
+                      await advanceMilestone({
+                        hostSlug,
+                        milestoneId: milestone.id as Id<'milestones'>,
+                        expectedStatus,
                       });
                     }}
                     onApprove={(iteration) =>
@@ -807,7 +801,7 @@ export function ProjectRoadmap({
 const TILE_MENU_WIDTH = 320;
 const TILE_MENU_GAP = 8;
 
-/** Place the desktop stage menu inside the visible scroll area. Flip above the chip when the menu fits there and not below. */
+/** Place the desktop status menu inside the visible scroll area. Flip above the chip when the menu fits there and not below. */
 export function tileStageMenuBox(input: {
   chip: { top: number; right: number; bottom: number };
   menu: { width: number; height: number };
@@ -938,7 +932,8 @@ export function MilestoneListCard({
   isPeter = false,
   fixtures = false,
   onOpen,
-  onStage,
+  onSetStatus,
+  onAdvance,
   onApprove,
   onSetLink,
   openConfirm = false,
@@ -952,7 +947,10 @@ export function MilestoneListCard({
   isPeter?: boolean;
   fixtures?: boolean;
   onOpen: () => void;
-  onStage?: (stage: MilestoneStage) => void | Promise<unknown>;
+  /** Staff pick a status from the menu, or undo a play. `expected` is the status last seen. */
+  onSetStatus?: (status: MilestoneStatus, expected: MilestoneStatus) => void | Promise<unknown>;
+  /** The play button. One step forward from `expected` to `next`. */
+  onAdvance?: (expected: MilestoneStatus, next: MilestoneStatus) => void | Promise<unknown>;
   onApprove?: (iteration: number) => Promise<unknown>;
   /** Staff set or clear a tile link. Empty url clears it. */
   onSetLink?: (field: TileLinkField, url: string | null) => void | Promise<unknown>;
@@ -962,7 +960,7 @@ export function MilestoneListCard({
   phone?: boolean;
   /** Fixture dialog stays inside its frame instead of covering the page. */
   cover?: boolean;
-  /** Fixture QA. `menu` opens the stage menu. */
+  /** Fixture QA. `menu` opens the status menu. */
   stagePreview?: string | null;
   /** Fixture QA. `focus` opens the link modal. `error` opens it on the save failure. */
   linkPreview?: string | null;
@@ -977,7 +975,6 @@ export function MilestoneListCard({
   const tilePhone = useMaxWidth(1023);
   const phoneSheet = phone || tilePhone;
   const [stageMenuOpen, setStageMenuOpen] = useState(() => (staff ? initialTileMenu(stagePreview) : false));
-  const [stageError, setStageError] = useState<string | null>(null);
   const menuAnchorRef = useRef<HTMLDivElement>(null);
   const chipRef = useRef<HTMLButtonElement>(null);
   const desktopMenuWasOpen = useRef(false);
@@ -1016,7 +1013,7 @@ export function MilestoneListCard({
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (target instanceof Element && target.closest('[data-testid="tile-stage-popover"]')) return;
-      if (target instanceof Element && target.closest('[data-milestone-stage-trigger]')) return;
+      if (target instanceof Element && target.closest('[data-milestone-status-trigger]')) return;
       setStageMenuOpen(false);
     };
     const onKey = (event: KeyboardEvent) => {
@@ -1033,7 +1030,7 @@ export function MilestoneListCard({
   const canDeploy = peterMayApproveDeploy({
     staff,
     isPeter,
-    workStatus: milestone.workStatus,
+    status: milestone.status,
     approval: milestone.approval,
     previewUrl: milestone.review?.previewUrl,
   });
@@ -1049,13 +1046,18 @@ export function MilestoneListCard({
     }).finally(() => setDeploying(false));
   };
   const total = taskTotal(milestone);
-  const stage = milestoneTileStage(milestone);
+  const moves = useMilestoneStatusMoves({
+    status: milestone.status,
+    onAdvance: (expected) => onAdvance?.(expected, nextStatus(expected) ?? expected),
+    onSet: (next, expected) => onSetStatus?.(next, expected),
+  });
+  const stage = milestoneTileStatus({ status: moves.shown });
   const subtasks = boardTaskCounts(milestone).nested;
-  const awaitingMerge = staff && milestone.approval === 'approved' && milestone.stage !== 'Shipped';
+  const awaitingMerge = staff && milestone.approval === 'approved' && milestone.status !== 'Shipped';
   const dateLine = milestoneTileHeadline({
     staff,
     approval: milestone.approval,
-    stage: milestone.stage,
+    status: milestone.status,
     decidedAt: milestone.decidedAt,
     dueDate: milestone.dueDate,
   });
@@ -1102,39 +1104,31 @@ export function MilestoneListCard({
   const closeStageMenu = () => setStageMenuOpen(false);
   const toggleMenu = () => {
     setConfirm(false);
-    setStageError(null);
+    moves.clearError();
     setStageMenuOpen((current) => !current);
   };
-  const saveStage = (next: MilestoneStage) => {
-    if (stageOptionLock(next)) return;
+  const pickStatus = (next: MilestoneStatus) => {
+    if (statusOptionLock(next)) return;
     setStageMenuOpen(false);
-    setStageError(null);
-    const result = onStage?.(next);
-    if (result && typeof (result as Promise<unknown>).then === 'function') {
-      void (result as Promise<unknown>).catch((err) => {
-        setStageError(userFacingErrorMessage(err, 'Couldn’t save. Nothing changed. Try again.'));
-      });
-    }
-  };
-  const pickStage = (next: MilestoneStage) => {
-    if (stageOptionLock(next)) return;
-    if (next === stage.label) {
-      setStageMenuOpen(false);
-      return;
-    }
-    saveStage(next);
+    void moves.pick(next).catch(() => undefined);
   };
   const showDeploy = confirm && !stageMenuOpen;
-  const stageTrigger = (
-    <StatusChip
-      label={stage.label}
-      glyph={stage.glyph}
-      interactive={staff}
+  const stageTrigger = staff ? (
+    <TileStatusControl
+      status={stage.label}
+      saving={moves.saving}
       open={stageMenuOpen}
-      onClick={staff ? toggleMenu : undefined}
+      onToggle={toggleMenu}
+      playTo={moves.playTo}
+      onPlay={() => {
+        setStageMenuOpen(false);
+        moves.play();
+      }}
       buttonRef={chipRef}
-      block={canDeploy}
+      bare={canDeploy}
     />
+  ) : (
+    <StatusChip label={stage.label} glyph={stage.glyph} />
   );
   const approveButton = canDeploy ? (
     <button
@@ -1255,7 +1249,7 @@ export function MilestoneListCard({
           ) : stageTrigger}
           {staff && stageMenuOpen && !phoneSheet ? (
             <TileStagePopover anchorRef={menuAnchorRef}>
-              <StageMenu current={stage.label} onPick={pickStage} onClose={closeStageMenu} />
+              <StatusMenu current={stage.label} onPick={pickStatus} onClose={closeStageMenu} />
             </TileStagePopover>
           ) : null}
         </div>
@@ -1349,11 +1343,12 @@ export function MilestoneListCard({
           </div>
         </PortalModal>
       ) : null}
-      {stageError ? (
-        <p role="alert" data-testid="tile-stage-error" className="lg:col-span-2" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 13, lineHeight: '18px' }}>
-          {stageError}
+      {moves.error ? (
+        <p role="alert" data-testid="tile-status-error" className="lg:col-span-2" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 13, lineHeight: '18px' }}>
+          {moves.error}
         </p>
       ) : null}
+      {staff ? moves.toast : null}
       {showDeploy ? (
         <PortalModal
           testId="milestone-deploy-confirm"
@@ -1399,14 +1394,14 @@ export function MilestoneListCard({
         <PortalModal
           testId="tile-stage-menu"
           scrimTestId="tile-stage-scrim"
-          label="Stage"
+          label="Status"
           onClose={closeStageMenu}
           narrow
           sheet="bottom"
           showFooter={false}
           cover={cover}
         >
-          <StageMenu current={stage.label} onPick={pickStage} onClose={closeStageMenu} sheet />
+          <StatusMenu current={stage.label} onPick={pickStatus} onClose={closeStageMenu} sheet />
         </PortalModal>
       ) : null}
     </article>
@@ -1422,25 +1417,21 @@ type MilestoneMutations = {
     goals: string[];
     resourceIds: Id<'sharedResources'>[];
   }) => Promise<unknown>;
-  setWorkStatus: (args: {
-    hostSlug?: string;
-    milestoneId: Id<'milestones'>;
-    workStatus: MilestoneRoadmapView['workStatus'];
-  }) => Promise<unknown>;
   setPublish: (args: {
     hostSlug?: string;
     milestoneId: Id<'milestones'>;
     publishToWarehaus: boolean;
   }) => Promise<unknown>;
-  setDetailStatus?: (args: {
+  setStatus?: (args: {
     hostSlug?: string;
     milestoneId: Id<'milestones'>;
-    detailStatus: 'draft' | 'in_progress' | 'in_review' | 'complete';
+    status: MilestoneStatus;
+    expectedStatus?: MilestoneStatus;
   }) => Promise<unknown>;
-  setStage?: (args: {
+  advance?: (args: {
     hostSlug?: string;
     milestoneId: Id<'milestones'>;
-    stage: 'Idea' | 'Planning' | 'Awaiting Go' | 'Building' | 'Ready to Ship' | 'Shipped' | 'Parked';
+    expectedStatus: MilestoneStatus;
   }) => Promise<unknown>;
   setOwner?: (args: {
     hostSlug?: string;
@@ -1502,10 +1493,9 @@ function MilestoneDetail(props: {
   onFixture: (patch: FixturePatch) => void;
 }) {
   const save = useMutation(api.milestones.save);
-  const setWorkStatus = useMutation(api.milestones.setWorkStatus);
   const setPublish = useMutation(api.milestones.setPublish);
-  const setDetailStatus = useMutation(api.milestones.setDetailStatus);
-  const setStage = useMutation(api.milestones.setStage);
+  const setStatus = useMutation(api.milestones.setStatus);
+  const advance = useMutation(api.milestones.advance);
   const setOwner = useMutation(api.milestones.setOwner);
   const setDueDate = useMutation(api.milestones.setDueDate);
   const setTileLink = useMutation(api.milestones.setTileLink);
@@ -1560,7 +1550,7 @@ function MilestoneDetail(props: {
           ? () => setCursor(targetPage.data?.continueCursor ?? null)
           : undefined
       }
-      mutations={{ save, setWorkStatus, setPublish, setDetailStatus, setStage, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink }}
+      mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink }}
     />
   );
 }
@@ -1622,6 +1612,8 @@ export function MilestoneDetailView({
   const [more, setMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // The review card has its own phone layout. It does not follow CSS breakpoints.
+  const phone = useMaxWidth(767);
   const locked = milestone.approval === 'approved';
   const total = taskTotal(milestone);
   const recordBoard = boardTaskCounts(milestone);
@@ -1659,8 +1651,8 @@ export function MilestoneDetailView({
     onOwnerListOpen,
     owners,
     mutations: {
-      setDetailStatus: mutations.setDetailStatus ?? (async () => undefined),
-      setStage: mutations.setStage ?? (async () => undefined),
+      setStatus: mutations.setStatus ?? (async () => undefined),
+      advance: mutations.advance ?? (async () => undefined),
       setOwner: mutations.setOwner ?? (async () => undefined),
       setDueDate: mutations.setDueDate ?? (async () => undefined),
       setTileLink: mutations.setTileLink,
@@ -1719,7 +1711,7 @@ export function MilestoneDetailView({
       {tab === 'overview' ? (
         <div className="flex flex-col gap-6">
           {staff && milestone.review ? (
-            <MilestoneReviewLive milestone={milestone} hostSlug={hostSlug} isPeter={isPeter} />
+            <MilestoneReviewLive milestone={milestone} hostSlug={hostSlug} isPeter={isPeter} phone={phone} />
           ) : null}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
           <div className="order-first w-full lg:order-last lg:w-[292px] lg:shrink-0">
@@ -1987,7 +1979,7 @@ export function MilestoneDetailView({
                         iteration: item.iteration,
                         currentIteration: milestone.review?.iteration ?? item.iteration,
                         decision: item.decision,
-                        workStatus: milestone.workStatus,
+                        status: milestone.status,
                       })}
                     </span>
                   </div>
@@ -2606,7 +2598,7 @@ function CreateMilestone({
               name: name.trim(),
               objective: objective.trim(),
               goals: nextGoals,
-              workStatus: 'draft',
+              status: 'Planning',
               approval: 'unreviewed',
               note: null,
               approverName: null,
@@ -2672,9 +2664,10 @@ function CreateMilestone({
                   ref={ownerAnchor}
                   type="button"
                   data-testid="milestone-create-owner"
-                  className="milestone-field text-left"
+                  className="milestone-field milestone-picker text-left"
+                  data-open={layer === 'owner' ? 'true' : 'false'}
                   onClick={() => setLayer(layer === 'owner' ? 'form' : 'owner')}
-                  style={{ ...fieldStyle, cursor: 'pointer' }}
+                  style={pickerFieldStyle}
                 >
                   {ownerName ?? 'Choose a person'}
                 </button>
@@ -2686,9 +2679,10 @@ function CreateMilestone({
                   ref={dueAnchor}
                   type="button"
                   data-testid="milestone-create-due"
-                  className="milestone-field text-left"
+                  className="milestone-field milestone-picker text-left"
+                  data-open={layer === 'due' ? 'true' : 'false'}
                   onClick={() => setLayer(layer === 'due' ? 'form' : 'due')}
-                  style={{ ...fieldStyle, cursor: 'pointer' }}
+                  style={pickerFieldStyle}
                 >
                   {formatDueDate(dueDate) ?? 'Choose a date'}
                 </button>
@@ -2985,6 +2979,9 @@ function TaskLine({
     </div>
   );
 }
+
+/** Form picker trigger. The outline comes from `.milestone-picker`, not from inline style. */
+const pickerFieldStyle: CSSProperties = { ...fieldStyle, border: undefined, borderRadius: undefined, cursor: 'pointer' };
 
 const textButton = {
   background: 'none',

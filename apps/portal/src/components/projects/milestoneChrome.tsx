@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type Ref } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -52,92 +52,33 @@ export function FieldValue({ children }: { children: ReactNode }) {
   );
 }
 
-/** Work status chip. Staff tiles turn it into the stage menu trigger. */
-export function StatusChip({
-  label,
-  glyph = '/icons/task-stage.svg',
-  interactive = false,
-  open = false,
-  onClick,
-  buttonRef,
-  block = false,
-}: {
-  label: string;
-  glyph?: string;
-  /** Staff control. Clients stay a plain pill. */
-  interactive?: boolean;
-  open?: boolean;
-  onClick?: () => void;
-  buttonRef?: Ref<HTMLButtonElement>;
-  /** Full-width row inside the tile’s stage and approve box. */
-  block?: boolean;
-}) {
-  const style = block
-    ? {
-        boxSizing: 'border-box' as const,
-        width: '100%',
-        height: 34,
-        gap: 8,
-        border: 0,
-        borderRadius: 0,
-        padding: '4px 12px',
-        fontSize: 12,
-        lineHeight: '1.2',
-        letterSpacing: '0.48px',
-        fontWeight: 500,
-        color: 'var(--fg)',
-        background: 'transparent',
-      }
-    : {
-        boxSizing: 'border-box' as const,
+/**
+ * Plain status pill. Clients see this on a milestone tile: no chevron, no
+ * menu, no play. Staff get `TileStatusControl` instead.
+ */
+export function StatusChip({ label, glyph = '/icons/task-stage.svg' }: { label: string; glyph?: string }) {
+  return (
+    <span
+      className="ds-mono inline-flex shrink-0 items-center self-start whitespace-nowrap"
+      data-testid="milestone-status-chip"
+      style={{
+        boxSizing: 'border-box',
         width: 'auto',
         height: 24,
-        gap: interactive ? 6 : 8,
+        gap: 8,
         border: '1px solid var(--border-2)',
         borderRadius: 999,
-        padding: interactive ? '4px 8px 4px 10px' : '4px 12px',
+        padding: '4px 12px',
         fontSize: 11,
         lineHeight: 'normal',
         letterSpacing: '0.44px',
         color: 'var(--fg)',
         background: 'transparent',
-      };
-  const body = (
-    <>
-      <TaskGlyph src={glyph} size={12} />
-      {block ? <span style={{ flex: '1 1 auto', textAlign: 'left' }}>{label}</span> : label}
-      {interactive ? (
-        <span className="text-[var(--muted)]" aria-hidden>
-          <TaskGlyph src="/icons/task-chev-down.svg" size={12} />
-        </span>
-      ) : null}
-    </>
-  );
-  if (!interactive) {
-    return (
-      <span
-        className={`ds-mono inline-flex shrink-0 items-center self-start${block ? ' w-full' : ''} whitespace-nowrap`}
-        data-testid="milestone-status-chip"
-        style={style}
-      >
-        {body}
-      </span>
-    );
-  }
-  return (
-    <button
-      type="button"
-      className={`ds-mono inline-flex shrink-0 items-center self-start${block ? ' w-full justify-start' : ''} whitespace-nowrap`}
-      data-testid="milestone-status-chip"
-      ref={buttonRef}
-      data-milestone-stage-trigger=""
-      aria-haspopup="listbox"
-      aria-expanded={open}
-      onClick={onClick}
-      style={{ ...style, cursor: 'pointer' }}
+      }}
     >
-      {body}
-    </button>
+      <TaskGlyph src={glyph} size={12} />
+      {label}
+    </span>
   );
 }
 

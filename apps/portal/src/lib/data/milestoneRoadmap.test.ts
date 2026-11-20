@@ -16,7 +16,7 @@ import {
   clientTileDate,
   milestoneTileDate,
   milestoneTileHeadline,
-  milestoneTileStage,
+  milestoneTileStatus,
   tileMetaLine,
   tileProgressLabel,
   tileStageMenuBox,
@@ -71,7 +71,7 @@ function tileMilestone(patch: Partial<MilestoneRoadmapView>): MilestoneRoadmapVi
     name: 'Launch the homepage',
     objective: 'The homepage matches the approved frame.',
     goals: [],
-    workStatus: 'active',
+    status: 'Building',
     approval: 'unreviewed',
     note: null,
     approverName: null,
@@ -142,16 +142,14 @@ describe('fixture roadmap', () => {
       states.map((milestone) => milestone.name),
       ['Launch the homepage', 'Billing export draft', 'Case study', 'Navigation pass', 'Approved, awaiting merge', 'Production launch'],
     );
-    assert.equal(states[2]?.workStatus, 'active');
+    assert.equal(states[2]?.status, 'Building');
     assert.equal(states[2]?.approval, 'unreviewed');
     assert.equal(states[3]?.decidedAt, Date.parse('2026-11-03T15:00:00Z'));
     assert.equal(states[4]?.id, 'm-preview-approved');
     assert.equal(states[4]?.approval, 'approved');
-    assert.equal(states[4]?.workStatus, 'ready');
-    assert.equal(states[4]?.stage ?? null, null);
-    assert.notEqual(states[4]?.workStatus, 'active');
+    assert.equal(states[4]?.status, 'Ready to Ship');
     assert.equal(states[5]?.id, 'm-preview-shipped');
-    assert.equal(states[5]?.stage, 'Shipped');
+    assert.equal(states[5]?.status, 'Shipped');
     const links = applyFixtureMilestonePreview(staff, '?tiles=links');
     assert.equal(links[0]?.localPreviewUrl, 'http://localhost:3200');
     assert.equal(links[0]?.figmaUrl, 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal');
@@ -177,45 +175,40 @@ describe('roadmap markup', () => {
     assert.doesNotMatch(source, /percent/);
   });
 
-  it('matches the milestone tile stage, date, and progress chip', () => {
-    assert.deepEqual(milestoneTileStage({ approval: 'unreviewed', workStatus: 'draft' }), {
-      status: 'Draft',
+  it('matches the milestone tile status, date, and progress chip', () => {
+    assert.deepEqual(milestoneTileStatus({ status: 'Planning' }), {
       label: 'Planning',
       glyph: '/icons/item-stage.svg',
     });
-    assert.deepEqual(milestoneTileStage({ approval: 'unreviewed', workStatus: 'active' }), {
-      status: 'In progress',
+    assert.deepEqual(milestoneTileStatus({ status: 'Building' }), {
       label: 'Building',
       glyph: '/icons/task-stage.svg',
     });
-    assert.deepEqual(milestoneTileStage({ approval: 'unreviewed', workStatus: 'ready' }), {
-      status: 'In review',
+    assert.deepEqual(milestoneTileStatus({ status: 'Ready to Ship' }), {
       label: 'Ready to Ship',
       glyph: '/icons/task-stage.svg',
     });
-    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'ready' }).label, 'Ready to Ship');
-    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'ready' }).status, 'In review');
-    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active' }).status, 'In progress');
-    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active' }).label, 'Building');
-    assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'active', stage: 'Shipped' }).label, 'Shipped');
+    assert.equal(milestoneTileStatus({ status: 'Shipped' }).label, 'Shipped');
+    assert.equal(milestoneTileStatus({ status: 'Shipped' }).glyph, '/icons/task-stage-shipped.svg');
+    assert.equal('status' in milestoneTileStatus({ status: 'Building' }), false);
     assert.equal(milestoneTileDate({ approval: 'unreviewed', decidedAt: null }), null);
     assert.equal(milestoneTileDate({ approval: 'approved', decidedAt: null }), 'Approved');
     const decidedAt = Date.parse('2026-11-06T15:00:00Z');
     const day = new Date(decidedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
     assert.equal(milestoneTileDate({ approval: 'approved', decidedAt }), `Approved ${day}`);
-    assert.equal(clientTileDate({ stage: 'Shipped', decidedAt }), `Shipped ${day}`);
-    assert.equal(clientTileDate({ stage: 'Ready to Ship', decidedAt }), null);
-    assert.equal(clientTileDate({ stage: 'Shipped', decidedAt: null }), 'Shipped');
+    assert.equal(clientTileDate({ status: 'Shipped', decidedAt }), `Shipped ${day}`);
+    assert.equal(clientTileDate({ status: 'Ready to Ship', decidedAt }), null);
+    assert.equal(clientTileDate({ status: 'Shipped', decidedAt: null }), 'Shipped');
     assert.equal(
       milestoneTileHeadline({ staff: true, approval: 'unreviewed', dueDate: '2026-11-20' }),
       'Due Nov 20',
     );
     assert.equal(
-      milestoneTileHeadline({ staff: true, approval: 'approved', stage: 'Building', dueDate: '2026-11-20' }),
+      milestoneTileHeadline({ staff: true, approval: 'approved', status: 'Building', dueDate: '2026-11-20' }),
       null,
     );
     assert.equal(
-      milestoneTileHeadline({ staff: true, approval: 'approved', stage: 'Shipped', decidedAt }),
+      milestoneTileHeadline({ staff: true, approval: 'approved', status: 'Shipped', decidedAt }),
       `Approved ${day}`,
     );
     assert.equal(tileProgressLabel(1, 3, 0, false), '1 / 3 complete');
@@ -235,10 +228,11 @@ describe('roadmap markup', () => {
     assert.equal(source.includes('longChip'), false);
     assert.equal(source.includes("get('chip')"), false);
     const details = readFileSync(new URL('../../components/projects/milestoneDetailsEdit.tsx', import.meta.url), 'utf8');
-    assert.match(details, /valueTestId="milestone-stage"/);
-    assert.match(details, /testId="milestone-stage"/);
+    assert.match(details, /valueTestId="milestone-status"/);
+    assert.match(details, /testId="milestone-status"/);
     assert.match(details, /label="STATUS"/);
-    assert.match(details, /label="STAGE"/);
+    assert.equal(details.includes('label="STAGE"'), false);
+    assert.equal(details.includes('milestone-work-status'), false);
 
     const withSubtask = renderTile({
       staff: true,
@@ -267,7 +261,7 @@ describe('roadmap markup', () => {
 
     const staffDraft = renderTile({
       staff: true,
-      milestone: tileMilestone({ publishToWarehaus: false, workStatus: 'draft', resources: [] }),
+      milestone: tileMilestone({ publishToWarehaus: false, status: 'Planning', resources: [] }),
     });
     assert.match(staffDraft, /data-testid="milestone-meta"[^>]*>0 resources</);
     assert.match(staffDraft, /data-testid="milestone-staff-only"/);
@@ -281,7 +275,7 @@ describe('roadmap markup', () => {
       staff: true,
       milestone: tileMilestone({
         publishToWarehaus: false,
-        workStatus: 'ready',
+        status: 'Ready to Ship',
         resources: [resource, { ...resource, id: 'r-2' }],
       }),
     });
@@ -290,7 +284,7 @@ describe('roadmap markup', () => {
 
     const clientDraft = renderTile({
       staff: false,
-      milestone: tileMilestone({ publishToWarehaus: false, workStatus: 'draft', resources: [] }),
+      milestone: tileMilestone({ publishToWarehaus: false, status: 'Planning', resources: [] }),
     });
     assert.match(clientDraft, /data-testid="milestone-meta"[^>]*>0 resources</);
     assert.equal(clientDraft.includes('milestone-staff-only'), false);
@@ -302,7 +296,7 @@ describe('roadmap markup', () => {
     const ready = renderTile({
       staff: false,
       milestone: tileMilestone({
-        workStatus: 'ready',
+        status: 'Ready to Ship',
         publishToWarehaus: true,
         resources: [resource, { ...resource, id: 'r-2' }],
       }),
@@ -320,7 +314,7 @@ describe('roadmap markup', () => {
       staff: true,
       milestone: tileMilestone({
         approval: 'approved',
-        workStatus: 'active',
+        status: 'Building',
         decidedAt,
         resources: [resource, { ...resource, id: 'r-2' }],
         openCount: 0,
@@ -353,7 +347,7 @@ describe('roadmap markup', () => {
       staff: true,
       milestone: tileMilestone({
         approval: 'approved',
-        workStatus: 'ready',
+        status: 'Ready to Ship',
         decidedAt,
         resources: [resource, { ...resource, id: 'r-2' }],
       }),
@@ -370,7 +364,7 @@ describe('roadmap markup', () => {
       staff: false,
       milestone: tileMilestone({
         approval: 'approved',
-        workStatus: 'ready',
+        status: 'Ready to Ship',
         decidedAt,
       }),
     });
@@ -383,8 +377,7 @@ describe('roadmap markup', () => {
       staff: false,
       milestone: tileMilestone({
         approval: 'approved',
-        workStatus: 'ready',
-        stage: 'Shipped',
+        status: 'Shipped',
         decidedAt,
       }),
     });
@@ -394,7 +387,7 @@ describe('roadmap markup', () => {
         localPreviewUrl: 'http://localhost:3200',
         figmaUrl: 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal',
         dueDate: '2026-11-20',
-        workStatus: 'ready',
+        status: 'Ready to Ship',
       }),
     });
     assert.match(linked, /data-testid="milestone-local-preview"/);
@@ -412,7 +405,7 @@ describe('roadmap markup', () => {
       staff: true,
       isPeter: true,
       milestone: tileMilestone({
-        workStatus: 'ready',
+        status: 'Ready to Ship',
         approval: 'unreviewed',
         review: {
           iteration: 2,
@@ -462,8 +455,7 @@ describe('roadmap markup', () => {
       staff: true,
       milestone: tileMilestone({
         approval: 'approved',
-        workStatus: 'ready',
-        stage: 'Shipped',
+        status: 'Shipped',
         decidedAt,
       }),
     });
@@ -485,33 +477,41 @@ describe('roadmap markup', () => {
     assert.match(longChip, /whitespace-normal lg:w-max lg:max-w-none lg:whitespace-nowrap"[\s\S]*data-testid="milestone-progress"/);
     assert.match(longChip, /overflow-wrap:anywhere/);
     assert.match(longChip, /flex-nowrap items-center/);
-    assert.match(longChip, /whitespace-nowrap" data-testid="milestone-status-chip"/);
+    assert.match(longChip, /data-testid="milestone-status-chip"[^>]*white-space:nowrap/);
     assert.match(longChip, /data-testid="milestone-meta"[^>]*truncate/);
     assert.doesNotMatch(longChip, /line-clamp/);
     assert.match(longChip, /flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center/);
   });
 
-  it('opens the tile stage menu for staff and saves on pick', () => {
+  it('opens the tile status menu for staff and saves on pick', () => {
     const milestone = tileMilestone({});
     const client = renderTile({ staff: false, milestone, stagePreview: 'menu' });
     assert.match(client, /<span[^>]*data-testid="milestone-status-chip"/);
-    assert.equal(client.includes('milestone-stage-menu'), false);
-    assert.equal(client.includes('data-milestone-stage-trigger'), false);
+    assert.equal(client.includes('milestone-status-menu'), false);
+    assert.equal(client.includes('data-milestone-status-trigger'), false);
+    assert.equal(client.includes('milestone-status-play'), false);
+    assert.equal(client.includes('task-chev-down.svg'), false);
 
     const desktop = renderTile({ staff: true, milestone, stagePreview: 'menu' });
     assert.match(desktop, /<button[^>]*data-testid="milestone-status-chip"/);
     const staffChip = desktop.match(/<button[^>]*data-testid="milestone-status-chip"[^>]*>/)?.[0] ?? '';
-    assert.match(staffChip, /font-size:11px/);
-    assert.match(staffChip, /letter-spacing:0\.44px/);
+    assert.match(staffChip, /font-size:12px/);
+    assert.match(staffChip, /letter-spacing:0\.48px/);
+    assert.match(staffChip, /aria-haspopup="listbox"/);
     assert.doesNotMatch(staffChip, /font:\s*inherit/);
+    const control = desktop.match(/<div[^>]*data-testid="milestone-status-control"[^>]*>/)?.[0] ?? '';
+    assert.match(control, /border:1px solid var\(--border-2\)/);
+    assert.match(control, /border-radius:9px/);
+    assert.match(control, /height:34px/);
     assert.match(desktop, /data-testid="tile-stage-popover"/);
     const popover = desktop.match(/<div[^>]*data-testid="tile-stage-popover"[^>]*>/)?.[0] ?? '';
     assert.match(popover, /class="ds-scope"/);
-    const menuAt = desktop.indexOf('data-testid="milestone-stage-menu"');
+    const menuAt = desktop.indexOf('data-testid="milestone-status-menu"');
     const scopeAt = desktop.lastIndexOf('ds-scope', menuAt);
-    assert.ok(scopeAt >= 0 && scopeAt < menuAt, 'portaled stage menu sits inside ds-scope');
-    assert.match(desktop, /data-testid="milestone-stage-menu"/);
-    assert.match(desktop, /Staff can set any stage except Shipped\. Shipped is set when the pull request merges\. Saves as soon as you pick\./);
+    assert.ok(scopeAt >= 0 && scopeAt < menuAt, 'portaled status menu sits inside ds-scope');
+    assert.match(desktop, /data-testid="milestone-status-menu"/);
+    assert.match(desktop, /aria-label="Status"/);
+    assert.match(desktop, /Staff can set any status except Shipped\. Shipped is set when the pull request merges\. Saves as soon as you pick\./);
     assert.match(desktop, /task-chev-down\.svg/);
     assert.equal(desktop.includes('tile-stage-menu'), false);
     assert.equal(desktop.includes('stage-confirm-sheet'), false);
@@ -523,8 +523,8 @@ describe('roadmap markup', () => {
     const phoneMenu = renderTile({ staff: true, milestone, phone: true, stagePreview: 'menu' });
     assert.equal(phoneMenu.includes('tile-stage-popover'), false);
     assert.match(phoneMenu, /data-testid="tile-stage-menu"/);
-    assert.match(phoneMenu, /data-testid="milestone-stage-menu"/);
-    assert.match(phoneMenu, /Staff can set any stage except Shipped\. Shipped is set when the pull request merges\. Saves as soon as you pick\./);
+    assert.match(phoneMenu, /data-testid="milestone-status-menu"/);
+    assert.match(phoneMenu, /Staff can set any status except Shipped\. Shipped is set when the pull request merges\. Saves as soon as you pick\./);
     assert.equal(phoneMenu.includes('Nothing changes until you confirm'), false);
     assert.match(phoneMenu, />Close</);
     assert.equal(phoneMenu.includes('stage-confirm'), false);
@@ -588,7 +588,8 @@ function renderDetail(milestone: MilestoneRoadmapView, page = false, staff = tru
       onFixture: () => undefined,
       mutations: {
         save: idle,
-        setWorkStatus: idle,
+        setStatus: idle,
+        advance: idle,
         setPublish: idle,
         attachTask: idle,
         detachTask: idle,
@@ -603,19 +604,92 @@ function field(html: string, testId: string): string {
 }
 
 describe('MilestoneDetailView', () => {
-  it('keeps status and stage on one derivation for draft, in progress, ready, and approved', () => {
+  it('shows one Status row, with the same value the tile shows', () => {
     const cases = [
-      { workStatus: 'draft' as const, approval: 'unreviewed' as const, status: 'Draft', stage: 'Planning' },
-      { workStatus: 'active' as const, approval: 'unreviewed' as const, status: 'In progress', stage: 'Building' },
-      { workStatus: 'ready' as const, approval: 'unreviewed' as const, status: 'In review', stage: 'Ready to Ship' },
-      { workStatus: 'ready' as const, approval: 'approved' as const, status: 'In review', stage: 'Ready to Ship' },
-      { workStatus: 'active' as const, approval: 'approved' as const, status: 'In progress', stage: 'Building' },
+      { status: 'Idea' as const, approval: 'unreviewed' as const },
+      { status: 'Planning' as const, approval: 'unreviewed' as const },
+      { status: 'Awaiting Go' as const, approval: 'unreviewed' as const },
+      { status: 'Building' as const, approval: 'unreviewed' as const },
+      { status: 'Ready to Ship' as const, approval: 'unreviewed' as const },
+      { status: 'Ready to Ship' as const, approval: 'approved' as const },
+      { status: 'Shipped' as const, approval: 'approved' as const },
+      { status: 'Parked' as const, approval: 'unreviewed' as const },
     ];
     for (const item of cases) {
-      const html = renderDetail(tileMilestone({ workStatus: item.workStatus, approval: item.approval }));
-      assert.equal(field(html, 'milestone-work-status'), item.status, item.status);
-      assert.equal(field(html, 'milestone-stage'), item.stage, item.stage);
+      const html = renderDetail(tileMilestone({ status: item.status, approval: item.approval }));
+      assert.equal(field(html, 'milestone-status'), item.status, item.status);
+      assert.equal(html.includes('milestone-work-status'), false);
+      assert.equal(html.includes('milestone-stage-edit'), false);
+      assert.equal(html.split('>STATUS<').length - 1, 1, 'one STATUS label');
+      assert.equal(html.includes('>STAGE<'), false);
+      const tile = renderTile({ staff: true, milestone: tileMilestone({ status: item.status, approval: item.approval }) });
+      assert.match(tile, new RegExp(`data-testid="milestone-status-control"[^>]*data-status="${item.status}"`));
     }
+  });
+
+  it('offers play on Idea, Planning, Awaiting Go and Building, and nowhere else', () => {
+    const next = { Idea: 'Planning', Planning: 'Awaiting Go', 'Awaiting Go': 'Building', Building: 'Ready to Ship' } as const;
+    for (const status of ['Idea', 'Planning', 'Awaiting Go', 'Building'] as const) {
+      for (const html of [
+        renderTile({ staff: true, milestone: tileMilestone({ status }) }),
+        renderDetail(tileMilestone({ status })),
+      ]) {
+        const play = html.match(/<button[^>]*data-testid="milestone-status-play"[^>]*>/)?.[0] ?? '';
+        assert.match(play, new RegExp(`aria-label="Move to ${next[status]}"`), status);
+        assert.match(play, /type="button"/);
+        assert.match(html, new RegExp(`role="tooltip"[^>]*>Next: ${next[status]}<`), status);
+        // Play is its own control beside the menu trigger, never inside it.
+        const trigger = html.slice(html.indexOf('aria-haspopup="listbox"'));
+        const triggerEnd = trigger.indexOf('</button>');
+        assert.equal(trigger.slice(0, triggerEnd).includes('milestone-status-play'), false, status);
+      }
+    }
+    for (const status of ['Ready to Ship', 'Shipped', 'Parked'] as const) {
+      assert.equal(renderTile({ staff: true, milestone: tileMilestone({ status }) }).includes('milestone-status-play'), false, status);
+      assert.equal(renderDetail(tileMilestone({ status })).includes('milestone-status-play'), false, status);
+    }
+  });
+
+  it('gives the review card its phone layout on a phone', () => {
+    const source = readFileSync(new URL('../../components/projects/ProjectRoadmap.tsx', import.meta.url), 'utf8');
+    assert.match(source, /<MilestoneReviewLive milestone=\{milestone\} hostSlug=\{hostSlug\} isPeter=\{isPeter\} phone=\{phone\} \/>/);
+    assert.match(source, /const phone = useMaxWidth\(767\);/);
+  });
+
+  it('gives clients a plain status pill with no menu and no play', () => {
+    for (const status of ['Planning', 'Building', 'Ready to Ship'] as const) {
+      const tile = renderTile({ staff: false, milestone: tileMilestone({ status }) });
+      assert.match(tile, new RegExp(`<span[^>]*data-testid="milestone-status-chip"[^>]*>[\\s\\S]*?${status}`));
+      assert.equal(tile.includes('milestone-status-play'), false);
+      assert.equal(tile.includes('aria-haspopup'), false);
+      const detail = renderDetail(tileMilestone({ status }), false, false);
+      assert.equal(field(detail, 'milestone-status'), status);
+      assert.equal(detail.includes('milestone-status-play'), false);
+      assert.equal(detail.includes('milestone-status-edit'), false);
+      assert.equal(detail.includes('data-picker-outline'), false);
+    }
+  });
+
+  it('outlines every editable picker for staff and leaves read-only rows alone', () => {
+    const html = renderDetail(tileMilestone({ status: 'Planning' }));
+    for (const id of ['milestone-status-edit', 'milestone-owner-edit', 'milestone-due-edit', 'milestone-project-edit', 'milestone-visibility-edit']) {
+      const at = html.indexOf(`data-testid="${id}"`);
+      assert.ok(at > 0, id);
+      const wrapper = html.slice(html.lastIndexOf('<div', at), at);
+      assert.match(wrapper, /class="milestone-picker /, id);
+      assert.match(wrapper, /data-picker-outline=""/, id);
+    }
+    for (const id of ['milestone-creator', 'milestone-created']) {
+      const at = html.indexOf(`data-testid="${id}"`);
+      const wrapper = html.slice(html.lastIndexOf('<div', at), at);
+      assert.equal(wrapper.includes('milestone-picker'), false, id);
+      assert.match(wrapper, /border:1px solid transparent/, id);
+    }
+    const css = readFileSync(new URL('../../styles/global.css', import.meta.url), 'utf8');
+    assert.match(css, /\.ds-scope \.milestone-picker \{\s*border: 1px solid var\(--border\);\s*border-radius: 10px;/);
+    assert.match(css, /\.milestone-picker:hover,[\s\S]*?\.milestone-picker:focus-within,[\s\S]*?border-color: var\(--border-2\);/);
+    assert.match(css, /\.ds-scope \.milestone-play \{[\s\S]*?width: 24px;\s*height: 24px;/);
+    assert.match(css, /@media \(max-width: 767px\), \(pointer: coarse\) \{\s*\.ds-scope \.milestone-play \{\s*width: 44px;\s*height: 44px;/);
   });
 
   it('prints the last review as the approver and the decision day', () => {
@@ -625,7 +699,7 @@ describe('MilestoneDetailView', () => {
     const html = renderDetail(
       tileMilestone({
         approval: 'approved',
-        workStatus: 'ready',
+        status: 'Ready to Ship',
         approverName: 'Northwind',
         decidedAt,
         note: 'Approved with the brand file.',
@@ -638,9 +712,9 @@ describe('MilestoneDetailView', () => {
   it('omits the approval row until a review exists', () => {
     const unreviewed = renderDetail(tileMilestone({ approval: 'unreviewed' }));
     assert.equal(unreviewed.includes('data-testid="milestone-approval"'), false);
-    const approved = renderDetail(tileMilestone({ approval: 'approved', workStatus: 'ready' }));
+    const approved = renderDetail(tileMilestone({ approval: 'approved', status: 'Ready to Ship' }));
     assert.equal(field(approved, 'milestone-approval'), 'Approved');
-    const changes = renderDetail(tileMilestone({ approval: 'changes_requested', workStatus: 'active' }));
+    const changes = renderDetail(tileMilestone({ approval: 'changes_requested', status: 'Building' }));
     assert.equal(field(changes, 'milestone-approval'), 'Changes requested');
   });
 
@@ -652,10 +726,10 @@ describe('MilestoneDetailView', () => {
   });
 
   it('does not offer the old Review milestone control', () => {
-    const ready = renderDetail(tileMilestone({ workStatus: 'ready', approval: 'unreviewed', note: 'Peter wrote this.' }));
+    const ready = renderDetail(tileMilestone({ status: 'Ready to Ship', approval: 'unreviewed', note: 'Peter wrote this.' }));
     assert.equal(ready.includes('Review milestone'), false);
     assert.equal(ready.includes('data-testid="milestone-review-action"'), false);
-    const client = renderDetail(tileMilestone({ workStatus: 'ready', approval: 'approved', note: 'Peter wrote this.', approverName: 'Peter' }), false, false);
+    const client = renderDetail(tileMilestone({ status: 'Ready to Ship', approval: 'approved', note: 'Peter wrote this.', approverName: 'Peter' }), false, false);
     assert.equal(client.includes('Review milestone'), false);
     assert.equal(client.includes('Reviews ·'), false);
     assert.equal(client.includes('data-testid="milestone-approval"'), false);

@@ -6,6 +6,7 @@ import { useEffect, useState } from 'react';
 export function useMaxWidth(px: number): boolean {
   const [match, setMatch] = useState(false);
   useEffect(() => {
+    if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') return;
     const media = window.matchMedia(`(max-width: ${px}px)`);
     const apply = () => setMatch(media.matches);
     apply();

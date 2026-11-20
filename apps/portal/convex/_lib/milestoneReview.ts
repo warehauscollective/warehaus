@@ -1,9 +1,11 @@
 /**
  * Milestone review decisions. Portal and Grok Bot chat share one record.
- * Ready to Ship is workStatus `ready`. Approve keeps that stage.
- * Request changes moves the milestone back to Building (`active`).
+ * Approve needs Status Ready to Ship plus a preview, and keeps that status.
+ * Request changes moves the milestone back to Building.
  * Nothing here writes Notion.
  */
+
+import { APPROVE_NOT_READY, transitionMilestone, type MilestoneStatus } from './milestoneStatus';
 
 export const ONLY_PETER = 'Only Peter can approve a milestone';
 export const CHAT_CONTACT_MISSING = 'Request changes needs Peter’s staff contact.';
@@ -16,7 +18,7 @@ export const NOTES_REQUIRED = 'Add a note so the team knows what to change.';
 export const STALE_ITERATION = 'That iteration is stale.';
 export const ALREADY_REVIEWED = 'This iteration was already reviewed';
 export const WAITING_ON_BUILD = 'Waiting on local build';
-export const NOT_READY = 'Approve is available when the stage is Ready to Ship';
+export const NOT_READY = APPROVE_NOT_READY;
 export const LOCAL_PREVIEW_PORT = 3100;
 /** New iteration tasks stay open. The milestone writer does not close tasks. */
 export const NEW_ITERATION_TASK_DONE = false;
@@ -97,7 +99,6 @@ export function previewStatusPatch(
 
 export type ReviewDecision = 'approve' | 'request_changes';
 export type ReviewSource = 'portal' | 'chat';
-export type ReviewWorkStatus = 'draft' | 'active' | 'ready';
 export type DesignCheck = 'pass' | 'fixes' | 'pending';
 
 export type ReviewActor = {
@@ -121,7 +122,7 @@ export type NoteGroupTask = {
 export type PlanReviewInput = {
   actor: ReviewActor;
   currentIteration: number;
-  workStatus: ReviewWorkStatus;
+  status: MilestoneStatus;
   hasPreview: boolean;
   iteration: number;
   decision: string;
@@ -137,14 +138,14 @@ export type PlanReview =
       idempotent: false;
       decision: 'approve';
       notes: string;
-      workStatus: 'ready';
+      status: MilestoneStatus;
     }
   | {
       ok: true;
       idempotent: false;
       decision: 'request_changes';
       notes: string;
-      workStatus: 'active';
+      status: MilestoneStatus;
       nextIteration: number;
       tasks: NoteGroupTask[];
     }
@@ -276,10 +277,11 @@ export function planReview(input: PlanReviewInput): PlanReview {
   if (iteration !== input.currentIteration) {
     return { ok: false, reason: `${STALE_ITERATION} Current iteration is ${input.currentIteration}.` };
   }
-  if (input.workStatus !== 'ready') return { ok: false, reason: NOT_READY };
+  const moved = transitionMilestone({ from: input.status, cause: input.decision });
+  if (!moved.ok) return { ok: false, reason: moved.reason };
   if (!input.hasPreview) return { ok: false, reason: WAITING_ON_BUILD };
   if (input.decision === 'approve') {
-    return { ok: true, idempotent: false, decision: 'approve', notes: input.notes.trim(), workStatus: 'ready' };
+    return { ok: true, idempotent: false, decision: 'approve', notes: input.notes.trim(), status: moved.status };
   }
   const notes = input.notes.trim();
   if (!notes) return { ok: false, reason: NOTES_REQUIRED };
@@ -289,7 +291,7 @@ export function planReview(input: PlanReviewInput): PlanReview {
     idempotent: false,
     decision: 'request_changes',
     notes,
-    workStatus: 'active',
+    status: moved.status,
     nextIteration,
     tasks: iterationTaskDrafts({ notes, nextIteration, appliesTo: input.appliesTo }),
   };
@@ -299,12 +301,12 @@ export function iterationOutcome(input: {
   iteration: number;
   currentIteration: number;
   decision: ReviewDecision | null;
-  workStatus: ReviewWorkStatus;
+  status: MilestoneStatus;
 }): 'In review' | 'Changes requested' | 'Building' | 'Approved' {
   if (input.decision === 'approve') return 'Approved';
   if (input.decision === 'request_changes' && input.iteration < input.currentIteration) return 'Changes requested';
-  if (input.workStatus === 'active' && input.iteration === input.currentIteration) return 'Building';
-  if (input.workStatus === 'ready' && input.iteration === input.currentIteration) return 'In review';
+  if (input.status === 'Building' && input.iteration === input.currentIteration) return 'Building';
+  if (input.status === 'Ready to Ship' && input.iteration === input.currentIteration) return 'In review';
   if (input.decision === 'request_changes') return 'Changes requested';
   return 'In review';
 }
