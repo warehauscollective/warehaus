@@ -25,6 +25,7 @@ import { DueDateMenu, OwnerMenu, StatusMenu, anchoredMenuBox, menuButtons, nextD
 import { type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { TileStatusControl, milestoneStatusGlyph, useMilestoneStatusMoves } from './MilestoneStatusControl';
+import { ContextIncompleteChip, GrillingPromptModal, ProjectContextTab, useProjectContext } from './ProjectContext';
 import { MilestoneReviewLive, APPROVE_CONFIRM_COPY, APPROVE_CONFIRM_TITLE, RECORDING_APPROVAL, SAVING_APPROVAL_COPY } from './MilestoneReview';
 import {
   FieldLabel,
@@ -465,6 +466,8 @@ export function ProjectRoadmap({
   const [tileLinkPreview, setTileLinkPreview] = useState<string | null>(null);
   const [tileApprove, setTileApprove] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const [grillingOpen, setGrillingOpen] = useState(false);
+  const projectContext = useProjectContext({ projectId: project.id, staff, fixtures, live, hostSlug });
   const rememberedMilestones = useRef<MilestoneRoadmapView[]>([]);
   const projectId = project.id as Id<'projects'>;
   const staffQuery = useSafeQuery<MilestoneRoadmapView[]>(
@@ -588,13 +591,27 @@ export function ProjectRoadmap({
           <PageHeading
             measure
             title={project.name}
-            subtitle="Project details · Every task belongs to a milestone"
+            subtitle={
+              page && projectTab === 'resources'
+                ? staff
+                  ? 'Brief, glossary, decisions and resources for this project'
+                  : 'Resources for this project'
+                : 'Project details · Every task belongs to a milestone'
+            }
             action={
               staff ? (
-                <MilestoneListButton onClick={() => setCreateOpen(true)}>New milestone</MilestoneListButton>
+                page && projectTab === 'resources' ? (
+                  <MilestoneListButton onClick={() => setGrillingOpen(true)}>Start grilling</MilestoneListButton>
+                ) : (
+                  <MilestoneListButton onClick={() => setCreateOpen(true)}>New milestone</MilestoneListButton>
+                )
               ) : null
             }
           />
+          {page && staff && projectTab === 'resources' && projectContext.view?.summary.incomplete ? (
+            <ContextIncompleteChip />
+          ) : null}
+          {grillingOpen ? <GrillingPromptModal project={project} onClose={() => setGrillingOpen(false)} /> : null}
           {page ? (
             <TabRow
               label="Project"
@@ -603,7 +620,7 @@ export function ProjectRoadmap({
               onChange={(id) => setProjectTab(id as ProjectTab)}
               tabs={[
                 { id: 'milestones', label: 'Milestones' },
-                { id: 'resources', label: 'Resources' },
+                { id: 'resources', label: 'Context' },
                 { id: 'activity', label: 'Activity' },
                 { id: 'details', label: 'Project details' },
               ]}
@@ -615,7 +632,14 @@ export function ProjectRoadmap({
             aria-labelledby={page ? tabIds('project', projectTab).tab : undefined}
           >
           {projectTab === 'resources' && page ? (
-            <ProjectResources project={project} extra={resourcesExtra} />
+            <ProjectContextTab
+              project={project}
+              staff={staff}
+              fixtures={fixtures}
+              hostSlug={hostSlug}
+              context={projectContext}
+              resources={<ProjectResources project={project} extra={resourcesExtra} />}
+            />
           ) : null}
           {projectTab === 'activity' && page ? (
             <ActivityList items={projectActivity} empty="No activity on this project yet." error={activityError} />
