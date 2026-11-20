@@ -12,14 +12,9 @@ import {
   WORK_STATUS_ALIAS_INVALID,
   apiStatusFields,
   apiStatusInput,
-  backfillPageSize,
   isMilestoneStatus,
   legacyWorkStatus,
-  milestoneStatusOf,
   nextStatus,
-  planRetiredFieldsPage,
-  planStatusBackfill,
-  planStatusBackfillPage,
   statusFromWorkStatus,
   statusOptionLock,
   transitionMilestone,
@@ -262,17 +257,7 @@ describe('transitionMilestone · review and merge', () => {
   });
 });
 
-describe('reading old rows', () => {
-  it('prefers status, then stage, then work status', () => {
-    assert.equal(milestoneStatusOf({ status: 'Parked', stage: 'Building', workStatus: 'ready' }), 'Parked');
-    assert.equal(milestoneStatusOf({ stage: 'Awaiting Go', workStatus: 'ready' }), 'Awaiting Go');
-    assert.equal(milestoneStatusOf({ workStatus: 'draft' }), 'Planning');
-    assert.equal(milestoneStatusOf({ workStatus: 'active' }), 'Building');
-    assert.equal(milestoneStatusOf({ workStatus: 'ready' }), 'Ready to Ship');
-    assert.equal(milestoneStatusOf({}), 'Planning');
-    assert.equal(milestoneStatusOf({ status: 'nonsense', stage: null, workStatus: 'active' }), 'Building');
-  });
-
+describe('work status alias', () => {
   it('maps work status both ways for the API alias', () => {
     assert.equal(statusFromWorkStatus('draft'), 'Planning');
     assert.equal(statusFromWorkStatus('active'), 'Building');
@@ -284,107 +269,6 @@ describe('reading old rows', () => {
     assert.equal(legacyWorkStatus('Building'), 'active');
     assert.equal(legacyWorkStatus('Ready to Ship'), 'ready');
     assert.equal(legacyWorkStatus('Shipped'), 'ready');
-  });
-});
-
-describe('status backfill', () => {
-  it('skips a row that already has a status', () => {
-    assert.deepEqual(planStatusBackfill({ status: 'Building', stage: 'Idea', workStatus: 'ready' }), {
-      action: 'skip',
-      status: 'Building',
-    });
-  });
-
-  it('takes the stage when there is one', () => {
-    assert.deepEqual(planStatusBackfill({ stage: 'Awaiting Go', workStatus: 'draft' }), {
-      action: 'set',
-      status: 'Awaiting Go',
-      source: 'stage',
-      disagreements: [],
-    });
-  });
-
-  it('falls back to work status: draft, active, ready', () => {
-    assert.deepEqual(planStatusBackfill({ workStatus: 'draft' }), {
-      action: 'set',
-      status: 'Planning',
-      source: 'workStatus',
-      disagreements: [],
-    });
-    assert.equal(planStatusBackfill({ workStatus: 'active' }).status, 'Building');
-    assert.equal(planStatusBackfill({ workStatus: 'ready' }).status, 'Ready to Ship');
-  });
-
-  it('reports a stage and work status that disagreed', () => {
-    const plan = planStatusBackfill({ stage: 'Building', workStatus: 'ready' });
-    assert.equal(plan.action, 'set');
-    assert.equal(plan.status, 'Building');
-    assert.deepEqual(plan.action === 'set' && plan.disagreements, ['stage Building, work status ready']);
-  });
-
-  it('reports an old status picker that disagreed', () => {
-    const plan = planStatusBackfill({ stage: 'Planning', workStatus: 'draft', detailStatus: 'complete' });
-    assert.deepEqual(plan.action === 'set' && plan.disagreements, [
-      'stage gives Planning, old status picker complete',
-    ]);
-    const fromWork = planStatusBackfill({ workStatus: 'ready', detailStatus: 'complete' });
-    assert.deepEqual(fromWork.action === 'set' && fromWork.disagreements, [
-      'work status gives Ready to Ship, old status picker complete',
-    ]);
-  });
-
-  it('does not flag Parked or a matching picker', () => {
-    assert.deepEqual(
-      planStatusBackfill({ stage: 'Parked', workStatus: 'active', detailStatus: 'draft' }).action === 'set' &&
-        planStatusBackfill({ stage: 'Parked', workStatus: 'active', detailStatus: 'draft' }),
-      { action: 'set', status: 'Parked', source: 'stage', disagreements: [] },
-    );
-    const shipped = planStatusBackfill({ stage: 'Shipped', workStatus: 'ready', detailStatus: 'complete' });
-    assert.deepEqual(shipped.action === 'set' && shipped.disagreements, []);
-  });
-
-  it('summarises a page and lists only rows to write', () => {
-    const report = planStatusBackfillPage([
-      { id: 'a', name: 'A', status: 'Building' },
-      { id: 'b', name: 'B', stage: 'Idea', workStatus: 'draft' },
-      { id: 'c', name: 'C', stage: 'Building', workStatus: 'ready', detailStatus: 'in_review' },
-      { id: 'd', name: 'D', workStatus: 'active' },
-    ]);
-    assert.equal(report.scanned, 4);
-    assert.equal(report.alreadySet, 1);
-    assert.equal(report.toSet, 3);
-    assert.deepEqual(report.writes, [
-      { id: 'b', status: 'Idea' },
-      { id: 'c', status: 'Building' },
-      { id: 'd', status: 'Building' },
-    ]);
-    assert.deepEqual(report.disagreements, [
-      {
-        id: 'c',
-        name: 'C',
-        status: 'Building',
-        stage: 'Building',
-        workStatus: 'ready',
-        detailStatus: 'in_review',
-        notes: ['stage Building, work status ready', 'stage gives Building, old status picker in_review'],
-      },
-    ]);
-  });
-
-  it('a second pass over written rows writes nothing', () => {
-    const first = planStatusBackfillPage([{ id: 'b', name: 'B', stage: 'Idea', workStatus: 'draft' }]);
-    const second = planStatusBackfillPage([
-      { id: 'b', name: 'B', stage: 'Idea', workStatus: 'draft', status: first.writes[0]!.status },
-    ]);
-    assert.equal(second.toSet, 0);
-    assert.deepEqual(second.writes, []);
-  });
-
-  it('bounds the page size', () => {
-    assert.equal(backfillPageSize(undefined), 50);
-    assert.equal(backfillPageSize(0), 1);
-    assert.equal(backfillPageSize(1000), 100);
-    assert.equal(backfillPageSize(25.9), 25);
   });
 });
 
@@ -414,42 +298,5 @@ describe('staff API aliases', () => {
   it('returns status with both aliases', () => {
     assert.deepEqual(apiStatusFields('Awaiting Go'), { status: 'Awaiting Go', stage: 'Awaiting Go', workStatus: 'draft' });
     assert.deepEqual(apiStatusFields('Ready to Ship'), { status: 'Ready to Ship', stage: 'Ready to Ship', workStatus: 'ready' });
-  });
-});
-
-describe('clearing retired fields before the schema narrows', () => {
-  it('clears only the fields a row still has, and only once it has a status', () => {
-    const report = planRetiredFieldsPage([
-      { id: 'a', name: 'A', status: 'Building', stage: 'Building', workStatus: 'active', detailStatus: 'in_progress' },
-      { id: 'b', name: 'B', status: 'Planning', workStatus: 'draft' },
-      { id: 'c', name: 'C', status: 'Idea' },
-      { id: 'd', name: 'D', stage: 'Parked', workStatus: 'draft' },
-    ]);
-    assert.equal(report.scanned, 4);
-    assert.equal(report.alreadyClear, 1);
-    assert.equal(report.toClear, 2);
-    assert.deepEqual(report.writes, [
-      { id: 'a', fields: ['stage', 'workStatus', 'detailStatus'] },
-      { id: 'b', fields: ['workStatus'] },
-    ]);
-    assert.deepEqual(report.missingStatus, [{ id: 'd', name: 'D' }]);
-  });
-
-  it('writes nothing on a second pass', () => {
-    const report = planRetiredFieldsPage([
-      { id: 'a', name: 'A', status: 'Building', stage: null, workStatus: null, detailStatus: null },
-      { id: 'b', name: 'B', status: 'Planning' },
-    ]);
-    assert.equal(report.toClear, 0);
-    assert.deepEqual(report.writes, []);
-    assert.equal(report.alreadyClear, 2);
-  });
-
-  it('keeps the status the row already shows', () => {
-    const row = { id: 'a', name: 'A', status: 'Awaiting Go', stage: 'Building', workStatus: 'ready' };
-    assert.equal(milestoneStatusOf(row), 'Awaiting Go');
-    const [write] = planRetiredFieldsPage([row]).writes;
-    const cleared = { ...row, ...Object.fromEntries(write!.fields.map((field) => [field, null])) };
-    assert.equal(milestoneStatusOf(cleared), 'Awaiting Go');
   });
 });

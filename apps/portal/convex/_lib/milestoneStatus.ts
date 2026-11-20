@@ -4,10 +4,6 @@
  * Every write of a milestone's status goes through `transitionMilestone`.
  * Approval is not a status. It is the review result and lives on its own field.
  * Shipped is never set by hand. It is set when the pull request merges.
- *
- * Until the schema is narrowed, rows written before the Status field still
- * carry `stage`, `workStatus` and `detailStatus`. `milestoneStatusOf` is the
- * only reader of those old fields outside the backfill.
  */
 
 export const MILESTONE_STATUSES = [
@@ -96,24 +92,6 @@ export function legacyWorkStatus(status: MilestoneStatus): LegacyWorkStatus {
   return 'draft';
 }
 
-export type StoredStatusFields = {
-  status?: string | null;
-  stage?: string | null;
-  workStatus?: string | null;
-  detailStatus?: string | null;
-};
-
-/**
- * The milestone's status. Stored `status` wins. A row from before the
- * backfill falls back to its old stage, then to its old work status.
- */
-export function milestoneStatusOf(row: StoredStatusFields): MilestoneStatus {
-  if (isMilestoneStatus(row.status)) return row.status;
-  if (isMilestoneStatus(row.stage)) return row.stage;
-  if (isLegacyWorkStatus(row.workStatus)) return statusFromWorkStatus(row.workStatus);
-  return DEFAULT_MILESTONE_STATUS;
-}
-
 /**
  * Why the status is changing.
  * - `set`: a person, the staff API, or AI names a status.
@@ -195,130 +173,6 @@ export function transitionMilestone(input: TransitionInput): Transition {
   }
 
   return move(from, 'Shipped');
-}
-
-const DETAIL_EXPECTS: Record<string, readonly MilestoneStatus[]> = {
-  draft: ['Idea', 'Planning', 'Awaiting Go', 'Parked'],
-  in_progress: ['Building'],
-  in_review: ['Ready to Ship'],
-  complete: ['Shipped'],
-};
-
-export type StatusBackfillPlan =
-  | { action: 'skip'; status: MilestoneStatus }
-  | {
-      action: 'set';
-      status: MilestoneStatus;
-      source: 'stage' | 'workStatus' | 'default';
-      /** Old fields that pointed somewhere else. Empty when they agreed. */
-      disagreements: string[];
-    };
-
-/**
- * What the backfill does to one row. Stage wins. With no stage the work
- * status decides: draft is Planning, active is Building, ready is Ready to
- * Ship. A row that already has a status is left alone.
- */
-export function planStatusBackfill(row: StoredStatusFields): StatusBackfillPlan {
-  if (isMilestoneStatus(row.status)) return { action: 'skip', status: row.status };
-  const status = milestoneStatusOf(row);
-  const source = isMilestoneStatus(row.stage) ? 'stage' : isLegacyWorkStatus(row.workStatus) ? 'workStatus' : 'default';
-  const disagreements: string[] = [];
-  if (source === 'stage' && isLegacyWorkStatus(row.workStatus) && status !== 'Parked') {
-    if (legacyWorkStatus(status) !== row.workStatus) {
-      disagreements.push(`stage ${status}, work status ${row.workStatus}`);
-    }
-  }
-  const expects = row.detailStatus ? DETAIL_EXPECTS[row.detailStatus] : undefined;
-  if (expects && !expects.includes(status)) {
-    disagreements.push(`${source === 'stage' ? 'stage' : 'work status'} gives ${status}, old status picker ${row.detailStatus}`);
-  }
-  return { action: 'set', status, source, disagreements };
-}
-
-export type StatusBackfillRow = StoredStatusFields & { id: string; name: string };
-
-export type StatusBackfillReport = {
-  scanned: number;
-  alreadySet: number;
-  toSet: number;
-  writes: { id: string; status: MilestoneStatus }[];
-  disagreements: {
-    id: string;
-    name: string;
-    status: MilestoneStatus;
-    stage: string | null;
-    workStatus: string | null;
-    detailStatus: string | null;
-    notes: string[];
-  }[];
-};
-
-/** One page of the backfill. Pure, so the dry run and the apply share it. */
-export function planStatusBackfillPage(rows: readonly StatusBackfillRow[]): StatusBackfillReport {
-  const report: StatusBackfillReport = { scanned: rows.length, alreadySet: 0, toSet: 0, writes: [], disagreements: [] };
-  for (const row of rows) {
-    const plan = planStatusBackfill(row);
-    if (plan.action === 'skip') {
-      report.alreadySet += 1;
-      continue;
-    }
-    report.toSet += 1;
-    report.writes.push({ id: row.id, status: plan.status });
-    if (plan.disagreements.length > 0) {
-      report.disagreements.push({
-        id: row.id,
-        name: row.name,
-        status: plan.status,
-        stage: row.stage ?? null,
-        workStatus: row.workStatus ?? null,
-        detailStatus: row.detailStatus ?? null,
-        notes: plan.disagreements,
-      });
-    }
-  }
-  return report;
-}
-
-export function backfillPageSize(value: number | null | undefined): number {
-  if (value == null || !Number.isFinite(value)) return 50;
-  return Math.min(100, Math.max(1, Math.floor(value)));
-}
-
-export const RETIRED_STATUS_FIELDS = ['stage', 'workStatus', 'detailStatus'] as const;
-export type RetiredStatusField = (typeof RETIRED_STATUS_FIELDS)[number];
-
-export type RetiredFieldsReport = {
-  scanned: number;
-  /** Rows with no retired field left. */
-  alreadyClear: number;
-  /** Rows that still carry at least one retired field and have a status. */
-  toClear: number;
-  writes: { id: string; fields: RetiredStatusField[] }[];
-  /** Rows with no status yet. Left alone: run the status backfill first. */
-  missingStatus: { id: string; name: string }[];
-};
-
-/**
- * One page of the step before the schema narrows. A row keeps its retired
- * fields until it has a status, so nothing is lost if the backfill was skipped.
- */
-export function planRetiredFieldsPage(rows: readonly StatusBackfillRow[]): RetiredFieldsReport {
-  const report: RetiredFieldsReport = { scanned: rows.length, alreadyClear: 0, toClear: 0, writes: [], missingStatus: [] };
-  for (const row of rows) {
-    const fields = RETIRED_STATUS_FIELDS.filter((field) => row[field] != null);
-    if (fields.length === 0) {
-      report.alreadyClear += 1;
-      continue;
-    }
-    if (!isMilestoneStatus(row.status)) {
-      report.missingStatus.push({ id: row.id, name: row.name });
-      continue;
-    }
-    report.toClear += 1;
-    report.writes.push({ id: row.id, fields });
-  }
-  return report;
 }
 
 export const WORK_STATUS_ALIAS_INVALID = 'Work status must be draft, active, or ready';

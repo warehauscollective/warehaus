@@ -19,7 +19,7 @@ import {
   textBlurSave,
 } from './milestoneDetails';
 import { isPeterEmail } from './milestoneReview';
-import { milestoneStatusOf, statusOptionLock, transitionMilestone } from './milestoneStatus';
+import { statusOptionLock, transitionMilestone } from './milestoneStatus';
 
 describe('staff stages', () => {
   it('uses the one Peter check from the review protocol', () => {
@@ -199,13 +199,18 @@ describe('task move and client rows', () => {
     assert.equal(clientSeesDetailsRow('status', false), true);
   });
 
-  it('reads the status of a row from before the Status field', () => {
-    assert.equal(milestoneStatusOf({ stage: null, workStatus: 'draft' }), 'Planning');
-    assert.equal(milestoneStatusOf({ stage: 'Parked', workStatus: 'active' }), 'Parked');
-    assert.equal(milestoneStatusOf({ stage: null, workStatus: 'ready' }), 'Ready to Ship');
-    assert.equal(milestoneStatusOf({ stage: null, workStatus: 'active' }), 'Building');
-    assert.equal(milestoneStatusOf({ stage: 'Shipped', workStatus: 'active' }), 'Shipped');
-    assert.equal(milestoneStatusOf({ status: 'Idea', stage: 'Shipped', workStatus: 'ready' }), 'Idea');
+  it('keeps the retired status fields out of the schema and off the server', () => {
+    const schema = readFileSync(new URL('../schema.ts', import.meta.url), 'utf8');
+    const table = schema.slice(schema.indexOf('  milestones: defineTable({'), schema.indexOf('  milestoneReviews: defineTable({'));
+    for (const retired of ['workStatus', 'detailStatus', 'stage:']) {
+      assert.equal(table.includes(retired), false, retired);
+    }
+    assert.match(table, /status: v\.union\(/);
+    assert.equal(table.includes('status: v.optional('), false);
+    const server = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
+    for (const retired of ['backfillStatus', 'clearRetiredStatusFields', 'milestoneStatusOf']) {
+      assert.equal(server.includes(retired), false, retired);
+    }
     const clientView = roadmapViewForAudience({
       name: 'Launch',
       publishToWarehaus: true,
