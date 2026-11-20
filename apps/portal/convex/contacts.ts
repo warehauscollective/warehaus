@@ -128,11 +128,14 @@ export const linkSession = mutation({
     }
 
     // One legitimate Notion write from auth — Auth User ID (+ External ID if missing).
-    await ctx.scheduler.runAfter(0, internal.notionAuth.pushContactAuthFields, {
-      notionPageId: contact.notionPageId,
-      authUserId,
-      externalId,
-    });
+    // Skipped when both already match: this runs on every sign-in.
+    if (!alreadyLinked || contact.externalId !== externalId) {
+      await ctx.scheduler.runAfter(0, internal.notionAuth.pushContactAuthFields, {
+        notionPageId: contact.notionPageId,
+        authUserId,
+        externalId,
+      });
+    }
 
     return {
       contactId: contact._id,
