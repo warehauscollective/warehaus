@@ -247,7 +247,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'create_project',
     description:
-      'Create a project through the staff project-create path. Pass clientId, or client to create a new client first with the staff client-create path. The new client stays unpublished. The project stays unpublished unless publishToWarehaus is true. Send an idempotency key.',
+      'Create a project through the staff project-create path. Pass clientId, or client to create a new client first with the staff client-create path. The new client stays unpublished. The project stays unpublished unless publishToWarehaus is true. A new project has no brief: after creating it, call get_grilling_instructions and grill the user before planning milestones or tasks. Send an idempotency key.',
     write: true,
     schema: {
       name: z.string().min(1).max(2000),
@@ -352,6 +352,84 @@ export const portalTools: PortalTool[] = [
         notes: args.notes ?? '',
         taskIds: args.taskIds,
       }),
+    }),
+  },
+  {
+    name: 'get_project_context',
+    description:
+      'Read one project\'s context: the brief (goal, audience, outOfScope, doneWhen), glossary terms, and recorded decisions. Staff only. summary.incomplete is true when no brief field is set; run a grilling session before planning work on such a project. Read this before asking the user anything about a project, and use the glossary\'s words.',
+    write: false,
+    schema: { projectId: z.string().min(1) },
+    call: (args) => ({ method: 'GET', path: '/api/v1/context', search: { projectId: String(args.projectId) } }),
+  },
+  {
+    name: 'get_grilling_instructions',
+    description:
+      'Return the Warehaus rules for a grilling session: how to interview the user about a project or feature, and what to save to its context as each point is settled. Call this once at the start of a session, when the user asks to grill, plan, or scope a project or feature, or when get_project_context shows summary.incomplete.',
+    write: false,
+    schema: {},
+    call: () => ({ method: 'GET', path: '/api/v1/context/grilling' }),
+  },
+  {
+    name: 'save_project_brief',
+    description:
+      'Set brief fields on a project: goal, audience (who it is for), outOfScope, doneWhen. Send only the fields that are settled; a field left out is not changed, and an empty string clears it. Plain sentences, no implementation detail, at most 1200 characters each. Returns the updated context. Send an idempotency key.',
+    write: true,
+    schema: {
+      projectId: z.string().min(1),
+      goal: z.string().max(1200).optional(),
+      audience: z.string().max(1200).optional(),
+      outOfScope: z.string().max(1200).optional(),
+      doneWhen: z.string().max(1200).optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/context/brief',
+      idempotencyKey: String(args.idempotencyKey),
+      body: defined({
+        projectId: args.projectId,
+        goal: args.goal,
+        audience: args.audience,
+        outOfScope: args.outOfScope,
+        doneWhen: args.doneWhen,
+      }),
+    }),
+  },
+  {
+    name: 'upsert_glossary_term',
+    description:
+      'Add a term to a project\'s glossary, or change its definition. One call per term, as soon as its meaning is agreed. Terms match without regard to case, so the same term is updated, not added twice. The definition says what the thing is in one or two sentences, with no implementation detail. Send an idempotency key.',
+    write: true,
+    schema: {
+      projectId: z.string().min(1),
+      term: z.string().min(1).max(80),
+      definition: z.string().min(1).max(600),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/context/terms',
+      idempotencyKey: String(args.idempotencyKey),
+      body: { projectId: args.projectId, term: args.term, definition: args.definition },
+    }),
+  },
+  {
+    name: 'record_decision',
+    description:
+      'Record a decision on a project. Use only when it is hard to reverse, would surprise a later reader, and came from a real trade-off. The title states the decision; body says why and what was turned down. Decisions are numbered per project. Recording the same title again returns the first record. Send an idempotency key.',
+    write: true,
+    schema: {
+      projectId: z.string().min(1),
+      title: z.string().min(1).max(200),
+      body: z.string().max(2000).optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/context/decisions',
+      idempotencyKey: String(args.idempotencyKey),
+      body: defined({ projectId: args.projectId, title: args.title, body: args.body }),
     }),
   },
 ];

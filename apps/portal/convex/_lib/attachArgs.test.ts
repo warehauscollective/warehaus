@@ -7,6 +7,7 @@ import * as clientCreate from '../clientCreate';
 import * as portalCatalog from '../portalCatalog';
 import { portalApiHttp } from '../portalApi';
 import * as portalApi from '../portalApi';
+import * as projectContextApi from '../projectContextApi';
 import * as projectCreate from '../projectCreate';
 import * as milestones from '../milestones';
 
@@ -41,6 +42,9 @@ const functions: Record<string, Registered> = {
   'clientCreate:createForToken': clientCreate.createForToken as unknown as Registered,
   'projectCreate:createForToken': projectCreate.createForToken as unknown as Registered,
   'milestones:reviewForApi': milestones.reviewForApi as unknown as Registered,
+  'projectContextApi:saveBrief': projectContextApi.saveBrief as unknown as Registered,
+  'projectContextApi:upsertTerm': projectContextApi.upsertTerm as unknown as Registered,
+  'projectContextApi:recordDecision': projectContextApi.recordDecision as unknown as Registered,
 };
 
 const functionName = Symbol.for('functionName');
@@ -228,6 +232,14 @@ const writeTools: Record<string, Record<string, unknown>> = {
   },
   create_client: { companyName: 'Northwind', idempotencyKey: 'client-1' },
   create_project: { name: 'Website', clientId: 'clients:1', idempotencyKey: 'project-1' },
+  save_project_brief: { projectId: 'projects:1', goal: 'One portal.', doneWhen: '', idempotencyKey: 'brief-1' },
+  upsert_glossary_term: {
+    projectId: 'projects:1',
+    term: 'Milestone',
+    definition: 'A reviewable unit of work.',
+    idempotencyKey: 'term-1',
+  },
+  record_decision: { projectId: 'projects:1', title: 'Tasks live only inside milestones.', idempotencyKey: 'decision-1' },
   attach_task_to_milestone: { milestoneId: 'milestones:1', taskId: 'tasks:1', idempotencyKey: 'mile-1' },
   add_task_link: {
     taskId: 'tasks:1',
@@ -296,5 +308,32 @@ describe('MCP attach arguments', () => {
     const commented = comment.calls.find((call) => call.name === 'portalApi:addComment');
     assert.ok(commented);
     assert.equal(commented.args.tokenName, 'claude');
+  });
+});
+
+describe('project context API arguments', () => {
+  it('passes the token name and only the brief fields that were sent', async () => {
+    const saved = await postApi('/api/v1/context/brief', { projectId: 'projects:1', goal: 'One portal.' }, 'brief-a');
+    assert.equal(saved.status, 200, JSON.stringify(saved.body));
+    const call = saved.calls.find((entry) => entry.name === 'projectContextApi:saveBrief');
+    assert.ok(call);
+    assert.deepEqual(call.args, { projectId: 'projects:1', tokenName: 'claude', goal: 'One portal.' });
+  });
+
+  it('rejects a bad shape before the context mutation runs', async () => {
+    const cases: Array<[string, Record<string, unknown>, RegExp]> = [
+      ['/api/v1/context/brief', { projectId: 'projects:1' }, /at least one brief field/],
+      ['/api/v1/context/brief', { goal: 'x' }, /Project id is required/],
+      ['/api/v1/context/brief', { projectId: 'projects:1', goal: 'x', budget: '1' }, /budget/],
+      ['/api/v1/context/terms', { projectId: 'projects:1', term: 'Task' }, /definition is required/],
+      ['/api/v1/context/terms', { projectId: 'projects:1', term: 'Task', definition: 5 }, /definition/],
+      ['/api/v1/context/decisions', { projectId: 'projects:1', title: '  ' }, /title is required/],
+    ];
+    for (const [path, body, message] of cases) {
+      const result = await postApi(path, body, `bad-${path}-${JSON.stringify(body).length}`);
+      assert.equal(result.status, 400, `${path} ${JSON.stringify(result.body)}`);
+      assert.match(JSON.stringify(result.body), message);
+      assert.equal(result.calls.some((entry) => entry.name.startsWith('projectContextApi:')), false, path);
+    }
   });
 });
