@@ -15,6 +15,9 @@ import {
   effectiveDetailStatus,
   effectiveStage,
   formatDueDate,
+  MILESTONE_STAGE_HINT,
+  MILESTONE_STATUS_HINT,
+  milestoneCanClose,
   stageOptionLock,
   textBlurSave,
   workStatusForDetail,
@@ -164,6 +167,7 @@ export function useMilestoneDetailEdits({
   const shownStatus = statusLabel(milestone);
   const stageNow = preview === 'locked' ? 'Awaiting Go' : effectiveStage(milestone);
   const taskCount = milestone.rows.length;
+  const canClose = milestoneCanClose(milestone.rows);
 
   useEffect(() => {
     setReady(true);
@@ -275,13 +279,14 @@ export function useMilestoneDetailEdits({
           setTone((current) => (current[key] === 'saved' ? { ...current, [key]: 'idle' } : current));
         }, 2000);
       }
-    } catch {
+    } catch (err) {
       setTone((current) => ({ ...current, [key]: 'error' }));
-      setFieldError(key === 'project' ? 'Couldn’t move.' : 'Couldn’t save.');
+      setFieldError(key === 'project' ? 'Couldn’t move.' : userFacingErrorMessage(err, 'Couldn’t save.'));
     }
   };
 
   const pickStatus = (status: MilestoneDetailStatus) => {
+    if (status === 'complete' && !canClose && effectiveDetailStatus(milestone) !== 'complete') return;
     const decision = detailStatusDecision({ from: effectiveDetailStatus(milestone), to: status });
     setOverlay(null);
     if (!decision.ok || !decision.wrote) return;
@@ -305,7 +310,7 @@ export function useMilestoneDetailEdits({
   };
 
   const pickStage = (stage: MilestoneStage) => {
-    if (stageOptionLock(stage)) return;
+    if (stageOptionLock(stage, canClose)) return;
     const from = preview === 'locked' ? 'Awaiting Go' : effectiveStage(milestone);
     if (stage === from) {
       setOverlay(null);
@@ -448,7 +453,7 @@ export function useMilestoneDetailEdits({
           ) : null}
           {shown?.kind === 'status' && !phone ? (
             <Popover onClose={() => closeOverlay(true)}>
-              <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} />
+              <StatusMenu current={effectiveDetailStatus(milestone)} canClose={canClose} onPick={pickStatus} onClose={() => closeOverlay(true)} />
             </Popover>
           ) : null}
         </DetailRow>
@@ -470,7 +475,7 @@ export function useMilestoneDetailEdits({
           ) : null}
           {shown?.kind === 'stage' && !phone ? (
             <Popover onClose={() => closeOverlay(true)}>
-              <StageMenu current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} />
+              <StageMenu current={stageNow} canClose={canClose} onPick={pickStage} onClose={() => closeOverlay(true)} />
             </Popover>
           ) : null}
         </DetailRow>
@@ -670,10 +675,10 @@ export function useMilestoneDetailEdits({
       onClose={() => closeOverlay(true)}
     >
       {shown.kind === 'stage' ? (
-        <StageMenu current={stageNow} onPick={pickStage} onClose={() => closeOverlay(true)} sheet />
+        <StageMenu current={stageNow} canClose={canClose} onPick={pickStage} onClose={() => closeOverlay(true)} sheet />
       ) : null}
       {shown.kind === 'status' ? (
-        <StatusMenu current={effectiveDetailStatus(milestone)} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
+        <StatusMenu current={effectiveDetailStatus(milestone)} canClose={canClose} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
       ) : null}
       {shown.kind === 'owner' ? (
         <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} currentName={milestone.ownerName} onPick={pickOwner} onClose={() => closeOverlay(true)} sheet />
@@ -1098,11 +1103,13 @@ export function menuButtons(root: ParentNode | null): HTMLElement[] {
 
 export function StageMenu({
   current,
+  canClose = false,
   onPick,
   onClose,
   sheet,
 }: {
   current: string;
+  canClose?: boolean;
   onPick: (stage: MilestoneStage) => void;
   onClose: () => void;
   sheet?: boolean;
@@ -1117,7 +1124,7 @@ export function StageMenu({
     >
       {sheet ? <SheetHeader title="Stage" onClose={onClose} /> : null}
       {MILESTONE_STAGES.map((stage) => {
-        const lock = stageOptionLock(stage);
+        const lock = stageOptionLock(stage, canClose);
         const selected = stage === current;
         return (
           <button
@@ -1142,14 +1149,14 @@ export function StageMenu({
             }}
           >
             <span className="whitespace-nowrap">{stage}</span>
-            {lock === 'shipped' ? <Tag>ON MERGE</Tag> : null}
+            {lock === 'shipped' ? <Tag>NOT DONE</Tag> : null}
             {lock ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
             {selected && !lock ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
           </button>
         );
       })}
       <p style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-        Staff can set any stage except Shipped. Shipped is set when the pull request merges. Saves as soon as you pick.
+        {MILESTONE_STAGE_HINT}
       </p>
     </div>
   );
@@ -1157,11 +1164,13 @@ export function StageMenu({
 
 function StatusMenu({
   current,
+  canClose = false,
   onPick,
   onClose,
   sheet,
 }: {
   current: MilestoneDetailStatus;
+  canClose?: boolean;
   onPick: (status: MilestoneDetailStatus) => void;
   onClose: () => void;
   sheet?: boolean;
@@ -1171,33 +1180,41 @@ function StatusMenu({
       {sheet ? <SheetHeader title="Status" onClose={onClose} /> : null}
       {MILESTONE_DETAIL_STATUSES.map((status) => {
         const selected = status === current;
+        const locked = status === 'complete' && !canClose && current !== 'complete';
         return (
           <button
             key={status}
             type="button"
             role="option"
             aria-selected={selected}
-            onClick={() => onPick(status)}
+            aria-disabled={locked}
+            disabled={locked}
+            onClick={() => {
+              if (locked) return;
+              onPick(status);
+            }}
             className="flex w-full items-center gap-2 text-left"
             style={{
               padding: 10,
               border: 0,
               borderRadius: 12,
               background: selected ? 'var(--surface-2)' : 'transparent',
-              color: 'var(--fg)',
+              color: locked ? 'var(--muted)' : 'var(--fg)',
               font: 'inherit',
               fontSize: 14,
               lineHeight: '21px',
-              cursor: 'pointer',
+              cursor: locked ? 'not-allowed' : 'pointer',
             }}
           >
             <span className="whitespace-nowrap">{DETAIL_STATUS_LABEL[status]}</span>
-            {selected ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
+            {locked ? <Tag>NOT DONE</Tag> : null}
+            {locked ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
+            {selected && !locked ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
           </button>
         );
       })}
       <p style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-        Saves as soon as you pick.
+        {MILESTONE_STATUS_HINT}
       </p>
     </div>
   );

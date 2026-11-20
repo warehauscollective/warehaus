@@ -167,15 +167,6 @@ const frames: Array<{ id: string; title: string; visual?: ReviewVisual; model: R
   { id: 'changes', title: 'Changes requested', model: changes, width: 1108 },
 ];
 
-function LockMark() {
-  return (
-    <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-      <rect x="2" y="4.5" width="6" height="4.5" rx="1" fill="none" stroke="currentColor" strokeWidth="1" />
-      <path d="M3.2 4.5V3.2a1.8 1.8 0 0 1 3.6 0v1.3" fill="none" stroke="currentColor" strokeWidth="1" />
-    </svg>
-  );
-}
-
 function StageHint({ current, phone = false, confirming = null }: { current: string; phone?: boolean; confirming?: string | null }) {
   const stages = ['Idea', 'Planning', 'Awaiting Go', 'Building', 'Ready to Ship', 'Shipped', 'Parked'];
   if (phone && confirming) {
@@ -190,7 +181,6 @@ function StageHint({ current, phone = false, confirming = null }: { current: str
       <div className="flex flex-wrap gap-2">
         {stages.map((stage) => {
           const selected = stage === current;
-          const locked = stage === 'Shipped';
           return (
             <span
               key={stage}
@@ -200,21 +190,15 @@ function StageHint({ current, phone = false, confirming = null }: { current: str
                 alignItems: 'center',
                 gap: 6,
                 whiteSpace: 'nowrap',
-                border: locked ? '1px dashed var(--border-2)' : selected ? '1px solid var(--fg)' : '1px solid var(--border-2)',
+                border: selected ? '1px solid var(--fg)' : '1px solid var(--border-2)',
                 borderRadius: 999,
                 padding: '8px 12px',
-                background: locked && selected ? 'var(--surface-2)' : selected ? 'var(--fg)' : 'transparent',
-                color: locked ? 'var(--muted)' : selected ? 'var(--bg)' : 'var(--fg)',
+                background: selected ? 'var(--fg)' : 'transparent',
+                color: selected ? 'var(--bg)' : 'var(--fg)',
                 fontSize: 13,
               }}
             >
               {stage}
-              {locked ? (
-                <span style={{ flexShrink: 0, border: '1px solid var(--border-2)', borderRadius: 999, padding: '3px 8px', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-                  ON MERGE
-                </span>
-              ) : null}
-              {locked ? <LockMark /> : null}
             </span>
           );
         })}

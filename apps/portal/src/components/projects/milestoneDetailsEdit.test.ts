@@ -192,16 +192,36 @@ describe('milestone details panel', () => {
     assert.match(due, /Saved in the Portal/);
   });
 
-  it('lets staff set every stage except Shipped', () => {
+  it('lets staff set every stage, and locks Shipped until the tasks are Done', () => {
     const menu = view({ staff: true, preview: 'stage' });
     assert.match(menu, /data-testid="milestone-stage-menu"/);
     assert.doesNotMatch(stageOption(menu, 'Awaiting Go'), /disabled=""/);
     assert.doesNotMatch(stageOption(menu, 'Ready to Ship'), /disabled=""/);
     assert.equal(menu.includes('PETER’S CALL'), false);
     assert.match(stageOption(menu, 'Shipped'), /disabled=""/);
-    assert.match(stageOption(menu, 'Shipped'), /ON MERGE/);
+    assert.match(stageOption(menu, 'Shipped'), /NOT DONE/);
     assert.match(stageOption(menu, 'Shipped'), /task-lock\.svg/);
+    assert.match(menu, /Staff can set Shipped when every task that is not Parked is Done/);
     assert.equal(menu.includes('>Close<'), false);
+
+    const finished = view({
+      staff: true,
+      preview: 'stage',
+      milestone: {
+        ...milestone,
+        rows: [{
+          id: 't-1',
+          name: 'Homepage',
+          status: 'Done',
+          isDone: true,
+          stage: 'Ready to Ship',
+          resourceCount: 0,
+          children: [],
+        }],
+      },
+    });
+    assert.doesNotMatch(stageOption(finished, 'Shipped'), /disabled=""/);
+    assert.equal(stageOption(finished, 'Shipped').includes('NOT DONE'), false);
 
     const same = view({ staff: true, preview: 'stage-peter', email: 'alex@warehaus.co' });
     assert.doesNotMatch(stageOption(same, 'Awaiting Go'), /disabled=""/);

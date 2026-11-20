@@ -204,7 +204,7 @@ describe('Ready to Ship status', () => {
   it('keeps the Portal stage hint', () => {
     assert.equal(
       TASK_STAGE_HINT,
-      'Staff can set any stage except Shipped. Shipped is set when the pull request merges.',
+      'Staff can set Shipped when the pull request is merged into main. The check runs when you save.',
     );
   });
 

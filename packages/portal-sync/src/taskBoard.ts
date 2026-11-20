@@ -225,6 +225,7 @@ export function resolveBoardDrop(input: {
     if (!isTaskStage(input.from) && !unstagedMoveAllowed(input.to)) {
       return { kind: 'reject', reason: 'Tasks with no stage can move to Idea or Planning.' };
     }
+    if (input.to === 'Shipped') return { kind: 'move', value: input.to };
     const rule = stageMoveRule('staff', input.to);
     if (rule.kind === 'locked' || rule.kind === 'denied') {
       return { kind: 'reject', reason: rule.reason };
@@ -357,18 +358,28 @@ export function mergePulledStage(input: {
   };
 }
 
+export const STAFF_SHIPPED_UNVERIFIED = 'Shipped needs a pull request that is merged into main.';
+
 export function planTaskStageWrite(input: {
   actor: MoveActor;
   stage: string;
   pullRequestLink?: string;
   notionPageId: string;
   expectedLastEditedTime: string;
-  /** Merge webhook only. Staff stay locked out of Shipped. */
+  /** Merge webhook. Sets Shipped without a live GitHub read. */
   allowReviewStage?: boolean;
+  /** Staff write after GitHub confirmed the pull request is merged into main. */
+  verifiedMerge?: boolean;
 }): { ok: true; properties: TaskWriteProperties; idempotencyKey: string } | { ok: false; error: string } {
   const rule = stageMoveRule(input.actor, input.stage);
-  const mergeShipped = input.allowReviewStage === true && input.stage === 'Shipped';
-  if ((rule.kind === 'denied' || rule.kind === 'locked') && !mergeShipped) return { ok: false, error: rule.reason };
+  const mergeShipped =
+    input.stage === 'Shipped' && (input.allowReviewStage === true || input.verifiedMerge === true);
+  if ((rule.kind === 'denied' || rule.kind === 'locked') && !mergeShipped) {
+    if (input.actor === 'staff' && input.stage === 'Shipped') {
+      return { ok: false, error: STAFF_SHIPPED_UNVERIFIED };
+    }
+    return { ok: false, error: rule.reason };
+  }
   if (!input.notionPageId) return { ok: false, error: 'Updates require a Notion page' };
   if (!input.expectedLastEditedTime) return { ok: false, error: 'Updates require the last read time' };
   const properties: TaskWriteProperties = { Stage: input.stage };

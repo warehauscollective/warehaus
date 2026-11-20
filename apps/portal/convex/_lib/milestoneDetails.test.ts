@@ -18,6 +18,8 @@ import {
   ownerChangeDecision,
   projectMoveDecision,
   publishChangeDecision,
+  finishedMilestoneDecision,
+  milestoneCanClose,
   stageChangeDecision,
   stageOptionLock,
   taskIdsToMove,
@@ -54,15 +56,40 @@ describe('staff stages', () => {
     });
   });
 
-  it('lets nobody set Shipped, and locks only that option in the menu', () => {
+  it('lets nobody set Shipped until every non-Parked task is Done', () => {
     assert.deepEqual(stageChangeDecision({ from: 'Building', to: 'Shipped' }), {
       ok: false,
-      reason: 'Shipped is set when the pull request merges',
+      reason: 'Shipped needs every task that is not Parked to be Done.',
+    });
+    assert.deepEqual(stageChangeDecision({ from: 'Building', to: 'Shipped', tasksReady: true }), {
+      ok: true,
+      stage: 'Shipped',
+      wrote: true,
     });
     assert.equal(stageOptionLock('Shipped'), 'shipped');
+    assert.equal(stageOptionLock('Shipped', true), null);
     assert.equal(stageOptionLock('Awaiting Go'), null);
     assert.equal(stageOptionLock('Ready to Ship'), null);
     assert.equal(stageOptionLock('Building'), null);
+    const done = { stage: 'Ready to Ship', status: 'Done', isDone: true };
+    const parked = { stage: 'Parked', status: 'Inbox', isDone: false };
+    const open = { stage: 'Building', status: 'In Progress', isDone: false };
+    assert.equal(finishedMilestoneDecision([done, parked], 'Shipped').ok, true);
+    assert.equal(finishedMilestoneDecision([done, parked], 'Complete').ok, true);
+    assert.deepEqual(finishedMilestoneDecision([done, open], 'Shipped'), {
+      ok: false,
+      reason: 'Shipped needs every task that is not Parked to be Done.',
+    });
+    assert.deepEqual(finishedMilestoneDecision([parked], 'Complete'), {
+      ok: false,
+      reason: 'Complete needs at least one task that is not Parked.',
+    });
+    assert.equal(finishedMilestoneDecision([], 'Shipped').ok, false);
+    assert.equal(
+      milestoneCanClose([{ ...done, children: [parked] }]),
+      true,
+    );
+    assert.equal(milestoneCanClose([{ ...done, children: [open] }]), false);
   });
 
   it('skips a no-op stage write, including a repeat of Shipped', () => {

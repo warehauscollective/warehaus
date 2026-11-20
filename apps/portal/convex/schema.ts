@@ -269,7 +269,7 @@ export default defineSchema({
     ),
     /**
      * Build-protocol stage. Absent until a person picks one. Staff can set
-     * any stage except Shipped. Shipped is set when the pull request merges.
+     * Shipped when every task that is not Parked is Done.
      */
     stage: v.optional(
       v.union(

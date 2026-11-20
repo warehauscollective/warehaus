@@ -326,7 +326,7 @@ describe('enqueueStage actor', () => {
       assert.equal(outOfBuilding.ok, true);
       const intoShipped = await run(enqueueStage, ctxFor('Planning'), { ...base, stage: 'Shipped' });
       assert.equal(intoShipped.ok, false);
-      if (!intoShipped.ok) assert.match(intoShipped.error ?? '', /pull request merges/);
+      if (!intoShipped.ok) assert.match(intoShipped.error ?? '', /merged into main/);
       const outOfShipped = await run(enqueueStage, ctxFor('Shipped'), { ...base, stage: 'Planning' });
       assert.equal(outOfShipped.ok, false);
       if (!outOfShipped.ok) assert.match(outOfShipped.error ?? '', /pull request merges/);
