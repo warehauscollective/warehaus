@@ -285,6 +285,42 @@ export function backfillPageSize(value: number | null | undefined): number {
   return Math.min(100, Math.max(1, Math.floor(value)));
 }
 
+export const RETIRED_STATUS_FIELDS = ['stage', 'workStatus', 'detailStatus'] as const;
+export type RetiredStatusField = (typeof RETIRED_STATUS_FIELDS)[number];
+
+export type RetiredFieldsReport = {
+  scanned: number;
+  /** Rows with no retired field left. */
+  alreadyClear: number;
+  /** Rows that still carry at least one retired field and have a status. */
+  toClear: number;
+  writes: { id: string; fields: RetiredStatusField[] }[];
+  /** Rows with no status yet. Left alone: run the status backfill first. */
+  missingStatus: { id: string; name: string }[];
+};
+
+/**
+ * One page of the step before the schema narrows. A row keeps its retired
+ * fields until it has a status, so nothing is lost if the backfill was skipped.
+ */
+export function planRetiredFieldsPage(rows: readonly StatusBackfillRow[]): RetiredFieldsReport {
+  const report: RetiredFieldsReport = { scanned: rows.length, alreadyClear: 0, toClear: 0, writes: [], missingStatus: [] };
+  for (const row of rows) {
+    const fields = RETIRED_STATUS_FIELDS.filter((field) => row[field] != null);
+    if (fields.length === 0) {
+      report.alreadyClear += 1;
+      continue;
+    }
+    if (!isMilestoneStatus(row.status)) {
+      report.missingStatus.push({ id: row.id, name: row.name });
+      continue;
+    }
+    report.toClear += 1;
+    report.writes.push({ id: row.id, fields });
+  }
+  return report;
+}
+
 export const WORK_STATUS_ALIAS_INVALID = 'Work status must be draft, active, or ready';
 export const STATUS_ALIAS_CONFLICT = 'Send status only. stage and workStatus are aliases of status and must match it.';
 

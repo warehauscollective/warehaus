@@ -17,6 +17,7 @@ import {
   legacyWorkStatus,
   milestoneStatusOf,
   nextStatus,
+  planRetiredFieldsPage,
   planStatusBackfill,
   planStatusBackfillPage,
   statusFromWorkStatus,
@@ -413,5 +414,42 @@ describe('staff API aliases', () => {
   it('returns status with both aliases', () => {
     assert.deepEqual(apiStatusFields('Awaiting Go'), { status: 'Awaiting Go', stage: 'Awaiting Go', workStatus: 'draft' });
     assert.deepEqual(apiStatusFields('Ready to Ship'), { status: 'Ready to Ship', stage: 'Ready to Ship', workStatus: 'ready' });
+  });
+});
+
+describe('clearing retired fields before the schema narrows', () => {
+  it('clears only the fields a row still has, and only once it has a status', () => {
+    const report = planRetiredFieldsPage([
+      { id: 'a', name: 'A', status: 'Building', stage: 'Building', workStatus: 'active', detailStatus: 'in_progress' },
+      { id: 'b', name: 'B', status: 'Planning', workStatus: 'draft' },
+      { id: 'c', name: 'C', status: 'Idea' },
+      { id: 'd', name: 'D', stage: 'Parked', workStatus: 'draft' },
+    ]);
+    assert.equal(report.scanned, 4);
+    assert.equal(report.alreadyClear, 1);
+    assert.equal(report.toClear, 2);
+    assert.deepEqual(report.writes, [
+      { id: 'a', fields: ['stage', 'workStatus', 'detailStatus'] },
+      { id: 'b', fields: ['workStatus'] },
+    ]);
+    assert.deepEqual(report.missingStatus, [{ id: 'd', name: 'D' }]);
+  });
+
+  it('writes nothing on a second pass', () => {
+    const report = planRetiredFieldsPage([
+      { id: 'a', name: 'A', status: 'Building', stage: null, workStatus: null, detailStatus: null },
+      { id: 'b', name: 'B', status: 'Planning' },
+    ]);
+    assert.equal(report.toClear, 0);
+    assert.deepEqual(report.writes, []);
+    assert.equal(report.alreadyClear, 2);
+  });
+
+  it('keeps the status the row already shows', () => {
+    const row = { id: 'a', name: 'A', status: 'Awaiting Go', stage: 'Building', workStatus: 'ready' };
+    assert.equal(milestoneStatusOf(row), 'Awaiting Go');
+    const [write] = planRetiredFieldsPage([row]).writes;
+    const cleared = { ...row, ...Object.fromEntries(write!.fields.map((field) => [field, null])) };
+    assert.equal(milestoneStatusOf(cleared), 'Awaiting Go');
   });
 });
