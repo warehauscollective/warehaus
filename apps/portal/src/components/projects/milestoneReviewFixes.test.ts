@@ -15,8 +15,9 @@ import {
   storedMilestoneReview,
   tabIds,
 } from './milestoneGuards';
+import { readRoadmapSource } from './roadmapSource';
 
-const roadmap = readFileSync(new URL('./ProjectRoadmap.tsx', import.meta.url), 'utf8');
+const roadmap = readRoadmapSource();
 const projects = readFileSync(new URL('../pages/ProjectsContent.tsx', import.meta.url), 'utf8');
 const board = readFileSync(new URL('../tasks/TaskBoard.tsx', import.meta.url), 'utf8');
 const chrome = readFileSync(new URL('./milestoneChrome.tsx', import.meta.url), 'utf8');
