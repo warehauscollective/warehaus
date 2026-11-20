@@ -13,15 +13,10 @@ export const pushContactAuthFields = internalAction({
     externalId: v.string(),
   },
   handler: async (_ctx, args) => {
-    // Shared dev holds the live Notion token. Off production, this write waits
-    // for the same opt-in as every other Notion write.
-    if (
-      !authMirrorAllowed({
-        cloudUrl: process.env.CONVEX_CLOUD_URL,
-        writebackFlag: process.env.NOTION_WRITEBACK_ENABLED,
-      })
-    ) {
-      console.info('[notionAuth] write-back off on this deployment — skipped Auth User ID write');
+    // Auth ids belong to one deployment and shared dev holds the live Notion
+    // token, so only production writes this field.
+    if (!authMirrorAllowed({ cloudUrl: process.env.CONVEX_CLOUD_URL })) {
+      console.info('[notionAuth] not production — skipped Auth User ID write');
       return { ok: false as const, skipped: true as const };
     }
 

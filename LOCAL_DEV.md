@@ -262,4 +262,4 @@ Without both, the inbox stays empty. Do not commit the value.
 
 ## Auth User ID mirror
 
-Sign-in writes Auth User ID and External ID to the Notion contact. Production does this as before. Shared dev does it only while `NOTION_WRITEBACK_ENABLED` is `true`, because shared dev holds the production Notion token.
+Auth ids belong to one deployment, and shared dev reads the production Notion. Only production writes Auth User ID and External ID to the Notion contact on sign-in, and only production takes Auth User ID from Notion on a pull. Shared dev does neither, even with `NOTION_WRITEBACK_ENABLED` set to `true`. It keeps its own link. A staff contact on shared dev is linked with `staffProvision:provisionStaffUser`, or with `contacts:linkStaffContact` when the auth user already exists.

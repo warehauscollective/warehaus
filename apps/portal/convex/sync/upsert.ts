@@ -16,6 +16,7 @@ import {
   resolveParentLink,
   taskTouchesIncrementalSet,
 } from '@warehaus/portal-sync';
+import { authMirrorAllowed, pulledAuthUserId } from '../_lib/devAccess';
 import { heldTaskProjectId } from '../_lib/milestoneDetails';
 import { v } from 'convex/values';
 import { notionWriteAllowedForTask } from '../_lib/milestoneReview';
@@ -427,8 +428,12 @@ export const upsertContact = internalMutation({
       .unique();
     const existing = byNotion ?? byEmail;
     const email = fields.email.toLowerCase();
-    // Preserve locally linked authUserId if Notion field empty
-    const authUserId = fields.authUserId || existing?.authUserId;
+    // Notion's Auth User ID is taken only where this deployment mirrors it.
+    const authUserId = pulledAuthUserId({
+      notionValue: fields.authUserId,
+      localValue: existing?.authUserId,
+      mirrorAllowed: authMirrorAllowed({ cloudUrl: process.env.CONVEX_CLOUD_URL }),
+    });
     const now = Date.now();
     const patch = {
       ...fields,

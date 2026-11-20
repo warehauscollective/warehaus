@@ -1,11 +1,10 @@
 /**
- * Guards for two paths that are open by design on shared dev:
- * the dev mailbox read, and the Auth User ID mirror write to Notion.
+ * Guards for paths that are open by design on shared dev: the dev mailbox
+ * read, and the Auth User ID mirror to and from Notion.
  */
 
 import { timingSafeEqualUtf8 } from './constantTime';
 import { PRODUCTION_DEPLOYMENT } from './reviewPreview';
-import { isNotionWritebackEnabled } from './writeAuthz';
 
 /** Shorter keys are refused so a guessable value cannot open the inbox. */
 export const DEV_MAILBOX_KEY_MIN_LENGTH = 24;
@@ -34,13 +33,27 @@ function isProductionCloudUrl(cloudUrl: string | undefined): boolean {
 }
 
 /**
- * Production mirrors Auth User ID to Notion as before. Every other deployment
- * writes only while Notion write-back is switched on, so a sign-in on shared
- * dev does not put a dev auth id on a live Notion contact.
+ * Auth ids belong to one deployment, and every deployment reads the same Notion
+ * contact. Only production mirrors Auth User ID with Notion. The write-back flag
+ * does not open this on shared dev: it is on there, and a dev auth id on a live
+ * Notion contact locks that person out of production.
  */
-export function authMirrorAllowed(input: {
-  cloudUrl: string | undefined;
-  writebackFlag: string | undefined;
-}): boolean {
-  return isProductionCloudUrl(input.cloudUrl) || isNotionWritebackEnabled(input.writebackFlag);
+export function authMirrorAllowed(input: { cloudUrl: string | undefined }): boolean {
+  return isProductionCloudUrl(input.cloudUrl);
+}
+
+/**
+ * Which Auth User ID a pulled contact keeps. Auth ids belong to one deployment.
+ * Where the mirror is allowed, Notion's value wins and the local link fills a
+ * blank, as before. Everywhere else Notion holds another deployment's id, so
+ * only the local link is kept and Notion's value is never taken.
+ */
+export function pulledAuthUserId(input: {
+  notionValue: string | undefined;
+  localValue: string | undefined;
+  mirrorAllowed: boolean;
+}): string | undefined {
+  const local = input.localValue || undefined;
+  if (!input.mirrorAllowed) return local;
+  return input.notionValue || local;
 }
