@@ -21,6 +21,7 @@ import {
   tileProgressLabel,
   tileStageMenuBox,
 } from '@/components/projects/ProjectRoadmap';
+import { localMonthDay } from '@/components/projects/milestoneGuards';
 
 Object.assign(globalThis, { React });
 
@@ -191,7 +192,7 @@ describe('roadmap markup', () => {
     assert.deepEqual(milestoneTileStage({ approval: 'unreviewed', workStatus: 'ready' }), {
       status: 'In review',
       label: 'Ready to Ship',
-      glyph: '/icons/task-stage.svg',
+      glyph: '/icons/task-stage-ready.svg',
     });
     assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'ready' }).label, 'Ready to Ship');
     assert.equal(milestoneTileStage({ approval: 'approved', workStatus: 'ready' }).status, 'In review');
@@ -220,13 +221,28 @@ describe('roadmap markup', () => {
     );
     assert.equal(tileProgressLabel(1, 3, 0, false), '1 / 3 complete');
     assert.equal(tileProgressLabel(1, 3, 0, true), '1 / 3 tasks complete');
-    assert.equal(tileProgressLabel(1, 3, 1, false), '1 / 3 complete · includes 1 subtask');
-    assert.equal(tileProgressLabel(1, 3, 1, true), '1 / 3 tasks complete · includes 1 subtask');
-    assert.equal(tileProgressLabel(12, 148, 9, true), '12 / 148 tasks complete · includes 9 subtasks');
+    assert.equal(tileProgressLabel(1, 3, 1, false), '1 / 3 complete');
+    assert.equal(tileProgressLabel(1, 3, 1, true), '1 / 3 tasks complete');
+    assert.equal(tileProgressLabel(12, 148, 9, true), '12 / 148 tasks complete');
+    const today = Date.parse('2026-11-20T15:00:00Z');
     assert.equal(tileMetaLine({ resources: 0 }), '0 resources');
     assert.equal(tileMetaLine({ resources: 1 }), '1 resource');
     assert.equal(tileMetaLine({ resources: 2 }), '2 resources');
-    assert.equal(tileMetaLine({ resources: 2 }).includes('Updated'), false);
+    assert.equal(tileMetaLine({ resources: 2, updatedAt: null, now: today }).includes('Updated'), false);
+    assert.equal(tileMetaLine({ resources: 2, updatedAt: today, now: today }), '2 resources · Updated today');
+    assert.equal(
+      tileMetaLine({ resources: 2, updatedAt: today - 86_400_000, now: today }),
+      '2 resources · Updated yesterday',
+    );
+    assert.equal(
+      tileMetaLine({ resources: 2, updatedAt: today - 2 * 86_400_000, now: today }),
+      '2 resources · Updated 2d ago',
+    );
+    const older = Date.parse('2026-10-01T15:00:00Z');
+    assert.equal(
+      tileMetaLine({ resources: 1, updatedAt: older, now: today }),
+      `1 resource · Updated ${localMonthDay(older).label}`,
+    );
   });
 
   it('renders the chip, date, and meta copy for staff and client tiles', () => {
@@ -249,8 +265,9 @@ describe('roadmap markup', () => {
     });
     assert.equal(withSubtask.includes('milestone-due'), false);
     assert.equal(withSubtask.includes('Due '), false);
-    assert.match(withSubtask, /1 \/ 3 tasks complete · <span style="white-space:nowrap">includes 1 subtask<\/span>/);
-    assert.match(withSubtask, /1 \/ 3 complete · <span style="white-space:nowrap">includes 1 subtask<\/span>/);
+    assert.match(withSubtask, />1 \/ 3 tasks complete</);
+    assert.match(withSubtask, />1 \/ 3 complete</);
+    assert.equal(withSubtask.includes('includes'), false);
     assert.match(withSubtask, /data-testid="milestone-meta"[^>]*>1 resource</);
     assert.equal(withSubtask.includes('Not published'), false);
     assert.equal(withSubtask.includes('Ready for review'), false);
@@ -329,7 +346,7 @@ describe('roadmap markup', () => {
     });
     assert.match(approved, /data-testid="milestone-awaiting"[^>]*>Approved · awaiting merge and deploy</);
     assert.equal(approved.includes('data-testid="milestone-due"'), false);
-    assert.match(approved, />Open milestone</);
+    assert.match(approved, />Milestone Details</);
     assert.match(approved, />6 \/ 6 tasks complete</);
     assert.match(approved, />6 \/ 6 complete</);
     assert.equal(approved.includes('includes'), false);
@@ -361,7 +378,7 @@ describe('roadmap markup', () => {
     assert.match(approvedReady, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
     assert.match(approvedReady, /data-testid="milestone-awaiting"[^>]*>Approved · awaiting merge and deploy</);
     assert.equal(approvedReady.includes('data-testid="milestone-due"'), false);
-    assert.match(approvedReady, />Open milestone</);
+    assert.match(approvedReady, />Milestone Details</);
     assert.match(approvedReady, /data-testid="milestone-meta"[^>]*>2 resources</);
     assert.equal(approvedReady.includes('Ready for review'), false);
     assert.equal(approvedReady.includes('Approve &amp; deploy'), false);
@@ -377,7 +394,7 @@ describe('roadmap markup', () => {
     assert.match(clientAwaiting, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
     assert.equal(clientAwaiting.includes('Approved · awaiting merge and deploy'), false);
     assert.equal(clientAwaiting.includes('milestone-due'), false);
-    assert.match(clientAwaiting, />Open milestone</);
+    assert.match(clientAwaiting, />Milestone Details</);
 
     const clientShipped = renderTile({
       staff: false,
@@ -405,9 +422,10 @@ describe('roadmap markup', () => {
     assert.match(linked, /data-testid="milestone-due"[^>]*>Due Nov 20</);
     assert.match(linked, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
     assert.match(linked, /Milestone Details/);
-    assert.match(linked, /lg:order-1/);
-    assert.match(linked, /lg:order-2/);
-    assert.match(linked, /lg:order-3/);
+    const figmaAt = linked.indexOf('data-testid="milestone-figma"');
+    const previewAt = linked.indexOf('data-testid="milestone-local-preview"');
+    const hintAt = linked.indexOf('data-testid="milestone-preview-hint"');
+    assert.ok(figmaAt > 0 && previewAt > figmaAt && hintAt > previewAt);
     const readyApprove = renderTile({
       staff: true,
       isPeter: true,
@@ -454,7 +472,7 @@ describe('roadmap markup', () => {
     assert.equal(clientLinked.includes('preview not running'), false);
 
     assert.match(clientShipped, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Shipped</);
-    assert.match(clientShipped, />Open milestone</);
+    assert.match(clientShipped, />Milestone Details</);
     assert.match(clientShipped, new RegExp(`data-testid="milestone-due"[^>]*>Shipped ${day}<`));
     assert.equal(clientShipped.includes('Approved'), false);
 
@@ -480,15 +498,16 @@ describe('roadmap markup', () => {
         rows: [rowWithSubtasks(9)],
       }),
     });
-    assert.match(longChip, /12 \/ 148 tasks complete · <span style="white-space:nowrap">includes 9 subtasks<\/span>/);
-    assert.match(longChip, /12 \/ 148 complete · <span style="white-space:nowrap">includes 9 subtasks<\/span>/);
-    assert.match(longChip, /whitespace-normal lg:w-max lg:max-w-none lg:whitespace-nowrap"[\s\S]*data-testid="milestone-progress"/);
+    assert.match(longChip, />12 \/ 148 tasks complete</);
+    assert.match(longChip, />12 \/ 148 complete</);
+    assert.equal(longChip.includes('includes'), false);
+    assert.match(longChip, /whitespace-nowrap"[\s\S]*data-testid="milestone-progress"/);
     assert.match(longChip, /overflow-wrap:anywhere/);
     assert.match(longChip, /flex-nowrap items-center/);
     assert.match(longChip, /whitespace-nowrap" data-testid="milestone-status-chip"/);
     assert.match(longChip, /data-testid="milestone-meta"[^>]*truncate/);
     assert.doesNotMatch(longChip, /line-clamp/);
-    assert.match(longChip, /flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center/);
+    assert.match(longChip, /flex w-full min-w-0 flex-col items-start gap-3 md:flex-row md:flex-wrap md:items-center/);
   });
 
   it('opens the tile stage menu for staff and saves on pick', () => {

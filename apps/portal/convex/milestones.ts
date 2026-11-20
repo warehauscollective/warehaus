@@ -57,6 +57,7 @@ import {
   taskIdsToMove,
   workStatusWrite,
 } from './_lib/milestoneDetails';
+import { displayUpdatedAt, touched } from './_lib/milestoneUpdatedAt';
 import { tileLinkChangeDecision, type TileLinkField } from './_lib/tileLinks';
 import {
   MILESTONE_ONE_NAME,
@@ -253,7 +254,7 @@ async function milestoneResources(
   milestone: Doc<'milestones'>,
   audience: 'staff' | 'client',
   orgVisible: boolean,
-) {
+): Promise<MilestoneRoadmapView['resources']> {
   const links = await ctx.db
     .query('milestoneResources')
     .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
@@ -301,6 +302,7 @@ async function toRoadmap(
   });
   const approver =
     audience === 'staff' && milestone.approverContactId ? await ctx.db.get(milestone.approverContactId) : null;
+  const resources = await milestoneResources(ctx, milestone, audience, orgVisible);
   const view: MilestoneRoadmapView = {
     id: milestone._id,
     name: milestone.name,
@@ -319,7 +321,7 @@ async function toRoadmap(
     ...(audience === 'staff' && milestone.localPreviewUrl ? { localPreviewUrl: milestone.localPreviewUrl } : {}),
     ...(audience === 'staff' && milestone.figmaUrl ? { figmaUrl: milestone.figmaUrl } : {}),
     creatorName: await creatorNameFor(ctx, milestone),
-    resources: await milestoneResources(ctx, milestone, audience, orgVisible),
+    resources,
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,
     countIsDecision: false,
@@ -327,6 +329,36 @@ async function toRoadmap(
   };
   const review = reviewForAudience(audience, await staffReview(ctx, milestone, audience));
   if (review) view.review = review;
+  const shownIds = new Set<string>();
+  for (const row of roadmap.rows) {
+    shownIds.add(row.id);
+    for (const child of row.children) shownIds.add(child.id);
+  }
+  const loadedTimes: Array<number | null | undefined> = [];
+  if (audience === 'staff') {
+    loadedTimes.push(
+      milestone.decidedAt,
+      milestone.previewAttachedAt,
+      milestone.previewBuiltAt,
+      milestone.previewBuildAt,
+      milestone.previewDeleteAt,
+      milestone.deployFinishedAt,
+    );
+  }
+  for (const task of tasks) {
+    if (shownIds.has(String(task._id))) loadedTimes.push(task.updatedAt);
+  }
+  if (audience === 'staff' && review) {
+    loadedTimes.push(
+      review.builtAt,
+      review.previewAttachedAt,
+      review.previewBuildAt,
+      review.previewDeleteAt,
+      review.deployFinishedAt,
+    );
+    for (const item of review.history) loadedTimes.push(item.decidedAt);
+  }
+  view.updatedAt = displayUpdatedAt(milestone.updatedAt, loadedTimes);
   if (audience === 'staff') {
     view.attachableTasks = tasks
       .filter((task) => !task.milestoneId)
@@ -489,6 +521,7 @@ async function insertMilestone(
     ...(args.ownerContactId ? { ownerContactId: args.ownerContactId } : {}),
     ...(args.dueDate ? { dueDate: args.dueDate } : {}),
     ...(args.createdByContactId ? { createdByContactId: args.createdByContactId } : {}),
+    updatedAt: Date.now(),
   });
   const milestone = await ctx.db.get(milestoneId);
   if (!milestone) fail('Milestone not found');
@@ -568,7 +601,7 @@ export const save = adminMutation({
     });
     if (!edited.ok) fail(edited.reason);
     if (args.resourceIds) await replaceResources(ctx, milestone, args.resourceIds);
-    if (Object.keys(edited.patch).length > 0) await ctx.db.patch(milestone._id, edited.patch);
+    if (Object.keys(edited.patch).length > 0) await ctx.db.patch(milestone._id, touched(edited.patch));
     return { ok: true as const };
   },
 });
@@ -598,7 +631,7 @@ export const saveFromAi = internalMutation({
         to: args.workStatus,
       });
       if (!status.ok) fail(status.reason);
-      await ctx.db.patch(milestone._id, { workStatus: status.workStatus });
+      await ctx.db.patch(milestone._id, touched({ workStatus: status.workStatus }));
       if (status.activityType) await logMilestone(ctx, milestone, status.activityType, Date.now());
     }
     if (args.resourceIds) {
@@ -607,7 +640,7 @@ export const saveFromAi = internalMutation({
       await writeResourceLinks(ctx, milestone, args.resourceIds);
     }
     if (Object.keys(edited.patch).length > 0) {
-      await ctx.db.patch(milestone._id, edited.patch);
+      await ctx.db.patch(milestone._id, touched(edited.patch));
     }
     return { ok: true as const };
   },
@@ -625,7 +658,7 @@ export const setWorkStatus = adminMutation({
     });
     if (!status.ok) fail(status.reason);
     if (milestone.workStatus === status.workStatus) return { ok: true as const, wrote: false as const };
-    await ctx.db.patch(milestone._id, workStatusWrite(status.workStatus));
+    await ctx.db.patch(milestone._id, touched(workStatusWrite(status.workStatus)));
     if (status.activityType) await logMilestone(ctx, milestone, status.activityType, Date.now());
     return { ok: true as const, wrote: true as const };
   },
@@ -639,7 +672,7 @@ export const setPublish = adminMutation({
     if (!published.ok) fail(published.reason);
     const change = publishChangeDecision(milestone.publishToWarehaus, published.publishToWarehaus);
     if (!change.wrote) return { ok: true as const, wrote: false as const };
-    await ctx.db.patch(milestone._id, { publishToWarehaus: published.publishToWarehaus });
+    await ctx.db.patch(milestone._id, touched({ publishToWarehaus: published.publishToWarehaus }));
     const at = Date.now();
     await logMilestone(
       ctx,
@@ -684,10 +717,10 @@ export const setDetailStatus = adminMutation({
     if (!decision.ok) fail(decision.reason);
     if (!decision.wrote) return { ok: true as const, wrote: false as const };
     const fromLabel = detailStatusLabel(effectiveDetailStatus(milestone));
-    await ctx.db.patch(milestone._id, {
+    await ctx.db.patch(milestone._id, touched({
       detailStatus: decision.status,
       ...(decision.workStatus ? { workStatus: decision.workStatus } : {}),
-    });
+    }));
     const at = Date.now();
     await logMilestone(
       ctx,
@@ -716,7 +749,7 @@ export const setStage = adminMutation({
     if (!decision.ok) fail(decision.reason);
     if (!decision.wrote) return { ok: true as const, wrote: false as const };
     const fromLabel = effectiveStage(milestone);
-    await ctx.db.patch(milestone._id, { stage: decision.stage });
+    await ctx.db.patch(milestone._id, touched({ stage: decision.stage }));
     const at = Date.now();
     await logMilestone(
       ctx,
@@ -758,9 +791,9 @@ export const setOwner = adminMutation({
     });
     if (!decision.ok) fail(decision.reason);
     if (!decision.wrote) return { ok: true as const, wrote: false as const };
-    await ctx.db.patch(milestone._id, {
+    await ctx.db.patch(milestone._id, touched({
       ownerContactId: decision.ownerContactId ? (decision.ownerContactId as Id<'contacts'>) : undefined,
-    });
+    }));
     return { ok: true as const, wrote: true as const };
   },
 });
@@ -779,9 +812,9 @@ export const setTileLink = adminMutation({
     if (!decision.ok) fail(decision.reason);
     if (!decision.wrote) return { ok: true as const, wrote: false as const };
     if (field === 'localPreview') {
-      await ctx.db.patch(milestone._id, { localPreviewUrl: decision.url ?? undefined });
+      await ctx.db.patch(milestone._id, touched({ localPreviewUrl: decision.url ?? undefined }));
     } else {
-      await ctx.db.patch(milestone._id, { figmaUrl: decision.url ?? undefined });
+      await ctx.db.patch(milestone._id, touched({ figmaUrl: decision.url ?? undefined }));
     }
     return { ok: true as const, wrote: true as const };
   },
@@ -800,7 +833,7 @@ export const setDueDate = adminMutation({
     });
     if (!decision.ok) fail(decision.reason);
     if (!decision.wrote) return { ok: true as const, wrote: false as const };
-    await ctx.db.patch(milestone._id, { dueDate: decision.dueDate ?? undefined });
+    await ctx.db.patch(milestone._id, touched({ dueDate: decision.dueDate ?? undefined }));
     return { ok: true as const, wrote: true as const };
   },
 });
@@ -861,7 +894,7 @@ export const moveProject = adminMutation({
       })),
       moving,
     );
-    await ctx.db.patch(milestone._id, { projectId: target._id });
+    await ctx.db.patch(milestone._id, touched({ projectId: target._id }));
     for (const taskId of moving) {
       const task = tasks.find((item) => item._id === taskId);
       if (task && task.projectId === target._id) continue;
@@ -939,6 +972,7 @@ async function linkTask(
     .collect();
   const link = taskLinkPatch(milestone._id, nextMilestoneOrder(siblings.map((row) => row.milestoneOrder)));
   await ctx.db.patch(task._id, { milestoneId: milestone._id, milestoneOrder: link.milestoneOrder });
+  await ctx.db.patch(milestone._id, touched({}));
   return { ok: true };
 }
 
@@ -974,6 +1008,7 @@ async function unlinkTask(ctx: MutationCtx, actor: 'human' | 'ai', milestoneId: 
   });
   if (!decision.ok) fail(decision.reason);
   await ctx.db.patch(task._id, { milestoneId: undefined, milestoneOrder: undefined });
+  await ctx.db.patch(milestone._id, touched({}));
   return { ok: true as const };
 }
 
@@ -1130,14 +1165,14 @@ async function applyMilestoneReview(
   const decidedAt = Date.now();
   if (planned.decision === 'approve') {
     const deploymentId = milestone.previewDeploymentId?.trim() || '';
-    await ctx.db.patch(milestone._id, {
+    await ctx.db.patch(milestone._id, touched({
       approval: 'approved',
       approverContactId: contactId,
       decidedAt,
       workStatus: 'ready',
       ...(milestone.previewUrl ? { previewUrl: '' } : {}),
       ...(deploymentId ? { previewDelete: 'removing' as const } : {}),
-    });
+    }));
     await ctx.db.insert('milestoneReviews', {
       orgId: milestone.orgId,
       milestoneId: milestone._id,
@@ -1203,7 +1238,7 @@ async function applyMilestoneReview(
     createdTaskIds.push(taskId);
     order += 1;
   }
-  await ctx.db.patch(milestone._id, {
+  await ctx.db.patch(milestone._id, touched({
     approval: 'changes_requested',
     approverContactId: contactId,
     decidedAt,
@@ -1219,7 +1254,7 @@ async function applyMilestoneReview(
     ...(milestone.previewDelete ? { previewDelete: undefined } : {}),
     ...(milestone.previewDeleteAttempt != null ? { previewDeleteAttempt: undefined } : {}),
     ...(milestone.previewDeleteAt != null ? { previewDeleteAt: undefined } : {}),
-  });
+  }));
   await ctx.db.insert('milestoneReviews', {
     orgId: milestone.orgId,
     milestoneId: milestone._id,
@@ -1337,7 +1372,7 @@ export const setReviewBuild = adminMutation({
       milestone.designCheck === next.designCheck &&
       (milestone.designCheckNote ?? undefined) === next.designCheckNote &&
       clearBuild == null;
-    if (!unchanged) await ctx.db.patch(milestone._id, { ...next, ...clearBuild });
+    if (!unchanged) await ctx.db.patch(milestone._id, touched({ ...next, ...clearBuild }));
     const iteration = currentIteration(milestone.iteration);
     return {
       ok: true as const,
@@ -1369,7 +1404,7 @@ export const recordPreviewStatus = adminMutation({
       deleteAt: args.deleteAt,
     });
     if (!patch) return { ok: true as const, wrote: false };
-    await ctx.db.patch(milestone._id, patch);
+    await ctx.db.patch(milestone._id, touched(patch));
     return { ok: true as const, wrote: true };
   },
 });
@@ -1434,12 +1469,12 @@ export const setReviewPreview = internalMutation({
     if (!result.ok) return result;
     if (!result.patch) return { ok: true as const, changed: false, previousDeploymentId: null };
     const ready = args.state === 'ready' ? previewStatusPatch(milestone, { build: 'ready' }) : null;
-    await ctx.db.patch(args.milestoneId, {
+    await ctx.db.patch(args.milestoneId, touched({
       ...result.patch,
       ...(result.clearUrl ? { previewUrl: '' } : {}),
       ...(result.clearDeploymentId ? { previewDeploymentId: undefined } : {}),
       ...(ready ?? {}),
-    });
+    }));
     if (result.chat) {
       await ctx.db.insert('activity', {
         orgId: milestone.orgId,
@@ -1505,11 +1540,11 @@ async function applyPreviewOutcome(
     if (record.deleteState === plan.state && record.deleteAttempts === plan.attempts && record.deleteFailedAt === plan.failedAt) {
       return false;
     }
-    await ctx.db.patch(milestone._id, {
+    await ctx.db.patch(milestone._id, touched({
       previewDelete: plan.state,
       previewDeleteAttempt: plan.attempts,
       previewDeleteAt: plan.failedAt,
-    });
+    }));
     if (plan.delayMs != null && record.deploymentId) {
       await ctx.scheduler.runAfter(plan.delayMs, internal.milestones.deleteReviewPreview, {
         milestoneId: milestone._id,
@@ -1524,12 +1559,12 @@ async function applyPreviewOutcome(
   if (milestone.approval === 'approved') {
     const removal = removalAfterDelete({ outcome, record, removedAt: Date.now() });
     if (!removal.patch) return false;
-    await ctx.db.patch(milestone._id, removal.patch);
+    await ctx.db.patch(milestone._id, touched(removal.patch));
     await writeActivity();
     return true;
   }
   if (!record.state && !record.url && !record.deploymentId && record.prNumber == null && !record.deleteState) return false;
-  await ctx.db.patch(milestone._id, {
+  await ctx.db.patch(milestone._id, touched({
     previewUrl: '',
     previewCommit: undefined,
     previewDeploymentId: undefined,
@@ -1542,7 +1577,7 @@ async function applyPreviewOutcome(
     previewDelete: undefined,
     previewDeleteAttempt: undefined,
     previewDeleteAt: undefined,
-  });
+  }));
   await writeActivity();
   return true;
 }
@@ -1601,10 +1636,10 @@ export const attachPreviewLink = adminMutation({
     });
     if (!planned.ok) return planned;
     if (!planned.wrote) return { ok: true as const, wrote: false as const };
-    await ctx.db.patch(milestone._id, {
+    await ctx.db.patch(milestone._id, touched({
       ...planned.patch,
       previewAttachedBy: ctx.identity.contactId as Id<'contacts'>,
-    });
+    }));
     return { ok: true as const, wrote: true as const, previewUrl: planned.patch.previewUrl };
   },
 });
@@ -1623,7 +1658,7 @@ export const clearPreviewLink = adminMutation({
       previewBuildAt: milestone.previewBuildAt,
     });
     if (!planned.wrote) return { ok: true as const, wrote: false as const };
-    await ctx.db.patch(milestone._id, planned.patch);
+    await ctx.db.patch(milestone._id, touched(planned.patch));
     return { ok: true as const, wrote: true as const };
   },
 });
@@ -1703,7 +1738,7 @@ export const retryReviewPreview = adminMutation({
     const record = previewRecord(milestone);
     if (!process.env.VERCEL_TOKEN?.trim()) return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
     if (record.deleteState === 'failed' && record.deploymentId) {
-      await ctx.db.patch(milestone._id, { previewDelete: 'removing' });
+      await ctx.db.patch(milestone._id, touched({ previewDelete: 'removing' }));
       await ctx.scheduler.runAfter(0, internal.milestones.deleteReviewPreview, {
         milestoneId: milestone._id,
         deploymentId: record.deploymentId,
@@ -1716,7 +1751,7 @@ export const retryReviewPreview = adminMutation({
     if (!next.patch) return { ok: true as const, changed: false };
     if (!milestone.previewPrNumber) return { ok: false as const, reason: 'Pull request number is missing' };
     if (!process.env.REVIEW_PREVIEW_GITHUB_TOKEN?.trim()) return { ok: false as const, reason: RETRY_WAITS_ON_TOKENS };
-    await ctx.db.patch(milestone._id, next.patch);
+    await ctx.db.patch(milestone._id, touched(next.patch));
     await ctx.scheduler.runAfter(0, internal.milestones.dispatchReviewPreview, {
       milestoneId: milestone._id,
       prNumber: milestone.previewPrNumber,

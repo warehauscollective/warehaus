@@ -17,6 +17,7 @@ import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { buildTaskTimeline } from './_lib/activityFeed';
+import { stampParentMilestone } from './_lib/milestoneUpdatedAt';
 import { linearEnv, serveTasks, serveTasksByOrg } from './_lib/taskPlatformRead';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 import { isStaff, PortalAuthError } from './_lib/identity';
@@ -476,6 +477,7 @@ export const setAssignee = adminMutation({
         return { ok: true, wrote: false, notion: 'portal', assigneeName: task.assigneeName ?? null };
       }
       await ctx.db.patch(task._id, { assigneeContactId: undefined, assigneeName: undefined });
+      await stampParentMilestone(ctx, task, Date.now());
       return { ok: true, wrote: true, notion: 'portal', assigneeName: null };
     }
     const contact = await ctx.db.get(args.assigneeContactId);
@@ -494,6 +496,7 @@ export const setAssignee = adminMutation({
       return { ok: true, wrote: false, notion: 'portal', assigneeName: name };
     }
     await ctx.db.patch(task._id, { assigneeContactId: contact._id, assigneeName: name });
+    await stampParentMilestone(ctx, task, Date.now());
     return { ok: true, wrote: true, notion: 'portal', assigneeName: name };
   },
 });
@@ -510,6 +513,7 @@ export const setDueDate = adminMutation({
     if (next === 'bad') return { ok: false, error: 'Use a calendar day' };
     if ((task.date ?? null) === next) return { ok: true, wrote: false, notion: 'portal' };
     await ctx.db.patch(task._id, { date: next ?? undefined });
+    await stampParentMilestone(ctx, task, Date.now());
     if (!task.lastEditedTime || task.notionPageId.startsWith('portal:')) {
       return { ok: true, wrote: true, notion: 'portal' };
     }
@@ -543,6 +547,7 @@ export const moveProject = adminMutation({
       milestoneId: undefined,
       milestoneOrder: undefined,
     });
+    await stampParentMilestone(ctx, task, Date.now());
     return { ok: true, wrote: true, notion: 'portal', projectName: project.name };
   },
 });
@@ -613,7 +618,10 @@ export const archiveTask = adminMutation({
     const task = await ctx.db.get(args.taskId);
     if (!task) return { ok: false, error: 'Task not found' };
     const now = Date.now();
-    if (task.archivedAt == null) await ctx.db.patch(task._id, { archivedAt: now });
+    if (task.archivedAt == null) {
+      await ctx.db.patch(task._id, { archivedAt: now });
+      await stampParentMilestone(ctx, task, now);
+    }
     const children = await ctx.db
       .query('tasks')
       .withIndex('by_parentTaskId', (q) => q.eq('parentTaskId', task._id))
@@ -621,6 +629,7 @@ export const archiveTask = adminMutation({
     for (const child of children) {
       if (child.orgId !== task.orgId || child.archivedAt != null) continue;
       await ctx.db.patch(child._id, { archivedAt: now });
+      await stampParentMilestone(ctx, child, now);
     }
     if (task.archivedAt != null) return { ok: true, wrote: false, notion: 'portal' };
     const queued = await ctx.runMutation(internal.sync.taskWrite.enqueueArchive, {

@@ -5,6 +5,7 @@
 
 import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
+import { stampParentMilestone } from './milestoneUpdatedAt';
 import { nextMilestoneOrder, taskLinkPatch } from './milestones';
 
 export function milestoneIdFromPayload(payload: string): string | null {
@@ -63,5 +64,6 @@ export async function linkTaskToCreateMilestone(
   });
   if (!patch) return false;
   await ctx.db.patch(task._id, { milestoneId: milestone._id, milestoneOrder: patch.milestoneOrder });
+  await stampParentMilestone(ctx, { milestoneId: milestone._id }, Date.now());
   return true;
 }

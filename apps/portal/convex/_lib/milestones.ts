@@ -586,6 +586,11 @@ export type MilestoneRoadmapView = {
   /** Set when a person picks a build-protocol stage. */
   stage?: 'Idea' | 'Planning' | 'Awaiting Go' | 'Building' | 'Ready to Ship' | 'Shipped' | 'Parked' | null;
   createdAt?: number | null;
+  /**
+   * Last real write, or the newest time already on this payload when the
+   * field is still absent. Never creation time. Null when nothing was loaded.
+   */
+  updatedAt?: number | null;
   /** Contact id of the owner. Absent when unassigned. */
   ownerContactId?: string | null;
   /** Display name for the owner. Absent when unassigned. */

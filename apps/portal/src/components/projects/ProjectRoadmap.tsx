@@ -266,50 +266,44 @@ export function milestoneTileStage(input: {
   }));
   const glyph = label === 'Shipped'
     ? '/icons/task-stage-shipped.svg'
-    : label === 'Planning' || label === 'Idea'
-      ? '/icons/item-stage.svg'
-      : '/icons/task-stage.svg';
+    : label === 'Ready to Ship'
+      ? '/icons/task-stage-ready.svg'
+      : label === 'Planning' || label === 'Idea'
+        ? '/icons/item-stage.svg'
+        : '/icons/task-stage.svg';
   return { status, label, glyph };
 }
 
-function progressBase(done: number, total: number, phone: boolean): string {
+/** Desktop is `3 / 8 complete`. The 390 frame keeps the word tasks. */
+export function tileProgressLabel(done: number, total: number, _nested: number, phone: boolean): string {
   return phone ? `${done} / ${total} tasks complete` : `${done} / ${total} complete`;
 }
 
-function progressNote(nested: number): string | null {
-  if (nested === 1) return 'includes 1 subtask';
-  if (nested > 1) return `includes ${nested} subtasks`;
-  return null;
-}
-
-/** Desktop is `1 / 3 complete`. The phone chip adds the word tasks. Subtasks are named only when there is one. */
-export function tileProgressLabel(done: number, total: number, nested: number, phone: boolean): string {
-  const base = progressBase(done, total, phone);
-  const note = progressNote(nested);
-  return note ? `${base} · ${note}` : base;
-}
-
-/** The subtask phrase stays on one line. The chip may break after the dot. */
-function ProgressCopy({ done, total, nested, phone }: { done: number; total: number; nested: number; phone: boolean }) {
-  const note = progressNote(nested);
-  const base = progressBase(done, total, phone);
-  if (!note) return base;
-  return (
-    <>
-      {base}
-      {' · '}
-      <span style={{ whiteSpace: 'nowrap' }}>{note}</span>
-    </>
-  );
+function ProgressCopy({ done, total, phone }: { done: number; total: number; nested: number; phone: boolean }) {
+  return tileProgressLabel(done, total, 0, phone);
 }
 
 /**
- * Tile meta is the resource count. The milestone has no last-updated
- * timestamp, so the date line stays Due or Approved and this line does not
- * invent one. Review phrases stay off the tile.
+ * Tile meta is the resource count, plus a relative update when a real time
+ * is already on the milestone. Creation time is not an update.
  */
-export function tileMetaLine(input: { resources: number }): string {
-  return resourceLabel(input.resources);
+export function updatedRelativeLabel(at: number | null | undefined, now = Date.now()): string | null {
+  if (typeof at !== 'number' || !Number.isFinite(at)) return null;
+  const start = (value: number) => {
+    const date = new Date(value);
+    return new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  };
+  const days = Math.round((start(now) - start(at)) / 86_400_000);
+  if (days === 0) return 'Updated today';
+  if (days === 1) return 'Updated yesterday';
+  if (days >= 2 && days < 7) return `Updated ${days}d ago`;
+  return `Updated ${localMonthDay(at).label}`;
+}
+
+export function tileMetaLine(input: { resources: number; updatedAt?: number | null; now?: number }): string {
+  const resources = resourceLabel(input.resources);
+  const updated = updatedRelativeLabel(input.updatedAt, input.now);
+  return updated ? `${resources} · ${updated}` : resources;
 }
 
 function resourceLabel(count: number): string {
@@ -910,14 +904,13 @@ function TileStagePopover({
 }
 
 function TileLinkIcon({ kind }: { kind: 'preview' | 'figma' }) {
-  const preview = kind === 'preview';
   return (
-    <svg width={preview ? 12 : 16} height={preview ? 12 : 16} viewBox={preview ? '0 0 12 12' : '0 0 16 16'} fill="none" aria-hidden="true" style={preview ? undefined : { color: 'var(--muted)' }}>
-      {preview ? (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden="true" style={{ color: 'var(--muted)' }}>
+      {kind === 'preview' ? (
         <>
-          <rect x="1" y="2" width="10" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" />
-          <path d="M5 4.5L7.2 5.5L5 6.5V4.5Z" fill="currentColor" />
-          <path d="M4 10.5H8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
+          <rect x="2" y="3" width="12" height="8" rx="1" stroke="currentColor" strokeWidth="1.2" />
+          <path d="M6.5 5.8L9.2 7L6.5 8.2V5.8Z" fill="currentColor" />
+          <path d="M5.5 12.2H10.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
         </>
       ) : (
         <path d="M2 5.5V3H6M10 3H14V5.5M14 9.5V12H10M6 12H2V9.5" stroke="currentColor" strokeWidth="1.33" />
@@ -1059,7 +1052,7 @@ export function MilestoneListCard({
     decidedAt: milestone.decidedAt,
     dueDate: milestone.dueDate,
   });
-  const meta = tileMetaLine({ resources: milestone.resources.length });
+  const meta = tileMetaLine({ resources: milestone.resources.length, updatedAt: milestone.updatedAt });
   const showStaffOnly = staff && milestone.publishToWarehaus === false;
   const localUrl = staff ? milestone.localPreviewUrl ?? null : null;
   const figmaUrl = staff ? milestone.figmaUrl ?? null : null;
@@ -1141,7 +1134,7 @@ export function MilestoneListCard({
       type="button"
       data-testid="tile-approve-deploy"
       onClick={() => { setStageMenuOpen(false); setConfirm(true); }}
-      style={{ width: '100%', height: 42, border: 0, borderRadius: 0, background: '#f59e0b', color: '#0a0a0b', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}
+      style={{ width: '100%', height: 42, border: 0, borderRadius: 6, background: '#f59e0b', color: '#0a0a0b', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}
     >
       Approve & deploy
     </button>
@@ -1150,17 +1143,17 @@ export function MilestoneListCard({
     boxSizing: 'border-box',
     display: 'inline-flex',
     alignItems: 'center',
-    gap: 6,
-    height: 32,
-    border: '1px solid var(--border-2)',
+    gap: 8,
+    height: 31,
+    border: '1px solid var(--border)',
     borderRadius: 9,
     padding: '0 10px',
     background: 'transparent',
-    color: 'var(--fg)',
+    color: 'var(--muted)',
     fontFamily: 'var(--font-mono), ui-monospace, monospace',
     fontSize: 11,
-    lineHeight: '16px',
-    letterSpacing: '0.04em',
+    lineHeight: '17px',
+    letterSpacing: 'normal',
     textDecoration: 'none',
     cursor: 'pointer',
     opacity: dimmed ? 0.4 : 1,
@@ -1178,7 +1171,7 @@ export function MilestoneListCard({
     >
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex min-w-0 flex-nowrap items-center justify-between gap-3">
-          <h2 data-testid="milestone-name" className="text-[21px] leading-[32px] lg:text-[20px] lg:leading-[30px]" style={{ fontFamily: 'var(--font-geist), var(--font-body)', fontWeight: 500 }}>
+          <h2 data-testid="milestone-name" className="text-[20px] leading-[30px]" style={{ fontFamily: 'var(--font-display), Eurostile, sans-serif', fontWeight: 500 }}>
             {milestone.name}
           </h2>
           {dateLine ? (
@@ -1202,52 +1195,43 @@ export function MilestoneListCard({
             {showStaffOnly ? <StaffOnlyChip /> : null}
           </div>
         ) : null}
-        <div className="flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center">
-          <MilestoneListButton tone="outline" onClick={onOpen}>
-            {stage.label === 'Ready to Ship' ? (
-              <>
-                <span className="lg:hidden">Open milestone</span>
-                <span className="hidden lg:inline">Milestone Details</span>
-              </>
-            ) : (
-              'Open milestone'
-            )}
+        <div className="flex w-full min-w-0 flex-col items-start gap-3 md:flex-row md:flex-wrap md:items-center">
+          <MilestoneListButton tone="outline" height={36} onClick={onOpen}>
+            Milestone Details
           </MilestoneListButton>
-          {staff ? (
-            localUrl ? (
-              <a data-testid="milestone-local-preview" className="lg:order-1" href={localUrl} style={linkButtonStyle(false)}>
-                <TileLinkIcon kind="preview" />
-                <span className="lg:hidden">Preview</span>
-                <span className="hidden lg:inline">Local preview</span>
-              </a>
-            ) : (
-              <button type="button" data-testid="milestone-local-preview" className="lg:order-1" onClick={() => openLinkEditor('localPreview')} style={linkButtonStyle(true)}>
-                <TileLinkIcon kind="preview" />
-                <span className="lg:hidden">Preview</span>
-                <span className="hidden lg:inline">Local preview</span>
-              </button>
-            )
-          ) : null}
           {staff && figmaUrl ? (
-            <a data-testid="milestone-figma" className="lg:order-3" href={figmaUrl} target="_blank" rel="noreferrer" style={linkButtonStyle(false)}>
+            <a data-testid="milestone-figma" href={figmaUrl} target="_blank" rel="noreferrer" style={linkButtonStyle(false)}>
               <TileLinkIcon kind="figma" />
               Figma
             </a>
           ) : null}
+          {staff ? (
+            localUrl ? (
+              <a data-testid="milestone-local-preview" href={localUrl} style={linkButtonStyle(false)}>
+                <TileLinkIcon kind="preview" />
+                Local preview
+              </a>
+            ) : (
+              <button type="button" data-testid="milestone-local-preview" onClick={() => openLinkEditor('localPreview')} style={linkButtonStyle(true)}>
+                <TileLinkIcon kind="preview" />
+                Local preview
+              </button>
+            )
+          ) : null}
           {previewHint ? (
-            <span data-testid="milestone-preview-hint" className="lg:order-2" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+            <span data-testid="milestone-preview-hint" style={{ fontFamily: 'var(--font-mono), ui-monospace, monospace', fontSize: 11, lineHeight: '17px', color: 'var(--faint)', letterSpacing: 'normal' }}>
               {previewHint}
             </span>
           ) : null}
         </div>
       </div>
-      <div className="flex w-full flex-col items-start gap-3 lg:ml-auto lg:w-max lg:min-w-[174px] lg:items-end">
+      <div className="flex w-full flex-col items-start gap-3 lg:w-[174px] lg:shrink-0">
         <div className="relative w-full" ref={menuAnchorRef}>
           {canDeploy ? (
             <div
               data-testid="milestone-stage-action"
               className="w-full lg:w-[174px]"
-              style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border-2)', borderRadius: 9, background: 'var(--surface)' }}
+              style={{ display: 'flex', flexDirection: 'column', boxSizing: 'border-box', padding: 2, overflow: 'hidden', border: '1px solid var(--border-2)', borderRadius: 9, background: 'var(--surface)' }}
             >
               {stageTrigger}
               {approveButton}
@@ -1278,7 +1262,7 @@ export function MilestoneListCard({
           </p>
         ) : null}
         <span
-          className="ds-mono max-w-full whitespace-normal lg:w-max lg:max-w-none lg:whitespace-nowrap"
+          className="ds-mono max-w-full whitespace-nowrap"
           data-testid="milestone-progress"
           style={{
             background: 'var(--surface-2)',

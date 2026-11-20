@@ -295,10 +295,12 @@ export function MilestoneListButton({
   children,
   onClick,
   tone = 'fill',
+  height,
 }: {
   children: ReactNode;
   onClick?: () => void;
   tone?: 'fill' | 'outline';
+  height?: number;
 }) {
   const fill = tone === 'fill';
   return (
@@ -310,10 +312,10 @@ export function MilestoneListButton({
         background: fill ? 'var(--accent)' : 'transparent',
         color: fill ? 'var(--accent-fg)' : 'var(--fg)',
         boxSizing: 'border-box',
-        height: fill ? 42 : 44,
+        height: height ?? (fill ? 42 : 44),
         border: fill ? 0 : '1px solid var(--border-2)',
         borderRadius: 9,
-        padding: '12px 16px',
+        padding: '0 16px',
         fontFamily: 'var(--font-geist), var(--font-body)',
         fontSize: 14,
         fontWeight: 500,
