@@ -22,3 +22,21 @@ Approved by Peter in Grok Bot (Portal room), 2026-11-17, 11:46 AM ET. Canonical 
 - Keep Convex usage low: indexed reads, bounded pagination, no whole-table scans, skip no-op writes, no lingering `convex dev`.
 
 Open item: shared dev still uses the production Notion token, so a local preview that writes can touch the real Warehaus Notion. The test Notion spec is coming.
+
+## Code graph (graphify)
+
+Local only. Never Graphify Cloud, and no semantic pass over docs or images.
+
+- To find where a symbol is defined or what calls it, run `graphify explain "<symbol>"` from `apps/portal` before grepping. Then read the file it points to before editing.
+- Do not use `graphify path` or `graphify query` to trace Convex flows. The graph does not follow `ctx.scheduler.runAfter`, `ctx.runMutation`, `ctx.runQuery` or `ctx.runAction` through `internal.*`, so "no path" proves nothing. Grep for those.
+- The graph is not committed. If `apps/portal/graphify-out/` is missing or stale, run `graphify update .` in `apps/portal` (about 6 seconds, no LLM).
+
+## Agent skills
+
+### Issue tracker
+
+Work is tracked as Portal milestones and their tasks, not GitHub Issues. See `docs/agents/issue-tracker.md`.
+
+### Domain docs
+
+Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root, created when the first term or decision is settled. See `docs/agents/domain.md`.

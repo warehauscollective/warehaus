@@ -43,3 +43,6 @@ storybook-static
 build-storybook.log
 chromatic-diagnostics.json
 *.tsbuildinfo
+
+# Graphify code graph (local, rebuilt with `graphify update apps/portal`)
+graphify-out/
