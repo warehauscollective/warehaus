@@ -26,6 +26,7 @@ import {
   type TaskWriteProperties,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
+import { stampParentMilestone } from '../_lib/milestoneUpdatedAt';
 import { internal } from '../_generated/api';
 import type { Id } from '../_generated/dataModel';
 import { internalMutation, type MutationCtx } from '../_generated/server';
@@ -177,6 +178,7 @@ export const enqueueStage = internalMutation({
       ...(alreadyPending ? {} : { stageSynced: synced }),
       stagePendingPullRequest: typeof link === 'string' ? link : undefined,
     });
+    await stampParentMilestone(ctx, task, Date.now());
 
     if (args.stage === synced) {
       const rows = await listTaskStageRows(ctx, task.notionPageId);

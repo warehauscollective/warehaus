@@ -39,6 +39,7 @@ import {
 } from './_generated/server';
 import { sha256Hex } from './_lib/tokenCrypto';
 import { ensureSourceLinks } from './_lib/taskSourceLinks';
+import { stampParentMilestone } from './_lib/milestoneUpdatedAt';
 import {
   attachFailureCode,
   attachFailureStatus,
@@ -622,6 +623,7 @@ export const updateTask = internalMutation({
       fieldStamps: stamps,
       updatedAt: now,
     });
+    await stampParentMilestone(ctx, task, now);
     return finishIdempotency(ctx, opened.id, {
       status: 200,
       body: { id: task._id, updatedAt: now },

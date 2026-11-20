@@ -13,6 +13,7 @@ import { v } from 'convex/values';
 import { internal } from '../_generated/api';
 import type { Doc } from '../_generated/dataModel';
 import { httpAction, internalMutation, type MutationCtx } from '../_generated/server';
+import { stampParentMilestone } from '../_lib/milestoneUpdatedAt';
 import {
   INBOUND_LINK_CAP,
   INBOUND_MAX_TASKS,
@@ -336,6 +337,7 @@ export const applyInbound = internalMutation({
           stage: stage.stamp,
         },
       });
+      await stampParentMilestone(ctx, task, now);
       stageMoves += 1;
     }
 

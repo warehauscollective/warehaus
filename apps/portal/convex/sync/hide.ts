@@ -1,6 +1,7 @@
 import { isGranolaPortalPage } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { notionWriteAllowedForTask } from '../_lib/milestoneReview';
+import { stampParentMilestone } from '../_lib/milestoneUpdatedAt';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 
@@ -89,6 +90,7 @@ export const hideSyncedPage = internalMutation({
         .unique();
       if (!existing) return empty;
       await ctx.db.patch(existing._id, stamp);
+      await stampParentMilestone(ctx, existing, now);
       return { hidden: true, authUserIds: [], orgId: existing.orgId, projectId: existing.projectId };
     }
 
@@ -136,6 +138,7 @@ export const hideClientChildren = internalMutation({
     for (const row of tasks) {
       if (row.syncHiddenReason === 'gate' || row.syncHiddenReason === 'trashed') continue;
       await ctx.db.patch(row._id, stamp);
+      await stampParentMilestone(ctx, row, now);
     }
 
     const resources = await ctx.db
@@ -191,6 +194,7 @@ export const hideProjectTasks = internalMutation({
         syncHiddenReason: 'ancestor' as const,
         lastSyncedAt: now,
       });
+      await stampParentMilestone(ctx, row, now);
     }
   },
 });
@@ -216,6 +220,13 @@ export const clearAncestorHides = internalMutation({
       for (const row of rows) {
         if (row.syncHiddenReason !== 'ancestor') continue;
         await ctx.db.patch(row._id, { syncHiddenAt: undefined, syncHiddenReason: undefined });
+        if (table === 'tasks') {
+          await stampParentMilestone(
+            ctx,
+            row as { milestoneId?: Id<'milestones'> | null; parentTaskId?: Id<'tasks'> | null },
+            Date.now(),
+          );
+        }
       }
     }
   },
@@ -233,6 +244,7 @@ export const clearProjectTaskAncestors = internalMutation({
     for (const row of tasks) {
       if (row.syncHiddenReason !== 'ancestor') continue;
       await ctx.db.patch(row._id, { syncHiddenAt: undefined, syncHiddenReason: undefined });
+      await stampParentMilestone(ctx, row, Date.now());
     }
   },
 });
@@ -299,6 +311,7 @@ export const hideUnseen = internalMutation({
         if (!notionWriteAllowedForTask({ source: row.source, notionPageId: row.notionPageId })) continue;
         if (seen.has(row.notionPageId) || row.syncHiddenReason === 'trashed') continue;
         await ctx.db.patch(row._id, stamp);
+        await stampParentMilestone(ctx, row, Date.now());
         concealed += 1;
       }
       return { concealed, authUserIds, clientIds, projectIds };

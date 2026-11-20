@@ -298,6 +298,12 @@ export default defineSchema({
      * milestone. No index. Clients never receive it.
      */
     figmaUrl: v.optional(v.string()),
+    /**
+     * Last real write to this milestone, or to a task on it.
+     * Absent on rows written before this field. Not backfilled.
+     * Not `_creationTime`. No index: the milestone document already carries it.
+     */
+    updatedAt: v.optional(v.number()),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])

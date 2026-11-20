@@ -23,6 +23,7 @@ import { internal } from '../_generated/api';
 import { internalMutation, internalQuery, type MutationCtx } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import { matchingQuarantineId } from '../_lib/quarantineRow';
+import { stampParentMilestone } from '../_lib/milestoneUpdatedAt';
 import { linkTaskToCreateMilestone, milestoneIdFromPayload } from '../_lib/taskMilestoneLink';
 import { ensureSourceLinks } from '../_lib/taskSourceLinks';
 
@@ -384,6 +385,11 @@ export const upsertTask = internalMutation({
         const milestoneId = payload ? milestoneIdFromPayload(payload) : null;
         if (milestoneId) await linkTaskToCreateMilestone(ctx, created, milestoneId);
       }
+    }
+    const changed = !existing || updatedAt != null || linksChanged;
+    if (changed) {
+      const row = existing ?? (await ctx.db.get(taskId));
+      if (row) await stampParentMilestone(ctx, row, now);
     }
     if (merge.deleteUnsent) await deleteUnsentTaskStageRows(ctx, args.notionPageId);
     if (merge.notice) {
@@ -785,6 +791,7 @@ export const resolveTaskGraph = internalMutation({
       const parentTaskId = decision.link && parent ? parent._id : undefined;
       if ((task.parentTaskId ?? undefined) !== parentTaskId) {
         await ctx.db.patch(task._id, { parentTaskId });
+        await stampParentMilestone(ctx, { ...task, parentTaskId: parentTaskId ?? null }, Date.now());
       }
       if (task.resourceNotionIds == null) continue;
       const existing = await ctx.db

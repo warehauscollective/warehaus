@@ -160,7 +160,8 @@ describe('milestone review fixes', () => {
     assert.equal(roadmap.includes('Nothing is assigned automatically'), false);
     const listCard = roadmap.slice(roadmap.indexOf('function MilestoneListCard'), roadmap.indexOf('function MilestoneDetail'));
     assert.equal(listCard.includes('TaskBoard'), false);
-    assert.match(listCard, /Open milestone/);
+    assert.match(listCard, /Milestone Details/);
+    assert.equal(listCard.includes('Open milestone'), false);
     const opened = roadmap.slice(roadmap.indexOf('function MilestoneDetail'));
     assert.match(opened, /renderTasks\(shownTasks\)/);
     const detailsStart = projects.indexOf('details=');
@@ -241,7 +242,8 @@ describe('milestone review fixes', () => {
     assert.notEqual(goalKey(0, 'Ship'), goalKey(1, 'Ship'));
     assert.match(roadmap, /goalKey\(index, goal\)/);
     assert.match(roadmap, /reviewStamp\(storedReview\.decidedAt\)/);
-    assert.equal(roadmap.includes('Updated today'), false);
+    assert.match(roadmap, /Updated today/);
+    assert.match(roadmap, /updatedRelativeLabel/);
     assert.match(roadmap, /decidedAt: milestone\.decidedAt/);
     const linkModal = roadmap.slice(roadmap.indexOf('testId="milestone-tile-link"'), roadmap.indexOf('milestone-deploy-confirm'));
     assert.match(linkModal, /narrow=\{viewportSheet\}/);
@@ -251,6 +253,7 @@ describe('milestone review fixes', () => {
     assert.match(linkModal, /milestone-tile-link-error/);
     assert.match(roadmap, /Couldn’t save the link\. Nothing changed\./);
     const listCard = roadmap.slice(roadmap.indexOf('function MilestoneListCard'), roadmap.indexOf('type MilestoneMutations'));
-    assert.equal(listCard.includes('Updated'), false);
+    assert.match(listCard, /tileMetaLine\(/);
+    assert.equal(listCard.includes('Updated today'), false);
   });
 });

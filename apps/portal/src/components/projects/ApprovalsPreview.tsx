@@ -405,9 +405,16 @@ const tileMilestone: MilestoneRoadmapView = {
   note: null,
   approverName: null,
   publishToWarehaus: true,
-  resources: [],
-  openCount: 2,
-  doneCount: 1,
+  dueDate: '2026-11-19',
+  updatedAt: Date.UTC(2026, 10, 20, 15, 0, 0),
+  localPreviewUrl: 'http://localhost:3200',
+  figmaUrl: 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=770-13054',
+  resources: [
+    { id: 'r-flow', title: 'Client flow', url: null },
+    { id: 'r-copy', title: 'Launch copy', url: null },
+  ],
+  openCount: 0,
+  doneCount: 8,
   countIsDecision: false,
   rows: [],
   review: {
@@ -509,6 +516,8 @@ const unpublishedTile: MilestoneRoadmapView = {
     { id: 'r-columns', title: 'Invoice columns', url: null },
     { id: 'r-notes', title: 'Export notes', url: null },
   ],
+  figmaUrl: null,
+  updatedAt: null,
   openCount: 4,
   doneCount: 0,
   review: undefined,
@@ -720,8 +729,12 @@ export function ApprovalsPreview({
         ) : null}
         {view === 'tile-peter' || view === 'tile-staff' || view === 'tile-client' ? (
           <>
-            <TileFrame peter={view === 'tile-peter'} staff={view !== 'tile-client'} phone={false} />
-            <TileFrame peter={view === 'tile-peter'} staff={view !== 'tile-client'} phone />
+            {size === '390' ? null : (
+              <TileFrame peter={view === 'tile-peter'} staff={view !== 'tile-client'} phone={false} />
+            )}
+            {size === '1440' ? null : (
+              <TileFrame peter={view === 'tile-peter'} staff={view !== 'tile-client'} phone />
+            )}
           </>
         ) : null}
         {view && isPreviewLinkState(view) ? (

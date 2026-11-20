@@ -257,7 +257,8 @@ describe('tasks on a milestone', () => {
     assert.equal('stage' in patch, false);
     const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
     const link = source.slice(source.indexOf('async function linkTask'), source.indexOf('export const attachTask'));
-    assert.equal(link.split('.patch(').length - 1, 1);
+    assert.equal(link.split('.patch(').length - 1, 2);
+    assert.match(link, /touched\(\{\}\)/);
     assert.match(link, /ctx\.db\.patch\(task\._id/);
     assert.doesNotMatch(link, /parent\._id/);
   });
@@ -551,7 +552,11 @@ describe('schema slice', () => {
     const block = schema.slice(start, end);
     assert.ok(start > 0 && end > start);
     assert.match(block, /publishToWarehaus: v\.boolean\(\)/);
+    assert.match(block, /figmaUrl: v\.optional\(v\.string\(\)\)/);
     assert.match(block, /goals: v\.array\(v\.string\(\)\)/);
+    assert.match(block, /updatedAt: v\.optional\(v\.number\(\)\)/);
+    assert.doesNotMatch(block, /by_updatedAt/);
+    assert.doesNotMatch(block, /\.index\([^)]*updatedAt/);
     assert.doesNotMatch(block, /notionPageId/);
     assert.match(schema, /milestoneId: v\.optional\(v\.id\('milestones'\)\)/);
     assert.match(schema, /\.index\('by_orgId_milestoneId', \['orgId', 'milestoneId'\]\)/);
@@ -562,8 +567,9 @@ describe('schema slice', () => {
   it('patches only the attached task and skips a task that is already linked', () => {
     const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
     const link = source.slice(source.indexOf('async function linkTask'), source.indexOf('function raiseLink'));
-    assert.equal(link.split('.patch(').length - 1, 1);
+    assert.equal(link.split('.patch(').length - 1, 2);
     assert.match(link, /ctx\.db\.patch\(task\._id/);
+    assert.match(link, /touched\(\{\}\)/);
     assert.match(link, /if \(decision\.alreadyAttached\) return \{ ok: true \}/);
     assert.doesNotMatch(link, /parent\._id/);
   });

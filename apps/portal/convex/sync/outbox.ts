@@ -25,6 +25,7 @@ import { internal } from '../_generated/api';
 import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
+import { stampParentMilestone } from '../_lib/milestoneUpdatedAt';
 import { linkTaskToCreateMilestone, milestoneIdFromPayload } from '../_lib/taskMilestoneLink';
 
 const actor = v.union(v.literal('staff'), v.literal('clientAdmin'), v.literal('system'));
@@ -536,10 +537,12 @@ export const applyOutcome = internalMutation({
                 : {}),
               ...(typeof pr === 'string' ? { pullRequestUrl: pr } : {}),
             });
+            await stampParentMilestone(ctx, task, Date.now());
           } else if (args.outcome.lastEditedTime) {
             await ctx.db.patch(task._id, {
               stagePendingBaseEditedTime: args.outcome.lastEditedTime,
             });
+            await stampParentMilestone(ctx, task, Date.now());
           }
         }
       }
