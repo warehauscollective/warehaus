@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import React, { createElement, type ComponentProps, type ReactElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { readRoadmapSource } from '../projects/roadmapSource';
 
 Object.assign(globalThis, { React });
 const { PortalModal } = await import('./PortalModal');
@@ -36,7 +36,7 @@ describe('pinned modal footer', () => {
   });
 
   it('puts New milestone actions in the pinned footer', () => {
-    const roadmap = readFileSync(new URL('../projects/ProjectRoadmap.tsx', import.meta.url), 'utf8');
+    const roadmap = readRoadmapSource();
     const create = roadmap.slice(roadmap.indexOf('function CreateMilestone'), roadmap.indexOf('function milestoneFieldErrors'));
     const form = create.slice(create.indexOf('<form'), create.indexOf('</form>'));
     assert.match(create, /data-testid="portal-modal-footer"|footer=\{/);
