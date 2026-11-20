@@ -52,10 +52,6 @@ import {
 } from './_lib/milestoneDetails';
 import {
   STATUS_ACTIVITY,
-  backfillPageSize,
-  milestoneStatusOf,
-  planRetiredFieldsPage,
-  planStatusBackfillPage,
   transitionMilestone,
   type MilestoneStatus,
   type Transition,
@@ -340,7 +336,7 @@ async function toRoadmap(
     name: milestone.name,
     objective: milestone.objective,
     goals: milestone.goals,
-    status: milestoneStatusOf(milestone),
+    status: milestone.status,
     ...roadmapReviewForAudience(audience, milestone),
     approverName: audience === 'staff' ? (approver?.name ?? null) : null,
     publishToWarehaus: milestone.publishToWarehaus,
@@ -624,7 +620,7 @@ export const saveFromAi = internalMutation({
     if (!edited.ok) fail(edited.reason);
     if (args.status != null) {
       const moved = transitionMilestone({
-        from: milestoneStatusOf(milestone),
+        from: milestone.status,
         cause: 'set',
         to: args.status,
         actor: 'ai',
@@ -685,7 +681,7 @@ export const setStatus = adminMutation({
   handler: async (ctx, args) => {
     const milestone = await loadMilestone(ctx, args.milestoneId);
     const moved = transitionMilestone({
-      from: milestoneStatusOf(milestone),
+      from: milestone.status,
       cause: 'set',
       to: args.status,
       expected: args.expectedStatus,
@@ -706,7 +702,7 @@ export const advance = adminMutation({
   handler: async (ctx, args) => {
     const milestone = await loadMilestone(ctx, args.milestoneId);
     const moved = transitionMilestone({
-      from: milestoneStatusOf(milestone),
+      from: milestone.status,
       cause: 'advance',
       expected: args.expectedStatus,
     });
@@ -1082,7 +1078,7 @@ async function applyMilestoneReview(
       tokenName: args.tokenName,
     },
     currentIteration: currentIteration(milestone.iteration),
-    status: milestoneStatusOf(milestone),
+    status: milestone.status,
     hasPreview: Boolean(milestone.previewUrl),
     iteration: args.iteration,
     decision: args.decision,
@@ -1100,7 +1096,7 @@ async function applyMilestoneReview(
       iteration: existing.iteration,
       decision: existing.decision,
       approval: milestone.approval,
-      milestoneStatus: milestoneStatusOf(milestone),
+      milestoneStatus: milestone.status,
       createdTaskIds: existing.createdTaskIds,
     };
   }
@@ -1116,8 +1112,6 @@ async function applyMilestoneReview(
       approval: 'approved',
       approverContactId: contactId,
       decidedAt,
-      // Approve keeps Ready to Ship. Stored here so an old row gains the field.
-      ...(milestone.status !== planned.status ? { status: planned.status } : {}),
       ...(milestone.previewUrl ? { previewUrl: '' } : {}),
       ...(deploymentId ? { previewDelete: 'removing' as const } : {}),
     });
@@ -1885,114 +1879,6 @@ export const migrateMilestoneOne = internalMutation({
       attached,
       counts: report.counts,
       projects: report.projects,
-    };
-  },
-});
-
-/**
- * One-time backfill for the Status field. One page per call, walked on the
- * `by_orgId` index. Sets `status` from the old stage, else from the old work
- * status (draft is Planning, active is Building, ready is Ready to Ship).
- * Rows that already have a status are skipped, so a second run writes nothing.
- * Each page lists the rows where the old fields disagreed.
- *
- * Dry run, writes nothing. Repeat with the returned cursor until isDone:
- *   npx convex run milestones:backfillStatus
- *   npx convex run milestones:backfillStatus '{"cursor":"<continueCursor>"}'
- * Apply, after the dry run has been read:
- *   npx convex run milestones:backfillStatus '{"apply":true}'
- *   npx convex run milestones:backfillStatus '{"apply":true,"cursor":"<continueCursor>"}'
- * Shared dev first. Do not pass --prod without Peter's explicit go-ahead.
- */
-export const backfillStatus = internalMutation({
-  args: {
-    apply: v.optional(v.boolean()),
-    cursor: v.optional(v.union(v.string(), v.null())),
-    limit: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const page = await ctx.db
-      .query('milestones')
-      .withIndex('by_orgId')
-      .paginate({ numItems: backfillPageSize(args.limit), cursor: args.cursor ?? null });
-    const report = planStatusBackfillPage(
-      page.page.map((row) => ({
-        id: row._id,
-        name: row.name,
-        status: row.status ?? null,
-        stage: row.stage ?? null,
-        workStatus: row.workStatus ?? null,
-        detailStatus: row.detailStatus ?? null,
-      })),
-    );
-    const apply = args.apply === true;
-    if (apply) {
-      for (const write of report.writes) {
-        await ctx.db.patch(write.id as Id<'milestones'>, { status: write.status });
-      }
-    }
-    return {
-      dryRun: !apply,
-      scanned: report.scanned,
-      alreadySet: report.alreadySet,
-      [apply ? 'updated' : 'wouldUpdate']: report.toSet,
-      disagreements: report.disagreements,
-      continueCursor: page.isDone ? null : page.continueCursor,
-      isDone: page.isDone,
-    };
-  },
-});
-
-/**
- * The step before the schema narrows. Removes the retired `stage`,
- * `workStatus` and `detailStatus` values from rows that already have a
- * status, so the narrowed schema accepts every row. One page per call on the
- * `by_orgId` index. A row with no status is listed and left alone. A second
- * run writes nothing.
- *
- * Dry run, writes nothing. Repeat with the returned cursor until isDone:
- *   npx convex run milestones:clearRetiredStatusFields
- * Apply, after the dry run has been read:
- *   npx convex run milestones:clearRetiredStatusFields '{"apply":true}'
- * Shared dev first. Do not pass --prod without Peter's explicit go-ahead.
- */
-export const clearRetiredStatusFields = internalMutation({
-  args: {
-    apply: v.optional(v.boolean()),
-    cursor: v.optional(v.union(v.string(), v.null())),
-    limit: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const page = await ctx.db
-      .query('milestones')
-      .withIndex('by_orgId')
-      .paginate({ numItems: backfillPageSize(args.limit), cursor: args.cursor ?? null });
-    const report = planRetiredFieldsPage(
-      page.page.map((row) => ({
-        id: row._id,
-        name: row.name,
-        status: row.status ?? null,
-        stage: row.stage ?? null,
-        workStatus: row.workStatus ?? null,
-        detailStatus: row.detailStatus ?? null,
-      })),
-    );
-    const apply = args.apply === true;
-    if (apply) {
-      for (const write of report.writes) {
-        const patch: { stage?: undefined; workStatus?: undefined; detailStatus?: undefined } = {};
-        for (const field of write.fields) patch[field] = undefined;
-        await ctx.db.patch(write.id as Id<'milestones'>, patch);
-      }
-    }
-    return {
-      dryRun: !apply,
-      scanned: report.scanned,
-      alreadyClear: report.alreadyClear,
-      [apply ? 'cleared' : 'wouldClear']: report.toClear,
-      missingStatus: report.missingStatus,
-      continueCursor: page.isDone ? null : page.continueCursor,
-      isDone: page.isDone,
     };
   },
 });

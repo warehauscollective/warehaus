@@ -213,27 +213,17 @@ export default defineSchema({
     /**
      * The one Status field. Every write goes through `transitionMilestone`
      * in `_lib/milestoneStatus.ts`. Staff can set any status except Shipped.
-     * Shipped is set when the pull request merges. Optional until the
-     * backfill has run on every deployment; `milestoneStatusOf` reads the
-     * old fields below for rows that do not have it yet.
+     * Shipped is set when the pull request merges.
      */
-    status: v.optional(
-      v.union(
-        v.literal('Idea'),
-        v.literal('Planning'),
-        v.literal('Awaiting Go'),
-        v.literal('Building'),
-        v.literal('Ready to Ship'),
-        v.literal('Shipped'),
-        v.literal('Parked'),
-      ),
+    status: v.union(
+      v.literal('Idea'),
+      v.literal('Planning'),
+      v.literal('Awaiting Go'),
+      v.literal('Building'),
+      v.literal('Ready to Ship'),
+      v.literal('Shipped'),
+      v.literal('Parked'),
     ),
-    /**
-     * Retired. Replaced by `status`. No code writes it. Kept, and made
-     * optional, so rows from before the backfill still validate. Remove in
-     * the narrow push, after `milestones:backfillStatus` has been applied.
-     */
-    workStatus: v.optional(v.union(v.literal('draft'), v.literal('active'), v.literal('ready'))),
     approval: v.union(
       v.literal('unreviewed'),
       v.literal('approved'),
@@ -283,22 +273,6 @@ export default defineSchema({
     previewDeleteAt: v.optional(v.number()),
     /** Set only when a real production deploy finishes. Absent means it has not finished. */
     deployFinishedAt: v.optional(v.number()),
-    /** Retired with `workStatus`. No code writes it. Remove in the narrow push. */
-    detailStatus: v.optional(
-      v.union(v.literal('draft'), v.literal('in_progress'), v.literal('in_review'), v.literal('complete')),
-    ),
-    /** Retired. Its seven values moved to `status`. Remove in the narrow push. */
-    stage: v.optional(
-      v.union(
-        v.literal('Idea'),
-        v.literal('Planning'),
-        v.literal('Awaiting Go'),
-        v.literal('Building'),
-        v.literal('Ready to Ship'),
-        v.literal('Shipped'),
-        v.literal('Parked'),
-      ),
-    ),
     /** Optional person on this client. Convex only. Not written to Notion. */
     ownerContactId: v.optional(v.id('contacts')),
     /** Calendar day, YYYY-MM-DD. Absent means not set. */

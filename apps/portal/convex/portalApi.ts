@@ -52,7 +52,6 @@ import {
   STATUS_ACTIVITY,
   apiStatusFields,
   apiStatusInput,
-  milestoneStatusOf,
   transitionMilestone,
 } from './_lib/milestoneStatus';
 import { convexFailureText } from './_lib/userFacingError';
@@ -102,7 +101,7 @@ function staffMilestone(row: Doc<'milestones'>) {
     objective: row.objective,
     goals: row.goals,
     // `status` is the field. `stage` and `workStatus` are aliases for one release.
-    ...apiStatusFields(milestoneStatusOf(row)),
+    ...apiStatusFields(row.status),
     approval: row.approval,
     publishToWarehaus: row.publishToWarehaus,
   };
@@ -716,7 +715,7 @@ export const updateMilestone = internalMutation({
     if (!edited.ok) return finishIdempotency(ctx, opened.id, fail(400, edited.reason));
     const wanted = apiStatusInput(args);
     if (!wanted.ok) return finishIdempotency(ctx, opened.id, fail(400, wanted.reason));
-    const from = milestoneStatusOf(milestone);
+    const from = milestone.status;
     const moved =
       wanted.status == null ? null : transitionMilestone({ from, cause: 'set', to: wanted.status });
     if (moved && !moved.ok) return finishIdempotency(ctx, opened.id, fail(400, moved.reason));
