@@ -176,7 +176,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'update_task',
     description:
-      'Update task status, priority, next action, or stage through the staff update path. Last write wins per field. Send lastEditedTime from get_task and an idempotency key.',
+      'Update task status, priority, next action, or stage through the staff update path. Last write wins per field. Stage Shipped is allowed when the task has a pull request link and GitHub shows that pull request merged into main. The check runs on this write. Send lastEditedTime from get_task and an idempotency key.',
     write: true,
     schema: {
       taskId: z.string().min(1),
@@ -206,7 +206,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'move_task_stage',
     description:
-      'Move a task stage through the staff update path. Last write wins on stage, and the Notion outbox uses the task-stage write. Staff can set any stage except Shipped, which the merge webhook sets. Send lastEditedTime from get_task and an idempotency key.',
+      'Move a task stage through the staff update path. Last write wins on stage, and the Notion outbox uses the task-stage write. Staff can set Shipped when the task has a pull request link and GitHub shows that pull request merged into main. The check runs on this write. Send lastEditedTime from get_task and an idempotency key.',
     write: true,
     schema: {
       taskId: z.string().min(1),
@@ -346,6 +346,64 @@ export const portalTools: PortalTool[] = [
     call: (args) => ({
       method: 'POST',
       path: '/api/v1/milestones/attach',
+      idempotencyKey: String(args.idempotencyKey),
+      body: { milestoneId: args.milestoneId, taskId: args.taskId },
+    }),
+  },
+  {
+    name: 'create_milestone',
+    description:
+      'Create a milestone on a project. It stays unpublished. Send projectId, name, and an idempotency key. Retries with the same key replay the first result.',
+    write: true,
+    schema: {
+      projectId: z.string().min(1),
+      name: z.string().min(1).max(2000),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/milestones',
+      idempotencyKey: String(args.idempotencyKey),
+      body: { projectId: args.projectId, name: args.name },
+    }),
+  },
+  {
+    name: 'update_milestone',
+    description:
+      'Update a milestone name or status. status and stage are the same field: Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, or Parked. Shipped is allowed when every task that is not Parked is Done. Send an idempotency key. Retries with the same key replay the first result.',
+    write: true,
+    schema: {
+      milestoneId: z.string().min(1),
+      name: z.string().min(1).max(2000).optional(),
+      status: z.enum(['Idea', 'Planning', 'Awaiting Go', 'Building', 'Ready to Ship', 'Shipped', 'Parked']).optional(),
+      stage: z.enum(['Idea', 'Planning', 'Awaiting Go', 'Building', 'Ready to Ship', 'Shipped', 'Parked']).optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/milestones/update',
+      idempotencyKey: String(args.idempotencyKey),
+      body: defined({
+        milestoneId: args.milestoneId,
+        name: args.name,
+        status: args.status,
+        stage: args.stage,
+      }),
+    }),
+  },
+  {
+    name: 'detach_task_from_milestone',
+    description:
+      'Remove one task from a milestone. The task stays on the project. Send an idempotency key. Retries with the same key replay the first result.',
+    write: true,
+    schema: {
+      milestoneId: z.string().min(1),
+      taskId: z.string().min(1),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/milestones/detach',
       idempotencyKey: String(args.idempotencyKey),
       body: { milestoneId: args.milestoneId, taskId: args.taskId },
     }),
@@ -559,6 +617,12 @@ export function planToolCall(
     const body = parsed.data as { clientId?: string; client?: unknown };
     if (Boolean(body.clientId) === Boolean(body.client)) {
       return { ok: false, status: 400, error: 'Provide a clientId or a new client' };
+    }
+  }
+  if (name === 'update_milestone') {
+    const data = parsed.data as { name?: string; status?: string; stage?: string };
+    if (!data.name && !data.status && !data.stage) {
+      return { ok: false, status: 400, error: 'At least one field is required' };
     }
   }
   if (name === 'list_tasks') {

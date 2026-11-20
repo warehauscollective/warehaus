@@ -16,6 +16,37 @@ export const DETAIL_ACTIVITY = {
 
 export type DetailActivityType = (typeof DETAIL_ACTIVITY)[keyof typeof DETAIL_ACTIVITY];
 
+export type CloseTask = {
+  stage?: string | null;
+  status?: string | null;
+  isDone?: boolean;
+};
+
+/** Shipped shares this gate. Parked tasks do not count. Complete is the same rule. */
+export function finishedMilestoneDecision(
+  tasks: readonly CloseTask[],
+  label: 'Shipped' | 'Complete',
+): { ok: true } | { ok: false; reason: string } {
+  const counted = tasks.filter((task) => task.stage !== 'Parked');
+  if (counted.length === 0) {
+    return { ok: false, reason: `${label} needs at least one task that is not Parked.` };
+  }
+  const pending = counted.some((task) => task.isDone !== true && task.status !== 'Done');
+  if (pending) {
+    return { ok: false, reason: `${label} needs every task that is not Parked to be Done.` };
+  }
+  return { ok: true };
+}
+
+export function milestoneCanClose(rows: readonly (CloseTask & { children?: readonly CloseTask[] })[]): boolean {
+  const flat: CloseTask[] = [];
+  for (const row of rows) {
+    flat.push(row);
+    for (const child of row.children ?? []) flat.push(child);
+  }
+  return finishedMilestoneDecision(flat, 'Shipped').ok;
+}
+
 export function publishChangeDecision(from: boolean, to: boolean): { wrote: boolean } {
   return { wrote: from !== to };
 }

@@ -25,6 +25,10 @@ The portal process needs `NEXT_PUBLIC_CONVEX_SITE_URL` or `CONVEX_SITE_URL`. Too
 
 Cursor posts its agent URL with `add_task_link` and kind `agent`. That kind stays on the task. It does not enqueue a Notion field update.
 
+`move_task_stage` and `update_task` can set stage Shipped. The portal checks GitHub once on that write and accepts it only when the task has a pull request link and that pull request is merged into main. The stage write still uses the task-stage outbox.
+
+`create_milestone` takes `projectId` and `name`. The milestone stays unpublished. `update_milestone` takes `name`, `status`, and `stage`. `status` and `stage` are the one field: Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, or Parked. Shipped is allowed when every task that is not Parked is Done. `detach_task_from_milestone` removes one task from a milestone and leaves the task on the project. These three use the same bearer token, idempotency key, and activity log as the other write tools.
+
 ## Claude Code and Claude Desktop
 
 Claude Code and Claude Desktop use the same staff endpoint as every other MCP client: `POST https://warehaus-portal.vercel.app/api/mcp`. Send `Accept: application/json, text/event-stream` and a bearer token. The handler does not special-case the token name. The token for these two clients is named `claude`, scope `read-write`. A missing or unknown token is 401. A read token that calls a write tool is 403. The raw token is shown once at mint time and is not stored in this repo.
@@ -50,7 +54,7 @@ Claude Desktop uses that block. Claude Code uses the same URL and the same `Auth
 
 A milestone has one field, `status`: `Idea`, `Planning`, `Awaiting Go`, `Building`, `Ready to Ship`, `Shipped`, or `Parked`. Approval is the separate review result in `approval`.
 
-`GET /api/v1/milestones` and `list_milestones` return `status`. `POST /api/v1/milestones` and `POST /api/v1/milestones/update` accept `status`. A new milestone is `Planning` unless `status` says otherwise. Any status can be set except `Shipped`, which is set when the pull request merges. Sending the stored status again writes nothing.
+`GET /api/v1/milestones` and `list_milestones` return `status`. `POST /api/v1/milestones` and `POST /api/v1/milestones/update` accept `status`. `stage` and `workStatus` are aliases of that field for one release. A new milestone is `Planning` unless `status` says otherwise. Staff can set Shipped when every task that is not Parked is Done. A new milestone cannot start at Shipped. Sending the stored status again writes nothing.
 
 `create_milestone` and `update_milestone` are the MCP tools for those two routes. A task only exists inside a milestone, so a bot calls `list_milestones`, reuses a matching milestone or calls `create_milestone`, then calls `create_task` with that `milestoneId`. `create_milestone` needs `name` and `objective`; `goals` and `status` are optional. `update_milestone` sends only the fields that change. Neither tool accepts `Shipped`. A milestone created through the staff API records which bot opened it from the token name (`grok`, `claude`, or `other`), and the tile shows that mark.
 

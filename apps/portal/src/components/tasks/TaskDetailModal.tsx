@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation } from 'convex/react';
+import { useAction, useMutation } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -123,6 +123,7 @@ export function TaskDetailModal({
   const [asideNote, setAsideNote] = useState<string | null>(null);
   const [stageConfirm, setStageConfirm] = useState<string | null>(null);
   const moveStage = useMutation(api.tasks.moveStage);
+  const commitShipped = useAction(api.tasks.commitShipped);
   const moveStatus = useMutation(api.tasks.moveStatus);
   const updateLiveFields = useMutation(api.tasks.updateLiveFields);
   const setAssignee = useMutation(api.tasks.setAssignee);
@@ -138,7 +139,7 @@ export function TaskDetailModal({
     if (!attach) titleRef.current?.focus();
   }, [task?.id, unavailable, attach]);
   useEffect(() => {
-    if (!phone || !initialStageConfirm || initialStageConfirm === 'Shipped') return;
+    if (!phone || !initialStageConfirm) return;
     if (!(TASK_STAGES as readonly string[]).includes(initialStageConfirm)) return;
     setStageConfirm(initialStageConfirm);
   }, [phone, initialStageConfirm]);
@@ -316,18 +317,23 @@ export function TaskDetailModal({
     );
     chip?.focus({ preventScroll: true });
   }, [stageConfirm]);
+  const saveStage = (stage: string) => {
+    if (!live || !task?.lastEditedTime) return;
+    const request = {
+      hostSlug,
+      taskId: task.id as Id<'tasks'>,
+      expectedLastEditedTime: task.lastEditedTime,
+    };
+    const pending = stage === 'Shipped' ? commitShipped(request) : moveStage({ ...request, stage });
+    void pending.then((result) => {
+      if (!result.ok) setAsideNote(result.error);
+    });
+  };
   const confirmStage = () => {
     const stage = stageConfirm;
     setStageConfirm(null);
-    if (!stage || !live || !task?.lastEditedTime) return;
-    void moveStage({
-      hostSlug,
-      taskId: task.id as Id<'tasks'>,
-      stage,
-      expectedLastEditedTime: task.lastEditedTime,
-    }).then((result) => {
-      if (!result.ok) setAsideNote(result.error);
-    });
+    if (!stage) return;
+    saveStage(stage);
   };
 
   const detail = (
@@ -659,56 +665,36 @@ export function TaskDetailModal({
                 <div className="flex flex-wrap gap-2">
                   {TASK_STAGES.map((stage) => {
                     const current = task.stage === stage;
-                    const locked = stage === 'Shipped';
                     return (
                       <button
                         key={stage}
                         type="button"
                         data-stage-chip={stage}
-                        disabled={locked}
                         aria-pressed={task.stage === stage}
                         onClick={() => {
-                          if (locked || current) return;
+                          if (current) return;
                           if (phone) {
                             setStageConfirm(stage);
                             return;
                           }
-                          if (!live || !task.lastEditedTime) return;
-                          void moveStage({
-                            hostSlug,
-                            taskId: task.id as Id<'tasks'>,
-                            stage,
-                            expectedLastEditedTime: task.lastEditedTime,
-                          }).then((result) => {
-                            if (!result.ok) setAsideNote(result.error);
-                          });
+                          saveStage(stage);
                         }}
                         className="ds-mono"
                         style={{
                           display: 'inline-flex',
                           alignItems: 'center',
                           gap: 8,
-                          border: locked
-                            ? '1px dashed var(--border-2)'
-                            : current
-                              ? '1px solid var(--fg)'
-                              : '1px solid var(--border-2, var(--border))',
+                          border: current ? '1px solid var(--fg)' : '1px solid var(--border-2, var(--border))',
                           borderRadius: 999,
                           padding: '8px 12px',
-                          background: locked && current ? 'var(--surface-2)' : current ? 'var(--fg)' : 'transparent',
-                          color: locked ? 'var(--muted)' : current ? 'var(--bg)' : 'var(--fg)',
-                          cursor: locked ? 'not-allowed' : 'pointer',
+                          background: current ? 'var(--fg)' : 'transparent',
+                          color: current ? 'var(--bg)' : 'var(--fg)',
+                          cursor: 'pointer',
                           fontSize: 13,
                           whiteSpace: 'nowrap',
                         }}
                       >
                         {stage}
-                        {locked ? (
-                          <span style={{ flexShrink: 0, border: '1px solid var(--border-2)', borderRadius: 999, padding: '3px 8px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
-                            ON MERGE
-                          </span>
-                        ) : null}
-                        {locked ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
                       </button>
                     );
                   })}

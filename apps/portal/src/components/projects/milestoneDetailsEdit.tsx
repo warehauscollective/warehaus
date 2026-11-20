@@ -6,6 +6,7 @@ import { assertStaffPreviewLink, PREVIEW_LINK_LOCAL } from '@convex/_lib/preview
 import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { clientSeesDetailsRow, formatDueDate, textBlurSave } from '@convex/_lib/milestoneDetails';
+import { milestoneCanClose } from '@convex/_lib/milestoneDetails';
 import { MILESTONE_STATUSES, nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -143,8 +144,10 @@ export function useMilestoneDetailEdits({
     ownerId: null,
     dueDate: null,
   });
+  const canClose = milestoneCanClose(milestone.rows);
   const moves = useMilestoneStatusMoves({
     status: milestone.status,
+    canClose,
     onAdvance: (expected) => {
       if (fixtures) {
         onFixture({ status: nextStatus(expected) ?? expected });
@@ -278,15 +281,15 @@ export function useMilestoneDetailEdits({
           setTone((current) => (current[key] === 'saved' ? { ...current, [key]: 'idle' } : current));
         }, 2000);
       }
-    } catch {
+    } catch (err) {
       setTone((current) => ({ ...current, [key]: 'error' }));
-      setFieldError(key === 'project' ? 'Couldn’t move.' : 'Couldn’t save.');
+      setFieldError(key === 'project' ? 'Couldn’t move.' : userFacingErrorMessage(err, 'Couldn’t save.'));
     }
   };
 
   const pickStatus = (status: MilestoneStatus) => {
     setOverlay(null);
-    if (statusOptionLock(status) || status === statusNow) return;
+    if (statusOptionLock(status, canClose) || status === statusNow) return;
     pending.current.status = status;
     if (fixtures) {
       onFixture({ status });
@@ -440,9 +443,9 @@ export function useMilestoneDetailEdits({
               {moves.error}
             </p>
           ) : null}
-          {shown?.kind === 'status' && !phone ? (
+          {staff && shown?.kind === 'status' && !phone ? (
             <Popover onClose={() => closeOverlay(true)}>
-              <StatusMenu current={statusNow} onPick={pickStatus} onClose={() => closeOverlay(true)} />
+              <StatusMenu current={statusNow} canClose={canClose} onPick={pickStatus} onClose={() => closeOverlay(true)} />
             </Popover>
           ) : null}
         </DetailRow>
@@ -646,8 +649,8 @@ export function useMilestoneDetailEdits({
       blueFocus={shown.kind === 'attach-link' || shown.kind === 'remove-link'}
       onClose={() => closeOverlay(true)}
     >
-      {shown.kind === 'status' ? (
-        <StatusMenu current={statusNow} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
+      {staff && shown.kind === 'status' ? (
+        <StatusMenu current={statusNow} canClose={canClose} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
       ) : null}
       {shown.kind === 'owner' ? (
         <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} currentName={milestone.ownerName} onPick={pickOwner} onClose={() => closeOverlay(true)} sheet />
@@ -1104,17 +1107,22 @@ export function menuButtons(root: ParentNode | null): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>('button')].filter((button) => !button.hasAttribute('disabled'));
 }
 
-/** The Status menu. Any jump, forward or back. Shipped is listed but locked. */
+export const MILESTONE_STATUS_HINT =
+  'Staff can set Shipped when every task that is not Parked is Done. Saves as soon as you pick.';
+
+/** The Status menu. Any jump, forward or back. Shipped unlocks when every non-Parked task is Done. */
 export function StatusMenu({
   current,
   onPick,
   onClose,
   sheet,
+  canClose = false,
 }: {
   current: string;
   onPick: (status: MilestoneStatus) => void;
   onClose: () => void;
   sheet?: boolean;
+  canClose?: boolean;
 }) {
   return (
     <div
@@ -1126,7 +1134,7 @@ export function StatusMenu({
     >
       {sheet ? <SheetHeader title="Status" onClose={onClose} /> : null}
       {MILESTONE_STATUSES.map((status) => {
-        const lock = statusOptionLock(status);
+        const lock = statusOptionLock(status, canClose);
         const selected = status === current;
         return (
           <button
@@ -1151,14 +1159,14 @@ export function StatusMenu({
             }}
           >
             <span className="whitespace-nowrap">{status}</span>
-            {lock === 'shipped' ? <Tag>ON MERGE</Tag> : null}
+            {lock === 'shipped' ? <Tag>NOT DONE</Tag> : null}
             {lock ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
             {selected && !lock ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
           </button>
         );
       })}
       <p style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-        Staff can set any status except Shipped. Shipped is set when the pull request merges. Saves as soon as you pick.
+        {MILESTONE_STATUS_HINT}
       </p>
     </div>
   );

@@ -204,7 +204,7 @@ describe('milestone details panel', () => {
     assert.doesNotMatch(stageOption(menu, 'Ready to Ship'), /disabled=""/);
     assert.equal(menu.includes('PETER’S CALL'), false);
     assert.match(stageOption(menu, 'Shipped'), /disabled=""/);
-    assert.match(stageOption(menu, 'Shipped'), /ON MERGE/);
+    assert.match(stageOption(menu, 'Shipped'), /NOT DONE/);
     assert.match(stageOption(menu, 'Shipped'), /task-lock\.svg/);
     assert.equal(menu.includes('>Close<'), false);
 

@@ -3,7 +3,8 @@
  *
  * Every write of a milestone's status goes through `transitionMilestone`.
  * Approval is not a status. It is the review result and lives on its own field.
- * Shipped is never set by hand. It is set when the pull request merges.
+ * Staff can set Shipped when every task that is not Parked is Done.
+ * `tasksReady` is that check. The play button never moves to Shipped.
  */
 
 export const MILESTONE_STATUSES = [
@@ -37,6 +38,7 @@ export const DEFAULT_MILESTONE_STATUS: MilestoneStatus = 'Planning';
 export const STATUS_ACTIVITY = 'milestone.status';
 export const UNKNOWN_STATUS = 'Unknown status';
 export const SHIPPED_ON_MERGE = 'Shipped is set when the pull request merges';
+export const SHIPPED_NEEDS_DONE = 'Shipped needs every task that is not Parked to be Done.';
 export const STATUS_STALE = 'The status changed. Refresh and try again.';
 export const APPROVE_NOT_READY = 'Approve is available when the status is Ready to Ship';
 export const AI_STATUS_LOCKED = 'AI cannot edit an approved milestone or change its tasks';
@@ -64,9 +66,10 @@ export function nextStatus(status: MilestoneStatus): MilestoneStatus | null {
   return ADVANCE_LINE[index + 1] ?? null;
 }
 
-/** The menu lists Shipped but does not let a person pick it. */
-export function statusOptionLock(status: MilestoneStatus): 'shipped' | null {
-  return status === 'Shipped' ? 'shipped' : null;
+/** Shipped stays locked until every task that is not Parked is Done. */
+export function statusOptionLock(status: MilestoneStatus, canClose = false): 'shipped' | null {
+  if (status !== 'Shipped' || canClose) return null;
+  return 'shipped';
 }
 
 export type LegacyWorkStatus = 'draft' | 'active' | 'ready';
@@ -98,7 +101,7 @@ export function legacyWorkStatus(status: MilestoneStatus): LegacyWorkStatus {
  * - `advance`: the play button. One step forward.
  * - `approve`: the review result. Needs Ready to Ship and keeps it.
  * - `request_changes`: the review result. Needs Ready to Ship, returns to Building.
- * - `merge`: the pull request merged. The only way to Shipped.
+ * - `merge`: the pull request merged. Sets Shipped without the task check.
  */
 export type TransitionCause = 'set' | 'advance' | 'approve' | 'request_changes' | 'merge';
 
@@ -114,6 +117,8 @@ export type TransitionInput = {
   /** `ai` is locked out of an approved milestone. Defaults to `human`. */
   actor?: 'human' | 'ai';
   approval?: string | null;
+  /** True only after the caller checked that every non-Parked task is Done. */
+  tasksReady?: boolean;
 };
 
 export type Transition =
@@ -145,7 +150,10 @@ export function transitionMilestone(input: TransitionInput): Transition {
     if (input.actor === 'ai' && input.approval === 'approved') return reject('locked', AI_STATUS_LOCKED);
     if (input.to === from) return noop(from);
     if (input.expected != null && input.expected !== from) return reject('stale', STATUS_STALE);
-    if (input.to === 'Shipped') return reject('shipped', SHIPPED_ON_MERGE);
+    if (input.to === 'Shipped') {
+      if (input.actor !== 'ai' && input.tasksReady === true) return move(from, input.to);
+      return reject('shipped', SHIPPED_NEEDS_DONE);
+    }
     return move(from, input.to);
   }
 

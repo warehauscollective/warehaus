@@ -16,10 +16,13 @@ import {
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
+import { action, internalQuery } from './_generated/server';
 import { buildTaskTimeline } from './_lib/activityFeed';
+import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
+import { assertHostMatchesOrg, isStaff, PortalAuthError, resolveIdentityFromContact } from './_lib/identity';
 import { linearEnv, serveTasks, serveTasksByOrg } from './_lib/taskPlatformRead';
+import { userFacingErrorMessage } from './_lib/userFacingError';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
-import { isStaff, PortalAuthError } from './_lib/identity';
 
 type TaskWriteResult =
   | { ok: false; error: string }
@@ -276,6 +279,102 @@ export const moveStage = adminMutation({
       pullRequestLink: args.pullRequestLink,
       actor: 'staff',
       actorId: ctx.identity.contactId,
+    });
+  },
+});
+
+/**
+ * Staff set Shipped. GitHub is read once here, then the existing stage outbox runs.
+ * The public stage mutation cannot skip this check.
+ */
+export const prepareShipped = internalQuery({
+  args: {
+    authUserId: v.string(),
+    hostSlug: v.optional(v.string()),
+    taskId: v.id('tasks'),
+    expectedLastEditedTime: v.string(),
+    pullRequestLink: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const contact = await ctx.db
+      .query('contacts')
+      .withIndex('by_authUserId', (q) => q.eq('authUserId', args.authUserId))
+      .unique();
+    const client = contact ? await ctx.db.get(contact.orgId) : null;
+    const identity = resolveIdentityFromContact({
+      authUserId: args.authUserId,
+      contact: contact
+        ? {
+            _id: contact._id,
+            orgId: contact.orgId,
+            name: contact.name,
+            email: contact.email,
+            authUserId: contact.authUserId,
+            role: contact.role,
+            portalAccess: contact.portalAccess,
+          }
+        : null,
+      client: client
+        ? { _id: client._id, slug: client.slug, portalAccess: client.portalAccess }
+        : null,
+    });
+    assertHostMatchesOrg(identity, args.hostSlug);
+    if (!isStaff(identity)) throw new PortalAuthError('Staff role required', 'FORBIDDEN');
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { ok: false as const, error: 'Task not found' };
+    if (!args.expectedLastEditedTime.trim()) {
+      return { ok: false as const, error: 'Updates require the last read time' };
+    }
+    const links = await ctx.db
+      .query('taskLinks')
+      .withIndex('by_taskId', (q) => q.eq('taskId', task._id))
+      .take(50);
+    const resolved = resolveShipLink({
+      explicit: args.pullRequestLink,
+      stored: task.pullRequestUrl,
+      links: links.filter((row) => row.kind === 'PR').map((row) => row.url),
+    });
+    if (!resolved.ok) return resolved;
+    return { ok: true as const, link: resolved.link, actorId: identity.contactId };
+  },
+});
+
+export const commitShipped = action({
+  args: {
+    hostSlug: v.optional(v.string()),
+    taskId: v.id('tasks'),
+    expectedLastEditedTime: v.string(),
+    pullRequestLink: v.optional(v.string()),
+  },
+  handler: async (ctx, args): Promise<TaskWriteResult> => {
+    const auth = await ctx.auth.getUserIdentity();
+    if (!auth) return { ok: false, error: 'Not authenticated' };
+    let prepared: { ok: true; link: string; actorId: string } | { ok: false; error: string };
+    try {
+      prepared = await ctx.runQuery(internal.tasks.prepareShipped, {
+        authUserId: auth.subject,
+        hostSlug: args.hostSlug,
+        taskId: args.taskId,
+        expectedLastEditedTime: args.expectedLastEditedTime,
+        pullRequestLink: args.pullRequestLink,
+      });
+    } catch (err) {
+      return { ok: false, error: userFacingErrorMessage(err, 'Could not set Shipped.') };
+    }
+    if (!prepared.ok) return prepared;
+    const verified = await verifyPullMerged({
+      link: prepared.link,
+      token: process.env.REVIEW_PREVIEW_GITHUB_TOKEN,
+    });
+    if (!verified.ok) return verified;
+    return ctx.runMutation(internal.sync.taskWrite.enqueueStage, {
+      taskId: args.taskId,
+      stage: 'Shipped',
+      pullRequestLink: verified.link,
+      expectedLastEditedTime: args.expectedLastEditedTime,
+      actor: 'staff',
+      actorId: prepared.actorId,
+      verifiedMerge: true,
     });
   },
 });

@@ -5,6 +5,8 @@ import { isClientVisibleActivityType } from '@warehaus/portal-sync';
 import { roadmapViewForAudience } from './milestones';
 import {
   clientReviewDecision,
+  finishedMilestoneDecision,
+  milestoneCanClose,
   clientSeesDetailsRow,
   detailActivitySummary,
   dueDateChangeDecision,
@@ -51,16 +53,33 @@ describe('staff stages', () => {
     });
   });
 
-  it('lets nobody set Shipped, and locks only that option in the menu', () => {
+  it('lets staff set Shipped only when every non-Parked task is Done', () => {
     assert.deepEqual(transitionMilestone({ from: 'Building', cause: 'set', to: 'Shipped' }), {
       ok: false,
-      reason: 'Shipped is set when the pull request merges',
+      reason: 'Shipped needs every task that is not Parked to be Done.',
       code: 'shipped',
     });
+    assert.deepEqual(transitionMilestone({ from: 'Building', cause: 'set', to: 'Shipped', tasksReady: true }), {
+      ok: true,
+      from: 'Building',
+      status: 'Shipped',
+      wrote: true,
+    });
     assert.equal(statusOptionLock('Shipped'), 'shipped');
+    assert.equal(statusOptionLock('Shipped', true), null);
     assert.equal(statusOptionLock('Awaiting Go'), null);
-    assert.equal(statusOptionLock('Ready to Ship'), null);
-    assert.equal(statusOptionLock('Building'), null);
+    const done = { status: 'Done', isDone: true };
+    const parked = { stage: 'Parked', status: 'To Do', isDone: false };
+    assert.deepEqual(finishedMilestoneDecision([done, parked], 'Shipped'), { ok: true });
+    assert.equal(finishedMilestoneDecision([done, { status: 'To Do', isDone: false }], 'Shipped').ok, false);
+    const onlyParked = finishedMilestoneDecision([parked], 'Complete');
+    const empty = finishedMilestoneDecision([], 'Shipped');
+    assert.equal(onlyParked.ok, false);
+    assert.equal(empty.ok, false);
+    if (!onlyParked.ok) assert.match(onlyParked.reason, /at least one task/);
+    if (!empty.ok) assert.match(empty.reason, /at least one task/);
+    assert.equal(milestoneCanClose([{ ...done, children: [parked] }]), true);
+    assert.equal(milestoneCanClose([{ ...done, children: [{ status: 'To Do', isDone: false }] }]), false);
   });
 
   it('skips a no-op status write, including a repeat of Shipped', () => {
