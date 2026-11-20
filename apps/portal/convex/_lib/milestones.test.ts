@@ -69,6 +69,29 @@ describe('milestone create', () => {
     assert.equal(created.activityType, 'milestone.ready');
   });
 
+  it('lets a name-only create stay unpublished', () => {
+    const created = createMilestoneDecision({
+      actor: 'human',
+      name: 'Launch',
+      objective: '  ',
+      goals: [],
+      allowEmptyObjective: true,
+    });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    assert.equal(created.milestone.objective, '');
+    assert.equal(created.milestone.publishToWarehaus, false);
+    assert.equal(
+      createMilestoneDecision({
+        actor: 'human',
+        name: 'Launch',
+        objective: '',
+        goals: [],
+      }).ok,
+      false,
+    );
+  });
+
   it('refuses an approval or a publish flag on create', () => {
     assert.equal(
       createMilestoneDecision({

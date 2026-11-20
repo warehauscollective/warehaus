@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { useMutation } from 'convex/react';
+import { useAction, useMutation } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { ProjectRoadmap } from '@/components/projects/ProjectRoadmap';
 import { resourcesForProject } from '@/components/projects/milestoneGuards';
@@ -123,6 +123,7 @@ export function ProjectsContent() {
   const router = useRouter();
   const moveStatus = useMutation(api.tasks.moveStatus);
   const moveStage = useMutation(api.tasks.moveStage);
+  const commitShipped = useAction(api.tasks.commitShipped);
   const [stageRetry, setStageRetry] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const rules = useSafeQuery<BoardRules>(
     api.tasks.moveRules,
@@ -401,13 +402,20 @@ export function ProjectsContent() {
     if (!queuedStage || fixtures || stageRetry.busy) return;
     setStageRetry({ busy: true, error: null });
     try {
-      const result = await moveStage({
-        hostSlug,
-        taskId: queuedStage.taskId as Id<'tasks'>,
-        stage: queuedStage.stage,
-        expectedLastEditedTime: queuedStage.expectedLastEditedTime,
-        pullRequestLink: queuedStage.pullRequestLink,
-      });
+      const result = queuedStage.stage === 'Shipped'
+        ? await commitShipped({
+            hostSlug,
+            taskId: queuedStage.taskId as Id<'tasks'>,
+            expectedLastEditedTime: queuedStage.expectedLastEditedTime,
+            pullRequestLink: queuedStage.pullRequestLink,
+          })
+        : await moveStage({
+            hostSlug,
+            taskId: queuedStage.taskId as Id<'tasks'>,
+            stage: queuedStage.stage,
+            expectedLastEditedTime: queuedStage.expectedLastEditedTime,
+            pullRequestLink: queuedStage.pullRequestLink,
+          });
       if (!result.ok) {
         setStageRetry({ busy: false, error: result.error });
         return;
@@ -507,13 +515,20 @@ export function ProjectsContent() {
                       return { ok: false, error: 'This task has no Notion edit time yet. Nothing was sent.' };
                     }
                     const result = request.mode === 'stage'
-                      ? await moveStage({
-                          hostSlug,
-                          taskId: request.task.id as Id<'tasks'>,
-                          stage: request.value,
-                          expectedLastEditedTime: request.task.lastEditedTime,
-                          pullRequestLink: request.pullRequestLink,
-                        })
+                      ? request.value === 'Shipped'
+                        ? await commitShipped({
+                            hostSlug,
+                            taskId: request.task.id as Id<'tasks'>,
+                            expectedLastEditedTime: request.task.lastEditedTime,
+                            pullRequestLink: request.pullRequestLink,
+                          })
+                        : await moveStage({
+                            hostSlug,
+                            taskId: request.task.id as Id<'tasks'>,
+                            stage: request.value,
+                            expectedLastEditedTime: request.task.lastEditedTime,
+                            pullRequestLink: request.pullRequestLink,
+                          })
                       : await moveStatus({
                           hostSlug,
                           taskId: request.task.id as Id<'tasks'>,

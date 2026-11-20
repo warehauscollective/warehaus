@@ -32,6 +32,15 @@ const samples: Record<string, Record<string, unknown>> = {
   create_client: { companyName: 'Northwind', idempotencyKey: 'client-1' },
   create_project: { name: 'Website', clientId: 'client-1', idempotencyKey: 'project-1' },
   attach_task_to_milestone: { milestoneId: 'milestone-1', taskId: 'task-1', idempotencyKey: 'mile-1' },
+  create_milestone: { projectId: 'project-1', name: 'Launch', idempotencyKey: 'mile-new' },
+  update_milestone: {
+    milestoneId: 'milestone-1',
+    name: 'Launch',
+    status: 'complete',
+    stage: 'Shipped',
+    idempotencyKey: 'mile-edit',
+  },
+  detach_task_from_milestone: { milestoneId: 'milestone-1', taskId: 'task-1', idempotencyKey: 'mile-off' },
   add_task_link: {
     taskId: 'task-1',
     kind: 'deploy',
@@ -61,6 +70,9 @@ const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   create_client: { method: 'POST', path: '/api/v1/clients' },
   create_project: { method: 'POST', path: '/api/v1/projects' },
   attach_task_to_milestone: { method: 'POST', path: '/api/v1/milestones/attach' },
+  create_milestone: { method: 'POST', path: '/api/v1/milestones' },
+  update_milestone: { method: 'POST', path: '/api/v1/milestones/update' },
+  detach_task_from_milestone: { method: 'POST', path: '/api/v1/milestones/detach' },
   add_task_link: { method: 'POST', path: '/api/v1/links' },
   record_milestone_review: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },
 };

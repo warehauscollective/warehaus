@@ -25,6 +25,10 @@ The portal process needs `NEXT_PUBLIC_CONVEX_SITE_URL` or `CONVEX_SITE_URL`. Too
 
 Cursor posts its agent URL with `add_task_link` and kind `agent`. That kind stays on the task. It does not enqueue a Notion field update.
 
+`move_task_stage` and `update_task` can set stage Shipped. The portal checks GitHub once on that write and accepts it only when the task has a pull request link and that pull request is merged into main. The stage write still uses the task-stage outbox.
+
+`create_milestone` takes `projectId` and `name`. The milestone stays unpublished. `update_milestone` takes `name`, `status`, and `stage`. Status `complete` and stage `Shipped` are allowed when every task that is not Parked is Done. `detach_task_from_milestone` removes one task from a milestone and leaves the task on the project. These three use the same bearer token, idempotency key, and activity log as the other write tools.
+
 ## Claude Code and Claude Desktop
 
 Claude Code and Claude Desktop use the same staff endpoint as every other MCP client: `POST https://warehaus-portal.vercel.app/api/mcp`. Send `Accept: application/json, text/event-stream` and a bearer token. The handler does not special-case the token name. The token for these two clients is named `claude`, scope `read-write`. A missing or unknown token is 401. A read token that calls a write tool is 403. The raw token is shown once at mint time and is not stored in this repo.

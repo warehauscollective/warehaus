@@ -98,6 +98,7 @@ import {
   type ReviewPreviewRecord,
   type ReviewPreviewState,
 } from './_lib/reviewPreview';
+import { milestoneCloseGate } from './_lib/milestoneClose';
 import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/wrappers';
 
 const workStatusArg = v.union(v.literal('draft'), v.literal('active'), v.literal('ready'));
@@ -677,13 +678,18 @@ export const setDetailStatus = adminMutation({
   args: { milestoneId: v.id('milestones'), detailStatus: detailStatusArg },
   handler: async (ctx, args) => {
     const milestone = await loadMilestone(ctx, args.milestoneId);
+    const fromStatus = effectiveDetailStatus(milestone);
+    if (args.detailStatus === 'complete' && fromStatus !== 'complete') {
+      const gate = await milestoneCloseGate(ctx, milestone, 'Complete');
+      if (!gate.ok) fail(gate.reason);
+    }
     const decision = detailStatusDecision({
-      from: effectiveDetailStatus(milestone),
+      from: fromStatus,
       to: args.detailStatus,
     });
     if (!decision.ok) fail(decision.reason);
     if (!decision.wrote) return { ok: true as const, wrote: false as const };
-    const fromLabel = detailStatusLabel(effectiveDetailStatus(milestone));
+    const fromLabel = detailStatusLabel(fromStatus);
     await ctx.db.patch(milestone._id, {
       detailStatus: decision.status,
       ...(decision.workStatus ? { workStatus: decision.workStatus } : {}),
@@ -709,13 +715,21 @@ export const setStage = adminMutation({
   args: { milestoneId: v.id('milestones'), stage: stageArg },
   handler: async (ctx, args) => {
     const milestone = await loadMilestone(ctx, args.milestoneId);
+    const fromStage = effectiveStage(milestone);
+    let tasksReady = args.stage !== 'Shipped' || fromStage === 'Shipped';
+    if (args.stage === 'Shipped' && fromStage !== 'Shipped') {
+      const gate = await milestoneCloseGate(ctx, milestone, 'Shipped');
+      if (!gate.ok) fail(gate.reason);
+      tasksReady = true;
+    }
     const decision = stageChangeDecision({
-      from: effectiveStage(milestone),
+      from: fromStage,
       to: args.stage,
+      tasksReady,
     });
     if (!decision.ok) fail(decision.reason);
     if (!decision.wrote) return { ok: true as const, wrote: false as const };
-    const fromLabel = effectiveStage(milestone);
+    const fromLabel = fromStage;
     await ctx.db.patch(milestone._id, { stage: decision.stage });
     const at = Date.now();
     await logMilestone(
@@ -980,6 +994,27 @@ async function unlinkTask(ctx: MutationCtx, actor: 'human' | 'ai', milestoneId: 
 export const detachTask = adminMutation({
   args: { milestoneId: v.id('milestones'), taskId: v.id('tasks') },
   handler: async (ctx, args) => unlinkTask(ctx, 'human', args.milestoneId, args.taskId),
+});
+
+/** Staff API. Same human unlink rules as the portal button. */
+export const detachTaskForApi = internalMutation({
+  args: { milestoneId: v.id('milestones'), taskId: v.id('tasks') },
+  handler: async (ctx, args) => {
+    const milestone = await ctx.db.get(args.milestoneId);
+    if (!milestone) return { ok: false as const, code: 'not_found' as const, error: 'Milestone not found' };
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { ok: false as const, code: 'not_found' as const, error: 'Task not found' };
+    const decision = detachTaskDecision({
+      actor: 'human' as const,
+      milestone: { id: milestone._id, approval: milestone.approval },
+      task: { milestoneId: task.milestoneId ?? null },
+    });
+    if (!decision.ok) {
+      return { ok: false as const, code: 'failed' as const, error: decision.reason };
+    }
+    await ctx.db.patch(task._id, { milestoneId: undefined, milestoneOrder: undefined });
+    return { ok: true as const };
+  },
 });
 
 export const detachTaskFromAi = internalMutation({

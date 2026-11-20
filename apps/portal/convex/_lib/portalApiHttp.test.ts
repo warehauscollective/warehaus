@@ -24,6 +24,7 @@ describe('portalApiHttp', () => {
       'GET /api/v1/projects/item',
       'POST /api/v1/projects',
       'POST /api/v1/milestones/attach',
+      'POST /api/v1/milestones/detach',
     ]) {
       assert.equal(paths.has(route), true, route);
     }

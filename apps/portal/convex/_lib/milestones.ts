@@ -84,6 +84,8 @@ export function createMilestoneDecision(input: {
   workStatus?: string;
   publishToWarehaus?: boolean;
   approval?: string;
+  /** Staff API create sends a name only. The portal form still requires an objective. */
+  allowEmptyObjective?: boolean;
 }):
   | {
       ok: true;
@@ -110,7 +112,7 @@ export function createMilestoneDecision(input: {
   const name = input.name.trim();
   const objective = input.objective.trim();
   if (!name) return { ok: false, reason: 'Name is required' };
-  if (!objective) return { ok: false, reason: 'Objective is required' };
+  if (!objective && input.allowEmptyObjective !== true) return { ok: false, reason: 'Objective is required' };
   const workStatus = input.workStatus ?? 'draft';
   if (!isWorkStatus(workStatus)) {
     return { ok: false, reason: 'Work status must be draft, active, or ready' };

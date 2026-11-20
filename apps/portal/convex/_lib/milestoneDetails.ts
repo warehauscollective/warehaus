@@ -100,21 +100,64 @@ export function workStatusWrite(workStatus: MilestoneWorkStatus): { workStatus: 
   return { workStatus };
 }
 
-export function stageOptionLock(stage: MilestoneStage): 'shipped' | null {
-  return stage === 'Shipped' ? 'shipped' : null;
+export const MILESTONE_STAGE_HINT =
+  'Staff can set Shipped when every task that is not Parked is Done. Saves as soon as you pick.';
+
+export const MILESTONE_STATUS_HINT =
+  'Complete is available when every task that is not Parked is Done. Saves as soon as you pick.';
+
+export type CloseTask = {
+  stage?: string | null;
+  status?: string | null;
+  isDone?: boolean;
+};
+
+/** Shipped and Complete share this gate. Parked tasks do not count. */
+export function finishedMilestoneDecision(
+  tasks: readonly CloseTask[],
+  label: 'Shipped' | 'Complete',
+): { ok: true } | { ok: false; reason: string } {
+  const counted = tasks.filter((task) => task.stage !== 'Parked');
+  if (counted.length === 0) {
+    return { ok: false, reason: `${label} needs at least one task that is not Parked.` };
+  }
+  const pending = counted.some((task) => task.isDone !== true && task.status !== 'Done');
+  if (pending) {
+    return { ok: false, reason: `${label} needs every task that is not Parked to be Done.` };
+  }
+  return { ok: true };
+}
+
+export function milestoneCanClose(
+  rows: readonly (CloseTask & { children?: readonly CloseTask[] })[],
+): boolean {
+  const flat: CloseTask[] = [];
+  for (const row of rows) {
+    flat.push(row);
+    for (const child of row.children ?? []) flat.push(child);
+  }
+  return finishedMilestoneDecision(flat, 'Shipped').ok;
+}
+
+export function stageOptionLock(stage: MilestoneStage, canClose = false): 'shipped' | null {
+  if (stage !== 'Shipped' || canClose) return null;
+  return 'shipped';
 }
 
 /**
- * Staff can set any stage except Shipped. Shipped is set when the pull
- * request merges. The same value is a no-op, including Shipped.
+ * Staff can set any stage. Shipped is allowed only when `tasksReady` is true,
+ * which means every non-Parked task is Done. The same value is a no-op.
  */
 export function stageChangeDecision(input: {
   from: MilestoneStage;
   to: string;
+  tasksReady?: boolean;
 }): { ok: true; stage: MilestoneStage; wrote: boolean } | { ok: false; reason: string } {
   if (!isMilestoneStage(input.to)) return { ok: false, reason: 'Unknown stage' };
   if (input.to === input.from) return { ok: true, stage: input.to, wrote: false };
-  if (input.to === 'Shipped') return { ok: false, reason: 'Shipped is set when the pull request merges' };
+  if (input.to === 'Shipped' && input.tasksReady !== true) {
+    return { ok: false, reason: 'Shipped needs every task that is not Parked to be Done.' };
+  }
   return { ok: true, stage: input.to, wrote: true };
 }
 
