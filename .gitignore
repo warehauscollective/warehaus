@@ -25,6 +25,9 @@ pnpm-debug.log*
 # Convex snapshot exports (client data, sessions, password hashes)
 *.zip
 
+# Runner scratch files in a milestone worktree (plan.json, blocked.txt)
+.runner/
+
 # macOS-specific files
 .DS_Store
 

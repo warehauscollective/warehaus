@@ -39,6 +39,7 @@ import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, t
 import { ActivityList } from './roadmapParts';
 import { MoreMenu, EditDialog } from './MilestoneForms';
 import { MilestoneChecklist, type ChecklistActions } from './MilestoneChecklist';
+import { MilestoneRunFeedLive } from './MilestoneRunFeed';
 
 type MilestoneTab = 'overview' | 'tasks' | 'activity' | 'reviews';
 
@@ -608,6 +609,14 @@ export function MilestoneDetailView({
 
       {tab === 'activity' ? (
         <div className="flex flex-col gap-4">
+          {staff ? (
+            <MilestoneRunFeedLive
+              milestoneId={milestone.id}
+              planning={milestone.planning ?? null}
+              fixtures={fixtures}
+              hostSlug={hostSlug}
+            />
+          ) : null}
           <ActivityList
             items={[
               ...(staff && storedReview

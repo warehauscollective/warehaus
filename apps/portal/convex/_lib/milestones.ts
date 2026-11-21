@@ -342,6 +342,9 @@ export type RoadmapTaskInput = {
   round?: number | null;
   portalOwned?: boolean;
   detail?: string | null;
+  runner?: string | null;
+  commit?: string | null;
+  blockedReason?: string | null;
 };
 
 export type RoadmapChild = {
@@ -361,6 +364,12 @@ export type RoadmapChild = {
   portalOwned?: boolean;
   /** Staff only, and only on a task the portal owns. */
   detail?: string;
+  /** Staff only. Runner id working the task. */
+  runner?: string;
+  /** Staff only. Short commit the runner pushed for the task. */
+  commit?: string;
+  /** Staff only. Why the runner stopped on the task. */
+  blockedReason?: string;
   /** True only when this task's milestoneId is the milestone being shown. */
   onMilestone?: boolean;
 };
@@ -398,6 +407,9 @@ function roadmapTask(
     ...(audience === 'staff' && task.round != null ? { round: task.round } : {}),
     ...(audience === 'staff' && task.portalOwned ? { portalOwned: true } : {}),
     ...(audience === 'staff' && task.portalOwned && task.detail ? { detail: task.detail } : {}),
+    ...(audience === 'staff' && task.runner ? { runner: task.runner } : {}),
+    ...(audience === 'staff' && task.commit ? { commit: task.commit.slice(0, 7) } : {}),
+    ...(audience === 'staff' && task.blockedReason ? { blockedReason: task.blockedReason } : {}),
   };
 }
 
@@ -554,6 +566,7 @@ const CLIENT_ROADMAP_OMIT = [
   'localPreviewUrl',
   'figmaUrl',
   'createdVia',
+  'planning',
   'review',
 ] as const;
 
@@ -607,6 +620,8 @@ export type MilestoneRoadmapView = {
   figmaUrl?: string | null;
   /** Staff only. Where the milestone was created. Absent for clients, including the key. */
   createdVia?: MilestoneCreatedVia;
+  /** Staff only. A planning job waiting for, or held by, a runner. */
+  planning?: 'queued' | 'running';
 };
 
 export type MilestoneReviewHistoryItem = {

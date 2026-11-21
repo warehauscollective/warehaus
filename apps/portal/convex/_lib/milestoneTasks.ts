@@ -221,11 +221,32 @@ export function reviewTaskLines(
   return { ok: true, titles };
 }
 
-export type ChecklistState = 'done' | 'progress' | 'todo';
+export type ChecklistState = 'done' | 'progress' | 'todo' | 'blocked';
+
+export function isBlockedTask(task: { status: string; isDone: boolean }): boolean {
+  return !task.isDone && /^blocked$/i.test(task.status.trim());
+}
 
 export function checklistState(task: { status: string; isDone: boolean }): ChecklistState {
   if (task.isDone) return 'done';
+  if (isBlockedTask(task)) return 'blocked';
   return isToDoTask(task) ? 'todo' : 'progress';
+}
+
+/** Status text for a row, with the commit, runner or blocked reason when known. Staff only pass the extras. */
+export function checklistDetailText(task: {
+  status: string;
+  isDone: boolean;
+  commit?: string | null;
+  runner?: string | null;
+  blockedReason?: string | null;
+}): string {
+  const text = checklistStatusText(task);
+  const state = checklistState(task);
+  if (state === 'done' && task.commit) return `${text} · ${task.commit}`;
+  if (state === 'progress' && task.runner) return `${text} · ${task.runner}`;
+  if (state === 'blocked' && task.blockedReason) return `${text} · ${task.blockedReason}`;
+  return text;
 }
 
 export function checklistStatusText(task: { status: string; isDone: boolean }): string {
@@ -238,7 +259,8 @@ export function checklistStatusText(task: { status: string; isDone: boolean }): 
 export function checklistSummary(tasks: readonly { status: string; isDone: boolean }[]): string {
   const done = tasks.filter((task) => checklistState(task) === 'done').length;
   const progress = tasks.filter((task) => checklistState(task) === 'progress').length;
-  return `${done} done · ${progress} in progress`;
+  const blocked = tasks.filter((task) => checklistState(task) === 'blocked').length;
+  return `${done} done · ${progress} in progress${blocked > 0 ? ` · ${blocked} blocked` : ''}`;
 }
 
 export type MilestoneGroupId = 'review' | 'progress' | 'shipped';

@@ -156,6 +156,13 @@ export default defineSchema({
     origin: v.optional(v.union(v.literal('brief'), v.literal('review'), v.literal('manual'))),
     /** Review iteration that asked for this task. Set with origin review. Staff only. */
     round: v.optional(v.number()),
+    /** Runner id working this task. Set on claim, cleared when the run ends. Staff only. */
+    claimedBy: v.optional(v.string()),
+    claimedAt: v.optional(v.number()),
+    /** Commit the runner pushed for this task. Staff only. */
+    lastCommitSha: v.optional(v.string()),
+    /** Why the runner stopped on this task. Staff only. */
+    blockedReason: v.optional(v.string()),
     /**
      * Portal project move. Tasks.Projects is SERVER, so this is not written
      * to Notion. The next pull keeps this project until Notion already matches.
@@ -300,11 +307,18 @@ export default defineSchema({
     createdVia: v.optional(
       v.union(v.literal('grok'), v.literal('claude'), v.literal('portal'), v.literal('other')),
     ),
+    /**
+     * Planning job for the runner. `queued` when a milestone is created in the
+     * portal with no tasks. `running` once a runner claims it. Absent otherwise.
+     */
+    planning: v.optional(v.union(v.literal('queued'), v.literal('running'))),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])
     .index('by_projectId', ['projectId'])
-    .index('by_previewPrNumber', ['previewPrNumber']),
+    .index('by_previewPrNumber', ['previewPrNumber'])
+    .index('by_status', ['status'])
+    .index('by_planning', ['planning']),
 
   /**
    * One human review of one iteration. Idempotent on milestone + iteration.
@@ -326,6 +340,55 @@ export default defineSchema({
   })
     .index('by_org_milestone_iteration', ['orgId', 'milestoneId', 'iteration'])
     .index('by_milestone_iteration', ['milestoneId', 'iteration']),
+
+  /**
+   * One piece of runner work on a milestone: a task, or a planning run.
+   * Staff only. No client query reads this table.
+   */
+  agentRuns: defineTable({
+    orgId: v.id('clients'),
+    milestoneId: v.id('milestones'),
+    /** Absent on a planning run. */
+    taskId: v.optional(v.id('tasks')),
+    kind: v.union(v.literal('planning'), v.literal('task')),
+    runnerId: v.string(),
+    tool: v.union(v.literal('claude_code'), v.literal('cursor')),
+    mode: v.union(v.literal('interactive'), v.literal('headless')),
+    status: v.union(v.literal('running'), v.literal('succeeded'), v.literal('failed'), v.literal('cancelled')),
+    startedAt: v.number(),
+    endedAt: v.optional(v.number()),
+  })
+    .index('by_milestone', ['milestoneId', 'startedAt'])
+    .index('by_task', ['taskId'])
+    .index('by_runner_status', ['runnerId', 'status']),
+
+  /**
+   * Short lines for a milestone's run feed. Summaries and payloads are
+   * masked and cut down before they are stored. Staff only.
+   */
+  agentEvents: defineTable({
+    orgId: v.id('clients'),
+    milestoneId: v.id('milestones'),
+    /** Absent on an event the portal writes itself, such as Ready to Ship. */
+    runId: v.optional(v.id('agentRuns')),
+    type: v.string(),
+    summary: v.string(),
+    /** Trimmed hook payload as JSON text. Never the environment, never a credential. */
+    payload: v.optional(v.string()),
+    /** Sender's key for one event, so a retried hook is stored once. */
+    key: v.optional(v.string()),
+    at: v.number(),
+  })
+    .index('by_run', ['runId', 'at'])
+    .index('by_milestone_time', ['milestoneId', 'at']),
+
+  /** One row per runner: its request window and when it last called. */
+  agentRunners: defineTable({
+    runnerId: v.string(),
+    windowStart: v.number(),
+    count: v.number(),
+    lastSeenAt: v.number(),
+  }).index('by_runnerId', ['runnerId']),
 
   /**
    * Staff notes on a milestone, added by a person or a bot through the staff

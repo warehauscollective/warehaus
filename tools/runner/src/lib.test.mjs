@@ -1,0 +1,160 @@
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { describe, it } from 'node:test';
+import {
+  hookEvent,
+  idleDelayMs,
+  isMilestoneBranch,
+  parseArgs,
+  parsePlan,
+  planPrompt,
+  readEnv,
+  taskOutcome,
+  taskPrompt,
+  worktreeName,
+} from './lib.mjs';
+
+const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
+
+describe('arguments', () => {
+  it('reads start with an id and defaults to interactive', () => {
+    assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp']), {
+      ok: true,
+      options: { id: 'peter-mbp', mode: 'interactive', once: false, repo: '' },
+    });
+    const full = parseArgs(['start', '--id', 'peter-mbp', '--mode', 'headless', '--once', '--repo', '/tmp/x']);
+    assert.deepEqual(full.options, { id: 'peter-mbp', mode: 'headless', once: true, repo: '/tmp/x' });
+  });
+
+  it('refuses a missing id, a bad mode and an unknown flag', () => {
+    assert.equal(parseArgs(['start']).ok, false);
+    assert.equal(parseArgs(['start', '--id', 'Peter MBP']).ok, false);
+    assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--mode', 'fast']).ok, false);
+    assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--force']).ok, false);
+    assert.equal(parseArgs(['stop']).ok, false);
+  });
+});
+
+describe('environment', () => {
+  const token = 'a'.repeat(32);
+
+  it('needs an https Convex site URL and a token', () => {
+    assert.deepEqual(readEnv({ PORTAL_AGENT_URL: 'https://graceful-mastiff-960.convex.site/', RUNNER_TOKEN: token }), {
+      ok: true,
+      url: 'https://graceful-mastiff-960.convex.site',
+      token,
+    });
+    assert.equal(readEnv({ RUNNER_TOKEN: token }).ok, false);
+    assert.equal(readEnv({ PORTAL_AGENT_URL: 'https://graceful-mastiff-960.convex.site' }).ok, false);
+    assert.equal(readEnv({ PORTAL_AGENT_URL: 'http://graceful-mastiff-960.convex.site', RUNNER_TOKEN: token }).ok, false);
+    assert.equal(readEnv({ PORTAL_AGENT_URL: 'https://example.com', RUNNER_TOKEN: token }).ok, false);
+  });
+
+  it('refuses production unless it is asked for', () => {
+    const production = { PORTAL_AGENT_URL: 'https://unique-turtle-383.convex.site', RUNNER_TOKEN: token };
+    assert.equal(readEnv(production).ok, false);
+    assert.equal(readEnv({ ...production, RUNNER_ALLOW_PRODUCTION: '1' }).ok, true);
+  });
+});
+
+describe('branches', () => {
+  it('only accepts milestone branches', () => {
+    assert.equal(isMilestoneBranch('milestone/client-experience-launch'), true);
+    assert.equal(isMilestoneBranch('main'), false);
+    assert.equal(isMilestoneBranch('milestone/'), false);
+    assert.equal(isMilestoneBranch('milestone/../main'), false);
+    assert.equal(isMilestoneBranch('feature/x'), false);
+    assert.equal(worktreeName('milestone/client-experience-launch'), 'milestone-client-experience-launch');
+  });
+});
+
+describe('prompts', () => {
+  const work = {
+    milestone: { name: 'Launch', objective: 'Ship the page.', goals: ['Hero matches'], branch: 'milestone/launch' },
+    task: { order: 5, title: 'Apply review feedback', detail: '' },
+  };
+
+  it('fills the task prompt', () => {
+    const prompt = taskPrompt(read('../prompts/task.md'), work);
+    assert.match(prompt, /Task 05: \*\*Apply review feedback\*\*/);
+    assert.match(prompt, /branch `milestone\/launch`/);
+    assert.match(prompt, /- Hero matches/);
+    assert.equal(prompt.includes('{{'), false);
+  });
+
+  it('fills the planning prompt and keeps it read only', () => {
+    const prompt = planPrompt(read('../prompts/plan-milestone.md'), work);
+    assert.match(prompt, /\*\*Launch\*\*/);
+    assert.match(prompt, /Read only/);
+    assert.match(prompt, /3 to 10 tasks/);
+    assert.equal(prompt.includes('{{'), false);
+  });
+});
+
+describe('plan file', () => {
+  it('reads 3 to 10 tasks', () => {
+    const plan = parsePlan(JSON.stringify({ tasks: [{ title: ' One ', detail: 'a' }, 'Two', { title: 'Three' }] }));
+    assert.deepEqual(plan, { ok: true, tasks: [{ title: 'One', detail: 'a' }, { title: 'Two' }, { title: 'Three' }] });
+    assert.equal(parsePlan('not json').ok, false);
+    assert.equal(parsePlan('null').ok, false);
+    assert.equal(parsePlan(JSON.stringify({ tasks: ['a', 'b'] })).ok, false);
+    assert.equal(parsePlan(JSON.stringify({ tasks: ['a', 'b', ''] })).ok, false);
+  });
+});
+
+describe('task outcome', () => {
+  it('is done only with a new commit', () => {
+    assert.deepEqual(taskOutcome({ before: 'aaa', after: 'bbb', blockedReason: '' }), { status: 'done', commitSha: 'bbb' });
+    assert.equal(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: '' }).status, 'failed');
+    assert.deepEqual(taskOutcome({ before: 'aaa', after: 'aaa', blockedReason: ' needs a Figma frame \n' }), {
+      status: 'blocked',
+      reason: 'needs a Figma frame',
+    });
+  });
+
+  it('waits one minute, then longer, up to five', () => {
+    assert.equal(idleDelayMs(1), 60_000);
+    assert.equal(idleDelayMs(2), 120_000);
+    assert.equal(idleDelayMs(9), 300_000);
+  });
+});
+
+describe('hook events', () => {
+  it('keeps the tool and a file name, never the contents', () => {
+    const event = hookEvent('PostToolUse', {
+      tool_name: 'Edit',
+      tool_input: { file_path: '/Users/x/repo/src/MilestoneReview.tsx', new_string: 'SECRET CONTENT' },
+      tool_response: { output: 'lots of output' },
+    });
+    assert.deepEqual(event, { type: 'tool', summary: 'Edited MilestoneReview.tsx' });
+    assert.equal(JSON.stringify(event).includes('SECRET'), false);
+    assert.equal(JSON.stringify(event).includes('/Users/'), false);
+  });
+
+  it('masks a credential in a command and skips reads', () => {
+    const event = hookEvent('PostToolUse', {
+      tool_name: 'Bash',
+      tool_input: { command: 'curl -H "Authorization: Bearer abcdefghijklmnop1234" https://example.com' },
+    });
+    assert.equal(event.summary.includes('abcdefghijklmnop1234'), false);
+    assert.match(event.summary, /\[redacted\]/);
+    assert.equal(hookEvent('PostToolUse', { tool_name: 'Read', tool_input: { file_path: '/x' } }), null);
+    assert.deepEqual(hookEvent('Stop', {}), { type: 'stop', summary: 'Claude Code stopped' });
+    assert.equal(hookEvent('Notification', {}), null);
+  });
+});
+
+describe('no model credentials', () => {
+  it('starts only the claude binary and holds no model key', () => {
+    const cli = read('./cli.mjs');
+    const hook = read('./hook.mjs');
+    for (const source of [cli, hook, read('./lib.mjs')]) {
+      assert.equal(/ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH|api\.anthropic\.com|@anthropic-ai\/sdk/.test(source), false);
+    }
+    assert.match(cli, /spawn\('claude'/);
+    assert.equal((cli.match(/spawn\('/g) ?? []).length, 1);
+    // The raw hook payload is never posted.
+    assert.match(hook, /summary: event\.summary/);
+    assert.equal(hook.includes('payload,'), false);
+  });
+});

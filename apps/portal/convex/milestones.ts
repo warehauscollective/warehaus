@@ -293,6 +293,9 @@ async function roadmapTasks(
       round: task.round ?? null,
       portalOwned: isPortalOwnedTask({ source: task.source, notionPageId: task.notionPageId }),
       detail: task.description ?? null,
+      runner: task.claimedBy ?? null,
+      commit: task.lastCommitSha ?? null,
+      blockedReason: task.blockedReason ?? null,
     });
   }
   return rows;
@@ -368,6 +371,7 @@ async function toRoadmap(
     ...(audience === 'staff' && milestone.figmaUrl ? { figmaUrl: milestone.figmaUrl } : {}),
     creatorName: await creatorNameFor(ctx, milestone),
     ...(audience === 'staff' && milestone.createdVia ? { createdVia: milestone.createdVia } : {}),
+    ...(audience === 'staff' && milestone.planning ? { planning: milestone.planning } : {}),
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,
@@ -540,6 +544,8 @@ async function insertMilestone(
     ...(args.dueDate ? { dueDate: args.dueDate } : {}),
     ...(args.createdByContactId ? { createdByContactId: args.createdByContactId } : {}),
     ...(args.createdVia ? { createdVia: args.createdVia } : {}),
+    // A milestone made in the portal has no tasks yet. The runner plans it.
+    ...(args.createdVia === 'portal' && created.milestone.status !== 'Parked' ? { planning: 'queued' as const } : {}),
   });
   const milestone = await ctx.db.get(milestoneId);
   if (!milestone) fail('Milestone not found');
