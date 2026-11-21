@@ -10,6 +10,7 @@ import {
   TASK_STAGES,
   taskListPlan,
 } from '@warehaus/portal-sync';
+import { MILESTONE_STATUSES } from '@convex/_lib/milestoneStatus';
 import { attachFailureCode, attachFailureStatus } from '@convex/_lib/milestones';
 import { z } from 'zod';
 
@@ -18,6 +19,10 @@ const cursor = z.string().min(1).max(2000).optional();
 const idempotencyKey = z.string().min(1).max(200);
 const stage = z.enum(TASK_STAGES);
 const status = z.enum(LIVE_TASK_STATUSES);
+/** Every milestone status a bot may send. Shipped is set when the pull request merges. */
+const settableMilestoneStatuses = MILESTONE_STATUSES.filter((value) => value !== 'Shipped') as [string, ...string[]];
+const milestoneStatus = z.enum(settableMilestoneStatuses);
+const milestoneGoals = z.array(z.string().min(1).max(500)).max(20);
 
 export type ToolCall = {
   method: 'GET' | 'POST';
@@ -273,6 +278,58 @@ export const portalTools: PortalTool[] = [
         client: args.client,
         externalId: args.externalId,
         publishToWarehaus: args.publishToWarehaus,
+      }),
+    }),
+  },
+  {
+    name: 'create_milestone',
+    description:
+      'Create a milestone on a project. A task only exists inside a milestone, so create or find the milestone before create_task. Call list_milestones first and reuse a matching milestone instead of making a second one. Send name, objective (one or two sentences on what this milestone delivers) and goals (short outcomes). Status is Planning unless you send another; Shipped cannot be sent, it is set when the pull request merges. The milestone stays unpublished. Returns its id. Send an idempotency key.',
+    write: true,
+    schema: {
+      projectId: z.string().min(1),
+      name: z.string().min(1).max(200),
+      objective: z.string().min(1).max(2000),
+      goals: milestoneGoals.optional(),
+      status: milestoneStatus.optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/milestones',
+      idempotencyKey: String(args.idempotencyKey),
+      body: defined({
+        projectId: args.projectId,
+        name: args.name,
+        objective: args.objective,
+        goals: args.goals ?? [],
+        status: args.status,
+      }),
+    }),
+  },
+  {
+    name: 'update_milestone',
+    description:
+      'Update a milestone name, objective, goals, or status. Send only the fields that change, and at least one. Status is one of Idea, Planning, Awaiting Go, Building, Ready to Ship, or Parked; Shipped cannot be sent, it is set when the pull request merges. Sending the stored values again writes nothing. Use record_milestone_review for an approval or a request for changes. Send an idempotency key.',
+    write: true,
+    schema: {
+      milestoneId: z.string().min(1),
+      name: z.string().min(1).max(200).optional(),
+      objective: z.string().min(1).max(2000).optional(),
+      goals: milestoneGoals.optional(),
+      status: milestoneStatus.optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/milestones/update',
+      idempotencyKey: String(args.idempotencyKey),
+      body: defined({
+        milestoneId: args.milestoneId,
+        name: args.name,
+        objective: args.objective,
+        goals: args.goals,
+        status: args.status,
       }),
     }),
   },
