@@ -246,6 +246,15 @@ const writeTools: Record<string, Record<string, unknown>> = {
     idempotencyKey: 'term-1',
   },
   record_decision: { projectId: 'projects:1', title: 'Tasks live only inside milestones.', idempotencyKey: 'decision-1' },
+  create_milestone: {
+    projectId: 'projects:1',
+    name: 'Launch site',
+    objective: 'Ship the public site.',
+    goals: ['Home page live'],
+    status: 'Planning',
+    idempotencyKey: 'mile-create-1',
+  },
+  update_milestone: { milestoneId: 'milestones:1', status: 'Building', idempotencyKey: 'mile-update-1' },
   attach_task_to_milestone: { milestoneId: 'milestones:1', taskId: 'tasks:1', idempotencyKey: 'mile-1' },
   add_task_link: {
     taskId: 'tasks:1',
@@ -301,6 +310,10 @@ describe('MCP attach arguments', () => {
       milestones.calls.some((call) => call.name === 'portalApi:createMilestone'),
       true,
     );
+    // The token name rides along so the tile can show which bot opened the milestone.
+    const createCall = milestones.calls.find((call) => call.name === 'portalApi:createMilestone');
+    assert.equal(typeof createCall?.args.tokenName, 'string');
+    assert.equal(JSON.stringify(milestones.body).includes('tokenName'), false);
 
     const updated = await postApi(
       '/api/v1/milestones/update',

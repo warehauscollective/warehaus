@@ -52,6 +52,8 @@ A milestone has one field, `status`: `Idea`, `Planning`, `Awaiting Go`, `Buildin
 
 `GET /api/v1/milestones` and `list_milestones` return `status`. `POST /api/v1/milestones` and `POST /api/v1/milestones/update` accept `status`. A new milestone is `Planning` unless `status` says otherwise. Any status can be set except `Shipped`, which is set when the pull request merges. Sending the stored status again writes nothing.
 
+`create_milestone` and `update_milestone` are the MCP tools for those two routes. A task only exists inside a milestone, so a bot calls `list_milestones`, reuses a matching milestone or calls `create_milestone`, then calls `create_task` with that `milestoneId`. `create_milestone` needs `name` and `objective`; `goals` and `status` are optional. `update_milestone` sends only the fields that change. Neither tool accepts `Shipped`. A milestone created through the staff API records which bot opened it from the token name (`grok`, `claude`, or `other`), and the tile shows that mark.
+
 `record_milestone_review` needs `status` `Ready to Ship` and a preview. Approve keeps that status. Request changes moves it back to `Building`. The result returns `status`.
 
 For one release the old names still work, so current bot tokens do not break:

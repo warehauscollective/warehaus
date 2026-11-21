@@ -56,6 +56,7 @@ import {
   apiStatusInput,
   transitionMilestone,
 } from './_lib/milestoneStatus';
+import { contextSourceForToken } from './_lib/projectContext';
 import { convexFailureText } from './_lib/userFacingError';
 
 const PAGE_CAP = 50;
@@ -653,6 +654,8 @@ export const createMilestone = internalMutation({
     status: v.optional(v.string()),
     stage: v.optional(v.string()),
     workStatus: v.optional(v.string()),
+    /** Token name, so the tile can show which bot opened the milestone. */
+    tokenName: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ApiResult> => {
     const opened = await openIdempotency(ctx, args);
@@ -680,6 +683,7 @@ export const createMilestone = internalMutation({
       status: created.milestone.status,
       approval: created.milestone.approval,
       publishToWarehaus: created.milestone.publishToWarehaus,
+      ...(args.tokenName ? { createdVia: contextSourceForToken(args.tokenName) } : {}),
     });
     if (created.activityType) {
       const milestone = await ctx.db.get(milestoneId);
@@ -1235,6 +1239,7 @@ async function dispatchWrite(
   if (path === '/api/v1/milestones') {
     return ctx.runMutation(internal.portalApi.createMilestone, {
       ...idempotencyActor(actor),
+      tokenName: actor.tokenName,
       projectId: body.projectId as Id<'projects'>,
       name: String(body.name ?? ''),
       objective: String(body.objective ?? ''),
