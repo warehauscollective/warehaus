@@ -21,6 +21,7 @@ import {
   tileProgressLabel,
   tileStageMenuBox,
 } from '@/components/projects/ProjectRoadmap';
+import { readRoadmapSource } from '../../components/projects/roadmapSource';
 
 Object.assign(globalThis, { React });
 
@@ -166,7 +167,7 @@ describe('fixture roadmap', () => {
 
 describe('roadmap markup', () => {
   it('renders goals as text and does not use a checkbox', () => {
-    const source = readFileSync(new URL('../../components/projects/ProjectRoadmap.tsx', import.meta.url), 'utf8');
+    const source = readRoadmapSource();
     assert.match(source, /data-testid="milestone-goals"/);
     assert.match(source, /data-testid="milestone-counts"/);
     assert.match(source, /not the decision/);
@@ -223,7 +224,7 @@ describe('roadmap markup', () => {
   });
 
   it('renders the chip, date, and meta copy for staff and client tiles', () => {
-    const source = readFileSync(new URL('../../components/projects/ProjectRoadmap.tsx', import.meta.url), 'utf8');
+    const source = readRoadmapSource();
     assert.match(source, /flex flex-col gap-6 lg:gap-4/);
     assert.equal(source.includes('longChip'), false);
     assert.equal(source.includes("get('chip')"), false);
@@ -651,7 +652,7 @@ describe('MilestoneDetailView', () => {
   });
 
   it('gives the review card its phone layout on a phone', () => {
-    const source = readFileSync(new URL('../../components/projects/ProjectRoadmap.tsx', import.meta.url), 'utf8');
+    const source = readRoadmapSource();
     assert.match(source, /<MilestoneReviewLive milestone=\{milestone\} hostSlug=\{hostSlug\} isPeter=\{isPeter\} phone=\{phone\} \/>/);
     assert.match(source, /const phone = useMaxWidth\(767\);/);
   });
