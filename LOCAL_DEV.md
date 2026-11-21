@@ -250,3 +250,16 @@ That does not run the preflight. It sets `NEXT_PUBLIC_PORTAL_FIXTURES` and start
 Command Palette → **Simple Browser: Show** → `http://localhost:3100`.
 
 If the app is on another machine, forward port **3100** and open that same localhost URL.
+
+## Dev inbox key
+
+`/dev-mail` shows verification, reset, and invite mail when Resend is not set. It loads before sign-in, so it is protected by a key, not a session.
+
+- On the shared dev Convex deployment, set `DEV_MAILBOX_KEY` to a random value of at least 24 characters. Do not pass `--prod`. Do not target `unique-turtle-383`.
+- In the portal env file on the Mac, set `NEXT_PUBLIC_DEV_MAILBOX_KEY` to the same value, then restart the portal.
+
+Without both, the inbox stays empty. Do not commit the value.
+
+## Auth User ID mirror
+
+Auth ids belong to one deployment, and shared dev reads the production Notion. Only production writes Auth User ID and External ID to the Notion contact on sign-in, and only production takes Auth User ID from Notion on a pull. Shared dev does neither, even with `NOTION_WRITEBACK_ENABLED` set to `true`. It keeps its own link. A staff contact on shared dev is linked with `staffProvision:provisionStaffUser`, or with `contacts:linkStaffContact` when the auth user already exists.

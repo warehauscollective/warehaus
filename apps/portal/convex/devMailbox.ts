@@ -1,5 +1,6 @@
 import { v } from 'convex/values';
 import { internalMutation, query } from './_generated/server';
+import { devMailboxKeyAccepted } from './_lib/devAccess';
 
 const MAX_KEPT = 20;
 const MAX_AGE_MS = 60 * 60 * 1000;
@@ -49,11 +50,16 @@ export const clear = internalMutation({
 /**
  * Recent local mail. Returns nothing unless the shared-dev mailbox flag is on
  * and Resend is unset, so a production deploy of this code stays empty.
+ *
+ * This runs before sign-in, so it cannot ask for a session. The caller sends
+ * DEV_MAILBOX_KEY instead. Without that key on the deployment the inbox stays
+ * closed: these messages carry verification, reset, and invite links.
  */
 export const latest = query({
-  args: {},
-  handler: async (ctx) => {
+  args: { key: v.optional(v.string()) },
+  handler: async (ctx, args) => {
     if (!mailboxOpen()) return [];
+    if (!devMailboxKeyAccepted(process.env.DEV_MAILBOX_KEY, args.key)) return [];
     const cutoff = Date.now() - MAX_AGE_MS;
     const rows = await ctx.db.query('devMailbox').withIndex('by_createdAt').order('desc').take(MAX_KEPT);
     return rows

@@ -1,5 +1,6 @@
 import { v } from 'convex/values';
 import { internalAction } from './_generated/server';
+import { authMirrorAllowed } from './_lib/devAccess';
 
 /**
  * Single-field Notion write from the auth join flow.
@@ -12,6 +13,13 @@ export const pushContactAuthFields = internalAction({
     externalId: v.string(),
   },
   handler: async (_ctx, args) => {
+    // Auth ids belong to one deployment and shared dev holds the live Notion
+    // token, so only production writes this field.
+    if (!authMirrorAllowed({ cloudUrl: process.env.CONVEX_CLOUD_URL })) {
+      console.info('[notionAuth] not production — skipped Auth User ID write');
+      return { ok: false as const, skipped: true as const };
+    }
+
     const token = process.env.NOTION_WAREHAUS_TOKEN;
     if (!token) {
       console.info(

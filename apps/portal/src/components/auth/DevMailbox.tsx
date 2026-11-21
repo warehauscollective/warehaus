@@ -23,8 +23,20 @@ function MailText({ text }: { text: string }) {
   );
 }
 
+/** Set in the local env file. The same value is DEV_MAILBOX_KEY on shared dev Convex. */
+const mailboxKey = process.env.NEXT_PUBLIC_DEV_MAILBOX_KEY?.trim() ?? '';
+
 function DevMailboxList() {
-  const messages = useQuery(api.devMailbox.latest);
+  const messages = useQuery(api.devMailbox.latest, mailboxKey ? { key: mailboxKey } : 'skip');
+
+  if (!mailboxKey) {
+    return (
+      <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+        This inbox needs a key. Set NEXT_PUBLIC_DEV_MAILBOX_KEY in the portal env file to the
+        DEV_MAILBOX_KEY value on shared dev, then restart the portal.
+      </p>
+    );
+  }
 
   if (messages === undefined) {
     return <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Loading local inbox…</p>;
