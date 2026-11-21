@@ -23,12 +23,15 @@ import {
   milestoneBranch,
   nextClaimableTask,
   pullRequestUrl,
+  runIsStuck,
   runMode,
   runTool,
   runToolLabel,
   runnerOnline,
   runnerRateDecision,
   shortSha,
+  STUCK_RUN_SCAN,
+  tasksWaitingOnPerson,
   trimEventPayload,
 } from './_lib/agentRun';
 import { proposedTasksDecision } from './_lib/milestoneBot';
@@ -243,6 +246,12 @@ export const claimNext = internalMutation({
       .withIndex('by_status', (q) => q.eq('status', 'Building'))
       .take(CLAIM_MILESTONE_SCAN);
     for (const milestone of building) {
+      // One task run per milestone at a time. Two runners never push to the same branch.
+      const busy = await ctx.db
+        .query('agentRuns')
+        .withIndex('by_milestone_status', (q) => q.eq('milestoneId', milestone._id).eq('status', 'running'))
+        .first();
+      if (busy) continue;
       const tasks = await ctx.db
         .query('tasks')
         .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
@@ -529,6 +538,51 @@ export const failPlanning = internalMutation({
 });
 
 /**
+ * Releases runs whose runner went quiet for 30 minutes: the run is cancelled,
+ * its task goes back to To do, and the claim is cleared. A planning job goes
+ * back in the queue. Reads only running runs, through an index, a few at a
+ * time. Called by a cron.
+ */
+export const releaseStuckRuns = internalMutation({
+  args: {},
+  handler: async (ctx) => {
+    const now = Date.now();
+    const running = await ctx.db
+      .query('agentRuns')
+      .withIndex('by_status', (q) => q.eq('status', 'running'))
+      .take(STUCK_RUN_SCAN);
+    let released = 0;
+    for (const run of running) {
+      const runner = await ctx.db
+        .query('agentRunners')
+        .withIndex('by_runnerId', (q) => q.eq('runnerId', run.runnerId))
+        .unique();
+      if (!runIsStuck({ lastSeenAt: runner?.lastSeenAt, startedAt: run.startedAt, now })) continue;
+      await ctx.db.patch(run._id, { status: 'cancelled', endedAt: now });
+      if (run.kind === 'task' && run.taskId) {
+        const task = await ctx.db.get(run.taskId);
+        if (task && !task.isDone && task.claimedBy === run.runnerId) {
+          await ctx.db.patch(task._id, { status: 'To Do', claimedBy: undefined, claimedAt: undefined, updatedAt: now });
+        }
+      } else {
+        const milestone = await ctx.db.get(run.milestoneId);
+        if (milestone?.planning === 'running') await ctx.db.patch(milestone._id, { planning: 'queued' });
+      }
+      await writeEvent(ctx, {
+        orgId: run.orgId,
+        milestoneId: run.milestoneId,
+        runId: run._id,
+        type: 'failed',
+        summary: `Run released · ${run.runnerId} went quiet for 30 minutes · the work is back in the queue`,
+        at: now,
+      });
+      released += 1;
+    }
+    return { scanned: running.length, released };
+  },
+});
+
+/**
  * Staff run feed for one milestone: the newest events, and the runner behind
  * the latest run. Reactive, indexed, and capped. Clients have no query here.
  */
@@ -576,6 +630,17 @@ export const feedForMilestone = adminQuery({
       planning: milestone.planning ?? null,
       branch: milestone.branch ?? null,
       prUrl: milestone.prUrl ?? null,
+      waitingOnPerson:
+        milestone.status === 'Building'
+          ? tasksWaitingOnPerson(
+              await ctx.db
+                .query('tasks')
+                .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
+                .take(CLAIM_TASK_SCAN),
+            )
+              .slice(0, 5)
+              .map((task) => task.name)
+          : [],
     };
   },
 });

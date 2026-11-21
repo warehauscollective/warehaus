@@ -25,6 +25,17 @@ crons.interval(
   {},
 );
 
+/**
+ * Runner runs whose runner went quiet for 30 minutes go back in the queue.
+ * One indexed read of running runs, at most 25. With no run open it writes nothing.
+ */
+crons.interval(
+  'release-stuck-runs',
+  { minutes: 10 },
+  internal.agent.releaseStuckRuns,
+  {},
+);
+
 /** Live invite tokens past expiresAt become expired and queue Invite Status Expired for Notion. */
 crons.interval(
   'expire-invite-tokens',

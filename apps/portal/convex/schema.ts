@@ -365,7 +365,9 @@ export default defineSchema({
   })
     .index('by_milestone', ['milestoneId', 'startedAt'])
     .index('by_task', ['taskId'])
-    .index('by_runner_status', ['runnerId', 'status']),
+    .index('by_runner_status', ['runnerId', 'status'])
+    .index('by_milestone_status', ['milestoneId', 'status'])
+    .index('by_status', ['status', 'startedAt']),
 
   /**
    * Short lines for a milestone's run feed. Summaries and payloads are

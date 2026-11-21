@@ -188,6 +188,37 @@ export function nextClaimableTask<T extends ClaimableTask>(tasks: readonly T[]):
   return open[0] ?? null;
 }
 
+/**
+ * A milestone created with no tasks is queued for a planning run, whatever
+ * created it. One that arrives with tasks, or that is parked, is not.
+ */
+export function planningForNewMilestone(input: { taskCount: number; status: string }): boolean {
+  return input.taskCount === 0 && input.status !== 'Parked' && input.status !== 'Shipped';
+}
+
+/** A run whose runner has been quiet this long is released back to To do. */
+export const STUCK_RUN_AFTER_MS = 30 * 60_000;
+/** Running runs looked at per sweep. */
+export const STUCK_RUN_SCAN = 25;
+
+export function runIsStuck(input: { lastSeenAt: number | null | undefined; startedAt: number; now: number }): boolean {
+  const last = Math.max(input.lastSeenAt ?? 0, input.startedAt);
+  return input.now - last >= STUCK_RUN_AFTER_MS;
+}
+
+/**
+ * Open tasks on a milestone that the runner will never take, because they
+ * sync from Notion or are subtasks. The milestone stays in Building until a
+ * person closes them, so the feed names them.
+ */
+export function tasksWaitingOnPerson<
+  T extends { name: string; isDone: boolean; archivedAt?: number | null; parentTaskId?: string | null; source?: string | null; notionPageId?: string | null },
+>(tasks: readonly T[]): T[] {
+  return tasks.filter(
+    (task) => task.archivedAt == null && !task.isDone && (Boolean(task.parentTaskId) || !isPortalOwnedTask(task)),
+  );
+}
+
 /** True when every task on the milestone is done. An empty list is not done. */
 export function allTasksDone(tasks: readonly { isDone: boolean; archivedAt?: number | null }[]): boolean {
   const live = tasks.filter((task) => task.archivedAt == null);

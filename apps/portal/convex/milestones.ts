@@ -114,6 +114,7 @@ import {
 } from './_lib/reviewPreview';
 import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/wrappers';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
+import { planningForNewMilestone } from './_lib/agentRun';
 
 const statusArg = v.union(
   v.literal('Idea'),
@@ -548,8 +549,8 @@ async function insertMilestone(
     ...(args.createdByContactId ? { createdByContactId: args.createdByContactId } : {}),
     ...(args.createdVia ? { createdVia: args.createdVia } : {}),
     branch: await uniqueMilestoneBranch(ctx, created.milestone.name),
-    // A milestone made in the portal has no tasks yet. The runner plans it.
-    ...(args.createdVia === 'portal' && created.milestone.status !== 'Parked' ? { planning: 'queued' as const } : {}),
+    // A milestone made here has no tasks yet, whoever made it. The runner plans it.
+    ...(planningForNewMilestone({ taskCount: 0, status: created.milestone.status }) ? { planning: 'queued' as const } : {}),
   });
   const milestone = await ctx.db.get(milestoneId);
   if (!milestone) fail('Milestone not found');
