@@ -192,7 +192,7 @@ describe('who may edit', () => {
     assert.equal(idea.ok && idea.milestone.status, 'Idea');
     assert.deepEqual(createMilestoneDecision({ ...base, status: 'Shipped' }), {
       ok: false,
-      reason: 'Shipped is set when the pull request merges',
+      reason: 'Staff set Shipped when every task that is not Parked is Done. A task reaches Shipped only after its pull request is verified merged.',
     });
     assert.deepEqual(createMilestoneDecision({ ...base, status: 'ready' }), { ok: false, reason: 'Unknown status' });
   });

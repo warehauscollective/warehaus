@@ -37,7 +37,8 @@ export const DEFAULT_MILESTONE_STATUS: MilestoneStatus = 'Planning';
 
 export const STATUS_ACTIVITY = 'milestone.status';
 export const UNKNOWN_STATUS = 'Unknown status';
-export const SHIPPED_ON_MERGE = 'Shipped is set when the pull request merges';
+export const SHIPPED_ON_MERGE =
+  'Staff set Shipped when every task that is not Parked is Done. A task reaches Shipped only after its pull request is verified merged.';
 export const SHIPPED_NEEDS_DONE = 'Shipped needs every task that is not Parked to be Done.';
 export const STATUS_STALE = 'The status changed. Refresh and try again.';
 export const APPROVE_NOT_READY = 'Approve is available when the status is Ready to Ship';
@@ -58,7 +59,7 @@ export function statusCategory(status: MilestoneStatus): MilestoneStatusCategory
 
 /**
  * The status play moves to. Null on Ready to Ship (Approve is next), on
- * Shipped (set on merge) and on Parked (resume from the menu).
+ * Shipped (set when the tasks are Done) and on Parked (resume from the menu).
  */
 export function nextStatus(status: MilestoneStatus): MilestoneStatus | null {
   const index = ADVANCE_LINE.indexOf(status);

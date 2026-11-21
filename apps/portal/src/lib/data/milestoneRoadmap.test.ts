@@ -162,6 +162,13 @@ describe('fixture roadmap', () => {
     const plain = applyFixtureMilestonePreview(staff, '?tiles=nofigma');
     assert.equal(plain[0]?.localPreviewUrl, 'http://localhost:3201');
     assert.equal(plain[0]?.figmaUrl ?? null, null);
+    const readyClose = applyFixtureMilestonePreview(staff, '?close=ready');
+    const openTasks = readyClose[0]?.rows.flatMap((row) => [row, ...row.children]) ?? [];
+    assert.ok(openTasks.length > 0);
+    assert.equal(openTasks.every((task) => task.isDone && task.status === 'Done'), true);
+    assert.equal(readyClose[0]?.openCount, 0);
+    assert.equal(readyClose[1]?.name, 'Billing export draft');
+    assert.equal(readyClose[1]?.rows.length, staff[1]?.rows.length);
   });
 });
 
@@ -518,7 +525,9 @@ describe('roadmap markup', () => {
     assert.equal(desktop.includes('stage-confirm-sheet'), false);
     assert.equal(desktop.includes('>Close<'), false);
     const shipped = desktop.split('<button').find((part) => part.includes('>Shipped<')) ?? '';
-    assert.match(shipped, /disabled=""/);
+    assert.doesNotMatch(shipped, /disabled=""/);
+    assert.match(shipped, /aria-disabled="true"/);
+    assert.match(shipped, /aria-describedby="milestone-status-hint"/);
     assert.match(shipped, /NOT DONE/);
 
     const phoneMenu = renderTile({ staff: true, milestone, phone: true, stagePreview: 'menu' });

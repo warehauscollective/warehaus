@@ -1110,6 +1110,14 @@ export function menuButtons(root: ParentNode | null): HTMLElement[] {
 export const MILESTONE_STATUS_HINT =
   'Staff can set Shipped when every task that is not Parked is Done. Saves as soon as you pick.';
 
+export const MILESTONE_STATUS_HINT_ID = 'milestone-status-hint';
+
+/** Same clearance centered dialogs use so a phone sheet sits above the dock. */
+const STATUS_SHEET_CLEARANCE = 'calc(82px + env(safe-area-inset-bottom, 0px))';
+
+const MENU_OPTION_FOCUS =
+  'focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2';
+
 /** The Status menu. Any jump, forward or back. Shipped unlocks when every non-Parked task is Done. */
 export function StatusMenu({
   current,
@@ -1130,7 +1138,7 @@ export function StatusMenu({
       aria-label="Status"
       data-testid="milestone-status-menu"
       onKeyDown={(event) => menuKey(event, onClose)}
-      style={menuStyle(sheet)}
+      style={menuStyle(sheet, 400, true)}
     >
       {sheet ? <SheetHeader title="Status" onClose={onClose} /> : null}
       {MILESTONE_STATUSES.map((status) => {
@@ -1142,10 +1150,20 @@ export function StatusMenu({
             type="button"
             role="option"
             aria-selected={selected}
-            aria-disabled={lock != null}
-            disabled={lock != null}
-            onClick={() => onPick(status)}
-            className="flex w-full items-center gap-2 text-left"
+            aria-disabled={lock != null ? true : undefined}
+            aria-describedby={lock ? MILESTONE_STATUS_HINT_ID : undefined}
+            onClick={(event) => {
+              if (lock) {
+                event.preventDefault();
+                return;
+              }
+              onPick(status);
+            }}
+            onKeyDown={(event) => {
+              if (!lock || (event.key !== 'Enter' && event.key !== ' ')) return;
+              event.preventDefault();
+            }}
+            className={`flex w-full items-center gap-2 text-left ${MENU_OPTION_FOCUS}`}
             style={{
               padding: 10,
               border: 0,
@@ -1165,7 +1183,7 @@ export function StatusMenu({
           </button>
         );
       })}
-      <p style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+      <p id={MILESTONE_STATUS_HINT_ID} style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
         {MILESTONE_STATUS_HINT}
       </p>
     </div>
@@ -1536,8 +1554,13 @@ function ConfirmUnpublish(props: {
   );
 }
 
-function menuStyle(sheet?: boolean, _width = 400): CSSProperties {
-  if (sheet) return { padding: '4px 12px 12px' };
+function menuStyle(sheet?: boolean, _width = 400, clearDock = false): CSSProperties {
+  if (sheet) {
+    return {
+      padding: '4px 12px 12px',
+      ...(clearDock ? { paddingBottom: STATUS_SHEET_CLEARANCE } : {}),
+    };
+  }
   return {
     width: '100%',
     padding: 6,

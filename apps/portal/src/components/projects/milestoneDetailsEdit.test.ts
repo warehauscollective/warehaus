@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { textBlurSave } from '@convex/_lib/milestoneDetails';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { MilestoneDetailView } from './ProjectRoadmap';
-import { anchoredMenuBox, OwnerMenu, Popover } from './milestoneDetailsEdit';
+import { anchoredMenuBox, OwnerMenu, Popover, StatusMenu } from './milestoneDetailsEdit';
 
 Object.assign(globalThis, { React });
 
@@ -202,15 +202,35 @@ describe('milestone details panel', () => {
     }
     assert.doesNotMatch(stageOption(menu, 'Awaiting Go'), /disabled=""/);
     assert.doesNotMatch(stageOption(menu, 'Ready to Ship'), /disabled=""/);
+    assert.match(stageOption(menu, 'Ready to Ship'), /outline-\[var\(--info\)\]/);
     assert.equal(menu.includes('PETER’S CALL'), false);
-    assert.match(stageOption(menu, 'Shipped'), /disabled=""/);
+    assert.doesNotMatch(stageOption(menu, 'Shipped'), /disabled=""/);
+    assert.match(stageOption(menu, 'Shipped'), /aria-disabled="true"/);
+    assert.match(stageOption(menu, 'Shipped'), /aria-describedby="milestone-status-hint"/);
+    assert.match(menu, /id="milestone-status-hint"/);
     assert.match(stageOption(menu, 'Shipped'), /NOT DONE/);
     assert.match(stageOption(menu, 'Shipped'), /task-lock\.svg/);
     assert.equal(menu.includes('>Close<'), false);
 
     const same = view({ staff: true, preview: 'stage-peter', email: 'alex@warehaus.co' });
     assert.doesNotMatch(stageOption(same, 'Awaiting Go'), /disabled=""/);
-    assert.match(stageOption(same, 'Shipped'), /disabled=""/);
+    assert.match(stageOption(same, 'Shipped'), /aria-disabled="true"/);
+    assert.doesNotMatch(stageOption(same, 'Shipped'), /disabled=""/);
+  });
+
+  it('keeps a locked Shipped option focusable and clears the dock on the phone sheet', () => {
+    const locked = renderToStaticMarkup(
+      createElement(StatusMenu, { current: 'Building', canClose: false, sheet: true, onPick: () => undefined, onClose: () => undefined }),
+    );
+    assert.match(locked, /aria-disabled="true"/);
+    assert.equal(locked.includes('disabled=""'), false);
+    assert.match(locked, /padding-bottom:calc\(82px \+ env\(safe-area-inset-bottom, 0px\)\)/);
+    const open = renderToStaticMarkup(
+      createElement(StatusMenu, { current: 'Building', canClose: true, onPick: () => undefined, onClose: () => undefined }),
+    );
+    assert.equal(open.includes('aria-disabled'), false);
+    assert.equal(open.includes('NOT DONE'), false);
+    assert.match(open, /outline-\[var\(--info\)\]/);
   });
 
   it('keeps Awaiting Go editable for staff', () => {
