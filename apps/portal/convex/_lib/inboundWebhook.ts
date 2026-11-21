@@ -57,11 +57,46 @@ export type InboundItem = {
   moveStage: boolean;
 };
 
+/** `milestone/<slug>`, the one branch a milestone is built on. */
+export const MILESTONE_BRANCH = /^milestone\/[a-z0-9][a-z0-9-]{0,47}$/;
+
+export function isMilestoneBranch(value: unknown): value is string {
+  return typeof value === 'string' && MILESTONE_BRANCH.test(value);
+}
+
+/**
+ * Vercel's stable URL for a branch of the portal project. It keeps pointing
+ * at the newest build of the branch. Null when the host label would be too
+ * long for Vercel to keep whole, since Vercel then shortens it with a hash.
+ */
+export function vercelBranchUrl(branch: string): string | null {
+  if (!isMilestoneBranch(branch)) return null;
+  const label = `${VERCEL_PROJECT_NAME}-git-${branch.replace(/[^a-z0-9]+/g, '-')}-warehaus-collective`;
+  if (label.length > 63) return null;
+  return `https://${label}.vercel.app`;
+}
+
+/** What a delivery says about a milestone branch. Applied beside any task links. */
+export type MilestoneInbound =
+  | {
+      kind: 'pull';
+      branch: string;
+      prUrl: string;
+      prNumber: number;
+      prTitle?: string;
+      sha: string;
+      /** True only when the pull request merged into the default branch. */
+      merged: boolean;
+    }
+  | { kind: 'deploy'; branch: string; url: string; sha: string };
+
 export type InboundPlan =
   | { action: 'ignore'; reason: string }
   | {
       action: 'apply';
       source: InboundSource;
+      /** Set when the delivery is for a `milestone/<slug>` branch. */
+      milestone?: MilestoneInbound;
       deliveryId?: string;
       /** repo#number#sha#state, deploymentId#state, or check#sha#conclusion. */
       contentKey?: string;
@@ -273,15 +308,30 @@ function githubPullFields(body: Record<string, unknown>): {
   sha: string;
   title?: string;
   merged: boolean;
+  /** Head branch name. Null when the payload has none. */
+  headRef: string | null;
+  /** True when the pull request targets the repository's default branch. */
+  intoDefault: boolean;
 } | null {
   const repository = asRecord(body.repository);
   const pull = asRecord(body.pull_request);
   const repo = asNonEmpty(repository?.full_name);
-  const sha = cleanSha(asRecord(pull?.head)?.sha);
+  const head = asRecord(pull?.head);
+  const sha = cleanSha(head?.sha);
   const number = pullNumber(pull?.number);
   if (!repo || !sha || number == null) return null;
   const title = cleanTitle(pull?.title);
-  return { repo, number, sha, ...(title ? { title } : {}), merged: pull?.merged === true };
+  const baseRef = asNonEmpty(asRecord(pull?.base)?.ref);
+  const defaultBranch = asNonEmpty(repository?.default_branch) ?? 'main';
+  return {
+    repo,
+    number,
+    sha,
+    ...(title ? { title } : {}),
+    merged: pull?.merged === true,
+    headRef: asNonEmpty(head?.ref),
+    intoDefault: baseRef != null && baseRef === defaultBranch,
+  };
 }
 
 function githubCheckFields(body: Record<string, unknown>, key: 'check_suite' | 'workflow_run'): {
@@ -307,11 +357,27 @@ function planGitHub(rawBody: string, eventHeader: string | null, deliveryHeader:
     if (action !== 'opened' && action !== 'synchronize' && action !== 'closed') {
       return { action: 'ignore', reason: 'event' };
     }
-    if (ids.length === 0) return { action: 'ignore', reason: 'no_portal_task' };
     const pull = githubPullFields(body);
+    // A pull request from a milestone branch is matched by its branch. It needs no Portal-Task line.
+    const onMilestone = pull != null && isMilestoneBranch(pull.headRef);
+    if (ids.length === 0 && !onMilestone) return { action: 'ignore', reason: 'no_portal_task' };
     if (!pull) return { action: 'ignore', reason: 'no_pull_request' };
     const merged = action === 'closed' && pull.merged;
     const state = merged ? 'merged' : action === 'closed' ? 'closed' : 'open';
+    const prUrl = pullUrl(pull.repo, pull.number);
+    const milestone: MilestoneInbound | undefined =
+      onMilestone && pull.headRef && prUrl
+        ? {
+            kind: 'pull',
+            branch: pull.headRef,
+            prUrl,
+            prNumber: pull.number,
+            ...(pull.title ? { prTitle: pull.title } : {}),
+            sha: pull.sha,
+            // Only a merge into the default branch ships the milestone.
+            merged: merged && pull.intoDefault,
+          }
+        : undefined;
     const items = itemsForPull({
       ids,
       repo: pull.repo,
@@ -329,6 +395,7 @@ function planGitHub(rawBody: string, eventHeader: string | null, deliveryHeader:
       // State stays on the key so an open and a later merge of the same head sha
       // are not the same snapshot. A replay of the same state still no-ops.
       contentKey: `${pull.repo}#${pull.number}#${pull.sha}#${state}`,
+      ...(milestone ? { milestone } : {}),
       items,
     };
   }
@@ -371,18 +438,24 @@ function planVercel(rawBody: string): InboundPlan {
     return { action: 'ignore', reason: 'project' };
   }
   const ids = portalTaskIds(rawBody);
-  if (ids.length === 0) return { action: 'ignore', reason: 'no_portal_task' };
   const meta = asRecord(deployment?.meta);
+  const branch = asNonEmpty(meta?.githubCommitRef) ?? asNonEmpty(meta?.gitCommitRef);
+  // A finished build of a milestone branch is matched by its branch. It needs no Portal-Task line.
+  const onMilestone = state === 'succeeded' && isMilestoneBranch(branch);
+  if (ids.length === 0 && !onMilestone) return { action: 'ignore', reason: 'no_portal_task' };
   const sha = cleanSha(meta?.githubCommitSha) ?? cleanSha(meta?.gitCommitSha);
   const url = deployUrl(deployment);
   if (!sha || !url) return { action: 'ignore', reason: 'no_deploy' };
   const deliveryId = cleanDeliveryId(asNonEmpty(body.id));
   const deploymentId = cleanDeliveryId(asNonEmpty(deployment?.id)) ?? url;
+  const milestone: MilestoneInbound | undefined =
+    onMilestone && branch ? { kind: 'deploy', branch, url: vercelBranchUrl(branch) ?? url, sha } : undefined;
   return {
     action: 'apply',
     source: 'vercel',
     ...(deliveryId ? { deliveryId } : {}),
     contentKey: `${deploymentId}#${state}`,
+    ...(milestone ? { milestone } : {}),
     items: ids.map((notionPageId) => ({
       notionPageId,
       kind: 'deploy' as const,

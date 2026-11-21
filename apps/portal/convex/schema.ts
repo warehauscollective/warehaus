@@ -312,13 +312,18 @@ export default defineSchema({
      * portal with no tasks. `running` once a runner claims it. Absent otherwise.
      */
     planning: v.optional(v.union(v.literal('queued'), v.literal('running'))),
+    /** The milestone's one branch, `milestone/<slug>`. Set on create. Absent on older rows. Staff only. */
+    branch: v.optional(v.string()),
+    /** The milestone's one pull request. Set by the GitHub webhook or the runner. Staff only. */
+    prUrl: v.optional(v.string()),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])
     .index('by_projectId', ['projectId'])
     .index('by_previewPrNumber', ['previewPrNumber'])
     .index('by_status', ['status'])
-    .index('by_planning', ['planning']),
+    .index('by_planning', ['planning'])
+    .index('by_branch', ['branch']),
 
   /**
    * One human review of one iteration. Idempotent on milestone + iteration.

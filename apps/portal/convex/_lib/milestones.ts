@@ -567,6 +567,8 @@ const CLIENT_ROADMAP_OMIT = [
   'figmaUrl',
   'createdVia',
   'planning',
+  'branch',
+  'prUrl',
   'review',
 ] as const;
 
@@ -622,6 +624,10 @@ export type MilestoneRoadmapView = {
   createdVia?: MilestoneCreatedVia;
   /** Staff only. A planning job waiting for, or held by, a runner. */
   planning?: 'queued' | 'running';
+  /** Staff only. The milestone's one branch. */
+  branch?: string;
+  /** Staff only. The milestone's one pull request. */
+  prUrl?: string;
 };
 
 export type MilestoneReviewHistoryItem = {

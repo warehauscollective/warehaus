@@ -1,6 +1,7 @@
 /**
  * GitHub and Vercel webhooks. Signature checks happen before any read.
- * A delivery with no Portal-Task line never reaches the mutation.
+ * A delivery with no Portal-Task line reaches the mutation only when it is for
+ * a `milestone/<slug>` branch. That one is matched to its milestone by branch.
  * Check and workflow events match an existing pull-request link by head sha.
  *
  * Claims are inserted in this mutation before any link or stage write.
@@ -28,8 +29,13 @@ import {
   snapshotClaimId,
   stageMoveForMerge,
   type InboundItem,
+  type MilestoneInbound,
   type WebhookDecision,
 } from '../_lib/inboundWebhook';
+import { detailActivitySummary } from '../_lib/milestoneDetails';
+import { writeMilestoneActivity } from '../_lib/milestones';
+import { STATUS_ACTIVITY, transitionMilestone } from '../_lib/milestoneStatus';
+import { assertStaffPreviewLink } from '../_lib/previewLink';
 import { processedSyncEventPatch } from '../_lib/syncEventRetention';
 
 const itemValidator = v.object({
@@ -42,9 +48,26 @@ const itemValidator = v.object({
   moveStage: v.boolean(),
 });
 
+const milestoneValidator = v.union(
+  v.object({
+    kind: v.literal('pull'),
+    branch: v.string(),
+    prUrl: v.string(),
+    prNumber: v.number(),
+    prTitle: v.optional(v.string()),
+    sha: v.string(),
+    merged: v.boolean(),
+  }),
+  v.object({ kind: v.literal('deploy'), branch: v.string(), url: v.string(), sha: v.string() }),
+);
+
 type ApplyResult = {
   ok: true;
   wrote: boolean;
+  /** True when a milestone was matched by its branch and something on it changed. */
+  milestone?: boolean;
+  /** True when this delivery moved the milestone to Shipped. */
+  shipped?: boolean;
   duplicate?: boolean;
   unmatched?: boolean;
   limited?: boolean;
@@ -58,6 +81,7 @@ type ApplyArgs = {
   contentKey?: string;
   matchSha?: string;
   checkState?: string;
+  milestone?: MilestoneInbound;
   items: InboundItem[];
 };
 
@@ -172,6 +196,87 @@ async function linkForTaskUrl(
     .first();
 }
 
+/**
+ * What a delivery for a `milestone/<slug>` branch writes on that milestone.
+ * A pull request stores its link, number, title and head commit. A merge into
+ * the default branch moves Status to Shipped through `transitionMilestone`.
+ * A finished Vercel build stores the branch preview. Every write is skipped
+ * when the stored value already matches, so a replay changes nothing.
+ */
+async function applyMilestoneInbound(
+  ctx: MutationCtx,
+  inbound: MilestoneInbound,
+  now: number,
+): Promise<{ wrote: boolean; shipped: boolean }> {
+  const milestone = await ctx.db
+    .query('milestones')
+    .withIndex('by_branch', (q) => q.eq('branch', inbound.branch))
+    .first();
+  if (!milestone) return { wrote: false, shipped: false };
+
+  if (inbound.kind === 'deploy') {
+    const checked = assertStaffPreviewLink(inbound.url);
+    if (!checked.ok) return { wrote: false, shipped: false };
+    // An approved or shipped milestone keeps no preview.
+    if (milestone.status === 'Shipped' || milestone.approval === 'approved') return { wrote: false, shipped: false };
+    if (milestone.previewUrl === checked.href && milestone.previewCommit === inbound.sha) {
+      return { wrote: false, shipped: false };
+    }
+    await ctx.db.patch(milestone._id, {
+      previewUrl: checked.href,
+      previewCommit: inbound.sha,
+      previewBranch: inbound.branch,
+      previewBuiltAt: now,
+      ...(milestone.previewBuild ? { previewBuild: undefined } : {}),
+    });
+    await ctx.db.insert('agentEvents', {
+      orgId: milestone.orgId,
+      milestoneId: milestone._id,
+      type: 'note',
+      summary: `Vercel preview ready · ${inbound.sha.slice(0, 7)}`,
+      key: `vercel:${inbound.sha}`,
+      at: now,
+    });
+    return { wrote: true, shipped: false };
+  }
+
+  const patch: Record<string, unknown> = {};
+  if (milestone.prUrl !== inbound.prUrl) patch.prUrl = inbound.prUrl;
+  if (milestone.previewPrNumber !== inbound.prNumber) patch.previewPrNumber = inbound.prNumber;
+  if (inbound.prTitle && milestone.previewPrTitle !== inbound.prTitle) patch.previewPrTitle = inbound.prTitle;
+  if (milestone.previewBranch !== inbound.branch) patch.previewBranch = inbound.branch;
+  if (milestone.previewCommit !== inbound.sha && milestone.status !== 'Shipped') patch.previewCommit = inbound.sha;
+
+  let shipped = false;
+  if (inbound.merged) {
+    const moved = transitionMilestone({ from: milestone.status, cause: 'merge' });
+    if (moved.ok && moved.wrote) {
+      patch.status = moved.status;
+      shipped = true;
+    }
+  }
+  if (Object.keys(patch).length === 0) return { wrote: false, shipped: false };
+  await ctx.db.patch(milestone._id, patch);
+  if (shipped) {
+    await writeMilestoneActivity(
+      ctx as unknown as Parameters<typeof writeMilestoneActivity>[0],
+      milestone,
+      STATUS_ACTIVITY,
+      now,
+      detailActivitySummary({ actor: 'GitHub', from: milestone.status, to: 'Shipped', at: now }),
+    );
+    await ctx.db.insert('agentEvents', {
+      orgId: milestone.orgId,
+      milestoneId: milestone._id,
+      type: 'note',
+      summary: `Pull request #${inbound.prNumber} merged · milestone is Shipped`,
+      key: `merged:${inbound.prNumber}`,
+      at: now,
+    });
+  }
+  return { wrote: true, shipped };
+}
+
 export const applyInbound = internalMutation({
   args: {
     source: v.union(v.literal('github'), v.literal('vercel')),
@@ -179,6 +284,7 @@ export const applyInbound = internalMutation({
     contentKey: v.optional(v.string()),
     matchSha: v.optional(v.string()),
     checkState: v.optional(v.string()),
+    milestone: v.optional(milestoneValidator),
     items: v.array(itemValidator),
   },
   handler: async (ctx, args): Promise<ApplyResult> => {
@@ -186,7 +292,7 @@ export const applyInbound = internalMutation({
     const items = args.items.slice(0, INBOUND_MAX_TASKS);
     const matchSha = args.matchSha?.trim().toLowerCase() ?? '';
     const checkState = args.checkState?.trim() ?? '';
-    if (items.length === 0 && !matchSha) return none;
+    if (items.length === 0 && !matchSha && !args.milestone) return none;
 
     const deliveryKey = args.deliveryId?.trim()
       ? deliveryClaimId(args.source, args.deliveryId.trim())
@@ -199,6 +305,27 @@ export const applyInbound = internalMutation({
 
     const now = Date.now();
     const addedBy = args.source === 'github' ? 'github-webhook' : 'vercel-webhook';
+
+    // The milestone branch is handled first and on its own. Task links below
+    // still apply when the same delivery also names a Portal task.
+    let milestoneWrote = false;
+    let shipped = false;
+    if (args.milestone) {
+      const applied = await applyMilestoneInbound(ctx, args.milestone, now);
+      milestoneWrote = applied.wrote;
+      shipped = applied.shipped;
+      if (items.length === 0) {
+        if (!milestoneWrote) return none;
+        const rate = await takeRate(ctx, now);
+        if (!rate.ok) return { ...none, limited: true };
+        await insertClaim(ctx, deliveryKey, now);
+        await insertClaim(ctx, snapshotKey, now);
+        await rememberRate(ctx, rate.row, rate.windowStartedAt, rate.windowCount, now);
+        return { ok: true, wrote: true, milestone: true, ...(shipped ? { shipped: true } : {}), links: 0, stageMoves: 0 };
+      }
+    }
+    const withMilestone = (result: ApplyResult): ApplyResult =>
+      milestoneWrote ? { ...result, wrote: true, milestone: true, ...(shipped ? { shipped: true } : {}) } : result;
 
     if (matchSha) {
       if (!checkState) return none;
@@ -249,9 +376,9 @@ export const applyInbound = internalMutation({
       changes.push({ task, item, existing, atCap });
     }
 
-    if (matched === 0) return { ...none, unmatched: true };
+    if (matched === 0) return withMilestone({ ...none, unmatched: true });
     const writable = changes.filter((change) => !change.atCap);
-    if (writable.length === 0) return none;
+    if (writable.length === 0) return withMilestone(none);
 
     const rate = await takeRate(ctx, now);
     if (!rate.ok) return { ...none, limited: true };
@@ -340,7 +467,7 @@ export const applyInbound = internalMutation({
     }
 
     await rememberRate(ctx, rate.row, rate.windowStartedAt, rate.windowCount, now);
-    return { ok: true, wrote: true, links, stageMoves };
+    return withMilestone({ ok: true, wrote: true, links, stageMoves });
   },
 });
 
@@ -360,6 +487,7 @@ async function finish(
     ...(plan.contentKey ? { contentKey: plan.contentKey } : {}),
     ...(plan.matchSha ? { matchSha: plan.matchSha } : {}),
     ...(plan.checkState ? { checkState: plan.checkState } : {}),
+    ...(plan.milestone ? { milestone: plan.milestone } : {}),
     items: plan.items,
   });
   if (result.limited) return json({ error: 'rate_limited' }, 429);

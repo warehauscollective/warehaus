@@ -245,6 +245,13 @@ export function milestoneBranch(name: string): string {
   return `milestone/${slug || 'untitled'}`;
 }
 
+/** A GitHub pull request link, or null. Nothing else is stored as the milestone's pull request. */
+export function pullRequestUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const match = /^https:\/\/github\.com\/[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+\/pull\/\d{1,7}$/.exec(value.trim());
+  return match ? match[0] : null;
+}
+
 export function shortSha(sha: string | null | undefined): string | null {
   const value = sha?.trim() ?? '';
   return value ? value.slice(0, 7) : null;

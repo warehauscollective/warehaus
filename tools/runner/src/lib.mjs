@@ -185,3 +185,22 @@ export function hookEvent(kind, payload) {
   // Reads and searches are too frequent to be worth a line.
   return null;
 }
+
+/** Body of the milestone's one pull request. It names the Portal milestone, as the build protocol asks. */
+export function pullRequestBody(work) {
+  const goals = work.milestone.goals && work.milestone.goals.length > 0
+    ? work.milestone.goals.map((goal) => `- ${goal}`).join('\n')
+    : '- (none written)';
+  return [
+    `Portal milestone: **${work.milestone.name}**`,
+    '',
+    work.milestone.objective,
+    '',
+    'Done when:',
+    goals,
+    '',
+    `Branch \`${work.milestone.branch}\`. One pull request for the whole milestone. The runner adds a commit per task.`,
+    '',
+    'Nothing merges until Peter approves in Grok Bot or the Portal. Merging does not deploy.',
+  ].join('\n');
+}

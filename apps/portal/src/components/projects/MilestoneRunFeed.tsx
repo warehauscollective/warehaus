@@ -32,6 +32,8 @@ export type RunFeedModel = {
     lastSeenAt: number | null;
   } | null;
   planning: 'queued' | 'running' | null;
+  branch?: string | null;
+  prUrl?: string | null;
 };
 
 export type RunFeedState = 'loading' | 'error' | 'empty' | 'live' | 'offline' | 'idle';
@@ -96,6 +98,26 @@ export function MilestoneRunFeed({
             </p>
           ) : null}
         </div>
+        {model?.branch || model?.prUrl ? (
+          <p
+            className="ds-mono flex flex-wrap items-center gap-x-3 gap-y-1"
+            data-testid="run-feed-branch"
+            style={{ ...mono, margin: 0, borderTop: '1px solid var(--border)', padding: '10px 0' }}
+          >
+            {model.branch ? <span style={{ overflowWrap: 'anywhere' }}>{model.branch}</span> : null}
+            {model.prUrl ? (
+              <a
+                href={model.prUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-sm focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
+                style={{ color: 'var(--fg)', textDecoration: 'underline' }}
+              >
+                {`Pull request #${model.prUrl.split('/').pop() ?? ''}`}
+              </a>
+            ) : null}
+          </p>
+        ) : null}
         {state === 'loading' ? (
           <p style={{ margin: 0, borderTop: '1px solid var(--border)', padding: '14px 0', fontSize: 14, color: 'var(--muted)' }}>
             Loading the run feed
@@ -202,7 +224,17 @@ export function fixtureRunFeed(view: string | null): { state: RunFeedState; mode
   if (view === 'empty') return { state: 'empty', model: { events: [], hasMore: false, run: null, planning: null } };
   if (view === 'planning') return { state: 'empty', model: { events: [], hasMore: false, run: null, planning: 'queued' } };
   if (view === 'offline') return { state: 'offline', model: { events, hasMore: true, run: { ...run, online: false }, planning: null } };
-  return { state: 'live', model: { events, hasMore: true, run, planning: null } };
+  return {
+    state: 'live',
+    model: {
+      events,
+      hasMore: true,
+      run,
+      planning: null,
+      branch: 'milestone/client-experience-launch',
+      prUrl: 'https://github.com/warehauscollective/warehaus/pull/108',
+    },
+  };
 }
 
 export function MilestoneRunFeedLive({
