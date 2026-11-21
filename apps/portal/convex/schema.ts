@@ -330,6 +330,33 @@ export default defineSchema({
     .index('by_orgId_milestoneId', ['orgId', 'milestoneId'])
     .index('by_orgId_resourceId', ['orgId', 'resourceId']),
 
+  /**
+   * Project context: brief fields, glossary terms, and decisions for one project.
+   * STAFF ONLY. Never read through clientQuery. Convex is the source of truth;
+   * these rows are not part of the Notion sync.
+   */
+  projectContextEntries: defineTable({
+    orgId: v.id('clients'),
+    projectId: v.id('projects'),
+    kind: v.union(v.literal('brief'), v.literal('term'), v.literal('decision')),
+    /** brief: field key. term: lower-cased term. decision: zero-padded number. */
+    key: v.string(),
+    /** brief: field label. term: the term as written. decision: its title. */
+    title: v.string(),
+    body: v.string(),
+    /** Decisions only. Counts from 1 per project and is never reused. */
+    number: v.optional(v.number()),
+    source: v.union(
+      v.literal('portal'),
+      v.literal('grok'),
+      v.literal('claude'),
+      v.literal('other'),
+    ),
+    updatedByContactId: v.optional(v.string()),
+    createdAt: v.number(),
+    updatedAt: v.number(),
+  }).index('by_projectId_kind_key', ['projectId', 'kind', 'key']),
+
   contacts: defineTable({
     orgId: v.id('clients'),
     ...notionSyncFields,

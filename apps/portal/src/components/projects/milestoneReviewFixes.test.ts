@@ -153,7 +153,8 @@ describe('milestone review fixes', () => {
     assert.match(roadmap, /useState<ProjectTab>\('milestones'\)/);
     assert.match(roadmap, /\{ id: 'details', label: 'Project details' \}/);
     assert.match(roadmap, /projectTab === 'details' && page \? details : null/);
-    assert.match(roadmap, /subtitle="Project details · Every task belongs to a milestone"/);
+    assert.match(roadmap, /: 'Project details · Every task belongs to a milestone'/);
+    assert.match(roadmap, /\{ id: 'resources', label: 'Context' \}/);
     assert.match(roadmap, /testId="milestone-unassigned"/);
     assert.match(roadmap, /Do not guess which milestone they belong to/);
     assert.equal(roadmap.includes('Assign to milestone'), false);
