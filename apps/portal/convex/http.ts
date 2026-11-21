@@ -77,6 +77,11 @@ export const portalApiRoutes: Array<{ path: string; method: 'GET' | 'POST' }> = 
   { path: '/api/v1/projects', method: 'GET' },
   { path: '/api/v1/projects', method: 'POST' },
   { path: '/api/v1/projects/item', method: 'GET' },
+  { path: '/api/v1/context', method: 'GET' },
+  { path: '/api/v1/context/grilling', method: 'GET' },
+  { path: '/api/v1/context/brief', method: 'POST' },
+  { path: '/api/v1/context/terms', method: 'POST' },
+  { path: '/api/v1/context/decisions', method: 'POST' },
 ];
 for (const route of portalApiRoutes) {
   http.route({ path: route.path, method: route.method, handler: portalApiHttp });
