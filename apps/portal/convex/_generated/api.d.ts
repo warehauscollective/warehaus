@@ -73,6 +73,8 @@ import type * as notionAuth from "../notionAuth.js";
 import type * as portalApi from "../portalApi.js";
 import type * as portalCatalog from "../portalCatalog.js";
 import type * as portalData from "../portalData.js";
+import type * as projectContext from "../projectContext.js";
+import type * as projectContextApi from "../projectContextApi.js";
 import type * as portalTokens from "../portalTokens.js";
 import type * as projectCreate from "../projectCreate.js";
 import type * as projects from "../projects.js";
@@ -176,6 +178,8 @@ declare const fullApi: ApiFromModules<{
   portalApi: typeof portalApi;
   portalCatalog: typeof portalCatalog;
   portalData: typeof portalData;
+  projectContext: typeof projectContext;
+  projectContextApi: typeof projectContextApi;
   portalTokens: typeof portalTokens;
   projectCreate: typeof projectCreate;
   projects: typeof projects;
