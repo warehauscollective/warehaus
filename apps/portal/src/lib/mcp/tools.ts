@@ -11,6 +11,8 @@ import {
   taskListPlan,
 } from '@warehaus/portal-sync';
 import { attachFailureCode, attachFailureStatus } from '@convex/_lib/milestones';
+import { PROPOSED_TASKS_MAX, PROPOSED_TASKS_MIN } from '@convex/_lib/milestoneBot';
+import { REVIEW_TASK_LIMIT } from '@convex/_lib/milestoneTasks';
 import { z } from 'zod';
 
 const limit = z.number().int().min(1).max(API_PAGE_MAX).optional();
@@ -143,7 +145,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'create_task',
     description:
-      'Create a task inside a milestone through the staff task path. milestoneId is required: a task only exists inside a milestone on the same project, and a Shipped milestone takes no new tasks. It stays unpublished and is queued on the Notion outbox. Send an idempotency key. Retries with the same key replay the first result.',
+      'Create one task inside an existing milestone through the staff task path. To start new work, use create_milestone with proposedTasks instead. milestoneId is required: a task only exists inside a milestone on the same project, and a Shipped milestone takes no new tasks. It stays unpublished and is queued on the Notion outbox. Send an idempotency key. Retries with the same key replay the first result.',
     write: true,
     schema: {
       projectId: z.string().min(1),
@@ -330,9 +332,119 @@ export const portalTools: PortalTool[] = [
     }),
   },
   {
+    name: 'create_milestone',
+    description:
+      'Create a milestone and its task list in one call. Read the brief and propose 3 to 10 concrete tasks in proposedTasks, each one a piece of work a developer can finish and check, in the order they should be done. With tasks the milestone starts at Awaiting Go and waits for Peter. With none it starts at Planning. It stays unpublished. The tasks are stored in the Portal only and are not sent to Notion. createdVia is grok or claude; leave it out to use the token name. Send an idempotency key. Retries with the same key replay the first result.',
+    write: true,
+    schema: {
+      projectId: z.string().min(1),
+      name: z.string().min(1).max(200),
+      objective: z.string().min(1).max(8000),
+      goals: z.array(z.string().min(1).max(500)).max(20).optional(),
+      proposedTasks: z
+        .array(
+          z.object({
+            title: z.string().min(1).max(200),
+            detail: z.string().max(4000).optional(),
+          }),
+        )
+        .min(PROPOSED_TASKS_MIN)
+        .max(PROPOSED_TASKS_MAX)
+        .optional(),
+      createdVia: z.enum(['grok', 'claude', 'other']).optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/milestones',
+      idempotencyKey: String(args.idempotencyKey),
+      body: defined({
+        projectId: args.projectId,
+        name: args.name,
+        objective: args.objective,
+        goals: args.goals ?? [],
+        proposedTasks: args.proposedTasks,
+        createdVia: args.createdVia,
+      }),
+    }),
+  },
+  {
+    name: 'get_milestone_status',
+    description:
+      'Read one milestone: status, approval, iteration, the ordered task checklist with origin, the local and Vercel previews, the pull request, and the latest reviews, notes and events. Use the iteration it returns when you approve or request changes.',
+    write: false,
+    schema: { milestoneId: z.string().min(1) },
+    call: (args) => ({
+      method: 'GET',
+      path: '/api/v1/milestones/item',
+      search: search({ id: args.milestoneId as string }),
+    }),
+  },
+  {
+    name: 'add_note',
+    description:
+      'Add a staff note to a milestone. Notes are staff only and are never shown to a client. A note does not change status, approval or tasks. Send an idempotency key.',
+    write: true,
+    schema: {
+      milestoneId: z.string().min(1),
+      body: z.string().min(1).max(4000),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/milestones/note',
+      idempotencyKey: String(args.idempotencyKey),
+      body: { milestoneId: args.milestoneId, body: args.body },
+    }),
+  },
+  {
+    name: 'approve_milestone',
+    description:
+      "Record Peter's approval of one milestone iteration. Only the grok-bot token is accepted. Approve needs status Ready to Ship and a preview, and keeps that status. It records the decision only: it does not merge, does not deploy, and does not move the status to Shipped. The same iteration is idempotent with the Portal. A stale iteration is rejected. Send the iteration from get_milestone_status and an idempotency key.",
+    write: true,
+    schema: {
+      milestoneId: z.string().min(1),
+      iteration: z.number().int().positive(),
+      notes: z.string().max(8000).optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: `/api/v1/milestones/${String(args.milestoneId)}/review`,
+      idempotencyKey: String(args.idempotencyKey),
+      body: { iteration: args.iteration, decision: 'approve', notes: args.notes ?? '' },
+    }),
+  },
+  {
+    name: 'request_changes',
+    description:
+      "Record Peter's change request for one milestone iteration. Only the grok-bot token is accepted. Notes are required. Put each change as its own line in newTasks: every line becomes a review task in this milestone. Without newTasks the notes are split into tasks. It starts the next iteration and moves status back to Building. A stale iteration is rejected. Send the iteration from get_milestone_status and an idempotency key.",
+    write: true,
+    schema: {
+      milestoneId: z.string().min(1),
+      iteration: z.number().int().positive(),
+      notes: z.string().min(1).max(8000),
+      newTasks: z.array(z.string().min(1).max(200)).max(REVIEW_TASK_LIMIT).optional(),
+      taskIds: z.array(z.string().min(1)).max(50).optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: `/api/v1/milestones/${String(args.milestoneId)}/review`,
+      idempotencyKey: String(args.idempotencyKey),
+      body: defined({
+        iteration: args.iteration,
+        decision: 'request_changes',
+        notes: args.notes,
+        newTasks: args.newTasks,
+        taskIds: args.taskIds,
+      }),
+    }),
+  },
+  {
     name: 'record_milestone_review',
     description:
-      "Record Peter's chat approval or change request for one milestone iteration. Only the grok-bot token is accepted. The same iteration is idempotent with the Portal. Notes are required to request changes. A stale iteration is rejected. Approve needs status Ready to Ship and a preview, and keeps that status. Request changes moves status back to Building. The result returns status. This does not write Notion and does not move the status to Shipped.",
+      "Older name for approve_milestone and request_changes, kept for one release. Record Peter's chat approval or change request for one milestone iteration. Only the grok-bot token is accepted. The same iteration is idempotent with the Portal. Notes are required to request changes. A stale iteration is rejected. Approve needs status Ready to Ship and a preview, and keeps that status. Request changes moves status back to Building. The result returns status. This does not write Notion and does not move the status to Shipped.",
     write: true,
     schema: {
       milestoneId: z.string().min(1),

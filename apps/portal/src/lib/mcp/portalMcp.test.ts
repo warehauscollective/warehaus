@@ -51,6 +51,24 @@ const samples: Record<string, Record<string, unknown>> = {
     notes: '',
     idempotencyKey: 'review-1',
   },
+  create_milestone: {
+    projectId: 'project-1',
+    name: 'Client experience launch',
+    objective: 'Clients can see their project and approve work.',
+    goals: ['Review card is live'],
+    proposedTasks: [{ title: 'Design the overview' }, { title: 'Build the overview' }, { title: 'Wire the review card' }],
+    idempotencyKey: 'mile-new-1',
+  },
+  get_milestone_status: { milestoneId: 'milestone-1' },
+  add_note: { milestoneId: 'milestone-1', body: 'Design check passed.', idempotencyKey: 'note-1' },
+  approve_milestone: { milestoneId: 'milestone-1', iteration: 2, idempotencyKey: 'approve-1' },
+  request_changes: {
+    milestoneId: 'milestone-1',
+    iteration: 2,
+    notes: 'More space on mobile.',
+    newTasks: ['Give the card more space at 390'],
+    idempotencyKey: 'changes-1',
+  },
 };
 
 const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
@@ -69,6 +87,11 @@ const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   attach_task_to_milestone: { method: 'POST', path: '/api/v1/milestones/attach' },
   add_task_link: { method: 'POST', path: '/api/v1/links' },
   record_milestone_review: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },
+  create_milestone: { method: 'POST', path: '/api/v1/milestones' },
+  get_milestone_status: { method: 'GET', path: '/api/v1/milestones/item' },
+  add_note: { method: 'POST', path: '/api/v1/milestones/note' },
+  approve_milestone: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },
+  request_changes: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },
 };
 
 describe('portal MCP tools', () => {

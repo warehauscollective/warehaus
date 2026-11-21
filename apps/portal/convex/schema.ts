@@ -328,6 +328,19 @@ export default defineSchema({
     .index('by_milestone_iteration', ['milestoneId', 'iteration']),
 
   /**
+   * Staff notes on a milestone, added by a person or a bot through the staff
+   * API. No client query reads this table.
+   */
+  milestoneNotes: defineTable({
+    orgId: v.id('clients'),
+    milestoneId: v.id('milestones'),
+    body: v.string(),
+    /** Token name or staff name that wrote the note. */
+    addedBy: v.string(),
+    createdAt: v.number(),
+  }).index('by_milestone_createdAt', ['milestoneId', 'createdAt']),
+
+  /**
    * Milestone → Shared Resource. Same org only.
    * A curated set, not the union of every task resource.
    */

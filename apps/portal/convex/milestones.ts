@@ -1809,6 +1809,7 @@ export const reviewForApi = internalMutation({
     decision: v.string(),
     notes: v.string(),
     taskIds: v.array(v.id('tasks')),
+    newTasks: v.optional(v.array(v.string())),
     tokenName: v.string(),
   },
   handler: async (ctx, args) =>

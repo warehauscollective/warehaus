@@ -33,6 +33,7 @@ const functions: Record<string, Registered> = {
   'portalApi:createMilestone': portalApi.createMilestone as unknown as Registered,
   'portalApi:updateMilestone': portalApi.updateMilestone as unknown as Registered,
   'portalApi:addComment': portalApi.addComment as unknown as Registered,
+  'portalApi:addMilestoneNote': portalApi.addMilestoneNote as unknown as Registered,
   'portalApi:addLink': portalApi.addLink as unknown as Registered,
   'portalApi:attachTask': portalApi.attachTask as unknown as Registered,
   'portalApi:openWrite': portalApi.openWrite as unknown as Registered,
@@ -247,6 +248,22 @@ const writeTools: Record<string, Record<string, unknown>> = {
     decision: 'approve',
     notes: '',
     idempotencyKey: 'review-1',
+  },
+  create_milestone: {
+    projectId: 'projects:1',
+    name: 'Client experience launch',
+    objective: 'Clients can see their project and approve work.',
+    proposedTasks: [{ title: 'Design the overview' }, { title: 'Build the overview' }, { title: 'Wire the review card' }],
+    idempotencyKey: 'mile-new-1',
+  },
+  add_note: { milestoneId: 'milestones:1', body: 'Design check passed.', idempotencyKey: 'note-1' },
+  approve_milestone: { milestoneId: 'milestones:1', iteration: 2, idempotencyKey: 'approve-1' },
+  request_changes: {
+    milestoneId: 'milestones:1',
+    iteration: 2,
+    notes: 'More space on mobile.',
+    newTasks: ['Give the card more space at 390'],
+    idempotencyKey: 'changes-1',
   },
 };
 
