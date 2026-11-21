@@ -25,9 +25,9 @@ The portal process needs `NEXT_PUBLIC_CONVEX_SITE_URL` or `CONVEX_SITE_URL`. Too
 
 Cursor posts its agent URL with `add_task_link` and kind `agent`. That kind stays on the task. It does not enqueue a Notion field update.
 
-`move_task_stage` and `update_task` can set stage Shipped. The portal checks GitHub once on that write and accepts it only when the task has a pull request link and that pull request is merged into main. The stage write still uses the task-stage outbox.
+`move_task_stage` and `update_task` can set stage Shipped. The portal reads the public GitHub pull request once on that write, with no token, and accepts it only for `warehauscollective/warehaus` when that pull request is merged into main. A rate limit or a failed read is rejected. The stage write still uses the task-stage outbox.
 
-`create_milestone` takes `projectId` and `name`. The milestone stays unpublished. `update_milestone` takes `name`, `status`, and `stage`. `status` and `stage` are the one field: Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, or Parked. Shipped is allowed when every task that is not Parked is Done. `detach_task_from_milestone` removes one task from a milestone and leaves the task on the project. These three use the same bearer token, idempotency key, and activity log as the other write tools.
+`create_milestone` takes `projectId` and `name`. The milestone stays unpublished. `update_milestone` takes `name`, `status`, and `stage`. `status` and `stage` are the one field: Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, or Parked. Shipped is allowed when every task the milestone shows that is not Parked is Done, including a subtask that has no milestone of its own. Archived tasks do not count. `detach_task_from_milestone` removes one task from a milestone and leaves the task on the project. These three use the same bearer token, idempotency key, and activity log as the other write tools.
 
 ## Claude Code and Claude Desktop
 

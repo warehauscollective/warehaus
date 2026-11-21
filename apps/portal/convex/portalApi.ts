@@ -741,7 +741,7 @@ export const updateMilestone = internalMutation({
     const from = milestone.status;
     let tasksReady = wanted.status !== 'Shipped' || from === 'Shipped';
     if (wanted.status === 'Shipped' && from !== 'Shipped') {
-      const gate = await milestoneCloseGate(ctx, milestone, 'Shipped');
+      const gate = await milestoneCloseGate(ctx, milestone);
       if (!gate.ok) return finishIdempotency(ctx, opened.id, fail(400, gate.reason));
       tasksReady = true;
     }
@@ -1310,10 +1310,7 @@ async function dispatchWrite(
         links: looked.links,
       });
       if (!resolved.ok) return fail(400, resolved.error);
-      const verified = await verifyPullMerged({
-        link: resolved.link,
-        token: process.env.REVIEW_PREVIEW_GITHUB_TOKEN,
-      });
+      const verified = await verifyPullMerged({ link: resolved.link });
       if (!verified.ok) return fail(400, verified.error);
       verifiedMerge = true;
       verifiedLink = verified.link;

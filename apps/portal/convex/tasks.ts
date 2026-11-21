@@ -362,10 +362,7 @@ export const commitShipped = action({
       return { ok: false, error: userFacingErrorMessage(err, 'Could not set Shipped.') };
     }
     if (!prepared.ok) return prepared;
-    const verified = await verifyPullMerged({
-      link: prepared.link,
-      token: process.env.REVIEW_PREVIEW_GITHUB_TOKEN,
-    });
+    const verified = await verifyPullMerged({ link: prepared.link });
     if (!verified.ok) return verified;
     return ctx.runMutation(internal.sync.taskWrite.enqueueStage, {
       taskId: args.taskId,

@@ -289,6 +289,7 @@ async function roadmapTasks(
       resourceCount: await countTaskResources(ctx, orgId, task._id, audience, orgVisible),
       publishToWarehaus: task.publishToWarehaus,
       hidden: task.syncHiddenAt != null,
+      archived: task.archivedAt != null,
       source: task.source ?? null,
       origin: taskOrigin({ origin: task.origin, source: task.source }),
       round: task.round ?? null,
@@ -710,7 +711,7 @@ export const setStatus = adminMutation({
     const milestone = await loadMilestone(ctx, args.milestoneId);
     let tasksReady = false;
     if (args.status === 'Shipped' && milestone.status !== 'Shipped') {
-      const gate = await milestoneCloseGate(ctx, milestone, 'Shipped');
+      const gate = await milestoneCloseGate(ctx, milestone);
       if (!gate.ok) fail(gate.reason);
       tasksReady = true;
     }

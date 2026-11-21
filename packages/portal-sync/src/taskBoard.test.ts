@@ -469,7 +469,7 @@ describe('board sort', () => {
     assert.deepEqual(intoShipped, { kind: 'move', value: 'Shipped' });
     const outOfShipped = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Shipped', to: 'Planning' });
     assert.equal(outOfShipped.kind, 'reject');
-    if (outOfShipped.kind === 'reject') assert.match(outOfShipped.reason, /pull request merges/);
+    if (outOfShipped.kind === 'reject') assert.match(outOfShipped.reason, /Leaving Shipped stays locked/);
     assert.equal(
       resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Shipped', to: 'Shipped' }).kind,
       'ignore',

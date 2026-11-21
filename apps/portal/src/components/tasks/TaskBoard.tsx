@@ -138,6 +138,7 @@ export function TaskBoard({
   showQuickAdd = true,
   hideGroupToggle = false,
   framed = false,
+  group = null,
 }: {
   tasks: PortalTask[];
   staff: boolean;
@@ -154,6 +155,8 @@ export function TaskBoard({
   hideGroupToggle?: boolean;
   /** Shared lane surface, equal heights, and the inset fade. Only the milestone board turns this on. */
   framed?: boolean;
+  /** Fixture captures. `stage` shows the Shipped column. Live boards ignore this. */
+  group?: BoardMode | null;
 }) {
   const [mode, setMode] = useState<BoardMode>('status');
   const [phone, setPhone] = useState(false);
@@ -173,13 +176,13 @@ export function TaskBoard({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
   useEffect(() => {
-    setMode(hideGroupToggle ? 'status' : readBoardMode());
+    setMode(group ?? (hideGroupToggle ? 'status' : readBoardMode()));
     const media = window.matchMedia('(max-width: 767px)');
     const apply = () => setPhone(media.matches);
     apply();
     media.addEventListener('change', apply);
     return () => media.removeEventListener('change', apply);
-  }, [hideGroupToggle]);
+  }, [hideGroupToggle, group]);
 
   const viewTasks = useMemo(
     () =>

@@ -3,6 +3,7 @@ import { describe, it } from 'node:test';
 import {
   SHIPPED_NEEDS_LINK,
   SHIPPED_NOT_MERGED,
+  SHIPPED_RATE_LIMITED,
   SHIPPED_UNVERIFIED,
   parsePullRequestRef,
   readMergedPull,
@@ -10,33 +11,39 @@ import {
   verifyPullMerged,
 } from './githubPull';
 
+const PR = 'https://github.com/warehauscollective/warehaus/pull/38';
+
 describe('staff shipped pull request check', () => {
-  it('reads a pull request link and ignores anything else', () => {
+  it('reads a pull request on this repo and ignores anything else', () => {
     assert.deepEqual(parsePullRequestRef('github.com/warehauscollective/warehaus/pull/38'), {
       owner: 'warehauscollective',
       repo: 'warehaus',
       number: 38,
-      url: 'https://github.com/warehauscollective/warehaus/pull/38',
+      url: PR,
     });
+    assert.equal(parsePullRequestRef('https://github.com/WarehausCollective/Warehaus/pull/38')?.url, PR);
+    assert.equal(parsePullRequestRef('https://github.com/acme/site/pull/12'), null);
     assert.equal(parsePullRequestRef('https://github.com/acme/site/issues/12'), null);
-    assert.equal(parsePullRequestRef('https://github.com/acme/site/pull/12/files'), null);
-    assert.equal(
-      parsePullRequestRef('https://github.com/acme/site/pull/12/')?.url,
-      'https://github.com/acme/site/pull/12',
-    );
+    assert.equal(parsePullRequestRef('https://github.com/warehauscollective/warehaus/pull/12/files'), null);
+    assert.equal(parsePullRequestRef('https://github.com/warehauscollective/warehaus/pull/12/')?.url, 'https://github.com/warehauscollective/warehaus/pull/12');
   });
 
   it('uses the link on the write, then the stored link, then a PR row', () => {
     const explicit = resolveShipLink({
-      explicit: 'https://github.com/acme/site/pull/4',
-      stored: 'https://github.com/acme/site/pull/9',
+      explicit: 'https://github.com/warehauscollective/warehaus/pull/4',
+      stored: 'https://github.com/warehauscollective/warehaus/pull/9',
     });
-    assert.deepEqual(explicit, { ok: true, link: 'https://github.com/acme/site/pull/4' });
-    const stored = resolveShipLink({ stored: 'github.com/acme/site/pull/9' });
-    assert.deepEqual(stored, { ok: true, link: 'https://github.com/acme/site/pull/9' });
-    const linked = resolveShipLink({ links: ['https://example.com/nope', 'https://github.com/acme/site/pull/3'] });
-    assert.deepEqual(linked, { ok: true, link: 'https://github.com/acme/site/pull/3' });
-    assert.deepEqual(resolveShipLink({ explicit: 'https://example.com/pr' }), { ok: false, error: SHIPPED_NEEDS_LINK });
+    assert.deepEqual(explicit, { ok: true, link: 'https://github.com/warehauscollective/warehaus/pull/4' });
+    const stored = resolveShipLink({ stored: 'github.com/warehauscollective/warehaus/pull/9' });
+    assert.deepEqual(stored, { ok: true, link: 'https://github.com/warehauscollective/warehaus/pull/9' });
+    const linked = resolveShipLink({
+      links: ['https://example.com/nope', 'https://github.com/warehauscollective/warehaus/pull/3'],
+    });
+    assert.deepEqual(linked, { ok: true, link: 'https://github.com/warehauscollective/warehaus/pull/3' });
+    assert.deepEqual(resolveShipLink({ explicit: 'https://github.com/acme/site/pull/4' }), {
+      ok: false,
+      error: SHIPPED_NEEDS_LINK,
+    });
     assert.deepEqual(resolveShipLink({}), { ok: false, error: SHIPPED_NEEDS_LINK });
   });
 
@@ -54,25 +61,42 @@ describe('staff shipped pull request check', () => {
     assert.deepEqual(readMergedPull({ message: 'Not Found' }), { ok: false, error: SHIPPED_UNVERIFIED });
   });
 
-  it('calls GitHub once on the write and does not follow a bad response', async () => {
-    const calls: string[] = [];
+  it('calls the public GitHub API once and does not send a token', async () => {
+    const calls: Array<{ url: string; authorization: string | null }> = [];
     const merged = await verifyPullMerged({
-      link: 'https://github.com/acme/site/pull/4',
-      token: 'gh-test',
-      fetchImpl: async (url) => {
-        calls.push(String(url));
+      link: PR,
+      fetchImpl: async (url, init) => {
+        const headers = new Headers(init?.headers);
+        calls.push({ url: String(url), authorization: headers.get('authorization') });
         return new Response(JSON.stringify({ merged: true, base: { ref: 'main' } }), { status: 200 });
       },
     });
-    assert.deepEqual(merged, { ok: true, link: 'https://github.com/acme/site/pull/4' });
-    assert.deepEqual(calls, ['https://api.github.com/repos/acme/site/pulls/4']);
-    const missing = await verifyPullMerged({ link: 'https://github.com/acme/site/pull/4', token: '  ' });
-    assert.deepEqual(missing, { ok: false, error: SHIPPED_UNVERIFIED });
+    assert.deepEqual(merged, { ok: true, link: PR });
+    assert.deepEqual(calls, [
+      { url: 'https://api.github.com/repos/warehauscollective/warehaus/pulls/38', authorization: null },
+    ]);
     const denied = await verifyPullMerged({
-      link: 'https://github.com/acme/site/pull/4',
-      token: 'gh-test',
+      link: PR,
       fetchImpl: async () => new Response('no', { status: 404 }),
     });
     assert.deepEqual(denied, { ok: false, error: SHIPPED_UNVERIFIED });
+    const limited = await verifyPullMerged({
+      link: PR,
+      fetchImpl: async () => new Response('slow down', { status: 429 }),
+    });
+    assert.deepEqual(limited, { ok: false, error: SHIPPED_RATE_LIMITED });
+    const exhausted = await verifyPullMerged({
+      link: PR,
+      fetchImpl: async () =>
+        new Response('limit', { status: 403, headers: { 'x-ratelimit-remaining': '0' } }),
+    });
+    assert.deepEqual(exhausted, { ok: false, error: SHIPPED_RATE_LIMITED });
+    const failed = await verifyPullMerged({
+      link: PR,
+      fetchImpl: async () => {
+        throw new Error('offline');
+      },
+    });
+    assert.deepEqual(failed, { ok: false, error: SHIPPED_UNVERIFIED });
   });
 });

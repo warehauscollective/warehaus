@@ -20,31 +20,71 @@ export type CloseTask = {
   stage?: string | null;
   status?: string | null;
   isDone?: boolean;
+  archived?: boolean;
 };
 
-/** Shipped shares this gate. Parked tasks do not count. Complete is the same rule. */
+/** A task the roadmap can show. Archived rows stay out of the close count. */
+export type CloseSource = CloseTask & {
+  id: string;
+  parentTaskId?: string | null;
+  milestoneId?: string | null;
+};
+
+/**
+ * The tasks a milestone close looks at. Same rows the roadmap shows:
+ * a task linked here whose parent is not also linked, plus that row's
+ * subtasks that are unlinked or linked here. A subtask on another
+ * milestone stays out. Archived tasks do not count. Parked is applied later.
+ */
+export function closeTasksForMilestone(milestoneId: string, tasks: readonly CloseSource[]): CloseTask[] {
+  const linked = new Set(tasks.filter((task) => task.milestoneId === milestoneId).map((task) => task.id));
+  const parents = tasks.filter(
+    (task) => linked.has(task.id) && (!task.parentTaskId || !linked.has(task.parentTaskId)),
+  );
+  const counted: CloseTask[] = [];
+  const seen = new Set<string>();
+  const push = (task: CloseSource) => {
+    if (task.archived || seen.has(task.id)) return;
+    seen.add(task.id);
+    counted.push({ stage: task.stage, status: task.status, isDone: task.isDone });
+  };
+  for (const parent of parents) {
+    push(parent);
+    for (const child of tasks) {
+      if (child.parentTaskId !== parent.id) continue;
+      if (child.milestoneId && child.milestoneId !== milestoneId) continue;
+      push(child);
+    }
+  }
+  return counted;
+}
+
+/** Shipped needs every non-Parked task in that set to be Done. */
 export function finishedMilestoneDecision(
   tasks: readonly CloseTask[],
-  label: 'Shipped' | 'Complete',
 ): { ok: true } | { ok: false; reason: string } {
-  const counted = tasks.filter((task) => task.stage !== 'Parked');
+  const counted = tasks.filter((task) => task.stage !== 'Parked' && task.archived !== true);
   if (counted.length === 0) {
-    return { ok: false, reason: `${label} needs at least one task that is not Parked.` };
+    return { ok: false, reason: 'Shipped needs at least one task that is not Parked.' };
   }
   const pending = counted.some((task) => task.isDone !== true && task.status !== 'Done');
   if (pending) {
-    return { ok: false, reason: `${label} needs every task that is not Parked to be Done.` };
+    return { ok: false, reason: 'Shipped needs every task that is not Parked to be Done.' };
   }
   return { ok: true };
 }
 
-export function milestoneCanClose(rows: readonly (CloseTask & { children?: readonly CloseTask[] })[]): boolean {
+export function milestoneCanClose(
+  rows: readonly (CloseTask & { id?: string; children?: readonly (CloseTask & { id?: string })[] })[],
+): boolean {
   const flat: CloseTask[] = [];
   for (const row of rows) {
-    flat.push(row);
-    for (const child of row.children ?? []) flat.push(child);
+    if (row.archived !== true) flat.push(row);
+    for (const child of row.children ?? []) {
+      if (child.archived !== true) flat.push(child);
+    }
   }
-  return finishedMilestoneDecision(flat, 'Shipped').ok;
+  return finishedMilestoneDecision(flat).ok;
 }
 
 export function publishChangeDecision(from: boolean, to: boolean): { wrote: boolean } {

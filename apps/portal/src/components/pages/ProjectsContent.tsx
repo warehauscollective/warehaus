@@ -107,9 +107,16 @@ export function ProjectsContent() {
   const [openId, setOpenId] = useState<string | null>(null);
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
   const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
+  const [fixtureBoardGroup, setFixtureBoardGroup] = useState<'status' | 'stage' | null>(null);
   const [archivedFixtureIds, setArchivedFixtureIds] = useState<string[]>([]);
   const pathname = usePathname() || '';
   const router = useRouter();
+  useEffect(() => {
+    if (!fixtures || typeof window === 'undefined') return;
+    const group = new URLSearchParams(window.location.search).get('group');
+    setFixtureBoardGroup(group === 'stage' || group === 'status' ? group : null);
+  }, [fixtures]);
+
   useEffect(() => {
     setOpenProjectId(openId);
     return () => setOpenProjectId(null);

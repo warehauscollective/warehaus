@@ -348,7 +348,7 @@ describe('enqueueStage actor', () => {
       if (!intoShipped.ok) assert.match(intoShipped.error ?? '', /merged into main/);
       const outOfShipped = await run(enqueueStage, ctxFor('Shipped'), { ...base, stage: 'Planning' });
       assert.equal(outOfShipped.ok, false);
-      if (!outOfShipped.ok) assert.match(outOfShipped.error ?? '', /pull request merges/);
+      if (!outOfShipped.ok) assert.match(outOfShipped.error ?? '', /Leaving Shipped stays locked/);
       assert.equal(calls.length, 2);
     } finally {
       if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;

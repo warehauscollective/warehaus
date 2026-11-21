@@ -5,6 +5,7 @@ import { isClientVisibleActivityType } from '@warehaus/portal-sync';
 import { roadmapViewForAudience } from './milestones';
 import {
   clientReviewDecision,
+  closeTasksForMilestone,
   finishedMilestoneDecision,
   milestoneCanClose,
   clientSeesDetailsRow,
@@ -70,16 +71,42 @@ describe('staff stages', () => {
     assert.equal(statusOptionLock('Awaiting Go'), null);
     const done = { status: 'Done', isDone: true };
     const parked = { stage: 'Parked', status: 'To Do', isDone: false };
-    assert.deepEqual(finishedMilestoneDecision([done, parked], 'Shipped'), { ok: true });
-    assert.equal(finishedMilestoneDecision([done, { status: 'To Do', isDone: false }], 'Shipped').ok, false);
-    const onlyParked = finishedMilestoneDecision([parked], 'Complete');
-    const empty = finishedMilestoneDecision([], 'Shipped');
+    assert.deepEqual(finishedMilestoneDecision([done, parked]), { ok: true });
+    assert.equal(finishedMilestoneDecision([done, { status: 'To Do', isDone: false }]).ok, false);
+    const onlyParked = finishedMilestoneDecision([parked]);
+    const empty = finishedMilestoneDecision([]);
     assert.equal(onlyParked.ok, false);
     assert.equal(empty.ok, false);
     if (!onlyParked.ok) assert.match(onlyParked.reason, /at least one task/);
     if (!empty.ok) assert.match(empty.reason, /at least one task/);
     assert.equal(milestoneCanClose([{ ...done, children: [parked] }]), true);
     assert.equal(milestoneCanClose([{ ...done, children: [{ status: 'To Do', isDone: false }] }]), false);
+  });
+
+  it('counts an open subtask and skips an archived task', () => {
+    const tasks = [
+      { id: 'plan', milestoneId: 'm-1', status: 'Done', isDone: true, stage: 'Building' },
+      { id: 'sub', parentTaskId: 'plan', milestoneId: null, status: 'To Do', isDone: false, stage: 'Building' },
+      { id: 'old', milestoneId: 'm-1', status: 'To Do', isDone: false, stage: 'Building', archived: true },
+      { id: 'other', parentTaskId: 'plan', milestoneId: 'm-2', status: 'To Do', isDone: false },
+    ];
+    const open = closeTasksForMilestone('m-1', tasks);
+    assert.deepEqual(open.map((task) => task.status), ['Done', 'To Do']);
+    assert.equal(finishedMilestoneDecision(open).ok, false);
+    const closed = closeTasksForMilestone('m-1', [
+      tasks[0]!,
+      { ...tasks[1]!, status: 'Done', isDone: true },
+      tasks[2]!,
+      tasks[3]!,
+    ]);
+    assert.equal(finishedMilestoneDecision(closed).ok, true);
+    assert.equal(
+      milestoneCanClose([
+        { ...tasks[0]!, archived: false, children: [{ ...tasks[1]!, archived: false }, { ...tasks[3]! }] },
+        { ...tasks[2]!, children: [] },
+      ]),
+      false,
+    );
   });
 
   it('skips a no-op status write, including a repeat of Shipped', () => {
