@@ -2,13 +2,18 @@
 
 export const RUNNER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
 export const PRODUCTION_DEPLOYMENT = 'unique-turtle-383';
-export const USAGE = `Usage: npm run runner -- start --id <runner-id> [--mode interactive|headless] [--once] [--repo <path>]
+export const REPO_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
+
+export const USAGE = `Usage: npm run runner -- start --id <runner-id> --repo <owner/name> [--mode interactive|headless] [--once] [--dir <path>]
 
   --id      Runner id, as listed in RUNNER_TOKENS on the Convex deployment.
+  --repo    GitHub repository this runner serves, as owner/name. Repeat it or
+            separate with commas for more than one. The runner is only handed
+            work for projects set to one of these.
   --mode    interactive (default) opens Claude Code for you to drive.
             headless runs "claude -p" and draws on Agent SDK credit.
   --once    Do one piece of work, then exit.
-  --repo    Repository root. Defaults to the current directory.
+  --dir     Checkout of the repository. Defaults to the current directory.
 
 Environment:
   PORTAL_AGENT_URL  The deployment's site URL, like https://<name>.convex.site
@@ -18,17 +23,24 @@ Environment:
 export function parseArgs(argv) {
   const [command, ...rest] = argv;
   if (command !== 'start') return { ok: false, error: USAGE };
-  const options = { id: '', mode: 'interactive', once: false, repo: '' };
+  const options = { id: '', mode: 'interactive', once: false, dir: '', repos: [] };
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     if (flag === '--once') {
       options.once = true;
       continue;
     }
-    if (flag === '--id' || flag === '--mode' || flag === '--repo') {
+    if (flag === '--id' || flag === '--mode' || flag === '--repo' || flag === '--dir') {
       const value = rest[index + 1];
       if (!value || value.startsWith('--')) return { ok: false, error: `${flag} needs a value.\n\n${USAGE}` };
-      options[flag.slice(2)] = value;
+      if (flag === '--repo') {
+        for (const repo of value.split(',').map((item) => item.trim()).filter(Boolean)) {
+          if (!REPO_PATTERN.test(repo)) return { ok: false, error: `--repo must be owner/name, got ${repo}.\n\n${USAGE}` };
+          if (!options.repos.includes(repo.toLowerCase())) options.repos.push(repo.toLowerCase());
+        }
+      } else {
+        options[flag.slice(2)] = value;
+      }
       index += 1;
       continue;
     }
@@ -36,6 +48,10 @@ export function parseArgs(argv) {
   }
   if (!RUNNER_ID_PATTERN.test(options.id)) {
     return { ok: false, error: `--id must be 2 to 40 lowercase letters, digits or hyphens.\n\n${USAGE}` };
+  }
+  // Fail safe: with no repository named, the Portal hands this runner nothing.
+  if (options.repos.length === 0) {
+    return { ok: false, error: `--repo is required: the GitHub repository this runner serves, as owner/name.\n\n${USAGE}` };
   }
   if (options.mode !== 'interactive' && options.mode !== 'headless') {
     return { ok: false, error: `--mode must be interactive or headless.\n\n${USAGE}` };
@@ -203,4 +219,10 @@ export function pullRequestBody(work) {
     '',
     'Nothing merges until Peter approves in Grok Bot or the Portal. Merging does not deploy.',
   ].join('\n');
+}
+
+/** owner/name from a git remote URL, or null. Used to check the checkout is one the runner serves. */
+export function repoFromRemote(url) {
+  const match = /github\.com[:/]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?\/?$/.exec(String(url ?? '').trim());
+  return match ? match[1].toLowerCase() : null;
 }

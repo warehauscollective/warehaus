@@ -68,7 +68,7 @@ import {
 import { currentIteration, NEW_ITERATION_TASK_DONE } from './_lib/milestoneReview';
 import { reviewPreviews } from './_lib/previewLink';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
-import { planningForNewMilestone } from './_lib/agentRun';
+import { NEEDS_PETER_LIMIT, planningForNewMilestone } from './_lib/agentRun';
 import {
   STATUS_ACTIVITY,
   apiStatusFields,
@@ -830,13 +830,54 @@ export const getMilestoneStatus = internalQuery({
           source: review.source,
           createdTaskCount: review.createdTaskIds.length,
         })),
-        notes: notes.map((note) => ({ id: note._id, body: note.body, addedBy: note.addedBy, createdAt: note.createdAt })),
+        notes: notes.map((note) => ({
+          id: note._id,
+          body: note.body,
+          addedBy: note.addedBy,
+          createdAt: note.createdAt,
+          reason: note.reason ?? null,
+          needsPeter: note.needsPeter === 'open',
+        })),
         events: recent
           .filter((row) => row.milestoneId === milestone._id)
           .slice(0, STATUS_EVENT_LIMIT)
           .map((row) => ({ type: row.type, summary: row.summary ?? null, at: row.timestamp })),
       },
     };
+  },
+});
+
+/**
+ * Open notes that wait on Peter: approval requests and blocked tasks, newest
+ * first. One indexed read, at most 20. Grok Bot reads this to know what to
+ * raise with him.
+ */
+export const listNeedsPeter = internalQuery({
+  args: {},
+  handler: async (ctx): Promise<ApiResult> => {
+    const open = await ctx.db
+      .query('milestoneNotes')
+      .withIndex('by_needsPeter', (q) => q.eq('needsPeter', 'open'))
+      .order('desc')
+      .take(NEEDS_PETER_LIMIT);
+    const items = [];
+    for (const note of open) {
+      if (!(await orgVisible(ctx, note.orgId))) continue;
+      const milestone = await ctx.db.get(note.milestoneId);
+      if (!milestone) continue;
+      items.push({
+        id: note._id,
+        milestoneId: milestone._id,
+        milestoneName: milestone.name,
+        projectId: milestone.projectId,
+        reason: note.reason ?? null,
+        body: note.body,
+        status: milestone.status,
+        iteration: currentIteration(milestone.iteration),
+        createdAt: note.createdAt,
+      });
+    }
+    return { status: 200, body: { items } };
   },
 });
 
@@ -1180,6 +1221,10 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
           cursor,
           limit,
         });
+        return json(result.body, result.status);
+      }
+      if (url.pathname === '/api/v1/milestones/needs-peter') {
+        const result = await ctx.runQuery(internal.portalApi.listNeedsPeter, {});
         return json(result.body, result.status);
       }
       if (url.pathname === '/api/v1/milestones/item') {

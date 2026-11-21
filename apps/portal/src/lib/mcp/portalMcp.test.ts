@@ -69,6 +69,7 @@ const samples: Record<string, Record<string, unknown>> = {
   },
   record_decision: { projectId: 'project-1', title: 'Tasks live only inside milestones.', idempotencyKey: 'decision-1' },
   get_milestone_status: { milestoneId: 'milestone-1' },
+  list_needs_peter: {},
   add_note: { milestoneId: 'milestone-1', body: 'Design check passed.', idempotencyKey: 'note-1' },
   approve_milestone: { milestoneId: 'milestone-1', iteration: 2, idempotencyKey: 'approve-1' },
   request_changes: {
@@ -103,6 +104,7 @@ const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   upsert_glossary_term: { method: 'POST', path: '/api/v1/context/terms' },
   record_decision: { method: 'POST', path: '/api/v1/context/decisions' },
   get_milestone_status: { method: 'GET', path: '/api/v1/milestones/item' },
+  list_needs_peter: { method: 'GET', path: '/api/v1/milestones/needs-peter' },
   add_note: { method: 'POST', path: '/api/v1/milestones/note' },
   approve_milestone: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },
   request_changes: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },

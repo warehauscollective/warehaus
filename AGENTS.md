@@ -28,8 +28,10 @@ Every plan or feature follows this. Cursor agents, Claude agents, and Grok bots 
 
 ### Preview
 
-- Previews for Peter are local builds on his Mac against shared dev Convex `graceful-mastiff-960`.
-- Never a Vercel preview, never a cloud preview, and never production Convex `unique-turtle-383`.
+- There are two previews. Peter always approves from the local one. Decided by Peter, 2026-11-20 and 2026-11-21.
+- Local: a build on his Mac against shared dev Convex `graceful-mastiff-960`. This is the link in every approval request.
+- Vercel: a branch preview for staff only. It is never the link Peter is asked to approve from. It also runs against shared dev Convex.
+- Never production Convex `unique-turtle-383`, for either preview.
 - On his Mac, from the repo root: `npm run preview:pr -- <branch>`.
 - That command fetches and checks out the branch, installs dependencies, and starts the portal dev server. It prints the localhost URL (port 3100 unless `PORTAL_PORT` is set).
 - It refuses to start if the Convex URL is production: `unique-turtle-383`, a `prod:` deployment, a Vercel host, or any other Convex host that is not shared dev `graceful-mastiff-960`.

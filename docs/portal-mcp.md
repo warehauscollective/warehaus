@@ -69,6 +69,8 @@ To start new work, create the milestone and its task list in one call:
 
 `add_note` (`POST /api/v1/milestones/note`) adds a staff note. Notes are staff only. A note changes no status, approval or task.
 
+`list_needs_peter` (`GET /api/v1/milestones/needs-peter`) lists what is waiting on Peter, newest first, at most 20. There are two kinds. `approval`: a milestone reached Ready to Ship. The note has the pull request, the local preview command and link, and the approval line. `blocked`: a runner stopped on a task. The note has the task and the reason. An approval note leaves the list when Peter approves or requests changes. A blocked note leaves when that task is done. The Portal does not message Grok Bot. Grok Bot reads this list.
+
 ## Review
 
 `approve_milestone` and `request_changes` record Peter's decision on one iteration. Only the `grok-bot` token is accepted. Send the `iteration` from `get_milestone_status`. A stale iteration is rejected.

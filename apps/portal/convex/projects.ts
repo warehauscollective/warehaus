@@ -3,6 +3,7 @@ import { v } from 'convex/values';
 import { serveTasksByOrg } from './_lib/taskPlatformRead';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
+import { AGENT_REPO_INVALID, agentRepo } from './_lib/agentRun';
 import type { Id } from './_generated/dataModel';
 
 /** CLIENT fields only — never emit SERVER gate inputs. */
@@ -220,5 +221,24 @@ export const createForStaff = adminMutation({
     });
 
     return { id: projectId, notionPageId };
+  },
+});
+
+/**
+ * Staff set the repository a runner works this project in. Empty clears it,
+ * and a project with none is never handed to a runner. The same value again
+ * writes nothing. Convex only: not sent to Notion, never returned to a client.
+ */
+export const setAgentRepo = adminMutation({
+  args: { projectId: v.id('projects'), repo: v.union(v.string(), v.null()) },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new PortalAuthError('Project not found', 'FORBIDDEN');
+    const raw = args.repo?.trim() ?? '';
+    const next = raw ? agentRepo(raw) : null;
+    if (raw && !next) throw new PortalAuthError(AGENT_REPO_INVALID, 'FORBIDDEN');
+    if ((project.agentRepo ?? null) === next) return { ok: true as const, wrote: false, repo: next };
+    await ctx.db.patch(project._id, { agentRepo: next ?? undefined });
+    return { ok: true as const, wrote: true, repo: next };
   },
 });

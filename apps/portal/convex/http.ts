@@ -64,6 +64,7 @@ export const portalApiRoutes: Array<{ path: string; method: 'GET' | 'POST' }> = 
   { path: '/api/v1/milestones', method: 'GET' },
   { path: '/api/v1/milestones', method: 'POST' },
   { path: '/api/v1/milestones/item', method: 'GET' },
+  { path: '/api/v1/milestones/needs-peter', method: 'GET' },
   { path: '/api/v1/milestones/note', method: 'POST' },
   { path: '/api/v1/milestones/update', method: 'POST' },
   { path: '/api/v1/milestones/attach', method: 'POST' },
