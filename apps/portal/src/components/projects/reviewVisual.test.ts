@@ -218,13 +218,13 @@ describe('peter and staff preview visibility', () => {
   });
 
   it('describes a manual preview link on the waiting card', () => {
-    assert.equal(APPROVE_CONFIRM_COPY, 'This records the approval. Engineering then merges to main and deploys.');
+    assert.equal(APPROVE_CONFIRM_COPY, 'This records the approval. Merge and deploy stay separate steps.');
     assert.equal(WAITING_COPY, 'Staff attach a preview link when this is ready for review. The link shows here and in Grok Bot chat.');
-    assert.equal(DEPLOY_FOOTER, 'Approve records the decision, then engineering merges to main and deploys · Peter only');
+    assert.equal(DEPLOY_FOOTER, 'Approve records the decision. Merge and deploy stay separate steps · Peter only');
     const html = card({ ...base, previewUrl: null });
     assert.match(html, /Waiting for a preview link/);
     assert.match(html, /Staff attach a preview link when this is ready for review/);
-    assert.match(html, /then engineering merges to main and deploys · Peter only/);
+    assert.match(html, /Merge and deploy stay separate steps · Peter only/);
     assert.equal(html.includes('Waiting for review build'), false);
     assert.equal(html.includes('protected preview builds'), false);
     assert.equal(html.includes('ships to production'), false);

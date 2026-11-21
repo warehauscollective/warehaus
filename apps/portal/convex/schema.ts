@@ -150,6 +150,13 @@ export default defineSchema({
     /** Roadmap order while milestoneId is set. Cleared with that link. */
     milestoneOrder: v.optional(v.number()),
     /**
+     * Where a milestone task came from: the brief, a change request, or a
+     * staff add. Staff only. Absent on tasks that came from Notion.
+     */
+    origin: v.optional(v.union(v.literal('brief'), v.literal('review'), v.literal('manual'))),
+    /** Review iteration that asked for this task. Set with origin review. Staff only. */
+    round: v.optional(v.number()),
+    /**
      * Portal project move. Tasks.Projects is SERVER, so this is not written
      * to Notion. The next pull keeps this project until Notion already matches.
      */
@@ -289,6 +296,10 @@ export default defineSchema({
      * milestone. No index. Clients never receive it.
      */
     figmaUrl: v.optional(v.string()),
+    /** Where the milestone was created. Staff only. Absent on older rows. */
+    createdVia: v.optional(
+      v.union(v.literal('grok'), v.literal('claude'), v.literal('portal'), v.literal('other')),
+    ),
   })
     .index('by_orgId', ['orgId'])
     .index('by_orgId_projectId', ['orgId', 'projectId'])

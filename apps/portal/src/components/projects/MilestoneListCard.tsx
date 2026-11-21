@@ -255,7 +255,8 @@ export function MilestoneListCard({
     isPeter,
     status: milestone.status,
     approval: milestone.approval,
-    previewUrl: milestone.review?.previewUrl,
+    // Either preview unlocks Approve: the Vercel link or the local build.
+    previewUrl: milestone.review?.previewUrl || milestone.review?.localPreviewUrl || milestone.localPreviewUrl,
   });
   const confirmDeploy = () => {
     if (fixtures || !milestone.review || !onApprove) {
@@ -284,7 +285,10 @@ export function MilestoneListCard({
     decidedAt: milestone.decidedAt,
     dueDate: milestone.dueDate,
   });
-  const meta = tileMetaLine({ resources: milestone.resources.length });
+  const meta = tileMetaLine({
+    resources: milestone.resources.length,
+    createdVia: staff ? milestone.createdVia : null,
+  });
   const showStaffOnly = staff && milestone.publishToWarehaus === false;
   const localUrl = staff ? milestone.localPreviewUrl ?? null : null;
   const figmaUrl = staff ? milestone.figmaUrl ?? null : null;
@@ -360,7 +364,7 @@ export function MilestoneListCard({
       onClick={() => { setStageMenuOpen(false); setConfirm(true); }}
       style={{ width: '100%', height: 42, border: 0, borderRadius: 0, background: '#f59e0b', color: '#0a0a0b', fontSize: 14, fontWeight: 500, cursor: 'pointer' }}
     >
-      Approve & deploy
+      Approve
     </button>
   ) : null;
   const linkButtonStyle = (dimmed: boolean): CSSProperties => ({
@@ -608,7 +612,7 @@ export function MilestoneListCard({
           <div style={{ display: 'flex', flexWrap: 'nowrap', justifyContent: 'flex-end', gap: 8, padding: phone || viewportSheet ? '16px 16px 24px' : '16px 24px 20px' }}>
             {deploying ? null : <OutlineButton nowrap onClick={() => setConfirm(false)}>Cancel</OutlineButton>}
             <button type="button" disabled={deploying} onClick={confirmDeploy} className="inline-flex shrink-0 items-center justify-center gap-2" style={{ background: '#f59e0b', color: '#0a0a0b', border: 0, borderRadius: 9, padding: '8px 14px', fontSize: 14, whiteSpace: 'nowrap', opacity: deploying ? 0.4 : 1 }}>
-              {deploying ? 'Approving…' : 'Approve & deploy'}
+              {deploying ? 'Approving…' : 'Approve'}
             </button>
           </div>
         </PortalModal>

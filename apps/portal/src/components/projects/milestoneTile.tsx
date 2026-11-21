@@ -1,5 +1,6 @@
 'use client';
 
+import { createdViaLabel } from '@convex/_lib/milestoneTasks';
 import { type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { FIXTURE_CONTACTS, FIXTURE_PROJECTS } from '@/lib/data/fixtures';
@@ -193,8 +194,10 @@ export function ProgressCopy({ done, total, nested, phone }: { done: number; tot
  * timestamp, so the date line stays Due or Approved and this line does not
  * invent one. Review phrases stay off the tile.
  */
-export function tileMetaLine(input: { resources: number }): string {
-  return resourceLabel(input.resources);
+/** Resource count, then where the milestone was created when that is known. Staff only pass `createdVia`. */
+export function tileMetaLine(input: { resources: number; createdVia?: string | null }): string {
+  const via = createdViaLabel(input.createdVia);
+  return via ? `${resourceLabel(input.resources)} · ${via}` : resourceLabel(input.resources);
 }
 
 export function resourceLabel(count: number): string {

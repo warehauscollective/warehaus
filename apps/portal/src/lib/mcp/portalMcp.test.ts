@@ -16,7 +16,13 @@ const samples: Record<string, Record<string, unknown>> = {
   list_tasks: { projectId: 'project-1', milestoneId: 'milestone-1', updatedSince: undefined, limit: API_PAGE_MAX },
   get_task: { taskId: 'task-1' },
   list_milestones: { projectId: 'project-1', limit: API_PAGE_MAX },
-  create_task: { projectId: 'project-1', name: 'Draft a page', status: 'Inbox', idempotencyKey: 'task-1' },
+  create_task: {
+    projectId: 'project-1',
+    name: 'Draft a page',
+    status: 'Inbox',
+    milestoneId: 'milestone-1',
+    idempotencyKey: 'task-1',
+  },
   update_task: {
     taskId: 'task-1',
     expectedLastEditedTime: '2026-01-01T00:00:00.000Z',

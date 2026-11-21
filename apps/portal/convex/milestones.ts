@@ -56,7 +56,17 @@ import {
   type MilestoneStatus,
   type Transition,
 } from './_lib/milestoneStatus';
-import { tileLinkChangeDecision, type TileLinkField } from './_lib/tileLinks';
+import {
+  addTaskDecision,
+  editTaskDecision,
+  isPortalOwnedTask,
+  PORTAL_MILESTONE_TASK_SOURCE,
+  removeTaskDecision,
+  reorderDecision,
+  taskOrigin,
+  type MilestoneCreatedVia,
+} from './_lib/milestoneTasks';
+import { normalizeLocalPreviewUrl, tileLinkChangeDecision, type TileLinkField } from './_lib/tileLinks';
 import {
   MILESTONE_ONE_NAME,
   MILESTONE_ONE_OBJECTIVE,
@@ -80,7 +90,12 @@ import {
   reviewForAudience,
   type ReviewSource,
 } from './_lib/milestoneReview';
-import { planAttachPreviewLink, planClearPreviewLink, reviewRetryLiveOnClient } from './_lib/previewLink';
+import {
+  planAttachPreviewLink,
+  planClearPreviewLink,
+  reviewPreviews,
+  reviewRetryLiveOnClient,
+} from './_lib/previewLink';
 import {
   PREVIEW_DELETED_ACTIVITY,
   PREVIEW_READY_ACTIVITY,
@@ -109,6 +124,7 @@ const statusArg = v.union(
   v.literal('Parked'),
 );
 const decisionArg = v.union(v.literal('approved'), v.literal('changes_requested'));
+const createdViaArg = v.union(v.literal('grok'), v.literal('claude'), v.literal('other'));
 
 function fail(reason: string): never {
   throw new PortalAuthError(reason, 'FORBIDDEN');
@@ -273,6 +289,10 @@ async function roadmapTasks(
       publishToWarehaus: task.publishToWarehaus,
       hidden: task.syncHiddenAt != null,
       source: task.source ?? null,
+      origin: taskOrigin({ origin: task.origin, source: task.source }),
+      round: task.round ?? null,
+      portalOwned: isPortalOwnedTask({ source: task.source, notionPageId: task.notionPageId }),
+      detail: task.description ?? null,
     });
   }
   return rows;
@@ -347,6 +367,7 @@ async function toRoadmap(
     ...(audience === 'staff' && milestone.localPreviewUrl ? { localPreviewUrl: milestone.localPreviewUrl } : {}),
     ...(audience === 'staff' && milestone.figmaUrl ? { figmaUrl: milestone.figmaUrl } : {}),
     creatorName: await creatorNameFor(ctx, milestone),
+    ...(audience === 'staff' && milestone.createdVia ? { createdVia: milestone.createdVia } : {}),
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,
@@ -495,6 +516,7 @@ async function insertMilestone(
     ownerContactId?: Id<'contacts'>;
     dueDate?: string;
     createdByContactId?: Id<'contacts'>;
+    createdVia?: MilestoneCreatedVia;
   },
 ) {
   const created = createMilestoneDecision({
@@ -517,6 +539,7 @@ async function insertMilestone(
     ...(args.ownerContactId ? { ownerContactId: args.ownerContactId } : {}),
     ...(args.dueDate ? { dueDate: args.dueDate } : {}),
     ...(args.createdByContactId ? { createdByContactId: args.createdByContactId } : {}),
+    ...(args.createdVia ? { createdVia: args.createdVia } : {}),
   });
   const milestone = await ctx.db.get(milestoneId);
   if (!milestone) fail('Milestone not found');
@@ -555,6 +578,7 @@ export const create = adminMutation({
     }
     const id = await insertMilestone(ctx, 'human', project, {
       ...args,
+      createdVia: 'portal',
       ...(ctx.identity.contactId ? { createdByContactId: ctx.identity.contactId as Id<'contacts'> } : {}),
     });
     return { id };
@@ -570,11 +594,13 @@ export const createFromAi = internalMutation({
     goals: v.array(v.string()),
     status: v.optional(statusArg),
     resourceIds: v.optional(v.array(v.id('sharedResources'))),
+    /** Which assistant made it. Missing is stored as other. */
+    createdVia: v.optional(createdViaArg),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
     if (!project || project.orgId !== args.orgId) fail('Project not found');
-    const id = await insertMilestone(ctx, 'ai', project, args);
+    const id = await insertMilestone(ctx, 'ai', project, { ...args, createdVia: args.createdVia ?? 'other' });
     return { id };
   },
 });
@@ -1008,6 +1034,8 @@ async function staffReview(
   return {
     iteration: currentIteration(milestone.iteration),
     previewUrl: milestone.previewUrl || null,
+    localPreviewUrl: reviewPreviews(milestone).local,
+    vercelPreviewUrl: reviewPreviews(milestone).vercel,
     previewAttachedBy: milestone.previewAttachedBy ?? null,
     previewAttachedAt: milestone.previewAttachedAt ?? null,
     prNumber: milestone.previewPrNumber ?? null,
@@ -1047,6 +1075,7 @@ async function applyMilestoneReview(
     decision: string;
     notes: string;
     taskIds: readonly Id<'tasks'>[];
+    newTasks?: readonly string[];
     source: ReviewSource;
     actorEmail: string | null;
     actorRole: 'Warehaus Staff' | 'Client Admin' | 'Client Member' | null;
@@ -1079,12 +1108,13 @@ async function applyMilestoneReview(
     },
     currentIteration: currentIteration(milestone.iteration),
     status: milestone.status,
-    hasPreview: Boolean(milestone.previewUrl),
+    hasPreview: reviewPreviews(milestone).any,
     iteration: args.iteration,
     decision: args.decision,
     notes: args.notes,
     existing: existing ? { decision: existing.decision, notes: existing.notes } : null,
     appliesTo,
+    newTasks: args.newTasks,
   });
   if (!planned.ok) return { ok: false as const, status: 400, error: planned.reason };
   if (planned.idempotent) {
@@ -1172,6 +1202,8 @@ async function applyMilestoneReview(
       stage: 'Building',
       publishToWarehaus: false,
       source: 'portal-review',
+      origin: draft.origin,
+      round: draft.round,
       milestoneId: milestone._id,
       milestoneOrder: order,
       parentTaskId: draft.parentTaskId ? (draft.parentTaskId as Id<'tasks'>) : undefined,
@@ -1257,6 +1289,8 @@ export const requestChanges = adminMutation({
     iteration: v.number(),
     notes: v.string(),
     taskIds: v.optional(v.array(v.id('tasks'))),
+    /** One task per line. When present they replace the split of the notes into tasks. */
+    newTasks: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const contactId = ctx.identity.contactId as Id<'contacts'>;
@@ -1266,6 +1300,7 @@ export const requestChanges = adminMutation({
       decision: 'request_changes',
       notes: args.notes,
       taskIds: args.taskIds ?? [],
+      newTasks: args.newTasks,
       source: 'portal',
       actorEmail: ctx.identity.email,
       actorRole: 'Warehaus Staff',
@@ -1294,8 +1329,11 @@ export const setReviewBuild = adminMutation({
     const milestone = await loadMilestone(ctx, args.milestoneId);
     const previewUrl = normalizeLocalPreview(args.previewUrl);
     if (!previewUrl) fail('Preview must be a localhost:3100 link');
+    // The local build has its own field. previewUrl is the Vercel link.
+    const localPreviewUrl = normalizeLocalPreviewUrl(`http://${previewUrl}`);
+    if (!localPreviewUrl) fail('Preview must be a localhost:3100 link');
     const next = {
-      previewUrl,
+      localPreviewUrl,
       previewPrNumber: args.prNumber,
       previewPrTitle: args.prTitle.trim(),
       previewBranch: args.branch.trim(),
@@ -1306,7 +1344,7 @@ export const setReviewBuild = adminMutation({
     };
     const clearBuild = previewStatusPatch(milestone, { build: 'ready' });
     const unchanged =
-      milestone.previewUrl === next.previewUrl &&
+      milestone.localPreviewUrl === next.localPreviewUrl &&
       milestone.previewPrNumber === next.previewPrNumber &&
       milestone.previewPrTitle === next.previewPrTitle &&
       milestone.previewBranch === next.previewBranch &&
@@ -1879,6 +1917,167 @@ export const migrateMilestoneOne = internalMutation({
       attached,
       counts: report.counts,
       projects: report.projects,
+    };
+  },
+});
+
+// Tasks that live on a milestone. Rules are in _lib/milestoneTasks.ts.
+
+async function tasksOnMilestone(ctx: QueryCtx | MutationCtx, milestone: Doc<'milestones'>) {
+  const rows = await ctx.db
+    .query('tasks')
+    .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
+    .collect();
+  return rows.filter((row) => row.orgId === milestone.orgId && row.milestoneId === milestone._id);
+}
+
+const TASK_CHOICE_TAKE = 100;
+
+/** Milestones on one project that can take a new task. One indexed read, capped. */
+export const taskChoices = adminQuery({
+  args: { projectId: v.id('projects') },
+  handler: async (ctx, { projectId }) => {
+    const project = await ctx.db.get(projectId);
+    if (!project) return [];
+    const rows = await ctx.db
+      .query('milestones')
+      .withIndex('by_orgId_projectId', (q) => q.eq('orgId', project.orgId).eq('projectId', project._id))
+      .take(TASK_CHOICE_TAKE);
+    return rows
+      .filter((row) => row.orgId === project.orgId && row.projectId === project._id && row.status !== 'Shipped')
+      .map((row) => ({ id: row._id, name: row.name, status: row.status }));
+  },
+});
+
+/**
+ * Staff add a task inside a milestone. The task is stored here only: it has
+ * no Notion page and the outbox is not used. A Shipped milestone takes none.
+ */
+export const addTask = adminMutation({
+  args: { milestoneId: v.id('milestones'), title: v.string(), detail: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const decision = addTaskDecision({
+      staff: true,
+      milestoneStatus: milestone.status,
+      title: args.title,
+      detail: args.detail,
+    });
+    if (!decision.ok) fail(decision.reason);
+    const siblings = await tasksOnMilestone(ctx, milestone);
+    const at = Date.now();
+    const key = `${PORTAL_MILESTONE_TASK_SOURCE}:${milestone._id}:${at}:${siblings.length}`;
+    const taskId = await ctx.db.insert('tasks', {
+      orgId: milestone.orgId,
+      projectId: milestone.projectId,
+      notionPageId: key,
+      externalId: key,
+      lastSyncedAt: at,
+      name: decision.title,
+      ...(decision.detail ? { description: decision.detail, descriptionSource: 'property' as const } : {}),
+      status: 'To Do',
+      isDone: NEW_ITERATION_TASK_DONE,
+      stage: decision.stage,
+      publishToWarehaus: false,
+      source: PORTAL_MILESTONE_TASK_SOURCE,
+      origin: decision.origin,
+      milestoneId: milestone._id,
+      milestoneOrder: nextMilestoneOrder(siblings.map((row) => row.milestoneOrder)),
+      updatedAt: at,
+    });
+    return { ok: true as const, taskId };
+  },
+});
+
+/** Title and detail of a task the portal owns, while it is still To do. */
+export const editTask = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    taskId: v.id('tasks'),
+    title: v.string(),
+    detail: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.orgId !== milestone.orgId) fail('Task not found');
+    const decision = editTaskDecision({
+      staff: true,
+      milestoneId: milestone._id,
+      task,
+      title: args.title,
+      detail: args.detail,
+    });
+    if (!decision.ok) fail(decision.reason);
+    if (!decision.wrote) return { ok: true as const, wrote: false };
+    await ctx.db.patch(task._id, {
+      ...decision.patch,
+      ...(decision.patch.description !== undefined ? { descriptionSource: 'property' as const } : {}),
+      updatedAt: Date.now(),
+    });
+    return { ok: true as const, wrote: true };
+  },
+});
+
+/** Deletes a task the portal owns, while it is still To do. A Notion task is detached instead. */
+export const removeTask = adminMutation({
+  args: { milestoneId: v.id('milestones'), taskId: v.id('tasks') },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.orgId !== milestone.orgId) fail('Task not found');
+    const decision = removeTaskDecision({ staff: true, milestoneId: milestone._id, task });
+    if (!decision.ok) fail(decision.reason);
+    await ctx.db.delete(task._id);
+    return { ok: true as const };
+  },
+});
+
+/** New top-to-bottom order for the milestone's tasks. Only rows that move are written. */
+export const reorderTasks = adminMutation({
+  args: { milestoneId: v.id('milestones'), taskIds: v.array(v.id('tasks')) },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const current = await tasksOnMilestone(ctx, milestone);
+    const decision = reorderDecision({
+      staff: true,
+      current: current.map((row) => ({ id: row._id, milestoneOrder: row.milestoneOrder })),
+      taskIds: args.taskIds,
+    });
+    if (!decision.ok) fail(decision.reason);
+    for (const write of decision.writes) {
+      await ctx.db.patch(write.id as Id<'tasks'>, { milestoneOrder: write.milestoneOrder });
+    }
+    return { ok: true as const, wrote: decision.writes.length };
+  },
+});
+
+const ORIGIN_BACKFILL_PAGE = 200;
+
+/**
+ * One page of the origin backfill. Marks tasks a change request made as
+ * origin review. `dryRun` counts and writes nothing. Run until `isDone`.
+ */
+export const backfillTaskOrigins = internalMutation({
+  args: { cursor: v.optional(v.union(v.string(), v.null())), dryRun: v.optional(v.boolean()) },
+  handler: async (ctx, args) => {
+    const page = await ctx.db
+      .query('tasks')
+      .paginate({ cursor: args.cursor ?? null, numItems: ORIGIN_BACKFILL_PAGE });
+    let matched = 0;
+    for (const task of page.page) {
+      if (task.origin) continue;
+      const origin = taskOrigin({ source: task.source });
+      if (!origin) continue;
+      matched += 1;
+      if (!args.dryRun) await ctx.db.patch(task._id, { origin });
+    }
+    return {
+      scanned: page.page.length,
+      matched,
+      wrote: args.dryRun ? 0 : matched,
+      cursor: page.isDone ? null : page.continueCursor,
+      isDone: page.isDone,
     };
   },
 });

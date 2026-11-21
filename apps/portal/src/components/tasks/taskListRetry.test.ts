@@ -23,8 +23,8 @@ describe('task list retry and quick-add', () => {
     assert.equal(details.includes('StatusTable'), false);
     assert.equal(projects.includes('api.tasks.createTask'), false);
     assert.equal(projects.includes('quickAddEnabled={writebackEnabled}'), false);
-    assert.match(projects, /showQuickAdd=\{false\}/);
-    assert.match(projects, /renderTasks=/);
+    assert.equal(projects.includes('<TaskBoard'), false);
+    assert.equal(projects.includes('renderTasks='), false);
   });
 
   it('keeps the open project in the URL while its milestones load', () => {
@@ -36,19 +36,11 @@ describe('task list retry and quick-add', () => {
     assert.equal(projects.includes('<h2 style={{ fontSize: 18, fontWeight: 600, lineHeight: \'26px\' }}>Tasks</h2>'), false);
   });
 
-  it('catches a queued stage retry once and still records the failure', () => {
+  it('no longer keeps stage-move state on the project page', () => {
     const projects = readFileSync(new URL('../pages/ProjectsContent.tsx', import.meta.url), 'utf8');
-    const fnStart = projects.indexOf('const retryQueuedStage');
-    const fnEnd = projects.indexOf('if (openProject)', fnStart);
-    const fn = projects.slice(fnStart, fnEnd);
-    assert.match(fn, /catch \(err\)/);
-    assert.match(fn, /Could not retry the stage change\./);
-    assert.equal(fn.includes('.catch('), false);
-    const handlerStart = projects.indexOf('onRetry={queuedStage');
-    const handlerEnd = projects.indexOf(': undefined}', handlerStart);
-    const handler = projects.slice(handlerStart, handlerEnd);
-    assert.match(handler, /retryQueuedStage\(\)/);
-    assert.equal(handler.includes('.catch'), false);
-    assert.equal(handler.includes('void '), false);
+    // The milestone checklist replaced the board, so the page holds no move mutation or rules query.
+    assert.equal(projects.includes('retryQueuedStage'), false);
+    assert.equal(projects.includes('api.tasks.moveStage'), false);
+    assert.equal(projects.includes('api.tasks.moveRules'), false);
   });
 });

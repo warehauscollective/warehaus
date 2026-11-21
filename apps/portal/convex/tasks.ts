@@ -289,7 +289,8 @@ export const createTask = adminMutation({
     externalId: v.string(),
     date: v.optional(v.string()),
     stage: v.optional(v.string()),
-    milestoneId: v.optional(v.id('milestones')),
+    /** Required. A task only exists inside a milestone. */
+    milestoneId: v.id('milestones'),
   },
   handler: async (ctx, args): Promise<TaskWriteResult> => {
     return ctx.runMutation(internal.sync.taskWrite.enqueueCreate, {

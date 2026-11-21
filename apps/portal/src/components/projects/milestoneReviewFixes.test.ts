@@ -62,7 +62,7 @@ describe('milestone review fixes', () => {
     assert.match(create, /Choose a person/);
     assert.match(create, /Choose a date/);
     assert.match(roadmap.slice(roadmap.indexOf('function FormFields'), roadmap.indexOf('function ProjectResources')), /Attach resources/);
-    assert.match(create, /Tasks are added on the milestone/);
+    assert.match(create, /Tasks only exist inside this milestone/);
     assert.equal(create.includes('generated from the brief'), false);
     assert.match(create, /footer=\{/);
     assert.equal(create.slice(create.indexOf('<form'), create.indexOf('</form>')).includes('Create milestone'), false);
@@ -71,10 +71,12 @@ describe('milestone review fixes', () => {
   it('gives the review card Open preview link the blue focus ring', () => {
     const review = readFileSync(new URL('./MilestoneReview.tsx', import.meta.url), 'utf8');
     const box = review.slice(review.indexOf('function PreviewBox'), review.indexOf('function previewHref'));
-    assert.match(box, /data-testid="review-open-preview"/);
+    assert.match(box, /'review-open-preview'/);
+    assert.match(box, /'review-open-local-preview'/);
+    assert.match(box, /Open local preview/);
+    assert.match(box, /Open Vercel preview/);
     assert.match(box, /focus-visible:outline-\[var\(--info\)\]/);
     assert.match(box, /focus-visible:outline-offset-2/);
-    assert.match(box, /Open preview/);
   });
 
   it('shows a save failure inside the open dialog', () => {
@@ -102,7 +104,9 @@ describe('milestone review fixes', () => {
     assert.equal(roadmap.includes('function ReviewDialog'), false);
     assert.equal(roadmap.includes('>New task<'), false);
     const create = tasks.slice(tasks.indexOf('export const createTask'), tasks.indexOf('export const updateLiveFields'));
-    assert.match(create, /milestoneId: v\.optional\(v\.id\('milestones'\)\)/);
+    // A task only exists inside a milestone, so the argument is required.
+    assert.match(create, /milestoneId: v\.id\('milestones'\)/);
+    assert.doesNotMatch(create, /milestoneId: v\.optional/);
   });
 
   it('does not attribute reviews or activity by milestone name', () => {
@@ -141,12 +145,12 @@ describe('milestone review fixes', () => {
     assert.match(board, /const framedSurface = framed && !phone/);
     assert.match(board, /shared=\{framedSurface\}/);
     assert.match(board, /\{shared && fade \?/);
-    const milestoneBoard = projects.slice(projects.indexOf('renderTasks='), projects.indexOf('details='));
+    // The milestone Tasks tab is a checklist now. The projects page mounts no board.
     const details = projects.slice(projects.indexOf('details='));
-    assert.match(milestoneBoard, /<TaskBoard[\s\S]*?\bframed\b/);
+    assert.equal(projects.includes('renderTasks='), false);
     assert.equal(details.includes('<TaskBoard'), false);
     assert.equal(details.includes('framed'), false);
-    assert.equal((projects.match(/<TaskBoard/g) ?? []).length, 1);
+    assert.equal((projects.match(/<TaskBoard/g) ?? []).length, 0);
   });
 
   it('keeps the project page on the milestone list until a milestone is opened', () => {
@@ -163,7 +167,8 @@ describe('milestone review fixes', () => {
     assert.equal(listCard.includes('TaskBoard'), false);
     assert.match(listCard, /Open milestone/);
     const opened = roadmap.slice(roadmap.indexOf('function MilestoneDetail'));
-    assert.match(opened, /renderTasks\(shownTasks\)/);
+    assert.match(opened, /<MilestoneChecklist/);
+    assert.equal(opened.includes('renderTasks'), false);
     const detailsStart = projects.indexOf('details=');
     const details = projects.slice(detailsStart, projects.indexOf('</PortalTilePane>', detailsStart));
     assert.equal(details.includes('>Tasks<'), false);
@@ -193,8 +198,7 @@ describe('milestone review fixes', () => {
       nested: 0,
     });
     assert.match(roadmap, /const board = boardCountsFromTasks\(shownTasks\)/);
-    assert.match(roadmap, /\{board\.lanes\} on the board/);
-    assert.match(roadmap, /board\.lanes === 0/);
+    assert.match(roadmap, /label: `Tasks · \$\{board\.lanes\}`/);
   });
 
   it('traps dialog focus and restores it on close', () => {

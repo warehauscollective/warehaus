@@ -729,7 +729,7 @@ export function useMilestoneDetailEdits({
       {staff && shown.kind === 'remove-link' ? (
         <ConfirmFrame busy={linkBusy} error={confirmError} confirmLabel="Remove link" onCancel={() => closeOverlay(true)} onConfirm={confirmClear}>
           <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>
-            Peter won’t see Approve & deploy until a preview link is attached again.
+            The Vercel preview block leaves the review card. A local preview still unlocks Approve.
           </p>
         </ConfirmFrame>
       ) : null}

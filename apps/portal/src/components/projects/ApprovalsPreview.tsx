@@ -65,6 +65,7 @@ const attachedLink: ReviewSurfaceModel = {
   ...ready,
   status: 'Ready to Ship',
   previewUrl: ATTACHED_PREVIEW,
+  localPreviewUrl: 'http://localhost:3100/',
   previewAttachedAt: STAMP,
   designCheck: 'pass',
 };
@@ -445,7 +446,7 @@ function TaskFromReview({ phone }: { phone: boolean }) {
 function OverlayFrame({ kind, phone }: { kind: ApprovalsOverlay; phone: boolean }) {
   const width = phone ? 390 : 1108;
   return (
-    <section data-overlay={kind} data-width={phone ? '390' : '1440'} style={{ position: 'relative', width, minHeight: phone ? 760 : 640, overflow: 'hidden', paddingTop: 16 }}>
+    <section data-overlay={kind} data-width={phone ? '390' : '1440'} style={{ position: 'relative', width, minHeight: kind === 'request-changes' || kind === 'request-changes-error' ? (phone ? 1020 : 900) : phone ? 760 : 640, overflow: 'hidden', paddingTop: 16 }}>
       {kind === 'confirm-tile' ? (
         <MilestoneListCard
           milestone={tileMilestone}
