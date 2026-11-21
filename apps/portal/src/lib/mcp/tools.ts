@@ -10,6 +10,7 @@ import {
   TASK_STAGES,
   taskListPlan,
 } from '@warehaus/portal-sync';
+import { MILESTONE_STATUSES } from '@convex/_lib/milestoneStatus';
 import { attachFailureCode, attachFailureStatus } from '@convex/_lib/milestones';
 import { PROPOSED_TASKS_MAX, PROPOSED_TASKS_MIN } from '@convex/_lib/milestoneBot';
 import { REVIEW_TASK_LIMIT } from '@convex/_lib/milestoneTasks';
@@ -20,6 +21,10 @@ const cursor = z.string().min(1).max(2000).optional();
 const idempotencyKey = z.string().min(1).max(200);
 const stage = z.enum(TASK_STAGES);
 const status = z.enum(LIVE_TASK_STATUSES);
+/** Every milestone status a bot may send. Shipped is set when the pull request merges. */
+const settableMilestoneStatuses = MILESTONE_STATUSES.filter((value) => value !== 'Shipped') as [string, ...string[]];
+const milestoneStatus = z.enum(settableMilestoneStatuses);
+const milestoneGoals = z.array(z.string().min(1).max(500)).max(20);
 
 export type ToolCall = {
   method: 'GET' | 'POST';
@@ -249,7 +254,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'create_project',
     description:
-      'Create a project through the staff project-create path. Pass clientId, or client to create a new client first with the staff client-create path. The new client stays unpublished. The project stays unpublished unless publishToWarehaus is true. Send an idempotency key.',
+      'Create a project through the staff project-create path. Pass clientId, or client to create a new client first with the staff client-create path. The new client stays unpublished. The project stays unpublished unless publishToWarehaus is true. A new project has no brief: after creating it, call get_grilling_instructions and grill the user before planning milestones or tasks. Send an idempotency key.',
     write: true,
     schema: {
       name: z.string().min(1).max(2000),
@@ -275,6 +280,32 @@ export const portalTools: PortalTool[] = [
         client: args.client,
         externalId: args.externalId,
         publishToWarehaus: args.publishToWarehaus,
+      }),
+    }),
+  },
+  {
+    name: 'update_milestone',
+    description:
+      'Update a milestone name, objective, goals, or status. Send only the fields that change, and at least one. Status is one of Idea, Planning, Awaiting Go, Building, Ready to Ship, or Parked; Shipped cannot be sent, it is set when the pull request merges. Sending the stored values again writes nothing. Use record_milestone_review for an approval or a request for changes. Send an idempotency key.',
+    write: true,
+    schema: {
+      milestoneId: z.string().min(1),
+      name: z.string().min(1).max(200).optional(),
+      objective: z.string().min(1).max(2000).optional(),
+      goals: milestoneGoals.optional(),
+      status: milestoneStatus.optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/milestones/update',
+      idempotencyKey: String(args.idempotencyKey),
+      body: defined({
+        milestoneId: args.milestoneId,
+        name: args.name,
+        objective: args.objective,
+        goals: args.goals,
+        status: args.status,
       }),
     }),
   },
@@ -334,13 +365,14 @@ export const portalTools: PortalTool[] = [
   {
     name: 'create_milestone',
     description:
-      'Create a milestone and its task list in one call. Read the brief and propose 3 to 10 concrete tasks in proposedTasks, each one a piece of work a developer can finish and check, in the order they should be done. With tasks the milestone starts at Awaiting Go and waits for Peter. With none it starts at Planning. It stays unpublished. The tasks are stored in the Portal only and are not sent to Notion. createdVia is grok or claude; leave it out to use the token name. Send an idempotency key. Retries with the same key replay the first result.',
+      'Create a milestone and its task list in one call. Call list_milestones first and reuse a matching milestone instead of making a second one. Read the brief and propose 3 to 10 concrete tasks in proposedTasks, each one a piece of work a developer can finish and check, in the order they should be done. With tasks the milestone starts at Awaiting Go and waits for Peter. With none it starts at Planning. A status you send wins; Shipped cannot be sent, it is set when the pull request merges. It stays unpublished. The tasks are stored in the Portal only and are not sent to Notion. createdVia is grok or claude; leave it out to use the token name. Send an idempotency key. Retries with the same key replay the first result.',
     write: true,
     schema: {
       projectId: z.string().min(1),
       name: z.string().min(1).max(200),
       objective: z.string().min(1).max(8000),
-      goals: z.array(z.string().min(1).max(500)).max(20).optional(),
+      goals: milestoneGoals.optional(),
+      status: milestoneStatus.optional(),
       proposedTasks: z
         .array(
           z.object({
@@ -363,6 +395,7 @@ export const portalTools: PortalTool[] = [
         name: args.name,
         objective: args.objective,
         goals: args.goals ?? [],
+        status: args.status,
         proposedTasks: args.proposedTasks,
         createdVia: args.createdVia,
       }),
@@ -464,6 +497,84 @@ export const portalTools: PortalTool[] = [
         notes: args.notes ?? '',
         taskIds: args.taskIds,
       }),
+    }),
+  },
+  {
+    name: 'get_project_context',
+    description:
+      'Read one project\'s context: the brief (goal, audience, outOfScope, doneWhen), glossary terms, and recorded decisions. Staff only. summary.incomplete is true when no brief field is set; run a grilling session before planning work on such a project. Read this before asking the user anything about a project, and use the glossary\'s words.',
+    write: false,
+    schema: { projectId: z.string().min(1) },
+    call: (args) => ({ method: 'GET', path: '/api/v1/context', search: { projectId: String(args.projectId) } }),
+  },
+  {
+    name: 'get_grilling_instructions',
+    description:
+      'Return the Warehaus rules for a grilling session: how to interview the user about a project or feature, and what to save to its context as each point is settled. Call this once at the start of a session, when the user asks to grill, plan, or scope a project or feature, or when get_project_context shows summary.incomplete.',
+    write: false,
+    schema: {},
+    call: () => ({ method: 'GET', path: '/api/v1/context/grilling' }),
+  },
+  {
+    name: 'save_project_brief',
+    description:
+      'Set brief fields on a project: goal, audience (who it is for), outOfScope, doneWhen. Send only the fields that are settled; a field left out is not changed, and an empty string clears it. Plain sentences, no implementation detail, at most 1200 characters each. Returns the updated context. Send an idempotency key.',
+    write: true,
+    schema: {
+      projectId: z.string().min(1),
+      goal: z.string().max(1200).optional(),
+      audience: z.string().max(1200).optional(),
+      outOfScope: z.string().max(1200).optional(),
+      doneWhen: z.string().max(1200).optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/context/brief',
+      idempotencyKey: String(args.idempotencyKey),
+      body: defined({
+        projectId: args.projectId,
+        goal: args.goal,
+        audience: args.audience,
+        outOfScope: args.outOfScope,
+        doneWhen: args.doneWhen,
+      }),
+    }),
+  },
+  {
+    name: 'upsert_glossary_term',
+    description:
+      'Add a term to a project\'s glossary, or change its definition. One call per term, as soon as its meaning is agreed. Terms match without regard to case, so the same term is updated, not added twice. The definition says what the thing is in one or two sentences, with no implementation detail. Send an idempotency key.',
+    write: true,
+    schema: {
+      projectId: z.string().min(1),
+      term: z.string().min(1).max(80),
+      definition: z.string().min(1).max(600),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/context/terms',
+      idempotencyKey: String(args.idempotencyKey),
+      body: { projectId: args.projectId, term: args.term, definition: args.definition },
+    }),
+  },
+  {
+    name: 'record_decision',
+    description:
+      'Record a decision on a project. Use only when it is hard to reverse, would surprise a later reader, and came from a real trade-off. The title states the decision; body says why and what was turned down. Decisions are numbered per project. Recording the same title again returns the first record. Send an idempotency key.',
+    write: true,
+    schema: {
+      projectId: z.string().min(1),
+      title: z.string().min(1).max(200),
+      body: z.string().max(2000).optional(),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/context/decisions',
+      idempotencyKey: String(args.idempotencyKey),
+      body: defined({ projectId: args.projectId, title: args.title, body: args.body }),
     }),
   },
 ];
