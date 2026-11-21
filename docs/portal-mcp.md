@@ -147,3 +147,23 @@ npx convex run --prod portalTokens:revokeBot '{"name":"grok-bot"}'
 npx convex run --prod portalTokens:revokeBot '{"name":"warehaus-studio-manager"}'
 npx convex run --prod portalTokens:revokeBot '{"name":"claude"}'
 ```
+
+## Project context tools
+
+Each project has a context: a brief, a glossary, and recorded decisions. It is staff only and lives in Convex. It is not part of the Notion sync.
+
+| Tool | Scope | Route |
+|---|---|---|
+| `get_project_context` | read | `GET /api/v1/context?projectId=` |
+| `get_grilling_instructions` | read | `GET /api/v1/context/grilling` |
+| `save_project_brief` | read-write | `POST /api/v1/context/brief` |
+| `upsert_glossary_term` | read-write | `POST /api/v1/context/terms` |
+| `record_decision` | read-write | `POST /api/v1/context/decisions` |
+
+`get_grilling_instructions` returns the rules for a grilling session, from `apps/portal/convex/_lib/grillingInstructions.ts`. Every bot reads the same text. The portal serves it and never calls a model. The rules are adapted from the `grilling` and `domain-modeling` skills in `mattpocock/skills` (MIT).
+
+The brief has four fields: `goal`, `audience`, `outOfScope`, `doneWhen`. A field left out of `save_project_brief` is not changed. An empty string clears it. `summary.incomplete` is true while no field is set.
+
+Glossary terms match without regard to case. Writing a term again updates its definition. Decisions are numbered per project from 0001 and a number is never reused. Recording the same title again returns the first record.
+
+Writes need an `idempotencyKey`. A write records which bot made it from the token name (`grok`, `claude`, or `other`), not a person: one `grok-bot` token serves every Grok chat. There is no tool that deletes context. A concealed client reads as `Project not found`.
