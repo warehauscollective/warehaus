@@ -180,16 +180,18 @@ export function PortalHomeContent() {
       : isStaff
         ? tenantEyebrow(data.tenant, 'Dashboard')
         : `● ${data.tenant.clientName ?? 'Portal'} · Dashboard`;
-  const taskProject = projects.find((project) => !project.internal)?.name ?? 'Dashboard';
   const staffProjects = (staff.projects ?? []) as Array<{
+    id: string;
     name: string;
     internal?: boolean;
     orgId?: string;
     notionPageId?: string | null;
   }>;
-  const taskTarget =
-    staffProjects.find((project) => !project.internal && project.orgId && project.notionPageId) ??
-    staffProjects.find((project) => project.orgId && project.notionPageId);
+  const taskProjects = staffProjects.flatMap((project) =>
+    project.orgId && project.notionPageId
+      ? [{ id: project.id, name: project.name, orgId: project.orgId, notionPageId: project.notionPageId }]
+      : [],
+  );
 
   return (
     <PortalWorkspace
@@ -198,10 +200,8 @@ export function PortalHomeContent() {
       actions={
         isStaff && !joined && !blank ? (
           <NewTaskControl
-            projectName={taskTarget?.name ?? taskProject}
+            projects={taskProjects}
             writebackEnabled={liveSync.data?.writebackEnabled === true}
-            orgId={taskTarget?.orgId ?? null}
-            projectNotionId={taskTarget?.notionPageId ?? null}
             hostSlug={hostSlug}
           />
         ) : undefined

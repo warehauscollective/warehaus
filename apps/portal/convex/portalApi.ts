@@ -49,6 +49,7 @@ import {
   type AttachFailureCode,
 } from './_lib/milestones';
 import { detailActivitySummary } from './_lib/milestoneDetails';
+import { taskMilestoneGate } from './_lib/milestoneTasks';
 import {
   STATUS_ACTIVITY,
   apiStatusFields,
@@ -496,6 +497,11 @@ export const createTask = internalMutation({
     if (!project || !(await orgVisible(ctx, project.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
     }
+    const milestoneGate = taskMilestoneGate(
+      args.milestoneId ? await ctx.db.get(args.milestoneId) : null,
+      { orgId: project.orgId, projectId: project._id },
+    );
+    if (!milestoneGate.ok) return finishIdempotency(ctx, opened.id, fail(400, milestoneGate.reason));
     const externalId = `wh_tsk_${(await sha256Hex(`${args.tokenId}:${args.key}`)).slice(0, 24)}`;
     const planned = planApiTaskCreate({
       name: args.name,

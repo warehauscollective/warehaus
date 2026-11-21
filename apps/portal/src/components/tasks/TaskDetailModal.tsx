@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
-import { TASK_STAGES, TASK_UNAVAILABLE, createTaskExternalId, taskDescriptionEditMode, type TaskLinkKind } from '@warehaus/portal-sync';
+import { TASK_STAGES, TASK_UNAVAILABLE, taskDescriptionEditMode, type TaskLinkKind } from '@warehaus/portal-sync';
 import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
 import { DueDateMenu, FieldError, OwnerMenu, Popover, ProjectMenu, type MoveTarget, type OwnerChoice } from '@/components/projects/milestoneDetailsEdit';
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton, StatusBadge } from '@/components/ui/primitives';
@@ -1191,103 +1191,6 @@ function Field({ label, children, row = false }: { label: string; children: Reac
       <p className="ds-mono" style={{ fontSize: 'var(--t-xs)', color: 'var(--faint)' }}>{label}</p>
       <div style={{ marginTop: 4, fontSize: 'var(--t-sm)' }}>{children}</div>
     </div>
-  );
-}
-
-export function TaskCreateDialog({
-  projectName,
-  projectNotionId,
-  orgId,
-  hostSlug,
-  status,
-  onClose,
-}: {
-  projectName: string;
-  projectNotionId: string | null;
-  orgId: string | null;
-  hostSlug?: string;
-  status?: string;
-  onClose: () => void;
-}) {
-  const createTask = useMutation(api.tasks.createTask);
-  const [name, setName] = useState('');
-  const [due, setDue] = useState('');
-  const [stage, setStage] = useState('');
-  const [taskStatus, setTaskStatus] = useState(status ?? 'To Do');
-  const [note, setNote] = useState<string | null>(null);
-  const [pending, setPending] = useState(false);
-
-  const onSubmit = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!name.trim()) {
-      setNote('Title is required. Nothing was sent.');
-      return;
-    }
-    if (!orgId || !projectNotionId) {
-      setNote('This project is not in Notion yet. Nothing was sent.');
-      return;
-    }
-    setPending(true);
-    try {
-      const result = await createTask({
-        hostSlug,
-        orgId: orgId as Id<'clients'>,
-        name: name.trim(),
-        status: taskStatus,
-        projectNotionId,
-        externalId: createTaskExternalId(`${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`),
-        date: due || undefined,
-        stage: stage || undefined,
-      });
-      if (!result.ok) {
-        setNote(result.error);
-        return;
-      }
-      onClose();
-    } catch (err) {
-      setNote(userFacingErrorMessage(err, 'Could not create the task'));
-    } finally {
-      setPending(false);
-    }
-  };
-
-  return (
-    <PortalModal label="New task" testId="task-create" onClose={onClose} width={640} panelStyle={{ padding: 24 }}>
-      <form className="flex flex-col gap-3" onSubmit={onSubmit}>
-        <h2 style={{ fontFamily: 'var(--font-display)', fontSize: 'var(--t-lg)' }}>New task</h2>
-        <p style={{ color: 'var(--muted)', fontSize: 'var(--t-sm)' }}>{projectName}</p>
-        <label className="flex flex-col gap-1">
-          Title
-          <input required value={name} onChange={(event) => setName(event.target.value)} style={inputStyle} />
-        </label>
-        <div className="grid gap-3 sm:grid-cols-2">
-          <label className="flex flex-col gap-1">
-            Status
-            <select value={taskStatus} onChange={(event) => setTaskStatus(event.target.value)} style={inputStyle}>
-              {LIVE_TASK_STATUSES.map((value) => <option key={value}>{value}</option>)}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            Stage
-            <select value={stage} onChange={(event) => setStage(event.target.value)} style={inputStyle}>
-              <option value="">Leave empty</option>
-              {TASK_STAGES.filter((value) => value !== 'Shipped').map((value) => (
-                <option key={value}>{value}</option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-col gap-1">
-            Due
-            <input type="date" value={due} onChange={(event) => setDue(event.target.value)} style={inputStyle} />
-          </label>
-        </div>
-        {note ? <p role="status" style={{ color: 'var(--fg)' }}>{note}</p> : null}
-        <div className="flex justify-end gap-2">
-          <OutlineButton onClick={onClose}>Cancel</OutlineButton>
-          <PrimaryButton type="submit" disabled={pending || !name.trim()}>{pending ? 'Creating…' : 'Create task'}</PrimaryButton>
-        </div>
-      </form>
-    </PortalModal>
   );
 }
 

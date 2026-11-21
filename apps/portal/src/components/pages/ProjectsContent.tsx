@@ -2,8 +2,6 @@
 
 import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { useMutation } from 'convex/react';
-import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { ProjectRoadmap } from '@/components/projects/ProjectRoadmap';
 import { resourcesForProject } from '@/components/projects/milestoneGuards';
 import { OutlineButton, Surface } from '@/components/ui/primitives';
@@ -67,10 +65,8 @@ import {
   ProjectListOutcome,
   ProjectListScreen,
 } from '@/components/projects/ProjectListStates';
-import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
-import { ItemSaveBanner } from '@/components/tasks/itemStates';
-import { LIVE_TASK_STATUSES, PROJECT_UNAVAILABLE, TASK_STAGES, WRITEBACK_OFF_ERROR, stageMoveRule, statusMoveRule } from '@warehaus/portal-sync';
+import { PROJECT_UNAVAILABLE } from '@warehaus/portal-sync';
 import type { Id } from '@convex/_generated/dataModel';
 
 const SECTION_TITLE: Record<string, string> = {
@@ -112,28 +108,8 @@ export function ProjectsContent() {
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
   const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
   const [archivedFixtureIds, setArchivedFixtureIds] = useState<string[]>([]);
-  const [queuedStage, setQueuedStage] = useState<{
-    taskId: string;
-    stage: string;
-    expectedLastEditedTime: string;
-    pullRequestLink?: string;
-    retryAt: number | null;
-  } | null>(null);
   const pathname = usePathname() || '';
   const router = useRouter();
-  const moveStatus = useMutation(api.tasks.moveStatus);
-  const moveStage = useMutation(api.tasks.moveStage);
-  const [stageRetry, setStageRetry] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
-  const rules = useSafeQuery<BoardRules>(
-    api.tasks.moveRules,
-    !fixtures && configured ? { hostSlug } : 'skip',
-  );
-
-  useEffect(() => {
-    setQueuedStage(null);
-    setStageRetry({ busy: false, error: null });
-  }, [openId]);
-
   useEffect(() => {
     setOpenProjectId(openId);
     return () => setOpenProjectId(null);
@@ -397,39 +373,8 @@ export function ProjectsContent() {
     const internal = 'internal' in client ? Boolean(client.internal) : rows.some((project) => project.internal);
     return { id: client.id, name: client.name, projectCount: counted, internal };
   });
-  const retryQueuedStage = async () => {
-    if (!queuedStage || fixtures || stageRetry.busy) return;
-    setStageRetry({ busy: true, error: null });
-    try {
-      const result = await moveStage({
-        hostSlug,
-        taskId: queuedStage.taskId as Id<'tasks'>,
-        stage: queuedStage.stage,
-        expectedLastEditedTime: queuedStage.expectedLastEditedTime,
-        pullRequestLink: queuedStage.pullRequestLink,
-      });
-      if (!result.ok) {
-        setStageRetry({ busy: false, error: result.error });
-        return;
-      }
-      if (!result.pending || !result.outboxId) {
-        setQueuedStage(null);
-        setStageRetry({ busy: false, error: null });
-        return;
-      }
-      setQueuedStage({ ...queuedStage, retryAt: null });
-      setStageRetry({ busy: false, error: null });
-    } catch (err) {
-      setStageRetry({
-        busy: false,
-        error: userFacingErrorMessage(err, 'Could not retry the stage change.'),
-      });
-    }
-  };
-
   if (openProject) {
     const projectTasks = tasks.filter((task) => task.projectId === openProject.id);
-    const listLoading = !fixtures && (isStaff ? staff.tasksLoading || loading : loading) && projectTasks.length === 0;
     const projectDocs = docs.filter((doc) => {
       if (doc.projectId !== openProject.id) return false;
       if (isStaff) return true;
@@ -468,75 +413,6 @@ export function ProjectsContent() {
               resourcesExtra={
                 <DocsBlock docs={projectDocs} staff={isStaff} loading={projectsLoading && projectDocs.length === 0} />
               }
-              renderTasks={(boardTasks) => (
-                <>
-                {queuedStage ? (
-                  <div style={{ marginBottom: 16 }}>
-                    <ItemSaveBanner
-                      retryAt={queuedStage.retryAt}
-                      busy={stageRetry.busy}
-                      error={stageRetry.error}
-                      onRetry={queuedStage ? () => {
-                        retryQueuedStage();
-                      } : undefined}
-                    />
-                  </div>
-                ) : null}
-                <TaskBoard
-                  tasks={boardTasks}
-                  staff={isStaff}
-                  loading={listLoading}
-                  framed
-                  hideGroupToggle
-                  showQuickAdd={false}
-                  onQuickAdd={async () => ({ ok: false, error: 'Add a task from the milestone menu.' })}
-                  rules={
-                    fixtures
-                      ? isStaff
-                        ? fixtureStaffRules
-                        : clientDeniedRules
-                      : rules.data ?? (isStaff ? null : clientDeniedRules)
-                  }
-                  onOpen={openTask}
-                  onMove={async (request) => {
-                    if (fixtures) {
-                      if (request.mode === 'stage') return { ok: true, pending: true };
-                      return { ok: false, error: WRITEBACK_OFF_ERROR };
-                    }
-                    if (!request.task.lastEditedTime) {
-                      return { ok: false, error: 'This task has no Notion edit time yet. Nothing was sent.' };
-                    }
-                    const result = request.mode === 'stage'
-                      ? await moveStage({
-                          hostSlug,
-                          taskId: request.task.id as Id<'tasks'>,
-                          stage: request.value,
-                          expectedLastEditedTime: request.task.lastEditedTime,
-                          pullRequestLink: request.pullRequestLink,
-                        })
-                      : await moveStatus({
-                          hostSlug,
-                          taskId: request.task.id as Id<'tasks'>,
-                          status: request.value,
-                          expectedLastEditedTime: request.task.lastEditedTime,
-                        });
-                    if (!result.ok) return { ok: false, error: result.error };
-                    if (request.mode === 'stage' && result.pending === true && result.outboxId) {
-                      setQueuedStage({
-                        taskId: request.task.id,
-                        stage: request.value,
-                        expectedLastEditedTime: request.task.lastEditedTime,
-                        pullRequestLink: request.pullRequestLink,
-                        retryAt: null,
-                      });
-                    } else if (request.mode === 'stage') {
-                      setQueuedStage((current) => (current?.taskId === request.task.id ? null : current));
-                    }
-                    return { ok: true, pending: result.pending === true };
-                  }}
-                />
-                </>
-              )}
               details={
                 <>
             {summary.showEdit ? (
@@ -794,14 +670,6 @@ type ResourceOption = {
   updatedAt?: number | null;
   lastSyncedAt?: number | null;
   attachedCount?: number | null;
-};
-
-const clientDeniedRules: BoardRules = { actor: 'client', statuses: [], stages: [] };
-
-const fixtureStaffRules: BoardRules = {
-  actor: 'staff',
-  statuses: LIVE_TASK_STATUSES.map((status) => ({ status, rule: statusMoveRule('staff', status) })),
-  stages: TASK_STAGES.map((stage) => ({ stage, rule: stageMoveRule('staff', stage) })),
 };
 
 function KpiCard({

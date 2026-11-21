@@ -53,6 +53,7 @@ describe('createTask project org', () => {
               unique: async () => ({ _id: 'proj-public', orgId: 'org-northwind', notionPageId: 'notion-proj' }),
             }),
           }),
+          get: async () => ({ _id: 'm-launch', orgId: 'org-northwind', projectId: 'proj-public', status: 'Building' }),
         },
         runMutation: async (_ref: unknown, args: { actor?: string; orgId?: string }) => {
           calls.push(args);
@@ -65,6 +66,7 @@ describe('createTask project org', () => {
         status: 'To Do',
         projectNotionId: 'notion-proj',
         externalId: 'wh_tsk_homepage',
+        milestoneId: 'm-launch',
         actorId: 'contact-staff',
       },
     );
@@ -123,10 +125,12 @@ describe('createTask project org', () => {
       }),
       get: async (id: string) =>
         id === 'm-launch'
-          ? { _id: 'm-launch', orgId: 'org-northwind', projectId: 'proj-public' }
+          ? { _id: 'm-launch', orgId: 'org-northwind', projectId: 'proj-public', status: 'Building' }
           : id === 'm-other'
-            ? { _id: 'm-other', orgId: 'org-northwind', projectId: 'proj-other' }
-            : null,
+            ? { _id: 'm-other', orgId: 'org-northwind', projectId: 'proj-other', status: 'Building' }
+            : id === 'm-shipped'
+              ? { _id: 'm-shipped', orgId: 'org-northwind', projectId: 'proj-public', status: 'Shipped' }
+              : null,
     };
     const accepted = await run(
       enqueueCreate,
@@ -184,9 +188,24 @@ describe('createTask project org', () => {
         externalId: 'wh_tsk_homepage_3',
       },
     );
-    assert.equal(plain.ok, true);
-    const plainPayload = JSON.parse(queued[1]?.payload ?? '{}') as { milestoneId?: string };
-    assert.equal('milestoneId' in plainPayload, false);
+    // No milestone: nothing is queued. A task only exists inside a milestone.
+    assert.deepEqual(plain, { ok: false, error: 'Choose a milestone. A task only exists inside a milestone.' });
+    assert.equal(queued.length, 1);
+
+    const shipped = await run(
+      enqueueCreate,
+      { db, runMutation: async () => ({ ok: true, outboxId: 'out-5', duplicate: false }) },
+      {
+        orgId: 'org-northwind',
+        name: 'Homepage',
+        status: 'To Do',
+        projectNotionId: 'notion-proj',
+        externalId: 'wh_tsk_homepage_4',
+        milestoneId: 'm-shipped',
+      },
+    );
+    assert.deepEqual(shipped, { ok: false, error: 'This milestone has shipped. Add the task to a new milestone.' });
+    assert.equal(queued.length, 1);
   });
 });
 

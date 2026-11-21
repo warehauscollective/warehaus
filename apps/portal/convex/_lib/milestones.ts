@@ -12,6 +12,7 @@ import {
   isMilestoneStatus,
   type MilestoneStatus,
 } from './milestoneStatus';
+import type { MilestoneCreatedVia, TaskOrigin } from './milestoneTasks';
 
 export const MILESTONE_APPROVALS = ['unreviewed', 'approved', 'changes_requested'] as const;
 export const HUMAN_DECISIONS = ['approved', 'changes_requested'] as const;
@@ -337,6 +338,10 @@ export type RoadmapTaskInput = {
   publishToWarehaus: boolean;
   hidden: boolean;
   source?: string | null;
+  origin?: TaskOrigin | null;
+  round?: number | null;
+  portalOwned?: boolean;
+  detail?: string | null;
 };
 
 export type RoadmapChild = {
@@ -348,6 +353,14 @@ export type RoadmapChild = {
   resourceCount: number;
   pullRequestUrl?: string;
   source?: string | null;
+  /** Staff only. Where the task came from. Absent for clients, including the key. */
+  origin?: TaskOrigin;
+  /** Staff only. Review iteration that asked for the task. */
+  round?: number;
+  /** Staff only. True when the portal owns the task, so it can be edited and removed here. */
+  portalOwned?: boolean;
+  /** Staff only, and only on a task the portal owns. */
+  detail?: string;
   /** True only when this task's milestoneId is the milestone being shown. */
   onMilestone?: boolean;
 };
@@ -381,6 +394,10 @@ function roadmapTask(
     resourceCount: task.resourceCount,
     ...(href ? { pullRequestUrl: href } : {}),
     ...(audience === 'staff' && task.source ? { source: task.source } : {}),
+    ...(audience === 'staff' && task.origin ? { origin: task.origin } : {}),
+    ...(audience === 'staff' && task.round != null ? { round: task.round } : {}),
+    ...(audience === 'staff' && task.portalOwned ? { portalOwned: true } : {}),
+    ...(audience === 'staff' && task.portalOwned && task.detail ? { detail: task.detail } : {}),
   };
 }
 
@@ -536,6 +553,8 @@ const CLIENT_ROADMAP_OMIT = [
   'creator',
   'localPreviewUrl',
   'figmaUrl',
+  'createdVia',
+  'review',
 ] as const;
 
 /** Staff keep every field. Clients get a copy with the private keys removed, not nulled. */
@@ -586,6 +605,8 @@ export type MilestoneRoadmapView = {
   localPreviewUrl?: string | null;
   /** Staff-only Figma link on the tile. Absent for clients, including the key. */
   figmaUrl?: string | null;
+  /** Staff only. Where the milestone was created. Absent for clients, including the key. */
+  createdVia?: MilestoneCreatedVia;
 };
 
 export type MilestoneReviewHistoryItem = {
@@ -601,6 +622,10 @@ export type MilestoneReviewHistoryItem = {
 export type MilestoneReviewView = {
   iteration: number;
   previewUrl: string | null;
+  /** The local build on Peter's Mac. Absent on older payloads. */
+  localPreviewUrl?: string | null;
+  /** The Vercel link for staff. Absent on older payloads. */
+  vercelPreviewUrl?: string | null;
   /** Set when staff attach the link by hand. Absent on worker previews and older rows. */
   previewAttachedBy?: string | null;
   previewAttachedAt?: number | null;

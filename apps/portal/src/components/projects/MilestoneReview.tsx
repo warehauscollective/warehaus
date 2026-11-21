@@ -16,7 +16,8 @@ import {
   type PreviewDeleteStatus,
 } from '@convex/_lib/milestoneReview';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
-import { assertStaffPreviewLink, reviewRetryLiveOnClient, staffMayAttachPreviewLink } from '@convex/_lib/previewLink';
+import { APPROVE_NOTE, assertStaffPreviewLink, reviewPreviews, reviewRetryLiveOnClient, staffMayAttachPreviewLink } from '@convex/_lib/previewLink';
+import { REVIEW_TASK_LIMIT } from '@convex/_lib/milestoneTasks';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { PortalModal, type PortalModalHeader } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
@@ -28,8 +29,8 @@ export const APPROVED_AWAITING = 'Approved · awaiting merge and deploy · Shipp
 export const APPROVED_DEPLOYING = 'Merging and deploying…';
 export const RECORDING_APPROVAL = 'Recording approval…';
 export const APPROVING_LABEL = 'Approving…';
-export const SAVING_APPROVAL_COPY = 'Saving your approval in the Portal. Engineering will merge to main and deploy production next.';
-export const APPROVE_CONFIRM_COPY = 'This records the approval. Engineering then merges to main and deploys.';
+export const SAVING_APPROVAL_COPY = 'Saving your approval in the Portal. Merge and deploy stay separate steps.';
+export const APPROVE_CONFIRM_COPY = 'This records the approval. Merge and deploy stay separate steps.';
 export const APPROVE_CONFIRM_TITLE = 'Approve this milestone?';
 export const PREVIEW_REMOVED = 'Preview removed after approval · Vercel build deleted';
 export const RETRY_FAILED = 'Retry didn’t start. Nothing changed.';
@@ -38,7 +39,9 @@ export const STAFF_DELETE_LINE = 'STAFF ONLY · Peter and clients see the normal
 /** Same muted opacity as Request changes while a preview build is held. */
 export const RETRY_DISABLED_OPACITY = 0.4;
 export const WAITING_COPY = 'Staff attach a preview link when this is ready for review. The link shows here and in Grok Bot chat.';
-export const DEPLOY_FOOTER = 'Approve records the decision, then engineering merges to main and deploys · Peter only';
+export const LOCAL_PREVIEW_NOTE = 'Your Mac · shared dev Convex · test data';
+export const VERCEL_PREVIEW_NOTE = 'Staff · protected Vercel preview · sign in';
+export const DEPLOY_FOOTER = `${APPROVE_NOTE} · Peter only`;
 
 export type ReviewVisual =
   | 'ready'
@@ -60,7 +63,10 @@ export type ReviewSurfaceModel = {
   iteration: number;
   status: MilestoneStatus;
   approval: 'unreviewed' | 'approved' | 'changes_requested';
+  /** The Vercel link for staff. An older row may hold a localhost link here. */
   previewUrl: string | null;
+  /** The local build on Peter's Mac. */
+  localPreviewUrl?: string | null;
   prNumber: number | null;
   prTitle: string | null;
   branch: string | null;
@@ -106,8 +112,9 @@ export function deriveReviewVisual(model: ReviewSurfaceModel, forced?: ReviewVis
   if (model.approval === 'changes_requested') return 'changes';
   if (model.previewBuild === 'building') return 'building';
   if (model.previewBuild === 'failed') return 'preview-failed';
-  if (model.status === 'Ready to Ship' && model.previewUrl && model.previewAttachedAt != null) return 'ready';
-  if (!model.previewUrl) return 'waiting';
+  const previews = reviewPreviews(model);
+  if (model.status === 'Ready to Ship' && previews.vercel && model.previewAttachedAt != null) return 'ready';
+  if (!previews.any) return 'waiting';
   if (model.designCheck === 'fixes') return 'fixes';
   return 'ready';
 }
@@ -255,10 +262,28 @@ function ExternalLinkIcon() {
   );
 }
 
-function PreviewBox({ url, commit, iteration }: { url: string; commit: string | null; iteration: number }) {
+function previewHost(url: string): string {
+  return url.replace(/^https?:\/\//i, '').replace(/\/$/, '');
+}
+
+/** One block per preview. Local is the build on Peter's Mac. Vercel is the staff link. */
+function PreviewBox({
+  kind,
+  url,
+  commit,
+  iteration,
+  branch,
+}: {
+  kind: 'local' | 'vercel';
+  url: string;
+  commit: string | null;
+  iteration: number;
+  branch?: string | null;
+}) {
+  const local = kind === 'local';
   return (
     <div
-      data-testid="review-preview-box"
+      data-testid={local ? 'review-local-preview-box' : 'review-preview-box'}
       style={{
         border: '1px solid var(--border)',
         borderRadius: 18,
@@ -274,15 +299,17 @@ function PreviewBox({ url, commit, iteration }: { url: string; commit: string | 
           href={previewHref(url)}
           target="_blank"
           rel="noreferrer"
-          data-testid="review-open-preview"
+          data-testid={local ? 'review-open-local-preview' : 'review-open-preview'}
           className="rounded-sm focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
-          style={{ color: 'var(--fg)', textDecoration: 'underline', fontSize: 14, lineHeight: '21px' }}
+          style={{ color: 'var(--fg)', textDecoration: 'underline', fontSize: 14, lineHeight: '21px', alignSelf: 'flex-start' }}
         >
-          Open preview
+          {local ? 'Open local preview' : 'Open Vercel preview'}
         </a>
-        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', overflowWrap: 'anywhere' }}>{url}</p>
+        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', overflowWrap: 'anywhere' }}>
+          {local && branch ? `${previewHost(url)} · npm run preview:pr -- ${branch}` : previewHost(url)}
+        </p>
         <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px' }}>{`Built from ${commit ?? 'the latest commit'} · Iteration ${iteration}`}</p>
-        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>Protected Vercel preview · test data · sign in</p>
+        <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{local ? LOCAL_PREVIEW_NOTE : VERCEL_PREVIEW_NOTE}</p>
       </div>
     </div>
   );
@@ -405,6 +432,8 @@ export function ReviewDialogBody({
   onNotes,
   selected,
   onToggle,
+  taskLines,
+  onTaskLines,
   fieldError,
   saving = false,
   context,
@@ -415,6 +444,9 @@ export function ReviewDialogBody({
   onNotes: (value: string) => void;
   selected: string[];
   onToggle: (id: string) => void;
+  /** Task lines for the next iteration. Omitted on surfaces that do not offer them. */
+  taskLines?: string[];
+  onTaskLines?: (lines: string[]) => void;
   fieldError: string | null;
   /** Phase-1 save. The title is “Recording approval…” and the button is “Approving…”. */
   saving?: boolean;
@@ -484,8 +516,49 @@ export function ReviewDialogBody({
               Leave all unticked to apply to the whole milestone.
             </p>
           </fieldset>
+          {taskLines && onTaskLines ? (
+            <fieldset data-testid="review-new-tasks" style={{ border: 0, padding: 0, margin: 0 }}>
+              <legend style={{ fontSize: 14, marginBottom: 8 }}>New tasks (optional)</legend>
+              <div className="flex flex-col gap-2">
+                {taskLines.map((line, index) => (
+                  <input
+                    key={index}
+                    value={line}
+                    aria-label={`New task ${index + 1}`}
+                    placeholder="Describe one task"
+                    onChange={(event) => onTaskLines(taskLines.map((item, at) => (at === index ? event.target.value : item)))}
+                    className="focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
+                    style={{
+                      width: '100%',
+                      border: '1px solid var(--border)',
+                      borderRadius: 12,
+                      background: 'var(--surface-2)',
+                      color: 'var(--fg)',
+                      padding: '10px 12px',
+                      font: 'inherit',
+                      fontSize: 14,
+                    }}
+                  />
+                ))}
+              </div>
+              {taskLines.length < REVIEW_TASK_LIMIT ? (
+                <button
+                  type="button"
+                  data-testid="review-add-task-line"
+                  onClick={() => onTaskLines([...taskLines, ''])}
+                  className="rounded-sm focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
+                  style={{ marginTop: 8, background: 'none', border: 0, padding: '6px 0', color: 'var(--muted)', font: 'inherit', fontSize: 14, cursor: 'pointer' }}
+                >
+                  + Add task line
+                </button>
+              ) : null}
+              <p className="ds-mono" style={{ margin: '4px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                Each line becomes a task in this milestone. Leave empty to turn your notes into tasks.
+              </p>
+            </fieldset>
+          ) : null}
           <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-            {`Starts iteration ${context ? context.iteration + 1 : ''}. Your notes become tasks in this milestone and the status moves back to Building.`}
+            {`Starts iteration ${context ? context.iteration + 1 : ''}. New tasks are added to this milestone as Review ${context ? context.iteration + 1 : ''} and the status moves back to Building.`}
           </p>
         </>
       )}
@@ -522,7 +595,7 @@ export function ReviewDialogActions({
     ? approve
       ? APPROVING_LABEL
       : 'Starting…'
-    : submitLabel ?? (approve ? 'Approve & deploy' : `Start iteration ${iteration + 1}`);
+    : submitLabel ?? (approve ? 'Approve' : `Start iteration ${iteration + 1}`);
   const row = phone && approve;
   return (
     <>
@@ -716,7 +789,7 @@ export function MilestoneReviewSurface({
   /** Keep the dialog inside its frame. The live dialog stays fixed on the page. */
   cover?: boolean;
   onApprove?: (notes: string) => Promise<void>;
-  onRequestChanges?: (notes: string, taskIds: string[]) => Promise<void>;
+  onRequestChanges?: (notes: string, taskIds: string[], newTasks: string[]) => Promise<void>;
   /** Staff only. Clients never receive this control. */
   staffAttach?: boolean;
   initialLink?: PreviewLinkMode | null;
@@ -733,6 +806,8 @@ export function MilestoneReviewSurface({
   const showAttach = staffMayAttachPreviewLink({ staff: staffAttach });
   const [notes, setNotes] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
+  const [taskLines, setTaskLines] = useState<string[]>(['']);
+  const previews = reviewPreviews(model);
   const [busy, setBusy] = useState<'approve' | 'changes' | null>(null);
   const [failedKind, setFailedKind] = useState<ReviewDialogKind>('approve');
   useEffect(() => {
@@ -786,7 +861,7 @@ export function MilestoneReviewSurface({
     setFailedKind(kind);
     try {
       if (kind === 'approve') await onApprove?.(notes.trim());
-      else await onRequestChanges?.(notes.trim(), selected);
+      else await onRequestChanges?.(notes.trim(), selected, taskLines.map((line) => line.trim()).filter(Boolean));
       setCardError(false);
       setDialog(null);
     } catch {
@@ -851,7 +926,7 @@ export function MilestoneReviewSurface({
         whiteSpace: 'nowrap',
       }}
     >
-      {visual === 'error' ? 'Try again' : busy === 'approve' || visual === 'saving' ? 'Approving…' : 'Approve & deploy'}
+      {visual === 'error' ? 'Try again' : busy === 'approve' || visual === 'saving' ? 'Approving…' : 'Approve'}
     </button>
   );
   const actions = (
@@ -932,7 +1007,12 @@ export function MilestoneReviewSurface({
           </>
         ) : (
           <>
-            {model.previewUrl && visual !== 'building' && visual !== 'preview-failed' ? <PreviewBox url={model.previewUrl} commit={model.commit} iteration={model.iteration} /> : visual === 'building' || visual === 'preview-failed' ? (
+            {previews.any && visual !== 'building' && visual !== 'preview-failed' ? (
+              <>
+                {previews.local ? <PreviewBox kind="local" url={previews.local} commit={model.commit} iteration={model.iteration} branch={model.branch} /> : null}
+                {previews.vercel ? <PreviewBox kind="vercel" url={previews.vercel} commit={model.commit} iteration={model.iteration} /> : null}
+              </>
+            ) : visual === 'building' || visual === 'preview-failed' ? (
               <PreviewLifecycle visual={visual} model={model} phone={phone} isPeter={isPeter} retrying={retryPending} retryError={retryMessage} onRetry={runRetry} />
             ) : (
               <div data-testid="review-waiting-box" className="flex items-start gap-3" style={{ border: '1px dashed var(--border-2)', borderRadius: 18, padding: 16 }}>
@@ -956,13 +1036,13 @@ export function MilestoneReviewSurface({
                   onClick={() => {
                     setDialog(null);
                     setLinkError(null);
-                    setLinkUrl(model.previewUrl ?? '');
+                    setLinkUrl(previews.vercel ?? '');
                     setLinkMode('attach');
                   }}
                 >
                   Attach preview link
                 </OutlineButton>
-                {model.previewUrl ? (
+                {previews.vercel ? (
                   <OutlineButton
                     nowrap={!phone}
                     className={phone ? 'w-full' : undefined}
@@ -1078,6 +1158,8 @@ export function MilestoneReviewSurface({
         }}
         selected={selected}
         onToggle={(id) => setSelected((current) => (current.includes(id) ? current.filter((item) => item !== id) : [...current, id]))}
+        taskLines={taskLines}
+        onTaskLines={setTaskLines}
         fieldError={saveFailed && dialog === 'approve' ? APPROVAL_SAVE_ERROR : fieldError}
         saving={savingApproval}
         context={{
@@ -1132,7 +1214,7 @@ export function MilestoneReviewSurface({
           </PreviewLinkField>
         ) : (
           <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>
-            Peter won’t see Approve & deploy until a preview link is attached again.
+            The Vercel preview block leaves the review card. A local preview still unlocks Approve.
           </p>
         )}
       </ConfirmFrame>
@@ -1152,10 +1234,16 @@ export function MilestoneReviewSurface({
         <p className="ds-mono" style={{ ...eyebrowStyle, whiteSpace: phone ? 'normal' : 'nowrap' }}>
           {phone ? eyebrow : `${eyebrow} · ${designPillLabel(visual === 'waiting' || visual === 'building' || visual === 'preview-failed' ? 'pending' : model.designCheck)}`}
         </p>
-        {model.previewUrl ? (
+        {previews.local ? (
           <>
-            <a href={previewHref(model.previewUrl)} style={{ fontSize: 14, color: 'var(--fg)', textDecoration: 'underline' }}>Open preview</a>
-            <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: phone ? 'normal' : 'nowrap', overflowWrap: 'anywhere' }}>{`${model.previewUrl} · Protected Vercel preview · test data`}</p>
+            <a href={previewHref(previews.local)} target="_blank" rel="noreferrer" style={{ fontSize: 14, color: 'var(--fg)', textDecoration: 'underline' }}>Open local preview</a>
+            <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: phone ? 'normal' : 'nowrap', overflowWrap: 'anywhere' }}>{`${previewHost(previews.local)} · ${LOCAL_PREVIEW_NOTE}`}</p>
+          </>
+        ) : null}
+        {previews.vercel ? (
+          <>
+            <a href={previewHref(previews.vercel)} target="_blank" rel="noreferrer" style={{ fontSize: 14, color: 'var(--fg)', textDecoration: 'underline' }}>Open Vercel preview</a>
+            <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: phone ? 'normal' : 'nowrap', overflowWrap: 'anywhere' }}>{`${previewHost(previews.vercel)} · ${VERCEL_PREVIEW_NOTE}`}</p>
           </>
         ) : null}
       </div>
@@ -1176,7 +1264,10 @@ export function MilestoneReviewSurface({
 }
 
 export function reviewModelFromMilestone(
-  milestone: Pick<MilestoneRoadmapView, 'id' | 'name' | 'status' | 'approval' | 'rows'> & { review: MilestoneReviewView },
+  milestone: Pick<MilestoneRoadmapView, 'id' | 'name' | 'status' | 'approval' | 'rows'> & {
+    review: MilestoneReviewView;
+    localPreviewUrl?: string | null;
+  },
 ): ReviewSurfaceModel {
   return {
     milestoneId: milestone.id,
@@ -1185,6 +1276,7 @@ export function reviewModelFromMilestone(
     status: milestone.status,
     approval: milestone.approval ?? 'unreviewed',
     previewUrl: milestone.review.previewUrl,
+    localPreviewUrl: milestone.review.localPreviewUrl ?? milestone.localPreviewUrl ?? null,
     prNumber: milestone.review.prNumber,
     prTitle: milestone.review.prTitle,
     branch: milestone.review.branch,
@@ -1259,7 +1351,7 @@ export function MilestoneReviewLive({
           notes,
         });
       }}
-      onRequestChanges={async (notes, taskIds) => {
+      onRequestChanges={async (notes, taskIds, newTasks) => {
         try {
           await requestChanges({
             hostSlug,
@@ -1267,6 +1359,7 @@ export function MilestoneReviewLive({
             iteration: model.iteration,
             notes,
             taskIds: taskIds as Id<'tasks'>[],
+            ...(newTasks.length > 0 ? { newTasks } : {}),
           });
         } catch (err) {
           throw new Error(userFacingErrorMessage(err, APPROVAL_SAVE_ERROR));

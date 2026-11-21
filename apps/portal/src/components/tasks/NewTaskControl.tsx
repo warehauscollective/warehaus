@@ -2,42 +2,55 @@
 
 import { useState, type FormEvent } from 'react';
 import { useMutation } from 'convex/react';
+import { MILESTONE_REQUIRED } from '@convex/_lib/milestoneTasks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { WRITEBACK_OFF_ERROR, createTaskExternalId } from '@warehaus/portal-sync';
 import { PortalModal } from '@/components/ui/PortalModal';
 import { GhostButton, PrimaryButton, Surface } from '@/components/ui/primitives';
+import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { LIVE_TASK_STATUSES } from '@/lib/data/view-models';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 
+export type NewTaskProject = { id: string; name: string; orgId: string; notionPageId: string };
+
+type MilestoneChoice = { id: string; name: string; status: string };
+
+export const NEW_TASK_PICK_PROJECT = 'Choose a project. Nothing was sent.';
+export const NEW_TASK_NO_MILESTONES = 'This project has no open milestone. Create a milestone first.';
+
 /**
- * Dashboard New task. Calls createTask only when the deployment write-back flag is on.
- * Otherwise it shows the write-back-off error and does not call Convex.
+ * Dashboard New task. A task only exists inside a milestone, so the form asks
+ * for the project and then the milestone. Nothing is preselected. Calls
+ * createTask only when the deployment write-back flag is on.
  */
 export function NewTaskControl({
-  projectName,
+  projects,
   writebackEnabled = false,
-  orgId = null,
-  projectNotionId = null,
   hostSlug,
 }: {
-  projectName: string;
+  projects: readonly NewTaskProject[];
   writebackEnabled?: boolean;
-  orgId?: string | null;
-  projectNotionId?: string | null;
   hostSlug?: string;
 }) {
   const createTask = useMutation(api.tasks.createTask);
   const [open, setOpen] = useState(false);
   const [title, setTitle] = useState('');
+  const [projectId, setProjectId] = useState('');
+  const [milestoneId, setMilestoneId] = useState('');
   const [showMore, setShowMore] = useState(false);
   const [due, setDue] = useState('');
-  const [owner, setOwner] = useState('');
   const [status, setStatus] = useState('');
   const [note, setNote] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
   const narrow = useMaxWidth(767);
+  const project = projects.find((item) => item.id === projectId) ?? null;
+  const choices = useSafeQuery<MilestoneChoice[]>(
+    api.milestones.taskChoices,
+    open && project ? { projectId: project.id as Id<'projects'>, hostSlug } : 'skip',
+  );
+  const milestones = choices.data ?? [];
 
   const onSubmit = async (event: FormEvent) => {
     event.preventDefault();
@@ -45,12 +58,16 @@ export function NewTaskControl({
       setNote('Title is required. Nothing was sent.');
       return;
     }
-    if (!writebackEnabled) {
-      setNote(WRITEBACK_OFF_ERROR);
+    if (!project) {
+      setNote(NEW_TASK_PICK_PROJECT);
       return;
     }
-    if (!orgId || !projectNotionId) {
-      setNote('This project is not in Notion yet. Nothing was sent.');
+    if (!milestoneId) {
+      setNote(`${MILESTONE_REQUIRED} Nothing was sent.`);
+      return;
+    }
+    if (!writebackEnabled) {
+      setNote(WRITEBACK_OFF_ERROR);
       return;
     }
     setPending(true);
@@ -58,11 +75,12 @@ export function NewTaskControl({
     try {
       const result = await createTask({
         hostSlug,
-        orgId: orgId as Id<'clients'>,
+        orgId: project.orgId as Id<'clients'>,
         name: title.trim(),
         status: status || 'To Do',
-        projectNotionId,
+        projectNotionId: project.notionPageId,
         externalId: createTaskExternalId(`${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`),
+        milestoneId: milestoneId as Id<'milestones'>,
         ...(due ? { date: due } : {}),
       });
       if (!result.ok) {
@@ -71,8 +89,9 @@ export function NewTaskControl({
       }
       setTitle('');
       setDue('');
-      setOwner('');
       setStatus('');
+      setProjectId('');
+      setMilestoneId('');
       setOpen(false);
     } catch (err) {
       setNote(userFacingErrorMessage(err, 'Could not create the task'));
@@ -106,7 +125,7 @@ export function NewTaskControl({
                 New task
               </p>
               <p style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)', marginTop: 8 }}>
-                {projectName} is already selected.
+                A task only exists inside a milestone.
               </p>
               <form className="mt-4 flex flex-col gap-3" onSubmit={onSubmit}>
                 <label className="flex flex-col gap-1">
@@ -118,9 +137,53 @@ export function NewTaskControl({
                     style={inputStyle}
                   />
                 </label>
-                <p style={{ fontSize: 'var(--t-sm)' }}>
-                  Project <strong>{projectName}</strong>
-                </p>
+                <label className="flex flex-col gap-1">
+                  <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Project</span>
+                  <select
+                    data-testid="new-task-project"
+                    value={projectId}
+                    onChange={(event) => {
+                      setProjectId(event.target.value);
+                      setMilestoneId('');
+                      setNote(null);
+                    }}
+                    style={inputStyle}
+                  >
+                    <option value="">Choose a project</option>
+                    {projects.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {item.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="flex flex-col gap-1">
+                  <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Milestone</span>
+                  <select
+                    data-testid="new-task-milestone"
+                    value={milestoneId}
+                    disabled={!project || choices.loading || milestones.length === 0}
+                    onChange={(event) => {
+                      setMilestoneId(event.target.value);
+                      setNote(null);
+                    }}
+                    style={inputStyle}
+                  >
+                    <option value="">
+                      {!project ? 'Choose a project first' : choices.loading ? 'Loading milestones…' : 'Choose a milestone'}
+                    </option>
+                    {milestones.map((item) => (
+                      <option key={item.id} value={item.id}>
+                        {`${item.name} · ${item.status}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {project && !choices.loading && milestones.length === 0 ? (
+                  <p data-testid="new-task-no-milestones" style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>
+                    {choices.error ? 'Milestones did not load. Close and try again.' : NEW_TASK_NO_MILESTONES}
+                  </p>
+                ) : null}
                 <button
                   type="button"
                   onClick={() => setShowMore((value) => !value)}
@@ -133,7 +196,7 @@ export function NewTaskControl({
                     cursor: 'pointer',
                   }}
                 >
-                  {showMore ? 'Hide options' : 'Due, owner, status'}
+                  {showMore ? 'Hide options' : 'Due, status'}
                 </button>
                 {showMore ? (
                   <div className="flex flex-col gap-3">
@@ -143,14 +206,6 @@ export function NewTaskControl({
                         type="date"
                         value={due}
                         onChange={(event) => setDue(event.target.value)}
-                        style={inputStyle}
-                      />
-                    </label>
-                    <label className="flex flex-col gap-1">
-                      <span style={{ fontSize: 'var(--t-sm)', color: 'var(--muted)' }}>Owner</span>
-                      <input
-                        value={owner}
-                        onChange={(event) => setOwner(event.target.value)}
                         style={inputStyle}
                       />
                     </label>
@@ -193,7 +248,7 @@ export function NewTaskControl({
 const inputStyle = {
   width: '100%',
   border: '1px solid var(--border)',
-  borderRadius: 8,
+  borderRadius: 10,
   background: 'var(--bg)',
   color: 'var(--fg)',
   padding: '0.55rem 0.7rem',

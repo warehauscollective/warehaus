@@ -6,6 +6,7 @@
  */
 
 import { APPROVE_NOT_READY, transitionMilestone, type MilestoneStatus } from './milestoneStatus';
+import { isPortalOwnedTask, PORTAL_REVIEW_TASK_SOURCE, reviewTaskLines } from './milestoneTasks';
 
 export const ONLY_PETER = 'Only Peter can approve a milestone';
 export const CHAT_CONTACT_MISSING = 'Request changes needs Peter’s staff contact.';
@@ -117,6 +118,9 @@ export type NoteGroupTask = {
   name: string;
   description: string;
   parentTaskId: string | null;
+  /** Every task a change request makes is a review task for the iteration it starts. */
+  origin: 'review';
+  round: number;
 };
 
 export type PlanReviewInput = {
@@ -129,6 +133,8 @@ export type PlanReviewInput = {
   notes: string;
   existing: ExistingReview | null;
   appliesTo: readonly { id: string; name: string }[];
+  /** Task lines typed on the change request. When any are present they are the tasks. */
+  newTasks?: readonly string[];
 };
 
 export type PlanReview =
@@ -225,20 +231,29 @@ function taskTitle(text: string, iteration: number): string {
 }
 
 /**
- * One task per note group. Selected tasks are the groups. Otherwise each
- * blank-line paragraph is its own group. Tasks stay on this milestone.
+ * Typed task lines are the tasks, one per line, with the notes as the detail.
+ * Without lines: one task per note group. Selected tasks are the groups.
+ * Otherwise each blank-line paragraph is its own group. Tasks stay on this
+ * milestone and carry the iteration they start as their round.
  */
 export function iterationTaskDrafts(input: {
   notes: string;
   nextIteration: number;
   appliesTo: readonly { id: string; name: string }[];
+  newTasks?: readonly string[];
 }): NoteGroupTask[] {
   const notes = input.notes.trim();
+  const review = { origin: 'review' as const, round: input.nextIteration };
+  const lines = (input.newTasks ?? []).map((line) => line.trim()).filter((line) => line.length > 0);
+  if (lines.length > 0) {
+    return lines.map((line) => ({ name: line, description: notes, parentTaskId: null, ...review }));
+  }
   if (input.appliesTo.length > 0) {
     return input.appliesTo.map((task) => ({
       name: taskTitle(task.name, input.nextIteration),
       description: notes,
       parentTaskId: task.id,
+      ...review,
     }));
   }
   const paragraphs = notes
@@ -250,6 +265,7 @@ export function iterationTaskDrafts(input: {
     name: taskTitle(paragraph, input.nextIteration),
     description: paragraph,
     parentTaskId: null,
+    ...review,
   }));
 }
 
@@ -285,6 +301,8 @@ export function planReview(input: PlanReviewInput): PlanReview {
   }
   const notes = input.notes.trim();
   if (!notes) return { ok: false, reason: NOTES_REQUIRED };
+  const lines = reviewTaskLines(input.newTasks);
+  if (!lines.ok) return { ok: false, reason: lines.reason };
   const nextIteration = input.currentIteration + 1;
   return {
     ok: true,
@@ -293,7 +311,7 @@ export function planReview(input: PlanReviewInput): PlanReview {
     notes,
     status: moved.status,
     nextIteration,
-    tasks: iterationTaskDrafts({ notes, nextIteration, appliesTo: input.appliesTo }),
+    tasks: iterationTaskDrafts({ notes, nextIteration, appliesTo: input.appliesTo, newTasks: lines.titles }),
   };
 }
 
@@ -358,18 +376,19 @@ export function roadmapReviewForAudience(
   return { note, approval: fields.approval, decidedAt: fields.decidedAt ?? null };
 }
 
-export const PORTAL_REVIEW_SOURCE = 'portal-review';
+export const PORTAL_REVIEW_SOURCE = PORTAL_REVIEW_TASK_SOURCE;
 
 export function isPortalReviewTask(source: string | null | undefined): boolean {
   return source === PORTAL_REVIEW_SOURCE;
 }
 
-/** Notion pull and outbox must not create, delete, or overwrite a page for these rows. */
+/**
+ * Notion pull and outbox must not create, delete, or overwrite a page for a
+ * task the portal owns: one made by a change request or added inside a milestone.
+ */
 export function notionWriteAllowedForTask(input: {
   source?: string | null;
   notionPageId?: string | null;
 }): boolean {
-  if (isPortalReviewTask(input.source)) return false;
-  if ((input.notionPageId ?? '').startsWith(`${PORTAL_REVIEW_SOURCE}:`)) return false;
-  return true;
+  return !isPortalOwnedTask(input);
 }

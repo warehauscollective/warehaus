@@ -68,7 +68,7 @@ describe('milestone page mutation errors', () => {
     });
 
     await click(findButton(container, 'Tasks · 0'));
-    assert.match(textOf(container), /The brief is ready/);
+    assert.match(textOf(container), /TASKS · 0/);
     await click(findButton(container, 'Assign existing task'));
 
     await click(findButton(container, 'Publish'));
@@ -80,7 +80,7 @@ describe('milestone page mutation errors', () => {
     assert.equal(findButton(container, 'Publish')?.disabled, undefined);
     await click(findButton(container, 'Cancel'));
     assert.equal(findByTestId(container, 'milestone-details-modal'), null);
-    assert.match(textOf(container), /The brief is ready/);
+    assert.match(textOf(container), /TASKS · 0/);
 
     assert.equal(findByTestId(container, 'milestone-work-select'), null);
 

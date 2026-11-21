@@ -39,6 +39,9 @@ function toInput(task: PortalTask): RoadmapTaskInput {
     resourceCount: task.resourceCount ?? 0,
     publishToWarehaus: task.publishToWarehaus !== false,
     hidden: task.syncHidden === true,
+    // Staff-only in the built roadmap. A client fixture never receives these.
+    origin: onLaunch ? (task.id === 't-doing' ? 'review' : 'brief') : null,
+    round: task.id === 't-doing' ? 2 : null,
   };
 }
 
@@ -95,6 +98,7 @@ export function fixtureMilestones(
         ? {
             attachableTasks: attachable,
             resourceChoices: [{ id: 'r-notes', title: 'Kickoff recap' }],
+            createdVia: 'grok' as const,
           }
         : {}),
     },
@@ -115,7 +119,9 @@ export function fixtureMilestones(
       doneCount: draftRoad.doneCount,
       countIsDecision: false,
       rows: draftRoad.rows,
-      ...(audience === 'staff' ? { attachableTasks: attachable, resourceChoices: [] } : {}),
+      ...(audience === 'staff'
+        ? { attachableTasks: attachable, resourceChoices: [], createdVia: 'portal' as const }
+        : {}),
     },
   ];
   return milestones.filter((milestone) =>

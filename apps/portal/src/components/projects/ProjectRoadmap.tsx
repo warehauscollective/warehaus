@@ -1,5 +1,6 @@
 'use client';
 
+import { groupMilestones } from '@convex/_lib/milestoneTasks';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation } from 'convex/react';
 import { isPeterEmail } from '@convex/_lib/milestoneReview';
@@ -105,7 +106,6 @@ export function ProjectRoadmap({
   onOpenTask,
   resourceChoices = [],
   resourcesExtra,
-  renderTasks,
   details,
 }: {
   project: RoadmapProject;
@@ -122,7 +122,6 @@ export function ProjectRoadmap({
   onOpenTask?: (task: PortalTask) => void;
   resourceChoices?: ResourceChoice[];
   resourcesExtra?: ReactNode;
-  renderTasks?: (tasks: PortalTask[]) => ReactNode;
   details?: ReactNode;
 }) {
   const auth = usePortalAuth();
@@ -255,7 +254,6 @@ export function ProjectRoadmap({
           activityError={activityError}
           onOpenTask={onOpenTask}
           resourceChoices={resourceChoices}
-          renderTasks={renderTasks}
           onBack={() => setOpenMilestoneId(null)}
           onBackToProjects={page ? onBackToProjects : undefined}
           onFixture={(patch) => patchMilestone(selected.id, patch)}
@@ -405,16 +403,25 @@ export function ProjectRoadmap({
                 />
               ) : null}
 
-              <div className="flex flex-col gap-6 lg:gap-4">
-                {milestones.map((milestone, index) => (
+              {groupMilestones(milestones, staff).map((group) => (
+              <section key={group.id} data-testid={`milestone-group-${group.id}`} className="flex flex-col gap-4">
+                <h2
+                  className="ds-mono"
+                  data-testid="milestone-group-label"
+                  style={{ margin: 0, fontSize: 11, lineHeight: '17px', fontWeight: 400, letterSpacing: '0.04em', color: 'var(--muted)' }}
+                >
+                  {`${group.label} · ${group.milestones.length}`}
+                </h2>
+                <div className="flex flex-col gap-6 lg:gap-4">
+                {group.milestones.map((milestone) => (
                   <MilestoneListCard
                     key={milestone.id}
                     milestone={milestone}
                     staff={staff}
                     isPeter={isPeter || (fixtures && tileApprove)}
                     fixtures={fixtures}
-                    stagePreview={index === 0 ? tileStagePreview : null}
-                    linkPreview={index === 0 ? tileLinkPreview : null}
+                    stagePreview={milestone.id === milestones[0]?.id ? tileStagePreview : null}
+                    linkPreview={milestone.id === milestones[0]?.id ? tileLinkPreview : null}
                     onOpen={() => setOpenMilestoneId(milestone.id)}
                     onSetStatus={async (status, expectedStatus) => {
                       if (fixtures) {
@@ -464,12 +471,14 @@ export function ProjectRoadmap({
                     }}
                   />
                 ))}
-              </div>
+                </div>
+              </section>
+              ))}
 
               {milestones.length > 0 ? (
                 <p style={{ fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
                   {staff
-                    ? 'Create milestones here. Open a milestone to see its tasks. The open count is not the decision.'
+                    ? 'Create milestones here or from Grok Bot / Claude. Tasks only exist inside a milestone.'
                     : 'The open count is not the decision. Approving a milestone does not close its tasks.'}
                 </p>
               ) : null}

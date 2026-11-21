@@ -217,7 +217,13 @@ async function callMcpTool(name: string, args: Record<string, unknown>) {
 }
 
 const writeTools: Record<string, Record<string, unknown>> = {
-  create_task: { projectId: 'projects:1', name: 'Draft a page', status: 'Inbox', idempotencyKey: 'task-1' },
+  create_task: {
+    projectId: 'projects:1',
+    name: 'Draft a page',
+    status: 'Inbox',
+    milestoneId: 'milestones:1',
+    idempotencyKey: 'task-1',
+  },
   update_task: {
     taskId: 'tasks:1',
     expectedLastEditedTime: '2026-01-01T00:00:00.000Z',

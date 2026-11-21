@@ -208,3 +208,26 @@ export function planClearPreviewLink(
   if (current.previewBuildAt != null) patch.previewBuildAt = undefined;
   return { wrote: true, patch };
 }
+
+function isLocalPreview(value: string): boolean {
+  return /^(https?:\/\/)?(localhost|127\.0\.0\.1)(:\d+)?(\/|$)/i.test(value);
+}
+
+/**
+ * The two review previews. Local is the build on Peter's Mac, stored in
+ * `localPreviewUrl`. Vercel is the staff link, stored in `previewUrl`.
+ * An older row may hold a localhost link in `previewUrl`: that reads as local.
+ * Approve needs either one.
+ */
+export function reviewPreviews(input: {
+  previewUrl?: string | null;
+  localPreviewUrl?: string | null;
+}): { local: string | null; vercel: string | null; any: boolean } {
+  const stored = input.previewUrl?.trim() || '';
+  const storedIsLocal = stored !== '' && isLocalPreview(stored);
+  const local = input.localPreviewUrl?.trim() || (storedIsLocal ? stored : '') || null;
+  const vercel = stored !== '' && !storedIsLocal ? stored : null;
+  return { local, vercel, any: Boolean(local || vercel) };
+}
+
+export const APPROVE_NOTE = 'Approve records the decision. Merge and deploy stay separate steps';

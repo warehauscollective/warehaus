@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useState } from 'react';
 import { useMutation } from 'convex/react';
 import { formatReviewStamp, iterationOutcome } from '@convex/_lib/milestoneReview';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
@@ -9,7 +9,7 @@ import type { Id } from '@convex/_generated/dataModel';
 import { type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
-import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
+import { OutlineButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { FIXTURE_PROJECTS } from '@/lib/data/fixtures';
@@ -37,7 +37,8 @@ import {
 } from './milestoneGuards';
 import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, type FixturePatch, lastReviewLabel, resourceAudienceLine, taskTotal, boardTaskCounts, nestedCopy, milestoneDetachOptions, inclusiveProgressCopy, milestoneTasks, fixtureOwnerChoices } from './milestoneTile';
 import { ActivityList } from './roadmapParts';
-import { MoreMenu, TaskLines, EditDialog } from './MilestoneForms';
+import { MoreMenu, EditDialog } from './MilestoneForms';
+import { MilestoneChecklist, type ChecklistActions } from './MilestoneChecklist';
 
 type MilestoneTab = 'overview' | 'tasks' | 'activity' | 'reviews';
 
@@ -103,6 +104,8 @@ type MilestoneMutations = {
     url: string;
   }) => Promise<{ ok: boolean; reason?: string }>;
   clearPreviewLink?: (args: { hostSlug?: string; milestoneId: Id<'milestones'> }) => Promise<unknown>;
+  /** Task writes on the Tasks tab. Absent in fixture previews. */
+  tasks?: ChecklistActions;
 };
 
 export function MilestoneDetail(props: {
@@ -120,7 +123,6 @@ export function MilestoneDetail(props: {
   activityError?: string | null;
   onOpenTask?: (task: PortalTask) => void;
   resourceChoices: ResourceChoice[];
-  renderTasks?: (tasks: PortalTask[]) => ReactNode;
   onBack: () => void;
   onBackToProjects?: () => void;
   onFixture: (patch: FixturePatch) => void;
@@ -137,6 +139,10 @@ export function MilestoneDetail(props: {
   const detachTask = useMutation(api.milestones.detachTask);
   const attachPreviewLink = useMutation(api.milestones.attachPreviewLink);
   const clearPreviewLink = useMutation(api.milestones.clearPreviewLink);
+  const addTask = useMutation(api.milestones.addTask);
+  const editTask = useMutation(api.milestones.editTask);
+  const removeTask = useMutation(api.milestones.removeTask);
+  const reorderTasks = useMutation(api.milestones.reorderTasks);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadedTargets, setLoadedTargets] = useState<MoveTarget[]>([]);
   const [moveListOpen, setMoveListOpen] = useState(false);
@@ -183,7 +189,7 @@ export function MilestoneDetail(props: {
           ? () => setCursor(targetPage.data?.continueCursor ?? null)
           : undefined
       }
-      mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink }}
+      mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink, tasks: { addTask, editTask, removeTask, reorderTasks } }}
     />
   );
 }
@@ -207,7 +213,6 @@ export function MilestoneDetailView({
   activityError = null,
   onOpenTask,
   resourceChoices,
-  renderTasks,
   onBack,
   onBackToProjects,
   onFixture,
@@ -232,7 +237,6 @@ export function MilestoneDetailView({
   activityError?: string | null;
   onOpenTask?: (task: PortalTask) => void;
   resourceChoices: ResourceChoice[];
-  renderTasks?: (tasks: PortalTask[]) => ReactNode;
   onBack: () => void;
   onBackToProjects?: () => void;
   onFixture: (patch: FixturePatch) => void;
@@ -377,7 +381,10 @@ export function MilestoneDetailView({
                   <h2 style={{ fontSize: 18, lineHeight: '27px', fontWeight: 500 }}>
                     {inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}
                   </h2>
-                  <p data-testid="milestone-counts" style={{ marginTop: 8, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
+                  <p style={{ marginTop: 8, fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
+                    Work comes from this milestone’s brief and reviews.
+                  </p>
+                  <p data-testid="milestone-counts" className="sr-only">
                     <span data-testid="milestone-done-count">{milestone.doneCount}</span>
                     {' complete. '}
                     <span data-testid="milestone-open-count">{milestone.openCount}</span>
@@ -453,7 +460,7 @@ export function MilestoneDetailView({
                 </GhostButton>
                 <GhostButton onClick={() => setMore((current) => !current)}>More ···</GhostButton>
                 <p style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-                  Assign an existing task from More. A new task is not created on this milestone.
+                  Add tasks on the Tasks tab. Assign an existing task from More.
                 </p>
               </div>
             ) : null}
@@ -510,48 +517,28 @@ export function MilestoneDetailView({
           {tasksMenuFailure({ tab, error, editing }).show && error ? (
             <MenuActionError error={error} onDismiss={() => setError(null)} />
           ) : null}
-          <Panel>
-            <p data-testid="milestone-board-count" style={{ fontSize: 14, lineHeight: '21px' }}>
-              {board.lanes} on the board
-              {board.nested > 0 ? `. ${nestedCopy(board.nested)}` : '.'} Open a task to see its brief. The open count is not the decision.
-            </p>
-          </Panel>
-          {board.lanes === 0 ? (
-            <StateCard
-              testId="milestone-tasks-empty"
-              kicker="MILESTONE · NO TASKS YET"
-              title="The brief is ready"
-              body="No tasks are attached yet. Staff can assign an existing task. This screen does not generate a task breakdown."
-              action={
-                staff ? (
-                  <PrimaryButton onClick={() => setMore(true)}>Assign existing task</PrimaryButton>
-                ) : null
-              }
-            />
-          ) : renderTasks ? (
-            renderTasks(shownTasks)
-          ) : (
-            <TaskLines
-              milestone={milestone}
-              tasks={tasks}
-              staff={staff}
-              busy={busy}
-              onOpenTask={onOpenTask}
-              onDetach={(taskId) => {
-                if (fixtures) {
-                  onFixture({ detachedIds: [taskId] });
-                  return;
-                }
-                void run(() =>
-                  detachTask({
-                    hostSlug,
-                    milestoneId: milestone.id as Id<'milestones'>,
-                    taskId: taskId as Id<'tasks'>,
-                  }),
-                );
-              }}
-            />
-          )}
+          <MilestoneChecklist
+            milestone={milestone}
+            staff={staff}
+            fixtures={fixtures}
+            hostSlug={hostSlug}
+            actions={mutations.tasks}
+            onOpenTask={
+              onOpenTask
+                ? (taskId) => {
+                    const task = tasks.find((item) => item.id === taskId);
+                    if (task) onOpenTask(task);
+                  }
+                : undefined
+            }
+          />
+          {staff ? (
+            <div className="flex flex-wrap items-center gap-3">
+              <GhostButton testId="milestone-tasks-more" onClick={() => setMore((current) => !current)}>
+                Assign existing task
+              </GhostButton>
+            </div>
+          ) : null}
           {more && staff ? (
             <MoreMenu
               milestone={milestone}
@@ -586,11 +573,6 @@ export function MilestoneDetailView({
                 );
               }}
             />
-          ) : null}
-          {staff ? (
-            <p style={{ fontSize: 12, color: 'var(--muted)' }}>
-              Assign an existing task from More. A task that is not attached does not appear on this milestone.
-            </p>
           ) : null}
         </div>
       ) : null}

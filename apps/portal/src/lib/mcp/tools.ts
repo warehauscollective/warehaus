@@ -143,7 +143,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'create_task',
     description:
-      'Create a task through the staff task path. It stays unpublished and is queued on the Notion outbox. Send an idempotency key. Retries with the same key replay the first result.',
+      'Create a task inside a milestone through the staff task path. milestoneId is required: a task only exists inside a milestone on the same project, and a Shipped milestone takes no new tasks. It stays unpublished and is queued on the Notion outbox. Send an idempotency key. Retries with the same key replay the first result.',
     write: true,
     schema: {
       projectId: z.string().min(1),
@@ -151,7 +151,7 @@ export const portalTools: PortalTool[] = [
       status,
       date: z.string().min(1).max(40).optional(),
       stage: stage.optional(),
-      milestoneId: z.string().min(1).optional(),
+      milestoneId: z.string().min(1),
       idempotencyKey,
     },
     call: (args) => ({

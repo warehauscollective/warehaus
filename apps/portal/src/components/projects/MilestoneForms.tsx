@@ -600,7 +600,7 @@ export function CreateMilestone({
         }}
       >
         <p style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
-          Describe the outcome. Tasks are added on the milestone.
+          Describe the outcome. Tasks only exist inside this milestone.
         </p>
         <FormFields
           name={name}
@@ -662,7 +662,7 @@ export function CreateMilestone({
             color: 'var(--muted)',
           }}
         >
-          The milestone is saved first. Its tasks are added on the milestone.
+          The milestone is saved first. Add its tasks on the Tasks tab. You can edit the list after.
         </p>
         {error ? <FormAlert>{error}</FormAlert> : null}
       </form>

@@ -26,6 +26,7 @@ import {
   type TaskWriteProperties,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
+import { taskMilestoneGate } from '../_lib/milestoneTasks';
 import { internal } from '../_generated/api';
 import type { Id } from '../_generated/dataModel';
 import { internalMutation, type MutationCtx } from '../_generated/server';
@@ -224,12 +225,11 @@ export const enqueueCreate = internalMutation({
     const projectGate = taskCreateProjectGate(project, args.orgId);
     if (!projectGate.ok) return { ok: false as const, error: projectGate.error };
     if (!project) return { ok: false as const, error: 'Project is not in this client' };
-    if (args.milestoneId) {
-      const milestone = await ctx.db.get(args.milestoneId);
-      if (!milestone || milestone.orgId !== args.orgId || milestone.projectId !== project._id) {
-        return { ok: false as const, error: 'Milestone is not on this project' };
-      }
-    }
+    const milestoneGate = taskMilestoneGate(
+      args.milestoneId ? await ctx.db.get(args.milestoneId) : null,
+      { orgId: args.orgId, projectId: project._id },
+    );
+    if (!milestoneGate.ok) return { ok: false as const, error: milestoneGate.reason };
     const planned = planTaskCreate({
       actor: 'staff',
       name: args.name,
