@@ -29,6 +29,7 @@ import {
   type FieldStamp,
 } from '@warehaus/portal-sync';
 import { internal } from './_generated/api';
+import { GRILLING_INSTRUCTIONS, GRILLING_INSTRUCTIONS_VERSION } from './_lib/grillingInstructions';
 import type { Doc, Id } from './_generated/dataModel';
 import {
   httpAction,
@@ -883,6 +884,9 @@ const CLIENT_CREATE_FIELDS = ['companyName', 'primaryEmail', 'phone'];
 const PROJECT_CREATE_FIELDS = ['name', 'clientId', 'client', 'externalId', 'publishToWarehaus'];
 const ATTACH_FIELDS = ['milestoneId', 'taskId'];
 const REVIEW_FIELDS = ['iteration', 'decision', 'notes', 'taskIds'];
+const CONTEXT_BRIEF_FIELDS = ['projectId', 'goal', 'audience', 'outOfScope', 'doneWhen'];
+const CONTEXT_TERM_FIELDS = ['projectId', 'term', 'definition'];
+const CONTEXT_DECISION_FIELDS = ['projectId', 'title', 'body'];
 const REVIEW_PATH = /^\/api\/v1\/milestones\/([^/]+)\/review$/;
 const CLIENT_NESTED_FIELDS = ['companyName', 'primaryEmail', 'phone'];
 
@@ -1022,6 +1026,15 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
             : await ctx.runQuery(internal.portalCatalog.getProject, { projectId: id as Id<'projects'> });
         return json(result.body, result.status);
       }
+      if (url.pathname === '/api/v1/context/grilling') {
+        return json({ version: GRILLING_INSTRUCTIONS_VERSION, instructions: GRILLING_INSTRUCTIONS }, 200);
+      }
+      if (url.pathname === '/api/v1/context') {
+        const projectId = url.searchParams.get('projectId');
+        if (!projectId) return json({ error: 'Project id is required' }, 400);
+        const result = await ctx.runQuery(internal.projectContextApi.read, { projectId: projectId as Id<'projects'> });
+        return json(result.body, result.status);
+      }
       if (url.pathname === '/api/v1/clients') {
         const result = await ctx.runQuery(internal.portalCatalog.listClients, { cursor, limit });
         return json(result.body, result.status);
@@ -1133,7 +1146,13 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
                     ? PROJECT_CREATE_FIELDS
                     : url.pathname === '/api/v1/milestones/attach'
                       ? ATTACH_FIELDS
-                      : null;
+                      : url.pathname === '/api/v1/context/brief'
+                        ? CONTEXT_BRIEF_FIELDS
+                        : url.pathname === '/api/v1/context/terms'
+                          ? CONTEXT_TERM_FIELDS
+                          : url.pathname === '/api/v1/context/decisions'
+                            ? CONTEXT_DECISION_FIELDS
+                            : null;
   if (!allowed) return json({ error: 'Not found' }, 404);
   const shape = url.pathname === '/api/v1/projects' ? projectShapeError(parsed) : null;
   const unknown = unknownFieldError(parsed, allowed);
@@ -1159,6 +1178,24 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
     return json({ error: 'Request failed' }, 400);
   }
 });
+
+/** Shape check for a context write. Text rules and limits are enforced by the store. */
+function contextBodyError(path: string, body: Record<string, unknown>): string | null {
+  if (typeof body.projectId !== 'string' || !body.projectId) return 'Project id is required';
+  const required =
+    path === '/api/v1/context/terms' ? ['term', 'definition'] : path === '/api/v1/context/decisions' ? ['title'] : [];
+  for (const key of required) {
+    if (typeof body[key] !== 'string' || !(body[key] as string).trim()) return `${key} is required`;
+  }
+  for (const [key, value] of Object.entries(body)) {
+    if (value != null && typeof value !== 'string') return `${key} must be text`;
+  }
+  if (path === '/api/v1/context/brief') {
+    const sent = ['goal', 'audience', 'outOfScope', 'doneWhen'].some((key) => typeof body[key] === 'string');
+    if (!sent) return 'Send at least one brief field';
+  }
+  return null;
+}
 
 async function dispatchWrite(
   ctx: ActionCtx,
@@ -1211,6 +1248,44 @@ async function dispatchWrite(
       status: typeof body.status === 'string' ? body.status : undefined,
       stage: typeof body.stage === 'string' ? body.stage : undefined,
       workStatus: typeof body.workStatus === 'string' ? body.workStatus : undefined,
+    });
+  }
+  if (path === '/api/v1/context/brief' || path === '/api/v1/context/terms' || path === '/api/v1/context/decisions') {
+    const shape = contextBodyError(path, body);
+    if (shape) {
+      return ctx.runMutation(internal.portalApi.rememberResult, {
+        ...idempotencyActor(actor),
+        status: 400,
+        body: JSON.stringify({ error: shape }),
+      });
+    }
+    const projectId = body.projectId as Id<'projects'>;
+    const text = (key: string) => (typeof body[key] === 'string' ? (body[key] as string) : undefined);
+    return finishAction(ctx, actor, async () => {
+      if (path === '/api/v1/context/brief') {
+        return ctx.runMutation(internal.projectContextApi.saveBrief, {
+          projectId,
+          tokenName: actor.tokenName,
+          goal: text('goal'),
+          audience: text('audience'),
+          outOfScope: text('outOfScope'),
+          doneWhen: text('doneWhen'),
+        });
+      }
+      if (path === '/api/v1/context/terms') {
+        return ctx.runMutation(internal.projectContextApi.upsertTerm, {
+          projectId,
+          tokenName: actor.tokenName,
+          term: String(body.term),
+          definition: String(body.definition),
+        });
+      }
+      return ctx.runMutation(internal.projectContextApi.recordDecision, {
+        projectId,
+        tokenName: actor.tokenName,
+        title: String(body.title),
+        body: text('body'),
+      });
     });
   }
   if (path === '/api/v1/comments') {

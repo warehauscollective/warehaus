@@ -44,7 +44,16 @@ const samples: Record<string, Record<string, unknown>> = {
     decision: 'approve',
     notes: '',
     idempotencyKey: 'review-1',
+  },  get_project_context: { projectId: 'project-1' },
+  get_grilling_instructions: {},
+  save_project_brief: { projectId: 'project-1', goal: 'One portal for staff and clients.', idempotencyKey: 'brief-1' },
+  upsert_glossary_term: {
+    projectId: 'project-1',
+    term: 'Milestone',
+    definition: 'A reviewable unit of work.',
+    idempotencyKey: 'term-1',
   },
+  record_decision: { projectId: 'project-1', title: 'Tasks live only inside milestones.', idempotencyKey: 'decision-1' },
 };
 
 const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
@@ -62,7 +71,11 @@ const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   create_project: { method: 'POST', path: '/api/v1/projects' },
   attach_task_to_milestone: { method: 'POST', path: '/api/v1/milestones/attach' },
   add_task_link: { method: 'POST', path: '/api/v1/links' },
-  record_milestone_review: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },
+  record_milestone_review: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },  get_project_context: { method: 'GET', path: '/api/v1/context' },
+  get_grilling_instructions: { method: 'GET', path: '/api/v1/context/grilling' },
+  save_project_brief: { method: 'POST', path: '/api/v1/context/brief' },
+  upsert_glossary_term: { method: 'POST', path: '/api/v1/context/terms' },
+  record_decision: { method: 'POST', path: '/api/v1/context/decisions' },
 };
 
 describe('portal MCP tools', () => {
@@ -396,5 +409,41 @@ describe('claude portal mcp docs', () => {
     );
     assert.equal(script.includes('--prod'), false);
     assert.equal(script.includes('claude'), false);
+  });
+});
+
+describe('project context tools', () => {
+  it('sends only the brief fields that were given', () => {
+    const planned = planToolCall('save_project_brief', { projectId: 'project-1', doneWhen: '', idempotencyKey: 'brief-2' });
+    assert.equal(planned.ok, true);
+    if (planned.ok) assert.deepEqual(planned.call.body, { projectId: 'project-1', doneWhen: '' });
+  });
+
+  it('rejects text over the limits before any call', () => {
+    assert.equal(planToolCall('upsert_glossary_term', { projectId: 'p', term: 'x'.repeat(81), definition: 'd', idempotencyKey: 'k' }).ok, false);
+    assert.equal(planToolCall('record_decision', { projectId: 'p', title: '', idempotencyKey: 'k' }).ok, false);
+    assert.equal(planToolCall('save_project_brief', { projectId: 'p', goal: 'g'.repeat(1201), idempotencyKey: 'k' }).ok, false);
+  });
+
+  it('blocks context writes for a read token and allows context reads', async () => {
+    let called = 0;
+    const call = async () => {
+      called += 1;
+      return { status: 200, body: {} };
+    };
+    for (const name of ['save_project_brief', 'upsert_glossary_term', 'record_decision']) {
+      const denied = await runPortalTool({ name, args: samples[name] ?? {}, scope: 'read', token: 't', call });
+      assert.equal(denied.status, 403, name);
+    }
+    assert.equal(called, 0);
+    for (const name of ['get_project_context', 'get_grilling_instructions']) {
+      const ok = await runPortalTool({ name, args: samples[name] ?? {}, scope: 'read', token: 't', call });
+      assert.equal(ok.status, 200, name);
+    }
+    assert.equal(called, 2);
+  });
+
+  it('exposes no tool that deletes context', () => {
+    assert.equal(portalTools.some((tool) => /delete|remove/.test(tool.name)), false);
   });
 });

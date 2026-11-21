@@ -69,6 +69,7 @@ const DOC_TYPES = [
   'Brand & Assets',
   'Questions & Requests',
   'Decisions Log',
+  'Glossary',
   'Meeting Notes',
   'Deliverables & Handoff',
 ] as const;

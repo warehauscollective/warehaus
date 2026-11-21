@@ -489,3 +489,11 @@ export {
   readLinearPlatform,
   readLinearTasks,
 } from './linearTaskPlatform';
+
+export {
+  PROJECT_CONTEXT_DOC_TYPES,
+  PROJECT_CONTEXT_KINDS,
+  projectContextKind,
+  type ProjectContextKind,
+  type ProjectContextDocType,
+} from './projectContext';
