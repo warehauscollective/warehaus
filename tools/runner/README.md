@@ -23,14 +23,14 @@ Only tasks stored in the Portal are claimed: tasks from the brief, from a change
 
 The runner works one task at a time. It commits straight to the milestone branch. It never merges, never closes a pull request, never deploys, and never pushes any branch but `milestone/<slug>`.
 
-When the pull request merges into the default branch, the GitHub webhook moves the milestone to Shipped. Staff can also set Shipped when every task that is not Parked is Done. The runner never sets it.
+When the pull request merges into the default branch, the GitHub webhook moves the milestone to Shipped only if every task that is not Parked is Done, subtasks included. Staff set Shipped through the same check. The runner never sets it.
 
 ## Set up
 
-On the Convex deployment, set `RUNNER_TOKENS` to one `id=token` pair per runner, separated by commas. A token has to be at least 24 characters.
+On the Convex deployment, set `RUNNER_TOKENS` to one runner per line. Each line is `id=token` and the repositories that runner may serve, separated by spaces. A token has to be at least 24 characters. A runner with no repository on its line is handed nothing. The `--repo` flag has to name one of those repositories.
 
 ```
-RUNNER_TOKENS=peter-mbp=<long random token>
+RUNNER_TOKENS=peter-mbp=<long random token> warehauscollective/warehaus
 ```
 
 On the Mac:
@@ -40,9 +40,9 @@ export PORTAL_AGENT_URL=https://<deployment>.convex.site
 export RUNNER_TOKEN=<this runner's token>
 ```
 
-Keep both out of the repository. The production deployment is refused unless `RUNNER_ALLOW_PRODUCTION=1` is set.
+Keep both out of the repository. The production deployment is always refused.
 
-To see edits and commands in the run feed while Claude Code works, copy the hooks from `hooks/settings.example.json` into `.claude/settings.json`. The hook sends only a short line, such as `Edited MilestoneReview.tsx`. File contents, command output and the environment stay on the Mac. Outside a runner session the hook does nothing.
+The Claude process gets an allowlist of its environment and does not receive `RUNNER_TOKEN`. Copying the hooks from `hooks/settings.example.json` into `.claude/settings.json` no longer posts lines from inside the session, because the hook reads `RUNNER_TOKEN` and the runner does not pass it. The runner still reports when a run starts and when it finishes. File contents and command output stay on the Mac.
 
 ## Run
 
@@ -64,11 +64,11 @@ With nothing to do, the runner waits one minute, then longer, up to five minutes
 Use shared dev, never production.
 
 1. Connect Grok Bot or Claude to the Portal MCP server (`docs/portal-mcp.md`).
-2. Ask the bot to create a milestone with `create_milestone` and a task list. It lands at Awaiting Go.
-3. In the Portal, open the milestone and press play on its status to move it to Building.
+2. Ask the bot to create a milestone with `create_milestone` and a task list. It lands at Planning.
+3. In the Portal, open the milestone and press play until its status is Building.
 4. A staff member sets the project's repository once (`projects.setAgentRepo`). Then start the runner: `npm run runner -- start --id <your id> --repo <owner/name> --once`.
 5. Work the task in the Claude Code session that opens. Commit. Exit.
-6. Open the milestone's Activity tab. The run, the commit and any hook lines are there. The task shows Done with its commit on the Tasks tab.
+6. Open the milestone's Activity tab. The run and the commit are there. The task shows Done with its commit on the Tasks tab.
 7. Repeat until every task is done. The milestone moves to Ready to Ship.
 8. Open the local preview: `npm run preview:pr -- milestone/<slug>`.
 9. Approve in the Portal or in Grok Bot. Approval records the decision. Merge and deploy stay separate steps.

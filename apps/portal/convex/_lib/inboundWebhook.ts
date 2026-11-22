@@ -94,13 +94,13 @@ export type MilestoneInbound =
 
 /**
  * A branch name alone does not identify a milestone: two repositories can
- * both have `milestone/launch`. When the project names its repository, the
- * delivery has to come from that one, compared without regard to case. A
- * project with no repository set keeps matching by branch alone.
+ * both have `milestone/launch`. The delivery has to come from the repository
+ * the project names, compared without regard to case. A project with no
+ * repository set matches nothing.
  */
 export function inboundRepoMatches(projectRepo: string | null | undefined, deliveryRepo: string | null | undefined): boolean {
   const wanted = projectRepo?.trim().toLowerCase() ?? '';
-  if (!wanted) return true;
+  if (!wanted) return false;
   const given = deliveryRepo?.trim().toLowerCase() ?? '';
   return given !== '' && given === wanted;
 }

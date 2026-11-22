@@ -33,6 +33,7 @@ import {
   type MilestoneInbound,
   type WebhookDecision,
 } from '../_lib/inboundWebhook';
+import { milestoneCloseGate } from '../_lib/milestoneClose';
 import { detailActivitySummary } from '../_lib/milestoneDetails';
 import { writeMilestoneActivity } from '../_lib/milestones';
 import { STATUS_ACTIVITY, transitionMilestone } from '../_lib/milestoneStatus';
@@ -260,10 +261,15 @@ async function applyMilestoneInbound(
 
   let shipped = false;
   if (inbound.merged) {
-    const moved = transitionMilestone({ from: milestone.status, cause: 'merge' });
-    if (moved.ok && moved.wrote) {
-      patch.status = moved.status;
-      shipped = true;
+    // A merge ships only when every task that is not Parked is Done. The pull
+    // request fields above are stored either way.
+    const gate = await milestoneCloseGate(ctx, milestone);
+    if (gate.ok) {
+      const moved = transitionMilestone({ from: milestone.status, cause: 'merge' });
+      if (moved.ok && moved.wrote) {
+        patch.status = moved.status;
+        shipped = true;
+      }
     }
   }
   if (Object.keys(patch).length === 0) return { wrote: false, shipped: false };

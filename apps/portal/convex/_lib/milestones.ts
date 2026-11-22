@@ -36,6 +36,9 @@ export const AI_LOCKED = 'AI cannot edit an approved milestone or change its tas
 export const HUMAN_CONTENT_LOCKED =
   'Approved milestones stay as accepted until a human requests changes';
 export const AI_CANNOT_PUBLISH = 'AI cannot publish a milestone';
+/** The objective is the short brief on the card. A note can be longer. */
+export const MILESTONE_OBJECTIVE_LIMIT = 2000;
+export const OBJECTIVE_TOO_LONG = `Objective must be ${MILESTONE_OBJECTIVE_LIMIT} characters or fewer`;
 
 export type MilestoneProjectGate = {
   name?: string | null;
@@ -113,6 +116,7 @@ export function createMilestoneDecision(input: {
   const objective = input.objective.trim();
   if (!name) return { ok: false, reason: 'Name is required' };
   if (!objective) return { ok: false, reason: 'Objective is required' };
+  if (objective.length > MILESTONE_OBJECTIVE_LIMIT) return { ok: false, reason: OBJECTIVE_TOO_LONG };
   const status = input.status ?? DEFAULT_MILESTONE_STATUS;
   if (!isMilestoneStatus(status)) return { ok: false, reason: UNKNOWN_STATUS };
   if (status === 'Shipped') return { ok: false, reason: SHIPPED_ON_MERGE };
@@ -170,6 +174,7 @@ export function contentEditDecision(input: {
   if (input.patch.objective != null) {
     const objective = input.patch.objective.trim();
     if (!objective) return { ok: false, reason: 'Objective is required' };
+    if (objective.length > MILESTONE_OBJECTIVE_LIMIT) return { ok: false, reason: OBJECTIVE_TOO_LONG };
     patch.objective = objective;
   }
   if (input.patch.goals != null) patch.goals = normalizeGoals(input.patch.goals);

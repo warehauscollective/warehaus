@@ -13,7 +13,7 @@
 
 import { internal } from './_generated/api';
 import { httpAction } from './_generated/server';
-import { authorizeRunner } from './_lib/agentRun';
+import { authorizeRunner, reposForRunner } from './_lib/agentRun';
 
 export const AGENT_ROUTES = ['/agent/claim', '/agent/events', '/agent/tasks', '/agent/complete'] as const;
 
@@ -62,7 +62,7 @@ export const agentHttp = httpAction(async (ctx, request) => {
       mode: field(body, 'mode') || undefined,
       // Claude Code only for now. Cursor waits.
       tool: 'claude_code',
-      ...(body.repos !== undefined ? { repos: body.repos } : {}),
+      repos: reposForRunner(auth.repos, body.repos),
     });
     return json(result, 200);
   }

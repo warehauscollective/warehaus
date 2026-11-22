@@ -61,7 +61,7 @@ export function parseArgs(argv) {
 
 /**
  * Checks the two environment values. The URL has to be an https Convex site
- * URL. Production is refused unless RUNNER_ALLOW_PRODUCTION is 1.
+ * URL. Production is always refused.
  */
 export function readEnv(env) {
   const raw = (env.PORTAL_AGENT_URL ?? '').trim().replace(/\/+$/, '');
@@ -78,13 +78,45 @@ export function readEnv(env) {
   if (!url.hostname.endsWith('.convex.site')) {
     return { ok: false, error: 'PORTAL_AGENT_URL has to be a .convex.site URL.' };
   }
-  if (url.hostname.includes(PRODUCTION_DEPLOYMENT) && env.RUNNER_ALLOW_PRODUCTION !== '1') {
-    return {
-      ok: false,
-      error: 'That is the production deployment. Set RUNNER_ALLOW_PRODUCTION=1 if you mean it.',
-    };
+  if (url.hostname.includes(PRODUCTION_DEPLOYMENT)) {
+    return { ok: false, error: 'That is the production deployment. The runner does not talk to it.' };
   }
   return { ok: true, url: url.origin, token };
+}
+
+/** Names the Claude child may inherit. Everything else, including RUNNER_TOKEN, stays with the runner. */
+const CHILD_ENV_EXACT = new Set([
+  'PATH',
+  'HOME',
+  'USER',
+  'LOGNAME',
+  'SHELL',
+  'TMPDIR',
+  'TMP',
+  'TEMP',
+  'LANG',
+  'TERM',
+  'COLORTERM',
+  'SSH_AUTH_SOCK',
+  'SSH_AGENT_PID',
+  'GIT_AUTHOR_NAME',
+  'GIT_AUTHOR_EMAIL',
+  'GIT_COMMITTER_NAME',
+  'GIT_COMMITTER_EMAIL',
+  'CLAUDE_CONFIG_DIR',
+]);
+
+export function childEnv(parent, extra) {
+  const env = {};
+  for (const [key, value] of Object.entries(parent ?? {})) {
+    if (typeof value !== 'string' || value === '') continue;
+    if (CHILD_ENV_EXACT.has(key) || key.startsWith('LC_') || key.startsWith('XDG_')) env[key] = value;
+  }
+  for (const [key, value] of Object.entries(extra ?? {})) {
+    if (key === 'RUNNER_TOKEN' || typeof value !== 'string' || value === '') continue;
+    env[key] = value;
+  }
+  return env;
 }
 
 /** Folder name for a milestone worktree: the branch with slashes turned into hyphens. */

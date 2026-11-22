@@ -3,7 +3,7 @@
  * Grok Bot and Claude. Pure. No Convex imports.
  */
 
-import { isMilestoneCreatedVia, type MilestoneCreatedVia } from './milestoneTasks';
+import type { MilestoneCreatedVia } from './milestoneTasks';
 
 export const PROPOSED_TASKS_MIN = 3;
 export const PROPOSED_TASKS_MAX = 10;
@@ -11,7 +11,7 @@ export const PROPOSED_TASKS_SHAPE = 'proposedTasks must be a list of task titles
 export const PROPOSED_TASKS_COUNT = `Propose ${PROPOSED_TASKS_MIN} to ${PROPOSED_TASKS_MAX} tasks, or none`;
 export const PROPOSED_TASK_TITLE = 'Every proposed task needs a title under 200 characters';
 export const PROPOSED_TASKS_DUPLICATE = 'Two proposed tasks have the same title';
-export const CREATED_VIA_INVALID = 'createdVia must be grok, claude, or other';
+export const BOT_STATUS_BUILDING = 'Building is set in the Portal. A bot cannot set it.';
 export const NOTE_REQUIRED = 'Add the note text';
 export const NOTE_TOO_LONG = 'Keep the note under 4000 characters';
 export const PETER_BOT_TOKEN = 'grok-bot';
@@ -58,20 +58,13 @@ export function proposedTasksDecision(
 }
 
 /**
- * Where a milestone made through the staff API came from. A stated value
- * wins. Otherwise the token name decides: grok-bot is Grok Bot, a token
- * named for Claude is Claude, anything else is other. Never portal.
+ * Where a milestone made through the staff API came from. The token name
+ * decides: grok-bot is Grok Bot, a token named for Claude is Claude, anything
+ * else is other. A value on the request is ignored. Never portal.
  */
 export function createdViaDecision(input: {
-  requested: unknown;
   tokenName: string;
-}): { ok: true; createdVia: Exclude<MilestoneCreatedVia, 'portal'> } | { ok: false; reason: string } {
-  if (input.requested != null) {
-    if (!isMilestoneCreatedVia(input.requested) || input.requested === 'portal') {
-      return { ok: false, reason: CREATED_VIA_INVALID };
-    }
-    return { ok: true, createdVia: input.requested };
-  }
+}): { ok: true; createdVia: Exclude<MilestoneCreatedVia, 'portal'> } {
   const name = input.tokenName.trim().toLowerCase();
   if (name === PETER_BOT_TOKEN || name.includes('grok')) return { ok: true, createdVia: 'grok' };
   if (name.includes('claude')) return { ok: true, createdVia: 'claude' };
@@ -79,12 +72,15 @@ export function createdViaDecision(input: {
 }
 
 /**
- * Status of a milestone a bot creates. A stated status is kept. With a task
- * list it waits for Peter's go. With none it is still being planned.
+ * Status of a milestone a bot creates. A stated status is kept, except
+ * Building, which the runner claims. With no status it starts at Planning,
+ * whether or not the call includes tasks.
  */
-export function statusForBotCreate(stated: string | null | undefined, taskCount: number): string {
-  if (stated) return stated;
-  return taskCount > 0 ? 'Awaiting Go' : 'Planning';
+export function statusForBotCreate(
+  stated: string | null | undefined,
+): { ok: true; status: string } | { ok: false; reason: string } {
+  if (stated === 'Building') return { ok: false, reason: BOT_STATUS_BUILDING };
+  return { ok: true, status: stated ? stated : 'Planning' };
 }
 
 export function noteDecision(body: unknown): { ok: true; body: string } | { ok: false; reason: string } {
@@ -99,5 +95,3 @@ export const STATUS_TASK_LIMIT = 100;
 export const STATUS_EVENT_LIMIT = 10;
 export const STATUS_NOTE_LIMIT = 10;
 export const STATUS_REVIEW_LIMIT = 5;
-/** Recent activity rows scanned to find this milestone's events. */
-export const STATUS_EVENT_SCAN = 60;

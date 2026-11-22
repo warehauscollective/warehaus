@@ -83,6 +83,7 @@ const approved: ReviewSurfaceModel = {
     { iteration: 1, decision: 'request_changes', notes: 'Tighten the pay button focus ring.', decidedByName: 'Peter', decidedAt: STAMP, source: 'portal', taskCount: 1 },
   ],
 };
+const deployed: ReviewSurfaceModel = { ...approved, deployFinishedAt: STAMP };
 const changes: ReviewSurfaceModel = {
   ...ready,
   iteration: 3,
@@ -572,6 +573,7 @@ export type ApprovalsFocus =
   | 'peter-delete-failed'
   | 'preview-removed'
   | 'approved'
+  | 'deploy-finished'
   | 'staff-delete-removing'
   | 'staff-couldnt-remove'
   | 'milestone-page'
@@ -607,6 +609,8 @@ function ReviewStateFrame({ kind, phone }: { kind: ApprovalsFocus; phone: boolea
     node = <MilestoneReviewSurface {...shared} model={previewRemoved} isPeter />;
   } else if (kind === 'approved') {
     node = <MilestoneReviewSurface {...shared} model={approved} isPeter />;
+  } else if (kind === 'deploy-finished') {
+    node = <MilestoneReviewSurface {...shared} model={deployed} isPeter />;
   } else if (kind === 'staff-delete-removing') {
     node = <MilestoneReviewSurface {...shared} model={deleteFailed} isPeter={false} />;
   } else if (kind === 'staff-couldnt-remove') {
@@ -651,6 +655,7 @@ function isReviewState(view: ApprovalsFocus): boolean {
     || view === 'peter-delete-failed'
     || view === 'preview-removed'
     || view === 'approved'
+    || view === 'deploy-finished'
     || view === 'staff-delete-removing'
     || view === 'staff-couldnt-remove';
 }

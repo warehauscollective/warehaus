@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import { z } from 'zod';
 import { portalTools } from '../../src/lib/mcp/tools';
 import {
-  CREATED_VIA_INVALID,
+  BOT_STATUS_BUILDING,
   NOTE_REQUIRED,
   NOTE_TOO_LONG,
   PROPOSED_TASKS_COUNT,
@@ -55,20 +55,23 @@ describe('proposed tasks', () => {
 });
 
 describe('status and source of a bot milestone', () => {
-  it('waits for go with tasks and plans without', () => {
-    assert.equal(statusForBotCreate(null, 4), 'Awaiting Go');
-    assert.equal(statusForBotCreate(null, 0), 'Planning');
-    assert.equal(statusForBotCreate('Idea', 4), 'Idea');
+  it('starts at Planning and refuses Building', () => {
+    assert.deepEqual(statusForBotCreate(null), { ok: true, status: 'Planning' });
+    assert.deepEqual(statusForBotCreate(undefined), { ok: true, status: 'Planning' });
+    assert.deepEqual(statusForBotCreate('Idea'), { ok: true, status: 'Idea' });
+    assert.deepEqual(statusForBotCreate('Awaiting Go'), { ok: true, status: 'Awaiting Go' });
+    assert.deepEqual(statusForBotCreate('Building'), { ok: false, reason: BOT_STATUS_BUILDING });
   });
 
-  it('reads the source from the request, then the token', () => {
-    assert.deepEqual(createdViaDecision({ requested: 'claude', tokenName: 'grok-bot' }), { ok: true, createdVia: 'claude' });
-    assert.deepEqual(createdViaDecision({ requested: undefined, tokenName: 'grok-bot' }), { ok: true, createdVia: 'grok' });
-    assert.deepEqual(createdViaDecision({ requested: undefined, tokenName: 'Claude Code' }), { ok: true, createdVia: 'claude' });
-    assert.deepEqual(createdViaDecision({ requested: undefined, tokenName: 'cursor' }), { ok: true, createdVia: 'other' });
-    // A bot cannot claim the milestone was made in the Portal.
-    assert.deepEqual(createdViaDecision({ requested: 'portal', tokenName: 'grok-bot' }), { ok: false, reason: CREATED_VIA_INVALID });
-    assert.deepEqual(createdViaDecision({ requested: 'peter', tokenName: 'grok-bot' }), { ok: false, reason: CREATED_VIA_INVALID });
+  it('reads the source from the token and ignores the request', () => {
+    assert.deepEqual(createdViaDecision({ tokenName: 'grok-bot' }), { ok: true, createdVia: 'grok' });
+    assert.deepEqual(createdViaDecision({ tokenName: 'Claude Code' }), { ok: true, createdVia: 'claude' });
+    assert.deepEqual(createdViaDecision({ tokenName: 'cursor' }), { ok: true, createdVia: 'other' });
+    const api = read('../portalApi.ts');
+    assert.equal(api.includes('createdVia: body.createdVia'), false);
+    assert.match(api, /createdViaDecision\(\{ tokenName:/);
+    assert.match(api, /statusForBotCreate\(wanted\.status\)/);
+    assert.match(api, /wanted\.status === 'Building'/);
   });
 });
 
@@ -179,6 +182,7 @@ describe('MCP tools', () => {
       idempotencyKey: 'k',
     });
     assert.equal(created?.path, '/api/v1/milestones');
+    assert.equal(created?.body?.createdVia, undefined);
     const api = read('../portalApi.ts');
     const create = api.slice(api.indexOf('export const createMilestone'), api.indexOf('export const getMilestoneStatus'));
     assert.match(create, /milestoneId,\n\s+milestoneOrder: index/);

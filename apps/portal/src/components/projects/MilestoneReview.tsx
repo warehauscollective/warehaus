@@ -25,7 +25,7 @@ import { MilestoneDialog } from './milestoneChrome';
 import { ConfirmFrame, PreviewLinkField } from './milestoneDetailsEdit';
 
 export const APPROVAL_SAVE_ERROR = 'Couldn’t save your approval. Nothing changed. Try again.';
-export const APPROVED_AWAITING = 'Approved · awaiting merge and deploy · staff set Shipped when every task that is not Parked is Done';
+export const APPROVED_AWAITING = "Shipped is set on merge once every task that isn't Parked is Done.";
 export const APPROVED_DEPLOYING = 'Merging and deploying…';
 export const RECORDING_APPROVAL = 'Recording approval…';
 export const APPROVING_LABEL = 'Approving…';
@@ -971,13 +971,13 @@ export function MilestoneReviewSurface({
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--fg)' }}>{`Approved by ${who}${stamp ? ` · ${stamp}` : ''}`}</p>
                 {model.deployFinishedAt ? (
-                  <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-                    Read-only · deploy finished · staff set Shipped when every task that is not Parked is Done
+                  <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'normal', overflowWrap: 'break-word', maxWidth: '100%' }}>
+                    {APPROVED_AWAITING}
                   </p>
                 ) : model.deployStartedAt ? (
                   <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{APPROVED_DEPLOYING}</p>
                 ) : (
-                  <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{APPROVED_AWAITING}</p>
+                  <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'normal', overflowWrap: 'break-word', maxWidth: '100%' }}>{APPROVED_AWAITING}</p>
                 )}
                 {visual === 'approved' && previewRemovalRecorded(model) ? (
                   <p data-testid="preview-removed" className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{PREVIEW_REMOVED}</p>

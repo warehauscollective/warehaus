@@ -9,6 +9,7 @@ import {
   FEED_MAX,
   FEED_PAGE,
   RUNNER_RATE_LIMIT,
+  RUNNER_RATE_LIMITED,
   RUNNER_RATE_WINDOW_MS,
   RUNNER_UNAUTHORIZED,
   allTasksDone,
@@ -21,8 +22,10 @@ import {
   nextClaimableTask,
   parseRunnerTokens,
   redactSecrets,
+  reposForRunner,
   runnerOnline,
   runnerRateDecision,
+  runnerTouchDecision,
   trimEventPayload,
 } from './agentRun';
 import { checklistDetailText, checklistState, checklistSummary } from './milestoneTasks';
@@ -41,7 +44,7 @@ describe('runner tokens', () => {
 
   it('accepts only the named runner with its own token', () => {
     const ok = authorizeRunner({ configured, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' });
-    assert.deepEqual(ok, { ok: true, runnerId: 'peter-mbp' });
+    assert.deepEqual(ok, { ok: true, runnerId: 'peter-mbp', repos: [] });
     // Another runner's token, an unknown id, and a missing header are all refused the same way.
     for (const [header, id] of [
       [`Bearer ${TOKEN_B}`, 'peter-mbp'],
@@ -61,6 +64,23 @@ describe('runner tokens', () => {
   it('compares the token in constant time', () => {
     assert.match(read('./agentRun.ts'), /timingSafeEqualUtf8\(given, reference\)/);
   });
+
+  it('hands a runner only the repositories named on its token', () => {
+    const raw = `peter-mbp=${TOKEN_A} WarehausCollective/Warehaus other/repo\nstudio-mini=${TOKEN_B}`;
+    const tokens = parseRunnerTokens(raw);
+    assert.deepEqual(tokens.get('peter-mbp')?.repos, ['warehauscollective/warehaus', 'other/repo']);
+    assert.deepEqual(tokens.get('studio-mini')?.repos, []);
+    const ok = authorizeRunner({ configured: raw, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' });
+    assert.equal(ok.ok, true);
+    if (ok.ok) {
+      assert.deepEqual(reposForRunner(ok.repos, ['warehauscollective/warehaus', 'secret/other']), ['warehauscollective/warehaus']);
+      assert.deepEqual(reposForRunner(ok.repos, []), []);
+    }
+    const bare = authorizeRunner({ configured, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' });
+    if (bare.ok) assert.deepEqual(reposForRunner(bare.repos, ['warehauscollective/warehaus']), []);
+    const http = read('../agentHttp.ts');
+    assert.match(http, /reposForRunner\(auth\.repos, body\.repos\)/);
+  });
 });
 
 describe('rate limit and liveness', () => {
@@ -74,6 +94,21 @@ describe('rate limit and liveness', () => {
     }
     assert.equal(runnerRateDecision({ ...state, now }).ok, false);
     assert.equal(runnerRateDecision({ ...state, now: now + RUNNER_RATE_WINDOW_MS }).ok, true);
+  });
+
+  it('patches a runner at most once a minute', () => {
+    const now = 1_000_000;
+    const first = runnerTouchDecision({ lastSeenAt: null, windowStart: null, count: null, now });
+    assert.deepEqual(first, { ok: true, write: true, windowStart: now, count: 1, lastSeenAt: now });
+    const again = runnerTouchDecision({ lastSeenAt: now, windowStart: now, count: 1, now: now + 30_000 });
+    assert.deepEqual(again, { ok: true, write: false });
+    const held = runnerTouchDecision({ lastSeenAt: now, windowStart: now, count: RUNNER_RATE_LIMIT, now: now + 30_000 });
+    assert.deepEqual(held, { ok: false, reason: RUNNER_RATE_LIMITED });
+    const later = runnerTouchDecision({ lastSeenAt: now, windowStart: now, count: 1, now: now + 60_000 });
+    assert.deepEqual(later, { ok: true, write: true, windowStart: now + 60_000, count: 1, lastSeenAt: now + 60_000 });
+    const agent = read('../agent.ts');
+    assert.match(agent, /if \(!decision\.write\) return \{ ok: true as const \}/);
+    assert.match(agent, /CLAIM_PER_PROJECT = 5/);
   });
 
   it('reads a quiet runner as offline', () => {
@@ -333,7 +368,7 @@ describe('repository fail-safe', () => {
     const agent = read('../agent.ts');
     const claim = agent.slice(agent.indexOf('export const claimNext'), agent.indexOf('async function ownedRun'));
     assert.match(claim, /if \(repos\.length === 0\) return \{ ok: true as const, resumed: false, kind: 'none' as const/);
-    assert.match(claim, /if \(await served\(candidate\.projectId\)\)/);
+    assert.match(claim, /if \(!\(await served\(planning\.projectId\)\)\) continue;/);
     assert.match(claim, /if \(!\(await served\(milestone\.projectId\)\)\) continue;/);
     // The repo setting is written only by staff.
     const projects = read('../projects.ts');

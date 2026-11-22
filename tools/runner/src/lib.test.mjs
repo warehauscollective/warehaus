@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
+  childEnv,
   defaultBranchName,
   hookEvent,
   idleDelayMs,
@@ -59,10 +60,45 @@ describe('environment', () => {
     assert.equal(readEnv({ PORTAL_AGENT_URL: 'https://example.com', RUNNER_TOKEN: token }).ok, false);
   });
 
-  it('refuses production unless it is asked for', () => {
+  it('refuses production', () => {
     const production = { PORTAL_AGENT_URL: 'https://unique-turtle-383.convex.site', RUNNER_TOKEN: token };
     assert.equal(readEnv(production).ok, false);
-    assert.equal(readEnv({ ...production, RUNNER_ALLOW_PRODUCTION: '1' }).ok, true);
+    assert.equal(readEnv({ ...production, RUNNER_ALLOW_PRODUCTION: '1' }).ok, false);
+    assert.equal(readFileSync(new URL('./lib.mjs', import.meta.url), 'utf8').includes('RUNNER_ALLOW_PRODUCTION'), false);
+  });
+
+  it('gives the child an allowlist and never the runner token', () => {
+    const env = childEnv(
+      {
+        PATH: '/usr/bin',
+        HOME: '/Users/peter',
+        RUNNER_TOKEN: 'secret',
+        AWS_SECRET: 'no',
+        LANG: 'en_US.UTF-8',
+        LC_ALL: 'en_US.UTF-8',
+        RANDOM: 'no',
+      },
+      {
+        PORTAL_AGENT_URL: 'https://graceful-mastiff-960.convex.site',
+        RUNNER_ID: 'peter-mbp',
+        AGENT_RUN_ID: 'run',
+        RUNNER_TOKEN: 'secret',
+      },
+    );
+    assert.equal(env.PATH, '/usr/bin');
+    assert.equal(env.HOME, '/Users/peter');
+    assert.equal(env.LANG, 'en_US.UTF-8');
+    assert.equal(env.LC_ALL, 'en_US.UTF-8');
+    assert.equal(env.PORTAL_AGENT_URL, 'https://graceful-mastiff-960.convex.site');
+    assert.equal(env.RUNNER_ID, 'peter-mbp');
+    assert.equal(env.AGENT_RUN_ID, 'run');
+    assert.equal(env.RUNNER_TOKEN, undefined);
+    assert.equal(env.AWS_SECRET, undefined);
+    assert.equal(env.RANDOM, undefined);
+    const cli = readFileSync(new URL('./cli.mjs', import.meta.url), 'utf8');
+    assert.match(cli, /childEnv\(process\.env/);
+    assert.equal(cli.includes('...process.env'), false);
+    assert.equal(cli.includes('RUNNER_TOKEN:'), false);
   });
 });
 

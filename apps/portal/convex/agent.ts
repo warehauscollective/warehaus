@@ -34,7 +34,7 @@ import {
   runTool,
   runToolLabel,
   runnerOnline,
-  runnerRateDecision,
+  runnerTouchDecision,
   shortSha,
   STUCK_RUN_SCAN,
   tasksWaitingOnPerson,
@@ -51,6 +51,8 @@ import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 
 /** Building milestones looked at for one claim. Oldest first. */
 const CLAIM_MILESTONE_SCAN = 25;
+/** Milestones one claim inspects for a single project, inside that scan. */
+const CLAIM_PER_PROJECT = 5;
 /** Tasks read per milestone when choosing the next one. */
 const CLAIM_TASK_SCAN = 100;
 const DEDUPE_SCAN = 30;
@@ -163,8 +165,8 @@ async function branchFor(ctx: MutationCtx, milestone: Doc<'milestones'>): Promis
 }
 
 /**
- * Called first by every runner route. Counts the call against the runner's
- * minute window and records that the runner is alive.
+ * Called first by every runner route. The runner row is patched at most
+ * once a minute. Calls inside that minute do not write.
  */
 export const touchRunner = internalMutation({
   args: { runnerId: v.string() },
@@ -174,16 +176,23 @@ export const touchRunner = internalMutation({
       .query('agentRunners')
       .withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))
       .unique();
-    const rate = runnerRateDecision({ windowStart: row?.windowStart, count: row?.count, now });
-    if (!rate.ok) return failure(429, rate.reason);
+    const decision = runnerTouchDecision({
+      lastSeenAt: row?.lastSeenAt,
+      windowStart: row?.windowStart,
+      count: row?.count,
+      now,
+    });
+    if (!decision.ok) return failure(429, decision.reason);
+    if (!decision.write) return { ok: true as const };
     if (row) {
-      await ctx.db.patch(row._id, { windowStart: rate.windowStart, count: rate.count, lastSeenAt: now });
+      const same = row.windowStart === decision.windowStart && row.count === decision.count && row.lastSeenAt === decision.lastSeenAt;
+      if (!same) await ctx.db.patch(row._id, { windowStart: decision.windowStart, count: decision.count, lastSeenAt: decision.lastSeenAt });
     } else {
       await ctx.db.insert('agentRunners', {
         runnerId,
-        windowStart: rate.windowStart,
-        count: rate.count,
-        lastSeenAt: now,
+        windowStart: decision.windowStart,
+        count: decision.count,
+        lastSeenAt: decision.lastSeenAt,
       });
     }
     return { ok: true as const };
@@ -251,18 +260,18 @@ export const claimNext = internalMutation({
     const mode = runMode(args.mode);
     const tool = runTool(args.tool);
 
+    const inspected = new Map<string, number>();
+    const roomFor = (projectId: string) => (inspected.get(projectId) ?? 0) < CLAIM_PER_PROJECT;
+    const noteProject = (projectId: string) => inspected.set(projectId, (inspected.get(projectId) ?? 0) + 1);
+
     const queued = await ctx.db
       .query('milestones')
       .withIndex('by_planning', (q) => q.eq('planning', 'queued'))
       .take(CLAIM_MILESTONE_SCAN);
-    let planning: Doc<'milestones'> | null = null;
-    for (const candidate of queued) {
-      if (await served(candidate.projectId)) {
-        planning = candidate;
-        break;
-      }
-    }
-    if (planning) {
+    for (const planning of queued) {
+      if (!roomFor(planning.projectId)) continue;
+      if (!(await served(planning.projectId))) continue;
+      noteProject(planning.projectId);
       const existing = await ctx.db
         .query('tasks')
         .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', planning.orgId).eq('milestoneId', planning._id))
@@ -270,34 +279,34 @@ export const claimNext = internalMutation({
       if (existing || planning.status === 'Shipped' || planning.status === 'Parked') {
         // Someone already wrote tasks, or the milestone stopped. Nothing to plan.
         await ctx.db.patch(planning._id, { planning: undefined });
-      } else {
-        await ctx.db.patch(planning._id, { planning: 'running' });
-        const runId = await ctx.db.insert('agentRuns', {
-          orgId: planning.orgId,
-          milestoneId: planning._id,
-          kind: 'planning',
-          runnerId: args.runnerId,
-          tool,
-          mode,
-          status: 'running',
-          startedAt: now,
-        });
-        await writeEvent(ctx, {
-          orgId: planning.orgId,
-          milestoneId: planning._id,
-          runId,
-          type: 'planning',
-          summary: `Planning run started · ${args.runnerId} · ${runToolLabel(tool)}`,
-          at: now,
-        });
-        return {
-          ok: true as const,
-          resumed: false,
-          kind: 'planning' as const,
-          runId,
-          milestone: milestoneContext(planning, await branchFor(ctx, planning)),
-        };
+        continue;
       }
+      await ctx.db.patch(planning._id, { planning: 'running' });
+      const runId = await ctx.db.insert('agentRuns', {
+        orgId: planning.orgId,
+        milestoneId: planning._id,
+        kind: 'planning',
+        runnerId: args.runnerId,
+        tool,
+        mode,
+        status: 'running',
+        startedAt: now,
+      });
+      await writeEvent(ctx, {
+        orgId: planning.orgId,
+        milestoneId: planning._id,
+        runId,
+        type: 'planning',
+        summary: `Planning run started · ${args.runnerId} · ${runToolLabel(tool)}`,
+        at: now,
+      });
+      return {
+        ok: true as const,
+        resumed: false,
+        kind: 'planning' as const,
+        runId,
+        milestone: milestoneContext(planning, await branchFor(ctx, planning)),
+      };
     }
 
     const building = await ctx.db
@@ -305,7 +314,9 @@ export const claimNext = internalMutation({
       .withIndex('by_status', (q) => q.eq('status', 'Building'))
       .take(CLAIM_MILESTONE_SCAN);
     for (const milestone of building) {
+      if (!roomFor(milestone.projectId)) continue;
       if (!(await served(milestone.projectId))) continue;
+      noteProject(milestone.projectId);
       // One task run per milestone at a time. Two runners never push to the same branch.
       const busy = await ctx.db
         .query('agentRuns')

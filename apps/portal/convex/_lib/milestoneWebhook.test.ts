@@ -21,7 +21,7 @@ const BRANCH = 'milestone/client-experience-launch';
 type Row = Record<string, unknown> & { _id: string };
 
 /** A small in-memory stand-in for the tables the webhook mutation touches. */
-function fakeDb(seed: { milestones: Row[]; projects?: Row[] }) {
+function fakeDb(seed: { milestones: Row[]; projects?: Row[]; tasks?: Row[] }) {
   const tables: Record<string, Row[]> = {
     milestones: seed.milestones,
     projects: seed.projects ?? [],
@@ -29,7 +29,7 @@ function fakeDb(seed: { milestones: Row[]; projects?: Row[] }) {
     syncMeta: [],
     activity: [],
     agentEvents: [],
-    tasks: [],
+    tasks: seed.tasks ?? [],
     taskLinks: [],
   };
   let next = 1;
@@ -112,6 +112,21 @@ async function githubPlan(rawBody: string, delivery = 'delivery-milestone-1') {
   return decision.plan;
 }
 
+function matchingProject(): Row {
+  return { _id: 'project', agentRepo: 'warehauscollective/warehaus' };
+}
+
+function doneTask(over: Record<string, unknown> = {}): Row {
+  return {
+    _id: 'tasks:1',
+    orgId: 'org',
+    milestoneId: 'milestones:1',
+    status: 'Done',
+    isDone: true,
+    ...over,
+  };
+}
+
 function milestoneRow(over: Record<string, unknown> = {}): Row {
   return {
     _id: 'milestones:1',
@@ -167,7 +182,7 @@ describe('milestone branch on a pull request', () => {
 
 describe('merge sets Shipped', () => {
   it('moves the milestone to Shipped once, and a retry changes nothing', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow()] });
+    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [matchingProject()], tasks: [doneTask()] });
     const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
     assert.equal(plan.action, 'apply');
     if (plan.action !== 'apply') return;
@@ -193,7 +208,7 @@ describe('merge sets Shipped', () => {
   });
 
   it('writes nothing a second time even with no claim to stop it', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow()] });
+    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [matchingProject()], tasks: [doneTask()] });
     const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
     if (plan.action !== 'apply') throw new Error('expected apply');
     await apply({ db }, plan);
@@ -217,7 +232,10 @@ describe('merge sets Shipped', () => {
   });
 
   it('stores the pull request on open and does not ship', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow({ status: 'Building', approval: 'unreviewed' })] });
+    const { db, tables } = fakeDb({
+      milestones: [milestoneRow({ status: 'Building', approval: 'unreviewed' })],
+      projects: [matchingProject()],
+    });
     const plan = await githubPlan(pullBody({ action: 'opened' }));
     if (plan.action !== 'apply') throw new Error('expected apply');
     const result = await apply({ db }, plan);
@@ -247,7 +265,11 @@ describe('the repository has to match', () => {
   });
 
   it('ships when the repository matches, whatever the letter case', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [project('WarehausCollective/Warehaus')] });
+    const { db, tables } = fakeDb({
+      milestones: [milestoneRow()],
+      projects: [project('WarehausCollective/Warehaus')],
+      tasks: [doneTask()],
+    });
     const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
     if (plan.action !== 'apply') throw new Error('expected apply');
     const result = await apply({ db }, plan);
@@ -255,21 +277,43 @@ describe('the repository has to match', () => {
     assert.equal(tables.milestones?.[0]?.status, 'Shipped');
   });
 
-  it('keeps matching by branch alone for a project with no repository set', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [project()] });
+  it('does not write when the project has no repository set', async () => {
+    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [project()], tasks: [doneTask()] });
     const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
     if (plan.action !== 'apply') throw new Error('expected apply');
     const result = await apply({ db }, plan);
-    assert.equal(result.shipped, true);
-    assert.equal(tables.milestones?.[0]?.status, 'Shipped');
+    assert.equal(result.wrote, false);
+    assert.equal(result.shipped, undefined);
+    assert.equal(tables.milestones?.[0]?.status, 'Ready to Ship');
+    assert.equal(tables.milestones?.[0]?.prUrl, undefined);
+  });
+
+  it('stores the pull request and does not ship when a subtask is still open', async () => {
+    const { db, tables } = fakeDb({
+      milestones: [milestoneRow()],
+      projects: [matchingProject()],
+      tasks: [
+        doneTask(),
+        { _id: 'tasks:2', orgId: 'org', milestoneId: 'milestones:1', parentTaskId: 'tasks:1', status: 'To do', isDone: false },
+      ],
+    });
+    const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
+    if (plan.action !== 'apply') throw new Error('expected apply');
+    const result = await apply({ db }, plan);
+    assert.equal(result.wrote, true);
+    assert.equal(result.shipped, undefined);
+    assert.equal(tables.milestones?.[0]?.status, 'Ready to Ship');
+    assert.equal(tables.milestones?.[0]?.prUrl, 'https://github.com/warehauscollective/warehaus/pull/140');
+    assert.equal(tables.activity?.length, 0);
+    assert.equal(tables.agentEvents?.length, 0);
   });
 
   it('compares the two names and nothing else', () => {
     assert.equal(inboundRepoMatches('a/b', 'A/B'), true);
     assert.equal(inboundRepoMatches('a/b', 'a/c'), false);
     assert.equal(inboundRepoMatches('a/b', undefined), false);
-    assert.equal(inboundRepoMatches(null, 'a/c'), true);
-    assert.equal(inboundRepoMatches('', undefined), true);
+    assert.equal(inboundRepoMatches(null, 'a/c'), false);
+    assert.equal(inboundRepoMatches('', undefined), false);
   });
 });
 
@@ -284,7 +328,7 @@ describe('Vercel preview on a milestone branch', () => {
           id: 'dpl_milestone_1',
           name: 'warehaus-portal',
           url: 'warehaus-portal-abc123-warehaus-collective.vercel.app',
-          meta: { githubCommitSha: SHA, githubCommitRef: branch },
+          meta: { githubCommitSha: SHA, githubCommitRef: branch, githubOrg: 'warehauscollective', githubRepo: 'warehaus' },
         },
       },
     });
@@ -312,7 +356,10 @@ describe('Vercel preview on a milestone branch', () => {
   });
 
   it('stores the preview when a build of the branch succeeds, once', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow({ status: 'Building', approval: 'unreviewed' })] });
+    const { db, tables } = fakeDb({
+      milestones: [milestoneRow({ status: 'Building', approval: 'unreviewed' })],
+      projects: [matchingProject()],
+    });
     const plan = await vercelPlan(vercelBody('deployment.succeeded', BRANCH));
     assert.equal(plan.action, 'apply');
     if (plan.action !== 'apply') return;
@@ -339,7 +386,7 @@ describe('Vercel preview on a milestone branch', () => {
   });
 
   it('adds no preview to an approved milestone', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow()] });
+    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [matchingProject()] });
     const plan = await vercelPlan(vercelBody('deployment.succeeded', BRANCH));
     if (plan.action !== 'apply') throw new Error('expected apply');
     const result = await apply({ db }, plan);

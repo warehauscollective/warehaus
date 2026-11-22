@@ -11,7 +11,7 @@ import {
   taskListPlan,
 } from '@warehaus/portal-sync';
 import { MILESTONE_STATUSES } from '@convex/_lib/milestoneStatus';
-import { attachFailureCode, attachFailureStatus } from '@convex/_lib/milestones';
+import { MILESTONE_OBJECTIVE_LIMIT, attachFailureCode, attachFailureStatus } from '@convex/_lib/milestones';
 import { PROPOSED_TASKS_MAX, PROPOSED_TASKS_MIN } from '@convex/_lib/milestoneBot';
 import { REVIEW_TASK_LIMIT } from '@convex/_lib/milestoneTasks';
 import { z } from 'zod';
@@ -21,10 +21,15 @@ const cursor = z.string().min(1).max(2000).optional();
 const idempotencyKey = z.string().min(1).max(200);
 const stage = z.enum(TASK_STAGES);
 const status = z.enum(LIVE_TASK_STATUSES);
-/** Statuses a bot may set on create. Shipped is set later, when the tasks are Done. */
-const settableMilestoneStatuses = MILESTONE_STATUSES.filter((value) => value !== 'Shipped') as [string, ...string[]];
+/** Statuses a bot may set. Building is claimed by the runner. Shipped is set later, when the tasks are Done. */
+const settableMilestoneStatuses = MILESTONE_STATUSES.filter((value) => value !== 'Shipped' && value !== 'Building') as [
+  string,
+  ...string[],
+];
 const milestoneStatus = z.enum(settableMilestoneStatuses);
-const milestoneStatusWithShipped = z.enum(MILESTONE_STATUSES);
+const milestoneStatusWithShipped = z.enum(
+  MILESTONE_STATUSES.filter((value) => value !== 'Building') as [string, ...string[]],
+);
 const milestoneGoals = z.array(z.string().min(1).max(500)).max(20);
 
 export type ToolCall = {
@@ -287,12 +292,12 @@ export const portalTools: PortalTool[] = [
   {
     name: 'update_milestone',
     description:
-      'Update a milestone name, objective, goals, or status. Send only the fields that change, and at least one. status and stage are the same field: Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, or Parked. Shipped is allowed when every task that is not Parked is Done. Sending the stored values again writes nothing. Use record_milestone_review for an approval or a request for changes. Send an idempotency key.',
+      'Update a milestone name, objective, goals, or status. Send only the fields that change, and at least one. status and stage are the same field: Idea, Planning, Awaiting Go, Ready to Ship, Shipped, or Parked. Building is set in the Portal, not here. Shipped is allowed when every task that is not Parked is Done. The objective is at most 2000 characters. Sending the stored values again writes nothing. Use record_milestone_review for an approval or a request for changes. Send an idempotency key.',
     write: true,
     schema: {
       milestoneId: z.string().min(1),
       name: z.string().min(1).max(200).optional(),
-      objective: z.string().min(1).max(2000).optional(),
+      objective: z.string().min(1).max(MILESTONE_OBJECTIVE_LIMIT).optional(),
       goals: milestoneGoals.optional(),
       status: milestoneStatusWithShipped.optional(),
       stage: milestoneStatusWithShipped.optional(),
@@ -385,12 +390,12 @@ export const portalTools: PortalTool[] = [
   {
     name: 'create_milestone',
     description:
-      'Create a milestone and its task list in one call. Call list_milestones first and reuse a matching milestone instead of making a second one. Read the brief and propose 3 to 10 concrete tasks in proposedTasks, each one a piece of work a developer can finish and check, in the order they should be done. With tasks the milestone starts at Awaiting Go and waits for Peter. With none it starts at Planning. A status you send wins; Shipped cannot be sent on create. It stays unpublished. The tasks are stored in the Portal only and are not sent to Notion. createdVia is grok or claude; leave it out to use the token name. Send an idempotency key. Retries with the same key replay the first result.',
+      'Create a milestone and its task list in one call. Call list_milestones first and reuse a matching milestone instead of making a second one. Read the brief and propose 3 to 10 concrete tasks in proposedTasks, each one a piece of work a developer can finish and check, in the order they should be done. It starts at Planning. A status you send is kept, except Building and Shipped, which cannot be sent on create. The objective is at most 2000 characters. It stays unpublished. The tasks are stored in the Portal only and are not sent to Notion. Where it was created is taken from the token name. Send an idempotency key. Retries with the same key replay the first result.',
     write: true,
     schema: {
       projectId: z.string().min(1),
       name: z.string().min(1).max(200),
-      objective: z.string().min(1).max(8000),
+      objective: z.string().min(1).max(MILESTONE_OBJECTIVE_LIMIT),
       goals: milestoneGoals.optional(),
       status: milestoneStatus.optional(),
       proposedTasks: z
@@ -403,7 +408,6 @@ export const portalTools: PortalTool[] = [
         .min(PROPOSED_TASKS_MIN)
         .max(PROPOSED_TASKS_MAX)
         .optional(),
-      createdVia: z.enum(['grok', 'claude', 'other']).optional(),
       idempotencyKey,
     },
     call: (args) => ({
@@ -417,7 +421,6 @@ export const portalTools: PortalTool[] = [
         goals: args.goals ?? [],
         status: args.status,
         proposedTasks: args.proposedTasks,
-        createdVia: args.createdVia,
       }),
     }),
   },

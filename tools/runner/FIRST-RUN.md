@@ -27,7 +27,7 @@ Merging does not deploy anything. Production still waits for Peter's "deploy mai
 
 - Push the schema and functions to `graceful-mastiff-960` once, then stop. Never use `--prod`, never run `npx convex deploy`, and don't leave `convex dev` running.
 - Set these environment variables on the dev deployment:
-  - `RUNNER_TOKENS=peter-mbp=<random token, at least 24 characters>`
+  - `RUNNER_TOKENS=peter-mbp=<random token, at least 24 characters> <owner/name>`
   - `GITHUB_WEBHOOK_SECRET=<secret>`
   - `VERCEL_WEBHOOK_SECRET=<secret>`, if you want the Vercel preview link on the milestone.
 
@@ -51,7 +51,7 @@ export PORTAL_AGENT_URL=https://graceful-mastiff-960.convex.site
 export RUNNER_TOKEN=<the token for peter-mbp>
 ```
 
-- Optional: copy `tools/runner/hooks/settings.example.json` into `.claude/settings.json` so edits show up in the Activity feed.
+- The runner does not pass `RUNNER_TOKEN` into Claude, so the Activity hook posts nothing from inside the session. The start and the finish of a run are still reported.
 - Use the default `--mode interactive`. `--mode headless` draws on the Agent SDK credit instead of plan limits.
 
 ## 5. Grok Bot

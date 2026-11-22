@@ -18,19 +18,26 @@ export const RUN_NOT_YOURS = 'That run belongs to another runner';
 export const RUN_ENDED = 'That run has ended';
 export const PLAN_NOT_PLANNING = 'That run is not a planning run';
 
+export type RunnerToken = { token: string; repos: string[] };
+
 /**
- * `RUNNER_TOKENS` in the Convex environment: `id=token` pairs separated by
- * commas or new lines, one per runner. A token under 24 characters is ignored.
+ * `RUNNER_TOKENS` in the Convex environment. One runner per entry, separated
+ * by a new line or by a comma that starts the next `id=`. Each entry is
+ * `id=token` and the repositories that runner may serve, separated by spaces.
+ * A token under 24 characters is ignored. A runner with no repository is
+ * handed nothing.
  */
-export function parseRunnerTokens(raw: string | null | undefined): Map<string, string> {
-  const tokens = new Map<string, string>();
-  for (const part of (raw ?? '').split(/[\n,]/)) {
+export function parseRunnerTokens(raw: string | null | undefined): Map<string, RunnerToken> {
+  const tokens = new Map<string, RunnerToken>();
+  const entries = (raw ?? '').split(/\n|,(?=\s*[a-z0-9][a-z0-9-]{1,39}\s*=)/);
+  for (const part of entries) {
     const at = part.indexOf('=');
     if (at < 1) continue;
     const id = part.slice(0, at).trim().toLowerCase();
-    const token = part.slice(at + 1).trim();
+    const pieces = part.slice(at + 1).trim().split(/\s+/).filter(Boolean);
+    const token = pieces[0] ?? '';
     if (!RUNNER_ID_PATTERN.test(id) || token.length < 24) continue;
-    tokens.set(id, token);
+    tokens.set(id, { token, repos: runnerRepos(pieces.slice(1)) });
   }
   return tokens;
 }
@@ -40,7 +47,7 @@ export function authorizeRunner(input: {
   configured: string | null | undefined;
   authorizationHeader: string | null;
   runnerId: string | null | undefined;
-}): { ok: true; runnerId: string } | { ok: false; status: 400 | 401 | 503; reason: string } {
+}): { ok: true; runnerId: string; repos: string[] } | { ok: false; status: 400 | 401 | 503; reason: string } {
   const tokens = parseRunnerTokens(input.configured);
   if (tokens.size === 0) return { ok: false, status: 503, reason: RUNNER_UNCONFIGURED };
   const runnerId = (input.runnerId ?? '').trim().toLowerCase();
@@ -48,15 +55,28 @@ export function authorizeRunner(input: {
   const match = /^Bearer\s+(\S+)\s*$/.exec(input.authorizationHeader ?? '');
   const expected = tokens.get(runnerId);
   // Compare against something even when the id is unknown, so timing does not name valid ids.
-  const reference = expected ?? 'x'.repeat(32);
+  const reference = expected?.token ?? 'x'.repeat(32);
   const given = match?.[1] ?? '';
   const same = timingSafeEqualUtf8(given, reference);
   if (!expected || !same) return { ok: false, status: 401, reason: RUNNER_UNAUTHORIZED };
-  return { ok: true, runnerId };
+  return { ok: true, runnerId, repos: expected.repos };
+}
+
+/**
+ * Repositories this claim may see: the ones the request named that the
+ * token also allows. An empty allowlist or an empty request yields none.
+ */
+export function reposForRunner(allowed: readonly string[], requested: unknown): string[] {
+  const asked = runnerRepos(requested);
+  if (allowed.length === 0 || asked.length === 0) return [];
+  const permit = new Set(allowed);
+  return asked.filter((repo) => permit.has(repo));
 }
 
 export const RUNNER_RATE_WINDOW_MS = 60_000;
 export const RUNNER_RATE_LIMIT = 120;
+/** How often a runner row is patched. Calls inside this window do not write. */
+export const RUNNER_TOUCH_INTERVAL_MS = 60_000;
 /** A runner that has not called in this long reads as offline. */
 export const RUNNER_OFFLINE_AFTER_MS = 10 * 60_000;
 
@@ -70,6 +90,31 @@ export function runnerRateDecision(input: {
   const count = (input.count ?? 0) + 1;
   if (count > RUNNER_RATE_LIMIT) return { ok: false, reason: RUNNER_RATE_LIMITED };
   return { ok: true, windowStart: start, count };
+}
+
+/**
+ * One runner call. The row is patched at most once a minute. A call inside
+ * that minute does not write. A stored count already at the limit still
+ * rejects until the window rolls.
+ */
+export function runnerTouchDecision(input: {
+  lastSeenAt: number | null | undefined;
+  windowStart: number | null | undefined;
+  count: number | null | undefined;
+  now: number;
+}):
+  | { ok: true; write: false }
+  | { ok: true; write: true; windowStart: number; count: number; lastSeenAt: number }
+  | { ok: false; reason: string } {
+  const fresh = input.lastSeenAt != null && input.now - input.lastSeenAt < RUNNER_TOUCH_INTERVAL_MS;
+  const windowOpen = input.windowStart != null && input.now - input.windowStart < RUNNER_RATE_WINDOW_MS;
+  if (fresh && windowOpen) {
+    if ((input.count ?? 0) >= RUNNER_RATE_LIMIT) return { ok: false, reason: RUNNER_RATE_LIMITED };
+    return { ok: true, write: false };
+  }
+  const rate = runnerRateDecision({ windowStart: input.windowStart, count: input.count, now: input.now });
+  if (!rate.ok) return rate;
+  return { ok: true, write: true, windowStart: rate.windowStart, count: rate.count, lastSeenAt: input.now };
 }
 
 export function runnerOnline(lastSeenAt: number | null | undefined, now: number): boolean {
