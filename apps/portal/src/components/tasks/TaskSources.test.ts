@@ -125,7 +125,10 @@ describe('task sources panel', () => {
     assert.match(body, /withIndex\('by_taskId'/);
     assert.match(body, /\.take\(TASK_LINK_READ_CAP \+ 1\)/);
     assert.equal(body.includes('.collect('), false);
-    assert.equal(tasks.split("query('taskLinks')").length - 1, 3);
+    assert.equal(tasks.split("query('taskLinks')").length - 1, 4);
+    const shipped = tasks.slice(tasks.indexOf('export const prepareShipped'), tasks.indexOf('export const commitShipped'));
+    assert.match(shipped, /withIndex\('by_taskId'/);
+    assert.match(shipped, /\.take\(50\)/);
     assert.match(tasks, /withIndex\('by_taskId_url'/);
   });
 

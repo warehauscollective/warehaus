@@ -4,7 +4,7 @@ import { describe, it } from 'node:test';
 import { TASK_STAGE_HINT, displayedTaskStatus } from '../../lib/data/taskStatus';
 
 const HINT =
-  'Staff can set any stage except Shipped. Shipped is set when the pull request merges.';
+  'Staff can set Shipped when the pull request is merged into main. The check runs when you save.';
 
 describe('Ready to Ship task status', () => {
   it('maps In progress at Ready to Ship to In review', () => {
@@ -19,8 +19,9 @@ describe('Ready to Ship task status', () => {
     assert.equal(TASK_STAGE_HINT, HINT);
     const source = readFileSync(new URL('./TaskDetailModal.tsx', import.meta.url), 'utf8');
     assert.match(source, /TASK_STAGE_HINT/);
-    assert.match(source, /ON MERGE/);
-    assert.match(source, /task-lock\.svg/);
+    assert.equal(source.includes('ON MERGE'), false);
+    assert.equal(source.includes('task-lock.svg'), false);
+    assert.match(source, /commitShipped/);
     assert.equal(source.includes('set in Notion'), false);
     assert.match(source, /displayedTaskStatus/);
   });

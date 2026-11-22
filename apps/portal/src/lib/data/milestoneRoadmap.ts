@@ -167,6 +167,23 @@ function previewChild(id: string) {
   };
 }
 
+/** Every non-Parked task is Done, so the Shipped option unlocks. */
+function withTasksDone(milestone: MilestoneRoadmapView): MilestoneRoadmapView {
+  const mark = <T extends { stage?: string | null; status: string; isDone: boolean }>(task: T): T =>
+    task.stage === 'Parked' ? task : { ...task, status: 'Done', isDone: true };
+  const rows = milestone.rows.map((row) => ({
+    ...mark(row),
+    children: row.children.map((child) => mark(child)),
+  }));
+  const flat = rows.flatMap((row) => [row, ...row.children]);
+  return {
+    ...milestone,
+    rows,
+    doneCount: flat.filter((row) => row.isDone).length,
+    openCount: flat.filter((row) => !row.isDone).length,
+  };
+}
+
 function withLongChip(milestone: MilestoneRoadmapView): MilestoneRoadmapView {
   const children = Array.from({ length: 9 }, (_, index) => previewChild(`long-sub-${index}`));
   const done = Array.from({ length: 12 }, (_, index) => ({ ...previewChild(`long-done-${index}`), isDone: true, children: [] }));
@@ -214,6 +231,9 @@ export function applyFixtureMilestonePreview(
   if (params.get('chip') === 'long' && next[0]) {
     const first = next[0];
     next = [withLongChip(first), ...next.slice(1)];
+  }
+  if (params.get('close') === 'ready') {
+    next = next.map((milestone, index) => (index === 0 ? withTasksDone(milestone) : milestone));
   }
   if (params.get('tiles') === 'nofigma') {
     return next.map((milestone, index) => (

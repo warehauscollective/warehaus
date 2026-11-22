@@ -701,6 +701,8 @@ export function planApiTaskUpdate(input: {
   nextAction?: string | null;
   stage?: string;
   pullRequestLink?: string;
+  /** Set only after the staff write has verified the pull request. */
+  verifiedMerge?: boolean;
 }): { ok: true; writes: ApiOutboxWrite[] } | { ok: false; error: string } {
   if (!input.notionPageId) return { ok: false, error: 'Updates require a Notion page' };
   if (!input.expectedLastEditedTime) return { ok: false, error: 'Updates require the last read time' };
@@ -734,6 +736,7 @@ export function planApiTaskUpdate(input: {
       pullRequestLink: input.pullRequestLink,
       notionPageId: input.notionPageId,
       expectedLastEditedTime: input.expectedLastEditedTime,
+      verifiedMerge: input.verifiedMerge,
     });
     if (!stage.ok) return stage;
     writes.push({ kind: 'task-stage', properties: stage.properties });

@@ -24,6 +24,7 @@ describe('portalApiHttp', () => {
       'GET /api/v1/projects/item',
       'POST /api/v1/projects',
       'POST /api/v1/milestones/attach',
+      'POST /api/v1/milestones/detach',
       'GET /api/v1/context',
       'GET /api/v1/context/grilling',
       'POST /api/v1/context/brief',

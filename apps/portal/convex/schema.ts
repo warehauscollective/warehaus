@@ -226,8 +226,8 @@ export default defineSchema({
     goals: v.array(v.string()),
     /**
      * The one Status field. Every write goes through `transitionMilestone`
-     * in `_lib/milestoneStatus.ts`. Staff can set any status except Shipped.
-     * Shipped is set when the pull request merges.
+     * in `_lib/milestoneStatus.ts`. Staff can set Shipped when every task
+     * that is not Parked is Done. The play button never moves to Shipped.
      */
     status: v.union(
       v.literal('Idea'),

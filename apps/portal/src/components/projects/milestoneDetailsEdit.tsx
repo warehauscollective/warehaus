@@ -6,6 +6,7 @@ import { assertStaffPreviewLink, PREVIEW_LINK_LOCAL } from '@convex/_lib/preview
 import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { clientSeesDetailsRow, formatDueDate, textBlurSave } from '@convex/_lib/milestoneDetails';
+import { milestoneCanClose } from '@convex/_lib/milestoneDetails';
 import { MILESTONE_STATUSES, nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -143,8 +144,10 @@ export function useMilestoneDetailEdits({
     ownerId: null,
     dueDate: null,
   });
+  const canClose = milestoneCanClose(milestone.rows);
   const moves = useMilestoneStatusMoves({
     status: milestone.status,
+    canClose,
     onAdvance: (expected) => {
       if (fixtures) {
         onFixture({ status: nextStatus(expected) ?? expected });
@@ -278,15 +281,15 @@ export function useMilestoneDetailEdits({
           setTone((current) => (current[key] === 'saved' ? { ...current, [key]: 'idle' } : current));
         }, 2000);
       }
-    } catch {
+    } catch (err) {
       setTone((current) => ({ ...current, [key]: 'error' }));
-      setFieldError(key === 'project' ? 'Couldn’t move.' : 'Couldn’t save.');
+      setFieldError(key === 'project' ? 'Couldn’t move.' : userFacingErrorMessage(err, 'Couldn’t save.'));
     }
   };
 
   const pickStatus = (status: MilestoneStatus) => {
     setOverlay(null);
-    if (statusOptionLock(status) || status === statusNow) return;
+    if (statusOptionLock(status, canClose) || status === statusNow) return;
     pending.current.status = status;
     if (fixtures) {
       onFixture({ status });
@@ -440,9 +443,9 @@ export function useMilestoneDetailEdits({
               {moves.error}
             </p>
           ) : null}
-          {shown?.kind === 'status' && !phone ? (
+          {staff && shown?.kind === 'status' && !phone ? (
             <Popover onClose={() => closeOverlay(true)}>
-              <StatusMenu current={statusNow} onPick={pickStatus} onClose={() => closeOverlay(true)} />
+              <StatusMenu current={statusNow} canClose={canClose} onPick={pickStatus} onClose={() => closeOverlay(true)} />
             </Popover>
           ) : null}
         </DetailRow>
@@ -646,8 +649,8 @@ export function useMilestoneDetailEdits({
       blueFocus={shown.kind === 'attach-link' || shown.kind === 'remove-link'}
       onClose={() => closeOverlay(true)}
     >
-      {shown.kind === 'status' ? (
-        <StatusMenu current={statusNow} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
+      {staff && shown.kind === 'status' ? (
+        <StatusMenu current={statusNow} canClose={canClose} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
       ) : null}
       {shown.kind === 'owner' ? (
         <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} currentName={milestone.ownerName} onPick={pickOwner} onClose={() => closeOverlay(true)} sheet />
@@ -1104,17 +1107,30 @@ export function menuButtons(root: ParentNode | null): HTMLElement[] {
   return [...root.querySelectorAll<HTMLElement>('button')].filter((button) => !button.hasAttribute('disabled'));
 }
 
-/** The Status menu. Any jump, forward or back. Shipped is listed but locked. */
+export const MILESTONE_STATUS_HINT =
+  'Staff can set Shipped when every task that is not Parked is Done. Saves as soon as you pick.';
+
+export const MILESTONE_STATUS_HINT_ID = 'milestone-status-hint';
+
+/** Same clearance centered dialogs use so a phone sheet sits above the dock. */
+const STATUS_SHEET_CLEARANCE = 'calc(82px + env(safe-area-inset-bottom, 0px))';
+
+const MENU_OPTION_FOCUS =
+  'focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2';
+
+/** The Status menu. Any jump, forward or back. Shipped unlocks when every non-Parked task is Done. */
 export function StatusMenu({
   current,
   onPick,
   onClose,
   sheet,
+  canClose = false,
 }: {
   current: string;
   onPick: (status: MilestoneStatus) => void;
   onClose: () => void;
   sheet?: boolean;
+  canClose?: boolean;
 }) {
   return (
     <div
@@ -1122,11 +1138,11 @@ export function StatusMenu({
       aria-label="Status"
       data-testid="milestone-status-menu"
       onKeyDown={(event) => menuKey(event, onClose)}
-      style={menuStyle(sheet)}
+      style={menuStyle(sheet, 400, true)}
     >
       {sheet ? <SheetHeader title="Status" onClose={onClose} /> : null}
       {MILESTONE_STATUSES.map((status) => {
-        const lock = statusOptionLock(status);
+        const lock = statusOptionLock(status, canClose);
         const selected = status === current;
         return (
           <button
@@ -1134,10 +1150,20 @@ export function StatusMenu({
             type="button"
             role="option"
             aria-selected={selected}
-            aria-disabled={lock != null}
-            disabled={lock != null}
-            onClick={() => onPick(status)}
-            className="flex w-full items-center gap-2 text-left"
+            aria-disabled={lock != null ? true : undefined}
+            aria-describedby={lock ? MILESTONE_STATUS_HINT_ID : undefined}
+            onClick={(event) => {
+              if (lock) {
+                event.preventDefault();
+                return;
+              }
+              onPick(status);
+            }}
+            onKeyDown={(event) => {
+              if (!lock || (event.key !== 'Enter' && event.key !== ' ')) return;
+              event.preventDefault();
+            }}
+            className={`flex w-full items-center gap-2 text-left ${MENU_OPTION_FOCUS}`}
             style={{
               padding: 10,
               border: 0,
@@ -1151,14 +1177,14 @@ export function StatusMenu({
             }}
           >
             <span className="whitespace-nowrap">{status}</span>
-            {lock === 'shipped' ? <Tag>ON MERGE</Tag> : null}
+            {lock === 'shipped' ? <Tag>NOT DONE</Tag> : null}
             {lock ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
             {selected && !lock ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
           </button>
         );
       })}
-      <p style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-        Staff can set any status except Shipped. Shipped is set when the pull request merges. Saves as soon as you pick.
+      <p id={MILESTONE_STATUS_HINT_ID} style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+        {MILESTONE_STATUS_HINT}
       </p>
     </div>
   );
@@ -1528,8 +1554,13 @@ function ConfirmUnpublish(props: {
   );
 }
 
-function menuStyle(sheet?: boolean, _width = 400): CSSProperties {
-  if (sheet) return { padding: '4px 12px 12px' };
+function menuStyle(sheet?: boolean, _width = 400, clearDock = false): CSSProperties {
+  if (sheet) {
+    return {
+      padding: '4px 12px 12px',
+      ...(clearDock ? { paddingBottom: STATUS_SHEET_CLEARANCE } : {}),
+    };
+  }
   return {
     width: '100%',
     padding: 6,
