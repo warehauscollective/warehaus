@@ -370,8 +370,8 @@ export function ProjectRepoSettingView({
             >
               {clearFailed ? CLEAR_ERROR : CLEAR_BODY}
             </p>
-            <div className="flex w-full min-w-0 flex-col items-end gap-2">
-              <div className="flex justify-end gap-2">
+            <div className="flex w-full min-w-0 flex-col items-start gap-2">
+              <div className="flex justify-start gap-2">
                 <HeldButton
                   label="Cancel"
                   hint={CLEAR_CANCEL_HINT}

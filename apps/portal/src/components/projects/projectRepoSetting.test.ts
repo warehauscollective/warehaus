@@ -121,6 +121,11 @@ describe('project repository setting', () => {
     assert.match(phone, /portal-modal-sheet/);
     assert.match(phone, /data-testid="modal-grabber"/);
     assert.match(phone, /padding:0 0 67px 0/);
+    assert.match(phone, /flex w-full min-w-0 flex-col items-start gap-2/);
+    assert.match(phone, /flex justify-start gap-2/);
+    const confirmAt = phone.indexOf('data-testid="clear-repo-cancel"');
+    const rowAt = phone.lastIndexOf('flex justify-start gap-2', confirmAt);
+    assert.ok(rowAt > 0 && rowAt < confirmAt);
   });
 
   it('disables cancel while clearing and names the reason', () => {
