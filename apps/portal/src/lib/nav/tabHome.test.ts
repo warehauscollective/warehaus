@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { getPortalTabForPath, getPortalTabsForMode } from '@warehaus/logic';
 import { getPortalSidebarSections } from '../data/sidebarSections';
-import { isProjectDetailPath, leaveProjectDetail, tabReplaceHref } from './tabHome';
-
-const provider = readFileSync(new URL('../../components/providers/PortalTabProvider.tsx', import.meta.url), 'utf8');
-const sidebar = readFileSync(new URL('../../components/layout/PortalSidebar.tsx', import.meta.url), 'utf8');
-const projects = readFileSync(new URL('../../components/pages/ProjectsContent.tsx', import.meta.url), 'utf8');
-const dock = readFileSync(new URL('../../components/layout/PortalDock.tsx', import.meta.url), 'utf8');
+import type { PortalNavDetail } from './openPortalHref';
+import {
+  allProjectsLeavesDetail,
+  isProjectDetailPath,
+  leaveProjectDetail,
+  readProjectNav,
+  readResourceNav,
+  runTabHomeClick,
+  tabReplaceHref,
+} from './tabHome';
 
 /**
  * Staff and client share one dock. 1440 is the desktop rail; 390 is the
@@ -71,6 +74,55 @@ for (const viewer of viewers) {
       assert.equal(getPortalTabForPath('/'), 'dashboard');
       assert.equal(getPortalTabForPath('/activity'), 'activity');
       assert.equal(getPortalTabForPath('/account'), 'account');
+      assert.equal(
+        tabReplaceHref({
+          pathname: '/account',
+          tab: 'account',
+          search: '?client=c-north&section=clients&project=p-site',
+        }),
+        '/account?client=c-north&section=clients',
+      );
+    });
+
+    it('returns a list-opened project and resource to that tab home', () => {
+      const cases = [
+        ['projects', '/projects', '?project=p-site&taskView=board', '/projects'],
+        ['projects', '/projects', '?as=client&project=p-site&taskView=board', '/projects?as=client'],
+        ['projects', '/projects', '?project=p-site&task=t-doing&taskView=board', '/projects'],
+        ['resources', '/resources', '?resource=r-notes', '/resources'],
+        ['resources', '/resources', '?as=staff&resource=r-notes', '/resources?as=staff'],
+        ['projects', '/projects/p-site', '', '/projects'],
+        ['projects', '/tasks/t-doing', '', '/projects'],
+        ['resources', '/resources/r-notes', '', '/resources'],
+      ] as const;
+      for (const [tab, pathname, search, expected] of cases) {
+        const replaced: string[] = [];
+        const events: PortalNavDetail[] = [];
+        const href = runTabHomeClick({
+          tab,
+          location: { pathname, search },
+          replace: (next) => replaced.push(next),
+          dispatch: (detail) => events.push(detail),
+        });
+        assert.equal(href, expected);
+        assert.deepEqual(replaced, [expected]);
+        assert.equal(events.length, 1);
+        assert.equal(events[0]?.home, true);
+        assert.equal(events[0]?.project, null);
+        assert.equal(events[0]?.resource, null);
+        const project = readProjectNav({ detail: events[0] ?? null, search: '' });
+        assert.equal(project.home, true);
+        assert.equal(project.project, null);
+        assert.equal(project.task, null);
+        const resource = readResourceNav({ detail: events[0] ?? null, search: '', preview: false });
+        assert.equal(resource.home, true);
+        assert.equal(resource.resource, null);
+        assert.equal(resource.doc, null);
+      }
+      assert.equal(allProjectsLeavesDetail('/projects', '?project=p-site&taskView=board'), true);
+      assert.equal(allProjectsLeavesDetail('/projects/p-site', ''), true);
+      assert.equal(allProjectsLeavesDetail('/tasks/t-doing', ''), true);
+      assert.equal(allProjectsLeavesDetail('/projects', '?as=client'), false);
     });
 
     it('does not replace when the path is already that root, and stays on /preview', () => {
@@ -94,26 +146,35 @@ for (const viewer of viewers) {
         push: (href) => pushed.push(href),
       });
       assert.deepEqual(pushed, []);
+      let fired = false;
+      assert.equal(
+        runTabHomeClick({
+          tab: 'projects',
+          location: { pathname: '/projects', search: '?as=client' },
+          replace: () => {
+            fired = true;
+          },
+          dispatch: () => {
+            fired = true;
+          },
+        }),
+        null,
+      );
+      assert.equal(fired, false);
+      assert.equal(
+        runTabHomeClick({
+          tab: 'resources',
+          location: { pathname: '/resources', search: '' },
+          replace: () => {
+            fired = true;
+          },
+          dispatch: () => {
+            fired = true;
+          },
+        }),
+        null,
+      );
+      assert.equal(fired, false);
     });
   });
 }
-
-describe('tab home wiring', () => {
-  it('replaces to the tab root unless the pathname is already that href', () => {
-    assert.match(provider, /pathname === '\/preview' \|\| pathname\.startsWith\('\/preview\/'\)/);
-    assert.match(provider, /tabReplaceHref\(/);
-    assert.match(provider, /if \(href\) router\.replace\(href\)/);
-    assert.equal(provider.includes('getPortalTabForPath(pathname) !== tab'), false);
-    assert.match(dock, /onClick=\{\(\) => setActiveTab\(value\)\}/);
-    assert.match(dock, /aria-selected=\{isActive\}/);
-    assert.equal(dock.includes('if (!isActive)'), false);
-  });
-
-  it('All projects on a detail path uses the same leave as closeProject', () => {
-    assert.match(sidebar, /key === 'all' && isProjectDetailPath\(pathname\)/);
-    assert.match(sidebar, /leaveProjectDetail\(/);
-    assert.match(sidebar, /onSelect=\{selectSection\}/);
-    assert.match(projects, /leaveProjectDetail\(/);
-    assert.match(projects, /setOpenId\(null\)/);
-  });
-});

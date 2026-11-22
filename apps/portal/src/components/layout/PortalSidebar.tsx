@@ -9,7 +9,7 @@ import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { usePortalData } from '@/hooks/usePortalData';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
-import { isProjectDetailPath, leaveProjectDetail } from '@/lib/nav/tabHome';
+import { allProjectsLeavesDetail, commitTabHref, isProjectDetailPath, runTabHomeClick } from '@/lib/nav/tabHome';
 import { MobileMenu } from './MobileMenu';
 import { sidebarItemStyle } from './sidebarItemChrome';
 import { applySidebarDataset, readSidebarMode, sidebarCollapseKey, type SidebarMode } from './sidebarCollapse';
@@ -76,9 +76,24 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
 
   const selectSection = (key: string) => {
     setSectionFor(tab, key);
-    if (tab === 'projects' && key === 'all' && isProjectDetailPath(pathname)) {
-      leaveProjectDetail({ pathname, fixtures, push: (href) => router.push(href) });
-    }
+    if (tab !== 'projects' || key !== 'all') return;
+    const search = typeof window === 'undefined' ? '' : window.location.search;
+    if (!allProjectsLeavesDetail(pathname, search)) return;
+    const detailPath = isProjectDetailPath(pathname);
+    runTabHomeClick({
+      tab: 'projects',
+      location: { pathname, search },
+      replace: (href) => {
+        if (detailPath) {
+          if (!fixtures) router.push(href);
+          return;
+        }
+        commitTabHref(href, (next) => router.replace(next));
+      },
+      dispatch: (detail) => {
+        window.dispatchEvent(new CustomEvent('wh-portal-nav', { detail }));
+      },
+    });
   };
 
   useEffect(() => {

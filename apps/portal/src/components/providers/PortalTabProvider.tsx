@@ -19,7 +19,7 @@ import {
 } from '@warehaus/logic/portal';
 import { createSwipePanelRefs } from '@warehaus/ui';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
-import { tabReplaceHref } from '@/lib/nav/tabHome';
+import { commitTabHref, runTabHomeClick } from '@/lib/nav/tabHome';
 
 const PORTAL_TAB_VALUES = PORTAL_TABS.map((t) => t.value) as PortalTab[];
 
@@ -76,15 +76,21 @@ export function PortalTabProvider({ children }: { children: ReactNode }) {
         window.history.replaceState(window.history.state, '', url);
         return;
       }
-      const href = tabReplaceHref({
+      // Nested pages (/projects/:id, /tasks/:id, /resources/:id) still belong
+      // to the tab, so the highlight stays, but the click replaces to the root.
+      // A list open keeps the root path and adds ?project= or ?resource=.
+      // That is not home: strip those params and tell the list to close.
+      runTabHomeClick({
         tab,
-        pathname,
-        search: typeof window === 'undefined' ? '' : window.location.search,
+        location: {
+          pathname,
+          search: typeof window === 'undefined' ? '' : window.location.search,
+        },
+        replace: (href) => commitTabHref(href, (next) => router.replace(next)),
+        dispatch: (detail) => {
+          window.dispatchEvent(new CustomEvent('wh-portal-nav', { detail }));
+        },
       });
-      // Already on this tab's root: do nothing. Nested pages (/projects/:id,
-      // /tasks/:id, /resources/:id) still belong to the tab, so the highlight
-      // stays, but the click replaces to the root.
-      if (href) router.replace(href);
     },
     [pathname, router],
   );
