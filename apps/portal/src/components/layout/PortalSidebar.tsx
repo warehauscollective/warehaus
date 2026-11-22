@@ -1,26 +1,58 @@
 'use client';
 
-import { useEffect, useLayoutEffect } from 'react';
+import { useEffect } from 'react';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { usePortalData } from '@/hooks/usePortalData';
-import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { MobileMenu } from './MobileMenu';
 import { sidebarItemStyle } from './sidebarItemChrome';
-import {
-  applySidebarDataset,
-  readBootUserId,
-  readSidebarMode,
-  sidebarCollapseKey,
-  writeSidebarMode,
-  type SidebarMode,
-} from './sidebarCollapse';
+import { applySidebarDataset, readSidebarMode, sidebarCollapseKey, type SidebarMode } from './sidebarCollapse';
+import { useSidebarUser } from './sidebarUser';
 
 const COLLAPSE_LABEL = 'Collapse sidebar';
 const EXPAND_LABEL = 'Expand sidebar';
+
+export function SidebarCollapseToggle({ tipId }: { tipId: string }) {
+  const { commitMode } = useSidebarUser();
+
+  function toggle() {
+    const collapsed = document.documentElement.dataset.sidebar === 'collapsed';
+    const next: SidebarMode = collapsed ? 'expanded' : 'collapsed';
+    commitMode(next);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="sidebar-toggle sidebar-collapse"
+        aria-label={COLLAPSE_LABEL}
+        aria-expanded={true}
+        onClick={toggle}
+      >
+        <TaskGlyph src="/icons/sidebar-menu.svg" size={16} />
+      </button>
+      <button
+        type="button"
+        className="sidebar-toggle sidebar-expand"
+        aria-label={EXPAND_LABEL}
+        aria-expanded={false}
+        aria-describedby={tipId}
+        onClick={toggle}
+      >
+        <span className="sidebar-chev">
+          <TaskGlyph src="/icons/docs-chev.svg" size={16} />
+        </span>
+      </button>
+      <span id={tipId} className="sidebar-expand-tip" role="tooltip">
+        Expand sidebar
+      </span>
+    </>
+  );
+}
 
 /**
  * Section rail for one swipe tab.
@@ -31,15 +63,10 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
   const { sectionFor, setSectionFor } = usePortalView();
   const { activeTab } = usePortalTab();
   const { data } = usePortalData();
-  const { authUser } = usePortalAuth();
-  const userId = authUser?.id ?? null;
+  const { userId } = useSidebarUser();
   const sections = getPortalSidebarSections(tab, data.tenant.mode);
   const activeSection = sectionFor(tab);
-
-  useLayoutEffect(() => {
-    const storedFor = userId ?? readBootUserId(window.localStorage);
-    applySidebarDataset(readSidebarMode(window.localStorage, storedFor));
-  }, [userId]);
+  const tipId = `sidebar-expand-tip-${tab}`;
 
   useEffect(() => {
     function onStorage(event: StorageEvent) {
@@ -50,13 +77,6 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, [userId]);
-
-  function toggle() {
-    const collapsed = document.documentElement.dataset.sidebar === 'collapsed';
-    const next: SidebarMode = collapsed ? 'expanded' : 'collapsed';
-    if (userId) writeSidebarMode(window.localStorage, userId, next);
-    applySidebarDataset(next);
-  }
 
   useEffect(() => {
     if (sections.length > 0 && !sections.some((section) => section.key === activeSection)) {
@@ -103,18 +123,8 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
             height={12.4073}
             className="portal-wordmark sidebar-wordmark"
           />
-          <button type="button" className="sidebar-toggle sidebar-collapse" aria-label={COLLAPSE_LABEL} onClick={toggle}>
-            <TaskGlyph src="/icons/sidebar-menu.svg" size={16} />
-          </button>
-          <button type="button" className="sidebar-toggle sidebar-expand" aria-label={EXPAND_LABEL} onClick={toggle}>
-            <span className="sidebar-chev">
-              <TaskGlyph src="/icons/docs-chev.svg" size={16} />
-            </span>
-          </button>
+          <SidebarCollapseToggle tipId={tipId} />
         </div>
-        <span className="sidebar-expand-tip" role="tooltip">
-          Expand sidebar
-        </span>
         <div className="sidebar-body flex w-full flex-col" style={{ paddingTop: 9, gap: 4 }}>
           <p
             className="sidebar-level ds-mono"

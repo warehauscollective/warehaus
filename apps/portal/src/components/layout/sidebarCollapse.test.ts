@@ -1,6 +1,12 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import React, { createElement, useState } from 'react';
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { describe, it } from 'node:test';
+import { installTestDom, type DomNode, type EventLike } from '@/components/auth/testDom';
+import { SidebarCollapseToggle } from './PortalSidebar';
+import { SidebarUserHarness } from './sidebarUser';
 import {
   SIDEBAR_CHIP_H_PX,
   SIDEBAR_CHIP_PX,
@@ -8,6 +14,7 @@ import {
   SIDEBAR_USER_KEY,
   readBootSidebarMode,
   readSidebarMode,
+  settleSidebarUser,
   sidebarBootScript,
   sidebarCollapseApplies,
   sidebarCollapseKey,
@@ -15,6 +22,8 @@ import {
   writeSidebarMode,
   type SidebarStore,
 } from './sidebarCollapse';
+
+Object.assign(globalThis, { React });
 
 function memoryStore(seed: Record<string, string> = {}): SidebarStore & { data: Record<string, string> } {
   const data = { ...seed };
@@ -39,6 +48,7 @@ function stillInsideMedia(source: string, index: number): boolean {
 }
 
 const sidebarSource = readFileSync(new URL('./PortalSidebar.tsx', import.meta.url), 'utf8');
+const userSource = readFileSync(new URL('./sidebarUser.tsx', import.meta.url), 'utf8');
 const shellSource = readFileSync(new URL('./tabPanelShellLayout.ts', import.meta.url), 'utf8');
 const chromeSource = readFileSync(new URL('./PortalShell.tsx', import.meta.url), 'utf8');
 const dockSource = readFileSync(new URL('./PortalDock.tsx', import.meta.url), 'utf8');
@@ -80,11 +90,37 @@ describe('sidebar collapse persistence', () => {
 
   it('does not clear the selected section when the rail collapses', () => {
     const start = sidebarSource.indexOf('function toggle');
-    const toggle = sidebarSource.slice(start, sidebarSource.indexOf('useEffect(() => {', start));
-    assert.match(toggle, /applySidebarDataset/);
+    const toggle = sidebarSource.slice(start, sidebarSource.indexOf('return (', start));
+    assert.match(toggle, /commitMode/);
     assert.equal(toggle.includes('setSectionFor'), false);
     assert.match(sidebarSource, /activeSection === s\.key/);
     assert.equal((sidebarSource.match(/aria-current=/g) ?? []).length, 1);
+  });
+
+  it('keeps a pre-auth choice and does not boot the previous account', () => {
+    const store = memoryStore({
+      [SIDEBAR_USER_KEY]: 'user-a',
+      [sidebarCollapseKey('user-a')]: 'collapsed',
+    });
+    assert.deepEqual(settleSidebarUser(store, null, true, null), { mode: null, persist: false, held: null });
+    assert.deepEqual(settleSidebarUser(store, null, true, 'collapsed'), {
+      mode: null,
+      persist: false,
+      held: 'collapsed',
+    });
+    assert.deepEqual(settleSidebarUser(store, 'user-b', false, 'collapsed'), {
+      mode: 'collapsed',
+      persist: true,
+      held: null,
+    });
+    assert.deepEqual(settleSidebarUser(store, 'user-b', false, null), {
+      mode: 'expanded',
+      persist: true,
+      held: null,
+    });
+    writeSidebarMode(store, 'user-a', 'collapsed');
+    assert.deepEqual(settleSidebarUser(store, 'user-a', false, null).persist, false);
+    assert.equal(settleSidebarUser(store, null, false, null).mode, 'expanded');
   });
 });
 
@@ -153,6 +189,14 @@ describe('sidebar toggle labels', () => {
     assert.match(sidebarSource, /aria-label=\{EXPAND_LABEL\}/);
     assert.match(sidebarSource, /role="tooltip"/);
     assert.match(sidebarSource, />\s*Expand sidebar\s*</);
+    assert.match(sidebarSource, /aria-describedby=\{tipId\}/);
+    assert.match(sidebarSource, /aria-expanded=\{true\}/);
+    assert.match(sidebarSource, /aria-expanded=\{false\}/);
+    assert.match(sidebarSource, /id=\{tipId\}/);
+    assert.equal(sidebarSource.includes('usePortalAuth'), false);
+    assert.match(userSource, /authClient\.useSession/);
+    assert.equal(userSource.includes('usePortalAuth'), false);
+    assert.match(chromeSource, /SidebarUserProvider/);
   });
 
   it('shows the expand tooltip on hover and focus, with the toggle ring', () => {
@@ -163,7 +207,12 @@ describe('sidebar toggle labels', () => {
       /\[data-testid='portal-sidebar'\] \.sidebar-toggle:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--info\);\s*outline-offset:\s*2px;/,
     );
     assert.match(css, /\.sidebar-chev\s*\{[^}]*transform:\s*rotate\(90deg\)/);
-    assert.match(css, /\.sidebar-expand-tip\s*\{[^}]*top:\s*calc\(100% \+ 9px\);\s*right:\s*-1px;/);
+    assert.match(
+      css,
+      /\.sidebar-expand-tip\s*\{[^}]*top:\s*50%;\s*right:\s*auto;\s*left:\s*calc\(100% \+ 8px\);\s*transform:\s*translateY\(-50%\);/,
+    );
+    assert.match(css, /html\[data-sidebar='collapsed'\] \[data-testid='portal-sidebar'\] \.sidebar-header \{[^}]*padding:\s*0 12px;/);
+    assert.match(css, /html\[data-sidebar='collapsed'\] \[data-testid='workspace-title'\] \{\s*padding-top:\s*0;/);
     assert.match(css, /\.sidebar-expand-tip\s*\{[^}]*border:\s*1px solid var\(--border\);[^}]*border-radius:\s*12px;/);
     assert.match(css, /\.sidebar-expand-tip\s*\{[^}]*background:\s*var\(--surface\);[^}]*font-size:\s*13px;/);
     assert.match(css, /:has\(\.sidebar-expand:hover\) \.sidebar-expand-tip/);
@@ -175,4 +224,114 @@ describe('sidebar toggle labels', () => {
       /\[data-testid='portal-sidebar'\] button:focus-visible\s*\{[^}]*outline:\s*2px solid var\(--fg\);\s*outline-offset:\s*2px;/,
     );
   });
+
+  it('click flips the control from Collapse sidebar to Expand sidebar and writes localStorage', async () => {
+    const document = installTestDom();
+    const html = (document as DomNode & { documentElement?: DomNode }).documentElement ?? document.body;
+    (html as DomNode & { dataset: Record<string, string> }).dataset = {};
+    Object.assign(html.style, {
+      setProperty: () => undefined,
+      removeProperty: () => undefined,
+    });
+    const data: Record<string, string> = {};
+    const localStorage = {
+      getItem: (key: string) => (Object.prototype.hasOwnProperty.call(data, key) ? data[key] : null),
+      setItem: (key: string, value: string) => {
+        data[key] = value;
+      },
+    };
+    Object.assign(globalThis, { localStorage });
+    Object.assign(globalThis.window as object, { localStorage });
+
+    function Harness() {
+      const [userId, setUserId] = useState<string | null>(null);
+      return createElement(
+        'div',
+        null,
+        createElement(SidebarUserHarness, {
+          userId,
+          pending: userId === null,
+          children: createElement(SidebarCollapseToggle, { tipId: 'sidebar-expand-tip-projects' }),
+        }),
+        createElement(
+          'button',
+          { type: 'button', 'aria-label': 'Resolve user', onClick: () => setUserId('user-a') },
+          'Resolve user',
+        ),
+      );
+    }
+
+    const container = document.createElement('div');
+    document.body.appendChild(container);
+    let root: Root | null = null;
+    await act(async () => {
+      root = createRoot(container as unknown as Element);
+      root.render(createElement(Harness));
+    });
+
+    const collapse = findButton(container, 'Collapse sidebar');
+    const expand = findButton(container, 'Expand sidebar');
+    assert.ok(collapse);
+    assert.equal(collapse.getAttribute('aria-label'), 'Collapse sidebar');
+    assert.equal(expand?.getAttribute('aria-label'), 'Expand sidebar');
+    assert.equal(collapse.getAttribute('aria-expanded'), 'true');
+    assert.equal(expand?.getAttribute('aria-expanded'), 'false');
+    assert.equal(expand?.getAttribute('aria-describedby'), 'sidebar-expand-tip-projects');
+    assert.equal(findById(container, 'sidebar-expand-tip-projects')?.getAttribute('role'), 'tooltip');
+
+    await act(async () => {
+      collapse.dispatchEvent(clickEvent());
+    });
+    assert.equal((html as DomNode & { dataset: Record<string, string> }).dataset.sidebar, 'collapsed');
+    assert.equal(data[sidebarCollapseKey('user-a')], undefined);
+
+    await act(async () => {
+      findButton(container, 'Resolve user')?.dispatchEvent(clickEvent());
+    });
+    assert.equal(data[sidebarCollapseKey('user-a')], 'collapsed');
+    assert.equal(data[SIDEBAR_USER_KEY], 'user-a');
+
+    await act(async () => {
+      findButton(container, 'Expand sidebar')?.dispatchEvent(clickEvent());
+    });
+    assert.equal(findButton(container, 'Expand sidebar')?.getAttribute('aria-label'), 'Expand sidebar');
+    assert.equal(findButton(container, 'Collapse sidebar')?.getAttribute('aria-label'), 'Collapse sidebar');
+    assert.equal(data[sidebarCollapseKey('user-a')], 'expanded');
+    assert.equal((html as DomNode & { dataset: Record<string, string> }).dataset.sidebar, undefined);
+
+    await act(async () => {
+      root?.unmount();
+    });
+  });
 });
+
+function clickEvent(): EventLike {
+  return {
+    type: 'click',
+    bubbles: true,
+    target: null,
+    currentTarget: null,
+    preventDefault() {},
+    stopPropagation() {},
+  };
+}
+
+function findButton(node: DomNode, label: string): (DomNode & { dispatchEvent: (event: EventLike) => boolean }) | null {
+  if (node.nodeName === 'BUTTON' && node.getAttribute('aria-label') === label) {
+    return node as DomNode & { dispatchEvent: (event: EventLike) => boolean };
+  }
+  for (const child of node.childNodes) {
+    const found = findButton(child, label);
+    if (found) return found;
+  }
+  return null;
+}
+
+function findById(node: DomNode, id: string): DomNode | null {
+  if (node.getAttribute('id') === id) return node;
+  for (const child of node.childNodes) {
+    const found = findById(child, id);
+    if (found) return found;
+  }
+  return null;
+}

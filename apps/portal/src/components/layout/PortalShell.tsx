@@ -13,6 +13,7 @@ import { PortalToastLive } from '@/components/ui/PortalToast';
 import { PortalDock } from './PortalDock';
 import { PortalSwipeWorkspace } from './PortalSwipeWorkspace';
 import { SIDEBAR_COLLAPSE_MIN_PX, sidebarRailWidth } from './sidebarCollapse';
+import { SidebarUserProvider } from './sidebarUser';
 
 function PortalChrome({ children }: { children: ReactNode }) {
   useEffect(() => {
@@ -64,7 +65,9 @@ export function PortalShell({
       <PortalDataRetryProvider>
         <PortalTabProvider>
           <PortalViewProvider>
-            <PortalChrome>{children}</PortalChrome>
+            <SidebarUserProvider>
+              <PortalChrome>{children}</PortalChrome>
+            </SidebarUserProvider>
           </PortalViewProvider>
         </PortalTabProvider>
       </PortalDataRetryProvider>

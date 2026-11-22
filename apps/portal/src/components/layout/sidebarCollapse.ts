@@ -51,6 +51,26 @@ export function readBootSidebarMode(store: SidebarStore): SidebarMode {
   return readSidebarMode(store, readBootUserId(store));
 }
 
+/**
+ * What to paint once auth settles.
+ * While the session is pending, leave the boot paint alone so the same user does not flash.
+ * A resolved id always wins, including a choice made before that id existed.
+ * A different account replaces the boot user before paint and becomes the next boot user.
+ * Signed out drops the previous account's rail without erasing their saved choice.
+ */
+export function settleSidebarUser(
+  store: SidebarStore,
+  userId: string | null,
+  pending: boolean,
+  held: SidebarMode | null,
+): { mode: SidebarMode | null; persist: boolean; held: SidebarMode | null } {
+  if (pending) return { mode: null, persist: false, held };
+  if (!userId) return { mode: 'expanded', persist: false, held: null };
+  if (held) return { mode: held, persist: true, held: null };
+  const mode = readSidebarMode(store, userId);
+  return { mode, persist: readBootUserId(store) !== userId, held: null };
+}
+
 export function sidebarCollapseApplies(viewportWidth: number): boolean {
   return viewportWidth >= SIDEBAR_COLLAPSE_MIN_PX;
 }
