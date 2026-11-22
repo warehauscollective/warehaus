@@ -208,6 +208,56 @@ html.light .ds-scope {
   outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
+/* Collapsed rail is in the page flow. The saved mode does nothing below 1024. */
+.sidebar-mark,
+.sidebar-expand,
+.sidebar-item-icon {
+  display: none;
+}
+.sidebar-collapse,
+.sidebar-expand {
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.sidebar-collapse {
+  display: inline-flex;
+}
+@media (min-width: 1024px) {
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] {
+    width: 72px;
+  }
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-header {
+    flex-direction: column;
+    justify-content: center;
+    gap: 8px;
+  }
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-wordmark,
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-collapse,
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-level,
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-item-label {
+    display: none;
+  }
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-mark,
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-item-icon {
+    display: inline-flex;
+  }
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-expand {
+    display: inline-flex;
+    width: 32px;
+    height: 32px;
+  }
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-item {
+    justify-content: center;
+  }
+}
 /* Dialog Cancel. Replaces the browser's blue ring with the portal ring. */
 .portal-outline-button:focus {
   outline: none;

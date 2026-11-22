@@ -3,6 +3,7 @@ import localFont from 'next/font/local';
 import { DM_Sans, Geist, Geist_Mono } from 'next/font/google';
 import { ConvexClientProvider } from '@/components/providers/ConvexClientProvider';
 import { ThemeBoot } from '@/components/account/ThemeBoot';
+import { sidebarBootScript } from '@/components/layout/sidebarCollapse';
 import { fixturePreviewAllowed } from '@/lib/data/fixturePreviewGate';
 import '@/styles/global.css';
 
@@ -99,6 +100,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <script dangerouslySetInnerHTML={{ __html: 'window.__WH_FIXTURE_PREVIEW=true' }} />
         ) : null}
         <script dangerouslySetInnerHTML={{ __html: themeInitScript }} />
+        <script dangerouslySetInnerHTML={{ __html: sidebarBootScript }} />
       </head>
       <body className="bg-background text-foreground font-body antialiased" suppressHydrationWarning>
         <ThemeBoot />
