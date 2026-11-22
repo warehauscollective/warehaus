@@ -1178,6 +1178,14 @@ async function applyMilestoneReview(
       : await peterContactId(ctx);
   if (!contactId) return { ok: false as const, status: 403, error: chatContactError(planned.decision) };
   const decidedAt = Date.now();
+  // Peter answered. The open approval request on this milestone is closed.
+  const asked = await ctx.db
+    .query('milestoneNotes')
+    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
+    .take(20);
+  for (const note of asked) {
+    if (note.reason === 'approval') await ctx.db.patch(note._id, { needsPeter: undefined });
+  }
   if (planned.decision === 'approve') {
     const deploymentId = milestone.previewDeploymentId?.trim() || '';
     await ctx.db.patch(milestone._id, {

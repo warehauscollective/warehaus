@@ -434,6 +434,14 @@ export const portalTools: PortalTool[] = [
     }),
   },
   {
+    name: 'list_needs_peter',
+    description:
+      'List what is waiting on Peter, newest first: milestones that reached Ready to Ship and need his review, and tasks a runner is blocked on. Each item has the milestone, the reason (approval or blocked) and a note with the pull request, the local preview command and link, and the approval line or the blocked reason. Raise each one with Peter. An item leaves the list when he approves or requests changes, or when the blocked task is done. At most 20.',
+    write: false,
+    schema: {},
+    call: () => ({ method: 'GET', path: '/api/v1/milestones/needs-peter' }),
+  },
+  {
     name: 'add_note',
     description:
       'Add a staff note to a milestone. Notes are staff only and are never shown to a client. A note does not change status, approval or tasks. Send an idempotency key.',

@@ -309,3 +309,75 @@ export const FEED_LABEL: Record<AgentEventType, string> = {
   stop: 'STOP',
   failed: 'FAILED',
 };
+
+/** `owner/name` on GitHub. */
+export const AGENT_REPO_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
+export const AGENT_REPO_INVALID = 'Use a GitHub repository as owner/name';
+export const RUNNER_NEEDS_REPO = 'Tell the runner which repository it serves';
+
+/** A stored repo setting, or null. Compared without regard to case, as GitHub does. */
+export function agentRepo(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const text = value.trim().replace(/^https:\/\/github\.com\//i, '').replace(/\.git$/i, '').replace(/\/+$/, '');
+  return AGENT_REPO_PATTERN.test(text) ? text.toLowerCase() : null;
+}
+
+/** The repositories a runner says it serves. Bad entries are dropped. At most 10. */
+export function runnerRepos(value: unknown): string[] {
+  const list = Array.isArray(value) ? value : typeof value === 'string' ? value.split(',') : [];
+  const repos: string[] = [];
+  for (const item of list) {
+    const repo = agentRepo(item);
+    if (repo && !repos.includes(repo)) repos.push(repo);
+    if (repos.length >= 10) break;
+  }
+  return repos;
+}
+
+/**
+ * Fail safe: a runner is handed work only for a project that names its
+ * repository, and only when the runner serves that repository.
+ */
+export function projectServedBy(project: { agentRepo?: string | null } | null | undefined, repos: readonly string[]): boolean {
+  const repo = agentRepo(project?.agentRepo);
+  return repo != null && repos.includes(repo);
+}
+
+export const LOCAL_PREVIEW_DEFAULT = 'http://localhost:3100/';
+
+export function localPreviewCommand(branch: string): string {
+  return `npm run preview:pr -- ${branch}`;
+}
+
+/**
+ * The note left for Peter when a milestone is ready for review. He approves
+ * from the local preview. The Vercel preview is for staff and is not named here.
+ */
+export function approvalNote(input: {
+  milestoneName: string;
+  iteration: number;
+  branch: string;
+  prUrl?: string | null;
+  prNumber?: number | null;
+  localPreviewUrl: string;
+}): string {
+  const pull = input.prUrl ?? (input.prNumber != null ? `PR #${input.prNumber}` : 'No pull request yet');
+  return [
+    `${input.milestoneName} · Iteration ${input.iteration} is Ready to Ship and needs your review.`,
+    `Pull request: ${pull}`,
+    `Local preview: run \`${localPreviewCommand(input.branch)}\`, then open ${input.localPreviewUrl} (your Mac, shared dev Convex, test data).`,
+    'Reply approve, or request changes with your notes. Approve records the decision. Merge and deploy stay separate steps.',
+  ].join('\n');
+}
+
+export function blockedNote(input: { milestoneName: string; taskOrder: string; taskName: string; reason: string; runnerId: string }): string {
+  return [
+    `${input.milestoneName} · Task ${input.taskOrder} is blocked and needs you.`,
+    `Task: ${input.taskName}`,
+    `Blocked on: ${input.reason}`,
+    `Runner ${input.runnerId} stopped on this task. The milestone stays in Building until it is unblocked.`,
+  ].join('\n');
+}
+
+/** Open notes a single read returns. */
+export const NEEDS_PETER_LIMIT = 20;

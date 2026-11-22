@@ -10,6 +10,7 @@ import {
   planPrompt,
   pullRequestBody,
   readEnv,
+  repoFromRemote,
   taskOutcome,
   taskPrompt,
   worktreeName,
@@ -19,19 +20,25 @@ const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
 describe('arguments', () => {
   it('reads start with an id and defaults to interactive', () => {
-    assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp']), {
+    assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'WarehausCollective/warehaus']), {
       ok: true,
-      options: { id: 'peter-mbp', mode: 'interactive', once: false, repo: '' },
+      options: { id: 'peter-mbp', mode: 'interactive', once: false, dir: '', repos: ['warehauscollective/warehaus'] },
     });
-    const full = parseArgs(['start', '--id', 'peter-mbp', '--mode', 'headless', '--once', '--repo', '/tmp/x']);
-    assert.deepEqual(full.options, { id: 'peter-mbp', mode: 'headless', once: true, repo: '/tmp/x' });
+    const full = parseArgs([
+      'start', '--id', 'peter-mbp', '--mode', 'headless', '--once', '--dir', '/tmp/x',
+      '--repo', 'a/b,c/d', '--repo', 'a/b',
+    ]);
+    assert.deepEqual(full.options, { id: 'peter-mbp', mode: 'headless', once: true, dir: '/tmp/x', repos: ['a/b', 'c/d'] });
   });
 
   it('refuses a missing id, a bad mode and an unknown flag', () => {
     assert.equal(parseArgs(['start']).ok, false);
-    assert.equal(parseArgs(['start', '--id', 'Peter MBP']).ok, false);
-    assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--mode', 'fast']).ok, false);
-    assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--force']).ok, false);
+    assert.equal(parseArgs(['start', '--id', 'Peter MBP', '--repo', 'a/b']).ok, false);
+    assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'a/b', '--mode', 'fast']).ok, false);
+    assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'a/b', '--force']).ok, false);
+    // No repository named: the runner does not start.
+    assert.equal(parseArgs(['start', '--id', 'peter-mbp']).ok, false);
+    assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--repo', '/tmp/x']).ok, false);
     assert.equal(parseArgs(['stop']).ok, false);
   });
 });
@@ -89,6 +96,19 @@ describe('prompts', () => {
     assert.match(prompt, /Read only/);
     assert.match(prompt, /3 to 10 tasks/);
     assert.equal(prompt.includes('{{'), false);
+  });
+});
+
+describe('repository', () => {
+  it('reads owner/name from a remote and only claims for the checkout it is in', () => {
+    assert.equal(repoFromRemote('https://github.com/WarehausCollective/warehaus.git'), 'warehauscollective/warehaus');
+    assert.equal(repoFromRemote('git@github.com:warehauscollective/warehaus.git'), 'warehauscollective/warehaus');
+    assert.equal(repoFromRemote('https://gitlab.com/a/b.git'), null);
+    assert.equal(repoFromRemote(''), null);
+    const cli = read('./cli.mjs');
+    assert.match(cli, /!parsed\.options\.repos\.includes\(origin\)/);
+    assert.match(cli, /repos: \[origin\]/);
+    assert.match(cli, /repos: config\.repos/);
   });
 });
 

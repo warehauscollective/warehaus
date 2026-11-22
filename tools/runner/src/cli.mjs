@@ -17,6 +17,7 @@ import {
   planPrompt,
   pullRequestBody,
   readEnv,
+  repoFromRemote,
   taskOutcome,
   taskPrompt,
   worktreeName,
@@ -193,18 +194,26 @@ async function main() {
     process.stderr.write(`${env.error}\n`);
     process.exit(2);
   }
-  const repo = resolve(parsed.options.repo || process.cwd());
+  const repo = resolve(parsed.options.dir || process.cwd());
   if (!git(repo, ['rev-parse', '--show-toplevel']).ok) {
     process.stderr.write(`${repo} is not a git repository.\n`);
     process.exit(2);
   }
-  const config = { ...env, id: parsed.options.id, mode: parsed.options.mode, repo };
-  say(`Runner ${config.id} · ${config.mode} · ${new URL(config.url).hostname}`);
+  // The checkout has to be one of the repositories this runner serves, so work
+  // for one project is never committed into another project's repository.
+  const origin = repoFromRemote(git(repo, ['remote', 'get-url', 'origin']).out);
+  if (!origin || !parsed.options.repos.includes(origin)) {
+    process.stderr.write(`${repo} is ${origin ?? 'not a GitHub checkout'}, which is not in --repo ${parsed.options.repos.join(',')}.\n`);
+    process.exit(2);
+  }
+  // One checkout, one repository: only that repository's projects are claimed here.
+  const config = { ...env, id: parsed.options.id, mode: parsed.options.mode, repo, repos: [origin] };
+  say(`Runner ${config.id} · ${config.mode} · ${origin} · ${new URL(config.url).hostname}`);
   let empty = 0;
   for (;;) {
     let work;
     try {
-      work = await call(config, '/agent/claim', { mode: config.mode, tool: 'claude_code' });
+      work = await call(config, '/agent/claim', { mode: config.mode, tool: 'claude_code', repos: config.repos });
     } catch (error) {
       say(error.message);
       if (parsed.options.once) process.exit(1);

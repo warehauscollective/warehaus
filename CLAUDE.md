@@ -15,7 +15,7 @@ Approved by Peter in Grok Bot (Portal room), 2026-11-17, 11:46 AM ET. Canonical 
 - Post dev updates on the milestone (next action and the PR link).
 - A milestone has one Status (Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, Parked). Staff can set Shipped when every task that is not Parked is Done. The play button never moves to Shipped. Approval is the separate review result.
 - Product Design Lead checks the build against Figma from screenshots, then Peter previews.
-- Previews for Peter are local builds on his Mac against shared dev Convex `graceful-mastiff-960`. Never a Vercel or cloud preview. Never production `unique-turtle-383`.
+- Two previews. Peter always approves from the local one: a build on his Mac against shared dev Convex `graceful-mastiff-960`. The Vercel branch preview is for staff only and is never the link in his approval request. Never production `unique-turtle-383`, for either.
 - On his Mac: `npm run preview:pr -- <branch>`. It prints the localhost URL, refuses a production Convex URL, and does not run `convex dev`.
 - Peter's feedback becomes iteration tasks in the same milestone.
 - Nothing merges or goes live until Peter approves in Grok Bot chat or the Portal. Peter never approves in Notion. Merging does not deploy. Production still needs his explicit "deploy main", from `main` only.

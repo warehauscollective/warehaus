@@ -2,6 +2,8 @@
 
 The runner is a small CLI for a staff Mac. It asks the Portal for the next piece of milestone work, opens Claude Code on the milestone branch, and tells the Portal what happened. The milestone's Activity tab shows the run as it goes.
 
+Claude Code only for now. Cursor comes later.
+
 It has no model API key. It never reads or forwards a Claude sign-in. The only program it starts for model work is the official `claude` CLI, using the sign-in already on the Mac.
 
 ## What it does
@@ -15,7 +17,7 @@ It has no model API key. It never reads or forwards a Claude sign-in. The only p
 4. When Claude Code exits:
    - **task**: if there is a new commit, pushes the branch, makes sure the milestone has its one pull request into `main` (`gh pr create` when there is none), and reports `done` with the commit. With no new commit the task goes back to To do. If Claude wrote `.runner/blocked.txt`, the task is reported `blocked` with that line.
    - **planning**: reads `.runner/plan.json` and posts the 3 to 10 tasks to `POST /agent/tasks`.
-5. When the last task on a milestone is done, the Portal moves the milestone to Ready to Ship.
+5. When the last task on a milestone is done, the Portal moves the milestone to Ready to Ship, stores the local preview link so Approve unlocks, and leaves a "needs Peter" note with the pull request, the local preview command and the approval line. A blocked task leaves a note too. Grok Bot reads open notes with the `list_needs_peter` tool.
 
 Only tasks stored in the Portal are claimed: tasks from the brief, from a change request, or added on the milestone. A task that syncs from Notion is left for a person.
 
@@ -45,13 +47,15 @@ To see edits and commands in the run feed while Claude Code works, copy the hook
 ## Run
 
 ```bash
-npm run runner -- start --id peter-mbp
+npm run runner -- start --id peter-mbp --repo warehauscollective/warehaus
 ```
+
+- `--repo` is required. It is the GitHub repository this runner serves, as `owner/name`. The checkout you run it in has to be that repository. The Portal only hands the runner work for projects whose repository setting matches. A project with no repository setting is never handed to any runner.
 
 - `--mode interactive` is the default. It opens a Claude Code session for you to drive, on your normal plan limits.
 - `--mode headless` runs `claude -p` with no session to drive. **This draws on the monthly Agent SDK credit, not your plan limits.** Use it on purpose.
 - `--once` does one piece of work and exits.
-- `--repo <path>` points at the repository when you are not in it.
+- `--dir <path>` points at the checkout when you are not in it.
 
 With nothing to do, the runner waits one minute, then longer, up to five minutes between checks.
 
@@ -62,7 +66,7 @@ Use shared dev, never production.
 1. Connect Grok Bot or Claude to the Portal MCP server (`docs/portal-mcp.md`).
 2. Ask the bot to create a milestone with `create_milestone` and a task list. It lands at Awaiting Go.
 3. In the Portal, open the milestone and press play on its status to move it to Building.
-4. Start the runner: `npm run runner -- start --id <your id> --once`.
+4. A staff member sets the project's repository once (`projects.setAgentRepo`). Then start the runner: `npm run runner -- start --id <your id> --repo <owner/name> --once`.
 5. Work the task in the Claude Code session that opens. Commit. Exit.
 6. Open the milestone's Activity tab. The run, the commit and any hook lines are there. The task shows Done with its commit on the Tasks tab.
 7. Repeat until every task is done. The milestone moves to Ready to Ship.

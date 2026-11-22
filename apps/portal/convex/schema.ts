@@ -63,6 +63,12 @@ export default defineSchema({
     orgId: v.id('clients'),
     ...notionSyncFields,
     name: v.string(),
+    /**
+     * Staff only. The GitHub repository a runner works this project in, as
+     * `owner/name`. A project with none is never handed to a runner. Convex
+     * only: not written to Notion and never returned to a client.
+     */
+    agentRepo: v.optional(v.string()),
     description: v.optional(v.string()),
     status: v.string(),
     progress: v.optional(v.number()),
@@ -408,7 +414,19 @@ export default defineSchema({
     /** Token name or staff name that wrote the note. */
     addedBy: v.string(),
     createdAt: v.number(),
-  }).index('by_milestone_createdAt', ['milestoneId', 'createdAt']),
+    /**
+     * `open` while the note waits on Peter: an approval request or a blocked
+     * task. Cleared when it is answered, so the open list stays short.
+     */
+    needsPeter: v.optional(v.literal('open')),
+    /** Why it needs Peter. Set with needsPeter and kept after it is answered. */
+    reason: v.optional(v.union(v.literal('approval'), v.literal('blocked'))),
+    /** The blocked task. Absent on an approval request. */
+    taskId: v.optional(v.id('tasks')),
+  })
+    .index('by_milestone_createdAt', ['milestoneId', 'createdAt'])
+    .index('by_needsPeter', ['needsPeter', 'createdAt'])
+    .index('by_milestone_needsPeter', ['milestoneId', 'needsPeter']),
 
   /**
    * Milestone → Shared Resource. Same org only.

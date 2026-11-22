@@ -60,7 +60,9 @@ export const agentHttp = httpAction(async (ctx, request) => {
     const result = await ctx.runMutation(internal.agent.claimNext, {
       runnerId,
       mode: field(body, 'mode') || undefined,
-      tool: field(body, 'tool') || undefined,
+      // Claude Code only for now. Cursor waits.
+      tool: 'claude_code',
+      ...(body.repos !== undefined ? { repos: body.repos } : {}),
     });
     return json(result, 200);
   }

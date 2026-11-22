@@ -312,3 +312,73 @@ describe('queue rules', () => {
     assert.deepEqual(waiting.map((task) => task.name), ['Synced']);
   });
 });
+
+describe('repository fail-safe', () => {
+  it('hands a runner nothing for a project with no repository, or one it does not serve', async () => {
+    const { agentRepo, projectServedBy, runnerRepos } = await import('./agentRun');
+    assert.equal(agentRepo('WarehausCollective/warehaus'), 'warehauscollective/warehaus');
+    assert.equal(agentRepo('https://github.com/warehauscollective/warehaus.git'), 'warehauscollective/warehaus');
+    for (const bad of ['warehaus', 'a/b/c', '../etc', '', null, 5]) assert.equal(agentRepo(bad), null, String(bad));
+    assert.deepEqual(runnerRepos(['A/b', 'a/b', 'nope', 'c/d']), ['a/b', 'c/d']);
+    assert.deepEqual(runnerRepos('a/b, c/d'), ['a/b', 'c/d']);
+    assert.deepEqual(runnerRepos(undefined), []);
+    assert.equal(projectServedBy({ agentRepo: 'a/b' }, ['a/b']), true);
+    assert.equal(projectServedBy({ agentRepo: 'a/b' }, ['c/d']), false);
+    assert.equal(projectServedBy({ agentRepo: null }, ['a/b']), false);
+    assert.equal(projectServedBy({}, ['a/b']), false);
+    assert.equal(projectServedBy(null, ['a/b']), false);
+  });
+
+  it('checks the repository before planning and before tasks, and a runner with none gets nothing', () => {
+    const agent = read('../agent.ts');
+    const claim = agent.slice(agent.indexOf('export const claimNext'), agent.indexOf('async function ownedRun'));
+    assert.match(claim, /if \(repos\.length === 0\) return \{ ok: true as const, resumed: false, kind: 'none' as const/);
+    assert.match(claim, /if \(await served\(candidate\.projectId\)\)/);
+    assert.match(claim, /if \(!\(await served\(milestone\.projectId\)\)\) continue;/);
+    // The repo setting is written only by staff.
+    const projects = read('../projects.ts');
+    assert.match(projects, /export const setAgentRepo = adminMutation/);
+    // Claude Code only for now: the route ignores any other tool a runner sends.
+    assert.match(read('../agentHttp.ts'), /tool: 'claude_code',/);
+  });
+});
+
+describe('needs Peter notes', () => {
+  it('asks for approval from the local preview and never names the Vercel one', async () => {
+    const { approvalNote, blockedNote, localPreviewCommand } = await import('./agentRun');
+    const note = approvalNote({
+      milestoneName: 'Client experience launch',
+      iteration: 2,
+      branch: 'milestone/client-experience-launch',
+      prUrl: 'https://github.com/warehauscollective/warehaus/pull/140',
+      localPreviewUrl: 'http://localhost:3100/',
+    });
+    assert.match(note, /Iteration 2 is Ready to Ship and needs your review/);
+    assert.match(note, /pull\/140/);
+    assert.match(note, /npm run preview:pr -- milestone\/client-experience-launch/);
+    assert.match(note, /http:\/\/localhost:3100\//);
+    assert.match(note, /Merge and deploy stay separate steps/);
+    assert.equal(/vercel/i.test(note), false);
+    assert.equal(localPreviewCommand('milestone/x'), 'npm run preview:pr -- milestone/x');
+    const blocked = blockedNote({
+      milestoneName: 'Launch',
+      taskOrder: '06',
+      taskName: 'Adjust mobile summary',
+      reason: 'needs Figma frame',
+      runnerId: 'peter-mbp',
+    });
+    assert.match(blocked, /Task 06 is blocked and needs you/);
+    assert.match(blocked, /Blocked on: needs Figma frame/);
+  });
+
+  it('lists open notes with one indexed, capped read and no new outbound call', () => {
+    const api = read('../portalApi.ts');
+    const list = api.slice(api.indexOf('export const listNeedsPeter'), api.indexOf('export const addMilestoneNote'));
+    assert.match(list, /withIndex\('by_needsPeter', \(q\) => q\.eq\('needsPeter', 'open'\)\)\s*\.order\('desc'\)\s*\.take\(NEEDS_PETER_LIMIT\)/);
+    assert.doesNotMatch(list, /\.collect\(\)/);
+    const agent = read('../agent.ts');
+    assert.doesNotMatch(agent, /fetch\(|runAction|scheduler/);
+    assert.match(agent, /needsPeter: 'open'/);
+    assert.match(agent, /answerNotes\(ctx, milestone\._id, \{ reason: 'blocked', taskId: task\._id \}\)/);
+  });
+});

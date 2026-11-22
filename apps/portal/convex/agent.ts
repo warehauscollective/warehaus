@@ -12,17 +12,23 @@ import type { MutationCtx } from './_generated/server';
 import { internalMutation } from './_generated/server';
 import {
   PLAN_NOT_PLANNING,
+  RUNNER_NEEDS_REPO,
   RUN_ENDED,
   RUN_NOT_FOUND,
   RUN_NOT_YOURS,
+  LOCAL_PREVIEW_DEFAULT,
   allTasksDone,
+  approvalNote,
+  blockedNote,
   completeDecision,
   eventSummary,
   eventType,
   feedLimit,
   milestoneBranch,
   nextClaimableTask,
+  projectServedBy,
   pullRequestUrl,
+  runnerRepos,
   runIsStuck,
   runMode,
   runTool,
@@ -39,6 +45,7 @@ import { detailActivitySummary } from './_lib/milestoneDetails';
 import { writeMilestoneActivity } from './_lib/milestones';
 import { STATUS_ACTIVITY, transitionMilestone, type MilestoneStatus } from './_lib/milestoneStatus';
 import { PORTAL_MILESTONE_TASK_SOURCE } from './_lib/milestoneTasks';
+import { currentIteration } from './_lib/milestoneReview';
 import { adminQuery } from './_lib/wrappers';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 
@@ -98,6 +105,41 @@ async function moveMilestone(
     detailActivitySummary({ actor, from: moved.from, to: moved.status, at }),
   );
   return true;
+}
+
+/** Leaves one open note for Peter. Read by Grok Bot through the staff API. */
+async function needsPeter(
+  ctx: MutationCtx,
+  milestone: Doc<'milestones'>,
+  input: { reason: 'approval' | 'blocked'; body: string; taskId?: Id<'tasks'>; addedBy: string; at: number },
+) {
+  await ctx.db.insert('milestoneNotes', {
+    orgId: milestone.orgId,
+    milestoneId: milestone._id,
+    body: input.body,
+    addedBy: input.addedBy,
+    createdAt: input.at,
+    needsPeter: 'open',
+    reason: input.reason,
+    ...(input.taskId ? { taskId: input.taskId } : {}),
+  });
+}
+
+/** Closes open notes on a milestone. With a task, only that task's blocked note. */
+async function answerNotes(
+  ctx: MutationCtx,
+  milestoneId: Id<'milestones'>,
+  match: { reason: 'approval' | 'blocked'; taskId?: Id<'tasks'> },
+) {
+  const open = await ctx.db
+    .query('milestoneNotes')
+    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestoneId).eq('needsPeter', 'open'))
+    .take(20);
+  for (const note of open) {
+    if (note.reason !== match.reason) continue;
+    if (match.taskId && note.taskId !== match.taskId) continue;
+    await ctx.db.patch(note._id, { needsPeter: undefined });
+  }
 }
 
 function milestoneContext(milestone: Doc<'milestones'>, branch: string) {
@@ -186,8 +228,18 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
  * never claims twice.
  */
 export const claimNext = internalMutation({
-  args: { runnerId: v.string(), mode: v.optional(v.string()), tool: v.optional(v.string()) },
+  args: {
+    runnerId: v.string(),
+    mode: v.optional(v.string()),
+    tool: v.optional(v.string()),
+    /** Repositories this runner serves, as owner/name. Work for any other project is not handed over. */
+    repos: v.optional(v.any()),
+  },
   handler: async (ctx, args) => {
+    const repos = runnerRepos(args.repos);
+    // Fail safe: a runner that names no repository is handed nothing.
+    if (repos.length === 0) return { ok: true as const, resumed: false, kind: 'none' as const, reason: RUNNER_NEEDS_REPO };
+    const served = async (projectId: Id<'projects'>) => projectServedBy(await ctx.db.get(projectId), repos);
     const open = await runningRunFor(ctx, args.runnerId);
     if (open) {
       const payload = await runPayload(ctx, open);
@@ -199,10 +251,17 @@ export const claimNext = internalMutation({
     const mode = runMode(args.mode);
     const tool = runTool(args.tool);
 
-    const planning = await ctx.db
+    const queued = await ctx.db
       .query('milestones')
       .withIndex('by_planning', (q) => q.eq('planning', 'queued'))
-      .first();
+      .take(CLAIM_MILESTONE_SCAN);
+    let planning: Doc<'milestones'> | null = null;
+    for (const candidate of queued) {
+      if (await served(candidate.projectId)) {
+        planning = candidate;
+        break;
+      }
+    }
     if (planning) {
       const existing = await ctx.db
         .query('tasks')
@@ -246,6 +305,7 @@ export const claimNext = internalMutation({
       .withIndex('by_status', (q) => q.eq('status', 'Building'))
       .take(CLAIM_MILESTONE_SCAN);
     for (const milestone of building) {
+      if (!(await served(milestone.projectId))) continue;
       // One task run per milestone at a time. Two runners never push to the same branch.
       const busy = await ctx.db
         .query('agentRuns')
@@ -423,6 +483,24 @@ export const completeTask = internalMutation({
       at: now,
     });
 
+    if (decision.status === 'blocked') {
+      await needsPeter(ctx, milestone, {
+        reason: 'blocked',
+        taskId: task._id,
+        addedBy: `runner:${args.runnerId}`,
+        at: now,
+        body: blockedNote({
+          milestoneName: milestone.name,
+          taskOrder: order,
+          taskName: task.name,
+          reason: decision.reason ?? 'no reason given',
+          runnerId: args.runnerId,
+        }),
+      });
+    } else if (decision.status === 'done') {
+      await answerNotes(ctx, milestone._id, { reason: 'blocked', taskId: task._id });
+    }
+
     let milestoneStatus: MilestoneStatus = milestone.status;
     if (decision.status === 'done' && milestone.status === 'Building') {
       const tasks = await ctx.db
@@ -433,6 +511,24 @@ export const completeTask = internalMutation({
         const moved = await moveMilestone(ctx, milestone, 'Ready to Ship', `Runner ${args.runnerId}`, now);
         if (moved) {
           milestoneStatus = 'Ready to Ship';
+          // Hand-off. The local preview link is stored so Approve unlocks without
+          // anyone attaching it by hand, and a note is left for Peter.
+          const localPreviewUrl = milestone.localPreviewUrl ?? LOCAL_PREVIEW_DEFAULT;
+          if (!milestone.localPreviewUrl) await ctx.db.patch(milestone._id, { localPreviewUrl });
+          await answerNotes(ctx, milestone._id, { reason: 'approval' });
+          await needsPeter(ctx, milestone, {
+            reason: 'approval',
+            addedBy: `runner:${args.runnerId}`,
+            at: now,
+            body: approvalNote({
+              milestoneName: milestone.name,
+              iteration: currentIteration(milestone.iteration),
+              branch: milestone.branch ?? milestoneBranch(milestone.name),
+              prUrl: prUrl ?? milestone.prUrl ?? null,
+              prNumber: milestone.previewPrNumber ?? null,
+              localPreviewUrl,
+            }),
+          });
           await writeEvent(ctx, {
             orgId: run.orgId,
             milestoneId: run.milestoneId,

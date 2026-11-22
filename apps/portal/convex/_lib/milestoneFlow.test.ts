@@ -98,6 +98,7 @@ function handler<T>(fn: unknown): Handler<T> {
 }
 
 const RUNNER = 'peter-mbp';
+const REPO = 'warehauscollective/warehaus';
 const SHA = 'c'.repeat(40);
 
 describe('milestone loop, bot to Shipped', () => {
@@ -107,7 +108,12 @@ describe('milestone loop, bot to Shipped', () => {
     const ctx = { db, scheduler: { runAfter: async (...args: unknown[]) => scheduled.push(args) } };
 
     const orgId = await db.insert('clients', { name: 'Warehaus', portalAccess: 'Enabled' });
-    const projectId = await db.insert('projects', { orgId, name: 'Warehaus Portal', notionPageId: 'project-page' });
+    const projectId = await db.insert('projects', {
+      orgId,
+      name: 'Warehaus Portal',
+      notionPageId: 'project-page',
+      agentRepo: REPO,
+    });
     await db.insert('contacts', { orgId, email: 'peter@warehaus.co', role: 'Warehaus Staff', name: 'Peter' });
 
     // 1. Grok Bot creates the milestone with its task list in one call.
@@ -153,7 +159,7 @@ describe('milestone loop, bot to Shipped', () => {
     assert.equal(tasks().length, 3);
 
     // Nothing is claimable until Peter says go.
-    const early = await handler<{ kind: string }>(claimNext)(ctx, { runnerId: RUNNER });
+    const early = await handler<{ kind: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
     assert.equal(early.kind, 'none');
 
     // 2. Peter presses play: Awaiting Go to Building.
@@ -166,13 +172,13 @@ describe('milestone loop, bot to Shipped', () => {
     for (let round = 0; round < 3; round += 1) {
       const claim = await handler<{ kind: string; runId: string; task: { title: string }; milestone: { branch: string } }>(claimNext)(
         ctx,
-        { runnerId: RUNNER, mode: 'interactive' },
+        { runnerId: RUNNER, mode: 'interactive', repos: [REPO] },
       );
       assert.equal(claim.kind, 'task');
       assert.equal(claim.milestone.branch, 'milestone/client-experience-launch');
       worked.push(claim.task.title);
       // A second runner cannot take the task this runner holds.
-      const other = await handler<{ kind: string; task?: { title: string } }>(claimNext)(ctx, { runnerId: 'studio-mini' });
+      const other = await handler<{ kind: string; task?: { title: string } }>(claimNext)(ctx, { runnerId: 'studio-mini', repos: [REPO] });
       if (other.kind === 'task') {
         assert.notEqual(other.task?.title, claim.task.title);
         // Hand the other runner's task back so the first runner works in order.
@@ -211,11 +217,18 @@ describe('milestone loop, bot to Shipped', () => {
 
     // 4. The last task done moves the milestone to Ready to Ship.
     assert.equal(milestone().status, 'Ready to Ship');
+    // Hand-off: the local preview is stored and one open note waits on Peter.
+    assert.equal(milestone().localPreviewUrl, 'http://localhost:3100/');
+    const openNotes = () => rowsOf('milestoneNotes').filter((note) => note.needsPeter === 'open');
+    assert.equal(openNotes().length, 1);
+    assert.equal(openNotes()[0]?.reason, 'approval');
+    assert.match(String(openNotes()[0]?.body), /npm run preview:pr -- milestone\/client-experience-launch/);
+    assert.match(String(openNotes()[0]?.body), /pull\/140/);
+    assert.equal(String(openNotes()[0]?.body).includes('vercel'), false);
     assert.equal(milestone().prUrl, 'https://github.com/warehauscollective/warehaus/pull/140');
     assert.equal(rowsOf('agentEvents').some((event) => event.type === 'ready'), true);
 
     // 5. Peter requests changes in Grok Bot, with two task lines.
-    await db.patch(milestoneId, { localPreviewUrl: 'http://localhost:3100/' });
     const changes = await handler<{ ok: boolean; status: number; error?: string; iteration?: number; milestoneStatus?: string; createdTaskIds?: string[] }>(
       reviewForApi,
     )(ctx, {
@@ -232,6 +245,8 @@ describe('milestone loop, bot to Shipped', () => {
     assert.equal(changes.createdTaskIds?.length, 2);
     assert.equal(milestone().status, 'Building');
     assert.equal(milestone().approval, 'changes_requested');
+    // Peter answered, so nothing waits on him.
+    assert.equal(openNotes().length, 0);
     const review = tasks().filter((task) => taskOrigin({ origin: task.origin as string, source: task.source as string }) === 'review');
     assert.deepEqual(review.map((task) => [task.name, task.round]), [
       ['Give the review card more space at 390', 2],
@@ -252,12 +267,14 @@ describe('milestone loop, bot to Shipped', () => {
 
     // 6. The runner works the round 2 tasks.
     for (let round = 0; round < 2; round += 1) {
-      const claim = await handler<{ kind: string; runId: string; task: { round: number } }>(claimNext)(ctx, { runnerId: RUNNER });
+      const claim = await handler<{ kind: string; runId: string; task: { round: number } }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
       assert.equal(claim.kind, 'task');
       assert.equal(claim.task.round, 2);
       await handler(completeTask)(ctx, { runnerId: RUNNER, runId: claim.runId, status: 'done', commitSha: SHA });
     }
     assert.equal(milestone().status, 'Ready to Ship');
+
+    assert.equal(openNotes().length, 1);
 
     // 7. Peter approves. The decision is recorded. Nothing ships yet.
     const approved = await handler<{ ok: boolean; error?: string; approval?: string; milestoneStatus?: string }>(reviewForApi)(ctx, {
@@ -271,6 +288,7 @@ describe('milestone loop, bot to Shipped', () => {
     assert.equal(approved.ok, true, approved.error ?? '');
     assert.equal(milestone().approval, 'approved');
     assert.equal(milestone().status, 'Ready to Ship');
+    assert.equal(openNotes().length, 0);
 
     // 8. The pull request merges into main. The webhook ships the milestone.
     const merge = await handler<{ wrote: boolean; shipped?: boolean }>(applyInbound)(ctx, {
@@ -292,7 +310,7 @@ describe('milestone loop, bot to Shipped', () => {
 
     // Shipped is the end. A person cannot set it, and nothing more is claimable.
     assert.equal(transitionMilestone({ from: 'Building', cause: 'set', to: 'Shipped' }).ok, false);
-    const after = await handler<{ kind: string }>(claimNext)(ctx, { runnerId: RUNNER });
+    const after = await handler<{ kind: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
     assert.equal(after.kind, 'none');
   });
 
@@ -300,7 +318,7 @@ describe('milestone loop, bot to Shipped', () => {
     const { db, rowsOf } = memoryDb();
     const ctx = { db };
     const orgId = await db.insert('clients', { name: 'Warehaus', portalAccess: 'Enabled' });
-    const projectId = await db.insert('projects', { orgId, name: 'Warehaus Portal' });
+    const projectId = await db.insert('projects', { orgId, name: 'Warehaus Portal', agentRepo: REPO });
     const milestoneId = await db.insert('milestones', {
       orgId,
       projectId,
@@ -313,7 +331,7 @@ describe('milestone loop, bot to Shipped', () => {
       createdVia: 'portal',
       planning: 'queued',
     });
-    const claim = await handler<{ kind: string; runId: string }>(claimNext)(ctx, { runnerId: RUNNER });
+    const claim = await handler<{ kind: string; runId: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
     assert.equal(claim.kind, 'planning');
     const milestone = () => rowsOf('milestones').find((row) => row._id === milestoneId) as Row;
     assert.equal(milestone().planning, 'running');
@@ -365,8 +383,16 @@ describe('client host', () => {
     const milestones = read('../milestones.ts');
     const clientList = milestones.slice(milestones.indexOf('export const listForClientProject'), milestones.indexOf('async function personName'));
     assert.match(clientList, /listOnProject\(ctx, project, 'client'/);
-    for (const table of ['agentRuns', 'agentEvents', 'agentRunners', 'milestoneNotes']) {
+    for (const table of ['agentRuns', 'agentEvents', 'agentRunners']) {
       assert.equal(milestones.includes(table), false, table);
+    }
+    // Notes are read only where a review decision closes the open request. No read path, staff or client, lists them here.
+    const reads = milestones.slice(0, milestones.indexOf('async function applyMilestoneReview'));
+    assert.equal(reads.includes('milestoneNotes'), false);
+    assert.equal(clientList.includes('milestoneNotes'), false);
+    // A project's repo setting is staff only.
+    for (const file of ['../portalData.ts', '../search.ts']) {
+      assert.equal(read(file).includes('agentRepo'), false, file);
     }
   });
 
