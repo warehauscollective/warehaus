@@ -208,54 +208,103 @@ html.light .ds-scope {
   outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
-/* Collapsed rail is in the page flow. The saved mode does nothing below 1024. */
-.sidebar-mark,
-.sidebar-expand,
-.sidebar-item-icon {
-  display: none;
+/* Collapsed chip floats from 1024px. Below that the dock stays as it is. */
+.sidebar-header {
+  position: relative;
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 8px 12px;
 }
-.sidebar-collapse,
-.sidebar-expand {
+.sidebar-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 16px;
-  height: 16px;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
   padding: 0;
-  border: 0;
+  border: 2px solid transparent;
+  border-radius: 8px;
   background: transparent;
   color: var(--muted);
   cursor: pointer;
 }
-.sidebar-collapse {
+.sidebar-toggle.sidebar-expand,
+.sidebar-expand-tip {
+  display: none;
+}
+.sidebar-chev {
   display: inline-flex;
+  transform: rotate(90deg);
+}
+.sidebar-expand-tip {
+  position: absolute;
+  /* The chip border sits outside the padding box, so this lands 8px below the chip and flush with its right edge. */
+  top: calc(100% + 9px);
+  right: -1px;
+  z-index: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.sidebar-toggle:hover {
+  border-color: var(--border);
+}
+[data-testid='portal-sidebar'] .sidebar-toggle:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
 }
 @media (min-width: 1024px) {
   html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] {
-    width: 72px;
+    position: fixed;
+    top: 24px;
+    left: 24px;
+    z-index: 30;
+    box-sizing: border-box;
+    display: flex;
+    width: 244px;
+    min-width: 244px;
+    max-width: 244px;
+    height: 58px;
+    padding: 12px;
+    overflow: visible;
   }
-  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-header {
-    flex-direction: column;
-    justify-content: center;
-    gap: 8px;
-  }
-  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-wordmark,
-  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-collapse,
-  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-level,
-  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-item-label {
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'][data-sidebar-active='false'] {
     display: none;
   }
-  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-mark,
-  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-item-icon {
-    display: inline-flex;
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-header {
+    height: 32px;
+    min-height: 0;
+    padding: 0;
+  }
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-body,
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-collapse {
+    display: none;
   }
   html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-expand {
     display: inline-flex;
-    width: 32px;
-    height: 32px;
+    position: static;
+    transform: none;
   }
-  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-item {
-    justify-content: center;
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar']:has(.sidebar-expand:hover) .sidebar-expand-tip,
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar']:has(.sidebar-expand:focus-visible) .sidebar-expand-tip {
+    display: block;
+  }
+  html[data-sidebar='collapsed'] .portal-tab-shell {
+    padding-top: 96px;
+    padding-left: 96px;
+    padding-right: 96px;
   }
 }
 /* Dialog Cancel. Replaces the browser's blue ring with the portal ring. */

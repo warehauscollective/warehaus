@@ -1,6 +1,8 @@
 export const SIDEBAR_COLLAPSE_MIN_PX = 1024;
 export const SIDEBAR_EXPANDED_PX = 244;
-export const SIDEBAR_COLLAPSED_PX = 72;
+/** The floating chip. Width stays 244 even though it reserves no column. */
+export const SIDEBAR_CHIP_PX = 244;
+export const SIDEBAR_CHIP_H_PX = 58;
 
 const PREFIX = 'wh-portal-sidebar';
 export const SIDEBAR_USER_KEY = 'wh-portal-sidebar-user';
@@ -53,17 +55,27 @@ export function sidebarCollapseApplies(viewportWidth: number): boolean {
   return viewportWidth >= SIDEBAR_COLLAPSE_MIN_PX;
 }
 
-/** Below 1024 the rail is not on screen, so the stored mode does not change its width. */
+/**
+ * Layout reservation for --portal-rail-w.
+ * Expanded desktop keeps 244. The collapsed chip floats, so the column is 0
+ * and the page fills in. Below 1024 the sidebar is off and the dock is unchanged.
+ */
 export function sidebarRailWidth(mode: SidebarMode, viewportWidth: number): number {
-  if (!sidebarCollapseApplies(viewportWidth)) return SIDEBAR_EXPANDED_PX;
-  return mode === 'collapsed' ? SIDEBAR_COLLAPSED_PX : SIDEBAR_EXPANDED_PX;
+  if (!sidebarCollapseApplies(viewportWidth)) return 0;
+  return mode === 'collapsed' ? 0 : SIDEBAR_EXPANDED_PX;
 }
 
 export function applySidebarDataset(mode: SidebarMode): void {
   if (typeof document === 'undefined') return;
-  if (mode === 'collapsed') document.documentElement.dataset.sidebar = 'collapsed';
-  else delete document.documentElement.dataset.sidebar;
+  const root = document.documentElement;
+  if (mode === 'collapsed') root.dataset.sidebar = 'collapsed';
+  else delete root.dataset.sidebar;
+  const wide =
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia(`(min-width: ${SIDEBAR_COLLAPSE_MIN_PX}px)`).matches;
+  root.style.setProperty('--portal-rail-w', `${sidebarRailWidth(mode, wide ? SIDEBAR_COLLAPSE_MIN_PX : 0)}px`);
 }
 
 /** Runs in <head> before paint so a saved collapse does not flash the wide rail. */
-export const sidebarBootScript = `(function(){try{var user=localStorage.getItem(${JSON.stringify(SIDEBAR_USER_KEY)});if(!user)return;if(localStorage.getItem(${JSON.stringify(PREFIX)}+':'+user)==='collapsed')document.documentElement.dataset.sidebar='collapsed';}catch(e){}})();`;
+export const sidebarBootScript = `(function(){try{var root=document.documentElement;var user=localStorage.getItem(${JSON.stringify(SIDEBAR_USER_KEY)});var collapsed=!!(user&&localStorage.getItem(${JSON.stringify(PREFIX)}+':'+user)==='collapsed');if(collapsed)root.dataset.sidebar='collapsed';var wide=window.matchMedia('(min-width: ${SIDEBAR_COLLAPSE_MIN_PX}px)').matches;root.style.setProperty('--portal-rail-w',(wide&&!collapsed)?'${SIDEBAR_EXPANDED_PX}px':'0px');}catch(e){}})();`;

@@ -2,10 +2,9 @@
 
 import { useEffect, useLayoutEffect } from 'react';
 import type { PortalTab } from '@warehaus/logic/portal';
-import { WarehausLogo } from '@warehaus/ui';
 import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
-import { sidebarIconSrc } from '@/lib/data/sidebarIcons';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
+import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { usePortalData } from '@/hooks/usePortalData';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -15,6 +14,7 @@ import {
   applySidebarDataset,
   readBootUserId,
   readSidebarMode,
+  sidebarCollapseKey,
   writeSidebarMode,
   type SidebarMode,
 } from './sidebarCollapse';
@@ -23,12 +23,13 @@ const COLLAPSE_LABEL = 'Collapse sidebar';
 const EXPAND_LABEL = 'Expand sidebar';
 
 /**
- * In-flow section rail for one swipe tab.
- * Lives inside the tab panel so it scrolls/swipes away with that page.
- * Collapsed chrome (tooltip, hover, focus) waits for the revised spec.
+ * Section rail for one swipe tab.
+ * From 1024px a saved collapse turns the active tab's rail into a floating
+ * wordmark chip. The selected section stays in state while the chip is up.
  */
 export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
   const { sectionFor, setSectionFor } = usePortalView();
+  const { activeTab } = usePortalTab();
   const { data } = usePortalData();
   const { authUser } = usePortalAuth();
   const userId = authUser?.id ?? null;
@@ -38,6 +39,16 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
   useLayoutEffect(() => {
     const storedFor = userId ?? readBootUserId(window.localStorage);
     applySidebarDataset(readSidebarMode(window.localStorage, storedFor));
+  }, [userId]);
+
+  useEffect(() => {
+    function onStorage(event: StorageEvent) {
+      if (!userId) return;
+      if (event.key !== null && event.key !== sidebarCollapseKey(userId)) return;
+      applySidebarDataset(readSidebarMode(window.localStorage, userId));
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, [userId]);
 
   function toggle() {
@@ -70,10 +81,10 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         onSelect={(key) => setSectionFor(tab, key)}
       />
 
-      {/* Desktop rail. Expanded 244. Collapsed width is the dataset, from 1024 up. */}
       <nav
         aria-label={`${tab} sections`}
         data-testid="portal-sidebar"
+        data-sidebar-active={activeTab === tab ? 'true' : 'false'}
         className="hidden w-[244px] shrink-0 flex-col self-start overflow-y-auto lg:flex"
         style={{
           background: 'var(--surface)',
@@ -83,7 +94,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
           gap: 4,
         }}
       >
-        <div className="sidebar-header flex w-full items-center justify-between" style={{ padding: '8px 12px' }}>
+        <div className="sidebar-header flex w-full items-center justify-between">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             alt="warehaus"
@@ -92,17 +103,19 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
             height={12.4073}
             className="portal-wordmark sidebar-wordmark"
           />
-          <span className="sidebar-mark" aria-hidden>
-            <WarehausLogo height={16.7} title="warehaus" />
-          </span>
-          <button type="button" className="sidebar-collapse" aria-label={COLLAPSE_LABEL} onClick={toggle}>
+          <button type="button" className="sidebar-toggle sidebar-collapse" aria-label={COLLAPSE_LABEL} onClick={toggle}>
             <TaskGlyph src="/icons/sidebar-menu.svg" size={16} />
           </button>
-          <button type="button" className="sidebar-expand" aria-label={EXPAND_LABEL} onClick={toggle}>
-            <TaskGlyph src="/icons/docs-chev.svg" size={16} />
+          <button type="button" className="sidebar-toggle sidebar-expand" aria-label={EXPAND_LABEL} onClick={toggle}>
+            <span className="sidebar-chev">
+              <TaskGlyph src="/icons/docs-chev.svg" size={16} />
+            </span>
           </button>
         </div>
-        <div className="flex w-full flex-col" style={{ paddingTop: 9, gap: 4 }}>
+        <span className="sidebar-expand-tip" role="tooltip">
+          Expand sidebar
+        </span>
+        <div className="sidebar-body flex w-full flex-col" style={{ paddingTop: 9, gap: 4 }}>
           <p
             className="sidebar-level ds-mono"
             style={{
@@ -117,7 +130,6 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
           </p>
           {sections.map((s) => {
             const active = activeSection === s.key;
-            const icon = sidebarIconSrc(tab, s.key);
             return (
               <button
                 key={s.key}
@@ -127,11 +139,6 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
                 className="sidebar-item flex w-full items-center text-left"
                 style={sidebarItemStyle(active)}
               >
-                {icon ? (
-                  <span className="sidebar-item-icon" aria-hidden>
-                    <TaskGlyph src={icon} size={16} />
-                  </span>
-                ) : null}
                 <span className="sidebar-item-label">{s.label}</span>
               </button>
             );
