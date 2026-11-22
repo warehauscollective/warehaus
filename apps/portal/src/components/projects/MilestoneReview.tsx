@@ -25,7 +25,7 @@ import { MilestoneDialog } from './milestoneChrome';
 import { ConfirmFrame, PreviewLinkField } from './milestoneDetailsEdit';
 
 export const APPROVAL_SAVE_ERROR = 'Couldn’t save your approval. Nothing changed. Try again.';
-export const APPROVED_AWAITING = 'Approved · awaiting merge and deploy · Shipped is set automatically on merge';
+export const APPROVED_AWAITING = 'Approved · awaiting merge and deploy · staff set Shipped when every task that is not Parked is Done';
 export const APPROVED_DEPLOYING = 'Merging and deploying…';
 export const RECORDING_APPROVAL = 'Recording approval…';
 export const APPROVING_LABEL = 'Approving…';
@@ -972,7 +972,7 @@ export function MilestoneReviewSurface({
                 <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--fg)' }}>{`Approved by ${who}${stamp ? ` · ${stamp}` : ''}`}</p>
                 {model.deployFinishedAt ? (
                   <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-                    Read-only · deploy finished · Shipped is set automatically on merge
+                    Read-only · deploy finished · staff set Shipped when every task that is not Parked is Done
                   </p>
                 ) : model.deployStartedAt ? (
                   <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{APPROVED_DEPLOYING}</p>
