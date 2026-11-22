@@ -5,8 +5,8 @@ import type { Id } from '@convex/_generated/dataModel';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
 import {
   addTaskDecision,
+  checklistDetailText,
   checklistState,
-  checklistStatusText,
   checklistSummary,
   isToDoTask,
   originLabel,
@@ -52,7 +52,7 @@ export function checklistNumber(index: number): string {
 }
 
 function StateGlyph({ state }: { state: ChecklistState }) {
-  const label = state === 'done' ? 'Done' : state === 'progress' ? 'In progress' : 'To do';
+  const label = state === 'done' ? 'Done' : state === 'progress' ? 'In progress' : state === 'blocked' ? 'Blocked' : 'To do';
   return (
     <svg
       width="14"
@@ -61,7 +61,7 @@ function StateGlyph({ state }: { state: ChecklistState }) {
       role="img"
       aria-label={label}
       data-state={state}
-      style={{ flex: '0 0 auto', color: state === 'todo' ? 'var(--muted)' : 'var(--fg)' }}
+      style={{ flex: '0 0 auto', color: state === 'todo' ? 'var(--muted)' : state === 'blocked' ? 'var(--danger)' : 'var(--fg)' }}
     >
       {state === 'done' ? (
         <circle cx="7" cy="7" r="6.25" fill="currentColor" />
@@ -373,8 +373,16 @@ export function MilestoneChecklist({
                           {badge}
                         </span>
                       ) : null}
-                      <span className="ds-mono" data-testid="milestone-checklist-status" style={{ ...monoMuted, whiteSpace: 'nowrap' }}>
-                        {checklistStatusText(row)}
+                      <span
+                        className="ds-mono"
+                        data-testid="milestone-checklist-status"
+                        style={{
+                          ...monoMuted,
+                          overflowWrap: 'anywhere',
+                          ...(state === 'blocked' ? { color: 'var(--danger-text)' } : {}),
+                        }}
+                      >
+                        {checklistDetailText(staff ? row : { status: row.status, isDone: row.isDone })}
                       </span>
                       {movable || editable ? (
                         <span className="flex items-center gap-1" data-testid="milestone-checklist-actions">

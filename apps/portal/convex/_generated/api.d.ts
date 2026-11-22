@@ -49,6 +49,8 @@ import type * as _lib_uploadBlob from "../_lib/uploadBlob.js";
 import type * as _lib_userFacingError from "../_lib/userFacingError.js";
 import type * as _lib_wrappers from "../_lib/wrappers.js";
 import type * as _lib_writeAuthz from "../_lib/writeAuthz.js";
+import type * as agent from "../agent.js";
+import type * as agentHttp from "../agentHttp.js";
 import type * as auth from "../auth.js";
 import type * as billing from "../billing.js";
 import type * as billing_stripe from "../billing/stripe.js";
@@ -152,6 +154,8 @@ declare const fullApi: ApiFromModules<{
   "_lib/userFacingError": typeof _lib_userFacingError;
   "_lib/wrappers": typeof _lib_wrappers;
   "_lib/writeAuthz": typeof _lib_writeAuthz;
+  agent: typeof agent;
+  agentHttp: typeof agentHttp;
   auth: typeof auth;
   billing: typeof billing;
   "billing/stripe": typeof billing_stripe;
