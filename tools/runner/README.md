@@ -77,6 +77,8 @@ Use shared dev, never production.
 
 This section records each dry run of the runner on shared dev.
 
+- 2026-11-22: first dry run of the milestone runner on shared dev.
+
 ## Tests
 
 ```bash
