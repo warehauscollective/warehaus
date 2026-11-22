@@ -56,9 +56,33 @@ A milestone has one field, `status`: `Idea`, `Planning`, `Awaiting Go`, `Buildin
 
 `GET /api/v1/milestones` and `list_milestones` return `status`. `POST /api/v1/milestones` and `POST /api/v1/milestones/update` accept `status`. `stage` and `workStatus` are aliases of that field for one release. A new milestone is `Planning` unless `status` says otherwise. Staff can set Shipped when every task that is not Parked is Done. A new milestone cannot start at Shipped. Sending the stored status again writes nothing.
 
-`create_milestone` and `update_milestone` are the MCP tools for those two routes. A task only exists inside a milestone, so a bot calls `list_milestones`, reuses a matching milestone or calls `create_milestone`, then calls `create_task` with that `milestoneId`. `create_milestone` needs `name` and `objective`; `goals` and `status` are optional, and `status` cannot be Shipped. `update_milestone` sends only the fields that change, including Shipped when every task that is not Parked is Done. A milestone created through the staff API records which bot opened it from the token name (`grok`, `claude`, or `other`), and the tile shows that mark.
+## Milestones and their tasks
 
-`record_milestone_review` needs `status` `Ready to Ship` and a preview. Approve keeps that status. Request changes moves it back to `Building`. The result returns `status`.
+`update_milestone` (`POST /api/v1/milestones/update`) sends only the fields that change, including Shipped when every task that is not Parked is Done. `create_milestone` cannot start a milestone at Shipped.
+
+A task only exists inside a milestone. `create_task` and `POST /api/v1/tasks` need `milestoneId`. A missing milestone, a milestone on another project, and a `Shipped` milestone are each a 400.
+
+To start new work, create the milestone and its task list in one call:
+
+- `create_milestone` (`POST /api/v1/milestones`) takes `projectId`, `name`, `objective`, `goals`, and `proposedTasks`.
+- `proposedTasks` is 3 to 10 concrete tasks, in the order they should be done. Each is `{ title, detail? }`. A plain title string works too. Leave it out to create a milestone with no tasks.
+- With tasks the milestone starts at `Awaiting Go`. With none it starts at `Planning`. A `status` in the call wins.
+- `createdVia` is `grok`, `claude` or `other`. Left out, it is read from the token name. The Portal shows it on the milestone as "via Grok Bot" or "via Claude".
+- These tasks are stored in the Portal only. They are not sent to Notion.
+- The result is `{ id, status, createdVia, taskIds }`.
+
+`get_milestone_status` (`GET /api/v1/milestones/item?id=`) returns one milestone: `status`, `approval`, `iteration`, the ordered `tasks` with `origin` (`brief`, `review`, `manual`) and `round`, `previews.local` and `previews.vercel`, `pullRequest`, and the latest `reviews`, `notes` and `events`.
+
+`add_note` (`POST /api/v1/milestones/note`) adds a staff note. Notes are staff only. A note changes no status, approval or task.
+
+## Review
+
+`approve_milestone` and `request_changes` record Peter's decision on one iteration. Only the `grok-bot` token is accepted. Send the `iteration` from `get_milestone_status`. A stale iteration is rejected.
+
+- `approve_milestone` needs `status` `Ready to Ship` and a preview, local or Vercel. It keeps that status. It records the decision only. It does not merge and does not deploy.
+- `request_changes` needs `notes`. Put each change on its own line in `newTasks`. Every line becomes a review task in the milestone. Without `newTasks` the notes are split into tasks. It starts the next iteration and moves `status` back to `Building`.
+
+`record_milestone_review` is the older name for both and still works for one release. All three post to `POST /api/v1/milestones/{id}/review`.
 
 For one release the old names still work, so current bot tokens do not break:
 - `stage` is returned with the same value as `status`, and is accepted in its place.

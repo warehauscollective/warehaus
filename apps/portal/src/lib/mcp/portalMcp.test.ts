@@ -75,6 +75,16 @@ const samples: Record<string, Record<string, unknown>> = {
     idempotencyKey: 'term-1',
   },
   record_decision: { projectId: 'project-1', title: 'Tasks live only inside milestones.', idempotencyKey: 'decision-1' },
+  get_milestone_status: { milestoneId: 'milestone-1' },
+  add_note: { milestoneId: 'milestone-1', body: 'Design check passed.', idempotencyKey: 'note-1' },
+  approve_milestone: { milestoneId: 'milestone-1', iteration: 2, idempotencyKey: 'approve-1' },
+  request_changes: {
+    milestoneId: 'milestone-1',
+    iteration: 2,
+    notes: 'More space on mobile.',
+    newTasks: ['Give the card more space at 390'],
+    idempotencyKey: 'changes-1',
+  },
 };
 
 const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
@@ -100,6 +110,10 @@ const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   save_project_brief: { method: 'POST', path: '/api/v1/context/brief' },
   upsert_glossary_term: { method: 'POST', path: '/api/v1/context/terms' },
   record_decision: { method: 'POST', path: '/api/v1/context/decisions' },
+  get_milestone_status: { method: 'GET', path: '/api/v1/milestones/item' },
+  add_note: { method: 'POST', path: '/api/v1/milestones/note' },
+  approve_milestone: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },
+  request_changes: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },
 };
 
 describe('portal MCP tools', () => {

@@ -49,7 +49,24 @@ import {
   type AttachFailureCode,
 } from './_lib/milestones';
 import { detailActivitySummary } from './_lib/milestoneDetails';
-import { taskMilestoneGate } from './_lib/milestoneTasks';
+import {
+  PORTAL_MILESTONE_TASK_SOURCE,
+  taskMilestoneGate,
+  taskOrigin,
+} from './_lib/milestoneTasks';
+import {
+  STATUS_EVENT_LIMIT,
+  STATUS_EVENT_SCAN,
+  STATUS_NOTE_LIMIT,
+  STATUS_REVIEW_LIMIT,
+  STATUS_TASK_LIMIT,
+  createdViaDecision,
+  noteDecision,
+  proposedTasksDecision,
+  statusForBotCreate,
+} from './_lib/milestoneBot';
+import { currentIteration, NEW_ITERATION_TASK_DONE } from './_lib/milestoneReview';
+import { reviewPreviews } from './_lib/previewLink';
 import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
 import { milestoneCloseGate } from './_lib/milestoneClose';
 import {
@@ -661,8 +678,10 @@ export const createMilestone = internalMutation({
     status: v.optional(v.string()),
     stage: v.optional(v.string()),
     workStatus: v.optional(v.string()),
-    /** Token name, so the tile can show which bot opened the milestone. */
     tokenName: v.optional(v.string()),
+    /** Validated by proposedTasksDecision. 3 to 10 tasks, or none. */
+    proposedTasks: v.optional(v.any()),
+    createdVia: v.optional(v.any()),
   },
   handler: async (ctx, args): Promise<ApiResult> => {
     const opened = await openIdempotency(ctx, args);
@@ -673,12 +692,16 @@ export const createMilestone = internalMutation({
     }
     const wanted = apiStatusInput(args);
     if (!wanted.ok) return finishIdempotency(ctx, opened.id, fail(400, wanted.reason));
+    const proposed = proposedTasksDecision(args.proposedTasks);
+    if (!proposed.ok) return finishIdempotency(ctx, opened.id, fail(400, proposed.reason));
+    const via = createdViaDecision({ requested: args.createdVia, tokenName: args.tokenName ?? '' });
+    if (!via.ok) return finishIdempotency(ctx, opened.id, fail(400, via.reason));
     const created = createMilestoneDecision({
       actor: 'human',
       name: args.name,
       objective: args.objective,
       goals: args.goals,
-      status: wanted.status ?? undefined,
+      status: statusForBotCreate(wanted.status, proposed.tasks.length),
     });
     if (!created.ok) return finishIdempotency(ctx, opened.id, fail(400, created.reason));
     const milestoneId = await ctx.db.insert('milestones', {
@@ -690,8 +713,35 @@ export const createMilestone = internalMutation({
       status: created.milestone.status,
       approval: created.milestone.approval,
       publishToWarehaus: created.milestone.publishToWarehaus,
-      ...(args.tokenName ? { createdVia: contextSourceForToken(args.tokenName) } : {}),
+      createdVia: via.createdVia,
     });
+    // The milestone and its task list land in one transaction. The tasks are
+    // stored in the portal only: no Notion page and no outbox row.
+    const at = Date.now();
+    const taskIds: Id<'tasks'>[] = [];
+    for (const [index, task] of proposed.tasks.entries()) {
+      const key = `${PORTAL_MILESTONE_TASK_SOURCE}:${milestoneId}:brief:${index}`;
+      taskIds.push(
+        await ctx.db.insert('tasks', {
+          orgId: project.orgId,
+          projectId: project._id,
+          notionPageId: key,
+          externalId: key,
+          lastSyncedAt: at,
+          name: task.title,
+          ...(task.detail ? { description: task.detail, descriptionSource: 'property' as const } : {}),
+          status: 'To Do',
+          isDone: NEW_ITERATION_TASK_DONE,
+          stage: 'Awaiting Go',
+          publishToWarehaus: false,
+          source: PORTAL_MILESTONE_TASK_SOURCE,
+          origin: 'brief',
+          milestoneId,
+          milestoneOrder: index,
+          updatedAt: at,
+        }),
+      );
+    }
     if (created.activityType) {
       const milestone = await ctx.db.get(milestoneId);
       if (milestone) {
@@ -703,7 +753,111 @@ export const createMilestone = internalMutation({
         );
       }
     }
-    return finishIdempotency(ctx, opened.id, { status: 200, body: { id: milestoneId } });
+    return finishIdempotency(ctx, opened.id, {
+      status: 200,
+      body: { id: milestoneId, status: created.milestone.status, createdVia: via.createdVia, taskIds },
+    });
+  },
+});
+
+/**
+ * One milestone for a bot: status, the ordered checklist, both previews, the
+ * pull request, and the latest reviews, notes and events. Every read is
+ * indexed and capped.
+ */
+export const getMilestoneStatus = internalQuery({
+  args: { milestoneId: v.id('milestones') },
+  handler: async (ctx, args): Promise<ApiResult> => {
+    const milestone = await ctx.db.get(args.milestoneId);
+    if (!milestone || !(await orgVisible(ctx, milestone.orgId))) return fail(404, 'Milestone not found');
+    const tasks = await ctx.db
+      .query('tasks')
+      .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
+      .take(STATUS_TASK_LIMIT);
+    const ordered = tasks
+      .filter((task) => task.archivedAt == null)
+      .sort((a, b) => (a.milestoneOrder ?? Number.MAX_SAFE_INTEGER) - (b.milestoneOrder ?? Number.MAX_SAFE_INTEGER));
+    const reviews = await ctx.db
+      .query('milestoneReviews')
+      .withIndex('by_org_milestone_iteration', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
+      .order('desc')
+      .take(STATUS_REVIEW_LIMIT);
+    const notes = await ctx.db
+      .query('milestoneNotes')
+      .withIndex('by_milestone_createdAt', (q) => q.eq('milestoneId', milestone._id))
+      .order('desc')
+      .take(STATUS_NOTE_LIMIT);
+    const recent = await ctx.db
+      .query('activity')
+      .withIndex('by_orgId_timestamp', (q) => q.eq('orgId', milestone.orgId))
+      .order('desc')
+      .take(STATUS_EVENT_SCAN);
+    const previews = reviewPreviews(milestone);
+    return {
+      status: 200,
+      body: {
+        ...staffMilestone(milestone),
+        iteration: currentIteration(milestone.iteration),
+        createdVia: milestone.createdVia ?? null,
+        dueDate: milestone.dueDate ?? null,
+        tasks: ordered.map((task, index) => ({
+          id: task._id,
+          order: index + 1,
+          name: task.name,
+          status: task.status,
+          isDone: task.isDone,
+          origin: taskOrigin({ origin: task.origin, source: task.source }),
+          round: task.round ?? null,
+        })),
+        taskCounts: {
+          total: ordered.length,
+          done: ordered.filter((task) => task.isDone).length,
+        },
+        previews: { local: previews.local, vercel: previews.vercel },
+        pullRequest: {
+          number: milestone.previewPrNumber ?? null,
+          title: milestone.previewPrTitle ?? null,
+          branch: milestone.previewBranch ?? null,
+          commit: milestone.previewCommit ?? null,
+        },
+        reviews: reviews.map((review) => ({
+          iteration: review.iteration,
+          decision: review.decision,
+          notes: review.notes,
+          decidedAt: review.decidedAt,
+          source: review.source,
+          createdTaskCount: review.createdTaskIds.length,
+        })),
+        notes: notes.map((note) => ({ id: note._id, body: note.body, addedBy: note.addedBy, createdAt: note.createdAt })),
+        events: recent
+          .filter((row) => row.milestoneId === milestone._id)
+          .slice(0, STATUS_EVENT_LIMIT)
+          .map((row) => ({ type: row.type, summary: row.summary ?? null, at: row.timestamp })),
+      },
+    };
+  },
+});
+
+/** A staff note on a milestone. Staff only: no client query reads the notes table. */
+export const addMilestoneNote = internalMutation({
+  args: { ...idemArgs, tokenName: v.string(), milestoneId: v.id('milestones'), body: v.string() },
+  handler: async (ctx, args): Promise<ApiResult> => {
+    const opened = await openIdempotency(ctx, args);
+    if (!('action' in opened)) return opened;
+    const milestone = await ctx.db.get(args.milestoneId);
+    if (!milestone || !(await orgVisible(ctx, milestone.orgId))) {
+      return finishIdempotency(ctx, opened.id, fail(404, 'Milestone not found'));
+    }
+    const note = noteDecision(args.body);
+    if (!note.ok) return finishIdempotency(ctx, opened.id, fail(400, note.reason));
+    const id = await ctx.db.insert('milestoneNotes', {
+      orgId: milestone.orgId,
+      milestoneId: milestone._id,
+      body: note.body,
+      addedBy: args.tokenName,
+      createdAt: Date.now(),
+    });
+    return finishIdempotency(ctx, opened.id, { status: 200, body: { id } });
   },
 });
 
@@ -952,7 +1106,18 @@ function json(body: unknown, status: number): Response {
 const TASK_UPDATE_FIELDS = ['taskId', 'expectedLastEditedTime', 'status', 'priority', 'nextAction', 'stage', 'pullRequestLink'];
 const TASK_CREATE_FIELDS = ['projectId', 'name', 'status', 'date', 'stage', 'milestoneId'];
 // `stage` and `workStatus` are aliases of `status` for one release.
-const MILESTONE_CREATE_FIELDS = ['projectId', 'name', 'objective', 'goals', 'status', 'stage', 'workStatus'];
+const MILESTONE_CREATE_FIELDS = [
+  'projectId',
+  'name',
+  'objective',
+  'goals',
+  'status',
+  'stage',
+  'workStatus',
+  'proposedTasks',
+  'createdVia',
+];
+const NOTE_FIELDS = ['milestoneId', 'body'];
 const MILESTONE_UPDATE_FIELDS = ['milestoneId', 'name', 'objective', 'goals', 'status', 'stage', 'workStatus'];
 const DETACH_FIELDS = ['milestoneId', 'taskId'];
 const COMMENT_FIELDS = ['taskId', 'body'];
@@ -960,7 +1125,7 @@ const LINK_FIELDS = ['taskId', 'kind', 'url', 'title', 'expectedLastEditedTime']
 const CLIENT_CREATE_FIELDS = ['companyName', 'primaryEmail', 'phone'];
 const PROJECT_CREATE_FIELDS = ['name', 'clientId', 'client', 'externalId', 'publishToWarehaus'];
 const ATTACH_FIELDS = ['milestoneId', 'taskId'];
-const REVIEW_FIELDS = ['iteration', 'decision', 'notes', 'taskIds'];
+const REVIEW_FIELDS = ['iteration', 'decision', 'notes', 'taskIds', 'newTasks'];
 const CONTEXT_BRIEF_FIELDS = ['projectId', 'goal', 'audience', 'outOfScope', 'doneWhen'];
 const CONTEXT_TERM_FIELDS = ['projectId', 'term', 'definition'];
 const CONTEXT_DECISION_FIELDS = ['projectId', 'title', 'body'];
@@ -1075,6 +1240,14 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
         });
         return json(result.body, result.status);
       }
+      if (url.pathname === '/api/v1/milestones/item') {
+        const id = url.searchParams.get('id');
+        if (!id) return json({ error: 'Milestone id is required' }, 400);
+        const result = await ctx.runQuery(internal.portalApi.getMilestoneStatus, {
+          milestoneId: id as Id<'milestones'>,
+        });
+        return json(result.body, result.status);
+      }
       if (url.pathname === '/api/v1/milestones') {
         const projectId = url.searchParams.get('projectId');
         if (!projectId) return json({ error: 'Project id is required' }, 400);
@@ -1158,6 +1331,9 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
     const taskIds = Array.isArray(parsed.taskIds)
       ? parsed.taskIds.filter((id): id is string => typeof id === 'string')
       : [];
+    const newTasks = Array.isArray(parsed.newTasks)
+      ? parsed.newTasks.filter((line): line is string => typeof line === 'string')
+      : [];
     const shape =
       unknown ??
       (typeof iteration !== 'number' || !Number.isInteger(iteration) || iteration < 1
@@ -1166,7 +1342,9 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
           ? 'Decision must be approve or request_changes'
           : parsed.taskIds != null && !Array.isArray(parsed.taskIds)
             ? 'taskIds must be a list'
-            : null);
+            : parsed.newTasks != null && !Array.isArray(parsed.newTasks)
+              ? 'newTasks must be a list of task titles'
+              : null);
     if (shape) {
       const result = await ctx.runMutation(internal.portalApi.rememberResult, {
         ...idem,
@@ -1182,6 +1360,7 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
         decision: String(decision),
         notes,
         taskIds: taskIds as Id<'tasks'>[],
+        ...(newTasks.length > 0 ? { newTasks } : {}),
         tokenName: consumed.name,
       });
       if (!applied.ok) return { status: applied.status, body: { error: applied.error } };
@@ -1213,6 +1392,8 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
           ? MILESTONE_CREATE_FIELDS
           : url.pathname === '/api/v1/milestones/update'
             ? MILESTONE_UPDATE_FIELDS
+            : url.pathname === '/api/v1/milestones/note'
+              ? NOTE_FIELDS
             : url.pathname === '/api/v1/comments'
               ? COMMENT_FIELDS
               : url.pathname === '/api/v1/links'
@@ -1328,8 +1509,9 @@ async function dispatchWrite(
   }
   if (path === '/api/v1/milestones') {
     return ctx.runMutation(internal.portalApi.createMilestone, {
-      ...idempotencyActor(actor),
-      tokenName: actor.tokenName,
+      ...actor,
+      ...(body.proposedTasks !== undefined ? { proposedTasks: body.proposedTasks } : {}),
+      ...(body.createdVia !== undefined ? { createdVia: body.createdVia } : {}),
       projectId: body.projectId as Id<'projects'>,
       name: String(body.name ?? ''),
       objective: String(body.objective ?? ''),
@@ -1350,6 +1532,13 @@ async function dispatchWrite(
       stage: typeof body.stage === 'string' ? body.stage : undefined,
       workStatus: typeof body.workStatus === 'string' ? body.workStatus : undefined,
       tokenName: actor.tokenName,
+    });
+  }
+  if (path === '/api/v1/milestones/note') {
+    return ctx.runMutation(internal.portalApi.addMilestoneNote, {
+      ...actor,
+      milestoneId: body.milestoneId as Id<'milestones'>,
+      body: typeof body.body === 'string' ? body.body : '',
     });
   }
   if (path === '/api/v1/context/brief' || path === '/api/v1/context/terms' || path === '/api/v1/context/decisions') {
