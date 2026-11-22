@@ -8,6 +8,7 @@ import {
   parseArgs,
   parsePlan,
   planPrompt,
+  pullRequestBody,
   readEnv,
   taskOutcome,
   taskPrompt,
@@ -88,6 +89,21 @@ describe('prompts', () => {
     assert.match(prompt, /Read only/);
     assert.match(prompt, /3 to 10 tasks/);
     assert.equal(prompt.includes('{{'), false);
+  });
+});
+
+describe('pull request', () => {
+  it('names the Portal milestone and says merging does not deploy', () => {
+    const body = pullRequestBody({
+      milestone: { name: 'Launch', objective: 'Ship the page.', goals: ['Hero matches'], branch: 'milestone/launch' },
+    });
+    assert.match(body, /Portal milestone: \*\*Launch\*\*/);
+    assert.match(body, /- Hero matches/);
+    assert.match(body, /Merging does not deploy/);
+    const cli = read('./cli.mjs');
+    // Opened against main, never merged or closed by the runner.
+    assert.match(cli, /'pr', 'create', '--base', 'main', '--head', branch/);
+    assert.equal(/'pr', 'merge'|'pr', 'close'|--admin|--force/.test(cli), false);
   });
 });
 

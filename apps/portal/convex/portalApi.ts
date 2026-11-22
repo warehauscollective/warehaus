@@ -67,6 +67,7 @@ import {
 } from './_lib/milestoneBot';
 import { currentIteration, NEW_ITERATION_TASK_DONE } from './_lib/milestoneReview';
 import { reviewPreviews } from './_lib/previewLink';
+import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
 import { milestoneCloseGate } from './_lib/milestoneClose';
 import {
@@ -714,6 +715,7 @@ export const createMilestone = internalMutation({
       approval: created.milestone.approval,
       publishToWarehaus: created.milestone.publishToWarehaus,
       createdVia: via.createdVia,
+      branch: await uniqueMilestoneBranch(ctx, created.milestone.name),
     });
     // The milestone and its task list land in one transaction. The tasks are
     // stored in the portal only: no Notion page and no outbox row.
@@ -814,7 +816,9 @@ export const getMilestoneStatus = internalQuery({
           done: ordered.filter((task) => task.isDone).length,
         },
         previews: { local: previews.local, vercel: previews.vercel },
+        branch: milestone.branch ?? null,
         pullRequest: {
+          url: milestone.prUrl ?? null,
           number: milestone.previewPrNumber ?? null,
           title: milestone.previewPrTitle ?? null,
           branch: milestone.previewBranch ?? null,

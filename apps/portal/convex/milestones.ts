@@ -114,6 +114,7 @@ import {
   type ReviewPreviewState,
 } from './_lib/reviewPreview';
 import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/wrappers';
+import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 
 const statusArg = v.union(
   v.literal('Idea'),
@@ -374,6 +375,8 @@ async function toRoadmap(
     creatorName: await creatorNameFor(ctx, milestone),
     ...(audience === 'staff' && milestone.createdVia ? { createdVia: milestone.createdVia } : {}),
     ...(audience === 'staff' && milestone.planning ? { planning: milestone.planning } : {}),
+    ...(audience === 'staff' && milestone.branch ? { branch: milestone.branch } : {}),
+    ...(audience === 'staff' && milestone.prUrl ? { prUrl: milestone.prUrl } : {}),
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,
@@ -546,6 +549,7 @@ async function insertMilestone(
     ...(args.dueDate ? { dueDate: args.dueDate } : {}),
     ...(args.createdByContactId ? { createdByContactId: args.createdByContactId } : {}),
     ...(args.createdVia ? { createdVia: args.createdVia } : {}),
+    branch: await uniqueMilestoneBranch(ctx, created.milestone.name),
     // A milestone made in the portal has no tasks yet. The runner plans it.
     ...(args.createdVia === 'portal' && created.milestone.status !== 'Parked' ? { planning: 'queued' as const } : {}),
   });
@@ -1777,6 +1781,40 @@ export const retryReviewPreview = adminMutation({
   },
 });
 
+/**
+ * Stores the local preview link for a milestone, found by id or by branch.
+ * Called by the runner or `preview:pr` through the review-preview route.
+ * The same link again writes nothing.
+ */
+export const setLocalPreview = internalMutation({
+  args: {
+    milestoneId: v.optional(v.id('milestones')),
+    branch: v.optional(v.string()),
+    url: v.union(v.string(), v.null()),
+  },
+  handler: async (ctx, args) => {
+    const branch = args.branch?.trim() ?? '';
+    const milestone = args.milestoneId
+      ? await ctx.db.get(args.milestoneId)
+      : branch
+        ? await ctx.db
+            .query('milestones')
+            .withIndex('by_branch', (q) => q.eq('branch', branch))
+            .first()
+        : null;
+    if (!milestone) return { ok: false as const, reason: 'Milestone not found' };
+    const decision = tileLinkChangeDecision({
+      field: 'localPreview',
+      from: milestone.localPreviewUrl ?? null,
+      to: args.url,
+    });
+    if (!decision.ok) return { ok: false as const, reason: decision.reason };
+    if (!decision.wrote) return { ok: true as const, changed: false };
+    await ctx.db.patch(milestone._id, { localPreviewUrl: decision.url ?? undefined });
+    return { ok: true as const, changed: true };
+  },
+});
+
 export const reviewPreviewHttp = httpAction(async (ctx, request) => {
   const cloud = assertReviewConvexUrl(process.env.CONVEX_CLOUD_URL);
   if (!cloud.ok) return new Response('Review previews run on shared dev only', { status: 403 });
@@ -1799,10 +1837,21 @@ export const reviewPreviewHttp = httpAction(async (ctx, request) => {
     builtAt?: number;
     outcome?: 'deleted' | 'already-gone' | 'failed' | 'unconfigured';
   };
+  let local: { op?: string; milestoneId?: Id<'milestones'>; branch?: string; url?: string | null };
   try {
     body = (await request.json()) as typeof body;
+    local = body as typeof local;
   } catch {
     return new Response('Invalid JSON', { status: 400 });
+  }
+  if (local.op === 'local') {
+    if (!local.milestoneId && !local.branch) return new Response('Milestone id or branch is missing', { status: 400 });
+    const result = await ctx.runMutation(internal.milestones.setLocalPreview, {
+      ...(local.milestoneId ? { milestoneId: local.milestoneId } : {}),
+      ...(local.branch ? { branch: local.branch } : {}),
+      url: typeof local.url === 'string' ? local.url : null,
+    });
+    return Response.json(result, { status: result.ok ? 200 : 400 });
   }
   if (body.op === 'close') {
     if (!body.prNumber || body.prNumber < 1) return new Response('Pull request number is missing', { status: 400 });

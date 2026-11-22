@@ -22,6 +22,7 @@ import {
   feedLimit,
   milestoneBranch,
   nextClaimableTask,
+  pullRequestUrl,
   runMode,
   runTool,
   runToolLabel,
@@ -36,6 +37,7 @@ import { writeMilestoneActivity } from './_lib/milestones';
 import { STATUS_ACTIVITY, transitionMilestone, type MilestoneStatus } from './_lib/milestoneStatus';
 import { PORTAL_MILESTONE_TASK_SOURCE } from './_lib/milestoneTasks';
 import { adminQuery } from './_lib/wrappers';
+import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 
 /** Building milestones looked at for one claim. Oldest first. */
 const CLAIM_MILESTONE_SCAN = 25;
@@ -95,15 +97,24 @@ async function moveMilestone(
   return true;
 }
 
-function milestoneContext(milestone: Doc<'milestones'>) {
+function milestoneContext(milestone: Doc<'milestones'>, branch: string) {
   return {
     id: milestone._id,
     name: milestone.name,
     objective: milestone.objective,
     goals: milestone.goals,
     status: milestone.status,
-    branch: milestoneBranch(milestone.name),
+    branch,
+    prUrl: milestone.prUrl ?? null,
   };
+}
+
+/** The milestone's stored branch. An older milestone gets one the first time a runner works it. */
+async function branchFor(ctx: MutationCtx, milestone: Doc<'milestones'>): Promise<string> {
+  if (milestone.branch) return milestone.branch;
+  const branch = await uniqueMilestoneBranch(ctx, milestone.name);
+  await ctx.db.patch(milestone._id, { branch });
+  return branch;
 }
 
 /**
@@ -144,15 +155,16 @@ async function runningRunFor(ctx: MutationCtx, runnerId: string) {
 async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
   const milestone = await ctx.db.get(run.milestoneId);
   if (!milestone) return null;
+  const branch = await branchFor(ctx, milestone);
   if (run.kind === 'planning') {
-    return { kind: 'planning' as const, runId: run._id, milestone: milestoneContext(milestone) };
+    return { kind: 'planning' as const, runId: run._id, milestone: milestoneContext(milestone, branch) };
   }
   const task = run.taskId ? await ctx.db.get(run.taskId) : null;
   if (!task) return null;
   return {
     kind: 'task' as const,
     runId: run._id,
-    milestone: milestoneContext(milestone),
+    milestone: milestoneContext(milestone, branch),
     task: {
       id: task._id,
       order: (task.milestoneOrder ?? 0) + 1,
@@ -221,7 +233,7 @@ export const claimNext = internalMutation({
           resumed: false,
           kind: 'planning' as const,
           runId,
-          milestone: milestoneContext(planning),
+          milestone: milestoneContext(planning, await branchFor(ctx, planning)),
         };
       }
     }
@@ -351,6 +363,8 @@ export const completeTask = internalMutation({
     status: v.any(),
     commitSha: v.optional(v.any()),
     reason: v.optional(v.any()),
+    /** The milestone's pull request, when the runner opened or found one. */
+    prUrl: v.optional(v.any()),
   },
   handler: async (ctx, args) => {
     const owned = await ownedRun(ctx, args.runnerId, args.runId);
@@ -382,6 +396,8 @@ export const completeTask = internalMutation({
       ...(decision.commitSha ? { lastCommitSha: decision.commitSha } : {}),
       updatedAt: now,
     });
+    const prUrl = pullRequestUrl(args.prUrl);
+    if (prUrl && milestone.prUrl !== prUrl) await ctx.db.patch(milestone._id, { prUrl });
     const order = String((task.milestoneOrder ?? 0) + 1).padStart(2, '0');
     const sha = shortSha(decision.commitSha);
     await writeEvent(ctx, {
@@ -391,7 +407,7 @@ export const completeTask = internalMutation({
       type: decision.status === 'done' ? 'commit' : decision.status === 'blocked' ? 'blocked' : 'failed',
       summary:
         decision.status === 'done'
-          ? `${sha ? `Commit ${sha}` : 'Done'} · ${task.name} · pushed to ${milestoneBranch(milestone.name)}`
+          ? `${sha ? `Commit ${sha}` : 'Done'} · ${task.name} · pushed to ${milestone.branch ?? milestoneBranch(milestone.name)}`
           : decision.status === 'blocked'
             ? `Task ${order} blocked · ${decision.reason}`
             : `Task ${order} went back to To do${decision.reason ? ` · ${decision.reason}` : ''}`,
@@ -558,6 +574,8 @@ export const feedForMilestone = adminQuery({
           }
         : null,
       planning: milestone.planning ?? null,
+      branch: milestone.branch ?? null,
+      prUrl: milestone.prUrl ?? null,
     };
   },
 });

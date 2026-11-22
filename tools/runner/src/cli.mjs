@@ -15,6 +15,7 @@ import {
   parseArgs,
   parsePlan,
   planPrompt,
+  pullRequestBody,
   readEnv,
   taskOutcome,
   taskPrompt,
@@ -78,6 +79,36 @@ function ensureWorktree(repo, branch) {
   return dir;
 }
 
+/**
+ * One pull request per milestone, from the milestone branch into main. Finds
+ * the open one, or opens it. Returns its URL, or null when `gh` is missing or
+ * the call fails: the task still completes, and the GitHub webhook stores the
+ * link when the pull request appears.
+ */
+function ensurePullRequest(dir, work) {
+  const branch = work.milestone.branch;
+  const found = spawnSync('gh', ['pr', 'view', branch, '--json', 'url,state'], { cwd: dir, encoding: 'utf8' });
+  if (found.status === 0) {
+    try {
+      const parsed = JSON.parse(found.stdout);
+      if (parsed.state === 'OPEN' && typeof parsed.url === 'string') return parsed.url;
+    } catch {
+      // Fall through and open one.
+    }
+  }
+  const created = spawnSync(
+    'gh',
+    ['pr', 'create', '--base', 'main', '--head', branch, '--title', work.milestone.name, '--body', pullRequestBody(work)],
+    { cwd: dir, encoding: 'utf8' },
+  );
+  if (created.status !== 0) {
+    say(`No pull request yet: ${(created.stderr ?? '').trim().split('\n')[0] || 'gh failed'}`);
+    return null;
+  }
+  const url = (created.stdout ?? '').trim().split('\n').pop() ?? '';
+  return /^https:\/\/github\.com\//.test(url) ? url : null;
+}
+
 /** Starts the official `claude` CLI and waits for it to exit. */
 function runClaude(config, cwd, prompt, runId) {
   const args = config.mode === 'headless' ? ['-p', prompt] : [prompt];
@@ -124,7 +155,8 @@ async function doTask(config, work) {
       return;
     }
   }
-  const result = await call(config, '/agent/complete', { runId: work.runId, ...outcome });
+  const prUrl = outcome.commitSha ? ensurePullRequest(dir, work) : null;
+  const result = await call(config, '/agent/complete', { runId: work.runId, ...outcome, ...(prUrl ? { prUrl } : {}) });
   say(`Reported ${outcome.status}${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
 }
 

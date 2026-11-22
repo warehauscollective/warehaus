@@ -98,6 +98,7 @@ export const agentHttp = httpAction(async (ctx, request) => {
       status: body.status ?? '',
       ...(body.commitSha !== undefined ? { commitSha: body.commitSha } : {}),
       ...(body.reason !== undefined ? { reason: body.reason } : {}),
+      ...(body.prUrl !== undefined ? { prUrl: body.prUrl } : {}),
     });
     return result.ok ? json(result, 200) : json({ error: result.error }, result.status);
   }
