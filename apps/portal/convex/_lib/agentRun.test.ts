@@ -279,3 +279,36 @@ describe('who can read agent tables', () => {
     assert.match(read('../agentHttp.ts'), /process\.env\.RUNNER_TOKENS/);
   });
 });
+
+describe('queue rules', () => {
+  it('plans any milestone created with no tasks, whatever made it', async () => {
+    const { planningForNewMilestone } = await import('./agentRun');
+    assert.equal(planningForNewMilestone({ taskCount: 0, status: 'Planning' }), true);
+    assert.equal(planningForNewMilestone({ taskCount: 3, status: 'Awaiting Go' }), false);
+    assert.equal(planningForNewMilestone({ taskCount: 0, status: 'Parked' }), false);
+    // Neither create path looks at createdVia to decide.
+    assert.doesNotMatch(read('../milestones.ts'), /createdVia === 'portal' &&/);
+    assert.match(read('../portalApi.ts'), /planningForNewMilestone\(\{ taskCount: proposed\.tasks\.length/);
+  });
+
+  it('keeps one task run per milestone and releases a run whose runner went quiet', async () => {
+    const { runIsStuck, STUCK_RUN_AFTER_MS, tasksWaitingOnPerson } = await import('./agentRun');
+    const agent = read('../agent.ts');
+    assert.match(agent, /withIndex\('by_milestone_status', \(q\) => q\.eq\('milestoneId', milestone\._id\)\.eq\('status', 'running'\)\)/);
+    assert.match(agent, /if \(busy\) continue;/);
+    assert.equal(runIsStuck({ lastSeenAt: 0, startedAt: 0, now: STUCK_RUN_AFTER_MS }), true);
+    assert.equal(runIsStuck({ lastSeenAt: 1000, startedAt: 0, now: 1000 + STUCK_RUN_AFTER_MS - 1 }), false);
+    assert.equal(runIsStuck({ lastSeenAt: null, startedAt: 5000, now: 6000 }), false);
+    const sweep = agent.slice(agent.indexOf('export const releaseStuckRuns'), agent.indexOf('export const feedForMilestone'));
+    // Indexed and capped. No whole-table read.
+    assert.match(sweep, /withIndex\('by_status', \(q\) => q\.eq\('status', 'running'\)\)\s*\.take\(STUCK_RUN_SCAN\)/);
+    assert.doesNotMatch(sweep, /\.collect\(\)/);
+    assert.match(read('../crons.ts'), /internal\.agent\.releaseStuckRuns/);
+    const waiting = tasksWaitingOnPerson([
+      { name: 'Synced', isDone: false, source: 'Client', notionPageId: 'abc' },
+      { name: 'Owned', isDone: false, source: 'portal-milestone' },
+      { name: 'Synced done', isDone: true, source: 'Client', notionPageId: 'def' },
+    ]);
+    assert.deepEqual(waiting.map((task) => task.name), ['Synced']);
+  });
+});

@@ -34,6 +34,8 @@ export type RunFeedModel = {
   planning: 'queued' | 'running' | null;
   branch?: string | null;
   prUrl?: string | null;
+  /** Open tasks the runner will not take. A person has to close them. */
+  waitingOnPerson?: string[];
 };
 
 export type RunFeedState = 'loading' | 'error' | 'empty' | 'live' | 'offline' | 'idle';
@@ -116,6 +118,14 @@ export function MilestoneRunFeed({
                 {`Pull request #${model.prUrl.split('/').pop() ?? ''}`}
               </a>
             ) : null}
+          </p>
+        ) : null}
+        {model?.waitingOnPerson && model.waitingOnPerson.length > 0 ? (
+          <p
+            data-testid="run-feed-waiting"
+            style={{ margin: 0, borderTop: '1px solid var(--border)', padding: '10px 0', fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}
+          >
+            {`Waiting on a person: ${model.waitingOnPerson.join(', ')}. The runner does not take a task that syncs from Notion, so this milestone stays in Building until it is closed.`}
           </p>
         ) : null}
         {state === 'loading' ? (

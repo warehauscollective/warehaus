@@ -68,6 +68,7 @@ import {
 import { currentIteration, NEW_ITERATION_TASK_DONE } from './_lib/milestoneReview';
 import { reviewPreviews } from './_lib/previewLink';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
+import { planningForNewMilestone } from './_lib/agentRun';
 import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
 import { milestoneCloseGate } from './_lib/milestoneClose';
 import {
@@ -716,6 +717,10 @@ export const createMilestone = internalMutation({
       publishToWarehaus: created.milestone.publishToWarehaus,
       createdVia: via.createdVia,
       branch: await uniqueMilestoneBranch(ctx, created.milestone.name),
+      // A bot that sends its own task list skips planning. One that sends none is planned.
+      ...(planningForNewMilestone({ taskCount: proposed.tasks.length, status: created.milestone.status })
+        ? { planning: 'queued' as const }
+        : {}),
     });
     // The milestone and its task list land in one transaction. The tasks are
     // stored in the portal only: no Notion page and no outbox row.
