@@ -3,6 +3,18 @@
 
 export const CURSOR_AGENTS_URL = 'https://api.cursor.com/v0/agents';
 
+/**
+ * Launch body for one Cursor agent on the milestone branch.
+ *
+ * source.ref is the base, and it has to be a ref that already exists. The
+ * current API (v1) cannot name a new branch: the default pushes to a
+ * generated cursor/ branch, and workOnCurrentBranch pushes only to
+ * startingRef. v0 target.branchName asks the agent to create a branch from
+ * source.ref, so a missing milestone ref fails the launch and Retry hits
+ * the same failure. The runner publishes milestone/<slug> from the default
+ * branch first. source.ref stays on that branch, including the first run,
+ * so a later run continues from its tip instead of the default branch.
+ */
 export function cursorCreateBody({ repo, branch, prompt }) {
   return {
     prompt: { text: prompt },

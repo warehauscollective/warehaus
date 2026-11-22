@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
+import { cursorCreateBody } from './drivers/cursor.mjs';
 import {
   childEnv,
   defaultBranchName,
@@ -261,6 +262,18 @@ describe('drivers', () => {
     assert.match(cli, /if \(buildStillRunning\) await sleep\(idleDelayMs\(1\)\)/);
     assert.match(cli, /milestoneBranchOnOrigin/);
     assert.match(cli, /The Cursor agent finished without a Portal-Task trailer/);
+    const publishFn = cli.slice(cli.indexOf('function publishMilestoneBranch'), cli.indexOf('async function doBuild'));
+    assert.match(publishFn, /ensureWorktree\(repo, branch\)/);
+    assert.match(publishFn, /push', '-u', 'origin', branch/);
+    const build = cli.slice(cli.indexOf('async function doBuild'), cli.indexOf('function sleep'));
+    const publish = build.indexOf('publishMilestoneBranch(config.repo, work.milestone.branch)');
+    const launch = build.indexOf('cursorRequest(');
+    assert.equal(publish >= 0 && launch > publish, true);
+    assert.equal(build.includes('The milestone branch is not on origin'), false);
+    const body = cursorCreateBody({ repo: 'warehauscollective/warehaus', branch: 'milestone/launch', prompt: 'Build it' });
+    assert.equal(body.source.ref, 'milestone/launch');
+    assert.equal(body.target.branchName, 'milestone/launch');
+    assert.equal(body.target.autoCreatePr, false);
   });
 
   it('reads a plan from stdout and maps commits by the task trailer', () => {

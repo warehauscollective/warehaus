@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { claimNext, completeTask, recordEvent, reportBuild, retryBlockedWork, writePlannedTasks } from '../agent';
+import { claimNext, completeTask, recordEvent, releaseStuckRuns, reportBuild, retryBlockedWork, writePlannedTasks } from '../agent';
 import { AGENT_DRIVER_LOCKED, setAgentDriver } from '../projects';
 import { PortalAuthError } from './identity';
 import { reviewForApi } from '../milestones';
@@ -406,6 +406,33 @@ describe('cursor build hold and agent lock', () => {
     });
     return { db, rowsOf, orgId, projectId, milestoneId, taskId, otherId };
   }
+
+  it('holds a quiet Cursor build until staff retry, and does not launch another agent', async () => {
+    const { db, rowsOf, milestoneId } = await buildingCursor();
+    const ctx = { db };
+    const claim = await handler<{ kind: string; runId: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    assert.equal(claim.kind, 'build');
+    await db.patch(claim.runId, { startedAt: 1 });
+    const sweep = await handler<{ released: number }>(releaseStuckRuns)(ctx, {});
+    assert.equal(sweep.released, 1);
+    const run = rowsOf('agentRuns').find((row) => row._id === claim.runId);
+    assert.equal(run?.status, 'failed');
+    assert.match(String(run?.blockedReason), /30 minutes/);
+    const task = rowsOf('tasks').find((row) => row.milestoneId === milestoneId && row.status === 'Blocked');
+    assert.equal(task?.blockedReason, 'Runner went quiet for 30 minutes');
+    const notes = () => rowsOf('milestoneNotes').filter((row) => row.needsPeter === 'open' && row.reason === 'blocked' && !row.taskId);
+    assert.equal(notes().length, 1);
+    const again = await handler<{ released: number }>(releaseStuckRuns)(ctx, {});
+    assert.equal(again.released, 0);
+    assert.equal(notes().length, 1);
+    const relaunch = await handler<{ kind: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    assert.equal(relaunch.kind, 'none');
+    const retried = await retryBlockedWork(ctx as never, { milestoneId: milestoneId as never });
+    assert.equal(retried.ok, true);
+    const next = await handler<{ kind: string; runId: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    assert.equal(next.kind, 'build');
+    assert.notEqual(next.runId, claim.runId);
+  });
 
   it('does not relaunch a failed Cursor build until staff retry', async () => {
     const { db, rowsOf, milestoneId, taskId } = await buildingCursor();

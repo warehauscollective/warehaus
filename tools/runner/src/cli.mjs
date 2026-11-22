@@ -235,6 +235,21 @@ function milestoneBranchOnOrigin(repo, branch) {
   return git(repo, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`]).ok;
 }
 
+/** Creates milestone/<slug> from the default branch and pushes it, when origin does not have it yet. */
+function publishMilestoneBranch(repo, branch) {
+  if (!isMilestoneBranch(branch)) return { ok: false, error: 'The milestone branch is not a milestone branch' };
+  if (milestoneBranchOnOrigin(repo, branch)) return { ok: true };
+  let dir;
+  try {
+    dir = ensureWorktree(repo, branch);
+  } catch {
+    return { ok: false, error: 'The milestone branch could not be created' };
+  }
+  const pushed = git(dir, ['push', '-u', 'origin', branch]);
+  if (!pushed.ok || !milestoneBranchOnOrigin(repo, branch)) return { ok: false, error: 'The push to origin failed' };
+  return { ok: true };
+}
+
 async function doBuild(config, work) {
   say(`Cursor · ${work.milestone.name} · ${work.milestone.branch}`);
   const key = (process.env.CURSOR_API_KEY ?? '').trim();
@@ -250,11 +265,12 @@ async function doBuild(config, work) {
   let agentId = work.externalId || '';
   let agentUrl = work.externalUrl || '';
   if (!agentId) {
-    if (!milestoneBranchOnOrigin(config.repo, work.milestone.branch)) {
+    const published = publishMilestoneBranch(config.repo, work.milestone.branch);
+    if (!published.ok) {
       await call(config, '/agent/build', {
         runId: work.runId,
         status: 'failed',
-        reason: 'The milestone branch is not on origin',
+        reason: published.error,
       });
       return 'settled';
     }

@@ -771,10 +771,11 @@ export const failPlanning = internalMutation({
 });
 
 /**
- * Releases runs whose runner went quiet for 30 minutes: the run is cancelled,
- * its task goes back to To do, and the claim is cleared. A planning job goes
- * back in the queue. Reads only running runs, through an index, a few at a
- * time. Called by a cron.
+ * Releases runs whose runner went quiet for 30 minutes. A task run is
+ * cancelled and its task is Blocked. A planning job is blocked for Retry.
+ * A Cursor build uses the same failed hold as a stopped agent, so the next
+ * claim does not start another cloud agent and Retry can clear it. Reads
+ * only running runs, through an index, a few at a time. Called by a cron.
  */
 export const releaseStuckRuns = internalMutation({
   args: {},
@@ -792,8 +793,13 @@ export const releaseStuckRuns = internalMutation({
         .unique();
       if (!runIsStuck({ lastSeenAt: runner?.lastSeenAt, startedAt: run.startedAt, now })) continue;
       const why = 'Runner went quiet for 30 minutes';
-      await ctx.db.patch(run._id, { status: 'cancelled', endedAt: now, blockedReason: why });
       const milestone = await ctx.db.get(run.milestoneId);
+      if (run.kind === 'build' && milestone) {
+        await blockCursorBuild(ctx, run, milestone, run.runnerId, why, now);
+        released += 1;
+        continue;
+      }
+      await ctx.db.patch(run._id, { status: 'cancelled', endedAt: now, blockedReason: why });
       if (run.kind === 'task' && run.taskId) {
         const task = await ctx.db.get(run.taskId);
         if (task && !task.isDone && task.claimedBy === run.runnerId) {
@@ -823,13 +829,6 @@ export const releaseStuckRuns = internalMutation({
         }
       } else if (milestone?.planning === 'running') {
         await ctx.db.patch(milestone._id, { planning: 'blocked', planningBlockedReason: why });
-        await needsPeter(ctx, milestone, {
-          reason: 'blocked',
-          addedBy: `runner:${run.runnerId}`,
-          at: now,
-          body: planningBlockedNote({ milestoneName: milestone.name, reason: why }),
-        });
-      } else if (milestone && run.kind === 'build') {
         await needsPeter(ctx, milestone, {
           reason: 'blocked',
           addedBy: `runner:${run.runnerId}`,
