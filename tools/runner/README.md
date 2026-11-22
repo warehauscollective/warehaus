@@ -23,7 +23,7 @@ Only tasks stored in the Portal are claimed: tasks from the brief, from a change
 
 The runner works one task at a time. It commits straight to the milestone branch. It never merges, never closes a pull request, never deploys, and never pushes any branch but `milestone/<slug>`.
 
-When the pull request merges into `main`, the GitHub webhook moves the milestone to Shipped. Nothing else can set Shipped.
+When the pull request merges into the default branch, the GitHub webhook moves the milestone to Shipped. Staff can also set Shipped when every task that is not Parked is Done. The runner never sets it.
 
 ## Set up
 
