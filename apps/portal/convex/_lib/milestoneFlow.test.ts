@@ -132,7 +132,7 @@ describe('milestone loop, bot to Shipped', () => {
     });
     assert.equal(created.status, 200, JSON.stringify(created.body));
     const milestoneId = created.body.id;
-    assert.equal(created.body.status, 'Awaiting Go');
+    assert.equal(created.body.status, 'Planning');
     assert.equal(created.body.createdVia, 'grok');
     assert.equal(created.body.taskIds.length, 3);
     const milestone = () => rowsOf('milestones').find((row) => row._id === milestoneId) as Row;
@@ -162,7 +162,7 @@ describe('milestone loop, bot to Shipped', () => {
     const early = await handler<{ kind: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
     assert.equal(early.kind, 'none');
 
-    // 2. Peter presses play: Awaiting Go to Building.
+    // 2. Peter presses play until Building. The test sets that status directly.
     const go = transitionMilestone({ from: 'Awaiting Go', cause: 'advance', expected: 'Awaiting Go' });
     assert.equal(go.ok && go.status, 'Building');
     await db.patch(milestoneId, { status: 'Building' });

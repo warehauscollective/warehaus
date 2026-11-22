@@ -1,7 +1,7 @@
 /**
  * Indexed, bounded read of the tasks a milestone close looks at.
  * Same set the roadmap shows, including subtasks that have no milestoneId.
- * Used only when staff set Shipped. No new index.
+ * Used when staff set Shipped and when a merge would ship. No new index.
  */
 
 import type { Id } from '../_generated/dataModel';

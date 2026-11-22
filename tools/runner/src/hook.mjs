@@ -1,7 +1,9 @@
 #!/usr/bin/env node
 // Claude Code hook. Reads the hook payload on stdin and posts one short line
-// to the Portal run feed. It does nothing unless the runner started this
-// session, and it never blocks Claude Code: every failure exits 0.
+// to the Portal run feed. It does nothing unless PORTAL_AGENT_URL, RUNNER_TOKEN,
+// RUNNER_ID and AGENT_RUN_ID are set. The runner does not put RUNNER_TOKEN in
+// the Claude process, so a hook started from that process posts nothing.
+// It never blocks Claude Code: every failure exits 0.
 //
 //   node tools/runner/src/hook.mjs PostToolUse
 

@@ -491,6 +491,14 @@ describe('milestone tools', () => {
     }
     assert.equal(planToolCall('update_milestone', { milestoneId: 'm', status: 'Done', idempotencyKey: 'k' }).ok, false);
     assert.equal(planToolCall('update_milestone', { milestoneId: 'm', status: 'Shipped', idempotencyKey: 'k' }).ok, true);
+    assert.equal(planToolCall('create_milestone', { projectId: 'p', name: 'n', objective: 'o', status: 'Building', idempotencyKey: 'k' }).ok, false);
+    assert.equal(planToolCall('update_milestone', { milestoneId: 'm', status: 'Building', idempotencyKey: 'k' }).ok, false);
+    assert.equal(planToolCall('update_milestone', { milestoneId: 'm', stage: 'Building', idempotencyKey: 'k' }).ok, false);
+    assert.equal(planToolCall('create_milestone', { projectId: 'p', name: 'n', objective: 'x'.repeat(2001), idempotencyKey: 'k' }).ok, false);
+    assert.equal(planToolCall('create_milestone', { projectId: 'p', name: 'n', objective: 'x'.repeat(2000), idempotencyKey: 'k' }).ok, true);
+    const via = planToolCall('create_milestone', { projectId: 'p', name: 'n', objective: 'o', createdVia: 'claude', idempotencyKey: 'k' });
+    assert.equal(via.ok, true);
+    if (via.ok) assert.equal(via.call.body?.createdVia, undefined);
   });
 
   it('refuses a milestone with no name or objective', () => {

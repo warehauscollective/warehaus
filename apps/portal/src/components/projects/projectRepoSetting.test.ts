@@ -4,11 +4,17 @@ import { describe, it } from 'node:test';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import {
+  CLEAR_BODY,
+  CLEAR_CANCEL_HINT,
+  CLEAR_ERROR,
+  CLEAR_TITLE,
   ProjectRepoSettingView,
+  REPO_FIELD_HELP,
   REPO_HELP_SET,
   REPO_HELP_UNSET,
   REPO_STAFF_ONLY,
   REPO_UNSET,
+  SAVE_CANCEL_HINT,
   repoDraftDecision,
 } from './ProjectRepoSetting';
 
@@ -16,6 +22,7 @@ import {
 Object.assign(globalThis, { React });
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+const shown = (text: string) => new RegExp(text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/'/g, "(?:'|&#x27;)"));
 
 describe('project repository setting', () => {
   it('saves a new repository in owner/name form, lower case', () => {
@@ -31,10 +38,10 @@ describe('project repository setting', () => {
     });
   });
 
-  it('writes nothing for the stored value, and clears on empty', () => {
+  it('writes nothing for the stored value, and does not clear on empty', () => {
     assert.deepEqual(repoDraftDecision('a/b', 'A/B'), { ok: true, changed: false });
     assert.deepEqual(repoDraftDecision(null, '   '), { ok: true, changed: false });
-    assert.deepEqual(repoDraftDecision('a/b', ''), { ok: true, changed: true, repo: null });
+    assert.deepEqual(repoDraftDecision('a/b', ''), { ok: true, changed: false });
   });
 
   it('refuses anything that is not owner/name', () => {
@@ -72,5 +79,62 @@ describe('project repository setting', () => {
       assert.equal(block.includes('agentRepo'), false);
     }
     assert.match(projects, /export const setAgentRepo = adminMutation/);
+  });
+
+  const save = async () => undefined;
+  const view = (preview: 'edit' | 'confirm' | 'clearing' | 'clear-error' | 'saving' | 'helper') =>
+    renderToStaticMarkup(
+      createElement(ProjectRepoSettingView, { repo: 'warehauscollective/warehaus', onSave: save, preview }),
+    );
+
+  it('shows a clear button while editing, and the helper', () => {
+    const edit = view('edit');
+    assert.match(edit, /data-testid="project-repo-clear"/);
+    assert.match(edit, /Clear repository/);
+    assert.match(edit, /flex flex-col gap-2 md:flex-row md:items-center/);
+    const clearAt = edit.indexOf('data-testid="project-repo-clear"');
+    const cancelAt = edit.indexOf('data-testid="project-repo-cancel"');
+    assert.ok(clearAt > 0 && clearAt < cancelAt);
+    const helper = view('helper');
+    assert.match(helper, new RegExp(REPO_FIELD_HELP.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.equal(helper.includes('Leave it empty'), false);
+  });
+
+  it('confirms a clear in one centered modal', () => {
+    const html = view('confirm');
+    assert.match(html, /portal-modal-scrim/);
+    assert.equal(html.includes('portal-modal-sheet'), false);
+    assert.match(html, new RegExp(CLEAR_TITLE.replace('?', '\\?')));
+    assert.match(html, new RegExp(CLEAR_BODY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(html, /data-testid="clear-repo-cancel"/);
+    assert.match(html, /data-testid="clear-repo-confirm"/);
+  });
+
+  it('disables cancel while clearing and names the reason', () => {
+    const html = view('clearing');
+    assert.match(html, /Clearing…/);
+    assert.match(html, /aria-disabled="true"/);
+    assert.match(html, /aria-describedby="clear-repo-cancel-hint"/);
+    assert.match(html, shown(CLEAR_CANCEL_HINT));
+    assert.match(html, /id="clear-repo-cancel-hint"/);
+  });
+
+  it('shows the clear error and keeps the retry', () => {
+    const html = view('clear-error');
+    assert.match(html, /data-testid="clear-repo-error"/);
+    assert.match(html, shown(CLEAR_ERROR));
+    assert.match(html, /data-testid="clear-repo-confirm"/);
+    assert.match(html, /Clear repository/);
+    assert.equal(html.includes('Clearing…'), false);
+  });
+
+  it('disables cancel while a new value is saving', () => {
+    const html = view('saving');
+    assert.match(html, /Saving…/);
+    assert.match(html, /aria-disabled="true"/);
+    assert.match(html, /aria-describedby="project-repo-save-hint"/);
+    assert.match(html, shown(SAVE_CANCEL_HINT));
+    assert.equal(html.includes('data-testid="project-repo-clear"'), false);
+    assert.match(html, new RegExp(REPO_FIELD_HELP.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
   });
 });

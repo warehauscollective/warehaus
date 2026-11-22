@@ -55,8 +55,8 @@ import {
   taskOrigin,
 } from './_lib/milestoneTasks';
 import {
+  BOT_STATUS_BUILDING,
   STATUS_EVENT_LIMIT,
-  STATUS_EVENT_SCAN,
   STATUS_NOTE_LIMIT,
   STATUS_REVIEW_LIMIT,
   STATUS_TASK_LIMIT,
@@ -696,14 +696,16 @@ export const createMilestone = internalMutation({
     if (!wanted.ok) return finishIdempotency(ctx, opened.id, fail(400, wanted.reason));
     const proposed = proposedTasksDecision(args.proposedTasks);
     if (!proposed.ok) return finishIdempotency(ctx, opened.id, fail(400, proposed.reason));
-    const via = createdViaDecision({ requested: args.createdVia, tokenName: args.tokenName ?? '' });
-    if (!via.ok) return finishIdempotency(ctx, opened.id, fail(400, via.reason));
+    // A createdVia on the request is ignored. The token name decides.
+    const via = createdViaDecision({ tokenName: args.tokenName ?? '' });
+    const status = statusForBotCreate(wanted.status);
+    if (!status.ok) return finishIdempotency(ctx, opened.id, fail(400, status.reason));
     const created = createMilestoneDecision({
       actor: 'human',
       name: args.name,
       objective: args.objective,
       goals: args.goals,
-      status: statusForBotCreate(wanted.status, proposed.tasks.length),
+      status: status.status,
     });
     if (!created.ok) return finishIdempotency(ctx, opened.id, fail(400, created.reason));
     const milestoneId = await ctx.db.insert('milestones', {
@@ -796,9 +798,9 @@ export const getMilestoneStatus = internalQuery({
       .take(STATUS_NOTE_LIMIT);
     const recent = await ctx.db
       .query('activity')
-      .withIndex('by_orgId_timestamp', (q) => q.eq('orgId', milestone.orgId))
+      .withIndex('by_milestoneId_timestamp', (q) => q.eq('milestoneId', milestone._id))
       .order('desc')
-      .take(STATUS_EVENT_SCAN);
+      .take(STATUS_EVENT_LIMIT);
     const previews = reviewPreviews(milestone);
     return {
       status: 200,
@@ -845,10 +847,7 @@ export const getMilestoneStatus = internalQuery({
           reason: note.reason ?? null,
           needsPeter: note.needsPeter === 'open',
         })),
-        events: recent
-          .filter((row) => row.milestoneId === milestone._id)
-          .slice(0, STATUS_EVENT_LIMIT)
-          .map((row) => ({ type: row.type, summary: row.summary ?? null, at: row.timestamp })),
+        events: recent.map((row) => ({ type: row.type, summary: row.summary ?? null, at: row.timestamp })),
       },
     };
   },
@@ -941,6 +940,7 @@ export const updateMilestone = internalMutation({
     if (!edited.ok) return finishIdempotency(ctx, opened.id, fail(400, edited.reason));
     const wanted = apiStatusInput(args);
     if (!wanted.ok) return finishIdempotency(ctx, opened.id, fail(400, wanted.reason));
+    if (wanted.status === 'Building') return finishIdempotency(ctx, opened.id, fail(400, BOT_STATUS_BUILDING));
     const from = milestone.status;
     let tasksReady = wanted.status !== 'Shipped' || from === 'Shipped';
     if (wanted.status === 'Shipped' && from !== 'Shipped') {
@@ -1565,7 +1565,6 @@ async function dispatchWrite(
     return ctx.runMutation(internal.portalApi.createMilestone, {
       ...actor,
       ...(body.proposedTasks !== undefined ? { proposedTasks: body.proposedTasks } : {}),
-      ...(body.createdVia !== undefined ? { createdVia: body.createdVia } : {}),
       projectId: body.projectId as Id<'projects'>,
       name: String(body.name ?? ''),
       objective: String(body.objective ?? ''),

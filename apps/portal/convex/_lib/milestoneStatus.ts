@@ -102,7 +102,7 @@ export function legacyWorkStatus(status: MilestoneStatus): LegacyWorkStatus {
  * - `advance`: the play button. One step forward.
  * - `approve`: the review result. Needs Ready to Ship and keeps it.
  * - `request_changes`: the review result. Needs Ready to Ship, returns to Building.
- * - `merge`: the pull request merged. Sets Shipped without the task check.
+ * - `merge`: the pull request merged and the caller already passed the close gate. Sets Shipped.
  */
 export type TransitionCause = 'set' | 'advance' | 'approve' | 'request_changes' | 'merge';
 

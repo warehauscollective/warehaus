@@ -17,6 +17,7 @@ import {
   parsePlan,
   planPrompt,
   pullRequestBody,
+  childEnv,
   readEnv,
   repoFromRemote,
   taskOutcome,
@@ -132,14 +133,11 @@ function runClaude(config, cwd, prompt, runId) {
     const child = spawn('claude', args, {
       cwd,
       stdio: 'inherit',
-      env: {
-        ...process.env,
-        // Read by the hook script so its events land on this run.
+      env: childEnv(process.env, {
         PORTAL_AGENT_URL: config.url,
-        RUNNER_TOKEN: config.token,
         RUNNER_ID: config.id,
         AGENT_RUN_ID: runId,
-      },
+      }),
     });
     child.on('error', (error) => {
       say(`Could not start claude: ${error.message}`);

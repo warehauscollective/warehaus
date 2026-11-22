@@ -27,7 +27,7 @@ Cursor posts its agent URL with `add_task_link` and kind `agent`. That kind stay
 
 `move_task_stage` and `update_task` can set stage Shipped. The portal reads the public GitHub pull request once on that write, with no token, and accepts it only for `warehauscollective/warehaus` when that pull request is merged into main. A rate limit or a failed read is rejected. The stage write still uses the task-stage outbox.
 
-`create_milestone` takes `projectId`, `name`, and `objective`. `goals` and `status` are optional. A new milestone cannot start at Shipped. `update_milestone` sends only the fields that change: `name`, `objective`, `goals`, `status`, or `stage`. `status` and `stage` are the one field: Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, or Parked. Shipped is allowed when every task the milestone shows that is not Parked is Done, including a subtask that has no milestone of its own. Archived tasks do not count. `detach_task_from_milestone` removes one task from a milestone and leaves the task on the project. These three use the same bearer token, idempotency key, and activity log as the other write tools.
+`create_milestone` takes `projectId`, `name`, and `objective`. The objective is at most 2000 characters: it is the short brief on the card, and a note can be longer. `goals` and `status` are optional. A new milestone cannot start at Shipped or Building. `update_milestone` sends only the fields that change: `name`, `objective`, `goals`, `status`, or `stage`. `status` and `stage` are the one field: Idea, Planning, Awaiting Go, Ready to Ship, Shipped, or Parked. Building is set in the Portal, by the play button or a request for changes, and the API rejects it. Shipped is allowed when every task the milestone shows that is not Parked is Done, including a subtask that has no milestone of its own. Archived tasks do not count. `detach_task_from_milestone` removes one task from a milestone and leaves the task on the project. These three use the same bearer token, idempotency key, and activity log as the other write tools.
 
 ## Claude Code and Claude Desktop
 
@@ -54,7 +54,7 @@ Claude Desktop uses that block. Claude Code uses the same URL and the same `Auth
 
 A milestone has one field, `status`: `Idea`, `Planning`, `Awaiting Go`, `Building`, `Ready to Ship`, `Shipped`, or `Parked`. Approval is the separate review result in `approval`.
 
-`GET /api/v1/milestones` and `list_milestones` return `status`. `POST /api/v1/milestones` and `POST /api/v1/milestones/update` accept `status`. `stage` and `workStatus` are aliases of that field for one release. A new milestone is `Planning` unless `status` says otherwise. Staff can set Shipped when every task that is not Parked is Done. A new milestone cannot start at Shipped. Sending the stored status again writes nothing.
+`GET /api/v1/milestones` and `list_milestones` return `status`. `POST /api/v1/milestones` and `POST /api/v1/milestones/update` accept `status`. `stage` and `workStatus` are aliases of that field for one release. A new milestone is `Planning` unless `status` says otherwise. Building cannot be set through the API. Staff can set Shipped when every task that is not Parked is Done. A new milestone cannot start at Shipped or Building. Sending the stored status again writes nothing. A merge ships the milestone through that same task check.
 
 ## Milestones and their tasks
 
@@ -66,8 +66,8 @@ To start new work, create the milestone and its task list in one call:
 
 - `create_milestone` (`POST /api/v1/milestones`) takes `projectId`, `name`, `objective`, `goals`, and `proposedTasks`.
 - `proposedTasks` is 3 to 10 concrete tasks, in the order they should be done. Each is `{ title, detail? }`. A plain title string works too. Leave it out to create a milestone with no tasks.
-- With tasks the milestone starts at `Awaiting Go`. With none it starts at `Planning`. A `status` in the call wins.
-- `createdVia` is `grok`, `claude` or `other`. Left out, it is read from the token name. The Portal shows it on the milestone as "via Grok Bot" or "via Claude".
+- The milestone starts at `Planning`. A `status` in the call is kept, except `Building` and `Shipped`.
+- `createdVia` is taken from the token name, not from the request. A token named `grok-bot` or containing `grok` is grok, a name containing `claude` is claude, and anything else is other. The Portal shows it on the milestone as "via Grok Bot" or "via Claude".
 - These tasks are stored in the Portal only. They are not sent to Notion.
 - The result is `{ id, status, createdVia, taskIds }`.
 

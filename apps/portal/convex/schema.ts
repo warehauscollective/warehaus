@@ -561,7 +561,8 @@ export default defineSchema({
     .index('by_orgId', ['orgId'])
     .index('by_orgId_timestamp', ['orgId', 'timestamp'])
     .index('by_orgId_type', ['orgId', 'type'])
-    .index('by_timestamp', ['timestamp']),
+    .index('by_timestamp', ['timestamp'])
+    .index('by_milestoneId_timestamp', ['milestoneId', 'timestamp']),
 
   taskResponses: defineTable({
     orgId: v.id('clients'),

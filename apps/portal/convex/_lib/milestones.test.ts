@@ -13,6 +13,8 @@ import {
   clientMaySeeLinkedResource,
   clientMaySeeMilestone,
   contentEditDecision,
+  MILESTONE_OBJECTIVE_LIMIT,
+  OBJECTIVE_TOO_LONG,
   createMilestoneDecision,
   detachTaskDecision,
   nextMilestoneOrder,
@@ -88,6 +90,22 @@ describe('milestone create', () => {
         { ok: false, reason: 'Objective is required' },
       );
     }
+  });
+
+  it('caps the objective at the card brief length', () => {
+    const objective = 'x'.repeat(MILESTONE_OBJECTIVE_LIMIT + 1);
+    assert.deepEqual(createMilestoneDecision({ actor: 'human', name: 'Launch', objective, goals: [] }), {
+      ok: false,
+      reason: OBJECTIVE_TOO_LONG,
+    });
+    assert.equal(
+      contentEditDecision({ actor: 'human', approval: 'unreviewed', patch: { objective } }).ok,
+      false,
+    );
+    assert.equal(
+      createMilestoneDecision({ actor: 'human', name: 'Launch', objective: 'x'.repeat(MILESTONE_OBJECTIVE_LIMIT), goals: [] }).ok,
+      true,
+    );
   });
 
   it('refuses an approval or a publish flag on create', () => {

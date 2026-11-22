@@ -66,5 +66,5 @@ Not built:
 - A milestone in Building makes progress only while a runner that serves its repository is online.
 - A project with no repository setting gets no runner work at all, including planning. Its milestones wait.
 - A task that syncs from Notion is never claimed. It still counts toward "all tasks done", so it holds the milestone in Building until a person closes it. The run feed names it.
-- Shipped is reached two ways. The GitHub webhook sets it when the milestone's pull request merges into the default branch. Staff can also set it when every task that is not Parked is Done (#128). The play button and the runner never move a milestone to Shipped.
+- A merge ships a milestone only when every task that is not Parked is Done, subtasks included. Peter decided this on 2026-11-22 at 3:20 PM ET. Staff set Shipped through the same gate (#128). The play button and the runner never move a milestone to Shipped.
 - Merging does not deploy. Production still needs Peter's explicit "deploy main".
