@@ -147,7 +147,7 @@ describe('peter and staff preview visibility', () => {
         assert.match(staff, /Delete failed at \d{1,2}:\d{2} [AP]M ET · attempt 2/);
         assert.match(staff, /built /);
         assert.match(staff, /data-testid="review-approved-check"/);
-        assert.match(staff, /Shipped is set automatically on merge/);
+        assert.match(staff, /staff set Shipped when every task that is not Parked is Done/);
       } else {
         assert.match(staff, /data-review-state="couldnt-remove"/);
         assert.match(staff, /remove preview/);
@@ -189,7 +189,7 @@ describe('peter and staff preview visibility', () => {
     assert.match(settled, new RegExp(PREVIEW_REMOVED.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.match(settled, /data-testid="review-approved-check"/);
     assert.match(settled, new RegExp(APPROVED_AWAITING.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    assert.equal(APPROVED_AWAITING, 'Approved · awaiting merge and deploy · Shipped is set automatically on merge');
+    assert.equal(APPROVED_AWAITING, 'Approved · awaiting merge and deploy · staff set Shipped when every task that is not Parked is Done');
     const waitingAttach: ReviewSurfaceModel = { ...base, previewUrl: null };
     assert.equal(card(waitingAttach, { isPeter: false, staffAttach: true }).includes('data-testid="approve-deploy"'), false);
     assert.match(card(waitingAttach, { isPeter: false, staffAttach: true }), /Attach preview link/);
