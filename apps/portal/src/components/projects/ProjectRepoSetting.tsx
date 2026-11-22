@@ -129,7 +129,7 @@ function HeldButton({
 
 function Hint({ id, children }: { id: string; children: ReactNode }) {
   return (
-    <p id={id} style={{ margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)', textAlign: 'right' }}>
+    <p id={id} style={{ alignSelf: 'stretch', margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)', textAlign: 'right' }}>
       {children}
     </p>
   );
