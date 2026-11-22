@@ -38,7 +38,7 @@ import {
 import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, type FixturePatch, lastReviewLabel, resourceAudienceLine, taskTotal, boardTaskCounts, nestedCopy, milestoneDetachOptions, inclusiveProgressCopy, milestoneTasks, fixtureOwnerChoices } from './milestoneTile';
 import { ActivityList } from './roadmapParts';
 import { MoreMenu, EditDialog } from './MilestoneForms';
-import { MilestoneLoopLive, fixtureLoopModel, milestoneLoopSubtitle } from './MilestoneLoop';
+import { MilestoneLoopLive, fixtureLoopModel, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
 import { MilestoneChecklist, type ChecklistActions } from './MilestoneChecklist';
 import { MilestoneRunFeedLive } from './MilestoneRunFeed';
 
@@ -353,11 +353,13 @@ export function MilestoneDetailView({
         alignAction
         testId="milestone-name"
         title={milestone.name}
-        subtitle={
-          (loopPreview ? fixtureLoopModel(loopPreview)?.subtitle : null) ??
-          (staff ? milestoneLoopSubtitle(milestone) : null) ??
-          `Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`
-        }
+        subtitle={(() => {
+          const frame = loopPreview ? fixtureLoopModel(loopPreview) : null;
+          if (frame?.subtitle) return loopSubtitleLine(frame.subtitle, frame.desktopStamp);
+          const live = staff ? milestoneLoopSubtitle(milestone) : null;
+          if (live) return loopSubtitleLine(live.text, live.desktopStamp);
+          return `Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`;
+        })()}
         action={undefined}
       />
       <TabRow

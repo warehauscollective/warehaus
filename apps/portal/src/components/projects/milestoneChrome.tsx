@@ -188,7 +188,7 @@ export function PageHeading({
   alignAction = false,
 }: {
   title: string;
-  subtitle: string;
+  subtitle: ReactNode;
   action?: ReactNode;
   testId?: string;
   /** Desktop title column from the 1440 milestone list. The action sits 24px after it. */

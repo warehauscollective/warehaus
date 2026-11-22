@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type CSSProperties } from 'react';
+import { useState, type CSSProperties, type ReactNode } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -20,6 +20,7 @@ export const LOOP_EMPTY_REASON = 'Add at least one task before moving to Awaitin
 export const LOOP_FAILED_REASON = "Tasks couldn't be drafted. Try again, or add a task yourself.";
 export const LOOP_ADD = 'Add a task to this milestone';
 export const LOOP_ADD_HINT = '↵ to add · Manual';
+export const LOOP_UPDATED = 'Updated just now';
 export const LOOP_DRAFTS = 'All drafts · editable';
 export const LOOP_DRAFT = 'DRAFT';
 
@@ -58,7 +59,10 @@ export type LoopModel = {
   awaitingReason?: string;
   tryAgain: boolean;
   retry: boolean;
+  /** Page subtitle without the desktop-only stamp. */
   subtitle?: string;
+  /** Shown after the subtitle at 1440. Omitted at 390. */
+  desktopStamp?: string;
 };
 
 const TITLES = [
@@ -121,6 +125,8 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       awaiting: 'enabled',
       tryAgain: false,
       retry: false,
+      subtitle: 'Milestone · 6 drafted tasks',
+      desktopStamp: LOOP_UPDATED,
     };
   }
   if (kind === 'empty') {
@@ -154,6 +160,8 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       awaitingReason: LOOP_FAILED_REASON,
       tryAgain: true,
       retry: false,
+      subtitle: "Milestone · Couldn't draft tasks",
+      desktopStamp: LOOP_UPDATED,
     };
   }
   if (kind === 'building' || kind === 'cursor') {
@@ -183,6 +191,8 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       awaiting: 'hidden',
       tryAgain: false,
       retry: false,
+      subtitle: 'Milestone · 3 of 6 tasks done',
+      desktopStamp: LOOP_UPDATED,
     };
   }
   if (kind === 'blocked') {
@@ -275,6 +285,22 @@ function SkeletonRows() {
     </div>
   );
 }
+
+/**
+/** Inline edit ring. A literal blue border, with the browser focus outline off so it cannot paint as --fg. */
+const editField: CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  border: '2px solid #3b82f6',
+  borderRadius: 4,
+  outline: 'none',
+  boxShadow: 'none',
+  background: 'transparent',
+  color: 'var(--fg)',
+  fontSize: 14,
+  lineHeight: '21px',
+  padding: '4px 8px',
+};
 
 /**
  * Staff loop card for Planning and Building. Retry is the only blocked action.
@@ -435,16 +461,7 @@ export function MilestoneLoopView({
                         setEditing(null);
                       }
                     }}
-                    style={{
-                      flex: 1,
-                      border: '2px solid #3b82f6',
-                      borderRadius: 4,
-                      background: 'transparent',
-                      color: 'var(--fg)',
-                      fontSize: 14,
-                      lineHeight: '21px',
-                      padding: '4px 8px',
-                    }}
+                    style={editField}
                   />
                 ) : (
                   <button
@@ -454,18 +471,22 @@ export function MilestoneLoopView({
                       setEditing(task.id);
                       setDraft(task.title);
                     }}
-                    style={{
-                      flex: 1,
-                      textAlign: 'left',
-                      background: 'none',
-                      border: task.editing ? '2px solid #3b82f6' : 0,
-                      borderRadius: 4,
-                      color: 'var(--fg)',
-                      fontSize: 14,
-                      lineHeight: '21px',
-                      padding: task.editing ? '4px 8px' : 0,
-                      cursor: onRename ? 'text' : 'default',
-                    }}
+                    style={
+                      task.editing
+                        ? { ...editField, textAlign: 'left', cursor: onRename ? 'text' : 'default' }
+                        : {
+                            flex: 1,
+                            textAlign: 'left',
+                            background: 'none',
+                            border: 0,
+                            borderRadius: 4,
+                            color: 'var(--fg)',
+                            fontSize: 14,
+                            lineHeight: '21px',
+                            padding: 0,
+                            cursor: onRename ? 'text' : 'default',
+                          }
+                    }
                   >
                     {task.title}
                   </button>
@@ -502,15 +523,41 @@ export function MilestoneLoopView({
                 color: 'var(--muted)',
               }}
             >
-              <span style={{ fontSize: 14 }}>+</span>
-              <input
-                aria-label={LOOP_ADD}
-                value={adding}
-                placeholder={LOOP_ADD}
-                onChange={(event) => setAdding(event.target.value)}
-                style={{ flex: 1, border: 0, background: 'transparent', color: 'var(--fg)', fontSize: 14, lineHeight: '21px', outline: 'none' }}
-              />
-              <span className="ds-mono" style={{ fontSize: 11, lineHeight: '17px', whiteSpace: 'nowrap' }}>
+              <span style={{ flex: '0 0 auto', fontSize: 14 }}>+</span>
+              <span style={{ position: 'relative', flex: '1 1 auto', minWidth: 0 }}>
+                <span
+                  aria-hidden="true"
+                  style={{
+                    display: 'block',
+                    visibility: adding ? 'hidden' : 'visible',
+                    whiteSpace: 'normal',
+                    overflowWrap: 'anywhere',
+                    fontSize: 14,
+                    lineHeight: '21px',
+                    color: 'var(--muted)',
+                  }}
+                >
+                  {LOOP_ADD}
+                </span>
+                <input
+                  aria-label={LOOP_ADD}
+                  value={adding}
+                  onChange={(event) => setAdding(event.target.value)}
+                  style={{
+                    position: 'absolute',
+                    inset: 0,
+                    width: '100%',
+                    border: 0,
+                    padding: 0,
+                    background: 'transparent',
+                    color: 'var(--fg)',
+                    fontSize: 14,
+                    lineHeight: '21px',
+                    outline: 'none',
+                  }}
+                />
+              </span>
+              <span className="ds-mono" style={{ flex: '0 0 auto', fontSize: 11, lineHeight: '17px', whiteSpace: 'nowrap' }}>
                 {LOOP_ADD_HINT}
               </span>
             </form>
@@ -571,9 +618,11 @@ export function liveLoopModel(milestone: MilestoneRoadmapView, progress: Progres
       title: row.name,
       draft: true,
     }));
+    const drafted = `${tasks.length} drafted ${tasks.length === 1 ? 'task' : 'tasks'}`;
     return {
       ...base,
-      heading: `${tasks.length} drafted ${tasks.length === 1 ? 'task' : 'tasks'}`,
+      heading: drafted,
+      subtitle: `Milestone · ${drafted}`,
       tasks,
       awaiting: tasks.length > 0 ? 'enabled' : 'disabled',
       awaitingReason: tasks.length > 0 ? undefined : LOOP_EMPTY_REASON,
@@ -652,21 +701,44 @@ export function liveLoopModel(milestone: MilestoneRoadmapView, progress: Progres
     awaiting: 'hidden',
     tryAgain: false,
     retry: false,
+    subtitle: `Milestone · ${done} of ${total} tasks done`,
+    desktopStamp: LOOP_UPDATED,
   };
 }
 
+/** Desktop reading of the page subtitle, including the 1440 stamp when the frame has one. */
 export function loopSubtitle(model: LoopModel | null): string | null {
-  return model?.subtitle ?? null;
+  if (!model?.subtitle) return null;
+  return model.desktopStamp ? `${model.subtitle} · ${model.desktopStamp}` : model.subtitle;
 }
 
+/** The subtitle, with the stamp in a span that shows only from 1024px up. */
+export function loopSubtitleLine(text: string, stamp?: string): ReactNode {
+  if (!stamp) return text;
+  return (
+    <>
+      {text}
+      <span className="portal-detail-stamp">{` · ${stamp}`}</span>
+    </>
+  );
+}
+
+export type LoopPageSubtitle = { text: string; desktopStamp?: string };
+
 /** Page subtitle for a live milestone. Fixture captures use the frame line instead. */
-export function milestoneLoopSubtitle(milestone: MilestoneRoadmapView): string | null {
+export function milestoneLoopSubtitle(milestone: MilestoneRoadmapView): LoopPageSubtitle | null {
   const rows = milestone.rows.flatMap((row) => [row, ...row.children]);
   if (milestone.status === 'Planning') {
-    if (milestone.planning === 'queued' || milestone.planning === 'running') return 'Milestone · Drafting tasks';
-    if (rows.length === 0 && milestone.planning !== 'blocked') return 'Milestone · No tasks yet';
+    if (milestone.planning === 'queued' || milestone.planning === 'running') return { text: 'Milestone · Drafting tasks' };
+    if (milestone.planning === 'blocked') return { text: "Milestone · Couldn't draft tasks", desktopStamp: LOOP_UPDATED };
+    if (rows.length === 0) return { text: 'Milestone · No tasks yet' };
+    const drafted = `${rows.length} drafted ${rows.length === 1 ? 'task' : 'tasks'}`;
+    return { text: `Milestone · ${drafted}`, desktopStamp: LOOP_UPDATED };
   }
-  if (milestone.status === 'Building' && rows.some((row) => row.blockedReason)) return 'Milestone · Run blocked';
+  if (milestone.status === 'Building') {
+    if (rows.some((row) => row.blockedReason)) return { text: 'Milestone · Run blocked' };
+    return { text: `Milestone · ${milestone.doneCount} of ${rows.length} tasks done`, desktopStamp: LOOP_UPDATED };
+  }
   return null;
 }
 

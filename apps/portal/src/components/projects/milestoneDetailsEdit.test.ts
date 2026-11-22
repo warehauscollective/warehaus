@@ -313,8 +313,10 @@ describe('milestone details panel', () => {
         ],
       },
     });
-    assert.match(html, /2 tasks/);
-    assert.equal(html.includes('3 tasks'), false);
+    assert.match(html, /and its 2 tasks move/);
+    assert.match(html, /2 tasks move with it/);
+    assert.equal(html.includes('3 tasks move'), false);
+    assert.equal(html.includes('Move milestone + 3'), false);
   });
 
   it('hides approval and the review button from a client', () => {
