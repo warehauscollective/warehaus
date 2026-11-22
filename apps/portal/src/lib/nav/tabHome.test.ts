@@ -7,8 +7,10 @@ import {
   allProjectsLeavesDetail,
   isProjectDetailPath,
   leaveProjectDetail,
+  projectStateAfterNav,
   readProjectNav,
   readResourceNav,
+  resourceStateAfterNav,
   runTabHomeClick,
   tabReplaceHref,
 } from './tabHome';
@@ -17,6 +19,20 @@ import {
  * Staff and client share one dock. 1440 is the desktop rail; 390 is the
  * phone menu. Both call the same tab and "All projects" handlers.
  */
+function collect(tab: 'projects' | 'resources', pathname: string, search: string): PortalNavDetail {
+  let detail: PortalNavDetail | null = null;
+  const href = runTabHomeClick({
+    tab,
+    location: { pathname, search },
+    replace: () => undefined,
+    dispatch: (next) => {
+      detail = next;
+    },
+  });
+  if (!href || !detail) throw new Error(`no home event for ${pathname}${search}`);
+  return detail;
+}
+
 const viewers = [
   { audience: 'staff', mode: 'team', width: 1440 },
   { audience: 'staff', mode: 'team', width: 390 },
@@ -128,6 +144,44 @@ for (const viewer of viewers) {
       assert.equal(allProjectsLeavesDetail('/projects', '?project=p-site&taskView=board'), true);
       assert.equal(allProjectsLeavesDetail('/projects', ''), false);
       assert.equal(allProjectsLeavesDetail('/resources', '?resource=r-notes'), false);
+    });
+
+    it('closes the open project and resource when the home event fires', () => {
+      const projectClick = collect('projects', '/projects', '?project=p-site&taskView=board');
+      const project = projectStateAfterNav({ detail: projectClick, search: '', fixtures: true });
+      assert.equal(project.close, true);
+      assert.equal(project.project, null);
+      assert.equal(project.task, null);
+      const kept = projectStateAfterNav({
+        detail: { home: false, project: 'p-site', task: 't-doing' },
+        search: '',
+        fixtures: true,
+      });
+      assert.equal(kept.close, false);
+      assert.equal(kept.project, 'p-site');
+      assert.equal(kept.setFixtureTask, true);
+
+      const resourceClick = collect('resources', '/resources', '?resource=r-notes');
+      const resource = resourceStateAfterNav({ detail: resourceClick, search: '', preview: false });
+      assert.equal(resource.close, true);
+      assert.equal(resource.resource, null);
+      assert.equal(resource.doc, null);
+      const opened = resourceStateAfterNav({
+        detail: { home: false, resource: 'r-notes', doc: null },
+        search: '',
+        preview: false,
+      });
+      assert.equal(opened.close, false);
+      assert.equal(opened.resource, 'r-notes');
+    });
+
+    it('sends a milestone open on the project page to the Projects home', () => {
+      const detail = collect('projects', '/projects/p-site', '');
+      assert.equal(detail.home, true);
+      assert.equal(detail.project, null);
+      const state = projectStateAfterNav({ detail, search: '', fixtures: false });
+      assert.equal(state.close, true);
+      assert.equal(state.project, null);
     });
 
     it('returns a list-opened project and resource to that tab home', () => {

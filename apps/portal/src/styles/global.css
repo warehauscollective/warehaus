@@ -657,11 +657,11 @@ body:has([data-sheet-layer='viewport']) [data-testid='portal-dock'] {
   visibility: hidden;
   pointer-events: none;
 }
-/* A centered dialog clears the dock, but its scrim is above z-50, so a tab
-   click never arrives. Lift the dock for that dialog. A bottom sheet still
-   hides the dock, and the phone menu stays above it. */
-body:has(.portal-modal-scrim):not(:has([data-sheet-layer='viewport'])):not(:has(#menu-sheet)) [data-testid='portal-dock'] {
-  z-index: 120;
+/* The task dialog scrim is z-index 80. Lift the dock just above that one
+   scrim so Projects can be clicked. Any other scrim (a confirm, search,
+   approval) keeps the dock under the blur. A bottom sheet still hides it. */
+body:has([data-dock-layer='task']):not(:has(.portal-modal-scrim:not([data-dock-layer='task']))) [data-testid='portal-dock'] {
+  z-index: 81;
 }
 @media (min-width: 768px) {
   .ds-scope .portal-modal-panel.portal-modal-sheet.portal-modal-sheet-desktop {

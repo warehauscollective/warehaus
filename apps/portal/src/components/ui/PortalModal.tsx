@@ -58,6 +58,7 @@ export function PortalModal({
   blueFocus = false,
   align = 'center',
   scroll = true,
+  dockLayer,
 }: {
   testId?: string;
   scrimTestId?: string;
@@ -101,6 +102,11 @@ export function PortalModal({
   align?: 'center' | 'start';
   /** Search scrolls its own results. Other dialogs scroll the body. */
   scroll?: boolean;
+  /**
+   * Set only on the task dialog. The dock rises above that one scrim.
+   * Every other dialog leaves the dock under the blur.
+   */
+  dockLayer?: 'task';
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -196,6 +202,7 @@ export function PortalModal({
       hidden={hidden || undefined}
       className={hidden ? undefined : 'ds-scope portal-modal-scrim'}
       data-portal-scrim={hidden ? undefined : ''}
+      data-dock-layer={hidden || !dockLayer ? undefined : dockLayer}
       data-sheet-layer={hidden || cover || !isSheet ? undefined : 'viewport'}
       data-testid={hidden ? undefined : scrimTestId}
       onClick={() => {

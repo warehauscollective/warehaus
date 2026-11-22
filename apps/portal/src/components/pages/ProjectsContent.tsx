@@ -51,7 +51,7 @@ import {
 import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam, setSearchParams } from '@/lib/nav/clearSearchParam';
-import { isProjectDetailPath, leaveProjectDetail, readProjectNav } from '@/lib/nav/tabHome';
+import { isProjectDetailPath, leaveProjectDetail, projectStateAfterNav } from '@/lib/nav/tabHome';
 import { keepProjectWhileLoading, readTaskListView } from '@/lib/nav/taskListLocation';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
 import { clearPortalReturn, peekPortalReturn, takePortalReturn, taskCloseLabel } from '@/lib/nav/portalReturn';
@@ -123,15 +123,15 @@ export function ProjectsContent() {
     const apply = (event?: Event) => {
       const detail = event ? portalNavDetail(event) : null;
       const params = new URLSearchParams(window.location.search);
-      const nav = readProjectNav({ detail, search: window.location.search });
-      if (nav.home) {
+      const nav = projectStateAfterNav({ detail, search: window.location.search, fixtures });
+      if (nav.close) {
         setOpenId(null);
         setFixtureTaskId(null);
         return;
       }
       if (nav.project) setOpenId(nav.project);
       if (params.has('taskView')) setTaskView(readTaskListView(params.get('taskView')));
-      if (fixtures && (detail || nav.task)) setFixtureTaskId(nav.task);
+      if (nav.setFixtureTask) setFixtureTaskId(nav.task);
     };
     apply();
     window.addEventListener('wh-portal-nav', apply);

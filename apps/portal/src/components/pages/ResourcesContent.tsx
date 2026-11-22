@@ -37,7 +37,7 @@ import {
   type ResourceListFilter,
 } from '@/lib/data/resourceList';
 import { openPortalHref, portalNavDetail } from '@/lib/nav/openPortalHref';
-import { readResourceNav } from '@/lib/nav/tabHome';
+import { resourceStateAfterNav } from '@/lib/nav/tabHome';
 
 type ResourceScreen = 'ready' | 'empty' | 'loading' | 'error' | 'long';
 
@@ -369,8 +369,8 @@ export function ResourcesContent() {
       const detail = event ? portalNavDetail(event) : null;
       if (event && !detail) return;
       const preview = window.location.pathname.startsWith('/preview');
-      const nav = readResourceNav({ detail, search: window.location.search, preview });
-      if (nav.home) {
+      const nav = resourceStateAfterNav({ detail, search: window.location.search, preview });
+      if (nav.close) {
         setOpenResourceId(null);
         setNavDocId(null);
         return;

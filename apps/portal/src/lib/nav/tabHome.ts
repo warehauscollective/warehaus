@@ -159,3 +159,30 @@ export function readResourceNav(input: {
     doc: input.detail ? input.detail.doc : input.preview ? params.get('doc') : null,
   };
 }
+
+/** Projects page state after one nav event. `close` drops the open project. */
+export function projectStateAfterNav(input: {
+  detail: Pick<PortalNavDetail, 'home' | 'project' | 'task'> | null;
+  search: string;
+  fixtures: boolean;
+}): { close: boolean; project: string | null; task: string | null; setFixtureTask: boolean } {
+  const nav = readProjectNav({ detail: input.detail, search: input.search });
+  if (nav.home) return { close: true, project: null, task: null, setFixtureTask: false };
+  return {
+    close: false,
+    project: nav.project,
+    task: nav.task,
+    setFixtureTask: input.fixtures && Boolean(input.detail || nav.task),
+  };
+}
+
+/** Resources page state after one nav event. `close` drops the open resource. */
+export function resourceStateAfterNav(input: {
+  detail: Pick<PortalNavDetail, 'home' | 'resource' | 'doc'> | null;
+  search: string;
+  preview: boolean;
+}): { close: boolean; resource: string | null; doc: string | null } {
+  const nav = readResourceNav({ detail: input.detail, search: input.search, preview: input.preview });
+  if (nav.home) return { close: true, resource: null, doc: null };
+  return { close: false, resource: nav.resource, doc: nav.doc };
+}

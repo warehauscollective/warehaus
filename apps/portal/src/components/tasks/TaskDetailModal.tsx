@@ -742,6 +742,7 @@ export function TaskDetailModal({
                 narrow={phone}
                 sheet="bottom"
                 width={840}
+                dockLayer="task"
                 hidden={!sheets.detail}
                 panelStyle={phone ? { padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' } : { padding: 24 }}
               >
