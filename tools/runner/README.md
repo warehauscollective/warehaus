@@ -12,10 +12,10 @@ It has no model API key. It never reads or forwards a Claude sign-in. The only p
    - a **planning job**: a milestone made in the Portal with no tasks yet
    - a **task**: the lowest-order To do task on the oldest milestone whose status is Building
    - nothing
-2. Makes sure a git worktree exists for the milestone branch, `milestone/<slug>`, in `../warehaus-runner/` beside this repository. A new branch starts from `origin/main`.
+2. Makes sure a git worktree exists for the milestone branch, `milestone/<slug>`, in `../warehaus-runner/` beside this repository. A new branch starts from the repository's default branch.
 3. Starts `claude` in that worktree with the prompt from `prompts/`.
 4. When Claude Code exits:
-   - **task**: if there is a new commit, pushes the branch, makes sure the milestone has its one pull request into `main` (`gh pr create` when there is none), and reports `done` with the commit. With no new commit the task goes back to To do. If Claude wrote `.runner/blocked.txt`, the task is reported `blocked` with that line.
+   - **task**: if there is a new commit, pushes the branch, makes sure the milestone has its one pull request into the default branch (`gh pr create` when there is none), and reports `done` with the commit. With no new commit the task goes back to To do. If Claude wrote `.runner/blocked.txt`, the task is reported `blocked` with that line.
    - **planning**: reads `.runner/plan.json` and posts the 3 to 10 tasks to `POST /agent/tasks`.
 5. When the last task on a milestone is done, the Portal moves the milestone to Ready to Ship, stores the local preview link so Approve unlocks, and leaves a "needs Peter" note with the pull request, the local preview command and the approval line. A blocked task leaves a note too. Grok Bot reads open notes with the `list_needs_peter` tool.
 
@@ -23,7 +23,7 @@ Only tasks stored in the Portal are claimed: tasks from the brief, from a change
 
 The runner works one task at a time. It commits straight to the milestone branch. It never merges, never closes a pull request, never deploys, and never pushes any branch but `milestone/<slug>`.
 
-When the pull request merges into `main`, the GitHub webhook moves the milestone to Shipped. Nothing else can set Shipped.
+When the pull request merges into the default branch, the GitHub webhook moves the milestone to Shipped. Staff can also set Shipped when every task that is not Parked is Done. The runner never sets it.
 
 ## Set up
 

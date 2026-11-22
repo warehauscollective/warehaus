@@ -23,6 +23,7 @@ import {
   MERGE_REVIEW_STAGE,
   decideGitHubWebhook,
   decideVercelWebhook,
+  inboundRepoMatches,
   deliveryClaimId,
   linkWriteAction,
   notionIdVariants,
@@ -52,13 +53,20 @@ const milestoneValidator = v.union(
   v.object({
     kind: v.literal('pull'),
     branch: v.string(),
+    repo: v.string(),
     prUrl: v.string(),
     prNumber: v.number(),
     prTitle: v.optional(v.string()),
     sha: v.string(),
     merged: v.boolean(),
   }),
-  v.object({ kind: v.literal('deploy'), branch: v.string(), url: v.string(), sha: v.string() }),
+  v.object({
+    kind: v.literal('deploy'),
+    branch: v.string(),
+    url: v.string(),
+    sha: v.string(),
+    repo: v.optional(v.string()),
+  }),
 );
 
 type ApplyResult = {
@@ -213,6 +221,9 @@ async function applyMilestoneInbound(
     .withIndex('by_branch', (q) => q.eq('branch', inbound.branch))
     .first();
   if (!milestone) return { wrote: false, shipped: false };
+  // The same branch name in another repository is not this milestone.
+  const project = await ctx.db.get(milestone.projectId);
+  if (!inboundRepoMatches(project?.agentRepo, inbound.repo)) return { wrote: false, shipped: false };
 
   if (inbound.kind === 'deploy') {
     const checked = assertStaffPreviewLink(inbound.url);

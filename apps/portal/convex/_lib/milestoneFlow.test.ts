@@ -298,6 +298,7 @@ describe('milestone loop, bot to Shipped', () => {
       milestone: {
         kind: 'pull',
         branch: 'milestone/client-experience-launch',
+        repo: 'WarehausCollective/warehaus',
         prUrl: 'https://github.com/warehauscollective/warehaus/pull/140',
         prNumber: 140,
         sha: SHA,

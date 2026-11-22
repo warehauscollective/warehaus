@@ -226,3 +226,15 @@ export function repoFromRemote(url) {
   const match = /github\.com[:/]([A-Za-z0-9-]+\/[A-Za-z0-9._-]+?)(?:\.git)?\/?$/.exec(String(url ?? '').trim());
   return match ? match[1].toLowerCase() : null;
 }
+
+/**
+ * The default branch name from `git symbolic-ref --short refs/remotes/origin/HEAD`
+ * (`origin/main`), or from `gh repo view`. Falls back to main when neither says.
+ */
+export function defaultBranchName(symbolicRef, ghName) {
+  const fromGit = /^origin\/([A-Za-z0-9._/-]+)$/.exec(String(symbolicRef ?? '').trim());
+  if (fromGit && !fromGit[1].includes('..')) return fromGit[1];
+  const fromGh = String(ghName ?? '').trim();
+  if (/^[A-Za-z0-9._/-]+$/.test(fromGh) && !fromGh.includes('..')) return fromGh;
+  return 'main';
+}

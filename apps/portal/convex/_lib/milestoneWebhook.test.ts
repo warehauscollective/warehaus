@@ -6,6 +6,7 @@ import {
   decideGitHubWebhook,
   decideVercelWebhook,
   githubSignatureHeader,
+  inboundRepoMatches,
   isMilestoneBranch,
   vercelBranchUrl,
   vercelSignatureHeader,
@@ -20,9 +21,10 @@ const BRANCH = 'milestone/client-experience-launch';
 type Row = Record<string, unknown> & { _id: string };
 
 /** A small in-memory stand-in for the tables the webhook mutation touches. */
-function fakeDb(seed: { milestones: Row[] }) {
+function fakeDb(seed: { milestones: Row[]; projects?: Row[] }) {
   const tables: Record<string, Row[]> = {
     milestones: seed.milestones,
+    projects: seed.projects ?? [],
     syncEvents: [],
     syncMeta: [],
     activity: [],
@@ -32,6 +34,13 @@ function fakeDb(seed: { milestones: Row[] }) {
   };
   let next = 1;
   const db = {
+    get: async (id: string) => {
+      for (const rows of Object.values(tables)) {
+        const row = rows.find((item) => item._id === id);
+        if (row) return row;
+      }
+      return null;
+    },
     query: (table: string) => ({
       withIndex: (_index: string, range: (q: { eq: (field: string, value: unknown) => unknown }) => unknown) => {
         const wanted: Array<[string, unknown]> = [];
@@ -125,6 +134,7 @@ describe('milestone branch on a pull request', () => {
     assert.deepEqual(plan.milestone, {
       kind: 'pull',
       branch: BRANCH,
+      repo: 'warehauscollective/warehaus',
       prUrl: 'https://github.com/warehauscollective/warehaus/pull/140',
       prNumber: 140,
       prTitle: 'Client experience launch',
@@ -218,6 +228,48 @@ describe('merge sets Shipped', () => {
     assert.equal(milestone?.previewPrNumber, 140);
     assert.equal(milestone?.previewCommit, SHA);
     assert.equal(tables.activity?.length, 0);
+  });
+});
+
+describe('the repository has to match', () => {
+  const project = (agentRepo?: string): Row => ({ _id: 'project', ...(agentRepo ? { agentRepo } : {}) });
+
+  it('does not ship a milestone for a merge of the same branch name in another repository', async () => {
+    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [project('someone/other-repo')] });
+    const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
+    if (plan.action !== 'apply') throw new Error('expected apply');
+    const result = await apply({ db }, plan);
+    assert.equal(result.wrote, false);
+    assert.equal(tables.milestones?.[0]?.status, 'Ready to Ship');
+    assert.equal(tables.milestones?.[0]?.prUrl, undefined);
+    assert.equal(tables.activity?.length, 0);
+    assert.equal(tables.syncEvents?.length, 0);
+  });
+
+  it('ships when the repository matches, whatever the letter case', async () => {
+    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [project('WarehausCollective/Warehaus')] });
+    const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
+    if (plan.action !== 'apply') throw new Error('expected apply');
+    const result = await apply({ db }, plan);
+    assert.equal(result.shipped, true);
+    assert.equal(tables.milestones?.[0]?.status, 'Shipped');
+  });
+
+  it('keeps matching by branch alone for a project with no repository set', async () => {
+    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [project()] });
+    const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
+    if (plan.action !== 'apply') throw new Error('expected apply');
+    const result = await apply({ db }, plan);
+    assert.equal(result.shipped, true);
+    assert.equal(tables.milestones?.[0]?.status, 'Shipped');
+  });
+
+  it('compares the two names and nothing else', () => {
+    assert.equal(inboundRepoMatches('a/b', 'A/B'), true);
+    assert.equal(inboundRepoMatches('a/b', 'a/c'), false);
+    assert.equal(inboundRepoMatches('a/b', undefined), false);
+    assert.equal(inboundRepoMatches(null, 'a/c'), true);
+    assert.equal(inboundRepoMatches('', undefined), true);
   });
 });
 
