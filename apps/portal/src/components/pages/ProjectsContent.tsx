@@ -51,6 +51,7 @@ import {
 import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam, setSearchParams } from '@/lib/nav/clearSearchParam';
+import { CLOSE_TASK_FOR_SEARCH, leaveTaskForSearch } from '@/lib/nav/dockLayer';
 import { isProjectDetailPath, leaveProjectDetail, projectStateAfterNav } from '@/lib/nav/tabHome';
 import { keepProjectWhileLoading, readTaskListView } from '@/lib/nav/taskListLocation';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
@@ -231,6 +232,20 @@ export function ProjectsContent() {
   const selectedId = route.view === 'board' ? route.projectId : openId;
   const openProject = selectedId ? projects.find((project) => project.id === selectedId) ?? null : null;
   const routeTaskId = route.view === 'board' ? route.taskId : null;
+  const routeProjectId = route.view === 'board' ? route.projectId : null;
+  useEffect(() => {
+    const onSwap = () => {
+      setFixtureTaskId(null);
+      const next = leaveTaskForSearch({
+        pathname: window.location.pathname,
+        search: window.location.search,
+        projectId: routeProjectId,
+      });
+      if (next) router.replace(next);
+    };
+    window.addEventListener(CLOSE_TASK_FOR_SEARCH, onSwap);
+    return () => window.removeEventListener(CLOSE_TASK_FOR_SEARCH, onSwap);
+  }, [routeProjectId, router]);
   const leadPeople = useSafeQuery<Array<{ name: string; role?: string | null }>>(
     api.contacts.listForOrg,
     !fixtures && configured && isStaff && openProject?.orgId

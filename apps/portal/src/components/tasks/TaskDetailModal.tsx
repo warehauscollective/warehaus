@@ -7,6 +7,7 @@ import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import { TASK_STAGES, TASK_UNAVAILABLE, taskDescriptionEditMode, type TaskLinkKind } from '@warehaus/portal-sync';
 import { PortalModal, PortalModalStack } from '@/components/ui/PortalModal';
+import { CLOSE_TASK_FOR_SEARCH, TASK_DIALOG_MAX_HEIGHT } from '@/lib/nav/dockLayer';
 import { DueDateMenu, FieldError, OwnerMenu, Popover, ProjectMenu, type MoveTarget, type OwnerChoice } from '@/components/projects/milestoneDetailsEdit';
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton, StatusBadge } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
@@ -317,6 +318,12 @@ export function TaskDetailModal({
     );
     chip?.focus({ preventScroll: true });
   }, [stageConfirm]);
+  const [replacedBySearch, setReplacedBySearch] = useState(false);
+  useEffect(() => {
+    const onSwap = () => setReplacedBySearch(true);
+    window.addEventListener(CLOSE_TASK_FOR_SEARCH, onSwap);
+    return () => window.removeEventListener(CLOSE_TASK_FOR_SEARCH, onSwap);
+  }, []);
   const saveStage = (stage: string) => {
     if (!live || !task?.lastEditedTime) return;
     const request = {
@@ -727,6 +734,8 @@ export function TaskDetailModal({
     </>
   );
 
+  if (replacedBySearch) return null;
+
   return (
     <PortalModalStack
         frames={[
@@ -744,6 +753,7 @@ export function TaskDetailModal({
                 width={840}
                 dockLayer="task"
                 hidden={!sheets.detail}
+                maxHeight={phone ? undefined : TASK_DIALOG_MAX_HEIGHT}
                 panelStyle={phone ? { padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' } : { padding: 24 }}
               >
                 {detail}

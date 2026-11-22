@@ -15,6 +15,7 @@ import { isConvexConfigured } from '@/lib/convex/client';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
 import { staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
+import { CLOSE_TASK_FOR_SEARCH, openSearchFromDock, taskDialogIsOpen } from '@/lib/nav/dockLayer';
 import { openPortalHref } from '@/lib/nav/openPortalHref';
 import { SEARCH_NO_RESULTS_COPY } from '@/lib/search/noResultsCopy';
 import { searchFixtures } from '@/lib/search/fixtureSearch';
@@ -322,10 +323,17 @@ export function PortalSearch() {
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    const swapToSearch = (trigger: HTMLElement | null) => {
+      openSearchFromDock({
+        taskOpen: taskDialogIsOpen(),
+        closeTask: () => window.dispatchEvent(new CustomEvent(CLOSE_TASK_FOR_SEARCH)),
+        openSearch: () => openSearch(trigger),
+      });
+    };
     const initial = params.get('q');
     if (initial) {
       setQuery(initial);
-      openSearch(null);
+      swapToSearch(null);
     } else if (window.location.pathname === '/preview' && params.get('fixture') === 'search') {
       openSearch(document.body);
     }
@@ -333,24 +341,21 @@ export function PortalSearch() {
       const detail = event instanceof CustomEvent ? event.detail : null;
       const trigger = detail?.trigger;
       if (typeof detail?.query === 'string') setQuery(detail.query);
-      openSearch(trigger instanceof HTMLElement ? trigger : null);
+      swapToSearch(trigger instanceof HTMLElement ? trigger : null);
     };
     const onKey = (event: KeyboardEvent) => {
       if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        setOpen((current) => {
-          if (current) {
-            const trigger = triggerRef.current;
-            triggerRef.current = null;
-            clearSearchParam('q');
-            window.requestAnimationFrame(() => trigger?.focus({ preventScroll: true }));
-            return false;
-          }
-          triggerRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
-          setScope('all');
-          setRecents(loadRecents());
-          return true;
-        });
+        if (document.querySelector('[data-testid="portal-search"]')) {
+          const trigger = triggerRef.current;
+          triggerRef.current = null;
+          clearSearchParam('q');
+          setOpen(false);
+          window.requestAnimationFrame(() => trigger?.focus({ preventScroll: true }));
+          return;
+        }
+        const trigger = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+        swapToSearch(trigger);
       }
     };
     window.addEventListener('wh-open-search', onOpen);
