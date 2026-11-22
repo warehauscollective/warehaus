@@ -248,6 +248,8 @@ describe('sidebar toggle labels', () => {
       return createElement(
         'div',
         null,
+        // createElement's extra-child overload rejects a component whose props require children.
+        // eslint-disable-next-line react/no-children-prop
         createElement(SidebarUserHarness, {
           userId,
           pending: userId === null,
