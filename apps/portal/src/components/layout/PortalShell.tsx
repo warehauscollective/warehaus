@@ -12,14 +12,27 @@ import { PortalSearch } from '@/components/search/PortalSearch';
 import { PortalToastLive } from '@/components/ui/PortalToast';
 import { PortalDock } from './PortalDock';
 import { PortalSwipeWorkspace } from './PortalSwipeWorkspace';
+import { SIDEBAR_COLLAPSE_MIN_PX, sidebarRailWidth } from './sidebarCollapse';
+import { SidebarUserProvider } from './sidebarUser';
 
 function PortalChrome({ children }: { children: ReactNode }) {
   useEffect(() => {
     const root = document.documentElement;
     root.style.setProperty('--portal-panel-gap', PORTAL_PANEL_GAP);
     root.style.setProperty('--portal-col-gap', PORTAL_PANEL_GAP);
-    root.style.setProperty('--portal-rail-w', '0px');
+    const media = window.matchMedia(`(min-width: ${SIDEBAR_COLLAPSE_MIN_PX}px)`);
+    const syncRail = () => {
+      const collapsed = root.dataset.sidebar === 'collapsed';
+      const rail = sidebarRailWidth(collapsed ? 'collapsed' : 'expanded', media.matches ? SIDEBAR_COLLAPSE_MIN_PX : 0);
+      root.style.setProperty('--portal-rail-w', `${rail}px`);
+    };
+    syncRail();
+    const observer = new MutationObserver(syncRail);
+    observer.observe(root, { attributes: true, attributeFilter: ['data-sidebar'] });
+    media.addEventListener('change', syncRail);
     return () => {
+      observer.disconnect();
+      media.removeEventListener('change', syncRail);
       root.style.removeProperty('--portal-panel-gap');
       root.style.removeProperty('--portal-col-gap');
       root.style.removeProperty('--portal-rail-w');
@@ -52,7 +65,9 @@ export function PortalShell({
       <PortalDataRetryProvider>
         <PortalTabProvider>
           <PortalViewProvider>
-            <PortalChrome>{children}</PortalChrome>
+            <SidebarUserProvider>
+              <PortalChrome>{children}</PortalChrome>
+            </SidebarUserProvider>
           </PortalViewProvider>
         </PortalTabProvider>
       </PortalDataRetryProvider>

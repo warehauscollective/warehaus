@@ -4,20 +4,79 @@ import { useEffect } from 'react';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
+import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { usePortalData } from '@/hooks/usePortalData';
+import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { MobileMenu } from './MobileMenu';
 import { sidebarItemStyle } from './sidebarItemChrome';
+import { applySidebarDataset, readSidebarMode, sidebarCollapseKey, type SidebarMode } from './sidebarCollapse';
+import { useSidebarUser } from './sidebarUser';
+
+const COLLAPSE_LABEL = 'Collapse sidebar';
+const EXPAND_LABEL = 'Expand sidebar';
+
+export function SidebarCollapseToggle({ tipId }: { tipId: string }) {
+  const { commitMode } = useSidebarUser();
+
+  function toggle() {
+    const collapsed = document.documentElement.dataset.sidebar === 'collapsed';
+    const next: SidebarMode = collapsed ? 'expanded' : 'collapsed';
+    commitMode(next);
+  }
+
+  return (
+    <>
+      <button
+        type="button"
+        className="sidebar-toggle sidebar-collapse"
+        aria-label={COLLAPSE_LABEL}
+        aria-expanded={true}
+        onClick={toggle}
+      >
+        <TaskGlyph src="/icons/sidebar-menu.svg" size={16} />
+      </button>
+      <button
+        type="button"
+        className="sidebar-toggle sidebar-expand"
+        aria-label={EXPAND_LABEL}
+        aria-expanded={false}
+        aria-describedby={tipId}
+        onClick={toggle}
+      >
+        <span className="sidebar-chev">
+          <TaskGlyph src="/icons/docs-chev.svg" size={16} />
+        </span>
+      </button>
+      <span id={tipId} className="sidebar-expand-tip" role="tooltip">
+        Expand sidebar
+      </span>
+    </>
+  );
+}
 
 /**
- * In-flow section rail for one swipe tab.
- * Lives inside the tab panel so it scrolls/swipes away with that page —
- * not a fixed shell chrome.
+ * Section rail for one swipe tab.
+ * From 1024px a saved collapse turns the active tab's rail into a floating
+ * wordmark chip. The selected section stays in state while the chip is up.
  */
 export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
   const { sectionFor, setSectionFor } = usePortalView();
+  const { activeTab } = usePortalTab();
   const { data } = usePortalData();
+  const { userId } = useSidebarUser();
   const sections = getPortalSidebarSections(tab, data.tenant.mode);
   const activeSection = sectionFor(tab);
+  const tipId = `sidebar-expand-tip-${tab}`;
+
+  useEffect(() => {
+    function onStorage(event: StorageEvent) {
+      if (!userId) return;
+      if (event.key !== null && event.key !== sidebarCollapseKey(userId)) return;
+      applySidebarDataset(readSidebarMode(window.localStorage, userId));
+    }
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
+  }, [userId]);
 
   useEffect(() => {
     if (sections.length > 0 && !sections.some((section) => section.key === activeSection)) {
@@ -28,6 +87,11 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
 
   if (sections.length === 0) return null;
 
+  const level =
+    data.tenant.mode === 'client'
+      ? `${data.tenant.clientName ?? 'Portal'} / ${tab}`
+      : `Portal / ${tab}`;
+
   return (
     <>
       <MobileMenu
@@ -37,10 +101,10 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         onSelect={(key) => setSectionFor(tab, key)}
       />
 
-      {/* Desktop: floating wordmark card (Figma 284:8408). No bar mark, no swoop. */}
       <nav
         aria-label={`${tab} sections`}
         data-testid="portal-sidebar"
+        data-sidebar-active={activeTab === tab ? 'true' : 'false'}
         className="hidden w-[244px] shrink-0 flex-col self-start overflow-y-auto lg:flex"
         style={{
           background: 'var(--surface)',
@@ -50,24 +114,20 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
           gap: 4,
         }}
       >
-        <div
-          className="flex w-full items-center justify-between"
-          style={{ padding: '8px 12px' }}
-        >
+        <div className="sidebar-header flex w-full items-center justify-between">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             alt="warehaus"
             src="/icons/wordmark.svg"
             width={91.6264}
             height={12.4073}
-            className="portal-wordmark"
+            className="portal-wordmark sidebar-wordmark"
           />
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img alt="" src="/icons/sidebar-menu.svg" width={16} height={16} />
+          <SidebarCollapseToggle tipId={tipId} />
         </div>
-        <div className="flex w-full flex-col" style={{ paddingTop: 9, gap: 4 }}>
+        <div className="sidebar-body flex w-full flex-col" style={{ paddingTop: 9, gap: 4 }}>
           <p
-            className="ds-mono"
+            className="sidebar-level ds-mono"
             style={{
               fontSize: 11,
               letterSpacing: '0.88px',
@@ -76,9 +136,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
               textTransform: 'uppercase',
             }}
           >
-            {data.tenant.mode === 'client'
-              ? `${data.tenant.clientName ?? 'Portal'} / ${tab}`
-              : `Portal / ${tab}`}
+            {level}
           </p>
           {sections.map((s) => {
             const active = activeSection === s.key;
@@ -88,10 +146,10 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
                 type="button"
                 onClick={() => setSectionFor(tab, s.key)}
                 aria-current={active ? 'true' : undefined}
-                className="w-full text-left"
+                className="sidebar-item flex w-full items-center text-left"
                 style={sidebarItemStyle(active)}
               >
-                {s.label}
+                <span className="sidebar-item-label">{s.label}</span>
               </button>
             );
           })}

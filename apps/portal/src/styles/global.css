@@ -208,6 +208,110 @@ html.light .ds-scope {
   outline: 2px solid var(--fg);
   outline-offset: 2px;
 }
+/* Collapsed chip floats from 1024px. Below that the dock stays as it is. */
+.sidebar-header {
+  position: relative;
+  box-sizing: border-box;
+  min-height: 32px;
+  padding: 8px 12px;
+}
+.sidebar-toggle {
+  position: absolute;
+  top: 50%;
+  right: 4px;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  box-sizing: border-box;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.sidebar-toggle.sidebar-expand,
+.sidebar-expand-tip {
+  display: none;
+}
+.sidebar-chev {
+  display: inline-flex;
+  transform: rotate(90deg);
+}
+.sidebar-expand-tip {
+  position: absolute;
+  top: 50%;
+  right: auto;
+  left: calc(100% + 8px);
+  transform: translateY(-50%);
+  z-index: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface);
+  color: var(--fg);
+  font-size: 13px;
+  line-height: 18px;
+  white-space: nowrap;
+  pointer-events: none;
+}
+.sidebar-toggle:hover {
+  border-color: var(--border);
+}
+[data-testid='portal-sidebar'] .sidebar-toggle:focus-visible {
+  outline: 2px solid var(--info);
+  outline-offset: 2px;
+}
+@media (min-width: 1024px) {
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] {
+    position: fixed;
+    top: 24px;
+    left: 24px;
+    z-index: 30;
+    box-sizing: border-box;
+    display: flex;
+    width: 244px;
+    min-width: 244px;
+    max-width: 244px;
+    height: 58px;
+    padding: 12px;
+    overflow: visible;
+  }
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'][data-sidebar-active='false'] {
+    display: none;
+  }
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-header {
+    position: static;
+    height: 32px;
+    min-height: 0;
+    padding: 0 12px;
+  }
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-body,
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-collapse {
+    display: none;
+  }
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] .sidebar-expand {
+    display: inline-flex;
+    position: static;
+    transform: none;
+  }
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar']:has(.sidebar-expand:hover) .sidebar-expand-tip,
+  html[data-sidebar='collapsed'] [data-testid='portal-sidebar']:has(.sidebar-expand:focus-visible) .sidebar-expand-tip {
+    display: block;
+  }
+  html[data-sidebar='collapsed'] .portal-tab-shell {
+    padding-top: 96px;
+    padding-left: 96px;
+    padding-right: 96px;
+  }
+  html[data-sidebar='collapsed'] [data-testid='workspace-title'] {
+    padding-top: 0;
+  }
+}
 /* Dialog Cancel. Replaces the browser's blue ring with the portal ring. */
 .portal-outline-button:focus {
   outline: none;
