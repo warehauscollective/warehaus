@@ -9,6 +9,7 @@ import {
   FEED_MAX,
   FEED_PAGE,
   RUNNER_RATE_LIMIT,
+  RUNNER_RATE_LIMITED,
   RUNNER_RATE_WINDOW_MS,
   RUNNER_UNAUTHORIZED,
   allTasksDone,
@@ -95,16 +96,18 @@ describe('rate limit and liveness', () => {
     assert.equal(runnerRateDecision({ ...state, now: now + RUNNER_RATE_WINDOW_MS }).ok, true);
   });
 
-  it('refreshes lastSeenAt at most once a minute and still counts every call', () => {
+  it('patches a runner at most once a minute', () => {
     const now = 1_000_000;
     const first = runnerTouchDecision({ lastSeenAt: null, windowStart: null, count: null, now });
-    assert.deepEqual(first, { ok: true, windowStart: now, count: 1, lastSeenAt: now });
+    assert.deepEqual(first, { ok: true, write: true, windowStart: now, count: 1, lastSeenAt: now });
     const again = runnerTouchDecision({ lastSeenAt: now, windowStart: now, count: 1, now: now + 30_000 });
-    assert.deepEqual(again, { ok: true, windowStart: now, count: 2, lastSeenAt: null });
-    const later = runnerTouchDecision({ lastSeenAt: now, windowStart: now, count: 2, now: now + 60_000 });
-    assert.deepEqual(later, { ok: true, windowStart: now + 60_000, count: 1, lastSeenAt: now + 60_000 });
+    assert.deepEqual(again, { ok: true, write: false });
+    const held = runnerTouchDecision({ lastSeenAt: now, windowStart: now, count: RUNNER_RATE_LIMIT, now: now + 30_000 });
+    assert.deepEqual(held, { ok: false, reason: RUNNER_RATE_LIMITED });
+    const later = runnerTouchDecision({ lastSeenAt: now, windowStart: now, count: 1, now: now + 60_000 });
+    assert.deepEqual(later, { ok: true, write: true, windowStart: now + 60_000, count: 1, lastSeenAt: now + 60_000 });
     const agent = read('../agent.ts');
-    assert.match(agent, /runnerTouchDecision/);
+    assert.match(agent, /if \(!decision\.write\) return \{ ok: true as const \}/);
     assert.match(agent, /CLAIM_PER_PROJECT = 5/);
   });
 

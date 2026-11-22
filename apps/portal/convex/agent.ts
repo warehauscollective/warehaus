@@ -165,8 +165,8 @@ async function branchFor(ctx: MutationCtx, milestone: Doc<'milestones'>): Promis
 }
 
 /**
- * Called first by every runner route. The rate counter moves on each call.
- * lastSeenAt is written at most once a minute.
+ * Called first by every runner route. The runner row is patched at most
+ * once a minute. Calls inside that minute do not write.
  */
 export const touchRunner = internalMutation({
   args: { runnerId: v.string() },
@@ -183,16 +183,16 @@ export const touchRunner = internalMutation({
       now,
     });
     if (!decision.ok) return failure(429, decision.reason);
-    const stamp = decision.lastSeenAt == null ? {} : { lastSeenAt: decision.lastSeenAt };
+    if (!decision.write) return { ok: true as const };
     if (row) {
-      const same = row.windowStart === decision.windowStart && row.count === decision.count && decision.lastSeenAt == null;
-      if (!same) await ctx.db.patch(row._id, { windowStart: decision.windowStart, count: decision.count, ...stamp });
+      const same = row.windowStart === decision.windowStart && row.count === decision.count && row.lastSeenAt === decision.lastSeenAt;
+      if (!same) await ctx.db.patch(row._id, { windowStart: decision.windowStart, count: decision.count, lastSeenAt: decision.lastSeenAt });
     } else {
       await ctx.db.insert('agentRunners', {
         runnerId,
         windowStart: decision.windowStart,
         count: decision.count,
-        lastSeenAt: decision.lastSeenAt ?? now,
+        lastSeenAt: decision.lastSeenAt,
       });
     }
     return { ok: true as const };

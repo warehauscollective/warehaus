@@ -75,7 +75,7 @@ export function reposForRunner(allowed: readonly string[], requested: unknown): 
 
 export const RUNNER_RATE_WINDOW_MS = 60_000;
 export const RUNNER_RATE_LIMIT = 120;
-/** How often a runner's last-seen stamp is written. The rate counter still moves every call. */
+/** How often a runner row is patched. Calls inside this window do not write. */
 export const RUNNER_TOUCH_INTERVAL_MS = 60_000;
 /** A runner that has not called in this long reads as offline. */
 export const RUNNER_OFFLINE_AFTER_MS = 10 * 60_000;
@@ -93,20 +93,28 @@ export function runnerRateDecision(input: {
 }
 
 /**
- * One runner call. The counter moves every time, so the 120-a-minute cap
- * still holds. `lastSeenAt` is null when the stored stamp is still fresh
- * and the caller should leave it alone.
+ * One runner call. The row is patched at most once a minute. A call inside
+ * that minute does not write. A stored count already at the limit still
+ * rejects until the window rolls.
  */
 export function runnerTouchDecision(input: {
   lastSeenAt: number | null | undefined;
   windowStart: number | null | undefined;
   count: number | null | undefined;
   now: number;
-}): { ok: true; windowStart: number; count: number; lastSeenAt: number | null } | { ok: false; reason: string } {
+}):
+  | { ok: true; write: false }
+  | { ok: true; write: true; windowStart: number; count: number; lastSeenAt: number }
+  | { ok: false; reason: string } {
+  const fresh = input.lastSeenAt != null && input.now - input.lastSeenAt < RUNNER_TOUCH_INTERVAL_MS;
+  const windowOpen = input.windowStart != null && input.now - input.windowStart < RUNNER_RATE_WINDOW_MS;
+  if (fresh && windowOpen) {
+    if ((input.count ?? 0) >= RUNNER_RATE_LIMIT) return { ok: false, reason: RUNNER_RATE_LIMITED };
+    return { ok: true, write: false };
+  }
   const rate = runnerRateDecision({ windowStart: input.windowStart, count: input.count, now: input.now });
   if (!rate.ok) return rate;
-  const fresh = input.lastSeenAt != null && input.now - input.lastSeenAt < RUNNER_TOUCH_INTERVAL_MS;
-  return { ok: true, windowStart: rate.windowStart, count: rate.count, lastSeenAt: fresh ? null : input.now };
+  return { ok: true, write: true, windowStart: rate.windowStart, count: rate.count, lastSeenAt: input.now };
 }
 
 export function runnerOnline(lastSeenAt: number | null | undefined, now: number): boolean {
