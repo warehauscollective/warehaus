@@ -135,6 +135,7 @@ export function ProjectRoadmap({
   const [projectTab, setProjectTab] = useState<ProjectTab>('milestones');
   const [openMilestoneId, setOpenMilestoneId] = useState<string | null>(null);
   const [detailsPreview, setDetailsPreview] = useState<string | null>(null);
+  const [loopPreview, setLoopPreview] = useState<string | null>(null);
   const [tileStagePreview, setTileStagePreview] = useState<string | null>(null);
   const [tileLinkPreview, setTileLinkPreview] = useState<string | null>(null);
   const [tileApprove, setTileApprove] = useState(false);
@@ -165,6 +166,9 @@ export function ProjectRoadmap({
     setTileLinkPreview(params.get('tileLink'));
     setTileApprove(params.get('tiles') === 'ready');
     if (params.get('create') === 'milestone') setCreateOpen(true);
+    const tab = params.get('tab');
+    if (tab === 'details' || tab === 'milestones' || tab === 'resources' || tab === 'activity') setProjectTab(tab);
+    setLoopPreview(params.get('loop'));
     if (params.get('tiles')) {
       window.setTimeout(() => {
         document.querySelector('[data-testid^="milestone-m-"]')?.scrollIntoView({ block: 'start' });
@@ -173,9 +177,9 @@ export function ProjectRoadmap({
   }, [fixtures]);
   const previewMilestoneId = fixtures ? fixtureRows[0]?.id ?? null : null;
   useEffect(() => {
-    if (!detailsPreview || !previewMilestoneId) return;
+    if ((!detailsPreview && !loopPreview) || !previewMilestoneId) return;
     setOpenMilestoneId((current) => current ?? previewMilestoneId);
-  }, [detailsPreview, previewMilestoneId]);
+  }, [detailsPreview, loopPreview, previewMilestoneId]);
 
   const milestoneApi = milestoneQueryAvailability({ fixtures, error: query.error });
   if (milestoneApi === 'fallback') {

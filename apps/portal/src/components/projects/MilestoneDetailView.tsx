@@ -38,7 +38,7 @@ import {
 import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, type FixturePatch, lastReviewLabel, resourceAudienceLine, taskTotal, boardTaskCounts, nestedCopy, milestoneDetachOptions, inclusiveProgressCopy, milestoneTasks, fixtureOwnerChoices } from './milestoneTile';
 import { ActivityList } from './roadmapParts';
 import { MoreMenu, EditDialog } from './MilestoneForms';
-import { AgentWorkStub } from './AgentWorkStub';
+import { MilestoneLoopLive, fixtureLoopModel, milestoneLoopSubtitle } from './MilestoneLoop';
 import { MilestoneChecklist, type ChecklistActions } from './MilestoneChecklist';
 import { MilestoneRunFeedLive } from './MilestoneRunFeed';
 
@@ -179,6 +179,11 @@ export function MilestoneDetail(props: {
   const moveTargets = props.fixtures
     ? FIXTURE_PROJECTS.filter((item) => item.id !== props.project.id).map((item) => ({ id: item.id, name: item.name }))
     : loadedTargets;
+  const [loopPreview, setLoopPreview] = useState<string | null>(null);
+  useEffect(() => {
+    if (!props.fixtures) return;
+    setLoopPreview(new URLSearchParams(window.location.search).get('loop'));
+  }, [props.fixtures]);
   return (
     <MilestoneDetailView
       {...props}
@@ -191,9 +196,18 @@ export function MilestoneDetail(props: {
           ? () => setCursor(targetPage.data?.continueCursor ?? null)
           : undefined
       }
-      workPanel={
+      loopPreview={loopPreview}
+      loop={
         props.staff ? (
-          <AgentWorkStub milestone={props.milestone} staff={props.staff} fixtures={props.fixtures} hostSlug={props.hostSlug} />
+          <MilestoneLoopLive
+            milestone={props.milestone}
+            staff={props.staff}
+            fixtures={props.fixtures}
+            hostSlug={props.hostSlug}
+            loopPreview={loopPreview}
+            actions={{ addTask, editTask, removeTask, reorderTasks }}
+            onStatus={(status) => props.onFixture({ status })}
+          />
         ) : null
       }
       mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink, tasks: { addTask, editTask, removeTask, reorderTasks } }}
@@ -225,7 +239,8 @@ export function MilestoneDetailView({
   onFixture,
   mutations,
   isPeter,
-  workPanel = null,
+  loop = null,
+  loopPreview = null,
 }: {
   milestone: MilestoneRoadmapView;
   project: RoadmapProject;
@@ -250,7 +265,8 @@ export function MilestoneDetailView({
   onFixture: (patch: FixturePatch) => void;
   mutations: MilestoneMutations;
   isPeter?: boolean;
-  workPanel?: ReactNode;
+  loop?: ReactNode;
+  loopPreview?: string | null;
 }) {
   const { save, setPublish, attachTask, detachTask } = mutations;
   const [tab, setTab] = useState<MilestoneTab>('overview');
@@ -337,7 +353,11 @@ export function MilestoneDetailView({
         alignAction
         testId="milestone-name"
         title={milestone.name}
-        subtitle={`Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`}
+        subtitle={
+          (loopPreview ? fixtureLoopModel(loopPreview)?.subtitle : null) ??
+          (staff ? milestoneLoopSubtitle(milestone) : null) ??
+          `Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`
+        }
         action={undefined}
       />
       <TabRow
@@ -356,7 +376,8 @@ export function MilestoneDetailView({
 
       {tab === 'overview' ? (
         <div className="flex flex-col gap-6">
-          {staff && milestone.review ? (
+          {loop}
+          {staff && milestone.review && !loop ? (
             <MilestoneReviewLive milestone={milestone} hostSlug={hostSlug} isPeter={isPeter} phone={phone} />
           ) : null}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
@@ -526,7 +547,6 @@ export function MilestoneDetailView({
           {tasksMenuFailure({ tab, error, editing }).show && error ? (
             <MenuActionError error={error} onDismiss={() => setError(null)} />
           ) : null}
-          {workPanel}
           <MilestoneChecklist
             milestone={milestone}
             staff={staff}

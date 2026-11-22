@@ -198,6 +198,47 @@ function withLongChip(milestone: MilestoneRoadmapView): MilestoneRoadmapView {
   };
 }
 
+const LOOP_TITLES = [
+  'Design project overview',
+  'Design milestone detail',
+  'Approve responsive layout',
+  'Build milestone overview',
+  'Connect resource links',
+  'Outline run feed copy',
+];
+
+function withLoopFixture(milestone: MilestoneRoadmapView, loop: string): MilestoneRoadmapView {
+  const building = loop === 'building' || loop === 'cursor' || loop === 'blocked';
+  const rows = loop === 'generating' || loop === 'empty' || loop === 'failed'
+    ? []
+    : LOOP_TITLES.map((name, index) => ({
+        id: `loop-${index + 1}`,
+        name,
+        status: building && index < 3 ? 'Done' : building && index === 3 && loop === 'blocked' ? 'Blocked' : building && index === 3 ? 'In Progress' : 'To Do',
+        isDone: building && index < 3,
+        stage: null,
+        resourceCount: 0,
+        children: [],
+        portalOwned: true,
+        origin: 'planner' as const,
+        ...(building && index < 3 ? { commit: ['4c1e9aa', '7d02b1f', '91ae3c0'][index] } : {}),
+        ...(loop === 'blocked' && index === 3 ? { blockedReason: 'runner stopped responding' } : {}),
+      }));
+  const done = rows.filter((row) => row.isDone).length;
+  return {
+    ...milestone,
+    name: 'Client experience launch',
+    status: building ? 'Building' : 'Planning',
+    planning: loop === 'generating' ? 'running' : loop === 'failed' ? 'blocked' : undefined,
+    ...(loop === 'failed' ? { planningBlockedReason: "Couldn't draft tasks" } : {}),
+    branch: 'milestone/client-experience-launch',
+    prUrl: 'https://github.com/warehauscollective/warehaus/pull/152',
+    rows,
+    openCount: rows.length - done,
+    doneCount: done,
+  };
+}
+
 function previewMilestone(
   patch: Pick<MilestoneRoadmapView, 'id' | 'name' | 'objective' | 'status' | 'approval'> &
     Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName'>>,
@@ -254,6 +295,8 @@ export function applyFixtureMilestonePreview(
       };
     });
   }
+  const loop = params.get('loop');
+  if (loop && next[0]) next = [withLoopFixture(next[0], loop), ...next.slice(1)];
   if (params.get('tiles') !== 'states') return next;
   return [
     ...next,

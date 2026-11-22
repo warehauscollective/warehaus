@@ -256,6 +256,21 @@ export const setAgentRepo = adminMutation({
  * Claude Code. The same value writes nothing. The Cursor API key is not
  * stored here.
  */
+/**
+ * True when this project has a milestone in Building. One indexed read,
+ * capped. Staff use it to keep the build agent from changing mid-run.
+ */
+export const agentChangeLock = adminQuery({
+  args: { projectId: v.id('projects') },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query('milestones')
+      .withIndex('by_projectId', (q) => q.eq('projectId', args.projectId))
+      .take(100);
+    return { locked: rows.some((row) => row.status === 'Building') };
+  },
+});
+
 export const setAgentDriver = adminMutation({
   args: { projectId: v.id('projects'), driver: v.union(v.literal('claude_code'), v.literal('cursor')) },
   handler: async (ctx, args) => {

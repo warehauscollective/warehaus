@@ -1008,7 +1008,7 @@ export const regeneratePlan = adminMutation({
 
 /**
  * Per-task state while Building, the active agent, and the latest feed lines.
- * Indexed and capped. The frame that shows this is still waiting.
+ * Indexed and capped.
  */
 export const buildingProgress = adminQuery({
   args: { milestoneId: v.id('milestones') },
@@ -1030,12 +1030,30 @@ export const buildingProgress = adminQuery({
       .withIndex('by_milestone', (q) => q.eq('milestoneId', milestone._id))
       .order('desc')
       .first();
+    const runner = latest
+      ? await ctx.db
+          .query('agentRunners')
+          .withIndex('by_runnerId', (q) => q.eq('runnerId', latest.runnerId))
+          .unique()
+      : null;
     return {
       agent: buildAgent(project?.agentDriver),
       agentLabel: runToolLabel(buildAgent(project?.agentDriver)),
       planning: milestone.planning ?? null,
       planningBlockedReason: milestone.planningBlockedReason ?? null,
-      run: latest ? { status: latest.status, kind: latest.kind, tool: latest.tool, blockedReason: latest.blockedReason ?? null } : null,
+      branch: milestone.branch ?? null,
+      prUrl: milestone.prUrl ?? null,
+      run: latest
+        ? {
+            status: latest.status,
+            kind: latest.kind,
+            tool: latest.tool,
+            blockedReason: latest.blockedReason ?? null,
+            runnerId: latest.runnerId,
+            endedAt: latest.endedAt ?? null,
+            lastSeenAt: runner?.lastSeenAt ?? null,
+          }
+        : null,
       tasks: tasks
         .filter((task) => task.archivedAt == null && !task.parentTaskId)
         .sort((a, b) => (a.milestoneOrder ?? Number.MAX_SAFE_INTEGER) - (b.milestoneOrder ?? Number.MAX_SAFE_INTEGER))
