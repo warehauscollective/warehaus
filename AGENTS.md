@@ -21,7 +21,7 @@ Every plan or feature follows this. Cursor agents, Claude agents, and Grok bots 
 
 - A milestone has one field, Status: Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, Parked.
 - Every status write goes through `transitionMilestone()` in `apps/portal/convex/_lib/milestoneStatus.ts`.
-- Staff can set any status except Shipped. Shipped is set when the pull request merges, never by hand.
+- Staff can set Shipped when every task that is not Parked is Done. The play button never moves to Shipped.
 - The play button moves one step: Idea, Planning, Awaiting Go, Building, Ready to Ship. No play on Ready to Ship, Shipped, or Parked.
 - Approval is not a status. It is the review result. Approve unlocks when Status is Ready to Ship and a preview is attached. Request changes moves Status back to Building.
 - The staff API and MCP return and accept `status`. `stage` and `workStatus` are aliases for one release.

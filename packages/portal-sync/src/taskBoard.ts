@@ -32,7 +32,9 @@ export const TASK_UNAVAILABLE = 'This task is not available.';
 
 export const PROJECT_UNAVAILABLE = 'This project is not available.';
 
-export const SHIPPED_LOCK_REASON = 'Shipped is set when the pull request merges.';
+export const SHIPPED_LOCK_REASON = 'Leaving Shipped stays locked.';
+
+export const STAFF_SHIPPED_UNVERIFIED = 'Shipped needs a pull request that is merged into main.';
 
 export const STAGE_LOCK_REASONS = {
   Building: 'Building is set in Notion when Peter says go.',
@@ -181,7 +183,8 @@ export function visibleChildIds<T extends { id: string; publishToWarehaus: boole
 export function stageMoveRule(actor: MoveActor, stage: string): MoveRule {
   if (actor !== 'staff') return { kind: 'denied', reason: 'Clients cannot move tasks.' };
   if (!isTaskStage(stage)) return { kind: 'denied', reason: 'Unknown stage' };
-  if (stage === 'Shipped') return { kind: 'locked', reason: SHIPPED_LOCK_REASON };
+  // The live check runs on the write. Until then this stays locked.
+  if (stage === 'Shipped') return { kind: 'locked', reason: STAFF_SHIPPED_UNVERIFIED };
   return { kind: 'allowed' };
 }
 
@@ -190,7 +193,7 @@ export function unstagedMoveAllowed(destination: string): boolean {
   return destination === 'Idea' || destination === 'Planning';
 }
 
-/** Shipped changes only on the merge webhook. Null when the card may leave this stage. */
+/** Leaving Shipped stays locked. Null when the card may leave this stage. */
 export function notionOnlyStageReason(stage: string): string | null {
   if (stage === 'Shipped') return SHIPPED_LOCK_REASON;
   return null;
@@ -225,6 +228,7 @@ export function resolveBoardDrop(input: {
     if (!isTaskStage(input.from) && !unstagedMoveAllowed(input.to)) {
       return { kind: 'reject', reason: 'Tasks with no stage can move to Idea or Planning.' };
     }
+    if (input.to === 'Shipped') return { kind: 'move', value: input.to };
     const rule = stageMoveRule('staff', input.to);
     if (rule.kind === 'locked' || rule.kind === 'denied') {
       return { kind: 'reject', reason: rule.reason };
@@ -363,12 +367,20 @@ export function planTaskStageWrite(input: {
   pullRequestLink?: string;
   notionPageId: string;
   expectedLastEditedTime: string;
-  /** Merge webhook only. Staff stay locked out of Shipped. */
+  /** Merge webhook. Sets Shipped without a live GitHub read. */
   allowReviewStage?: boolean;
+  /** Staff write after GitHub confirmed the pull request is merged into main. */
+  verifiedMerge?: boolean;
 }): { ok: true; properties: TaskWriteProperties; idempotencyKey: string } | { ok: false; error: string } {
   const rule = stageMoveRule(input.actor, input.stage);
-  const mergeShipped = input.allowReviewStage === true && input.stage === 'Shipped';
-  if ((rule.kind === 'denied' || rule.kind === 'locked') && !mergeShipped) return { ok: false, error: rule.reason };
+  const mergeShipped =
+    input.stage === 'Shipped' && (input.allowReviewStage === true || input.verifiedMerge === true);
+  if ((rule.kind === 'denied' || rule.kind === 'locked') && !mergeShipped) {
+    if (input.actor === 'staff' && input.stage === 'Shipped') {
+      return { ok: false, error: STAFF_SHIPPED_UNVERIFIED };
+    }
+    return { ok: false, error: rule.reason };
+  }
   if (!input.notionPageId) return { ok: false, error: 'Updates require a Notion page' };
   if (!input.expectedLastEditedTime) return { ok: false, error: 'Updates require the last read time' };
   const properties: TaskWriteProperties = { Stage: input.stage };

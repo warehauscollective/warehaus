@@ -69,6 +69,27 @@ describe('milestone create', () => {
     assert.equal(created.activityType, 'milestone.ready');
   });
 
+  it('rejects an empty or missing objective over REST and through the mutation', () => {
+    const api = readFileSync(new URL('../portalApi.ts', import.meta.url), 'utf8');
+    const mutation = api.slice(api.indexOf('export const createMilestone'), api.indexOf('export const updateMilestone'));
+    const rest = api.slice(api.indexOf("if (path === '/api/v1/milestones')"), api.indexOf("if (path === '/api/v1/milestones/update')"));
+    assert.doesNotMatch(mutation, /allowEmptyObjective/);
+    assert.match(mutation, /objective: args\.objective/);
+    assert.match(rest, /objective: String\(body\.objective \?\? ''\)/);
+    const bodies: Array<{ name: string; objective?: string }> = [
+      { name: 'Launch' },
+      { name: 'Launch', objective: '' },
+      { name: 'Launch', objective: '   ' },
+    ];
+    for (const body of bodies) {
+      const objective = String(body.objective ?? '');
+      assert.deepEqual(
+        createMilestoneDecision({ actor: 'human', name: body.name, objective, goals: [] }),
+        { ok: false, reason: 'Objective is required' },
+      );
+    }
+  });
+
   it('refuses an approval or a publish flag on create', () => {
     assert.equal(
       createMilestoneDecision({
@@ -169,7 +190,7 @@ describe('who may edit', () => {
     assert.equal(idea.ok && idea.milestone.status, 'Idea');
     assert.deepEqual(createMilestoneDecision({ ...base, status: 'Shipped' }), {
       ok: false,
-      reason: 'Shipped is set when the pull request merges',
+      reason: 'Staff set Shipped when every task that is not Parked is Done. A task reaches Shipped only after its pull request is verified merged.',
     });
     assert.deepEqual(createMilestoneDecision({ ...base, status: 'ready' }), { ok: false, reason: 'Unknown status' });
   });

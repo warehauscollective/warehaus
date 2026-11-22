@@ -67,6 +67,8 @@ import {
 } from './_lib/milestoneBot';
 import { currentIteration, NEW_ITERATION_TASK_DONE } from './_lib/milestoneReview';
 import { reviewPreviews } from './_lib/previewLink';
+import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
+import { milestoneCloseGate } from './_lib/milestoneClose';
 import {
   STATUS_ACTIVITY,
   apiStatusFields,
@@ -562,6 +564,8 @@ export const updateTask = internalMutation({
     nextAction: v.optional(v.union(v.string(), v.null())),
     stage: v.optional(v.string()),
     pullRequestLink: v.optional(v.string()),
+    /** Set by the HTTP action after GitHub confirms the merge. Not a request field. */
+    verifiedMerge: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<ApiResult> => {
     const opened = await openIdempotency(ctx, args);
@@ -579,7 +583,9 @@ export const updateTask = internalMutation({
       ...(args.status !== undefined ? { status: args.status } : {}),
       ...(args.priority !== undefined ? { priority: args.priority } : {}),
       ...(args.nextAction !== undefined ? { nextAction: args.nextAction } : {}),
-      ...(args.stage !== undefined ? { stage: args.stage, pullRequestLink: args.pullRequestLink } : {}),
+      ...(args.stage !== undefined
+        ? { stage: args.stage, pullRequestLink: args.pullRequestLink, verifiedMerge: args.verifiedMerge === true }
+        : {}),
     });
     if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
 
@@ -639,6 +645,7 @@ export const updateTask = internalMutation({
         expectedLastEditedTime: args.expectedLastEditedTime,
         actorId: args.tokenName,
         actor: 'staff',
+        verifiedMerge: args.verifiedMerge === true,
       });
       if (!queued.ok) return finishIdempotency(ctx, opened.id, fail(400, queued.error));
     }
@@ -864,6 +871,7 @@ export const updateMilestone = internalMutation({
     status: v.optional(v.string()),
     stage: v.optional(v.string()),
     workStatus: v.optional(v.string()),
+    tokenName: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<ApiResult> => {
     const opened = await openIdempotency(ctx, args);
@@ -872,17 +880,28 @@ export const updateMilestone = internalMutation({
     if (!milestone || !(await orgVisible(ctx, milestone.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Milestone not found'));
     }
-    const edited = contentEditDecision({
-      actor: 'human',
-      approval: milestone.approval,
-      patch: { name: args.name, objective: args.objective, goals: args.goals },
-    });
+    const contentFields = args.name != null || args.objective != null || args.goals != null;
+    const edited = contentFields
+      ? contentEditDecision({
+          actor: 'human',
+          approval: milestone.approval,
+          patch: { name: args.name, objective: args.objective, goals: args.goals },
+        })
+      : { ok: true as const, patch: {} };
     if (!edited.ok) return finishIdempotency(ctx, opened.id, fail(400, edited.reason));
     const wanted = apiStatusInput(args);
     if (!wanted.ok) return finishIdempotency(ctx, opened.id, fail(400, wanted.reason));
     const from = milestone.status;
+    let tasksReady = wanted.status !== 'Shipped' || from === 'Shipped';
+    if (wanted.status === 'Shipped' && from !== 'Shipped') {
+      const gate = await milestoneCloseGate(ctx, milestone);
+      if (!gate.ok) return finishIdempotency(ctx, opened.id, fail(400, gate.reason));
+      tasksReady = true;
+    }
     const moved =
-      wanted.status == null ? null : transitionMilestone({ from, cause: 'set', to: wanted.status });
+      wanted.status == null
+        ? null
+        : transitionMilestone({ from, cause: 'set', to: wanted.status, tasksReady });
     if (moved && !moved.ok) return finishIdempotency(ctx, opened.id, fail(400, moved.reason));
     if (Object.keys(edited.patch).length === 0 && wanted.status == null) {
       return finishIdempotency(ctx, opened.id, fail(400, 'At least one field is required'));
@@ -895,12 +914,13 @@ export const updateMilestone = internalMutation({
     if (Object.keys(patch).length > 0) await ctx.db.patch(milestone._id, patch);
     if (moved?.ok && moved.wrote) {
       const at = Date.now();
+      const actorName = args.tokenName?.trim() || 'Staff API';
       await writeMilestoneActivity(
         ctx as Parameters<typeof writeMilestoneActivity>[0],
         milestone,
         STATUS_ACTIVITY,
         at,
-        detailActivitySummary({ actor: 'Staff API', from, to: moved.status, at }),
+        detailActivitySummary({ actor: actorName, from, to: moved.status, at }),
       );
     }
     return finishIdempotency(ctx, opened.id, { status: 200, body: { id: milestone._id } });
@@ -1030,6 +1050,52 @@ export const attachTask = internalMutation({
   },
 });
 
+export const detachTask = internalMutation({
+  args: { ...idemArgs, milestoneId: v.id('milestones'), taskId: v.id('tasks') },
+  handler: async (ctx, args): Promise<ApiResult> => {
+    const opened = await openIdempotency(ctx, args);
+    if (!('action' in opened)) return opened;
+    const milestone = await ctx.db.get(args.milestoneId);
+    const task = await ctx.db.get(args.taskId);
+    if (!milestone || !(await orgVisible(ctx, milestone.orgId))) {
+      return finishIdempotency(ctx, opened.id, attachError('Milestone not found', 'not_found'));
+    }
+    if (!task || !(await orgVisible(ctx, task.orgId))) {
+      return finishIdempotency(ctx, opened.id, attachError('Task not found', 'not_found'));
+    }
+    try {
+      const linked = await ctx.runMutation(internal.milestones.detachTaskForApi, {
+        milestoneId: args.milestoneId,
+        taskId: args.taskId,
+      });
+      if (!linked.ok) return finishIdempotency(ctx, opened.id, attachError(linked.error, linked.code));
+      return finishIdempotency(ctx, opened.id, { status: 200, body: linked });
+    } catch (error) {
+      const message = convexFailureText(error);
+      const code = attachFailureCode(message);
+      return finishIdempotency(ctx, opened.id, attachError(message, code));
+    }
+  },
+});
+
+/** Staff write reads the task's pull request link. Bounded to the task's link rows. */
+export const taskPullRequest = internalQuery({
+  args: { taskId: v.id('tasks') },
+  handler: async (ctx, args) => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { ok: false as const, error: 'Task not found' };
+    const links = await ctx.db
+      .query('taskLinks')
+      .withIndex('by_taskId', (q) => q.eq('taskId', task._id))
+      .take(50);
+    return {
+      ok: true as const,
+      pullRequestUrl: task.pullRequestUrl ?? null,
+      links: links.filter((row) => row.kind === 'PR').map((row) => row.url),
+    };
+  },
+});
+
 function json(body: unknown, status: number): Response {
   return new Response(JSON.stringify(body), {
     status,
@@ -1053,6 +1119,7 @@ const MILESTONE_CREATE_FIELDS = [
 ];
 const NOTE_FIELDS = ['milestoneId', 'body'];
 const MILESTONE_UPDATE_FIELDS = ['milestoneId', 'name', 'objective', 'goals', 'status', 'stage', 'workStatus'];
+const DETACH_FIELDS = ['milestoneId', 'taskId'];
 const COMMENT_FIELDS = ['taskId', 'body'];
 const LINK_FIELDS = ['taskId', 'kind', 'url', 'title', 'expectedLastEditedTime'];
 const CLIENT_CREATE_FIELDS = ['companyName', 'primaryEmail', 'phone'];
@@ -1335,15 +1402,17 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
                   ? CLIENT_CREATE_FIELDS
                   : url.pathname === '/api/v1/projects'
                     ? PROJECT_CREATE_FIELDS
-                    : url.pathname === '/api/v1/milestones/attach'
+                      : url.pathname === '/api/v1/milestones/attach'
                       ? ATTACH_FIELDS
-                      : url.pathname === '/api/v1/context/brief'
-                        ? CONTEXT_BRIEF_FIELDS
-                        : url.pathname === '/api/v1/context/terms'
-                          ? CONTEXT_TERM_FIELDS
-                          : url.pathname === '/api/v1/context/decisions'
-                            ? CONTEXT_DECISION_FIELDS
-                            : null;
+                      : url.pathname === '/api/v1/milestones/detach'
+                        ? DETACH_FIELDS
+                        : url.pathname === '/api/v1/context/brief'
+                          ? CONTEXT_BRIEF_FIELDS
+                          : url.pathname === '/api/v1/context/terms'
+                            ? CONTEXT_TERM_FIELDS
+                            : url.pathname === '/api/v1/context/decisions'
+                              ? CONTEXT_DECISION_FIELDS
+                              : null;
   if (!allowed) return json({ error: 'Not found' }, 404);
   const shape = url.pathname === '/api/v1/projects' ? projectShapeError(parsed) : null;
   const unknown = unknownFieldError(parsed, allowed);
@@ -1360,7 +1429,7 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
     const result = await dispatchWrite(ctx, url.pathname, parsed, { ...idem, tokenName: consumed.name });
     return json(result.body, result.status);
   } catch (error) {
-    if (url.pathname === '/api/v1/milestones/attach') {
+    if (url.pathname === '/api/v1/milestones/attach' || url.pathname === '/api/v1/milestones/detach') {
       const message = convexFailureText(error);
       const code = attachFailureCode(message);
       return json(attachError(message, code).body, attachFailureStatus(code));
@@ -1406,6 +1475,26 @@ async function dispatchWrite(
     });
   }
   if (path === '/api/v1/tasks/update') {
+    const stage = typeof body.stage === 'string' ? body.stage : undefined;
+    const pullRequestLink = typeof body.pullRequestLink === 'string' ? body.pullRequestLink : undefined;
+    let verifiedMerge = false;
+    let verifiedLink = pullRequestLink;
+    if (stage === 'Shipped') {
+      const looked = await ctx.runQuery(internal.portalApi.taskPullRequest, {
+        taskId: body.taskId as Id<'tasks'>,
+      });
+      if (!looked.ok) return fail(404, looked.error);
+      const resolved = resolveShipLink({
+        explicit: pullRequestLink,
+        stored: looked.pullRequestUrl,
+        links: looked.links,
+      });
+      if (!resolved.ok) return fail(400, resolved.error);
+      const verified = await verifyPullMerged({ link: resolved.link });
+      if (!verified.ok) return fail(400, verified.error);
+      verifiedMerge = true;
+      verifiedLink = verified.link;
+    }
     return ctx.runMutation(internal.portalApi.updateTask, {
       ...actor,
       taskId: body.taskId as Id<'tasks'>,
@@ -1413,8 +1502,9 @@ async function dispatchWrite(
       status: typeof body.status === 'string' ? body.status : undefined,
       priority: body.priority === null || typeof body.priority === 'string' ? body.priority : undefined,
       nextAction: body.nextAction === null || typeof body.nextAction === 'string' ? body.nextAction : undefined,
-      stage: typeof body.stage === 'string' ? body.stage : undefined,
-      pullRequestLink: typeof body.pullRequestLink === 'string' ? body.pullRequestLink : undefined,
+      stage,
+      pullRequestLink: verifiedLink,
+      verifiedMerge,
     });
   }
   if (path === '/api/v1/milestones') {
@@ -1441,6 +1531,7 @@ async function dispatchWrite(
       status: typeof body.status === 'string' ? body.status : undefined,
       stage: typeof body.stage === 'string' ? body.stage : undefined,
       workStatus: typeof body.workStatus === 'string' ? body.workStatus : undefined,
+      tokenName: actor.tokenName,
     });
   }
   if (path === '/api/v1/milestones/note') {
@@ -1497,6 +1588,13 @@ async function dispatchWrite(
   }
   if (path === '/api/v1/milestones/attach') {
     return ctx.runMutation(internal.portalApi.attachTask, {
+      ...idempotencyActor(actor),
+      milestoneId: body.milestoneId as Id<'milestones'>,
+      taskId: body.taskId as Id<'tasks'>,
+    });
+  }
+  if (path === '/api/v1/milestones/detach') {
+    return ctx.runMutation(internal.portalApi.detachTask, {
       ...idempotencyActor(actor),
       milestoneId: body.milestoneId as Id<'milestones'>,
       taskId: body.taskId as Id<'tasks'>,
