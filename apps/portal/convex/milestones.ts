@@ -2120,6 +2120,7 @@ export const editTask = adminMutation({
     await ctx.db.patch(task._id, {
       ...decision.patch,
       ...(decision.patch.description !== undefined ? { descriptionSource: 'property' as const } : {}),
+      ...(task.origin === 'planner' ? { origin: 'manual' as const } : {}),
       updatedAt: Date.now(),
     });
     return { ok: true as const, wrote: true };

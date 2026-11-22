@@ -5,6 +5,7 @@ import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
 import { AGENT_REPO_INVALID, agentRepo, buildAgent } from './_lib/agentRun';
 import type { Id } from './_generated/dataModel';
+import type { MutationCtx, QueryCtx } from './_generated/server';
 
 /** CLIENT fields only — never emit SERVER gate inputs. */
 function toClientProject(row: {
@@ -251,36 +252,44 @@ export const setAgentRepo = adminMutation({
   },
 });
 
+export const AGENT_DRIVER_LOCKED = "Can't change the build agent while a milestone is Building.";
+
 /**
- * Staff pick the agent that builds this project's milestones. Absent stays
- * Claude Code. The same value writes nothing. The Cursor API key is not
- * stored here.
+ * True when any milestone on the project is Building. One indexed read, capped.
+ * The setting and the mutation share this so a mid-build switch cannot land.
  */
-/**
- * True when this project has a milestone in Building. One indexed read,
- * capped. Staff use it to keep the build agent from changing mid-run.
- */
+export async function projectHasBuildingMilestone(
+  ctx: Pick<QueryCtx | MutationCtx, 'db'>,
+  projectId: Id<'projects'>,
+): Promise<boolean> {
+  const rows = await ctx.db
+    .query('milestones')
+    .withIndex('by_projectId', (q) => q.eq('projectId', projectId))
+    .take(100);
+  return rows.some((row) => row.status === 'Building');
+}
+
+/** Staff read the lock. The Cursor API key is not stored on the project. */
 export const agentChangeLock = adminQuery({
   args: { projectId: v.id('projects') },
-  handler: async (ctx, args) => {
-    const rows = await ctx.db
-      .query('milestones')
-      .withIndex('by_projectId', (q) => q.eq('projectId', args.projectId))
-      .take(100);
-    return { locked: rows.some((row) => row.status === 'Building') };
-  },
+  handler: async (ctx, args) => ({ locked: await projectHasBuildingMilestone(ctx, args.projectId) }),
 });
 
+/**
+ * Staff pick the agent that builds this project's milestones. Absent stays
+ * Claude Code. The same value writes nothing. A milestone in Building refuses
+ * the change. The Cursor API key is not stored here.
+ */
 export const setAgentDriver = adminMutation({
   args: { projectId: v.id('projects'), driver: v.union(v.literal('claude_code'), v.literal('cursor')) },
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
     if (!project) throw new PortalAuthError('Project not found', 'FORBIDDEN');
     const next = buildAgent(args.driver);
-    if (buildAgent(project.agentDriver) === next && project.agentDriver === next) {
-      return { ok: true as const, wrote: false, driver: next };
+    if (buildAgent(project.agentDriver) === next) return { ok: true as const, wrote: false, driver: next };
+    if (await projectHasBuildingMilestone(ctx, args.projectId)) {
+      throw new PortalAuthError(AGENT_DRIVER_LOCKED, 'FORBIDDEN');
     }
-    if ((project.agentDriver ?? 'claude_code') === next) return { ok: true as const, wrote: false, driver: next };
     await ctx.db.patch(project._id, { agentDriver: next });
     return { ok: true as const, wrote: true, driver: next };
   },

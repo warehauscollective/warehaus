@@ -230,6 +230,11 @@ function markReadyForReview(dir, branch) {
   }
 }
 
+function milestoneBranchOnOrigin(repo, branch) {
+  git(repo, ['fetch', 'origin', branch, '--quiet']);
+  return git(repo, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`]).ok;
+}
+
 async function doBuild(config, work) {
   say(`Cursor · ${work.milestone.name} · ${work.milestone.branch}`);
   const key = (process.env.CURSOR_API_KEY ?? '').trim();
@@ -239,12 +244,20 @@ async function doBuild(config, work) {
       status: 'failed',
       reason: 'The Cursor API key is not set on this runner',
     });
-    return;
+    return 'settled';
   }
   const repoName = repoFromRemote(git(config.repo, ['remote', 'get-url', 'origin']).out) ?? '';
   let agentId = work.externalId || '';
   let agentUrl = work.externalUrl || '';
   if (!agentId) {
+    if (!milestoneBranchOnOrigin(config.repo, work.milestone.branch)) {
+      await call(config, '/agent/build', {
+        runId: work.runId,
+        status: 'failed',
+        reason: 'The milestone branch is not on origin',
+      });
+      return 'settled';
+    }
     const prompt = cursorBuildPrompt('', { ...work, repo: repoName });
     const created = await cursorRequest({
       key,
@@ -254,7 +267,7 @@ async function doBuild(config, work) {
     });
     if (!created.ok) {
       await call(config, '/agent/build', { runId: work.runId, status: 'failed', reason: created.error });
-      return;
+      return 'settled';
     }
     agentId = created.agent.id;
     agentUrl = created.agent.url;
@@ -266,17 +279,17 @@ async function doBuild(config, work) {
     });
     if (created.agent.state !== 'finished') {
       say('Cursor agent is running.');
-      return;
+      return 'running';
     }
   }
   const looked = await cursorRequest({ key, path: `/${encodeURIComponent(agentId)}`, method: 'GET' });
   if (!looked.ok) {
     await call(config, '/agent/build', { runId: work.runId, status: 'failed', reason: looked.error });
-    return;
+    return 'settled';
   }
   if (looked.agent.state === 'running') {
     say('Cursor agent is still running.');
-    return;
+    return 'running';
   }
   if (looked.agent.state === 'failed') {
     await call(config, '/agent/build', {
@@ -285,11 +298,20 @@ async function doBuild(config, work) {
       reason: looked.agent.reason,
       ...(agentUrl ? { agentUrl } : {}),
     });
-    return;
+    return 'settled';
   }
   git(config.repo, ['fetch', 'origin', work.milestone.branch, '--quiet']);
   const log = git(config.repo, ['log', `origin/${work.milestone.branch}`, '--format=%H%x1f%B%x1e']);
   const done = mapCursorCommits(parseGitLog(log.out), work.tasks ?? []);
+  if (done.length === 0) {
+    await call(config, '/agent/build', {
+      runId: work.runId,
+      status: 'failed',
+      reason: 'The Cursor agent finished without a Portal-Task trailer',
+      ...(agentUrl || looked.agent.url ? { agentUrl: agentUrl || looked.agent.url } : {}),
+    });
+    return 'settled';
+  }
   const dir = ensureWorktree(config.repo, work.milestone.branch);
   const prUrl = looked.agent.prUrl || ensurePullRequest(dir, work);
   const result = await call(config, '/agent/build', {
@@ -302,6 +324,7 @@ async function doBuild(config, work) {
   });
   if (result.milestoneStatus === 'Ready to Ship') markReadyForReview(dir, work.milestone.branch);
   say(`Cursor finished ${done.length} tasks${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
+  return 'settled';
 }
 
 function sleep(ms) {
@@ -346,10 +369,11 @@ async function main() {
       continue;
     }
     const driver = selectDriver(work);
+    let buildStillRunning = false;
     if (work.kind === 'task' || work.kind === 'planning' || work.kind === 'build') {
       empty = 0;
       try {
-        if (driver === 'cursor') await doBuild(config, work);
+        if (driver === 'cursor') buildStillRunning = (await doBuild(config, work)) === 'running';
         else if (work.kind === 'task') await doTask(config, work);
         else await doPlanning(config, work);
       } catch (error) {
@@ -368,7 +392,8 @@ async function main() {
       if (!parsed.options.once) say('Nothing to do. Waiting.');
     }
     if (parsed.options.once) break;
-    if (work.kind !== 'task' && work.kind !== 'planning' && work.kind !== 'build') await sleep(idleDelayMs(empty));
+    if (buildStillRunning) await sleep(idleDelayMs(1));
+    else if (work.kind !== 'task' && work.kind !== 'planning' && work.kind !== 'build') await sleep(idleDelayMs(empty));
   }
 }
 

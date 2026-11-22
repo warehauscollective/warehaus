@@ -49,7 +49,7 @@ import { proposedTasksDecision } from './_lib/milestoneBot';
 import { detailActivitySummary } from './_lib/milestoneDetails';
 import { writeMilestoneActivity } from './_lib/milestones';
 import { STATUS_ACTIVITY, transitionMilestone, type MilestoneStatus } from './_lib/milestoneStatus';
-import { PORTAL_MILESTONE_TASK_SOURCE, isPortalOwnedTask, isToDoTask, stageForNewMilestoneTask } from './_lib/milestoneTasks';
+import { PORTAL_MILESTONE_TASK_SOURCE, isPortalOwnedTask, isToDoTask, plannerDraftToArchive, stageForNewMilestoneTask } from './_lib/milestoneTasks';
 import { currentIteration } from './_lib/milestoneReview';
 import { PortalAuthError } from './_lib/identity';
 import { adminMutation, adminQuery } from './_lib/wrappers';
@@ -258,9 +258,14 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
   };
 }
 
+function isOpenBuildTask(task: Doc<'tasks'>): boolean {
+  if (task.archivedAt != null || task.parentTaskId || task.isDone || !isPortalOwnedTask(task)) return false;
+  return isToDoTask(task) || task.status === 'In Progress';
+}
+
 function openBuildTasks(tasks: readonly Doc<'tasks'>[]) {
   return tasks
-    .filter((task) => task.archivedAt == null && !task.parentTaskId && !task.isDone && isPortalOwnedTask(task) && isToDoTask(task))
+    .filter((task) => isOpenBuildTask(task))
     .sort((a, b) => (a.milestoneOrder ?? Number.MAX_SAFE_INTEGER) - (b.milestoneOrder ?? Number.MAX_SAFE_INTEGER))
     .map((task) => ({
       id: task._id,
@@ -376,6 +381,12 @@ export const claimNext = internalMutation({
       if (driver === 'cursor') {
         const open = openBuildTasks(tasks);
         if (open.length === 0) continue;
+        const recent = await ctx.db
+          .query('agentRuns')
+          .withIndex('by_milestone', (q) => q.eq('milestoneId', milestone._id))
+          .order('desc')
+          .take(10);
+        if (recent.some((run) => run.kind === 'build' && run.status === 'failed')) continue;
         const runId = await ctx.db.insert('agentRuns', {
           orgId: milestone.orgId,
           milestoneId: milestone._id,
@@ -394,6 +405,16 @@ export const claimNext = internalMutation({
           summary: `Cursor agent started · ${args.runnerId} · ${open.length} tasks`,
           at: now,
         });
+        for (const task of tasks) {
+          if (!open.some((item) => item.id === task._id)) continue;
+          await ctx.db.patch(task._id, {
+            status: 'In Progress',
+            claimedBy: args.runnerId,
+            claimedAt: now,
+            blockedReason: undefined,
+            updatedAt: now,
+          });
+        }
         const payload = await runPayload(ctx, (await ctx.db.get(runId)) as Doc<'agentRuns'>);
         if (payload) return { ok: true as const, resumed: false, ...payload };
         continue;
@@ -669,7 +690,7 @@ export const writePlannedTasks = internalMutation({
         .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
         .take(CLAIM_TASK_SCAN);
       for (const task of existing) {
-        if (task.archivedAt == null && isPortalOwnedTask(task) && isToDoTask(task)) await ctx.db.delete(task._id);
+        if (plannerDraftToArchive(task)) await ctx.db.patch(task._id, { archivedAt: now });
       }
     }
     const taskIds: Id<'tasks'>[] = [];
@@ -853,6 +874,71 @@ async function rememberAgentLink(
   });
 }
 
+/** One open note for a blocked build. A repeat failure does not add another. */
+async function noteBlockedBuild(
+  ctx: MutationCtx,
+  milestone: Doc<'milestones'>,
+  input: { runnerId: string; at: number; body: string },
+) {
+  const open = await ctx.db
+    .query('milestoneNotes')
+    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
+    .take(20);
+  if (open.some((note) => note.reason === 'blocked' && !note.taskId)) return;
+  await needsPeter(ctx, milestone, {
+    reason: 'blocked',
+    addedBy: `runner:${input.runnerId}`,
+    at: input.at,
+    body: input.body,
+  });
+}
+
+/**
+ * Holds a Cursor build until staff press Retry. Tasks this run claimed go
+ * to Blocked. The run stays failed so the next claim does not start another agent.
+ */
+async function blockCursorBuild(
+  ctx: MutationCtx,
+  run: Doc<'agentRuns'>,
+  milestone: Doc<'milestones'>,
+  runnerId: string,
+  why: string,
+  now: number,
+) {
+  await ctx.db.patch(run._id, { status: 'failed', endedAt: now, blockedReason: why });
+  const tasks = await ctx.db
+    .query('tasks')
+    .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
+    .take(CLAIM_TASK_SCAN);
+  for (const task of tasks) {
+    if (task.claimedBy !== run.runnerId || task.isDone) continue;
+    if (task.claimedAt == null || task.claimedAt < run.startedAt) continue;
+    await ctx.db.patch(task._id, {
+      status: 'Blocked',
+      isDone: false,
+      blockedReason: why,
+      updatedAt: now,
+    });
+  }
+  await noteBlockedBuild(ctx, milestone, {
+    runnerId,
+    at: now,
+    body: planningBlockedNote({ milestoneName: milestone.name, reason: why }),
+  });
+  await writeEvent(ctx, {
+    orgId: run.orgId,
+    milestoneId: run.milestoneId,
+    runId: run._id,
+    type: 'failed',
+    summary: `Cursor agent stopped · ${why}`,
+    at: now,
+  });
+}
+
+function runClaimedTask(task: Doc<'tasks'>, run: Doc<'agentRuns'>): boolean {
+  return task.claimedBy === run.runnerId && task.claimedAt != null && task.claimedAt >= run.startedAt;
+}
+
 /**
  * Progress from the one Cursor agent on a milestone. Finished tasks are
  * closed with their commit, the same way a Claude task run ends.
@@ -891,34 +977,22 @@ export const reportBuild = internalMutation({
     if (args.status === 'failed') {
       const reason = eventSummary(typeof args.reason === 'string' && args.reason.trim() ? args.reason : 'The Cursor agent stopped');
       const why = reason.ok ? reason.summary : 'The Cursor agent stopped';
-      await ctx.db.patch(run._id, { status: 'failed', endedAt: now, blockedReason: why });
-      await needsPeter(ctx, milestone, {
-        reason: 'blocked',
-        addedBy: `runner:${args.runnerId}`,
-        at: now,
-        body: planningBlockedNote({ milestoneName: milestone.name, reason: why }),
-      });
-      await writeEvent(ctx, {
-        orgId: run.orgId,
-        milestoneId: run.milestoneId,
-        runId: run._id,
-        type: 'failed',
-        summary: `Cursor agent stopped · ${why}`,
-        at: now,
-      });
+      await blockCursorBuild(ctx, run, milestone, args.runnerId, why, now);
       return { ok: true as const, duplicate: false, milestoneStatus: milestone.status };
     }
     if (args.status !== 'finished') return failure(400, 'Status must be running, finished, or failed');
     const reported = Array.isArray(args.tasks) ? args.tasks : [];
     const prUrl = pullRequestUrl(args.prUrl);
     if (prUrl && milestone.prUrl !== prUrl) await ctx.db.patch(milestone._id, { prUrl });
+    let closed = 0;
     for (const item of reported.slice(0, CLAIM_TASK_SCAN)) {
       const row = item != null && typeof item === 'object' ? (item as { taskId?: unknown; commitSha?: unknown }) : {};
       const taskId = typeof row.taskId === 'string' ? ctx.db.normalizeId('tasks', row.taskId) : null;
       const task = taskId ? await ctx.db.get(taskId) : null;
-      if (!task || task.milestoneId !== milestone._id || task.isDone) continue;
+      if (!task || task.milestoneId !== milestone._id || task.isDone || !runClaimedTask(task, run)) continue;
       const decision = completeDecision({ status: 'done', commitSha: row.commitSha });
       if (!decision.ok || !decision.commitSha) continue;
+      closed += 1;
       await ctx.db.patch(task._id, {
         status: 'Done',
         isDone: true,
@@ -939,13 +1013,33 @@ export const reportBuild = internalMutation({
         at: now,
       });
     }
+    if (closed === 0) {
+      await blockCursorBuild(
+        ctx,
+        run,
+        milestone,
+        args.runnerId,
+        'The Cursor agent finished without a Portal-Task trailer',
+        now,
+      );
+      return { ok: true as const, duplicate: false, milestoneStatus: milestone.status };
+    }
     await ctx.db.patch(run._id, { status: 'succeeded', endedAt: now });
     const milestoneStatus = await markReady(ctx, milestone, args.runnerId, now, prUrl ?? milestone.prUrl ?? null);
     return { ok: true as const, duplicate: false, milestoneStatus };
   },
 });
 
-/** Clears a blocked task, or queues a blocked planning run again. Staff only. */
+async function failedBuildRun(ctx: MutationCtx, milestoneId: Id<'milestones'>) {
+  const recent = await ctx.db
+    .query('agentRuns')
+    .withIndex('by_milestone', (q) => q.eq('milestoneId', milestoneId))
+    .order('desc')
+    .take(10);
+  return recent.find((run) => run.kind === 'build' && run.status === 'failed') ?? null;
+}
+
+/** Clears a blocked task, a blocked Cursor build, or a blocked planning run. Staff only. */
 export async function retryBlockedWork(
   ctx: MutationCtx,
   args: { milestoneId: Id<'milestones'>; taskId?: Id<'tasks'> },
@@ -956,19 +1050,48 @@ export async function retryBlockedWork(
   if (args.taskId) {
     const task = await ctx.db.get(args.taskId);
     const decision = taskRetryDecision(task && task.milestoneId === milestone._id ? task : null);
-    if (!decision.ok) return failure(400, decision.reason);
-    if (!task) return failure(400, 'That task is not blocked.');
-    await ctx.db.patch(task._id, {
-      status: 'To Do',
-      isDone: false,
-      claimedBy: undefined,
-      claimedAt: undefined,
-      blockedReason: undefined,
-      updatedAt: now,
-    });
-    await answerNotes(ctx, milestone._id, { reason: 'blocked', taskId: task._id });
+    if (!decision.ok && !(await failedBuildRun(ctx, milestone._id))) return failure(400, decision.reason);
+    if (decision.ok && task) {
+      await ctx.db.patch(task._id, {
+        status: 'To Do',
+        isDone: false,
+        claimedBy: undefined,
+        claimedAt: undefined,
+        blockedReason: undefined,
+        updatedAt: now,
+      });
+      await answerNotes(ctx, milestone._id, { reason: 'blocked', taskId: task._id });
+    }
+  }
+  const held = await failedBuildRun(ctx, milestone._id);
+  if (held) {
+    await ctx.db.patch(held._id, { status: 'cancelled' });
+    const tasks = await ctx.db
+      .query('tasks')
+      .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
+      .take(CLAIM_TASK_SCAN);
+    for (const task of tasks) {
+      if (task.claimedBy !== held.runnerId || task.isDone) continue;
+      if (task.status !== 'Blocked' && task.status !== 'In Progress') continue;
+      await ctx.db.patch(task._id, {
+        status: 'To Do',
+        isDone: false,
+        claimedBy: undefined,
+        claimedAt: undefined,
+        blockedReason: undefined,
+        updatedAt: now,
+      });
+    }
+    const open = await ctx.db
+      .query('milestoneNotes')
+      .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
+      .take(20);
+    for (const note of open) {
+      if (note.reason === 'blocked' && !note.taskId) await ctx.db.patch(note._id, { needsPeter: undefined });
+    }
     return { ok: true };
   }
+  if (args.taskId) return { ok: true };
   const decision = planningRetryDecision({
     status: milestone.status,
     planning: milestone.planning ?? null,

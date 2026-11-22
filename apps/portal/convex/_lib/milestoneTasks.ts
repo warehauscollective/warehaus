@@ -134,6 +134,21 @@ type ChecklistTask = {
   isDone: boolean;
 };
 
+/**
+ * A planner draft still sitting at To do. Regenerate archives these.
+ * Hand-added tasks and anything staff have edited stay.
+ */
+export function plannerDraftToArchive(task: {
+  archivedAt?: number | null;
+  origin?: string | null;
+  source?: string | null;
+  notionPageId?: string | null;
+  status: string;
+  isDone: boolean;
+}): boolean {
+  return task.archivedAt == null && task.origin === 'planner' && isPortalOwnedTask(task) && isToDoTask(task);
+}
+
 /** To do means not done and not started. Notion spells it "To Do" or "Not started". */
 export function isToDoTask(task: { status: string; isDone: boolean }): boolean {
   if (task.isDone) return false;

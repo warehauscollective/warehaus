@@ -257,6 +257,10 @@ describe('drivers', () => {
     assert.equal(selectDriver({ kind: 'build', driver: 'cursor' }), 'cursor');
     assert.equal(selectDriver({ kind: 'task', driver: 'claude_code' }), 'claude_code');
     assert.equal(selectDriver({ kind: 'task' }), 'claude_code');
+    const cli = read('./cli.mjs');
+    assert.match(cli, /if \(buildStillRunning\) await sleep\(idleDelayMs\(1\)\)/);
+    assert.match(cli, /milestoneBranchOnOrigin/);
+    assert.match(cli, /The Cursor agent finished without a Portal-Task trailer/);
   });
 
   it('reads a plan from stdout and maps commits by the task trailer', () => {

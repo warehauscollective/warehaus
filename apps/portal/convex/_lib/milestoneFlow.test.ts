@@ -11,7 +11,9 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { claimNext, completeTask, recordEvent, retryBlockedWork, writePlannedTasks } from '../agent';
+import { claimNext, completeTask, recordEvent, reportBuild, retryBlockedWork, writePlannedTasks } from '../agent';
+import { AGENT_DRIVER_LOCKED, setAgentDriver } from '../projects';
+import { PortalAuthError } from './identity';
 import { reviewForApi } from '../milestones';
 import { createMilestone } from '../portalApi';
 import { applyInbound } from '../sync/inbound';
@@ -360,6 +362,193 @@ describe('milestone loop, bot to Shipped', () => {
     });
     assert.equal(again.duplicate, true);
     assert.equal(rowsOf('tasks').length, 3);
+  });
+});
+
+describe('cursor build hold and agent lock', () => {
+  const SOURCE = 'portal-milestone';
+
+  async function buildingCursor() {
+    const { db, rowsOf } = memoryDb();
+    const orgId = await db.insert('clients', { name: 'Warehaus', slug: 'warehaus', portalAccess: 'Enabled' });
+    const projectId = await db.insert('projects', { orgId, name: 'Warehaus Portal', agentRepo: REPO, agentDriver: 'cursor' });
+    const milestoneId = await db.insert('milestones', {
+      orgId,
+      projectId,
+      name: 'Client experience launch',
+      status: 'Building',
+      approval: 'unreviewed',
+      branch: 'milestone/client-experience-launch',
+    });
+    const taskId = await db.insert('tasks', {
+      orgId,
+      projectId,
+      milestoneId,
+      name: 'Build the overview',
+      status: 'To Do',
+      isDone: false,
+      source: SOURCE,
+      notionPageId: `${SOURCE}:overview`,
+      origin: 'manual',
+      milestoneOrder: 0,
+    });
+    const otherId = await db.insert('tasks', {
+      orgId,
+      projectId,
+      milestoneId,
+      name: 'Hand added later',
+      status: 'To Do',
+      isDone: false,
+      source: SOURCE,
+      notionPageId: `${SOURCE}:later`,
+      origin: 'manual',
+      milestoneOrder: 1,
+    });
+    return { db, rowsOf, orgId, projectId, milestoneId, taskId, otherId };
+  }
+
+  it('does not relaunch a failed Cursor build until staff retry', async () => {
+    const { db, rowsOf, milestoneId, taskId } = await buildingCursor();
+    const ctx = { db };
+    const claim = await handler<{ kind: string; runId: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    assert.equal(claim.kind, 'build');
+    const failed = await handler<{ ok: boolean; duplicate: boolean }>(reportBuild)(ctx, {
+      runnerId: RUNNER,
+      runId: claim.runId,
+      status: 'failed',
+      reason: 'Cursor refused the API key',
+    });
+    assert.equal(failed.ok, true);
+    assert.equal(failed.duplicate, false);
+    const again = await handler<{ kind: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    assert.equal(again.kind, 'none');
+    const repeat = await handler<{ duplicate: boolean }>(reportBuild)(ctx, {
+      runnerId: RUNNER,
+      runId: claim.runId,
+      status: 'failed',
+      reason: 'Cursor refused the API key',
+    });
+    assert.equal(repeat.duplicate, true);
+    const notes = rowsOf('milestoneNotes').filter((row) => row.needsPeter === 'open' && row.reason === 'blocked');
+    assert.equal(notes.length, 1);
+    await retryBlockedWork(ctx as never, { milestoneId: milestoneId as never });
+    const retried = await handler<{ kind: string; runId: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    assert.equal(retried.kind, 'build');
+    assert.notEqual(retried.runId, claim.runId);
+    const task = rowsOf('tasks').find((row) => row._id === taskId);
+    assert.equal(task?.status, 'In Progress');
+  });
+
+  it('marks done only the tasks that build claimed', async () => {
+    const { db, rowsOf, taskId, otherId } = await buildingCursor();
+    const ctx = { db };
+    const claim = await handler<{ kind: string; runId: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    await db.patch(otherId, { claimedBy: undefined, claimedAt: undefined, status: 'To Do' });
+    const finished = await handler<{ ok: boolean }>(reportBuild)(ctx, {
+      runnerId: RUNNER,
+      runId: claim.runId,
+      status: 'finished',
+      tasks: [
+        { taskId, commitSha: SHA },
+        { taskId: otherId, commitSha: 'd'.repeat(40) },
+      ],
+    });
+    assert.equal(finished.ok, true);
+    const claimed = rowsOf('tasks').find((row) => row._id === taskId);
+    const other = rowsOf('tasks').find((row) => row._id === otherId);
+    assert.equal(claimed?.isDone, true);
+    assert.equal(claimed?.lastCommitSha, SHA);
+    assert.equal(other?.isDone, false);
+    assert.equal(other?.status, 'To Do');
+  });
+
+  it('blocks a finished Cursor build that has no Portal-Task trailer', async () => {
+    const { db, rowsOf } = await buildingCursor();
+    const ctx = { db };
+    const claim = await handler<{ runId: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    await handler(reportBuild)(ctx, { runnerId: RUNNER, runId: claim.runId, status: 'finished', tasks: [] });
+    const run = rowsOf('agentRuns').find((row) => row._id === claim.runId);
+    assert.equal(run?.status, 'failed');
+    assert.match(String(run?.blockedReason), /Portal-Task trailer/);
+    const next = await handler<{ kind: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    assert.equal(next.kind, 'none');
+  });
+
+  it('refuses an agent change while a milestone is Building', async () => {
+    const { db, orgId, projectId } = await buildingCursor();
+    await db.insert('contacts', {
+      orgId,
+      authUserId: 'user-staff',
+      role: 'Warehaus Staff',
+      portalAccess: 'Enabled',
+      name: 'Peter',
+      email: 'peter@warehaus.co',
+    });
+    const ctx = { db, auth: { getUserIdentity: async () => ({ subject: 'user-staff' }) } };
+    await assert.rejects(
+      () => handler(setAgentDriver)(ctx, { projectId, driver: 'claude_code' }),
+      (error: unknown) => error instanceof PortalAuthError && error.message === AGENT_DRIVER_LOCKED,
+    );
+    const project = (await db.get(projectId)) as { agentDriver?: string };
+    assert.equal(project.agentDriver, 'cursor');
+  });
+
+  it('archives planner drafts on regenerate and leaves hand-added tasks', async () => {
+    const { db, rowsOf } = memoryDb();
+    const orgId = await db.insert('clients', { name: 'Warehaus', portalAccess: 'Enabled' });
+    const projectId = await db.insert('projects', { orgId, name: 'Warehaus Portal', agentRepo: REPO });
+    const milestoneId = await db.insert('milestones', {
+      orgId,
+      projectId,
+      name: 'Client experience launch',
+      status: 'Planning',
+      approval: 'unreviewed',
+      planning: 'running',
+      planningReplace: true,
+    });
+    const runId = await db.insert('agentRuns', {
+      orgId,
+      milestoneId,
+      kind: 'planning',
+      runnerId: RUNNER,
+      tool: 'claude_code',
+      mode: 'headless',
+      status: 'running',
+      startedAt: 1,
+    });
+    const drafted = await db.insert('tasks', {
+      orgId,
+      projectId,
+      milestoneId,
+      name: 'Old draft',
+      status: 'To Do',
+      isDone: false,
+      source: SOURCE,
+      notionPageId: `${SOURCE}:draft`,
+      origin: 'planner',
+    });
+    const edited = await db.insert('tasks', {
+      orgId,
+      projectId,
+      milestoneId,
+      name: 'Staff kept this',
+      status: 'To Do',
+      isDone: false,
+      source: SOURCE,
+      notionPageId: `${SOURCE}:kept`,
+      origin: 'manual',
+    });
+    const wrote = await handler<{ ok: boolean }>(writePlannedTasks)({ db }, {
+      runnerId: RUNNER,
+      runId,
+      tasks: [{ title: 'One' }, { title: 'Two' }, { title: 'Three' }],
+    });
+    assert.equal(wrote.ok, true);
+    const draft = rowsOf('tasks').find((row) => row._id === drafted);
+    const kept = rowsOf('tasks').find((row) => row._id === edited);
+    assert.equal(typeof draft?.archivedAt, 'number');
+    assert.equal(kept?.archivedAt, undefined);
+    assert.equal(rowsOf('tasks').some((row) => row._id === drafted), true);
   });
 });
 
