@@ -129,7 +129,21 @@ function HeldButton({
 
 function Hint({ id, children }: { id: string; children: ReactNode }) {
   return (
-    <p id={id} style={{ alignSelf: 'stretch', margin: 0, fontSize: 13, lineHeight: '20px', color: 'var(--muted)', textAlign: 'right' }}>
+    <p
+      id={id}
+      style={{
+        alignSelf: 'stretch',
+        minWidth: 0,
+        maxWidth: '100%',
+        margin: 0,
+        fontSize: 13,
+        lineHeight: '20px',
+        color: 'var(--muted)',
+        textAlign: 'right',
+        whiteSpace: 'normal',
+        overflowWrap: 'break-word',
+      }}
+    >
       {children}
     </p>
   );
@@ -293,7 +307,7 @@ export function ProjectRepoSettingView({
                 Clear repository
               </button>
             ) : null}
-            <div className="flex flex-1 flex-col items-end gap-2">
+            <div className="flex w-full min-w-0 flex-1 flex-col items-end gap-2">
               <div className="flex justify-end gap-2">
                 <HeldButton
                   label="Cancel"
@@ -339,7 +353,7 @@ export function ProjectRepoSettingView({
           locked={clearing}
           onClose={closeConfirm}
         >
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4" style={{ padding: '0 24px 24px' }}>
             <p
               id={clearFailed ? 'clear-repo-error' : undefined}
               role={clearFailed ? 'alert' : undefined}
@@ -348,7 +362,7 @@ export function ProjectRepoSettingView({
             >
               {clearFailed ? CLEAR_ERROR : CLEAR_BODY}
             </p>
-            <div className="flex flex-col items-end gap-2">
+            <div className="flex w-full min-w-0 flex-col items-end gap-2">
               <div className="flex justify-end gap-2">
                 <HeldButton
                   label="Cancel"
