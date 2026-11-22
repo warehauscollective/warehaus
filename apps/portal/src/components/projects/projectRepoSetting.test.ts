@@ -72,11 +72,13 @@ describe('project repository setting', () => {
     const projects = read('../../../convex/projects.ts');
     const clientShape = projects.slice(projects.indexOf('function toClientProject'), projects.indexOf('export const'));
     assert.equal(clientShape.includes('agentRepo'), false);
+    assert.equal(clientShape.includes('agentDriver'), false);
     const staffList = projects.slice(projects.indexOf('export const listForStaff'), projects.indexOf('export const createForStaff'));
     assert.match(staffList, /agentRepo: row\.agentRepo \?\? null/);
     // No client query in the module returns it.
     for (const block of projects.split('export const ').filter((part) => part.includes('= clientQuery('))) {
       assert.equal(block.includes('agentRepo'), false);
+      assert.equal(block.includes('agentDriver'), false);
     }
     assert.match(projects, /export const setAgentRepo = adminMutation/);
   });

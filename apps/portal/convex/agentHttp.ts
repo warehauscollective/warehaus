@@ -2,10 +2,11 @@
  * Runner HTTP routes. The runner on a staff Mac calls these with its own
  * bearer token from `RUNNER_TOKENS` and its id in `X-Runner-Id`.
  *
- *   POST /agent/claim     next planning job or task
+ *   POST /agent/claim     next planning job, task, or Cursor build
  *   POST /agent/events    one short line for the run feed
  *   POST /agent/tasks     the task list from a planning run
  *   POST /agent/complete  end a task run, or a planning run that failed
+ *   POST /agent/build     progress from the one Cursor agent on a milestone
  *
  * Each call is rate limited per runner. Claim and complete are idempotent on
  * the run: a retry returns the same run or the stored outcome.
@@ -15,7 +16,7 @@ import { internal } from './_generated/api';
 import { httpAction } from './_generated/server';
 import { authorizeRunner, reposForRunner } from './_lib/agentRun';
 
-export const AGENT_ROUTES = ['/agent/claim', '/agent/events', '/agent/tasks', '/agent/complete'] as const;
+export const AGENT_ROUTES = ['/agent/claim', '/agent/events', '/agent/tasks', '/agent/complete', '/agent/build'] as const;
 
 const BODY_LIMIT = 60_000;
 
@@ -60,8 +61,7 @@ export const agentHttp = httpAction(async (ctx, request) => {
     const result = await ctx.runMutation(internal.agent.claimNext, {
       runnerId,
       mode: field(body, 'mode') || undefined,
-      // Claude Code only for now. Cursor waits.
-      tool: 'claude_code',
+      // The project setting picks the agent. A tool on the request is ignored.
       repos: reposForRunner(auth.repos, body.repos),
     });
     return json(result, 200);
@@ -101,6 +101,19 @@ export const agentHttp = httpAction(async (ctx, request) => {
       ...(body.commitSha !== undefined ? { commitSha: body.commitSha } : {}),
       ...(body.reason !== undefined ? { reason: body.reason } : {}),
       ...(body.prUrl !== undefined ? { prUrl: body.prUrl } : {}),
+    });
+    return result.ok ? json(result, 200) : json({ error: result.error }, result.status);
+  }
+  if (path === '/agent/build') {
+    const result = await ctx.runMutation(internal.agent.reportBuild, {
+      runnerId,
+      runId: field(body, 'runId'),
+      status: field(body, 'status'),
+      ...(body.agentId !== undefined ? { agentId: field(body, 'agentId') } : {}),
+      ...(body.agentUrl !== undefined ? { agentUrl: field(body, 'agentUrl') } : {}),
+      ...(body.tasks !== undefined ? { tasks: body.tasks } : {}),
+      ...(body.prUrl !== undefined ? { prUrl: body.prUrl } : {}),
+      ...(body.reason !== undefined ? { reason: body.reason } : {}),
     });
     return result.ok ? json(result, 200) : json({ error: result.error }, result.status);
   }

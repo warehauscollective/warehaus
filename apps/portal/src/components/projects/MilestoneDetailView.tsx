@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { useMutation } from 'convex/react';
 import { formatReviewStamp, iterationOutcome } from '@convex/_lib/milestoneReview';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
@@ -38,6 +38,7 @@ import {
 import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, type FixturePatch, lastReviewLabel, resourceAudienceLine, taskTotal, boardTaskCounts, nestedCopy, milestoneDetachOptions, inclusiveProgressCopy, milestoneTasks, fixtureOwnerChoices } from './milestoneTile';
 import { ActivityList } from './roadmapParts';
 import { MoreMenu, EditDialog } from './MilestoneForms';
+import { AgentWorkStub } from './AgentWorkStub';
 import { MilestoneChecklist, type ChecklistActions } from './MilestoneChecklist';
 import { MilestoneRunFeedLive } from './MilestoneRunFeed';
 
@@ -190,6 +191,11 @@ export function MilestoneDetail(props: {
           ? () => setCursor(targetPage.data?.continueCursor ?? null)
           : undefined
       }
+      workPanel={
+        props.staff ? (
+          <AgentWorkStub milestone={props.milestone} staff={props.staff} fixtures={props.fixtures} hostSlug={props.hostSlug} />
+        ) : null
+      }
       mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink, tasks: { addTask, editTask, removeTask, reorderTasks } }}
     />
   );
@@ -219,6 +225,7 @@ export function MilestoneDetailView({
   onFixture,
   mutations,
   isPeter,
+  workPanel = null,
 }: {
   milestone: MilestoneRoadmapView;
   project: RoadmapProject;
@@ -243,6 +250,7 @@ export function MilestoneDetailView({
   onFixture: (patch: FixturePatch) => void;
   mutations: MilestoneMutations;
   isPeter?: boolean;
+  workPanel?: ReactNode;
 }) {
   const { save, setPublish, attachTask, detachTask } = mutations;
   const [tab, setTab] = useState<MilestoneTab>('overview');
@@ -518,6 +526,7 @@ export function MilestoneDetailView({
           {tasksMenuFailure({ tab, error, editing }).show && error ? (
             <MenuActionError error={error} onDismiss={() => setError(null)} />
           ) : null}
+          {workPanel}
           <MilestoneChecklist
             milestone={milestone}
             staff={staff}

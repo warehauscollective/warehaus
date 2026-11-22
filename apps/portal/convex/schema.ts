@@ -69,6 +69,12 @@ export default defineSchema({
      * only: not written to Notion and never returned to a client.
      */
     agentRepo: v.optional(v.string()),
+    /**
+     * Staff only. Which agent builds this project's milestones. Absent means
+     * Claude Code. Convex only: not written to Notion and never returned to
+     * a client. The Cursor API key is not stored here.
+     */
+    agentDriver: v.optional(v.union(v.literal('claude_code'), v.literal('cursor'))),
     description: v.optional(v.string()),
     status: v.string(),
     progress: v.optional(v.number()),
@@ -159,7 +165,9 @@ export default defineSchema({
      * Where a milestone task came from: the brief, a change request, or a
      * staff add. Staff only. Absent on tasks that came from Notion.
      */
-    origin: v.optional(v.union(v.literal('brief'), v.literal('review'), v.literal('manual'))),
+    origin: v.optional(
+      v.union(v.literal('brief'), v.literal('review'), v.literal('manual'), v.literal('planner')),
+    ),
     /** Review iteration that asked for this task. Set with origin review. Staff only. */
     round: v.optional(v.number()),
     /** Runner id working this task. Set on claim, cleared when the run ends. Staff only. */
@@ -314,10 +322,17 @@ export default defineSchema({
       v.union(v.literal('grok'), v.literal('claude'), v.literal('portal'), v.literal('other')),
     ),
     /**
-     * Planning job for the runner. `queued` when a milestone is created in the
-     * portal with no tasks. `running` once a runner claims it. Absent otherwise.
+     * Planning job for the runner. `queued` when a milestone enters Planning
+     * with no tasks. `running` once a runner claims it. `blocked` when the run
+     * failed or stuck and is waiting on staff to retry. Absent otherwise.
      */
-    planning: v.optional(v.union(v.literal('queued'), v.literal('running'))),
+    planning: v.optional(v.union(v.literal('queued'), v.literal('running'), v.literal('blocked'))),
+    /** Iteration the queued or running plan belongs to. Staff only. */
+    planningIteration: v.optional(v.number()),
+    /** Set with a blocked planning job. Cleared when it is queued again or the plan lands. */
+    planningBlockedReason: v.optional(v.string()),
+    /** Staff pressed Regenerate. The next plan replaces the drafted To do tasks. */
+    planningReplace: v.optional(v.boolean()),
     /** The milestone's one branch, `milestone/<slug>`. Set on create. Absent on older rows. Staff only. */
     branch: v.optional(v.string()),
     /** The milestone's one pull request. Set by the GitHub webhook or the runner. Staff only. */
@@ -361,13 +376,19 @@ export default defineSchema({
     milestoneId: v.id('milestones'),
     /** Absent on a planning run. */
     taskId: v.optional(v.id('tasks')),
-    kind: v.union(v.literal('planning'), v.literal('task')),
+    kind: v.union(v.literal('planning'), v.literal('task'), v.literal('build')),
     runnerId: v.string(),
     tool: v.union(v.literal('claude_code'), v.literal('cursor')),
     mode: v.union(v.literal('interactive'), v.literal('headless')),
     status: v.union(v.literal('running'), v.literal('succeeded'), v.literal('failed'), v.literal('cancelled')),
     startedAt: v.number(),
     endedAt: v.optional(v.number()),
+    /** Why a run failed or stuck. Staff only. Never a credential. */
+    blockedReason: v.optional(v.string()),
+    /** Cursor cloud agent id. Staff only. Not a secret. */
+    externalId: v.optional(v.string()),
+    /** Cursor agent link. Staff only. Not a secret. */
+    externalUrl: v.optional(v.string()),
   })
     .index('by_milestone', ['milestoneId', 'startedAt'])
     .index('by_task', ['taskId'])

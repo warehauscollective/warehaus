@@ -11,7 +11,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { claimNext, completeTask, recordEvent, writePlannedTasks } from '../agent';
+import { claimNext, completeTask, recordEvent, retryBlockedWork, writePlannedTasks } from '../agent';
 import { reviewForApi } from '../milestones';
 import { createMilestone } from '../portalApi';
 import { applyInbound } from '../sync/inbound';
@@ -184,6 +184,7 @@ describe('milestone loop, bot to Shipped', () => {
         // Hand the other runner's task back so the first runner works in order.
         const otherRun = rowsOf('agentRuns').find((run) => run.runnerId === 'studio-mini' && run.status === 'running') as Row;
         await handler(completeTask)(ctx, { runnerId: 'studio-mini', runId: otherRun._id, status: 'failed' });
+        await retryBlockedWork(ctx as never, { milestoneId: milestoneId as never, taskId: otherRun.taskId as never });
       }
       const event = await handler<{ ok: boolean }>(recordEvent)(ctx, {
         runnerId: RUNNER,
@@ -347,8 +348,10 @@ describe('milestone loop, bot to Shipped', () => {
     });
     assert.equal(wrote.ok, true);
     assert.equal(wrote.taskIds.length, 3);
-    assert.equal(wrote.milestoneStatus, 'Awaiting Go');
+    assert.equal(wrote.milestoneStatus, 'Planning');
+    assert.equal(milestone().status, 'Planning');
     assert.equal(milestone().planning, undefined);
+    assert.equal(rowsOf('tasks').every((task) => task.origin === 'planner'), true);
     // A retry after the run ended writes no second list.
     const again = await handler<{ duplicate: boolean }>(writePlannedTasks)(ctx, {
       runnerId: RUNNER,

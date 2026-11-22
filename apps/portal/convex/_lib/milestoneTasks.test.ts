@@ -234,6 +234,7 @@ describe('origin and source labels', () => {
 
   it('labels the badge and the source mark', () => {
     assert.equal(originLabel('brief'), 'Brief');
+    assert.equal(originLabel('planner'), 'Planner');
     assert.equal(originLabel('manual'), 'Manual');
     assert.equal(originLabel('review', 2), 'Review 2');
     assert.equal(originLabel('review'), 'Review');

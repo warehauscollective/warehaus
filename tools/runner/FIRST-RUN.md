@@ -72,7 +72,7 @@ Open the Vercel dashboard. Confirm the Preview environment variables point at `g
    npm run runner -- start --id peter-mbp --repo <owner/name> --once
    ```
 
-   The runner should write 3 to 10 tasks, and the milestone should move to Awaiting Go.
+   The runner should write 3 to 10 tasks and leave the milestone in Planning. Staff edit the list, then move it to Awaiting Go.
 3. Press Go. The milestone moves to Building.
 4. Run the same command once per task. Each task should end with a commit on `milestone/<slug>`, one PR into the default branch, and the task marked Done on the Tasks tab with its commit.
 5. Test a blocked task once: have Claude write `.runner/blocked.txt`. A "needs Peter" note should appear, and Grok Bot should pick it up.

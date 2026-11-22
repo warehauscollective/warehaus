@@ -8,11 +8,15 @@ import {
   idleDelayMs,
   isMilestoneBranch,
   parseArgs,
+  mapCursorCommits,
+  parseGitLog,
   parsePlan,
+  parsePlanOutput,
   planPrompt,
   pullRequestBody,
   readEnv,
   repoFromRemote,
+  selectDriver,
   taskOutcome,
   taskPrompt,
   worktreeName,
@@ -121,7 +125,7 @@ describe('prompts', () => {
 
   it('fills the task prompt', () => {
     const prompt = taskPrompt(read('../prompts/task.md'), work);
-    assert.match(prompt, /Task 05: \*\*Apply review feedback\*\*/);
+    assert.match(prompt, /Task 05: \*\*<<<TITLE>>>\nApply review feedback\n<<<END TITLE>>>\*\*/);
     assert.match(prompt, /branch `milestone\/launch`/);
     assert.match(prompt, /- Hero matches/);
     assert.equal(prompt.includes('{{'), false);
@@ -129,7 +133,7 @@ describe('prompts', () => {
 
   it('fills the planning prompt and keeps it read only', () => {
     const prompt = planPrompt(read('../prompts/plan-milestone.md'), work);
-    assert.match(prompt, /\*\*Launch\*\*/);
+    assert.match(prompt, /\*\*<<<NAME>>>\nLaunch\n<<<END NAME>>>\*\*/);
     assert.match(prompt, /Read only/);
     assert.match(prompt, /3 to 10 tasks/);
     assert.equal(prompt.includes('{{'), false);
@@ -239,9 +243,34 @@ describe('no model credentials', () => {
       assert.equal(/ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH|api\.anthropic\.com|@anthropic-ai\/sdk/.test(source), false);
     }
     assert.match(cli, /spawn\('claude'/);
-    assert.equal((cli.match(/spawn\('/g) ?? []).length, 1);
+    assert.equal((cli.match(/spawn\('claude'/g) ?? []).length, 2);
+    assert.equal((cli.match(/spawn\('/g) ?? []).length, 2);
     // The raw hook payload is never posted.
     assert.match(hook, /summary: event\.summary/);
     assert.equal(hook.includes('payload,'), false);
+  });
+});
+
+describe('drivers', () => {
+  it('plans with Claude and builds with the project agent', () => {
+    assert.equal(selectDriver({ kind: 'planning', driver: 'cursor' }), 'claude_code');
+    assert.equal(selectDriver({ kind: 'build', driver: 'cursor' }), 'cursor');
+    assert.equal(selectDriver({ kind: 'task', driver: 'claude_code' }), 'claude_code');
+    assert.equal(selectDriver({ kind: 'task' }), 'claude_code');
+  });
+
+  it('reads a plan from stdout and maps commits by the task trailer', () => {
+    const parsed = parsePlanOutput('Here is the plan.\n{"tasks":[{"title":"One","detail":"First"},{"title":"Two","detail":"Second"},{"title":"Three","detail":"Third"}]}\n');
+    assert.equal(parsed.tasks.length, 3);
+    const log = parseGitLog(`${'a'.repeat(40)}\x1fDid it\n\nPortal-Task: tasks:1\x1e`);
+    assert.deepEqual(mapCursorCommits(log, [{ id: 'tasks:1' }]), [{ taskId: 'tasks:1', commitSha: 'a'.repeat(40) }]);
+  });
+
+  it('keeps the Cursor key out of the Claude process', () => {
+    const env = childEnv({ PATH: '/bin', CURSOR_API_KEY: 'secret', SSH_AUTH_SOCK: '/tmp/sock', HOME: '/tmp' });
+    assert.equal(env.CURSOR_API_KEY, undefined);
+    assert.equal(env.SSH_AUTH_SOCK, '/tmp/sock');
+    assert.equal(env.PATH, '/bin');
+    assert.equal(env.HOME, '/tmp');
   });
 });

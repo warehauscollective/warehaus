@@ -67,6 +67,7 @@ import {
   ProjectListOutcome,
   ProjectListScreen,
 } from '@/components/projects/ProjectListStates';
+import { AgentDriverSetting } from '@/components/projects/AgentDriverSetting';
 import { ProjectRepoSetting } from '@/components/projects/ProjectRepoSetting';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { PROJECT_UNAVAILABLE } from '@warehaus/portal-sync';
@@ -85,6 +86,7 @@ type ProjectRow = PortalProject & {
   publishToWarehaus?: boolean;
   /** Staff only. Absent for clients. */
   agentRepo?: string | null;
+  agentDriver?: 'claude_code' | 'cursor' | null;
 };
 
 export function ProjectsContent() {
@@ -459,6 +461,13 @@ export function ProjectsContent() {
                   key={openProject.id}
                   projectId={openProject.id}
                   repo={openProject.agentRepo ?? null}
+                  fixtures={fixtures}
+                  hostSlug={hostSlug}
+                />
+                <AgentDriverSetting
+                  key={`${openProject.id}-agent`}
+                  projectId={openProject.id}
+                  driver={openProject.agentDriver ?? null}
                   fixtures={fixtures}
                   hostSlug={hostSlug}
                 />

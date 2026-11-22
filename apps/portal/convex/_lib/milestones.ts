@@ -576,6 +576,7 @@ const CLIENT_ROADMAP_OMIT = [
   'figmaUrl',
   'createdVia',
   'planning',
+  'planningBlockedReason',
   'branch',
   'prUrl',
   'review',
@@ -631,8 +632,10 @@ export type MilestoneRoadmapView = {
   figmaUrl?: string | null;
   /** Staff only. Where the milestone was created. Absent for clients, including the key. */
   createdVia?: MilestoneCreatedVia;
-  /** Staff only. A planning job waiting for, or held by, a runner. */
-  planning?: 'queued' | 'running';
+  /** Staff only. A planning job waiting for, held by, or blocked on a runner. */
+  planning?: 'queued' | 'running' | 'blocked';
+  /** Staff only. Why a planning run is blocked. */
+  planningBlockedReason?: string;
   /** Staff only. The milestone's one branch. */
   branch?: string;
   /** Staff only. The milestone's one pull request. */

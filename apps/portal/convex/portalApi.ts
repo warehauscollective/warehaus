@@ -69,6 +69,7 @@ import { currentIteration, NEW_ITERATION_TASK_DONE } from './_lib/milestoneRevie
 import { reviewPreviews } from './_lib/previewLink';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { NEEDS_PETER_LIMIT, planningForNewMilestone } from './_lib/agentRun';
+import { queuePlanning } from './planningQueue';
 import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
 import { milestoneCloseGate } from './_lib/milestoneClose';
 import {
@@ -721,7 +722,7 @@ export const createMilestone = internalMutation({
       branch: await uniqueMilestoneBranch(ctx, created.milestone.name),
       // A bot that sends its own task list skips planning. One that sends none is planned.
       ...(planningForNewMilestone({ taskCount: proposed.tasks.length, status: created.milestone.status })
-        ? { planning: 'queued' as const }
+        ? { planning: 'queued' as const, planningIteration: 1 }
         : {}),
     });
     // The milestone and its task list land in one transaction. The tasks are
@@ -972,6 +973,11 @@ export const updateMilestone = internalMutation({
         at,
         detailActivitySummary({ actor: actorName, from, to: moved.status, at }),
       );
+      const current = await ctx.db.get(milestone._id);
+      if (current && moved.status === 'Planning') await queuePlanning(ctx, current);
+      if (current?.planning === 'queued' && moved.status !== 'Planning') {
+        await ctx.db.patch(current._id, { planning: undefined, planningReplace: undefined });
+      }
     }
     return finishIdempotency(ctx, opened.id, { status: 200, body: { id: milestone._id } });
   },

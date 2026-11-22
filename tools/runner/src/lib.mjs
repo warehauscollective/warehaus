@@ -106,6 +106,8 @@ const CHILD_ENV_EXACT = new Set([
   'CLAUDE_CONFIG_DIR',
 ]);
 
+const SECRET_ENV = /TOKEN|SECRET|KEY|PASSWORD|CREDENTIAL/i;
+
 export function childEnv(parent, extra) {
   const env = {};
   for (const [key, value] of Object.entries(parent ?? {})) {
@@ -113,10 +115,16 @@ export function childEnv(parent, extra) {
     if (CHILD_ENV_EXACT.has(key) || key.startsWith('LC_') || key.startsWith('XDG_')) env[key] = value;
   }
   for (const [key, value] of Object.entries(extra ?? {})) {
-    if (key === 'RUNNER_TOKEN' || typeof value !== 'string' || value === '') continue;
+    if (SECRET_ENV.test(key) || typeof value !== 'string' || value === '') continue;
     env[key] = value;
   }
   return env;
+}
+
+/** Milestone text is data. Fence markers inside it are stripped so it cannot close the fence. */
+export function fenceUntrusted(label, value) {
+  const text = String(value ?? '').replaceAll('<<<', '').replaceAll('>>>', '');
+  return `<<<${label}>>>\n${text}\n<<<END ${label}>>>`;
 }
 
 /** Folder name for a milestone worktree: the branch with slashes turned into hyphens. */
@@ -139,37 +147,37 @@ function goalLines(goals) {
 
 export function taskPrompt(template, work) {
   return fill(template, {
-    milestoneName: work.milestone.name,
-    objective: work.milestone.objective,
-    goals: goalLines(work.milestone.goals),
+    milestoneName: fenceUntrusted('NAME', work.milestone.name),
+    objective: fenceUntrusted('OBJECTIVE', work.milestone.objective),
+    goals: fenceUntrusted('GOALS', goalLines(work.milestone.goals)),
     branch: work.milestone.branch,
     taskOrder: String(work.task.order).padStart(2, '0'),
-    taskTitle: work.task.title,
-    taskDetail: work.task.detail || '(no extra detail)',
+    taskTitle: fenceUntrusted('TITLE', work.task.title),
+    taskDetail: fenceUntrusted('DETAIL', work.task.detail || '(no extra detail)'),
   });
 }
 
 export function planPrompt(template, work) {
   return fill(template, {
-    milestoneName: work.milestone.name,
-    objective: work.milestone.objective,
-    goals: goalLines(work.milestone.goals),
+    milestoneName: fenceUntrusted('NAME', work.milestone.name),
+    objective: fenceUntrusted('OBJECTIVE', work.milestone.objective),
+    goals: fenceUntrusted('GOALS', goalLines(work.milestone.goals)),
   });
 }
 
 /**
- * Reads the task list a planning run wrote to `.runner/plan.json`:
- * `{ "tasks": [{ "title": "...", "detail": "..." }] }`, 3 to 10 tasks.
+ * Reads a planner task list: `{ "tasks": [{ "title": "...", "detail": "..." }] }`,
+ * 3 to 10 tasks. The planner prints this. It does not write a file.
  */
 export function parsePlan(text) {
   let parsed;
   try {
     parsed = JSON.parse(text);
   } catch {
-    return { ok: false, error: 'plan.json is not JSON.' };
+    return { ok: false, error: 'The planner did not return JSON.' };
   }
   const tasks = Array.isArray(parsed) ? parsed : parsed?.tasks;
-  if (!Array.isArray(tasks)) return { ok: false, error: 'plan.json needs a "tasks" list.' };
+  if (!Array.isArray(tasks)) return { ok: false, error: 'The planner needs a "tasks" list.' };
   if (tasks.length < 3 || tasks.length > 10) return { ok: false, error: 'A plan has 3 to 10 tasks.' };
   const out = [];
   for (const task of tasks) {
@@ -179,6 +187,54 @@ export function parsePlan(text) {
     out.push(detail ? { title: title.trim(), detail } : { title: title.trim() });
   }
   return { ok: true, tasks: out };
+}
+
+/** Pulls the JSON object out of a planner transcript. Prose around it is ignored. */
+export function parsePlanOutput(text) {
+  const raw = String(text ?? '');
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start < 0 || end <= start) return { ok: false, error: 'The planner did not return a task list.' };
+  return parsePlan(raw.slice(start, end + 1));
+}
+
+/**
+ * The build agent for a claim. Planning is always Claude Code. A Cursor
+ * project builds with one cloud agent. Anything else stays on Claude Code.
+ */
+export function selectDriver(work) {
+  if (work?.kind === 'planning') return 'claude_code';
+  if (work?.kind === 'build' || work?.driver === 'cursor') return 'cursor';
+  return 'claude_code';
+}
+
+/** Commits matched to tasks by a `Portal-Task:` trailer. The first match wins. */
+export function mapCursorCommits(commits, tasks) {
+  const wanted = new Set((tasks ?? []).map((task) => task.id));
+  const done = [];
+  for (const commit of commits ?? []) {
+    const sha = String(commit?.sha ?? '').trim().toLowerCase();
+    const message = String(commit?.message ?? '');
+    const match = /Portal-Task:\s*([A-Za-z0-9:_-]{4,120})/.exec(message);
+    if (!match || !wanted.has(match[1]) || !/^[0-9a-f]{7,40}$/.test(sha)) continue;
+    if (done.some((row) => row.taskId === match[1])) continue;
+    done.push({ taskId: match[1], commitSha: sha });
+  }
+  return done;
+}
+
+/** `git log --format=%H%x1f%B%x1e` into commit records. */
+export function parseGitLog(text) {
+  return String(text ?? '')
+    .split('\x1e')
+    .map((row) => row.trim())
+    .filter(Boolean)
+    .map((row) => {
+      const split = row.indexOf('\x1f');
+      if (split < 0) return null;
+      return { sha: row.slice(0, split).trim(), message: row.slice(split + 1) };
+    })
+    .filter(Boolean);
 }
 
 /** How a finished task run is reported. A blocked file wins. No new commit means the task goes back. */
@@ -246,6 +302,8 @@ export function pullRequestBody(work) {
     '',
     'Done when:',
     goals,
+    '',
+    `Milestone-Id: ${work.milestone.id}`,
     '',
     `Branch \`${work.milestone.branch}\`. One pull request for the whole milestone. The runner adds a commit per task.`,
     '',
