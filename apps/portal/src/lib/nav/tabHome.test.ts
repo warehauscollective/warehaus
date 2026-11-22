@@ -32,6 +32,14 @@ for (const viewer of viewers) {
       );
       assert.equal(tabReplaceHref({ pathname: '/projects/p-site', tab: 'projects' }), '/projects');
       assert.equal(tabReplaceHref({ pathname: '/tasks/t-doing', tab: 'projects' }), '/projects');
+      assert.equal(
+        tabReplaceHref({ pathname: '/projects/p-site', tab: 'projects', search: '?as=client' }),
+        '/projects?as=client',
+      );
+      assert.equal(
+        tabReplaceHref({ pathname: '/resources/r-notes', tab: 'resources', search: '?as=staff' }),
+        '/resources?as=staff',
+      );
       assert.equal(getPortalTabForPath('/projects/p-site'), 'projects');
       assert.equal(getPortalTabForPath('/tasks/t-doing'), 'projects');
       assert.equal(isProjectDetailPath('/projects/p-site'), true);

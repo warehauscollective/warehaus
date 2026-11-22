@@ -21,8 +21,12 @@ export function tabReplaceHref(input: {
   const href = tabRootHref(input.tab);
   if (input.pathname === href) return null;
   const next = new URL(href, 'http://portal.local');
+  const current = new URLSearchParams(input.search ?? '');
+  // Fixture preview selects staff or client with ?as=. The root path stays
+  // the same; keeping it stops a client click from rendering the staff list.
+  const audience = current.get('as');
+  if (audience === 'client' || audience === 'staff') next.searchParams.set('as', audience);
   if (input.tab === 'account') {
-    const current = new URLSearchParams(input.search ?? '');
     const client = current.get('client');
     const section = current.get('section');
     if (client) next.searchParams.set('client', client);
