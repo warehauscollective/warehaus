@@ -51,6 +51,8 @@ import {
 import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam, setSearchParams } from '@/lib/nav/clearSearchParam';
+import { CLOSE_TASK_FOR_SEARCH, leaveTaskForSearch } from '@/lib/nav/dockLayer';
+import { isProjectDetailPath, leaveProjectDetail, projectStateAfterNav } from '@/lib/nav/tabHome';
 import { keepProjectWhileLoading, readTaskListView } from '@/lib/nav/taskListLocation';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
 import { clearPortalReturn, peekPortalReturn, takePortalReturn, taskCloseLabel } from '@/lib/nav/portalReturn';
@@ -122,11 +124,15 @@ export function ProjectsContent() {
     const apply = (event?: Event) => {
       const detail = event ? portalNavDetail(event) : null;
       const params = new URLSearchParams(window.location.search);
-      const project = detail ? detail.project : params.get('project');
-      const task = detail ? detail.task : params.get('task');
-      if (project) setOpenId(project);
+      const nav = projectStateAfterNav({ detail, search: window.location.search, fixtures });
+      if (nav.close) {
+        setOpenId(null);
+        setFixtureTaskId(null);
+        return;
+      }
+      if (nav.project) setOpenId(nav.project);
       if (params.has('taskView')) setTaskView(readTaskListView(params.get('taskView')));
-      if (fixtures && (detail || task)) setFixtureTaskId(task);
+      if (nav.setFixtureTask) setFixtureTaskId(nav.task);
     };
     apply();
     window.addEventListener('wh-portal-nav', apply);
@@ -226,6 +232,20 @@ export function ProjectsContent() {
   const selectedId = route.view === 'board' ? route.projectId : openId;
   const openProject = selectedId ? projects.find((project) => project.id === selectedId) ?? null : null;
   const routeTaskId = route.view === 'board' ? route.taskId : null;
+  const routeProjectId = route.view === 'board' ? route.projectId : null;
+  useEffect(() => {
+    const onSwap = () => {
+      setFixtureTaskId(null);
+      const next = leaveTaskForSearch({
+        pathname: window.location.pathname,
+        search: window.location.search,
+        projectId: routeProjectId,
+      });
+      if (next) router.replace(next);
+    };
+    window.addEventListener(CLOSE_TASK_FOR_SEARCH, onSwap);
+    return () => window.removeEventListener(CLOSE_TASK_FOR_SEARCH, onSwap);
+  }, [routeProjectId, router]);
   const leadPeople = useSafeQuery<Array<{ name: string; role?: string | null }>>(
     api.contacts.listForOrg,
     !fixtures && configured && isStaff && openProject?.orgId
@@ -241,12 +261,15 @@ export function ProjectsContent() {
   const closeProject = () => {
     setOpenId(null);
     setFixtureTaskId(null);
-    clearSearchParam('project');
-    clearSearchParam('taskView');
-    if (!fixtures && (/^\/projects\/[^/]+/.test(pathname) || pathname.startsWith('/tasks/'))) {
-      router.push('/projects');
-    }
+    leaveProjectDetail({ pathname, fixtures, push: (href) => router.push(href) });
   };
+
+  useEffect(() => {
+    if (isProjectDetailPath(pathname)) return;
+    if (new URLSearchParams(window.location.search).get('project')) return;
+    setOpenId(null);
+    setFixtureTaskId(null);
+  }, [pathname]);
 
   const closeTask = () => {
     const back = takePortalReturn();

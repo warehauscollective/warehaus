@@ -37,6 +37,7 @@ import {
   type ResourceListFilter,
 } from '@/lib/data/resourceList';
 import { openPortalHref, portalNavDetail } from '@/lib/nav/openPortalHref';
+import { resourceStateAfterNav } from '@/lib/nav/tabHome';
 
 type ResourceScreen = 'ready' | 'empty' | 'loading' | 'error' | 'long';
 
@@ -329,6 +330,8 @@ export function ResourcesContent() {
     const id = params.get('resource') ?? pathId(window.location.pathname, '/resources/');
     if (id && screen !== 'empty' && screen !== 'loading' && screen !== 'error' && screen !== 'long') {
       setOpenResourceId(id);
+    } else if (!id && screen !== 'long') {
+      setOpenResourceId(null);
     }
   }, [pathname]);
   const staffUsed = useSafeQuery<ResourceTaskRow[]>(
@@ -365,12 +368,15 @@ export function ResourcesContent() {
     const read = (event?: Event) => {
       const detail = event ? portalNavDetail(event) : null;
       if (event && !detail) return;
-      const params = new URLSearchParams(window.location.search);
       const preview = window.location.pathname.startsWith('/preview');
-      const resourceId = detail ? detail.resource : preview ? params.get('resource') : null;
-      if (resourceId) setOpenResourceId(resourceId);
-      const docId = detail ? detail.doc : preview ? params.get('doc') : null;
-      setNavDocId(docId);
+      const nav = resourceStateAfterNav({ detail, search: window.location.search, preview });
+      if (nav.close) {
+        setOpenResourceId(null);
+        setNavDocId(null);
+        return;
+      }
+      if (nav.resource) setOpenResourceId(nav.resource);
+      setNavDocId(nav.doc);
     };
     read();
     const onNav = (event: Event) => read(event);

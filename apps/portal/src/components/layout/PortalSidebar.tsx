@@ -1,12 +1,14 @@
 'use client';
 
 import { useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { usePortalData } from '@/hooks/usePortalData';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { allProjectsLeavesDetail, commitTabHref, isProjectDetailPath, runTabHomeClick } from '@/lib/nav/tabHome';
 import { MobileMenu } from './MobileMenu';
 import { sidebarItemStyle } from './sidebarItemChrome';
 import { applySidebarDataset, readSidebarMode, sidebarCollapseKey, type SidebarMode } from './sidebarCollapse';
@@ -67,6 +69,30 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
   const sections = getPortalSidebarSections(tab, data.tenant.mode);
   const activeSection = sectionFor(tab);
   const tipId = `sidebar-expand-tip-${tab}`;
+  const pathname = usePathname() || '';
+  const router = useRouter();
+
+  const selectSection = (key: string) => {
+    setSectionFor(tab, key);
+    if (tab !== 'projects' || key !== 'all') return;
+    const search = typeof window === 'undefined' ? '' : window.location.search;
+    if (!allProjectsLeavesDetail(pathname, search)) return;
+    const detailPath = isProjectDetailPath(pathname);
+    runTabHomeClick({
+      tab: 'projects',
+      location: { pathname, search },
+      replace: (href) => {
+        if (detailPath) {
+          router.push(href);
+          return;
+        }
+        commitTabHref(href, (next) => router.replace(next));
+      },
+      dispatch: (detail) => {
+        window.dispatchEvent(new CustomEvent('wh-portal-nav', { detail }));
+      },
+    });
+  };
 
   useEffect(() => {
     function onStorage(event: StorageEvent) {
@@ -98,7 +124,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         tab={tab}
         sections={sections}
         activeSection={activeSection}
-        onSelect={(key) => setSectionFor(tab, key)}
+        onSelect={selectSection}
       />
 
       <nav
@@ -144,7 +170,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
               <button
                 key={s.key}
                 type="button"
-                onClick={() => setSectionFor(tab, s.key)}
+                onClick={() => selectSection(s.key)}
                 aria-current={active ? 'true' : undefined}
                 className="sidebar-item flex w-full items-center text-left"
                 style={sidebarItemStyle(active)}

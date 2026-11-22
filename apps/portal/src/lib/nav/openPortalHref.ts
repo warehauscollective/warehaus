@@ -4,6 +4,8 @@ export type PortalNavDetail = {
   task: string | null;
   doc: string | null;
   resource: string | null;
+  /** Dock or sidebar asked this tab to close its open project or resource. */
+  home?: boolean;
 };
 
 export function portalNavDetail(event: Event): PortalNavDetail | null {
