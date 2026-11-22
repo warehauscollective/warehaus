@@ -100,6 +100,14 @@ describe('project repository setting', () => {
     assert.equal(helper.includes('Leave it empty'), false);
   });
 
+  it('the 390 fixture forces the phone sheet, and 1440 stays a centered dialog', () => {
+    const source = read('./ProjectRepoSetting.tsx');
+    assert.match(source, /narrow=\{size === '390'\}/);
+    assert.match(source, /sheet=\{narrow \? 'bottom' : 'center'\}/);
+    assert.match(source, /width=\{520\}/);
+    assert.match(source, /sheetClearance=\{narrow \? '67px' : undefined\}/);
+  });
+
   it('confirms a clear in a bottom sheet on the phone and a centered dialog on desktop', () => {
     const desktop = view('confirm', false);
     assert.match(desktop, /portal-modal-scrim/);
