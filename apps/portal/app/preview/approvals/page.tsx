@@ -37,6 +37,7 @@ const views = [
   'peter-delete-failed',
   'preview-removed',
   'approved',
+  'deploy-finished',
   'staff-delete-removing',
   'staff-couldnt-remove',
   'milestone-page',

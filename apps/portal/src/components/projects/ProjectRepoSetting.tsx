@@ -8,6 +8,7 @@ import { AGENT_REPO_INVALID, agentRepo } from '@convex/_lib/agentRun';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { PortalModal } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
 
 export const REPO_LABEL = 'RUNNER REPOSITORY';
 export const REPO_UNSET = 'Not set';
@@ -19,9 +20,9 @@ export const REPO_SAVE_ERROR = 'Couldn’t save the repository. Nothing changed.
 export const REPO_STAFF_ONLY = 'Staff only · clients never see this';
 export const CLEAR_TITLE = 'Clear runner repository?';
 export const CLEAR_BODY = 'This stops all runner work for this project until a repository is set again.';
-export const CLEAR_ERROR = "Couldn't clear the repository. Nothing changed.";
-export const CLEAR_CANCEL_HINT = "Can't cancel while the repository is being cleared.";
-export const SAVE_CANCEL_HINT = "Can't cancel while the repository is saving.";
+export const CLEAR_ERROR = 'Couldn’t clear the repository. Nothing changed.';
+export const CLEAR_CANCEL_HINT = 'Can’t cancel while the repository is being cleared.';
+export const SAVE_CANCEL_HINT = 'Can’t cancel while the repository is saving.';
 
 export type RepoPreview = 'edit' | 'confirm' | 'clearing' | 'clear-error' | 'saving' | 'helper';
 
@@ -158,11 +159,16 @@ export function ProjectRepoSettingView({
   repo,
   onSave,
   preview,
+  narrow: narrowProp,
 }: {
   repo: string | null;
   onSave: (repo: string | null) => Promise<void>;
   preview?: RepoPreview;
+  /** Phone sheet. Omit it and the viewport decides. */
+  narrow?: boolean;
 }) {
+  const phone = useMaxWidth(767);
+  const narrow = narrowProp ?? phone;
   const [editing, setEditing] = useState(preview != null);
   const [draft, setDraft] = useState(repo ?? '');
   const [busy, setBusy] = useState(preview === 'saving');
@@ -303,7 +309,7 @@ export function ProjectRepoSettingView({
           )}
           <div className="flex flex-col gap-2 md:flex-row md:items-center">
             {repo && !busy ? (
-              <button type="button" data-testid="project-repo-clear" onClick={() => setConfirming(true)} style={dangerButton}>
+              <button type="button" data-testid="project-repo-clear" className="w-fit" onClick={() => setConfirming(true)} style={dangerButton}>
                 Clear repository
               </button>
             ) : null}
@@ -346,7 +352,9 @@ export function ProjectRepoSettingView({
           showIcon
           headerIcon={<ClearAlertIcon />}
           width={520}
-          sheet="center"
+          narrow={narrow}
+          sheet={narrow ? 'bottom' : 'center'}
+          sheetClearance={narrow ? '67px' : undefined}
           focusCancel
           blueFocus
           showFooter={false}
@@ -446,7 +454,12 @@ export function RepoSettingPreview({
     >
       <style>{'nextjs-portal{display:none !important}'}</style>
       <div style={{ width, maxWidth: '100%' }}>
-        <ProjectRepoSettingView repo="warehauscollective/warehaus" onSave={async () => undefined} preview={phase} />
+        <ProjectRepoSettingView
+          repo="warehauscollective/warehaus"
+          onSave={async () => undefined}
+          preview={phase}
+          narrow={size === '390'}
+        />
       </div>
     </main>
   );

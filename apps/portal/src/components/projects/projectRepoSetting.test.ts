@@ -82,14 +82,14 @@ describe('project repository setting', () => {
   });
 
   const save = async () => undefined;
-  const view = (preview: 'edit' | 'confirm' | 'clearing' | 'clear-error' | 'saving' | 'helper') =>
+  const view = (preview: 'edit' | 'confirm' | 'clearing' | 'clear-error' | 'saving' | 'helper', narrow?: boolean) =>
     renderToStaticMarkup(
-      createElement(ProjectRepoSettingView, { repo: 'warehauscollective/warehaus', onSave: save, preview }),
+      createElement(ProjectRepoSettingView, { repo: 'warehauscollective/warehaus', onSave: save, preview, narrow }),
     );
 
   it('shows a clear button while editing, and the helper', () => {
     const edit = view('edit');
-    assert.match(edit, /data-testid="project-repo-clear"/);
+    assert.match(edit, /data-testid="project-repo-clear"[^>]*class="w-fit"/);
     assert.match(edit, /Clear repository/);
     assert.match(edit, /flex flex-col gap-2 md:flex-row md:items-center/);
     const clearAt = edit.indexOf('data-testid="project-repo-clear"');
@@ -100,14 +100,19 @@ describe('project repository setting', () => {
     assert.equal(helper.includes('Leave it empty'), false);
   });
 
-  it('confirms a clear in one centered modal', () => {
-    const html = view('confirm');
-    assert.match(html, /portal-modal-scrim/);
-    assert.equal(html.includes('portal-modal-sheet'), false);
-    assert.match(html, new RegExp(CLEAR_TITLE.replace('?', '\\?')));
-    assert.match(html, new RegExp(CLEAR_BODY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
-    assert.match(html, /data-testid="clear-repo-cancel"/);
-    assert.match(html, /data-testid="clear-repo-confirm"/);
+  it('confirms a clear in a bottom sheet on the phone and a centered dialog on desktop', () => {
+    const desktop = view('confirm', false);
+    assert.match(desktop, /portal-modal-scrim/);
+    assert.equal(desktop.includes('portal-modal-sheet'), false);
+    assert.equal(desktop.includes('data-testid="modal-grabber"'), false);
+    assert.match(desktop, new RegExp(CLEAR_TITLE.replace('?', '\\?')));
+    assert.match(desktop, new RegExp(CLEAR_BODY.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+    assert.match(desktop, /data-testid="clear-repo-cancel"/);
+    assert.match(desktop, /data-testid="clear-repo-confirm"/);
+    const phone = view('confirm', true);
+    assert.match(phone, /portal-modal-sheet/);
+    assert.match(phone, /data-testid="modal-grabber"/);
+    assert.match(phone, /padding:0 0 67px 0/);
   });
 
   it('disables cancel while clearing and names the reason', () => {

@@ -218,7 +218,7 @@ describe('peter and staff preview visibility', () => {
     assert.match(attached, /Remove link/);
     assert.match(attached, /data-testid="remove-preview-link"[^>]*data-focus-ring="info"/);
     const page = readFileSync(new URL('../../../app/preview/approvals/page.tsx', import.meta.url), 'utf8');
-    for (const view of ['retry-unavailable', 'retry-pending', 'retry-error', 'peter-delete-removing', 'peter-delete-failed', 'preview-removed', 'approved', 'attach', 'attached', 'remove-confirm', 'preview-link-invalid']) {
+    for (const view of ['retry-unavailable', 'retry-pending', 'retry-error', 'peter-delete-removing', 'peter-delete-failed', 'preview-removed', 'approved', 'deploy-finished', 'attach', 'attached', 'remove-confirm', 'preview-link-invalid']) {
       assert.match(page, new RegExp(`'${view}'`));
     }
   });

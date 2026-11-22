@@ -59,6 +59,7 @@ export function PortalModal({
   align = 'center',
   scroll = true,
   dockLayer,
+  sheetClearance,
 }: {
   testId?: string;
   scrimTestId?: string;
@@ -107,6 +108,8 @@ export function PortalModal({
    * Every other dialog leaves the dock under the blur.
    */
   dockLayer?: 'task';
+  /** Phone sheet sits this far above the dock. Desktop dialogs ignore it. */
+  sheetClearance?: string;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef(onClose);
@@ -195,7 +198,7 @@ export function PortalModal({
     display: 'flex',
     alignItems: isSheet ? 'flex-end' : topAligned ? 'flex-start' : 'center',
     justifyContent: 'center',
-    padding: isSheet ? 0 : topAligned ? (narrow ? '56px 20px 24px' : '72px 20px 24px') : pinned ? `24px 24px ${dockClearance}` : 24,
+    padding: isSheet ? (sheetClearance ? `0 0 ${sheetClearance} 0` : 0) : topAligned ? (narrow ? '56px 20px 24px' : '72px 20px 24px') : pinned ? `24px 24px ${dockClearance}` : 24,
   };
   const node = (
     <div
