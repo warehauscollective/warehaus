@@ -81,6 +81,8 @@ export type MilestoneInbound =
   | {
       kind: 'pull';
       branch: string;
+      /** `owner/name` the delivery came from. Checked against the project's repository. */
+      repo: string;
       prUrl: string;
       prNumber: number;
       prTitle?: string;
@@ -88,7 +90,20 @@ export type MilestoneInbound =
       /** True only when the pull request merged into the default branch. */
       merged: boolean;
     }
-  | { kind: 'deploy'; branch: string; url: string; sha: string };
+  | { kind: 'deploy'; branch: string; url: string; sha: string; /** `owner/name`, when Vercel reports it. */ repo?: string };
+
+/**
+ * A branch name alone does not identify a milestone: two repositories can
+ * both have `milestone/launch`. When the project names its repository, the
+ * delivery has to come from that one, compared without regard to case. A
+ * project with no repository set keeps matching by branch alone.
+ */
+export function inboundRepoMatches(projectRepo: string | null | undefined, deliveryRepo: string | null | undefined): boolean {
+  const wanted = projectRepo?.trim().toLowerCase() ?? '';
+  if (!wanted) return true;
+  const given = deliveryRepo?.trim().toLowerCase() ?? '';
+  return given !== '' && given === wanted;
+}
 
 export type InboundPlan =
   | { action: 'ignore'; reason: string }
@@ -370,6 +385,7 @@ function planGitHub(rawBody: string, eventHeader: string | null, deliveryHeader:
         ? {
             kind: 'pull',
             branch: pull.headRef,
+            repo: pull.repo,
             prUrl,
             prNumber: pull.number,
             ...(pull.title ? { prTitle: pull.title } : {}),
@@ -448,8 +464,13 @@ function planVercel(rawBody: string): InboundPlan {
   if (!sha || !url) return { action: 'ignore', reason: 'no_deploy' };
   const deliveryId = cleanDeliveryId(asNonEmpty(body.id));
   const deploymentId = cleanDeliveryId(asNonEmpty(deployment?.id)) ?? url;
+  const org = asNonEmpty(meta?.githubOrg);
+  const repoName = asNonEmpty(meta?.githubRepo);
+  const deployRepo = org && repoName && REPO_NAME.test(`${org}/${repoName}`) ? `${org}/${repoName}` : undefined;
   const milestone: MilestoneInbound | undefined =
-    onMilestone && branch ? { kind: 'deploy', branch, url: vercelBranchUrl(branch) ?? url, sha } : undefined;
+    onMilestone && branch
+      ? { kind: 'deploy', branch, url: vercelBranchUrl(branch) ?? url, sha, ...(deployRepo ? { repo: deployRepo } : {}) }
+      : undefined;
   return {
     action: 'apply',
     source: 'vercel',

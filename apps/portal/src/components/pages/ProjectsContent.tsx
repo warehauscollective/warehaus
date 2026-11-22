@@ -65,6 +65,7 @@ import {
   ProjectListOutcome,
   ProjectListScreen,
 } from '@/components/projects/ProjectListStates';
+import { ProjectRepoSetting } from '@/components/projects/ProjectRepoSetting';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { PROJECT_UNAVAILABLE } from '@warehaus/portal-sync';
 import type { Id } from '@convex/_generated/dataModel';
@@ -80,6 +81,8 @@ type ProjectRow = PortalProject & {
   internal?: boolean;
   taskCount?: number;
   publishToWarehaus?: boolean;
+  /** Staff only. Absent for clients. */
+  agentRepo?: string | null;
 };
 
 export function ProjectsContent() {
@@ -427,6 +430,17 @@ export function ProjectsContent() {
               onOpenClient={openLinkedClient}
               summary={summary}
             />
+            {isStaff ? (
+              <div style={{ marginTop: 24 }}>
+                <ProjectRepoSetting
+                  key={openProject.id}
+                  projectId={openProject.id}
+                  repo={openProject.agentRepo ?? null}
+                  fixtures={fixtures}
+                  hostSlug={hostSlug}
+                />
+              </div>
+            ) : null}
                 </>
               }
             />

@@ -10,6 +10,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  defaultBranchName,
   idleDelayMs,
   isMilestoneBranch,
   parseArgs,
@@ -58,7 +59,21 @@ async function call(config, path, body) {
   return data ?? {};
 }
 
-/** A worktree for the milestone branch, beside the repository. Created from origin/main when the branch is new. */
+/** The repository's default branch: origin/HEAD, else what GitHub says, else main. */
+function defaultBranch(repo) {
+  const ref = git(repo, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
+  let fromGh = '';
+  if (!ref.ok) {
+    const viewed = spawnSync('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], {
+      cwd: repo,
+      encoding: 'utf8',
+    });
+    if (viewed.status === 0) fromGh = (viewed.stdout ?? '').trim();
+  }
+  return defaultBranchName(ref.ok ? ref.out : '', fromGh);
+}
+
+/** A worktree for the milestone branch, beside the repository. Created from the default branch when the branch is new. */
 function ensureWorktree(repo, branch) {
   if (!isMilestoneBranch(branch)) throw new Error(`Refusing branch ${branch}. Only milestone/<slug> is used.`);
   const dir = resolve(repo, '..', 'warehaus-runner', worktreeName(branch));
@@ -75,7 +90,7 @@ function ensureWorktree(repo, branch) {
     ? git(repo, ['worktree', 'add', dir, branch])
     : remote.ok
       ? git(repo, ['worktree', 'add', '-b', branch, dir, `origin/${branch}`])
-      : git(repo, ['worktree', 'add', '-b', branch, dir, 'origin/main']);
+      : git(repo, ['worktree', 'add', '-b', branch, dir, `origin/${defaultBranch(repo)}`]);
   if (!added.ok) throw new Error(`Could not create the worktree: ${added.err}`);
   return dir;
 }
@@ -99,7 +114,7 @@ function ensurePullRequest(dir, work) {
   }
   const created = spawnSync(
     'gh',
-    ['pr', 'create', '--base', 'main', '--head', branch, '--title', work.milestone.name, '--body', pullRequestBody(work)],
+    ['pr', 'create', '--base', defaultBranch(dir), '--head', branch, '--title', work.milestone.name, '--body', pullRequestBody(work)],
     { cwd: dir, encoding: 'utf8' },
   );
   if (created.status !== 0) {

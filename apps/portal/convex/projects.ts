@@ -162,6 +162,8 @@ export const listForStaff = adminQuery({
           lastSyncedAt: row.lastSyncedAt,
           syncHidden: row.syncHiddenAt != null,
           taskCount: taskCount.get(row._id) ?? 0,
+          // Staff only. toClientProject never carries it.
+          agentRepo: row.agentRepo ?? null,
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));

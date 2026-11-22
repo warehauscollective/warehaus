@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
+  defaultBranchName,
   hookEvent,
   idleDelayMs,
   isMilestoneBranch,
@@ -112,6 +113,20 @@ describe('repository', () => {
   });
 });
 
+describe('default branch', () => {
+  it('uses the repository\'s own default branch for the worktree base and the pull request', () => {
+    assert.equal(defaultBranchName('origin/main', ''), 'main');
+    assert.equal(defaultBranchName('origin/develop', 'main'), 'develop');
+    assert.equal(defaultBranchName('', 'trunk'), 'trunk');
+    assert.equal(defaultBranchName('', ''), 'main');
+    assert.equal(defaultBranchName('origin/../etc', 'x; rm -rf'), 'main');
+    const cli = read('./cli.mjs');
+    assert.equal(cli.includes("'origin/main'"), false);
+    assert.equal(cli.includes("'--base', 'main'"), false);
+    assert.match(cli, /`origin\/\$\{defaultBranch\(repo\)\}`/);
+  });
+});
+
 describe('pull request', () => {
   it('names the Portal milestone and says merging does not deploy', () => {
     const body = pullRequestBody({
@@ -122,7 +137,7 @@ describe('pull request', () => {
     assert.match(body, /Merging does not deploy/);
     const cli = read('./cli.mjs');
     // Opened against main, never merged or closed by the runner.
-    assert.match(cli, /'pr', 'create', '--base', 'main', '--head', branch/);
+    assert.match(cli, /'pr', 'create', '--base', defaultBranch\(dir\), '--head', branch/);
     assert.equal(/'pr', 'merge'|'pr', 'close'|--admin|--force/.test(cli), false);
   });
 });
