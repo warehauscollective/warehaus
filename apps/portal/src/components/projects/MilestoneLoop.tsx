@@ -286,7 +286,6 @@ function SkeletonRows() {
   );
 }
 
-/**
 /** Inline edit ring. A literal blue border, with the browser focus outline off so it cannot paint as --fg. */
 const editField: CSSProperties = {
   flex: 1,

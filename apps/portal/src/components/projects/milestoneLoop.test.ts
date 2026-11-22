@@ -89,7 +89,7 @@ function taskRows(count: number, blockedAt?: number): MilestoneRoadmapView['rows
   return Array.from({ length: count }, (_, index) => ({
     children: [],
     blockedReason: blockedAt === index ? 'stopped' : undefined,
-  })) as MilestoneRoadmapView['rows'];
+  })) as unknown as MilestoneRoadmapView['rows'];
 }
 
 describe('live page subtitles', () => {
