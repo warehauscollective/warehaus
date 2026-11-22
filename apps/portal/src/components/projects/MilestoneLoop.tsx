@@ -23,7 +23,7 @@ export const LOOP_ADD_HINT = '↵ to add · Manual';
 export const LOOP_DRAFTS = 'All drafts · editable';
 export const LOOP_DRAFT = 'DRAFT';
 
-export type LoopKind = 'generating' | 'drafted' | 'empty' | 'failed' | 'building' | 'blocked';
+export type LoopKind = 'generating' | 'drafted' | 'empty' | 'failed' | 'building' | 'cursor' | 'blocked';
 
 export type LoopTask = {
   id: string;
@@ -160,7 +160,7 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
     const cursor = kind === 'cursor';
     const commits = ['4c1e9aa', '7d02b1f', '91ae3c0'];
     return {
-      kind: 'building',
+      kind: cursor ? 'cursor' : 'building',
       eyebrow: 'BUILDING',
       eyebrowTone: 'muted',
       heading: '3 of 6 tasks done',

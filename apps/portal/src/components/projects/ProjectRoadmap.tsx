@@ -91,6 +91,31 @@ function applyFixtureTasks(
   };
 }
 
+/** Fixture rows that are not real tasks still count on the milestone tab. */
+function withRowTasks(
+  tasks: readonly PortalTask[],
+  milestone: MilestoneRoadmapView,
+  project: RoadmapProject,
+): PortalTask[] {
+  const ids = new Set(tasks.map((task) => task.id));
+  const extra = milestone.rows.flatMap((row) => [row, ...row.children]).filter((row) => !ids.has(row.id));
+  if (extra.length === 0) return tasks as PortalTask[];
+  return [
+    ...tasks,
+    ...extra.map((row) => ({
+      id: row.id,
+      name: row.name,
+      status: row.status,
+      isDone: row.isDone,
+      date: null,
+      projectId: project.id,
+      projectName: project.name,
+      projectStatus: project.status ?? null,
+      projectEndDate: project.endDate ?? null,
+    })),
+  ];
+}
+
 export function ProjectRoadmap({
   project,
   tasks,
@@ -166,8 +191,8 @@ export function ProjectRoadmap({
     setTileLinkPreview(params.get('tileLink'));
     setTileApprove(params.get('tiles') === 'ready');
     if (params.get('create') === 'milestone') setCreateOpen(true);
-    const tab = params.get('tab');
-    if (tab === 'details' || tab === 'milestones' || tab === 'resources' || tab === 'activity') setProjectTab(tab);
+    const pane = params.get('pane') ?? params.get('tab');
+    if (pane === 'details' || pane === 'milestones' || pane === 'resources' || pane === 'activity') setProjectTab(pane);
     setLoopPreview(params.get('loop'));
     if (params.get('tiles')) {
       window.setTimeout(() => {
@@ -246,7 +271,7 @@ export function ProjectRoadmap({
         <MilestoneDetail
           milestone={selected}
           project={project}
-          tasks={tasks}
+          tasks={fixtures ? withRowTasks(tasks, selected, project) : tasks}
           staff={staff}
           fixtures={fixtures}
           hostSlug={hostSlug}
