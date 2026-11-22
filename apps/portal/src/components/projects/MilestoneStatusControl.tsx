@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type Ref } from 'react';
 import { nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
+import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PortalToast } from '@/components/ui/PortalToast';
 
@@ -42,10 +43,13 @@ export function useMilestoneStatusMoves({
   status,
   onAdvance,
   onSet,
+  canClose = false,
 }: {
   status: MilestoneStatus;
   onAdvance: (expected: MilestoneStatus) => void | Promise<unknown>;
   onSet: (next: MilestoneStatus, expected: MilestoneStatus) => void | Promise<unknown>;
+  /** True when every task that is not Parked is Done, so Shipped can be picked. */
+  canClose?: boolean;
 }) {
   const [optimistic, setOptimistic] = useState<MilestoneStatus | null>(null);
   const [saving, setSaving] = useState(false);
@@ -68,7 +72,7 @@ export function useMilestoneStatusMoves({
       await action();
       return true;
     } catch (err) {
-      setError(STATUS_SAVE_ERROR);
+      setError(userFacingErrorMessage(err, STATUS_SAVE_ERROR));
       throw err;
     } finally {
       busy.current = false;
@@ -89,9 +93,9 @@ export function useMilestoneStatusMoves({
       .catch(() => undefined);
   };
 
-  /** Menu pick. Shipped and the current status do nothing. */
+  /** Menu pick. Shipped stays locked until the milestone can close. The current status does nothing. */
   const pick = (next: MilestoneStatus): Promise<boolean> => {
-    if (statusOptionLock(next) || next === status) return Promise.resolve(false);
+    if (statusOptionLock(next, canClose) || next === status) return Promise.resolve(false);
     setToast(null);
     return run(next, () => onSet(next, status));
   };

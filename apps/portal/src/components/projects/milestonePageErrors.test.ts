@@ -353,7 +353,7 @@ describe('milestone page mutation errors', () => {
     await click(findByTestId(container, 'milestone-status-play'));
     assert.deepEqual(calls, ['advance:Planning']);
     assert.equal(textOf(findByTestId(container, 'milestone-status')!), 'Planning');
-    assert.equal(textOf(findByTestId(container, 'milestone-status-error')!), 'Couldn’t save. Nothing changed.');
+    assert.equal(textOf(findByTestId(container, 'milestone-status-error')!), 'The status changed. Refresh and try again.');
     assert.equal(findByTestId(document.body, 'milestone-status-toast'), null);
     assert.equal(findByTestId(container, 'milestone-status-play')?.getAttribute('aria-label'), 'Move to Awaiting Go');
 
