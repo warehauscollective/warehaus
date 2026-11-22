@@ -10,6 +10,7 @@ import * as portalApi from '../portalApi';
 import * as projectContextApi from '../projectContextApi';
 import * as projectCreate from '../projectCreate';
 import * as milestones from '../milestones';
+import { createMilestoneDecision } from './milestones';
 
 const BEARER = 'Bearer whp_testtokenvalue0001';
 const ACCEPT = 'application/json, text/event-stream';
@@ -36,6 +37,8 @@ const functions: Record<string, Registered> = {
   'portalApi:addComment': portalApi.addComment as unknown as Registered,
   'portalApi:addLink': portalApi.addLink as unknown as Registered,
   'portalApi:attachTask': portalApi.attachTask as unknown as Registered,
+  'portalApi:detachTask': portalApi.detachTask as unknown as Registered,
+  'portalApi:taskPullRequest': portalApi.taskPullRequest as unknown as Registered,
   'portalApi:openWrite': portalApi.openWrite as unknown as Registered,
   'portalApi:closeWrite': portalApi.closeWrite as unknown as Registered,
   'portalCatalog:tokenHomeOrg': portalCatalog.tokenHomeOrg as unknown as Registered,
@@ -126,6 +129,16 @@ function validatingCtx(calls: Call[]) {
       }
       if (name === 'portalApi:rememberResult') {
         return { status: args?.status, body: JSON.parse(String(args?.body ?? 'null')) as unknown };
+      }
+      if (name === 'portalApi:createMilestone') {
+        const created = createMilestoneDecision({
+          actor: 'human',
+          name: String(args?.name ?? ''),
+          objective: String(args?.objective ?? ''),
+          goals: Array.isArray(args?.goals) ? args.goals.filter((goal): goal is string => typeof goal === 'string') : [],
+          status: typeof args?.status === 'string' ? args.status : undefined,
+        });
+        if (!created.ok) return { status: 400, body: { error: created.reason } };
       }
       return { status: 200, body: { ok: true, id: 'wrote' } };
     },
@@ -254,8 +267,15 @@ const writeTools: Record<string, Record<string, unknown>> = {
     status: 'Planning',
     idempotencyKey: 'mile-create-1',
   },
-  update_milestone: { milestoneId: 'milestones:1', status: 'Building', idempotencyKey: 'mile-update-1' },
+  update_milestone: {
+    milestoneId: 'milestones:1',
+    name: 'Launch',
+    status: 'Shipped',
+    stage: 'Shipped',
+    idempotencyKey: 'mile-edit',
+  },
   attach_task_to_milestone: { milestoneId: 'milestones:1', taskId: 'tasks:1', idempotencyKey: 'mile-1' },
+  detach_task_from_milestone: { milestoneId: 'milestones:1', taskId: 'tasks:1', idempotencyKey: 'mile-off' },
   add_task_link: {
     taskId: 'tasks:1',
     kind: 'agent',
@@ -298,6 +318,15 @@ describe('MCP attach arguments', () => {
       const result = await callMcpTool(name, writeTools[name] ?? {});
       assert.equal(result.isError, false, `${name} ${JSON.stringify(result.body)}`);
       assert.equal(result.httpStatus, 200, name);
+    }
+
+    for (const [label, body] of [
+      ['missing', { projectId: 'projects:1', name: 'Milestone One' }],
+      ['blank', { projectId: 'projects:1', name: 'Milestone One', objective: '   ' }],
+    ] as const) {
+      const rejected = await postApi('/api/v1/milestones', body, `mile-empty-${label}`);
+      assert.equal(rejected.status, 400, label);
+      assert.deepEqual(rejected.body, { error: 'Objective is required' });
     }
 
     const milestones = await postApi(

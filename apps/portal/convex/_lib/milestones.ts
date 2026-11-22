@@ -82,7 +82,7 @@ export function createMilestoneDecision(input: {
   name: string;
   objective: string;
   goals: readonly string[];
-  /** Any status except Shipped. Missing means Planning. */
+  /** Missing means Planning. A new milestone cannot start at Shipped. */
   status?: string;
   publishToWarehaus?: boolean;
   approval?: string;
@@ -337,6 +337,8 @@ export type RoadmapTaskInput = {
   resourceCount: number;
   publishToWarehaus: boolean;
   hidden: boolean;
+  /** Archived tasks stay on the row but do not block Shipped. */
+  archived?: boolean;
   source?: string | null;
   origin?: TaskOrigin | null;
   round?: number | null;
@@ -361,6 +363,7 @@ export type RoadmapChild = {
   portalOwned?: boolean;
   /** Staff only, and only on a task the portal owns. */
   detail?: string;
+  archived?: boolean;
   /** True only when this task's milestoneId is the milestone being shown. */
   onMilestone?: boolean;
 };
@@ -392,6 +395,7 @@ function roadmapTask(
     isDone: task.isDone,
     stage: task.stage,
     resourceCount: task.resourceCount,
+    ...(task.archived ? { archived: true } : {}),
     ...(href ? { pullRequestUrl: href } : {}),
     ...(audience === 'staff' && task.source ? { source: task.source } : {}),
     ...(audience === 'staff' && task.origin ? { origin: task.origin } : {}),

@@ -19,9 +19,10 @@ const cursor = z.string().min(1).max(2000).optional();
 const idempotencyKey = z.string().min(1).max(200);
 const stage = z.enum(TASK_STAGES);
 const status = z.enum(LIVE_TASK_STATUSES);
-/** Every milestone status a bot may send. Shipped is set when the pull request merges. */
+/** Statuses a bot may set on create. Shipped is set later, when the tasks are Done. */
 const settableMilestoneStatuses = MILESTONE_STATUSES.filter((value) => value !== 'Shipped') as [string, ...string[]];
 const milestoneStatus = z.enum(settableMilestoneStatuses);
+const milestoneStatusWithShipped = z.enum(MILESTONE_STATUSES);
 const milestoneGoals = z.array(z.string().min(1).max(500)).max(20);
 
 export type ToolCall = {
@@ -176,7 +177,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'update_task',
     description:
-      'Update task status, priority, next action, or stage through the staff update path. Last write wins per field. Send lastEditedTime from get_task and an idempotency key.',
+      'Update task status, priority, next action, or stage through the staff update path. Last write wins per field. Stage Shipped is allowed when the task has a pull request link and GitHub shows that pull request merged into main. The check runs on this write. Send lastEditedTime from get_task and an idempotency key.',
     write: true,
     schema: {
       taskId: z.string().min(1),
@@ -206,7 +207,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'move_task_stage',
     description:
-      'Move a task stage through the staff update path. Last write wins on stage, and the Notion outbox uses the task-stage write. Staff can set any stage except Shipped, which the merge webhook sets. Send lastEditedTime from get_task and an idempotency key.',
+      'Move a task stage through the staff update path. Last write wins on stage, and the Notion outbox uses the task-stage write. Staff can set Shipped when the task has a pull request link and GitHub shows that pull request merged into main. The check runs on this write. Send lastEditedTime from get_task and an idempotency key.',
     write: true,
     schema: {
       taskId: z.string().min(1),
@@ -284,7 +285,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'create_milestone',
     description:
-      'Create a milestone on a project. A task only exists inside a milestone, so create or find the milestone before create_task. Call list_milestones first and reuse a matching milestone instead of making a second one. Send name, objective (one or two sentences on what this milestone delivers) and goals (short outcomes). Status is Planning unless you send another; Shipped cannot be sent, it is set when the pull request merges. The milestone stays unpublished. Returns its id. Send an idempotency key.',
+      'Create a milestone on a project. A task only exists inside a milestone, so create or find the milestone before create_task. Call list_milestones first and reuse a matching milestone instead of making a second one. Send name, objective (one or two sentences on what this milestone delivers) and goals (short outcomes). Status is Planning unless you send another. Shipped cannot be sent on create. Staff set Shipped later, when every task that is not Parked is Done. The milestone stays unpublished. Returns its id. Send an idempotency key.',
     write: true,
     schema: {
       projectId: z.string().min(1),
@@ -310,14 +311,15 @@ export const portalTools: PortalTool[] = [
   {
     name: 'update_milestone',
     description:
-      'Update a milestone name, objective, goals, or status. Send only the fields that change, and at least one. Status is one of Idea, Planning, Awaiting Go, Building, Ready to Ship, or Parked; Shipped cannot be sent, it is set when the pull request merges. Sending the stored values again writes nothing. Use record_milestone_review for an approval or a request for changes. Send an idempotency key.',
+      'Update a milestone name, objective, goals, or status. Send only the fields that change, and at least one. status and stage are the same field: Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, or Parked. Shipped is allowed when every task that is not Parked is Done. Sending the stored values again writes nothing. Use record_milestone_review for an approval or a request for changes. Send an idempotency key.',
     write: true,
     schema: {
       milestoneId: z.string().min(1),
       name: z.string().min(1).max(200).optional(),
       objective: z.string().min(1).max(2000).optional(),
       goals: milestoneGoals.optional(),
-      status: milestoneStatus.optional(),
+      status: milestoneStatusWithShipped.optional(),
+      stage: milestoneStatusWithShipped.optional(),
       idempotencyKey,
     },
     call: (args) => ({
@@ -330,6 +332,7 @@ export const portalTools: PortalTool[] = [
         objective: args.objective,
         goals: args.goals,
         status: args.status,
+        stage: args.stage,
       }),
     }),
   },
@@ -346,6 +349,23 @@ export const portalTools: PortalTool[] = [
     call: (args) => ({
       method: 'POST',
       path: '/api/v1/milestones/attach',
+      idempotencyKey: String(args.idempotencyKey),
+      body: { milestoneId: args.milestoneId, taskId: args.taskId },
+    }),
+  },
+  {
+    name: 'detach_task_from_milestone',
+    description:
+      'Remove one task from a milestone. The task stays on the project. Send an idempotency key. Retries with the same key replay the first result.',
+    write: true,
+    schema: {
+      milestoneId: z.string().min(1),
+      taskId: z.string().min(1),
+      idempotencyKey,
+    },
+    call: (args) => ({
+      method: 'POST',
+      path: '/api/v1/milestones/detach',
       idempotencyKey: String(args.idempotencyKey),
       body: { milestoneId: args.milestoneId, taskId: args.taskId },
     }),
@@ -559,6 +579,18 @@ export function planToolCall(
     const body = parsed.data as { clientId?: string; client?: unknown };
     if (Boolean(body.clientId) === Boolean(body.client)) {
       return { ok: false, status: 400, error: 'Provide a clientId or a new client' };
+    }
+  }
+  if (name === 'update_milestone') {
+    const data = parsed.data as {
+      name?: string;
+      objective?: string;
+      goals?: string[];
+      status?: string;
+      stage?: string;
+    };
+    if (!data.name && !data.objective && !data.goals && !data.status && !data.stage) {
+      return { ok: false, status: 400, error: 'At least one field is required' };
     }
   }
   if (name === 'list_tasks') {

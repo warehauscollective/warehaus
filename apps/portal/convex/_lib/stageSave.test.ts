@@ -390,6 +390,36 @@ describe('taskWriteGuards stage save', () => {
     });
   });
 
+  it('enqueues Shipped only after the write verified the merge', async () => {
+    const row = task();
+    const tables = { tasks: [row], notionOutbox: [] as Row[] };
+    const ctx = stageCtx(tables);
+    await withFlag(true, async () => {
+      const unverified = await run(enqueueStage, ctx, {
+        taskId: 'task-1',
+        stage: 'Shipped',
+        pullRequestLink: 'https://github.com/warehaus/secret/pull/1',
+        expectedLastEditedTime: TIME,
+        actor: 'staff',
+      });
+      assert.equal((unverified as { ok: boolean }).ok, false);
+      assert.equal(row.stage, 'Idea');
+      assert.equal(outboxRows(tables).length, 0);
+      const verified = await run(enqueueStage, ctx, {
+        taskId: 'task-1',
+        stage: 'Shipped',
+        pullRequestLink: 'https://github.com/warehaus/secret/pull/1',
+        expectedLastEditedTime: TIME,
+        actor: 'staff',
+        verifiedMerge: true,
+      });
+      assert.equal((verified as { ok: boolean }).ok, true);
+      const stored = JSON.parse(String(outboxRows(tables)[0]?.payload)) as { properties: { Stage: string } };
+      assert.equal(stored.properties.Stage, 'Shipped');
+      assert.equal(outboxRows(tables)[0]?.kind, 'task-stage');
+    });
+  });
+
   it('does not store a Ready to Ship link when write-back is off', async () => {
     const row = task();
     const tables = { tasks: [row], notionOutbox: [] as Row[] };
