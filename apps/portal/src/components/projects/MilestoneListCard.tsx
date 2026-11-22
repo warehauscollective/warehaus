@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { peterMayApproveDeploy } from '@convex/_lib/previewLink';
 import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
+import { milestoneCanClose } from '@convex/_lib/milestoneDetails';
 import { nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { PortalModal } from '@/components/ui/PortalModal';
@@ -270,8 +271,10 @@ export function MilestoneListCard({
     }).finally(() => setDeploying(false));
   };
   const total = taskTotal(milestone);
+  const canClose = milestoneCanClose(milestone.rows);
   const moves = useMilestoneStatusMoves({
     status: milestone.status,
+    canClose,
     onAdvance: (expected) => onAdvance?.(expected, nextStatus(expected) ?? expected),
     onSet: (next, expected) => onSetStatus?.(next, expected),
   });
@@ -335,7 +338,7 @@ export function MilestoneListCard({
     setStageMenuOpen((current) => !current);
   };
   const pickStatus = (next: MilestoneStatus) => {
-    if (statusOptionLock(next)) return;
+    if (statusOptionLock(next, canClose)) return;
     setStageMenuOpen(false);
     void moves.pick(next).catch(() => undefined);
   };
@@ -476,7 +479,7 @@ export function MilestoneListCard({
           ) : stageTrigger}
           {staff && stageMenuOpen && !phoneSheet ? (
             <TileStagePopover anchorRef={menuAnchorRef}>
-              <StatusMenu current={stage.label} onPick={pickStatus} onClose={closeStageMenu} />
+              <StatusMenu current={stage.label} canClose={canClose} onPick={pickStatus} onClose={closeStageMenu} />
             </TileStagePopover>
           ) : null}
         </div>
@@ -617,7 +620,7 @@ export function MilestoneListCard({
           </div>
         </PortalModal>
       ) : null}
-      {stageMenuOpen && phoneSheet ? (
+      {staff && stageMenuOpen && phoneSheet ? (
         <PortalModal
           testId="tile-stage-menu"
           scrimTestId="tile-stage-scrim"
@@ -628,7 +631,7 @@ export function MilestoneListCard({
           showFooter={false}
           cover={cover}
         >
-          <StatusMenu current={stage.label} onPick={pickStatus} onClose={closeStageMenu} sheet />
+          <StatusMenu current={stage.label} canClose={canClose} onPick={pickStatus} onClose={closeStageMenu} sheet />
         </PortalModal>
       ) : null}
     </article>

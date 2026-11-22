@@ -50,6 +50,7 @@ import {
   publishChangeDecision,
   taskIdsToMove,
 } from './_lib/milestoneDetails';
+import { milestoneCloseGate } from './_lib/milestoneClose';
 import {
   STATUS_ACTIVITY,
   transitionMilestone,
@@ -288,6 +289,7 @@ async function roadmapTasks(
       resourceCount: await countTaskResources(ctx, orgId, task._id, audience, orgVisible),
       publishToWarehaus: task.publishToWarehaus,
       hidden: task.syncHiddenAt != null,
+      archived: task.archivedAt != null,
       source: task.source ?? null,
       origin: taskOrigin({ origin: task.origin, source: task.source }),
       round: task.round ?? null,
@@ -700,9 +702,10 @@ export const setPublish = adminMutation({
 });
 
 /**
- * Staff pick a status from the menu, or undo a play. Any status except
- * Shipped. The same value writes nothing. `expectedStatus` is what the
- * caller last saw; when it no longer matches, nothing is written.
+ * Staff pick a status from the menu, or undo a play. Shipped is allowed when
+ * every task that is not Parked is Done. The same value writes nothing.
+ * `expectedStatus` is what the caller last saw; when it no longer matches,
+ * nothing is written.
  */
 export const setStatus = adminMutation({
   args: {
@@ -712,11 +715,18 @@ export const setStatus = adminMutation({
   },
   handler: async (ctx, args) => {
     const milestone = await loadMilestone(ctx, args.milestoneId);
+    let tasksReady = false;
+    if (args.status === 'Shipped' && milestone.status !== 'Shipped') {
+      const gate = await milestoneCloseGate(ctx, milestone);
+      if (!gate.ok) fail(gate.reason);
+      tasksReady = true;
+    }
     const moved = transitionMilestone({
       from: milestone.status,
       cause: 'set',
       to: args.status,
       expected: args.expectedStatus,
+      tasksReady,
     });
     if (!moved.ok) fail(moved.reason);
     const wrote = await writeStatus(ctx, milestone, moved, ctx.identity.name);
@@ -990,6 +1000,27 @@ async function unlinkTask(ctx: MutationCtx, actor: 'human' | 'ai', milestoneId: 
 export const detachTask = adminMutation({
   args: { milestoneId: v.id('milestones'), taskId: v.id('tasks') },
   handler: async (ctx, args) => unlinkTask(ctx, 'human', args.milestoneId, args.taskId),
+});
+
+/** Staff API. Same human unlink rules as the portal button. */
+export const detachTaskForApi = internalMutation({
+  args: { milestoneId: v.id('milestones'), taskId: v.id('tasks') },
+  handler: async (ctx, args) => {
+    const milestone = await ctx.db.get(args.milestoneId);
+    if (!milestone) return { ok: false as const, code: 'not_found' as const, error: 'Milestone not found' };
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { ok: false as const, code: 'not_found' as const, error: 'Task not found' };
+    const decision = detachTaskDecision({
+      actor: 'human' as const,
+      milestone: { id: milestone._id, approval: milestone.approval },
+      task: { milestoneId: task.milestoneId ?? null },
+    });
+    if (!decision.ok) {
+      return { ok: false as const, code: 'failed' as const, error: decision.reason };
+    }
+    await ctx.db.patch(task._id, { milestoneId: undefined, milestoneOrder: undefined });
+    return { ok: true as const };
+  },
 });
 
 export const detachTaskFromAi = internalMutation({

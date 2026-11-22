@@ -438,6 +438,23 @@ describe('portal API outbox plans', () => {
     if (!stage.ok) return;
     assert.equal(stage.writes[0]?.kind, 'task-stage');
     assert.equal(stage.writes[0]?.properties.Stage, 'Planning');
+    const unverified = planApiTaskUpdate({
+      ...page,
+      stage: 'Shipped',
+      pullRequestLink: 'https://github.com/warehauscollective/warehaus/pull/38',
+    });
+    assert.equal(unverified.ok, false);
+    const shipped = planApiTaskUpdate({
+      ...page,
+      stage: 'Shipped',
+      pullRequestLink: 'https://github.com/warehauscollective/warehaus/pull/38',
+      verifiedMerge: true,
+    });
+    assert.equal(shipped.ok, true);
+    if (shipped.ok) {
+      assert.equal(shipped.writes[0]?.kind, 'task-stage');
+      assert.equal(shipped.writes[0]?.properties.Stage, 'Shipped');
+    }
     const created = planApiTaskCreate({
       name: 'Ship the API',
       status: 'To Do',

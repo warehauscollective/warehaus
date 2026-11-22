@@ -139,6 +139,8 @@ export const enqueueStage = internalMutation({
     expectedLastEditedTime: v.string(),
     actorId: v.optional(v.string()),
     actor: v.optional(v.union(v.literal('staff'), v.literal('client'))),
+    /** Set only by the staff action after GitHub confirms the merge. */
+    verifiedMerge: v.optional(v.boolean()),
   },
   handler: async (ctx, args): Promise<StageEnqueueResult> => {
     const actor: MoveActor = args.actor === 'client' ? 'client' : 'staff';
@@ -157,10 +159,11 @@ export const enqueueStage = internalMutation({
       pullRequestLink: args.pullRequestLink,
       notionPageId: task.notionPageId,
       expectedLastEditedTime: baseEditedTime,
+      verifiedMerge: args.verifiedMerge === true,
     });
     if (!planned.ok) return { ok: false as const, error: planned.error };
     const currentStage = typeof task.stage === 'string' ? task.stage : '';
-    const leavingNotionOnly = notionOnlyStageReason(currentStage);
+    const leavingNotionOnly = currentStage !== args.stage ? notionOnlyStageReason(currentStage) : null;
     if (leavingNotionOnly) return { ok: false as const, error: leavingNotionOnly };
     if (!isTaskStage(currentStage) && !unstagedMoveAllowed(args.stage)) {
       return { ok: false as const, error: 'Tasks with no stage can move to Idea or Planning.' };

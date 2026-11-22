@@ -16,6 +16,7 @@ import {
   planTaskResourceWrite,
   mergePulledStage,
   planTaskStageWrite,
+  STAFF_SHIPPED_UNVERIFIED,
   planTaskStatusWrite,
   readOptionalStage,
   readParentItem,
@@ -231,7 +232,30 @@ describe('move rules and outbox enqueue', () => {
       expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
     });
     assert.equal(staffShipped.ok, false);
-    if (!staffShipped.ok) assert.match(staffShipped.error, /pull request merges/);
+    if (!staffShipped.ok) assert.equal(staffShipped.error, STAFF_SHIPPED_UNVERIFIED);
+    const verified = planTaskStageWrite({
+      actor: 'staff',
+      stage: 'Shipped',
+      pullRequestLink: 'github.com/warehauscollective/warehaus/pull/38',
+      notionPageId: 'page-1',
+      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
+      verifiedMerge: true,
+    });
+    assert.equal(verified.ok, true);
+    if (verified.ok) {
+      assert.equal(verified.properties.Stage, 'Shipped');
+      assert.equal(verified.properties['GitHub Issue/PR'], 'github.com/warehauscollective/warehaus/pull/38');
+      assert.equal('Status' in verified.properties, false);
+    }
+    const verifiedWithoutLink = planTaskStageWrite({
+      actor: 'staff',
+      stage: 'Shipped',
+      notionPageId: 'page-1',
+      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
+      verifiedMerge: true,
+    });
+    assert.equal(verifiedWithoutLink.ok, false);
+    if (!verifiedWithoutLink.ok) assert.match(verifiedWithoutLink.error, /pull request link/);
     const webhookShipped = validatePropertyPatch({
       database: 'tasks',
       properties: {
@@ -442,11 +466,10 @@ describe('board sort', () => {
     const outOfBuilding = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Building', to: 'Planning' });
     assert.deepEqual(outOfBuilding, { kind: 'move', value: 'Planning' });
     const intoShipped = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Idea', to: 'Shipped' });
-    assert.equal(intoShipped.kind, 'reject');
-    if (intoShipped.kind === 'reject') assert.match(intoShipped.reason, /pull request merges/);
+    assert.deepEqual(intoShipped, { kind: 'move', value: 'Shipped' });
     const outOfShipped = resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Shipped', to: 'Planning' });
     assert.equal(outOfShipped.kind, 'reject');
-    if (outOfShipped.kind === 'reject') assert.match(outOfShipped.reason, /pull request merges/);
+    if (outOfShipped.kind === 'reject') assert.match(outOfShipped.reason, /Leaving Shipped stays locked/);
     assert.equal(
       resolveBoardDrop({ actor: 'staff', mode: 'stage', from: 'Shipped', to: 'Shipped' }).kind,
       'ignore',

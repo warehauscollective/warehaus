@@ -162,6 +162,13 @@ describe('fixture roadmap', () => {
     const plain = applyFixtureMilestonePreview(staff, '?tiles=nofigma');
     assert.equal(plain[0]?.localPreviewUrl, 'http://localhost:3201');
     assert.equal(plain[0]?.figmaUrl ?? null, null);
+    const readyClose = applyFixtureMilestonePreview(staff, '?close=ready');
+    const openTasks = readyClose[0]?.rows.flatMap((row) => [row, ...row.children]) ?? [];
+    assert.ok(openTasks.length > 0);
+    assert.equal(openTasks.every((task) => task.isDone && task.status === 'Done'), true);
+    assert.equal(readyClose[0]?.openCount, 0);
+    assert.equal(readyClose[1]?.name, 'Billing export draft');
+    assert.equal(readyClose[1]?.rows.length, staff[1]?.rows.length);
   });
 });
 
@@ -512,20 +519,22 @@ describe('roadmap markup', () => {
     assert.ok(scopeAt >= 0 && scopeAt < menuAt, 'portaled status menu sits inside ds-scope');
     assert.match(desktop, /data-testid="milestone-status-menu"/);
     assert.match(desktop, /aria-label="Status"/);
-    assert.match(desktop, /Staff can set any status except Shipped\. Shipped is set when the pull request merges\. Saves as soon as you pick\./);
+    assert.match(desktop, /Staff can set Shipped when every task that is not Parked is Done\. Saves as soon as you pick\./);
     assert.match(desktop, /task-chev-down\.svg/);
     assert.equal(desktop.includes('tile-stage-menu'), false);
     assert.equal(desktop.includes('stage-confirm-sheet'), false);
     assert.equal(desktop.includes('>Close<'), false);
     const shipped = desktop.split('<button').find((part) => part.includes('>Shipped<')) ?? '';
-    assert.match(shipped, /disabled=""/);
-    assert.match(shipped, /ON MERGE/);
+    assert.doesNotMatch(shipped, /disabled=""/);
+    assert.match(shipped, /aria-disabled="true"/);
+    assert.match(shipped, /aria-describedby="milestone-status-hint"/);
+    assert.match(shipped, /NOT DONE/);
 
     const phoneMenu = renderTile({ staff: true, milestone, phone: true, stagePreview: 'menu' });
     assert.equal(phoneMenu.includes('tile-stage-popover'), false);
     assert.match(phoneMenu, /data-testid="tile-stage-menu"/);
     assert.match(phoneMenu, /data-testid="milestone-status-menu"/);
-    assert.match(phoneMenu, /Staff can set any status except Shipped\. Shipped is set when the pull request merges\. Saves as soon as you pick\./);
+    assert.match(phoneMenu, /Staff can set Shipped when every task that is not Parked is Done\. Saves as soon as you pick\./);
     assert.equal(phoneMenu.includes('Nothing changes until you confirm'), false);
     assert.match(phoneMenu, />Close</);
     assert.equal(phoneMenu.includes('stage-confirm'), false);

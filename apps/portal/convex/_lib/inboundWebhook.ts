@@ -15,7 +15,7 @@ export const INBOUND_RATE_WINDOW_MS = 60_000;
 export const INBOUND_RATE_KEY = 'inbound-webhook-rate';
 
 /**
- * Shipped is set here when a pull request merges. Staff cannot set it.
+ * Shipped is set here when a pull request merges. Staff can set the same stage after GitHub shows that pull request merged into main.
  * A merged pull request never moves a task to Done or Shipped.
  */
 export const MERGE_REVIEW_STAGE = 'Shipped' as const;
