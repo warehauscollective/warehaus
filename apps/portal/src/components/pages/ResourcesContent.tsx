@@ -329,6 +329,8 @@ export function ResourcesContent() {
     const id = params.get('resource') ?? pathId(window.location.pathname, '/resources/');
     if (id && screen !== 'empty' && screen !== 'loading' && screen !== 'error' && screen !== 'long') {
       setOpenResourceId(id);
+    } else if (!id && screen !== 'long') {
+      setOpenResourceId(null);
     }
   }, [pathname]);
   const staffUsed = useSafeQuery<ResourceTaskRow[]>(

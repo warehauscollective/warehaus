@@ -1,12 +1,15 @@
 'use client';
 
 import { useEffect } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { usePortalData } from '@/hooks/usePortalData';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
+import { isProjectDetailPath, leaveProjectDetail } from '@/lib/nav/tabHome';
 import { MobileMenu } from './MobileMenu';
 import { sidebarItemStyle } from './sidebarItemChrome';
 import { applySidebarDataset, readSidebarMode, sidebarCollapseKey, type SidebarMode } from './sidebarCollapse';
@@ -67,6 +70,16 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
   const sections = getPortalSidebarSections(tab, data.tenant.mode);
   const activeSection = sectionFor(tab);
   const tipId = `sidebar-expand-tip-${tab}`;
+  const pathname = usePathname() || '';
+  const router = useRouter();
+  const fixtures = useFixturePreview();
+
+  const selectSection = (key: string) => {
+    setSectionFor(tab, key);
+    if (tab === 'projects' && key === 'all' && isProjectDetailPath(pathname)) {
+      leaveProjectDetail({ pathname, fixtures, push: (href) => router.push(href) });
+    }
+  };
 
   useEffect(() => {
     function onStorage(event: StorageEvent) {
@@ -98,7 +111,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
         tab={tab}
         sections={sections}
         activeSection={activeSection}
-        onSelect={(key) => setSectionFor(tab, key)}
+        onSelect={selectSection}
       />
 
       <nav
@@ -144,7 +157,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
               <button
                 key={s.key}
                 type="button"
-                onClick={() => setSectionFor(tab, s.key)}
+                onClick={() => selectSection(s.key)}
                 aria-current={active ? 'true' : undefined}
                 className="sidebar-item flex w-full items-center text-left"
                 style={sidebarItemStyle(active)}

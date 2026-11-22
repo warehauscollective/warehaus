@@ -19,6 +19,7 @@ import {
 } from '@warehaus/logic/portal';
 import { createSwipePanelRefs } from '@warehaus/ui';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
+import { tabReplaceHref } from '@/lib/nav/tabHome';
 
 const PORTAL_TAB_VALUES = PORTAL_TABS.map((t) => t.value) as PortalTab[];
 
@@ -75,19 +76,15 @@ export function PortalTabProvider({ children }: { children: ReactNode }) {
         window.history.replaceState(window.history.state, '', url);
         return;
       }
-      const href = PORTAL_TABS.find((t) => t.value === tab)?.href ?? '/';
-      if (getPortalTabForPath(pathname) !== tab) {
-        const next = new URL(href, window.location.origin);
-        if (tab === 'account') {
-          const current = new URL(window.location.href);
-          const client = current.searchParams.get('client');
-          const section = current.searchParams.get('section');
-          if (client) next.searchParams.set('client', client);
-          if (section) next.searchParams.set('section', section);
-        }
-        const qs = next.searchParams.toString();
-        router.replace(`${next.pathname}${qs ? `?${qs}` : ''}`);
-      }
+      const href = tabReplaceHref({
+        tab,
+        pathname,
+        search: typeof window === 'undefined' ? '' : window.location.search,
+      });
+      // Already on this tab's root: do nothing. Nested pages (/projects/:id,
+      // /tasks/:id, /resources/:id) still belong to the tab, so the highlight
+      // stays, but the click replaces to the root.
+      if (href) router.replace(href);
     },
     [pathname, router],
   );

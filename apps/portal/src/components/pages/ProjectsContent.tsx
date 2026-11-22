@@ -51,6 +51,7 @@ import {
 import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam, setSearchParams } from '@/lib/nav/clearSearchParam';
+import { isProjectDetailPath, leaveProjectDetail } from '@/lib/nav/tabHome';
 import { keepProjectWhileLoading, readTaskListView } from '@/lib/nav/taskListLocation';
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
 import { clearPortalReturn, peekPortalReturn, takePortalReturn, taskCloseLabel } from '@/lib/nav/portalReturn';
@@ -241,12 +242,15 @@ export function ProjectsContent() {
   const closeProject = () => {
     setOpenId(null);
     setFixtureTaskId(null);
-    clearSearchParam('project');
-    clearSearchParam('taskView');
-    if (!fixtures && (/^\/projects\/[^/]+/.test(pathname) || pathname.startsWith('/tasks/'))) {
-      router.push('/projects');
-    }
+    leaveProjectDetail({ pathname, fixtures, push: (href) => router.push(href) });
   };
+
+  useEffect(() => {
+    if (isProjectDetailPath(pathname)) return;
+    if (new URLSearchParams(window.location.search).get('project')) return;
+    setOpenId(null);
+    setFixtureTaskId(null);
+  }, [pathname]);
 
   const closeTask = () => {
     const back = takePortalReturn();
