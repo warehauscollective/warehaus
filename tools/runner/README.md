@@ -73,6 +73,10 @@ Use shared dev, never production.
 8. Open the local preview: `npm run preview:pr -- milestone/<slug>`.
 9. Approve in the Portal or in Grok Bot. Approval records the decision. Merge and deploy stay separate steps.
 
+## Dry run log
+
+This section records each dry run of the runner on shared dev.
+
 ## Tests
 
 ```bash
