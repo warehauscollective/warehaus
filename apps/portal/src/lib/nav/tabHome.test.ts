@@ -84,6 +84,52 @@ for (const viewer of viewers) {
       );
     });
 
+    it('sends every project entry path to the Projects home', () => {
+      const entries = [
+        ['/projects/p-site', '', '/projects'],
+        ['/projects/p-site', '?task=t-doing', '/projects'],
+        ['/tasks/t-doing', '', '/projects'],
+        ['/tasks/t-doing', '?project=p-site', '/projects'],
+        ['/projects', '?project=p-site&taskView=board', '/projects'],
+        ['/projects', '?project=p-site&task=t-doing&taskView=board', '/projects'],
+        ['/resources', '?resource=r-notes', '/projects'],
+        ['/resources/r-notes', '?resource=r-notes', '/projects'],
+        ['/docs/d-brief', '', '/projects'],
+        ['/files/brief.pdf', '', '/projects'],
+        ['/activity', '', '/projects'],
+        ['/', '', '/projects'],
+        ['/projects/p-site', '?as=client', '/projects?as=client'],
+        ['/projects', '?as=client&project=p-site&taskView=board', '/projects?as=client'],
+      ] as const;
+      for (const [pathname, search, expected] of entries) {
+        const replaced: string[] = [];
+        const events: PortalNavDetail[] = [];
+        const href = runTabHomeClick({
+          tab: 'projects',
+          location: { pathname, search },
+          replace: (next) => replaced.push(next),
+          dispatch: (detail) => events.push(detail),
+        });
+        assert.equal(href, expected, `${pathname}${search}`);
+        assert.deepEqual(replaced, [expected]);
+        assert.equal(events[0]?.home, true);
+        assert.equal(events[0]?.project, null);
+        assert.equal(events[0]?.task, null);
+        assert.equal(events[0]?.resource, null);
+        const project = readProjectNav({ detail: events[0] ?? null, search: '' });
+        assert.equal(project.home, true);
+        assert.equal(project.project, null);
+        const sidebar =
+          isProjectDetailPath(pathname) || new URLSearchParams(search.replace(/^\?/, '')).has('project');
+        assert.equal(allProjectsLeavesDetail(pathname, search), sidebar);
+      }
+      assert.equal(allProjectsLeavesDetail('/projects/p-site', ''), true);
+      assert.equal(allProjectsLeavesDetail('/tasks/t-doing', ''), true);
+      assert.equal(allProjectsLeavesDetail('/projects', '?project=p-site&taskView=board'), true);
+      assert.equal(allProjectsLeavesDetail('/projects', ''), false);
+      assert.equal(allProjectsLeavesDetail('/resources', '?resource=r-notes'), false);
+    });
+
     it('returns a list-opened project and resource to that tab home', () => {
       const cases = [
         ['projects', '/projects', '?project=p-site&taskView=board', '/projects'],

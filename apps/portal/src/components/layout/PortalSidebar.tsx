@@ -8,7 +8,6 @@ import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { usePortalData } from '@/hooks/usePortalData';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
-import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { allProjectsLeavesDetail, commitTabHref, isProjectDetailPath, runTabHomeClick } from '@/lib/nav/tabHome';
 import { MobileMenu } from './MobileMenu';
 import { sidebarItemStyle } from './sidebarItemChrome';
@@ -72,7 +71,6 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
   const tipId = `sidebar-expand-tip-${tab}`;
   const pathname = usePathname() || '';
   const router = useRouter();
-  const fixtures = useFixturePreview();
 
   const selectSection = (key: string) => {
     setSectionFor(tab, key);
@@ -85,7 +83,7 @@ export function PortalTabSidebar({ tab }: { tab: PortalTab }) {
       location: { pathname, search },
       replace: (href) => {
         if (detailPath) {
-          if (!fixtures) router.push(href);
+          router.push(href);
           return;
         }
         commitTabHref(href, (next) => router.replace(next));
