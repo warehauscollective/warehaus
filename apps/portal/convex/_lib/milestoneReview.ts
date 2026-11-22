@@ -28,7 +28,7 @@ export const PETER_EMAILS = ['peter@warehaus.studio', 'peter@warehaus.co'] as co
 export const PETER_CHAT_TOKEN = 'grok-bot';
 
 export const TASK_STAGE_HINT =
-  'Staff can set any stage except Shipped. Shipped is set when the pull request merges.';
+  'Staff can set Shipped when the pull request is merged into main. The check runs when you save.';
 
 /** Shown on a disabled Retry while review previews are still being set up. */
 export const RETRY_WAITS_ON_TOKENS = "Retry isn't available yet. Review previews are still being set up.";

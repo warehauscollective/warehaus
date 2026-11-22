@@ -44,8 +44,15 @@ const samples: Record<string, Record<string, unknown>> = {
     goals: ['Home page live'],
     idempotencyKey: 'mile-create-1',
   },
-  update_milestone: { milestoneId: 'milestone-1', status: 'Building', idempotencyKey: 'mile-update-1' },
+  update_milestone: {
+    milestoneId: 'milestone-1',
+    name: 'Launch',
+    status: 'Shipped',
+    stage: 'Shipped',
+    idempotencyKey: 'mile-edit',
+  },
   attach_task_to_milestone: { milestoneId: 'milestone-1', taskId: 'task-1', idempotencyKey: 'mile-1' },
+  detach_task_from_milestone: { milestoneId: 'milestone-1', taskId: 'task-1', idempotencyKey: 'mile-off' },
   add_task_link: {
     taskId: 'task-1',
     kind: 'deploy',
@@ -97,6 +104,7 @@ const paths: Record<string, { method: 'GET' | 'POST'; path: string }> = {
   create_milestone: { method: 'POST', path: '/api/v1/milestones' },
   update_milestone: { method: 'POST', path: '/api/v1/milestones/update' },
   attach_task_to_milestone: { method: 'POST', path: '/api/v1/milestones/attach' },
+  detach_task_from_milestone: { method: 'POST', path: '/api/v1/milestones/detach' },
   add_task_link: { method: 'POST', path: '/api/v1/links' },
   record_milestone_review: { method: 'POST', path: '/api/v1/milestones/milestone-1/review' },  get_project_context: { method: 'GET', path: '/api/v1/context' },
   get_grilling_instructions: { method: 'GET', path: '/api/v1/context/grilling' },
@@ -473,15 +481,16 @@ describe('milestone tools', () => {
     if (planned.ok) assert.deepEqual(planned.call.body, { milestoneId: 'milestone-1', status: 'Ready to Ship' });
   });
 
-  it('refuses Shipped and unknown statuses before any call', () => {
+  it('refuses Shipped on create, and an unknown status on update', () => {
     for (const status of ['Shipped', 'Done']) {
       assert.equal(
         planToolCall('create_milestone', { projectId: 'p', name: 'n', objective: 'o', status, idempotencyKey: 'k' }).ok,
         false,
         status,
       );
-      assert.equal(planToolCall('update_milestone', { milestoneId: 'm', status, idempotencyKey: 'k' }).ok, false, status);
     }
+    assert.equal(planToolCall('update_milestone', { milestoneId: 'm', status: 'Done', idempotencyKey: 'k' }).ok, false);
+    assert.equal(planToolCall('update_milestone', { milestoneId: 'm', status: 'Shipped', idempotencyKey: 'k' }).ok, true);
   });
 
   it('refuses a milestone with no name or objective', () => {
