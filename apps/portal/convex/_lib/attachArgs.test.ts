@@ -256,9 +256,6 @@ const writeTools: Record<string, Record<string, unknown>> = {
     status: 'Planning',
     idempotencyKey: 'mile-create-1',
   },
-  update_milestone: { milestoneId: 'milestones:1', status: 'Building', idempotencyKey: 'mile-update-1' },
-  attach_task_to_milestone: { milestoneId: 'milestones:1', taskId: 'tasks:1', idempotencyKey: 'mile-1' },
-  create_milestone: { projectId: 'projects:1', name: 'Launch', idempotencyKey: 'mile-new' },
   update_milestone: {
     milestoneId: 'milestones:1',
     name: 'Launch',
@@ -266,6 +263,7 @@ const writeTools: Record<string, Record<string, unknown>> = {
     stage: 'Shipped',
     idempotencyKey: 'mile-edit',
   },
+  attach_task_to_milestone: { milestoneId: 'milestones:1', taskId: 'tasks:1', idempotencyKey: 'mile-1' },
   detach_task_from_milestone: { milestoneId: 'milestones:1', taskId: 'tasks:1', idempotencyKey: 'mile-off' },
   add_task_link: {
     taskId: 'tasks:1',
