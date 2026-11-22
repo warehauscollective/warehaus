@@ -5,7 +5,7 @@ import {
   DEFAULT_MILESTONE_STATUS,
   MILESTONE_STATUSES,
   MILESTONE_STATUS_CATEGORY,
-  SHIPPED_ON_MERGE,
+  SHIPPED_NEEDS_DONE,
   STATUS_ALIAS_CONFLICT,
   STATUS_STALE,
   UNKNOWN_STATUS,
@@ -54,9 +54,10 @@ describe('milestone status list', () => {
     });
   });
 
-  it('locks only Shipped in the menu', () => {
+  it('locks Shipped until every non-Parked task is Done', () => {
     for (const status of MILESTONE_STATUSES) {
       assert.equal(statusOptionLock(status), status === 'Shipped' ? 'shipped' : null);
+      assert.equal(statusOptionLock(status, true), null);
     }
   });
 });
@@ -77,19 +78,23 @@ describe('nextStatus', () => {
 });
 
 describe('transitionMilestone · set', () => {
-  it('lets a person pick any status except Shipped, forward or back', () => {
+  it('lets a person pick any status, and Shipped only when the tasks are Done', () => {
     for (const from of MILESTONE_STATUSES) {
       for (const to of MILESTONE_STATUSES) {
         const result = transitionMilestone({ from, cause: 'set', to });
         if (to === from) {
           assert.deepEqual(result, { ok: true, from, status: from, wrote: false });
         } else if (to === 'Shipped') {
-          assert.deepEqual(result, { ok: false, reason: SHIPPED_ON_MERGE, code: 'shipped' });
+          assert.deepEqual(result, { ok: false, reason: SHIPPED_NEEDS_DONE, code: 'shipped' });
         } else {
           assert.deepEqual(result, { ok: true, from, status: to, wrote: true });
         }
       }
     }
+    assert.deepEqual(
+      transitionMilestone({ from: 'Ready to Ship', cause: 'set', to: 'Shipped', tasksReady: true }),
+      { ok: true, from: 'Ready to Ship', status: 'Shipped', wrote: true },
+    );
   });
 
   it('keeps Shipped as a no-op when it is already Shipped', () => {
@@ -137,8 +142,15 @@ describe('transitionMilestone · set', () => {
   });
 
   it('never lets AI set Shipped', () => {
-    const result = transitionMilestone({ from: 'Ready to Ship', cause: 'set', to: 'Shipped', actor: 'ai', approval: 'unreviewed' });
-    assert.deepEqual(result, { ok: false, reason: SHIPPED_ON_MERGE, code: 'shipped' });
+    const result = transitionMilestone({
+      from: 'Ready to Ship',
+      cause: 'set',
+      to: 'Shipped',
+      actor: 'ai',
+      approval: 'unreviewed',
+      tasksReady: true,
+    });
+    assert.deepEqual(result, { ok: false, reason: SHIPPED_NEEDS_DONE, code: 'shipped' });
   });
 });
 

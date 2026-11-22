@@ -13,7 +13,7 @@ Approved by Peter in Grok Bot (Portal room), 2026-11-17, 11:46 AM ET. Canonical 
 - Every change belongs to a Portal milestone or a task inside one. The PR names that task.
 - Design tasks come first, in Dark and Light at 1440 and 390. Peter approves design in Grok Bot or the Portal before build.
 - Post dev updates on the milestone (next action and the PR link).
-- A milestone has one Status (Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, Parked). Shipped is set on merge, never by hand. Approval is the separate review result.
+- A milestone has one Status (Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, Parked). Staff can set Shipped when every task that is not Parked is Done. The play button never moves to Shipped. Approval is the separate review result.
 - Product Design Lead checks the build against Figma from screenshots, then Peter previews.
 - Previews for Peter are local builds on his Mac against shared dev Convex `graceful-mastiff-960`. Never a Vercel or cloud preview. Never production `unique-turtle-383`.
 - On his Mac: `npm run preview:pr -- <branch>`. It prints the localhost URL, refuses a production Convex URL, and does not run `convex dev`.
