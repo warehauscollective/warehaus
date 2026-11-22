@@ -102,6 +102,10 @@ export const listPublishedForStaff = adminQuery({
           clientName: client?.companyName ?? null,
           clientSlug: client?.slug ?? null,
           notionPageId: row.notionPageId,
+          // Staff only. toClientProject never carries it. The roster query
+          // below returns it too; without it here the repository screen
+          // reads "Not set" after a save.
+          agentRepo: row.agentRepo ?? null,
         };
       })
       .sort((a, b) => {
