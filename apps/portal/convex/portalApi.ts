@@ -679,7 +679,6 @@ export const createMilestone = internalMutation({
       objective: args.objective,
       goals: args.goals,
       status: wanted.status ?? undefined,
-      allowEmptyObjective: args.objective.trim() === '',
     });
     if (!created.ok) return finishIdempotency(ctx, opened.id, fail(400, created.reason));
     const milestoneId = await ctx.db.insert('milestones', {

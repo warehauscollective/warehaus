@@ -10,6 +10,7 @@ import * as portalApi from '../portalApi';
 import * as projectContextApi from '../projectContextApi';
 import * as projectCreate from '../projectCreate';
 import * as milestones from '../milestones';
+import { createMilestoneDecision } from './milestones';
 
 const BEARER = 'Bearer whp_testtokenvalue0001';
 const ACCEPT = 'application/json, text/event-stream';
@@ -128,6 +129,16 @@ function validatingCtx(calls: Call[]) {
       }
       if (name === 'portalApi:rememberResult') {
         return { status: args?.status, body: JSON.parse(String(args?.body ?? 'null')) as unknown };
+      }
+      if (name === 'portalApi:createMilestone') {
+        const created = createMilestoneDecision({
+          actor: 'human',
+          name: String(args?.name ?? ''),
+          objective: String(args?.objective ?? ''),
+          goals: Array.isArray(args?.goals) ? args.goals.filter((goal): goal is string => typeof goal === 'string') : [],
+          status: typeof args?.status === 'string' ? args.status : undefined,
+        });
+        if (!created.ok) return { status: 400, body: { error: created.reason } };
       }
       return { status: 200, body: { ok: true, id: 'wrote' } };
     },
@@ -307,6 +318,15 @@ describe('MCP attach arguments', () => {
       const result = await callMcpTool(name, writeTools[name] ?? {});
       assert.equal(result.isError, false, `${name} ${JSON.stringify(result.body)}`);
       assert.equal(result.httpStatus, 200, name);
+    }
+
+    for (const [label, body] of [
+      ['missing', { projectId: 'projects:1', name: 'Milestone One' }],
+      ['blank', { projectId: 'projects:1', name: 'Milestone One', objective: '   ' }],
+    ] as const) {
+      const rejected = await postApi('/api/v1/milestones', body, `mile-empty-${label}`);
+      assert.equal(rejected.status, 400, label);
+      assert.deepEqual(rejected.body, { error: 'Objective is required' });
     }
 
     const milestones = await postApi(
