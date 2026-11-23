@@ -318,6 +318,79 @@ export function runIsStuck(input: { lastSeenAt: number | null | undefined; start
 }
 
 /**
+ * How long a run the Portal ended on its own still holds the milestone. The
+ * runner has not said it stopped, so its process may still be committing.
+ */
+export const RUN_LEASE_GRACE_MS = 10 * 60_000;
+export const RETRY_RUN_ACTIVE = 'A run is still going on this milestone. Retry opens when it ends.';
+export const RETRY_RUN_WINDING_DOWN = 'The last run is still winding down. Try Retry again in a few minutes.';
+
+export type LeaseRun = {
+  status: string;
+  kind: string;
+  taskId?: string | null;
+  endedAt?: number | null;
+  /** When the runner itself said the run was over, or was seen idle after it. */
+  settledAt?: number | null;
+  /** Cursor cloud agent id. A new build follows this agent instead of starting another. */
+  externalId?: string | null;
+};
+
+export type RunLease = { held: false } | { held: true; why: 'active' | 'winding_down'; until: number | null };
+
+/**
+ * One run's hold on its milestone. A running run holds it. A run the runner
+ * closed itself, or one that succeeded, holds nothing. A run the Portal
+ * closed (the stuck sweep) holds it for a grace window, unless the runner
+ * settles it sooner. A Cursor build with an agent id holds nothing after it
+ * ends, because the next build follows that same agent.
+ */
+export function runLease(run: LeaseRun, now: number): RunLease {
+  if (run.status === 'running') return { held: true, why: 'active', until: null };
+  if (run.status === 'succeeded' || run.settledAt != null) return { held: false };
+  if (run.kind === 'build' && run.externalId) return { held: false };
+  if (run.endedAt == null) return { held: false };
+  const until = run.endedAt + RUN_LEASE_GRACE_MS;
+  return now < until ? { held: true, why: 'winding_down', until } : { held: false };
+}
+
+/**
+ * Whether staff may Retry now. A milestone retry (a blocked plan or a held
+ * Cursor build) waits on every recent run. A task retry waits on that task's
+ * own runs and on a build, never on another task's run: the claim already
+ * keeps one run per milestone, so the retried task just queues behind it.
+ */
+export function retryLeaseDecision(input: {
+  runs: readonly LeaseRun[];
+  taskId?: string | null;
+  now: number;
+}): { ok: true } | { ok: false; reason: string; until: number | null } {
+  let windingUntil: number | null = null;
+  for (const run of input.runs) {
+    if (input.taskId && run.kind !== 'build' && run.taskId !== input.taskId) continue;
+    const lease = runLease(run, input.now);
+    if (!lease.held) continue;
+    if (lease.why === 'active') return { ok: false, reason: RETRY_RUN_ACTIVE, until: null };
+    windingUntil = Math.max(windingUntil ?? 0, lease.until ?? 0);
+  }
+  if (windingUntil != null) return { ok: false, reason: RETRY_RUN_WINDING_DOWN, until: windingUntil };
+  return { ok: true };
+}
+
+/**
+ * The Cursor agent a new build should follow instead of starting another:
+ * the newest build run, when staff retried it (cancelled), the runner never
+ * reported its agent finished, and it has an agent id. Otherwise null.
+ */
+export function cursorAgentToResume<T extends LeaseRun & { externalUrl?: string | null }>(
+  runs: readonly T[],
+): { externalId: string; externalUrl: string | null } | null {
+  const latest = runs.find((run) => run.kind === 'build');
+  if (!latest || latest.status !== 'cancelled' || latest.settledAt != null || !latest.externalId) return null;
+  return { externalId: latest.externalId, externalUrl: latest.externalUrl ?? null };
+}
+
+/**
  * Open tasks on a milestone that the runner will never take, because they
  * sync from Notion or are subtasks. The milestone stays in Building until a
  * person closes them, so the feed names them.

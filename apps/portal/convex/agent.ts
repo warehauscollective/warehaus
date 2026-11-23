@@ -23,6 +23,7 @@ import {
   buildAgent,
   buildTaskState,
   completeDecision,
+  cursorAgentToResume,
   cursorAgentUrl,
   eventSummary,
   eventType,
@@ -33,6 +34,7 @@ import {
   planningRetryDecision,
   projectServedBy,
   pullRequestUrl,
+  retryLeaseDecision,
   runnerRepos,
   runIsStuck,
   runMode,
@@ -213,6 +215,32 @@ async function runningRunFor(ctx: MutationCtx, runnerId: string) {
     .first();
 }
 
+/** Marks an ended run as settled: the runner answered for it. Writes once. */
+async function settleRun(ctx: MutationCtx, run: Doc<'agentRuns'>, at: number) {
+  if (run.status === 'running' || run.settledAt != null) return;
+  await ctx.db.patch(run._id, { settledAt: at });
+}
+
+/** Runs one idle claim settles for a runner. */
+const SETTLE_SCAN = 5;
+
+/**
+ * A runner that asks for work with no run open is not working. Any task or
+ * planning run the stuck sweep closed under it is over, so its hold on the
+ * milestone ends here. A Cursor build is left alone: its agent runs in the
+ * cloud whether or not the runner is busy.
+ */
+async function settleIdleRunner(ctx: MutationCtx, runnerId: string, at: number) {
+  const closed = await ctx.db
+    .query('agentRuns')
+    .withIndex('by_runner_status', (q) => q.eq('runnerId', runnerId).eq('status', 'cancelled'))
+    .order('desc')
+    .take(SETTLE_SCAN);
+  for (const run of closed) {
+    if (run.kind !== 'build') await settleRun(ctx, run, at);
+  }
+}
+
 async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
   const milestone = await ctx.db.get(run.milestoneId);
   if (!milestone) return null;
@@ -299,9 +327,11 @@ export const claimNext = internalMutation({
       const payload = await runPayload(ctx, open);
       if (payload) return { ok: true as const, resumed: true, ...payload };
       // The task or milestone behind the run is gone. Close it and look again.
-      await ctx.db.patch(open._id, { status: 'cancelled', endedAt: Date.now() });
+      const closedAt = Date.now();
+      await ctx.db.patch(open._id, { status: 'cancelled', endedAt: closedAt, settledAt: closedAt });
     }
     const now = Date.now();
+    await settleIdleRunner(ctx, args.runnerId, now);
     const mode = runMode(args.mode);
 
     const inspected = new Map<string, number>();
@@ -390,6 +420,9 @@ export const claimNext = internalMutation({
           .order('desc')
           .take(10);
         if (recent.some((run) => run.kind === 'build' && run.status === 'failed')) continue;
+        // The stuck sweep closed the last build but nobody saw its cloud agent
+        // stop. Follow that agent. A second one would push to the same branch.
+        const resume = cursorAgentToResume(recent);
         const runId = await ctx.db.insert('agentRuns', {
           orgId: milestone.orgId,
           milestoneId: milestone._id,
@@ -399,13 +432,17 @@ export const claimNext = internalMutation({
           mode,
           status: 'running',
           startedAt: now,
+          ...(resume ? { externalId: resume.externalId } : {}),
+          ...(resume?.externalUrl ? { externalUrl: resume.externalUrl } : {}),
         });
         await writeEvent(ctx, {
           orgId: milestone.orgId,
           milestoneId: milestone._id,
           runId,
           type: 'run',
-          summary: `Cursor agent started · ${args.runnerId} · ${open.length} tasks`,
+          summary: resume
+            ? `Cursor agent picked up again · ${args.runnerId} · ${open.length} tasks`
+            : `Cursor agent started · ${args.runnerId} · ${open.length} tasks`,
           at: now,
         });
         for (const task of tasks) {
@@ -548,6 +585,7 @@ export const completeTask = internalMutation({
     if (run.kind !== 'task' || !run.taskId) return failure(400, 'That run is not a task run');
     const milestone = await ctx.db.get(run.milestoneId);
     if (run.status !== 'running') {
+      await settleRun(ctx, run, Date.now());
       return {
         ok: true as const,
         duplicate: true,
@@ -559,7 +597,7 @@ export const completeTask = internalMutation({
     if (!decision.ok) return failure(400, decision.reason);
     const task = await ctx.db.get(run.taskId);
     const now = Date.now();
-    await ctx.db.patch(run._id, { status: decision.run, endedAt: now });
+    await ctx.db.patch(run._id, { status: decision.run, endedAt: now, settledAt: now });
     if (!task || !milestone) return { ok: true as const, duplicate: false, run: decision.run, milestoneStatus: null };
 
     await ctx.db.patch(task._id, {
@@ -674,12 +712,13 @@ export const writePlannedTasks = internalMutation({
     if (run.kind !== 'planning') return failure(400, PLAN_NOT_PLANNING);
     const milestone = await ctx.db.get(run.milestoneId);
     if (run.status !== 'running') {
+      await settleRun(ctx, run, Date.now());
       return { ok: true as const, duplicate: true, taskIds: [] as Id<'tasks'>[], milestoneStatus: milestone?.status ?? null };
     }
     if (!milestone) return failure(404, 'Milestone not found');
     if (milestone.status !== 'Planning') {
       const now = Date.now();
-      await ctx.db.patch(run._id, { status: 'cancelled', endedAt: now });
+      await ctx.db.patch(run._id, { status: 'cancelled', endedAt: now, settledAt: now });
       await ctx.db.patch(milestone._id, { planning: undefined, planningReplace: undefined });
       return failure(409, 'Planning stopped because the milestone left Planning');
     }
@@ -720,7 +759,7 @@ export const writePlannedTasks = internalMutation({
         }),
       );
     }
-    await ctx.db.patch(run._id, { status: 'succeeded', endedAt: now });
+    await ctx.db.patch(run._id, { status: 'succeeded', endedAt: now, settledAt: now });
     await ctx.db.patch(milestone._id, {
       planning: undefined,
       planningReplace: undefined,
@@ -746,11 +785,14 @@ export const failPlanning = internalMutation({
     if (!owned.ok) return owned;
     const { run } = owned;
     if (run.kind !== 'planning') return failure(400, PLAN_NOT_PLANNING);
-    if (run.status !== 'running') return { ok: true as const, duplicate: true };
+    if (run.status !== 'running') {
+      await settleRun(ctx, run, Date.now());
+      return { ok: true as const, duplicate: true };
+    }
     const now = Date.now();
     const reason = eventSummary(typeof args.reason === 'string' && args.reason.trim() ? args.reason : 'The planning run failed');
     const why = reason.ok ? reason.summary : 'The planning run failed';
-    await ctx.db.patch(run._id, { status: 'failed', endedAt: now, blockedReason: why });
+    await ctx.db.patch(run._id, { status: 'failed', endedAt: now, blockedReason: why, settledAt: now });
     const milestone = await ctx.db.get(run.milestoneId);
     if (milestone?.planning === 'running') {
       await ctx.db.patch(milestone._id, { planning: 'blocked', planningBlockedReason: why });
@@ -798,7 +840,7 @@ export const releaseStuckRuns = internalMutation({
       const why = 'Runner went quiet for 30 minutes';
       const milestone = await ctx.db.get(run.milestoneId);
       if (run.kind === 'build' && milestone) {
-        await blockCursorBuild(ctx, run, milestone, run.runnerId, why, now);
+        await blockCursorBuild(ctx, run, milestone, run.runnerId, why, now, false);
         released += 1;
         continue;
       }
@@ -906,8 +948,10 @@ async function blockCursorBuild(
   runnerId: string,
   why: string,
   now: number,
+  /** True when the runner reported it. The stuck sweep leaves the run unsettled. */
+  settled: boolean,
 ) {
-  await ctx.db.patch(run._id, { status: 'failed', endedAt: now, blockedReason: why });
+  await ctx.db.patch(run._id, { status: 'failed', endedAt: now, blockedReason: why, ...(settled ? { settledAt: now } : {}) });
   const tasks = await ctx.db
     .query('tasks')
     .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
@@ -963,6 +1007,8 @@ export const reportBuild = internalMutation({
     if (run.kind !== 'build') return failure(400, 'That run is not a build');
     const milestone = await ctx.db.get(run.milestoneId);
     if (run.status !== 'running') {
+      // The runner saw the agent end. A report that it is still running settles nothing.
+      if (args.status === 'failed' || args.status === 'finished') await settleRun(ctx, run, Date.now());
       return { ok: true as const, duplicate: true, milestoneStatus: milestone?.status ?? null };
     }
     if (!milestone) return failure(404, 'Milestone not found');
@@ -979,7 +1025,7 @@ export const reportBuild = internalMutation({
     if (args.status === 'failed') {
       const reason = eventSummary(typeof args.reason === 'string' && args.reason.trim() ? args.reason : 'The Cursor agent stopped');
       const why = reason.ok ? reason.summary : 'The Cursor agent stopped';
-      await blockCursorBuild(ctx, run, milestone, args.runnerId, why, now);
+      await blockCursorBuild(ctx, run, milestone, args.runnerId, why, now, true);
       return { ok: true as const, duplicate: false, milestoneStatus: milestone.status };
     }
     if (args.status !== 'finished') return failure(400, 'Status must be running, finished, or failed');
@@ -1023,25 +1069,37 @@ export const reportBuild = internalMutation({
         args.runnerId,
         'The Cursor agent finished without a Portal-Task trailer',
         now,
+        true,
       );
       return { ok: true as const, duplicate: false, milestoneStatus: milestone.status };
     }
-    await ctx.db.patch(run._id, { status: 'succeeded', endedAt: now });
+    await ctx.db.patch(run._id, { status: 'succeeded', endedAt: now, settledAt: now });
     const milestoneStatus = await markReady(ctx, milestone, args.runnerId, now, prUrl ?? milestone.prUrl ?? null);
     return { ok: true as const, duplicate: false, milestoneStatus };
   },
 });
 
-async function failedBuildRun(ctx: MutationCtx, milestoneId: Id<'milestones'>) {
-  const recent = await ctx.db
+/** Newest runs on a milestone that Retry looks at. */
+const RETRY_RUN_SCAN = 10;
+
+async function recentRuns(ctx: MutationCtx, milestoneId: Id<'milestones'>) {
+  return ctx.db
     .query('agentRuns')
     .withIndex('by_milestone', (q) => q.eq('milestoneId', milestoneId))
     .order('desc')
-    .take(10);
+    .take(RETRY_RUN_SCAN);
+}
+
+async function failedBuildRun(ctx: MutationCtx, milestoneId: Id<'milestones'>) {
+  const recent = await recentRuns(ctx, milestoneId);
   return recent.find((run) => run.kind === 'build' && run.status === 'failed') ?? null;
 }
 
-/** Clears a blocked task, a blocked Cursor build, or a blocked planning run. Staff only. */
+/**
+ * Clears a blocked task, a blocked Cursor build, or a blocked planning run.
+ * Staff only. Refused, with nothing written, while the run it would replace
+ * is still going or still winding down: see `retryLeaseDecision`.
+ */
 export async function retryBlockedWork(
   ctx: MutationCtx,
   args: { milestoneId: Id<'milestones'>; taskId?: Id<'tasks'> },
@@ -1049,6 +1107,8 @@ export async function retryBlockedWork(
   const milestone = await ctx.db.get(args.milestoneId);
   if (!milestone) return failure(404, 'Milestone not found');
   const now = Date.now();
+  const lease = retryLeaseDecision({ runs: await recentRuns(ctx, milestone._id), taskId: args.taskId ?? null, now });
+  if (!lease.ok) return failure(409, lease.reason);
   if (args.taskId) {
     const task = await ctx.db.get(args.taskId);
     const decision = taskRetryDecision(task && task.milestoneId === milestone._id ? task : null);

@@ -18,6 +18,7 @@ import { reviewForApi } from '../milestones';
 import { createMilestone } from '../portalApi';
 import { applyInbound } from '../sync/inbound';
 import { buildRoadmap, roadmapViewForAudience } from './milestones';
+import { RETRY_RUN_ACTIVE, RETRY_RUN_WINDING_DOWN, RUN_LEASE_GRACE_MS } from './agentRun';
 import { transitionMilestone } from './milestoneStatus';
 import { taskOrigin } from './milestoneTasks';
 
@@ -427,11 +428,74 @@ describe('cursor build hold and agent lock', () => {
     assert.equal(notes().length, 1);
     const relaunch = await handler<{ kind: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
     assert.equal(relaunch.kind, 'none');
+    // The sweep closed the run. The runner never said it stopped, so Retry waits out the grace window.
+    const early = await retryBlockedWork(ctx as never, { milestoneId: milestoneId as never });
+    assert.deepEqual(early, { ok: false, status: 409, error: RETRY_RUN_WINDING_DOWN });
+    assert.equal(run?.status, 'failed');
+    assert.equal(notes().length, 1);
+    assert.equal((await handler<{ kind: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] })).kind, 'none');
+    await db.patch(claim.runId, { endedAt: Date.now() - RUN_LEASE_GRACE_MS - 1 });
     const retried = await retryBlockedWork(ctx as never, { milestoneId: milestoneId as never });
     assert.equal(retried.ok, true);
-    const next = await handler<{ kind: string; runId: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    const next = await handler<{ kind: string; runId: string; externalId: string | null }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
     assert.equal(next.kind, 'build');
     assert.notEqual(next.runId, claim.runId);
+    // No agent was ever launched, so there is nothing to follow.
+    assert.equal(next.externalId, null);
+  });
+
+  it('follows the same Cursor agent after a quiet build is retried, instead of launching a second', async () => {
+    const { db, rowsOf, milestoneId } = await buildingCursor();
+    const ctx = { db };
+    const claim = await handler<{ kind: string; runId: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    await handler(reportBuild)(ctx, {
+      runnerId: RUNNER,
+      runId: claim.runId,
+      status: 'running',
+      agentId: 'bc_abc12345',
+      agentUrl: 'https://cursor.com/agents/bc_abc12345',
+    });
+    await db.patch(claim.runId, { startedAt: 1 });
+    await handler(releaseStuckRuns)(ctx, {});
+    const old = rowsOf('agentRuns').find((row) => row._id === claim.runId);
+    assert.equal(old?.status, 'failed');
+    assert.equal(old?.settledAt, undefined);
+    // The agent id is known, so Retry is allowed at once: the next build follows that agent.
+    const retried = await retryBlockedWork(ctx as never, { milestoneId: milestoneId as never });
+    assert.equal(retried.ok, true);
+    const next = await handler<{ kind: string; runId: string; externalId: string | null; externalUrl: string | null }>(claimNext)(ctx, {
+      runnerId: RUNNER,
+      repos: [REPO],
+    });
+    assert.equal(next.kind, 'build');
+    assert.notEqual(next.runId, claim.runId);
+    assert.equal(next.externalId, 'bc_abc12345');
+    assert.equal(next.externalUrl, 'https://cursor.com/agents/bc_abc12345');
+    assert.match(String(rowsOf('agentEvents').at(-1)?.summary), /picked up again/);
+    // Only one build is ever running on the milestone.
+    assert.equal(rowsOf('agentRuns').filter((row) => row.status === 'running').length, 1);
+
+    // The runner then sees that agent fail. That settles it, so the next retry starts a fresh agent.
+    await handler(reportBuild)(ctx, { runnerId: RUNNER, runId: next.runId, status: 'failed', reason: 'The Cursor agent stopped' });
+    assert.equal(typeof rowsOf('agentRuns').find((row) => row._id === next.runId)?.settledAt, 'number');
+    assert.equal((await retryBlockedWork(ctx as never, { milestoneId: milestoneId as never })).ok, true);
+    const fresh = await handler<{ kind: string; externalId: string | null }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    assert.equal(fresh.kind, 'build');
+    assert.equal(fresh.externalId, null);
+  });
+
+  it('refuses a build retry while a run is still going on the milestone', async () => {
+    const { db, rowsOf, milestoneId } = await buildingCursor();
+    const ctx = { db };
+    const claim = await handler<{ kind: string; runId: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    assert.equal(claim.kind, 'build');
+    const before = JSON.stringify(rowsOf('tasks'));
+    const refused = await retryBlockedWork(ctx as never, { milestoneId: milestoneId as never });
+    assert.deepEqual(refused, { ok: false, status: 409, error: RETRY_RUN_ACTIVE });
+    // Nothing was written, and the one run is still the only run.
+    assert.equal(JSON.stringify(rowsOf('tasks')), before);
+    assert.equal(rowsOf('agentRuns').length, 1);
+    assert.equal(rowsOf('agentRuns')[0]?.status, 'running');
   });
 
   it('does not relaunch a failed Cursor build until staff retry', async () => {
@@ -576,6 +640,121 @@ describe('cursor build hold and agent lock', () => {
     assert.equal(typeof draft?.archivedAt, 'number');
     assert.equal(kept?.archivedAt, undefined);
     assert.equal(rowsOf('tasks').some((row) => row._id === drafted), true);
+  });
+});
+
+describe('retry does not overlap the run it replaces', () => {
+  const SOURCE_TASK = 'portal-milestone';
+
+  async function buildingClaude() {
+    const { db, rowsOf } = memoryDb();
+    const orgId = await db.insert('clients', { name: 'Warehaus', slug: 'warehaus', portalAccess: 'Enabled' });
+    const projectId = await db.insert('projects', { orgId, name: 'Warehaus Portal', agentRepo: REPO });
+    const milestoneId = await db.insert('milestones', {
+      orgId,
+      projectId,
+      name: 'Client experience launch',
+      status: 'Building',
+      approval: 'unreviewed',
+      branch: 'milestone/client-experience-launch',
+    });
+    const taskIds: string[] = [];
+    for (const [index, name] of ['Build the overview', 'Wire the review card'].entries()) {
+      taskIds.push(
+        await db.insert('tasks', {
+          orgId,
+          projectId,
+          milestoneId,
+          name,
+          status: 'To Do',
+          isDone: false,
+          source: SOURCE_TASK,
+          notionPageId: `${SOURCE_TASK}:${index}`,
+          origin: 'manual',
+          milestoneOrder: index,
+        }),
+      );
+    }
+    return { db, rowsOf, milestoneId, taskIds };
+  }
+
+  type Claim = { kind: string; runId: string; task?: { id: string } };
+  const claimAs = (ctx: unknown, runnerId: string) => handler<Claim>(claimNext)(ctx, { runnerId, repos: [REPO] });
+
+  it('holds a task the sweep released until its runner answers, so a second runner cannot start over it', async () => {
+    const { db, rowsOf, milestoneId, taskIds } = await buildingClaude();
+    const ctx = { db };
+    const first = await claimAs(ctx, RUNNER);
+    assert.equal(first.kind, 'task');
+    assert.equal(first.task?.id, taskIds[0]);
+    // A long Claude session: the runner makes no call for 30 minutes and the sweep releases the run.
+    await db.patch(first.runId, { startedAt: 1 });
+    await handler(releaseStuckRuns)(ctx, {});
+    const run = () => rowsOf('agentRuns').find((row) => row._id === first.runId) as Row;
+    assert.equal(run().status, 'cancelled');
+    assert.equal(run().settledAt, undefined);
+    assert.equal(rowsOf('tasks').find((row) => row._id === taskIds[0])?.status, 'Blocked');
+
+    // Staff press Retry while that session may still be committing. Refused, nothing written.
+    const refused = await retryBlockedWork(ctx as never, { milestoneId: milestoneId as never, taskId: taskIds[0] as never });
+    assert.deepEqual(refused, { ok: false, status: 409, error: RETRY_RUN_WINDING_DOWN });
+    assert.equal(rowsOf('tasks').find((row) => row._id === taskIds[0])?.status, 'Blocked');
+    // A second Mac asking for work is not handed the task the first may still be on.
+    const other = await claimAs(ctx, 'studio-mini');
+    assert.notEqual(other.task?.id, taskIds[0]);
+    if (other.kind === 'task') await handler(completeTask)(ctx, { runnerId: 'studio-mini', runId: other.runId, status: 'done', commitSha: SHA });
+
+    // The first runner's session ends and it reports. The run already ended, so nothing changes but the lease.
+    const late = await handler<{ duplicate: boolean }>(completeTask)(ctx, { runnerId: RUNNER, runId: first.runId, status: 'done', commitSha: SHA });
+    assert.equal(late.duplicate, true);
+    assert.equal(typeof run().settledAt, 'number');
+    const retried = await retryBlockedWork(ctx as never, { milestoneId: milestoneId as never, taskId: taskIds[0] as never });
+    assert.equal(retried.ok, true);
+    const again = await claimAs(ctx, RUNNER);
+    assert.equal(again.kind, 'task');
+    assert.equal(again.task?.id, taskIds[0]);
+    assert.notEqual(again.runId, first.runId);
+    assert.equal(rowsOf('agentRuns').filter((row) => row.status === 'running').length, 1);
+  });
+
+  it('frees the lease when the runner is seen idle, or when the grace window passes', async () => {
+    const { db, rowsOf, milestoneId, taskIds } = await buildingClaude();
+    const ctx = { db };
+    const first = await claimAs(ctx, RUNNER);
+    await db.patch(first.runId, { startedAt: 1 });
+    await handler(releaseStuckRuns)(ctx, {});
+    const retry = () => retryBlockedWork(ctx as never, { milestoneId: milestoneId as never, taskId: taskIds[0] as never });
+    assert.equal((await retry()).ok, false);
+    // The runner asks for work again, so it is not working on the old run.
+    const idle = await claimAs(ctx, RUNNER);
+    assert.equal(idle.task?.id, taskIds[1]);
+    assert.equal(typeof rowsOf('agentRuns').find((row) => row._id === first.runId)?.settledAt, 'number');
+    // Retry now puts the task back in the queue. It does not start a run: the other task's run holds the milestone.
+    assert.equal((await retry()).ok, true);
+    assert.equal(rowsOf('tasks').find((row) => row._id === taskIds[0])?.status, 'To Do');
+    assert.equal((await claimAs(ctx, 'studio-mini')).kind, 'none');
+    assert.equal(rowsOf('agentRuns').filter((row) => row.status === 'running').length, 1);
+
+    // A runner that never comes back: the lease ends on its own after the grace window.
+    const dead = await buildingClaude();
+    const deadCtx = { db: dead.db };
+    const lost = await claimAs(deadCtx, RUNNER);
+    await dead.db.patch(lost.runId, { startedAt: 1 });
+    await handler(releaseStuckRuns)(deadCtx, {});
+    const deadRetry = () =>
+      retryBlockedWork(deadCtx as never, { milestoneId: dead.milestoneId as never, taskId: dead.taskIds[0] as never });
+    assert.equal((await deadRetry()).ok, false);
+    await dead.db.patch(lost.runId, { endedAt: Date.now() - RUN_LEASE_GRACE_MS - 1 });
+    assert.equal((await deadRetry()).ok, true);
+  });
+
+  it('retries a task the runner itself reported blocked at once', async () => {
+    const { db, milestoneId, taskIds } = await buildingClaude();
+    const ctx = { db };
+    const first = await claimAs(ctx, RUNNER);
+    await handler(completeTask)(ctx, { runnerId: RUNNER, runId: first.runId, status: 'blocked', reason: 'needs the Figma frame' });
+    const retried = await retryBlockedWork(ctx as never, { milestoneId: milestoneId as never, taskId: taskIds[0] as never });
+    assert.equal(retried.ok, true);
   });
 });
 

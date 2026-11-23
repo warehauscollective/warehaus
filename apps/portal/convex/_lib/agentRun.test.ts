@@ -27,6 +27,12 @@ import {
   runnerRateDecision,
   runnerTouchDecision,
   trimEventPayload,
+  RETRY_RUN_ACTIVE,
+  RETRY_RUN_WINDING_DOWN,
+  RUN_LEASE_GRACE_MS,
+  cursorAgentToResume,
+  retryLeaseDecision,
+  runLease,
 } from './agentRun';
 import { checklistDetailText, checklistState, checklistSummary } from './milestoneTasks';
 
@@ -520,5 +526,55 @@ describe('auto-planning and agent choice', () => {
     assert.equal(cursorAgentUrl('https://example.com/agents/bc-20ed844d'), null);
     assert.match(read('../agent.ts'), /kind: 'agent'/);
     assert.doesNotMatch(read('../agent.ts'), /CURSOR_API_KEY|unique-turtle-383/);
+  });
+});
+
+describe('run lease', () => {
+  const NOW = 1_800_000_000_000;
+
+  it('holds a running run, and a run the Portal closed until it settles or the grace window passes', () => {
+    assert.deepEqual(runLease({ status: 'running', kind: 'task' }, NOW), { held: true, why: 'active', until: null });
+    assert.deepEqual(runLease({ status: 'succeeded', kind: 'task', endedAt: NOW }, NOW), { held: false });
+    assert.deepEqual(runLease({ status: 'failed', kind: 'task', endedAt: NOW, settledAt: NOW }, NOW), { held: false });
+    assert.deepEqual(runLease({ status: 'cancelled', kind: 'task', endedAt: NOW - 60_000 }, NOW), {
+      held: true,
+      why: 'winding_down',
+      until: NOW - 60_000 + RUN_LEASE_GRACE_MS,
+    });
+    assert.deepEqual(runLease({ status: 'cancelled', kind: 'task', endedAt: NOW - RUN_LEASE_GRACE_MS }, NOW), { held: false });
+    assert.deepEqual(runLease({ status: 'cancelled', kind: 'planning' }, NOW), { held: false });
+    // A closed build with an agent id is followed, not replaced, so it holds nothing.
+    assert.deepEqual(runLease({ status: 'failed', kind: 'build', endedAt: NOW, externalId: 'bc_1' }, NOW), { held: false });
+    assert.equal(runLease({ status: 'failed', kind: 'build', endedAt: NOW }, NOW).held, true);
+  });
+
+  it('refuses a milestone retry over any held run, and a task retry only over that task or a build', () => {
+    const running = { status: 'running', kind: 'task', taskId: 't2' };
+    const released = { status: 'cancelled', kind: 'task', taskId: 't1', endedAt: NOW - 1000 };
+    assert.deepEqual(retryLeaseDecision({ runs: [running], now: NOW }), { ok: false, reason: RETRY_RUN_ACTIVE, until: null });
+    assert.deepEqual(retryLeaseDecision({ runs: [running], taskId: 't1', now: NOW }), { ok: true });
+    assert.deepEqual(retryLeaseDecision({ runs: [running], taskId: 't2', now: NOW }), { ok: false, reason: RETRY_RUN_ACTIVE, until: null });
+    assert.deepEqual(retryLeaseDecision({ runs: [released], taskId: 't1', now: NOW }), {
+      ok: false,
+      reason: RETRY_RUN_WINDING_DOWN,
+      until: NOW - 1000 + RUN_LEASE_GRACE_MS,
+    });
+    assert.deepEqual(retryLeaseDecision({ runs: [released], taskId: 't3', now: NOW }), { ok: true });
+    assert.equal(retryLeaseDecision({ runs: [{ status: 'running', kind: 'build' }], taskId: 't1', now: NOW }).ok, false);
+    // Active wins over winding down, and an empty history is free.
+    assert.equal((retryLeaseDecision({ runs: [released, running], now: NOW }) as { reason: string }).reason, RETRY_RUN_ACTIVE);
+    assert.deepEqual(retryLeaseDecision({ runs: [], now: NOW }), { ok: true });
+    assert.deepEqual(retryLeaseDecision({ runs: [{ ...released, settledAt: NOW }], taskId: 't1', now: NOW }), { ok: true });
+  });
+
+  it('follows only an unsettled, retried build that has an agent id', () => {
+    const base = { kind: 'build', status: 'cancelled', externalId: 'bc_1', externalUrl: 'https://cursor.com/agents/bc_abc12345' };
+    assert.deepEqual(cursorAgentToResume([base]), { externalId: 'bc_1', externalUrl: 'https://cursor.com/agents/bc_abc12345' });
+    assert.equal(cursorAgentToResume([{ ...base, settledAt: NOW }]), null);
+    assert.equal(cursorAgentToResume([{ ...base, externalId: null }]), null);
+    assert.equal(cursorAgentToResume([{ ...base, status: 'succeeded' }]), null);
+    // Only the newest build counts.
+    assert.equal(cursorAgentToResume([{ kind: 'build', status: 'cancelled', settledAt: NOW }, base]), null);
+    assert.equal(cursorAgentToResume([{ kind: 'task', status: 'cancelled' }]), null);
   });
 });

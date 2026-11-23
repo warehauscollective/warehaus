@@ -394,6 +394,13 @@ export default defineSchema({
     externalId: v.optional(v.string()),
     /** Cursor agent link. Staff only. Not a secret. */
     externalUrl: v.optional(v.string()),
+    /**
+     * When the runner itself said this run was over, or was seen idle after
+     * the Portal closed it. Absent on a run the stuck sweep closed and the
+     * runner has not answered for: that run still holds the milestone for a
+     * grace window, so Retry cannot start a second run over it.
+     */
+    settledAt: v.optional(v.number()),
   })
     .index('by_milestone', ['milestoneId', 'startedAt'])
     .index('by_task', ['taskId'])
