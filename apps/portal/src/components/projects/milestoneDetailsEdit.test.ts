@@ -208,7 +208,9 @@ describe('milestone details panel', () => {
     assert.match(stageOption(menu, 'Shipped'), /aria-disabled="true"/);
     assert.match(stageOption(menu, 'Shipped'), /aria-describedby="milestone-status-hint"/);
     assert.match(menu, /id="milestone-status-hint"/);
-    assert.match(stageOption(menu, 'Shipped'), /NOT DONE/);
+    // The old NOT DONE tag is gone. The option names the open count instead.
+    assert.doesNotMatch(menu, /NOT DONE/);
+    assert.match(menu, /Use Mark complete to close/);
     assert.match(stageOption(menu, 'Shipped'), /task-lock\.svg/);
     assert.equal(menu.includes('>Close<'), false);
 
@@ -230,7 +232,32 @@ describe('milestone details panel', () => {
     );
     assert.equal(open.includes('aria-disabled'), false);
     assert.equal(open.includes('NOT DONE'), false);
+    assert.equal(open.includes('OPEN'), false);
+    assert.match(open, /Staff can set Shipped when every task that is not Parked is Done\. Saves as soon as you pick\./);
     assert.match(open, /outline-\[var\(--info\)\]/);
+  });
+
+  it('tags a locked Shipped with the open count and points to Mark complete', () => {
+    const render = (openCount: number, sheet = false) =>
+      renderToStaticMarkup(
+        createElement(StatusMenu, { current: 'Building', canClose: false, openCount, sheet, onPick: () => undefined, onClose: () => undefined }),
+      );
+    for (const sheet of [false, true]) {
+      const three = render(3, sheet);
+      assert.match(stageOption(three, 'Shipped'), />3 OPEN</);
+      assert.match(stageOption(three, 'Shipped'), /aria-disabled="true"/);
+      assert.match(stageOption(three, 'Shipped'), /task-lock\.svg/);
+      assert.match(three, /id="milestone-status-hint"[^>]*>3 open tasks\. Use Mark complete to close them out\.</);
+      assert.equal(three.includes('NOT DONE'), false);
+    }
+    const one = render(1);
+    assert.match(stageOption(one, 'Shipped'), />1 OPEN</);
+    assert.match(one, />1 open task\. Use Mark complete to close them out\.</);
+    // Nothing open and still locked: a milestone with no tasks. No tag, and the hint still points to Mark complete.
+    const none = render(0);
+    assert.equal(stageOption(none, 'Shipped').includes('OPEN'), false);
+    assert.match(stageOption(none, 'Shipped'), /aria-disabled="true"/);
+    assert.match(none, />No open tasks\. Use Mark complete to close this milestone\.</);
   });
 
   it('keeps Awaiting Go editable for staff', () => {

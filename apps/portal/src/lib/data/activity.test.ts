@@ -509,4 +509,33 @@ describe('activity row targets', () => {
       assert.equal(source.includes('aria-label="Details"'), false);
     }
   });
+
+  it('renders the same rows on the server and the first client render, with no clock', () => {
+    const item = (id: string, timestamp: string) => ({ id, name: id, summary: '', type: 'task.updated', timestamp });
+    const items = [item('recent', '2026-11-22T11:58:00.000Z'), item('older', '2026-11-20T09:00:00.000Z')];
+    const before = (now: number) => buildActivityView({ audience: 'staff', items, filter: 'all', now, timeZone: 'UTC' });
+    // With a clock, the label moves as time passes: this is what made the two renders differ.
+    assert.notEqual(
+      before(Date.parse('2026-11-22T12:00:00.000Z')).rows[0]?.when,
+      before(Date.parse('2026-11-22T12:05:00.000Z')).rows[0]?.when,
+    );
+    // Without one, the text depends only on the data, whatever zone the machine is in.
+    const server = buildActivityView({ audience: 'staff', items, filter: 'all', now: null, timeZone: 'America/New_York' });
+    const client = buildActivityView({ audience: 'staff', items, filter: 'all', now: null, timeZone: 'Asia/Singapore' });
+    assert.deepEqual(server, client);
+    assert.deepEqual(server.rows.map((row) => row.when), ['Nov 22', 'Nov 20']);
+    assert.deepEqual(server.groups.map((group) => group.key), ['earlier']);
+    assert.equal(server.rows.some((row) => row.when.endsWith('ago') || row.when === 'now'), false);
+    // After mount the page passes the real clock and the relative label comes back.
+    const mounted = before(Date.parse('2026-11-22T12:00:00.000Z'));
+    assert.equal(mounted.rows[0]?.when, '2m ago');
+    assert.equal(mounted.groups[0]?.key, 'today');
+  });
+
+  it('reads the clock only after mount on the Activity page', () => {
+    const page = readFileSync(new URL('../../components/pages/ActivityContent.tsx', import.meta.url), 'utf8');
+    assert.match(page, /now: mounted \? Date\.now\(\) : null/);
+    assert.match(page, /timeZone: mounted \? Intl\.DateTimeFormat\(\)\.resolvedOptions\(\)\.timeZone : undefined/);
+    assert.equal(page.includes('now: Date.now()'), false);
+  });
 });

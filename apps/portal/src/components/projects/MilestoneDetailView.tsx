@@ -40,6 +40,8 @@ import { ActivityList } from './roadmapParts';
 import { MoreMenu, EditDialog } from './MilestoneForms';
 import { MilestoneLoopLive, fixtureLoopModel, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
 import { MilestoneChecklist, type ChecklistActions } from './MilestoneChecklist';
+import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
+import type { ArchivedTask } from './ArchivedView';
 import { MilestoneRunFeedLive } from './MilestoneRunFeed';
 
 type MilestoneTab = 'overview' | 'tasks' | 'activity' | 'reviews';
@@ -128,6 +130,12 @@ export function MilestoneDetail(props: {
   onBack: () => void;
   onBackToProjects?: () => void;
   onFixture: (patch: FixturePatch) => void;
+  /** Staff "…" control in the header: Mark complete, Archive, or Restore. */
+  closeout?: ReactNode;
+  /** This milestone's archived tasks, for the Archived filter on the task list. */
+  archivedTasks?: readonly ArchivedTask[];
+  /** Task close-out writes. Absent in fixture previews. */
+  taskCloseout?: (taskId: string) => TaskCloseoutActions;
 }) {
   const save = useMutation(api.milestones.save);
   const setPublish = useMutation(api.milestones.setPublish);
@@ -241,7 +249,13 @@ export function MilestoneDetailView({
   isPeter,
   loop = null,
   loopPreview = null,
+  closeout = null,
+  archivedTasks = [],
+  taskCloseout,
 }: {
+  closeout?: ReactNode;
+  archivedTasks?: readonly ArchivedTask[];
+  taskCloseout?: (taskId: string) => TaskCloseoutActions;
   milestone: MilestoneRoadmapView;
   project: RoadmapProject;
   tasks: readonly PortalTask[];
@@ -360,7 +374,7 @@ export function MilestoneDetailView({
           if (live) return loopSubtitleLine(live.text, live.desktopStamp);
           return `Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`;
         })()}
-        action={undefined}
+        action={staff && closeout ? <span data-testid="milestone-header-overflow" className="inline-flex">{closeout}</span> : undefined}
       />
       <TabRow
         label="Milestone"
@@ -555,6 +569,8 @@ export function MilestoneDetailView({
             fixtures={fixtures}
             hostSlug={hostSlug}
             actions={mutations.tasks}
+            archivedTasks={archivedTasks}
+            taskCloseout={taskCloseout}
             onOpenTask={
               onOpenTask
                 ? (taskId) => {

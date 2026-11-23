@@ -4,8 +4,14 @@ import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 
-/** Figma PortalToast 744:2763. One toast, inside the screen, for 3 seconds. */
-export type PortalToastKind = 'success' | 'error' | 'moved' | 'invite-sent';
+/**
+ * Figma PortalToast 744:2763. One toast, inside the screen, for 3 seconds.
+ * done 1036:8229, archived 1036:8241 and restored 1036:8253 are the close-out kinds. Each carries Undo.
+ */
+export type PortalToastKind = 'success' | 'error' | 'moved' | 'invite-sent' | 'done' | 'archived' | 'restored';
+
+/** Kinds that show Undo when the caller passes `onUndo`. */
+const UNDO_KINDS: ReadonlySet<PortalToastKind> = new Set(['moved', 'done', 'archived', 'restored']);
 
 export type PortalToastPlacement = 'above-dock' | 'below-board' | 'created' | 'flow';
 
@@ -28,6 +34,9 @@ const DEFAULT_MESSAGE: Record<PortalToastKind, string> = {
   error: 'Couldn’t save the change. Nothing moved.',
   moved: 'Moved to In Progress',
   'invite-sent': 'Invite sent',
+  done: 'Task marked Done',
+  archived: 'Milestone archived',
+  restored: 'Milestone restored',
 };
 
 export function PortalToast({
@@ -185,7 +194,7 @@ export function PortalToast({
           Retry
         </button>
       ) : null}
-      {kind === 'moved' && onUndo ? (
+      {UNDO_KINDS.has(kind) && onUndo ? (
         <button type="button" data-testid="portal-toast-undo" onClick={onUndo} style={undoStyle}>
           Undo
         </button>

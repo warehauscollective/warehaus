@@ -6,6 +6,7 @@ import { assertStaffPreviewLink, PREVIEW_LINK_LOCAL } from '@convex/_lib/preview
 import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { clientSeesDetailsRow, formatDueDate, textBlurSave } from '@convex/_lib/milestoneDetails';
+import { openTaskCount, shippedLockedReason, shippedOpenTag } from '@convex/_lib/closeout';
 import { milestoneCanClose } from '@convex/_lib/milestoneDetails';
 import { MILESTONE_STATUSES, nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
@@ -145,6 +146,7 @@ export function useMilestoneDetailEdits({
     dueDate: null,
   });
   const canClose = milestoneCanClose(milestone.rows);
+  const openCount = openTaskCount(milestone.rows);
   const moves = useMilestoneStatusMoves({
     status: milestone.status,
     canClose,
@@ -445,7 +447,7 @@ export function useMilestoneDetailEdits({
           ) : null}
           {staff && shown?.kind === 'status' && !phone ? (
             <Popover onClose={() => closeOverlay(true)}>
-              <StatusMenu current={statusNow} canClose={canClose} onPick={pickStatus} onClose={() => closeOverlay(true)} />
+              <StatusMenu current={statusNow} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={() => closeOverlay(true)} />
             </Popover>
           ) : null}
         </DetailRow>
@@ -650,7 +652,7 @@ export function useMilestoneDetailEdits({
       onClose={() => closeOverlay(true)}
     >
       {staff && shown.kind === 'status' ? (
-        <StatusMenu current={statusNow} canClose={canClose} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
+        <StatusMenu current={statusNow} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={() => closeOverlay(true)} sheet />
       ) : null}
       {shown.kind === 'owner' ? (
         <OwnerMenu people={owners} currentId={milestone.ownerContactId ?? null} currentName={milestone.ownerName} onPick={pickOwner} onClose={() => closeOverlay(true)} sheet />
@@ -1118,20 +1120,28 @@ const STATUS_SHEET_CLEARANCE = 'calc(82px + env(safe-area-inset-bottom, 0px))';
 const MENU_OPTION_FOCUS =
   'focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2';
 
-/** The Status menu. Any jump, forward or back. Shipped unlocks when every non-Parked task is Done. */
+/**
+ * The Status menu, Figma 727:10352. Any jump, forward or back. Shipped unlocks
+ * when every non-Parked task is Done. While it is locked the option carries
+ * the "N OPEN" tag and the hint points to Mark complete.
+ */
 export function StatusMenu({
   current,
   onPick,
   onClose,
   sheet,
   canClose = false,
+  openCount = 0,
 }: {
   current: string;
   onPick: (status: MilestoneStatus) => void;
   onClose: () => void;
   sheet?: boolean;
   canClose?: boolean;
+  /** Tasks still open on the milestone. Shown on the locked Shipped option. */
+  openCount?: number;
 }) {
+  const shippedLocked = statusOptionLock('Shipped', canClose) != null && current !== 'Shipped';
   return (
     <div
       role="listbox"
@@ -1177,14 +1187,14 @@ export function StatusMenu({
             }}
           >
             <span className="whitespace-nowrap">{status}</span>
-            {lock === 'shipped' ? <Tag>NOT DONE</Tag> : null}
+            {lock === 'shipped' && openCount > 0 ? <Tag>{shippedOpenTag(openCount)}</Tag> : null}
             {lock ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
             {selected && !lock ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
           </button>
         );
       })}
       <p id={MILESTONE_STATUS_HINT_ID} style={{ margin: '8px 10px', fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-        {MILESTONE_STATUS_HINT}
+        {shippedLocked ? shippedLockedReason(openCount) : MILESTONE_STATUS_HINT}
       </p>
     </div>
   );

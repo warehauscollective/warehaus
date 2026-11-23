@@ -5,6 +5,7 @@ import { createPortal } from 'react-dom';
 import { peterMayApproveDeploy } from '@convex/_lib/previewLink';
 import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
+import { openTaskCount } from '@convex/_lib/closeout';
 import { milestoneCanClose } from '@convex/_lib/milestoneDetails';
 import { nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
@@ -166,7 +167,10 @@ export function MilestoneListCard({
   stagePreview = null,
   linkPreview = null,
   narrow = false,
+  closeout = null,
 }: {
+  /** Staff "…" control: Mark complete, Archive, or Restore. Clients never get one. */
+  closeout?: ReactNode;
   milestone: MilestoneRoadmapView;
   staff: boolean;
   isPeter?: boolean;
@@ -275,6 +279,7 @@ export function MilestoneListCard({
   };
   const total = taskTotal(milestone);
   const canClose = milestoneCanClose(milestone.rows);
+  const openCount = openTaskCount(milestone.rows);
   const moves = useMilestoneStatusMoves({
     status: milestone.status,
     canClose,
@@ -478,7 +483,8 @@ export function MilestoneListCard({
         </div>
       </div>
       <div className={narrow ? 'flex w-full flex-col items-start gap-3' : 'flex w-full flex-col items-start gap-3 lg:ml-auto lg:w-max lg:min-w-[174px] lg:items-end'}>
-        <div className="relative w-full" ref={menuAnchorRef}>
+        <div className="flex w-full items-start gap-2">
+        <div className="relative min-w-0 flex-1" ref={menuAnchorRef}>
           {canDeploy ? (
             <div
               data-testid="milestone-stage-action"
@@ -491,9 +497,15 @@ export function MilestoneListCard({
           ) : stageTrigger}
           {staff && stageMenuOpen && !phoneSheet ? (
             <TileStagePopover anchorRef={menuAnchorRef}>
-              <StatusMenu current={stage.label} canClose={canClose} onPick={pickStatus} onClose={closeStageMenu} />
+              <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} />
             </TileStagePopover>
           ) : null}
+        </div>
+        {staff && closeout ? (
+          <span data-testid="milestone-overflow-slot" className="inline-flex shrink-0" style={{ marginTop: 3 }}>
+            {closeout}
+          </span>
+        ) : null}
         </div>
         {awaitingMerge ? (
           <p
@@ -649,7 +661,7 @@ export function MilestoneListCard({
           showFooter={false}
           cover={cover}
         >
-          <StatusMenu current={stage.label} canClose={canClose} onPick={pickStatus} onClose={closeStageMenu} sheet />
+          <StatusMenu current={stage.label} canClose={canClose} openCount={openCount} onPick={pickStatus} onClose={closeStageMenu} sheet />
         </PortalModal>
       ) : null}
     </article>

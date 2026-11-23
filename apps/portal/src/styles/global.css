@@ -788,6 +788,48 @@ body:has([data-dock-layer='task']):not(:has(.portal-modal-scrim:not([data-dock-l
   color: var(--fg);
   cursor: pointer;
 }
+/* OverflowMenu 1036:8439. 28×28 trigger. Hover and open share one fill. */
+.ds-scope .overflow-trigger,
+.overflow-trigger {
+  box-sizing: border-box;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+}
+.overflow-trigger:hover,
+.overflow-trigger[data-open='true'] {
+  background: var(--surface-2);
+  color: var(--fg);
+}
+.overflow-trigger:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+/* A 44px hit area on phones without growing the 28px box. */
+@media (max-width: 767px) {
+  .overflow-trigger {
+    position: relative;
+  }
+  .overflow-trigger::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+  }
+}
+.overflow-menu-item:hover,
+.overflow-menu-item:focus-visible,
+.closeout-option:hover {
+  background: var(--surface-2) !important;
+}
 .ds-scope .milestone-play-box {
   box-sizing: border-box;
   display: inline-flex;

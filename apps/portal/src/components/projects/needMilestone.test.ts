@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import React, { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -8,8 +9,11 @@ import { DoneGroup } from './DoneGroup';
 import { NeedMilestoneBanner } from './NeedMilestoneBanner';
 import {
   doneGroupLabel,
+  needBannerStorageKey,
   needMilestoneBannerState,
   needMilestoneCopy,
+  readNeedBannerDismissed,
+  writeNeedBannerDismissed,
   attachedMilestoneTaskIds,
   tasksNeedingMilestone,
   type NeedMilestoneTask,
@@ -177,5 +181,54 @@ describe('Done group', () => {
     );
     assert.match(beside, /width:358px/);
     assert.match(beside, /data-stacked="false"/);
+  });
+
+  it('keeps archived tasks and tasks on an archived milestone out of the count', () => {
+    const base = { status: 'To Do', isDone: false, parentTaskId: null };
+    const tasks = [
+      { ...base, id: 'needs', milestoneId: null },
+      { ...base, id: 'archived', milestoneId: null, archivedAt: 1700000000000 },
+      { ...base, id: 'on-archived', milestoneId: 'm-archived' },
+      { ...base, id: 'done', milestoneId: null, status: 'Done', isDone: true },
+    ];
+    // The roadmap passes live and archived milestone ids: a task on an archived milestone has a milestone.
+    const ids = new Set(['m-live', 'm-archived']);
+    assert.deepEqual(tasksNeedingMilestone(tasks, ids).map((task) => task.id), ['needs']);
+    // Without the archived milestone in the set the task would be asked for one.
+    assert.deepEqual(tasksNeedingMilestone(tasks, new Set(['m-live'])).map((task) => task.id), ['needs', 'on-archived']);
+    const roadmap = readFileSync(new URL('./ProjectRoadmap.tsx', import.meta.url), 'utf8');
+    assert.match(roadmap, /\.\.\.archivedMilestones\.map\(\(milestone\) => milestone\.id\)/);
+  });
+
+  it('remembers a dismissed banner for the session, one project at a time', () => {
+    const values = new Map<string, string>();
+    const storage = {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => void values.set(key, value),
+    };
+    assert.equal(readNeedBannerDismissed('p-site', storage), false);
+    writeNeedBannerDismissed('p-site', storage);
+    assert.equal(readNeedBannerDismissed('p-site', storage), true);
+    assert.equal(readNeedBannerDismissed('p-brand', storage), false);
+    assert.deepEqual([...values.keys()], [needBannerStorageKey('p-site')]);
+    assert.notEqual(needBannerStorageKey('p-site'), needBannerStorageKey('p-brand'));
+    // Blocked or missing storage does not throw. The banner just is not remembered.
+    const blocked = {
+      getItem: () => {
+        throw new Error('blocked');
+      },
+      setItem: () => {
+        throw new Error('blocked');
+      },
+    };
+    assert.equal(readNeedBannerDismissed('p-site', blocked), false);
+    assert.doesNotThrow(() => writeNeedBannerDismissed('p-site', blocked));
+    assert.equal(readNeedBannerDismissed('p-site', null), false);
+    const roadmap = readFileSync(new URL('./ProjectRoadmap.tsx', import.meta.url), 'utf8');
+    assert.match(roadmap, /writeNeedBannerDismissed\(project\.id\)/);
+    // sessionStorage, not localStorage: it ends with the tab.
+    const rules = readFileSync(new URL('./needMilestone.ts', import.meta.url), 'utf8');
+    assert.match(rules, /window\.sessionStorage/);
+    assert.equal(rules.includes('localStorage'), false);
   });
 });
