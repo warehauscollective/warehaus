@@ -37,16 +37,25 @@ export type CloseSource = CloseTask & {
  * milestone stays out. Archived tasks do not count. Parked is applied later.
  */
 export function closeTasksForMilestone(milestoneId: string, tasks: readonly CloseSource[]): CloseTask[] {
+  return closeSourcesForMilestone(milestoneId, tasks).map((task) => ({
+    stage: task.stage,
+    status: task.status,
+    isDone: task.isDone,
+  }));
+}
+
+/** The same set as `closeTasksForMilestone`, with ids, for a close-out that writes the tasks. */
+export function closeSourcesForMilestone<T extends CloseSource>(milestoneId: string, tasks: readonly T[]): T[] {
   const linked = new Set(tasks.filter((task) => task.milestoneId === milestoneId).map((task) => task.id));
   const parents = tasks.filter(
     (task) => linked.has(task.id) && (!task.parentTaskId || !linked.has(task.parentTaskId)),
   );
-  const counted: CloseTask[] = [];
+  const counted: T[] = [];
   const seen = new Set<string>();
-  const push = (task: CloseSource) => {
+  const push = (task: T) => {
     if (task.archived || seen.has(task.id)) return;
     seen.add(task.id);
-    counted.push({ stage: task.stage, status: task.status, isDone: task.isDone });
+    counted.push(task);
   };
   for (const parent of parents) {
     push(parent);

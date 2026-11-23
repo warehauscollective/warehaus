@@ -313,6 +313,7 @@ export const claimNext = internalMutation({
       .withIndex('by_planning', (q) => q.eq('planning', 'queued'))
       .take(CLAIM_MILESTONE_SCAN);
     for (const planning of queued) {
+      if (planning.archivedAt != null) continue;
       if (!roomFor(planning.projectId)) continue;
       if (!(await served(planning.projectId))) continue;
       noteProject(planning.projectId);
@@ -363,6 +364,8 @@ export const claimNext = internalMutation({
       .withIndex('by_status', (q) => q.eq('status', 'Building'))
       .take(CLAIM_MILESTONE_SCAN);
     for (const milestone of building) {
+      // An archived milestone is not built.
+      if (milestone.archivedAt != null) continue;
       if (!roomFor(milestone.projectId)) continue;
       if (!(await served(milestone.projectId))) continue;
       noteProject(milestone.projectId);

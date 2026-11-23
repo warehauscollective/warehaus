@@ -266,7 +266,7 @@ export async function projectHasBuildingMilestone(
     .query('milestones')
     .withIndex('by_projectId', (q) => q.eq('projectId', projectId))
     .take(100);
-  return rows.some((row) => row.status === 'Building');
+  return rows.some((row) => row.status === 'Building' && row.archivedAt == null);
 }
 
 /** Staff read the lock. The Cursor API key is not stored on the project. */

@@ -50,7 +50,28 @@ import {
   publishChangeDecision,
   taskIdsToMove,
 } from './_lib/milestoneDetails';
-import { milestoneCloseGate } from './_lib/milestoneClose';
+import { milestoneCloseGate, milestoneCloseTasks, toCloseSource } from './_lib/milestoneClose';
+import {
+  MILESTONE_ARCHIVED,
+  RESTORED_MILESTONE_STATUS,
+  parkedMilestoneTarget,
+  planArchiveMilestone,
+  planMarkComplete,
+  shippedLockedReason,
+  type CloseoutWrite,
+} from './_lib/closeout';
+import {
+  SnapshotLog,
+  UNDO_TASK_CAP,
+  archiveTaskTree,
+  detachTaskFromMilestone,
+  moveTasksToMilestone,
+  parkTask,
+  restoreTaskSnapshots,
+  restoreTaskTree,
+  taskSnapshotArg,
+  writeTaskStatus,
+} from './_lib/closeoutStore';
 import {
   STATUS_ACTIVITY,
   transitionMilestone,
@@ -426,6 +447,7 @@ async function listOnProject(
     .collect();
   const visible = milestones
     .filter((milestone) => milestone.orgId === project.orgId && milestone.projectId === project._id)
+    .filter((milestone) => milestone.archivedAt == null)
     .filter((milestone) =>
       audience === 'staff'
         ? true
@@ -435,16 +457,69 @@ async function listOnProject(
           }),
     )
     .sort((a, b) => a._creationTime - b._creationTime);
-  const tasks = await ctx.db
-    .query('tasks')
-    .withIndex('by_orgId_projectId', (q) => q.eq('orgId', project.orgId).eq('projectId', project._id))
-    .collect();
+  const tasks = (
+    await ctx.db
+      .query('tasks')
+      .withIndex('by_orgId_projectId', (q) => q.eq('orgId', project.orgId).eq('projectId', project._id))
+      .collect()
+  ).filter((task) => task.archivedAt == null);
   const views: MilestoneRoadmapView[] = [];
   for (const milestone of visible) {
     views.push(await toRoadmap(ctx, milestone, tasks, audience, orgVisible));
   }
   return views;
 }
+
+/**
+ * The Archived filter. Staff only. Archived milestones on one project, and
+ * the project's archived tasks. Two indexed reads, the same ones the roadmap
+ * makes. `milestoneId` on a task is its own link, or its parent's.
+ */
+export const listArchivedForProject = adminQuery({
+  args: { projectId: v.id('projects') },
+  handler: async (ctx, { projectId }) => {
+    const project = await ctx.db.get(projectId);
+    if (!project) return { milestones: [], tasks: [] };
+    const milestones = (
+      await ctx.db
+        .query('milestones')
+        .withIndex('by_orgId_projectId', (q) => q.eq('orgId', project.orgId).eq('projectId', project._id))
+        .collect()
+    )
+      .filter((milestone) => milestone.archivedAt != null)
+      .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0));
+    const tasks = await ctx.db
+      .query('tasks')
+      .withIndex('by_orgId_projectId', (q) => q.eq('orgId', project.orgId).eq('projectId', project._id))
+      .collect();
+    const byId = new Map(tasks.map((task) => [task._id as string, task]));
+    const views: MilestoneRoadmapView[] = [];
+    for (const milestone of milestones) {
+      // The tasks archived with the milestone show on its card. Tasks archived earlier stay out.
+      const shown = tasks.filter((task) => task.archivedAt == null || task.archivedAt === milestone.archivedAt);
+      views.push(await toRoadmap(ctx, milestone, shown, 'staff', true));
+    }
+    return {
+      milestones: views.map((view, index) => ({ ...view, archivedAt: milestones[index]?.archivedAt ?? null })),
+      tasks: tasks
+        .filter((task) => task.archivedAt != null)
+        .sort((a, b) => (b.archivedAt ?? 0) - (a.archivedAt ?? 0))
+        .map((task) => {
+          const parent = task.parentTaskId ? byId.get(task.parentTaskId) : undefined;
+          return {
+            id: task._id,
+            name: task.name,
+            status: task.status,
+            isDone: task.isDone,
+            stage: task.stage ?? null,
+            parentTaskId: task.parentTaskId ?? null,
+            milestoneId: task.milestoneId ?? parent?.milestoneId ?? null,
+            archivedAt: task.archivedAt ?? null,
+          };
+        }),
+    };
+  },
+});
 
 export const listForProject = adminQuery({
   args: { projectId: v.id('projects') },
@@ -734,7 +809,8 @@ export const setStatus = adminMutation({
     let tasksReady = false;
     if (args.status === 'Shipped' && milestone.status !== 'Shipped') {
       const gate = await milestoneCloseGate(ctx, milestone);
-      if (!gate.ok) fail(gate.reason);
+      // The reason carries the open count and points to Mark complete.
+      if (!gate.ok) fail(gate.open == null ? gate.reason : shippedLockedReason(gate.open));
       tasksReady = true;
     }
     const moved = transitionMilestone({
@@ -2052,6 +2128,7 @@ export const taskChoices = adminQuery({
       .take(TASK_CHOICE_TAKE);
     return rows
       .filter((row) => row.orgId === project.orgId && row.projectId === project._id && row.status !== 'Shipped')
+      .filter((row) => row.archivedAt == null)
       .map((row) => ({ id: row._id, name: row.name, status: row.status }));
   },
 });
@@ -2157,6 +2234,223 @@ export const reorderTasks = adminMutation({
       await ctx.db.patch(write.id as Id<'tasks'>, { milestoneOrder: write.milestoneOrder });
     }
     return { ok: true as const, wrote: decision.writes.length };
+  },
+});
+
+// Mark complete, Archive, Restore and Undo. Rules are in _lib/closeout.ts.
+
+const leftoversArg = v.union(v.literal('done'), v.literal('archive'), v.literal('park'));
+const archiveTasksArg = v.union(v.literal('archive'), v.literal('detach'));
+
+/** The project's Parked for later milestone, if it has one. One indexed read, capped. Never created here. */
+async function parkedMilestoneFor(ctx: MutationCtx, milestone: Doc<'milestones'>): Promise<Doc<'milestones'> | null> {
+  const rows = await ctx.db
+    .query('milestones')
+    .withIndex('by_orgId_projectId', (q) => q.eq('orgId', milestone.orgId).eq('projectId', milestone.projectId))
+    .take(TASK_CHOICE_TAKE);
+  const target = parkedMilestoneTarget(
+    rows
+      .filter((row) => row.orgId === milestone.orgId && row.projectId === milestone.projectId)
+      .map((row) => ({ id: row._id as string, name: row.name, status: row.status, archived: row.archivedAt != null })),
+    milestone._id,
+  );
+  return target ? (rows.find((row) => row._id === target.id) ?? null) : null;
+}
+
+async function applyCloseoutWrites(
+  ctx: MutationCtx,
+  writes: readonly CloseoutWrite[],
+  tasks: readonly Doc<'tasks'>[],
+  input: { at: number; actorId: string | undefined; parked: Doc<'milestones'> | null },
+  log: SnapshotLog,
+) {
+  const byId = new Map(tasks.map((task) => [task._id as string, task]));
+  const moving: Doc<'tasks'>[] = [];
+  for (const write of writes) {
+    const task = byId.get(write.id);
+    if (!task) continue;
+    if (write.kind === 'done') await writeTaskStatus(ctx, task, 'Done', input.actorId, log);
+    else if (write.kind === 'archive') await archiveTaskTree(ctx, task, input.at, input.actorId, log);
+    else if (write.kind === 'park') await parkTask(ctx, task, log);
+    else if (write.kind === 'detach') await detachTaskFromMilestone(ctx, task, log);
+    else moving.push(task);
+  }
+  if (moving.length > 0 && input.parked) await moveTasksToMilestone(ctx, moving, input.parked, log);
+}
+
+/**
+ * Mark complete. Sets Shipped even when nothing merged. A milestone with no
+ * open task needs no choice, and that includes one with no tasks at all.
+ * Open tasks need `leftovers`, the only way past the close gate:
+ * `done` sets them Done, `archive` archives them with their subtasks, and
+ * `park` moves them to this project's "Parked for later" milestone, keeping
+ * each task's status. With no such milestone they are set Parked in place.
+ * Returns each task as it was, for Undo.
+ */
+export const markComplete = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    expectedStatus: statusArg,
+    leftovers: v.optional(leftoversArg),
+  },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    if (milestone.archivedAt != null) fail(MILESTONE_ARCHIVED);
+    if (milestone.status === 'Shipped') {
+      return { ok: true as const, wrote: false, status: milestone.status, previous: milestone.status, leftovers: null, tasks: [] };
+    }
+    const loaded = await milestoneCloseTasks(ctx, milestone);
+    if (!loaded.ok) fail(loaded.reason);
+    const parked = args.leftovers === 'park' ? await parkedMilestoneFor(ctx, milestone) : null;
+    const plan = planMarkComplete({
+      milestoneId: milestone._id,
+      tasks: loaded.tasks.map(toCloseSource),
+      leftovers: args.leftovers,
+      parkedMilestoneId: parked?._id ?? null,
+    });
+    if (!plan.ok) fail(plan.reason);
+    // Every open task is closed, archived or moved by the plan, so the tasks are ready.
+    const moved = transitionMilestone({
+      from: milestone.status,
+      cause: 'set',
+      to: 'Shipped',
+      expected: args.expectedStatus,
+      tasksReady: true,
+    });
+    if (!moved.ok) fail(moved.reason);
+    const log = new SnapshotLog();
+    await applyCloseoutWrites(ctx, plan.writes, loaded.tasks, { at: Date.now(), actorId: ctx.identity.contactId, parked }, log);
+    const wrote = await writeStatus(ctx, milestone, moved, ctx.identity.name);
+    return {
+      ok: true as const,
+      wrote,
+      status: moved.status,
+      previous: moved.from,
+      leftovers: plan.outcome,
+      tasks: log.list(),
+    };
+  },
+});
+
+/**
+ * Archive a milestone. It leaves lists, the board, the runner and the client
+ * view, and is not deleted. Open tasks are archived with it (the same write
+ * and Notion page archive as `tasks.archiveTask`), or moved to No milestone.
+ * Tasks archived here carry the milestone's `archivedAt`, so Restore can
+ * bring exactly those back.
+ */
+export const archive = adminMutation({
+  args: { milestoneId: v.id('milestones'), openTasks: archiveTasksArg },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    if (milestone.archivedAt != null) {
+      return { ok: true as const, wrote: false, archivedAt: milestone.archivedAt, tasks: [] };
+    }
+    const loaded = await milestoneCloseTasks(ctx, milestone);
+    if (!loaded.ok) fail(loaded.reason);
+    const plan = planArchiveMilestone({
+      milestoneId: milestone._id,
+      tasks: loaded.tasks.map(toCloseSource),
+      openTasks: args.openTasks,
+    });
+    const at = Date.now();
+    const log = new SnapshotLog();
+    await applyCloseoutWrites(ctx, plan.writes, loaded.tasks, { at, actorId: ctx.identity.contactId, parked: null }, log);
+    await ctx.db.patch(milestone._id, {
+      archivedAt: at,
+      // A queued plan is not handed to the runner once the milestone is archived.
+      ...(milestone.planning === 'queued' ? { planning: undefined, planningReplace: undefined } : {}),
+    });
+    return { ok: true as const, wrote: true, archivedAt: at, tasks: log.list() };
+  },
+});
+
+/**
+ * Restore. An archived milestone comes back with the tasks that were archived
+ * with it. A completed milestone reopens as Ready to Ship: one step back, and
+ * not a status the runner picks up. Anything else writes nothing.
+ */
+export const restore = adminMutation({
+  args: { milestoneId: v.id('milestones') },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    if (milestone.archivedAt != null) {
+      const loaded = await milestoneCloseTasks(ctx, milestone);
+      if (!loaded.ok) fail(loaded.reason);
+      const log = new SnapshotLog();
+      for (const task of loaded.tasks) {
+        if (task.archivedAt !== milestone.archivedAt) continue;
+        log.note(task);
+        await ctx.db.patch(task._id, { archivedAt: undefined });
+      }
+      await ctx.db.patch(milestone._id, { archivedAt: undefined });
+      return {
+        ok: true as const,
+        wrote: true,
+        restored: 'archived' as const,
+        status: milestone.status,
+        previous: milestone.status,
+        archivedAt: milestone.archivedAt,
+        tasks: log.list(),
+      };
+    }
+    if (milestone.status !== 'Shipped') {
+      return {
+        ok: true as const,
+        wrote: false,
+        restored: null,
+        status: milestone.status,
+        previous: milestone.status,
+        archivedAt: null,
+        tasks: [],
+      };
+    }
+    const moved = transitionMilestone({ from: milestone.status, cause: 'set', to: RESTORED_MILESTONE_STATUS });
+    if (!moved.ok) fail(moved.reason);
+    const wrote = await writeStatus(ctx, milestone, moved, ctx.identity.name);
+    return {
+      ok: true as const,
+      wrote,
+      restored: 'completed' as const,
+      status: moved.status,
+      previous: moved.from,
+      archivedAt: null,
+      tasks: [],
+    };
+  },
+});
+
+/**
+ * Undo for Mark complete, Archive and Restore. The inverse write: the
+ * milestone's previous status and archive time, and each task's previous
+ * status, stage, milestone and archive time. Sent back as the first mutation
+ * returned them.
+ */
+export const undoCloseout = adminMutation({
+  args: {
+    milestoneId: v.id('milestones'),
+    /** The status before the change. Omit when the status did not change. */
+    status: v.optional(statusArg),
+    /** The archive time before the change. Null means not archived. Omit to leave it. */
+    archivedAt: v.optional(v.union(v.number(), v.null())),
+    tasks: v.array(taskSnapshotArg),
+  },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    if (args.tasks.length > UNDO_TASK_CAP) fail('Too many tasks to undo at once.');
+    const tasks = await restoreTaskSnapshots(ctx, milestone.orgId, args.tasks, ctx.identity.contactId);
+    let wrote = tasks > 0;
+    if (args.archivedAt !== undefined && (milestone.archivedAt ?? null) !== args.archivedAt) {
+      await ctx.db.patch(milestone._id, { archivedAt: args.archivedAt ?? undefined });
+      wrote = true;
+    }
+    if (args.status != null && args.status !== milestone.status) {
+      // Back to Shipped only undoes a Restore, so the tasks were ready a moment ago.
+      const moved = transitionMilestone({ from: milestone.status, cause: 'set', to: args.status, tasksReady: true });
+      if (!moved.ok) fail(moved.reason);
+      if (await writeStatus(ctx, milestone, moved, ctx.identity.name)) wrote = true;
+    }
+    return { ok: true as const, wrote, tasks };
   },
 });
 
