@@ -302,7 +302,7 @@ export function ProjectRoadmap({
     ...milestones.map((milestone) => milestone.id),
     ...archivedMilestones.map((milestone) => milestone.id),
   ]);
-  const attachedIds = attachedMilestoneTaskIds(milestones);
+  const attachedIds = attachedMilestoneTaskIds([...milestones, ...archivedMilestones]);
   const needingMilestone = tasksNeedingMilestone(tasks, projectMilestoneIds, attachedIds);
   const needCount = hideNeedBanner ? 0 : needingMilestone.length;
   const milestoneGroups = groupMilestones(milestones, staff);
