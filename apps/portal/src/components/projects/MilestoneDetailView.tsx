@@ -188,9 +188,14 @@ export function MilestoneDetail(props: {
     ? FIXTURE_PROJECTS.filter((item) => item.id !== props.project.id).map((item) => ({ id: item.id, name: item.name }))
     : loadedTargets;
   const [loopPreview, setLoopPreview] = useState<string | null>(null);
+  const [loopUpdatedAt, setLoopUpdatedAt] = useState<number | null>(null);
   useEffect(() => {
     if (!props.fixtures) return;
-    setLoopPreview(new URLSearchParams(window.location.search).get('loop'));
+    const params = new URLSearchParams(window.location.search);
+    setLoopPreview(params.get('loop'));
+    // Fixture capture of the real stamp: `?updated=5` reads as changed five minutes ago.
+    const minutes = Number(params.get('updated') ?? '');
+    setLoopUpdatedAt(params.has('updated') && Number.isFinite(minutes) && minutes >= 0 ? Date.now() - minutes * 60_000 : null);
   }, [props.fixtures]);
   return (
     <MilestoneDetailView
@@ -205,6 +210,7 @@ export function MilestoneDetail(props: {
           : undefined
       }
       loopPreview={loopPreview}
+      loopUpdatedAt={loopUpdatedAt}
       loop={
         props.staff ? (
           <MilestoneLoopLive
@@ -249,6 +255,7 @@ export function MilestoneDetailView({
   isPeter,
   loop = null,
   loopPreview = null,
+  loopUpdatedAt = null,
   closeout = null,
   archivedTasks = [],
   taskCloseout,
@@ -281,6 +288,8 @@ export function MilestoneDetailView({
   isPeter?: boolean;
   loop?: ReactNode;
   loopPreview?: string | null;
+  /** Fixture capture only: a stand-in last-change time for the Updated stamp. */
+  loopUpdatedAt?: number | null;
 }) {
   const { save, setPublish, attachTask, detachTask } = mutations;
   const [tab, setTab] = useState<MilestoneTab>('overview');
@@ -369,6 +378,7 @@ export function MilestoneDetailView({
         title={milestone.name}
         subtitle={(() => {
           const frame = loopPreview ? fixtureLoopModel(loopPreview) : null;
+          if (frame?.subtitle && loopUpdatedAt != null) return loopSubtitleLine(frame.subtitle, undefined, loopUpdatedAt);
           if (frame?.subtitle) return loopSubtitleLine(frame.subtitle, frame.desktopStamp);
           const live = staff ? milestoneLoopSubtitle(milestone) : null;
           if (live) return loopSubtitleLine(live.text, undefined, live.updatedAt);
