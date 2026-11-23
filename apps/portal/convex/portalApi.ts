@@ -453,7 +453,7 @@ export const listMilestones = internalQuery({
     return {
       status: 200,
       body: {
-        items: page.page.map(staffMilestone),
+        items: page.page.filter((row) => row.archivedAt == null).map(staffMilestone),
         nextCursor: page.isDone ? null : page.continueCursor,
         hasMore: !page.isDone,
       },

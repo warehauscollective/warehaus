@@ -70,3 +70,37 @@ export function needMilestoneBannerState(count: number, dismissed: boolean): 'hi
   if (count <= 0) return 'hidden';
   return dismissed ? 'dismissed' : 'visible';
 }
+
+/** sessionStorage key for a dismissed banner. One per project, so each project keeps its own. */
+export function needBannerStorageKey(projectId: string): string {
+  return `wh:need-milestone-dismissed:${projectId}`;
+}
+
+type BannerStorage = Pick<Storage, 'getItem' | 'setItem'>;
+
+function sessionStore(): BannerStorage | null {
+  try {
+    return typeof window === 'undefined' ? null : window.sessionStorage;
+  } catch {
+    // Storage is blocked. Dismiss still works for this visit.
+    return null;
+  }
+}
+
+/** True when the banner was dismissed on this project earlier in the session. */
+export function readNeedBannerDismissed(projectId: string, storage: BannerStorage | null = sessionStore()): boolean {
+  try {
+    return storage?.getItem(needBannerStorageKey(projectId)) === '1';
+  } catch {
+    return false;
+  }
+}
+
+/** Dismiss lasts for the session: it survives leaving the project and a reload, and ends with the tab. */
+export function writeNeedBannerDismissed(projectId: string, storage: BannerStorage | null = sessionStore()): void {
+  try {
+    storage?.setItem(needBannerStorageKey(projectId), '1');
+  } catch {
+    // Storage is full or blocked. The banner stays dismissed until the page reloads.
+  }
+}

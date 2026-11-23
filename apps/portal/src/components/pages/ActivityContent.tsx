@@ -66,17 +66,23 @@ export function ActivityContent() {
     : feed.items;
   const failed = preview === 'error' || (!fixtures && Boolean(feed.error));
   const busy = preview === 'loading' || (!fixtures && feed.loading && !failed);
+  // The clock and the viewer's zone are read only after mount. Reading them
+  // during render made the server's "5m ago" differ from the client's.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   const model = useMemo(
     () =>
       buildActivityView({
         audience: staff ? 'staff' : 'client',
         items: preview === 'empty' || failed || busy ? [] : source,
         filter,
-        now: Date.now(),
-        timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+        now: mounted ? Date.now() : null,
+        timeZone: mounted ? Intl.DateTimeFormat().resolvedOptions().timeZone : undefined,
         clientName: data.tenant.clientName,
       }),
-    [staff, preview, failed, busy, source, filter, data.tenant.clientName],
+    [staff, preview, failed, busy, source, filter, data.tenant.clientName, mounted],
   );
   const shown = preview === 'long' ? withActivityLongPreview(model, filter) : model;
   const groups = shown.groups;

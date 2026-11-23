@@ -13,7 +13,11 @@ import {
   type ChecklistState,
 } from '@convex/_lib/milestoneTasks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
+import { taskCloseoutState } from '@convex/_lib/closeout';
+import { ArchivedChip, TaskCloseout } from '@/components/closeout/CloseoutControls';
+import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
+import { ArchivedTaskRow, type ArchivedTask } from './ArchivedView';
 import { Panel } from './milestoneChrome';
 
 export const CHECKLIST_INTRO =
@@ -135,6 +139,8 @@ export function MilestoneChecklist({
   hostSlug,
   actions,
   onOpenTask,
+  archivedTasks = [],
+  taskCloseout,
 }: {
   milestone: MilestoneRoadmapView;
   staff: boolean;
@@ -142,8 +148,15 @@ export function MilestoneChecklist({
   hostSlug?: string;
   actions?: ChecklistActions;
   onOpenTask?: (taskId: string) => void;
+  /** This milestone's archived tasks. Staff only. */
+  archivedTasks?: readonly ArchivedTask[];
+  /** Mark complete, Archive and Restore for one task. Absent in fixture previews. */
+  taskCloseout?: (taskId: string) => TaskCloseoutActions;
 }) {
   const [draft, setDraft] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  // Fixture previews have no Convex. Archived rows stay in this component.
+  const [localArchived, setLocalArchived] = useState<ArchivedTask[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ id: string; title: string; detail: string } | null>(null);
@@ -254,6 +267,65 @@ export function MilestoneChecklist({
     if (saved) setEditing(null);
   };
 
+  const setLocalDone = (id: string, done: boolean, status: string) =>
+    setLocalRows(
+      top.map((row) => ({
+        ...(row.id === id ? { ...row, isDone: done, status } : row),
+        children: row.children.map((child) => (child.id === id ? { ...child, isDone: done, status } : child)),
+      })),
+    );
+  /** The row's "…" writes. Live rows use Convex. Fixture rows change in place, with the same Undo. */
+  const closeoutFor = (row: Row): TaskCloseoutActions | null => {
+    if (!staff) return null;
+    if (!fixtures) return taskCloseout ? taskCloseout(row.id) : null;
+    const before = sourceRows;
+    return {
+      markDone: async () => {
+        setLocalDone(row.id, true, 'Done');
+        return async () => setLocalRows(before);
+      },
+      archive: async () => {
+        setLocalRows(
+          top
+            .filter((item) => item.id !== row.id)
+            .map((item) => ({ ...item, children: item.children.filter((child) => child.id !== row.id) })),
+        );
+        setLocalArchived((list) => [
+          ...list,
+          { id: row.id, name: row.name, status: row.status, isDone: row.isDone, stage: row.stage, parentTaskId: null, milestoneId: milestone.id, archivedAt: 0 },
+        ]);
+        return async () => {
+          setLocalRows(before);
+          setLocalArchived((list) => list.filter((item) => item.id !== row.id));
+        };
+      },
+      restore: async () => {
+        setLocalDone(row.id, false, 'To Do');
+        return async () => setLocalRows(before);
+      },
+    };
+  };
+  const archivedList = fixtures ? localArchived : archivedTasks;
+  const archivedActions = (task: ArchivedTask): TaskCloseoutActions | null => {
+    if (!fixtures) return taskCloseout ? taskCloseout(task.id) : null;
+    return {
+      markDone: async () => null,
+      archive: async () => null,
+      restore: async () => {
+        setLocalArchived((list) => list.filter((item) => item.id !== task.id));
+        setLocalRows([
+          ...top,
+          { id: task.id, name: task.name, status: task.status, isDone: task.isDone, stage: task.stage, resourceCount: 0, onMilestone: true, children: [] },
+        ]);
+        return async () => {
+          setLocalArchived((list) => [...list, task]);
+          setLocalRows(top);
+        };
+      },
+    };
+  };
+  const archivedView = staff && showArchived && archivedList.length > 0;
+
   if (!staff && rows.length === 0) {
     return (
       <Panel testId="milestone-checklist">
@@ -274,6 +346,20 @@ export function MilestoneChecklist({
           </p>
         </Panel>
       ) : null}
+      {staff && archivedList.length > 0 ? (
+        <ArchivedChip active={archivedView} count={archivedList.length} onClick={() => setShowArchived((shown) => !shown)} />
+      ) : null}
+      {archivedView ? (
+        <Panel testId="milestone-checklist-archived">
+          <ul style={{ listStyle: 'none', margin: 0, padding: 0 }}>
+            {archivedList.map((task, index) => {
+              const taskActions = archivedActions(task);
+              return taskActions ? <ArchivedTaskRow key={task.id} task={task} first={index === 0} actions={taskActions} /> : null;
+            })}
+          </ul>
+        </Panel>
+      ) : null}
+      {archivedView ? null : (
       <Panel testId="milestone-checklist">
         <div className="flex flex-wrap items-center justify-between gap-2" style={{ paddingBottom: 12 }}>
           <p className="ds-mono" data-testid="milestone-board-count" style={{ ...monoMuted, margin: 0 }}>
@@ -292,6 +378,7 @@ export function MilestoneChecklist({
             const editable = canChange && !row.nested && row.portalOwned === true && isToDoTask(row);
             const movable = canChange && !row.nested && isToDoTask(row);
             const isEditing = editing?.id === row.id;
+            const rowCloseout = closeoutFor(row);
             return (
               <li
                 key={row.id}
@@ -419,6 +506,15 @@ export function MilestoneChecklist({
                           ) : null}
                         </span>
                       ) : null}
+                      {rowCloseout ? (
+                        <span className="ml-auto inline-flex md:ml-0" data-testid="milestone-checklist-overflow">
+                          <TaskCloseout
+                            name={row.name}
+                            state={taskCloseoutState({ status: row.status, isDone: row.isDone })}
+                            actions={rowCloseout}
+                          />
+                        </span>
+                      ) : null}
                     </div>
                   </div>
                 )}
@@ -471,7 +567,8 @@ export function MilestoneChecklist({
           </p>
         ) : null}
       </Panel>
-      {staff && !shipped ? (
+      )}
+      {staff && !shipped && !archivedView ? (
         <p style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{CHECKLIST_FOOTER}</p>
       ) : null}
     </div>

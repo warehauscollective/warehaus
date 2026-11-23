@@ -11,7 +11,6 @@ import { CLOSE_TASK_FOR_SEARCH, TASK_DIALOG_MAX_HEIGHT } from '@/lib/nav/dockLay
 import { DueDateMenu, FieldError, OwnerMenu, Popover, ProjectMenu, type MoveTarget, type OwnerChoice } from '@/components/projects/milestoneDetailsEdit';
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton, StatusBadge } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
-import { useWritebackEnabled } from '@/hooks/useWritebackEnabled';
 import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/view-models';
 import { displayedTaskStatus, TASK_STAGE_HINT } from '@/lib/data/taskStatus';
 import { StageConfirmSheet } from '@/components/projects/milestoneChrome';
@@ -19,7 +18,20 @@ import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
 import { StaffLiveFields } from './StaffLiveFields';
 import { TaskGlyph } from './TaskGlyph';
 import { AddSourceForm, TaskSources } from './TaskSources';
-import { archiveConfirmCopy, fieldSaveNote, projectMoveCopy } from './taskFieldCopy';
+import { fieldSaveNote, projectMoveCopy } from './taskFieldCopy';
+import { taskCloseoutState } from '@convex/_lib/closeout';
+import { useTaskCloseoutActions } from '@/components/closeout/closeoutActions';
+import {
+  ARCHIVE_BODY,
+  ARCHIVE_TASK_TITLE,
+  CLOSEOUT_SAVE_ERROR,
+  MENU_ARCHIVE,
+  TOAST_TASK_ARCHIVED,
+  TOAST_TASK_DONE,
+  TOAST_TASK_RESTORED,
+} from '@/components/closeout/closeoutCopy';
+import { CloseoutToastHost, showCloseoutToast } from '@/components/closeout/closeoutToast';
+import { OverflowMenu, OverflowSheet, OverflowSheetItems, type OverflowAction } from '@/components/closeout/OverflowMenu';
 import { beginFieldSave, FIELD_SAVE_ERROR, finishFieldSave, idleField, retryFieldSave, type FieldAttempt } from './taskFieldSave';
 import type { TaskSourceLink } from './sourcePanelFixtures';
 
@@ -132,8 +144,9 @@ export function TaskDetailModal({
   const moveTaskProject = useMutation(api.tasks.moveProject);
   const addLink = useMutation(api.tasks.addLink);
   const removeLink = useMutation(api.tasks.removeLink);
-  const archiveTask = useMutation(api.tasks.archiveTask);
-  const notionArchive = useWritebackEnabled();
+  const taskCloseoutFor = useTaskCloseoutActions(hostSlug);
+  // The header "…" menu. On a phone it is a sheet that takes the task sheet's place.
+  const [overflowOpen, setOverflowOpen] = useState(false);
   const shownStatus = task ? displayedTaskStatus(task.status, task.stage) : '';
   const titleRef = useRef<HTMLHeadingElement>(null);
   useEffect(() => {
@@ -175,7 +188,7 @@ export function TaskDetailModal({
   const sheets = taskSheetOpen({
     attach,
     stage: Boolean(stageConfirm),
-    archive: archiveOpen,
+    archive: archiveOpen || (phone && overflowOpen),
     project: Boolean(projectTarget),
     menu: phoneMenu,
   });
@@ -290,19 +303,42 @@ export function TaskDetailModal({
     if (!task) return;
     if (!live) {
       onArchived?.([task.id, ...subtasks.map((child) => child.id)]);
+      showCloseoutToast({ kind: 'archived', message: TOAST_TASK_ARCHIVED, undo: async () => onArchived?.([]) });
       onClose();
       return;
     }
     setFieldBusy(true);
-    void archiveTask({ hostSlug, taskId: task.id as Id<'tasks'> })
-      .then((result) => {
-        if (!result.ok) {
-          setArchiveError(result.error ?? null);
-          return;
-        }
+    setArchiveError(null);
+    void taskCloseoutFor(task.id)
+      .archive()
+      .then((undo) => {
+        // The toast lives outside this dialog, so Undo is still there after it closes.
+        showCloseoutToast({ kind: 'archived', message: TOAST_TASK_ARCHIVED, undo });
         onClose();
       })
+      .catch((err) => setArchiveError(userFacingErrorMessage(err, CLOSEOUT_SAVE_ERROR)))
       .finally(() => setFieldBusy(false));
+  };
+  /** Mark complete sets Done with no confirm. Archive opens the same confirm as the aside link. */
+  const onOverflow = (action: OverflowAction) => {
+    setOverflowOpen(false);
+    if (!task) return;
+    if (action === 'archive') {
+      setArchiveOpen(true);
+      return;
+    }
+    const toast =
+      action === 'complete'
+        ? ({ kind: 'done', message: TOAST_TASK_DONE } as const)
+        : ({ kind: 'restored', message: TOAST_TASK_RESTORED } as const);
+    if (!live) {
+      showCloseoutToast(toast);
+      return;
+    }
+    const actions = taskCloseoutFor(task.id);
+    void (action === 'complete' ? actions.markDone() : actions.restore())
+      .then((undo) => showCloseoutToast({ ...toast, undo }))
+      .catch((err) => showCloseoutToast({ kind: 'error', message: userFacingErrorMessage(err, CLOSEOUT_SAVE_ERROR) }));
   };
   const returnStageFocus = useRef<string | null>(null);
   const cancelStage = () => {
@@ -384,6 +420,18 @@ export function TaskDetailModal({
           >
             {closeLabel}
           </button>
+          {staff ? (
+            <OverflowMenu
+              target="task"
+              state={taskCloseoutState({ status: task.status, isDone: task.isDone })}
+              label={task.name}
+              open={overflowOpen}
+              onOpenChange={setOverflowOpen}
+              renderSheet={false}
+              onAction={onOverflow}
+              testId="task-overflow"
+            />
+          ) : null}
           {phone ? null : (
             <span data-testid="task-esc-hint" className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>Esc</span>
           )}
@@ -737,6 +785,8 @@ export function TaskDetailModal({
   if (replacedBySearch) return null;
 
   return (
+    <>
+    {staff ? <CloseoutToastHost /> : null}
     <PortalModalStack
         frames={[
           {
@@ -811,10 +861,22 @@ export function TaskDetailModal({
           {
             key: 'archive',
             open: sheets.archive,
-            node: task && archiveOpen ? (
+            node: task && !archiveOpen && phone && overflowOpen ? (
+              <OverflowSheet
+                target="task"
+                state={taskCloseoutState({ status: task.status, isDone: task.isDone })}
+                onClose={() => setOverflowOpen(false)}
+              >
+                <OverflowSheetItems
+                  target="task"
+                  state={taskCloseoutState({ status: task.status, isDone: task.isDone })}
+                  onAction={onOverflow}
+                />
+              </OverflowSheet>
+            ) : task && archiveOpen ? (
               <PortalModal
                 testId="task-archive-confirm"
-                label="Archive this task?"
+                label={ARCHIVE_TASK_TITLE}
                 onClose={() => {
                   setArchiveOpen(false);
                   setArchiveError(null);
@@ -830,7 +892,7 @@ export function TaskDetailModal({
               >
                 <div data-confirm-kind="archive">
                   <p style={{ margin: '8px 24px 16px', fontSize: 14, lineHeight: '21px' }}>
-                    {archiveConfirmCopy(task.name, subtasks.length, notionArchive)}
+                    {ARCHIVE_BODY}
                   </p>
                   {archiveError ? (
                     <p role="alert" style={{ margin: '0 24px 12px', color: 'var(--danger-text)', fontSize: 14 }}>{archiveError}</p>
@@ -846,7 +908,7 @@ export function TaskDetailModal({
                       onClick={confirmArchive}
                       style={{ height: 42, padding: '0 16px', borderRadius: 10, border: '1px solid var(--danger)', background: 'transparent', color: 'var(--danger-text)', font: 'inherit', fontSize: 14, cursor: 'pointer' }}
                     >
-                      {fieldBusy ? 'Saving…' : 'Archive task'}
+                      {fieldBusy ? 'Saving…' : MENU_ARCHIVE}
                     </button>
                   </div>
                 </div>
@@ -932,6 +994,7 @@ export function TaskDetailModal({
           },
         ]}
     />
+    </>
   );
 }
 

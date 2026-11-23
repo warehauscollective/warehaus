@@ -212,9 +212,15 @@ function formatLocalDate(ms: number, timeZone: string): string {
   return new Intl.DateTimeFormat('en-US', { month: 'short', day: 'numeric', timeZone }).format(new Date(ms));
 }
 
-function whenLabel(iso: string, now: number, timeZone: string): string {
+/**
+ * `now` is null on the server and on the first client render, where the
+ * clock and the viewer's zone are not known. The label is then the calendar
+ * date, which is the same text on both sides. "5m ago" appears after mount.
+ */
+function whenLabel(iso: string, now: number | null, timeZone: string): string {
   const time = Date.parse(iso);
   if (Number.isNaN(time)) return '';
+  if (now == null) return formatLocalDate(time, timeZone);
   if (localDay(time, timeZone).index !== localDay(now, timeZone).index) return formatLocalDate(time, timeZone);
   const minutes = Math.max(0, Math.round((now - time) / 60000));
   if (minutes < 1) return 'now';
@@ -243,7 +249,7 @@ function heading(audience: ActivityAudience, filter: ActivityFilter, clientName?
   return { title, subtitle };
 }
 
-function toRow(item: ActivityInputItem, audience: ActivityAudience, now: number, timeZone: string): ActivityRow {
+function toRow(item: ActivityInputItem, audience: ActivityAudience, now: number | null, timeZone: string): ActivityRow {
   const restricted = item.restricted === true;
   const row: ActivityRow = {
     id: item.id,
@@ -279,12 +285,18 @@ export function buildActivityView(input: {
   audience: ActivityAudience;
   items: readonly ActivityInputItem[];
   filter: ActivityFilter;
-  now: number;
+  /**
+   * The current time. Pass null while rendering on the server or before
+   * mount: reading the clock there makes the server and client text differ.
+   * With null, rows show their calendar date in UTC under Earlier.
+   */
+  now: number | null;
   /** IANA zone for Today / Yesterday. Tests pass this so the clock stays fixed. */
   timeZone?: string;
   clientName?: string | null;
 }): ActivityView {
-  const timeZone = viewerZone(input.timeZone);
+  // No clock means no viewer zone either. UTC is the same on the server and the client.
+  const timeZone = input.now == null ? 'UTC' : viewerZone(input.timeZone);
   const filter = activityFiltersFor(input.audience).includes(input.filter) ? input.filter : 'all';
   const ordered = [...input.items].sort(
     (a, b) => (Date.parse(b.timestamp) || 0) - (Date.parse(a.timestamp) || 0),
@@ -300,7 +312,7 @@ export function buildActivityView(input: {
   const grouped = new Map<ActivityGroup['key'], ActivityRow[]>();
   for (const item of ordered.filter((row) => matches(row, filter, input.audience))) {
     const time = Date.parse(item.timestamp);
-    const key = Number.isNaN(time) ? 'earlier' : groupOf(time, input.now, timeZone);
+    const key = Number.isNaN(time) || input.now == null ? 'earlier' : groupOf(time, input.now, timeZone);
     const list = grouped.get(key) ?? [];
     list.push(toRow(item, input.audience, input.now, timeZone));
     grouped.set(key, list);

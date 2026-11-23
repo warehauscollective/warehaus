@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { archiveConfirmCopy, fieldSaveNote, projectMoveCopy } from './taskFieldCopy';
+import { ARCHIVE_BODY, ARCHIVE_TASK_TITLE, MENU_ARCHIVE } from '@/components/closeout/closeoutCopy';
+import { fieldSaveNote, projectMoveCopy } from './taskFieldCopy';
 
 describe('task field copy', () => {
-  it('names the task and its sub-tasks, and Notion only when write-back is on', () => {
-    assert.match(archiveConfirmCopy('Order-ahead landing page', 0), /“Order-ahead landing page” leaves the board/);
-    assert.match(archiveConfirmCopy('Order-ahead landing page', 1), /and its 1 sub-task leave/);
-    assert.match(archiveConfirmCopy('Order-ahead landing page', 4), /and its 4 sub-tasks leave/);
-    assert.equal(archiveConfirmCopy('Order-ahead landing page', 4).includes('Notion'), false);
-    assert.match(archiveConfirmCopy('Order-ahead landing page', 4, true), /archives the task’s page in Notion/);
+  it('uses the revised archive confirm: hidden, not deleted, restore from Archived', () => {
+    assert.equal(ARCHIVE_TASK_TITLE, 'Archive this task?');
+    assert.equal(ARCHIVE_BODY, 'It will be hidden from the board and lists, not deleted. You can restore it from Archived.');
+    // The button is Archive, not Archive task.
+    assert.equal(MENU_ARCHIVE, 'Archive');
   });
 
   it('names the project move without a visibility change', () => {

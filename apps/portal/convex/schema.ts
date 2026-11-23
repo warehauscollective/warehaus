@@ -305,6 +305,11 @@ export default defineSchema({
     ownerContactId: v.optional(v.id('contacts')),
     /** Calendar day, YYYY-MM-DD. Absent means not set. */
     dueDate: v.optional(v.string()),
+    /**
+     * Set when staff archive the milestone. The row stays. Lists, the board,
+     * the runner and clients skip it. Tasks archived with it carry the same time.
+     */
+    archivedAt: v.optional(v.number()),
     /** Person who created the milestone in the Portal. Absent on older rows. */
     createdByContactId: v.optional(v.id('contacts')),
     /**

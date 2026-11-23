@@ -18,6 +18,17 @@ import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
 import { action, internalQuery } from './_generated/server';
 import { buildTaskTimeline } from './_lib/activityFeed';
+import { RESTORED_TASK_STATUS } from './_lib/closeout';
+import {
+  SnapshotLog,
+  UNDO_TASK_CAP,
+  archiveTaskTree,
+  restoreTaskSnapshots,
+  restoreTaskTree,
+  taskSnapshotArg,
+  writeTaskStatus,
+  type TaskSnapshot,
+} from './_lib/closeoutStore';
 import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
 import { assertHostMatchesOrg, isStaff, PortalAuthError, resolveIdentityFromContact } from './_lib/identity';
 import { linearEnv, serveTasks, serveTasksByOrg } from './_lib/taskPlatformRead';
@@ -704,28 +715,65 @@ export const removeLink = adminMutation({
   },
 });
 
+/** Archive leaves the board and lists and is not deleted. `previous` is each task as it was, for Undo. */
 export const archiveTask = adminMutation({
   args: { taskId: v.id('tasks') },
-  handler: async (ctx, args): Promise<FieldSave> => {
+  handler: async (ctx, args): Promise<FieldSave & { previous?: TaskSnapshot[] }> => {
     const task = await ctx.db.get(args.taskId);
     if (!task) return { ok: false, error: 'Task not found' };
-    const now = Date.now();
-    if (task.archivedAt == null) await ctx.db.patch(task._id, { archivedAt: now });
-    const children = await ctx.db
-      .query('tasks')
-      .withIndex('by_parentTaskId', (q) => q.eq('parentTaskId', task._id))
-      .take(50);
-    for (const child of children) {
-      if (child.orgId !== task.orgId || child.archivedAt != null) continue;
-      await ctx.db.patch(child._id, { archivedAt: now });
+    const log = new SnapshotLog();
+    const result = await archiveTaskTree(ctx, task, Date.now(), ctx.identity.contactId, log);
+    return { ok: true, wrote: result.wrote, notion: result.notion, previous: log.list() };
+  },
+});
+
+/**
+ * Mark complete on a task. Sets Done, with no confirm. A Done task writes
+ * nothing. A task with a Notion page sends the status through the outbox.
+ */
+export const markDone = adminMutation({
+  args: { taskId: v.id('tasks') },
+  handler: async (ctx, args): Promise<FieldSave & { previous?: TaskSnapshot[] }> => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task || task.archivedAt != null) return { ok: false, error: 'Task not found' };
+    const log = new SnapshotLog();
+    const result = await writeTaskStatus(ctx, task, 'Done', ctx.identity.contactId, log);
+    return { ok: true, wrote: result.wrote, notion: result.notion, previous: log.list() };
+  },
+});
+
+/**
+ * Restore. An archived task comes back with the subtasks archived with it.
+ * The Notion page is not touched. A Done task reopens as To Do.
+ */
+export const restoreTask = adminMutation({
+  args: { taskId: v.id('tasks') },
+  handler: async (
+    ctx,
+    args,
+  ): Promise<FieldSave & { restored?: 'archived' | 'completed' | null; previous?: TaskSnapshot[] }> => {
+    const task = await ctx.db.get(args.taskId);
+    if (!task) return { ok: false, error: 'Task not found' };
+    const log = new SnapshotLog();
+    if (task.archivedAt != null) {
+      await restoreTaskTree(ctx, task, log);
+      return { ok: true, wrote: true, notion: 'portal', restored: 'archived', previous: log.list() };
     }
-    if (task.archivedAt != null) return { ok: true, wrote: false, notion: 'portal' };
-    const queued = await ctx.runMutation(internal.sync.taskWrite.enqueueArchive, {
-      taskId: task._id,
-      actorId: ctx.identity.contactId,
-    });
-    if (!queued.ok) return { ok: true, wrote: true, notion: 'off' };
-    return { ok: true, wrote: true, notion: 'queued' };
+    if (!task.isDone && task.status !== 'Done') {
+      return { ok: true, wrote: false, notion: 'portal', restored: null, previous: [] };
+    }
+    const result = await writeTaskStatus(ctx, task, RESTORED_TASK_STATUS, ctx.identity.contactId, log);
+    return { ok: true, wrote: result.wrote, notion: result.notion, restored: 'completed', previous: log.list() };
+  },
+});
+
+/** Undo for a task Mark complete, Archive or Restore. Puts each task back as `previous` had it. */
+export const undoTaskChange = adminMutation({
+  args: { tasks: v.array(taskSnapshotArg) },
+  handler: async (ctx, args): Promise<FieldSave> => {
+    if (args.tasks.length > UNDO_TASK_CAP) return { ok: false, error: 'Too many tasks to undo at once.' };
+    const wrote = await restoreTaskSnapshots(ctx, null, args.tasks, ctx.identity.contactId);
+    return { ok: true, wrote: wrote > 0, notion: 'portal' };
   },
 });
 
