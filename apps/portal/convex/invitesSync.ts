@@ -14,7 +14,7 @@ import { adminMutation, adminQuery } from './_lib/wrappers';
 import { asInviteRole, pendingInviteWouldRegress } from './_lib/inviteFlow';
 import { revertAllowed, REVERT_WINDOW_MS } from './_lib/revertLimit';
 import { isDuplicateNotice } from './_lib/noticeDedupe';
-import { isNotionWritebackEnabled } from './_lib/writeAuthz';
+import { writebackAllowed } from './sync/notion';
 
 const inviteStatus = v.union(
   v.literal('Pending'),
@@ -244,7 +244,7 @@ export const applyContactRead = internalMutation({
           // queues a second revert. The older row can conflict when it runs;
           // the newer row is the one that writes Pending. That conflict stays
           // visible so staff can see the stale write, and it does not drop the invite.
-          if (isNotionWritebackEnabled()) {
+          if (writebackAllowed()) {
             const key = revertIdempotencyKey(
               args.notionPageId,
               action.field,
@@ -290,7 +290,7 @@ export const applyContactRead = internalMutation({
           after: JSON.stringify(action),
           createdAt: now,
         });
-        if (action.type === 'revert' && isNotionWritebackEnabled()) {
+        if (action.type === 'revert' && writebackAllowed()) {
           const since = now - REVERT_WINDOW_MS;
           const prior = await ctx.db
             .query('auditEvents')

@@ -11,7 +11,6 @@ import {
   WAREHAUS_INTERNAL_CLIENT_EXTERNAL_ID,
   WAREHAUS_INTERNAL_CLIENT_SLUG,
   inviteIdempotencyKey,
-  isNotionWritebackEnabled,
   stateIdempotencyKey,
   WRITEBACK_OFF_ERROR,
 } from '@warehaus/portal-sync';
@@ -64,6 +63,7 @@ import {
   tokenFromConfirmation,
   type InviteTokenState,
 } from './_lib/inviteFlow';
+import { writebackAllowed } from './sync/notion';
 
 type EnqueueResult =
   | { ok: false; error: string }
@@ -235,7 +235,7 @@ export const create = adminMutation({
     ]);
     const emailOwnedByOtherOrg = [...contacts, ...pending].some((row) => !staffOrgIds.has(String(row.orgId)));
     const gate = inviteSendGate({
-      writebackEnabled: isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED),
+      writebackEnabled: writebackAllowed(),
       emailEnabled: isInviteEmailEnabled(process.env.INVITE_EMAIL_ENABLED),
       publicUrl: process.env.PORTAL_PUBLIC_URL ?? '',
     });

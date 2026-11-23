@@ -5,7 +5,6 @@
  * Arguments cannot choose it.
  */
 
-import { isNotionWritebackEnabled as writebackFlagIsOn } from '@warehaus/portal-sync';
 import { PortalAuthError, type PortalIdentity, type PortalRole } from './identity';
 
 export type PortalWriteDatabase =
@@ -58,7 +57,3 @@ export function assertPortalWrite(input: {
   return { orgId: decision.orgId };
 }
 
-/** Exact opt-in. Unset, empty, and any other value stay off. */
-export function isNotionWritebackEnabled(flag = process.env.NOTION_WRITEBACK_ENABLED): boolean {
-  return writebackFlagIsOn(flag);
-}

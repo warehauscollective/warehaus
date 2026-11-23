@@ -5,7 +5,7 @@
 
 import { classifyDocBlock, plainTextFromNotionBlocks, sanitizeInlineText } from '@warehaus/portal-sync';
 import { copyNotionFileToBlob } from './blob';
-import { notionToken } from './notionApi';
+import { NotionError, notionClient } from './notion';
 
 type SafeBlock = Record<string, unknown>;
 
@@ -130,31 +130,15 @@ export async function fetchSafeDocBody(
 ): Promise<DocBodyResult> {
   const result: DocBodyResult = { blobCopied: 0, images: [] };
   const blocks: SafeBlock[] = [];
-  let cursor: string | undefined;
+  const notion = notionClient();
+  let cursor: string | null = null;
   do {
-    const url = new URL(`https://api.notion.com/v1/blocks/${pageId}/children`);
-    url.searchParams.set('page_size', '100');
-    if (cursor) url.searchParams.set('start_cursor', cursor);
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${notionToken()}`,
-        'Notion-Version': '2025-09-03',
-      },
-    });
-    if (!res.ok) {
-      const text = await res.text();
-      throw new Error(`Notion blocks ${pageId} → ${res.status}: ${text.slice(0, 200)}`);
-    }
-    const json = (await res.json()) as {
-      results?: Array<{ type: string; [key: string]: unknown }>;
-      has_more?: boolean;
-      next_cursor?: string | null;
-    };
-    for (const block of json.results ?? []) {
+    const page = await notion.listBlocks(pageId, cursor);
+    for (const block of page.results) {
       const safe = await blockToSafe(block, orgId, pageId, result);
       if (safe) blocks.push(safe);
     }
-    cursor = json.has_more ? (json.next_cursor ?? undefined) : undefined;
+    cursor = page.nextCursor;
   } while (cursor);
 
   if (blocks.length) result.body = JSON.stringify(blocks);
@@ -167,25 +151,18 @@ const PLAIN_BODY_PAGE_LIMIT = 20;
 export async function fetchPlainPageBody(pageId: string): Promise<string> {
   const blocks: unknown[] = [];
   const seenCursors = new Set<string>();
-  let cursor: string | undefined;
+  const notion = notionClient();
+  let cursor: string | null = null;
   for (let page = 0; page < PLAIN_BODY_PAGE_LIMIT; page += 1) {
-    const url = new URL(`https://api.notion.com/v1/blocks/${pageId}/children`);
-    url.searchParams.set('page_size', '100');
-    if (cursor) url.searchParams.set('start_cursor', cursor);
-    const res = await fetch(url, {
-      headers: {
-        Authorization: `Bearer ${notionToken()}`,
-        'Notion-Version': '2025-09-03',
-      },
-    });
-    if (!res.ok) break;
-    const json = (await res.json()) as {
-      results?: unknown[];
-      has_more?: boolean;
-      next_cursor?: string | null;
-    };
-    blocks.push(...(json.results ?? []));
-    const next = json.has_more ? json.next_cursor : null;
+    let next: string | null;
+    try {
+      const list = await notion.listBlocks(pageId, cursor);
+      blocks.push(...list.results);
+      next = list.nextCursor;
+    } catch (err) {
+      if (err instanceof NotionError) break;
+      throw err;
+    }
     if (!next || seenCursors.has(next)) break;
     seenCursors.add(next);
     cursor = next;

@@ -16,7 +16,8 @@ import {
   resolveParentLink,
   taskTouchesIncrementalSet,
 } from '@warehaus/portal-sync';
-import { authMirrorAllowed, pulledAuthUserId } from '../_lib/devAccess';
+import { pulledAuthUserId } from '../_lib/devAccess';
+import { authMirrorAllowedHere } from './notion';
 import { heldTaskProjectId } from '../_lib/milestoneDetails';
 import { v } from 'convex/values';
 import { notionWriteAllowedForTask } from '../_lib/milestoneReview';
@@ -432,7 +433,7 @@ export const upsertContact = internalMutation({
     const authUserId = pulledAuthUserId({
       notionValue: fields.authUserId,
       localValue: existing?.authUserId,
-      mirrorAllowed: authMirrorAllowed({ cloudUrl: process.env.CONVEX_CLOUD_URL }),
+      mirrorAllowed: authMirrorAllowedHere(),
     });
     const now = Date.now();
     const patch = {

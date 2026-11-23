@@ -12,7 +12,6 @@ import {
   clientCreateInsertAllowed,
   clientCreateHitFromNotion,
   clientFieldsFromNotionPage,
-  isNotionWritebackEnabled,
   missingWritebackProperty,
   missingWritebackReason,
   outboxKindSendsInvite,
@@ -44,13 +43,14 @@ import {
   archiveNotionPage,
   writeNotionPage,
 } from './notionWrite';
+import { writebackAllowed } from './notion';
 
 type ProcessResult =
   | { ok: true; notionPageId: string; reused: boolean; projectId?: string; clientId?: string }
   | { ok: false; error: string };
 
 function writebackOn(): boolean {
-  return isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED);
+  return writebackAllowed();
 }
 
 function asDatabase(value: string): WritebackDatabase {

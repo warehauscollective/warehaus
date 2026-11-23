@@ -2,7 +2,6 @@ import {
   buildProjectCreateProperties,
   clientIsStaffVisible,
   IDEMPOTENCY_IN_PROGRESS_ERROR,
-  isNotionWritebackEnabled,
   planCreateResume,
   planProjectCreateDispatch,
   projectCreateConvexFields,
@@ -20,6 +19,7 @@ import {
   resolveIdentityFromContact,
 } from './_lib/identity';
 import { userFacingErrorMessage } from './_lib/userFacingError';
+import { writebackAllowed } from './sync/notion';
 
 /**
  * Staff creates one project through the Notion outbox, then upserts that page
@@ -132,7 +132,7 @@ async function finishProjectCreate(
   prepared: { orgId: Id<'clients'>; properties: ProjectCreateProperties },
   ): Promise<ProjectCreateResult> {
   const gate = planProjectCreateDispatch({
-    writebackEnabled: isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED),
+    writebackEnabled: writebackAllowed(),
   });
   if (!gate.ok) return gate;
 

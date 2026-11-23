@@ -1,7 +1,7 @@
 /**
- * Notion writes for the outbox. Notion-Version 2025-09-03.
- * `notionAuth.ts` still sends 2022-06-28 and is intentionally unchanged.
- * Every function here refuses to run unless NOTION_WRITEBACK_ENABLED is exactly "true".
+ * Notion writes for the outbox. Every call goes through the Notion client
+ * (ADR-0002). Writes are write-back writes: the write policy skips them
+ * unless NOTION_WRITEBACK_ENABLED is exactly "true".
  */
 
 import {
@@ -17,127 +17,59 @@ import {
   type WriteProperties,
   type WritebackDatabase,
 } from '@warehaus/portal-sync';
-import { isNotionWritebackEnabled } from '../_lib/writeAuthz';
-import { notionToken, resolveDataSourceId } from './notionApi';
+import { NotionError, notionClient, type NotionWriteResult } from './notion';
 
-const NOTION_VERSION = '2025-09-03';
-
-export type NotionWriteResult = {
-  ok: boolean;
-  status: number;
-  notionPageId?: string;
-  lastEditedTime?: string | null;
-  retryAfterMs?: number;
-  error?: string;
-  properties?: Record<string, unknown>;
-};
-
-function assertWritebackEnabled() {
-  if (!isNotionWritebackEnabled()) {
-    throw new Error('NOTION_WRITEBACK_ENABLED is off');
-  }
-}
-
-async function notionWriteFetch(path: string, init: RequestInit): Promise<Response> {
-  assertWritebackEnabled();
-  return fetch(`https://api.notion.com/v1${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${notionToken()}`,
-      'Notion-Version': NOTION_VERSION,
-      'Content-Type': 'application/json',
-      ...(init.headers ?? {}),
-    },
-  });
-}
-
-function retryAfterMs(res: Response): number | undefined {
-  const header = res.headers.get('retry-after');
-  if (!header) return undefined;
-  const seconds = Number(header);
-  if (Number.isFinite(seconds)) return Math.max(0, seconds * 1000);
-  const when = Date.parse(header);
-  if (Number.isFinite(when)) return Math.max(0, when - Date.now());
-  return undefined;
-}
-
-async function readResult(res: Response): Promise<NotionWriteResult> {
-  if (res.status === 429 || !res.ok) {
-    const error = (await res.text()).slice(0, 400);
-    return { ok: false, status: res.status, retryAfterMs: retryAfterMs(res), error };
-  }
-  const body = (await res.json()) as {
-    id?: string;
-    last_edited_time?: string;
-    properties?: Record<string, unknown>;
-  };
-  if (!body.id) return { ok: false, status: res.status, error: 'Notion response had no page id' };
-  return {
-    ok: true,
-    status: res.status,
-    notionPageId: body.id,
-    lastEditedTime: body.last_edited_time ?? null,
-    properties: body.properties,
-  };
-}
+export type { NotionWriteResult } from './notion';
 
 function dataSourceId(database: Exclude<WritebackDatabase, 'activity'>): string {
   return PORTAL_COLLECTIONS[database];
+}
+
+async function searchPages(sourceId: string, filter: unknown) {
+  const { results } = await notionClient().queryDataSource(sourceId, { filter, pageSize: 5 });
+  return results.filter((page) => Boolean(page.id));
 }
 
 export async function searchNotionPages(
   database: Exclude<WritebackDatabase, 'activity'>,
   plan: { property: 'Slug' | 'Email' | 'External ID'; value: string },
 ): Promise<Array<{ notionPageId: string; properties: Record<string, unknown> }>> {
-  const sourceId = await resolveDataSourceId(dataSourceId(database));
   const filter =
     plan.property === 'Email'
       ? { property: 'Email', email: { equals: plan.value } }
       : { property: plan.property, rich_text: { equals: plan.value } };
-  const res = await notionWriteFetch(`/data_sources/${sourceId}/query`, {
-    method: 'POST',
-    body: JSON.stringify({ filter, page_size: 5 }),
-  });
-  if (!res.ok) {
-    const error = (await res.text()).slice(0, 400);
-    throw new Error(`Notion search → ${res.status}: ${error}`);
-  }
-  const body = (await res.json()) as {
-    results?: Array<{ id: string; properties?: Record<string, unknown> }>;
-  };
-  return (body.results ?? []).map((page) => ({
-    notionPageId: page.id,
-    properties: page.properties ?? {},
-  }));
+  const pages = await searchPages(dataSourceId(database), filter);
+  return pages.map((page) => ({ notionPageId: page.id, properties: page.properties ?? {} }));
 }
 
 /** Re-read last_edited_time before a property update. Does not change the page. */
 export async function readNotionLastEdited(pageId: string): Promise<NotionWriteResult> {
-  const res = await notionWriteFetch(`/pages/${pageId}`, { method: 'GET' });
-  return readResult(res);
+  try {
+    const page = await notionClient().getPage(pageId);
+    if (!page.id) return { ok: false, status: 200, error: 'Notion response had no page id' };
+    return {
+      ok: true,
+      status: 200,
+      notionPageId: page.id,
+      lastEditedTime: page.last_edited_time ?? null,
+      properties: page.properties,
+    };
+  } catch (err) {
+    if (err instanceof NotionError) {
+      return { ok: false, status: err.status, retryAfterMs: err.retryAfterMs, error: err.message };
+    }
+    throw err;
+  }
 }
 
 export async function searchProjectCreateHits(
   externalId: string,
 ): Promise<Array<{ notionPageId: string; clientNotionIds: string[] }>> {
-  const sourceId = await resolveDataSourceId(PORTAL_COLLECTIONS.projects);
-  const res = await notionWriteFetch(`/data_sources/${sourceId}/query`, {
-    method: 'POST',
-    body: JSON.stringify({ filter: projectCreateSearchFilter(externalId), page_size: 5 }),
-  });
-  if (!res.ok) {
-    const error = (await res.text()).slice(0, 400);
-    throw new Error(`Notion search → ${res.status}: ${error}`);
-  }
-  const body = (await res.json()) as {
-    results?: Array<{ id?: string; properties?: Record<string, unknown> }>;
-  };
-  return (body.results ?? [])
-    .filter((page): page is { id: string; properties?: Record<string, unknown> } => Boolean(page.id))
-    .map((page) => ({
-      notionPageId: page.id,
-      clientNotionIds: extractRelationIds(page.properties?.Client),
-    }));
+  const pages = await searchPages(PORTAL_COLLECTIONS.projects, projectCreateSearchFilter(externalId));
+  return pages.map((page) => ({
+    notionPageId: page.id,
+    clientNotionIds: extractRelationIds(page.properties?.Client),
+  }));
 }
 
 /** External ID or Slug. Does not update the page. */
@@ -145,78 +77,45 @@ export async function searchClientCreateHits(
   externalId: string,
   slug: string,
 ): Promise<Array<{ notionPageId: string; properties: Record<string, unknown> }>> {
-  const sourceId = await resolveDataSourceId(PORTAL_COLLECTIONS.clients);
-  const res = await notionWriteFetch(`/data_sources/${sourceId}/query`, {
-    method: 'POST',
-    body: JSON.stringify({ filter: clientCreateSearchFilter(externalId, slug), page_size: 5 }),
-  });
-  if (!res.ok) {
-    const error = (await res.text()).slice(0, 400);
-    throw new Error(`Notion search → ${res.status}: ${error}`);
-  }
-  const body = (await res.json()) as {
-    results?: Array<{ id?: string; properties?: Record<string, unknown> }>;
-  };
-  return (body.results ?? [])
-    .filter((page): page is { id: string; properties?: Record<string, unknown> } => Boolean(page.id))
-    .map((page) => ({
-      notionPageId: page.id,
-      properties: page.properties ?? {},
-    }));
+  const pages = await searchPages(PORTAL_COLLECTIONS.clients, clientCreateSearchFilter(externalId, slug));
+  return pages.map((page) => ({ notionPageId: page.id, properties: page.properties ?? {} }));
 }
 
 /** Full-page POST. A slug hit never reaches this function. */
 export async function createNotionClientPage(
   properties: ClientCreateProperties,
 ): Promise<NotionWriteResult> {
-  const sourceId = await resolveDataSourceId(PORTAL_COLLECTIONS.clients);
-  const res = await notionWriteFetch('/pages', {
-    method: 'POST',
-    body: JSON.stringify(clientCreatePageRequest(sourceId, properties)),
-  });
-  return readResult(res);
+  const notion = notionClient();
+  const sourceId = await notion.resolveDataSourceId(PORTAL_COLLECTIONS.clients);
+  return notion.createPage('writeback', clientCreatePageRequest(sourceId, properties));
 }
 
 /** Uses the project-create property builder, not the generic create shaper. */
 export async function createNotionProjectPage(
   properties: ProjectCreateProperties,
 ): Promise<NotionWriteResult> {
-  const sourceId = await resolveDataSourceId(PORTAL_COLLECTIONS.projects);
-  const res = await notionWriteFetch('/pages', {
-    method: 'POST',
-    body: JSON.stringify(projectCreatePageRequest(sourceId, properties)),
-  });
-  return readResult(res);
+  const notion = notionClient();
+  const sourceId = await notion.resolveDataSourceId(PORTAL_COLLECTIONS.projects);
+  return notion.createPage('writeback', projectCreatePageRequest(sourceId, properties));
 }
 
 /** Archive the Notion page. The portal row stays and is hidden by archivedAt. */
-export async function archiveNotionPage(notionPageId: string): Promise<NotionWriteResult> {
-  const res = await notionWriteFetch(`/pages/${notionPageId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({ archived: true }),
-  });
-  return readResult(res);
+export function archiveNotionPage(notionPageId: string): Promise<NotionWriteResult> {
+  return notionClient().archivePage('writeback', notionPageId);
 }
 
 export async function writeNotionPage(
   database: Exclude<WritebackDatabase, 'activity'>,
   request: { method: 'create' | 'update'; notionPageId?: string; properties: WriteProperties },
 ): Promise<NotionWriteResult> {
+  const notion = notionClient();
   const properties = toNotionProperties(database, request.properties);
   if (request.method === 'update' && request.notionPageId) {
-    const res = await notionWriteFetch(`/pages/${request.notionPageId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ properties }),
-    });
-    return readResult(res);
+    return notion.patchProperties('writeback', request.notionPageId, properties);
   }
-  const sourceId = await resolveDataSourceId(dataSourceId(database));
-  const res = await notionWriteFetch('/pages', {
-    method: 'POST',
-    body: JSON.stringify({
-      parent: { type: 'data_source_id', data_source_id: sourceId },
-      properties,
-    }),
+  const sourceId = await notion.resolveDataSourceId(dataSourceId(database));
+  return notion.createPage('writeback', {
+    parent: { type: 'data_source_id', data_source_id: sourceId },
+    properties,
   });
-  return readResult(res);
 }
