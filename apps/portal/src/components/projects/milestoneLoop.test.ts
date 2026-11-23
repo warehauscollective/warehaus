@@ -37,15 +37,15 @@ describe('milestone loop frames', () => {
     const empty = fixtureLoopModel('empty');
     const failed = fixtureLoopModel('failed');
     assert.match(empty?.heading ?? '', /No tasks were drafted/);
-    assert.match(failed?.heading ?? '', /Couldn't draft tasks/);
-    assert.equal(failed?.awaitingReason, "Tasks couldn't be drafted. Try again, or add a task yourself.");
+    assert.match(failed?.heading ?? '', /Couldn’t draft tasks/);
+    assert.equal(failed?.awaitingReason, 'Tasks couldn’t be drafted. Try again, or add a task yourself.');
   });
 
   it('uses the drafted, failed, and building page subtitles, and leaves the other states alone', () => {
     assert.equal(fixtureLoopModel('drafted')?.subtitle, 'Milestone · 6 drafted tasks');
     assert.equal(loopSubtitle(fixtureLoopModel('drafted')), `Milestone · 6 drafted tasks · ${LOOP_UPDATED}`);
-    assert.equal(fixtureLoopModel('failed')?.subtitle, "Milestone · Couldn't draft tasks");
-    assert.equal(loopSubtitle(fixtureLoopModel('failed')), `Milestone · Couldn't draft tasks · ${LOOP_UPDATED}`);
+    assert.equal(fixtureLoopModel('failed')?.subtitle, "Milestone · Couldn’t draft tasks");
+    assert.equal(loopSubtitle(fixtureLoopModel('failed')), `Milestone · Couldn’t draft tasks · ${LOOP_UPDATED}`);
     assert.equal(fixtureLoopModel('building')?.subtitle, 'Milestone · 3 of 6 tasks done');
     assert.equal(loopSubtitle(fixtureLoopModel('building')), `Milestone · 3 of 6 tasks done · ${LOOP_UPDATED}`);
     assert.equal(fixtureLoopModel('cursor')?.subtitle, 'Milestone · 3 of 6 tasks done');
@@ -57,8 +57,8 @@ describe('milestone loop frames', () => {
     assert.equal(loopSubtitle(fixtureLoopModel('empty')), `Milestone · No tasks yet · ${LOOP_UPDATED}`);
     assert.equal(fixtureLoopModel('blocked')?.subtitle, 'Milestone · Run blocked');
     assert.equal(loopSubtitle(fixtureLoopModel('blocked')), `Milestone · Run blocked · ${LOOP_UPDATED}`);
-    const stamped = html(createElement(Stamp, { text: "Milestone · Couldn't draft tasks", stamp: LOOP_UPDATED }));
-    assert.match(stamped, /Milestone · Couldn&#x27;t draft tasks/);
+    const stamped = html(createElement(Stamp, { text: "Milestone · Couldn’t draft tasks", stamp: LOOP_UPDATED }));
+    assert.match(stamped, /Milestone · Couldn’t draft tasks/);
     assert.match(stamped, /portal-detail-stamp/);
     assert.match(stamped, new RegExp(LOOP_UPDATED));
     assert.equal(html(createElement(Stamp, { text: 'Milestone · Drafting tasks' })).includes('portal-detail-stamp'), false);
@@ -70,12 +70,74 @@ describe('milestone loop frames', () => {
     const editing = html(createElement(MilestoneLoopView, { model: drafted, onRename: () => undefined }));
     assert.match(editing, /border:2px solid #3b82f6/);
     assert.match(editing, /outline:none/);
+    assert.match(editing, /flex:0 0 auto[^"]*white-space:nowrap[^"]*">↵ to add · Manual/);
+    assert.match(editing, /color:var\(--muted\);background:color-mix\(in srgb, var\(--muted\) 16%, transparent\)[^"]*">DRAFT/);
+  });
+
+  it('shows the add field on drafted, empty and failed, with the hint on drafted and failed only', () => {
+    const hint = (kind: string) => {
+      const model = fixtureLoopModel(kind);
+      assert.ok(model);
+      const view = html(createElement(MilestoneLoopView, { model }));
+      return { add: view.includes(`aria-label="${LOOP_ADD}"`), hint: view.includes(LOOP_ADD_HINT) };
+    };
+    assert.deepEqual(hint('drafted'), { add: true, hint: true });
+    assert.deepEqual(hint('failed'), { add: true, hint: true });
+    assert.deepEqual(hint('empty'), { add: true, hint: false });
+    for (const kind of ['generating', 'building', 'cursor', 'blocked']) assert.deepEqual(hint(kind), { add: false, hint: false });
+  });
+
+  it('offers Try again on empty and failed only, and Retry on blocked only', () => {
+    for (const kind of ['generating', 'drafted', 'empty', 'failed', 'building', 'cursor', 'blocked']) {
+      const model = fixtureLoopModel(kind);
+      assert.ok(model);
+      const view = html(createElement(MilestoneLoopView, { model }));
+      assert.equal(view.includes('data-testid="milestone-try-again"'), kind === 'empty' || kind === 'failed', kind);
+      assert.equal(view.includes('data-testid="milestone-retry"'), kind === 'blocked', kind);
+      assert.equal(/disabled="" tabindex="-1" data-testid="milestone-awaiting"/.test(view), ['generating', 'empty', 'failed'].includes(kind), kind);
+      assert.equal(view.includes('Ready to Ship'), false, kind);
+    }
+  });
+
+  it('uses the typographic quotes in the frames and keeps the run feed in two columns', () => {
+    const building = fixtureLoopModel('building');
+    const blocked = fixtureLoopModel('blocked');
+    assert.equal(building?.agentLine, 'Running with Claude Code (on Peter’s Mac) · peter-mbp');
+    assert.equal(fixtureLoopModel('cursor')?.agentLine, 'Running with Cursor cloud agent');
+    assert.equal(blocked?.body, 'The Claude Code runner on peter-mbp stopped responding while building “Build milestone overview.”');
+    assert.ok(building);
+    const view = html(createElement(MilestoneLoopView, { model: building }));
+    assert.match(view, /LATEST FROM THE RUN/);
+    assert.equal(view.split('display:flex;gap:16px;padding:10px 0;align-items:flex-start').length - 1, 3);
+  });
+
+  it('mutes done titles and marks only the task being built', () => {
+    for (const kind of ['building', 'cursor']) {
+      const model = fixtureLoopModel(kind);
+      assert.ok(model);
+      assert.deepEqual(model.tasks.map((task) => Boolean(task.done)), [true, true, true, false, false, false]);
+      assert.deepEqual(model.tasks.filter((task) => task.current).map((task) => task.order), [4]);
+      const view = html(createElement(MilestoneLoopView, { model }));
+      assert.equal(view.split('data-testid="milestone-loop-current"').length - 1, 1);
+      assert.match(view, /data-testid="milestone-loop-current" style="[^"]*width:6px;height:6px[^"]*background:#3b82f6/);
+      assert.match(view, /color:var\(--muted\)[^"]*">Design project overview/);
+      assert.match(view, /color:var\(--fg\)[^"]*">Build milestone overview/);
+    }
+    const blocked = fixtureLoopModel('blocked');
+    assert.ok(blocked);
+    assert.equal(blocked.tasks.some((task) => task.current), false);
+    assert.equal(html(createElement(MilestoneLoopView, { model: blocked })).includes('milestone-loop-current'), false);
+  });
+
+  it('keeps the planning bar at full blue and the buttons at frame height', () => {
+    const generating = fixtureLoopModel('generating');
+    assert.ok(generating);
+    const view = html(createElement(MilestoneLoopView, { model: generating }));
+    assert.match(view, /height:4px;border-radius:2px;background:var\(--muted\)"><div style="width:120px;height:4px;border-radius:2px;background:#3b82f6"/);
+    assert.match(view, /data-testid="milestone-awaiting" style="[^"]*height:42px/);
     const empty = fixtureLoopModel('empty');
     assert.ok(empty);
-    const add = html(createElement(MilestoneLoopView, { model: empty }));
-    assert.match(add, new RegExp(LOOP_ADD));
-    assert.match(add, /flex:0 0 auto[^"]*white-space:nowrap[^"]*">↵ to add · Manual/);
-    assert.match(add, new RegExp(LOOP_ADD_HINT));
+    assert.match(html(createElement(MilestoneLoopView, { model: empty })), /data-testid="milestone-try-again" style="[^"]*height:44px/);
   });
 });
 
@@ -103,7 +165,7 @@ describe('live page subtitles', () => {
     const one = milestoneLoopSubtitle(milestone({ status: 'Planning', rows: taskRows(1), doneCount: 0 }));
     assert.equal(one?.text, 'Milestone · 1 drafted task');
     const failed = milestoneLoopSubtitle(milestone({ status: 'Planning', planning: 'blocked', rows: taskRows(0), doneCount: 0, updatedAt: AT }));
-    assert.deepEqual(failed, { text: "Milestone · Couldn't draft tasks", updatedAt: AT });
+    assert.deepEqual(failed, { text: "Milestone · Couldn’t draft tasks", updatedAt: AT });
     const building = milestoneLoopSubtitle(milestone({ status: 'Building', rows: taskRows(6), doneCount: 3, updatedAt: AT }));
     assert.deepEqual(building, { text: 'Milestone · 3 of 6 tasks done', updatedAt: AT });
     const drafting = milestoneLoopSubtitle(milestone({ status: 'Planning', planning: 'running', rows: taskRows(0), doneCount: 0, updatedAt: AT }));

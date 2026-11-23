@@ -230,7 +230,7 @@ function withLoopFixture(milestone: MilestoneRoadmapView, loop: string): Milesto
     name: 'Client experience launch',
     status: building ? 'Building' : 'Planning',
     planning: loop === 'generating' ? 'running' : loop === 'failed' ? 'blocked' : undefined,
-    ...(loop === 'failed' ? { planningBlockedReason: "Couldn't draft tasks" } : {}),
+    ...(loop === 'failed' ? { planningBlockedReason: 'Couldn’t draft tasks' } : {}),
     branch: 'milestone/client-experience-launch',
     prUrl: 'https://github.com/warehauscollective/warehaus/pull/152',
     rows,

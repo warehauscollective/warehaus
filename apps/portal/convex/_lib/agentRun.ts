@@ -220,19 +220,20 @@ type ClaimableTask = {
   parentTaskId?: string | null;
   claimedBy?: string | null;
   archivedAt?: number | null;
+  stage?: string | null;
   source?: string | null;
   notionPageId?: string | null;
 };
 
 /**
  * The next task a runner may take on one milestone: the lowest-order task
- * that is still To do, unclaimed, top level, and owned by the portal. A task
- * that syncs from Notion is left for a person, because a status written here
- * would be overwritten by the next pull.
+ * that is still To do, unclaimed, top level, not Parked, and owned by the
+ * portal. A task that syncs from Notion is left for a person, because a
+ * status written here would be overwritten by the next pull.
  */
 export function nextClaimableTask<T extends ClaimableTask>(tasks: readonly T[]): T | null {
   const open = tasks
-    .filter((task) => task.archivedAt == null && !task.parentTaskId && !task.claimedBy)
+    .filter((task) => task.archivedAt == null && !task.parentTaskId && !task.claimedBy && !isParkedTask(task))
     .filter((task) => isToDoTask(task) && isPortalOwnedTask(task))
     .sort((a, b) => (a.milestoneOrder ?? Number.MAX_SAFE_INTEGER) - (b.milestoneOrder ?? Number.MAX_SAFE_INTEGER));
   return open[0] ?? null;
@@ -393,20 +394,48 @@ export function cursorAgentToResume<T extends LeaseRun & { externalUrl?: string 
 /**
  * Open tasks on a milestone that the runner will never take, because they
  * sync from Notion or are subtasks. The milestone stays in Building until a
- * person closes them, so the feed names them.
+ * person closes them, so the feed names them. A Parked task holds nothing
+ * up, so it is not named.
  */
 export function tasksWaitingOnPerson<
-  T extends { name: string; isDone: boolean; archivedAt?: number | null; parentTaskId?: string | null; source?: string | null; notionPageId?: string | null },
+  T extends { name: string; isDone: boolean; archivedAt?: number | null; stage?: string | null; parentTaskId?: string | null; source?: string | null; notionPageId?: string | null },
 >(tasks: readonly T[]): T[] {
   return tasks.filter(
-    (task) => task.archivedAt == null && !task.isDone && (Boolean(task.parentTaskId) || !isPortalOwnedTask(task)),
+    (task) =>
+      task.archivedAt == null &&
+      !task.isDone &&
+      !isParkedTask(task) &&
+      (Boolean(task.parentTaskId) || !isPortalOwnedTask(task)),
   );
 }
 
-/** True when every task on the milestone is done. An empty list is not done. */
-export function allTasksDone(tasks: readonly { isDone: boolean; archivedAt?: number | null }[]): boolean {
-  const live = tasks.filter((task) => task.archivedAt == null);
+/** A task staff set aside. Its Stage is Parked, whatever its status says. */
+export function isParkedTask(task: { stage?: string | null }): boolean {
+  return task.stage === 'Parked';
+}
+
+/**
+ * True when every task that is not Parked is done, the same rule Shipped
+ * uses. Archived tasks do not count. A list with nothing left to count
+ * (empty, or all Parked) is not done.
+ */
+export function allTasksDone(
+  tasks: readonly { isDone: boolean; archivedAt?: number | null; stage?: string | null }[],
+): boolean {
+  const live = tasks.filter((task) => task.archivedAt == null && !isParkedTask(task));
   return live.length > 0 && live.every((task) => task.isDone);
+}
+
+/**
+ * Whether wrap-up moves the milestone on. Only a Building milestone whose
+ * tasks are all done (Parked and archived ones aside) goes to Ready to Ship.
+ * Claude Code task runs and Cursor builds both ask this.
+ */
+export function wrapUpReady(input: {
+  milestoneStatus: string;
+  tasks: readonly { isDone: boolean; archivedAt?: number | null; stage?: string | null }[];
+}): boolean {
+  return input.milestoneStatus === 'Building' && allTasksDone(input.tasks);
 }
 
 export const COMPLETE_STATUSES = ['done', 'blocked', 'failed'] as const;

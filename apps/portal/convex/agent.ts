@@ -17,7 +17,7 @@ import {
   RUN_NOT_FOUND,
   RUN_NOT_YOURS,
   LOCAL_PREVIEW_DEFAULT,
-  allTasksDone,
+  isParkedTask,
   approvalNote,
   blockedNote,
   buildAgent,
@@ -45,6 +45,7 @@ import {
   STUCK_RUN_SCAN,
   taskRetryDecision,
   tasksWaitingOnPerson,
+  wrapUpReady,
   trimEventPayload,
 } from './_lib/agentRun';
 import { proposedTasksDecision } from './_lib/milestoneBot';
@@ -288,6 +289,7 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
 
 function isOpenBuildTask(task: Doc<'tasks'>): boolean {
   if (task.archivedAt != null || task.parentTaskId || task.isDone || !isPortalOwnedTask(task)) return false;
+  if (isParkedTask(task)) return false;
   return isToDoTask(task) || task.status === 'In Progress';
 }
 
@@ -468,6 +470,7 @@ export const claimNext = internalMutation({
           parentTaskId: task.parentTaskId,
           claimedBy: task.claimedBy,
           archivedAt: task.archivedAt,
+          stage: task.stage,
           source: task.source,
           notionPageId: task.notionPageId,
         })),
@@ -654,7 +657,7 @@ export const completeTask = internalMutation({
 });
 
 /**
- * When every task is done, move to Ready to Ship, store the local preview,
+ * When every task that is not Parked is done, move to Ready to Ship, store the local preview,
  * and leave Peter's note. The Vercel preview is labeled later, at review
  * time, and only against shared dev. Both agents use this.
  */
@@ -669,7 +672,7 @@ async function markReady(
     .query('tasks')
     .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
     .take(CLAIM_TASK_SCAN);
-  if (!allTasksDone(tasks) || milestone.status !== 'Building') return milestone.status;
+  if (!wrapUpReady({ milestoneStatus: milestone.status, tasks })) return milestone.status;
   const moved = await moveMilestone(ctx, milestone, 'Ready to Ship', `Runner ${runnerId}`, now);
   if (!moved) return milestone.status;
   const localPreviewUrl = milestone.localPreviewUrl ?? LOCAL_PREVIEW_DEFAULT;
