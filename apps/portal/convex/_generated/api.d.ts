@@ -91,7 +91,6 @@ import type * as sync_hide from "../sync/hide.js";
 import type * as sync_inbound from "../sync/inbound.js";
 import type * as sync_nameKeyBackfill from "../sync/nameKeyBackfill.js";
 import type * as sync_notionApi from "../sync/notionApi.js";
-import type * as sync_notionWrite from "../sync/notionWrite.js";
 import type * as sync_outbox from "../sync/outbox.js";
 import type * as sync_outboxWork from "../sync/outboxWork.js";
 import type * as sync_projectCreateWrite from "../sync/projectCreateWrite.js";
@@ -196,7 +195,6 @@ declare const fullApi: ApiFromModules<{
   "sync/inbound": typeof sync_inbound;
   "sync/nameKeyBackfill": typeof sync_nameKeyBackfill;
   "sync/notionApi": typeof sync_notionApi;
-  "sync/notionWrite": typeof sync_notionWrite;
   "sync/outbox": typeof sync_outbox;
   "sync/outboxWork": typeof sync_outboxWork;
   "sync/projectCreateWrite": typeof sync_projectCreateWrite;

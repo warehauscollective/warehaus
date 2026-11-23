@@ -7,10 +7,19 @@ import {
   asClientCreateProperties,
   clientCreateEnqueueError,
   decideClientCreateDedupe,
-  type ClientCreateHit,
-  type ClientCreateProperties,
 } from './clientCreate';
-import { decideProjectCreateDedupe } from './projectCreate';
+import type { NotionClient } from './notionClient';
+import {
+  createClientPage,
+  createProjectPage,
+  readLastEdited,
+  searchClientCreateHits,
+  searchExistingPages,
+  searchProjectCreateHits,
+  writePage,
+  type PageRead,
+} from './outboxNotion';
+import { asProjectCreateProperties, decideProjectCreateDedupe } from './projectCreate';
 import { PROJECT_PROPERTY_TIERS } from './tiers';
 import {
   decideCreateDedupe,
@@ -277,12 +286,12 @@ export function auditEventForOutcome(
   return null;
 }
 
-export type PageRead =
-  | { ok: true; lastEditedTime: string | null }
-  | { ok: false; status: number; retryAfterMs?: number; error: string };
+export type { PageRead } from './outboxNotion';
+
+type WriteRequest = { method: 'create' | 'update'; notionPageId?: string; properties: WriteProperties };
 
 /**
- * One outbox attempt. `search` and `write` are not called when the flag is off,
+ * One outbox attempt. Notion is not searched or written when the flag is off,
  * when validation fails, or when dedupe rejects the row.
  */
 export async function runOutboxAttempt(input: {
@@ -290,14 +299,9 @@ export async function runOutboxAttempt(input: {
   nowMs: number;
   writebackEnabled: boolean;
   actor: 'staff' | 'clientAdmin' | 'system';
-  search: (plan: { property: string; value: string }) => Promise<Array<{ notionPageId: string; sameOrg: boolean }>>;
-  write: (request: {
-    method: 'create' | 'update';
-    notionPageId?: string;
-    properties: WriteProperties;
-  }) => Promise<NotionWriteResponse>;
-  /** Re-read before an update. Required when `expectedLastEditedTime` is set. */
-  readPage?: (notionPageId: string) => Promise<PageRead>;
+  notion: NotionClient;
+  /** The org's client page. A contact hit is the same org only when it links here. */
+  clientNotionId?: string | null;
   /** This attempt just claimed the row, so its own lease is not "not due". */
   owned?: boolean;
   /**
@@ -312,6 +316,10 @@ export async function runOutboxAttempt(input: {
   if (plan.action === 'dead') {
     return { outcome: 'dead', notifyStaff: plan.notifyStaff, error: 'Outbox item exceeded 24h' };
   }
+
+  const { notion, item } = input;
+  const write = (request: WriteRequest) => writePage(notion, item.database, request);
+  const readPage = (notionPageId: string) => readLastEdited(notion, notionPageId);
 
   const inviteState = input.item.kind === 'setInviteState' || input.item.kind === 'revert';
   if (inviteState) {
@@ -330,11 +338,11 @@ export async function runOutboxAttempt(input: {
         item: input.item,
         nowMs: input.nowMs,
         properties: validated.properties,
-        readPage: input.readPage,
-        write: input.write,
+        readPage,
+        write,
       });
     }
-    const response = await input.write({
+    const response = await write({
       method: 'update',
       notionPageId: input.item.notionPageId,
       properties: validated.properties,
@@ -386,8 +394,8 @@ export async function runOutboxAttempt(input: {
       item: input.item,
       nowMs: input.nowMs,
       properties: validated.properties,
-      readPage: input.readPage,
-      write: input.write,
+      readPage,
+      write,
     });
   }
 
@@ -396,7 +404,7 @@ export async function runOutboxAttempt(input: {
   if (!notionPageId) {
     const search = searchPlanForCreate(input.item.database, validated.properties);
     if ('error' in search) return { outcome: 'rejected', reason: search.error };
-    const hits = await input.search(search);
+    const hits = await searchExistingPages(notion, item.database, search, input.clientNotionId ?? null);
     const dedupe = decideCreateDedupe(hits);
     if (dedupe.action === 'reject') return { outcome: 'rejected', reason: dedupe.reason };
     if (dedupe.action === 'reuse') {
@@ -405,7 +413,7 @@ export async function runOutboxAttempt(input: {
     }
   }
 
-  const response = await input.write({
+  const response = await write({
     method: notionPageId ? 'update' : 'create',
     notionPageId,
     properties: validated.properties,
@@ -487,18 +495,13 @@ async function runPatchAttempt(input: {
   item: OutboxItem;
   nowMs: number;
   properties: WriteProperties;
-  readPage?: (notionPageId: string) => Promise<PageRead>;
-  write: (request: {
-    method: 'create' | 'update';
-    notionPageId?: string;
-    properties: WriteProperties;
-  }) => Promise<NotionWriteResponse>;
+  readPage: (notionPageId: string) => Promise<PageRead>;
+  write: (request: WriteRequest) => Promise<NotionWriteResponse>;
 }): Promise<AttemptOutcome> {
   const notionPageId = input.item.notionPageId;
   const expected = input.item.expectedLastEditedTime;
   if (!notionPageId) return { outcome: 'rejected', reason: 'Updates require a Notion page' };
   if (!expected) return { outcome: 'rejected', reason: 'Updates require the last read time' };
-  if (!input.readPage) return { outcome: 'rejected', reason: 'Updates require a page re-read' };
 
   const current = await input.readPage(notionPageId);
   if (!current.ok) return retryOutcome(input.item, input.nowMs, current);
@@ -536,10 +539,7 @@ export async function runProjectCreateAttempt(input: {
   item: OutboxItem;
   nowMs: number;
   writebackEnabled: boolean;
-  search: (
-    externalId: string,
-  ) => Promise<Array<{ notionPageId: string; clientNotionIds: readonly string[] }>>;
-  create: (properties: WriteProperties) => Promise<NotionWriteResponse>;
+  notion: NotionClient;
   /** This attempt just claimed the row, so its own lease is not "not due". */
   owned?: boolean;
   /** Property names on the live Projects data source. Omit when the schema was not read. */
@@ -565,7 +565,7 @@ export async function runProjectCreateAttempt(input: {
   const schemaMiss = rejectIfSchemaMissing(properties, input.livePropertyNames);
   if (schemaMiss) return schemaMiss;
 
-  const hits = await input.search(externalId);
+  const hits = await searchProjectCreateHits(input.notion, externalId);
   const dedupe = decideProjectCreateDedupe({ hits, clientNotionPageId: client[0]! });
   if (dedupe.action === 'reject') return { outcome: 'rejected', reason: dedupe.reason };
   if (dedupe.action === 'reuse') {
@@ -576,7 +576,9 @@ export async function runProjectCreateAttempt(input: {
     };
   }
 
-  const response = await input.create(properties);
+  const shaped = asProjectCreateProperties(properties);
+  if (!shaped) return { outcome: 'rejected', reason: 'Project create payload is incomplete' };
+  const response = await createProjectPage(input.notion, shaped);
   if (!response.ok || !response.notionPageId) return retryOutcome(input.item, input.nowMs, response);
   return {
     outcome: 'confirmed',
@@ -602,8 +604,7 @@ export async function runClientCreateAttempt(input: {
   item: OutboxItem;
   nowMs: number;
   writebackEnabled: boolean;
-  search: () => Promise<readonly ClientCreateHit[]>;
-  create: (properties: ClientCreateProperties) => Promise<NotionWriteResponse>;
+  notion: NotionClient;
   owned?: boolean;
   livePropertyNames?: readonly string[];
 }): Promise<ClientCreateAttempt> {
@@ -625,7 +626,7 @@ export async function runClientCreateAttempt(input: {
     return { outcome: 'rejected', reason: 'Client create payload is incomplete' };
   }
 
-  const hits = await input.search();
+  const hits = await searchClientCreateHits(input.notion, externalId, slug);
   const dedupe = decideClientCreateDedupe({ externalId, slug, hits });
   if (dedupe.action === 'reuse') {
     const hit = hits.find((row) => row.notionPageId === dedupe.notionPageId);
@@ -640,7 +641,7 @@ export async function runClientCreateAttempt(input: {
 
   const shaped = asClientCreateProperties(input.item.properties);
   if (!shaped) return { outcome: 'rejected', reason: 'Client create payload is incomplete' };
-  const response = await input.create(shaped);
+  const response = await createClientPage(input.notion, shaped);
   if (!response.ok || !response.notionPageId) return retryOutcome(input.item, input.nowMs, response);
   return {
     outcome: 'confirmed',

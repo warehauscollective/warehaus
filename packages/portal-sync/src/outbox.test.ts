@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
+import { PORTAL_COLLECTIONS } from './collections';
+import { createMemoryNotionClient, type MemoryNotion } from './notionMemory.testkit';
 import {
   OUTBOX_BACKOFF_MS,
   OUTBOX_DEAD_AFTER_MS,
@@ -48,6 +50,39 @@ function item(overrides: Partial<OutboxItem> = {}): OutboxItem {
   };
 }
 
+const { contacts: CONTACTS, tasks: TASKS, projects: PROJECTS, clients: CLIENTS } = PORTAL_COLLECTIONS;
+const CLIENT_PAGE = 'client-page';
+
+/** Strict in-memory Notion with the data sources these tests write to. */
+function fakeNotion(overrides: Record<string, readonly string[]> = {}): MemoryNotion {
+  return createMemoryNotionClient({
+    dataSources: {
+      [CONTACTS]: ['Name', 'Email', 'Role', 'Source', 'Portal Access', 'Client Company', 'Invite Status'],
+      [TASKS]: ['Name', 'Status', 'Estimate', 'Publish to Warehaus', 'Description'],
+      [PROJECTS]: ['Name', 'Client', 'Publish to Warehaus', 'Archive', 'Source', 'External ID'],
+      [CLIENTS]: ['Company Name', 'Slug', 'Status', 'External ID', 'Source', 'Portal access', 'Publish to Warehaus'],
+      ...overrides,
+    },
+  });
+}
+
+function ops(notion: MemoryNotion): string[] {
+  return notion.calls.map((call) => call.op);
+}
+
+function count(notion: MemoryNotion, op: string): number {
+  return notion.calls.filter((call) => call.op === op).length;
+}
+
+function richText(value: string) {
+  return { rich_text: [{ type: 'text', text: { content: value } }] };
+}
+
+/** A contact page with the invite's email, linked to this client page. */
+function contactOf(clientPage: string) {
+  return { Email: { email: 'ada@example.com' }, 'Client Company': { relation: [{ id: clientPage }] } };
+}
+
 describe('outbox keys and backoff', () => {
   it('builds stable idempotency keys', () => {
     assert.equal(inviteIdempotencyKey('org', 'ada@example.com', 'req-1'), 'invite:org:ada@example.com:req-1');
@@ -76,21 +111,17 @@ describe('outbox keys and backoff', () => {
     assert.equal(taken.claimed, true);
     if (!taken.claimed) return;
     assert.equal(taken.item.status, 'inflight');
-    let wrote = 0;
+    const notion = fakeNotion();
     const outcome = await runOutboxAttempt({
       item: taken.item,
       nowMs: now,
       writebackEnabled: true,
       owned: true,
       actor: 'staff',
-      search: async () => [],
-      write: async () => {
-        wrote += 1;
-        return { ok: true, status: 200, notionPageId: 'page-1' };
-      },
+      notion,
     });
     assert.equal(outcome.outcome, 'confirmed');
-    assert.equal(wrote, 1);
+    assert.equal(count(notion, 'create'), 1);
     assert.equal(planOutboxAttempt(taken.item, now, true).action, 'wait');
   });
 
@@ -103,32 +134,28 @@ describe('outbox keys and backoff', () => {
       ['Invite Status'],
     );
 
-    let wrote = 0;
+    const withInviteStatus = item({ properties: { ...properties, 'Invite Status': 'Pending' } });
+    const preflightNotion = fakeNotion();
     const preflight = await runOutboxAttempt({
-      item: item({ properties: { ...properties, 'Invite Status': 'Pending' } }),
+      item: withInviteStatus,
       nowMs: 0,
       writebackEnabled: true,
       actor: 'staff',
       livePropertyNames: ['Name', 'Email', 'Role', 'Source', 'Portal Access', 'Client Company'],
-      search: async () => [],
-      write: async () => {
-        wrote += 1;
-        return { ok: true, status: 200, notionPageId: 'page-1' };
-      },
+      notion: preflightNotion,
     });
     assert.equal(preflight.outcome, 'rejected');
     if (preflight.outcome === 'rejected') {
       assert.equal(preflight.reason, 'Notion is missing property "Invite Status".');
     }
-    assert.equal(wrote, 0);
+    assert.equal(preflightNotion.calls.length, 0);
 
     const fromNotion = await runOutboxAttempt({
-      item: item({ properties: { ...properties, 'Invite Status': 'Pending' } }),
+      item: withInviteStatus,
       nowMs: 0,
       writebackEnabled: true,
       actor: 'staff',
-      search: async () => [],
-      write: async () => ({ ok: false, status: 400, error: notionError }),
+      notion: fakeNotion({ [CONTACTS]: ['Name', 'Email', 'Role', 'Source', 'Portal Access', 'Client Company'] }),
     });
     assert.equal(fromNotion.outcome, 'rejected');
     if (fromNotion.outcome === 'rejected') {
@@ -137,14 +164,9 @@ describe('outbox keys and backoff', () => {
   });
 
   it('still retries a Notion failure that does not name a missing property', async () => {
-    const outcome = await runOutboxAttempt({
-      item: item(),
-      nowMs: 0,
-      writebackEnabled: true,
-      actor: 'staff',
-      search: async () => [],
-      write: async () => ({ ok: false, status: 500, error: 'Notion HTTP 500' }),
-    });
+    const notion = fakeNotion();
+    notion.failNext('create', 500);
+    const outcome = await runOutboxAttempt({ item: item(), nowMs: 0, writebackEnabled: true, actor: 'staff', notion });
     assert.equal(outcome.outcome, 'retry');
   });
 
@@ -161,21 +183,17 @@ describe('outbox keys and backoff', () => {
     const taken = takeOutboxLease(stale, now);
     assert.equal(taken.claimed, true);
     if (!taken.claimed) return;
-    let wrote = 0;
+    const notion = fakeNotion();
     const outcome = await runOutboxAttempt({
       item: taken.item,
       nowMs: now,
       writebackEnabled: true,
       owned: true,
       actor: 'staff',
-      search: async () => [],
-      write: async () => {
-        wrote += 1;
-        return { ok: true, status: 200, notionPageId: 'page-1' };
-      },
+      notion,
     });
     assert.equal(outcome.outcome, 'confirmed');
-    assert.equal(wrote, 1);
+    assert.equal(count(notion, 'create'), 1);
     assert.equal(planOutboxAttempt(stale, now, true).action, 'execute');
   });
 
@@ -198,26 +216,21 @@ describe('outbox keys and backoff', () => {
 
 describe('outbox attempt', () => {
   it('does not search or write when the flag is off', async () => {
-    let called = 0;
+    const notion = fakeNotion();
     const outcome = await runOutboxAttempt({
       item: item(),
       nowMs: 0,
       writebackEnabled: false,
       actor: 'clientAdmin',
-      search: async () => {
-        called += 1;
-        return [];
-      },
-      write: async () => {
-        called += 1;
-        return { ok: true, status: 200, notionPageId: 'page' };
-      },
+      notion,
     });
     assert.deepEqual(outcome, { outcome: 'held', reason: 'writeback-disabled' });
-    assert.equal(called, 0);
+    assert.equal(notion.calls.length, 0);
   });
 
   it('patches invite state without the full create payload', async () => {
+    const notion = fakeNotion();
+    notion.seedPage({ id: 'page-1', dataSourceId: CONTACTS });
     const outcome = await runOutboxAttempt({
       item: item({
         kind: 'setInviteState',
@@ -227,20 +240,15 @@ describe('outbox attempt', () => {
       nowMs: 0,
       writebackEnabled: true,
       actor: 'system',
-      search: async () => {
-        throw new Error('search should not run');
-      },
-      write: async (request) => {
-        assert.equal(request.method, 'update');
-        assert.equal(request.properties['Invite Status'], 'Accepted');
-        return { ok: true, status: 200, notionPageId: 'page-1', lastEditedTime: null };
-      },
+      notion,
     });
     assert.equal(outcome.outcome, 'confirmed');
+    assert.deepEqual(ops(notion), ['patch']);
+    assert.deepEqual(notion.page('page-1')?.properties['Invite Status'], { type: 'select', select: { name: 'Accepted' } });
   });
 
   it('does not call Notion for an invite state change when write-back is off', async () => {
-    let called = 0;
+    const notion = fakeNotion();
     const outcome = await runOutboxAttempt({
       item: item({
         kind: 'revert',
@@ -250,66 +258,57 @@ describe('outbox attempt', () => {
       nowMs: 0,
       writebackEnabled: false,
       actor: 'system',
-      search: async () => {
-        called += 1;
-        return [];
-      },
-      write: async () => {
-        called += 1;
-        return { ok: true, status: 200, notionPageId: 'page-1' };
-      },
+      notion,
     });
     assert.deepEqual(outcome, { outcome: 'held', reason: 'writeback-disabled' });
-    assert.equal(called, 0);
+    assert.equal(notion.calls.length, 0);
   });
 
   it('searches before create and confirms without granting access itself', async () => {
-    const calls: string[] = [];
+    const notion = fakeNotion();
     const outcome = await runOutboxAttempt({
       item: item(),
       nowMs: 0,
       writebackEnabled: true,
       actor: 'clientAdmin',
-      search: async () => {
-        calls.push('search');
-        return [];
-      },
-      write: async () => {
-        calls.push('write');
-        return { ok: true, status: 200, notionPageId: 'page-1', lastEditedTime: '2026-09-27T00:01:00.000Z' };
-      },
+      clientNotionId: CLIENT_PAGE,
+      notion,
     });
-    assert.deepEqual(calls, ['search', 'write']);
+    assert.deepEqual(ops(notion), ['query', 'resolve', 'create']);
     assert.equal(outcome.outcome, 'confirmed');
     if (outcome.outcome === 'confirmed') {
-      assert.equal(outcome.write.notionPageId, 'page-1');
+      assert.ok(notion.page(outcome.write.notionPageId));
       assert.equal(outcome.reused, false);
     }
   });
 
   it('reuses a same-org page and retries a 429 with Retry-After', async () => {
+    const notion = fakeNotion();
+    notion.seedPage({ id: 'existing', dataSourceId: CONTACTS, properties: contactOf(CLIENT_PAGE) });
     const reused = await runOutboxAttempt({
       item: item(),
       nowMs: 0,
       writebackEnabled: true,
       actor: 'staff',
-      search: async () => [{ notionPageId: 'existing', sameOrg: true }],
-      write: async (request) => {
-        assert.equal(request.method, 'update');
-        assert.equal(request.notionPageId, 'existing');
-        return { ok: true, status: 200, notionPageId: 'existing', lastEditedTime: null };
-      },
+      clientNotionId: CLIENT_PAGE,
+      notion,
     });
     assert.equal(reused.outcome, 'confirmed');
-    if (reused.outcome === 'confirmed') assert.equal(reused.reused, true);
+    if (reused.outcome === 'confirmed') {
+      assert.equal(reused.reused, true);
+      assert.equal(reused.write.notionPageId, 'existing');
+    }
+    assert.deepEqual(ops(notion), ['query', 'patch']);
 
+    const limited = fakeNotion();
+    limited.failNext('create', 429, { retryAfterMs: 90_000 });
     const retry = await runOutboxAttempt({
       item: item(),
       nowMs: 1_000,
       writebackEnabled: true,
       actor: 'staff',
-      search: async () => [],
-      write: async () => ({ ok: false, status: 429, retryAfterMs: 90_000, error: 'rate limited' }),
+      clientNotionId: CLIENT_PAGE,
+      notion: limited,
     });
     assert.equal(retry.outcome, 'retry');
     if (retry.outcome === 'retry') {
@@ -319,20 +318,18 @@ describe('outbox attempt', () => {
   });
 
   it('rejects another client before writing', async () => {
-    let wrote = false;
+    const notion = fakeNotion();
+    notion.seedPage({ id: 'other', dataSourceId: CONTACTS, properties: contactOf('client-other') });
     const outcome = await runOutboxAttempt({
       item: item(),
       nowMs: 0,
       writebackEnabled: true,
       actor: 'clientAdmin',
-      search: async () => [{ notionPageId: 'other', sameOrg: false }],
-      write: async () => {
-        wrote = true;
-        return { ok: true, status: 200, notionPageId: 'other' };
-      },
+      clientNotionId: CLIENT_PAGE,
+      notion,
     });
     assert.equal(outcome.outcome, 'rejected');
-    assert.equal(wrote, false);
+    assert.deepEqual(ops(notion), ['query']);
   });
 
   it('does not insert or write when write-back is off', async () => {
@@ -340,7 +337,7 @@ describe('outbox attempt', () => {
       action: 'noop',
       error: WRITEBACK_OFF_ERROR,
     });
-    let called = 0;
+    const notion = fakeNotion();
     const outcome = await runProjectCreateAttempt({
       item: item({
         kind: 'project-create',
@@ -356,17 +353,10 @@ describe('outbox attempt', () => {
       }),
       nowMs: 0,
       writebackEnabled: false,
-      search: async () => {
-        called += 1;
-        return [];
-      },
-      create: async () => {
-        called += 1;
-        return { ok: true, status: 200, notionPageId: 'page' };
-      },
+      notion,
     });
     assert.equal(outcome.outcome, 'held');
-    assert.equal(called, 0);
+    assert.equal(notion.calls.length, 0);
     assert.equal(auditEventForOutcome(outcome), null);
   });
 
@@ -377,7 +367,8 @@ describe('outbox attempt', () => {
     assert.equal(planIdempotentEnqueue({ status: 'queued' }, true).action, 'reuse');
     assert.equal(planIdempotentEnqueue({ status: 'done', notionPageId: 'page-1' }, true).action, 'reuse');
 
-    let writes = 0;
+    const notion = fakeNotion();
+    notion.seedPage({ id: 'page-1', dataSourceId: TASKS, lastEditedTime: expected });
     const statusItem = item({
       idempotencyKey: key,
       kind: 'task-status',
@@ -386,19 +377,7 @@ describe('outbox attempt', () => {
       expectedLastEditedTime: expected,
       properties: { Status: 'Done' },
     });
-    const write = async () => {
-      writes += 1;
-      return { ok: true, status: 200, notionPageId: 'page-1', lastEditedTime: expected };
-    };
-    const first = await runOutboxAttempt({
-      item: statusItem,
-      nowMs: 0,
-      writebackEnabled: true,
-      actor: 'staff',
-      search: async () => [],
-      readPage: async () => ({ ok: true, lastEditedTime: expected }),
-      write,
-    });
+    const first = await runOutboxAttempt({ item: statusItem, nowMs: 0, writebackEnabled: true, actor: 'staff', notion });
     assert.equal(first.outcome, 'confirmed');
     assert.equal(auditEventForOutcome(first)?.action, 'outbox.confirmed');
     const second = await runOutboxAttempt({
@@ -406,16 +385,15 @@ describe('outbox attempt', () => {
       nowMs: 1_000,
       writebackEnabled: true,
       actor: 'staff',
-      search: async () => [],
-      readPage: async () => ({ ok: true, lastEditedTime: expected }),
-      write,
+      notion,
     });
     assert.equal(second.outcome, 'wait');
-    assert.equal(writes, 1);
+    assert.equal(count(notion, 'patch'), 1);
   });
 
   it('conflicts when Notion changed since the last read and does not write', async () => {
-    let wrote = false;
+    const notion = fakeNotion();
+    notion.seedPage({ id: 'page-1', dataSourceId: TASKS, lastEditedTime: '2026-10-02T00:00:00.000Z' });
     const outcome = await runOutboxAttempt({
       item: item({
         kind: 'task-status',
@@ -427,15 +405,10 @@ describe('outbox attempt', () => {
       nowMs: 0,
       writebackEnabled: true,
       actor: 'staff',
-      search: async () => [],
-      readPage: async () => ({ ok: true, lastEditedTime: '2026-10-02T00:00:00.000Z' }),
-      write: async () => {
-        wrote = true;
-        return { ok: true, status: 200, notionPageId: 'page-1' };
-      },
+      notion,
     });
     assert.equal(outcome.outcome, 'conflict');
-    assert.equal(wrote, false);
+    assert.equal(count(notion, 'patch'), 0);
     assert.equal(auditEventForOutcome(outcome)?.action, 'outbox.conflict');
   });
 
@@ -447,41 +420,20 @@ describe('outbox attempt', () => {
       expectedLastEditedTime: '2026-10-01T00:00:00.000Z',
       properties: { Estimate: 'M', 'Publish to Warehaus': true },
     });
-    let writes = 0;
-    const held = await runOutboxAttempt({
-      item: fields,
-      nowMs: 0,
-      writebackEnabled: false,
-      actor: 'staff',
-      search: async () => [],
-      readPage: async () => ({ ok: true, lastEditedTime: '2026-10-01T00:00:00.000Z' }),
-      write: async () => {
-        writes += 1;
-        return { ok: true, status: 200, notionPageId: 'page-1' };
-      },
-    });
+    const notion = fakeNotion();
+    notion.seedPage({ id: 'page-1', dataSourceId: TASKS, lastEditedTime: '2026-10-01T00:00:00.000Z' });
+    const held = await runOutboxAttempt({ item: fields, nowMs: 0, writebackEnabled: false, actor: 'staff', notion });
     assert.deepEqual(held, { outcome: 'held', reason: 'writeback-disabled' });
-    assert.equal(writes, 0);
+    assert.equal(notion.calls.length, 0);
 
-    const sent = await runOutboxAttempt({
-      item: fields,
-      nowMs: 0,
-      writebackEnabled: true,
-      actor: 'staff',
-      search: async () => {
-        throw new Error('search should not run');
-      },
-      readPage: async () => ({ ok: true, lastEditedTime: '2026-10-01T00:00:00.000Z' }),
-      write: async (request) => {
-        writes += 1;
-        assert.equal(request.method, 'update');
-        assert.equal(request.notionPageId, 'page-1');
-        assert.deepEqual(request.properties, { Estimate: 'M', 'Publish to Warehaus': true });
-        return { ok: true, status: 200, notionPageId: 'page-1', lastEditedTime: '2026-10-01T00:01:00.000Z' };
-      },
-    });
+    const sent = await runOutboxAttempt({ item: fields, nowMs: 0, writebackEnabled: true, actor: 'staff', notion });
     assert.equal(sent.outcome, 'confirmed');
-    assert.equal(writes, 1);
+    if (sent.outcome === 'confirmed') {
+      assert.deepEqual(sent.write.properties, { Estimate: 'M', 'Publish to Warehaus': true });
+    }
+    assert.deepEqual(ops(notion), ['getPage', 'patch']);
+    const stored = notion.page('page-1')?.properties ?? {};
+    assert.deepEqual(Object.keys(stored).sort(), ['Estimate', 'Publish to Warehaus']);
   });
 
   it('patches a task description and conflicts when Notion changed', async () => {
@@ -492,43 +444,22 @@ describe('outbox attempt', () => {
       expectedLastEditedTime: '2026-10-01T00:00:00.000Z',
       properties: { Description: 'Staff note' },
     });
-    let wrote = 0;
-    const sent = await runOutboxAttempt({
-      item: description,
-      nowMs: 0,
-      writebackEnabled: true,
-      actor: 'staff',
-      search: async () => {
-        throw new Error('search should not run');
-      },
-      readPage: async () => ({ ok: true, lastEditedTime: '2026-10-01T00:00:00.000Z' }),
-      write: async (request) => {
-        wrote += 1;
-        assert.equal(request.method, 'update');
-        assert.deepEqual(request.properties, { Description: 'Staff note' });
-        return { ok: true, status: 200, notionPageId: 'page-1', lastEditedTime: '2026-10-01T00:01:00.000Z' };
-      },
-    });
+    const notion = fakeNotion();
+    notion.seedPage({ id: 'page-1', dataSourceId: TASKS, lastEditedTime: '2026-10-01T00:00:00.000Z' });
+    const sent = await runOutboxAttempt({ item: description, nowMs: 0, writebackEnabled: true, actor: 'staff', notion });
     assert.equal(sent.outcome, 'confirmed');
-    assert.equal(wrote, 1);
+    if (sent.outcome === 'confirmed') assert.deepEqual(sent.write.properties, { Description: 'Staff note' });
+    assert.deepEqual(ops(notion), ['getPage', 'patch']);
 
-    const conflict = await runOutboxAttempt({
-      item: description,
-      nowMs: 0,
-      writebackEnabled: true,
-      actor: 'staff',
-      search: async () => [],
-      readPage: async () => ({ ok: true, lastEditedTime: '2026-10-02T00:00:00.000Z' }),
-      write: async () => {
-        wrote += 1;
-        return { ok: true, status: 200, notionPageId: 'page-1' };
-      },
-    });
+    // The patch above moved last_edited_time, so the same expectation is now stale.
+    const conflict = await runOutboxAttempt({ item: description, nowMs: 0, writebackEnabled: true, actor: 'staff', notion });
     assert.equal(conflict.outcome, 'conflict');
-    assert.equal(wrote, 1);
+    assert.equal(count(notion, 'patch'), 1);
   });
 
   it('writes a task status when the re-read matches', async () => {
+    const notion = fakeNotion();
+    notion.seedPage({ id: 'page-1', dataSourceId: TASKS, lastEditedTime: '2026-10-01T00:00:00.000Z' });
     const outcome = await runOutboxAttempt({
       item: item({
         kind: 'task-status',
@@ -540,17 +471,11 @@ describe('outbox attempt', () => {
       nowMs: 0,
       writebackEnabled: true,
       actor: 'staff',
-      search: async () => {
-        throw new Error('search should not run');
-      },
-      readPage: async () => ({ ok: true, lastEditedTime: '2026-10-01T00:00:00.000Z' }),
-      write: async (request) => {
-        assert.equal(request.method, 'update');
-        assert.deepEqual(request.properties, { Status: 'In Progress' });
-        return { ok: true, status: 200, notionPageId: 'page-1', lastEditedTime: '2026-10-01T00:01:00.000Z' };
-      },
+      notion,
     });
     assert.equal(outcome.outcome, 'confirmed');
+    if (outcome.outcome === 'confirmed') assert.deepEqual(outcome.write.properties, { Status: 'In Progress' });
+    assert.deepEqual(ops(notion), ['getPage', 'patch']);
   });
 });
 
@@ -566,7 +491,7 @@ const clientProperties: WriteProperties = {
 
 describe('client create attempt', () => {
   it('does not search or post when write-back is off', async () => {
-    let called = 0;
+    const notion = fakeNotion();
     const outcome = await runClientCreateAttempt({
       item: item({
         idempotencyKey: 'client-create:wh_cli_north-wind',
@@ -576,77 +501,52 @@ describe('client create attempt', () => {
       }),
       nowMs: 0,
       writebackEnabled: false,
-      search: async () => {
-        called += 1;
-        return [];
-      },
-      create: async () => {
-        called += 1;
-        return { ok: true, status: 200, notionPageId: 'page' };
-      },
+      notion,
     });
     assert.equal(outcome.outcome, 'held');
-    assert.equal(called, 0);
+    assert.equal(notion.calls.length, 0);
     assert.equal(outboxKindSendsInvite('client-create'), false);
   });
 
   it('reuses a slug hit and does not post or patch', async () => {
-    let created = 0;
+    const notion = fakeNotion();
+    notion.seedPage({
+      id: 'page-existing',
+      dataSourceId: CLIENTS,
+      properties: { Slug: richText('north-wind'), 'External ID': richText('wh_cli_other') },
+    });
     const outcome = await runClientCreateAttempt({
-      item: item({
-        kind: 'client-create',
-        database: 'clients',
-        properties: clientProperties,
-      }),
+      item: item({ kind: 'client-create', database: 'clients', properties: clientProperties }),
       nowMs: 0,
       writebackEnabled: true,
       owned: true,
-      search: async () => [
-        {
-          notionPageId: 'page-existing',
-          externalId: 'wh_cli_other',
-          slug: 'north-wind',
-          properties: { Slug: { type: 'rich_text', rich_text: [{ plain_text: 'north-wind' }] } },
-        },
-      ],
-      create: async () => {
-        created += 1;
-        return { ok: true, status: 200, notionPageId: 'page-new' };
-      },
+      notion,
     });
     assert.equal(outcome.outcome, 'confirmed');
     if (outcome.outcome !== 'confirmed') return;
     assert.equal(outcome.reused, true);
     assert.equal(outcome.reuseKind, 'slug');
     assert.equal(outcome.write.notionPageId, 'page-existing');
-    assert.equal(created, 0);
+    assert.deepEqual(ops(notion), ['query']);
   });
 
   it('posts once when External ID and Slug are new', async () => {
-    let created = 0;
+    const notion = fakeNotion();
     const outcome = await runClientCreateAttempt({
-      item: item({
-        kind: 'client-create',
-        database: 'clients',
-        properties: clientProperties,
-      }),
+      item: item({ kind: 'client-create', database: 'clients', properties: clientProperties }),
       nowMs: 0,
       writebackEnabled: true,
       owned: true,
-      search: async () => [],
-      create: async (properties) => {
-        created += 1;
-        assert.equal(properties['Portal access'], 'Disabled');
-        assert.equal(properties.Status, 'Prospect');
-        assert.equal(properties['Publish to Warehaus'], false);
-        return { ok: true, status: 200, notionPageId: 'page-new', lastEditedTime: '2026-11-13T00:00:00.000Z' };
-      },
+      notion,
     });
-    assert.equal(created, 1);
+    assert.equal(count(notion, 'create'), 1);
     assert.equal(outcome.outcome, 'confirmed');
     if (outcome.outcome !== 'confirmed') return;
     assert.equal(outcome.reused, false);
-    assert.equal(outcome.write.notionPageId, 'page-new');
+    const stored = notion.page(outcome.write.notionPageId)?.properties ?? {};
+    assert.deepEqual(stored['Portal access'], { type: 'select', select: { name: 'Disabled' } });
+    assert.deepEqual(stored.Status, { type: 'select', select: { name: 'Prospect' } });
+    assert.deepEqual(stored['Publish to Warehaus'], { type: 'checkbox', checkbox: false });
   });
 });
 

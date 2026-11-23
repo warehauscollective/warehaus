@@ -37,7 +37,7 @@ Code outside these modules called `fetch` on Notion directly. A new caller could
 
 ## Consequences
 
-- There are two adapters behind the Notion client: HTTP, and an in-memory adapter used only in tests. The in-memory adapter supports only the operations and filters callers use today, and throws on anything else, so a test can't pass by accident. It cannot back a local preview, because Convex actions on shared dev run in the cloud.
+- There are two adapters behind the Notion client: HTTP, and an in-memory adapter used only in tests. The in-memory adapter supports only the operations and filters callers use today, and throws on anything else, so a test can't pass by accident. It cannot back a local preview, because Convex actions on shared dev run in the cloud. It lives in `packages/portal-sync` beside the interface, behind the `@warehaus/portal-sync/notion-memory` subpath, and takes the write policy as a function, so the outbox tests there and the portal's tests share one adapter.
 - A new feature that writes to Notion has to name a write kind. Adding a kind means amending this ADR.
 - Build plan: one Portal milestone, "Notion client", on branch `milestone/notion-client`:
   1. the client, the HTTP adapter and the write policy, with every caller moved onto it

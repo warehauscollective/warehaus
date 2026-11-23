@@ -4,26 +4,21 @@
  * write kind, and this decides whether it may run on this deployment.
  */
 
-import { WRITEBACK_OFF_ERROR, isNotionWritebackEnabled as writebackFlagIsOn } from '@warehaus/portal-sync';
+import {
+  isNotionWritebackEnabled as writebackFlagIsOn,
+  type WriteDecision,
+  type WriteKind,
+} from '@warehaus/portal-sync';
 import { authMirrorAllowed } from '../../_lib/devAccess';
 
-export type WriteKind = 'writeback' | 'auth-mirror' | 'resource-url';
-
-export type SkipReason = 'writeback-off' | 'not-production' | 'not-configured';
+export { SKIP_MESSAGES } from '@warehaus/portal-sync';
+export type { SkipReason, WriteDecision, WriteKind } from '@warehaus/portal-sync';
 
 export type NotionEnv = {
   token?: string;
   writebackFlag?: string;
   cloudUrl?: string;
   blobToken?: string;
-};
-
-export type WriteDecision = { allowed: true } | { allowed: false; reason: SkipReason };
-
-export const SKIP_MESSAGES: Record<SkipReason, string> = {
-  'writeback-off': WRITEBACK_OFF_ERROR,
-  'not-production': 'Only production writes this to Notion.',
-  'not-configured': 'Notion is not configured for write-back.',
 };
 
 export function readNotionEnv(env: Record<string, string | undefined> = process.env): NotionEnv {

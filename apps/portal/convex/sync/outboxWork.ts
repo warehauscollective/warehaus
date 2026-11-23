@@ -8,15 +8,14 @@ import {
   PORTAL_COLLECTIONS,
   WRITEBACK_OFF_ERROR,
   asClientCreateProperties,
+  asProjectCreateProperties,
   clientCreateConvexFields,
   clientCreateInsertAllowed,
-  clientCreateHitFromNotion,
   clientFieldsFromNotionPage,
   missingWritebackProperty,
   missingWritebackReason,
   outboxKindSendsInvite,
   projectCreateConvexFields,
-  readNotionPlain,
   runClientCreateAttempt,
   runOutboxAttempt,
   runProjectCreateAttempt,
@@ -24,7 +23,6 @@ import {
   type ClientCreateAttempt,
   type ClientUpsertFields,
   type OutboxItem,
-  type ProjectCreateProperties,
   type WriteProperties,
   type WritebackDatabase,
 } from '@warehaus/portal-sync';
@@ -33,17 +31,7 @@ import { internal } from '../_generated/api';
 import type { Doc, Id } from '../_generated/dataModel';
 import { internalAction, type ActionCtx } from '../_generated/server';
 import { listDataSourcePropertyNames } from './notionApi';
-import {
-  createNotionClientPage,
-  createNotionProjectPage,
-  readNotionLastEdited,
-  searchClientCreateHits,
-  searchNotionPages,
-  searchProjectCreateHits,
-  archiveNotionPage,
-  writeNotionPage,
-} from './notionWrite';
-import { writebackAllowed } from './notion';
+import { notionClient, writebackAllowed } from './notion';
 
 type ProcessResult =
   | { ok: true; notionPageId: string; reused: boolean; projectId?: string; clientId?: string }
@@ -89,25 +77,6 @@ function toItem(row: Doc<'notionOutbox'>): OutboxItem {
     claimedAt: row.claimedAt,
     lastError: row.lastError,
     staffNotifiedAt: row.staffNotifiedAt,
-  };
-}
-
-function asProjectProperties(properties: WriteProperties): ProjectCreateProperties | null {
-  const client = properties.Client;
-  if (typeof properties.Name !== 'string') return null;
-  if (!Array.isArray(client) || client.length !== 1 || typeof client[0] !== 'string') return null;
-  const publish = properties['Publish to Warehaus'];
-  if (typeof publish !== 'boolean') return null;
-  if (properties.Archive !== false) return null;
-  if (properties.Source !== 'portal') return null;
-  if (typeof properties['External ID'] !== 'string') return null;
-  return {
-    Name: properties.Name,
-    Client: [client[0]],
-    'Publish to Warehaus': publish,
-    Archive: false,
-    Source: 'portal',
-    'External ID': properties['External ID'],
   };
 }
 
@@ -175,18 +144,6 @@ async function convexClientForCreate(
     ...(fields.externalId ? { externalId: fields.externalId } : {}),
     ...(fields.source ? { source: fields.source } : {}),
   });
-}
-
-function sameOrg(
-  database: WritebackDatabase,
-  properties: Record<string, unknown>,
-  clientNotionPageId: string | null,
-): boolean {
-  if (database === 'clients') return true;
-  if (database !== 'contacts') return true;
-  if (!clientNotionPageId) return false;
-  const ids = readNotionPlain(properties['Client Company']);
-  return Array.isArray(ids) && ids.includes(clientNotionPageId);
 }
 
 function failureMessage(err: unknown): string {
@@ -269,46 +226,28 @@ async function execute(
   const database = item.database;
   let outcome: AttemptOutcome;
   let clientAttempt: ClientCreateAttempt | null = null;
+  const notion = notionClient();
   try {
     const livePropertyNames = await propertyNamesFor(schemaCache, database);
+    const common = {
+      item,
+      nowMs: Date.now(),
+      writebackEnabled: true,
+      owned: true,
+      livePropertyNames: livePropertyNames ?? undefined,
+      notion,
+    };
     if (row.kind === 'client-create') {
-      const externalId =
-        typeof item.properties['External ID'] === 'string' ? item.properties['External ID'] : '';
-      const slug = typeof item.properties.Slug === 'string' ? item.properties.Slug : '';
-      const attempt = await runClientCreateAttempt({
-        item,
-        nowMs: Date.now(),
-        writebackEnabled: true,
-        owned: true,
-        livePropertyNames: livePropertyNames ?? undefined,
-        search: async () => {
-          if (!externalId || !slug) return [];
-          const pages = await searchClientCreateHits(externalId, slug);
-          return pages.map(clientCreateHitFromNotion);
-        },
-        create: async (properties) => createNotionClientPage(properties),
-      });
+      const attempt = await runClientCreateAttempt(common);
       clientAttempt = attempt;
       outcome = attempt;
     } else if (row.kind === 'project-create') {
-      outcome = await runProjectCreateAttempt({
-        item,
-        nowMs: Date.now(),
-        writebackEnabled: true,
-        owned: true,
-        livePropertyNames: livePropertyNames ?? undefined,
-        search: (externalId) => searchProjectCreateHits(externalId),
-        create: async (properties) => {
-          const shaped = asProjectProperties(properties);
-          if (!shaped) return { ok: false, status: 400, error: 'Project create payload is incomplete' };
-          return createNotionProjectPage(shaped);
-        },
-      });
+      outcome = await runProjectCreateAttempt(common);
     } else if (row.kind === 'task-archive') {
       if (!row.notionPageId) {
         outcome = { outcome: 'rejected', reason: 'Archive requires a Notion page' };
       } else {
-        const archived = await archiveNotionPage(row.notionPageId);
+        const archived = await notion.archivePage('writeback', row.notionPageId);
         outcome = archived.ok && archived.notionPageId
           ? {
               outcome: 'confirmed',
@@ -329,37 +268,7 @@ async function execute(
       }
     } else {
       const clientNotionId = await ctx.runQuery(internal.sync.outbox.clientNotionId, { orgId: row.orgId });
-      outcome = await runOutboxAttempt({
-        item,
-        nowMs: Date.now(),
-        writebackEnabled: true,
-        owned: true,
-        actor: 'staff',
-        livePropertyNames: livePropertyNames ?? undefined,
-        readPage: async (notionPageId) => {
-          const read = await readNotionLastEdited(notionPageId);
-          if (!read.ok) {
-            return { ok: false, status: read.status, retryAfterMs: read.retryAfterMs, error: read.error ?? 'Notion read failed' };
-          }
-          return { ok: true, lastEditedTime: read.lastEditedTime ?? null };
-        },
-        search: async (plan) => {
-          if (database === 'activity') return [];
-          const property = plan.property;
-          if (property !== 'Slug' && property !== 'Email' && property !== 'External ID') return [];
-          const hits = await searchNotionPages(database, { property, value: plan.value });
-          return hits.map((hit) => ({
-            notionPageId: hit.notionPageId,
-            sameOrg: sameOrg(database, hit.properties, clientNotionId),
-          }));
-        },
-        write: async (request) => {
-          if (database === 'activity') {
-            return { ok: false, status: 400, error: 'Activity has no portal create path' };
-          }
-          return writeNotionPage(database, request);
-        },
-      });
+      outcome = await runOutboxAttempt({ ...common, actor: 'staff', clientNotionId });
     }
   } catch (err) {
     const message = failureMessage(err);
@@ -492,7 +401,7 @@ async function execute(
     return { ok: true, notionPageId: outcome.write.notionPageId, reused: outcome.reused };
   }
 
-  const shaped = asProjectProperties(outcome.write.properties);
+  const shaped = asProjectCreateProperties(outcome.write.properties);
   if (!shaped) return { ok: true, notionPageId: outcome.write.notionPageId, reused: outcome.reused };
   const fields = projectCreateConvexFields(shaped);
   const projectId = await ctx.runMutation(internal.sync.upsert.upsertProject, {

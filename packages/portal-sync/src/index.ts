@@ -186,6 +186,7 @@ export {
   toNotionProjectCreateProperties,
   projectCreatePageRequest,
   projectCreateSearchFilter,
+  asProjectCreateProperties,
   projectCreateConvexFields,
   decideProjectCreateDedupe,
   type ProjectCreateProperties,
@@ -393,7 +394,6 @@ export {
   LINEAR_API_KEY_ENV,
   storedTaskPlatform,
   linearApiKey,
-  adapterFor,
   readTaskPlatform,
   taskPlatformStatus,
   toTaskPlatformView,
@@ -476,7 +476,6 @@ export {
   type TaskListIndex,
 } from './portalApi';
 
-export { notionTaskPlatform } from './notionTaskPlatform';
 export {
   LINEAR_GRAPHQL_URL,
   linearOrgRead,
@@ -495,3 +494,18 @@ export {
   type ProjectContextKind,
   type ProjectContextDocType,
 } from './projectContext';
+
+export {
+  NotionError,
+  SKIP_MESSAGES,
+  type NotionClient,
+  type NotionErrorCode,
+  type NotionList,
+  type NotionRawBlock,
+  type NotionRawPage,
+  type NotionWriteResult,
+  type QueryOptions,
+  type SkipReason,
+  type WriteDecision,
+  type WriteKind,
+} from './notionClient';

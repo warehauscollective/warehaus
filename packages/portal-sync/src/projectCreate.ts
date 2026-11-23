@@ -21,7 +21,7 @@
  */
 
 import { normalizeNotionId } from './collections';
-import { WRITEBACK_OFF_ERROR } from './writeback';
+import { WRITEBACK_OFF_ERROR, type WriteProperties } from './writeback';
 
 /** Mapper fallback when Notion Status is absent. Not written to Notion. */
 export const PROJECT_CREATE_CONVEX_STATUS = 'Inbox' as const;
@@ -110,6 +110,26 @@ export function buildProjectCreateProperties(input: {
 }
 
 /** Page-create body properties for Notion-Version 2025-09-03. */
+/** A queued project-create payload as typed properties. Null when it is incomplete. */
+export function asProjectCreateProperties(properties: WriteProperties): ProjectCreateProperties | null {
+  const client = properties.Client;
+  if (typeof properties.Name !== 'string') return null;
+  if (!Array.isArray(client) || client.length !== 1 || typeof client[0] !== 'string') return null;
+  const publish = properties['Publish to Warehaus'];
+  if (typeof publish !== 'boolean') return null;
+  if (properties.Archive !== false) return null;
+  if (properties.Source !== 'portal') return null;
+  if (typeof properties['External ID'] !== 'string') return null;
+  return {
+    Name: properties.Name,
+    Client: [client[0]],
+    'Publish to Warehaus': publish,
+    Archive: false,
+    Source: 'portal',
+    'External ID': properties['External ID'],
+  };
+}
+
 export function toNotionProjectCreateProperties(
   properties: ProjectCreateProperties,
 ): Record<string, unknown> {

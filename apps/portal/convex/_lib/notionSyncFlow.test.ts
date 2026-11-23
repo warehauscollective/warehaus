@@ -9,14 +9,11 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
   PORTAL_COLLECTIONS,
   WRITEBACK_OFF_ERROR,
-  clientCreateHitFromNotion,
-  readNotionPlain,
   runClientCreateAttempt,
   runOutboxAttempt,
   runProjectCreateAttempt,
   type OutboxItem,
   type ProjectCreateProperties,
-  type WritebackDatabase,
 } from '@warehaus/portal-sync';
 import { fetchPlainPageBody, fetchSafeDocBody } from '../sync/docBody';
 import { setNotionClientForTests } from '../sync/notion';
@@ -28,16 +25,6 @@ import {
   queryAllDataSourcePages,
   writeSharedResourceUrl,
 } from '../sync/notionApi';
-import {
-  archiveNotionPage,
-  createNotionClientPage,
-  createNotionProjectPage,
-  readNotionLastEdited,
-  searchClientCreateHits,
-  searchNotionPages,
-  searchProjectCreateHits,
-  writeNotionPage,
-} from '../sync/notionWrite';
 
 const { tasks: TASKS, contacts: CONTACTS, projects: PROJECTS, clients: CLIENTS, sharedResources: RESOURCES } =
   PORTAL_COLLECTIONS;
@@ -94,32 +81,16 @@ function item(overrides: Partial<OutboxItem>): OutboxItem {
   };
 }
 
-/** The wiring `outboxWork.execute` uses for property writes. Task 3 moves this into `runOutboxAttempt`. */
+/** How `outboxWork.execute` runs a property write: the attempt calls Notion itself. */
 function outboxAttempt(outboxItem: OutboxItem, clientNotionId: string | null) {
-  const database = outboxItem.database as Exclude<WritebackDatabase, 'activity'>;
   return runOutboxAttempt({
     item: outboxItem,
     nowMs: 1_000,
     writebackEnabled: true,
     owned: true,
     actor: 'staff',
-    readPage: async (notionPageId) => {
-      const read = await readNotionLastEdited(notionPageId);
-      if (!read.ok) {
-        return { ok: false, status: read.status, retryAfterMs: read.retryAfterMs, error: read.error ?? 'read failed' };
-      }
-      return { ok: true, lastEditedTime: read.lastEditedTime ?? null };
-    },
-    search: async (plan) => {
-      const property = plan.property as 'Slug' | 'Email' | 'External ID';
-      const hits = await searchNotionPages(database, { property, value: plan.value });
-      return hits.map((hit) => {
-        const ids = readNotionPlain(hit.properties['Client Company']);
-        const sameOrg = database !== 'contacts' || (Array.isArray(ids) && ids.includes(clientNotionId ?? ''));
-        return { notionPageId: hit.notionPageId, sameOrg };
-      });
-    },
-    write: (request) => writeNotionPage(database, request),
+    clientNotionId,
+    notion,
   });
 }
 
@@ -302,8 +273,7 @@ describe('outbox against in-memory Notion', () => {
         nowMs: 1_000,
         writebackEnabled: true,
         owned: true,
-        search: (externalId) => searchProjectCreateHits(externalId),
-        create: async () => createNotionProjectPage(properties),
+        notion,
       });
     const first = await attempt();
     assert.ok(first.outcome === 'confirmed' && !first.reused);
@@ -328,8 +298,7 @@ describe('outbox against in-memory Notion', () => {
       nowMs: 1_000,
       writebackEnabled: true,
       owned: true,
-      search: async () => (await searchClientCreateHits(properties['External ID'], properties.Slug)).map(clientCreateHitFromNotion),
-      create: createNotionClientPage,
+      notion,
     });
     assert.ok(outcome.outcome === 'confirmed' && outcome.reused && outcome.reuseKind === 'slug');
     assert.equal(notion.calls.filter((call) => call.op === 'create').length, 0);
@@ -337,7 +306,7 @@ describe('outbox against in-memory Notion', () => {
 
   it('archives a task, and the next pull finds it in the archived partition', async () => {
     notion.seedPage({ id: 'task', dataSourceId: TASKS });
-    const archived = await archiveNotionPage('task');
+    const archived = await notion.archivePage('writeback', 'task');
     assert.equal(archived.ok, true);
     assert.deepEqual((await queryAllDataSourcePages(TASKS)).map((row) => row.id), []);
     assert.deepEqual((await queryAllDataSourcePages(TASKS, { archived: true })).map((row) => row.id), ['task']);
