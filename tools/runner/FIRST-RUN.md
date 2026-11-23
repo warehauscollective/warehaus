@@ -4,21 +4,18 @@ A checklist for the first end-to-end run of the milestone pipeline: create a mil
 
 Every step uses shared dev `graceful-mastiff-960`. Nothing here touches production `unique-turtle-383`.
 
-## 1. Merge (after Peter approves in Grok Bot or the Portal)
+## 1. Start from current `main`
 
-Merge in this order, rebasing each PR onto `main` before the next:
+The pipeline is already on `main`: #141 to #143, #148, #150, #153 and #154 are merged. One pull request is still open and should be in before the first run: the auto-planning leftovers (wrap-up skips Parked tasks, plus the loop card fixes). It waits for Peter's approval in Grok Bot or the Portal.
 
-1. [#141](https://github.com/warehauscollective/warehaus/pull/141)
-2. [#138](https://github.com/warehauscollective/warehaus/pull/138)
-3. [#139](https://github.com/warehauscollective/warehaus/pull/139)
-4. [#140](https://github.com/warehauscollective/warehaus/pull/140)
-5. [#142](https://github.com/warehauscollective/warehaus/pull/142)
-6. [#143](https://github.com/warehauscollective/warehaus/pull/143)
-
-Run the tests on `main` once all six are in:
+Run the tests on `main` once it is in:
 
 ```bash
 npm run test:runner
+```
+
+```bash
+npm run test:portal-convex
 ```
 
 Merging does not deploy anything. Production still waits for Peter's "deploy main".
@@ -27,7 +24,7 @@ Merging does not deploy anything. Production still waits for Peter's "deploy mai
 
 - Push the schema and functions to `graceful-mastiff-960` once, then stop. Never use `--prod`, never run `npx convex deploy`, and don't leave `convex dev` running.
 - Set these environment variables on the dev deployment:
-  - `RUNNER_TOKENS=peter-mbp=<random token, at least 24 characters> <owner/name>`
+  - `RUNNER_TOKENS=peter-mbp=<random token, at least 24 characters> <owner/name>`. Dev only. Never set `RUNNER_TOKENS`, or a project's repository, on production `unique-turtle-383`.
   - `GITHUB_WEBHOOK_SECRET=<secret>`
   - `VERCEL_WEBHOOK_SECRET=<secret>`, if you want the Vercel preview link on the milestone.
 
@@ -53,6 +50,7 @@ export RUNNER_TOKEN=<the token for peter-mbp>
 
 - The runner does not pass `RUNNER_TOKEN` into Claude, so the Activity hook posts nothing from inside the session. The start and the finish of a run are still reported.
 - Use the default `--mode interactive`. `--mode headless` draws on the Agent SDK credit instead of plan limits.
+- Only if the test project is set to Cursor: export `CURSOR_API_KEY` in this same shell. The key stays in the runner process on this Mac. It is never sent to Convex, Vercel, Claude, Notion or chat, and it is never printed or logged. Leave it unset everywhere else. Planning still runs on Claude Code.
 
 ## 5. Grok Bot
 
@@ -81,6 +79,8 @@ Open the Vercel dashboard. Confirm the Preview environment variables point at `g
    ```bash
    npm run preview:pr -- milestone/<slug>
    ```
+
+   A task whose Stage is Parked does not hold this up, and the runner never takes one. To test it, park one To do task before the last run: the milestone should still reach Ready to Ship.
 
 7. Test the review loop once: request changes. A review task appears, the milestone goes back to Building, and the runner claims the task.
 8. Approve. That records the decision and nothing else.

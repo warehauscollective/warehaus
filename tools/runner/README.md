@@ -19,7 +19,7 @@ Claude Code has no model API key here. The runner never reads or forwards a Clau
    - **task**: if there is a new commit, pushes the branch, makes sure the milestone has its one pull request into the default branch (`gh pr create` when there is none), and reports `done` with the commit. With no new commit the task is blocked. If Claude wrote `.runner/blocked.txt`, the task is reported `blocked` with that line. Staff retry a blocked task.
    - **planning**: posts the 3 to 10 tasks to `POST /agent/tasks`. The tasks are marked Planner. The milestone stays in Planning. It does not write a file and it does not commit.
    - **build**: follows the Cursor agent, reads commits that name a task with `Portal-Task: <id>`, and reports them to `POST /agent/build`. The agent link is stored on those tasks.
-5. When the last task on a milestone is done, the Portal moves the milestone to Ready to Ship, stores the local preview link so Approve unlocks, and leaves a "needs Peter" note with the pull request, the local preview command and the approval line. The runner then labels the pull request `ready-for-review`, which is what starts the staff Vercel preview against shared dev. A blocked or stuck run leaves a note too. Grok Bot reads open notes with the `list_needs_peter` tool.
+5. When the last task on a milestone is done, the Portal moves the milestone to Ready to Ship (a Parked task does not count, and the runner never takes one), stores the local preview link so Approve unlocks, and leaves a "needs Peter" note with the pull request, the local preview command and the approval line. The runner then labels the pull request `ready-for-review`, which is what starts the staff Vercel preview against shared dev. A blocked or stuck run leaves a note too. Grok Bot reads open notes with the `list_needs_peter` tool.
 
 Only tasks stored in the Portal are claimed: tasks from the brief, from a change request, or added on the milestone. A task that syncs from Notion is left for a person.
 
@@ -73,7 +73,7 @@ Use shared dev, never production.
 4. A staff member sets the project's repository once (`projects.setAgentRepo`). Then start the runner: `npm run runner -- start --id <your id> --repo <owner/name> --once`.
 5. Work the task in the Claude Code session that opens. Commit. Exit.
 6. Open the milestone's Activity tab. The run and the commit are there. The task shows Done with its commit on the Tasks tab.
-7. Repeat until every task is done. The milestone moves to Ready to Ship.
+7. Repeat until every task that is not Parked is done. The milestone moves to Ready to Ship.
 8. Open the local preview: `npm run preview:pr -- milestone/<slug>`.
 9. Approve in the Portal or in Grok Bot. Approval records the decision. Merge and deploy stay separate steps.
 
