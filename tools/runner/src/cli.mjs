@@ -5,28 +5,23 @@
 // It never reads or forwards a Claude credential and never calls a model API.
 // The only program it starts for model work is the `claude` binary.
 
-import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { spawn } from 'node:child_process';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cursorBuildPrompt, cursorCreateBody, cursorRequest } from './drivers/cursor.mjs';
+import { cursorBuild } from './drivers/cursorBuild.mjs';
+import { repoTools } from './repo.mjs';
 import {
-  defaultBranchName,
   idleDelayMs,
-  isMilestoneBranch,
   parseArgs,
-  parseGitLog,
   parsePlanOutput,
   planPrompt,
-  pullRequestBody,
   childEnv,
-  mapCursorCommits,
   readEnv,
   repoFromRemote,
   selectDriver,
   taskOutcome,
   taskPrompt,
-  worktreeName,
 } from './lib.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -34,11 +29,6 @@ const prompts = join(here, '..', 'prompts');
 
 function say(message) {
   process.stdout.write(`[runner] ${message}\n`);
-}
-
-function git(cwd, args) {
-  const result = spawnSync('git', args, { cwd, encoding: 'utf8' });
-  return { ok: result.status === 0, out: (result.stdout ?? '').trim(), err: (result.stderr ?? '').trim() };
 }
 
 async function call(config, path, body) {
@@ -64,71 +54,8 @@ async function call(config, path, body) {
   return data ?? {};
 }
 
-/** The repository's default branch: origin/HEAD, else what GitHub says, else main. */
-function defaultBranch(repo) {
-  const ref = git(repo, ['symbolic-ref', '--short', 'refs/remotes/origin/HEAD']);
-  let fromGh = '';
-  if (!ref.ok) {
-    const viewed = spawnSync('gh', ['repo', 'view', '--json', 'defaultBranchRef', '--jq', '.defaultBranchRef.name'], {
-      cwd: repo,
-      encoding: 'utf8',
-    });
-    if (viewed.status === 0) fromGh = (viewed.stdout ?? '').trim();
-  }
-  return defaultBranchName(ref.ok ? ref.out : '', fromGh);
-}
-
-/** A worktree for the milestone branch, beside the repository. Created from the default branch when the branch is new. */
-function ensureWorktree(repo, branch) {
-  if (!isMilestoneBranch(branch)) throw new Error(`Refusing branch ${branch}. Only milestone/<slug> is used.`);
-  const dir = resolve(repo, '..', 'warehaus-runner', worktreeName(branch));
-  if (existsSync(join(dir, '.git'))) {
-    const current = git(dir, ['branch', '--show-current']);
-    if (current.out !== branch) throw new Error(`${dir} is on ${current.out || 'no branch'}, not ${branch}.`);
-    return dir;
-  }
-  mkdirSync(dirname(dir), { recursive: true });
-  git(repo, ['fetch', 'origin', '--quiet']);
-  const remote = git(repo, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`]);
-  const local = git(repo, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}`]);
-  const added = local.ok
-    ? git(repo, ['worktree', 'add', dir, branch])
-    : remote.ok
-      ? git(repo, ['worktree', 'add', '-b', branch, dir, `origin/${branch}`])
-      : git(repo, ['worktree', 'add', '-b', branch, dir, `origin/${defaultBranch(repo)}`]);
-  if (!added.ok) throw new Error(`Could not create the worktree: ${added.err}`);
-  return dir;
-}
-
-/**
- * One pull request per milestone, from the milestone branch into main. Finds
- * the open one, or opens it. Returns its URL, or null when `gh` is missing or
- * the call fails: the task still completes, and the GitHub webhook stores the
- * link when the pull request appears.
- */
-function ensurePullRequest(dir, work) {
-  const branch = work.milestone.branch;
-  const found = spawnSync('gh', ['pr', 'view', branch, '--json', 'url,state'], { cwd: dir, encoding: 'utf8' });
-  if (found.status === 0) {
-    try {
-      const parsed = JSON.parse(found.stdout);
-      if (parsed.state === 'OPEN' && typeof parsed.url === 'string') return parsed.url;
-    } catch {
-      // Fall through and open one.
-    }
-  }
-  const created = spawnSync(
-    'gh',
-    ['pr', 'create', '--base', defaultBranch(dir), '--head', branch, '--title', work.milestone.name, '--body', pullRequestBody(work)],
-    { cwd: dir, encoding: 'utf8' },
-  );
-  if (created.status !== 0) {
-    say(`No pull request yet: ${(created.stderr ?? '').trim().split('\n')[0] || 'gh failed'}`);
-    return null;
-  }
-  const url = (created.stdout ?? '').trim().split('\n').pop() ?? '';
-  return /^https:\/\/github\.com\//.test(url) ? url : null;
-}
+const tools = repoTools({ say });
+const { git, ensureWorktree, ensurePullRequest, markReadyForReview } = tools;
 
 function claudeEnv(config, runId) {
   return childEnv(process.env, {
@@ -223,124 +150,18 @@ async function doPlanning(config, work) {
   say(`Wrote ${plan.tasks.length} tasks${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
 }
 
-function markReadyForReview(dir, branch) {
-  const labeled = spawnSync('gh', ['pr', 'edit', branch, '--add-label', 'ready-for-review'], { cwd: dir, encoding: 'utf8' });
-  if (labeled.status !== 0) {
-    say(`Review label not added: ${(labeled.stderr ?? '').trim().split('\n')[0] || 'gh failed'}`);
-  }
-}
-
-function milestoneBranchOnOrigin(repo, branch) {
-  git(repo, ['fetch', 'origin', branch, '--quiet']);
-  return git(repo, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`]).ok;
-}
-
-/** Creates milestone/<slug> from the default branch and pushes it, when origin does not have it yet. */
-function publishMilestoneBranch(repo, branch) {
-  if (!isMilestoneBranch(branch)) return { ok: false, error: 'The milestone branch is not a milestone branch' };
-  if (milestoneBranchOnOrigin(repo, branch)) return { ok: true };
-  let dir;
-  try {
-    dir = ensureWorktree(repo, branch);
-  } catch {
-    return { ok: false, error: 'The milestone branch could not be created' };
-  }
-  const pushed = git(dir, ['push', '-u', 'origin', branch]);
-  if (!pushed.ok || !milestoneBranchOnOrigin(repo, branch)) return { ok: false, error: 'The push to origin failed' };
-  return { ok: true };
-}
-
-async function doBuild(config, work) {
+/** One step of a Cursor build. The key stays in this process: see drivers/cursorBuild.mjs. */
+function doBuild(config, work) {
   say(`Cursor · ${work.milestone.name} · ${work.milestone.branch}`);
-  const key = (process.env.CURSOR_API_KEY ?? '').trim();
-  if (!key) {
-    await call(config, '/agent/build', {
-      runId: work.runId,
-      status: 'failed',
-      reason: 'The Cursor API key is not set on this runner',
-    });
-    return 'settled';
-  }
-  const repoName = repoFromRemote(git(config.repo, ['remote', 'get-url', 'origin']).out) ?? '';
-  let agentId = work.externalId || '';
-  let agentUrl = work.externalUrl || '';
-  if (!agentId) {
-    const published = publishMilestoneBranch(config.repo, work.milestone.branch);
-    if (!published.ok) {
-      await call(config, '/agent/build', {
-        runId: work.runId,
-        status: 'failed',
-        reason: published.error,
-      });
-      return 'settled';
-    }
-    const prompt = cursorBuildPrompt('', { ...work, repo: repoName });
-    const created = await cursorRequest({
-      key,
-      path: '',
-      method: 'POST',
-      body: cursorCreateBody({ repo: repoName, branch: work.milestone.branch, prompt }),
-    });
-    if (!created.ok) {
-      await call(config, '/agent/build', { runId: work.runId, status: 'failed', reason: created.error });
-      return 'settled';
-    }
-    agentId = created.agent.id;
-    agentUrl = created.agent.url;
-    await call(config, '/agent/build', {
-      runId: work.runId,
-      status: 'running',
-      ...(agentId ? { agentId } : {}),
-      ...(agentUrl ? { agentUrl } : {}),
-    });
-    if (created.agent.state !== 'finished') {
-      say('Cursor agent is running.');
-      return 'running';
-    }
-  }
-  const looked = await cursorRequest({ key, path: `/${encodeURIComponent(agentId)}`, method: 'GET' });
-  if (!looked.ok) {
-    await call(config, '/agent/build', { runId: work.runId, status: 'failed', reason: looked.error });
-    return 'settled';
-  }
-  if (looked.agent.state === 'running') {
-    say('Cursor agent is still running.');
-    return 'running';
-  }
-  if (looked.agent.state === 'failed') {
-    await call(config, '/agent/build', {
-      runId: work.runId,
-      status: 'failed',
-      reason: looked.agent.reason,
-      ...(agentUrl ? { agentUrl } : {}),
-    });
-    return 'settled';
-  }
-  git(config.repo, ['fetch', 'origin', work.milestone.branch, '--quiet']);
-  const log = git(config.repo, ['log', `origin/${work.milestone.branch}`, '--format=%H%x1f%B%x1e']);
-  const done = mapCursorCommits(parseGitLog(log.out), work.tasks ?? []);
-  if (done.length === 0) {
-    await call(config, '/agent/build', {
-      runId: work.runId,
-      status: 'failed',
-      reason: 'The Cursor agent finished without a Portal-Task trailer',
-      ...(agentUrl || looked.agent.url ? { agentUrl: agentUrl || looked.agent.url } : {}),
-    });
-    return 'settled';
-  }
-  const dir = ensureWorktree(config.repo, work.milestone.branch);
-  const prUrl = looked.agent.prUrl || ensurePullRequest(dir, work);
-  const result = await call(config, '/agent/build', {
-    runId: work.runId,
-    status: 'finished',
-    ...(agentId ? { agentId } : {}),
-    ...(agentUrl || looked.agent.url ? { agentUrl: agentUrl || looked.agent.url } : {}),
-    tasks: done,
-    ...(prUrl ? { prUrl } : {}),
+  return cursorBuild({
+    config,
+    repoName: config.repos[0] ?? '',
+    work,
+    key: (process.env.CURSOR_API_KEY ?? '').trim(),
+    tools,
+    call: (path, body) => call(config, path, body),
+    say,
   });
-  if (result.milestoneStatus === 'Ready to Ship') markReadyForReview(dir, work.milestone.branch);
-  say(`Cursor finished ${done.length} tasks${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
-  return 'settled';
 }
 
 function sleep(ms) {

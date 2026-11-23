@@ -23,6 +23,14 @@ Approved by Peter in Grok Bot (Portal room), 2026-11-17, 11:46 AM ET. Canonical 
 
 Open item: shared dev still uses the production Notion token, so a local preview that writes can touch the real Warehaus Notion. The test Notion spec is coming.
 
+## Design source
+
+Figma file for every Portal design: [Warehaus Studio](https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=689-31057) (file key `TS3DcaCgrIdYf0jhvnMy3k`). Full table and rules: `AGENTS.md`, "Design source".
+
+- One page per Portal tab: Portal - Dashboard (`689:31056`), Portal - Projects (`689:31057`), Portal - Resources (`689:31058`), Portal - Activity (`689:31059`), Portal - Account (`689:31060`).
+- Core / Components, the component library: Portal - Component Library (`151:5387`).
+- Iterate on existing frames only. No new page, no new file, no parallel copy of a screen, and do not publish the library.
+
 ## Code graph (graphify)
 
 Local only. Never Graphify Cloud, and no semantic pass over docs or images.

@@ -161,10 +161,11 @@ describe('default branch', () => {
     assert.equal(defaultBranchName('', 'trunk'), 'trunk');
     assert.equal(defaultBranchName('', ''), 'main');
     assert.equal(defaultBranchName('origin/../etc', 'x; rm -rf'), 'main');
-    const cli = read('./cli.mjs');
-    assert.equal(cli.includes("'origin/main'"), false);
-    assert.equal(cli.includes("'--base', 'main'"), false);
-    assert.match(cli, /`origin\/\$\{defaultBranch\(repo\)\}`/);
+    for (const source of [read('./cli.mjs'), read('./repo.mjs'), read('./drivers/cursorBuild.mjs')]) {
+      assert.equal(source.includes("'origin/main'"), false);
+      assert.equal(source.includes("'--base', 'main'"), false);
+    }
+    assert.match(read('./repo.mjs'), /`origin\/\$\{defaultBranch\(repo\)\}`/);
   });
 });
 
@@ -176,10 +177,11 @@ describe('pull request', () => {
     assert.match(body, /Portal milestone: \*\*Launch\*\*/);
     assert.match(body, /- Hero matches/);
     assert.match(body, /Merging does not deploy/);
-    const cli = read('./cli.mjs');
-    // Opened against main, never merged or closed by the runner.
-    assert.match(cli, /'pr', 'create', '--base', defaultBranch\(dir\), '--head', branch/);
-    assert.equal(/'pr', 'merge'|'pr', 'close'|--admin|--force/.test(cli), false);
+    // Opened against the default branch, never merged or closed by the runner.
+    assert.match(read('./repo.mjs'), /'pr', 'create', '--base', defaultBranch\(dir\), '--head', branch/);
+    for (const source of [read('./cli.mjs'), read('./repo.mjs'), read('./drivers/cursorBuild.mjs')]) {
+      assert.equal(/'pr', 'merge'|'pr', 'close'|--admin|--force/.test(source), false);
+    }
   });
 });
 
@@ -240,12 +242,15 @@ describe('no model credentials', () => {
   it('starts only the claude binary and holds no model key', () => {
     const cli = read('./cli.mjs');
     const hook = read('./hook.mjs');
-    for (const source of [cli, hook, read('./lib.mjs')]) {
+    for (const source of [cli, hook, read('./lib.mjs'), read('./repo.mjs'), read('./drivers/cursorBuild.mjs')]) {
       assert.equal(/ANTHROPIC_API_KEY|CLAUDE_CODE_OAUTH|api\.anthropic\.com|@anthropic-ai\/sdk/.test(source), false);
     }
     assert.match(cli, /spawn\('claude'/);
     assert.equal((cli.match(/spawn\('claude'/g) ?? []).length, 2);
     assert.equal((cli.match(/spawn\('/g) ?? []).length, 2);
+    // git and gh are the only other programs, and only repo.mjs starts them.
+    assert.equal(/spawn/.test(read('./drivers/cursorBuild.mjs')), false);
+    assert.deepEqual([...new Set(read('./repo.mjs').match(/exec\('(\w+)'/g))].sort(), ["exec('gh'", "exec('git'"]);
     // The raw hook payload is never posted.
     assert.match(hook, /summary: event\.summary/);
     assert.equal(hook.includes('payload,'), false);
@@ -260,16 +265,22 @@ describe('drivers', () => {
     assert.equal(selectDriver({ kind: 'task' }), 'claude_code');
     const cli = read('./cli.mjs');
     assert.match(cli, /if \(buildStillRunning\) await sleep\(idleDelayMs\(1\)\)/);
-    assert.match(cli, /milestoneBranchOnOrigin/);
-    assert.match(cli, /The Cursor agent finished without a Portal-Task trailer/);
-    const publishFn = cli.slice(cli.indexOf('function publishMilestoneBranch'), cli.indexOf('async function doBuild'));
+    // The branch steps live in repo.mjs and the build step in drivers/cursorBuild.mjs.
+    // cursorFlow.test.mjs runs both against a real repository with the Cursor API mocked.
+    const repo = read('./repo.mjs');
+    const publishFn = repo.slice(repo.indexOf('function publishMilestoneBranch'), repo.indexOf('return { git,'));
     assert.match(publishFn, /ensureWorktree\(repo, branch\)/);
     assert.match(publishFn, /push', '-u', 'origin', branch/);
-    const build = cli.slice(cli.indexOf('async function doBuild'), cli.indexOf('function sleep'));
-    const publish = build.indexOf('publishMilestoneBranch(config.repo, work.milestone.branch)');
+    const build = read('./drivers/cursorBuild.mjs');
+    assert.match(build, /The Cursor agent finished without a Portal-Task trailer/);
+    const publish = build.indexOf('tools.publishMilestoneBranch(config.repo, branch)');
     const launch = build.indexOf('cursorRequest(');
     assert.equal(publish >= 0 && launch > publish, true);
     assert.equal(build.includes('The milestone branch is not on origin'), false);
+    // The key is read in one place and handed only to the Cursor request.
+    assert.equal((cli.match(/CURSOR_API_KEY/g) ?? []).length, 1);
+    assert.equal(/CURSOR_API_KEY|process\.env/.test(build), false);
+    assert.equal(/say\([^)]*key/.test(build), false);
     const body = cursorCreateBody({ repo: 'warehauscollective/warehaus', branch: 'milestone/launch', prompt: 'Build it' });
     assert.equal(body.source.ref, 'milestone/launch');
     assert.equal(body.target.branchName, 'milestone/launch');

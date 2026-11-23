@@ -1,6 +1,6 @@
 # Warehaus runner
 
-The runner is a small CLI for a staff Mac. It asks the Portal for the next piece of milestone work, runs the project's build agent on the milestone branch, and tells the Portal what happened. The milestone's Activity tab shows the run as it goes.
+The runner is a small CLI. Today it runs on Peter's Mac (decided 2026-11-22). Nothing in it is tied to that machine: see "Run it on macOS" and "Moving it to a server". It asks the Portal for the next piece of milestone work, runs the project's build agent on the milestone branch, and tells the Portal what happened. The milestone's Activity tab shows the run as it goes.
 
 A project picks its build agent: Claude Code or Cursor. Planning always uses Claude Code, read-only. Building uses the project's agent.
 
@@ -77,6 +77,142 @@ Use shared dev, never production.
 8. Open the local preview: `npm run preview:pr -- milestone/<slug>`.
 9. Approve in the Portal or in Grok Bot. Approval records the decision. Merge and deploy stay separate steps.
 
+## Run it on macOS
+
+The runner lives on Peter's Mac for now (decided 2026-11-22). It is a plain Node process that polls the Portal, so it needs no open port and nothing installed beyond what the Mac already uses to work in the repository.
+
+### What the Mac needs
+
+- Node 22, `git`, and `gh` signed in (`gh auth status`) with push access to the repository.
+- The official `claude` CLI, signed in, for planning and for Claude Code projects.
+- A checkout of the repository the runner serves. Worktrees are created beside it, in `../warehaus-runner/`.
+
+### Environment
+
+Three values, all in the runner's own shell on the Mac. None of them belongs in the repository, in Convex, in Vercel, in chat or in Notion.
+
+| Variable | What it is | Where it lives |
+|---|---|---|
+| `PORTAL_AGENT_URL` | `https://graceful-mastiff-960.convex.site`, shared dev | The Mac. The runner refuses the production deployment. |
+| `RUNNER_TOKEN` | This runner's token, at least 24 characters | The Mac. Its match is one line of `RUNNER_TOKENS` on dev Convex. |
+| `CURSOR_API_KEY` | The Cursor API key, only for projects set to Cursor | The Mac, and nowhere else. It is never sent to Convex and never printed. |
+
+Keep them in a file only you can read, outside any repository, and load that file where the runner starts:
+
+```bash
+mkdir -p ~/.config/warehaus
+touch ~/.config/warehaus/runner.env
+chmod 600 ~/.config/warehaus/runner.env
+# then edit it: one KEY=value per line, no quotes, no export
+```
+
+```
+PORTAL_AGENT_URL=https://graceful-mastiff-960.convex.site
+RUNNER_TOKEN=<this runner's token>
+CURSOR_API_KEY=<only if a project uses Cursor>
+```
+
+`RUNNER_TOKENS` is the other half, and it is set **only on dev Convex** `graceful-mastiff-960`:
+
+```
+RUNNER_TOKENS=peter-mbp=<the same token> warehauscollective/warehaus
+```
+
+Never set `RUNNER_TOKENS`, or a project's repository (`agentRepo`), on production `unique-turtle-383`. With neither set, production hands no work to any runner, which is the point.
+
+### Option A: `screen`, for interactive Claude Code
+
+Use this when a person drives the Claude session, which is the default `--mode interactive`. The session needs a terminal, and `screen` keeps one alive after the window closes.
+
+```bash
+screen -S warehaus-runner
+cd ~/Projects/warehaus
+set -a; source ~/.config/warehaus/runner.env; set +a
+npm run runner -- start --id peter-mbp --repo warehauscollective/warehaus
+```
+
+Detach with `Ctrl-a d`. Come back with `screen -r warehaus-runner`. Stop it with `Ctrl-c` in that session. `tmux` works the same way. The runner stops when the Mac restarts; start it again by hand.
+
+### Option B: `launchd`, for unattended runs
+
+Use this when nobody drives the session: a project set to Cursor, or `--mode headless`. `launchd` has no terminal, so interactive mode cannot work under it. **Headless Claude draws on the monthly Agent SDK credit, not plan limits.** A Cursor build starts no Claude session, but planning still runs `claude -p`.
+
+Save this as `~/Library/LaunchAgents/co.warehaus.runner.plist`, with your own paths. It holds no secret: the wrapper line reads them from the file above.
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key><string>co.warehaus.runner</string>
+  <key>WorkingDirectory</key><string>/Users/YOU/Projects/warehaus</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>set -a; source "$HOME/.config/warehaus/runner.env"; set +a; exec node tools/runner/src/cli.mjs start --id peter-mbp --repo warehauscollective/warehaus --mode headless</string>
+  </array>
+  <key>RunAtLoad</key><true/>
+  <key>KeepAlive</key><true/>
+  <key>ThrottleInterval</key><integer>60</integer>
+  <key>StandardOutPath</key><string>/Users/YOU/Library/Logs/warehaus-runner.log</string>
+  <key>StandardErrorPath</key><string>/Users/YOU/Library/Logs/warehaus-runner.log</string>
+</dict>
+</plist>
+```
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/co.warehaus.runner.plist   # start, and at every login
+launchctl kickstart -k gui/$(id -u)/co.warehaus.runner                             # restart
+launchctl bootout gui/$(id -u)/co.warehaus.runner                                  # stop and unload
+tail -f ~/Library/Logs/warehaus-runner.log
+```
+
+`zsh -lc` is a login shell: it reads `~/.zprofile`, not `~/.zshrc`. If `node`, `gh` or `claude` is put on the path in `~/.zshrc` (nvm does this), give its full path in the plist or move that line to `~/.zprofile`. Check with `zsh -lc 'which node gh claude'`. The log holds the runner's own lines only. It never holds a token or a key.
+
+### A sleeping Mac
+
+A closed lid stops the runner. The Portal handles that on its own: after 30 minutes with no call, the sweep releases the run and blocks the task or the build, and staff see Retry. To keep the Mac awake while a milestone builds, run `caffeinate -is` in another tab, or start the runner under it: `caffeinate -is npm run runner -- start …`.
+
+## Retry and the run it replaces
+
+Retry never starts a second run on top of one that may still be working.
+
+- While a run on the milestone is still running, a milestone Retry is refused: "A run is still going on this milestone." A task Retry for a different, blocked task is allowed: the task goes back to To do and waits, because the Portal hands out one run per milestone at a time.
+- A run the sweep released has no word from its runner, so its Claude session may still be committing. It keeps the milestone for 10 more minutes: "The last run is still winding down." The hold ends sooner the moment the runner reports on that run, or asks for work again, which it only does when it is not working.
+- A run the runner ended itself (done, blocked, failed) holds nothing. Retry works at once.
+- A Cursor build that was released while its cloud agent may still be running is not replaced. After Retry, the next build follows that same agent. A second agent is launched only after the runner has seen the first one stop.
+
+## Check the Cursor branch step
+
+The branch step is: create `milestone/<slug>` from the default branch, push it, launch the agent on it, read its commits, open the one pull request.
+
+CI runs that whole flow in `src/cursorFlow.test.mjs` against a throwaway local repository, with real `git`, a stand-in `gh`, and the Cursor API mocked. No test calls Cursor.
+
+To check it by hand against the real repository, use the script. It only ever touches a throwaway branch named `milestone/zz-cursor-check-<date>-<time>`. It never merges, never deploys, and never talks to the Portal or Convex.
+
+```bash
+# 1. Branch from the default branch and push. No Cursor call, no pull request.
+node tools/runner/scripts/check-cursor-branch.mjs --cleanup
+
+# 2. The full step: one real Cursor agent, its Portal-Task trailer, a draft pull request, then clean up.
+#    Costs one agent run. Needs CURSOR_API_KEY in this shell.
+set -a; source ~/.config/warehaus/runner.env; set +a
+node tools/runner/scripts/check-cursor-branch.mjs --launch --cleanup
+```
+
+Each step prints `ok` or `FAIL`. A pass looks like: branch on origin, branch starts at `main`, agent launched, agent finished, a commit carries `Portal-Task: check:1`, Cursor opened no pull request, draft pull request into `main`, pull request closed, branch deleted. Leave off `--cleanup` to look at the branch and the pull request first, then run the clean-up line the script prints. Add a line to the dry run log below when you run step 2.
+
+## Moving it to a server
+
+The runner is host-agnostic on purpose, so it can move to an always-on machine later without a code change.
+
+- It is one Node process with three environment values and a git checkout. It reads no macOS path, keychain or app.
+- It only makes outbound HTTPS calls: to the Portal, to GitHub through `git` and `gh`, and to Cursor. It listens on nothing.
+- All state is in the Portal and in git. A new host needs the checkout, `gh` signed in, the three values, and its own line in `RUNNER_TOKENS` on dev Convex. Give the new host its own runner id, then remove the Mac's line.
+- On Linux the same command runs under `systemd` (`Restart=always`, `EnvironmentFile=` pointing at the same kind of file) or in a container.
+- The one thing a server cannot do is interactive Claude Code, which needs a person at a terminal. A server runs Cursor builds and `--mode headless`.
+
 ## Dry run log
 
 This section records each dry run of the runner on shared dev. To add a later run, add one line per run, newest last, in the form `- YYYY-MM-DD: what was run`.
@@ -88,3 +224,5 @@ This section records each dry run of the runner on shared dev. To add a later ru
 ```bash
 npm run test:runner
 ```
+
+Two files: `src/lib.test.mjs` for the pure helpers, and `src/cursorFlow.test.mjs` for the Cursor branch flow and the manual check script against a throwaway repository. Portal CI runs both.

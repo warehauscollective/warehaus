@@ -54,3 +54,23 @@ Do not target production `unique-turtle-383`. Do not pass `--prod`. Do not run `
 ### Open item
 
 Shared dev still uses the production Notion token. A local preview that writes can touch the real Warehaus Notion. The test Notion spec is coming. Until that exists, treat a preview write as a write to live Notion.
+
+## Design source
+
+One Figma file holds every Portal design: [Warehaus Studio](https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=689-31057) (file key `TS3DcaCgrIdYf0jhvnMy3k`). Read it through the Figma connector before building or changing a screen.
+
+| Portal tab | Figma page | Link |
+|---|---|---|
+| Dashboard | Portal - Dashboard | [689:31056](https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=689-31056) |
+| Projects (project, milestone and task pages) | Portal - Projects | [689:31057](https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=689-31057) |
+| Resources | Portal - Resources | [689:31058](https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=689-31058) |
+| Activity | Portal - Activity | [689:31059](https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=689-31059) |
+| Account | Portal - Account | [689:31060](https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=689-31060) |
+| Core / Components (the component library) | Portal - Component Library | [151:5387](https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=151-5387) |
+
+- Sign-up and invite screens are on Portal - Onboarding (`689:31055`). The two Archive pages are history: do not build from them.
+- Iterate on existing frames only. Change a frame or a component in place, or add a state beside the frame it belongs to. Do not start a new page, a new file, or a parallel copy of a screen, and do not publish the library.
+- A component comes from Portal - Component Library. If a screen needs one that is not there, Product Design Lead adds it to the library first.
+- Design comes first (see Work above): Dark and Light at 1440 and 390, approved by Peter before build. If a build shows the design is wrong, the frame is updated first, then the code.
+- Copy in the build matches the frame, character for character. When the two differ, say so on the milestone. Do not pick one quietly.
+
