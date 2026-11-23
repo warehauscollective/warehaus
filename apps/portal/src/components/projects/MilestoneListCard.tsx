@@ -165,6 +165,7 @@ export function MilestoneListCard({
   cover = false,
   stagePreview = null,
   linkPreview = null,
+  narrow = false,
 }: {
   milestone: MilestoneRoadmapView;
   staff: boolean;
@@ -182,6 +183,8 @@ export function MilestoneListCard({
   openConfirm?: boolean;
   /** Fixture phone sheet. The live tile follows the viewport. */
   phone?: boolean;
+  /** Board column. Keeps the stacked tile even when the viewport is wide. */
+  narrow?: boolean;
   /** Fixture dialog stays inside its frame instead of covering the page. */
   cover?: boolean;
   /** Fixture QA. `menu` opens the status menu. */
@@ -392,7 +395,8 @@ export function MilestoneListCard({
   return (
     <article
       data-testid={`milestone-${milestone.id}`}
-      className="flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_max-content] lg:items-start lg:justify-start lg:gap-x-6 lg:gap-y-0"
+      data-narrow={narrow ? 'true' : undefined}
+      className={narrow ? 'flex flex-col gap-4' : 'flex flex-col gap-4 lg:grid lg:grid-cols-[minmax(0,1fr)_max-content] lg:items-start lg:justify-start lg:gap-x-6 lg:gap-y-0'}
       style={{
         background: 'var(--surface)',
         border: '1px solid var(--border)',
@@ -402,7 +406,7 @@ export function MilestoneListCard({
     >
       <div className="flex min-w-0 flex-1 flex-col gap-3">
         <div className="flex min-w-0 flex-nowrap items-center justify-between gap-3">
-          <h2 data-testid="milestone-name" className="text-[21px] leading-[32px] lg:text-[20px] lg:leading-[30px]" style={{ fontFamily: 'var(--font-geist), var(--font-body)', fontWeight: 500 }}>
+          <h2 data-testid="milestone-name" className={narrow ? 'text-[21px] leading-[32px]' : 'text-[21px] leading-[32px] lg:text-[20px] lg:leading-[30px]'} style={{ fontFamily: 'var(--font-geist), var(--font-body)', fontWeight: 500 }}>
             {milestone.name}
           </h2>
           {dateLine ? (
@@ -426,9 +430,9 @@ export function MilestoneListCard({
             {showStaffOnly ? <StaffOnlyChip /> : null}
           </div>
         ) : null}
-        <div className="flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center">
+        <div className={narrow ? 'flex w-full min-w-0 flex-col items-start gap-4' : 'flex w-full min-w-0 flex-col items-start gap-4 md:flex-row md:flex-wrap md:items-center'}>
           <MilestoneListButton tone="outline" onClick={onOpen}>
-            {stage.label === 'Ready to Ship' ? (
+            {stage.label === 'Ready to Ship' && !narrow ? (
               <>
                 <span className="lg:hidden">Open milestone</span>
                 <span className="hidden lg:inline">Milestone Details</span>
@@ -439,16 +443,24 @@ export function MilestoneListCard({
           </MilestoneListButton>
           {staff ? (
             localUrl ? (
-              <a data-testid="milestone-local-preview" className="lg:order-1" href={localUrl} style={linkButtonStyle(false)}>
+              <a data-testid="milestone-local-preview" className={narrow ? undefined : 'lg:order-1'} href={localUrl} style={linkButtonStyle(false)}>
                 <TileLinkIcon kind="preview" />
-                <span className="lg:hidden">Preview</span>
-                <span className="hidden lg:inline">Local preview</span>
+                {narrow ? 'Preview' : (
+                  <>
+                    <span className="lg:hidden">Preview</span>
+                    <span className="hidden lg:inline">Local preview</span>
+                  </>
+                )}
               </a>
             ) : (
-              <button type="button" data-testid="milestone-local-preview" className="lg:order-1" onClick={() => openLinkEditor('localPreview')} style={linkButtonStyle(true)}>
+              <button type="button" data-testid="milestone-local-preview" className={narrow ? undefined : 'lg:order-1'} onClick={() => openLinkEditor('localPreview')} style={linkButtonStyle(true)}>
                 <TileLinkIcon kind="preview" />
-                <span className="lg:hidden">Preview</span>
-                <span className="hidden lg:inline">Local preview</span>
+                {narrow ? 'Preview' : (
+                  <>
+                    <span className="lg:hidden">Preview</span>
+                    <span className="hidden lg:inline">Local preview</span>
+                  </>
+                )}
               </button>
             )
           ) : null}
@@ -465,12 +477,12 @@ export function MilestoneListCard({
           ) : null}
         </div>
       </div>
-      <div className="flex w-full flex-col items-start gap-3 lg:ml-auto lg:w-max lg:min-w-[174px] lg:items-end">
+      <div className={narrow ? 'flex w-full flex-col items-start gap-3' : 'flex w-full flex-col items-start gap-3 lg:ml-auto lg:w-max lg:min-w-[174px] lg:items-end'}>
         <div className="relative w-full" ref={menuAnchorRef}>
           {canDeploy ? (
             <div
               data-testid="milestone-stage-action"
-              className="w-full lg:w-[174px]"
+              className={narrow ? 'w-full' : 'w-full lg:w-[174px]'}
               style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', border: '1px solid var(--border-2)', borderRadius: 9, background: 'var(--surface)' }}
             >
               {stageTrigger}
@@ -502,7 +514,7 @@ export function MilestoneListCard({
           </p>
         ) : null}
         <span
-          className="ds-mono max-w-full whitespace-normal lg:w-max lg:max-w-none lg:whitespace-nowrap"
+          className={narrow ? 'ds-mono max-w-full whitespace-normal' : 'ds-mono max-w-full whitespace-normal lg:w-max lg:max-w-none lg:whitespace-nowrap'}
           data-testid="milestone-progress"
           style={{
             background: 'var(--surface-2)',
@@ -514,12 +526,18 @@ export function MilestoneListCard({
             color: 'var(--muted)',
           }}
         >
-          <span className="lg:hidden">
+          {narrow ? (
             <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone />
-          </span>
-          <span className="hidden lg:inline">
-            <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone={false} />
-          </span>
+          ) : (
+            <>
+              <span className="lg:hidden">
+                <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone />
+              </span>
+              <span className="hidden lg:inline">
+                <ProgressCopy done={milestone.doneCount} total={total} nested={subtasks} phone={false} />
+              </span>
+            </>
+          )}
         </span>
       </div>
       {linkField ? (

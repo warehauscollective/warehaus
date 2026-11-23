@@ -8,6 +8,9 @@ const ROADMAP_FILES = [
   'MilestoneDetailView.tsx',
   'MilestoneForms.tsx',
   'roadmapParts.tsx',
+  'needMilestone.ts',
+  'NeedMilestoneBanner.tsx',
+  'DoneGroup.tsx',
 ] as const;
 
 /** Source text of the whole roadmap, for tests that assert on the markup as written. */

@@ -159,8 +159,10 @@ describe('milestone review fixes', () => {
     assert.match(roadmap, /projectTab === 'details' && page \? details : null/);
     assert.match(roadmap, /: 'Project details · Every task belongs to a milestone'/);
     assert.match(roadmap, /\{ id: 'resources', label: 'Context' \}/);
-    assert.match(roadmap, /testId="milestone-unassigned"/);
-    assert.match(roadmap, /Do not guess which milestone they belong to/);
+    assert.match(roadmap, /data-testid="milestone-unassigned"/);
+    assert.match(roadmap, /aria-label="Dismiss"/);
+    assert.match(roadmap, /1 task needs a milestone/);
+    assert.match(roadmap, /data-testid="milestone-done-group"/);
     assert.equal(roadmap.includes('Assign to milestone'), false);
     assert.equal(roadmap.includes('tasks stay on Project details'), false);
     assert.equal(roadmap.includes('Nothing is assigned automatically'), false);

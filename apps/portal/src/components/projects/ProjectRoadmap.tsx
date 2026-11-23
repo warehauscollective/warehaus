@@ -2,6 +2,11 @@
 
 import { groupMilestones } from '@convex/_lib/milestoneTasks';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'next/navigation';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
+import { DoneGroup } from './DoneGroup';
+import { NeedMilestoneBanner } from './NeedMilestoneBanner';
+import { attachedMilestoneTaskIds, tasksNeedingMilestone } from './needMilestone';
 import { useMutation } from 'convex/react';
 import { isPeterEmail } from '@convex/_lib/milestoneReview';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
@@ -166,6 +171,15 @@ export function ProjectRoadmap({
   const [tileApprove, setTileApprove] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [grillingOpen, setGrillingOpen] = useState(false);
+  const searchParams = useSearchParams();
+  const searchKey = searchParams.toString();
+  const [needDismissed, setNeedDismissed] = useState(searchParams.get('banner') === 'dismissed');
+  const [hideNeedBanner, setHideNeedBanner] = useState(searchParams.get('banner') === 'hidden');
+  const [doneExpanded, setDoneExpanded] = useState(searchParams.get('done') === 'open');
+  const [milestoneLayout, setMilestoneLayout] = useState<'list' | 'board'>(
+    searchParams.get('layout') === 'board' ? 'board' : 'list',
+  );
+  const phone = useMaxWidth(767);
   const projectContext = useProjectContext({ projectId: project.id, staff, fixtures, live, hostSlug });
   const rememberedMilestones = useRef<MilestoneRoadmapView[]>([]);
   const projectId = project.id as Id<'projects'>;
@@ -184,8 +198,12 @@ export function ProjectRoadmap({
   );
   const fixtureRows = useFixtureMilestonePreview(fixtureBase, fixtures);
   useEffect(() => {
+    const params = new URLSearchParams(searchKey);
+    setMilestoneLayout(params.get('layout') === 'board' ? 'board' : 'list');
+    setDoneExpanded(params.get('done') === 'open');
     if (!fixtures) return;
-    const params = new URLSearchParams(window.location.search);
+    setNeedDismissed(params.get('banner') === 'dismissed');
+    setHideNeedBanner(params.get('banner') === 'hidden');
     setDetailsPreview(params.get('details'));
     setTileStagePreview(params.get('tileStage'));
     setTileLinkPreview(params.get('tileLink'));
@@ -199,7 +217,7 @@ export function ProjectRoadmap({
         document.querySelector('[data-testid^="milestone-m-"]')?.scrollIntoView({ block: 'start' });
       }, 50);
     }
-  }, [fixtures]);
+  }, [fixtures, searchKey]);
   const previewMilestoneId = fixtures ? fixtureRows[0]?.id ?? null : null;
   useEffect(() => {
     if ((!detailsPreview && !loopPreview) || !previewMilestoneId) return;
@@ -228,8 +246,15 @@ export function ProjectRoadmap({
       });
   const selected = milestones.find((milestone) => milestone.id === openMilestoneId) ?? null;
   const approvedCount = milestones.filter((milestone) => milestone.approval === 'approved').length;
-  const attachedIds = new Set(milestones.flatMap((milestone) => milestone.rows.map((row) => row.id)));
-  const unassigned = tasks.filter((task) => !task.parentTaskId && !attachedIds.has(task.id));
+  const projectMilestoneIds = new Set(milestones.map((milestone) => milestone.id));
+  const attachedIds = attachedMilestoneTaskIds(milestones);
+  const needingMilestone = tasksNeedingMilestone(tasks, projectMilestoneIds, attachedIds);
+  const needCount = hideNeedBanner ? 0 : needingMilestone.length;
+  const milestoneGroups = groupMilestones(milestones, staff);
+  const openGroups = milestoneGroups.filter((group) => group.id !== 'shipped');
+  const shippedGroup = milestoneGroups.find((group) => group.id === 'shipped');
+  const boardLayout = milestoneLayout === 'board';
+  const stackBoard = boardLayout && phone && doneExpanded;
   const projectActivity = activity.filter((item) => item.projectId === project.id);
   const loading = !fixtures && (live ? query.loading : true) && milestones.length === 0;
   const failed = !fixtures && live && query.error != null;
@@ -252,6 +277,66 @@ export function ProjectRoadmap({
       };
     });
   };
+
+  const milestoneCard = (milestone: MilestoneRoadmapView, narrow = false) => (
+    <MilestoneListCard
+      key={milestone.id}
+      milestone={milestone}
+      narrow={narrow}
+      staff={staff}
+      isPeter={isPeter || (fixtures && tileApprove)}
+      fixtures={fixtures}
+      stagePreview={milestone.id === milestones[0]?.id ? tileStagePreview : null}
+      linkPreview={milestone.id === milestones[0]?.id ? tileLinkPreview : null}
+      onOpen={() => setOpenMilestoneId(milestone.id)}
+      onSetStatus={async (status, expectedStatus) => {
+        if (fixtures) {
+          patchMilestone(milestone.id, { status });
+          return;
+        }
+        await setMilestoneStatus({
+          hostSlug,
+          milestoneId: milestone.id as Id<'milestones'>,
+          status,
+          expectedStatus,
+        });
+      }}
+      onAdvance={async (expectedStatus, next) => {
+        if (fixtures) {
+          patchMilestone(milestone.id, { status: next });
+          return;
+        }
+        await advanceMilestone({
+          hostSlug,
+          milestoneId: milestone.id as Id<'milestones'>,
+          expectedStatus,
+        });
+      }}
+      onApprove={(iteration) =>
+        approveMilestone({
+          hostSlug,
+          milestoneId: milestone.id as Id<'milestones'>,
+          iteration,
+          notes: '',
+        })
+      }
+      onSetLink={async (field, url) => {
+        if (fixtures) {
+          patchMilestone(
+            milestone.id,
+            field === 'localPreview' ? { localPreviewUrl: url } : { figmaUrl: url },
+          );
+          return;
+        }
+        await setTileLink({
+          hostSlug,
+          milestoneId: milestone.id as Id<'milestones'>,
+          field,
+          url,
+        });
+      }}
+    />
+  );
 
   const page = Boolean(onBackToProjects);
 
@@ -422,87 +507,62 @@ export function ProjectRoadmap({
                 )
               ) : null}
 
-              {!loading && !failed && staff && unassigned.length > 0 ? (
-                <StateCard
-                  testId="milestone-unassigned"
-                  tone="warning"
-                  kicker="STAFF · EXISTING TASKS"
-                  title={`${unassigned.length} ${unassigned.length === 1 ? 'task needs' : 'tasks need'} a milestone`}
-                  body="Assign existing tasks before they appear in the new flow. Do not guess which milestone they belong to."
+              {!loading && !failed && staff ? (
+                <NeedMilestoneBanner
+                  count={needCount}
+                  dismissed={needDismissed}
+                  onDismiss={() => setNeedDismissed(true)}
                 />
               ) : null}
 
-              {groupMilestones(milestones, staff).map((group) => (
-              <section key={group.id} data-testid={`milestone-group-${group.id}`} className="flex flex-col gap-4">
-                <h2
-                  className="ds-mono"
-                  data-testid="milestone-group-label"
-                  style={{ margin: 0, fontSize: 11, lineHeight: '17px', fontWeight: 400, letterSpacing: '0.04em', color: 'var(--muted)' }}
+              {boardLayout ? (
+                <div
+                  data-testid="milestone-board"
+                  className={stackBoard ? 'flex flex-col gap-4' : 'flex items-stretch gap-4'}
                 >
-                  {`${group.label} · ${group.milestones.length}`}
-                </h2>
-                <div className="flex flex-col gap-6 lg:gap-4">
-                {group.milestones.map((milestone) => (
-                  <MilestoneListCard
-                    key={milestone.id}
-                    milestone={milestone}
-                    staff={staff}
-                    isPeter={isPeter || (fixtures && tileApprove)}
-                    fixtures={fixtures}
-                    stagePreview={milestone.id === milestones[0]?.id ? tileStagePreview : null}
-                    linkPreview={milestone.id === milestones[0]?.id ? tileLinkPreview : null}
-                    onOpen={() => setOpenMilestoneId(milestone.id)}
-                    onSetStatus={async (status, expectedStatus) => {
-                      if (fixtures) {
-                        patchMilestone(milestone.id, { status });
-                        return;
-                      }
-                      await setMilestoneStatus({
-                        hostSlug,
-                        milestoneId: milestone.id as Id<'milestones'>,
-                        status,
-                        expectedStatus,
-                      });
-                    }}
-                    onAdvance={async (expectedStatus, next) => {
-                      if (fixtures) {
-                        patchMilestone(milestone.id, { status: next });
-                        return;
-                      }
-                      await advanceMilestone({
-                        hostSlug,
-                        milestoneId: milestone.id as Id<'milestones'>,
-                        expectedStatus,
-                      });
-                    }}
-                    onApprove={(iteration) =>
-                      approveMilestone({
-                        hostSlug,
-                        milestoneId: milestone.id as Id<'milestones'>,
-                        iteration,
-                        notes: '',
-                      })
-                    }
-                    onSetLink={async (field, url) => {
-                      if (fixtures) {
-                        patchMilestone(
-                          milestone.id,
-                          field === 'localPreview' ? { localPreviewUrl: url } : { figmaUrl: url },
-                        );
-                        return;
-                      }
-                      await setTileLink({
-                        hostSlug,
-                        milestoneId: milestone.id as Id<'milestones'>,
-                        field,
-                        url,
-                      });
-                    }}
-                  />
-                ))}
+                  <div className={phone && !stackBoard ? 'flex min-w-0 flex-1 flex-col gap-4' : stackBoard ? 'flex w-full flex-col gap-4' : 'flex w-[358px] shrink-0 flex-col gap-4'}>
+                    {openGroups.flatMap((group) => group.milestones).map((milestone) => milestoneCard(milestone, true))}
+                  </div>
+                  {shippedGroup ? (
+                    <DoneGroup
+                      count={shippedGroup.milestones.length}
+                      layout="board"
+                      expanded={doneExpanded}
+                      stacked={stackBoard}
+                      onToggle={() => setDoneExpanded((open) => !open)}
+                    >
+                      {shippedGroup.milestones.map((milestone) => milestoneCard(milestone, true))}
+                    </DoneGroup>
+                  ) : null}
                 </div>
-              </section>
-              ))}
+              ) : (
+                <>
+                  {openGroups.map((group) => (
+                    <section key={group.id} data-testid={`milestone-group-${group.id}`} className="flex flex-col gap-4">
+                      <h2
+                        className="ds-mono"
+                        data-testid="milestone-group-label"
+                        style={{ margin: 0, fontSize: 11, lineHeight: '17px', fontWeight: 400, letterSpacing: '0.04em', color: 'var(--muted)' }}
+                      >
+                        {`${group.label} · ${group.milestones.length}`}
+                      </h2>
+                      <div className="flex flex-col gap-6 lg:gap-4">
+                        {group.milestones.map((milestone) => milestoneCard(milestone))}
+                      </div>
+                    </section>
+                  ))}
+                  {shippedGroup ? (
+                    <DoneGroup
+                      count={shippedGroup.milestones.length}
+                      layout="list"
+                      expanded={doneExpanded}
+                      onToggle={() => setDoneExpanded((open) => !open)}
+                    >
+                      {shippedGroup.milestones.map((milestone) => milestoneCard(milestone))}
+                    </DoneGroup>
+                  ) : null}
+                </>
+              )}
 
               {milestones.length > 0 ? (
                 <p style={{ fontSize: 13, lineHeight: '20px', color: 'var(--muted)' }}>
