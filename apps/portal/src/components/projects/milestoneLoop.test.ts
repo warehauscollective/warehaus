@@ -71,7 +71,7 @@ describe('milestone loop frames', () => {
     assert.match(editing, /border:2px solid #3b82f6/);
     assert.match(editing, /outline:none/);
     assert.match(editing, /flex:0 0 auto[^"]*white-space:nowrap[^"]*">↵ to add · Manual/);
-    assert.match(editing, /color:#000;background:rgba\(0, 0, 0, 0.16\)[^"]*">DRAFT/);
+    assert.match(editing, /color:var\(--muted\);background:color-mix\(in srgb, var\(--muted\) 16%, transparent\)[^"]*">DRAFT/);
   });
 
   it('shows the add field on drafted, empty and failed, with the hint on drafted and failed only', () => {

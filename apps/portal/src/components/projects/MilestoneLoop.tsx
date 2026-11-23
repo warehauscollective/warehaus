@@ -508,7 +508,7 @@ export function MilestoneLoopView({
                   </button>
                 )}
                 {task.draft ? (
-                  <span className="ds-mono" style={{ fontSize: 10, lineHeight: '15px', fontWeight: 500, color: '#000', background: 'rgba(0, 0, 0, 0.16)', borderRadius: 4, padding: '2px 6px' }}>
+                  <span className="ds-mono" style={{ fontSize: 10, lineHeight: '15px', fontWeight: 500, color: 'var(--muted)', background: 'color-mix(in srgb, var(--muted) 16%, transparent)', borderRadius: 4, padding: '2px 6px' }}>
                     {LOOP_DRAFT}
                   </span>
                 ) : null}
