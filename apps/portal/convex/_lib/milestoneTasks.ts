@@ -6,7 +6,7 @@
 
 import type { MilestoneStatus } from './milestoneStatus';
 
-export const TASK_ORIGINS = ['brief', 'review', 'manual'] as const;
+export const TASK_ORIGINS = ['brief', 'review', 'manual', 'planner'] as const;
 export type TaskOrigin = (typeof TASK_ORIGINS)[number];
 
 export const MILESTONE_CREATED_VIA = ['grok', 'claude', 'portal', 'other'] as const;
@@ -59,6 +59,7 @@ export function taskOrigin(input: { origin?: string | null; source?: string | nu
 
 export function originLabel(origin: TaskOrigin | null | undefined, round?: number | null): string | null {
   if (origin === 'brief') return 'Brief';
+  if (origin === 'planner') return 'Planner';
   if (origin === 'manual') return 'Manual';
   if (origin === 'review') return round != null && round > 0 ? `Review ${round}` : 'Review';
   return null;
@@ -132,6 +133,21 @@ type ChecklistTask = {
   status: string;
   isDone: boolean;
 };
+
+/**
+ * A planner draft still sitting at To do. Regenerate archives these.
+ * Hand-added tasks and anything staff have edited stay.
+ */
+export function plannerDraftToArchive(task: {
+  archivedAt?: number | null;
+  origin?: string | null;
+  source?: string | null;
+  notionPageId?: string | null;
+  status: string;
+  isDone: boolean;
+}): boolean {
+  return task.archivedAt == null && task.origin === 'planner' && isPortalOwnedTask(task) && isToDoTask(task);
+}
 
 /** To do means not done and not started. Notion spells it "To Do" or "Not started". */
 export function isToDoTask(task: { status: string; isDone: boolean }): boolean {

@@ -140,6 +140,9 @@ main {
 .portal-detail-subtitle {
   margin-top: 26px;
 }
+.portal-detail-stamp {
+  display: none;
+}
 @media (min-width: 1024px) {
   .portal-detail-title {
     font-size: 30px;
@@ -147,6 +150,9 @@ main {
   }
   .portal-detail-subtitle {
     margin-top: 4px;
+  }
+  .portal-detail-stamp {
+    display: inline;
   }
 }
 

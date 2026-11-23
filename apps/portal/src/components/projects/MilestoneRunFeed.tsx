@@ -31,12 +31,14 @@ export type RunFeedModel = {
     online: boolean;
     lastSeenAt: number | null;
   } | null;
-  planning: 'queued' | 'running' | null;
+  planning: FeedPlanning;
   branch?: string | null;
   prUrl?: string | null;
   /** Open tasks the runner will not take. A person has to close them. */
   waitingOnPerson?: string[];
 };
+
+type FeedPlanning = 'queued' | 'running' | 'blocked' | null;
 
 export type RunFeedState = 'loading' | 'error' | 'empty' | 'live' | 'offline' | 'idle';
 
@@ -254,7 +256,7 @@ export function MilestoneRunFeedLive({
   hostSlug,
 }: {
   milestoneId: string;
-  planning: 'queued' | 'running' | null;
+  planning: FeedPlanning;
   fixtures: boolean;
   hostSlug?: string;
 }) {

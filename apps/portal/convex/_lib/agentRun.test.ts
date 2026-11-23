@@ -185,7 +185,8 @@ describe('finishing a task', () => {
     const blocked = completeDecision({ status: 'blocked', reason: 'needs Figma frame' });
     assert.equal(blocked.ok && blocked.task.status, 'Blocked');
     const failed = completeDecision({ status: 'failed' });
-    assert.equal(failed.ok && failed.task.status, 'To Do');
+    assert.equal(failed.ok && failed.task.status, 'Blocked');
+    assert.equal(failed.ok && failed.reason, 'The run failed');
     assert.equal(completeDecision({ status: 'shipped' }).ok, false);
     assert.deepEqual(completeDecision({ status: 'done', commitSha: 'not a sha' }), { ok: false, reason: COMMIT_SHA_INVALID });
   });
@@ -302,8 +303,13 @@ describe('who can read agent tables', () => {
     // Every other export is internal, so only the runner routes reach it.
     const exported = agent.match(/export const \w+ = (\w+)/g) ?? [];
     assert.deepEqual(
-      exported.filter((line) => !line.endsWith('internalMutation')),
-      ['export const feedForMilestone = adminQuery'],
+      exported.filter((line) => !line.endsWith('internalMutation')).sort(),
+      [
+        'export const buildingProgress = adminQuery',
+        'export const feedForMilestone = adminQuery',
+        'export const regeneratePlan = adminMutation',
+        'export const retryBlocked = adminMutation',
+      ],
     );
   });
 
@@ -370,11 +376,14 @@ describe('repository fail-safe', () => {
     assert.match(claim, /if \(repos\.length === 0\) return \{ ok: true as const, resumed: false, kind: 'none' as const/);
     assert.match(claim, /if \(!\(await served\(planning\.projectId\)\)\) continue;/);
     assert.match(claim, /if \(!\(await served\(milestone\.projectId\)\)\) continue;/);
-    // The repo setting is written only by staff.
+    // The repo setting and the agent are written only by staff.
     const projects = read('../projects.ts');
     assert.match(projects, /export const setAgentRepo = adminMutation/);
-    // Claude Code only for now: the route ignores any other tool a runner sends.
-    assert.match(read('../agentHttp.ts'), /tool: 'claude_code',/);
+    assert.match(projects, /export const setAgentDriver = adminMutation/);
+    // The route ignores any tool a runner sends. The project setting decides.
+    assert.doesNotMatch(read('../agentHttp.ts'), /tool: field\(body, 'tool'\)/);
+    assert.match(claim, /buildAgent\(project\?\.agentDriver\)/);
+    assert.match(claim, /tool: 'claude_code'/);
   });
 });
 
@@ -415,5 +424,101 @@ describe('needs Peter notes', () => {
     assert.doesNotMatch(agent, /fetch\(|runAction|scheduler/);
     assert.match(agent, /needsPeter: 'open'/);
     assert.match(agent, /answerNotes\(ctx, milestone\._id, \{ reason: 'blocked', taskId: task\._id \}\)/);
+  });
+});
+
+describe('auto-planning and agent choice', () => {
+  it('queues one planning run per iteration and skips when tasks exist', async () => {
+    const { planningEnqueueDecision, planningForNewMilestone, PLANNING_RATE_LIMIT } = await import('./agentRun');
+    assert.equal(planningForNewMilestone({ taskCount: 0, status: 'Planning' }), true);
+    assert.equal(planningForNewMilestone({ taskCount: 0, status: 'Awaiting Go' }), false);
+    assert.equal(planningForNewMilestone({ taskCount: 0, status: 'Idea' }), false);
+    const first = planningEnqueueDecision({
+      status: 'Planning',
+      taskCount: 0,
+      planning: null,
+      planningIteration: null,
+      iteration: 1,
+      recentRuns: 0,
+    });
+    assert.deepEqual(first, { enqueue: true, replace: false });
+    const again = planningEnqueueDecision({
+      status: 'Planning',
+      taskCount: 0,
+      planning: 'queued',
+      planningIteration: 1,
+      iteration: 1,
+      recentRuns: 1,
+    });
+    assert.deepEqual(again, { enqueue: false, replace: false });
+    const withTasks = planningEnqueueDecision({
+      status: 'Planning',
+      taskCount: 4,
+      planning: null,
+      iteration: 1,
+      recentRuns: 0,
+    });
+    assert.equal(withTasks.enqueue, false);
+    const regenerate = planningEnqueueDecision({
+      status: 'Planning',
+      taskCount: 4,
+      planning: null,
+      iteration: 1,
+      regenerate: true,
+      recentRuns: 0,
+    });
+    assert.deepEqual(regenerate, { enqueue: true, replace: true });
+    const running = planningEnqueueDecision({
+      status: 'Planning',
+      taskCount: 0,
+      planning: 'running',
+      iteration: 1,
+      regenerate: true,
+      recentRuns: 1,
+    });
+    assert.equal(running.enqueue, false);
+    const capped = planningEnqueueDecision({
+      status: 'Planning',
+      taskCount: 0,
+      planning: null,
+      iteration: 1,
+      recentRuns: PLANNING_RATE_LIMIT,
+    });
+    assert.equal(capped.enqueue, false);
+    const milestones = read('../milestones.ts');
+    const portal = read('../portalApi.ts');
+    assert.match(milestones, /queuePlanning\(ctx, current\)/);
+    assert.match(portal, /queuePlanning\(ctx, current\)/);
+    assert.match(read('../agent.ts'), /origin: 'planner'/);
+    assert.doesNotMatch(read('../agent.ts').slice(read('../agent.ts').indexOf('export const writePlannedTasks')), /Awaiting Go/);
+  });
+
+  it('picks the project agent and maps Cursor commits onto tasks', async () => {
+    const { buildAgent, cursorAgentUrl, mapCursorCommits } = await import('./agentRun');
+    const { statusForBotCreate, BOT_STATUS_BUILDING } = await import('./milestoneBot');
+    assert.equal(buildAgent(undefined), 'claude_code');
+    assert.equal(buildAgent('claude_code'), 'claude_code');
+    assert.equal(buildAgent('cursor'), 'cursor');
+    assert.equal(buildAgent('something else'), 'claude_code');
+    assert.deepEqual(statusForBotCreate('Building'), { ok: false, reason: BOT_STATUS_BUILDING });
+    const tasks = [{ id: 'tasks:1' }, { id: 'tasks:2' }];
+    const mapped = mapCursorCommits(
+      [
+        { sha: 'a'.repeat(40), message: 'First\n\nPortal-Task: tasks:1' },
+        { sha: 'b'.repeat(40), message: 'Again\n\nPortal-Task: tasks:1' },
+        { sha: 'not-a-sha', message: 'Portal-Task: tasks:2' },
+        { sha: 'c'.repeat(40), message: 'Second\n\nPortal-Task: tasks:2' },
+        { sha: 'd'.repeat(40), message: 'Portal-Task: tasks:nope' },
+      ],
+      tasks,
+    );
+    assert.deepEqual(mapped, [
+      { taskId: 'tasks:1', commitSha: 'a'.repeat(40) },
+      { taskId: 'tasks:2', commitSha: 'c'.repeat(40) },
+    ]);
+    assert.equal(cursorAgentUrl('https://cursor.com/agents/bc-20ed844d'), 'https://cursor.com/agents/bc-20ed844d');
+    assert.equal(cursorAgentUrl('https://example.com/agents/bc-20ed844d'), null);
+    assert.match(read('../agent.ts'), /kind: 'agent'/);
+    assert.doesNotMatch(read('../agent.ts'), /CURSOR_API_KEY|unique-turtle-383/);
   });
 });

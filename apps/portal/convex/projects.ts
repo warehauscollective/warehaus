@@ -3,8 +3,9 @@ import { v } from 'convex/values';
 import { serveTasksByOrg } from './_lib/taskPlatformRead';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
-import { AGENT_REPO_INVALID, agentRepo } from './_lib/agentRun';
+import { AGENT_REPO_INVALID, agentRepo, buildAgent } from './_lib/agentRun';
 import type { Id } from './_generated/dataModel';
+import type { MutationCtx, QueryCtx } from './_generated/server';
 
 /** CLIENT fields only — never emit SERVER gate inputs. */
 function toClientProject(row: {
@@ -106,6 +107,7 @@ export const listPublishedForStaff = adminQuery({
           // below returns it too; without it here the repository screen
           // reads "Not set" after a save.
           agentRepo: row.agentRepo ?? null,
+          agentDriver: buildAgent(row.agentDriver),
         };
       })
       .sort((a, b) => {
@@ -168,6 +170,7 @@ export const listForStaff = adminQuery({
           taskCount: taskCount.get(row._id) ?? 0,
           // Staff only. toClientProject never carries it.
           agentRepo: row.agentRepo ?? null,
+          agentDriver: buildAgent(row.agentDriver),
         };
       })
       .sort((a, b) => a.name.localeCompare(b.name));
@@ -246,5 +249,48 @@ export const setAgentRepo = adminMutation({
     if ((project.agentRepo ?? null) === next) return { ok: true as const, wrote: false, repo: next };
     await ctx.db.patch(project._id, { agentRepo: next ?? undefined });
     return { ok: true as const, wrote: true, repo: next };
+  },
+});
+
+export const AGENT_DRIVER_LOCKED = "Can't change the build agent while a milestone is Building.";
+
+/**
+ * True when any milestone on the project is Building. One indexed read, capped.
+ * The setting and the mutation share this so a mid-build switch cannot land.
+ */
+export async function projectHasBuildingMilestone(
+  ctx: Pick<QueryCtx | MutationCtx, 'db'>,
+  projectId: Id<'projects'>,
+): Promise<boolean> {
+  const rows = await ctx.db
+    .query('milestones')
+    .withIndex('by_projectId', (q) => q.eq('projectId', projectId))
+    .take(100);
+  return rows.some((row) => row.status === 'Building');
+}
+
+/** Staff read the lock. The Cursor API key is not stored on the project. */
+export const agentChangeLock = adminQuery({
+  args: { projectId: v.id('projects') },
+  handler: async (ctx, args) => ({ locked: await projectHasBuildingMilestone(ctx, args.projectId) }),
+});
+
+/**
+ * Staff pick the agent that builds this project's milestones. Absent stays
+ * Claude Code. The same value writes nothing. A milestone in Building refuses
+ * the change. The Cursor API key is not stored here.
+ */
+export const setAgentDriver = adminMutation({
+  args: { projectId: v.id('projects'), driver: v.union(v.literal('claude_code'), v.literal('cursor')) },
+  handler: async (ctx, args) => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project) throw new PortalAuthError('Project not found', 'FORBIDDEN');
+    const next = buildAgent(args.driver);
+    if (buildAgent(project.agentDriver) === next) return { ok: true as const, wrote: false, driver: next };
+    if (await projectHasBuildingMilestone(ctx, args.projectId)) {
+      throw new PortalAuthError(AGENT_DRIVER_LOCKED, 'FORBIDDEN');
+    }
+    await ctx.db.patch(project._id, { agentDriver: next });
+    return { ok: true as const, wrote: true, driver: next };
   },
 });

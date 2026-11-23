@@ -5,7 +5,7 @@
  * model call: the runner only starts the official `claude` binary.
  */
 
-import { isPortalOwnedTask, isToDoTask } from './milestoneTasks';
+import { isBlockedTask, isPortalOwnedTask, isToDoTask } from './milestoneTasks';
 import { timingSafeEqualUtf8 } from './constantTime';
 
 export const RUNNER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
@@ -134,6 +134,11 @@ export function runTool(value: unknown): RunTool {
   return value === 'cursor' ? 'cursor' : 'claude_code';
 }
 
+/** The project's build agent. Absent means Claude Code, the existing path. */
+export function buildAgent(value: unknown): RunTool {
+  return runTool(value);
+}
+
 export function runToolLabel(tool: string | null | undefined): string {
   return tool === 'cursor' ? 'Cursor' : 'Claude Code';
 }
@@ -234,11 +239,72 @@ export function nextClaimableTask<T extends ClaimableTask>(tasks: readonly T[]):
 }
 
 /**
- * A milestone created with no tasks is queued for a planning run, whatever
- * created it. One that arrives with tasks, or that is parked, is not.
+ * A milestone created in Planning with no tasks is queued for a planning run,
+ * whatever created it. Any other status waits until it enters Planning.
  */
 export function planningForNewMilestone(input: { taskCount: number; status: string }): boolean {
-  return input.taskCount === 0 && input.status !== 'Parked' && input.status !== 'Shipped';
+  return input.taskCount === 0 && input.status === 'Planning';
+}
+
+export const PLANNING_RATE_LIMIT = 3;
+export const PLANNING_RATE_WINDOW_MS = 60 * 60 * 1000;
+export const PLANNING_RATE_SCAN = 20;
+export const PLANNING_RATE_LIMITED = 'Planning is paused. Too many runs this hour.';
+export const PLANNING_ALREADY_RUNNING = 'A planning run is already going.';
+
+export type PlanningState = 'queued' | 'running' | 'blocked';
+
+/**
+ * One planning run per milestone and iteration. A second enter while that
+ * run is queued writes nothing. Tasks that already exist are left alone
+ * unless staff press Regenerate. A blocked plan waits for Retry.
+ */
+export function planningEnqueueDecision(input: {
+  status: string;
+  taskCount: number;
+  planning?: PlanningState | null;
+  planningIteration?: number | null;
+  iteration: number;
+  regenerate?: boolean;
+  recentRuns: number;
+}): { enqueue: boolean; replace: boolean; reason?: string } {
+  if (input.status !== 'Planning') return { enqueue: false, replace: false };
+  if (input.planning === 'running') {
+    return { enqueue: false, replace: false, ...(input.regenerate ? { reason: PLANNING_ALREADY_RUNNING } : {}) };
+  }
+  if (input.recentRuns >= PLANNING_RATE_LIMIT) return { enqueue: false, replace: false, reason: PLANNING_RATE_LIMITED };
+  if (input.planning === 'blocked' && !input.regenerate) return { enqueue: false, replace: false };
+  const queuedHere = input.planning === 'queued' && (input.planningIteration ?? input.iteration) === input.iteration;
+  if (queuedHere) return { enqueue: false, replace: false };
+  if (input.planning === 'queued') return { enqueue: false, replace: false };
+  if (input.regenerate) return { enqueue: true, replace: true };
+  if (input.taskCount > 0) return { enqueue: false, replace: false };
+  return { enqueue: true, replace: false };
+}
+
+export function planningRetryDecision(input: {
+  status: string;
+  planning?: PlanningState | null;
+  recentRuns: number;
+}): { ok: true } | { ok: false; reason: string } {
+  if (input.status !== 'Planning' || input.planning !== 'blocked') {
+    return { ok: false, reason: 'Nothing is waiting to retry.' };
+  }
+  if (input.recentRuns >= PLANNING_RATE_LIMIT) return { ok: false, reason: PLANNING_RATE_LIMITED };
+  return { ok: true };
+}
+
+export function taskRetryDecision(task: { status: string; isDone: boolean } | null | undefined): { ok: true } | { ok: false; reason: string } {
+  if (!task || !isBlockedTask(task)) return { ok: false, reason: 'That task is not blocked.' };
+  return { ok: true };
+}
+
+/** How many planning runs in the window, from a bounded newest-first read. */
+export function recentPlanningRuns(
+  runs: readonly { kind: string; startedAt: number }[],
+  now: number,
+): number {
+  return runs.filter((run) => run.kind === 'planning' && now - run.startedAt < PLANNING_RATE_WINDOW_MS).length;
 }
 
 /** A run whose runner has been quiet this long is released back to To do. */
@@ -305,7 +371,14 @@ export function completeDecision(input: {
   if (status === 'blocked') {
     return { ok: true, status, commitSha: sha || null, reason, task: { status: 'Blocked', isDone: false }, run: 'failed' };
   }
-  return { ok: true, status, commitSha: sha || null, reason: reason || null, task: { status: 'To Do', isDone: false }, run: 'failed' };
+  return {
+    ok: true,
+    status,
+    commitSha: sha || null,
+    reason: reason || 'The run failed',
+    task: { status: 'Blocked', isDone: false },
+    run: 'failed',
+  };
 }
 
 /** `milestone/<slug>`: lowercase words from the name, at most 48 characters. */
@@ -422,6 +495,53 @@ export function blockedNote(input: { milestoneName: string; taskOrder: string; t
     `Blocked on: ${input.reason}`,
     `Runner ${input.runnerId} stopped on this task. The milestone stays in Building until it is unblocked.`,
   ].join('\n');
+}
+
+export function planningBlockedNote(input: { milestoneName: string; reason: string }): string {
+  return [
+    `${input.milestoneName} is blocked in Planning and needs you.`,
+    `Blocked on: ${input.reason}`,
+    'Retry in the Portal when it can be planned again. The milestone stays in Planning.',
+  ].join('\n');
+}
+
+export type BuildTaskState = 'queued' | 'claimed' | 'in_progress' | 'done' | 'blocked';
+
+/** Live task state while a milestone is Building. */
+export function buildTaskState(task: { status: string; isDone: boolean; claimedBy?: string | null }): BuildTaskState {
+  if (task.isDone) return 'done';
+  if (isBlockedTask(task)) return 'blocked';
+  if (/in[\s_-]*progress/i.test(task.status)) return 'in_progress';
+  if (task.claimedBy) return 'claimed';
+  return 'queued';
+}
+
+/** A Cursor agent link. Anything else is refused, so a model cannot store an arbitrary URL. */
+export function cursorAgentUrl(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const match = /^https:\/\/cursor\.com\/agents\/[A-Za-z0-9_-]{8,80}$/.exec(value.trim());
+  return match ? match[0] : null;
+}
+
+/**
+ * Commits the Cursor agent pushed, matched to tasks by the `Portal-Task:`
+ * trailer. The first matching commit for a task wins. Unknown tasks are ignored.
+ */
+export function mapCursorCommits(
+  commits: readonly { sha?: unknown; message?: unknown }[],
+  tasks: readonly { id: string }[],
+): { taskId: string; commitSha: string }[] {
+  const wanted = new Set(tasks.map((task) => task.id));
+  const done: { taskId: string; commitSha: string }[] = [];
+  for (const commit of commits) {
+    const sha = typeof commit.sha === 'string' ? commit.sha.trim().toLowerCase() : '';
+    const message = typeof commit.message === 'string' ? commit.message : '';
+    const match = /Portal-Task:\s*([A-Za-z0-9:_-]{4,120})/.exec(message);
+    if (!match || !wanted.has(match[1]) || !/^[0-9a-f]{7,40}$/.test(sha)) continue;
+    if (done.some((row) => row.taskId === match[1])) continue;
+    done.push({ taskId: match[1], commitSha: sha });
+  }
+  return done;
 }
 
 /** Open notes a single read returns. */

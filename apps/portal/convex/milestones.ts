@@ -116,6 +116,7 @@ import {
 import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/wrappers';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { planningForNewMilestone } from './_lib/agentRun';
+import { queuePlanning } from './planningQueue';
 
 const statusArg = v.union(
   v.literal('Idea'),
@@ -186,6 +187,11 @@ async function writeStatus(
     at,
     detailActivitySummary({ actor: actorName, from: decision.from, to: decision.status, at }),
   );
+  const current = await ctx.db.get(milestone._id);
+  if (current && decision.status === 'Planning') await queuePlanning(ctx, current);
+  if (current?.planning === 'queued' && decision.status !== 'Planning') {
+    await ctx.db.patch(current._id, { planning: undefined, planningReplace: undefined });
+  }
   return true;
 }
 
@@ -376,6 +382,9 @@ async function toRoadmap(
     creatorName: await creatorNameFor(ctx, milestone),
     ...(audience === 'staff' && milestone.createdVia ? { createdVia: milestone.createdVia } : {}),
     ...(audience === 'staff' && milestone.planning ? { planning: milestone.planning } : {}),
+    ...(audience === 'staff' && milestone.planningBlockedReason
+      ? { planningBlockedReason: milestone.planningBlockedReason }
+      : {}),
     ...(audience === 'staff' && milestone.branch ? { branch: milestone.branch } : {}),
     ...(audience === 'staff' && milestone.prUrl ? { prUrl: milestone.prUrl } : {}),
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
@@ -552,7 +561,9 @@ async function insertMilestone(
     ...(args.createdVia ? { createdVia: args.createdVia } : {}),
     branch: await uniqueMilestoneBranch(ctx, created.milestone.name),
     // A milestone made here has no tasks yet, whoever made it. The runner plans it.
-    ...(planningForNewMilestone({ taskCount: 0, status: created.milestone.status }) ? { planning: 'queued' as const } : {}),
+    ...(planningForNewMilestone({ taskCount: 0, status: created.milestone.status })
+      ? { planning: 'queued' as const, planningIteration: 1 }
+      : {}),
   });
   const milestone = await ctx.db.get(milestoneId);
   if (!milestone) fail('Milestone not found');
@@ -2109,6 +2120,7 @@ export const editTask = adminMutation({
     await ctx.db.patch(task._id, {
       ...decision.patch,
       ...(decision.patch.description !== undefined ? { descriptionSource: 'property' as const } : {}),
+      ...(task.origin === 'planner' ? { origin: 'manual' as const } : {}),
       updatedAt: Date.now(),
     });
     return { ok: true as const, wrote: true };

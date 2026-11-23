@@ -9,17 +9,21 @@ import { spawn, spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { cursorBuildPrompt, cursorCreateBody, cursorRequest } from './drivers/cursor.mjs';
 import {
   defaultBranchName,
   idleDelayMs,
   isMilestoneBranch,
   parseArgs,
-  parsePlan,
+  parseGitLog,
+  parsePlanOutput,
   planPrompt,
   pullRequestBody,
   childEnv,
+  mapCursorCommits,
   readEnv,
   repoFromRemote,
+  selectDriver,
   taskOutcome,
   taskPrompt,
   worktreeName,
@@ -126,6 +130,14 @@ function ensurePullRequest(dir, work) {
   return /^https:\/\/github\.com\//.test(url) ? url : null;
 }
 
+function claudeEnv(config, runId) {
+  return childEnv(process.env, {
+    PORTAL_AGENT_URL: config.url,
+    RUNNER_ID: config.id,
+    AGENT_RUN_ID: runId,
+  });
+}
+
 /** Starts the official `claude` CLI and waits for it to exit. */
 function runClaude(config, cwd, prompt, runId) {
   const args = config.mode === 'headless' ? ['-p', prompt] : [prompt];
@@ -133,17 +145,34 @@ function runClaude(config, cwd, prompt, runId) {
     const child = spawn('claude', args, {
       cwd,
       stdio: 'inherit',
-      env: childEnv(process.env, {
-        PORTAL_AGENT_URL: config.url,
-        RUNNER_ID: config.id,
-        AGENT_RUN_ID: runId,
-      }),
+      env: claudeEnv(config, runId),
     });
     child.on('error', (error) => {
       say(`Could not start claude: ${error.message}`);
       done(127);
     });
     child.on('exit', (code) => done(code ?? 1));
+  });
+}
+
+/** Planning is read-only. stdout is the task list. Nothing is written to disk. */
+function runClaudePlan(config, cwd, prompt, runId) {
+  return new Promise((done) => {
+    const child = spawn('claude', ['-p', '--permission-mode', 'plan', prompt], {
+      cwd,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      env: claudeEnv(config, runId),
+    });
+    let out = '';
+    child.stdout?.on('data', (chunk) => {
+      out += String(chunk);
+      if (out.length > 100_000) out = out.slice(-100_000);
+    });
+    child.on('error', (error) => {
+      say(`Could not start claude: ${error.message}`);
+      done({ code: 127, out: '' });
+    });
+    child.on('exit', (code) => done({ code: code ?? 1, out }));
   });
 }
 
@@ -171,25 +200,147 @@ async function doTask(config, work) {
   }
   const prUrl = outcome.commitSha ? ensurePullRequest(dir, work) : null;
   const result = await call(config, '/agent/complete', { runId: work.runId, ...outcome, ...(prUrl ? { prUrl } : {}) });
+  if (result.milestoneStatus === 'Ready to Ship') markReadyForReview(dir, work.milestone.branch);
   say(`Reported ${outcome.status}${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
 }
 
 async function doPlanning(config, work) {
   say(`Planning · ${work.milestone.name}`);
   const dir = ensureWorktree(config.repo, work.milestone.branch);
-  const planFile = join(dir, '.runner', 'plan.json');
-  mkdirSync(dirname(planFile), { recursive: true });
-  rmSync(planFile, { force: true });
-  await runClaude(config, dir, planPrompt(readFileSync(join(prompts, 'plan-milestone.md'), 'utf8'), work), work.runId);
-  const plan = parsePlan(readIfPresent(planFile) || 'null');
+  const planned = await runClaudePlan(
+    config,
+    dir,
+    planPrompt(readFileSync(join(prompts, 'plan-milestone.md'), 'utf8'), work),
+    work.runId,
+  );
+  const plan = parsePlanOutput(planned.out);
   if (!plan.ok) {
     say(`No usable plan: ${plan.error}`);
     await call(config, '/agent/complete', { runId: work.runId, kind: 'planning', reason: plan.error });
     return;
   }
   const result = await call(config, '/agent/tasks', { runId: work.runId, tasks: plan.tasks });
-  rmSync(planFile, { force: true });
   say(`Wrote ${plan.tasks.length} tasks${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
+}
+
+function markReadyForReview(dir, branch) {
+  const labeled = spawnSync('gh', ['pr', 'edit', branch, '--add-label', 'ready-for-review'], { cwd: dir, encoding: 'utf8' });
+  if (labeled.status !== 0) {
+    say(`Review label not added: ${(labeled.stderr ?? '').trim().split('\n')[0] || 'gh failed'}`);
+  }
+}
+
+function milestoneBranchOnOrigin(repo, branch) {
+  git(repo, ['fetch', 'origin', branch, '--quiet']);
+  return git(repo, ['rev-parse', '--verify', '--quiet', `refs/remotes/origin/${branch}`]).ok;
+}
+
+/** Creates milestone/<slug> from the default branch and pushes it, when origin does not have it yet. */
+function publishMilestoneBranch(repo, branch) {
+  if (!isMilestoneBranch(branch)) return { ok: false, error: 'The milestone branch is not a milestone branch' };
+  if (milestoneBranchOnOrigin(repo, branch)) return { ok: true };
+  let dir;
+  try {
+    dir = ensureWorktree(repo, branch);
+  } catch {
+    return { ok: false, error: 'The milestone branch could not be created' };
+  }
+  const pushed = git(dir, ['push', '-u', 'origin', branch]);
+  if (!pushed.ok || !milestoneBranchOnOrigin(repo, branch)) return { ok: false, error: 'The push to origin failed' };
+  return { ok: true };
+}
+
+async function doBuild(config, work) {
+  say(`Cursor · ${work.milestone.name} · ${work.milestone.branch}`);
+  const key = (process.env.CURSOR_API_KEY ?? '').trim();
+  if (!key) {
+    await call(config, '/agent/build', {
+      runId: work.runId,
+      status: 'failed',
+      reason: 'The Cursor API key is not set on this runner',
+    });
+    return 'settled';
+  }
+  const repoName = repoFromRemote(git(config.repo, ['remote', 'get-url', 'origin']).out) ?? '';
+  let agentId = work.externalId || '';
+  let agentUrl = work.externalUrl || '';
+  if (!agentId) {
+    const published = publishMilestoneBranch(config.repo, work.milestone.branch);
+    if (!published.ok) {
+      await call(config, '/agent/build', {
+        runId: work.runId,
+        status: 'failed',
+        reason: published.error,
+      });
+      return 'settled';
+    }
+    const prompt = cursorBuildPrompt('', { ...work, repo: repoName });
+    const created = await cursorRequest({
+      key,
+      path: '',
+      method: 'POST',
+      body: cursorCreateBody({ repo: repoName, branch: work.milestone.branch, prompt }),
+    });
+    if (!created.ok) {
+      await call(config, '/agent/build', { runId: work.runId, status: 'failed', reason: created.error });
+      return 'settled';
+    }
+    agentId = created.agent.id;
+    agentUrl = created.agent.url;
+    await call(config, '/agent/build', {
+      runId: work.runId,
+      status: 'running',
+      ...(agentId ? { agentId } : {}),
+      ...(agentUrl ? { agentUrl } : {}),
+    });
+    if (created.agent.state !== 'finished') {
+      say('Cursor agent is running.');
+      return 'running';
+    }
+  }
+  const looked = await cursorRequest({ key, path: `/${encodeURIComponent(agentId)}`, method: 'GET' });
+  if (!looked.ok) {
+    await call(config, '/agent/build', { runId: work.runId, status: 'failed', reason: looked.error });
+    return 'settled';
+  }
+  if (looked.agent.state === 'running') {
+    say('Cursor agent is still running.');
+    return 'running';
+  }
+  if (looked.agent.state === 'failed') {
+    await call(config, '/agent/build', {
+      runId: work.runId,
+      status: 'failed',
+      reason: looked.agent.reason,
+      ...(agentUrl ? { agentUrl } : {}),
+    });
+    return 'settled';
+  }
+  git(config.repo, ['fetch', 'origin', work.milestone.branch, '--quiet']);
+  const log = git(config.repo, ['log', `origin/${work.milestone.branch}`, '--format=%H%x1f%B%x1e']);
+  const done = mapCursorCommits(parseGitLog(log.out), work.tasks ?? []);
+  if (done.length === 0) {
+    await call(config, '/agent/build', {
+      runId: work.runId,
+      status: 'failed',
+      reason: 'The Cursor agent finished without a Portal-Task trailer',
+      ...(agentUrl || looked.agent.url ? { agentUrl: agentUrl || looked.agent.url } : {}),
+    });
+    return 'settled';
+  }
+  const dir = ensureWorktree(config.repo, work.milestone.branch);
+  const prUrl = looked.agent.prUrl || ensurePullRequest(dir, work);
+  const result = await call(config, '/agent/build', {
+    runId: work.runId,
+    status: 'finished',
+    ...(agentId ? { agentId } : {}),
+    ...(agentUrl || looked.agent.url ? { agentUrl: agentUrl || looked.agent.url } : {}),
+    tasks: done,
+    ...(prUrl ? { prUrl } : {}),
+  });
+  if (result.milestoneStatus === 'Ready to Ship') markReadyForReview(dir, work.milestone.branch);
+  say(`Cursor finished ${done.length} tasks${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
+  return 'settled';
 }
 
 function sleep(ms) {
@@ -226,32 +377,39 @@ async function main() {
   for (;;) {
     let work;
     try {
-      work = await call(config, '/agent/claim', { mode: config.mode, tool: 'claude_code', repos: config.repos });
+      work = await call(config, '/agent/claim', { mode: config.mode, repos: config.repos });
     } catch (error) {
       say(error.message);
       if (parsed.options.once) process.exit(1);
       await sleep(idleDelayMs(4));
       continue;
     }
-    if (work.kind === 'task' || work.kind === 'planning') {
+    const driver = selectDriver(work);
+    let buildStillRunning = false;
+    if (work.kind === 'task' || work.kind === 'planning' || work.kind === 'build') {
       empty = 0;
       try {
-        if (work.kind === 'task') await doTask(config, work);
+        if (driver === 'cursor') buildStillRunning = (await doBuild(config, work)) === 'running';
+        else if (work.kind === 'task') await doTask(config, work);
         else await doPlanning(config, work);
       } catch (error) {
         say(error.message);
         const body =
-          work.kind === 'task'
-            ? { runId: work.runId, status: 'failed', reason: error.message }
-            : { runId: work.runId, kind: 'planning', reason: error.message };
-        await call(config, '/agent/complete', body).catch((failed) => say(failed.message));
+          work.kind === 'build'
+            ? { runId: work.runId, status: 'failed', reason: 'The runner hit an error' }
+            : work.kind === 'task'
+              ? { runId: work.runId, status: 'failed', reason: 'The runner hit an error' }
+              : { runId: work.runId, kind: 'planning', reason: 'The runner hit an error' };
+        const path = work.kind === 'build' ? '/agent/build' : '/agent/complete';
+        await call(config, path, body).catch((failed) => say(failed.message));
       }
     } else {
       empty += 1;
       if (!parsed.options.once) say('Nothing to do. Waiting.');
     }
     if (parsed.options.once) break;
-    if (work.kind !== 'task' && work.kind !== 'planning') await sleep(idleDelayMs(empty));
+    if (buildStillRunning) await sleep(idleDelayMs(1));
+    else if (work.kind !== 'task' && work.kind !== 'planning' && work.kind !== 'build') await sleep(idleDelayMs(empty));
   }
 }
 

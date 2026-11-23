@@ -68,3 +68,14 @@ Not built:
 - A task that syncs from Notion is never claimed. It still counts toward "all tasks done", so it holds the milestone in Building until a person closes it. The run feed names it.
 - A merge ships a milestone only when every task that is not Parked is Done, subtasks included. Peter decided this on 2026-11-22 at 3:20 PM ET. Staff set Shipped through the same gate (#128). The play button and the runner never move a milestone to Shipped.
 - Merging does not deploy. Production still needs Peter's explicit "deploy main".
+
+## Amendment, 2026-11-22
+
+Peter gave the go for auto-planning and agent choice at 4:40 PM ET. These points replace the matching lines above where they differ.
+
+- A milestone enters Planning with no tasks from the Portal, `update_milestone`, or `create_milestone` without tasks. That queues one planning run. The same milestone and iteration does not queue a second one. A milestone that already has tasks is skipped unless staff press Regenerate.
+- The planner is Claude Code, read-only. It posts 3 to 10 tasks with origin `planner`. The milestone stays in Planning.
+- Staff pick the build agent per project, next to the repository: Claude Code or Cursor. Planning still uses Claude. Cursor launches one cloud agent per milestone on the milestone branch. `CURSOR_API_KEY` stays on the runner.
+- A failed or stuck run is blocked, shows its reason, and appears in `list_needs_peter`. Staff retry it. It is not put straight back in the queue.
+- Both agents share one pull request, the local preview note, and Ready to Ship. The staff Vercel preview starts when the pull request is labeled `ready-for-review`, and that preview stays on `graceful-mastiff-960`.
+- Building is still set only from the staff UI. The planning, progress, blocked, and agent screens wait for their design frames. The controls that are in now are stubs.
