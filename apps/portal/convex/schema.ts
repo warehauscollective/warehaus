@@ -336,6 +336,12 @@ export default defineSchema({
     planningIteration: v.optional(v.number()),
     /** Set with a blocked planning job. Cleared when it is queued again or the plan lands. */
     planningBlockedReason: v.optional(v.string()),
+    /**
+     * When the planning state last changed: queued, claimed, written, blocked
+     * or retried. Set in the same patch as that change, never on its own.
+     * Feeds the staff "Updated" stamp. Staff only.
+     */
+    loopChangedAt: v.optional(v.number()),
     /** Staff pressed Regenerate. The next plan replaces the drafted To do tasks. */
     planningReplace: v.optional(v.boolean()),
     /** The milestone's one branch, `milestone/<slug>`. Set on create. Absent on older rows. Staff only. */

@@ -4,7 +4,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, it } from 'node:test';
 import { DRIVER_LOCKED, DRIVER_SAVE_ERROR, AgentDriverSettingView } from './AgentDriverSetting';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
-import { LOOP_ADD, LOOP_ADD_HINT, LOOP_RETRY, LOOP_UPDATED, MilestoneLoopView, fixtureLoopModel, loopSubtitle, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
+import { readFileSync } from 'node:fs';
+import { LOOP_ADD, LOOP_ADD_HINT, LOOP_RETRY, LOOP_UPDATED, MilestoneLoopView, UpdatedStamp, fixtureLoopModel, loopSubtitle, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
 
 Object.assign(globalThis, { React });
 
@@ -49,17 +50,18 @@ describe('milestone loop frames', () => {
     assert.equal(loopSubtitle(fixtureLoopModel('building')), `Milestone · 3 of 6 tasks done · ${LOOP_UPDATED}`);
     assert.equal(fixtureLoopModel('cursor')?.subtitle, 'Milestone · 3 of 6 tasks done');
     assert.equal(loopSubtitle(fixtureLoopModel('cursor')), `Milestone · 3 of 6 tasks done · ${LOOP_UPDATED}`);
-    assert.equal(fixtureLoopModel('generating')?.subtitle, `Milestone · Drafting tasks · ${LOOP_UPDATED}`);
-    assert.equal(fixtureLoopModel('generating')?.desktopStamp, undefined);
-    assert.equal(fixtureLoopModel('empty')?.subtitle, `Milestone · No tasks yet · ${LOOP_UPDATED}`);
-    assert.equal(fixtureLoopModel('empty')?.desktopStamp, undefined);
-    assert.equal(fixtureLoopModel('blocked')?.subtitle, `Milestone · Run blocked · ${LOOP_UPDATED}`);
-    assert.equal(fixtureLoopModel('blocked')?.desktopStamp, undefined);
+    // Every loop frame carries the stamp as a desktop-only span, so it is hidden at 390.
+    assert.equal(fixtureLoopModel('generating')?.subtitle, 'Milestone · Drafting tasks');
+    assert.equal(loopSubtitle(fixtureLoopModel('generating')), `Milestone · Drafting tasks · ${LOOP_UPDATED}`);
+    assert.equal(fixtureLoopModel('empty')?.subtitle, 'Milestone · No tasks yet');
+    assert.equal(loopSubtitle(fixtureLoopModel('empty')), `Milestone · No tasks yet · ${LOOP_UPDATED}`);
+    assert.equal(fixtureLoopModel('blocked')?.subtitle, 'Milestone · Run blocked');
+    assert.equal(loopSubtitle(fixtureLoopModel('blocked')), `Milestone · Run blocked · ${LOOP_UPDATED}`);
     const stamped = html(createElement(Stamp, { text: "Milestone · Couldn't draft tasks", stamp: LOOP_UPDATED }));
     assert.match(stamped, /Milestone · Couldn&#x27;t draft tasks/);
     assert.match(stamped, /portal-detail-stamp/);
     assert.match(stamped, new RegExp(LOOP_UPDATED));
-    assert.equal(html(createElement(Stamp, { text: 'Milestone · Drafting tasks · Updated just now' })).includes('portal-detail-stamp'), false);
+    assert.equal(html(createElement(Stamp, { text: 'Milestone · Drafting tasks' })).includes('portal-detail-stamp'), false);
   });
 
   it('draws the drafted title with the blue ring and keeps the add hint on one line', () => {
@@ -93,30 +95,47 @@ function taskRows(count: number, blockedAt?: number): MilestoneRoadmapView['rows
 }
 
 describe('live page subtitles', () => {
-  it('counts drafted tasks, names a failed draft, and counts building tasks', () => {
-    const drafted = milestoneLoopSubtitle(milestone({ status: 'Planning', rows: taskRows(6), doneCount: 0 }));
-    assert.equal(drafted?.text, 'Milestone · 6 drafted tasks');
-    assert.equal(drafted?.desktopStamp, LOOP_UPDATED);
+  const AT = Date.UTC(2026, 10, 22, 16, 0, 0);
+
+  it('reads Milestone · [status] for every loop state and carries the real last-change time', () => {
+    const drafted = milestoneLoopSubtitle(milestone({ status: 'Planning', rows: taskRows(6), doneCount: 0, updatedAt: AT }));
+    assert.deepEqual(drafted, { text: 'Milestone · 6 drafted tasks', updatedAt: AT });
     const one = milestoneLoopSubtitle(milestone({ status: 'Planning', rows: taskRows(1), doneCount: 0 }));
     assert.equal(one?.text, 'Milestone · 1 drafted task');
-    const failed = milestoneLoopSubtitle(milestone({ status: 'Planning', planning: 'blocked', rows: taskRows(0), doneCount: 0 }));
-    assert.equal(failed?.text, "Milestone · Couldn't draft tasks");
-    assert.equal(failed?.desktopStamp, LOOP_UPDATED);
-    const building = milestoneLoopSubtitle(milestone({ status: 'Building', rows: taskRows(6), doneCount: 3 }));
-    assert.equal(building?.text, 'Milestone · 3 of 6 tasks done');
-    assert.equal(building?.desktopStamp, LOOP_UPDATED);
+    const failed = milestoneLoopSubtitle(milestone({ status: 'Planning', planning: 'blocked', rows: taskRows(0), doneCount: 0, updatedAt: AT }));
+    assert.deepEqual(failed, { text: "Milestone · Couldn't draft tasks", updatedAt: AT });
+    const building = milestoneLoopSubtitle(milestone({ status: 'Building', rows: taskRows(6), doneCount: 3, updatedAt: AT }));
+    assert.deepEqual(building, { text: 'Milestone · 3 of 6 tasks done', updatedAt: AT });
+    const drafting = milestoneLoopSubtitle(milestone({ status: 'Planning', planning: 'running', rows: taskRows(0), doneCount: 0, updatedAt: AT }));
+    assert.deepEqual(drafting, { text: 'Milestone · Drafting tasks', updatedAt: AT });
+    const empty = milestoneLoopSubtitle(milestone({ status: 'Planning', rows: taskRows(0), doneCount: 0, updatedAt: AT }));
+    assert.deepEqual(empty, { text: 'Milestone · No tasks yet', updatedAt: AT });
+    const blocked = milestoneLoopSubtitle(milestone({ status: 'Building', rows: taskRows(6, 3), doneCount: 3, updatedAt: AT }));
+    assert.deepEqual(blocked, { text: 'Milestone · Run blocked', updatedAt: AT });
   });
 
-  it('leaves drafting, empty, and blocked lines without a desktop stamp', () => {
-    const drafting = milestoneLoopSubtitle(milestone({ status: 'Planning', planning: 'running', rows: taskRows(0), doneCount: 0 }));
-    assert.equal(drafting?.text, 'Milestone · Drafting tasks');
-    assert.equal(drafting?.desktopStamp, undefined);
-    const empty = milestoneLoopSubtitle(milestone({ status: 'Planning', rows: taskRows(0), doneCount: 0 }));
-    assert.equal(empty?.text, 'Milestone · No tasks yet');
-    assert.equal(empty?.desktopStamp, undefined);
-    const blocked = milestoneLoopSubtitle(milestone({ status: 'Building', rows: taskRows(6, 3), doneCount: 3 }));
-    assert.equal(blocked?.text, 'Milestone · Run blocked');
-    assert.equal(blocked?.desktopStamp, undefined);
+  it('shows no stamp without a real time, and never the fixed "just now" copy', () => {
+    const none = milestoneLoopSubtitle(milestone({ status: 'Building', rows: taskRows(6), doneCount: 3 }));
+    assert.deepEqual(none, { text: 'Milestone · 3 of 6 tasks done' });
+    assert.equal(milestoneLoopSubtitle(milestone({ status: 'Shipped', rows: taskRows(1), doneCount: 1, updatedAt: AT })), null);
+    const line = html(createElement('p', null, loopSubtitleLine('Milestone · 3 of 6 tasks done', undefined, undefined)));
+    assert.equal(line, '<p>Milestone · 3 of 6 tasks done</p>');
+    const source = readFileSync(new URL('./MilestoneLoop.tsx', import.meta.url), 'utf8');
+    const live = source.slice(source.indexOf('export function liveLoopModel'));
+    assert.equal(live.includes('LOOP_UPDATED'), false);
+    assert.equal(live.includes('Updated just now'), false);
+  });
+
+  it('renders no time on the server, so the first client render matches it', () => {
+    // The stamp reads the clock in an effect. A server render has no effect pass and prints no time.
+    const server = html(createElement('p', null, loopSubtitleLine('Milestone · 3 of 6 tasks done', undefined, AT)));
+    assert.equal(server, '<p>Milestone · 3 of 6 tasks done</p>');
+    assert.equal(html(createElement(UpdatedStamp, { at: AT })), '');
+    const source = readFileSync(new URL('./MilestoneLoop.tsx', import.meta.url), 'utf8');
+    const stamp = source.slice(source.indexOf('export function UpdatedStamp'), source.indexOf('export function loopSubtitleLine'));
+    assert.match(stamp, /useState<number \| null>\(null\)/);
+    assert.match(stamp, /useEffect/);
+    assert.match(stamp, /portal-detail-stamp/);
   });
 });
 

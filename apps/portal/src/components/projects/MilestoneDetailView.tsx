@@ -371,7 +371,7 @@ export function MilestoneDetailView({
           const frame = loopPreview ? fixtureLoopModel(loopPreview) : null;
           if (frame?.subtitle) return loopSubtitleLine(frame.subtitle, frame.desktopStamp);
           const live = staff ? milestoneLoopSubtitle(milestone) : null;
-          if (live) return loopSubtitleLine(live.text, live.desktopStamp);
+          if (live) return loopSubtitleLine(live.text, undefined, live.updatedAt);
           return `Milestone · ${inclusiveProgressCopy(milestone.doneCount, total, recordBoard.nested)}`;
         })()}
         action={staff && closeout ? <span data-testid="milestone-header-overflow" className="inline-flex">{closeout}</span> : undefined}

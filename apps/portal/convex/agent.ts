@@ -360,7 +360,7 @@ export const claimNext = internalMutation({
         await ctx.db.patch(planning._id, { planning: undefined });
         continue;
       }
-      await ctx.db.patch(planning._id, { planning: 'running' });
+      await ctx.db.patch(planning._id, { planning: 'running', loopChangedAt: now });
       const runId = await ctx.db.insert('agentRuns', {
         orgId: planning.orgId,
         milestoneId: planning._id,
@@ -764,6 +764,7 @@ export const writePlannedTasks = internalMutation({
       planning: undefined,
       planningReplace: undefined,
       planningBlockedReason: undefined,
+      loopChangedAt: now,
     });
     await writeEvent(ctx, {
       orgId: milestone.orgId,
@@ -795,7 +796,7 @@ export const failPlanning = internalMutation({
     await ctx.db.patch(run._id, { status: 'failed', endedAt: now, blockedReason: why, settledAt: now });
     const milestone = await ctx.db.get(run.milestoneId);
     if (milestone?.planning === 'running') {
-      await ctx.db.patch(milestone._id, { planning: 'blocked', planningBlockedReason: why });
+      await ctx.db.patch(milestone._id, { planning: 'blocked', planningBlockedReason: why, loopChangedAt: now });
       await needsPeter(ctx, milestone, {
         reason: 'blocked',
         addedBy: `runner:${args.runnerId}`,
@@ -873,7 +874,7 @@ export const releaseStuckRuns = internalMutation({
           }
         }
       } else if (milestone?.planning === 'running') {
-        await ctx.db.patch(milestone._id, { planning: 'blocked', planningBlockedReason: why });
+        await ctx.db.patch(milestone._id, { planning: 'blocked', planningBlockedReason: why, loopChangedAt: now });
         await needsPeter(ctx, milestone, {
           reason: 'blocked',
           addedBy: `runner:${run.runnerId}`,
@@ -1160,7 +1161,7 @@ export async function retryBlockedWork(
     recentRuns: await planningRunsInWindow(ctx, milestone._id, now),
   });
   if (!decision.ok) return failure(400, decision.reason);
-  await ctx.db.patch(milestone._id, { planning: 'queued', planningBlockedReason: undefined });
+  await ctx.db.patch(milestone._id, { planning: 'queued', planningBlockedReason: undefined, loopChangedAt: now });
   const open = await ctx.db
     .query('milestoneNotes')
     .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))

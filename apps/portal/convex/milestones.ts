@@ -30,6 +30,8 @@ import {
   detachTaskDecision,
   writeMilestoneActivity,
   roadmapViewForAudience,
+  milestoneLastChange,
+  showsUpdatedStamp,
   nextMilestoneOrder,
   publishDecision,
   resourceEditDecision,
@@ -369,6 +371,31 @@ async function milestoneResources(
   return resources;
 }
 
+/**
+ * When a live milestone last changed, for the staff page header. One indexed
+ * single-row read: the newest activity row. Run and planning changes arrive
+ * through the tasks they touch and `loopChangedAt`, so no agent table is read
+ * here. Only called while the milestone is Planning or Building.
+ */
+async function lastChangeFor(
+  ctx: QueryCtx,
+  milestone: Doc<'milestones'>,
+  tasks: readonly Doc<'tasks'>[],
+): Promise<number | null> {
+  const activity = await ctx.db
+    .query('activity')
+    .withIndex('by_milestoneId_timestamp', (q) => q.eq('milestoneId', milestone._id))
+    .order('desc')
+    .first();
+  return milestoneLastChange([
+    milestone._creationTime,
+    milestone.decidedAt,
+    milestone.loopChangedAt,
+    activity?.timestamp,
+    ...tasks.filter((task) => task.milestoneId === milestone._id).map((task) => task.updatedAt),
+  ]);
+}
+
 async function toRoadmap(
   ctx: QueryCtx,
   milestone: Doc<'milestones'>,
@@ -385,6 +412,8 @@ async function toRoadmap(
   });
   const approver =
     audience === 'staff' && milestone.approverContactId ? await ctx.db.get(milestone.approverContactId) : null;
+  const updatedAt =
+    audience === 'staff' && showsUpdatedStamp(milestone.status) ? await lastChangeFor(ctx, milestone, tasks) : null;
   const view: MilestoneRoadmapView = {
     id: milestone._id,
     name: milestone.name,
@@ -408,6 +437,7 @@ async function toRoadmap(
       : {}),
     ...(audience === 'staff' && milestone.branch ? { branch: milestone.branch } : {}),
     ...(audience === 'staff' && milestone.prUrl ? { prUrl: milestone.prUrl } : {}),
+    ...(updatedAt != null ? { updatedAt } : {}),
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,

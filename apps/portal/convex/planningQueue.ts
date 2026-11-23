@@ -54,6 +54,7 @@ export async function queuePlanning(
   if (!decision.enqueue) return { enqueued: false, ...(decision.reason ? { reason: decision.reason } : {}) };
   await ctx.db.patch(milestone._id, {
     planning: 'queued',
+    loopChangedAt: now,
     planningIteration: iteration,
     planningBlockedReason: undefined,
     ...(decision.replace ? { planningReplace: true } : { planningReplace: undefined }),
