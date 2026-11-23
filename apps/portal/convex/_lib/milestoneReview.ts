@@ -27,8 +27,13 @@ export const NEW_ITERATION_TASK_DONE = false;
 export const PETER_EMAILS = ['peter@warehaus.studio', 'peter@warehaus.co'] as const;
 export const PETER_CHAT_TOKEN = 'grok-bot';
 
-export const TASK_STAGE_HINT =
-  'Staff can set Shipped when the pull request is merged into main. The check runs when you save.';
+/**
+ * How a task or milestone reaches Shipped, in staff words. Figma task modal
+ * 759:11790 and ReviewCard 719:10269 use this one sentence.
+ */
+export const SHIPPED_HOW = 'Shipped when Peter approves and it deploys, or when staff use Mark complete.';
+
+export const TASK_STAGE_HINT = SHIPPED_HOW;
 
 /** Shown on a disabled Retry while review previews are still being set up. */
 export const RETRY_WAITS_ON_TOKENS = "Retry isn't available yet. Review previews are still being set up.";

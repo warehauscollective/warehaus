@@ -3,8 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { TASK_STAGE_HINT, displayedTaskStatus } from '../../lib/data/taskStatus';
 
-const HINT =
-  'Staff can set Shipped when the pull request is merged into main. The check runs when you save.';
+const HINT = 'Shipped when Peter approves and it deploys, or when staff use Mark complete.';
 
 describe('Ready to Ship task status', () => {
   it('maps In progress at Ready to Ship to In review', () => {
@@ -20,6 +19,7 @@ describe('Ready to Ship task status', () => {
     const source = readFileSync(new URL('./TaskDetailModal.tsx', import.meta.url), 'utf8');
     assert.match(source, /TASK_STAGE_HINT/);
     assert.equal(source.includes('ON MERGE'), false);
+    assert.equal(/set on merge/i.test(source), false);
     assert.equal(source.includes('task-lock.svg'), false);
     assert.match(source, /commitShipped/);
     assert.equal(source.includes('set in Notion'), false);
