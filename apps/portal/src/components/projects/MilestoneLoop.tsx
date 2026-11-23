@@ -18,7 +18,7 @@ export const LOOP_TRY = 'Try again';
 export const LOOP_RETRY = 'Retry';
 export const LOOP_GENERATING_REASON = 'Tasks are still being drafted.';
 export const LOOP_EMPTY_REASON = 'Add at least one task before moving to Awaiting Go.';
-export const LOOP_FAILED_REASON = "Tasks couldn't be drafted. Try again, or add a task yourself.";
+export const LOOP_FAILED_REASON = 'Tasks couldn’t be drafted. Try again, or add a task yourself.';
 export const LOOP_ADD = 'Add a task to this milestone';
 export const LOOP_ADD_HINT = '↵ to add · Manual';
 /** Frame copy for fixture captures only. A live milestone shows its real time through `UpdatedStamp`. */
@@ -61,6 +61,8 @@ export type LoopModel = {
   taskSummary?: string;
   showTasks: boolean;
   addTask: boolean;
+  /** "↵ to add · Manual" beside the add field. Drafted and failed show it. Empty does not. */
+  addHint?: boolean;
   awaiting: 'hidden' | 'enabled' | 'disabled';
   awaitingReason?: string;
   tryAgain: boolean;
@@ -96,7 +98,7 @@ function numbered(titles: readonly string[], map: (title: string, index: number)
   return titles.map((title, index) => map(title, index));
 }
 
-/** Frame copy for a fixture capture. Straight apostrophes. */
+/** Frame copy for a fixture capture. Apostrophes and quotes are typographic, as in the frames. */
 export function fixtureLoopModel(kind: string): LoopModel | null {
   const tasks = numbered(TITLES, (title, index) => ({ id: `loop-${index + 1}`, order: index + 1, title }));
   if (kind === 'generating') {
@@ -129,6 +131,7 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       taskSummary: LOOP_DRAFTS,
       showTasks: true,
       addTask: true,
+      addHint: true,
       awaiting: 'enabled',
       tryAgain: false,
       retry: false,
@@ -159,16 +162,18 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       kind: 'failed',
       eyebrow: 'PLANNING',
       eyebrowTone: 'danger',
-      heading: "Couldn't draft tasks",
+      heading: 'Couldn’t draft tasks',
       body: 'The milestone and its details are unchanged. Try again, or add a task yourself.',
       tasks: [],
       showTasks: false,
+      // The frame has no add field. Product Design Lead's call: the card says "add a task yourself", so it gets the drafted one.
       addTask: true,
+      addHint: true,
       awaiting: 'disabled',
       awaitingReason: LOOP_FAILED_REASON,
       tryAgain: true,
       retry: false,
-      subtitle: "Milestone · Couldn't draft tasks",
+      subtitle: 'Milestone · Couldn’t draft tasks',
       desktopStamp: LOOP_UPDATED,
     };
   }
@@ -181,7 +186,7 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       eyebrowTone: 'muted',
       heading: '3 of 6 tasks done',
       body: 'Now building: Build milestone overview',
-      agentLine: cursor ? 'Running with Cursor cloud agent' : "Running with Claude Code (on Peter's Mac) · peter-mbp",
+      agentLine: cursor ? 'Running with Cursor cloud agent' : 'Running with Claude Code (on Peter’s Mac) · peter-mbp',
       prLabel: 'Open pull request · PR #152',
       prUrl: 'https://github.com/warehauscollective/warehaus/pull/152',
       branchLine: cursor
@@ -209,7 +214,7 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       eyebrow: 'BUILDING · BLOCKED',
       eyebrowTone: 'danger',
       heading: 'The run is blocked',
-      body: 'The Claude Code runner on peter-mbp stopped responding while building "Build milestone overview."',
+      body: 'The Claude Code runner on peter-mbp stopped responding while building “Build milestone overview.”',
       released: 'Released Nov 22, 4:10 PM ET, after it was stuck for 10 minutes.',
       prLabel: 'Open pull request · PR #152',
       prUrl: 'https://github.com/warehauscollective/warehaus/pull/152',
@@ -340,7 +345,7 @@ export function MilestoneLoopView({
   const awaitingReason = model.awaitingReason ?? '';
   return (
     <div className="flex flex-col gap-6" data-testid="milestone-loop" data-loop={model.kind}>
-      <section style={card}>
+      <section style={phone ? { ...card, padding: 20 } : card}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
           <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', fontWeight: 500, color: model.eyebrowTone === 'danger' ? 'var(--danger)' : 'var(--muted)' }}>
             {model.eyebrow}
@@ -383,19 +388,13 @@ export function MilestoneLoopView({
             {model.events.map((event) => (
               <div
                 key={`${event.time}-${event.type}`}
-                style={{
-                  display: 'flex',
-                  flexDirection: phone ? 'column' : 'row',
-                  gap: phone ? 4 : 16,
-                  padding: '10px 0',
-                  alignItems: phone ? 'flex-start' : 'flex-start',
-                }}
+                style={{ display: 'flex', gap: 16, padding: '10px 0', alignItems: 'flex-start' }}
               >
                 <div className="ds-mono" style={{ display: 'flex', gap: 10, color: 'var(--muted)', flex: '0 0 auto' }}>
                   <span style={{ width: 68, fontSize: 11, lineHeight: '21px' }}>{event.time}</span>
                   <span style={{ width: 72, fontSize: 10, lineHeight: '21px' }}>{event.type}</span>
                 </div>
-                <p style={{ margin: 0, flex: 1, fontSize: 14, lineHeight: '21px' }}>{event.summary}</p>
+                <p style={{ margin: 0, flex: 1, minWidth: 0, fontSize: 14, lineHeight: '21px', overflowWrap: 'anywhere' }}>{event.summary}</p>
               </div>
             ))}
           </div>
@@ -432,7 +431,7 @@ export function MilestoneLoopView({
       </section>
       {model.showTasks || model.addTask ? (
         <section
-          style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: '20px 24px' }}
+          style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, padding: phone ? 20 : '20px 24px' }}
           data-testid="milestone-loop-tasks"
         >
           {model.showTasks ? (
@@ -509,7 +508,7 @@ export function MilestoneLoopView({
                   </button>
                 )}
                 {task.draft ? (
-                  <span className="ds-mono" style={{ fontSize: 10, lineHeight: '15px', fontWeight: 500, color: 'var(--muted)', background: 'color-mix(in srgb, var(--muted) 16%, transparent)', borderRadius: 4, padding: '2px 6px' }}>
+                  <span className="ds-mono" style={{ fontSize: 10, lineHeight: '15px', fontWeight: 500, color: '#000', background: 'rgba(0, 0, 0, 0.16)', borderRadius: 4, padding: '2px 6px' }}>
                     {LOOP_DRAFT}
                   </span>
                 ) : null}
@@ -574,9 +573,11 @@ export function MilestoneLoopView({
                   }}
                 />
               </span>
-              <span className="ds-mono" style={{ flex: '0 0 auto', fontSize: 11, lineHeight: '17px', whiteSpace: 'nowrap' }}>
-                {LOOP_ADD_HINT}
-              </span>
+              {model.addHint ? (
+                <span className="ds-mono" data-testid="milestone-loop-add-hint" style={{ flex: '0 0 auto', fontSize: 11, lineHeight: '17px', whiteSpace: 'nowrap' }}>
+                  {LOOP_ADD_HINT}
+                </span>
+              ) : null}
             </form>
           ) : null}
         </section>
@@ -682,7 +683,7 @@ export function liveLoopModel(milestone: MilestoneRoadmapView, progress: Progres
       eyebrow: 'BUILDING · BLOCKED',
       eyebrowTone: 'danger',
       heading: 'The run is blocked',
-      body: reason && !/went quiet/i.test(reason) ? reason : `The ${who} stopped responding while building "${name}."`,
+      body: reason && !/went quiet/i.test(reason) ? reason : `The ${who} stopped responding while building “${name}.”`,
       released: progress?.run?.endedAt ? `Released ${releasedStamp(progress.run.endedAt)}.` : undefined,
       prLabel: number ? `Open pull request · PR #${number}` : undefined,
       prUrl: progress?.prUrl ?? milestone.prUrl ?? undefined,
@@ -703,7 +704,7 @@ export function liveLoopModel(milestone: MilestoneRoadmapView, progress: Progres
     eyebrowTone: 'muted',
     heading: `${done} of ${total} tasks done`,
     body: current ? `Now building: ${current.title}` : 'Waiting for the next task.',
-    agentLine: cursor ? 'Running with Cursor cloud agent' : `Running with Claude Code (on Peter's Mac)${runner ? ` · ${runner}` : ''}`,
+    agentLine: cursor ? 'Running with Cursor cloud agent' : `Running with Claude Code (on Peter’s Mac)${runner ? ` · ${runner}` : ''}`,
     prLabel: number ? `Open pull request · PR #${number}` : undefined,
     prUrl: progress?.prUrl ?? milestone.prUrl ?? undefined,
     branchLine: [branch, runner && !cursor ? runner : null, cursor ? 'Cursor cloud agent' : agent === 'claude_code' ? 'Claude Code' : null].filter(Boolean).join(' · ') || undefined,
@@ -784,7 +785,7 @@ export function milestoneLoopSubtitle(milestone: MilestoneRoadmapView): LoopPage
   const stamp = typeof milestone.updatedAt === 'number' ? { updatedAt: milestone.updatedAt } : {};
   if (milestone.status === 'Planning') {
     if (milestone.planning === 'queued' || milestone.planning === 'running') return { text: 'Milestone · Drafting tasks', ...stamp };
-    if (milestone.planning === 'blocked') return { text: "Milestone · Couldn't draft tasks", ...stamp };
+    if (milestone.planning === 'blocked') return { text: 'Milestone · Couldn’t draft tasks', ...stamp };
     if (rows.length === 0) return { text: 'Milestone · No tasks yet', ...stamp };
     const drafted = `${rows.length} drafted ${rows.length === 1 ? 'task' : 'tasks'}`;
     return { text: `Milestone · ${drafted}`, ...stamp };
