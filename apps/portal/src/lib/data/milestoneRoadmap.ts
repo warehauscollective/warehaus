@@ -297,6 +297,24 @@ export function applyFixtureMilestonePreview(
   }
   const loop = params.get('loop');
   if (loop && next[0]) next = [withLoopFixture(next[0], loop), ...next.slice(1)];
+  if (params.get('shipped') === '1' && !next.some((milestone) => milestone.id === 'm-preview-shipped')) {
+    next = [
+      ...next,
+      previewMilestone({
+        id: 'm-preview-shipped',
+        name: 'Design system foundation',
+        objective: 'Core components, tokens and responsive layouts.',
+        status: 'Shipped',
+        approval: 'approved',
+        decidedAt: PREVIEW_REVIEW_AT,
+        approverName: 'Northwind',
+        resources: [
+          { id: 'r-ds', title: 'Tokens', url: null },
+          { id: 'r-ds-2', title: 'Components', url: null },
+        ],
+      }),
+    ];
+  }
   if (params.get('tiles') !== 'states') return next;
   return [
     ...next,

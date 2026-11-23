@@ -138,6 +138,10 @@ describe('fixture roadmap', () => {
     assert.equal((long[0]?.doneCount ?? 0) + (long[0]?.openCount ?? 0), 148);
     assert.equal(long[0]?.rows.reduce((sum, row) => sum + row.children.length, 0), 9);
     assert.equal(long[1]?.name, 'Billing export draft');
+    const shipped = applyFixtureMilestonePreview(staff, '?shipped=1');
+    assert.equal(shipped.at(-1)?.id, 'm-preview-shipped');
+    assert.equal(shipped.at(-1)?.status, 'Shipped');
+    assert.equal(shipped.at(-1)?.name, 'Design system foundation');
     const states = applyFixtureMilestonePreview(staff, '?tiles=states');
     assert.deepEqual(
       states.map((milestone) => milestone.name),
