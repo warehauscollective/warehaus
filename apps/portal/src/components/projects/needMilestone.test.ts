@@ -10,6 +10,7 @@ import {
   doneGroupLabel,
   needMilestoneBannerState,
   needMilestoneCopy,
+  attachedMilestoneTaskIds,
   tasksNeedingMilestone,
   type NeedMilestoneTask,
 } from './needMilestone';
@@ -51,6 +52,66 @@ describe('tasks that need a milestone', () => {
     for (const id of ['done', 'parked', 'flagged', 'child', 'ours', 'archived', 'attached']) {
       assert.equal(counted.has(id), false, id);
     }
+  });
+
+  it('counts 5 on the staff list and the snapshot fallback for the prod mix', () => {
+    const milestoneId = 'm-prod';
+    const milestones = [
+      {
+        id: milestoneId,
+        rows: [
+          {
+            id: 'row-1',
+            children: Array.from({ length: 19 }, (_, index) => ({ id: `nested-${index}` })),
+          },
+        ],
+      },
+    ];
+    const open = Array.from({ length: 5 }, (_, index) =>
+      task({ id: `open-${index}`, status: 'To Do', isDone: false, parentTaskId: null, milestoneId: null }),
+    );
+    const done = Array.from({ length: 5 }, (_, index) =>
+      task({ id: `done-${index}`, status: 'Done', isDone: true, parentTaskId: null, milestoneId: null }),
+    );
+    const parent = task({ id: 'row-1', status: 'In Progress', isDone: false, parentTaskId: null, milestoneId });
+    const nested = Array.from({ length: 19 }, (_, index) =>
+      task({ id: `nested-${index}`, status: 'To Do', isDone: false, parentTaskId: 'row-1', milestoneId: null }),
+    );
+    const loose = Array.from({ length: 4 }, (_, index) =>
+      task({ id: `loose-${index}`, status: 'To Do', isDone: false, parentTaskId: 'open-0', milestoneId: null }),
+    );
+    const docs = [parent, ...open, ...done, ...nested, ...loose];
+    const attached = attachedMilestoneTaskIds(milestones);
+    assert.equal(attached.has('row-1'), true);
+    assert.equal(attached.has('nested-0'), true);
+    assert.equal(attached.has('nested-18'), true);
+    assert.equal(attached.has('loose-0'), false);
+    assert.equal(attached.size, 20);
+
+    const staffList = docs.map((row) => ({
+      id: row.id,
+      status: row.status,
+      isDone: row.isDone,
+      parentTaskId: row.parentTaskId ?? null,
+      milestoneId: row.milestoneId ?? null,
+    }));
+    const snapshot = docs.map((row) => ({
+      id: row.id,
+      status: row.status,
+      isDone: row.isDone,
+      parentTaskId: row.parentTaskId ?? null,
+      ...(row.milestoneId ? { milestoneId: row.milestoneId } : {}),
+    }));
+    const projectIds = new Set([milestoneId]);
+    assert.deepEqual(
+      tasksNeedingMilestone(staffList, projectIds, attached).map((row) => row.id),
+      open.map((row) => row.id),
+    );
+    assert.equal(tasksNeedingMilestone(snapshot, projectIds, attached).length, 5);
+    assert.deepEqual(
+      tasksNeedingMilestone(snapshot, projectIds, attached).map((row) => row.id),
+      open.map((row) => row.id),
+    );
   });
 
   it('uses the singular line for one task and hides a zero count', () => {

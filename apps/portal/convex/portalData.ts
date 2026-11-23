@@ -148,6 +148,7 @@ export const getSnapshot = clientQuery({
                     orgId: t.orgId,
                     assigneeContactId: t.assigneeContactId ?? null,
                     ...(t.milestoneId ? { milestoneId: t.milestoneId } : {}),
+                    parentTaskId: t.parentTaskId ?? null,
                     notionPageId: t.notionPageId,
                     lastSyncedAt: t.lastSyncedAt,
                     ...(t.stagePendingAt != null ? { stagePending: true as const } : {}),

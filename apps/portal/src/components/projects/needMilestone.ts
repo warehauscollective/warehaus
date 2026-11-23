@@ -51,6 +51,20 @@ export function tasksNeedingMilestone<T extends NeedMilestoneTask>(
   return tasks.filter((task) => taskNeedsProjectMilestone(task, projectMilestoneIds, attachedTaskIds));
 }
 
+/** Top-level milestone rows and the subtasks nested under them. */
+export function attachedMilestoneTaskIds(
+  milestones: readonly { rows: readonly { id: string; children?: readonly { id: string }[] }[] }[],
+): Set<string> {
+  const ids = new Set<string>();
+  for (const milestone of milestones) {
+    for (const row of milestone.rows) {
+      ids.add(row.id);
+      for (const child of row.children ?? []) ids.add(child.id);
+    }
+  }
+  return ids;
+}
+
 /** Hidden takes no slot. Dismissed is the quiet chip. Visible is the banner. */
 export function needMilestoneBannerState(count: number, dismissed: boolean): 'hidden' | 'visible' | 'dismissed' {
   if (count <= 0) return 'hidden';

@@ -6,7 +6,7 @@ import { useSearchParams } from 'next/navigation';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { DoneGroup } from './DoneGroup';
 import { NeedMilestoneBanner } from './NeedMilestoneBanner';
-import { tasksNeedingMilestone } from './needMilestone';
+import { attachedMilestoneTaskIds, tasksNeedingMilestone } from './needMilestone';
 import { useMutation } from 'convex/react';
 import { isPeterEmail } from '@convex/_lib/milestoneReview';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
@@ -247,7 +247,7 @@ export function ProjectRoadmap({
   const selected = milestones.find((milestone) => milestone.id === openMilestoneId) ?? null;
   const approvedCount = milestones.filter((milestone) => milestone.approval === 'approved').length;
   const projectMilestoneIds = new Set(milestones.map((milestone) => milestone.id));
-  const attachedIds = new Set(milestones.flatMap((milestone) => milestone.rows.map((row) => row.id)));
+  const attachedIds = attachedMilestoneTaskIds(milestones);
   const needingMilestone = tasksNeedingMilestone(tasks, projectMilestoneIds, attachedIds);
   const needCount = hideNeedBanner ? 0 : needingMilestone.length;
   const milestoneGroups = groupMilestones(milestones, staff);
