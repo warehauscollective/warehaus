@@ -13,6 +13,7 @@ import {
   RUNNER_RATE_WINDOW_MS,
   RUNNER_UNAUTHORIZED,
   allTasksDone,
+  wrapUpReady,
   authorizeRunner,
   completeDecision,
   eventSummary,
@@ -26,6 +27,7 @@ import {
   runnerOnline,
   runnerRateDecision,
   runnerTouchDecision,
+  tasksWaitingOnPerson,
   trimEventPayload,
   RETRY_RUN_ACTIVE,
   RETRY_RUN_WINDING_DOWN,
@@ -173,6 +175,65 @@ describe('claiming', () => {
     assert.equal(allTasksDone([{ isDone: true }, { isDone: false, archivedAt: 1 }]), true);
     assert.equal(allTasksDone([]), false);
   });
+
+  it('leaves Parked tasks out of the count, like the Shipped rule', () => {
+    assert.equal(allTasksDone([{ isDone: true }, { isDone: false, stage: 'Parked' }]), true);
+    assert.equal(allTasksDone([{ isDone: true }, { isDone: false, stage: 'Building' }]), false);
+    // Nothing left to count is not done.
+    assert.equal(allTasksDone([{ isDone: false, stage: 'Parked' }]), false);
+    // Archived tasks stay out too.
+    assert.equal(allTasksDone([{ isDone: true }, { isDone: false, stage: 'Parked' }, { isDone: false, archivedAt: 1 }]), true);
+  });
+
+  it('never hands a Parked task to a runner', () => {
+    const parked = { ...task({ id: 'a', milestoneOrder: 0 }), stage: 'Parked' };
+    assert.equal(nextClaimableTask([parked, task({ id: 'b', milestoneOrder: 1 })])?.id, 'b');
+    assert.equal(nextClaimableTask([parked]), null);
+    const agent = read('../agent.ts');
+    const openBuild = agent.slice(agent.indexOf('function isOpenBuildTask'), agent.indexOf('function openBuildTasks'));
+    assert.match(openBuild, /if \(isParkedTask\(task\)\) return false;/);
+    assert.match(agent, /stage: task\.stage,\n\s+source: task\.source,/);
+  });
+
+  it('does not name a Parked task as waiting on a person', () => {
+    const synced = { name: 'Synced', isDone: false, source: 'notion', notionPageId: 'abc' };
+    assert.deepEqual(
+      tasksWaitingOnPerson([synced, { ...synced, name: 'Set aside', stage: 'Parked' }]).map((row) => row.name),
+      ['Synced'],
+    );
+  });
+});
+
+describe('wrap-up', () => {
+  const done = { status: 'Done', isDone: true, stage: 'Building' };
+  const parkedToDo = { status: 'To Do', isDone: false, stage: 'Parked' };
+  const openToDo = { status: 'To Do', isDone: false, stage: 'Building' };
+
+  it('moves a Building milestone with one Done task and one Parked To do task to Ready to Ship', () => {
+    assert.equal(wrapUpReady({ milestoneStatus: 'Building', tasks: [done, parkedToDo] }), true);
+  });
+
+  it('holds while a task that is not Parked is still open', () => {
+    assert.equal(wrapUpReady({ milestoneStatus: 'Building', tasks: [done, openToDo] }), false);
+    assert.equal(wrapUpReady({ milestoneStatus: 'Building', tasks: [done, parkedToDo, openToDo] }), false);
+  });
+
+  it('keeps archived tasks out and only acts on Building', () => {
+    assert.equal(wrapUpReady({ milestoneStatus: 'Building', tasks: [done, { ...openToDo, archivedAt: 1 }] }), true);
+    assert.equal(wrapUpReady({ milestoneStatus: 'Building', tasks: [parkedToDo] }), false);
+    assert.equal(wrapUpReady({ milestoneStatus: 'Ready to Ship', tasks: [done, parkedToDo] }), false);
+    assert.equal(wrapUpReady({ milestoneStatus: 'Planning', tasks: [done] }), false);
+  });
+
+  it('is the one gate both agents go through', () => {
+    const agent = read('../agent.ts');
+    const markReady = agent.slice(agent.indexOf('async function markReady'), agent.indexOf('export const writePlannedTasks'));
+    assert.match(markReady, /wrapUpReady\(\{ milestoneStatus: milestone\.status, tasks \}\)/);
+    const complete = agent.slice(agent.indexOf('export const completeTask'), agent.indexOf('async function markReady'));
+    const build = agent.slice(agent.indexOf('export const reportBuild'));
+    assert.match(complete, /await markReady\(ctx, milestone, args\.runnerId, now/);
+    assert.match(build, /await markReady\(ctx, milestone, args\.runnerId, now/);
+  });
 });
 
 describe('finishing a task', () => {
@@ -202,7 +263,7 @@ describe('finishing a task', () => {
     const complete = agent.slice(agent.indexOf('export const completeTask'), agent.indexOf('export const writePlannedTasks'));
     assert.match(complete, /if \(run\.status !== 'running'\)/);
     assert.match(complete, /duplicate: true/);
-    assert.match(complete, /allTasksDone\(tasks\)/);
+    assert.match(complete, /wrapUpReady\(\{ milestoneStatus: milestone\.status, tasks \}\)/);
     assert.match(complete, /moveMilestone\(ctx, milestone, 'Ready to Ship'/);
     assert.match(agent, /transitionMilestone\(\{ from: milestone\.status, cause: 'set', to \}\)/);
     assert.doesNotMatch(agent, /status: 'Shipped'/);
