@@ -18,3 +18,5 @@ Approved by Peter in Grok Bot (Portal room), 2026-11-17, 11:46 AM ET. Full write
 - Keep Convex usage low: indexed reads, bounded pagination, no whole-table scans, skip no-op writes, no lingering `convex dev`.
 
 Open item: shared dev still uses the production Notion token, so a local preview that writes can touch the real Warehaus Notion. The test Notion spec is coming.
+
+Design source: Figma file Warehaus Studio, https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=689-31057. One page per Portal tab (Dashboard, Projects, Resources, Activity, Account) and Portal - Component Library for Core / Components. Iterate on existing frames only. Table and rules: `AGENTS.md`, "Design source".

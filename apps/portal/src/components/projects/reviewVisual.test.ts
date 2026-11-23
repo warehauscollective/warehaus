@@ -90,9 +90,7 @@ describe('review card state from milestone data', () => {
 });
 
 function shippedLinePattern() {
-  return new RegExp(
-    "Shipped is set on merge once every task that isn(?:'|&#x27;)t Parked is Done\\.",
-  );
+  return /Shipped when Peter approves and it deploys, or when staff use Mark complete\./;
 }
 
 function card(model: ReviewSurfaceModel, extra: Record<string, unknown> = {}) {
@@ -195,7 +193,7 @@ describe('peter and staff preview visibility', () => {
     assert.match(settled, new RegExp(PREVIEW_REMOVED.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
     assert.match(settled, /data-testid="review-approved-check"/);
     assert.match(settled, shippedLinePattern());
-    assert.equal(APPROVED_AWAITING, "Shipped is set on merge once every task that isn't Parked is Done.");
+    assert.equal(APPROVED_AWAITING, 'Shipped when Peter approves and it deploys, or when staff use Mark complete.');
     const waitingAttach: ReviewSurfaceModel = { ...base, previewUrl: null };
     assert.equal(card(waitingAttach, { isPeter: false, staffAttach: true }).includes('data-testid="approve-deploy"'), false);
     assert.match(card(waitingAttach, { isPeter: false, staffAttach: true }), /Attach preview link/);

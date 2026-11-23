@@ -338,7 +338,7 @@ export function applyFixtureMilestonePreview(
       id: 'm-preview-approved',
       name: 'Approved, awaiting merge',
       objective: 'The brand system is approved.',
-      // Approval keeps Ready to Ship. Shipped is set on merge.
+      // Approval keeps Ready to Ship. Shipped comes with the deploy, or with Mark complete.
       status: 'Ready to Ship',
       approval: 'approved',
       decidedAt: PREVIEW_REVIEW_AT,

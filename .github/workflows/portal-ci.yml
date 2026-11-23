@@ -1,6 +1,7 @@
 name: Portal CI
 
-# Typecheck, lint, and unit tests for the portal and portal-sync.
+# Typecheck, lint, and unit tests for the portal, portal-sync and the runner.
+# The runner tests use a throwaway local git repository and a mocked Cursor API.
 # No Convex, Notion, or Vercel credentials. This workflow does not deploy.
 on:
   push:
@@ -16,6 +17,7 @@ on:
       - "package-lock.json"
       - "turbo.json"
       - "scripts/**"
+      - "tools/runner/**"
       - ".github/workflows/portal-ci.yml"
   pull_request:
     paths:
@@ -29,6 +31,7 @@ on:
       - "package-lock.json"
       - "turbo.json"
       - "scripts/**"
+      - "tools/runner/**"
       - ".github/workflows/portal-ci.yml"
 
 concurrency:
@@ -78,3 +81,4 @@ jobs:
           npm run test -w @warehaus/portal
           npm run test -w @warehaus/portal-sync
           npm run test:preview-pr
+          npm run test:runner

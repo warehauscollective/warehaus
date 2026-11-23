@@ -89,5 +89,5 @@ Open the Vercel dashboard. Confirm the Preview environment variables point at `g
 ## Watch for
 
 - **Notion:** shared dev still uses the production Notion token, so Portal-only test tasks are safest. Avoid any step that writes synced Notion tasks.
-- **Stuck runs:** a run stuck over 30 minutes is released by the 10-minute cron. No manual fix is needed.
+- **Stuck runs:** a run stuck over 30 minutes is released by the 10-minute cron. No manual fix is needed. Retry opens once the released run's runner answers, or 10 minutes after the release, so a second run never starts on top of one still working. See "Retry and the run it replaces" in `README.md`.
 - **Repo mismatch:** if the runner gets `kind: 'none'`, check that `--repo` matches the project's repository setting exactly.

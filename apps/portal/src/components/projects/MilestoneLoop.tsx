@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -9,6 +9,7 @@ import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
+import { UPDATED_STAMP_TICK_MS, updatedStampText } from '@/lib/data/updatedStamp';
 import { feedTime } from './MilestoneRunFeed';
 import type { ChecklistActions } from './MilestoneChecklist';
 
@@ -20,6 +21,7 @@ export const LOOP_EMPTY_REASON = 'Add at least one task before moving to Awaitin
 export const LOOP_FAILED_REASON = "Tasks couldn't be drafted. Try again, or add a task yourself.";
 export const LOOP_ADD = 'Add a task to this milestone';
 export const LOOP_ADD_HINT = '↵ to add · Manual';
+/** Frame copy for fixture captures only. A live milestone shows its real time through `UpdatedStamp`. */
 export const LOOP_UPDATED = 'Updated just now';
 export const LOOP_DRAFTS = 'All drafts · editable';
 export const LOOP_DRAFT = 'DRAFT';
@@ -108,7 +110,8 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       awaitingReason: LOOP_GENERATING_REASON,
       tryAgain: false,
       retry: false,
-      subtitle: 'Milestone · Drafting tasks · Updated just now',
+      subtitle: 'Milestone · Drafting tasks',
+      desktopStamp: LOOP_UPDATED,
     };
   }
   if (kind === 'drafted') {
@@ -143,7 +146,8 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       awaitingReason: LOOP_EMPTY_REASON,
       tryAgain: true,
       retry: false,
-      subtitle: 'Milestone · No tasks yet · Updated just now',
+      subtitle: 'Milestone · No tasks yet',
+      desktopStamp: LOOP_UPDATED,
     };
   }
   if (kind === 'failed') {
@@ -217,7 +221,8 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       awaiting: 'hidden',
       tryAgain: false,
       retry: true,
-      subtitle: 'Milestone · Run blocked · Updated just now',
+      subtitle: 'Milestone · Run blocked',
+      desktopStamp: LOOP_UPDATED,
     };
   }
   return null;
@@ -610,7 +615,7 @@ export function liveLoopModel(milestone: MilestoneRoadmapView, progress: Progres
   if (kind === 'generating' || kind === 'empty' || kind === 'failed' || kind === 'drafted') {
     const base = fixtureLoopModel(kind);
     if (!base) return null;
-    if (kind !== 'drafted') return { ...base, subtitle: base.subtitle?.replace(' · Updated just now', '') };
+    if (kind !== 'drafted') return { ...base, desktopStamp: undefined };
     const tasks = rows.map((row, index) => ({
       id: row.id,
       order: index + 1,
@@ -620,6 +625,7 @@ export function liveLoopModel(milestone: MilestoneRoadmapView, progress: Progres
     const drafted = `${tasks.length} drafted ${tasks.length === 1 ? 'task' : 'tasks'}`;
     return {
       ...base,
+      desktopStamp: undefined,
       heading: drafted,
       subtitle: `Milestone · ${drafted}`,
       tasks,
@@ -701,7 +707,6 @@ export function liveLoopModel(milestone: MilestoneRoadmapView, progress: Progres
     tryAgain: false,
     retry: false,
     subtitle: `Milestone · ${done} of ${total} tasks done`,
-    desktopStamp: LOOP_UPDATED,
   };
 }
 
@@ -711,32 +716,69 @@ export function loopSubtitle(model: LoopModel | null): string | null {
   return model.desktopStamp ? `${model.subtitle} · ${model.desktopStamp}` : model.subtitle;
 }
 
-/** The subtitle, with the stamp in a span that shows only from 1024px up. */
-export function loopSubtitleLine(text: string, stamp?: string): ReactNode {
-  if (!stamp) return text;
+/**
+ * "Updated 5m ago" from a real time. Renders nothing on the server and on the
+ * first client render, then reads the clock after mount, so the two renders
+ * match. Re-reads once a minute. Shown from 1024px up, hidden at 390.
+ */
+export function UpdatedStamp({ at }: { at: number }) {
+  const [now, setNow] = useState<number | null>(null);
+  useEffect(() => {
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), UPDATED_STAMP_TICK_MS);
+    return () => clearInterval(timer);
+  }, []);
+  const text = now == null ? null : updatedStampText(at, now);
+  if (!text) return null;
+  return (
+    <span className="portal-detail-stamp" data-testid="milestone-updated-stamp">
+      {` · ${text}`}
+    </span>
+  );
+}
+
+/**
+ * The subtitle, with the stamp in a span that shows only from 1024px up.
+ * `stamp` is fixed frame copy for a fixture capture. `updatedAt` is a live
+ * milestone's real last-change time.
+ */
+export function loopSubtitleLine(text: string, stamp?: string, updatedAt?: number | null): ReactNode {
+  if (stamp) {
+    return (
+      <>
+        {text}
+        <span className="portal-detail-stamp">{` · ${stamp}`}</span>
+      </>
+    );
+  }
+  if (typeof updatedAt !== 'number') return text;
   return (
     <>
       {text}
-      <span className="portal-detail-stamp">{` · ${stamp}`}</span>
+      <UpdatedStamp at={updatedAt} />
     </>
   );
 }
 
-export type LoopPageSubtitle = { text: string; desktopStamp?: string };
+export type LoopPageSubtitle = { text: string; updatedAt?: number };
 
-/** Page subtitle for a live milestone. Fixture captures use the frame line instead. */
+/**
+ * Page subtitle for a live milestone, "Milestone · [status]", and the time it
+ * last changed. Fixture captures use the frame line instead.
+ */
 export function milestoneLoopSubtitle(milestone: MilestoneRoadmapView): LoopPageSubtitle | null {
   const rows = milestone.rows.flatMap((row) => [row, ...row.children]);
+  const stamp = typeof milestone.updatedAt === 'number' ? { updatedAt: milestone.updatedAt } : {};
   if (milestone.status === 'Planning') {
-    if (milestone.planning === 'queued' || milestone.planning === 'running') return { text: 'Milestone · Drafting tasks' };
-    if (milestone.planning === 'blocked') return { text: "Milestone · Couldn't draft tasks", desktopStamp: LOOP_UPDATED };
-    if (rows.length === 0) return { text: 'Milestone · No tasks yet' };
+    if (milestone.planning === 'queued' || milestone.planning === 'running') return { text: 'Milestone · Drafting tasks', ...stamp };
+    if (milestone.planning === 'blocked') return { text: "Milestone · Couldn't draft tasks", ...stamp };
+    if (rows.length === 0) return { text: 'Milestone · No tasks yet', ...stamp };
     const drafted = `${rows.length} drafted ${rows.length === 1 ? 'task' : 'tasks'}`;
-    return { text: `Milestone · ${drafted}`, desktopStamp: LOOP_UPDATED };
+    return { text: `Milestone · ${drafted}`, ...stamp };
   }
   if (milestone.status === 'Building') {
-    if (rows.some((row) => row.blockedReason)) return { text: 'Milestone · Run blocked' };
-    return { text: `Milestone · ${milestone.doneCount} of ${rows.length} tasks done`, desktopStamp: LOOP_UPDATED };
+    if (rows.some((row) => row.blockedReason)) return { text: 'Milestone · Run blocked', ...stamp };
+    return { text: `Milestone · ${milestone.doneCount} of ${rows.length} tasks done`, ...stamp };
   }
   return null;
 }

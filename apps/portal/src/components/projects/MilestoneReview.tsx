@@ -14,6 +14,7 @@ import {
   type DesignCheck,
   type PreviewBuildStatus,
   type PreviewDeleteStatus,
+  SHIPPED_HOW,
 } from '@convex/_lib/milestoneReview';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { APPROVE_NOTE, assertStaffPreviewLink, reviewPreviews, reviewRetryLiveOnClient, staffMayAttachPreviewLink } from '@convex/_lib/previewLink';
@@ -25,7 +26,8 @@ import { MilestoneDialog } from './milestoneChrome';
 import { ConfirmFrame, PreviewLinkField } from './milestoneDetailsEdit';
 
 export const APPROVAL_SAVE_ERROR = 'Couldn’t save your approval. Nothing changed. Try again.';
-export const APPROVED_AWAITING = "Shipped is set on merge once every task that isn't Parked is Done.";
+/** Figma ReviewCard 719:10269, approved. The same sentence as the task modal hint. */
+export const APPROVED_AWAITING = SHIPPED_HOW;
 export const APPROVED_DEPLOYING = 'Merging and deploying…';
 export const RECORDING_APPROVAL = 'Recording approval…';
 export const APPROVING_LABEL = 'Approving…';

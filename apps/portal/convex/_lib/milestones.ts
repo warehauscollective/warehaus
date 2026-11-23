@@ -580,7 +580,27 @@ const CLIENT_ROADMAP_OMIT = [
   'branch',
   'prUrl',
   'review',
+  'updatedAt',
 ] as const;
+
+/**
+ * When a milestone last changed: the newest of the times given. The row has
+ * no updated field, so this is read from what changes with it: its own
+ * creation and decision, its tasks, its activity, and its run feed.
+ */
+export function milestoneLastChange(times: readonly (number | null | undefined)[]): number | null {
+  let latest: number | null = null;
+  for (const time of times) {
+    if (typeof time !== 'number' || !Number.isFinite(time)) continue;
+    if (latest == null || time > latest) latest = time;
+  }
+  return latest;
+}
+
+/** The statuses whose page header carries the Updated stamp: the live loop. */
+export function showsUpdatedStamp(status: string): boolean {
+  return status === 'Planning' || status === 'Building';
+}
 
 /** Staff keep every field. Clients get a copy with the private keys removed, not nulled. */
 export function roadmapViewForAudience<T extends object>(view: T, audience: 'staff' | 'client'): T {
@@ -640,6 +660,8 @@ export type MilestoneRoadmapView = {
   branch?: string;
   /** Staff only. The milestone's one pull request. */
   prUrl?: string;
+  /** Staff only, and only while Planning or Building. When the milestone last changed. */
+  updatedAt?: number;
 };
 
 export type MilestoneReviewHistoryItem = {
