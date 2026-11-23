@@ -11,7 +11,7 @@ Shared dev `graceful-mastiff-960` reads the production Warehaus Notion. Before t
 - `NOTION_WRITEBACK_ENABLED`, read in `sync/notionWrite.ts`, `sync/outbox.ts`, `sync/taskWrite.ts`, `sync/outboxWork.ts`, `invites.ts`, `projectCreate.ts` and `clientCreate.ts`
 - a production-only check, `authMirrorAllowed`, in `notionAuth.ts`
 - the presence of `BLOB_READ_WRITE_TOKEN`, the only check on the pull's `writeSharedResourceUrl` in `sync/notionApi.ts`
-- `NOTION_PROJECT_CREATE_ENABLED`, which no runtime code reads
+- `NOTION_PROJECT_CREATE_ENABLED`, which the Next.js portal layout read and passed into a provider whose value nothing used
 
 Code outside these modules called `fetch` on Notion directly. A new caller could write to Notion without passing any check.
 

@@ -3,7 +3,6 @@ import { PortalShell } from '@/components/layout/PortalShell';
 import { FixturePreviewProvider } from '@/components/providers/FixturePreviewProvider';
 import { PreviewModalFixtures } from '@/components/ui/PreviewModalFixtures';
 import { fixturePreviewAllowed } from '@/lib/data/fixturePreviewGate';
-import { isNotionProjectCreateEnabled } from '@warehaus/portal-sync';
 
 /**
  * Unsigned fixture preview. Middleware and this page both fail closed
@@ -19,10 +18,9 @@ export default async function PortalFixturePreview({
   if (!fixturePreviewAllowed()) redirect('/login');
   const params = await searchParams;
   const as = Array.isArray(params.as) ? params.as[0] : params.as;
-  const projectCreateEnabled = isNotionProjectCreateEnabled(process.env.NOTION_PROJECT_CREATE_ENABLED);
   return (
     <FixturePreviewProvider audience={as === 'client' ? 'client' : 'staff'}>
-      <PortalShell projectCreateEnabled={projectCreateEnabled}>
+      <PortalShell>
         <span className="sr-only">Fixture preview</span>
       </PortalShell>
       {/* Only this route. A shell import would ship the board and dnd-kit on every signed-in page. */}

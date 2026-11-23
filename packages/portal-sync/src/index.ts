@@ -176,10 +176,8 @@ export {
 } from './pull-cursor';
 
 export {
-  NOTION_PROJECT_CREATE_ENV,
   PROJECT_CREATE_CONVEX_STATUS,
   PROJECT_CREATE_OFF_ERROR,
-  isNotionProjectCreateEnabled,
   planProjectCreateDispatch,
   projectCreateStaffAllowed,
   isNotionPageId,

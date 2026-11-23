@@ -8,7 +8,6 @@ import {
   buildProjectCreateProperties,
   createProjectExternalId,
   decideProjectCreateDedupe,
-  isNotionProjectCreateEnabled,
   planProjectCreateDispatch,
   projectCreateConvexFields,
   projectCreatePageRequest,
@@ -162,15 +161,6 @@ describe('project create payload', () => {
       { ok: false, error: WRITEBACK_OFF_ERROR },
     );
     assert.deepEqual(planProjectCreateDispatch({ writebackEnabled: true }), { ok: true });
-  });
-
-  it('still treats the old project-create env string as exact opt-in', () => {
-    assert.equal(isNotionProjectCreateEnabled('true'), true);
-    assert.equal(isNotionProjectCreateEnabled(undefined), false);
-    assert.equal(isNotionProjectCreateEnabled(''), false);
-    assert.equal(isNotionProjectCreateEnabled('false'), false);
-    assert.equal(isNotionProjectCreateEnabled('1'), false);
-    assert.equal(isNotionProjectCreateEnabled('TRUE'), false);
   });
 
   it('allows Warehaus Staff only', () => {

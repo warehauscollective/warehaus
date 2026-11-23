@@ -52,7 +52,6 @@ export type ReviewPreviewPatch = {
 
 const NOTION_WRITE_FLAGS = [
   'NOTION_WRITEBACK_ENABLED',
-  'NOTION_PROJECT_CREATE_ENABLED',
   'INVITE_EMAIL_ENABLED',
 ] as const;
 
@@ -163,14 +162,8 @@ export function blankPreviewNotionEnv(): Record<(typeof NOTION_SECRET_KEYS)[numb
     NOTION_WAREHAUS_TOKEN: '',
     NOTION_WEBHOOK_SECRET: '',
     NOTION_WRITEBACK_ENABLED: 'false',
-    NOTION_PROJECT_CREATE_ENABLED: 'false',
     INVITE_EMAIL_ENABLED: 'false',
   };
-}
-
-export function previewProjectCreateEnabled(input: { vercelEnv?: string; flag?: string }): boolean {
-  if (input.vercelEnv === 'preview') return false;
-  return input.flag === 'true';
 }
 
 export function ignoreBuildExitCode(env: { REVIEW_PREVIEW?: string }): 0 | 1 {

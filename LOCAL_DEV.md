@@ -25,7 +25,7 @@ Fixture preview:
 
 - `NEXT_PUBLIC_PORTAL_FIXTURES`
 
-Leave `NOTION_WRITEBACK_ENABLED` and `NOTION_PROJECT_CREATE_ENABLED` unset. Write-back stays off until the dev-only steps below.
+Leave `NOTION_WRITEBACK_ENABLED` unset. Write-back stays off until the dev-only steps below.
 
 ## One-time Mac setup
 
@@ -55,7 +55,7 @@ The dev deploy key name is `CONVEX_DEPLOY_KEY`, scoped to the shared dev deploym
 
 ## Write-back in dev only
 
-Leave `NOTION_WRITEBACK_ENABLED` unset on a normal checkout. The worker and enqueue are no-ops until it is exactly `true`. Project create uses that same flag. It does nothing while write-back is off. `NOTION_PROJECT_CREATE_ENABLED` is not a second gate.
+Leave `NOTION_WRITEBACK_ENABLED` unset on a normal checkout. The worker and enqueue are no-ops until it is exactly `true`. Project create uses that same flag. It does nothing while write-back is off.
 
 Turn write-back on only on the shared dev deployment, from `apps/portal`, while Convex dev is running. Do not pass `--prod`. Do not target `unique-turtle-383`.
 
@@ -72,7 +72,7 @@ To turn it off again, remove it. Unset is off. The string `false` is also off. O
 npx convex env remove NOTION_WRITEBACK_ENABLED
 ```
 
-Team & invites uses that same write-back flag. Send and resend also need invite email on, and a public origin for the link. Set these on the shared dev deployment only, from `apps/portal`. Do not pass `--prod`. Do not target `unique-turtle-383`. Leave `NOTION_PROJECT_CREATE_ENABLED` unset.
+Team & invites uses that same write-back flag. Send and resend also need invite email on, and a public origin for the link. Set these on the shared dev deployment only, from `apps/portal`. Do not pass `--prod`. Do not target `unique-turtle-383`.
 
 ```bash
 npx convex env set NOTION_WRITEBACK_ENABLED true
@@ -92,7 +92,7 @@ One manual check, against one test task, after Peter pulls this branch and runs 
 4. From `apps/portal`: `npx convex run sync/taskWrite:enqueueStatus` with JSON keys `taskId`, `status` (`Inbox`, `To Do`, `Blocked`, `In Progress`, or `Done`), and `expectedLastEditedTime` (that ISO time).
 5. The worker runs on the outbox cron, or `npx convex run sync/outboxWork:processDue`.
 6. Confirm the test task's Status in Notion, one `auditEvents` row, and no second write if the same command is run again.
-7. Remove `NOTION_WRITEBACK_ENABLED` when finished. Leave `NOTION_PROJECT_CREATE_ENABLED` unset.
+7. Remove `NOTION_WRITEBACK_ENABLED` when finished.
 
 Do not point this at a client row you cannot afford to change. Stage, Parent item, and Resources are not writable.
 

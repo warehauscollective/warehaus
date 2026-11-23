@@ -23,8 +23,6 @@
 import { normalizeNotionId } from './collections';
 import { WRITEBACK_OFF_ERROR } from './writeback';
 
-export const NOTION_PROJECT_CREATE_ENV = 'NOTION_PROJECT_CREATE_ENABLED';
-
 /** Mapper fallback when Notion Status is absent. Not written to Notion. */
 export const PROJECT_CREATE_CONVEX_STATUS = 'Inbox' as const;
 
@@ -43,10 +41,6 @@ export type ProjectCreateProperties = {
 export type ProjectCreateBuild =
   | { ok: true; properties: ProjectCreateProperties }
   | { ok: false; errors: string[] };
-
-export function isNotionProjectCreateEnabled(value: string | undefined): boolean {
-  return value === 'true';
-}
 
 export const PROJECT_CREATE_OFF_ERROR = 'Project create is off. Nothing was sent to Notion.';
 
