@@ -36,6 +36,10 @@ export type LoopTask = {
   metaTone?: 'muted' | 'danger';
   draft?: boolean;
   editing?: boolean;
+  /** Done while Building. The title reads muted. */
+  done?: boolean;
+  /** The task the agent is on now. A blue mark leads the row. */
+  current?: boolean;
 };
 
 export type LoopEvent = { time: string; type: string; summary: string };
@@ -185,8 +189,8 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
         : 'milestone/client-experience-launch · peter-mbp · Claude Code',
       events: cursor ? CURSOR_EVENTS : CLAUDE_EVENTS,
       tasks: tasks.map((task, index) => {
-        if (index < 3) return { ...task, meta: `Done · ${commits[index]}` };
-        if (index === 3) return { ...task, meta: cursor ? 'In progress · Cursor' : 'In progress · peter-mbp' };
+        if (index < 3) return { ...task, meta: `Done · ${commits[index]}`, done: true };
+        if (index === 3) return { ...task, meta: cursor ? 'In progress · Cursor' : 'In progress · peter-mbp', current: true };
         return { ...task, meta: 'To do' };
       }),
       taskSummary: '3 done · 1 in progress · 2 to do',
@@ -211,7 +215,7 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       prUrl: 'https://github.com/warehauscollective/warehaus/pull/152',
       branchLine: 'milestone/client-experience-launch · last seen 4:00 PM ET',
       tasks: tasks.map((task, index) => {
-        if (index < 3) return { ...task, meta: `Done · ${['4c1e9aa', '7d02b1f', '91ae3c0'][index]}` };
+        if (index < 3) return { ...task, meta: `Done · ${['4c1e9aa', '7d02b1f', '91ae3c0'][index]}`, done: true };
         if (index === 3) return { ...task, meta: 'Blocked · runner stopped responding', metaTone: 'danger' };
         return { ...task, meta: 'To do' };
       }),
@@ -246,7 +250,8 @@ const primary: CSSProperties = {
   fontSize: 14,
   fontWeight: 500,
   lineHeight: '21px',
-  padding: '12px 16px',
+  height: 42,
+  padding: '0 16px',
   cursor: 'pointer',
 };
 
@@ -258,7 +263,8 @@ const outline: CSSProperties = {
   fontSize: 14,
   fontWeight: 500,
   lineHeight: '21px',
-  padding: '12px 16px',
+  height: 44,
+  padding: '0 16px',
   cursor: 'pointer',
 };
 
@@ -282,9 +288,9 @@ function SkeletonRows() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14, width: '100%' }}>
       {[0, 1, 2].map((row) => (
         <div key={row} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '6px 0' }}>
-          <span style={{ width: 28, height: 10, borderRadius: 4, background: 'var(--muted)', opacity: 0.45 }} />
-          <span style={{ flex: 1, height: 10, borderRadius: 4, background: 'var(--muted)', opacity: 0.45 }} />
-          <span style={{ width: 72, height: 10, borderRadius: 4, background: 'var(--muted)', opacity: 0.45 }} />
+          <span style={{ width: 28, height: 10, borderRadius: 4, background: 'var(--muted)' }} />
+          <span style={{ flex: 1, height: 10, borderRadius: 4, background: 'var(--muted)' }} />
+          <span style={{ width: 72, height: 10, borderRadius: 4, background: 'var(--muted)' }} />
         </div>
       ))}
     </div>
@@ -347,7 +353,7 @@ export function MilestoneLoopView({
         {model.progress ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
             <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', fontWeight: 500 }}>{model.progress}</p>
-            <div style={{ height: 4, borderRadius: 2, background: 'var(--muted)', opacity: 0.45 }}>
+            <div style={{ height: 4, borderRadius: 2, background: 'var(--muted)' }}>
               <div style={{ width: 120, height: 4, borderRadius: 2, background: '#3b82f6' }} />
             </div>
             <SkeletonRows />
@@ -445,7 +451,14 @@ export function MilestoneLoopView({
             const open = editing === task.id || task.editing;
             return (
               <div key={task.id} style={{ display: 'flex', gap: 12, alignItems: 'center', padding: '14px 0' }}>
-                <span className="ds-mono" style={{ fontSize: 11, lineHeight: '17px', color: 'var(--muted)', width: 18 }}>
+                {task.current ? (
+                  <span
+                    aria-hidden="true"
+                    data-testid="milestone-loop-current"
+                    style={{ flex: '0 0 auto', width: 6, height: 6, borderRadius: 3, background: '#3b82f6' }}
+                  />
+                ) : null}
+                <span className="ds-mono" style={{ flex: '0 0 auto', fontSize: 11, lineHeight: '17px', color: 'var(--muted)', minWidth: 14 }}>
                   {String(task.order).padStart(2, '0')}
                 </span>
                 {open && onRename ? (
@@ -484,7 +497,7 @@ export function MilestoneLoopView({
                             background: 'none',
                             border: 0,
                             borderRadius: 4,
-                            color: 'var(--fg)',
+                            color: task.done ? 'var(--muted)' : 'var(--fg)',
                             fontSize: 14,
                             lineHeight: '21px',
                             padding: 0,
@@ -650,10 +663,10 @@ export function liveLoopModel(milestone: MilestoneRoadmapView, progress: Progres
     commit: row.commit ?? null,
     blockedReason: row.blockedReason ?? null,
   }))).map((task) => {
-    if (task.state === 'done') return { id: task.id, order: task.order, title: task.title, meta: task.commit ? `Done · ${task.commit}` : 'Done' };
+    if (task.state === 'done') return { id: task.id, order: task.order, title: task.title, meta: task.commit ? `Done · ${task.commit}` : 'Done', done: true };
     if (task.state === 'blocked') return { id: task.id, order: task.order, title: task.title, meta: `Blocked · ${task.blockedReason || 'the run stopped'}`, metaTone: 'danger' as const };
     if (task.state === 'in_progress' || task.state === 'claimed') {
-      return { id: task.id, order: task.order, title: task.title, meta: cursor ? 'In progress · Cursor' : `In progress${runner ? ` · ${runner}` : ''}` };
+      return { id: task.id, order: task.order, title: task.title, meta: cursor ? 'In progress · Cursor' : `In progress${runner ? ` · ${runner}` : ''}`, current: true };
     }
     return { id: task.id, order: task.order, title: task.title, meta: 'To do' };
   });

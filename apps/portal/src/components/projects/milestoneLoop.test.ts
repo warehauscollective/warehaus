@@ -77,6 +77,35 @@ describe('milestone loop frames', () => {
     assert.match(add, /flex:0 0 auto[^"]*white-space:nowrap[^"]*">↵ to add · Manual/);
     assert.match(add, new RegExp(LOOP_ADD_HINT));
   });
+
+  it('mutes done titles and marks only the task being built', () => {
+    for (const kind of ['building', 'cursor']) {
+      const model = fixtureLoopModel(kind);
+      assert.ok(model);
+      assert.deepEqual(model.tasks.map((task) => Boolean(task.done)), [true, true, true, false, false, false]);
+      assert.deepEqual(model.tasks.filter((task) => task.current).map((task) => task.order), [4]);
+      const view = html(createElement(MilestoneLoopView, { model }));
+      assert.equal(view.split('data-testid="milestone-loop-current"').length - 1, 1);
+      assert.match(view, /data-testid="milestone-loop-current" style="[^"]*width:6px;height:6px[^"]*background:#3b82f6/);
+      assert.match(view, /color:var\(--muted\)[^"]*">Design project overview/);
+      assert.match(view, /color:var\(--fg\)[^"]*">Build milestone overview/);
+    }
+    const blocked = fixtureLoopModel('blocked');
+    assert.ok(blocked);
+    assert.equal(blocked.tasks.some((task) => task.current), false);
+    assert.equal(html(createElement(MilestoneLoopView, { model: blocked })).includes('milestone-loop-current'), false);
+  });
+
+  it('keeps the planning bar at full blue and the buttons at frame height', () => {
+    const generating = fixtureLoopModel('generating');
+    assert.ok(generating);
+    const view = html(createElement(MilestoneLoopView, { model: generating }));
+    assert.match(view, /height:4px;border-radius:2px;background:var\(--muted\)"><div style="width:120px;height:4px;border-radius:2px;background:#3b82f6"/);
+    assert.match(view, /data-testid="milestone-awaiting" style="[^"]*height:42px/);
+    const empty = fixtureLoopModel('empty');
+    assert.ok(empty);
+    assert.match(html(createElement(MilestoneLoopView, { model: empty })), /data-testid="milestone-try-again" style="[^"]*height:44px/);
+  });
 });
 
 function Stamp({ text, stamp }: { text: string; stamp?: string }) {
