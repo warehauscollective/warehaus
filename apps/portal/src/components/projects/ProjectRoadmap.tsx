@@ -2,6 +2,7 @@
 
 import { groupMilestones } from '@convex/_lib/milestoneTasks';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'next/navigation';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { DoneGroup } from './DoneGroup';
 import { NeedMilestoneBanner } from './NeedMilestoneBanner';
@@ -170,10 +171,14 @@ export function ProjectRoadmap({
   const [tileApprove, setTileApprove] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
   const [grillingOpen, setGrillingOpen] = useState(false);
-  const [needDismissed, setNeedDismissed] = useState(false);
-  const [hideNeedBanner, setHideNeedBanner] = useState(false);
-  const [doneExpanded, setDoneExpanded] = useState(false);
-  const [milestoneLayout, setMilestoneLayout] = useState<'list' | 'board'>('list');
+  const searchParams = useSearchParams();
+  const searchKey = searchParams.toString();
+  const [needDismissed, setNeedDismissed] = useState(searchParams.get('banner') === 'dismissed');
+  const [hideNeedBanner, setHideNeedBanner] = useState(searchParams.get('banner') === 'hidden');
+  const [doneExpanded, setDoneExpanded] = useState(searchParams.get('done') === 'open');
+  const [milestoneLayout, setMilestoneLayout] = useState<'list' | 'board'>(
+    searchParams.get('layout') === 'board' ? 'board' : 'list',
+  );
   const phone = useMaxWidth(767);
   const projectContext = useProjectContext({ projectId: project.id, staff, fixtures, live, hostSlug });
   const rememberedMilestones = useRef<MilestoneRoadmapView[]>([]);
@@ -193,7 +198,7 @@ export function ProjectRoadmap({
   );
   const fixtureRows = useFixtureMilestonePreview(fixtureBase, fixtures);
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
+    const params = new URLSearchParams(searchKey);
     setMilestoneLayout(params.get('layout') === 'board' ? 'board' : 'list');
     setDoneExpanded(params.get('done') === 'open');
     if (!fixtures) return;
@@ -212,7 +217,7 @@ export function ProjectRoadmap({
         document.querySelector('[data-testid^="milestone-m-"]')?.scrollIntoView({ block: 'start' });
       }, 50);
     }
-  }, [fixtures]);
+  }, [fixtures, searchKey]);
   const previewMilestoneId = fixtures ? fixtureRows[0]?.id ?? null : null;
   useEffect(() => {
     if ((!detailsPreview && !loopPreview) || !previewMilestoneId) return;
@@ -273,10 +278,11 @@ export function ProjectRoadmap({
     });
   };
 
-  const milestoneCard = (milestone: MilestoneRoadmapView) => (
+  const milestoneCard = (milestone: MilestoneRoadmapView, narrow = false) => (
     <MilestoneListCard
       key={milestone.id}
       milestone={milestone}
+      narrow={narrow}
       staff={staff}
       isPeter={isPeter || (fixtures && tileApprove)}
       fixtures={fixtures}
@@ -515,7 +521,7 @@ export function ProjectRoadmap({
                   className={stackBoard ? 'flex flex-col gap-4' : 'flex items-stretch gap-4'}
                 >
                   <div className={phone && !stackBoard ? 'flex min-w-0 flex-1 flex-col gap-4' : stackBoard ? 'flex w-full flex-col gap-4' : 'flex w-[358px] shrink-0 flex-col gap-4'}>
-                    {openGroups.flatMap((group) => group.milestones).map((milestone) => milestoneCard(milestone))}
+                    {openGroups.flatMap((group) => group.milestones).map((milestone) => milestoneCard(milestone, true))}
                   </div>
                   {shippedGroup ? (
                     <DoneGroup
@@ -525,7 +531,7 @@ export function ProjectRoadmap({
                       stacked={stackBoard}
                       onToggle={() => setDoneExpanded((open) => !open)}
                     >
-                      {shippedGroup.milestones.map((milestone) => milestoneCard(milestone))}
+                      {shippedGroup.milestones.map((milestone) => milestoneCard(milestone, true))}
                     </DoneGroup>
                   ) : null}
                 </div>
