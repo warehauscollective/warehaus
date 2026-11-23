@@ -252,6 +252,24 @@ export function idleDelayMs(emptyPolls) {
   return Math.min(5 * 60_000, 60_000 * 2 ** Math.min(Math.max(emptyPolls - 1, 0), 3));
 }
 
+/** How often an idle runner pings, so the Portal chip keeps reading Ready (seen within 2 minutes). */
+export const HEARTBEAT_MS = 75_000;
+
+/**
+ * An idle wait cut into heartbeat-sized pieces. The runner pings between
+ * pieces. A wait no longer than one heartbeat is a single piece and no ping.
+ */
+export function heartbeatSlices(waitMs, beatMs = HEARTBEAT_MS) {
+  const slices = [];
+  let left = Math.max(0, waitMs);
+  while (left > beatMs) {
+    slices.push(beatMs);
+    left -= beatMs;
+  }
+  if (left > 0 || slices.length === 0) slices.push(left);
+  return slices;
+}
+
 const SECRET_VALUE =
   /(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|whp_[A-Za-z0-9_-]{12,}|Bearer\s+[A-Za-z0-9._~+/=-]{12,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,})/g;
 
