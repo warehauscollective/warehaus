@@ -460,7 +460,7 @@ describe('auto-planning and agent choice', () => {
       recentRuns: PLANNING_RATE_LIMIT,
     });
     assert.equal(capped.enqueue, false);
-    const milestones = read('../milestones.ts');
+    const milestones = read('./milestoneLifecycle.ts');
     const portal = read('../portalApi.ts');
     assert.match(milestones, /queuePlanning\(ctx, current\)/);
     assert.match(portal, /queuePlanning\(ctx, current\)/);

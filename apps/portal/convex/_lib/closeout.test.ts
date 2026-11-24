@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
-import { archive, listArchivedForProject, listForProject, markComplete, restore, setStatus, taskChoices, undoCloseout } from '../milestones';
+import { advance, archive, listArchivedForProject, listForProject, markComplete, restore, setStatus, taskChoices, undoCloseout } from '../milestones';
 import { archiveTask, listForStaff, markDone, restoreTask, undoTaskChange } from '../tasks';
 import {
   LEFTOVERS_NEEDED,
@@ -429,7 +429,7 @@ describe('milestones.markComplete', () => {
     });
   });
 
-  it('is the only Shipped path that passes tasksReady without the gate', () => {
+  it('plans its leftovers from the task set and reads no whole table', () => {
     const portal = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
     const body = portal.slice(portal.indexOf('export const markComplete'), portal.indexOf('export const archive ='));
     assert.match(body, /planMarkComplete/);
@@ -626,6 +626,63 @@ describe('milestones.undoCloseout', () => {
     assert.equal(undone.wrote, false);
     assert.equal(store.row('a')?.milestoneId, undefined);
     assert.equal(store.row('alien')?.status, 'Done');
+  });
+});
+
+describe('status change effects on the portal paths', () => {
+  const openNotes = (store: ReturnType<typeof memory>) =>
+    (store.tables.milestoneNotes ?? []).filter((note) => note.needsPeter === 'open' && note.reason === 'approval');
+
+  it('play into Ready to Ship writes the approval note, the preview link and a feed line', async () => {
+    const store = memory({ milestones: [milestone('m1')], tasks: [task('a', { status: 'Done', isDone: true })] });
+    const result = await run(advance, store.ctx, { milestoneId: 'm1', expectedStatus: 'Building' });
+    assert.equal(result.status, 'Ready to Ship');
+    assert.equal(openNotes(store).length, 1);
+    assert.equal(openNotes(store)[0]?.addedBy, 'Maya Chen');
+    assert.doesNotMatch(String(openNotes(store)[0]?.body), /Heads up/);
+    assert.ok(store.row('m1')?.localPreviewUrl);
+    const feed = (store.tables.agentEvents ?? []).filter((event) => event.type === 'ready');
+    assert.deepEqual(feed.map((event) => event.summary), ['Moved to Ready to Ship by Maya Chen']);
+  });
+
+  it('names the open tasks in the note when staff move it early', async () => {
+    const store = memory({ milestones: [milestone('m1')], tasks: [task('a'), task('b')] });
+    await run(setStatus, store.ctx, { milestoneId: 'm1', status: 'Ready to Ship' });
+    assert.match(String(openNotes(store)[0]?.body), /Heads up: 2 tasks are still open\./);
+  });
+
+  it('leaving Ready to Ship closes the approval note', async () => {
+    const store = memory({ milestones: [milestone('m1')], tasks: [task('a')] });
+    await run(advance, store.ctx, { milestoneId: 'm1', expectedStatus: 'Building' });
+    assert.equal(openNotes(store).length, 1);
+    await run(setStatus, store.ctx, { milestoneId: 'm1', status: 'Building', expectedStatus: 'Ready to Ship' });
+    assert.equal(openNotes(store).length, 0);
+  });
+
+  it('Restore from Shipped reopens without a note or a feed line', async () => {
+    const store = memory({ milestones: [milestone('m1', { status: 'Shipped' })], tasks: [task('a', { status: 'Done', isDone: true })] });
+    await run(restore, store.ctx, { milestoneId: 'm1' });
+    assert.equal(store.row('m1')?.status, 'Ready to Ship');
+    assert.equal((store.tables.milestoneNotes ?? []).length, 0);
+    assert.equal((store.tables.agentEvents ?? []).length, 0);
+  });
+
+  it('refuses an undo back to Shipped while a task is open', async () => {
+    const store = memory({ milestones: [milestone('m1', { status: 'Ready to Ship' })], tasks: [task('a')] });
+    await assert.rejects(run(undoCloseout, store.ctx, { milestoneId: 'm1', status: 'Shipped', tasks: [] }), (err: unknown) => {
+      assert.ok(err instanceof PortalAuthError);
+      assert.equal(err.message, '1 open task. Use Mark complete to close them out.');
+      return true;
+    });
+    assert.equal(store.row('m1')?.status, 'Ready to Ship');
+  });
+
+  it('Mark complete from Ready to Ship closes the approval note', async () => {
+    const store = memory({ milestones: [milestone('m1')], tasks: [task('a', { status: 'Done', isDone: true })] });
+    await run(advance, store.ctx, { milestoneId: 'm1', expectedStatus: 'Building' });
+    await run(markComplete, store.ctx, { milestoneId: 'm1', expectedStatus: 'Ready to Ship' });
+    assert.equal(store.row('m1')?.status, 'Shipped');
+    assert.equal(openNotes(store).length, 0);
   });
 });
 

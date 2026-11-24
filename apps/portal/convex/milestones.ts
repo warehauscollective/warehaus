@@ -53,6 +53,7 @@ import {
   taskIdsToMove,
 } from './_lib/milestoneDetails';
 import { loadMilestoneTaskSet, loadedTask } from './_lib/milestoneTaskSet';
+import { changeMilestoneStatus, type StatusChange } from './_lib/milestoneLifecycle';
 import {
   MILESTONE_ARCHIVED,
   RESTORED_MILESTONE_STATUS,
@@ -74,12 +75,7 @@ import {
   taskSnapshotArg,
   writeTaskStatus,
 } from './_lib/closeoutStore';
-import {
-  STATUS_ACTIVITY,
-  transitionMilestone,
-  type MilestoneStatus,
-  type Transition,
-} from './_lib/milestoneStatus';
+import { STATUS_STALE, type MilestoneStatus } from './_lib/milestoneStatus';
 import {
   addTaskDecision,
   editTaskDecision,
@@ -139,7 +135,6 @@ import {
 import { adminMutation, adminQuery, clientMutation, clientQuery } from './_lib/wrappers';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { planningForNewMilestone } from './_lib/agentRun';
-import { queuePlanning } from './planningQueue';
 
 const statusArg = v.union(
   v.literal('Idea'),
@@ -190,32 +185,9 @@ async function logMilestone(
   );
 }
 
-/**
- * The one writer of a milestone's status outside a review. Skips the write
- * and the activity row when nothing changed. One activity row per change.
- */
-async function writeStatus(
-  ctx: MutationCtx,
-  milestone: Doc<'milestones'>,
-  decision: Extract<Transition, { ok: true }>,
-  actorName: string,
-): Promise<boolean> {
-  if (!decision.wrote) return false;
-  await ctx.db.patch(milestone._id, { status: decision.status });
-  const at = Date.now();
-  await logMilestone(
-    ctx,
-    milestone,
-    STATUS_ACTIVITY,
-    at,
-    detailActivitySummary({ actor: actorName, from: decision.from, to: decision.status, at }),
-  );
-  const current = await ctx.db.get(milestone._id);
-  if (current && decision.status === 'Planning') await queuePlanning(ctx, current);
-  if (current?.planning === 'queued' && decision.status !== 'Planning') {
-    await ctx.db.patch(current._id, { planning: undefined, planningReplace: undefined });
-  }
-  return true;
+/** A refused status change, worded for the caller. A locked Shipped names the open count and Mark complete. */
+function statusRefusal(change: Extract<StatusChange, { ok: false }>): string {
+  return change.code === 'shipped' && change.open != null ? shippedLockedReason(change.open) : change.reason;
 }
 
 async function replaceResources(
@@ -775,15 +747,14 @@ export const saveFromAi = internalMutation({
     });
     if (!edited.ok) fail(edited.reason);
     if (args.status != null) {
-      const moved = transitionMilestone({
-        from: milestone.status,
+      const moved = await changeMilestoneStatus(ctx, milestone, {
         cause: 'set',
         to: args.status,
         actor: 'ai',
-        approval: milestone.approval,
+        actorName: 'AI',
+        at: Date.now(),
       });
       if (!moved.ok) fail(moved.reason);
-      await writeStatus(ctx, milestone, moved, 'AI');
     }
     if (args.resourceIds) {
       const resources = resourceEditDecision({ actor: 'ai', approval: milestone.approval });
@@ -837,24 +808,15 @@ export const setStatus = adminMutation({
   },
   handler: async (ctx, args) => {
     const milestone = await loadMilestone(ctx, args.milestoneId);
-    let tasksReady = false;
-    if (args.status === 'Shipped' && milestone.status !== 'Shipped') {
-      const loaded = await loadMilestoneTaskSet(ctx, milestone);
-      const gate = loaded.ok ? loaded.set.canShip : loaded;
-      // The reason carries the open count and points to Mark complete.
-      if (!gate.ok) fail(gate.open == null ? gate.reason : shippedLockedReason(gate.open));
-      tasksReady = true;
-    }
-    const moved = transitionMilestone({
-      from: milestone.status,
+    const moved = await changeMilestoneStatus(ctx, milestone, {
       cause: 'set',
       to: args.status,
       expected: args.expectedStatus,
-      tasksReady,
+      actorName: ctx.identity.name,
+      at: Date.now(),
     });
-    if (!moved.ok) fail(moved.reason);
-    const wrote = await writeStatus(ctx, milestone, moved, ctx.identity.name);
-    return { ok: true as const, wrote, status: moved.status, previous: moved.from };
+    if (!moved.ok) fail(statusRefusal(moved));
+    return { ok: true as const, wrote: moved.wrote, status: moved.status, previous: moved.from };
   },
 });
 
@@ -867,14 +829,14 @@ export const advance = adminMutation({
   args: { milestoneId: v.id('milestones'), expectedStatus: statusArg },
   handler: async (ctx, args) => {
     const milestone = await loadMilestone(ctx, args.milestoneId);
-    const moved = transitionMilestone({
-      from: milestone.status,
+    const moved = await changeMilestoneStatus(ctx, milestone, {
       cause: 'advance',
       expected: args.expectedStatus,
+      actorName: ctx.identity.name,
+      at: Date.now(),
     });
     if (!moved.ok) fail(moved.reason);
-    const wrote = await writeStatus(ctx, milestone, moved, ctx.identity.name);
-    return { ok: true as const, wrote, status: moved.status, previous: moved.from };
+    return { ok: true as const, wrote: moved.wrote, status: moved.status, previous: moved.from };
   },
 });
 
@@ -2331,6 +2293,8 @@ export const markComplete = adminMutation({
     if (milestone.status === 'Shipped') {
       return { ok: true as const, wrote: false, status: milestone.status, previous: milestone.status, leftovers: null, tasks: [] };
     }
+    // Before any leftover write, so a stale screen never moves a task.
+    if (args.expectedStatus !== milestone.status) fail(STATUS_STALE);
     const loaded = await loadMilestoneTaskSet(ctx, milestone);
     if (!loaded.ok) fail(loaded.reason);
     const parked = args.leftovers === 'park' ? await parkedMilestoneFor(ctx, milestone) : null;
@@ -2341,21 +2305,20 @@ export const markComplete = adminMutation({
       parkedMilestoneId: parked?._id ?? null,
     });
     if (!plan.ok) fail(plan.reason);
-    // Every open task is closed, archived or moved by the plan, so the tasks are ready.
-    const moved = transitionMilestone({
-      from: milestone.status,
-      cause: 'set',
-      to: 'Shipped',
+    const at = Date.now();
+    const log = new SnapshotLog();
+    await applyCloseoutWrites(ctx, plan.writes, loaded.docs, { at, actorId: ctx.identity.contactId, parked }, log);
+    // The gate reads the tasks after the leftovers are handled. A refusal throws, so the writes above roll back.
+    const moved = await changeMilestoneStatus(ctx, milestone, {
+      cause: 'complete',
       expected: args.expectedStatus,
-      tasksReady: true,
+      actorName: ctx.identity.name,
+      at,
     });
     if (!moved.ok) fail(moved.reason);
-    const log = new SnapshotLog();
-    await applyCloseoutWrites(ctx, plan.writes, loaded.docs, { at: Date.now(), actorId: ctx.identity.contactId, parked }, log);
-    const wrote = await writeStatus(ctx, milestone, moved, ctx.identity.name);
     return {
       ok: true as const,
-      wrote,
+      wrote: moved.wrote,
       status: moved.status,
       previous: moved.from,
       leftovers: plan.outcome,
@@ -2437,12 +2400,17 @@ export const restore = adminMutation({
         tasks: [],
       };
     }
-    const moved = transitionMilestone({ from: milestone.status, cause: 'set', to: RESTORED_MILESTONE_STATUS });
+    // From Shipped back to Ready to Ship is a reopen: no approval note.
+    const moved = await changeMilestoneStatus(ctx, milestone, {
+      cause: 'set',
+      to: RESTORED_MILESTONE_STATUS,
+      actorName: ctx.identity.name,
+      at: Date.now(),
+    });
     if (!moved.ok) fail(moved.reason);
-    const wrote = await writeStatus(ctx, milestone, moved, ctx.identity.name);
     return {
       ok: true as const,
-      wrote,
+      wrote: moved.wrote,
       restored: 'completed' as const,
       status: moved.status,
       previous: moved.from,
@@ -2477,10 +2445,15 @@ export const undoCloseout = adminMutation({
       wrote = true;
     }
     if (args.status != null && args.status !== milestone.status) {
-      // Back to Shipped only undoes a Restore, so the tasks were ready a moment ago.
-      const moved = transitionMilestone({ from: milestone.status, cause: 'set', to: args.status, tasksReady: true });
-      if (!moved.ok) fail(moved.reason);
-      if (await writeStatus(ctx, milestone, moved, ctx.identity.name)) wrote = true;
+      // Back to Shipped undoes a Restore. It passes the same gate as Mark complete: no open task.
+      const moved = await changeMilestoneStatus(ctx, milestone, {
+        cause: args.status === 'Shipped' ? 'complete' : 'set',
+        to: args.status,
+        actorName: ctx.identity.name,
+        at: Date.now(),
+      });
+      if (!moved.ok) fail(statusRefusal(moved));
+      if (moved.wrote) wrote = true;
     }
     return { ok: true as const, wrote, tasks };
   },
