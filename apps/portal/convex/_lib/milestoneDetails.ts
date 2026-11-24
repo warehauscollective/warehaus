@@ -8,6 +8,8 @@
  * Escape discards.
  */
 
+import { canShipRows } from './milestoneTaskSet';
+
 export const DETAIL_ACTIVITY = {
   status: 'milestone.status',
   publish: 'milestone.publish',
@@ -16,84 +18,12 @@ export const DETAIL_ACTIVITY = {
 
 export type DetailActivityType = (typeof DETAIL_ACTIVITY)[keyof typeof DETAIL_ACTIVITY];
 
-export type CloseTask = {
-  stage?: string | null;
-  status?: string | null;
-  isDone?: boolean;
-  archived?: boolean;
-};
-
-/** A task the roadmap can show. Archived rows stay out of the close count. */
-export type CloseSource = CloseTask & {
-  id: string;
-  parentTaskId?: string | null;
-  milestoneId?: string | null;
-};
-
 /**
- * The tasks a milestone close looks at. Same rows the roadmap shows:
- * a task linked here whose parent is not also linked, plus that row's
- * subtasks that are unlinked or linked here. A subtask on another
- * milestone stays out. Archived tasks do not count. Parked is applied later.
+ * Whether the Shipped option unlocks for a milestone's roadmap rows. Moves
+ * to the roadmap view model; until then the rule is the task set's.
  */
-export function closeTasksForMilestone(milestoneId: string, tasks: readonly CloseSource[]): CloseTask[] {
-  return closeSourcesForMilestone(milestoneId, tasks).map((task) => ({
-    stage: task.stage,
-    status: task.status,
-    isDone: task.isDone,
-  }));
-}
-
-/** The same set as `closeTasksForMilestone`, with ids, for a close-out that writes the tasks. */
-export function closeSourcesForMilestone<T extends CloseSource>(milestoneId: string, tasks: readonly T[]): T[] {
-  const linked = new Set(tasks.filter((task) => task.milestoneId === milestoneId).map((task) => task.id));
-  const parents = tasks.filter(
-    (task) => linked.has(task.id) && (!task.parentTaskId || !linked.has(task.parentTaskId)),
-  );
-  const counted: T[] = [];
-  const seen = new Set<string>();
-  const push = (task: T) => {
-    if (task.archived || seen.has(task.id)) return;
-    seen.add(task.id);
-    counted.push(task);
-  };
-  for (const parent of parents) {
-    push(parent);
-    for (const child of tasks) {
-      if (child.parentTaskId !== parent.id) continue;
-      if (child.milestoneId && child.milestoneId !== milestoneId) continue;
-      push(child);
-    }
-  }
-  return counted;
-}
-
-/** Shipped needs every non-Parked task in that set to be Done. */
-export function finishedMilestoneDecision(
-  tasks: readonly CloseTask[],
-): { ok: true } | { ok: false; reason: string } {
-  const counted = tasks.filter((task) => task.stage !== 'Parked' && task.archived !== true);
-  if (counted.length === 0) {
-    return { ok: false, reason: 'Shipped needs at least one task that is not Parked.' };
-  }
-  const pending = counted.some((task) => task.isDone !== true && task.status !== 'Done');
-  if (pending) {
-    return { ok: false, reason: 'Shipped needs every task that is not Parked to be Done.' };
-  }
-  return { ok: true };
-}
-
-export function milestoneCanClose(
-  rows: readonly (CloseTask & { id?: string; children?: readonly (CloseTask & { id?: string })[] })[],
-): boolean {
-  const flat: CloseTask[] = [];
-  for (const row of rows) {
-    if (row.archived !== true) flat.push(row);
-    for (const child of row.children ?? []) {
-      if (child.archived !== true) flat.push(child);
-    }
-  }
-  return finishedMilestoneDecision(flat).ok;
+export function milestoneCanClose(rows: Parameters<typeof canShipRows>[0]): boolean {
+  return canShipRows(rows).ok;
 }
 
 export function publishChangeDecision(from: boolean, to: boolean): { wrote: boolean } {

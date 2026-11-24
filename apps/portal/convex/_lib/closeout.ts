@@ -6,7 +6,10 @@
  * be completed. The Status menu keeps its gate and points here.
  */
 
-import { closeSourcesForMilestone, type CloseSource, type CloseTask } from './milestoneDetails';
+import { classifyMilestoneTasks, isOpenTask, type TaskSetRow } from './milestoneTaskSet';
+
+/** A roadmap row or subtask, as far as the counts below need. */
+type CountedTask = Pick<TaskSetRow, 'stage' | 'status' | 'isDone' | 'archived'>;
 
 /** Leftovers park here when the project has a milestone with exactly this name. */
 export const PARKED_MILESTONE_NAME = 'Parked for later';
@@ -22,21 +25,15 @@ export const MILESTONE_ARCHIVED = 'This milestone is archived. Restore it first.
 /** A milestone with nothing to check. The Status menu cannot close it. Mark complete can. */
 export const SHIPPED_NOTHING_OPEN = 'No open tasks. Use Mark complete to close this milestone.';
 
-/** Open work: not archived, not Parked, not Done. The same test the close gate uses. */
-export function isOpenCloseTask(task: CloseTask): boolean {
-  if (task.archived === true || task.stage === 'Parked') return false;
-  return task.isDone !== true && task.status !== 'Done';
-}
-
 /** Open tasks across roadmap rows and their subtasks. */
 export function openTaskCount(
-  rows: readonly (CloseTask & { children?: readonly CloseTask[] })[],
+  rows: readonly (CountedTask & { children?: readonly CountedTask[] })[],
 ): number {
   let open = 0;
   for (const row of rows) {
-    if (isOpenCloseTask(row)) open += 1;
+    if (isOpenTask(row)) open += 1;
     for (const child of row.children ?? []) {
-      if (isOpenCloseTask(child)) open += 1;
+      if (isOpenTask(child)) open += 1;
     }
   }
   return open;
@@ -44,7 +41,7 @@ export function openTaskCount(
 
 /** Tasks of any state across roadmap rows and their subtasks, archived ones left out. */
 export function listedTaskCount(
-  rows: readonly (CloseTask & { children?: readonly CloseTask[] })[],
+  rows: readonly (CountedTask & { children?: readonly CountedTask[] })[],
 ): number {
   let total = 0;
   for (const row of rows) {
@@ -105,14 +102,13 @@ export type LeftoverOutcome = 'done' | 'archived' | 'moved' | 'parked';
  */
 export function planMarkComplete(input: {
   milestoneId: string;
-  tasks: readonly CloseSource[];
+  tasks: readonly TaskSetRow[];
   leftovers?: LeftoverChoice | null;
   parkedMilestoneId: string | null;
 }):
   | { ok: false; reason: string; open: number }
   | { ok: true; open: number; outcome: LeftoverOutcome | null; writes: CloseoutWrite[] } {
-  const counted = closeSourcesForMilestone(input.milestoneId, input.tasks);
-  const open = counted.filter(isOpenCloseTask);
+  const { open } = classifyMilestoneTasks(input.milestoneId, input.tasks);
   if (open.length === 0) return { ok: true, open: 0, outcome: null, writes: [] };
   if (!input.leftovers) return { ok: false, reason: LEFTOVERS_NEEDED, open: open.length };
   if (input.leftovers === 'done') {
@@ -153,10 +149,10 @@ export function planMarkComplete(input: {
 /** Archive a milestone. Open tasks are archived with it, or moved to No milestone. */
 export function planArchiveMilestone(input: {
   milestoneId: string;
-  tasks: readonly CloseSource[];
+  tasks: readonly TaskSetRow[];
   openTasks: ArchiveTaskChoice;
 }): { open: number; writes: CloseoutWrite[] } {
-  const open = closeSourcesForMilestone(input.milestoneId, input.tasks).filter(isOpenCloseTask);
+  const { open } = classifyMilestoneTasks(input.milestoneId, input.tasks);
   if (input.openTasks === 'archive') {
     return { open: open.length, writes: open.map((task) => ({ id: task.id, kind: 'archive' })) };
   }

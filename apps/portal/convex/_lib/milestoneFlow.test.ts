@@ -366,6 +366,73 @@ describe('milestone loop, bot to Shipped', () => {
   });
 });
 
+describe('wrap-up asks the milestone task set', () => {
+  const SOURCE = 'portal-milestone';
+
+  async function building() {
+    const { db, rowsOf } = memoryDb();
+    const ctx = { db, scheduler: { runAfter: async () => undefined } };
+    const orgId = await db.insert('clients', { name: 'Warehaus', slug: 'warehaus', portalAccess: 'Enabled' });
+    const projectId = await db.insert('projects', { orgId, name: 'Warehaus Portal', agentRepo: REPO });
+    const milestoneId = await db.insert('milestones', {
+      orgId,
+      projectId,
+      name: 'Client experience launch',
+      status: 'Building',
+      approval: 'unreviewed',
+      branch: 'milestone/client-experience-launch',
+    });
+    const taskId = await db.insert('tasks', {
+      orgId,
+      projectId,
+      milestoneId,
+      name: 'Build the overview',
+      status: 'To Do',
+      isDone: false,
+      source: SOURCE,
+      notionPageId: `${SOURCE}:overview`,
+      milestoneOrder: 0,
+    });
+    return { db, rowsOf, ctx, orgId, projectId, milestoneId, taskId };
+  }
+
+  async function finishOnlyTask(ctx: unknown) {
+    const claim = await handler<{ kind: string; runId: string }>(claimNext)(ctx, { runnerId: RUNNER, repos: [REPO] });
+    assert.equal(claim.kind, 'task');
+    return handler<{ ok: boolean; milestoneStatus: string }>(completeTask)(ctx, {
+      runnerId: RUNNER,
+      runId: claim.runId,
+      status: 'done',
+      commitSha: SHA,
+    });
+  }
+
+  it('moves to Ready to Ship when the last task is done', async () => {
+    const { ctx, rowsOf } = await building();
+    const done = await finishOnlyTask(ctx);
+    assert.equal(done.milestoneStatus, 'Ready to Ship');
+    assert.equal(rowsOf('milestoneNotes').filter((note) => note.reason === 'approval').length, 1);
+  });
+
+  it('stays in Building while a subtask with no milestone is open, the same answer the close gate gives', async () => {
+    const { db, ctx, rowsOf, orgId, projectId, taskId } = await building();
+    await db.insert('tasks', {
+      orgId,
+      projectId,
+      parentTaskId: taskId,
+      name: 'Check the empty state',
+      status: 'To Do',
+      isDone: false,
+      source: SOURCE,
+      notionPageId: `${SOURCE}:empty-state`,
+    });
+    const done = await finishOnlyTask(ctx);
+    assert.equal(done.ok, true);
+    assert.equal(done.milestoneStatus, 'Building');
+    assert.equal(rowsOf('milestoneNotes').filter((note) => note.reason === 'approval').length, 0);
+  });
+});
+
 describe('cursor build hold and agent lock', () => {
   const SOURCE = 'portal-milestone';
 

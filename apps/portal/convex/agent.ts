@@ -8,7 +8,7 @@
 
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
-import type { MutationCtx } from './_generated/server';
+import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation } from './_generated/server';
 import {
   PLAN_NOT_PLANNING,
@@ -17,7 +17,6 @@ import {
   RUN_NOT_FOUND,
   RUN_NOT_YOURS,
   LOCAL_PREVIEW_DEFAULT,
-  isParkedTask,
   approvalNote,
   blockedNote,
   buildAgent,
@@ -29,7 +28,6 @@ import {
   eventType,
   feedLimit,
   milestoneBranch,
-  nextClaimableTask,
   planningBlockedNote,
   planningRetryDecision,
   projectServedBy,
@@ -44,15 +42,14 @@ import {
   shortSha,
   STUCK_RUN_SCAN,
   taskRetryDecision,
-  tasksWaitingOnPerson,
-  wrapUpReady,
   trimEventPayload,
 } from './_lib/agentRun';
 import { proposedTasksDecision } from './_lib/milestoneBot';
 import { detailActivitySummary } from './_lib/milestoneDetails';
 import { writeMilestoneActivity } from './_lib/milestones';
 import { STATUS_ACTIVITY, transitionMilestone, type MilestoneStatus } from './_lib/milestoneStatus';
-import { PORTAL_MILESTONE_TASK_SOURCE, isPortalOwnedTask, isToDoTask, plannerDraftToArchive, stageForNewMilestoneTask } from './_lib/milestoneTasks';
+import { PORTAL_MILESTONE_TASK_SOURCE, plannerDraftToArchive, stageForNewMilestoneTask } from './_lib/milestoneTasks';
+import { loadClaimableTasks, loadMilestoneTaskSet, type LoadedTask } from './_lib/milestoneTaskSet';
 import { currentIteration } from './_lib/milestoneReview';
 import { PortalAuthError } from './_lib/identity';
 import { adminMutation, adminQuery } from './_lib/wrappers';
@@ -63,7 +60,7 @@ import { planningRunsInWindow, queuePlanning } from './planningQueue';
 const CLAIM_MILESTONE_SCAN = 25;
 /** Milestones one claim inspects for a single project, inside that scan. */
 const CLAIM_PER_PROJECT = 5;
-/** Tasks read per milestone when choosing the next one. */
+/** Linked tasks read per milestone when a run's claimed tasks are blocked, released or listed. */
 const CLAIM_TASK_SCAN = 100;
 const DEDUPE_SCAN = 30;
 
@@ -152,6 +149,37 @@ async function answerNotes(
     if (match.taskId && note.taskId !== match.taskId) continue;
     await ctx.db.patch(note._id, { needsPeter: undefined });
   }
+}
+
+export const TOO_MANY_TASKS_NOTE = 'This milestone has too many tasks to check. Close or split some.';
+
+/**
+ * The note wrap-up leaves when the task set is over the cap. Open: one note,
+ * never a second. Closed: the note goes once the set can be read again.
+ */
+async function tooManyTasksNote(
+  ctx: MutationCtx,
+  milestone: Doc<'milestones'>,
+  input: { open: true; addedBy: string; at: number } | { open: false },
+) {
+  const notes = await ctx.db
+    .query('milestoneNotes')
+    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
+    .take(20);
+  const existing = notes.filter((note) => note.reason === 'blocked' && note.body === TOO_MANY_TASKS_NOTE);
+  if (!input.open) {
+    for (const note of existing) await ctx.db.patch(note._id, { needsPeter: undefined });
+    return;
+  }
+  if (existing.length > 0) return;
+  await needsPeter(ctx, milestone, { reason: 'blocked', body: TOO_MANY_TASKS_NOTE, addedBy: input.addedBy, at: input.at });
+}
+
+/** The first open tasks a person has to close, from the whole task set. */
+async function waitingOnPersonNames(ctx: QueryCtx, milestone: Doc<'milestones'>): Promise<string[]> {
+  const loaded = await loadMilestoneTaskSet(ctx, milestone);
+  if (!loaded.ok) return [];
+  return loaded.set.waitingOnPerson.slice(0, 5).map((task) => task.doc.name);
 }
 
 function milestoneContext(milestone: Doc<'milestones'>, branch: string) {
@@ -255,10 +283,7 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
     };
   }
   if (run.kind === 'build') {
-    const tasks = await ctx.db
-      .query('tasks')
-      .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
-      .take(CLAIM_TASK_SCAN);
+    const claim = await loadClaimableTasks(ctx, milestone);
     return {
       kind: 'build' as const,
       driver: 'cursor' as const,
@@ -266,7 +291,7 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
       externalId: run.externalId ?? null,
       externalUrl: run.externalUrl ?? null,
       milestone: milestoneContext(milestone, branch),
-      tasks: openBuildTasks(tasks),
+      tasks: claim.ok ? claim.openBuild.map(buildTaskPayload) : [],
     };
   }
   const task = run.taskId ? await ctx.db.get(run.taskId) : null;
@@ -287,22 +312,14 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
   };
 }
 
-function isOpenBuildTask(task: Doc<'tasks'>): boolean {
-  if (task.archivedAt != null || task.parentTaskId || task.isDone || !isPortalOwnedTask(task)) return false;
-  if (isParkedTask(task)) return false;
-  return isToDoTask(task) || task.status === 'In Progress';
-}
-
-function openBuildTasks(tasks: readonly Doc<'tasks'>[]) {
-  return tasks
-    .filter((task) => isOpenBuildTask(task))
-    .sort((a, b) => (a.milestoneOrder ?? Number.MAX_SAFE_INTEGER) - (b.milestoneOrder ?? Number.MAX_SAFE_INTEGER))
-    .map((task) => ({
-      id: task._id,
-      order: (task.milestoneOrder ?? 0) + 1,
-      title: task.name,
-      detail: task.description ?? '',
-    }));
+/** One task in a Cursor build's payload. */
+function buildTaskPayload({ doc: task }: LoadedTask) {
+  return {
+    id: task._id,
+    order: (task.milestoneOrder ?? 0) + 1,
+    title: task.name,
+    detail: task.description ?? '',
+  };
 }
 
 /**
@@ -409,12 +426,10 @@ export const claimNext = internalMutation({
         .withIndex('by_milestone_status', (q) => q.eq('milestoneId', milestone._id).eq('status', 'running'))
         .first();
       if (busy) continue;
-      const tasks = await ctx.db
-        .query('tasks')
-        .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
-        .take(CLAIM_TASK_SCAN);
+      const claim = await loadClaimableTasks(ctx, milestone);
+      if (!claim.ok) continue;
       if (driver === 'cursor') {
-        const open = openBuildTasks(tasks);
+        const open = claim.openBuild;
         if (open.length === 0) continue;
         const recent = await ctx.db
           .query('agentRuns')
@@ -447,8 +462,7 @@ export const claimNext = internalMutation({
             : `Cursor agent started · ${args.runnerId} · ${open.length} tasks`,
           at: now,
         });
-        for (const task of tasks) {
-          if (!open.some((item) => item.id === task._id)) continue;
+        for (const { doc: task } of open) {
           await ctx.db.patch(task._id, {
             status: 'In Progress',
             claimedBy: args.runnerId,
@@ -461,23 +475,8 @@ export const claimNext = internalMutation({
         if (payload) return { ok: true as const, resumed: false, ...payload };
         continue;
       }
-      const next = nextClaimableTask(
-        tasks.map((task) => ({
-          id: task._id,
-          status: task.status,
-          isDone: task.isDone,
-          milestoneOrder: task.milestoneOrder,
-          parentTaskId: task.parentTaskId,
-          claimedBy: task.claimedBy,
-          archivedAt: task.archivedAt,
-          stage: task.stage,
-          source: task.source,
-          notionPageId: task.notionPageId,
-        })),
-      );
-      if (!next) continue;
-      const task = tasks.find((row) => row._id === next.id);
-      if (!task) continue;
+      if (!claim.nextClaimable) continue;
+      const task = claim.nextClaimable.doc;
       await ctx.db.patch(task._id, {
         status: 'In Progress',
         claimedBy: args.runnerId,
@@ -668,11 +667,15 @@ async function markReady(
   now: number,
   prUrl: string | null,
 ): Promise<MilestoneStatus> {
-  const tasks = await ctx.db
-    .query('tasks')
-    .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
-    .take(CLAIM_TASK_SCAN);
-  if (!wrapUpReady({ milestoneStatus: milestone.status, tasks })) return milestone.status;
+  if (milestone.status !== 'Building') return milestone.status;
+  const loaded = await loadMilestoneTaskSet(ctx, milestone);
+  if (!loaded.ok) {
+    // Too many tasks to check. It stays in Building and says so, once.
+    await tooManyTasksNote(ctx, milestone, { open: true, addedBy: `runner:${runnerId}`, at: now });
+    return milestone.status;
+  }
+  await tooManyTasksNote(ctx, milestone, { open: false });
+  if (!loaded.set.allDone) return milestone.status;
   const moved = await moveMilestone(ctx, milestone, 'Ready to Ship', `Runner ${runnerId}`, now);
   if (!moved) return milestone.status;
   const localPreviewUrl = milestone.localPreviewUrl ?? LOCAL_PREVIEW_DEFAULT;
@@ -1309,14 +1312,7 @@ export const feedForMilestone = adminQuery({
       prUrl: milestone.prUrl ?? null,
       waitingOnPerson:
         milestone.status === 'Building'
-          ? tasksWaitingOnPerson(
-              await ctx.db
-                .query('tasks')
-                .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
-                .take(CLAIM_TASK_SCAN),
-            )
-              .slice(0, 5)
-              .map((task) => task.name)
+          ? await waitingOnPersonNames(ctx, milestone)
           : [],
     };
   },

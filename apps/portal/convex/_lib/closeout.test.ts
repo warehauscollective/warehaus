@@ -9,7 +9,6 @@ import {
   PARKED_MILESTONE_NAME,
   SHIPPED_NOTHING_OPEN,
   closeoutMenuItems,
-  isOpenCloseTask,
   listedTaskCount,
   milestoneCloseoutState,
   openTaskCount,
@@ -21,7 +20,7 @@ import {
   taskCloseoutState,
 } from './closeout';
 import { PortalAuthError } from './identity';
-import type { CloseSource } from './milestoneDetails';
+import type { TaskSetRow } from './milestoneTaskSet';
 
 type Result = Record<string, unknown> & { ok?: boolean };
 type Handler = (ctx: unknown, args: Record<string, unknown>) => Promise<Result>;
@@ -167,7 +166,7 @@ function task(id: string, fields: Record<string, unknown> = {}): Row {
   };
 }
 
-const source = (id: string, fields: Partial<CloseSource> = {}): CloseSource => ({
+const source = (id: string, fields: Partial<TaskSetRow> = {}): TaskSetRow => ({
   id,
   parentTaskId: null,
   milestoneId: 'm1',
@@ -180,11 +179,6 @@ const source = (id: string, fields: Partial<CloseSource> = {}): CloseSource => (
 
 describe('close-out rules', () => {
   it('counts open work the way the close gate does', () => {
-    assert.equal(isOpenCloseTask({ status: 'To Do', isDone: false }), true);
-    assert.equal(isOpenCloseTask({ status: 'Done', isDone: false }), false);
-    assert.equal(isOpenCloseTask({ status: 'To Do', isDone: true }), false);
-    assert.equal(isOpenCloseTask({ status: 'To Do', isDone: false, stage: 'Parked' }), false);
-    assert.equal(isOpenCloseTask({ status: 'To Do', isDone: false, archived: true }), false);
     const rows = [
       { status: 'To Do', isDone: false, children: [{ status: 'In Progress', isDone: false }, { status: 'Done', isDone: true }] },
       { status: 'Done', isDone: true, children: [{ status: 'To Do', isDone: false, archived: true }] },

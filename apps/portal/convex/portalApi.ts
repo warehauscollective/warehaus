@@ -71,7 +71,7 @@ import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { NEEDS_PETER_LIMIT, planningForNewMilestone } from './_lib/agentRun';
 import { queuePlanning } from './planningQueue';
 import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
-import { milestoneCloseGate } from './_lib/milestoneClose';
+import { loadMilestoneTaskSet } from './_lib/milestoneTaskSet';
 import {
   STATUS_ACTIVITY,
   apiStatusFields,
@@ -945,7 +945,8 @@ export const updateMilestone = internalMutation({
     const from = milestone.status;
     let tasksReady = wanted.status !== 'Shipped' || from === 'Shipped';
     if (wanted.status === 'Shipped' && from !== 'Shipped') {
-      const gate = await milestoneCloseGate(ctx, milestone);
+      const loaded = await loadMilestoneTaskSet(ctx, milestone);
+      const gate = loaded.ok ? loaded.set.canShip : loaded;
       if (!gate.ok) return finishIdempotency(ctx, opened.id, fail(400, gate.reason));
       tasksReady = true;
     }
