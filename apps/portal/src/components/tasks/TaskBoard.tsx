@@ -144,7 +144,8 @@ export function TaskBoard({
   loading: boolean;
   rules: BoardRules | null;
   onOpen: (task: PortalTask) => void;
-  onMove: (request: MoveRequest) => Promise<{ ok: boolean; error?: string; pending?: boolean }>;
+  /** A task change result (ADR-0003). `pending` is the older shape, kept for fixtures. */
+  onMove: (request: MoveRequest) => Promise<{ ok: boolean; error?: string; notion?: 'queued' | 'portal' | 'off'; pending?: boolean }>;
   onQuickAdd: (input: { name: string; status: string; stage?: string }) => Promise<{ ok: boolean; error?: string }>;
   /** When write-back is off the column control stays disabled and never calls onQuickAdd. */
   quickAddEnabled?: boolean;
@@ -259,7 +260,7 @@ export function TaskBoard({
     if (mode === 'stage') {
       setOverrides((current) => ({
         ...current,
-        [task.id]: { mode, value, pending: result.pending !== false },
+        [task.id]: { mode, value, pending: result.notion !== undefined ? result.notion === 'queued' : result.pending !== false },
       }));
     }
     const saved = stageSavedFeedback({

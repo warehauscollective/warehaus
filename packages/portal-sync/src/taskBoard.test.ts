@@ -20,7 +20,6 @@ import {
   planTaskStatusWrite,
   readOptionalStage,
   readParentItem,
-  stageOutboxActor,
   taskCreateProjectGate,
   resolveParentLink,
   resolveBoardDrop,
@@ -62,8 +61,6 @@ describe('task property tiers', () => {
     assert.deepEqual(readParentItem([]), { ok: true, parentNotionId: null });
     assert.deepEqual(readParentItem(['parent-1']), { ok: true, parentNotionId: 'parent-1' });
     assert.equal(readParentItem(['a', 'b']).ok, false);
-    assert.equal(stageOutboxActor('staff'), 'staff');
-    assert.equal(stageOutboxActor('client'), 'clientAdmin');
     assert.deepEqual(taskCreateProjectGate(null, 'org-1'), { ok: false, error: 'Project is not in this client' });
     assert.deepEqual(taskCreateProjectGate({ orgId: 'org-2' }, 'org-1'), {
       ok: false,

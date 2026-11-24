@@ -84,11 +84,6 @@ export function readOptionalStage(raw: string | null | undefined): {
   return { ok: true, stage: raw };
 }
 
-/** Outbox actor for a stage move. Clients are recorded as client admins. */
-export function stageOutboxActor(actor: MoveActor): 'staff' | 'clientAdmin' {
-  return actor === 'client' ? 'clientAdmin' : 'staff';
-}
-
 /** createTask may only target a project that already belongs to this client. */
 export function taskCreateProjectGate(
   project: { orgId: string } | null | undefined,

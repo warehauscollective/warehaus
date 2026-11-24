@@ -37,7 +37,7 @@ Notion Warehaus (allowlisted properties)
 
 ## Write-back (flag off)
 
-Portal → Notion goes through one outbox. `sync/projectCreateWrite.ts` no longer calls Notion. Project create enqueues `project-create`. Task status, stage, fields, description, and resources enqueue through `sync/taskWrite`. The portal calls those mutations when write-back is on.
+Portal → Notion goes through one outbox. `sync/projectCreateWrite.ts` no longer calls Notion. Project create enqueues `project-create`. Every task field change (status, stage, date, live fields, Next Action, description, resources, assignee) goes through `applyTaskChanges` in `convex/_lib/taskChange.ts` (ADR-0003): it saves and stamps the row first, then queues one typed outbox row per write kind when write-back is on. With write-back off the change is saved in the portal only. `sync/taskWrite` keeps the task create and the pending-stage drain.
 
 Tables: `notionOutbox`, `notionWriteState`, `auditEvents`, `notices`.
 
@@ -51,7 +51,7 @@ Updates re-read `last_edited_time` and do not PATCH when it differs from the tim
 
 Project create uses the same `NOTION_WRITEBACK_ENABLED` flag. Write-back off blocks it. There is no second create flag.
 
-Staff only. The B1 caller wraps `enqueueStatus` in `adminMutation`. Client roles cannot write in this batch.
+Staff only. Staff edits run in `adminMutation`s, the staff API under a token, and closeout under the staff caller. Client roles cannot write task fields.
 
 Production Convex is `unique-turtle-383`. Never target it. One shared dev deployment. Cloud agents do not push Convex functions unless the PR changes `convex/` and Peter has supplied a dev deploy key named `CONVEX_DEPLOY_KEY`. A PR that changes `convex/` does not update the dev deployment by itself. Peter pulls the branch on his Mac and runs `npx convex dev` from `apps/portal`. Do not pass `--prod`. Do not run `npx convex deploy`.
 

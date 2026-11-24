@@ -20,24 +20,12 @@ import { heldTaskProjectId } from '../_lib/milestoneDetails';
 import { v } from 'convex/values';
 import { notionWriteAllowedForTask } from '../_lib/milestoneReview';
 import { internal } from '../_generated/api';
-import { internalMutation, internalQuery, type MutationCtx } from '../_generated/server';
+import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import { matchingQuarantineId } from '../_lib/quarantineRow';
 import { linkTaskToCreateMilestone, milestoneIdFromPayload } from '../_lib/taskMilestoneLink';
 import { ensureSourceLinks } from '../_lib/taskSourceLinks';
-
-/** Queued or failed task-stage rows only. Inflight, done, and conflict stay. */
-async function deleteUnsentTaskStageRows(ctx: MutationCtx, notionPageId: string): Promise<void> {
-  const rows = await ctx.db
-    .query('notionOutbox')
-    .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
-    .collect();
-  for (const row of rows) {
-    if (row.kind !== 'task-stage') continue;
-    if (row.status !== 'queued' && row.status !== 'failed') continue;
-    await ctx.db.delete(row._id);
-  }
-}
+import { deleteUnsentStageRows } from '../_lib/taskChange';
 
 const hiddenReasonArg = v.optional(
   v.union(v.literal('gate'), v.literal('ancestor'), v.literal('trashed')),
@@ -328,7 +316,7 @@ export const upsertTask = internalMutation({
         if (milestoneId) await linkTaskToCreateMilestone(ctx, created, milestoneId);
       }
     }
-    if (merged.deleteUnsent) await deleteUnsentTaskStageRows(ctx, args.notionPageId);
+    if (merged.deleteUnsent) await deleteUnsentStageRows(ctx, args.notionPageId);
     if (merged.notice) {
       await ctx.runMutation(internal.invitesSync.recordStaffNotice, {
         orgId: args.orgId,
