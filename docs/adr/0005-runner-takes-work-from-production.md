@@ -34,3 +34,20 @@ The runner claims milestone work from production, with a production-only runner 
 - The runner's hard refusal of the production URL becomes an explicit opt-in.
 - Production gets its own `RUNNER_TOKENS`. Dev keeps its own for testing.
 - The Claude child process still inherits no tokens, so a build never holds a production credential.
+
+## Amendment, 2026-11-24: runner registry and set-up from the Portal
+
+Peter answered "Yes to all" to three grilling rounds after production showed "No runner allowed", then confirmed the summary with "Yes, set it up". These points replace the matching lines above where they differ. The work is tracked in the same Portal milestone, "Runner on production".
+
+Production showed "No runner allowed" because it had no `RUNNER_TOKENS`, and the runner refused the production URL. Adding a token by hand on each deployment is the step this amendment removes.
+
+1. **Runner registrations replace `RUNNER_TOKENS`.** Runners are registered per deployment in Convex, with only a hash of each secret stored. Staff see, add and revoke them in the RunnerStatus modal. There is no new page. `RUNNER_TOKENS` is read only as a fallback until the dev runner is re-paired, then the fallback and the dev env var are removed in this milestone.
+2. **Any project with a repository is served.** A registered runner serves every project that names a repository it can reach. Runners no longer list repositories. The runner keeps its own clone of each repository under `~/warehaus-runner/repos/<owner>/<name>` and works only in a clone whose remote matches the project. A repository it cannot clone blocks the run with a "needs Peter" note.
+3. **Pairing, not copy-paste.** `npm run runner -- setup` (with `--production` for production) prints an 8-character code and opens the Portal. Staff confirm the code in the RunnerStatus modal. The CLI proposes the id from the hostname, with `-prod` on production, and staff confirm it. The secret goes only to the CLI that started the pairing and is stored in the macOS Keychain, never on screen or in a plain file. A code lasts 10 minutes, at most 5 pairings are open per deployment, and expired ones are swept by the existing bounded cron. Copy-paste stays as a fallback when the CLI cannot open a browser.
+4. **Staff only.** Set-up, the runner list and Revoke are staff only. Revoking asks for confirmation.
+5. **Kept running.** `npm run runner -- install` writes a launchd agent, one per deployment, that starts the runner at login and restarts it if it stops. The runner holds `caffeinate -i` only while a run is in progress. `--production` stays an explicit opt-in: it is required at set-up, written into the launchd agent, and a runner paired to production refuses to start without it.
+6. **Alerts.** The Portal writes a "needs Peter" note when production has no registered runner, and when a milestone has been Building for 30 minutes with no runner online (one open note per milestone, closed when a runner returns, from the existing stuck-run cron).
+7. **Version check.** The runner sends its protocol version with each heartbeat. The Portal shows "Runner out of date" when it is behind and refuses claims below the minimum. The runner never updates its own code.
+8. **Design first.** The RunnerStatus modal gets six states, in Dark and Light at 1440 and 390, on the existing frames: not set up with the pairing field, confirm pairing, paired, runner list with Revoke, revoke confirmation, and out of date. Peter approves them before any build.
+
+A hosted runner on a server is a later milestone.
