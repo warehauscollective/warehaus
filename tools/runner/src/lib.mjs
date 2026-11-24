@@ -1,37 +1,74 @@
 // Pure helpers for the runner. No network, no child processes, no file writes.
+// RUNNER_ID_PATTERN and the deployment names must match apps/portal/convex/_lib/agentRun.ts.
 import { COMPLETE_STATUSES, PLAN_TASKS_MAX, PLAN_TASKS_MIN, isMilestoneBranch } from '../../../packages/runner-protocol/index.mjs';
 
 export const RUNNER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
 export const PRODUCTION_DEPLOYMENT = 'unique-turtle-383';
 export const REPO_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9-]{0,38})\/[A-Za-z0-9._-]{1,100}$/;
 
-export const USAGE = `Usage: npm run runner -- start --id <runner-id> --repo <owner/name> [--mode interactive|headless] [--once] [--dir <path>]
+export const DEV_DEPLOYMENT = 'graceful-mastiff-960';
+/** Where `setup` pairs and `start` claims, per deployment. */
+export const DEPLOYMENTS = Object.freeze({
+  dev: Object.freeze({
+    name: DEV_DEPLOYMENT,
+    agentUrl: `https://${DEV_DEPLOYMENT}.convex.site`,
+    portalUrl: 'http://localhost:3100/projects',
+    configFile: 'runner.env',
+  }),
+  production: Object.freeze({
+    name: PRODUCTION_DEPLOYMENT,
+    agentUrl: `https://${PRODUCTION_DEPLOYMENT}.convex.site`,
+    portalUrl: 'https://warehaus-portal.vercel.app/projects',
+    configFile: 'runner.prod.env',
+  }),
+});
+/** The macOS Keychain service the runner secret is stored under. */
+export const KEYCHAIN_SERVICE = 'warehaus-runner';
 
-  --id      Runner id, as listed in RUNNER_TOKENS on the Convex deployment.
+export const USAGE = `Usage:
+  npm run runner -- setup [--production] [--id <runner-id>]
+  npm run runner -- start [--production] --repo <owner/name> [--id <runner-id>] [--mode interactive|headless] [--once] [--dir <path>]
+
+setup       Pairs this Mac with the Portal. It prints an 8-character code and
+            opens the Portal: staff enter the code in the Runner status modal
+            on any project page. The secret goes to this Mac's Keychain only.
+  --id      Runner id to propose. Defaults to this Mac's name, with -prod on
+            production. Staff can change it when they confirm.
+
+start       Takes work from the Portal.
   --repo    GitHub repository this runner serves, as owner/name. Repeat it or
             separate with commas for more than one. The runner is only handed
             work for projects set to one of these.
+  --id      Runner id. Defaults to the id saved by setup.
   --mode    interactive (default) opens Claude Code for you to drive.
             headless runs "claude -p" and draws on Agent SDK credit.
   --once    Do one piece of work, then exit.
   --dir     Checkout of the repository. Defaults to the current directory.
 
-Environment:
-  PORTAL_AGENT_URL  The deployment's site URL, like https://<name>.convex.site
-  RUNNER_TOKEN      This runner's token.`;
+--production  Talks to the production Portal. Never the default: a runner
+              paired to production refuses to start without it.
 
-/** Parses `start --id x --mode y --once --repo z`. Returns an error string for anything else. */
+Saved by setup in ~/.config/warehaus/runner.env (runner.prod.env for
+production): PORTAL_AGENT_URL and RUNNER_ID. The secret is in the Keychain.
+PORTAL_AGENT_URL and RUNNER_TOKEN in the environment still override them.`;
+
+/** Parses `setup …` or `start …`. Returns an error string for anything else. */
 export function parseArgs(argv) {
   const [command, ...rest] = argv;
-  if (command !== 'start') return { ok: false, error: USAGE };
-  const options = { id: '', mode: 'interactive', once: false, dir: '', repos: [] };
+  if (command !== 'start' && command !== 'setup') return { ok: false, error: USAGE };
+  const options = { command, production: false, id: '', mode: 'interactive', once: false, dir: '', repos: [] };
+  const valued = command === 'start' ? ['--id', '--mode', '--repo', '--dir'] : ['--id'];
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
-    if (flag === '--once') {
+    if (flag === '--production') {
+      options.production = true;
+      continue;
+    }
+    if (flag === '--once' && command === 'start') {
       options.once = true;
       continue;
     }
-    if (flag === '--id' || flag === '--mode' || flag === '--repo' || flag === '--dir') {
+    if (valued.includes(flag)) {
       const value = rest[index + 1];
       if (!value || value.startsWith('--')) return { ok: false, error: `${flag} needs a value.\n\n${USAGE}` };
       if (flag === '--repo') {
@@ -47,9 +84,10 @@ export function parseArgs(argv) {
     }
     return { ok: false, error: `Unknown option ${flag}.\n\n${USAGE}` };
   }
-  if (!RUNNER_ID_PATTERN.test(options.id)) {
+  if (options.id && !RUNNER_ID_PATTERN.test(options.id)) {
     return { ok: false, error: `--id must be 2 to 40 lowercase letters, digits or hyphens.\n\n${USAGE}` };
   }
+  if (command === 'setup') return { ok: true, options };
   // Fail safe: with no repository named, the Portal hands this runner nothing.
   if (options.repos.length === 0) {
     return { ok: false, error: `--repo is required: the GitHub repository this runner serves, as owner/name.\n\n${USAGE}` };
@@ -60,15 +98,56 @@ export function parseArgs(argv) {
   return { ok: true, options };
 }
 
+/** The id `setup` proposes: the Mac's name, cleaned to the id rule, with -prod on production. */
+export function proposedRunnerId(hostname, production) {
+  const base = String(hostname ?? '')
+    .toLowerCase()
+    .replace(/\.local$/, '')
+    .replace(/[^a-z0-9-]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, production ? 35 : 40)
+    .replace(/-+$/, '');
+  const id = `${base || 'runner'}${production ? '-prod' : ''}`;
+  return RUNNER_ID_PATTERN.test(id) ? id : production ? 'runner-prod' : 'runner';
+}
+
+/** `KEY=value` lines, as setup writes them. Comments and blank lines are skipped. */
+export function parseConfigFile(text) {
+  const values = {};
+  for (const line of String(text ?? '').split('\n')) {
+    const match = /^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.*?)\s*$/.exec(line);
+    if (match && !line.trim().startsWith('#')) values[match[1]] = match[2].replace(/^(['"])(.*)\1$/, '$2');
+  }
+  return values;
+}
+
+/** What setup saves. Never the secret. */
+export function configFileText({ url, id, production }) {
+  return [
+    `# Warehaus runner, ${production ? 'production' : 'shared dev'}. Written by npm run runner -- setup.`,
+    '# The secret is in the macOS Keychain, not here.',
+    `PORTAL_AGENT_URL=${url}`,
+    `RUNNER_ID=${id}`,
+    ...(production ? ['RUNNER_PRODUCTION=1'] : []),
+    '',
+  ].join('\n');
+}
+
+/** The Keychain account for one runner on one deployment. */
+export function keychainAccount(deploymentName, id) {
+  return `${deploymentName}:${id}`;
+}
+
 /**
- * Checks the two environment values. The URL has to be an https Convex site
- * URL. Production is always refused.
+ * Checks the deployment URL and token. The URL has to be an https Convex site
+ * URL. Production is refused unless the runner was started with
+ * `--production`, and a production runner refuses any other deployment.
  */
-export function readEnv(env) {
+export function readEnv(env, { production = false, token: secret } = {}) {
   const raw = (env.PORTAL_AGENT_URL ?? '').trim().replace(/\/+$/, '');
-  const token = (env.RUNNER_TOKEN ?? '').trim();
-  if (!raw) return { ok: false, error: 'Set PORTAL_AGENT_URL to the deployment site URL.' };
-  if (!token) return { ok: false, error: 'Set RUNNER_TOKEN to this runner’s token.' };
+  const token = (secret ?? env.RUNNER_TOKEN ?? '').trim();
+  if (!raw) return { ok: false, error: 'Set PORTAL_AGENT_URL to the deployment site URL, or run npm run runner -- setup.' };
+  if (!token) return { ok: false, error: 'No runner secret. Run npm run runner -- setup to pair this Mac.' };
   let url;
   try {
     url = new URL(raw);
@@ -79,10 +158,17 @@ export function readEnv(env) {
   if (!url.hostname.endsWith('.convex.site')) {
     return { ok: false, error: 'PORTAL_AGENT_URL has to be a .convex.site URL.' };
   }
-  if (url.hostname.includes(PRODUCTION_DEPLOYMENT)) {
-    return { ok: false, error: 'That is the production deployment. The runner does not talk to it.' };
+  const isProduction = url.hostname.includes(PRODUCTION_DEPLOYMENT);
+  if (isProduction && !production) {
+    return { ok: false, error: 'That is the production deployment. Start the runner with --production to use it.' };
   }
-  return { ok: true, url: url.origin, token };
+  if (production && !isProduction) {
+    return { ok: false, error: '--production needs the production deployment URL. This runner is set up for another one.' };
+  }
+  if (env.RUNNER_PRODUCTION === '1' && !production) {
+    return { ok: false, error: 'This runner is paired to production. Start it with --production.' };
+  }
+  return { ok: true, url: url.origin, token, production: isProduction };
 }
 
 /** Names the Claude child may inherit. Everything else, including RUNNER_TOKEN, stays with the runner. */

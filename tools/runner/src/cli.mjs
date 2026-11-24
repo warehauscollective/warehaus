@@ -11,6 +11,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cursorBuild } from './drivers/cursorBuild.mjs';
 import { repoTools } from './repo.mjs';
+import { deploymentFor, readKeychainSecret, readSavedConfig, runSetup } from './setup.mjs';
 import { runnerClient } from '../../../packages/runner-protocol/index.mjs';
 import {
   heartbeatSlices,
@@ -172,7 +173,25 @@ async function main() {
     process.stderr.write(`${parsed.error}\n`);
     process.exit(2);
   }
-  const env = readEnv(process.env);
+  const { production } = parsed.options;
+  if (parsed.options.command === 'setup') {
+    await runSetup({ production, id: parsed.options.id, say });
+    return;
+  }
+  // The environment wins; otherwise the file and Keychain entry setup wrote.
+  const saved = readSavedConfig(production);
+  const id = parsed.options.id || saved.RUNNER_ID || '';
+  if (!id && !production && readSavedConfig(true).RUNNER_ID) {
+    process.stderr.write('This Mac is paired to production only. Start it with --production.\n');
+    process.exit(2);
+  }
+  if (!id) {
+    process.stderr.write('No runner id. Run npm run runner -- setup, or pass --id.\n');
+    process.exit(2);
+  }
+  const url = process.env.PORTAL_AGENT_URL || saved.PORTAL_AGENT_URL || '';
+  const token = process.env.RUNNER_TOKEN || readKeychainSecret(deploymentFor(production).name, id);
+  const env = readEnv({ PORTAL_AGENT_URL: url, RUNNER_PRODUCTION: saved.RUNNER_PRODUCTION }, { production, token });
   if (!env.ok) {
     process.stderr.write(`${env.error}\n`);
     process.exit(2);
@@ -190,7 +209,7 @@ async function main() {
     process.exit(2);
   }
   // One checkout, one repository: only that repository's projects are claimed here.
-  const config = { ...env, id: parsed.options.id, mode: parsed.options.mode, repo, repos: [origin] };
+  const config = { ...env, id, mode: parsed.options.mode, repo, repos: [origin] };
   say(`Runner ${config.id} · ${config.mode} · ${origin} · ${new URL(config.url).hostname}`);
   let empty = 0;
   for (;;) {

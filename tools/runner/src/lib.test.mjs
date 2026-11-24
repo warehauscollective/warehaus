@@ -23,6 +23,10 @@ import {
   taskOutcome,
   taskPrompt,
   worktreeName,
+  proposedRunnerId,
+  parseConfigFile,
+  configFileText,
+  keychainAccount,
 } from './lib.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -31,13 +35,33 @@ describe('arguments', () => {
   it('reads start with an id and defaults to interactive', () => {
     assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'WarehausCollective/warehaus']), {
       ok: true,
-      options: { id: 'peter-mbp', mode: 'interactive', once: false, dir: '', repos: ['warehauscollective/warehaus'] },
+      options: { command: 'start', production: false, id: 'peter-mbp', mode: 'interactive', once: false, dir: '', repos: ['warehauscollective/warehaus'] },
     });
     const full = parseArgs([
       'start', '--id', 'peter-mbp', '--mode', 'headless', '--once', '--dir', '/tmp/x',
       '--repo', 'a/b,c/d', '--repo', 'a/b',
     ]);
-    assert.deepEqual(full.options, { id: 'peter-mbp', mode: 'headless', once: true, dir: '/tmp/x', repos: ['a/b', 'c/d'] });
+    assert.deepEqual(full.options, { command: 'start', production: false, id: 'peter-mbp', mode: 'headless', once: true, dir: '/tmp/x', repos: ['a/b', 'c/d'] });
+    // The id may come from the file setup wrote.
+    assert.equal(parseArgs(['start', '--repo', 'a/b']).ok, true);
+    assert.equal(parseArgs(['start', '--production', '--repo', 'a/b']).options.production, true);
+  });
+
+  it('reads setup, with --production only when asked', () => {
+    assert.deepEqual(parseArgs(['setup']).options.production, false);
+    assert.deepEqual(parseArgs(['setup', '--production', '--id', 'studio-mini-prod']).options, {
+      command: 'setup', production: true, id: 'studio-mini-prod', mode: 'interactive', once: false, dir: '', repos: [],
+    });
+    assert.equal(parseArgs(['setup', '--repo', 'a/b']).ok, false);
+    assert.equal(parseArgs(['setup', '--once']).ok, false);
+    assert.equal(parseArgs(['setup', '--id', 'Bad Id']).ok, false);
+  });
+
+  it('proposes the id from the Mac name, with -prod on production', () => {
+    assert.equal(proposedRunnerId('Peters-MacBook-Pro.local', false), 'peters-macbook-pro');
+    assert.equal(proposedRunnerId('Peters-MacBook-Pro.local', true), 'peters-macbook-pro-prod');
+    assert.equal(proposedRunnerId('', true), 'runner-prod');
+    assert.equal(proposedRunnerId('x'.repeat(80), true).length <= 40, true);
   });
 
   it('refuses a missing id, a bad mode and an unknown flag', () => {
@@ -60,6 +84,7 @@ describe('environment', () => {
       ok: true,
       url: 'https://graceful-mastiff-960.convex.site',
       token,
+      production: false,
     });
     assert.equal(readEnv({ RUNNER_TOKEN: token }).ok, false);
     assert.equal(readEnv({ PORTAL_AGENT_URL: 'https://graceful-mastiff-960.convex.site' }).ok, false);
@@ -67,10 +92,15 @@ describe('environment', () => {
     assert.equal(readEnv({ PORTAL_AGENT_URL: 'https://example.com', RUNNER_TOKEN: token }).ok, false);
   });
 
-  it('refuses production', () => {
+  it('refuses production unless started with --production, and --production refuses anything else', () => {
     const production = { PORTAL_AGENT_URL: 'https://unique-turtle-383.convex.site', RUNNER_TOKEN: token };
     assert.equal(readEnv(production).ok, false);
     assert.equal(readEnv({ ...production, RUNNER_ALLOW_PRODUCTION: '1' }).ok, false);
+    assert.deepEqual(readEnv(production, { production: true }), { ok: true, url: production.PORTAL_AGENT_URL, token, production: true });
+    const dev = { PORTAL_AGENT_URL: 'https://graceful-mastiff-960.convex.site', RUNNER_TOKEN: token };
+    assert.equal(readEnv(dev, { production: true }).ok, false);
+    // A runner paired to production refuses to start without the flag.
+    assert.equal(readEnv({ ...dev, RUNNER_PRODUCTION: '1' }).ok, false);
     assert.equal(readFileSync(new URL('./lib.mjs', import.meta.url), 'utf8').includes('RUNNER_ALLOW_PRODUCTION'), false);
   });
 
@@ -318,5 +348,18 @@ describe('drivers', () => {
     assert.equal(env.SSH_AUTH_SOCK, '/tmp/sock');
     assert.equal(env.PATH, '/bin');
     assert.equal(env.HOME, '/tmp');
+  });
+});
+
+describe('setup files', () => {
+  it('saves the URL and id, never the secret, and reads them back', () => {
+    const text = configFileText({ url: 'https://unique-turtle-383.convex.site', id: 'peter-mbp-prod', production: true });
+    assert.deepEqual(parseConfigFile(text), {
+      PORTAL_AGENT_URL: 'https://unique-turtle-383.convex.site',
+      RUNNER_ID: 'peter-mbp-prod',
+      RUNNER_PRODUCTION: '1',
+    });
+    assert.doesNotMatch(text, /TOKEN|SECRET/);
+    assert.equal(keychainAccount('unique-turtle-383', 'peter-mbp-prod'), 'unique-turtle-383:peter-mbp-prod');
   });
 });
