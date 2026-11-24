@@ -10,6 +10,7 @@ import {
   runnerHealthCopy,
   runnerHealthState,
   runnerStartCommand,
+  RUNNER_SETUP_HELPER,
   runnersAllowedFor,
   type RunnerHealthView,
 } from './runnerHealth';
@@ -196,8 +197,8 @@ describe('runner health copy', () => {
     );
 
     const noRunner = runnerHealthCopy(view({ runnerAllowed: false, runners: [] }), NOW);
-    assert.equal(`${noRunner.label} · ${noRunner.meta}`, 'Runner not set up · No runner allowed');
-    assert.deepEqual([noRunner.compactLabel, noRunner.dot, noRunner.helper], ['Not set up', 'unset', 'No runner is allowed for this project.']);
+    assert.equal(`${noRunner.label} · ${noRunner.meta}`, 'Runner not set up · Set up runner');
+    assert.deepEqual([noRunner.compactLabel, noRunner.dot, noRunner.helper], ['Not set up', 'unset', RUNNER_SETUP_HELPER]);
   });
 
   it('says so when an allowed runner has never called', () => {

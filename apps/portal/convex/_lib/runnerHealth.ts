@@ -91,6 +91,48 @@ export function agoLabel(at: number, now: number): string {
 
 export const RUNNER_MODAL_TITLE = 'Runner status';
 export const RUNNER_ADD_REPO = 'Add repo';
+export const RUNNER_SET_UP = 'Set up runner';
+export const RUNNER_SETUP_TITLE = 'No runner set up';
+export const RUNNER_SETUP_HELPER =
+  "The command prints an 8-character code. Enter it here to pair that Mac. Its secret goes straight to the Mac's Keychain and is never shown.";
+export const RUNNER_CONFIRM_HELPER = 'Only confirm a code you can see in your own terminal. Codes expire after 10 minutes.';
+export const RUNNER_PAIRED_HELPER = 'Installing adds a login item that starts the runner at login and restarts it if it stops.';
+export const RUNNER_LIST_HELPER = 'Revoking a runner stops it taking work at once. Any run in progress goes back to the queue.';
+export const RUNNER_SERVES = 'Every project with a repository this Mac can reach';
+
+/** The command staff run on the Mac that will take work. */
+export function runnerSetupCommand(production: boolean): string {
+  return `npm run runner -- setup${production ? ' --production' : ''}`;
+}
+
+/** Keeps the runner running: a login item per deployment. */
+export function runnerInstallCommand(production: boolean): string {
+  return `npm run runner -- install${production ? ' --production' : ''}`;
+}
+
+/** The revoke helper. On the last runner it says what waits. */
+export function runnerRevokeHelper(lastRunner: boolean, production: boolean): string {
+  const base = 'It stops taking work at once, and any run in progress goes back to the queue.';
+  if (!lastRunner) return base;
+  const where = production ? 'production' : 'shared dev';
+  return `${base} This is the last ${where} runner, so ${where} milestones wait until another is paired.`;
+}
+
+export type RunnerOutOfDate = { runner: string; lastSeen: string; version: string; update: string; helper: string };
+
+/** The latest runner, when it speaks an older protocol than the Portal takes. */
+export function runnerOutOfDateCopy(view: RunnerHealthView, now: number): RunnerOutOfDate | null {
+  const runner = latestRunner(view.runners);
+  const min = view.protocolMin;
+  if (!runner?.registered || min == null || runner.protocolVersion == null || runner.protocolVersion >= min) return null;
+  return {
+    runner: runner.id,
+    lastSeen: runner.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now) : RUNNER_NOT_SEEN,
+    version: `Protocol ${runner.protocolVersion} · the Portal needs ${min}`,
+    update: `git pull && ${runnerInstallCommand(view.production)}`,
+    helper: 'The Portal refuses claims from this runner until it is updated. The runner never updates its own code.',
+  };
+}
 export const RUNNER_NOT_SEEN = 'not seen yet';
 export const RUNNER_EMPTY = '—';
 
@@ -117,14 +159,20 @@ export type RunnerHealthCopy = {
   runner: string;
   /** Only while no runner is online: the command that starts one for this repository. */
   startCommand: string | null;
+  /** Only on Not set up with a repository: the command that pairs a Mac. */
+  setupCommand: string | null;
   lastSeen: string;
   milestone: string;
   helper: string;
 };
 
-/** The command that starts a runner serving `repo`, as a staff member types it on the runner's Mac. */
-export function runnerStartCommand(runnerId: string, repo: string, production: boolean): string {
-  return `npm run runner -- start${production ? ' --production' : ''} --id ${runnerId} --repo ${repo}`;
+/**
+ * The command that starts a runner serving `repo`, as a staff member types it
+ * on the runner's Mac. A registered runner reads its id from the file setup
+ * wrote, so only a fallback runner needs `--id`.
+ */
+export function runnerStartCommand(runnerId: string, repo: string, production: boolean, registered = false): string {
+  return `npm run runner -- start${production ? ' --production' : ''}${registered ? '' : ` --id ${runnerId}`} --repo ${repo}`;
 }
 
 /** Every string the chip and the modal show for one state. */
@@ -143,6 +191,7 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
       meta: RUNNER_ADD_REPO,
       runner: RUNNER_EMPTY,
       startCommand: null,
+      setupCommand: null,
       lastSeen: RUNNER_EMPTY,
       milestone: RUNNER_EMPTY,
       helper: 'This project has no GitHub repo. Add a repo before the runner can start an agent.',
@@ -152,19 +201,20 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
     return {
       ...base,
       dot: 'unset',
-      meta: 'No runner allowed',
+      meta: RUNNER_SET_UP,
       runner: RUNNER_EMPTY,
       startCommand: null,
+      setupCommand: runnerSetupCommand(view.production),
       lastSeen: RUNNER_EMPTY,
       milestone: RUNNER_EMPTY,
-      helper: 'No runner is allowed for this project.',
+      helper: RUNNER_SETUP_HELPER,
     };
   }
   const runner = latestRunner(view.runners);
   const name = runner?.id ?? RUNNER_EMPTY;
   const seen = runner?.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now) : null;
-  const fields = { runner: name, lastSeen: seen ?? RUNNER_EMPTY, startCommand: null };
-  const startCommand = runner && view.repo ? runnerStartCommand(runner.id, view.repo, view.production) : null;
+  const fields = { runner: name, lastSeen: seen ?? RUNNER_EMPTY, startCommand: null, setupCommand: null };
+  const startCommand = runner && view.repo ? runnerStartCommand(runner.id, view.repo, view.production, runner.registered === true) : null;
   if (state === 'working') {
     const milestone = view.working?.milestoneName ?? RUNNER_EMPTY;
     return { ...base, ...fields, dot: 'warning', meta: milestone, milestone, helper: 'The runner is working on this milestone.' };
