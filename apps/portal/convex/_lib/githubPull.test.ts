@@ -65,6 +65,7 @@ describe('staff shipped pull request check', () => {
     const calls: Array<{ url: string; authorization: string | null }> = [];
     const merged = await verifyPullMerged({
       link: PR,
+      token: null,
       fetchImpl: async (url, init) => {
         const headers = new Headers(init?.headers);
         calls.push({ url: String(url), authorization: headers.get('authorization') });
@@ -98,5 +99,35 @@ describe('staff shipped pull request check', () => {
       },
     });
     assert.deepEqual(failed, { ok: false, error: SHIPPED_UNVERIFIED });
+  });
+
+  it('signs the read with the read token when one is set', async () => {
+    const seen: Array<string | null> = [];
+    const merged = await verifyPullMerged({
+      link: PR,
+      token: 'read-token',
+      fetchImpl: async (_url, init) => {
+        seen.push(new Headers(init?.headers).get('authorization'));
+        return new Response(JSON.stringify({ merged: true, base: { ref: 'main' } }), { status: 200 });
+      },
+    });
+    assert.deepEqual(merged, { ok: true, link: PR });
+    assert.deepEqual(seen, ['Bearer read-token']);
+  });
+
+  it('falls back to one unsigned read when GitHub refuses the token', async () => {
+    const seen: Array<string | null> = [];
+    const merged = await verifyPullMerged({
+      link: PR,
+      token: 'revoked',
+      fetchImpl: async (_url, init) => {
+        const authorization = new Headers(init?.headers).get('authorization');
+        seen.push(authorization);
+        if (authorization) return new Response('bad credentials', { status: 401 });
+        return new Response(JSON.stringify({ merged: true, base: { ref: 'main' } }), { status: 200 });
+      },
+    });
+    assert.deepEqual(merged, { ok: true, link: PR });
+    assert.deepEqual(seen, ['Bearer revoked', null]);
   });
 });
