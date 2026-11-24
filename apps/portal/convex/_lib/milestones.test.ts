@@ -498,6 +498,35 @@ describe('roadmap', () => {
     assert.equal(roadmap.doneCount, 1);
   });
 
+  it('leaves Parked and archived tasks out of both counts, and counts a Done status as done', () => {
+    const roadmap = buildRoadmap({
+      audience: 'staff',
+      milestoneId: 'm-1',
+      tasks: [
+        task({ id: 'a', status: 'Done', isDone: false }),
+        task({ id: 'parked', stage: 'Parked', milestoneOrder: 1 }),
+        task({ id: 'old', archived: true, milestoneOrder: 2 }),
+      ],
+      projectVisibleToClient: true,
+    });
+    assert.deepEqual(roadmap.rows.map((row) => row.id), ['a', 'parked', 'old']);
+    assert.deepEqual([roadmap.openCount, roadmap.doneCount], [0, 1]);
+    assert.equal(roadmap.canClose, true);
+  });
+
+  it('works out canClose for staff from the whole set, and gives clients none', () => {
+    const tasks = [
+      task({ id: 'a', status: 'Done', isDone: true }),
+      task({ id: 'draft', publishToWarehaus: false, milestoneOrder: 1 }),
+    ];
+    const staff = buildRoadmap({ audience: 'staff', milestoneId: 'm-1', tasks, projectVisibleToClient: true });
+    assert.equal(staff.canClose, false);
+    const client = buildRoadmap({ audience: 'client', milestoneId: 'm-1', tasks, projectVisibleToClient: true });
+    assert.equal('canClose' in client, false);
+    // A client counts only what it can see.
+    assert.deepEqual([client.openCount, client.doneCount], [0, 1]);
+  });
+
   it('shows an attached subtask once and does not pull its parent or siblings', () => {
     const alone = buildRoadmap({
       audience: 'staff',

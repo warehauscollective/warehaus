@@ -52,7 +52,7 @@ import {
   publishChangeDecision,
   taskIdsToMove,
 } from './_lib/milestoneDetails';
-import { milestoneCloseGate, milestoneCloseTasks, toCloseSource } from './_lib/milestoneClose';
+import { loadMilestoneTaskSet, loadedTask } from './_lib/milestoneTaskSet';
 import {
   MILESTONE_ARCHIVED,
   RESTORED_MILESTONE_STATUS,
@@ -441,6 +441,7 @@ async function toRoadmap(
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,
+    ...(roadmap.canClose != null ? { canClose: roadmap.canClose } : {}),
     countIsDecision: false,
     rows: roadmap.rows,
   };
@@ -838,7 +839,8 @@ export const setStatus = adminMutation({
     const milestone = await loadMilestone(ctx, args.milestoneId);
     let tasksReady = false;
     if (args.status === 'Shipped' && milestone.status !== 'Shipped') {
-      const gate = await milestoneCloseGate(ctx, milestone);
+      const loaded = await loadMilestoneTaskSet(ctx, milestone);
+      const gate = loaded.ok ? loaded.set.canShip : loaded;
       // The reason carries the open count and points to Mark complete.
       if (!gate.ok) fail(gate.open == null ? gate.reason : shippedLockedReason(gate.open));
       tasksReady = true;
@@ -2329,12 +2331,12 @@ export const markComplete = adminMutation({
     if (milestone.status === 'Shipped') {
       return { ok: true as const, wrote: false, status: milestone.status, previous: milestone.status, leftovers: null, tasks: [] };
     }
-    const loaded = await milestoneCloseTasks(ctx, milestone);
+    const loaded = await loadMilestoneTaskSet(ctx, milestone);
     if (!loaded.ok) fail(loaded.reason);
     const parked = args.leftovers === 'park' ? await parkedMilestoneFor(ctx, milestone) : null;
     const plan = planMarkComplete({
       milestoneId: milestone._id,
-      tasks: loaded.tasks.map(toCloseSource),
+      tasks: loaded.docs.map(loadedTask),
       leftovers: args.leftovers,
       parkedMilestoneId: parked?._id ?? null,
     });
@@ -2349,7 +2351,7 @@ export const markComplete = adminMutation({
     });
     if (!moved.ok) fail(moved.reason);
     const log = new SnapshotLog();
-    await applyCloseoutWrites(ctx, plan.writes, loaded.tasks, { at: Date.now(), actorId: ctx.identity.contactId, parked }, log);
+    await applyCloseoutWrites(ctx, plan.writes, loaded.docs, { at: Date.now(), actorId: ctx.identity.contactId, parked }, log);
     const wrote = await writeStatus(ctx, milestone, moved, ctx.identity.name);
     return {
       ok: true as const,
@@ -2376,16 +2378,16 @@ export const archive = adminMutation({
     if (milestone.archivedAt != null) {
       return { ok: true as const, wrote: false, archivedAt: milestone.archivedAt, tasks: [] };
     }
-    const loaded = await milestoneCloseTasks(ctx, milestone);
+    const loaded = await loadMilestoneTaskSet(ctx, milestone);
     if (!loaded.ok) fail(loaded.reason);
     const plan = planArchiveMilestone({
       milestoneId: milestone._id,
-      tasks: loaded.tasks.map(toCloseSource),
+      tasks: loaded.docs.map(loadedTask),
       openTasks: args.openTasks,
     });
     const at = Date.now();
     const log = new SnapshotLog();
-    await applyCloseoutWrites(ctx, plan.writes, loaded.tasks, { at, actorId: ctx.identity.contactId, parked: null }, log);
+    await applyCloseoutWrites(ctx, plan.writes, loaded.docs, { at, actorId: ctx.identity.contactId, parked: null }, log);
     await ctx.db.patch(milestone._id, {
       archivedAt: at,
       // A queued plan is not handed to the runner once the milestone is archived.
@@ -2405,10 +2407,10 @@ export const restore = adminMutation({
   handler: async (ctx, args) => {
     const milestone = await loadMilestone(ctx, args.milestoneId);
     if (milestone.archivedAt != null) {
-      const loaded = await milestoneCloseTasks(ctx, milestone);
+      const loaded = await loadMilestoneTaskSet(ctx, milestone);
       if (!loaded.ok) fail(loaded.reason);
       const log = new SnapshotLog();
-      for (const task of loaded.tasks) {
+      for (const task of loaded.docs) {
         if (task.archivedAt !== milestone.archivedAt) continue;
         log.note(task);
         await ctx.db.patch(task._id, { archivedAt: undefined });

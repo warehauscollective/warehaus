@@ -15,7 +15,6 @@ import {
 import {
   listedTaskCount,
   milestoneCloseoutState,
-  openTaskCount,
   parkedMilestoneTarget,
   RESTORED_MILESTONE_STATUS,
 } from '@convex/_lib/closeout';
@@ -37,7 +36,7 @@ import { ProjectBreadcrumb } from '@/components/nav/ProjectBreadcrumb';
 import { PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useFixtureMilestonePreview } from '@/lib/data/fixtureMilestonePreview';
-import { fixtureMilestones } from '@/lib/data/milestoneRoadmap';
+import { fixtureMilestones, withRows } from '@/lib/data/milestoneRoadmap';
 import { type PortalTask } from '@/lib/data/view-models';
 import { ContextIncompleteChip, GrillingPromptModal, ProjectContextTab, useProjectContext } from './ProjectContext';
 import {
@@ -106,14 +105,7 @@ function applyFixtureTasks(
       children: [] as RoadmapChild[],
       ...(task.pullRequestUrl ? { pullRequestUrl: task.pullRequestUrl } : {}),
     }));
-  const nextRows = [...rows, ...attached];
-  const flat = nextRows.flatMap((row) => [row, ...row.children]);
-  return {
-    ...base,
-    rows: nextRows,
-    openCount: flat.filter((row) => !row.isDone).length,
-    doneCount: flat.filter((row) => row.isDone).length,
-  };
+  return withRows(base, [...rows, ...attached]);
 }
 
 /** Fixture rows that are not real tasks still count on the milestone tab. */
@@ -361,7 +353,7 @@ export function ProjectRoadmap({
     <MilestoneCloseout
       name={milestone.name}
       state={milestoneCloseoutState({ status: milestone.status, archived })}
-      open={openTaskCount(milestone.rows)}
+      open={milestone.openCount}
       total={listedTaskCount(milestone.rows)}
       parkedMilestone={parkedMilestoneTarget(parkedTargets, milestone.id) != null}
       actions={closeoutActions(milestone, archived)}

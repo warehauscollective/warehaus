@@ -5,7 +5,17 @@ import {
   type MilestoneRoadmapView,
   type RoadmapTaskInput,
 } from '@convex/_lib/milestones';
+import { roadmapCounts } from '@convex/_lib/milestoneTaskSet';
 import type { PortalTask } from '@/lib/data/view-models';
+
+/**
+ * A milestone with new rows, its counts worked out by the same rule the
+ * server uses. `canClose` is kept only on a staff view, which already has it.
+ */
+export function withRows(milestone: MilestoneRoadmapView, rows: MilestoneRoadmapView['rows']): MilestoneRoadmapView {
+  const { canClose, ...counts } = roadmapCounts(rows);
+  return { ...milestone, rows, ...counts, ...('canClose' in milestone ? { canClose } : {}) };
+}
 
 const LAUNCH_ID = 'm-launch';
 const DRAFT_ID = 'm-draft';
@@ -92,6 +102,7 @@ export function fixtureMilestones(
       resources: [{ id: 'r-notes', title: 'Kickoff recap', url: 'https://example.com/recap', type: 'Meeting notes' }],
       openCount: launchRoad.openCount,
       doneCount: launchRoad.doneCount,
+      ...(launchRoad.canClose != null ? { canClose: launchRoad.canClose } : {}),
       countIsDecision: false,
       rows: launchRoad.rows,
       ...(audience === 'staff'
@@ -117,6 +128,7 @@ export function fixtureMilestones(
       resources: [],
       openCount: draftRoad.openCount,
       doneCount: draftRoad.doneCount,
+      ...(draftRoad.canClose != null ? { canClose: draftRoad.canClose } : {}),
       countIsDecision: false,
       rows: draftRoad.rows,
       ...(audience === 'staff'
@@ -175,13 +187,7 @@ function withTasksDone(milestone: MilestoneRoadmapView): MilestoneRoadmapView {
     ...mark(row),
     children: row.children.map((child) => mark(child)),
   }));
-  const flat = rows.flatMap((row) => [row, ...row.children]);
-  return {
-    ...milestone,
-    rows,
-    doneCount: flat.filter((row) => row.isDone).length,
-    openCount: flat.filter((row) => !row.isDone).length,
-  };
+  return withRows(milestone, rows);
 }
 
 function withLongChip(milestone: MilestoneRoadmapView): MilestoneRoadmapView {
@@ -189,13 +195,7 @@ function withLongChip(milestone: MilestoneRoadmapView): MilestoneRoadmapView {
   const done = Array.from({ length: 12 }, (_, index) => ({ ...previewChild(`long-done-${index}`), isDone: true, children: [] }));
   const open = Array.from({ length: 126 }, (_, index) => ({ ...previewChild(`long-open-${index}`), children: [] }));
   const rows = [...done, { ...previewChild('long-parent'), name: 'Parent', children }, ...open];
-  const flat = rows.flatMap((row) => [row, ...row.children]);
-  return {
-    ...milestone,
-    rows,
-    doneCount: flat.filter((row) => row.isDone).length,
-    openCount: flat.filter((row) => !row.isDone).length,
-  };
+  return withRows(milestone, rows);
 }
 
 const LOOP_TITLES = [
@@ -224,18 +224,14 @@ function withLoopFixture(milestone: MilestoneRoadmapView, loop: string): Milesto
         ...(building && index < 3 ? { commit: ['4c1e9aa', '7d02b1f', '91ae3c0'][index] } : {}),
         ...(loop === 'blocked' && index === 3 ? { blockedReason: 'runner stopped responding' } : {}),
       }));
-  const done = rows.filter((row) => row.isDone).length;
   return {
-    ...milestone,
+    ...withRows(milestone, rows),
     name: 'Client experience launch',
     status: building ? 'Building' : 'Planning',
     planning: loop === 'generating' ? 'running' : loop === 'failed' ? 'blocked' : undefined,
     ...(loop === 'failed' ? { planningBlockedReason: 'Couldn’t draft tasks' } : {}),
     branch: 'milestone/client-experience-launch',
     prUrl: 'https://github.com/warehauscollective/warehaus/pull/152',
-    rows,
-    openCount: rows.length - done,
-    doneCount: done,
   };
 }
 
