@@ -3,7 +3,7 @@
  * change goes through `applyTaskChanges` (convex/_lib/taskChange.ts).
  */
 
-import { planTaskCreate, planTaskStageWrite, taskCreateProjectGate } from '@warehaus/portal-sync';
+import { planTaskCreate, stageDrainWrite, taskCreateProjectGate } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { deleteUnsentStageRows } from '../_lib/taskChange';
 import { taskMilestoneGate } from '../_lib/milestoneTasks';
@@ -87,18 +87,8 @@ export const drainPendingStages = internalMutation({
     let inserted = 0;
     let reused = 0;
     for (const task of tasks) {
-      if (typeof task.stagePendingAt !== 'number') continue;
-      const stage = typeof task.stage === 'string' ? task.stage : '';
-      const base = task.stagePendingBaseEditedTime ?? '';
-      if (!stage || !base) continue;
-      const planned = planTaskStageWrite({
-        actor: 'staff',
-        stage,
-        pullRequestLink: task.stagePendingPullRequest,
-        notionPageId: task.notionPageId,
-        expectedLastEditedTime: base,
-      });
-      if (!planned.ok) continue;
+      const planned = stageDrainWrite(task, task.notionPageId);
+      if (!planned) continue;
       await deleteUnsentStageRows(ctx, task.notionPageId, planned.idempotencyKey);
       const queued = await insertOutboxRow(ctx, {
         idempotencyKey: planned.idempotencyKey,
@@ -106,7 +96,7 @@ export const drainPendingStages = internalMutation({
         orgId: task.orgId,
         database: 'tasks',
         notionPageId: task.notionPageId,
-        expectedLastEditedTime: base,
+        expectedLastEditedTime: planned.base,
         properties: planned.properties,
         actor: 'staff',
         actorId: task.stagePendingBy,

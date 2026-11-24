@@ -520,3 +520,4 @@ export {
   type PulledTask,
   type MergedTask,
 } from './taskPullMerge';
+export * from './stageSync';
