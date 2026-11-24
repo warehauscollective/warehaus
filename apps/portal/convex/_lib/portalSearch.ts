@@ -1,10 +1,10 @@
 import {
   clientMayOpenGranolaRecap,
-  clientMaySeeProject,
-  clientMaySeeTask,
   clientMaySeeTaskDescription,
   clientSafeResourceText,
-  isClientSurfaceVisible,
+  clientSeesProject,
+  clientSeesProjectItem,
+  clientSeesTask,
 } from '@warehaus/portal-sync';
 
 export type SearchKind = 'project' | 'task' | 'doc' | 'resource';
@@ -112,27 +112,6 @@ function matches(needle: string, parts: Array<string | null | undefined>): boole
     .includes(needle);
 }
 
-function projectGate(project: ProjectRow | null, orgVisible: boolean) {
-  if (!project) {
-    return {
-      name: '',
-      types: [] as string[],
-      publishToWarehaus: false,
-      archive: false,
-      hidden: true,
-      orgVisible,
-    };
-  }
-  return {
-    name: project.name,
-    types: project.type ?? [],
-    publishToWarehaus: project.publishToWarehaus,
-    archive: project.archive ?? false,
-    hidden: project.syncHiddenAt != null,
-    orgVisible,
-  };
-}
-
 function clientHit(hit: Omit<SearchHit, 'published'>): SearchHit {
   return {
     id: hit.id,
@@ -212,13 +191,8 @@ export function searchCatalog(input: {
   const projects = input.projects.filter((project) => staff || project.orgId === input.orgId);
   const projectById = new Map(projects.map((project) => [project._id, project]));
 
-  const visibleProject = (project: ProjectRow | null) => {
-    if (staff) return true;
-    return clientMaySeeProject(projectGate(project, input.orgVisible));
-  };
-
   const projectHits = projects
-    .filter((project) => visibleProject(project))
+    .filter((project) => staff || clientSeesProject(project, input.orgVisible))
     .filter((project) =>
       matches(needle, [project.name, project.description, project.status]),
     )
@@ -242,12 +216,7 @@ export function searchCatalog(input: {
     .filter((task) => staff || task.orgId === input.orgId)
     .filter((task) => {
       if (staff) return true;
-      const project = projectById.get(task.projectId) ?? null;
-      return clientMaySeeTask({
-        publishToWarehaus: task.publishToWarehaus,
-        hidden: task.syncHiddenAt != null,
-        project: projectGate(project, input.orgVisible),
-      });
+      return clientSeesTask(task, projectById.get(task.projectId), input.orgVisible);
     })
     .filter((task) => {
       const description =
@@ -280,10 +249,9 @@ export function searchCatalog(input: {
     .filter((doc) => staff || doc.orgId === input.orgId)
     .filter((doc) => {
       if (staff) return true;
-      if (!isClientSurfaceVisible(doc) || doc.status !== 'Published' || !doc.publishToWarehaus) return false;
-      const project = doc.projectId ? projectById.get(doc.projectId) ?? null : null;
-      if (doc.projectId && !project) return false;
-      return visibleProject(project);
+      if (doc.status !== 'Published') return false;
+      const project = doc.projectId ? projectById.get(doc.projectId) : null;
+      return clientSeesProjectItem(doc, project, input.orgVisible);
     })
     .filter((doc) => matches(needle, [doc.title, doc.summary, doc.docType]))
     .slice(0, LIMIT)
@@ -303,11 +271,9 @@ export function searchCatalog(input: {
     .filter((resource) => staff || resource.orgId === input.orgId)
     .filter((resource) => {
       if (staff) return true;
-      if (!isClientSurfaceVisible(resource) || resource.archive || !resource.publishToWarehaus) return false;
       if (!clientMayOpenGranolaRecap(resource)) return false;
-      const project = resource.projectId ? projectById.get(resource.projectId) ?? null : null;
-      if (resource.projectId && !project) return false;
-      return visibleProject(project);
+      const project = resource.projectId ? projectById.get(resource.projectId) : null;
+      return clientSeesProjectItem(resource, project, input.orgVisible);
     })
     .filter((resource) =>
       matches(needle, [

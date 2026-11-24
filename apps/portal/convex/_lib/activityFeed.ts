@@ -6,8 +6,8 @@
 
 import {
   clientMayOpenGranolaRecap,
-  clientMaySeeProject,
-  clientMaySeeTask,
+  clientSeesProject,
+  clientSeesTask,
   isClientVisibleActivityType,
   isMissingPropertyRejection,
   sanitizeInlineText,
@@ -132,35 +132,6 @@ export type TaskTimelineItem = {
 };
 
 const CLIENT_FIELDS = ['Name', 'Status', 'Stage', 'Date', 'Is Done'] as const;
-
-function gate(project: FeedProject, orgVisible: boolean) {
-  return {
-    name: project.name,
-    types: project.type ?? [],
-    publishToWarehaus: project.publishToWarehaus,
-    archive: project.archive,
-    hidden: project.syncHiddenAt != null,
-    orgVisible,
-  };
-}
-
-function clientSeesProject(project: FeedProject | undefined, orgVisible: boolean): boolean {
-  if (!project) return false;
-  return clientMaySeeProject(gate(project, orgVisible));
-}
-
-function clientSeesTask(
-  task: FeedTask | undefined,
-  project: FeedProject | undefined,
-  orgVisible: boolean,
-): boolean {
-  if (!task || !project) return false;
-  return clientMaySeeTask({
-    publishToWarehaus: task.publishToWarehaus,
-    hidden: task.syncHiddenAt != null,
-    project: gate(project, orgVisible),
-  });
-}
 
 /**
  * Whether the client feed includes this row.

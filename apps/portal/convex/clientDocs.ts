@@ -1,4 +1,4 @@
-import { clientMaySeeProject, compareDocsByOrder, isClientSurfaceVisible, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { clientSeesProjectItem, compareDocsByOrder, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
@@ -29,28 +29,6 @@ function toClientDoc(row: {
   };
 }
 
-function projectVisibleToClient(
-  project: {
-    name: string;
-    type: string[];
-    publishToWarehaus: boolean;
-    archive: boolean;
-    syncHiddenAt?: number;
-  } | null,
-  orgVisible: boolean,
-  projectId?: string | null,
-): boolean {
-  if (!project) return !projectId;
-  return clientMaySeeProject({
-    name: project.name,
-    types: project.type,
-    publishToWarehaus: project.publishToWarehaus,
-    archive: project.archive,
-    hidden: project.syncHiddenAt != null,
-    orgVisible,
-  });
-}
-
 export const listForClient = clientQuery({
   args: {},
   handler: async (ctx) => {
@@ -64,9 +42,8 @@ export const listForClient = clientQuery({
 
     const visible = [];
     for (const row of rows) {
-      if (!isClientSurfaceVisible(row) || !row.publishToWarehaus) continue;
       const project = row.projectId ? await ctx.db.get(row.projectId) : null;
-      if (!projectVisibleToClient(project, orgVisible, row.projectId)) continue;
+      if (!clientSeesProjectItem(row, project, orgVisible)) continue;
       visible.push(row);
     }
     return visible.sort(compareDocsByOrder).map(toClientDoc);
@@ -82,12 +59,9 @@ export const getForClient = clientQuery({
     const project = row?.projectId ? await ctx.db.get(row.projectId) : null;
     if (
       !row ||
-      !orgVisible ||
-      !isClientSurfaceVisible(row) ||
       row.orgId !== ctx.orgId ||
       row.status !== 'Published' ||
-      !row.publishToWarehaus ||
-      !projectVisibleToClient(project, orgVisible, row?.projectId)
+      !clientSeesProjectItem(row, project, orgVisible)
     ) {
       throw new PortalAuthError('Doc not found', 'FORBIDDEN');
     }

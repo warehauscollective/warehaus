@@ -152,22 +152,6 @@ export function clientMaySeeProject(project: {
   return true;
 }
 
-export function clientMaySeeTask(task: {
-  publishToWarehaus: boolean;
-  hidden: boolean;
-  project: {
-    name?: string | null;
-    types?: readonly string[] | null;
-    publishToWarehaus: boolean;
-    archive: boolean;
-    hidden: boolean;
-    orgVisible: boolean;
-  };
-}): boolean {
-  if (task.hidden || !task.publishToWarehaus) return false;
-  return clientMaySeeProject(task.project);
-}
-
 /** Each child is judged on its own publish flag. */
 export function visibleChildIds<T extends { id: string; publishToWarehaus: boolean; hidden?: boolean }>(
   children: readonly T[],

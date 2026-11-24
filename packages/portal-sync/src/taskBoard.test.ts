@@ -8,7 +8,6 @@ import { LIVE_TASK_PROPERTY_NAMES } from './fixtures/sugar-shark';
 import { mapNotionTask } from './mappers';
 import {
   boardColumns,
-  clientMaySeeTask,
   compareBoardCards,
   dropSlotIndex,
   decideResourceLink,
@@ -30,15 +29,7 @@ import {
   WAREHAUS_STUDIO_PROJECT_NAME,
 } from './taskBoard';
 import { validatePropertyPatch } from './writeback';
-
-const clientProject = {
-  name: 'Northwind site',
-  types: ['Website'],
-  publishToWarehaus: true,
-  archive: false,
-  hidden: false,
-  orgVisible: true,
-};
+import { clientSeesTask } from './clientVisibility';
 
 describe('task property tiers', () => {
   it('maps Stage, Parent item, and Resources and fails closed on unknown names', () => {
@@ -103,33 +94,13 @@ describe('task property tiers', () => {
 
 describe('internal project visibility', () => {
   it('keeps warehaus.studio and its tasks off every client view', () => {
-    const internal = clientMaySeeTask({
-      publishToWarehaus: true,
-      hidden: false,
-      project: {
-        name: WAREHAUS_STUDIO_PROJECT_NAME,
-        types: ['Internal'],
-        publishToWarehaus: true,
-        archive: false,
-        hidden: false,
-        orgVisible: true,
-      },
-    });
-    assert.equal(internal, false);
-    const otherInternal = clientMaySeeTask({
-      publishToWarehaus: true,
-      hidden: false,
-      project: { ...clientProject, name: 'Side project', types: ['Internal'] },
-    });
-    assert.equal(otherInternal, false);
-    assert.equal(
-      clientMaySeeTask({ publishToWarehaus: true, hidden: false, project: clientProject }),
-      true,
-    );
-    assert.equal(
-      clientMaySeeTask({ publishToWarehaus: false, hidden: false, project: clientProject }),
-      false,
-    );
+    const task = { publishToWarehaus: true, syncHiddenAt: null };
+    const studio = { name: WAREHAUS_STUDIO_PROJECT_NAME, type: ['Internal'], publishToWarehaus: true, archive: false };
+    const client = { name: 'Site', type: ['Website'], publishToWarehaus: true, archive: false };
+    assert.equal(clientSeesTask(task, studio, true), false);
+    assert.equal(clientSeesTask(task, { ...client, name: 'Side project', type: ['Internal'] }, true), false);
+    assert.equal(clientSeesTask(task, client, true), true);
+    assert.equal(clientSeesTask({ ...task, publishToWarehaus: false }, client, true), false);
   });
 
   it('filters each sub-task by its own publish flag', () => {
@@ -510,14 +481,6 @@ describe('board sort', () => {
       ['Idea task'],
     );
     assert.equal(stage.some((column) => column.label === 'No stage yet'), false);
-    assert.equal(
-      clientMaySeeTask({
-        publishToWarehaus: true,
-        hidden: false,
-        project: clientProject,
-      }),
-      true,
-    );
   });
 });
 

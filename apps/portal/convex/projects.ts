@@ -1,10 +1,10 @@
-import { clientMaySeeProject, isOrgVisibleToClients } from '@warehaus/portal-sync';
+import { clientSeesProject, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { serveTasksByOrg } from './_lib/taskPlatformRead';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
 import { AGENT_REPO_INVALID, agentRepo, buildAgent } from './_lib/agentRun';
-import type { Id } from './_generated/dataModel';
+import type { Doc, Id } from './_generated/dataModel';
 import type { MutationCtx, QueryCtx } from './_generated/server';
 
 /** CLIENT fields only — never emit SERVER gate inputs. */
@@ -39,21 +39,8 @@ function toClientProject(row: {
   };
 }
 
-function isPublishedProject(row: {
-  name: string;
-  publishToWarehaus: boolean;
-  archive: boolean;
-  type: string[];
-  syncHiddenAt?: number;
-}) {
-  return clientMaySeeProject({
-    name: row.name,
-    types: row.type,
-    publishToWarehaus: row.publishToWarehaus,
-    archive: row.archive,
-    hidden: row.syncHiddenAt != null,
-    orgVisible: true,
-  });
+function isPublishedProject(row: Doc<'projects'>) {
+  return clientSeesProject(row, true);
 }
 
 /** List published projects for the caller's org. */

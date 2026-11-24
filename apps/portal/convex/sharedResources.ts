@@ -1,10 +1,10 @@
 import {
   clientMayOpenGranolaRecap,
-  clientMaySeeProject,
-  clientMaySeeTask,
   clientSafeResourceText,
-  isClientSurfaceVisible,
+  clientSeesProjectItem,
+  clientSeesTask,
   isOrgVisibleToClients,
+  type VisibilityProjectRow,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import type { Id } from './_generated/dataModel';
@@ -42,18 +42,7 @@ async function clientAttachmentCount(
     const linked = await ctx.db.get(link.taskId);
     if (!linked || linked.orgId !== orgId) continue;
     const project = linked.projectId ? await ctx.db.get(linked.projectId) : null;
-    const visible = clientMaySeeTask({
-      publishToWarehaus: linked.publishToWarehaus,
-      hidden: linked.syncHiddenAt != null,
-      project: {
-        name: project?.name,
-        types: project?.type,
-        publishToWarehaus: project?.publishToWarehaus ?? false,
-        archive: project?.archive ?? false,
-        hidden: project?.syncHiddenAt != null,
-        orgVisible,
-      },
-    });
+    const visible = clientSeesTask(linked, project, orgVisible);
     if (visible) count += 1;
   }
   return count;
@@ -142,42 +131,11 @@ function resourceVisibleToClient<
   },
 >(
   row: T | null,
-  project: {
-    name?: string | null;
-    type?: string[] | null;
-    publishToWarehaus?: boolean;
-    archive?: boolean;
-    syncHiddenAt?: number | null;
-  } | null,
+  project: VisibilityProjectRow | null,
   orgId: string,
   orgVisible: boolean,
 ): row is T {
-  if (!row || row.orgId !== orgId || !orgVisible || !isClientSurfaceVisible(row) || !row.publishToWarehaus || row.archive) {
-    return false;
-  }
-  return projectVisibleToClient(project, orgVisible, row.projectId);
-}
-
-function projectVisibleToClient(
-  project: {
-    name?: string | null;
-    type?: string[] | null;
-    publishToWarehaus?: boolean;
-    archive?: boolean;
-    syncHiddenAt?: number | null;
-  } | null,
-  orgVisible: boolean,
-  projectId?: string | null,
-): boolean {
-  if (!project) return !projectId;
-  return clientMaySeeProject({
-    name: project.name,
-    types: project.type,
-    publishToWarehaus: project.publishToWarehaus ?? false,
-    archive: project.archive ?? false,
-    hidden: project.syncHiddenAt != null,
-    orgVisible,
-  });
+  return !!row && row.orgId === orgId && clientSeesProjectItem(row, project, orgVisible);
 }
 
 export const listForClient = clientQuery({
@@ -191,7 +149,8 @@ export const listForClient = clientQuery({
       .withIndex('by_orgId', (q) => q.eq('orgId', ctx.orgId))
       .collect();
 
-    const published = rows.filter((r) => isClientSurfaceVisible(r) && r.publishToWarehaus && !r.archive);
+    // Row-only check first, so unpublished rows never cost a project read.
+    const published = rows.filter((r) => clientSeesProjectItem({ ...r, projectId: null }, null, orgVisible));
     const out = [];
     for (const row of published) {
       const project = row.projectId ? await ctx.db.get(row.projectId) : null;
@@ -254,18 +213,7 @@ export const listAttachedForClient = clientQuery({
     const visible =
       task &&
       task.orgId === ctx.orgId &&
-      clientMaySeeTask({
-        publishToWarehaus: task.publishToWarehaus,
-        hidden: task.syncHiddenAt != null,
-        project: {
-          name: project?.name,
-          types: project?.type,
-          publishToWarehaus: project?.publishToWarehaus ?? false,
-          archive: project?.archive ?? false,
-          hidden: project?.syncHiddenAt != null,
-          orgVisible,
-        },
-      });
+      clientSeesTask(task, project, orgVisible);
     if (!visible || !task) return [];
     const links = await ctx.db
       .query('taskResources')
@@ -367,18 +315,7 @@ export const usedInTasksForClient = clientQuery({
       const task = await ctx.db.get(link.taskId);
       if (!task || task.orgId !== ctx.orgId) continue;
       const project = await ctx.db.get(task.projectId);
-      const visible = clientMaySeeTask({
-        publishToWarehaus: task.publishToWarehaus,
-        hidden: task.syncHiddenAt != null,
-        project: {
-          name: project?.name,
-          types: project?.type,
-          publishToWarehaus: project?.publishToWarehaus ?? false,
-          archive: project?.archive ?? false,
-          hidden: project?.syncHiddenAt != null,
-          orgVisible,
-        },
-      });
+      const visible = clientSeesTask(task, project, orgVisible);
       if (!visible || !project) continue;
       out.push({
         id: task._id,

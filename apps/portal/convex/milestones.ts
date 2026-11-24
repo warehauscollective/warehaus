@@ -10,7 +10,7 @@
 
 import {
   clientMayOpenGranolaRecap,
-  clientMaySeeProject,
+  clientSeesProject,
   isOrgVisibleToClients,
 } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
@@ -443,7 +443,7 @@ async function listOnProject(
   audience: 'staff' | 'client',
   orgVisible: boolean,
 ): Promise<MilestoneRoadmapView[]> {
-  if (audience === 'client' && !clientMaySeeProject(projectGate(project, orgVisible))) return [];
+  if (audience === 'client' && !clientSeesProject(project, orgVisible)) return [];
   const milestones = await ctx.db
     .query('milestones')
     .withIndex('by_orgId_projectId', (q) => q.eq('orgId', project.orgId).eq('projectId', project._id))

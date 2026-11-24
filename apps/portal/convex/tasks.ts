@@ -3,8 +3,8 @@ import {
   TASK_LINK_READ_CAP,
   TASK_STAGES,
   TASK_UNAVAILABLE,
-  clientMaySeeTask,
   clientMaySeeTaskDescription,
+  clientSeesTask,
   isOrgVisibleToClients,
   stageMoveRule,
   statusMoveRule,
@@ -84,33 +84,6 @@ function toClientTask(row: {
   };
 }
 
-function projectGate(project: {
-  name: string;
-  type: string[];
-  publishToWarehaus: boolean;
-  archive: boolean;
-  syncHiddenAt?: number;
-} | null, orgVisible: boolean) {
-  if (!project) {
-    return {
-      name: '',
-      types: [],
-      publishToWarehaus: false,
-      archive: false,
-      hidden: true,
-      orgVisible,
-    };
-  }
-  return {
-    name: project.name,
-    types: project.type,
-    publishToWarehaus: project.publishToWarehaus,
-    archive: project.archive,
-    hidden: project.syncHiddenAt != null,
-    orgVisible,
-  };
-}
-
 export const listForClient = clientQuery({
   args: {},
   handler: async (ctx) => {
@@ -129,11 +102,7 @@ export const listForClient = clientQuery({
     const visible = rows
       .filter((task) => task.archivedAt == null)
       .filter((task) =>
-        clientMaySeeTask({
-          publishToWarehaus: task.publishToWarehaus,
-          hidden: task.syncHiddenAt != null,
-          project: projectGate(projectById.get(task.projectId) ?? null, orgVisible),
-        }),
+        clientSeesTask(task, projectById.get(task.projectId) ?? null, orgVisible),
       )
       .map((task) => {
         const description = descriptionForClient(task);
@@ -153,11 +122,7 @@ export const getForClient = clientQuery({
     const visible =
       row &&
       row.orgId === ctx.orgId &&
-      clientMaySeeTask({
-        publishToWarehaus: row.publishToWarehaus,
-        hidden: row.syncHiddenAt != null,
-        project: projectGate(project, orgVisible),
-      });
+      clientSeesTask(row, project, orgVisible);
     if (!visible || !row || !project || row.archivedAt != null) {
       throw new PortalAuthError(TASK_UNAVAILABLE, 'FORBIDDEN');
     }
@@ -187,11 +152,7 @@ export const listSubtasksForClient = clientQuery({
     if (
       !parent ||
       parent.orgId !== ctx.orgId ||
-      !clientMaySeeTask({
-        publishToWarehaus: parent.publishToWarehaus,
-        hidden: parent.syncHiddenAt != null,
-        project: projectGate(project, orgVisible),
-      })
+      !clientSeesTask(parent, project, orgVisible)
     ) {
       throw new PortalAuthError(TASK_UNAVAILABLE, 'FORBIDDEN');
     }
@@ -478,11 +439,7 @@ export const activityForClient = clientQuery({
     const visible =
       row &&
       row.orgId === ctx.orgId &&
-      clientMaySeeTask({
-        publishToWarehaus: row.publishToWarehaus,
-        hidden: row.syncHiddenAt != null,
-        project: projectGate(project, orgVisible),
-      });
+      clientSeesTask(row, project, orgVisible);
     if (!visible || !row || !project) throw new PortalAuthError(TASK_UNAVAILABLE, 'FORBIDDEN');
     const audits = await ctx.db
       .query('auditEvents')

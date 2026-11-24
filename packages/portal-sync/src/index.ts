@@ -364,7 +364,6 @@ export {
   decideResourceLink,
   isStaffOnlyProject,
   clientMaySeeProject,
-  clientMaySeeTask,
   visibleChildIds,
   stageMoveRule,
   unstagedMoveAllowed,
@@ -521,3 +520,4 @@ export {
   type MergedTask,
 } from './taskPullMerge';
 export * from './stageSync';
+export * from './clientVisibility';
