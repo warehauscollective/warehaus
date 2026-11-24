@@ -27,6 +27,8 @@ export const KEYCHAIN_SERVICE = 'warehaus-runner';
 
 export const USAGE = `Usage:
   npm run runner -- setup [--production] [--id <runner-id>]
+  npm run runner -- install [--production]
+  npm run runner -- uninstall [--production]
   npm run runner -- start [--production] [--repo <owner/name>] [--id <runner-id>] [--mode interactive|headless] [--once]
 
 setup       Pairs this Mac with the Portal. It prints an 8-character code and
@@ -34,6 +36,10 @@ setup       Pairs this Mac with the Portal. It prints an 8-character code and
             on any project page. The secret goes to this Mac's Keychain only.
   --id      Runner id to propose. Defaults to this Mac's name, with -prod on
             production. Staff can change it when they confirm.
+
+install     Writes a launchd agent that starts the runner at login and
+            restarts it if it stops, one per deployment, then loads it. It
+            runs headless. Run setup first. uninstall removes it.
 
 start       Takes work from the Portal.
             A registered runner serves every project that names a repository,
@@ -55,9 +61,9 @@ PORTAL_AGENT_URL and RUNNER_TOKEN in the environment still override them.`;
 /** Parses `setup …` or `start …`. Returns an error string for anything else. */
 export function parseArgs(argv) {
   const [command, ...rest] = argv;
-  if (command !== 'start' && command !== 'setup') return { ok: false, error: USAGE };
+  if (!['start', 'setup', 'install', 'uninstall'].includes(command)) return { ok: false, error: USAGE };
   const options = { command, production: false, id: '', mode: 'interactive', once: false, repos: [] };
-  const valued = command === 'start' ? ['--id', '--mode', '--repo'] : ['--id'];
+  const valued = command === 'start' ? ['--id', '--mode', '--repo'] : command === 'setup' ? ['--id'] : [];
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     if (flag === '--production') {
@@ -87,7 +93,7 @@ export function parseArgs(argv) {
   if (options.id && !RUNNER_ID_PATTERN.test(options.id)) {
     return { ok: false, error: `--id must be 2 to 40 lowercase letters, digits or hyphens.\n\n${USAGE}` };
   }
-  if (command === 'setup') return { ok: true, options };
+  if (command !== 'start') return { ok: true, options };
   if (options.mode !== 'interactive' && options.mode !== 'headless') {
     return { ok: false, error: `--mode must be interactive or headless.\n\n${USAGE}` };
   }
@@ -461,4 +467,55 @@ export function defaultBranchName(symbolicRef, ghName) {
   const fromGh = String(ghName ?? '').trim();
   if (/^[A-Za-z0-9._/-]+$/.test(fromGh) && !fromGh.includes('..')) return fromGh;
   return 'main';
+}
+
+/** The launchd label, one per deployment, so a dev and a production runner can both be installed. */
+export function launchAgentLabel(production) {
+  return production ? 'co.warehaus.runner.prod' : 'co.warehaus.runner';
+}
+
+function plistText(value) {
+  return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/**
+ * The launchd agent `install` writes. It starts the runner headless at login
+ * and restarts it if it stops. --production is written in when asked, so a
+ * production runner never starts without it. No secret goes in the file: the
+ * runner reads its own from the Keychain.
+ */
+export function launchAgentPlist({ production, node, cli, workingDirectory, logPath, path }) {
+  const label = launchAgentLabel(production);
+  const args = [node, cli, 'start', ...(production ? ['--production'] : []), '--mode', 'headless'];
+  const strings = (items) => items.map((item) => `    <string>${plistText(item)}</string>`).join('\n');
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>${label}</string>
+  <key>ProgramArguments</key>
+  <array>
+${strings(args)}
+  </array>
+  <key>WorkingDirectory</key>
+  <string>${plistText(workingDirectory)}</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>${plistText(path)}</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+  <key>StandardOutPath</key>
+  <string>${plistText(logPath)}</string>
+  <key>StandardErrorPath</key>
+  <string>${plistText(logPath)}</string>
+</dict>
+</plist>
+`;
 }

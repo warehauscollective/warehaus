@@ -27,6 +27,8 @@ import {
   parseConfigFile,
   configFileText,
   keychainAccount,
+  launchAgentLabel,
+  launchAgentPlist,
 } from './lib.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -299,7 +301,9 @@ describe('no model credentials', () => {
     }
     assert.match(cli, /spawn\('claude'/);
     assert.equal((cli.match(/spawn\('claude'/g) ?? []).length, 2);
-    assert.equal((cli.match(/spawn\('/g) ?? []).length, 2);
+    // The only other program the CLI starts is caffeinate, which holds no credential.
+    assert.deepEqual([...new Set(cli.match(/spawn\('(\w+)'/g))].sort(), ["spawn('caffeinate'", "spawn('claude'"]);
+    assert.equal((cli.match(/spawn\('/g) ?? []).length, 3);
     // git and gh are the only other programs, and only repo.mjs starts them.
     assert.equal(/spawn/.test(read('./drivers/cursorBuild.mjs')), false);
     assert.deepEqual([...new Set(read('./repo.mjs').match(/exec\('(\w+)'/g))].sort(), ["exec('gh'", "exec('git'"]);
@@ -367,3 +371,38 @@ describe('setup files', () => {
     assert.equal(keychainAccount('unique-turtle-383', 'peter-mbp-prod'), 'unique-turtle-383:peter-mbp-prod');
   });
 });
+
+describe('kept running', () => {
+  it('reads install and uninstall, with --production only when asked', () => {
+    assert.deepEqual(parseArgs(['install']).options.production, false);
+    assert.equal(parseArgs(['install', '--production']).options.production, true);
+    assert.equal(parseArgs(['uninstall', '--production']).ok, true);
+    assert.equal(parseArgs(['install', '--id', 'x']).ok, false);
+    assert.equal(parseArgs(['install', '--repo', 'a/b']).ok, false);
+  });
+
+  it('writes one headless launchd agent per deployment, with --production written in and no secret', () => {
+    assert.notEqual(launchAgentLabel(true), launchAgentLabel(false));
+    const input = { node: '/n/node', cli: '/r/cli.mjs', workingDirectory: '/r', logPath: '/l/x.log', path: '/usr/bin:/bin' };
+    const prod = launchAgentPlist({ ...input, production: true });
+    assert.match(prod, /<string>co\.warehaus\.runner\.prod<\/string>/);
+    assert.match(prod, /<string>start<\/string>\n    <string>--production<\/string>\n    <string>--mode<\/string>\n    <string>headless<\/string>/);
+    assert.match(prod, /<key>RunAtLoad<\/key>\n  <true\/>/);
+    assert.match(prod, /<key>KeepAlive<\/key>\n  <true\/>/);
+    assert.equal(/token|secret|RUNNER_TOKEN/i.test(prod), false);
+    const dev = launchAgentPlist({ ...input, production: false });
+    assert.equal(dev.includes('--production'), false);
+    assert.match(launchAgentPlist({ ...input, production: false, workingDirectory: '/a&b<c>' }), /\/a&amp;b&lt;c&gt;/);
+  });
+
+  it('holds caffeinate -i only while a run is in progress', () => {
+    const cli = read('./cli.mjs');
+    assert.match(cli, /spawn\('caffeinate', \['-i', '-w', String\(process\.pid\)\]/);
+    const start = cli.indexOf('const release = holdAwake();');
+    const end = cli.indexOf('release();', start + 30);
+    assert.equal(start > 0 && end > start, true);
+    assert.match(cli.slice(start, end + 20), /finally \{\n\s+release\(\);/);
+    assert.equal(cli.includes('caffeinate -is'), false);
+  });
+});
+

@@ -11,6 +11,7 @@ import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cursorBuild } from './drivers/cursorBuild.mjs';
+import { runInstall, runUninstall } from './install.mjs';
 import { repoTools } from './repo.mjs';
 import { deploymentFor, readKeychainSecret, readSavedConfig, runSetup } from './setup.mjs';
 import { runnerClient } from '../../../packages/runner-protocol/index.mjs';
@@ -165,6 +166,17 @@ function doBuild(config, work) {
   });
 }
 
+/**
+ * Keeps the Mac from idle sleep while a run is in progress, and only then.
+ * Returns the release. Off macOS it does nothing.
+ */
+function holdAwake() {
+  if (process.platform !== 'darwin') return () => {};
+  const child = spawn('caffeinate', ['-i', '-w', String(process.pid)], { stdio: 'ignore' });
+  child.on('error', () => {});
+  return () => child.kill();
+}
+
 function sleep(ms) {
   return new Promise((done) => setTimeout(done, ms));
 }
@@ -192,6 +204,8 @@ async function main() {
     await runSetup({ production, id: parsed.options.id, say });
     return;
   }
+  if (parsed.options.command === 'install') return runInstall({ production, say });
+  if (parsed.options.command === 'uninstall') return runUninstall({ production, say });
   // The environment wins; otherwise the file and Keychain entry setup wrote.
   const saved = readSavedConfig(production);
   const id = parsed.options.id || saved.RUNNER_ID || '';
@@ -230,6 +244,7 @@ async function main() {
     let buildStillRunning = false;
     if (work.kind === 'task' || work.kind === 'planning' || work.kind === 'build') {
       empty = 0;
+      const release = holdAwake();
       try {
         if (driver === 'cursor') buildStillRunning = (await doBuild(config, work)) === 'running';
         else if (work.kind === 'task') await doTask(config, work);
@@ -247,6 +262,8 @@ async function main() {
               ? api.completeTask({ runId: work.runId, status: blocked ? 'blocked' : 'failed', reason })
               : api.failPlanning({ runId: work.runId, reason });
         await report.catch((failed) => say(failed.message));
+      } finally {
+        release();
       }
     } else {
       empty += 1;
