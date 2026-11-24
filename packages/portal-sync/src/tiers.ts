@@ -1,166 +1,44 @@
 /**
- * Property name → tier maps. Single source of truth for sync worker + CLIENT serializers.
+ * Property name → tier maps, derived from the property schemas in notionSchema.ts.
  *
  * Default: any property not named here is NEVER (fail closed).
  * Source: docs/planning/portal-convex/warehaus-portal-field-allowlist.md
  */
 
 import type { SyncInCollectionKey } from './collections';
+import {
+  CLIENT_DOC_SCHEMA,
+  CLIENT_SCHEMA,
+  CONTACT_SCHEMA,
+  PROJECT_SCHEMA,
+  SHARED_RESOURCE_SCHEMA,
+  TASK_SCHEMA,
+  type FieldTier,
+  type PropertySchema,
+} from './notionSchema';
 
-export type FieldTier = 'CLIENT' | 'SERVER' | 'NEVER';
+export type { FieldTier };
 
 export type PropertyTierMap = Readonly<Record<string, FieldTier>>;
 
-export const CLIENT_PROPERTY_TIERS = {
-  'Company Name': 'CLIENT',
-  Slug: 'CLIENT',
-  Projects: 'CLIENT',
-  Contacts: 'SERVER',
-  /** Present live; portal lists docs via Client Docs table, not this edge. */
-  'Client Docs': 'NEVER',
-  'External ID': 'SERVER',
-  Status: 'SERVER',
-  'Portal access': 'SERVER',
-  'Primary Email': 'SERVER',
-  Phone: 'SERVER',
-  Source: 'SERVER',
-  LastBridgedAt: 'SERVER',
-  BridgeDirection: 'NEVER',
-  BrainPageId: 'NEVER',
-  WarehausPageId: 'NEVER',
-  'Publish to Warehaus': 'NEVER',
-  'Promote to Brain': 'NEVER',
-} as const satisfies PropertyTierMap;
+/** Name to tier, read off a property schema. */
+function tiersOf<S extends PropertySchema>(schema: S): { readonly [K in keyof S]: S[K]['tier'] } {
+  return Object.fromEntries(Object.entries(schema).map(([name, spec]) => [name, spec.tier])) as {
+    readonly [K in keyof S]: S[K]['tier'];
+  };
+}
 
-export const PROJECT_PROPERTY_TIERS = {
-  Name: 'CLIENT',
-  Description: 'CLIENT',
-  Status: 'CLIENT',
-  Progress: 'CLIENT',
-  'Start Date': 'CLIENT',
-  'End Date': 'CLIENT',
-  'Live URL': 'CLIENT',
-  'Figma Link': 'CLIENT',
-  'Docs URL': 'CLIENT',
-  Stack: 'CLIENT',
-  Tasks: 'CLIENT',
-  Client: 'SERVER',
-  /** Present live; docs listed via Client Docs table filtered by org/project. */
-  'Client Docs': 'NEVER',
-  'External ID': 'SERVER',
-  Type: 'SERVER',
-  Archive: 'SERVER',
-  Priority: 'SERVER',
-  Source: 'SERVER',
-  LastBridgedAt: 'SERVER',
-  /** Second Brain edge — NEVER traverse / sync this relation. */
-  'Ops (Internal)': 'NEVER',
-  'Github Repo': 'NEVER',
-  'Owner/DRI': 'NEVER',
-  BridgeDirection: 'NEVER',
-  BrainPageId: 'NEVER',
-  WarehausPageId: 'NEVER',
-  'Publish to Warehaus': 'NEVER',
-  'Promote to Brain': 'NEVER',
-} as const satisfies PropertyTierMap;
+export const CLIENT_PROPERTY_TIERS = tiersOf(CLIENT_SCHEMA);
 
-export const TASK_PROPERTY_TIERS = {
-  Name: 'CLIENT',
-  Status: 'CLIENT',
-  /** Notion Tasks select. Missing is tolerated. Unknown names fail closed. */
-  Stage: 'CLIENT',
-  'Is Done': 'CLIENT',
-  Date: 'CLIENT',
-  Projects: 'SERVER',
-  /** Self-relation, one level deep. On the Notion Tasks database. */
-  'Parent item': 'SERVER',
-  /**
-   * One-way relation to the Notion database titled Resources
-   * (collection 7215c759-…). No reverse field. Join by page id.
-   */
-  Resources: 'SERVER',
-  'External ID': 'SERVER',
-  Estimate: 'SERVER',
-  Priority: 'SERVER',
-  Source: 'SERVER',
-  LastBridgedAt: 'SERVER',
-  /**
-   * B4. Was NEVER. SERVER stores the page body (or this property when the
-   * body is empty) for staff. Client queries omit it. A CLIENT tier would
-   * show it only on published tasks.
-   */
-  Description: 'SERVER',
-  'Next Action': 'NEVER',
-  'Owner / DRI': 'NEVER',
-  'Blocked by': 'NEVER',
-  Blocking: 'NEVER',
-  'GitHub Issue/PR': 'NEVER',
-  'Repo Branch': 'NEVER',
-  'Figma Frame': 'NEVER',
-  URL: 'NEVER',
-  'Legacy Complete': 'NEVER',
-  BridgeDirection: 'NEVER',
-  BrainPageId: 'NEVER',
-  WarehausPageId: 'NEVER',
-  'Publish to Warehaus': 'NEVER',
-  'Promote to Brain': 'NEVER',
-} as const satisfies PropertyTierMap;
+export const PROJECT_PROPERTY_TIERS = tiersOf(PROJECT_SCHEMA);
 
-export const CONTACT_PROPERTY_TIERS = {
-  Name: 'CLIENT',
-  Email: 'CLIENT',
-  'Auth User ID': 'SERVER',
-  'External ID': 'SERVER',
-  'Client Company': 'SERVER',
-  Role: 'SERVER',
-  'Portal Access': 'SERVER',
-  /** Absent on live Contacts until it is added. Empty means not an invite. */
-  'Invite Status': 'SERVER',
-  Phone: 'SERVER',
-  Source: 'SERVER',
-  LastBridgedAt: 'SERVER',
-  'Internal Notes': 'NEVER',
-  'Internal Description': 'NEVER',
-  Website: 'NEVER',
-  LinkedIn: 'NEVER',
-  Instagram: 'NEVER',
-  'X / Twitter': 'NEVER',
-  'Publish to Warehaus': 'NEVER',
-} as const satisfies PropertyTierMap;
+export const TASK_PROPERTY_TIERS = tiersOf(TASK_SCHEMA);
 
-export const SHARED_RESOURCE_PROPERTY_TIERS = {
-  Name: 'CLIENT',
-  Description: 'CLIENT',
-  Type: 'CLIENT',
-  URL: 'CLIENT',
-  File: 'CLIENT',
-  Client: 'SERVER',
-  Project: 'SERVER',
-  'External ID': 'SERVER',
-  Source: 'SERVER',
-  LastBridgedAt: 'SERVER',
-  BridgeDirection: 'NEVER',
-  BrainPageId: 'NEVER',
-  WarehausPageId: 'NEVER',
-  'Publish to Warehaus': 'NEVER',
-  'Promote to Brain': 'NEVER',
-} as const satisfies PropertyTierMap;
+export const CONTACT_PROPERTY_TIERS = tiersOf(CONTACT_SCHEMA);
 
-export const CLIENT_DOC_PROPERTY_TIERS = {
-  Title: 'CLIENT',
-  Summary: 'CLIENT',
-  'Doc Type': 'CLIENT',
-  Order: 'CLIENT',
-  /** Page body is CLIENT with separate block allowlist rules. */
-  'Page body content': 'CLIENT',
-  Client: 'SERVER',
-  Project: 'SERVER',
-  'External ID': 'SERVER',
-  Status: 'SERVER',
-  Source: 'SERVER',
-  LastBridgedAt: 'SERVER',
-  'Publish to Warehaus': 'NEVER',
-} as const satisfies PropertyTierMap;
+export const SHARED_RESOURCE_PROPERTY_TIERS = tiersOf(SHARED_RESOURCE_SCHEMA);
+
+export const CLIENT_DOC_PROPERTY_TIERS = tiersOf(CLIENT_DOC_SCHEMA);
 
 /**
  * Activity is Convex-native / Notion digest write-out only.

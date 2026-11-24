@@ -4,6 +4,7 @@
  */
 
 import {
+  asWritebackDatabase,
   auditEventForOutcome,
   clientCreateEnqueueError,
   isMissingPropertyRejection,
@@ -59,20 +60,6 @@ function parsePayload(payload: string): { properties: WriteProperties } | { erro
   }
 }
 
-function asDatabase(value: string): WritebackDatabase | null {
-  if (
-    value === 'clients' ||
-    value === 'projects' ||
-    value === 'tasks' ||
-    value === 'contacts' ||
-    value === 'sharedResources' ||
-    value === 'clientDocs' ||
-    value === 'activity'
-  ) {
-    return value;
-  }
-  return null;
-}
 
 /** A row to queue. The caller has already planned and checked it. */
 export type OutboxRowInput = {
@@ -181,7 +168,7 @@ export const enqueue = internalMutation({
 
     const parsed = parsePayload(args.payload);
     if ('error' in parsed) return { ok: false, error: parsed.error };
-    const database = asDatabase(args.database);
+    const database = asWritebackDatabase(args.database);
     if (!database) return { ok: false, error: 'Unknown database' };
 
     const invalid = validateEnqueueKind({
