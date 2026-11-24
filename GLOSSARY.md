@@ -57,3 +57,17 @@ _Avoid_: hidden client, disabled client, deleted client
 **Client visibility**:
 Whether a client can see a project, a task, or an item on a project (a doc or a shared resource). A client sees it only when their org has portal access and is not concealed, the row is published, not archived and not hidden by sync, and its project is one the client may see. Warehaus Studio and Internal projects are never visible to clients. An item with no project needs only the org check. Archived tasks still show in history; the board leaves them out.
 _Avoid_: published, client-safe, public
+
+## Runner
+
+**Runner**:
+The program on a staff Mac that takes milestone work from the Portal and hands it to an agent. A runner serves only the repositories it names, and a project only gets runner work when it names its repository.
+_Avoid_: bot, worker, agent
+
+**Planning run**:
+A read-only run that reads a milestone and its repository and drafts 3 to 10 tasks for staff to review. It never changes code and always uses Claude Code.
+_Avoid_: planner job, auto-plan
+
+**Build agent**:
+The tool a project builds its milestones with: Claude Code or a Cursor cloud agent. Staff choose it per project; planning does not use it.
+_Avoid_: driver, agent choice, tool
