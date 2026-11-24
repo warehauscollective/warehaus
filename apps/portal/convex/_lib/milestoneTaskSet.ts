@@ -70,26 +70,38 @@ export function isOpenTask(task: Pick<TaskSetRow, 'stage' | 'status' | 'isDone' 
   return task.archived !== true && taskState(task) === 'open';
 }
 
-/** Which tasks belong to the milestone's set, in roadmap order. Archived tasks are left out. */
-function membersOf<T extends TaskSetRow>(milestoneId: string, rows: readonly T[]): T[] {
+export type TaskSetGroup<T extends TaskSetRow> = { row: T; children: T[] };
+
+/**
+ * The set as roadmap rows: each linked task whose parent is not also linked,
+ * with its subtasks that have no milestone or are linked here. In input
+ * order. Archived tasks are left out unless `keepArchived`, which the roadmap
+ * uses to show them; they still never count.
+ */
+export function taskSetGroups<T extends TaskSetRow>(
+  milestoneId: string,
+  rows: readonly T[],
+  options: { keepArchived?: boolean } = {},
+): TaskSetGroup<T>[] {
+  const keep = (task: T) => options.keepArchived === true || task.archived !== true;
   const linked = new Set(rows.filter((task) => task.milestoneId === milestoneId).map((task) => task.id));
   const parents = rows.filter((task) => linked.has(task.id) && (!task.parentTaskId || !linked.has(task.parentTaskId)));
-  const members: T[] = [];
-  const seen = new Set<string>();
-  const push = (task: T) => {
-    if (task.archived === true || seen.has(task.id)) return;
-    seen.add(task.id);
-    members.push(task);
-  };
+  const groups: TaskSetGroup<T>[] = [];
   for (const parent of parents) {
-    push(parent);
-    for (const child of rows) {
-      if (child.parentTaskId !== parent.id) continue;
-      if (child.milestoneId && child.milestoneId !== milestoneId) continue;
-      push(child);
-    }
+    if (!keep(parent)) continue;
+    const children = rows.filter(
+      (child) =>
+        child.parentTaskId === parent.id &&
+        (!child.milestoneId || child.milestoneId === milestoneId) &&
+        keep(child),
+    );
+    groups.push({ row: parent, children });
   }
-  return members;
+  return groups;
+}
+
+function membersOf<T extends TaskSetRow>(milestoneId: string, rows: readonly T[]): T[] {
+  return taskSetGroups(milestoneId, rows).flatMap((group) => [group.row, ...group.children]);
 }
 
 function shipDecision(counted: number, open: number): ShipDecision {
@@ -124,20 +136,23 @@ export function classifyMilestoneTasks<T extends TaskSetRow>(milestoneId: string
 }
 
 /**
- * Whether Shipped unlocks for roadmap rows already cut to the set (each row
- * and its subtasks). The same rule as `canShip`.
+ * Counts for roadmap rows already cut to the set (each row and its
+ * subtasks), for the roadmap view and the demo data. Parked and archived
+ * tasks are in neither count. `canClose` is the same rule as `canShip`; the
+ * server only hands it to staff.
  */
-export function canShipRows(rows: readonly (TaskSetRow & { children?: readonly TaskSetRow[] })[]): ShipDecision {
-  let counted = 0;
+export function roadmapCounts(rows: readonly (Pick<TaskSetRow, 'stage' | 'status' | 'isDone' | 'archived'> & {
+  children?: readonly Pick<TaskSetRow, 'stage' | 'status' | 'isDone' | 'archived'>[];
+})[]): { openCount: number; doneCount: number; canClose: boolean } {
   let open = 0;
+  let done = 0;
   for (const task of rows.flatMap((row) => [row, ...(row.children ?? [])])) {
     if (task.archived === true) continue;
     const state = taskState(task);
-    if (state === 'parked') continue;
-    counted += 1;
     if (state === 'open') open += 1;
+    else if (state === 'done') done += 1;
   }
-  return shipDecision(counted, open);
+  return { openCount: open, doneCount: done, canClose: shipDecision(open + done, open).ok };
 }
 
 /** A task the runner's claim looks at. */

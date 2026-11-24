@@ -6,8 +6,7 @@ import { assertStaffPreviewLink, PREVIEW_LINK_LOCAL } from '@convex/_lib/preview
 import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { clientSeesDetailsRow, formatDueDate, textBlurSave } from '@convex/_lib/milestoneDetails';
-import { openTaskCount, shippedLockedReason, shippedOpenTag } from '@convex/_lib/closeout';
-import { milestoneCanClose } from '@convex/_lib/milestoneDetails';
+import { shippedLockedReason, shippedOpenTag } from '@convex/_lib/closeout';
 import { MILESTONE_STATUSES, nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -145,8 +144,9 @@ export function useMilestoneDetailEdits({
     ownerId: null,
     dueDate: null,
   });
-  const canClose = milestoneCanClose(milestone.rows);
-  const openCount = openTaskCount(milestone.rows);
+  // Worked out on the server from the whole task set. Clients get no canClose.
+  const canClose = milestone.canClose ?? false;
+  const openCount = milestone.openCount;
   const moves = useMilestoneStatusMoves({
     status: milestone.status,
     canClose,

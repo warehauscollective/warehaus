@@ -5,8 +5,6 @@ import { createPortal } from 'react-dom';
 import { peterMayApproveDeploy } from '@convex/_lib/previewLink';
 import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
-import { openTaskCount } from '@convex/_lib/closeout';
-import { milestoneCanClose } from '@convex/_lib/milestoneDetails';
 import { nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { PortalModal } from '@/components/ui/PortalModal';
@@ -278,8 +276,9 @@ export function MilestoneListCard({
     }).finally(() => setDeploying(false));
   };
   const total = taskTotal(milestone);
-  const canClose = milestoneCanClose(milestone.rows);
-  const openCount = openTaskCount(milestone.rows);
+  // Worked out on the server from the whole task set. Clients get no canClose.
+  const canClose = milestone.canClose ?? false;
+  const openCount = milestone.openCount;
   const moves = useMilestoneStatusMoves({
     status: milestone.status,
     canClose,

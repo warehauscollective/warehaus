@@ -441,6 +441,7 @@ async function toRoadmap(
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,
+    ...(roadmap.canClose != null ? { canClose: roadmap.canClose } : {}),
     countIsDecision: false,
     rows: roadmap.rows,
   };

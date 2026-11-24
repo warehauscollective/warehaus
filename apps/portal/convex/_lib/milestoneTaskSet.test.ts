@@ -7,7 +7,8 @@ import {
   SHIP_NEEDS_A_TASK,
   SHIP_NEEDS_DONE,
   TOO_MANY_TASKS,
-  canShipRows,
+  roadmapCounts,
+  taskSetGroups,
   classifyClaimable,
   classifyMilestoneTasks,
   isOpenTask,
@@ -160,7 +161,11 @@ describe('milestone task set: one table, every question', () => {
       // allDone and canShip are the same rule.
       assert.equal(set.allDone, set.canShip.ok);
       // Roadmap rows cut to the same set give the same answer.
-      assert.deepEqual(canShipRows(set.tasks), set.canShip);
+      assert.deepEqual(roadmapCounts(set.tasks), {
+        openCount: set.open.length,
+        doneCount: set.done.length,
+        canClose: set.canShip.ok,
+      });
     });
   }
 
@@ -172,9 +177,30 @@ describe('milestone task set: one table, every question', () => {
     assert.equal(isOpenTask({ status: 'To Do', isDone: false, archived: true }), false);
   });
 
-  it('canShipRows reads subtasks nested under each row', () => {
-    assert.equal(canShipRows([{ id: 'a', isDone: true, children: [{ id: 'p', stage: 'Parked' }] }]).ok, true);
-    assert.equal(canShipRows([{ id: 'a', isDone: true, children: [{ id: 'c', status: 'To Do', isDone: false }] }]).ok, false);
+  it('roadmapCounts reads subtasks nested under each row and leaves Parked and archived out', () => {
+    assert.deepEqual(roadmapCounts([{ isDone: true, children: [{ stage: 'Parked' }] }]), { openCount: 0, doneCount: 1, canClose: true });
+    assert.deepEqual(roadmapCounts([{ isDone: true, children: [{ status: 'To Do', isDone: false }] }]), {
+      openCount: 1,
+      doneCount: 1,
+      canClose: false,
+    });
+    assert.deepEqual(roadmapCounts([{ status: 'To Do', isDone: false, archived: true, children: [] }]), {
+      openCount: 0,
+      doneCount: 0,
+      canClose: false,
+    });
+  });
+
+  it('taskSetGroups nests subtasks under their row and can keep archived rows for display', () => {
+    const rows = [row('a'), row('sub', { parentTaskId: 'a', milestoneId: null }), row('old', { archived: true })];
+    assert.deepEqual(
+      taskSetGroups(M, rows).map((group) => [group.row.id, ids(group.children)]),
+      [['a', ['sub']]],
+    );
+    assert.deepEqual(
+      taskSetGroups(M, rows, { keepArchived: true }).map((group) => group.row.id),
+      ['a', 'old'],
+    );
   });
 });
 

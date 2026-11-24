@@ -11,7 +11,6 @@ import {
   closeoutMenuItems,
   listedTaskCount,
   milestoneCloseoutState,
-  openTaskCount,
   parkedMilestoneTarget,
   planArchiveMilestone,
   planMarkComplete,
@@ -178,12 +177,11 @@ const source = (id: string, fields: Partial<TaskSetRow> = {}): TaskSetRow => ({
 });
 
 describe('close-out rules', () => {
-  it('counts open work the way the close gate does', () => {
+  it('counts every listed task, archived ones left out', () => {
     const rows = [
       { status: 'To Do', isDone: false, children: [{ status: 'In Progress', isDone: false }, { status: 'Done', isDone: true }] },
       { status: 'Done', isDone: true, children: [{ status: 'To Do', isDone: false, archived: true }] },
     ];
-    assert.equal(openTaskCount(rows), 2);
     assert.equal(listedTaskCount(rows), 4);
   });
 

@@ -8,8 +8,6 @@
  * Escape discards.
  */
 
-import { canShipRows } from './milestoneTaskSet';
-
 export const DETAIL_ACTIVITY = {
   status: 'milestone.status',
   publish: 'milestone.publish',
@@ -17,14 +15,6 @@ export const DETAIL_ACTIVITY = {
 } as const;
 
 export type DetailActivityType = (typeof DETAIL_ACTIVITY)[keyof typeof DETAIL_ACTIVITY];
-
-/**
- * Whether the Shipped option unlocks for a milestone's roadmap rows. Moves
- * to the roadmap view model; until then the rule is the task set's.
- */
-export function milestoneCanClose(rows: Parameters<typeof canShipRows>[0]): boolean {
-  return canShipRows(rows).ok;
-}
 
 export function publishChangeDecision(from: boolean, to: boolean): { wrote: boolean } {
   return { wrote: from !== to };

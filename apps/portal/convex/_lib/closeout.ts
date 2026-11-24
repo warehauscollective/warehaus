@@ -6,7 +6,7 @@
  * be completed. The Status menu keeps its gate and points here.
  */
 
-import { classifyMilestoneTasks, isOpenTask, type TaskSetRow } from './milestoneTaskSet';
+import { classifyMilestoneTasks, type TaskSetRow } from './milestoneTaskSet';
 
 /** A roadmap row or subtask, as far as the counts below need. */
 type CountedTask = Pick<TaskSetRow, 'stage' | 'status' | 'isDone' | 'archived'>;
@@ -24,20 +24,6 @@ export const LEFTOVERS_NEEDED = 'Choose what happens to the open tasks.';
 export const MILESTONE_ARCHIVED = 'This milestone is archived. Restore it first.';
 /** A milestone with nothing to check. The Status menu cannot close it. Mark complete can. */
 export const SHIPPED_NOTHING_OPEN = 'No open tasks. Use Mark complete to close this milestone.';
-
-/** Open tasks across roadmap rows and their subtasks. */
-export function openTaskCount(
-  rows: readonly (CountedTask & { children?: readonly CountedTask[] })[],
-): number {
-  let open = 0;
-  for (const row of rows) {
-    if (isOpenTask(row)) open += 1;
-    for (const child of row.children ?? []) {
-      if (isOpenTask(child)) open += 1;
-    }
-  }
-  return open;
-}
 
 /** Tasks of any state across roadmap rows and their subtasks, archived ones left out. */
 export function listedTaskCount(

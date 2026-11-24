@@ -5,7 +5,6 @@ import { isClientVisibleActivityType } from '@warehaus/portal-sync';
 import { roadmapViewForAudience } from './milestones';
 import {
   clientReviewDecision,
-  milestoneCanClose,
   clientSeesDetailsRow,
   detailActivitySummary,
   dueDateChangeDecision,
@@ -67,10 +66,6 @@ describe('staff stages', () => {
     assert.equal(statusOptionLock('Shipped'), 'shipped');
     assert.equal(statusOptionLock('Shipped', true), null);
     assert.equal(statusOptionLock('Awaiting Go'), null);
-    const done = { id: 'd', status: 'Done', isDone: true };
-    const parked = { id: 'p', stage: 'Parked', status: 'To Do', isDone: false };
-    assert.equal(milestoneCanClose([{ ...done, children: [parked] }]), true);
-    assert.equal(milestoneCanClose([{ ...done, children: [{ id: 'c', status: 'To Do', isDone: false }] }]), false);
   });
 
   it('skips a no-op status write, including a repeat of Shipped', () => {

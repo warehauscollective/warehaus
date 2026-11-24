@@ -13,6 +13,7 @@ import {
   type MilestoneStatus,
 } from './milestoneStatus';
 import type { MilestoneCreatedVia, TaskOrigin } from './milestoneTasks';
+import { classifyMilestoneTasks, roadmapCounts, taskSetGroups } from './milestoneTaskSet';
 
 export const MILESTONE_APPROVALS = ['unreviewed', 'approved', 'changes_requested'] as const;
 export const HUMAN_DECISIONS = ['approved', 'changes_requested'] as const;
@@ -440,9 +441,9 @@ function milestoneOrder(a: RoadmapTaskInput, b: RoadmapTaskInput): number {
  * is not also linked here. Subtasks of that row stay nested, including a
  * subtask with no link of its own. A subtask linked on its own is a row when
  * its parent is not on this milestone. A subtask linked to a different
- * milestone is not nested here, so it is not counted twice. Each shown task
- * is in the open or done count once. The counts are context, not approval.
- * No percent complete.
+ * milestone is not nested here, so it is not counted twice. The rows are the
+ * milestone task set (taskSetGroups); Parked and archived tasks show but are
+ * in neither count. The counts are context, not approval. No percent complete.
  */
 export function buildRoadmap(input: {
   audience: 'staff' | 'client';
@@ -452,33 +453,31 @@ export function buildRoadmap(input: {
 }): {
   openCount: number;
   doneCount: number;
+  /** Staff only: whether Shipped unlocks, from the whole task set. */
+  canClose?: boolean;
   countIsDecision: false;
   rows: RoadmapRow[];
 } {
   const visible = input.tasks.filter((task) => taskVisible(task, input.audience, input.projectVisibleToClient));
-  const linkedHere = new Set(
-    visible.filter((task) => task.milestoneId === input.milestoneId).map((task) => task.id),
-  );
-  const parents = visible
-    .filter((task) => linkedHere.has(task.id) && (!task.parentTaskId || !linkedHere.has(task.parentTaskId)))
-    .sort(milestoneOrder);
-  const rows: RoadmapRow[] = parents.map((parent) => {
-    const children = visible
-      .filter((task) => {
-        if (task.parentTaskId !== parent.id) return false;
-        return !task.milestoneId || task.milestoneId === input.milestoneId;
-      })
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map((task) => ({
-        ...roadmapTask(task, input.audience),
-        onMilestone: task.milestoneId === input.milestoneId,
-      }));
-    return { ...roadmapTask(parent, input.audience), onMilestone: true, children };
-  });
-  const flat = rows.flatMap((row) => [row, ...row.children]);
+  const rows: RoadmapRow[] = taskSetGroups(input.milestoneId, visible, { keepArchived: true })
+    .sort((a, b) => milestoneOrder(a.row, b.row))
+    .map(({ row, children }) => ({
+      ...roadmapTask(row, input.audience),
+      onMilestone: true,
+      children: [...children]
+        .sort((a, b) => a.name.localeCompare(b.name))
+        .map((task) => ({
+          ...roadmapTask(task, input.audience),
+          onMilestone: task.milestoneId === input.milestoneId,
+        })),
+    }));
+  const { openCount, doneCount } = roadmapCounts(rows);
   return {
-    openCount: flat.filter((row) => !row.isDone).length,
-    doneCount: flat.filter((row) => row.isDone).length,
+    openCount,
+    doneCount,
+    ...(input.audience === 'staff'
+      ? { canClose: classifyMilestoneTasks(input.milestoneId, input.tasks).canShip.ok }
+      : {}),
     countIsDecision: false,
     rows,
   };
@@ -567,6 +566,7 @@ export type MilestoneResourceView = {
 };
 
 const CLIENT_ROADMAP_OMIT = [
+  'canClose',
   'approval',
   'note',
   'approverName',
@@ -637,6 +637,8 @@ export type MilestoneRoadmapView = {
   resources: MilestoneResourceView[];
   openCount: number;
   doneCount: number;
+  /** Staff only: whether Shipped unlocks, from the whole task set. Absent for clients, including the key. */
+  canClose?: boolean;
   countIsDecision: false;
   rows: RoadmapRow[];
   attachableTasks?: { id: string; name: string }[];
