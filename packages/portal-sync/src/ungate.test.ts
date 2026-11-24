@@ -8,7 +8,7 @@ import {
   mapNotionSharedResource,
   mapNotionTask,
 } from './mappers';
-import { clientMaySeeProject, clientMaySeeTask } from './taskBoard';
+import { clientSeesProject, clientSeesTask } from './clientVisibility';
 import {
   clientIsStaffVisible,
   contactStaysStaffVisible,
@@ -118,32 +118,9 @@ describe('un-gate each flip', () => {
     const parentStaffVisible = clientIsStaffVisible(client);
     assert.equal(parentStaffVisible, true);
     const orgVisible = isOrgVisibleToClients(client);
-    assert.equal(
-      clientMaySeeProject({
-        name: 'Site',
-        types: ['Website'],
-        publishToWarehaus: true,
-        archive: false,
-        hidden: false,
-        orgVisible,
-      }),
-      false,
-    );
-    assert.equal(
-      clientMaySeeTask({
-        publishToWarehaus: true,
-        hidden: false,
-        project: {
-          name: 'Site',
-          types: ['Website'],
-          publishToWarehaus: true,
-          archive: false,
-          hidden: false,
-          orgVisible,
-        },
-      }),
-      false,
-    );
+    const site = { name: 'Site', type: ['Website'], publishToWarehaus: true, archive: false };
+    assert.equal(clientSeesProject(site, orgVisible), false);
+    assert.equal(clientSeesTask({ publishToWarehaus: true }, site, orgVisible), false);
 
     const contact = mapNotionContact('person', {
       Name: title('Ada'),

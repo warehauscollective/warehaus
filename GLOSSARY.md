@@ -47,3 +47,9 @@ _Avoid_: task update, field save, task write, move
 **Pending stage**:
 A task's stage that a task change moved and Notion has not confirmed yet. It stays pending until Notion confirms it, a newer Notion edit replaces it, or a move back onto the stage Notion has settles it. Only a stage can be pending; other fields are protected by their stamp.
 _Avoid_: unsynced stage, stage draft
+
+## Clients
+
+**Client visibility**:
+Whether a client can see a project, a task, or an item on a project (a doc or a shared resource). A client sees it only when their org has portal access and is not concealed, the row is published, not archived and not hidden by sync, and its project is one the client may see. Warehaus Studio and Internal projects are never visible to clients. An item with no project needs only the org check. Archived tasks still show in history; the board leaves them out.
+_Avoid_: published, client-safe, public

@@ -1,4 +1,4 @@
-import { isClientSurfaceVisible, toTaskPlatformView } from '@warehaus/portal-sync';
+import { clientSeesProject, clientSeesTask, isOrgVisibleToClients, toTaskPlatformView } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { isStaff } from './_lib/identity';
 import { linearEnv, serveTasks } from './_lib/taskPlatformRead';
@@ -112,21 +112,21 @@ export const getTeamStats = adminQuery({
     let portalEnabled = 0;
 
     for (const client of clients) {
-      if (client.portalAccess === 'Enabled' && isClientSurfaceVisible(client)) portalEnabled += 1;
+      const orgVisible = isOrgVisibleToClients(client);
+      if (orgVisible) portalEnabled += 1;
       const projects = await ctx.db
         .query('projects')
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
-      projectCount += projects.filter(
-        (p) => isClientSurfaceVisible(p) && p.publishToWarehaus && !p.archive && !p.type.includes('Internal'),
-      ).length;
+      const projectById = new Map(projects.map((p) => [p._id, p] as const));
+      projectCount += projects.filter((p) => clientSeesProject(p, orgVisible)).length;
       const tasks = await ctx.db
         .query('tasks')
         .withIndex('by_orgId', (q) => q.eq('orgId', client._id))
         .collect();
       openTaskCount += serveTasks(
         client.taskPlatform,
-        tasks.filter((t) => isClientSurfaceVisible(t) && t.publishToWarehaus && !t.isDone),
+        tasks.filter((t) => !t.isDone && t.archivedAt == null && clientSeesTask(t, projectById.get(t.projectId), orgVisible)),
       ).length;
       const uploads = await ctx.db
         .query('clientUploads')

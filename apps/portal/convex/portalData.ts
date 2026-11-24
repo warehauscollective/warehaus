@@ -3,7 +3,7 @@ import { clientQuery, adminQuery } from './_lib/wrappers';
 import { isStaff } from './_lib/identity';
 import { buildActivityFeed } from './_lib/activityFeed';
 import { staffQuarantineActivity } from './_lib/quarantineActivity';
-import { clientIsStaffVisible, clientMaySeeProject, clientMaySeeTask, isOrgVisibleToClients, readTaskPlatform, staffGranolaStatus, taskPlatformStatus } from '@warehaus/portal-sync';
+import { clientIsStaffVisible, clientSeesProject, clientSeesTask, isOrgVisibleToClients, readTaskPlatform, staffGranolaStatus, taskPlatformStatus } from '@warehaus/portal-sync';
 import { linearEnv } from './_lib/taskPlatformRead';
 import { writebackAllowed } from './sync/notion';
 
@@ -58,16 +58,7 @@ export const getSnapshot = clientQuery({
     const clientVisible = isOrgVisibleToClients(client);
     const rosterOpen = staff ? clientIsStaffVisible(client) : clientVisible;
     const publishedProjects = (rosterOpen ? projects : [])
-      .filter((p) =>
-        clientMaySeeProject({
-          name: p.name,
-          types: p.type,
-          publishToWarehaus: p.publishToWarehaus,
-          archive: p.archive,
-          hidden: p.syncHiddenAt != null,
-          orgVisible: true,
-        }),
-      )
+      .filter((p) => clientSeesProject(p, true))
       .sort((a, b) => {
         // Active / in-progress first, then highest progress, then name.
         const score = (p: (typeof projects)[number]) => {
@@ -113,20 +104,7 @@ export const getSnapshot = clientQuery({
         const visible = tasks
           .filter((t) => {
             if (t.archivedAt != null) return false;
-            const project = projectById.get(t.projectId);
-            if (!project) return false;
-            return clientMaySeeTask({
-              publishToWarehaus: t.publishToWarehaus,
-              hidden: t.syncHiddenAt != null,
-              project: {
-                name: project.name,
-                types: project.type,
-                publishToWarehaus: project.publishToWarehaus,
-                archive: project.archive,
-                hidden: project.syncHiddenAt != null,
-                orgVisible: true,
-              },
-            });
+            return clientSeesTask(t, projectById.get(t.projectId), true);
           })
           .map((t) => {
             const project = projectById.get(t.projectId);

@@ -211,6 +211,23 @@ describe('portal search tiers', () => {
     assert.equal(keysOf(docs).has('order'), false);
   });
 
+  it('finds an org-level doc with no project, the same rule as the doc list', async () => {
+    const { t, north, run } = world();
+    t.seed('clientDocs', {
+      orgId: north,
+      title: 'Org handbook',
+      summary: 'For the whole team',
+      docType: 'Guide',
+      order: 9,
+      status: 'Published',
+      publishToWarehaus: true,
+      notionPageId: 'notion-doc-org',
+      lastSyncedAt: 50,
+    });
+    const docs = JSON.stringify(await run(forClient, { q: 'handbook' }));
+    assert.match(docs, /Org handbook/);
+  });
+
   it('gives staff full access across orgs, including unpublished rows', async () => {
     const { run, runStaff } = world();
     const blank = await runStaff(forStaff, { q: ' \n ' });
