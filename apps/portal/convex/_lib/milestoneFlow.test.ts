@@ -14,12 +14,13 @@ import { describe, it } from 'node:test';
 import { claimNext, completeTask, recordEvent, releaseStuckRuns, reportBuild, retryBlocked, writePlannedTasks } from '../agent';
 import { AGENT_DRIVER_LOCKED, setAgentDriver } from '../projects';
 import { PortalAuthError } from './identity';
-import { listForClientProject, reviewForApi } from '../milestones';
+import { addTask, listForClientProject, reviewForApi } from '../milestones';
 import { createMilestone, updateMilestone } from '../portalApi';
 import { applyInbound } from '../sync/inbound';
 import { buildRoadmap, roadmapViewForAudience } from './milestones';
 import { RETRY_RUN_ACTIVE, RETRY_RUN_WINDING_DOWN, RUN_LEASE_GRACE_MS } from './agentRun';
 import { transitionMilestone } from './milestoneStatus';
+import { MILESTONE_TASK_SET_CAP, TOO_MANY_LINKED } from './milestoneTaskSet';
 import { taskOrigin } from './milestoneTasks';
 import { memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
 import { seedContact, seedMilestone, seedOrg, seedProject, seedTask } from './seedRows.testkit';
@@ -202,10 +203,7 @@ describe('milestone loop, bot to Shipped', () => {
       newTasks: ['Give the review card more space at 390', 'Make the preview link a full-width tap target'],
       tokenName: 'grok-bot',
     });
-    // Not bounded yet: adding review tasks reads the milestone's tasks with
-    // .collect() (tasksOnMilestone in milestones.ts). Everything before and
-    // after this call is checked.
-    t.reads.reset();
+    assertBounded(t);
     assert.equal(changes.ok, true, changes.error ?? '');
     assert.equal(changes.iteration, 2);
     assert.equal(changes.createdTaskIds?.length, 2);
@@ -979,5 +977,44 @@ describe('client host', () => {
       ],
     }).rows;
     assert.deepEqual(Object.keys(rows[0] ?? {}).sort(), ['children', 'id', 'isDone', 'name', 'onMilestone', 'resourceCount', 'stage', 'status']);
+  });
+});
+
+describe('milestone task reads are capped', () => {
+  function overCap(status: string) {
+    const t = memoryCtx();
+    const orgId = seedOrg(t);
+    const projectId = seedProject(t, orgId);
+    const milestoneId = seedMilestone(t, orgId, projectId, { status, publishToWarehaus: true, localPreviewUrl: 'http://localhost:3100/' });
+    for (let i = 0; i <= MILESTONE_TASK_SET_CAP; i += 1) seedTask(t, orgId, projectId, { milestoneId, milestoneOrder: i });
+    t.actor('peter');
+    return { t, milestoneId };
+  }
+
+  it('refuses a request for changes on a milestone over the cap, and writes nothing', async () => {
+    const { t, milestoneId } = overCap('Ready to Ship');
+    const before = JSON.stringify([t.rows('tasks'), t.rows('milestones'), t.rows('milestoneReviews'), t.rows('milestoneNotes')]);
+    t.reads.reset();
+    const changes = await t.call<{ ok: boolean; status: number; error?: string }>(reviewForApi, {
+      milestoneId,
+      iteration: 1,
+      decision: 'request_changes',
+      notes: 'More space.',
+      taskIds: [],
+      newTasks: ['Give it more space'],
+      tokenName: 'grok-bot',
+    });
+    assert.deepEqual([changes.ok, changes.status, changes.error], [false, 409, TOO_MANY_LINKED]);
+    assert.equal(JSON.stringify([t.rows('tasks'), t.rows('milestones'), t.rows('milestoneReviews'), t.rows('milestoneNotes')]), before);
+    assertBounded(t);
+  });
+
+  it('refuses a staff task added to a milestone over the cap', async () => {
+    const { t, milestoneId } = overCap('Building');
+    const count = t.rows('tasks').length;
+    t.reads.reset();
+    await assert.rejects(() => t.call(addTask, { milestoneId, title: 'One more' }, { as: 'staff' }), refusedWith(TOO_MANY_LINKED));
+    assert.equal(t.rows('tasks').length, count);
+    assertBounded(t);
   });
 });

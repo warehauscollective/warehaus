@@ -4,7 +4,7 @@ import { WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
 import schema from '../schema';
 import { applyOutcome, enqueue } from '../sync/outbox';
 import { processDue } from '../sync/outboxWork';
-import { drainPendingStages, enqueueLiveFields, enqueueStage, enqueueStatus } from '../sync/taskWrite';
+import { DRAIN_PENDING_TAKE, drainPendingStages, enqueueLiveFields, enqueueStage, enqueueStatus } from '../sync/taskWrite';
 import { upsertTask } from '../sync/upsert';
 import { detachTask } from '../milestones';
 import { memoryCtx, type CallOptions, type MemoryCtx, type Respond } from './memoryCtx.testkit';
@@ -525,6 +525,28 @@ describe('drain pending stages', () => {
       assert.equal(second.reused, 1);
       assert.equal(w.outboxRows().length, 1);
       assert.equal(w.outboxRows()[0]?.status, 'queued');
+    });
+  });
+
+  it('reads only pending tasks, oldest first, through an index and a cap', async () => {
+    const w = world();
+    w.task();
+    w.task({ ...pending, stagePendingAt: 30, notionPageId: 'page-new' });
+    w.task({ ...pending, stagePendingAt: 20, notionPageId: 'page-old' });
+    await withFlag(true, async () => {
+      w.t.reads.reset();
+      const result = await w.call(drainPendingStages, {});
+      assert.equal(result.inserted, 2);
+      const taskReads = w.t.reads.all.filter((read) => read.table === 'tasks');
+      assert.deepEqual(taskReads, [{ table: 'tasks', index: 'by_stagePendingAt', eq: [], terminal: 'take', limit: DRAIN_PENDING_TAKE }]);
+      // Only the task read is checked: clearing a page's unsent stage rows
+      // still collects its outbox rows (deleteUnsentTaskStageRows), left for
+      // the Bounded reads milestone.
+      assert.deepEqual(w.t.reads.unindexed(), []);
+      assert.deepEqual(
+        w.outboxRows().map((row) => row.notionPageId),
+        ['page-old', 'page-new'],
+      );
     });
   });
 

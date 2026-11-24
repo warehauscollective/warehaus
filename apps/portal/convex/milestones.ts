@@ -52,7 +52,7 @@ import {
   publishChangeDecision,
   taskIdsToMove,
 } from './_lib/milestoneDetails';
-import { loadMilestoneTaskSet, loadedTask } from './_lib/milestoneTaskSet';
+import { loadLinkedTasks, loadMilestoneTaskSet, loadedTask } from './_lib/milestoneTaskSet';
 import { changeMilestoneStatus, type StatusChange } from './_lib/milestoneLifecycle';
 import {
   MILESTONE_ARCHIVED,
@@ -1258,6 +1258,9 @@ async function applyMilestoneReview(
       ? args.contactId
       : await peterContactId(ctx);
   if (!contactId) return { ok: false as const, status: 403, error: chatContactError(planned.decision) };
+  // Read before any write: new tasks go after the siblings, and a milestone over the cap is refused whole.
+  const siblings = planned.decision === 'approve' ? ({ ok: true, rows: [] } as const) : await loadLinkedTasks(ctx, milestone);
+  if (!siblings.ok) return { ok: false as const, status: 409, error: siblings.reason };
   const decidedAt = Date.now();
   // Peter answered. The open approval request on this milestone is closed.
   const asked = await ctx.db
@@ -1310,14 +1313,7 @@ async function applyMilestoneReview(
     };
   }
   const createdTaskIds: Id<'tasks'>[] = [];
-  let order = nextMilestoneOrder(
-    (
-      await ctx.db
-        .query('tasks')
-        .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
-        .collect()
-    ).map((task) => task.milestoneOrder),
-  );
+  let order = nextMilestoneOrder(siblings.rows.map((task) => task.milestoneOrder));
   for (const [index, draft] of planned.tasks.entries()) {
     const taskId = await ctx.db.insert('tasks', {
       orgId: milestone.orgId,
@@ -2104,11 +2100,9 @@ export const migrateMilestoneOne = internalMutation({
 // Tasks that live on a milestone. Rules are in _lib/milestoneTasks.ts.
 
 async function tasksOnMilestone(ctx: QueryCtx | MutationCtx, milestone: Doc<'milestones'>) {
-  const rows = await ctx.db
-    .query('tasks')
-    .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
-    .collect();
-  return rows.filter((row) => row.orgId === milestone.orgId && row.milestoneId === milestone._id);
+  const loaded = await loadLinkedTasks(ctx, milestone);
+  if (!loaded.ok) fail(loaded.reason);
+  return loaded.rows;
 }
 
 const TASK_CHOICE_TAKE = 100;
