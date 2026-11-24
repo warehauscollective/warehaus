@@ -14,6 +14,22 @@ export const RUNNER_PATHS = Object.freeze({
   build: '/agent/build',
 });
 
+/** Pairing a new runner. These two routes take no runner token. */
+export const RUNNER_PAIR_PATHS = Object.freeze({
+  start: '/agent/pair/start',
+  poll: '/agent/pair/poll',
+});
+
+/**
+ * The wire version this runner speaks, sent on every call as
+ * `X-Runner-Protocol`. The Portal refuses claims from a registered runner
+ * below `RUNNER_PROTOCOL_MIN` and shows "Runner out of date". A runner that
+ * sends no header is version 1.
+ */
+export const RUNNER_PROTOCOL_VERSION = 2;
+export const RUNNER_PROTOCOL_MIN = 2;
+export const RUNNER_PROTOCOL_HEADER = 'x-runner-protocol';
+
 /** A planning run writes this many tasks. */
 export const PLAN_TASKS_MIN = 3;
 export const PLAN_TASKS_MAX = 10;
@@ -47,6 +63,7 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
         headers: {
           authorization: `Bearer ${token}`,
           'x-runner-id': runnerId,
+          [RUNNER_PROTOCOL_HEADER]: String(RUNNER_PROTOCOL_VERSION),
           'content-type': 'application/json',
         },
         body: JSON.stringify(body),

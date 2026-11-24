@@ -29,7 +29,13 @@ export function runnersAllowedFor(configured: string | null | undefined, project
   return ids;
 }
 
-export type RunnerHealthRunner = { id: string; lastSeenAt: number | null };
+export type RunnerHealthRunner = {
+  id: string;
+  lastSeenAt: number | null;
+  /** Registered from the Portal. False for a runner from the `RUNNER_TOKENS` fallback. */
+  registered?: boolean;
+  protocolVersion?: number | null;
+};
 export type RunnerHealthMilestone = { milestoneId: string; milestoneName: string };
 
 /** What the staff query returns for one project. */
@@ -45,6 +51,10 @@ export type RunnerHealthView = {
   working: RunnerHealthMilestone | null;
   /** A milestone on this project in Building, if any. */
   building: RunnerHealthMilestone | null;
+  /** Runners registered on this deployment, whatever the project. */
+  registeredCount?: number;
+  /** The lowest runner protocol the Portal takes claims from. */
+  protocolMin?: number;
 };
 
 export const RUNNER_HEALTH_STATES = ['ready', 'working', 'offline', 'offline-building', 'no-repo', 'no-runner'] as const;

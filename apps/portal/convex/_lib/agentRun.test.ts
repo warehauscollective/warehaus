@@ -129,8 +129,11 @@ describe('runner tokens', () => {
     }
     const bare = authorizeRunner({ configured, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' });
     if (bare.ok) assert.deepEqual(reposForRunner(bare.repos, ['warehauscollective/warehaus']), []);
-    // Absence guard: the claim route never hands on the repositories a runner asked for without its token's allowlist.
-    const http = read('../agentHttp.ts').replaceAll('reposForRunner(auth.repos, body.repos)', '');
+    // Absence guard: a fallback runner's repositories always pass its token's allowlist. Only a
+    // registered runner, which serves every project with a repository, names its own.
+    const http = read('../agentHttp.ts')
+      .replaceAll('reposForRunner(env.ok ? env.repos : [], body.repos)', '')
+      .replaceAll('{ repos: runnerRepos(body.repos), anyRepo: true }', '');
     assert.doesNotMatch(http, /body\.repos/);
   });
 });
@@ -162,11 +165,12 @@ describe('rate limit and liveness', () => {
 
   it('touchRunner writes the runner row once, and a call inside the same minute writes nothing', async () => {
     const t = memoryCtx();
-    assert.deepEqual(await t.call(touchRunner, { runnerId: RUNNER }), { ok: true });
+    const env = { runnerId: RUNNER, envAuthorized: true };
+    assert.deepEqual(await t.call(touchRunner, env), { ok: true, registered: false });
     const first = t.rows('agentRunners');
     assert.equal(first.length, 1);
     assert.equal(first[0]?.count, 1);
-    assert.deepEqual(await t.call(touchRunner, { runnerId: RUNNER }), { ok: true });
+    assert.deepEqual(await t.call(touchRunner, env), { ok: true, registered: false });
     assert.deepEqual(t.rows('agentRunners'), first);
   });
 
@@ -483,8 +487,8 @@ describe('queue rules', () => {
     await t.db.patch(taskId, { status: 'In Progress', claimedBy: OTHER_RUNNER, claimedAt: 1 });
     const runId = seedRun(t, { orgId, milestoneId }, { taskId, startedAt: 1 });
     t.reads.reset();
-    const result = await t.call<{ scanned: number; released: number }>(releaseStuckRuns, {});
-    assert.deepEqual(result, { scanned: 1, released: 1 });
+    const result = await t.call<{ scanned: number; released: number; pairingsSwept: number }>(releaseStuckRuns, {});
+    assert.deepEqual(result, { scanned: 1, released: 1, pairingsSwept: 0 });
     assert.equal(t.row(runId)?.status, 'cancelled');
     assert.equal(t.row(taskId)?.status, 'Blocked');
     assert.deepEqual(t.reads.unbounded(), []);

@@ -1,7 +1,7 @@
 import { httpRouter } from 'convex/server';
 import { authComponent, createAuth } from './auth';
 import { stripeWebhook } from './billing/stripe';
-import { AGENT_ROUTES, agentHttp } from './agentHttp';
+import { AGENT_PAIR_ROUTES, AGENT_ROUTES, agentHttp, agentPairHttp } from './agentHttp';
 import { portalApiHttp } from './portalApi';
 import { reviewPreviewHttp } from './milestones';
 import { REVIEW_PREVIEW_PATH } from './_lib/reviewPreview';
@@ -48,6 +48,9 @@ http.route({
 
 for (const path of AGENT_ROUTES) {
   http.route({ path, method: 'POST', handler: agentHttp });
+}
+for (const path of AGENT_PAIR_ROUTES) {
+  http.route({ path, method: 'POST', handler: agentPairHttp });
 }
 
 /** Dynamic staff review. Exact routes above this prefix still win. */

@@ -13,6 +13,7 @@ import { internalMutation } from './_generated/server';
 import {
   PLAN_NOT_PLANNING,
   RUNNER_NEEDS_REPO,
+  RUNNER_UNAUTHORIZED,
   RUN_ENDED,
   RUN_NOT_FOUND,
   RUN_NOT_YOURS,
@@ -50,7 +51,10 @@ import { PORTAL_MILESTONE_TASK_SOURCE, plannerDraftToArchive, stageForNewMilesto
 import { loadClaimableTasks, loadMilestoneTaskSet, type LoadedTask } from './_lib/milestoneTaskSet';
 import { PortalAuthError } from './_lib/identity';
 import { adminMutation, adminQuery } from './_lib/wrappers';
-import { runnersAllowedFor, type RunnerHealthView } from './_lib/runnerHealth';
+import { RUNNER_HEALTH_MAX_RUNNERS, runnersAllowedFor, type RunnerHealthView } from './_lib/runnerHealth';
+import { runnerAccess } from './_lib/runnerRegistry';
+import { registeredRunners, sweepExpiredPairings } from './_lib/runnerRegistryStore';
+import { RUNNER_PROTOCOL_MIN } from '@warehaus/runner-protocol';
 import { PRODUCTION_DEPLOYMENT } from './_lib/reviewPreview';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { planningRunsInWindow, queuePlanning } from './planningQueue';
@@ -69,7 +73,7 @@ function failure(status: number, error: string): Failure {
   return { ok: false, status, error };
 }
 
-async function writeEvent(
+export async function writeEvent(
   ctx: MutationCtx,
   input: {
     orgId: Id<'clients'>;
@@ -181,17 +185,28 @@ async function branchFor(ctx: MutationCtx, milestone: Doc<'milestones'>): Promis
 }
 
 /**
- * Called first by every runner route. The runner row is patched at most
- * once a minute. Calls inside that minute do not write.
+ * Called first by every runner route. A runner is let in by its registration
+ * (the hash of its bearer token matches) or, until the dev runner is
+ * re-paired, by the `RUNNER_TOKENS` fallback the route already checked.
+ * The runner row is patched at most once a minute. Calls inside that minute
+ * do not write, unless the runner's protocol version changed.
  */
 export const touchRunner = internalMutation({
-  args: { runnerId: v.string() },
-  handler: async (ctx, { runnerId }) => {
+  args: {
+    runnerId: v.string(),
+    tokenHash: v.optional(v.string()),
+    envAuthorized: v.optional(v.boolean()),
+    protocolVersion: v.optional(v.number()),
+  },
+  handler: async (ctx, { runnerId, tokenHash, envAuthorized, protocolVersion }) => {
     const now = Date.now();
     const row = await ctx.db
       .query('agentRunners')
       .withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))
       .unique();
+    const access = runnerAccess({ row, tokenHash, envAuthorized: envAuthorized === true });
+    if (!access) return failure(401, RUNNER_UNAUTHORIZED);
+    const registered = access === 'registered';
     const decision = runnerTouchDecision({
       lastSeenAt: row?.lastSeenAt,
       windowStart: row?.windowStart,
@@ -199,19 +214,36 @@ export const touchRunner = internalMutation({
       now,
     });
     if (!decision.ok) return failure(429, decision.reason);
-    if (!decision.write) return { ok: true as const };
+    const versionChanged = protocolVersion != null && row?.protocolVersion !== protocolVersion;
+    if (!decision.write) {
+      if (row && versionChanged) await ctx.db.patch(row._id, { protocolVersion });
+      return { ok: true as const, registered };
+    }
+    const version = protocolVersion != null ? { protocolVersion } : {};
     if (row) {
-      const same = row.windowStart === decision.windowStart && row.count === decision.count && row.lastSeenAt === decision.lastSeenAt;
-      if (!same) await ctx.db.patch(row._id, { windowStart: decision.windowStart, count: decision.count, lastSeenAt: decision.lastSeenAt });
+      const same =
+        row.windowStart === decision.windowStart &&
+        row.count === decision.count &&
+        row.lastSeenAt === decision.lastSeenAt &&
+        !versionChanged;
+      if (!same) {
+        await ctx.db.patch(row._id, {
+          windowStart: decision.windowStart,
+          count: decision.count,
+          lastSeenAt: decision.lastSeenAt,
+          ...version,
+        });
+      }
     } else {
       await ctx.db.insert('agentRunners', {
         runnerId,
         windowStart: decision.windowStart,
         count: decision.count,
         lastSeenAt: decision.lastSeenAt,
+        ...version,
       });
     }
-    return { ok: true as const };
+    return { ok: true as const, registered };
   },
 });
 
@@ -313,12 +345,21 @@ export const claimNext = internalMutation({
     tool: v.optional(v.string()),
     /** Repositories this runner serves, as owner/name. Work for any other project is not handed over. */
     repos: v.optional(v.any()),
+    /**
+     * A registered runner that names no repository serves every project that
+     * names one (ADR-0005 amendment). It still gets nothing for a project with none.
+     */
+    anyRepo: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const repos = runnerRepos(args.repos);
-    // Fail safe: a runner that names no repository is handed nothing.
-    if (repos.length === 0) return { ok: true as const, resumed: false, kind: 'none' as const, reason: RUNNER_NEEDS_REPO };
-    const served = async (projectId: Id<'projects'>) => projectServedBy(await ctx.db.get(projectId), repos);
+    const anyRepo = args.anyRepo === true && repos.length === 0;
+    // Fail safe: a runner that names no repository, and is not registered, is handed nothing.
+    if (repos.length === 0 && !anyRepo) return { ok: true as const, resumed: false, kind: 'none' as const, reason: RUNNER_NEEDS_REPO };
+    const served = async (projectId: Id<'projects'>) => {
+      const project = await ctx.db.get(projectId);
+      return anyRepo ? agentRepo(project?.agentRepo) != null : projectServedBy(project, repos);
+    };
     const open = await runningRunFor(ctx, args.runnerId);
     if (open) {
       const payload = await runPayload(ctx, open);
@@ -861,7 +902,9 @@ export const releaseStuckRuns = internalMutation({
       });
       released += 1;
     }
-    return { scanned: running.length, released };
+    // Expired runner pairings ride on the same cron: one indexed read, at most 50 deletes.
+    const pairingsSwept = await sweepExpiredPairings(ctx, now);
+    return { scanned: running.length, released, pairingsSwept };
   },
 });
 
@@ -1299,18 +1342,29 @@ export const runnerHealth = adminQuery({
     if (!project) return null;
     const repo = agentRepo(project.agentRepo);
     const production = (process.env.CONVEX_CLOUD_URL ?? '').includes(PRODUCTION_DEPLOYMENT);
-    if (!repo) return { repoSet: false, repo: null, production, runnerAllowed: false, runners: [], working: null, building: null };
-    const ids = runnersAllowedFor(process.env.RUNNER_TOKENS, repo);
-    if (ids.length === 0) return { repoSet: true, repo, production, runnerAllowed: false, runners: [], working: null, building: null };
-    const runners: RunnerHealthView['runners'] = [];
-    let working: RunnerHealthView['working'] = null;
-    for (const id of ids) {
+    // Registered runners serve every project with a repository; the env fallback names its repositories.
+    const registered = await registeredRunners(ctx);
+    const base = { production, protocolMin: RUNNER_PROTOCOL_MIN, registeredCount: registered.length };
+    if (!repo) return { ...base, repoSet: false, repo: null, runnerAllowed: false, runners: [], working: null, building: null };
+    const runners: RunnerHealthView['runners'] = registered.map((row) => ({
+      id: row.runnerId,
+      lastSeenAt: row.lastSeenAt ?? null,
+      registered: true,
+      protocolVersion: row.protocolVersion ?? null,
+    }));
+    for (const id of runnersAllowedFor(process.env.RUNNER_TOKENS, repo)) {
+      if (runners.length >= RUNNER_HEALTH_MAX_RUNNERS) break;
+      if (runners.some((runner) => runner.id === id)) continue;
       const row = await ctx.db
         .query('agentRunners')
         .withIndex('by_runnerId', (q) => q.eq('runnerId', id))
         .unique();
-      runners.push({ id, lastSeenAt: row?.lastSeenAt ?? null });
-      if (working) continue;
+      runners.push({ id, lastSeenAt: row?.lastSeenAt ?? null, registered: false, protocolVersion: row?.protocolVersion ?? null });
+    }
+    if (runners.length === 0) return { ...base, repoSet: true, repo, runnerAllowed: false, runners: [], working: null, building: null };
+    let working: RunnerHealthView['working'] = null;
+    for (const { id } of runners) {
+      if (working) break;
       const runs = await ctx.db
         .query('agentRuns')
         .withIndex('by_runner_status', (q) => q.eq('runnerId', id).eq('status', 'running'))
@@ -1329,9 +1383,9 @@ export const runnerHealth = adminQuery({
       .take(HEALTH_MILESTONE_SCAN);
     const held = milestones.find((row) => row.status === 'Building' && row.archivedAt == null);
     return {
+      ...base,
       repoSet: true,
       repo,
-      production,
       runnerAllowed: true,
       runners,
       working,

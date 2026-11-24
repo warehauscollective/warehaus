@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { COMPLETE_STATUSES, PLAN_TASKS_MAX, PLAN_TASKS_MIN, isMilestoneBranch, runnerClient } from '@warehaus/runner-protocol';
+import { touchRunner } from '../agent';
 import { agentHttp } from '../agentHttp';
 import { completeDecision, milestoneBranch } from './agentRun';
 import { proposedTasksDecision } from './milestoneBot';
@@ -63,7 +64,12 @@ describe('runner protocol', () => {
       url: 'https://portal.test',
       token: 'wrong-token-0123456789abcdef',
       runnerId: 'mac-mini',
-      fetch: ((url: string, init: RequestInit) => memoryCtx().callHttp(agentHttp, new Request(url, init))) as typeof fetch,
+      fetch: ((url: string, init: RequestInit) => {
+        const t = memoryCtx();
+        // The real touchRunner decides: no registration and no RUNNER_TOKENS match, so it refuses.
+        const respond = (call: RunCall) => (call.name.endsWith('touchRunner') ? t.call(touchRunner, call.args) : { ok: true });
+        return t.callHttp(agentHttp, new Request(url, init), { respond });
+      }) as typeof fetch,
     });
     await assert.rejects(client.claim({ mode: 'headless', repos: [] }), /^Error: \/agent\/claim: /);
   });

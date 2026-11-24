@@ -448,13 +448,46 @@ export default defineSchema({
     .index('by_run', ['runId', 'at'])
     .index('by_milestone_time', ['milestoneId', 'at']),
 
-  /** One row per runner: its request window and when it last called. */
+  /**
+   * One row per runner: its request window, when it last called, and its
+   * registration. Only a hash of a registered runner's secret is stored.
+   * Revoking clears `tokenHash` and `registeredAt`, so `by_registeredAt`
+   * holds only live registrations.
+   */
   agentRunners: defineTable({
     runnerId: v.string(),
     windowStart: v.number(),
     count: v.number(),
-    lastSeenAt: v.number(),
-  }).index('by_runnerId', ['runnerId']),
+    /** Absent for a runner registered from the Portal that has not called yet. */
+    lastSeenAt: v.optional(v.number()),
+    tokenHash: v.optional(v.string()),
+    registeredAt: v.optional(v.number()),
+    registeredBy: v.optional(v.string()),
+    revokedAt: v.optional(v.number()),
+    /** The runner protocol version from its last heartbeat. */
+    protocolVersion: v.optional(v.number()),
+  })
+    .index('by_runnerId', ['runnerId'])
+    .index('by_registeredAt', ['registeredAt']),
+
+  /**
+   * A runner set-up waiting for staff to confirm its code. The CLI holds the
+   * secret and the poll key; only their hashes are here. Swept after expiry.
+   */
+  agentRunnerPairings: defineTable({
+    code: v.string(),
+    pollKeyHash: v.string(),
+    tokenHash: v.string(),
+    proposedRunnerId: v.string(),
+    status: v.union(v.literal('open'), v.literal('confirmed')),
+    createdAt: v.number(),
+    expiresAt: v.number(),
+    runnerId: v.optional(v.string()),
+    confirmedAt: v.optional(v.number()),
+    confirmedBy: v.optional(v.string()),
+  })
+    .index('by_code', ['code'])
+    .index('by_expiresAt', ['expiresAt']),
 
   /**
    * Staff notes on a milestone, added by a person or a bot through the staff
