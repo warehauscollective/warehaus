@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { isClientVisibleActivityType } from '@warehaus/portal-sync';
+import { advance, create, decideAsClient, listForProject, moveProject, ownerChoices, setDueDate, setOwner, setStatus } from '../milestones';
+import { upsertTask } from '../sync/upsert';
+import { PortalAuthError } from './identity';
+import { MemoryCtxError, memoryCtx } from './memoryCtx.testkit';
 import { roadmapViewForAudience } from './milestones';
 import {
   clientReviewDecision,
@@ -19,11 +23,16 @@ import {
   textBlurSave,
 } from './milestoneDetails';
 import { isPeterEmail } from './milestoneReview';
-import { statusOptionLock, transitionMilestone } from './milestoneStatus';
+import { STATUS_STALE, statusOptionLock, transitionMilestone } from './milestoneStatus';
+import { seedContact, seedMilestone, seedMilestoneWorld, seedOrg, seedProject, seedTask } from './seedRows.testkit';
+
+const source = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+const schemaError = (pattern: RegExp) => (error: unknown) => error instanceof MemoryCtxError && pattern.test(error.message);
 
 describe('staff stages', () => {
   it('uses the one Peter check from the review protocol', () => {
-    const details = readFileSync(new URL('./milestoneDetails.ts', import.meta.url), 'utf8');
+    // Absence guard: who counts as Peter has one list, in milestoneReview.ts.
+    const details = source('./milestoneDetails.ts');
     assert.equal(details.includes('PETER_EMAILS'), false);
     assert.equal(details.includes('function isPeterEmail'), false);
     assert.equal(isPeterEmail('Peter@warehaus.co'), true);
@@ -90,18 +99,23 @@ describe('status, publish, and project decisions', () => {
     assert.equal(transitionMilestone({ from: 'Building', cause: 'set', to: 'Shipped' }).ok, false);
   });
 
-  it('refuses a client review', () => {
+  it('refuses a client review', async () => {
     assert.deepEqual(clientReviewDecision(), { ok: false, reason: 'Clients cannot review a milestone' });
-    const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
-    const start = source.indexOf('export const decideAsClient');
-    const end = source.indexOf('export const previewMilestoneOne');
-    const block = source.slice(start, end === -1 ? source.length : end);
-    assert.match(block, /clientReviewDecision/);
-    assert.doesNotMatch(block, /decideMilestone/);
+    const t = memoryCtx();
+    const { milestoneId } = seedMilestoneWorld(t, { status: 'Ready to Ship' });
+    await assert.rejects(
+      t.call(decideAsClient, { milestoneId, decision: 'approved', note: 'Looks good' }, { as: 'client' }),
+      /Clients cannot review a milestone/,
+    );
+    assert.equal(t.row(milestoneId)?.approval, 'unreviewed');
+    assert.equal(t.row(milestoneId)?.status, 'Ready to Ship');
+    assert.deepEqual(t.rows('milestoneReviews'), []);
+    assert.deepEqual(t.rows('activity'), []);
   });
 
   it('has one Status and no second status picker', () => {
-    const details = readFileSync(new URL('./milestoneDetails.ts', import.meta.url), 'utf8');
+    // Absence guard: the retired status helpers stay deleted.
+    const details = source('./milestoneDetails.ts');
     for (const retired of ['detailStatus', 'workStatus', 'effectiveStage', 'MILESTONE_STAGES']) {
       assert.equal(details.includes(retired), false, retired);
     }
@@ -205,14 +219,16 @@ describe('task move and client rows', () => {
   });
 
   it('keeps the retired status fields out of the schema and off the server', () => {
-    const schema = readFileSync(new URL('../schema.ts', import.meta.url), 'utf8');
-    const table = schema.slice(schema.indexOf('  milestones: defineTable({'), schema.indexOf('  milestoneReviews: defineTable({'));
-    for (const retired of ['workStatus', 'detailStatus', 'stage:']) {
-      assert.equal(table.includes(retired), false, retired);
+    const t = memoryCtx();
+    const orgId = seedOrg(t);
+    const projectId = seedProject(t, orgId);
+    for (const retired of ['workStatus', 'detailStatus', 'stage']) {
+      assert.throws(() => seedMilestone(t, orgId, projectId, { [retired]: 'Building' }), schemaError(new RegExp(`milestones\\.${retired}: not in the validator`)), retired);
     }
-    assert.match(table, /status: v\.union\(/);
-    assert.equal(table.includes('status: v.optional('), false);
-    const server = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
+    assert.throws(() => seedMilestone(t, orgId, projectId, { status: undefined }), schemaError(/milestones\.status: required/));
+    assert.throws(() => seedMilestone(t, orgId, projectId, { status: 'in_review' }), schemaError(/milestones\.status: matches no member/));
+    // Absence guard: the retired status backfills stay deleted.
+    const server = source('../milestones.ts');
     for (const retired of ['backfillStatus', 'clearRetiredStatusFields', 'milestoneStatusOf']) {
       assert.equal(server.includes(retired), false, retired);
     }
@@ -261,58 +277,223 @@ describe('owner and due date', () => {
     assert.equal(dueDateChangeDecision({ from: null, to: 'tomorrow' }).ok, false);
   });
 
-  it('resolves names with point reads and lists owners with one capped index read', () => {
-    const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
-    const names = source.slice(source.indexOf('async function personName'), source.indexOf('async function insertMilestone'));
-    assert.match(names, /ctx\.db\.get\(contactId\)/);
-    assert.match(names, /\.take\(OWNER_TAKE\)/);
-    assert.match(names, /by_orgId/);
-    assert.doesNotMatch(names, /\.collect\(\)/);
-    assert.match(source, /ownerNameFor/);
-    assert.match(source, /creatorNameFor/);
-    const schema = readFileSync(new URL('../schema.ts', import.meta.url), 'utf8');
-    const table = schema.slice(schema.indexOf('milestones: defineTable'), schema.indexOf('contacts: defineTable'));
-    assert.match(table, /ownerContactId: v\.optional\(v\.id\('contacts'\)\)/);
-    assert.match(table, /dueDate: v\.optional\(v\.string\(\)\)/);
-    assert.match(table, /createdByContactId: v\.optional\(v\.id\('contacts'\)\)/);
+  it('names the owner and the creator from contacts on the same client only', async () => {
+    const t = memoryCtx();
+    const { orgId, projectId, milestoneId } = seedMilestoneWorld(t);
+    const owner = seedContact(t, orgId, { name: ' Ana Owner ', role: 'Warehaus Staff' });
+    const creator = seedContact(t, orgId, { name: 'Cal Creator', role: 'Warehaus Staff' });
+    const stranger = seedContact(t, seedOrg(t), { name: 'Elsewhere', role: 'Warehaus Staff' });
+    await t.db.patch(milestoneId, { ownerContactId: owner, createdByContactId: creator });
+    const other = seedMilestone(t, orgId, projectId, { ownerContactId: stranger, createdByContactId: stranger });
+    const views = await t.call<Array<{ id: string; ownerName: string | null; creatorName: string | null }>>(listForProject, { projectId }, { as: 'staff' });
+    const byId = new Map(views.map((view) => [view.id, view]));
+    assert.equal(byId.get(milestoneId)?.ownerName, 'Ana Owner');
+    assert.equal(byId.get(milestoneId)?.creatorName, 'Cal Creator');
+    assert.equal(byId.get(other)?.ownerName, null);
+    assert.equal(byId.get(other)?.creatorName, null);
+  });
+
+  it('lists owners with one capped, indexed read of the client contacts', async () => {
+    const t = memoryCtx();
+    const { orgId, projectId } = seedMilestoneWorld(t);
+    seedContact(t, orgId, { name: 'Zed Staff', role: 'Warehaus Staff' });
+    seedContact(t, orgId, { name: 'Amy Staff', role: 'Warehaus Staff' });
+    seedContact(t, orgId, { name: 'Cleo Client', role: 'Client Admin' });
+    seedContact(t, orgId, { name: 'Dora Disabled', role: 'Warehaus Staff', portalAccess: 'Disabled' });
+    seedContact(t, orgId, { name: 'Hal Hidden', role: 'Warehaus Staff', syncHiddenAt: 1 });
+    seedContact(t, seedOrg(t), { name: 'Other Org', role: 'Warehaus Staff' });
+    t.actor('staff');
+    t.reads.reset();
+    const choices = await t.call<Array<{ name: string }>>(ownerChoices, { projectId }, { as: 'staff' });
+    assert.deepEqual(choices.map((choice) => choice.name), ['Amy Staff', 'Zed Staff']);
+    assert.deepEqual(t.reads.unbounded(), []);
+    assert.deepEqual(t.reads.unindexed(), []);
+    assert.deepEqual(
+      t.reads.all.filter((read) => read.table === 'contacts' && read.eq[0] === 'orgId').map((read) => [read.index, read.terminal]),
+      [['by_orgId', 'take']],
+    );
+
+    for (let i = 0; i < 45; i += 1) seedContact(t, orgId, { name: `Staff ${String(i).padStart(2, '0')}`, role: 'Warehaus Staff' });
+    const capped = await t.call<unknown[]>(ownerChoices, { projectId }, { as: 'staff' });
+    assert.ok(capped.length <= 40, `read ${capped.length} owners`);
+  });
+
+  it('stores the owner, the due date and the creator on the milestone', async () => {
+    const t = memoryCtx();
+    const { orgId, projectId, milestoneId } = seedMilestoneWorld(t);
+    const owner = seedContact(t, orgId, { name: 'Ana Owner', role: 'Warehaus Staff' });
+    const client = seedContact(t, orgId, { name: 'Cleo Client', role: 'Client Admin' });
+
+    assert.deepEqual(await t.call(setOwner, { milestoneId, ownerContactId: owner }, { as: 'staff' }), { ok: true, wrote: true });
+    assert.equal(t.row(milestoneId)?.ownerContactId, owner);
+    assert.deepEqual(await t.call(setOwner, { milestoneId, ownerContactId: owner }, { as: 'staff' }), { ok: true, wrote: false });
+    await assert.rejects(t.call(setOwner, { milestoneId, ownerContactId: client }, { as: 'staff' }), PortalAuthError);
+    assert.equal(t.row(milestoneId)?.ownerContactId, owner);
+    await t.call(setOwner, { milestoneId, ownerContactId: null }, { as: 'staff' });
+    assert.equal('ownerContactId' in (t.row(milestoneId) ?? {}), false);
+
+    assert.deepEqual(await t.call(setDueDate, { milestoneId, dueDate: '2026-12-01' }, { as: 'staff' }), { ok: true, wrote: true });
+    assert.equal(t.row(milestoneId)?.dueDate, '2026-12-01');
+    assert.deepEqual(await t.call(setDueDate, { milestoneId, dueDate: '2026-12-01' }, { as: 'staff' }), { ok: true, wrote: false });
+    await assert.rejects(t.call(setDueDate, { milestoneId, dueDate: 'tomorrow' }, { as: 'staff' }), PortalAuthError);
+    assert.equal(t.row(milestoneId)?.dueDate, '2026-12-01');
+
+    const staffAuth = t.actor('staff');
+    const staffContact = t.rows('contacts').find((row) => row.authUserId === staffAuth)?._id;
+    const created = await t.call<{ id: string }>(
+      create,
+      { projectId, name: 'Launch', objective: 'Ship it', goals: [], ownerContactId: owner, dueDate: '2026-12-24' },
+      { as: 'staff' },
+    );
+    const row = t.row(created.id);
+    assert.equal(row?.createdByContactId, staffContact);
+    assert.equal(row?.ownerContactId, owner);
+    assert.equal(row?.dueDate, '2026-12-24');
   });
 });
 
 describe('server enforcement', () => {
   it('keeps the detail mutations staff-only and off the Notion outbox', () => {
-    const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
-    const start = source.indexOf('export const setStatus');
-    const end = source.indexOf('export const decide');
-    const block = source.slice(start, end);
+    // Absence guards. Each one is a safety rule, not a call that should be present.
+    const server = source('../milestones.ts');
+    const start = server.indexOf('export const setStatus');
+    const end = server.indexOf('export const decide');
     assert.ok(start > 0 && end > start);
-    assert.match(block, /changeMilestoneStatus/);
+    const block = server.slice(start, end);
+    // Staff mutations have no Peter gate.
     assert.doesNotMatch(block, /isPeterEmail/);
-    assert.match(block, /projectMoveDecision/);
-    assert.match(block, /taskIdsToMove/);
-    assert.match(block, /by_parentTaskId/);
-    assert.match(block, /by_orgId_milestoneId/);
+    // A milestone's tasks are never read by project, which would pull in other milestones' tasks.
     assert.doesNotMatch(block, /by_orgId_projectId/);
-    for (const retired of ['export const setStage', 'export const setDetailStatus', 'export const setWorkStatus']) {
-      assert.equal(source.includes(retired), false, retired);
-    }
-    const statusBlock = source.slice(start, source.indexOf('export const ownerChoices'));
-    assert.match(statusBlock, /export const advance = adminMutation/);
-    assert.match(statusBlock, /cause: 'advance'/);
-    assert.match(statusBlock, /expected: args\.expectedStatus/);
-    // Every status write goes through the one writer, which skips a no-op.
-    assert.equal(statusBlock.includes('ctx.db.patch'), false);
-    assert.match(statusBlock, /changeMilestoneStatus\(ctx, milestone, \{/);
-    const lifecycle = readFileSync(new URL('./milestoneLifecycle.ts', import.meta.url), 'utf8');
-    const writer = lifecycle.slice(lifecycle.indexOf('export async function changeMilestoneStatus'));
-    assert.match(writer, /if \(!moved\.wrote\) return moved;/);
-    assert.equal(writer.match(/writeMilestoneActivity\(/g)?.length, 1);
-    assert.match(block, /wrote: false/);
-    assert.match(block, /'milestone\.project'/);
+    // Detail mutations are staff only and never write Notion.
     assert.doesNotMatch(block, /clientMutation/);
     assert.doesNotMatch(block, /notionOutbox/);
     assert.doesNotMatch(block, /notion\.pages/);
-    const upsert = readFileSync(new URL('../sync/upsert.ts', import.meta.url), 'utf8');
-    assert.match(upsert, /heldTaskProjectId/);
+    // The retired status mutations stay deleted.
+    for (const retired of ['export const setStage', 'export const setDetailStatus', 'export const setWorkStatus']) {
+      assert.equal(server.includes(retired), false, retired);
+    }
+    // A Notion pull of a task never queues a write back.
+    const upsert = source('../sync/upsert.ts');
     assert.doesNotMatch(upsert.slice(upsert.indexOf('export const upsertTask'), upsert.indexOf('export const upsertContact')), /notionOutbox\.insert|db\.insert\('notionOutbox'/);
+  });
+
+  it('setStatus writes the status and one activity row through the one writer, and a repeat writes nothing', async () => {
+    const t = memoryCtx();
+    const { milestoneId } = seedMilestoneWorld(t, { status: 'Planning' });
+    const moved = await t.call(setStatus, { milestoneId, status: 'Awaiting Go' }, { as: 'staff' });
+    assert.deepEqual(moved, { ok: true, wrote: true, status: 'Awaiting Go', previous: 'Planning' });
+    assert.equal(t.row(milestoneId)?.status, 'Awaiting Go');
+    const activity = t.rows('activity');
+    assert.equal(activity.length, 1);
+    assert.equal(activity[0]?.type, 'milestone.status');
+    assert.equal(activity[0]?.milestoneId, milestoneId);
+    assert.match(String(activity[0]?.summary), /^Maya Chen · Planning → Awaiting Go · .* ET$/);
+
+    const before = t.row(milestoneId);
+    const again = await t.call(setStatus, { milestoneId, status: 'Awaiting Go' }, { as: 'staff' });
+    assert.deepEqual(again, { ok: true, wrote: false, status: 'Awaiting Go', previous: 'Awaiting Go' });
+    assert.deepEqual(t.row(milestoneId), before);
+    assert.equal(t.rows('activity').length, 1);
+    assert.deepEqual(t.rows('notionOutbox'), []);
+  });
+
+  it('advance is staff only, moves one step, never to Shipped, and refuses a stale status', async () => {
+    const t = memoryCtx();
+    const { milestoneId } = seedMilestoneWorld(t, { status: 'Awaiting Go' });
+    await assert.rejects(t.call(advance, { milestoneId, expectedStatus: 'Awaiting Go' }), PortalAuthError);
+    await assert.rejects(t.call(advance, { milestoneId, expectedStatus: 'Awaiting Go' }, { as: 'client' }), PortalAuthError);
+    assert.equal(t.row(milestoneId)?.status, 'Awaiting Go');
+
+    const moved = await t.call(advance, { milestoneId, expectedStatus: 'Awaiting Go' }, { as: 'staff' });
+    assert.deepEqual(moved, { ok: true, wrote: true, status: 'Building', previous: 'Awaiting Go' });
+    assert.equal(t.rows('activity').length, 1);
+
+    // The same click sent twice writes once.
+    const twice = await t.call(advance, { milestoneId, expectedStatus: 'Awaiting Go' }, { as: 'staff' });
+    assert.deepEqual(twice, { ok: true, wrote: false, status: 'Building', previous: 'Building' });
+    assert.equal(t.rows('activity').length, 1);
+    // A status the caller saw long ago is refused and writes nothing.
+    await assert.rejects(t.call(advance, { milestoneId, expectedStatus: 'Idea' }, { as: 'staff' }), (error: unknown) => error instanceof PortalAuthError && error.message === STATUS_STALE);
+    assert.equal(t.row(milestoneId)?.status, 'Building');
+    assert.equal(t.rows('activity').length, 1);
+
+    const ready = seedMilestoneWorld(t, { status: 'Ready to Ship' });
+    seedTask(t, ready.orgId, ready.projectId, { milestoneId: ready.milestoneId, status: 'Done', isDone: true });
+    await assert.rejects(t.call(advance, { milestoneId: ready.milestoneId, expectedStatus: 'Ready to Ship' }, { as: 'staff' }), PortalAuthError);
+    assert.equal(t.row(ready.milestoneId)?.status, 'Ready to Ship');
+    assert.equal(t.rows('activity').length, 1);
+  });
+
+  it('moveProject moves the milestone, its tasks and their subtasks, and logs one project row', async () => {
+    const t = memoryCtx();
+    const orgId = seedOrg(t);
+    const from = seedProject(t, orgId, { name: 'Northwind site' });
+    const to = seedProject(t, orgId, { name: 'Northwind brand' });
+    const milestoneId = seedMilestone(t, orgId, from);
+    const parent = seedTask(t, orgId, from, { milestoneId });
+    const child = seedTask(t, orgId, from, { parentTaskId: parent });
+    const there = seedTask(t, orgId, to, { milestoneId });
+    const unrelated = seedTask(t, orgId, from);
+    const thereBefore = t.row(there);
+    const unrelatedBefore = t.row(unrelated);
+    t.actor('staff');
+    t.reads.reset();
+
+    const result = await t.call(moveProject, { milestoneId, projectId: to }, { as: 'staff' });
+    assert.deepEqual(result, { ok: true, wrote: true, movedTasks: 1 });
+    assert.equal(t.row(milestoneId)?.projectId, to);
+    for (const id of [parent, child]) {
+      assert.equal(t.row(id)?.projectId, to, id);
+      assert.equal(t.row(id)?.portalProjectId, to, id);
+    }
+    assert.deepEqual(t.row(there), thereBefore);
+    assert.deepEqual(t.row(unrelated), unrelatedBefore);
+    const activity = t.rows('activity');
+    assert.equal(activity.length, 1);
+    assert.equal(activity[0]?.type, 'milestone.project');
+    assert.equal(activity[0]?.projectId, to);
+    assert.match(String(activity[0]?.summary), /^Maya Chen · Northwind site → Northwind brand · 1 task · .* ET$/);
+    assert.deepEqual(t.reads.unindexed(), []);
+    assert.deepEqual(t.reads.all.filter((read) => read.index === 'by_orgId_projectId'), []);
+    assert.deepEqual(t.rows('notionOutbox'), []);
+  });
+
+  it('moveProject writes nothing for the current project and refuses a project on another client', async () => {
+    const t = memoryCtx();
+    const { orgId, projectId, milestoneId } = seedMilestoneWorld(t);
+    const task = seedTask(t, orgId, projectId, { milestoneId });
+    const before = { milestone: t.row(milestoneId), task: t.row(task) };
+
+    assert.deepEqual(await t.call(moveProject, { milestoneId, projectId }, { as: 'staff' }), { ok: true, wrote: false, movedTasks: 0 });
+    const elsewhere = seedProject(t, seedOrg(t));
+    await assert.rejects(t.call(moveProject, { milestoneId, projectId: elsewhere }, { as: 'staff' }), PortalAuthError);
+    assert.deepEqual({ milestone: t.row(milestoneId), task: t.row(task) }, before);
+    assert.deepEqual(t.rows('activity'), []);
+  });
+
+  it('a Notion pull keeps a task the portal moved on its new project, then clears the hold once Notion matches', async () => {
+    const t = memoryCtx();
+    const orgId = seedOrg(t);
+    const oldProject = seedProject(t, orgId);
+    const newProject = seedProject(t, orgId);
+    const taskId = seedTask(t, orgId, newProject, { notionPageId: 'notion-held', portalProjectId: newProject });
+    const pull = (projectId: string) => ({
+      notionPageId: 'notion-held',
+      orgId,
+      projectId,
+      name: 'Held task',
+      status: 'To Do',
+      isDone: false,
+      publishToWarehaus: false,
+    });
+
+    await t.call(upsertTask, pull(oldProject));
+    assert.equal(t.row(taskId)?.projectId, newProject);
+    assert.equal(t.row(taskId)?.portalProjectId, newProject);
+
+    await t.call(upsertTask, pull(newProject));
+    assert.equal(t.row(taskId)?.projectId, newProject);
+    assert.equal('portalProjectId' in (t.row(taskId) ?? {}), false);
+    assert.deepEqual(t.rows('notionOutbox'), []);
   });
 });
