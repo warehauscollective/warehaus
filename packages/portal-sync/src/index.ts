@@ -231,6 +231,7 @@ export {
   searchPlanForCreate,
   decideCreateDedupe,
   toNotionProperties,
+  asWritebackDatabase,
   readNotionPlain,
   type WritebackDatabase,
   type WriteActor,
@@ -521,3 +522,4 @@ export {
 } from './taskPullMerge';
 export * from './stageSync';
 export * from './clientVisibility';
+export * from './notionSchema';

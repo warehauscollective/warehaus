@@ -5,6 +5,7 @@
  */
 
 import {
+  asWritebackDatabase,
   PORTAL_COLLECTIONS,
   WRITEBACK_OFF_ERROR,
   asClientCreateProperties,
@@ -44,18 +45,7 @@ function writebackOn(): boolean {
 }
 
 function asDatabase(value: string): WritebackDatabase {
-  if (
-    value === 'clients' ||
-    value === 'projects' ||
-    value === 'tasks' ||
-    value === 'contacts' ||
-    value === 'sharedResources' ||
-    value === 'clientDocs' ||
-    value === 'activity'
-  ) {
-    return value;
-  }
-  return 'activity';
+  return asWritebackDatabase(value) ?? 'activity';
 }
 
 function parseProperties(payload: string): WriteProperties {

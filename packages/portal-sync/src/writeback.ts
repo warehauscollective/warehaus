@@ -21,7 +21,17 @@ import {
   SHARED_RESOURCE_PROPERTY_TIERS,
   TASK_PROPERTY_TIERS,
 } from './tiers';
-import { isPullRequestLink, isTaskStage, stageMoveRule } from './taskBoard';
+import { LIVE_TASK_STATUSES, isPullRequestLink, isTaskStage, stageMoveRule } from './taskBoard';
+import {
+  CLIENT_DOC_SCHEMA,
+  CLIENT_SCHEMA,
+  CONTACT_SCHEMA,
+  PROJECT_SCHEMA,
+  SHARED_RESOURCE_SCHEMA,
+  TASK_SCHEMA,
+  type PropertySchema,
+  type PropertySpec,
+} from './notionSchema';
 
 export const NOTION_WRITE_VERSION = '2025-09-03';
 
@@ -33,6 +43,21 @@ export type WritebackDatabase =
   | 'sharedResources'
   | 'clientDocs'
   | 'activity';
+
+const WRITEBACK_DATABASES: readonly WritebackDatabase[] = [
+  'clients',
+  'projects',
+  'tasks',
+  'contacts',
+  'sharedResources',
+  'clientDocs',
+  'activity',
+];
+
+/** A stored database name as a WritebackDatabase, or null for anything else. */
+export function asWritebackDatabase(value: string): WritebackDatabase | null {
+  return (WRITEBACK_DATABASES as readonly string[]).includes(value) ? (value as WritebackDatabase) : null;
+}
 
 export type WriteActor = 'staff' | 'clientAdmin' | 'system';
 
@@ -52,7 +77,8 @@ const ALLOWED_NAMES: Record<Exclude<WritebackDatabase, 'activity'>, Readonly<Rec
 const CLIENT_STATUSES = ['Active', 'Prospect', 'Paused', 'Archive'] as const;
 const PROJECT_STATUSES = ['Inbox', 'Planned', 'In progress', 'Done'] as const;
 const PROJECT_TYPES = ['Website', 'Product', 'Brand', 'Internal', 'R&D'] as const;
-export const TASK_STATUSES = ['Inbox', 'To Do', 'Blocked', 'In Progress', 'Done'] as const;
+/** Same list as the live task board. */
+export const TASK_STATUSES = LIVE_TASK_STATUSES;
 const CONTACT_ROLES = ['Client Admin', 'Client Member', 'Warehaus Staff'] as const;
 const RESOURCE_TYPES = [
   'Image',
@@ -74,14 +100,14 @@ const DOC_TYPES = [
   'Deliverables & Handoff',
 ] as const;
 
-const TITLE_PROPERTY: Record<Exclude<WritebackDatabase, 'activity'>, string> = {
-  clients: 'Company Name',
-  projects: 'Name',
-  tasks: 'Name',
-  contacts: 'Name',
-  sharedResources: 'Name',
-  clientDocs: 'Title',
-};
+const PROPERTY_SCHEMAS = {
+  clients: CLIENT_SCHEMA,
+  projects: PROJECT_SCHEMA,
+  tasks: TASK_SCHEMA,
+  contacts: CONTACT_SCHEMA,
+  sharedResources: SHARED_RESOURCE_SCHEMA,
+  clientDocs: CLIENT_DOC_SCHEMA,
+} as const satisfies Record<Exclude<WritebackDatabase, 'activity'>, PropertySchema>;
 
 const KEBAB = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
@@ -422,105 +448,63 @@ export function decideCreateDedupe(existing: readonly ExistingPageHit[]): Dedupe
   return { action: 'create' };
 }
 
-const SELECT_PROPS = new Set([
-  'Status',
-  'Stage',
-  'Role',
-  'Type',
-  'Doc Type',
-  'Portal access',
-  'Portal Access',
-  'Invite Status',
-  'Estimate',
-  'Priority',
-  'Source',
-]);
+function richTextValue(value: string) {
+  return { rich_text: [{ type: 'text', text: { content: value } }] };
+}
 
-const RELATION_PROPS = new Set([
-  'Client',
-  'Client Company',
-  'Project',
-  'Projects',
-  'Parent item',
-  'Resources',
-]);
+/** One Notion property value from a plain value, by the schema's type. Undefined skips it. */
+function shapeProperty(spec: PropertySpec | undefined, value: WriteValue): unknown {
+  const type = spec?.type;
+  if (type === 'select' && spec?.clearable && (value == null || value === '')) return { select: null };
+  if (type === 'date') return typeof value === 'string' && value ? { date: { start: value } } : { date: null };
+  if (value == null) return undefined;
+  switch (type) {
+    case 'title':
+      if (typeof value === 'string') return { title: [{ type: 'text', text: { content: value } }] };
+      break;
+    case 'email':
+      if (typeof value === 'string') return { email: value };
+      break;
+    case 'url':
+      if (typeof value === 'string') return { url: value };
+      break;
+    case 'checkbox':
+      if (typeof value === 'boolean') return { checkbox: value };
+      break;
+    case 'number':
+      if (typeof value === 'number') return { number: value };
+      break;
+    case 'multi_select':
+      if (Array.isArray(value)) return { multi_select: value.map((item) => ({ name: item })) };
+      break;
+    case 'status':
+      if (typeof value === 'string') return { status: { name: value } };
+      break;
+    case 'select':
+      if (typeof value === 'string') return { select: { name: value } };
+      break;
+    case 'relation':
+      if (Array.isArray(value)) return { relation: value.map((id) => ({ id })) };
+      break;
+    case 'files':
+      if (typeof value === 'string') return { files: [{ name: 'file', external: { url: value } }] };
+      break;
+    default:
+      break;
+  }
+  return typeof value === 'string' ? richTextValue(value) : undefined;
+}
 
-/** Shape a validated plain payload into a 2025-09-03 page property map. */
+/** Shape a validated plain payload into a 2025-09-03 page property map, by the database's property schema. */
 export function toNotionProperties(
   database: Exclude<WritebackDatabase, 'activity'>,
   properties: WriteProperties,
 ): Record<string, unknown> {
-  const title = TITLE_PROPERTY[database];
+  const schema = PROPERTY_SCHEMAS[database] as PropertySchema;
   const out: Record<string, unknown> = {};
   for (const [name, value] of Object.entries(properties)) {
-    if (name === 'Invite Status' && (value == null || value === '')) {
-      out[name] = { select: null };
-      continue;
-    }
-    if (
-      (name === 'Estimate' || name === 'Priority' || name === 'Source') &&
-      (value == null || value === '')
-    ) {
-      out[name] = { select: null };
-      continue;
-    }
-    if (name === 'Date') {
-      out[name] = typeof value === 'string' && value ? { date: { start: value } } : { date: null };
-      continue;
-    }
-    if (value == null) continue;
-    if (name === title && typeof value === 'string') {
-      out[name] = { title: [{ type: 'text', text: { content: value } }] };
-      continue;
-    }
-    if (name === 'Email' && typeof value === 'string') {
-      out[name] = { email: value };
-      continue;
-    }
-    if ((name === 'URL' || name === 'GitHub Issue/PR') && typeof value === 'string') {
-      out[name] = { url: value };
-      continue;
-    }
-    if ((name === 'Archive' || name === 'Publish to Warehaus') && typeof value === 'boolean') {
-      out[name] = { checkbox: value };
-      continue;
-    }
-    if (name === 'Order' && typeof value === 'number') {
-      out[name] = { number: value };
-      continue;
-    }
-    if (name === 'Type' && database === 'projects' && Array.isArray(value)) {
-      out[name] = { multi_select: value.map((item) => ({ name: item })) };
-      continue;
-    }
-    // Live Projects and Tasks Status are Notion status properties, not selects.
-    if (
-      name === 'Status' &&
-      (database === 'tasks' || database === 'projects') &&
-      typeof value === 'string'
-    ) {
-      out[name] = { status: { name: value } };
-      continue;
-    }
-    if (SELECT_PROPS.has(name) && typeof value === 'string') {
-      out[name] = { select: { name: value } };
-      continue;
-    }
-    if (RELATION_PROPS.has(name) && Array.isArray(value)) {
-      out[name] = { relation: value.map((id) => ({ id })) };
-      continue;
-    }
-    if (name === 'File' && typeof value === 'string') {
-      out[name] = { files: [{ name: 'file', external: { url: value } }] };
-      continue;
-    }
-    if (name === 'Description' && typeof value === 'string') {
-      out[name] = { rich_text: [{ type: 'text', text: { content: value } }] };
-      continue;
-    }
-    if (typeof value === 'string') {
-      out[name] = { rich_text: [{ type: 'text', text: { content: value } }] };
-    }
+    const shaped = shapeProperty(schema[name], value);
+    if (shaped !== undefined) out[name] = shaped;
   }
   return out;
 }
