@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { TASK_ESTIMATES, TASK_PRIORITIES, TASK_SOURCES } from '@warehaus/portal-sync';
 import { PublishChip } from '@/components/sync/SyncChip';
+import { taskChangeNote } from './taskFieldCopy';
 
 /** Blank live fields stay visible so staff can see the property is empty. */
 export function liveFieldText(value: string | null | undefined): string {
@@ -17,7 +18,7 @@ export type StaffLiveFieldPatch = {
   publishToWarehaus?: boolean;
 };
 
-type SaveResult = { ok: boolean; error?: string };
+type SaveResult = { ok: boolean; error?: string; wrote?: boolean; notion?: string };
 
 const selectStyle = {
   width: '100%',
@@ -129,10 +130,10 @@ export function StaffLiveFields({
       const result = await onSave({ [field]: value });
       if (!result.ok) {
         setValue(previous);
-        setNote(result.error ?? 'Could not save');
+        setNote(taskChangeNote(result));
         return;
       }
-      setNote('Queued for Notion.');
+      setNote(taskChangeNote(result));
     } finally {
       setPending(false);
     }
@@ -147,10 +148,10 @@ export function StaffLiveFields({
       const result = await onSave({ publishToWarehaus: next });
       if (!result.ok) {
         setPublishValue(previous);
-        setNote(result.error ?? 'Could not save');
+        setNote(taskChangeNote(result));
         return;
       }
-      setNote('Queued for Notion.');
+      setNote(taskChangeNote(result));
     } finally {
       setPending(false);
     }
