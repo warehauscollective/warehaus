@@ -202,6 +202,17 @@ export async function applyTaskChanges(
       case 'stage': {
         const current = typeof task.stage === 'string' ? task.stage : '';
         if (current === change.stage) break;
+        if (options.actor === 'closeout') {
+          // Closeout parks a leftover or puts a task back as Undo had it, so
+          // the staff move rules (unstaged, Shipped) do not apply.
+          if (!isTaskStage(change.stage)) return refuse('invalid', 'Unknown stage');
+          const key = `task-stage:${task.notionPageId}:${change.stage}::${base || 'portal'}`;
+          patch.stage = change.stage;
+          stamped.push('stage');
+          stageMove = { stage: change.stage, pullRequestLink: null, key };
+          writes.push({ kind: 'task-stage', properties: { Stage: change.stage }, idempotencyKey: key });
+          break;
+        }
         const leaving = notionOnlyStageReason(current);
         if (leaving) return refuse('refused', leaving);
         if (!isTaskStage(current) && !unstagedMoveAllowed(change.stage)) {

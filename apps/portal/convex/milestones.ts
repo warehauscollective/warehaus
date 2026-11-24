@@ -2262,7 +2262,7 @@ async function applyCloseoutWrites(
     if (!task) continue;
     if (write.kind === 'done') await writeTaskStatus(ctx, task, 'Done', input.actorId, log);
     else if (write.kind === 'archive') await archiveTaskTree(ctx, task, input.at, input.actorId, log);
-    else if (write.kind === 'park') await parkTask(ctx, task, log);
+    else if (write.kind === 'park') await parkTask(ctx, task, log, input.actorId);
     else if (write.kind === 'detach') await detachTaskFromMilestone(ctx, task, log);
     else moving.push(task);
   }

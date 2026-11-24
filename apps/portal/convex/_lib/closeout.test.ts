@@ -98,6 +98,17 @@ const source = (id: string, fields: Partial<TaskSetRow> = {}): TaskSetRow => ({
   ...fields,
 });
 
+async function withWritebackOn<T>(body: () => Promise<T>): Promise<T> {
+  const previous = process.env.NOTION_WRITEBACK_ENABLED;
+  process.env.NOTION_WRITEBACK_ENABLED = 'true';
+  try {
+    return await body();
+  } finally {
+    if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+    else process.env.NOTION_WRITEBACK_ENABLED = previous;
+  }
+}
+
 describe('close-out rules', () => {
   it('counts every listed task, archived ones left out', () => {
     const rows = [
@@ -269,12 +280,14 @@ describe('milestones.markComplete', () => {
     const w = world();
     w.milestone('m1');
     w.task('a', { notionPageId: 'notion-a', source: undefined, lastEditedTime: '2026-11-20T00:00:00.000Z' });
-    await w.call(markComplete, { milestoneId: w.id('m1'), expectedStatus: 'Building', leftovers: 'done' });
-    assert.equal(w.t.runs.length, 1);
-    assert.equal(w.t.runs[0]?.name, 'sync/taskWrite:enqueueStatus');
-    assert.equal(w.t.runs[0]?.args.taskId, w.id('a'));
-    assert.equal(w.t.runs[0]?.args.status, 'Done');
-    assert.equal(w.t.runs[0]?.args.expectedLastEditedTime, '2026-11-20T00:00:00.000Z');
+    await withWritebackOn(() => w.call(markComplete, { milestoneId: w.id('m1'), expectedStatus: 'Building', leftovers: 'done' }));
+    const rows = w.t.rows('notionOutbox');
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]?.kind, 'task-status');
+    assert.equal(rows[0]?.notionPageId, 'notion-a');
+    assert.deepEqual(JSON.parse(String(rows[0]?.payload)).properties, { Status: 'Done' });
+    assert.equal(rows[0]?.expectedLastEditedTime, '2026-11-20T00:00:00.000Z');
+    assert.equal((w.row('a')?.fieldStamps as Record<string, { updatedBy: string }>).status?.updatedBy, staffContactId(w.t));
   });
 
   it('archive: archives open tasks with their subtasks, as tasks.archiveTask does', async () => {
@@ -283,7 +296,9 @@ describe('milestones.markComplete', () => {
     w.task('a', { notionPageId: 'notion-a', source: undefined });
     w.task('a-done-child', { parent: 'a', milestone: null, status: 'Done', isDone: true });
     w.task('b', { status: 'Done', isDone: true });
-    const result = await w.call(markComplete, { milestoneId: w.id('m1'), expectedStatus: 'Building', leftovers: 'archive' });
+    const result = await withWritebackOn(() =>
+      w.call(markComplete, { milestoneId: w.id('m1'), expectedStatus: 'Building', leftovers: 'archive' }),
+    );
     assert.equal(result.leftovers, 'archived');
     assert.equal(typeof w.row('a')?.archivedAt, 'number');
     assert.equal(w.row('a-done-child')?.archivedAt, w.row('a')?.archivedAt);
@@ -291,8 +306,8 @@ describe('milestones.markComplete', () => {
     assert.equal(w.row('a')?.status, 'To Do');
     // One Notion page archive for the task, none for its subtask: the same as archiveTask.
     assert.deepEqual(
-      w.t.runs.map((run) => [run.name, run.args]),
-      [['sync/taskWrite:enqueueArchive', { taskId: w.id('a'), actorId: staffContactId(w.t) }]],
+      w.t.rows('notionOutbox').map((row) => [row.kind, row.notionPageId, row.actorId]),
+      [['task-archive', 'notion-a', staffContactId(w.t)]],
     );
     assert.equal(w.row('m1')?.status, 'Shipped');
   });

@@ -7,7 +7,6 @@
 
 import { ConvexError, v } from 'convex/values';
 import {
-  applyFieldWrite,
   authorizeApiCall,
   bearerToken,
   claimIdempotency,
@@ -21,12 +20,10 @@ import {
   planApiLink,
   planApiLinkPatch,
   planApiTaskCreate,
-  planApiTaskUpdate,
   takeRateLimit,
   taskListPlan,
   unknownFieldError,
   visibilityWriteError,
-  type FieldStamp,
 } from '@warehaus/portal-sync';
 import { internal } from './_generated/api';
 import { GRILLING_INSTRUCTIONS, GRILLING_INSTRUCTIONS_VERSION } from './_lib/grillingInstructions';
@@ -73,6 +70,7 @@ import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
 import { apiStatusFields, apiStatusInput } from './_lib/milestoneStatus';
 import { contextSourceForToken } from './_lib/projectContext';
 import { convexFailureText } from './_lib/userFacingError';
+import { applyTaskChanges, type TaskChange } from './_lib/taskChange';
 
 const PAGE_CAP = 50;
 
@@ -570,96 +568,32 @@ export const updateTask = internalMutation({
     if (!task || !(await orgVisible(ctx, task.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
     }
-    if ((task.lastEditedTime ?? '') !== args.expectedLastEditedTime) {
-      return finishIdempotency(ctx, opened.id, fail(409, 'Notion changed since the last read'));
-    }
-    const planned = planApiTaskUpdate({
-      notionPageId: task.notionPageId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-      ...(args.status !== undefined ? { status: args.status } : {}),
-      ...(args.priority !== undefined ? { priority: args.priority } : {}),
-      ...(args.nextAction !== undefined ? { nextAction: args.nextAction } : {}),
-      ...(args.stage !== undefined
-        ? { stage: args.stage, pullRequestLink: args.pullRequestLink, verifiedMerge: args.verifiedMerge === true }
-        : {}),
-    });
-    if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
-
-    const now = Date.now();
-    const stamps: {
-      status?: FieldStamp;
-      stage?: FieldStamp;
-      priority?: FieldStamp;
-      nextAction?: FieldStamp;
-    } = { ...(task.fieldStamps ?? {}) };
-    const conflicts: string[] = [];
-    const consider = (
-      field: 'status' | 'stage' | 'priority' | 'nextAction',
-      current: string | null,
-      next: string | null,
-    ) => {
-      const decision = applyFieldWrite({
-        field,
-        origin: 'api',
-        currentValue: current,
-        currentStamp: task.fieldStamps?.[field] ?? null,
-        nextValue: next,
-        updatedAt: now,
-        updatedBy: args.tokenName,
-      });
-      if (!decision.apply) conflicts.push(decision.reason);
-      else stamps[field] = decision.stamp;
-    };
-    if (args.status !== undefined) consider('status', task.status, args.status);
-    if (args.priority !== undefined) consider('priority', task.priority ?? null, args.priority);
-    if (args.nextAction !== undefined) consider('nextAction', task.nextAction ?? null, args.nextAction);
-    if (args.stage !== undefined) consider('stage', task.stage ?? null, args.stage);
-    if (conflicts.length > 0) return finishIdempotency(ctx, opened.id, fail(409, conflicts[0]!));
-
-    const fieldWrite = planned.writes.find((write) => write.kind === 'update');
-    const stageWrite = planned.writes.find((write) => write.kind === 'task-stage');
-    if (fieldWrite) {
-      const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
-        idempotencyKey: `api-update:${args.tokenId}:${args.key}`,
-        kind: 'update',
-        orgId: task.orgId,
-        database: 'tasks',
-        notionPageId: task.notionPageId,
-        expectedLastEditedTime: args.expectedLastEditedTime,
-        payload: JSON.stringify({ properties: fieldWrite.properties }),
-        actor: 'staff' as const,
-        actorId: args.tokenName,
-        schedule: true,
-      });
-      if (!queued.ok) return finishIdempotency(ctx, opened.id, fail(400, queued.error));
-    }
-    if (stageWrite && args.stage) {
-      const queued = await ctx.runMutation(internal.sync.taskWrite.enqueueStage, {
-        taskId: task._id,
+    const changes: TaskChange[] = [];
+    if (args.status !== undefined) changes.push({ field: 'status', status: args.status });
+    if (args.priority !== undefined) changes.push({ field: 'priority', priority: args.priority });
+    if (args.nextAction !== undefined) changes.push({ field: 'nextAction', nextAction: args.nextAction });
+    if (args.stage !== undefined) {
+      changes.push({
+        field: 'stage',
         stage: args.stage,
         pullRequestLink: args.pullRequestLink,
-        expectedLastEditedTime: args.expectedLastEditedTime,
-        actorId: args.tokenName,
-        actor: 'staff',
         verifiedMerge: args.verifiedMerge === true,
       });
-      if (!queued.ok) return finishIdempotency(ctx, opened.id, fail(400, queued.error));
     }
-
-    const clear = (value: string | null | undefined) => {
-      const text = value?.trim() ?? '';
-      return text.length > 0 ? text : undefined;
-    };
-    await ctx.db.patch(task._id, {
-      ...(args.status !== undefined ? { status: args.status, isDone: args.status === 'Done' } : {}),
-      ...(args.priority !== undefined ? { priority: clear(args.priority) } : {}),
-      ...(args.nextAction !== undefined ? { nextAction: clear(args.nextAction) } : {}),
-      fieldStamps: stamps,
-      updatedAt: now,
+    const now = Date.now();
+    const result = await applyTaskChanges(ctx, task, changes, {
+      actor: 'api',
+      actorId: args.tokenName,
+      expectedLastEditedTime: args.expectedLastEditedTime,
+      at: now,
     });
+    if (!result.ok) {
+      const status = result.code === 'stale' || result.code === 'conflict' ? 409 : 400;
+      return finishIdempotency(ctx, opened.id, fail(status, result.error, result.code));
+    }
     return finishIdempotency(ctx, opened.id, {
       status: 200,
-      body: { id: task._id, updatedAt: now },
+      body: { id: task._id, updatedAt: result.wrote ? now : task.updatedAt, notion: result.notion },
     });
   },
 });
@@ -1006,7 +940,7 @@ export const addLink = internalMutation({
       if (!patch.ok) return finishIdempotency(ctx, opened.id, fail(400, patch.error));
       const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
         idempotencyKey: `api-link:${args.tokenId}:${args.key}`,
-        kind: 'update',
+        kind: 'task-link',
         orgId: task.orgId,
         database: 'tasks',
         notionPageId: task.notionPageId,

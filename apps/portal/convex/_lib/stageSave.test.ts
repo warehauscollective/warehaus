@@ -1,13 +1,12 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
 import schema from '../schema';
 import { applyOutcome, enqueue } from '../sync/outbox';
 import { processDue } from '../sync/outboxWork';
-import { DRAIN_PENDING_TAKE, drainPendingStages, enqueueStage, enqueueStatus } from '../sync/taskWrite';
+import { DRAIN_PENDING_TAKE, drainPendingStages } from '../sync/taskWrite';
 import { upsertTask } from '../sync/upsert';
 import { detachTask } from '../milestones';
-import { updateLiveFields } from '../tasks';
+import { moveStage, moveStatus, saveShipped, updateLiveFields } from '../tasks';
 import { memoryCtx, type CallOptions, type MemoryCtx, type Respond } from './memoryCtx.testkit';
 import { seedMilestone, seedOrg, seedProject, seedTask } from './seedRows.testkit';
 
@@ -87,48 +86,50 @@ function world() {
   };
 }
 
-describe('taskWriteGuards stage save', () => {
-  it('returns the write-back-off error for a flag-off stage move and writes nothing', async () => {
+describe('staff stage and status save', () => {
+  const staffCall = (w: ReturnType<typeof world>, fn: unknown, args: Fields) => {
+    w.t.actor('staff');
+    return w.call(fn, args, { as: 'staff', respond: w.respond });
+  };
+
+  it('saves a flag-off stage move in the portal with no pending mark and no outbox row', async () => {
     const w = world();
     const taskId = w.task();
-    const before = everything(w.t);
     await withFlag(false, async () => {
-      const result = await w.call(enqueueStage, {
-        taskId,
-        stage: 'Planning',
-        expectedLastEditedTime: STALE,
-        actor: 'staff',
-        actorId: 'contact-staff',
-      });
-      assert.deepEqual(result, { ok: false, error: WRITEBACK_OFF_ERROR });
+      const result = await staffCall(w, moveStage, { taskId, stage: 'Planning', expectedLastEditedTime: TIME });
+      assert.deepEqual(result, { ok: true, wrote: true, notion: 'off', outboxIds: [] });
       const row = w.t.row(taskId);
-      assert.equal(row?.stage, 'Idea');
+      assert.equal(row?.stage, 'Planning');
       assert.equal(row?.stagePendingAt, undefined);
       assert.equal(row?.stageSynced, undefined);
-      assert.equal(row?.stagePendingBaseEditedTime, undefined);
       assert.equal(row?.lastEditedTime, TIME);
       assert.equal(row?.pullRequestUrl, SECRET_PR);
       assert.equal(w.outboxRows().length, 0);
-      assert.deepEqual(everything(w.t), before);
     });
   });
 
-  it('keeps a flag-off status drop as WRITEBACK_OFF_ERROR and does not patch', async () => {
+  it('saves a flag-off status move and schedules nothing', async () => {
     const w = world();
     const taskId = w.task();
-    const before = everything(w.t);
     await withFlag(false, async () => {
-      const result = await w.call(enqueueStatus, {
-        taskId,
-        status: 'To Do',
-        expectedLastEditedTime: TIME,
-      });
-      assert.deepEqual(result, { ok: false, error: WRITEBACK_OFF_ERROR });
-      assert.equal(w.t.row(taskId)?.status, 'Inbox');
-      assert.equal(w.t.row(taskId)?.stagePendingAt, undefined);
+      const result = await staffCall(w, moveStatus, { taskId, status: 'To Do', expectedLastEditedTime: TIME });
+      assert.deepEqual(result, { ok: true, wrote: true, notion: 'off', outboxIds: [] });
+      assert.equal(w.t.row(taskId)?.status, 'To Do');
       assert.equal(w.outboxRows().length, 0);
-      assert.deepEqual(everything(w.t), before);
       assert.equal(w.t.scheduled.length, 0);
+    });
+  });
+
+  it('refuses a stage move against a stale read and writes nothing', async () => {
+    const w = world();
+    const taskId = w.task();
+    w.t.actor('staff');
+    const before = everything(w.t);
+    await withFlag(true, async () => {
+      const result = await staffCall(w, moveStage, { taskId, stage: 'Planning', expectedLastEditedTime: STALE });
+      assert.equal(result.ok, false);
+      assert.equal(result.code, 'stale');
+      assert.deepEqual(everything(w.t), before);
     });
   });
 
@@ -220,23 +221,16 @@ describe('taskWriteGuards stage save', () => {
     });
   });
 
-  it('patches and inserts one task-stage row with the existing key when the flag is on', async () => {
+  it('saves, marks pending, and inserts one task-stage row with the existing key when the flag is on', async () => {
     const w = world();
     const taskId = w.task();
     await withFlag(true, async () => {
-      const result = await w.call(enqueueStage, {
-        taskId,
-        stage: 'Planning',
-        expectedLastEditedTime: STALE,
-        actor: 'staff',
-      });
+      const result = await staffCall(w, moveStage, { taskId, stage: 'Planning', expectedLastEditedTime: TIME });
       assert.equal(result.ok, true);
-      assert.equal(result.pending, true);
-      assert.equal(typeof result.outboxId, 'string');
-      assert.equal(result.duplicate, false);
+      assert.equal(result.notion, 'queued');
       assert.equal(w.outboxRows().length, 1);
       const queued = w.outboxRows()[0];
-      assert.equal(result.outboxId, queued?._id);
+      assert.deepEqual(result.outboxIds, [queued?._id]);
       assert.equal(queued?.kind, 'task-stage');
       assert.equal(queued?.idempotencyKey, `task-stage:page-1:Planning::${TIME}`);
       assert.equal(queued?.expectedLastEditedTime, TIME);
@@ -254,50 +248,14 @@ describe('taskWriteGuards stage save', () => {
     });
   });
 
-  it('writes nothing after two flag-off stage moves', async () => {
-    const w = world();
-    const taskId = w.task();
-    const before = everything(w.t);
-    await withFlag(false, async () => {
-      const first = await w.call(enqueueStage, {
-        taskId,
-        stage: 'Planning',
-        expectedLastEditedTime: TIME,
-        actor: 'staff',
-      });
-      const second = await w.call(enqueueStage, {
-        taskId,
-        stage: 'Parked',
-        expectedLastEditedTime: STALE,
-        actor: 'staff',
-      });
-      assert.deepEqual(first, { ok: false, error: WRITEBACK_OFF_ERROR });
-      assert.deepEqual(second, { ok: false, error: WRITEBACK_OFF_ERROR });
-      assert.equal(w.t.row(taskId)?.stage, 'Idea');
-      assert.equal(w.t.row(taskId)?.stagePendingAt, undefined);
-      assert.equal(w.outboxRows().length, 0);
-      assert.deepEqual(everything(w.t), before);
-    });
-  });
-
   it('clears pending and leaves no row when Undo returns to stageSynced', async () => {
     const w = world();
     const taskId = w.task();
     await withFlag(true, async () => {
-      await w.call(enqueueStage, {
-        taskId,
-        stage: 'Planning',
-        expectedLastEditedTime: TIME,
-        actor: 'staff',
-      });
+      await staffCall(w, moveStage, { taskId, stage: 'Planning', expectedLastEditedTime: TIME });
       assert.equal(w.outboxRows().length, 1);
-      const undone = await w.call(enqueueStage, {
-        taskId,
-        stage: 'Idea',
-        expectedLastEditedTime: TIME,
-        actor: 'staff',
-      });
-      assert.deepEqual(undone, { ok: true, pending: false });
+      const undone = await staffCall(w, moveStage, { taskId, stage: 'Idea', expectedLastEditedTime: TIME });
+      assert.deepEqual(undone, { ok: true, wrote: true, notion: 'portal', outboxIds: [] });
       const row = w.t.row(taskId);
       assert.equal(row?.stage, 'Idea');
       assert.equal(row?.stagePendingAt, undefined);
@@ -307,94 +265,36 @@ describe('taskWriteGuards stage save', () => {
     });
   });
 
-  it('does not patch Building, Shipped, or unstaged rejections', async () => {
+  it('refuses unverified Shipped and an unstaged move outside Idea or Planning, writing nothing', async () => {
     const w = world();
-    const building = w.task();
-    const shipped = w.task({ notionPageId: 'page-2' });
+    const shipped = w.task();
     const unstaged = w.task({ notionPageId: 'page-3', stage: undefined });
+    w.t.actor('staff');
     const before = everything(w.t);
-    await withFlag(false, async () => {
-      const intoBuilding = await w.call(enqueueStage, {
-        taskId: building,
-        stage: 'Building',
-        expectedLastEditedTime: TIME,
-        actor: 'staff',
-      });
-      const intoShipped = await w.call(enqueueStage, {
-        taskId: shipped,
-        stage: 'Shipped',
-        expectedLastEditedTime: TIME,
-        actor: 'staff',
-      });
-      const parked = await w.call(enqueueStage, {
-        taskId: unstaged,
-        stage: 'Parked',
-        expectedLastEditedTime: TIME,
-        actor: 'staff',
-      });
-      assert.equal(intoBuilding.ok, false);
+    await withFlag(true, async () => {
+      const intoShipped = await staffCall(w, moveStage, { taskId: shipped, stage: 'Shipped', pullRequestLink: SECRET_PR, expectedLastEditedTime: TIME });
+      const parked = await staffCall(w, moveStage, { taskId: unstaged, stage: 'Parked', expectedLastEditedTime: TIME });
       assert.equal(intoShipped.ok, false);
       assert.equal(parked.ok, false);
-      assert.equal(w.t.row(building)?.stage, 'Idea');
-      assert.equal(w.t.row(building)?.stagePendingAt, undefined);
-      assert.equal(w.t.row(shipped)?.stage, 'Idea');
-      assert.equal(w.t.row(shipped)?.stagePendingAt, undefined);
-      assert.equal(w.t.row(unstaged)?.stage, undefined);
-      assert.equal(w.t.row(unstaged)?.stagePendingAt, undefined);
-      assert.equal(w.outboxRows().length, 0);
       assert.deepEqual(everything(w.t), before);
     });
   });
 
-  it('enqueues Shipped only after the write verified the merge', async () => {
+  it('queues Shipped once saveShipped carries the verified merge', async () => {
     const w = world();
     const taskId = w.task();
     await withFlag(true, async () => {
-      const unverified = await w.call(enqueueStage, {
+      const verified = await w.call(saveShipped, {
         taskId,
-        stage: 'Shipped',
         pullRequestLink: SECRET_PR,
         expectedLastEditedTime: TIME,
-        actor: 'staff',
-      });
-      assert.equal(unverified.ok, false);
-      assert.equal(w.t.row(taskId)?.stage, 'Idea');
-      assert.equal(w.outboxRows().length, 0);
-      const verified = await w.call(enqueueStage, {
-        taskId,
-        stage: 'Shipped',
-        pullRequestLink: SECRET_PR,
-        expectedLastEditedTime: TIME,
-        actor: 'staff',
-        verifiedMerge: true,
+        actorId: 'contact-staff',
       });
       assert.equal(verified.ok, true);
       const stored = JSON.parse(String(w.outboxRows()[0]?.payload)) as { properties: { Stage: string } };
       assert.equal(stored.properties.Stage, 'Shipped');
       assert.equal(w.outboxRows()[0]?.kind, 'task-stage');
-    });
-  });
-
-  it('does not store a Ready to Ship link when write-back is off', async () => {
-    const w = world();
-    const taskId = w.task();
-    const before = everything(w.t);
-    await withFlag(false, async () => {
-      const denied = await w.call(enqueueStage, {
-        taskId,
-        stage: 'Ready to Ship',
-        pullRequestLink: 'github.com/warehauscollective/warehaus/pull/38',
-        expectedLastEditedTime: TIME,
-        actor: 'staff',
-      });
-      assert.equal(denied.ok, false);
-      assert.equal(denied.error, WRITEBACK_OFF_ERROR);
-      const row = w.t.row(taskId);
-      assert.equal(row?.stage, 'Idea');
-      assert.equal(row?.stagePendingPullRequest, undefined);
-      assert.equal(row?.pullRequestUrl, SECRET_PR);
-      assert.equal(w.outboxRows().length, 0);
-      assert.deepEqual(everything(w.t), before);
+      assert.equal(w.t.row(taskId)?.stagePendingBy, 'contact-staff');
     });
   });
 });
@@ -537,13 +437,14 @@ describe('drain pending stages', () => {
     });
   });
 
-  it('does not drain a stage that was refused while write-back was off', async () => {
+  it('does not drain a stage saved while write-back was off', async () => {
     const w = world();
     const taskId = w.task();
     await withFlag(false, async () => {
-      await w.call(enqueueStage, { taskId, stage: 'Planning', expectedLastEditedTime: TIME, actor: 'staff' });
-      await w.call(enqueueStage, { taskId, stage: 'Parked', expectedLastEditedTime: TIME, actor: 'staff' });
-      assert.equal(w.t.row(taskId)?.stage, 'Idea');
+      w.t.actor('staff');
+      await w.call(moveStage, { taskId, stage: 'Planning', expectedLastEditedTime: TIME }, { as: 'staff', respond: w.respond });
+      assert.equal(w.t.row(taskId)?.stage, 'Planning');
+      assert.equal(w.t.row(taskId)?.stagePendingAt, undefined);
       assert.equal(w.outboxRows().length, 0);
     });
     await withFlag(true, async () => {
