@@ -50,7 +50,8 @@ import { PORTAL_MILESTONE_TASK_SOURCE, plannerDraftToArchive, stageForNewMilesto
 import { loadClaimableTasks, loadMilestoneTaskSet, type LoadedTask } from './_lib/milestoneTaskSet';
 import { PortalAuthError } from './_lib/identity';
 import { adminMutation, adminQuery } from './_lib/wrappers';
-import { runnerName, runnersAllowedFor, type RunnerHealthView } from './_lib/runnerHealth';
+import { runnersAllowedFor, type RunnerHealthView } from './_lib/runnerHealth';
+import { PRODUCTION_DEPLOYMENT } from './_lib/reviewPreview';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { planningRunsInWindow, queuePlanning } from './planningQueue';
 
@@ -1297,9 +1298,10 @@ export const runnerHealth = adminQuery({
     const project = await ctx.db.get(args.projectId);
     if (!project) return null;
     const repo = agentRepo(project.agentRepo);
-    if (!repo) return { repoSet: false, runnerAllowed: false, runners: [], working: null, building: null };
+    const production = (process.env.CONVEX_CLOUD_URL ?? '').includes(PRODUCTION_DEPLOYMENT);
+    if (!repo) return { repoSet: false, repo: null, production, runnerAllowed: false, runners: [], working: null, building: null };
     const ids = runnersAllowedFor(process.env.RUNNER_TOKENS, repo);
-    if (ids.length === 0) return { repoSet: true, runnerAllowed: false, runners: [], working: null, building: null };
+    if (ids.length === 0) return { repoSet: true, repo, production, runnerAllowed: false, runners: [], working: null, building: null };
     const runners: RunnerHealthView['runners'] = [];
     let working: RunnerHealthView['working'] = null;
     for (const id of ids) {
@@ -1307,7 +1309,7 @@ export const runnerHealth = adminQuery({
         .query('agentRunners')
         .withIndex('by_runnerId', (q) => q.eq('runnerId', id))
         .unique();
-      runners.push({ id, name: runnerName(id), lastSeenAt: row?.lastSeenAt ?? null });
+      runners.push({ id, lastSeenAt: row?.lastSeenAt ?? null });
       if (working) continue;
       const runs = await ctx.db
         .query('agentRuns')
@@ -1328,6 +1330,8 @@ export const runnerHealth = adminQuery({
     const held = milestones.find((row) => row.status === 'Building' && row.archivedAt == null);
     return {
       repoSet: true,
+      repo,
+      production,
       runnerAllowed: true,
       runners,
       working,

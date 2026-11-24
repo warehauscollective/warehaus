@@ -38,7 +38,7 @@ describe('runner status fixtures', () => {
 
 describe('runner status chip', () => {
   it('shows the 1440 line for each state', () => {
-    assert.equal(text(chip('ready')), "Runner ready · Peter's Mac · seen 20s ago");
+    assert.equal(text(chip('ready')), 'Runner ready · peter-mbp-prod · seen 4m ago');
     assert.equal(text(chip('working')), 'Runner working · Client experience launch');
     assert.equal(text(chip('offline')), 'Runner offline · last seen 2h ago');
     assert.equal(text(chip('offline-building')), 'Runner offline · Client experience launch');
@@ -76,19 +76,19 @@ describe('runner status modal body', () => {
   it('shows the fields and helper for each state', () => {
     assert.equal(
       text(body('ready')),
-      "Runner ready RUNNER Peter's Mac LAST SEEN 20s ago MILESTONE — The runner will start an agent when a milestone moves to Building.",
+      'Runner ready RUNNER peter-mbp-prod LAST SEEN 4m ago MILESTONE — The runner will start an agent when a milestone moves to Building.',
     );
     assert.equal(
       text(body('working')),
-      "Runner working RUNNER Peter's Mac LAST SEEN 20s ago MILESTONE Client experience launch The runner is working on this milestone.",
+      'Runner working RUNNER peter-mbp-prod LAST SEEN 4m ago MILESTONE Client experience launch The runner is working on this milestone.',
     );
     assert.equal(
       text(body('offline')),
-      "Runner offline RUNNER Peter's Mac LAST SEEN 2h ago MILESTONE — Your Mac is asleep or the runner is off. Moving a milestone to Building won't start an agent.",
+      "Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE — START COMMAND npm run runner -- start --production --id peter-mbp-prod --repo warehauscollective/warehaus No runner serving this repository has been seen in the last 10 minutes. Moving a milestone to Building won't start an agent until one is running.",
     );
     assert.equal(
       text(body('offline-building')),
-      "Runner offline RUNNER Peter's Mac LAST SEEN 2h ago MILESTONE Client experience launch Client experience launch is Building and waiting for the runner.",
+      'Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE Client experience launch START COMMAND npm run runner -- start --production --id peter-mbp-prod --repo warehauscollective/warehaus Client experience launch is Building and waiting for the runner. Start it to pick the milestone up.',
     );
     assert.equal(
       text(body('no-repo')),

@@ -1,23 +1,18 @@
 /**
  * Runner health for the staff chip on the project page. Pure. No Convex
- * imports. Nothing here returns a runner token: only ids and display names.
+ * imports. Nothing here returns a runner token: only runner ids.
+ *
+ * ADR-0005: online means a runner serving the project's repository was seen
+ * in the last 10 minutes. The modal names the runner by its id and, when no
+ * runner is online, gives the start command.
  */
 
 import { agentRepo, parseRunnerTokens } from './agentRun';
 
 /** A runner seen inside this window reads as Ready. After it, Offline. */
-export const RUNNER_READY_WITHIN_MS = 2 * 60_000;
+export const RUNNER_READY_WITHIN_MS = 10 * 60_000;
 /** Runners one project read looks at. */
 export const RUNNER_HEALTH_MAX_RUNNERS = 10;
-
-/** Display names by runner id. Not a secret. An id with no entry shows as the id. */
-export const RUNNER_NAMES: Readonly<Record<string, string>> = {
-  'peter-mbp': "Peter's Mac",
-};
-
-export function runnerName(runnerId: string): string {
-  return RUNNER_NAMES[runnerId] ?? runnerId;
-}
 
 /**
  * Ids of the runners in `RUNNER_TOKENS` that may serve this repository.
@@ -34,12 +29,16 @@ export function runnersAllowedFor(configured: string | null | undefined, project
   return ids;
 }
 
-export type RunnerHealthRunner = { id: string; name: string; lastSeenAt: number | null };
+export type RunnerHealthRunner = { id: string; lastSeenAt: number | null };
 export type RunnerHealthMilestone = { milestoneId: string; milestoneName: string };
 
 /** What the staff query returns for one project. */
 export type RunnerHealthView = {
   repoSet: boolean;
+  /** The project's repository, `owner/name`, when set. */
+  repo: string | null;
+  /** True on the production deployment, where the runner needs `--production`. */
+  production: boolean;
   runnerAllowed: boolean;
   runners: RunnerHealthRunner[];
   /** The milestone a runner is on right now, for this project. */
@@ -106,10 +105,17 @@ export type RunnerHealthCopy = {
   /** Text after the label on the 1440 chip. On `no-repo` it is the Add repo link. */
   meta: string;
   runner: string;
+  /** Only while no runner is online: the command that starts one for this repository. */
+  startCommand: string | null;
   lastSeen: string;
   milestone: string;
   helper: string;
 };
+
+/** The command that starts a runner serving `repo`, as a staff member types it on the runner's Mac. */
+export function runnerStartCommand(runnerId: string, repo: string, production: boolean): string {
+  return `npm run runner -- start${production ? ' --production' : ''} --id ${runnerId} --repo ${repo}`;
+}
 
 /** Every string the chip and the modal show for one state. */
 export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHealthCopy {
@@ -126,6 +132,7 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
       dot: 'unset',
       meta: RUNNER_ADD_REPO,
       runner: RUNNER_EMPTY,
+      startCommand: null,
       lastSeen: RUNNER_EMPTY,
       milestone: RUNNER_EMPTY,
       helper: 'This project has no GitHub repo. Add a repo before the runner can start an agent.',
@@ -137,15 +144,17 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
       dot: 'unset',
       meta: 'No runner allowed',
       runner: RUNNER_EMPTY,
+      startCommand: null,
       lastSeen: RUNNER_EMPTY,
       milestone: RUNNER_EMPTY,
       helper: 'No runner is allowed for this project.',
     };
   }
   const runner = latestRunner(view.runners);
-  const name = runner?.name ?? RUNNER_EMPTY;
+  const name = runner?.id ?? RUNNER_EMPTY;
   const seen = runner?.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now) : null;
-  const fields = { runner: name, lastSeen: seen ?? RUNNER_EMPTY };
+  const fields = { runner: name, lastSeen: seen ?? RUNNER_EMPTY, startCommand: null };
+  const startCommand = runner && view.repo ? runnerStartCommand(runner.id, view.repo, view.production) : null;
   if (state === 'working') {
     const milestone = view.working?.milestoneName ?? RUNNER_EMPTY;
     return { ...base, ...fields, dot: 'warning', meta: milestone, milestone, helper: 'The runner is working on this milestone.' };
@@ -166,18 +175,20 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
       ...base,
       ...fields,
       dot: 'warning',
+      startCommand,
       meta: milestone,
       milestone,
-      helper: `${milestone} is Building and waiting for the runner.`,
+      helper: `${milestone} is Building and waiting for the runner. Start it to pick the milestone up.`,
     };
   }
   return {
     ...base,
     ...fields,
     dot: 'offline',
+    startCommand,
     meta: seen ? `last seen ${seen}` : RUNNER_NOT_SEEN,
     milestone: RUNNER_EMPTY,
-    helper: "Your Mac is asleep or the runner is off. Moving a milestone to Building won't start an agent.",
+    helper: "No runner serving this repository has been seen in the last 10 minutes. Moving a milestone to Building won't start an agent until one is running.",
   };
 }
 

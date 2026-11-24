@@ -252,7 +252,7 @@ export function idleDelayMs(emptyPolls) {
   return Math.min(5 * 60_000, 60_000 * 2 ** Math.min(Math.max(emptyPolls - 1, 0), 3));
 }
 
-/** How often an idle runner pings, so the Portal chip keeps reading Ready (seen within 2 minutes). */
+/** How often an idle runner pings, so the Portal chip keeps reading Ready (seen within the last 10 minutes). */
 export const HEARTBEAT_MS = 75_000;
 
 /**

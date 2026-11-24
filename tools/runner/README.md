@@ -61,7 +61,7 @@ npm run runner -- start --id peter-mbp --repo warehauscollective/warehaus
 - `--once` does one piece of work and exits.
 - `--dir <path>` points at the checkout when you are not in it.
 
-With nothing to do, the runner waits one minute, then longer, up to five minutes between checks. During a longer wait it calls `POST /agent/ping` every 75 seconds. The ping claims nothing: it only tells the Portal the runner is alive, so the runner status chip on the project page reads Ready (seen within 2 minutes).
+With nothing to do, the runner waits one minute, then longer, up to five minutes between checks. During a longer wait it calls `POST /agent/ping` every 75 seconds. The ping claims nothing: it only tells the Portal the runner is alive, so the runner status chip on the project page reads Ready (seen within the last 10 minutes, ADR-0005).
 
 ## Try it end to end
 

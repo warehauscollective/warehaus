@@ -413,11 +413,12 @@ describe('who can read agent tables', () => {
     // Every other function is internal, so only the runner routes reach it.
     for (const [name, fn] of functions) assert.equal(fn.isPublic === true || fn.isInternal === true, true, name);
     const t = memoryCtx();
-    const { milestoneId } = building(t);
+    const { milestoneId, projectId } = building(t);
     for (const name of publicNames) {
       const fn = (agentModule as Record<string, unknown>)[name];
-      await assert.rejects(t.call(fn, { milestoneId }, { as: 'client' }), PortalAuthError, `${name} as client`);
-      await assert.rejects(t.call(fn, { milestoneId }), PortalAuthError, `${name} signed out`);
+      const args = name === 'runnerHealth' ? { projectId } : { milestoneId };
+      await assert.rejects(t.call(fn, args, { as: 'client' }), PortalAuthError, `${name} as client`);
+      await assert.rejects(t.call(fn, args), PortalAuthError, `${name} signed out`);
     }
   });
 

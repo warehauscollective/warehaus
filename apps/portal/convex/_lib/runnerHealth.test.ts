@@ -9,7 +9,7 @@ import {
   latestRunner,
   runnerHealthCopy,
   runnerHealthState,
-  runnerName,
+  runnerStartCommand,
   runnersAllowedFor,
   type RunnerHealthView,
 } from './runnerHealth';
@@ -25,8 +25,10 @@ const LAUNCH = { milestoneId: 'm1', milestoneName: 'Client experience launch' };
 function view(patch: Partial<RunnerHealthView> = {}): RunnerHealthView {
   return {
     repoSet: true,
+    repo: 'warehauscollective/warehaus',
+    production: true,
     runnerAllowed: true,
-    runners: [{ id: 'peter-mbp', name: "Peter's Mac", lastSeenAt: NOW - 20_000 }],
+    runners: [{ id: 'peter-mbp-prod', lastSeenAt: NOW - 4 * 60_000 }],
     working: null,
     building: null,
     ...patch,
@@ -87,18 +89,25 @@ describe('runners allowed for a project', () => {
     assert.equal(out.includes(TOKEN_A) || out.includes(TOKEN_B), false);
   });
 
-  it('names a known runner and falls back to the id', () => {
-    assert.equal(runnerName('peter-mbp'), "Peter's Mac");
-    assert.equal(runnerName('studio-mini'), 'studio-mini');
+  it('builds the start command, with --production only on production', () => {
+    assert.equal(
+      runnerStartCommand('peter-mbp-prod', 'warehauscollective/warehaus', true),
+      'npm run runner -- start --production --id peter-mbp-prod --repo warehauscollective/warehaus',
+    );
+    assert.equal(
+      runnerStartCommand('peter-mbp', 'warehauscollective/warehaus', false),
+      'npm run runner -- start --id peter-mbp --repo warehauscollective/warehaus',
+    );
   });
 });
 
 describe('runner health state', () => {
-  it('is Ready when seen within two minutes, Offline after', () => {
+  it('is Ready when seen within ten minutes, Offline after', () => {
+    assert.equal(RUNNER_READY_WITHIN_MS, 10 * 60_000);
     assert.equal(runnerHealthState(view(), NOW), 'ready');
-    assert.equal(runnerHealthState(view(), NOW + RUNNER_READY_WITHIN_MS - 20_001), 'ready');
-    assert.equal(runnerHealthState(view(), NOW + RUNNER_READY_WITHIN_MS - 20_000), 'offline');
-    assert.equal(runnerHealthState(view({ runners: [{ id: 'peter-mbp', name: "Peter's Mac", lastSeenAt: null }] }), NOW), 'offline');
+    assert.equal(runnerHealthState(view(), NOW + RUNNER_READY_WITHIN_MS - 4 * 60_000 - 1), 'ready');
+    assert.equal(runnerHealthState(view(), NOW + RUNNER_READY_WITHIN_MS - 4 * 60_000), 'offline');
+    assert.equal(runnerHealthState(view({ runners: [{ id: 'peter-mbp-prod', lastSeenAt: null }] }), NOW), 'offline');
   });
 
   it('is Working while a run is in progress, whatever else is true', () => {
@@ -120,9 +129,9 @@ describe('runner health state', () => {
 
   it('goes by the runner seen most recently', () => {
     const runners = [
-      { id: 'studio-mini', name: 'studio-mini', lastSeenAt: NOW - 3 * 60 * 60_000 },
-      { id: 'peter-mbp', name: "Peter's Mac", lastSeenAt: NOW - 20_000 },
-      { id: 'spare', name: 'spare', lastSeenAt: null },
+      { id: 'studio-mini', lastSeenAt: NOW - 3 * 60 * 60_000 },
+      { id: 'peter-mbp', lastSeenAt: NOW - 20_000 },
+      { id: 'spare', lastSeenAt: null },
     ];
     assert.equal(latestRunner(runners)?.id, 'peter-mbp');
     assert.equal(runnerHealthState(view({ runners }), NOW), 'ready');
@@ -133,10 +142,10 @@ describe('runner health state', () => {
 describe('runner health copy', () => {
   it('matches the frames for each state', () => {
     const ready = runnerHealthCopy(view(), NOW);
-    assert.equal(`${ready.label} · ${ready.meta}`, "Runner ready · Peter's Mac · seen 20s ago");
+    assert.equal(`${ready.label} · ${ready.meta}`, 'Runner ready · peter-mbp-prod · seen 4m ago');
     assert.deepEqual(
-      [ready.compactLabel, ready.dot, ready.runner, ready.lastSeen, ready.milestone, ready.helper],
-      ['Ready', 'ready', "Peter's Mac", '20s ago', '—', 'The runner will start an agent when a milestone moves to Building.'],
+      [ready.compactLabel, ready.dot, ready.runner, ready.lastSeen, ready.milestone, ready.startCommand, ready.helper],
+      ['Ready', 'ready', 'peter-mbp-prod', '4m ago', '—', null, 'The runner will start an agent when a milestone moves to Building.'],
     );
 
     const working = runnerHealthCopy(view({ working: LAUNCH }), NOW);
@@ -146,19 +155,37 @@ describe('runner health copy', () => {
       ['Working', 'warning', false, 'Client experience launch', 'The runner is working on this milestone.'],
     );
 
-    const late = NOW + 2 * 60 * 60_000 - 20_000;
+    const late = NOW + 2 * 60 * 60_000 - 4 * 60_000;
+    const command = 'npm run runner -- start --production --id peter-mbp-prod --repo warehauscollective/warehaus';
     const offline = runnerHealthCopy(view(), late);
     assert.equal(`${offline.label} · ${offline.meta}`, 'Runner offline · last seen 2h ago');
     assert.deepEqual(
-      [offline.compactLabel, offline.dot, offline.warning, offline.lastSeen, offline.milestone, offline.helper],
-      ['Offline', 'offline', false, '2h ago', '—', "Your Mac is asleep or the runner is off. Moving a milestone to Building won't start an agent."],
+      [offline.compactLabel, offline.dot, offline.warning, offline.runner, offline.lastSeen, offline.milestone, offline.startCommand, offline.helper],
+      [
+        'Offline',
+        'offline',
+        false,
+        'peter-mbp-prod',
+        '2h ago',
+        '—',
+        command,
+        "No runner serving this repository has been seen in the last 10 minutes. Moving a milestone to Building won't start an agent until one is running.",
+      ],
     );
 
     const held = runnerHealthCopy(view({ building: LAUNCH }), late);
     assert.equal(`${held.label} · ${held.meta}`, 'Runner offline · Client experience launch');
     assert.deepEqual(
-      [held.compactLabel, held.dot, held.warning, held.lastSeen, held.milestone, held.helper],
-      ['Offline', 'warning', true, '2h ago', 'Client experience launch', 'Client experience launch is Building and waiting for the runner.'],
+      [held.compactLabel, held.dot, held.warning, held.lastSeen, held.milestone, held.startCommand, held.helper],
+      [
+        'Offline',
+        'warning',
+        true,
+        '2h ago',
+        'Client experience launch',
+        command,
+        'Client experience launch is Building and waiting for the runner. Start it to pick the milestone up.',
+      ],
     );
 
     const noRepo = runnerHealthCopy(view({ repoSet: false, runnerAllowed: false, runners: [] }), NOW);
@@ -174,8 +201,11 @@ describe('runner health copy', () => {
   });
 
   it('says so when an allowed runner has never called', () => {
-    const never = runnerHealthCopy(view({ runners: [{ id: 'peter-mbp', name: "Peter's Mac", lastSeenAt: null }] }), NOW);
-    assert.deepEqual([never.state, never.meta, never.lastSeen], ['offline', 'not seen yet', '—']);
+    const never = runnerHealthCopy(view({ runners: [{ id: 'peter-mbp', lastSeenAt: null }], production: false }), NOW);
+    assert.deepEqual(
+      [never.state, never.meta, never.lastSeen, never.startCommand],
+      ['offline', 'not seen yet', '—', 'npm run runner -- start --id peter-mbp --repo warehauscollective/warehaus'],
+    );
   });
 
   it('formats relative times', () => {

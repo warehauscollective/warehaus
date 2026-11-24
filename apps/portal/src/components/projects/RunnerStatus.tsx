@@ -23,6 +23,7 @@ import { useMaxWidth } from '@/lib/design/useMaxWidth';
 export const RUNNER_CLOCK_MS = 20_000;
 
 const FIXTURE_MILESTONE = { milestoneId: 'm-launch', milestoneName: 'Client experience launch' };
+const FIXTURE_REPO = 'warehauscollective/warehaus';
 
 /** `?runner=` on a fixture preview. Anything else reads as Ready, the state on the project frames. */
 export function runnerFixtureState(value: string | null | undefined): RunnerHealthState {
@@ -31,13 +32,15 @@ export function runnerFixtureState(value: string | null | undefined): RunnerHeal
 
 /** Fixture data for one state. Times are offsets from `now`, so the copy matches the frames. */
 export function runnerHealthFixture(state: RunnerHealthState, now: number): RunnerHealthView {
-  if (state === 'no-repo') return { repoSet: false, runnerAllowed: false, runners: [], working: null, building: null };
-  if (state === 'no-runner') return { repoSet: true, runnerAllowed: false, runners: [], working: null, building: null };
+  if (state === 'no-repo') return { repoSet: false, repo: null, production: true, runnerAllowed: false, runners: [], working: null, building: null };
+  if (state === 'no-runner') return { repoSet: true, repo: FIXTURE_REPO, production: true, runnerAllowed: false, runners: [], working: null, building: null };
   const fresh = state === 'ready' || state === 'working';
   return {
     repoSet: true,
+    repo: FIXTURE_REPO,
+    production: true,
     runnerAllowed: true,
-    runners: [{ id: 'peter-mbp', name: "Peter's Mac", lastSeenAt: now - (fresh ? 20_000 : 2 * 60 * 60_000) }],
+    runners: [{ id: 'peter-mbp-prod', lastSeenAt: now - (fresh ? 4 * 60_000 : 2 * 60 * 60_000) }],
     working: state === 'working' ? FIXTURE_MILESTONE : null,
     building: state === 'offline-building' ? FIXTURE_MILESTONE : null,
   };
@@ -169,18 +172,23 @@ export function RunnerStatusChip({
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
   return (
     <div className="flex flex-col" style={{ gap: 4 }}>
       <span className="ds-mono" style={{ fontSize: 10, lineHeight: 'normal', color: 'var(--muted)' }}>
         {label}
       </span>
-      <span style={{ fontSize: 14, lineHeight: 'normal', color: 'var(--fg)', overflowWrap: 'anywhere' }}>{value}</span>
+      <span
+        className={mono ? 'ds-mono' : undefined}
+        style={{ fontSize: mono ? 12 : 14, lineHeight: mono ? '18px' : 'normal', color: 'var(--fg)', overflowWrap: 'anywhere', userSelect: mono ? 'all' : undefined }}
+      >
+        {value}
+      </span>
     </div>
   );
 }
 
-/** Modal content: status, the three fields, and the helper line. */
+/** Modal content: status, the fields, the start command while offline, and the helper line. */
 export function RunnerStatusBody({ copy }: { copy: RunnerHealthCopy }) {
   const tone = copy.warning ? 'var(--warning)' : undefined;
   return (
@@ -193,6 +201,7 @@ export function RunnerStatusBody({ copy }: { copy: RunnerHealthCopy }) {
         <Field label="RUNNER" value={copy.runner} />
         <Field label="LAST SEEN" value={copy.lastSeen} />
         <Field label="MILESTONE" value={copy.milestone} />
+        {copy.startCommand ? <Field label="START COMMAND" value={copy.startCommand} mono /> : null}
       </div>
       <p data-testid="runner-status-helper" style={{ margin: 0, fontSize: 14, lineHeight: 'normal', color: tone ?? 'var(--muted)' }}>
         {copy.helper}
