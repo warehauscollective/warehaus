@@ -496,6 +496,9 @@ export const applyOutcome = internalMutation({
     };
 
     if (args.outcome.kind === 'wait') return;
+    // ADR-0003: a task change is already saved in the portal and is not rolled
+    // back, so every failed task write tells staff.
+    const savedTaskChange = row.database === 'tasks' && row.kind !== 'create';
 
     const releaseHeldInvite = async () => {
       if (row.kind !== 'setInviteState') return;
@@ -504,7 +507,7 @@ export const applyOutcome = internalMutation({
 
     if (args.outcome.kind === 'dead') {
       await ctx.db.patch(row._id, { status: 'dead', lastError: args.outcome.error, claimedAt: undefined });
-      if (args.outcome.notifyStaff) {
+      if (args.outcome.notifyStaff || savedTaskChange) {
         await notify(`${await noticeSubject(ctx, row)} could not be saved to Notion`, 'sync');
       }
       await releaseHeldInvite();
@@ -537,6 +540,8 @@ export const applyOutcome = internalMutation({
       });
       if (isMissingPropertyRejection(args.outcome.reason)) {
         await notify(`${await noticeSubject(ctx, row)}: ${args.outcome.reason}`, 'missing-property');
+      } else if (savedTaskChange) {
+        await notify(`${await noticeSubject(ctx, row)} was saved in the portal but Notion refused it`, 'sync');
       }
       await releaseHeldInvite();
       return;
@@ -604,6 +609,7 @@ export const applyOutcome = internalMutation({
               stagePendingAt: undefined,
               stagePendingBaseEditedTime: undefined,
               stagePendingPullRequest: undefined,
+              stagePendingBy: undefined,
               ...(isNewerEditedTime(responseTime, task.lastEditedTime ?? null) && responseTime
                 ? { lastEditedTime: responseTime }
                 : {}),
@@ -615,6 +621,18 @@ export const applyOutcome = internalMutation({
             });
           }
         }
+      }
+    }
+    // ADR-0003: every confirmed task write moves the task's last edit time
+    // forward, so the next portal change is checked against Notion's newest edit.
+    if (row.database === 'tasks' && row.kind !== 'create' && row.notionPageId && args.outcome.lastEditedTime) {
+      const responseTime = args.outcome.lastEditedTime;
+      const task = await ctx.db
+        .query('tasks')
+        .withIndex('by_notionPageId', (q) => q.eq('notionPageId', row.notionPageId!))
+        .unique();
+      if (task && isNewerEditedTime(responseTime, task.lastEditedTime ?? null)) {
+        await ctx.db.patch(task._id, { lastEditedTime: responseTime });
       }
     }
     if (row.kind === 'create' && row.database === 'tasks') {

@@ -524,7 +524,7 @@ describe('applyOutcome task-stage', () => {
     assert.equal(row?.stageSynced, 'Idea');
     assert.equal(row?.stagePendingAt, 10);
     assert.equal(row?.stagePendingBaseEditedTime, NEWER);
-    assert.equal(row?.lastEditedTime, TIME);
+    assert.equal(row?.lastEditedTime, NEWER, "every confirmed write moves the last edit time (ADR-0003)");
     assert.equal(row?.pullRequestUrl, SECRET_PR);
   });
 

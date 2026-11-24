@@ -9,6 +9,7 @@ import { v } from 'convex/values';
 import { internalMutation } from '../_generated/server';
 import type { Doc, Id } from '../_generated/dataModel';
 import { updateTask } from '../portalApi';
+import { applyOutcome } from '../sync/outbox';
 import { drainPendingStages } from '../sync/taskWrite';
 import { SnapshotLog, parkTask, restoreTaskSnapshots, type TaskSnapshot } from './closeoutStore';
 import { memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
@@ -242,5 +243,65 @@ describe('pending-stage drain', () => {
       assert.equal(row?.actorId, 'contacts:staff');
       assert.deepEqual(w.t.reads.unbounded(), []);
     });
+  });
+});
+
+describe('confirms', () => {
+  const NEWER = '2026-11-21T09:00:00.000Z';
+  const queuedRow = (w: ReturnType<typeof world>, kind: string, properties: Record<string, unknown>) =>
+    w.t.seed('notionOutbox', {
+      idempotencyKey: `${kind}:page-1`,
+      kind,
+      orgId: w.orgId,
+      database: 'tasks',
+      notionPageId: 'page-1',
+      expectedLastEditedTime: TIME,
+      payload: JSON.stringify({ properties }),
+      actor: 'staff',
+      status: 'inflight',
+      attempts: 1,
+      nextAttemptAt: 0,
+      createdAt: 0,
+    });
+  const confirm = (w: ReturnType<typeof world>, id: string, lastEditedTime: string, properties: Record<string, unknown>) =>
+    w.t.call(applyOutcome, {
+      id,
+      outcome: { kind: 'confirmed', notionPageId: 'page-1', lastEditedTime, propertiesJson: JSON.stringify(properties), reused: false },
+    });
+
+  for (const [kind, properties] of [
+    ['task-status', { Status: 'Done' }],
+    ['task-fields', { Priority: 'High' }],
+    ['task-date', { Date: '2026-12-24' }],
+    ['task-description', { Description: 'New' }],
+    ['task-resources', { Resources: ['r1'] }],
+  ] as const) {
+    it(`a confirmed ${kind} write moves the last edit time forward, never back`, async () => {
+      const w = world();
+      await confirm(w, queuedRow(w, kind, properties), NEWER, properties);
+      assert.equal(w.task().lastEditedTime, NEWER);
+      await confirm(w, queuedRow(w, kind, properties), TIME, properties);
+      assert.equal(w.task().lastEditedTime, NEWER);
+    });
+  }
+
+  it('a confirmed stage write clears the pending move and who made it', async () => {
+    const w = world({ stage: 'Planning', stageSynced: 'Building', stagePendingAt: 1, stagePendingBaseEditedTime: TIME, stagePendingBy: 'contacts:staff' });
+    await confirm(w, queuedRow(w, 'task-stage', { Stage: 'Planning' }), NEWER, { Stage: 'Planning' });
+    const task = w.task();
+    assert.deepEqual([task.stageSynced, task.stagePendingAt, task.stagePendingBy, task.lastEditedTime], ['Planning', undefined, undefined, NEWER]);
+  });
+
+  it('tells staff when a saved task change dies or Notion refuses it, and keeps the portal value', async () => {
+    const w = world({ priority: 'High' });
+    const notices = () => w.t.runs.filter((run) => run.name === 'invitesSync:recordStaffNotice');
+    const dead = queuedRow(w, 'task-fields', { Priority: 'High' });
+    await w.t.call(applyOutcome, { id: dead, outcome: { kind: 'dead', notifyStaff: false, error: 'boom' } }, { respond: () => ({ inserted: true }) });
+    assert.equal(notices().length, 1);
+    const refused = queuedRow(w, 'task-status', { Status: 'Done' });
+    await w.t.call(applyOutcome, { id: refused, outcome: { kind: 'rejected', reason: 'Invalid select option' } }, { respond: () => ({ inserted: true }) });
+    assert.equal(notices().length, 2);
+    assert.match(String(notices()[1]?.args.message), /saved in the portal but Notion refused it/);
+    assert.equal(w.task().priority, 'High');
   });
 });
