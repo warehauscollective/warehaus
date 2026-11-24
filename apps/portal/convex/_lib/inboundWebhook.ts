@@ -5,6 +5,7 @@
  */
 
 import { applyFieldWrite, type FieldStamp } from '@warehaus/portal-sync';
+import { MILESTONE_BRANCH, isMilestoneBranch } from '@warehaus/runner-protocol';
 import { timingSafeEqualUtf8 } from './constantTime';
 
 export const INBOUND_MAX_BODY_BYTES = 1_048_576;
@@ -58,11 +59,7 @@ export type InboundItem = {
 };
 
 /** `milestone/<slug>`, the one branch a milestone is built on. */
-export const MILESTONE_BRANCH = /^milestone\/[a-z0-9][a-z0-9-]{0,47}$/;
-
-export function isMilestoneBranch(value: unknown): value is string {
-  return typeof value === 'string' && MILESTONE_BRANCH.test(value);
-}
+export { MILESTONE_BRANCH, isMilestoneBranch };
 
 /**
  * Vercel's stable URL for a branch of the portal project. It keeps pointing

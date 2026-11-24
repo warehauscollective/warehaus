@@ -8,6 +8,7 @@
 //   node tools/runner/src/hook.mjs PostToolUse
 
 import { hookEvent } from './lib.mjs';
+import { runnerClient } from '../../../packages/runner-protocol/index.mjs';
 
 const kind = process.argv[2] ?? '';
 const { PORTAL_AGENT_URL: url, RUNNER_TOKEN: token, RUNNER_ID: runnerId, AGENT_RUN_ID: runId } = process.env;
@@ -24,23 +25,8 @@ async function main() {
   }
   const event = hookEvent(kind, payload);
   if (!event) return;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 4000);
-  try {
-    await fetch(`${url.replace(/\/+$/, '')}/agent/events`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: {
-        authorization: `Bearer ${token}`,
-        'x-runner-id': runnerId,
-        'content-type': 'application/json',
-      },
-      // Only the summary is sent. The raw hook payload stays on this machine.
-      body: JSON.stringify({ runId, type: event.type, summary: event.summary }),
-    });
-  } finally {
-    clearTimeout(timer);
-  }
+  // Only the summary is sent. The raw hook payload stays on this machine.
+  await runnerClient({ url, token, runnerId, timeoutMs: 4000 }).event({ runId, type: event.type, summary: event.summary });
 }
 
 main().catch(() => undefined).finally(() => process.exit(0));

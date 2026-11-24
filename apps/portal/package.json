@@ -24,6 +24,7 @@
     "@vercel/blob": "^2.6.1",
     "@warehaus/logic": "*",
     "@warehaus/portal-sync": "*",
+    "@warehaus/runner-protocol": "*",
     "@warehaus/tokens": "*",
     "@warehaus/ui": "*",
     "better-auth": "~1.6.15",

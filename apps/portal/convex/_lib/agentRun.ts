@@ -5,6 +5,7 @@
  * model call: the runner only starts the official `claude` binary.
  */
 
+import { COMPLETE_STATUSES, type CompleteStatus } from '@warehaus/runner-protocol';
 import { isBlockedTask } from './milestoneTasks';
 import { timingSafeEqualUtf8 } from './constantTime';
 
@@ -364,8 +365,7 @@ export function cursorAgentToResume<T extends LeaseRun & { externalUrl?: string 
   return { externalId: latest.externalId, externalUrl: latest.externalUrl ?? null };
 }
 
-export const COMPLETE_STATUSES = ['done', 'blocked', 'failed'] as const;
-export type CompleteStatus = (typeof COMPLETE_STATUSES)[number];
+export { COMPLETE_STATUSES, type CompleteStatus };
 export const COMPLETE_STATUS_INVALID = 'Status must be done, blocked, or failed';
 export const BLOCKED_NEEDS_REASON = 'Say what the task is blocked on';
 export const COMMIT_SHA_INVALID = 'Commit must be a git SHA';
