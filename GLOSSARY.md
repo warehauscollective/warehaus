@@ -61,8 +61,12 @@ _Avoid_: published, client-safe, public
 ## Runner
 
 **Runner**:
-The program on a staff Mac that takes milestone work from the Portal and hands it to an agent. A runner serves only the repositories it names, and a project only gets runner work when it names its repository.
+The program on a staff Mac that takes milestone work from the Portal and hands it to an agent. A registered runner serves every project that names a repository it can reach, and works only in its own copy of that repository. A project gets no runner work until it names its repository.
 _Avoid_: bot, worker, agent
+
+**Runner registration**:
+A runner that staff set up for one deployment from the Portal. It has an id and a secret shown once. A runner is allowed only while it is registered; revoking it stops it at once.
+_Avoid_: runner token, runner allowlist
 
 **Planning run**:
 A read-only run that reads a milestone and its repository and drafts 3 to 10 tasks for staff to review. It never changes code and always uses Claude Code.
