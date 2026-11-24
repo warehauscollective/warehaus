@@ -17,6 +17,9 @@
 import {
   NEXT_ACTION_MAX,
   isTaskStage,
+  notionStage,
+  stageMoved,
+  type StageMoveResult,
   notionOnlyStageReason,
   planTaskDescriptionWrite,
   planTaskLiveFieldsWrite,
@@ -360,16 +363,24 @@ export async function applyTaskChanges(
   const writeBack = notionBacked && writes.length > 0;
   const allowed = writeBack && writebackAllowed();
 
-  // The stage move goes back to the stage Notion already has: drop the pending move instead of writing.
-  let stageSettles = false;
-  if (allowed && stageMove) {
-    const pending = typeof task.stagePendingAt === 'number';
-    const synced = pending ? (task.stageSynced ?? null) : (typeof task.stage === 'string' ? task.stage : null);
-    if (stageMove.stage === synced) {
-      const rows = await recentPageRows(ctx, task.notionPageId);
-      stageSettles = !rows.some((row) => row.kind === 'task-stage' && row.status === 'inflight');
-    }
+  // Stage sync decides the pending stage: a move back onto Notion's own stage settles instead of writing.
+  let stageResult: StageMoveResult | null = null;
+  if (stageMove) {
+    const inflight =
+      allowed && stageMove.stage === notionStage(task)
+        ? (await recentPageRows(ctx, task.notionPageId)).some((row) => row.kind === 'task-stage' && row.status === 'inflight')
+        : false;
+    stageResult = stageMoved(task, {
+      stage: stageMove.stage,
+      pullRequestLink: stageMove.pullRequestLink,
+      base,
+      at,
+      actorId: options.actorId,
+      writesBack: allowed,
+      inflight,
+    });
   }
+  const stageSettles = stageResult?.settles === true;
   const queued = allowed ? writes.filter((write) => !(stageSettles && write.kind === 'task-stage')) : [];
 
   // Last check before writing: an earlier write under the same key that Notion refused.
@@ -383,30 +394,11 @@ export async function applyTaskChanges(
   // Writes start here. Nothing below returns a refusal.
   const fieldStamps: TaskFieldStamps = { ...(task.fieldStamps ?? {}) };
   for (const field of stamped) fieldStamps[field] = stamp;
-  const stagePatch: Partial<Doc<'tasks'>> = {};
-  if (stageMove && allowed) {
-    if (stageSettles) {
-      Object.assign(stagePatch, {
-        stagePendingAt: undefined,
-        stagePendingBaseEditedTime: undefined,
-        stagePendingPullRequest: undefined,
-        stagePendingBy: undefined,
-      });
-    } else {
-      const pending = typeof task.stagePendingAt === 'number';
-      Object.assign(stagePatch, {
-        stagePendingAt: pending ? task.stagePendingAt : at,
-        stagePendingBaseEditedTime: base,
-        ...(pending ? {} : { stageSynced: typeof task.stage === 'string' && task.stage ? task.stage : null }),
-        stagePendingPullRequest: stageMove.pullRequestLink ?? undefined,
-        stagePendingBy: options.actorId,
-      });
-    }
-  }
+  const stagePatch = stageResult?.patch ?? {};
   await ctx.db.patch(task._id, { ...patch, ...stagePatch, fieldStamps, updatedAt: at });
 
   const outboxIds: Id<'notionOutbox'>[] = [];
-  if (stageMove && allowed) {
+  if (stageMove && stageResult?.deleteUnsent) {
     await deleteUnsentStageRows(ctx, task.notionPageId, stageSettles ? undefined : stageMove.key);
   }
   for (const write of queued) {

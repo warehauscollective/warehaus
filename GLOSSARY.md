@@ -43,3 +43,7 @@ _Avoid_: status write, transition, status update
 **Task change**:
 An edit to one or more fields of one task by staff, the staff API, a merged pull request, or closeout. A task change is saved in the portal at once and holds against any older Notion edit. When the task has a Notion page and write-back is allowed, it is also written back; otherwise it stays in the portal and says so. A task change is checked whole: every field is saved, or none.
 _Avoid_: task update, field save, task write, move
+
+**Pending stage**:
+A task's stage that a task change moved and Notion has not confirmed yet. It stays pending until Notion confirms it, a newer Notion edit replaces it, or a move back onto the stage Notion has settles it. Only a stage can be pending; other fields are protected by their stamp.
+_Avoid_: unsynced stage, stage draft

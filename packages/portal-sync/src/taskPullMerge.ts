@@ -3,13 +3,12 @@
  *
  * Every field the portal writes carries a stamp in `fieldStamps`. A pulled
  * value replaces a stamped field only when Notion's edit is at least as new
- * as the stamp. Stage also keeps its pending move (`mergePulledStage`).
+ * as the stamp. Stage goes through stage sync (`stagePulled`).
  * A task change and the pull read and write this one stamp format.
  */
 
 import type { FieldStamp } from './portalApi';
-import { resolvePulledStage } from './portalApi';
-import { mergePulledStage } from './taskBoard';
+import { stagePulled, type StagePatch } from './stageSync';
 
 /** Every task field the portal writes, so every field a stamp can hold. */
 export const TASK_STAMPED_FIELDS = [
@@ -90,13 +89,7 @@ export type MergedTask = {
   /** Absent when the pull did not read resources. */
   resourceNotionIds?: string[];
   /** The pending stage fields to write, if any. */
-  stagePatch: {
-    stageSynced?: string | null;
-    stagePendingAt?: undefined;
-    stagePendingBaseEditedTime?: string | undefined;
-    stagePendingPullRequest?: undefined;
-    stagePendingBy?: undefined;
-  };
+  stagePatch: StagePatch;
   lastEditedTime: string | null;
   fieldStamps: TaskFieldStamps;
   /** Unsent stage rows for this page are now stale. */
@@ -168,44 +161,19 @@ export function mergePulledTask(local: LocalTaskForPull | null, pulled: PulledTa
     resourceNotionIds = value;
   }
 
-  const pending = local?.stagePendingAt != null;
-  const merge = mergePulledStage({
-    notionStage: pulled.stage,
-    notionLastEditedTime: pulled.lastEditedTime,
-    localStage: local?.stage ?? null,
-    localLastEditedTime: local?.lastEditedTime ?? null,
-    stageSynced: local?.stageSynced ?? null,
-    pending,
-    stagePendingBaseEditedTime: local?.stagePendingBaseEditedTime ?? null,
-    name: pulled.name,
-    notionPageId: pulled.notionPageId,
-  });
-  const resolved = resolvePulledStage({
-    pending,
-    notionStage: pulled.stage,
-    notionEditedMs: notionMs,
-    localStage: local?.stage ?? null,
-    localStamp: local?.fieldStamps?.stage ?? null,
-    pulledStage: merge.stage,
-    pulledStageSynced: merge.stageSynced,
-    pulledLastEditedTime: merge.lastEditedTime,
-  });
-  if (resolved.stamp) stamps.stage = resolved.stamp;
-  const stage = resolved.keptLocal ? (local?.stage ?? null) : resolved.stage;
-  const stagePatch: MergedTask['stagePatch'] = resolved.keptLocal
-    ? {}
-    : merge.clearPending
-      ? {
-          stageSynced: merge.stageSynced,
-          stagePendingAt: undefined,
-          stagePendingBaseEditedTime: undefined,
-          stagePendingPullRequest: undefined,
-          stagePendingBy: undefined,
-        }
-      : {
-          stageSynced: merge.stageSynced,
-          ...(merge.stagePendingBaseEditedTime ? { stagePendingBaseEditedTime: merge.stagePendingBaseEditedTime } : {}),
-        };
+  const pulledStage = stagePulled(
+    local ? { ...local, stageStamp: local.fieldStamps?.stage ?? null } : null,
+    {
+      name: pulled.name,
+      notionPageId: pulled.notionPageId,
+      notionStage: pulled.stage,
+      notionLastEditedTime: pulled.lastEditedTime,
+      notionEditedMs: notionMs,
+    },
+  );
+  if (pulledStage.stamp) stamps.stage = pulledStage.stamp;
+  const stage = pulledStage.stage;
+  const stagePatch: MergedTask['stagePatch'] = pulledStage.patch;
 
   return {
     status,
@@ -220,9 +188,9 @@ export function mergePulledTask(local: LocalTaskForPull | null, pulled: PulledTa
     ...(description ? { description } : {}),
     ...(resourceNotionIds ? { resourceNotionIds } : {}),
     stagePatch,
-    lastEditedTime: resolved.lastEditedTime,
+    lastEditedTime: pulledStage.lastEditedTime,
     fieldStamps: stamps,
-    deleteUnsent: merge.deleteUnsent,
-    notice: merge.notice,
+    deleteUnsent: pulledStage.deleteUnsent,
+    notice: pulledStage.notice,
   };
 }

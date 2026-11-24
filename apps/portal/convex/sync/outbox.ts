@@ -10,6 +10,7 @@ import {
   isNewerEditedTime,
   outboxLeaseUnexpired,
   planIdempotentEnqueue,
+  stageConfirmed,
   takeOutboxLease,
   taskLiveFieldsWriteError,
   validatePropertyPatch,
@@ -601,23 +602,13 @@ export const applyOutcome = internalMutation({
           .withIndex('by_notionPageId', (q) => q.eq('notionPageId', row.notionPageId!))
           .unique();
         if (task) {
-          if (task.stage === written) {
-            const responseTime = args.outcome.lastEditedTime;
-            const pr = properties['GitHub Issue/PR'];
+          const pr = properties['GitHub Issue/PR'];
+          const confirmed = stageConfirmed(task, written, args.outcome.lastEditedTime);
+          const settled = task.stage === written;
+          if (Object.keys(confirmed).length > 0 || (settled && typeof pr === 'string')) {
             await ctx.db.patch(task._id, {
-              stageSynced: written,
-              stagePendingAt: undefined,
-              stagePendingBaseEditedTime: undefined,
-              stagePendingPullRequest: undefined,
-              stagePendingBy: undefined,
-              ...(isNewerEditedTime(responseTime, task.lastEditedTime ?? null) && responseTime
-                ? { lastEditedTime: responseTime }
-                : {}),
-              ...(typeof pr === 'string' ? { pullRequestUrl: pr } : {}),
-            });
-          } else if (args.outcome.lastEditedTime) {
-            await ctx.db.patch(task._id, {
-              stagePendingBaseEditedTime: args.outcome.lastEditedTime,
+              ...confirmed,
+              ...(settled && typeof pr === 'string' ? { pullRequestUrl: pr } : {}),
             });
           }
         }
