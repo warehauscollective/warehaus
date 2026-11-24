@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { v } from 'convex/values';
-import { internal } from '../_generated/api';
+import { components, internal } from '../_generated/api';
 import { httpAction, internalAction, internalMutation, internalQuery } from '../_generated/server';
 import { advance, setStatus } from '../milestones';
 import { PortalAuthError } from './identity';
@@ -154,6 +154,21 @@ describe('memoryCtx reads', () => {
     assert.equal(t.reads.unindexed().length, 2);
   });
 
+  it('records the limit of a take or a page, and every id passed to get', async () => {
+    const t = memoryCtx();
+    const ids = seedMilestone(t);
+    t.reads.reset();
+    await t.db.query('tasks').withIndex('by_orgId', (q) => q.eq('orgId', ids.orgId)).take(7);
+    await t.db.query('tasks').withIndex('by_orgId', (q) => q.eq('orgId', ids.orgId)).paginate({ numItems: 3, cursor: null });
+    await t.db.query('tasks').withIndex('by_orgId', (q) => q.eq('orgId', ids.orgId)).first();
+    assert.deepEqual(t.reads.all.map((read) => read.limit), [7, 3, undefined]);
+    await t.db.get(ids.milestoneId as never);
+    await t.db.get('clients:999' as never);
+    assert.deepEqual(t.reads.gets, [ids.milestoneId, 'clients:999']);
+    t.reads.reset();
+    assert.deepEqual(t.reads.gets, []);
+  });
+
   it('pages through an index', async () => {
     const t = memoryCtx();
     const ids = seedMilestone(t);
@@ -279,6 +294,20 @@ describe('memoryCtx call', () => {
     assert.deepEqual(result, { answered: 'milestones:deleteReviewPreview' });
     assert.deepEqual(t.runs.map((run) => [run.kind, run.name]), [['action', 'milestones:deleteReviewPreview']]);
   });
+
+  it('records a call into a component by its reference path', async () => {
+    const t = memoryCtx();
+    const result = await t.call(asksTheAuthComponent, {}, { respond: (call) => (call.args.model === 'user' ? { _id: 'user-1' } : null) });
+    assert.deepEqual(result, { _id: 'user-1' });
+    assert.equal(t.runs.length, 1);
+    assert.equal(t.runs[0].kind, 'query');
+    assert.match(t.runs[0].name, /betterAuth\/adapter\/findOne$/);
+  });
+});
+
+const asksTheAuthComponent = internalAction({
+  args: {},
+  handler: async (ctx) => ctx.runQuery(components.betterAuth.adapter.findOne, { model: 'user', where: [] } as never),
 });
 
 const echoHttp = httpAction(async (ctx, request) => {

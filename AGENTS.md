@@ -94,8 +94,8 @@ assert.equal(t.row(milestoneId)?.status, 'Ready to Ship');
   - A handler that throws leaves no write and no scheduled call behind.
 - What it records, without running or refusing:
   - `t.scheduled`: scheduler calls, by function name.
-  - `t.runs`: `runQuery`, `runMutation` and `runAction` calls. An action test answers them with `respond`.
-  - `t.reads`: every read. `t.reads.unbounded()` lists `.collect()` and async iteration, and `t.reads.unindexed()` lists reads with no index. A test on a path that should be bounded asserts both are empty.
+  - `t.runs`: `runQuery`, `runMutation` and `runAction` calls. An action test answers them with `respond`. A call into a component, such as Better Auth's `adapter.findOne`, is named by its reference path.
+  - `t.reads`: every query read, with the `limit` of a `take` or a page. `t.reads.unbounded()` lists `.collect()` and async iteration, and `t.reads.unindexed()` lists reads with no index. A test on a path that should be bounded asserts both are empty. `t.reads.gets` lists every id passed to `db.get`, so a test can prove a row was never read.
 - Do not loosen the adapter to make a test pass. If a moved test fails because the code breaks a rule, fix the code when the fix is small. Otherwise add an iteration task to the milestone and mark the test `todo` with the reason.
 - Source text checks (`readFileSync` plus a regex on a source file): keep one only when it proves something is absent, such as no client read of agent tables, no `notionOutbox` write from a detail mutation, or no direct Notion write outside the Notion client. A check that some call or name is present is a behaviour test waiting to be written. Replace it with one through `call`.
 - Convex skips any file whose name has more than one dot, so `*.testkit.ts` never deploys.

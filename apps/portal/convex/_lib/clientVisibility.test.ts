@@ -24,544 +24,315 @@ import {
   listForStaff as listTasksForStaff,
 } from '../tasks';
 import { PortalAuthError } from './identity';
+import { memoryCtx } from './memoryCtx.testkit';
+import { seedContact, seedOrg, seedProject, seedTask } from './seedRows.testkit';
 import { sortProjectsByLastUpdated } from '../../src/lib/data/projectList';
 
-type Row = Record<string, unknown> & { _id: string };
+type Fields = Record<string, unknown>;
 
-class EqBuilder {
-  private eqs: Array<[string, unknown]> = [];
-  eq(field: string, value: unknown): this {
-    this.eqs.push([field, value]);
-    return this;
-  }
-  matches(row: Row): boolean {
-    return this.eqs.every(([field, value]) => row[field] === value);
-  }
-}
+const CLIENT_AUTH = 'auth-client';
+const STAFF_AUTH = 'auth-staff';
 
-class MemoryIndex {
-  constructor(private readonly rows: Row[]) {}
-  order(direction: 'asc' | 'desc') {
-    const sorted = [...this.rows].sort((a, b) => {
-      const av = (a.timestamp ?? a.createdAt ?? 0) as number | string;
-      const bv = (b.timestamp ?? b.createdAt ?? 0) as number | string;
-      if (av === bv) return 0;
-      const cmp = av < bv ? -1 : 1;
-      return direction === 'desc' ? -cmp : cmp;
-    });
-    return {
-      take: async (n: number) => sorted.slice(0, n),
-      collect: async () => sorted,
-    };
-  }
-  async take(n: number) {
-    return this.rows.slice(0, n);
-  }
-  async collect() {
-    return this.rows;
-  }
-  async unique() {
-    if (this.rows.length > 1) throw new Error('Expected a unique row');
-    return this.rows[0] ?? null;
-  }
-}
+/** Ids of rows that do not exist. Table scoped, so they pass the arg validators. */
+const MISSING = {
+  project: 'projects:9001',
+  task: 'tasks:9002',
+  doc: 'clientDocs:9003',
+  resource: 'sharedResources:9004',
+};
 
-function memoryDb(tables: Record<string, Row[]>) {
+/**
+ * Northwind (the signed-in client's org) with a shared project, a newer shared
+ * project, the internal warehaus.studio project, drafts, a sync-hidden task,
+ * orphans and staff-only fields. Lumen Dental is another client with its own
+ * published rows. Maya Internal is staff, on the Northwind org.
+ */
+function world(orgFields: Fields = {}) {
+  const t = memoryCtx();
+  const org = seedOrg(t, {
+    companyName: 'Northwind',
+    slug: 'northwind',
+    portalAccess: 'Enabled',
+    notionPageId: 'client-notion',
+    lastSyncedAt: 1,
+    ...orgFields,
+  });
+  const otherOrg = seedOrg(t, {
+    companyName: 'Lumen Dental',
+    slug: 'lumen',
+    portalAccess: 'Enabled',
+    notionPageId: 'lumen-notion',
+    lastSyncedAt: 1,
+  });
+
+  const ada = seedContact(t, org, {
+    name: 'Ada Client',
+    email: 'ada@northwind.test',
+    authUserId: CLIENT_AUTH,
+    role: 'Client Member',
+    portalAccess: 'Enabled',
+    notionPageId: 'contact-notion',
+    lastSyncedAt: 1,
+  });
+  const maya = seedContact(t, org, {
+    name: 'Maya Internal',
+    email: 'maya@warehaus.studio',
+    authUserId: STAFF_AUTH,
+    role: 'Warehaus Staff',
+    portalAccess: 'Enabled',
+    notionPageId: 'staff-notion',
+    lastSyncedAt: 1,
+  });
+  seedContact(t, org, {
+    name: 'Sam Studio',
+    email: 'sam@warehaus.studio',
+    authUserId: 'auth-studio-mail',
+    role: 'Client Member',
+    portalAccess: 'Enabled',
+    notionPageId: 'studio-mail-notion',
+    lastSyncedAt: 1,
+  });
+
+  const project = (orgId: string, fields: Fields) =>
+    seedProject(t, orgId, { status: 'In Progress', type: ['Website'], archive: false, publishToWarehaus: true, stack: [], ...fields });
+  const projPublic = project(org, {
+    name: 'Northwind site',
+    notionPageId: 'project-public',
+    lastSyncedAt: 1,
+    description: 'Public site',
+  });
+  project(org, {
+    name: 'Zebra refresh',
+    notionPageId: 'project-zebra',
+    lastSyncedAt: 80,
+    description: 'Newer shared project',
+  });
+  const projInternal = project(org, {
+    name: 'warehaus.studio',
+    type: ['Internal'],
+    notionPageId: 'project-internal',
+    lastSyncedAt: 1,
+    description: 'Staff only studio',
+  });
+  const projForeign = project(otherOrg, {
+    name: 'Lumen site',
+    notionPageId: 'project-foreign',
+    lastSyncedAt: 1,
+    description: 'Another client',
+  });
+
+  const taskPublic = seedTask(t, org, projPublic, {
+    name: 'Homepage',
+    status: 'To Do',
+    isDone: false,
+    publishToWarehaus: true,
+    notionPageId: 'task-public-notion',
+    lastSyncedAt: 1,
+    description: 'Staff only task copy',
+    estimate: 'estimate-secret',
+    priority: 'priority-high',
+    stage: 'Planning',
+    stagePendingAt: 99,
+    stageSynced: 'Idea',
+    stagePendingBaseEditedTime: '2026-10-28T00:00:00.000Z',
+    stagePendingPullRequest: 'pending-pr-secret',
+    pullRequestUrl: 'https://github.com/warehaus/secret/pull/1',
+  });
+  const taskInternal = seedTask(t, org, projInternal, {
+    name: 'Studio ops',
+    status: 'To Do',
+    isDone: false,
+    stage: 'Shipped',
+    publishToWarehaus: true,
+    notionPageId: 'task-internal-notion',
+    lastSyncedAt: 1,
+  });
+  const taskDraft = seedTask(t, org, projPublic, {
+    name: 'Secret draft',
+    status: 'Inbox',
+    isDone: false,
+    stage: 'Parked',
+    publishToWarehaus: false,
+    notionPageId: 'task-draft-notion',
+    lastSyncedAt: 1,
+  });
+  const taskHidden = seedTask(t, org, projPublic, {
+    name: 'Hidden launch task',
+    status: 'To Do',
+    isDone: false,
+    stage: 'Awaiting Go',
+    publishToWarehaus: true,
+    notionPageId: 'task-hidden-notion',
+    lastSyncedAt: 1,
+    syncHiddenAt: 5,
+  });
+  const taskForeign = seedTask(t, otherOrg, projForeign, {
+    name: 'Foreign task',
+    publishToWarehaus: true,
+    notionPageId: 'task-foreign-notion',
+    lastSyncedAt: 1,
+  });
+
+  const activity = (fields: Fields) => t.seed('activity', { orgId: org, tone: 'muted', ...fields });
+  activity({ projectId: projInternal, name: 'Internal note', type: 'project', summary: 'warehaus.studio planning', timestamp: 30 });
+  activity({ projectId: projPublic, name: 'Sync', type: 'sync', summary: 'sync noise', timestamp: 25 });
+  activity({ projectId: projPublic, name: 'Public note', type: 'project', summary: 'Northwind site update', timestamp: 20 });
+  activity({
+    projectId: projPublic,
+    name: 'Homepage wireframes moved to Awaiting Go',
+    type: 'project',
+    summary: 'Maya Chen · Source: Notion · ada@northwind.test · invite pending',
+    timestamp: 40,
+  });
+  activity({ name: 'Org note', type: 'project', summary: 'General update', timestamp: 10 });
+  activity({ projectId: projPublic, name: 'Task moved', type: 'task', summary: 'Task row for a published task', timestamp: 15 });
+
+  const doc = (fields: Fields) => t.seed('clientDocs', { orgId: org, lastSyncedAt: 1, ...fields });
+  const docPublic = doc({
+    projectId: projPublic,
+    title: 'Public brief',
+    summary: 'Shared scope',
+    docType: 'Brief',
+    order: 1,
+    status: 'Published',
+    publishToWarehaus: true,
+    notionPageId: 'doc-public-notion',
+  });
+  const docDraft = doc({
+    projectId: projPublic,
+    title: 'Secret doc',
+    summary: 'Draft',
+    docType: 'Note',
+    status: 'Draft',
+    publishToWarehaus: false,
+    notionPageId: 'doc-draft-notion',
+  });
+  const docUnpub = doc({
+    projectId: projPublic,
+    title: 'Unpublished doc',
+    summary: 'Held',
+    docType: 'Note',
+    status: 'Published',
+    publishToWarehaus: false,
+    notionPageId: 'doc-unpub-notion',
+  });
+  const docInternal = doc({
+    projectId: projInternal,
+    title: 'Studio doc',
+    summary: 'Internal notes',
+    docType: 'Note',
+    status: 'Published',
+    publishToWarehaus: true,
+    notionPageId: 'doc-internal-notion',
+  });
+  const docOrphan = doc({
+    projectId: MISSING.project,
+    title: 'Orphan doc',
+    summary: 'Missing project',
+    docType: 'Note',
+    order: 3,
+    status: 'Published',
+    publishToWarehaus: true,
+    notionPageId: 'doc-orphan-notion',
+  });
+  doc({
+    title: 'Org guide',
+    summary: 'No project',
+    docType: 'Guide',
+    order: 0,
+    status: 'Published',
+    publishToWarehaus: true,
+    notionPageId: 'doc-org-notion',
+  });
+  doc({
+    projectId: projPublic,
+    title: 'Unordered note',
+    summary: 'No Order field',
+    docType: 'Note',
+    status: 'Published',
+    publishToWarehaus: true,
+    notionPageId: 'doc-unordered-notion',
+  });
+
+  const resource = (fields: Fields) =>
+    t.seed('sharedResources', { orgId: org, publishToWarehaus: true, archive: false, lastSyncedAt: 1, ...fields });
+  const resPublic = resource({
+    projectId: projPublic,
+    title: 'Kickoff notes',
+    description: 'Shared recap',
+    type: 'Meeting notes',
+    url: 'https://example.com/recap',
+    externalId: 'wh_res_secret',
+    sourceNotionUrl: 'https://www.notion.so/secret-page',
+    notionPageId: 'res-public-notion',
+  });
+  const resDraft = resource({ projectId: projPublic, title: 'Draft file', publishToWarehaus: false, notionPageId: 'res-draft-notion' });
+  const resInternal = resource({ projectId: projInternal, title: 'Studio file', notionPageId: 'res-internal-notion' });
+  const resOrphan = resource({ projectId: MISSING.project, title: 'Orphan file', notionPageId: 'res-orphan-notion' });
+  const resForeign = resource({
+    orgId: otherOrg,
+    projectId: projForeign,
+    title: 'Foreign recap',
+    description: 'Another client',
+    type: 'Meeting notes',
+    notionPageId: 'res-foreign-notion',
+  });
+  const resOrg = resource({ title: 'Org file', notionPageId: 'res-org-notion' });
+
+  const audit = (fields: Fields) => t.seed('auditEvents', { orgId: org, action: 'outbox.confirmed', actorKind: 'staff', ...fields });
+  audit({ notionPageId: 'task-public-notion', after: JSON.stringify({ properties: { Status: 'To Do' } }), createdAt: 40 });
+  audit({ notionPageId: 'task-public-notion', after: JSON.stringify({ properties: { Description: 'Staff only task copy' } }), createdAt: 35 });
+  audit({
+    notionPageId: 'task-internal-notion',
+    after: JSON.stringify({ properties: { Status: 'To Do', Name: 'Studio ops' } }),
+    createdAt: 45,
+  });
+
+  t.seed('taskResources', { orgId: org, resourceId: resPublic, taskId: taskPublic });
+  t.seed('taskResources', { orgId: org, resourceId: resPublic, taskId: taskDraft });
+  t.seed('taskResources', { orgId: org, resourceId: resPublic, taskId: taskInternal });
+  t.seed('taskResources', { orgId: otherOrg, resourceId: resForeign, taskId: taskForeign });
+
+  t.seed('notionOutbox', {
+    orgId: org,
+    kind: 'task-description',
+    status: 'conflict',
+    database: 'tasks',
+    notionPageId: 'task-internal-notion',
+    lastError: 'warehaus.studio write conflict',
+    createdAt: 50,
+    idempotencyKey: 'task-description:internal',
+    payload: '{}',
+    actor: 'staff',
+    attempts: 1,
+    nextAttemptAt: 50,
+  });
+
   return {
-    async get(id: string) {
-      for (const rows of Object.values(tables)) {
-        const found = rows.find((row) => row._id === id);
-        if (found) return found;
-      }
-      return null;
-    },
-    query(table: string) {
-      const rows = tables[table] ?? [];
-      return {
-        withIndex(_name: string, build?: (q: EqBuilder) => EqBuilder) {
-          const matched = build ? rows.filter((row) => build(new EqBuilder()).matches(row)) : rows;
-          return new MemoryIndex(matched);
-        },
-        collect: async () => rows,
-      };
-    },
+    t,
+    org,
+    otherOrg,
+    ada,
+    maya,
+    projInternal,
+    taskPublic,
+    taskInternal,
+    taskDraft,
+    taskHidden,
+    docPublic,
+    docDraft,
+    docUnpub,
+    docInternal,
+    docOrphan,
+    resPublic,
+    resDraft,
+    resInternal,
+    resOrphan,
+    resForeign,
+    resOrg,
+    run: (fn: unknown, args: Fields = {}) => t.call(fn, args, { as: { authUserId: CLIENT_AUTH } }),
+    runStaff: (fn: unknown, args: Fields = {}) => t.call(fn, args, { as: { authUserId: STAFF_AUTH } }),
   };
-}
-
-const org = {
-  _id: 'org-northwind',
-  companyName: 'Northwind',
-  slug: 'northwind',
-  portalAccess: 'Enabled' as const,
-  notionPageId: 'client-notion',
-  lastSyncedAt: 1,
-};
-
-const otherOrg = {
-  _id: 'org-lumen',
-  companyName: 'Lumen Dental',
-  slug: 'lumen',
-  portalAccess: 'Enabled' as const,
-  notionPageId: 'lumen-notion',
-  lastSyncedAt: 1,
-};
-
-const tables: Record<string, Row[]> = {
-  clients: [org, otherOrg],
-  contacts: [
-    {
-      _id: 'contact-client',
-      orgId: org._id,
-      name: 'Ada Client',
-      email: 'ada@northwind.test',
-      authUserId: 'auth-client',
-      role: 'Client Member',
-      portalAccess: 'Enabled',
-      notionPageId: 'contact-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'contact-staff',
-      orgId: org._id,
-      name: 'Maya Internal',
-      email: 'maya@warehaus.studio',
-      authUserId: 'auth-staff',
-      role: 'Warehaus Staff',
-      portalAccess: 'Enabled',
-      notionPageId: 'staff-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'contact-studio-mail',
-      orgId: org._id,
-      name: 'Sam Studio',
-      email: 'sam@warehaus.studio',
-      authUserId: 'auth-studio-mail',
-      role: 'Client Member',
-      portalAccess: 'Enabled',
-      notionPageId: 'studio-mail-notion',
-      lastSyncedAt: 1,
-    },
-  ],
-  projects: [
-    {
-      _id: 'proj-public',
-      orgId: org._id,
-      name: 'Northwind site',
-      status: 'In Progress',
-      type: ['Website'],
-      archive: false,
-      publishToWarehaus: true,
-      notionPageId: 'project-public',
-      lastSyncedAt: 1,
-      description: 'Public site',
-      stack: [],
-    },
-    {
-      _id: 'proj-zebra',
-      orgId: org._id,
-      name: 'Zebra refresh',
-      status: 'In Progress',
-      type: ['Website'],
-      archive: false,
-      publishToWarehaus: true,
-      notionPageId: 'project-zebra',
-      lastSyncedAt: 80,
-      description: 'Newer shared project',
-      stack: [],
-    },
-    {
-      _id: 'proj-internal',
-      orgId: org._id,
-      name: 'warehaus.studio',
-      status: 'In Progress',
-      type: ['Internal'],
-      archive: false,
-      publishToWarehaus: true,
-      notionPageId: 'project-internal',
-      lastSyncedAt: 1,
-      description: 'Staff only studio',
-      stack: [],
-    },
-  ],
-  tasks: [
-    {
-      _id: 'task-public',
-      orgId: org._id,
-      projectId: 'proj-public',
-      name: 'Homepage',
-      status: 'To Do',
-      isDone: false,
-      publishToWarehaus: true,
-      notionPageId: 'task-public-notion',
-      lastSyncedAt: 1,
-      description: 'Staff only task copy',
-      estimate: 'estimate-secret',
-      priority: 'priority-high',
-      stage: 'Planning',
-      stagePendingAt: 99,
-      stageSynced: 'Idea',
-      stagePendingBaseEditedTime: '2026-10-28T00:00:00.000Z',
-      stagePendingPullRequest: 'pending-pr-secret',
-      pullRequestUrl: 'https://github.com/warehaus/secret/pull/1',
-    },
-    {
-      _id: 'task-internal',
-      orgId: org._id,
-      projectId: 'proj-internal',
-      name: 'Studio ops',
-      status: 'To Do',
-      isDone: false,
-      stage: 'Shipped',
-      publishToWarehaus: true,
-      notionPageId: 'task-internal-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'task-draft',
-      orgId: org._id,
-      projectId: 'proj-public',
-      name: 'Secret draft',
-      status: 'Inbox',
-      isDone: false,
-      stage: 'Parked',
-      publishToWarehaus: false,
-      notionPageId: 'task-draft-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'task-hidden',
-      orgId: org._id,
-      projectId: 'proj-public',
-      name: 'Hidden launch task',
-      status: 'To Do',
-      isDone: false,
-      stage: 'Awaiting Go',
-      publishToWarehaus: true,
-      notionPageId: 'task-hidden-notion',
-      lastSyncedAt: 1,
-      syncHiddenAt: 5,
-    },
-  ],
-  activity: [
-    {
-      _id: 'act-internal',
-      orgId: org._id,
-      projectId: 'proj-internal',
-      name: 'Internal note',
-      type: 'project',
-      summary: 'warehaus.studio planning',
-      timestamp: 30,
-      tone: 'muted',
-    },
-    {
-      _id: 'act-sync',
-      orgId: org._id,
-      projectId: 'proj-public',
-      name: 'Sync',
-      type: 'sync',
-      summary: 'sync noise',
-      timestamp: 25,
-      tone: 'muted',
-    },
-    {
-      _id: 'act-public',
-      orgId: org._id,
-      projectId: 'proj-public',
-      name: 'Public note',
-      type: 'project',
-      summary: 'Northwind site update',
-      timestamp: 20,
-      tone: 'muted',
-    },
-    {
-      _id: 'act-leaky',
-      orgId: org._id,
-      projectId: 'proj-public',
-      name: 'Homepage wireframes moved to Awaiting Go',
-      type: 'project',
-      summary: 'Maya Chen · Source: Notion · ada@northwind.test · invite pending',
-      timestamp: 40,
-      tone: 'muted',
-    },
-    {
-      _id: 'act-general',
-      orgId: org._id,
-      name: 'Org note',
-      type: 'project',
-      summary: 'General update',
-      timestamp: 10,
-      tone: 'muted',
-    },
-    {
-      _id: 'act-task',
-      orgId: org._id,
-      projectId: 'proj-public',
-      name: 'Task moved',
-      type: 'task',
-      summary: 'Task row for a published task',
-      timestamp: 15,
-      tone: 'muted',
-    },
-  ],
-  clientDocs: [
-    {
-      _id: 'doc-public',
-      orgId: org._id,
-      projectId: 'proj-public',
-      title: 'Public brief',
-      summary: 'Shared scope',
-      docType: 'Brief',
-      order: 1,
-      status: 'Published',
-      publishToWarehaus: true,
-      notionPageId: 'doc-public-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'doc-draft',
-      orgId: org._id,
-      projectId: 'proj-public',
-      title: 'Secret doc',
-      summary: 'Draft',
-      docType: 'Note',
-      status: 'Draft',
-      publishToWarehaus: false,
-      notionPageId: 'doc-draft-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'doc-unpub',
-      orgId: org._id,
-      projectId: 'proj-public',
-      title: 'Unpublished doc',
-      summary: 'Held',
-      docType: 'Note',
-      status: 'Published',
-      publishToWarehaus: false,
-      notionPageId: 'doc-unpub-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'doc-internal',
-      orgId: org._id,
-      projectId: 'proj-internal',
-      title: 'Studio doc',
-      summary: 'Internal notes',
-      docType: 'Note',
-      status: 'Published',
-      publishToWarehaus: true,
-      notionPageId: 'doc-internal-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'doc-orphan',
-      orgId: org._id,
-      projectId: 'proj-gone',
-      title: 'Orphan doc',
-      summary: 'Missing project',
-      docType: 'Note',
-      order: 3,
-      status: 'Published',
-      publishToWarehaus: true,
-      notionPageId: 'doc-orphan-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'doc-org',
-      orgId: org._id,
-      title: 'Org guide',
-      summary: 'No project',
-      docType: 'Guide',
-      order: 0,
-      status: 'Published',
-      publishToWarehaus: true,
-      notionPageId: 'doc-org-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'doc-unordered',
-      orgId: org._id,
-      projectId: 'proj-public',
-      title: 'Unordered note',
-      summary: 'No Order field',
-      docType: 'Note',
-      status: 'Published',
-      publishToWarehaus: true,
-      notionPageId: 'doc-unordered-notion',
-      lastSyncedAt: 1,
-    },
-  ],
-  sharedResources: [
-    {
-      _id: 'res-public',
-      orgId: org._id,
-      projectId: 'proj-public',
-      title: 'Kickoff notes',
-      description: 'Shared recap',
-      type: 'Meeting notes',
-      url: 'https://example.com/recap',
-      publishToWarehaus: true,
-      archive: false,
-      externalId: 'wh_res_secret',
-      sourceNotionUrl: 'https://www.notion.so/secret-page',
-      notionPageId: 'res-public-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'res-draft',
-      orgId: org._id,
-      projectId: 'proj-public',
-      title: 'Draft file',
-      publishToWarehaus: false,
-      archive: false,
-      notionPageId: 'res-draft-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'res-internal',
-      orgId: org._id,
-      projectId: 'proj-internal',
-      title: 'Studio file',
-      publishToWarehaus: true,
-      archive: false,
-      notionPageId: 'res-internal-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'res-orphan',
-      orgId: org._id,
-      projectId: 'proj-gone',
-      title: 'Orphan file',
-      publishToWarehaus: true,
-      archive: false,
-      notionPageId: 'res-orphan-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'res-foreign',
-      orgId: otherOrg._id,
-      projectId: 'proj-foreign',
-      title: 'Foreign recap',
-      description: 'Another client',
-      type: 'Meeting notes',
-      publishToWarehaus: true,
-      archive: false,
-      notionPageId: 'res-foreign-notion',
-      lastSyncedAt: 1,
-    },
-    {
-      _id: 'res-org',
-      orgId: org._id,
-      title: 'Org file',
-      publishToWarehaus: true,
-      archive: false,
-      notionPageId: 'res-org-notion',
-      lastSyncedAt: 1,
-    },
-  ],
-  syncMeta: [],
-  auditEvents: [
-    {
-      _id: 'audit-public',
-      orgId: org._id,
-      action: 'outbox.confirmed',
-      actorKind: 'staff',
-      notionPageId: 'task-public-notion',
-      after: JSON.stringify({ properties: { Status: 'To Do' } }),
-      createdAt: 40,
-    },
-    {
-      _id: 'audit-description',
-      orgId: org._id,
-      action: 'outbox.confirmed',
-      actorKind: 'staff',
-      notionPageId: 'task-public-notion',
-      after: JSON.stringify({ properties: { Description: 'Staff only task copy' } }),
-      createdAt: 35,
-    },
-    {
-      _id: 'audit-internal',
-      orgId: org._id,
-      action: 'outbox.confirmed',
-      actorKind: 'staff',
-      notionPageId: 'task-internal-notion',
-      after: JSON.stringify({ properties: { Status: 'To Do', Name: 'Studio ops' } }),
-      createdAt: 45,
-    },
-  ],
-  taskResources: [
-    { _id: 'link-public', orgId: org._id, resourceId: 'res-public', taskId: 'task-public' },
-    { _id: 'link-draft', orgId: org._id, resourceId: 'res-public', taskId: 'task-draft' },
-    { _id: 'link-internal', orgId: org._id, resourceId: 'res-public', taskId: 'task-internal' },
-    { _id: 'link-foreign', orgId: otherOrg._id, resourceId: 'res-foreign', taskId: 'task-foreign' },
-  ],
-  notionOutbox: [
-    {
-      _id: 'outbox-internal',
-      orgId: org._id,
-      kind: 'task-description',
-      status: 'conflict',
-      database: 'tasks',
-      notionPageId: 'task-internal-notion',
-      lastError: 'warehaus.studio write conflict',
-      createdAt: 50,
-      idempotencyKey: 'task-description:internal',
-      payload: '{}',
-      actor: 'staff',
-      attempts: 1,
-      nextAttemptAt: 50,
-    },
-  ],
-};
-
-const ctx = {
-  auth: {
-    getUserIdentity: async () => ({ subject: 'auth-client' }),
-  },
-  db: memoryDb(tables),
-};
-
-type Handler = (
-  ctx: {
-    auth: { getUserIdentity: () => Promise<{ subject: string }> };
-    db: ReturnType<typeof memoryDb>;
-  },
-  args: Record<string, unknown>,
-) => Promise<unknown>;
-
-const staffCtx = {
-  auth: {
-    getUserIdentity: async () => ({ subject: 'auth-staff' }),
-  },
-  db: memoryDb(tables),
-};
-
-function run(fn: object, args: Record<string, unknown> = {}) {
-  return (fn as { _handler: Handler })._handler(ctx, args);
-}
-
-function runDb(fn: object, db: ReturnType<typeof memoryDb>, args: Record<string, unknown> = {}) {
-  return runDbAs(fn, db, 'auth-client', args);
-}
-
-function runDbAs(
-  fn: object,
-  db: ReturnType<typeof memoryDb>,
-  subject: string,
-  args: Record<string, unknown> = {},
-) {
-  return (fn as { _handler: Handler })._handler(
-    {
-      auth: { getUserIdentity: async () => ({ subject }) },
-      db,
-    },
-    args,
-  );
-}
-
-function runStaff(fn: object, args: Record<string, unknown> = {}) {
-  return (fn as { _handler: Handler })._handler(staffCtx, args);
 }
 
 function text(value: unknown): string {
@@ -570,6 +341,8 @@ function text(value: unknown): string {
 
 describe('client identity against warehaus.studio', () => {
   it('returns the shared project and task and none of the internal rows', async () => {
+    const w = world();
+    const { run } = w;
     const projects = await run(listProjectsForClient);
     const tasks = await run(listTasksForClient);
     const docs = await run(listDocsForClient);
@@ -591,9 +364,10 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(bundled.includes('warehaus.studio'), false);
     assert.equal(bundled.includes('Studio ops'), false);
     assert.equal(bundled.includes('Secret draft'), false);
-    assert.equal(bundled.includes('proj-internal'), false);
-    assert.equal(bundled.includes('task-internal'), false);
+    assert.equal(bundled.includes(`"${w.projInternal}"`), false);
+    assert.equal(bundled.includes(`"${w.taskInternal}"`), false);
     assert.equal(bundled.includes('project-internal'), false);
+    assert.equal(bundled.includes('task-internal'), false);
     assert.equal(bundled.includes('sync noise'), false);
     assert.equal(bundled.includes('Staff only task copy'), false);
     assert.equal(bundled.includes('Public brief'), true);
@@ -606,13 +380,13 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(bundled.includes('Studio file'), false);
     assert.equal(bundled.includes('maya@warehaus.studio'), false);
     assert.equal(bundled.includes('sam@warehaus.studio'), false);
-    assert.equal(bundled.includes('Ada Client'), true);
     assert.equal(bundled.includes('Orphan doc'), false);
     assert.equal(bundled.includes('Org guide'), true);
     assert.equal(bundled.includes('Orphan file'), false);
     assert.equal(bundled.includes('Org file'), true);
     assert.equal(bundled.includes('Foreign recap'), false);
-    assert.equal(bundled.includes('Lumen Dental'), false);
+    assert.equal(bundled.includes('Foreign task'), false);
+    assert.equal(bundled.includes('Lumen'), false);
     assert.equal(text(docs).includes('notionPageId'), false);
     assert.equal(text(docs).includes('"order"'), false);
     assert.equal(text(docs).includes('publishToWarehaus'), false);
@@ -639,7 +413,6 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(bundled.includes('wh_res_secret'), false);
     assert.equal(bundled.includes('notion.so'), false);
     assert.equal(bundled.includes('publishToWarehaus'), false);
-    assert.equal(text(docs).includes('"status"'), false);
     const listedPeople = people as Array<{
       id: string;
       name: string;
@@ -650,7 +423,7 @@ describe('client identity against warehaus.studio', () => {
     }>;
     assert.deepEqual(listedPeople.map((person) => person.name), ['Ada Client']);
     assert.deepEqual(listedPeople[0], {
-      id: 'contact-client',
+      id: w.ada,
       name: 'Ada Client',
       email: 'ada@northwind.test',
       role: 'Client Member',
@@ -661,7 +434,7 @@ describe('client identity against warehaus.studio', () => {
     assert.equal('authUserId' in listedPeople[0], false);
     assert.equal('notionPageId' in listedPeople[0], false);
 
-    const publicDoc = await run(getDocForClient, { docId: 'doc-public' });
+    const publicDoc = await run(getDocForClient, { docId: w.docPublic });
     assert.equal((publicDoc as { title: string }).title, 'Public brief');
     assert.equal('notionPageId' in (publicDoc as object), false);
     assert.equal('order' in (publicDoc as object), false);
@@ -669,21 +442,21 @@ describe('client identity against warehaus.studio', () => {
     assert.equal('syncState' in (publicDoc as object), false);
     assert.equal('lastSyncedAt' in (publicDoc as object), false);
     assert.equal('status' in (publicDoc as object), false);
-    for (const docId of ['doc-draft', 'doc-unpub', 'doc-internal', 'doc-orphan', 'doc-missing']) {
+    for (const docId of [w.docDraft, w.docUnpub, w.docInternal, w.docOrphan, MISSING.doc]) {
       await assert.rejects(run(getDocForClient, { docId }), (err: unknown) => {
         assert.ok(err instanceof PortalAuthError);
         assert.equal(err.message, 'Doc not found');
         return true;
       });
     }
-    const publicResource = await run(getResourceForClient, { resourceId: 'res-public' });
+    const publicResource = await run(getResourceForClient, { resourceId: w.resPublic });
     assert.equal((publicResource as { name: string }).name, 'Kickoff notes');
     assert.equal('notionPageId' in (publicResource as object), false);
     assert.equal('lastSyncedAt' in (publicResource as object), false);
     assert.equal(typeof (publicResource as { updatedAt: number }).updatedAt, 'number');
-    const orgResource = await run(getResourceForClient, { resourceId: 'res-org' });
+    const orgResource = await run(getResourceForClient, { resourceId: w.resOrg });
     assert.equal((orgResource as { name: string }).name, 'Org file');
-    for (const resourceId of ['res-draft', 'res-internal', 'res-orphan', 'res-missing']) {
+    for (const resourceId of [w.resDraft, w.resInternal, w.resOrphan, w.resForeign, MISSING.resource]) {
       await assert.rejects(run(getResourceForClient, { resourceId }), (err: unknown) => {
         assert.ok(err instanceof PortalAuthError);
         assert.equal(err.message, 'Resource not found');
@@ -719,7 +492,7 @@ describe('client identity against warehaus.studio', () => {
     const snapshotText = text(snapshot);
     assert.equal((snapshot as { leadName?: string }).leadName, 'Maya Internal');
     assert.equal(snapshotText.includes('maya@warehaus.studio'), false);
-    assert.equal(snapshotText.includes('contact-staff'), false);
+    assert.equal(snapshotText.includes(`"${w.maya}"`), false);
     assert.equal(snapshotText.includes('staff-notion'), false);
     assert.equal(snapshotText.includes('notionPageId'), false);
     assert.equal(snapshotText.includes('publishToWarehaus'), false);
@@ -728,16 +501,36 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(snapshotText.includes('syncState'), false);
   });
 
+  it('proves the hidden rows exist: staff see the internal project, drafts, hidden task and orphans', async () => {
+    const { t, runStaff } = world();
+    const staffTasks = text(await runStaff(listTasksForStaff));
+    assert.match(staffTasks, /Studio ops/);
+    assert.match(staffTasks, /Secret draft/);
+    assert.match(staffTasks, /Homepage/);
+    const names = (table: string, field: string) => t.rows(table).map((row) => row[field]);
+    assert.ok(names('tasks', 'name').includes('Hidden launch task'));
+    assert.ok(names('projects', 'name').includes('warehaus.studio'));
+    for (const title of ['Secret doc', 'Unpublished doc', 'Studio doc', 'Orphan doc']) assert.ok(names('clientDocs', 'title').includes(title), title);
+    for (const title of ['Draft file', 'Studio file', 'Orphan file', 'Foreign recap']) {
+      assert.ok(names('sharedResources', 'title').includes(title), title);
+    }
+    assert.ok(names('contacts', 'email').includes('maya@warehaus.studio'));
+    assert.ok(names('contacts', 'email').includes('sam@warehaus.studio'));
+  });
+
   it('returns used-in-tasks without publish, sync, or warehaus.studio rows', async () => {
-    const visible = (await run(usedInTasksForClient, { resourceId: 'res-public' })) as Array<{ name: string }>;
+    const w = world();
+    const { run, runStaff } = w;
+    const visible = (await run(usedInTasksForClient, { resourceId: w.resPublic })) as Array<{ name: string }>;
     assert.deepEqual(visible.map((task) => task.name), ['Homepage']);
-    const hiddenResource = await run(usedInTasksForClient, { resourceId: 'res-internal' });
+    const hiddenResource = await run(usedInTasksForClient, { resourceId: w.resInternal });
     assert.deepEqual(hiddenResource, []);
-    const draft = await run(usedInTasksForClient, { resourceId: 'res-draft' });
+    const draft = await run(usedInTasksForClient, { resourceId: w.resDraft });
     assert.deepEqual(draft, []);
-    const foreign = await run(usedInTasksForClient, { resourceId: 'res-foreign' });
+    const foreign = await run(usedInTasksForClient, { resourceId: w.resForeign });
     assert.deepEqual(foreign, []);
     assert.equal(text(foreign).includes('Foreign recap'), false);
+    assert.equal(text(foreign).includes('Foreign task'), false);
     assert.equal(text(foreign).includes('Lumen Dental'), false);
     const body = text(visible);
     assert.equal(body.includes('notionPageId'), false);
@@ -746,11 +539,14 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(body.includes('warehaus.studio'), false);
     assert.equal(body.includes('Studio ops'), false);
     assert.equal(body.includes('Secret draft'), false);
-    const staff = (await runStaff(usedInTasks, { resourceId: 'res-public' })) as Array<{ name: string }>;
+    const staff = (await runStaff(usedInTasks, { resourceId: w.resPublic })) as Array<{ name: string }>;
     assert.deepEqual(staff.map((task) => task.name), ['Homepage', 'Secret draft', 'Studio ops']);
+    const staffForeign = (await runStaff(usedInTasks, { resourceId: w.resForeign })) as Array<{ name: string }>;
+    assert.deepEqual(staffForeign.map((task) => task.name), ['Foreign task']);
   });
 
   it('keeps raw activity text out of the client snapshot', async () => {
+    const { run } = world();
     const snapshot = (await run(getSnapshot)) as { activity: Array<{ name: string; summary: string }> };
     const blob = text(snapshot.activity);
     assert.equal(blob.includes('Source'), false);
@@ -763,13 +559,15 @@ describe('client identity against warehaus.studio', () => {
   });
 
   it('uses the same unavailable message for a hidden task and a missing task', async () => {
-    const visible = await run(getForClient, { taskId: 'task-public' });
+    const w = world();
+    const { run } = w;
+    const visible = await run(getForClient, { taskId: w.taskPublic });
     assert.equal((visible as { name: string }).name, 'Homepage');
     assert.equal((visible as { stage: string | null }).stage, 'Planning');
     assert.equal('stagePending' in (visible as object), false);
     assert.equal('pullRequestUrl' in (visible as object), false);
 
-    for (const taskId of ['task-internal', 'task-missing', 'task-draft']) {
+    for (const taskId of [w.taskInternal, MISSING.task, w.taskDraft, w.taskHidden]) {
       await assert.rejects(run(getForClient, { taskId }), (err: unknown) => {
         assert.ok(err instanceof PortalAuthError);
         assert.equal(err.message, TASK_UNAVAILABLE);
@@ -780,8 +578,10 @@ describe('client identity against warehaus.studio', () => {
   });
 
   it('keeps internal projects, server descriptions, and outbox rows out of the client feed', async () => {
+    const w = world();
+    const { run } = w;
     const feed = await run(listActivityForClient);
-    const timeline = await run(activityForClient, { taskId: 'task-public' });
+    const timeline = await run(activityForClient, { taskId: w.taskPublic });
     const bundled = text({ feed, timeline });
     assert.match(bundled, /A task in Northwind site is ready for your review/);
     assert.match(bundled, /Homepage was updated/);
@@ -798,13 +598,16 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(bundled.includes('write conflict'), false);
     assert.equal(bundled.includes('task-internal-notion'), false);
 
-    await assert.rejects(run(activityForClient, { taskId: 'task-internal' }), (err: unknown) => {
+    await assert.rejects(run(activityForClient, { taskId: w.taskInternal }), (err: unknown) => {
       assert.ok(err instanceof PortalAuthError);
       assert.equal(err.message, TASK_UNAVAILABLE);
       return true;
     });
-    for (const query of [listActivityForStaff, activityForStaff]) {
-      await assert.rejects(run(query, { taskId: 'task-public' }), (err: unknown) => {
+    for (const [query, args] of [
+      [listActivityForStaff, {}],
+      [activityForStaff, { taskId: w.taskPublic }],
+    ] as const) {
+      await assert.rejects(run(query, args), (err: unknown) => {
         assert.ok(err instanceof PortalAuthError);
         assert.equal(err.message, 'Staff role required');
         return true;
@@ -813,11 +616,13 @@ describe('client identity against warehaus.studio', () => {
   });
 
   it('shows a saved stage to clients and stagePending only to staff', async () => {
+    const w = world();
+    const { run, runStaff } = w;
     const clientList = (await run(listTasksForClient)) as Array<Record<string, unknown>>;
     const clientTask = clientList.find((task) => task.name === 'Homepage');
     const clientSnapshot = (await run(getSnapshot)) as { tasks: Array<Record<string, unknown>> };
     const clientSnap = clientSnapshot.tasks.find((task) => task.name === 'Homepage');
-    const clientDetail = (await run(getForClient, { taskId: 'task-public' })) as Record<string, unknown>;
+    const clientDetail = (await run(getForClient, { taskId: w.taskPublic })) as Record<string, unknown>;
     const hidden = ['stagePending', 'stagePendingAt', 'stageSynced', 'stagePendingBaseEditedTime', 'stagePendingPullRequest', 'pullRequestUrl'];
     for (const payload of [clientTask, clientSnap, clientDetail]) {
       assert.equal(payload?.stage, 'Planning');
@@ -850,9 +655,8 @@ describe('client identity against warehaus.studio', () => {
   });
 
   it('shows a Disabled prospect on the staff snapshot and keeps it off the client read', async () => {
-    const disabledOrg = { ...org, portalAccess: 'Disabled' as const, syncHiddenAt: null };
-    const db = memoryDb({ ...tables, clients: [disabledOrg, otherOrg] });
-    const staffSnapshot = (await runDbAs(getSnapshot, db, 'auth-staff')) as {
+    const disabled = world({ portalAccess: 'Disabled' });
+    const staffSnapshot = (await disabled.runStaff(getSnapshot)) as {
       projects: Array<{ name: string }>;
       tasks: Array<{ name: string }>;
     };
@@ -861,17 +665,14 @@ describe('client identity against warehaus.studio', () => {
     assert.equal(staffSnapshot.projects.some((project) => project.name === 'warehaus.studio'), false);
     assert.equal(staffSnapshot.tasks.some((task) => task.name === 'Secret draft'), false);
 
-    await assert.rejects(runDb(getSnapshot, db), (err: unknown) => {
+    await assert.rejects(disabled.run(getSnapshot), (err: unknown) => {
       assert.ok(err instanceof PortalAuthError);
       assert.equal(err.message, 'Client portal access is disabled');
       return true;
     });
 
-    const concealed = memoryDb({
-      ...tables,
-      clients: [{ ...disabledOrg, syncHiddenAt: 4 }, otherOrg],
-    });
-    const hiddenSnapshot = (await runDbAs(getSnapshot, concealed, 'auth-staff')) as {
+    const concealed = world({ portalAccess: 'Disabled', syncHiddenAt: 4 });
+    const hiddenSnapshot = (await concealed.runStaff(getSnapshot)) as {
       projects: unknown[];
       tasks: unknown[];
     };
@@ -880,9 +681,11 @@ describe('client identity against warehaus.studio', () => {
   });
 
   it('shows internal work and the task description to staff', async () => {
+    const w = world();
+    const { runStaff } = w;
     const feed = text(await runStaff(listActivityForStaff));
     const tasks = text(await runStaff(listTasksForStaff));
-    const timeline = text(await runStaff(activityForStaff, { taskId: 'task-internal' }));
+    const timeline = text(await runStaff(activityForStaff, { taskId: w.taskInternal }));
     assert.match(feed, /warehaus.studio/);
     assert.match(feed, /sync noise/);
     assert.match(feed, /Staff only task copy/);
@@ -891,65 +694,50 @@ describe('client identity against warehaus.studio', () => {
   });
 
   it('returns role and portal access, and derives a pending invite for this org only', async () => {
-    const local: Record<string, Row[]> = {
-      clients: tables.clients,
-      contacts: [
-        ...tables.contacts,
-        {
-          _id: 'contact-admin',
-          orgId: org._id,
-          name: 'Bea Admin',
-          email: 'Bea@Northwind.test',
-          role: 'Client Admin',
-          portalAccess: 'Disabled',
-          notionPageId: 'admin-contact',
-          lastSyncedAt: 1,
-        },
-        {
-          _id: 'contact-other-org',
-          orgId: otherOrg._id,
-          name: 'Quinn Other',
-          email: 'quinn@lumen.test',
-          role: 'Client Admin',
-          portalAccess: 'Enabled',
-          notionPageId: 'other-contact',
-          lastSyncedAt: 1,
-        },
-      ],
-      pendingInvites: [
-        {
-          _id: 'invite-bea',
-          orgId: org._id,
-          email: 'bea@northwind.test',
-          name: 'Bea Admin',
-          role: 'Client Admin',
-          inviteStatus: 'Pending',
-          notionPageId: 'invite-bea',
-          lastSyncedAt: 1,
-        },
-        {
-          _id: 'invite-ada-accepted',
-          orgId: org._id,
-          email: 'ada@northwind.test',
-          name: 'Ada Client',
-          role: 'Client Member',
-          inviteStatus: 'Accepted',
-          notionPageId: 'invite-ada',
-          lastSyncedAt: 1,
-        },
-        {
-          _id: 'invite-foreign',
-          orgId: otherOrg._id,
-          email: 'ada@northwind.test',
-          name: 'Ada Client',
-          role: 'Client Member',
-          inviteStatus: 'Pending',
-          notionPageId: 'invite-foreign',
-          lastSyncedAt: 1,
-        },
-      ],
-    };
-    const people = (await runDb(listPeopleForClient, memoryDb(local))) as Array<{
+    const w = world();
+    const { t, org, otherOrg, run } = w;
+    seedContact(t, org, {
+      name: 'Bea Admin',
+      email: 'Bea@Northwind.test',
+      role: 'Client Admin',
+      portalAccess: 'Disabled',
+      notionPageId: 'admin-contact',
+      lastSyncedAt: 1,
+    });
+    seedContact(t, otherOrg, {
+      name: 'Quinn Other',
+      email: 'quinn@lumen.test',
+      role: 'Client Admin',
+      portalAccess: 'Enabled',
+      notionPageId: 'other-contact',
+      lastSyncedAt: 1,
+    });
+    const invite = (fields: Fields) => t.seed('pendingInvites', { lastSyncedAt: 1, ...fields });
+    invite({
+      orgId: org,
+      email: 'bea@northwind.test',
+      name: 'Bea Admin',
+      role: 'Client Admin',
+      inviteStatus: 'Pending',
+      notionPageId: 'invite-bea',
+    });
+    invite({
+      orgId: org,
+      email: 'ada@northwind.test',
+      name: 'Ada Client',
+      role: 'Client Member',
+      inviteStatus: 'Accepted',
+      notionPageId: 'invite-ada',
+    });
+    invite({
+      orgId: otherOrg,
+      email: 'ada@northwind.test',
+      name: 'Ada Client',
+      role: 'Client Member',
+      inviteStatus: 'Pending',
+      notionPageId: 'invite-foreign',
+    });
+    const people = (await run(listPeopleForClient)) as Array<{
       id: string;
       name: string;
       email: string;
@@ -986,8 +774,13 @@ describe('client identity against warehaus.studio', () => {
   });
 
   it('does not return internal projects from the staff project queries', async () => {
-    for (const query of [listForOrgAdmin, listPublishedForStaff, listForStaff]) {
-      await assert.rejects(run(query, { orgId: org._id }), (err: unknown) => {
+    const { org, run } = world();
+    for (const [query, args] of [
+      [listForOrgAdmin, { orgId: org }],
+      [listPublishedForStaff, {}],
+      [listForStaff, {}],
+    ] as const) {
+      await assert.rejects(run(query, args), (err: unknown) => {
         assert.ok(err instanceof PortalAuthError);
         assert.equal(err.message, 'Staff role required');
         return true;

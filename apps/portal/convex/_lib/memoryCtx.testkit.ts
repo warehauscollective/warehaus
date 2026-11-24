@@ -26,7 +26,7 @@
  * Convex skips this file: its name has more than one dot.
  */
 
-import { getFunctionName } from 'convex/server';
+import { getFunctionAddress, getFunctionName } from 'convex/server';
 import schema from '../schema';
 import { PETER_EMAILS } from './milestoneReview';
 
@@ -178,6 +178,8 @@ export type ReadRecord = {
   /** The fields the read pinned with `eq`, in order. */
   eq: string[];
   terminal: 'first' | 'unique' | 'take' | 'paginate' | 'collect' | 'iterate';
+  /** The row limit of a `take` or a `paginate` page. */
+  limit?: number;
 };
 
 type Bound = { op: 'gt' | 'gte' | 'lt' | 'lte'; field: string; value: Value };
@@ -246,7 +248,8 @@ function makeQuery(store: Store, table: string, reads: ReadRecord[]) {
     return rows.map(clone);
   };
 
-  const record = (terminal: ReadRecord['terminal']) => reads.push({ table, index, eq: eq.map(([field]) => field), terminal });
+  const record = (terminal: ReadRecord['terminal'], limit?: number) =>
+    reads.push({ table, index, eq: eq.map(([field]) => field), terminal, ...(limit === undefined ? {} : { limit }) });
 
   const terminals = {
     order(direction: 'asc' | 'desc') {
@@ -267,7 +270,7 @@ function makeQuery(store: Store, table: string, reads: ReadRecord[]) {
       return rows[0] ?? null;
     },
     async take(count: number) {
-      record('take');
+      record('take', count);
       return matched().slice(0, count);
     },
     async collect() {
@@ -275,7 +278,7 @@ function makeQuery(store: Store, table: string, reads: ReadRecord[]) {
       return matched();
     },
     async paginate(options: { numItems: number; cursor: string | null }) {
-      record('paginate');
+      record('paginate', options.numItems);
       const rows = matched();
       const start = options.cursor ? Number(options.cursor) : 0;
       const end = start + options.numItems;
@@ -333,6 +336,22 @@ function makeQuery(store: Store, table: string, reads: ReadRecord[]) {
 // ---------------------------------------------------------------------------
 // The ctx
 
+/**
+ * A function reference's name. A call into a component (such as Better Auth)
+ * has no name in this app, so it is named by its reference path, like
+ * `_reference/childComponent/betterAuth/adapter/findOne`.
+ */
+function nameOf(ref: unknown): string {
+  try {
+    return getFunctionName(ref as never);
+  } catch {
+    const address = getFunctionAddress(ref as never) as { reference?: string; name?: string };
+    const name = address.reference ?? address.name;
+    if (!name) throw new MemoryCtxError('Could not name a function reference');
+    return name;
+  }
+}
+
 export type Actor = 'staff' | 'peter' | 'client' | { authUserId: string };
 
 export type ScheduledCall = { name: string; at: number; args: Record<string, Value>; id: string };
@@ -352,6 +371,7 @@ export type CallOptions = { as?: Actor; respond?: Respond };
 export function memoryCtx() {
   const store: Store = { tables: new Map(), next: 1 };
   const readLog: ReadRecord[] = [];
+  const getLog: string[] = [];
   const scheduled: ScheduledCall[] = [];
   const runs: RunCall[] = [];
   const storage = { deleted: [] as string[] };
@@ -384,6 +404,7 @@ export function memoryCtx() {
 
   const reader = {
     async get(id: string) {
+      getLog.push(id);
       const row = typeof id === 'string' ? findRow(store, id) : null;
       return row ? clone(row) : null;
     },
@@ -459,7 +480,7 @@ export function memoryCtx() {
   function schedule(at: number, ref: unknown, args: Record<string, Value>) {
     const id = `_scheduled_functions:${store.next}`;
     store.next += 1;
-    scheduled.push({ name: getFunctionName(ref as never), at, args: clone(args), id });
+    scheduled.push({ name: nameOf(ref), at, args: clone(args), id });
     return id;
   }
 
@@ -500,7 +521,7 @@ export function memoryCtx() {
       getUserIdentity: async () => (authUserId ? { subject: authUserId, tokenIdentifier: `test|${authUserId}`, issuer: 'test' } : null),
     };
     const run = (runKind: RunCall['kind']) => async (ref: unknown, args: Record<string, Value> = {}) => {
-      const call = { kind: runKind, name: getFunctionName(ref as never), args: clone(args) };
+      const call = { kind: runKind, name: nameOf(ref), args: clone(args) };
       runs.push(call);
       return options.respond ? options.respond(call) : undefined;
     };
@@ -583,12 +604,15 @@ export function memoryCtx() {
     storage,
     reads: {
       all: readLog,
+      /** Ids passed to `db.get`, in order. */
+      gets: getLog,
       /** `.collect()` and async iteration: reads with no limit. */
       unbounded: () => readLog.filter((read) => read.terminal === 'collect' || read.terminal === 'iterate'),
       /** Reads with no index. */
       unindexed: () => readLog.filter((read) => read.index === null),
       reset: () => {
         readLog.length = 0;
+        getLog.length = 0;
       },
     },
     /** The raw db for helpers that take a ctx, outside a handler. Writes are checked like any other. */

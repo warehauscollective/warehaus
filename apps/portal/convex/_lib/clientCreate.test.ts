@@ -1,96 +1,19 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { buildClientCreateProperties, WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
-import { prepare, createInNotion } from '../clientCreate';
+import { prepare, createInNotion, findByExternalId, findByNotionPage } from '../clientCreate';
 import { clearAncestorHides } from '../sync/hide';
 import { backfillClientNameKeys } from '../sync/nameKeyBackfill';
 import { enqueue } from '../sync/outbox';
 import { upsertClient } from '../sync/upsert';
+import { memoryCtx, type MemoryCtx, type Respond, type RunCall } from './memoryCtx.testkit';
+import { seedContact, seedOrg, seedProject } from './seedRows.testkit';
 
-type Row = Record<string, unknown> & { _id: string };
+type Fields = Record<string, unknown>;
+type Result = Record<string, unknown> & { ok?: boolean };
 
-class EqBuilder {
-  private eqs: Array<[string, unknown]> = [];
-  private gts: Array<[string, number]> = [];
-  eq(field: string, value: unknown): this {
-    this.eqs.push([field, value]);
-    return this;
-  }
-  gt(field: string, value: number): this {
-    this.gts.push([field, value]);
-    return this;
-  }
-  matches(row: Row): boolean {
-    return (
-      this.eqs.every(([field, value]) => row[field] === value) &&
-      this.gts.every(([field, value]) => Number(row[field]) > value)
-    );
-  }
-}
-
-function memoryDb(tables: Record<string, Row[]>, takes: Array<{ table: string; count: number }>) {
-  let seq = 1;
-  return {
-    async get(id: string) {
-      for (const rows of Object.values(tables)) {
-        const found = rows.find((row) => row._id === id);
-        if (found) return found;
-      }
-      return null;
-    },
-    async insert(table: string, row: Record<string, unknown>) {
-      const stored = { ...row, _id: `gen-${seq++}` } as Row;
-      (tables[table] ??= []).push(stored);
-      return stored._id;
-    },
-    async patch(id: string, value: Record<string, unknown>) {
-      for (const rows of Object.values(tables)) {
-        const row = rows.find((item) => item._id === id);
-        if (!row) continue;
-        for (const [key, field] of Object.entries(value)) {
-          if (field === undefined) delete row[key];
-          else row[key] = field;
-        }
-        return;
-      }
-    },
-    query(table: string) {
-      const chain = (list: Row[]) => ({
-        withIndex(_name: string, build?: (q: EqBuilder) => EqBuilder) {
-          const builder = new EqBuilder();
-          build?.(builder);
-          return chain(list.filter((row) => builder.matches(row)));
-        },
-        collect: async () => {
-          if (table === 'clients') throw new Error('clients.collect is not used');
-          return list;
-        },
-        take: async (count: number) => {
-          takes.push({ table, count });
-          if (table === 'clients' && count > 50) throw new Error(`clients.take(${count})`);
-          return list.slice(0, count);
-        },
-        unique: async () => {
-          if (list.length > 1) throw new Error('Expected a unique row');
-          return list[0] ?? null;
-        },
-      });
-      return chain(tables[table] ?? []);
-    },
-  };
-}
-
-type Handler = (ctx: unknown, args: Record<string, unknown>) => Promise<unknown>;
-
-function run(fn: object, ctx: unknown, args: Record<string, unknown> = {}) {
-  return (fn as { _handler: Handler })._handler(ctx, args);
-}
-
-function refName(ref: unknown): string {
-  const name = (ref as { [key: symbol]: unknown })[Symbol.for('functionName')];
-  if (typeof name !== 'string') throw new Error('not a function reference');
-  return name;
-}
+const STAFF_USER = 'user-staff';
+const STAFF = { authUserId: STAFF_USER };
 
 function properties(extra: { primaryEmail?: string; phone?: string } = {}) {
   const built = buildClientCreateProperties({ companyName: 'North Wind', ...extra });
@@ -99,32 +22,60 @@ function properties(extra: { primaryEmail?: string; phone?: string } = {}) {
   return built.properties;
 }
 
-function staffTables(extraClients: Row[] = []): Record<string, Row[]> {
-  return {
-    contacts: [
-      {
-        _id: 'contact-staff',
-        orgId: 'org-staff',
-        name: 'Peter',
-        email: 'peter@warehaus.co',
-        authUserId: 'user-staff',
-        role: 'Warehaus Staff',
-        portalAccess: 'Enabled',
-      },
-    ],
-    clients: [
-      {
-        _id: 'org-staff',
-        slug: 'warehaus-internal',
-        companyName: 'Warehaus',
-        notionPageId: 'page-staff',
-        portalAccess: 'Disabled',
-        status: 'Active',
-        nameKey: 'warehaus',
-      },
-      ...extraClients,
-    ],
-    notionOutbox: [],
+/**
+ * The Warehaus staff org and Peter's staff contact. Pass `contact` or `org`
+ * overrides to turn the caller into a client.
+ */
+function staffWorld(options: { contact?: Fields; org?: Fields } = {}) {
+  const t = memoryCtx();
+  const staffOrgId = seedOrg(t, {
+    slug: 'warehaus-internal',
+    companyName: 'Warehaus',
+    notionPageId: 'page-staff',
+    portalAccess: 'Disabled',
+    status: 'Active',
+    nameKey: 'warehaus',
+    ...options.org,
+  });
+  seedContact(t, staffOrgId, {
+    name: 'Peter',
+    email: 'peter@warehaus.co',
+    authUserId: STAFF_USER,
+    role: 'Warehaus Staff',
+    portalAccess: 'Enabled',
+    ...options.contact,
+  });
+  const client = (fields: Fields) => seedOrg(t, { status: 'Prospect', portalAccess: 'Disabled', ...fields });
+  return { t, staffOrgId, client };
+}
+
+/** Reads of the clients table through a query, in order. */
+const clientQueries = (t: MemoryCtx) => t.reads.all.filter((read) => read.table === 'clients');
+
+const names = (t: MemoryCtx) => t.runs.map((run) => run.name);
+
+/**
+ * Answers createInNotion's nested calls. Queries and mutations really run on
+ * the same in-memory db. processOne (the Notion sender) is stubbed with
+ * `process`. Any invite, mail or email call fails the test.
+ */
+function responder(
+  t: MemoryCtx,
+  process: (args: Fields) => Promise<Fields> = async () => ({ ok: true, notionPageId: 'page-new', reused: false }),
+): Respond {
+  return (run: RunCall) => {
+    if (/invite|mail|email/.test(run.name)) throw new Error(`client create must not call ${run.name}`);
+    if (run.kind === 'query') {
+      if (run.name === 'clientCreate:prepare') return t.call(prepare, run.args);
+      if (run.name === 'clientCreate:findByNotionPage') return t.call(findByNotionPage, run.args);
+      if (run.name === 'clientCreate:findByExternalId') return t.call(findByExternalId, run.args);
+    }
+    if (run.kind === 'mutation') {
+      if (run.name === 'sync/outbox:enqueue') return t.call(enqueue, run.args);
+      if (run.name === 'sync/upsert:upsertClient') return t.call(upsertClient, run.args);
+    }
+    if (run.kind === 'action' && run.name === 'sync/outboxWork:processOne') return process(run.args);
+    throw new Error(`unexpected ${run.kind} ${run.name}`);
   };
 }
 
@@ -140,204 +91,119 @@ async function withFlag(on: boolean, fn: () => Promise<void>) {
   }
 }
 
-function actionCtx(
-  tables: Record<string, Row[]>,
-  takes: Array<{ table: string; count: number }>,
-  options: {
-    subject?: string | null;
-    process?: (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
-  } = {},
-) {
-  const calls: string[] = [];
-  let scheduled = 0;
-  const ctx = {
-    db: memoryDb(tables, takes),
-    auth: {
-      getUserIdentity: async () => (options.subject === null ? null : { subject: options.subject ?? 'user-staff' }),
-    },
-    scheduler: {
-      runAfter: async () => {
-        scheduled += 1;
-      },
-    },
-    runQuery: async (ref: unknown, args: Record<string, unknown>) => {
-      const name = refName(ref);
-      calls.push(name);
-      if (name === 'clientCreate:prepare') return run(prepare, ctx, args);
-      if (name === 'clientCreate:findByNotionPage') {
-        const row = (tables.clients ?? []).find((item) => item.notionPageId === args.notionPageId);
-        return row ? { id: row._id } : null;
-      }
-      if (name === 'clientCreate:findByExternalId') {
-        const row = (tables.clients ?? []).find((item) => item.externalId === args.externalId);
-        return row ? { id: row._id } : null;
-      }
-      throw new Error(`unexpected query ${name}`);
-    },
-    runMutation: async (ref: unknown, args: Record<string, unknown>) => {
-      const name = refName(ref);
-      calls.push(name);
-      if (name.includes('invite') || name.includes('mail') || name.includes('email')) {
-        throw new Error(`client create must not call ${name}`);
-      }
-      if (name === 'sync/outbox:enqueue') return run(enqueue, ctx, args);
-      if (name === 'sync/upsert:upsertClient') return run(upsertClient, ctx, args);
-      throw new Error(`unexpected mutation ${name}`);
-    },
-    runAction: async (ref: unknown, args: Record<string, unknown>) => {
-      const name = refName(ref);
-      calls.push(name);
-      if (name !== 'sync/outboxWork:processOne') throw new Error(`unexpected action ${name}`);
-      if (!options.process) return { ok: true, notionPageId: 'page-new', reused: false };
-      return options.process(args);
-    },
-  };
-  return { ctx, calls, scheduled: () => scheduled };
-}
-
 describe('staff client create', () => {
   it('rejects a client role before any client lookup', async () => {
-    const tables = staffTables();
-    tables.contacts![0]!.role = 'Client Admin';
-    tables.clients![0]!.portalAccess = 'Enabled';
-    const takes: Array<{ table: string; count: number }> = [];
+    const { t } = staffWorld({ contact: { role: 'Client Admin' }, org: { portalAccess: 'Enabled' } });
     await assert.rejects(
-      () => run(prepare, { db: memoryDb(tables, takes) }, { authUserId: 'user-staff', companyName: 'North Wind' }),
+      () => t.call(prepare, { authUserId: STAFF_USER, companyName: 'North Wind' }),
       /Staff role required/,
     );
-    assert.equal(takes.length, 0);
-    assert.equal(tables.notionOutbox!.length, 0);
-    assert.equal(tables.clients!.length, 1);
+    assert.deepEqual(clientQueries(t), []);
+    assert.equal(t.rows('notionOutbox').length, 0);
+    assert.equal(t.rows('clients').length, 1);
   });
 
-  it('reuses a nameKey hit with take(2) and does not enqueue', async () => {
-    const tables = staffTables([
-      {
-        _id: 'client-a',
-        notionPageId: 'page-a',
-        companyName: 'North Wind',
-        slug: 'north-wind',
-        nameKey: 'north wind',
-        portalAccess: 'Disabled',
-        status: 'Prospect',
-        syncHiddenAt: 50,
-      },
-      {
-        _id: 'client-b',
-        notionPageId: 'page-b',
-        companyName: 'North Wind',
-        slug: 'north-wind-2',
-        nameKey: 'north wind',
-        portalAccess: 'Disabled',
-        status: 'Prospect',
-      },
-    ]);
-    const takes: Array<{ table: string; count: number }> = [];
-    const prepared = await run(prepare, { db: memoryDb(tables, takes) }, {
-      authUserId: 'user-staff',
-      companyName: '  NORTH   WIND  ',
-    });
-    assert.deepEqual(prepared, {
-      ok: true,
-      reused: true,
-      clientId: 'client-a',
+  it('reuses a nameKey hit with one bounded take and does not enqueue', async () => {
+    const { t, client } = staffWorld();
+    const clientA = client({
       notionPageId: 'page-a',
+      companyName: 'North Wind',
+      slug: 'north-wind',
+      nameKey: 'north wind',
+      syncHiddenAt: 50,
+      syncHiddenReason: 'gate',
     });
-    assert.deepEqual(takes, [{ table: 'clients', count: 2 }]);
-    assert.equal(tables.clients!.find((row) => row._id === 'client-a')!.syncHiddenAt, 50);
+    client({
+      notionPageId: 'page-b',
+      companyName: 'North Wind',
+      slug: 'north-wind-2',
+      nameKey: 'north wind',
+    });
+    const prepared = await t.call(prepare, { authUserId: STAFF_USER, companyName: '  NORTH   WIND  ' });
+    assert.deepEqual(prepared, { ok: true, reused: true, clientId: clientA, notionPageId: 'page-a' });
+    // Two rows share the nameKey, so a unique() read would have thrown. The
+    // take count itself is not recorded by the adapter.
+    assert.deepEqual(clientQueries(t), [{ table: 'clients', index: 'by_nameKey', eq: ['nameKey'], terminal: 'take', limit: 2 }]);
+    assert.equal(t.row(clientA)?.syncHiddenAt, 50);
 
-    const actionTakes: Array<{ table: string; count: number }> = [];
-    const { ctx, calls } = actionCtx(tables, actionTakes);
-    const result = await run(createInNotion, ctx, { companyName: 'North Wind' });
-    assert.deepEqual(result, {
-      ok: true,
-      clientId: 'client-a',
-      notionPageId: 'page-a',
-      reused: true,
-    });
-    assert.equal(calls.includes('sync/outbox:enqueue'), false);
-    assert.equal(calls.includes('sync/upsert:upsertClient'), false);
-    assert.equal(tables.notionOutbox!.length, 0);
+    const result = await t.call(createInNotion, { companyName: 'North Wind' }, { as: STAFF, respond: responder(t) });
+    assert.deepEqual(result, { ok: true, clientId: clientA, notionPageId: 'page-a', reused: true });
+    assert.equal(names(t).includes('sync/outbox:enqueue'), false);
+    assert.equal(names(t).includes('sync/upsert:upsertClient'), false);
+    assert.equal(t.rows('notionOutbox').length, 0);
+    assert.equal(t.rows('clients').length, 3);
   });
 
   it('reuses a slug when the old row has no nameKey', async () => {
-    const tables = staffTables([
-      {
-        _id: 'client-old',
-        notionPageId: 'page-old',
-        companyName: 'North Wind',
-        slug: 'north-wind',
-        portalAccess: 'Enabled',
-        status: 'Active',
-      },
-    ]);
-    const takes: Array<{ table: string; count: number }> = [];
-    const prepared = await run(prepare, { db: memoryDb(tables, takes) }, {
-      authUserId: 'user-staff',
-      companyName: 'North Wind',
-    });
-    assert.deepEqual(prepared, {
-      ok: true,
-      reused: true,
-      clientId: 'client-old',
+    const { t, client } = staffWorld();
+    const old = client({
       notionPageId: 'page-old',
+      companyName: 'North Wind',
+      slug: 'north-wind',
+      portalAccess: 'Enabled',
+      status: 'Active',
     });
+    const prepared = await t.call(prepare, { authUserId: STAFF_USER, companyName: 'North Wind' });
+    assert.deepEqual(prepared, { ok: true, reused: true, clientId: old, notionPageId: 'page-old' });
     assert.deepEqual(
-      takes.map((item) => item.count),
-      [2, 2],
+      clientQueries(t).map((read) => [read.index, read.terminal, read.limit]),
+      [
+        ['by_nameKey', 'take', 2],
+        ['by_slug', 'take', 2],
+      ],
     );
   });
 
   it('rejects a reserved slug and a bad email without writing', async () => {
-    const tables = staffTables();
-    const takes: Array<{ table: string; count: number }> = [];
-    const reserved = await run(prepare, { db: memoryDb(tables, takes) }, {
-      authUserId: 'user-staff',
-      companyName: 'Warehaus Internal',
-    });
+    const { t, staffOrgId } = staffWorld();
+    const reserved = await t.call(prepare, { authUserId: STAFF_USER, companyName: 'Warehaus Internal' });
     assert.deepEqual(reserved, { ok: false, error: 'That slug is reserved', field: 'slug' });
-    const email = await run(prepare, { db: memoryDb(tables, takes) }, {
-      authUserId: 'user-staff',
+    const email = await t.call<Result>(prepare, {
+      authUserId: STAFF_USER,
       companyName: 'North Wind',
       primaryEmail: 'not-an-email',
     });
-    assert.equal((email as { ok: boolean }).ok, false);
-    assert.equal(takes.length, 0);
-    assert.equal(tables.clients!.some((row) => row.slug === 'warehaus-internal' && row._id !== 'org-staff'), false);
+    assert.equal(email.ok, false);
+    assert.deepEqual(clientQueries(t), []);
+    assert.equal(t.rows('clients').some((row) => row.slug === 'warehaus-internal' && row._id !== staffOrgId), false);
+    assert.equal(t.rows('clients').length, 1);
   });
 
   it('queues nothing and inserts no client when write-back is off', async () => {
-    const tables = staffTables();
-    const takes: Array<{ table: string; count: number }> = [];
+    const { t } = staffWorld();
     await withFlag(false, async () => {
-      const { ctx, calls, scheduled } = actionCtx(tables, takes);
-      const result = await run(createInNotion, ctx, { companyName: 'North Wind', hostSlug: 'other-host' });
+      const result = await t.call(
+        createInNotion,
+        { companyName: 'North Wind', hostSlug: 'other-host' },
+        { as: STAFF, respond: responder(t) },
+      );
       assert.deepEqual(result, { ok: false, error: WRITEBACK_OFF_ERROR });
-      assert.equal(calls.includes('sync/outbox:enqueue'), false);
-      assert.equal(tables.notionOutbox!.length, 0);
-      assert.equal(tables.clients!.length, 1);
-      assert.equal(scheduled(), 0);
+      assert.equal(names(t).includes('sync/outbox:enqueue'), false);
+      assert.equal(names(t).includes('sync/outboxWork:processOne'), false);
+      assert.equal(t.rows('notionOutbox').length, 0);
+      assert.equal(t.rows('clients').length, 1);
+      assert.equal(t.scheduled.length, 0);
     });
   });
 
   it('enqueues client-create on the staff org and upserts only after a page id', async () => {
-    const tables = staffTables();
-    const takes: Array<{ table: string; count: number }> = [];
+    const { t, staffOrgId } = staffWorld();
     await withFlag(true, async () => {
-      const { ctx, calls, scheduled } = actionCtx(tables, takes);
-      const result = (await run(createInNotion, ctx, {
-        companyName: 'North Wind',
-        primaryEmail: 'ada@example.com',
-        phone: '415 555 0100',
-        hostSlug: 'other-host',
-      })) as { ok: boolean; clientId?: string; reused?: boolean };
+      const result = await t.call<Result & { clientId?: string; reused?: boolean }>(
+        createInNotion,
+        { companyName: 'North Wind', primaryEmail: 'ada@example.com', phone: '415 555 0100', hostSlug: 'other-host' },
+        { as: STAFF, respond: responder(t) },
+      );
       assert.equal(result.ok, true);
       assert.equal(result.reused, false);
-      assert.equal(scheduled(), 0);
-      assert.equal(tables.notionOutbox!.length, 1);
-      const row = tables.notionOutbox![0]!;
+      assert.equal(t.scheduled.length, 0);
+      // The upsert runs after the sender returned a page id, never before.
+      const order = names(t);
+      assert.ok(order.indexOf('sync/outboxWork:processOne') < order.indexOf('sync/upsert:upsertClient'));
+      assert.equal(t.rows('notionOutbox').length, 1);
+      const row = t.rows('notionOutbox')[0]!;
       assert.equal(row.kind, 'client-create');
-      assert.equal(row.orgId, 'org-staff');
+      assert.equal(row.orgId, staffOrgId);
       assert.equal(row.database, 'clients');
       assert.equal(row.idempotencyKey, 'client-create:wh_cli_north-wind');
       const payload = JSON.parse(String(row.payload)) as { properties: Record<string, unknown> };
@@ -347,8 +213,8 @@ describe('staff client create', () => {
       assert.equal(payload.properties.Source, 'portal');
       assert.equal('Contacts' in payload.properties, false);
       assert.equal('Invite Status' in payload.properties, false);
-      assert.equal(calls.includes('invites:issueTokenAfterConfirm'), false);
-      const created = tables.clients!.find((item) => item._id === result.clientId);
+      assert.equal(order.includes('invites:issueTokenAfterConfirm'), false);
+      const created = t.row(String(result.clientId));
       assert.equal(created?.nameKey, 'north wind');
       assert.equal(created?.status, 'Prospect');
       assert.equal(created?.portalAccess, 'Disabled');
@@ -358,227 +224,186 @@ describe('staff client create', () => {
       assert.equal(created?.phone, '415 555 0100');
       assert.equal(created?.notionPageId, 'page-new');
       assert.equal(created?.syncHiddenAt, undefined);
+      assert.equal(t.rows('clients').length, 2);
+    });
+  });
+
+  it('a second create for the same name reuses the first client and queues nothing new', async () => {
+    const { t } = staffWorld();
+    await withFlag(true, async () => {
+      const respond = responder(t);
+      const first = await t.call<Result & { clientId?: string }>(createInNotion, { companyName: 'North Wind' }, { as: STAFF, respond });
+      const second = await t.call<Result & { clientId?: string; reused?: boolean }>(
+        createInNotion,
+        { companyName: 'north  wind' },
+        { as: STAFF, respond },
+      );
+      assert.equal(second.ok, true);
+      assert.equal(second.reused, true);
+      assert.equal(second.clientId, first.clientId);
+      assert.equal(t.rows('clients').length, 2);
+      assert.equal(t.rows('notionOutbox').length, 1);
+      assert.equal(names(t).filter((name) => name === 'sync/outboxWork:processOne').length, 1);
     });
   });
 
   it('does not upsert or unhide a client that is already in Convex', async () => {
-    const hidden: Row = {
-      _id: 'client-hidden',
+    const { t, client } = staffWorld();
+    const hidden = client({
       notionPageId: 'page-hidden',
       companyName: 'Hidden Co',
       slug: 'hidden-co',
       nameKey: 'hidden co',
-      portalAccess: 'Disabled',
       status: 'Active',
       syncHiddenAt: 99,
       syncHiddenReason: 'gate',
-    };
-    const tables = staffTables([hidden]);
-    const takes: Array<{ table: string; count: number }> = [];
+    });
     await withFlag(true, async () => {
-      const { ctx, calls } = actionCtx(tables, takes, {
-        process: async () => ({ ok: true, notionPageId: 'page-hidden', reused: false }),
-      });
-      const result = await run(createInNotion, ctx, { companyName: 'Fresh Co' });
-      assert.deepEqual(result, {
-        ok: true,
-        clientId: 'client-hidden',
-        notionPageId: 'page-hidden',
-        reused: true,
-      });
-      assert.equal(calls.includes('sync/upsert:upsertClient'), false);
-      assert.equal(hidden.syncHiddenAt, 99);
-      assert.equal(hidden.status, 'Active');
-      assert.equal(tables.clients!.length, 2);
+      const result = await t.call(
+        createInNotion,
+        { companyName: 'Fresh Co' },
+        { as: STAFF, respond: responder(t, async () => ({ ok: true, notionPageId: 'page-hidden', reused: false })) },
+      );
+      assert.deepEqual(result, { ok: true, clientId: hidden, notionPageId: 'page-hidden', reused: true });
+      assert.equal(names(t).includes('sync/upsert:upsertClient'), false);
+      assert.equal(t.row(hidden)?.syncHiddenAt, 99);
+      assert.equal(t.row(hidden)?.syncHiddenReason, 'gate');
+      assert.equal(t.row(hidden)?.status, 'Active');
+      assert.equal(t.rows('clients').length, 2);
     });
   });
 
   it('upserts when Notion already confirmed the page and Convex has no row', async () => {
-    const tables = staffTables();
-    const takes: Array<{ table: string; count: number }> = [];
+    const { t } = staffWorld();
     await withFlag(true, async () => {
-      const { ctx, calls } = actionCtx(tables, takes, {
-        process: async () => ({ ok: true, notionPageId: 'page-remote', reused: true }),
-      });
-      const result = (await run(createInNotion, ctx, { companyName: 'Fresh Co' })) as {
-        ok: boolean;
-        clientId?: string;
-        reused?: boolean;
-      };
+      const result = await t.call<Result & { clientId?: string; reused?: boolean }>(
+        createInNotion,
+        { companyName: 'Fresh Co' },
+        { as: STAFF, respond: responder(t, async () => ({ ok: true, notionPageId: 'page-remote', reused: true })) },
+      );
       assert.equal(result.ok, true);
       assert.equal(result.reused, false);
-      assert.equal(calls.includes('sync/upsert:upsertClient'), true);
-      const created = tables.clients!.find((row) => row._id === result.clientId);
+      assert.equal(names(t).includes('sync/upsert:upsertClient'), true);
+      const created = t.row(String(result.clientId));
       assert.equal(created?.notionPageId, 'page-remote');
       assert.equal(created?.status, 'Prospect');
       assert.equal(created?.portalAccess, 'Disabled');
       assert.equal(created?.syncHiddenAt, undefined);
+      assert.equal(t.rows('clients').length, 2);
     });
   });
 
   it('finds an existing client by name after nameKey is filled, even with a different slug', async () => {
-    const tables = staffTables([
-      {
-        _id: 'client-old-name',
-        _creationTime: 20,
-        notionPageId: 'page-old-name',
-        companyName: 'North Wind',
-        slug: 'different-slug',
-        portalAccess: 'Disabled',
-        status: 'Active',
-        syncHiddenAt: 40,
-        syncHiddenReason: 'gate',
-      },
-    ]);
-    tables.clients![0]!._creationTime = 10;
-    const takes: Array<{ table: string; count: number }> = [];
-    const db = memoryDb(tables, takes);
-    const filled = (await run(backfillClientNameKeys, { db }, { numItems: 25 })) as {
-      updated: number;
-      isDone: boolean;
-    };
-    assert.equal(filled.updated, 1);
-    assert.equal(filled.isDone, true);
-    assert.equal(tables.clients!.find((row) => row._id === 'client-old-name')!.nameKey, 'north wind');
-    assert.deepEqual(
-      takes.filter((item) => item.table === 'clients').map((item) => item.count),
-      [25],
-    );
-
-    const prepared = (await run(prepare, { db: memoryDb(tables, takes) }, {
-      authUserId: 'user-staff',
+    const { t, client } = staffWorld();
+    const oldName = client({
+      notionPageId: 'page-old-name',
       companyName: 'North Wind',
-    })) as { ok: boolean; reused?: boolean; clientId?: string };
+      slug: 'different-slug',
+      status: 'Active',
+      syncHiddenAt: 40,
+      syncHiddenReason: 'gate',
+    });
+    const filled = await t.call<{ updated: number; unchanged: number; scanned: number; isDone: boolean }>(
+      backfillClientNameKeys,
+      { numItems: 25 },
+    );
+    assert.equal(filled.updated, 1);
+    assert.equal(filled.unchanged, 1);
+    assert.equal(filled.isDone, true);
+    assert.equal(t.row(oldName)?.nameKey, 'north wind');
+    assert.deepEqual(clientQueries(t).map((read) => [read.index, read.terminal, read.limit]), [['by_creation_time', 'take', 25]]);
+    // A caller cannot ask for more than 50 rows in one batch.
+    t.reads.reset();
+    await t.call(backfillClientNameKeys, { numItems: 500 });
+    assert.deepEqual(clientQueries(t).map((read) => read.limit), [50]);
+    // The batch is bounded by numItems: one row per call leaves the pass unfinished.
+    const one = await t.call<{ scanned: number; isDone: boolean }>(backfillClientNameKeys, { numItems: 1 });
+    assert.equal(one.scanned, 1);
+    assert.equal(one.isDone, false);
+    assert.deepEqual(t.reads.unbounded(), []);
+
+    const prepared = await t.call<Result & { reused?: boolean; clientId?: string }>(prepare, {
+      authUserId: STAFF_USER,
+      companyName: 'North Wind',
+    });
     assert.equal(prepared.ok, true);
     assert.equal(prepared.reused, true);
-    assert.equal(prepared.clientId, 'client-old-name');
-    assert.equal(tables.notionOutbox!.length, 0);
+    assert.equal(prepared.clientId, oldName);
+    assert.equal(t.rows('notionOutbox').length, 0);
   });
 
   it('clears a stale Disabled gate stamp and leaves trash concealed', async () => {
-    const client = {
-      _id: 'org-disabled',
+    const t = memoryCtx();
+    const disabled = seedOrg(t, {
       portalAccess: 'Disabled',
       syncHiddenAt: 70,
       syncHiddenReason: 'gate',
       companyName: 'North Wind',
       slug: 'north-wind',
-    };
-    const project = {
-      _id: 'project-1',
-      orgId: 'org-disabled',
-      syncHiddenAt: 70,
-      syncHiddenReason: 'ancestor',
-      name: 'Site',
-    };
-    const trashed = {
-      _id: 'org-trash',
+    });
+    const project = seedProject(t, disabled, { syncHiddenAt: 70, syncHiddenReason: 'ancestor', name: 'Site' });
+    const trashed = seedOrg(t, {
       portalAccess: 'Disabled',
       syncHiddenAt: 80,
       syncHiddenReason: 'trashed',
       companyName: 'Gone',
       slug: 'gone',
-    };
-    const tables: Record<string, Row[]> = {
-      clients: [client, trashed],
-      projects: [project],
-      tasks: [],
-      sharedResources: [],
-      clientDocs: [],
-      contacts: [],
-    };
-    const db = memoryDb(tables, []);
-    await run(clearAncestorHides, { db }, { orgId: 'org-disabled' });
-    assert.equal(client.syncHiddenAt, undefined);
-    assert.equal(client.syncHiddenReason, undefined);
-    assert.equal(project.syncHiddenAt, undefined);
-    assert.equal(project.syncHiddenReason, undefined);
-    await run(clearAncestorHides, { db }, { orgId: 'org-trash' });
-    assert.equal(trashed.syncHiddenAt, 80);
-    assert.equal(trashed.syncHiddenReason, 'trashed');
+    });
+    await t.call(clearAncestorHides, { orgId: disabled });
+    assert.equal(t.row(disabled)?.syncHiddenAt, undefined);
+    assert.equal(t.row(disabled)?.syncHiddenReason, undefined);
+    assert.equal(t.row(project)?.syncHiddenAt, undefined);
+    assert.equal(t.row(project)?.syncHiddenReason, undefined);
+    await t.call(clearAncestorHides, { orgId: trashed });
+    assert.equal(t.row(trashed)?.syncHiddenAt, 80);
+    assert.equal(t.row(trashed)?.syncHiddenReason, 'trashed');
   });
 
   it('rejects a non-staff session and an anonymous session', async () => {
-    const tables = staffTables();
-    tables.contacts![0]!.role = 'Client Member';
-    tables.clients![0]!.portalAccess = 'Enabled';
-    const takes: Array<{ table: string; count: number }> = [];
-    const { ctx } = actionCtx(tables, takes);
-    const denied = await run(createInNotion, ctx, { companyName: 'North Wind' });
+    const { t } = staffWorld({ contact: { role: 'Client Member' }, org: { portalAccess: 'Enabled' } });
+    const denied = await t.call(createInNotion, { companyName: 'North Wind' }, { as: STAFF, respond: responder(t) });
     assert.deepEqual(denied, { ok: false, error: 'Staff role required' });
-    const anon = actionCtx(tables, takes, { subject: null });
-    const signedOut = await run(createInNotion, anon.ctx, { companyName: 'North Wind' });
+    const signedOut = await t.call(createInNotion, { companyName: 'North Wind' }, { respond: responder(t) });
     assert.deepEqual(signedOut, { ok: false, error: 'Not authenticated' });
-    assert.equal(tables.notionOutbox!.length, 0);
+    assert.equal(t.rows('notionOutbox').length, 0);
+    assert.equal(t.rows('clients').length, 1);
   });
 
   it('accepts a client-create payload and rejects publish, status, and contact fields', async () => {
-    const tables = { notionOutbox: [] as Row[] };
-    const takes: Array<{ table: string; count: number }> = [];
-    const ctx = {
-      db: memoryDb(tables, takes),
-      scheduler: { runAfter: async () => { throw new Error('schedule'); } },
-    };
-    await withFlag(true, async () => {
-      const ok = (await run(enqueue, ctx, {
-        idempotencyKey: 'client-create:wh_cli_north-wind',
+    const t = memoryCtx();
+    const orgId = seedOrg(t, { slug: 'warehaus-internal' });
+    const enqueueClient = (idempotencyKey: string, props: Fields) =>
+      t.call(enqueue, {
+        idempotencyKey,
         kind: 'client-create',
-        orgId: 'org-staff',
+        orgId,
         database: 'clients',
-        payload: JSON.stringify({ properties: properties() }),
-        actor: 'staff',
-        schedule: false,
-      })) as { ok: boolean };
-      assert.equal(ok.ok, true);
-      assert.equal(tables.notionOutbox.length, 1);
-
-      const publish = await run(enqueue, ctx, {
-        idempotencyKey: 'client-create:bad-publish',
-        kind: 'client-create',
-        orgId: 'org-staff',
-        database: 'clients',
-        payload: JSON.stringify({ properties: { ...properties(), 'Publish to Warehaus': true } }),
+        payload: JSON.stringify({ properties: props }),
         actor: 'staff',
         schedule: false,
       });
+
+    await withFlag(true, async () => {
+      const ok = (await enqueueClient('client-create:wh_cli_north-wind', properties())) as Result;
+      assert.equal(ok.ok, true);
+      assert.equal(t.rows('notionOutbox').length, 1);
+
+      const publish = await enqueueClient('client-create:bad-publish', { ...properties(), 'Publish to Warehaus': true });
       assert.deepEqual(publish, { ok: false, error: 'Publish to Warehaus must be off' });
 
-      const active = await run(enqueue, ctx, {
-        idempotencyKey: 'client-create:bad-status',
-        kind: 'client-create',
-        orgId: 'org-staff',
-        database: 'clients',
-        payload: JSON.stringify({ properties: { ...properties(), Status: 'Active' } }),
-        actor: 'staff',
-        schedule: false,
-      });
+      const active = await enqueueClient('client-create:bad-status', { ...properties(), Status: 'Active' });
       assert.deepEqual(active, { ok: false, error: 'Status must be Prospect' });
 
-      const contacts = await run(enqueue, ctx, {
-        idempotencyKey: 'client-create:bad-contacts',
-        kind: 'client-create',
-        orgId: 'org-staff',
-        database: 'clients',
-        payload: JSON.stringify({ properties: { ...properties(), Contacts: ['page'] } }),
-        actor: 'staff',
-        schedule: false,
-      });
+      const contacts = await enqueueClient('client-create:bad-contacts', { ...properties(), Contacts: ['page'] });
       assert.deepEqual(contacts, { ok: false, error: 'Contacts is not part of client create' });
-      assert.equal(tables.notionOutbox.length, 1);
+      assert.equal(t.rows('notionOutbox').length, 1);
     });
 
     await withFlag(false, async () => {
-      const off = await run(enqueue, ctx, {
-        idempotencyKey: 'client-create:wh_cli_other',
-        kind: 'client-create',
-        orgId: 'org-staff',
-        database: 'clients',
-        payload: JSON.stringify({ properties: properties() }),
-        actor: 'staff',
-        schedule: false,
-      });
+      const off = await enqueueClient('client-create:wh_cli_other', properties());
       assert.deepEqual(off, { ok: false, error: WRITEBACK_OFF_ERROR });
-      assert.equal(tables.notionOutbox.length, 1);
+      assert.equal(t.rows('notionOutbox').length, 1);
     });
+    assert.equal(t.scheduled.length, 0);
   });
 });

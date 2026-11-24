@@ -488,7 +488,7 @@ describe('queue rules', () => {
     assert.equal(t.row(taskId)?.status, 'Blocked');
     assert.deepEqual(t.reads.unbounded(), []);
     assert.deepEqual(t.reads.unindexed(), []);
-    assert.deepEqual(t.reads.all[0], { table: 'agentRuns', index: 'by_status', eq: ['status'], terminal: 'take' });
+    assert.deepEqual(t.reads.all[0], { table: 'agentRuns', index: 'by_status', eq: ['status'], terminal: 'take', limit: 25 });
     const jobs = Object.values((crons as unknown as { crons: Record<string, { name: string }> }).crons);
     assert.equal(jobs.some((job) => job.name === 'agent:releaseStuckRuns'), true);
   });
