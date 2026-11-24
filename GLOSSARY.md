@@ -65,7 +65,7 @@ The program on a staff Mac that takes milestone work from the Portal and hands i
 _Avoid_: bot, worker, agent
 
 **Runner registration**:
-A runner that staff set up for one deployment from the Portal. It has an id and a secret shown once. A runner is allowed only while it is registered; revoking it stops it at once.
+A runner that staff set up for one deployment from the Portal by confirming its pairing code. It has an id and a secret that only its own machine holds, never shown to anyone. A runner is allowed only while it is registered; revoking it stops it at once.
 _Avoid_: runner token, runner allowlist
 
 **Planning run**:

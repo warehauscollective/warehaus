@@ -51,3 +51,17 @@ Production showed "No runner allowed" because it had no `RUNNER_TOKENS`, and the
 8. **Design first.** The RunnerStatus modal gets six states, in Dark and Light at 1440 and 390, on the existing frames: not set up with the pairing field, confirm pairing, paired, runner list with Revoke, revoke confirmation, and out of date. Peter approves them before any build.
 
 A hosted runner on a server is a later milestone.
+
+### Built, 2026-11-24
+
+Built on the branch `milestone/runner-on-production`, awaiting Peter's approval:
+
+- Registrations, pairing, the six RunnerStatus states, revoke, and the protocol version check (points 1, 3, 4, 7, 8).
+- The runner's own clones under `~/warehaus-runner/repos/<owner>/<name>`; a clone that fails blocks the run with a "needs Peter" note (point 2). `--dir` is gone and `--repo` is an optional filter.
+- `npm run runner -- install`, and `caffeinate -i` held only during a run (point 5).
+- The no-runner notes from the stuck-run cron (point 6). Production having no registered runner is reported on each Building milestone that waits, since a note belongs to a milestone.
+- The internal mutation `runners:clearQueuedPlanning`, run once by hand on production after the deploy, for detail 3.
+- Request changes from Grok Bot moves to Awaiting Go; Regenerate on the drafted tasks card; a Cursor build is blocked after 2 hours.
+
+Still to do: remove the `RUNNER_TOKENS` fallback and the dev env var once the dev runner is re-paired, which needs this code deployed to dev first.
+

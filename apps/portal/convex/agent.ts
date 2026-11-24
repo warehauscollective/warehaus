@@ -802,7 +802,11 @@ export const writePlannedTasks = internalMutation({
   },
 });
 
-/** Ends a planning run that wrote nothing. The job goes back in the queue. */
+/**
+ * Ends a planning run that wrote nothing. The planning job is blocked with its
+ * reason and leaves a "needs Peter" note; staff press Retry to queue it again.
+ * It is not put straight back in the queue (ADR-0001, amendment 2026-11-22).
+ */
 export const failPlanning = internalMutation({
   args: { runnerId: v.string(), runId: v.string(), reason: v.optional(v.any()) },
   handler: async (ctx, args) => {
