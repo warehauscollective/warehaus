@@ -37,3 +37,9 @@ _Avoid_: milestone tasks, linked tasks, close set
 **Status change**:
 A milestone moving from one Status to another. Every status change passes the same gate, writes one activity row, and runs what that status asks for on the way in and out, such as Peter's approval note on entering Ready to Ship. The cause says why it moved: set by a person or the staff API, play, Mark complete, a merge, or a review asking for changes.
 _Avoid_: status write, transition, status update
+
+## Tasks
+
+**Task change**:
+An edit to one or more fields of one task by staff, the staff API, a merged pull request, or closeout. A task change is saved in the portal at once and holds against any older Notion edit. When the task has a Notion page and write-back is allowed, it is also written back; otherwise it stays in the portal and says so. A task change is checked whole: every field is saved, or none.
+_Avoid_: task update, field save, task write, move
