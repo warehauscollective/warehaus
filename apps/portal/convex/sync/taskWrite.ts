@@ -430,12 +430,22 @@ export const enqueueResources = internalMutation({
   },
 });
 
-/** Flag off inserts nothing. Flag on queues the latest pending stage once per task. */
+/** Most pending stages one drain looks at, oldest first. */
+export const DRAIN_PENDING_TAKE = 100;
+
+/**
+ * Flag off inserts nothing. Flag on queues the latest pending stage once per
+ * task. Reads only tasks with a pending stage, oldest first, capped. A
+ * confirmed write clears the pending mark, so later drains reach the rest.
+ */
 export const drainPendingStages = internalMutation({
   args: {},
   handler: async (ctx) => {
     if (!writebackOn()) return { inserted: 0, reused: 0 };
-    const tasks = await ctx.db.query('tasks').collect();
+    const tasks = await ctx.db
+      .query('tasks')
+      .withIndex('by_stagePendingAt', (q) => q.gte('stagePendingAt', 0))
+      .take(DRAIN_PENDING_TAKE);
     let inserted = 0;
     let reused = 0;
     for (const task of tasks) {

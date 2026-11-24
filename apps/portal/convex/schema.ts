@@ -207,6 +207,7 @@ export default defineSchema({
     .index('by_parentTaskId', ['parentTaskId'])
     .index('by_notionPageId', ['notionPageId'])
     .index('by_externalId', ['externalId'])
+    .index('by_stagePendingAt', ['stagePendingAt'])
     .index('by_projectId', ['projectId'])
     .index('by_projectId_status', ['projectId', 'status'])
     .index('by_projectId_stage', ['projectId', 'stage'])

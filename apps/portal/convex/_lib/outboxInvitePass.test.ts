@@ -1,17 +1,15 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
-import { getFunctionName } from 'convex/server';
 import { OUTBOX_LEASE_MS } from '@warehaus/portal-sync';
-import { applyOutcome, claim, get, listDue, release } from '../sync/outbox';
+import { attachProjectId, applyOutcome, claim, clientNotionId, get, listDue, release } from '../sync/outbox';
+import { drainPendingStages } from '../sync/taskWrite';
 import { issueTokenAfterConfirm } from '../invites';
 import { processDue, processOne } from '../sync/outboxWork';
+import { memoryCtx, type MemoryCtx, type Respond } from './memoryCtx.testkit';
+import { seedOrg, seedProject } from './seedRows.testkit';
 
-type Row = Record<string, unknown> & { _id: string };
-type Handler = (ctx: unknown, args: Record<string, unknown>) => Promise<unknown>;
-
-function run(fn: object, ctx: unknown, args: Record<string, unknown> = {}) {
-  return (fn as { _handler: Handler })._handler(ctx, args);
-}
+type Fields = Record<string, unknown>;
+type ProcessResult = { ok: boolean; error?: string };
 
 const properties = {
   Name: 'Ada Lovelace',
@@ -23,13 +21,15 @@ const properties = {
   'Client Company': ['internal-page'],
 };
 
-function inviteRow(extra: Record<string, unknown> = {}): Row {
-  return {
-    _id: 'out-invite',
-    idempotencyKey: 'invite:org-1:ada@example.com:req-1',
+let keys = 0;
+
+/** A queued createInvite row, with overrides. */
+function outboxRow(t: MemoryCtx, orgId: string, extra: Fields = {}): string {
+  return t.seed('notionOutbox', {
+    idempotencyKey: `invite:${orgId}:ada@example.com:req-${(keys += 1)}`,
     kind: 'createInvite',
     database: 'contacts',
-    orgId: 'org-1',
+    orgId,
     payload: JSON.stringify({
       properties,
       invite: {
@@ -45,57 +45,54 @@ function inviteRow(extra: Record<string, unknown> = {}): Row {
     nextAttemptAt: 0,
     createdAt: Date.now(),
     ...extra,
+  });
+}
+
+/**
+ * The outbox functions the worker calls really run on the in-memory ctx.
+ * The invite email action is recorded and answered as sent.
+ */
+function world(clientPage: string, overrides: Record<string, (args: Fields) => unknown> = {}) {
+  const t = memoryCtx();
+  const orgId = seedOrg(t, { notionPageId: clientPage });
+  const real: Record<string, unknown> = {
+    'sync/outbox:get': get,
+    'sync/outbox:listDue': listDue,
+    'sync/outbox:clientNotionId': clientNotionId,
+    'sync/outbox:claim': claim,
+    'sync/outbox:release': release,
+    'sync/outbox:applyOutcome': applyOutcome,
+    'sync/outbox:attachProjectId': attachProjectId,
+    'sync/taskWrite:drainPendingStages': drainPendingStages,
+    'invites:issueTokenAfterConfirm': issueTokenAfterConfirm,
+  };
+  const respond: Respond = async (run) => {
+    const override = overrides[run.name];
+    if (override) return override(run.args);
+    if (run.name === 'invites:sendIssuedInvite') return { sent: true };
+    const fn = real[run.name];
+    if (!fn) throw new Error(`Unexpected ${run.kind} ${run.name}`);
+    return t.call(fn, run.args);
+  };
+  return {
+    t,
+    orgId,
+    row: (extra: Fields = {}) => outboxRow(t, orgId, extra),
+    process: (id: string) => t.call<ProcessResult>(processOne, { id }, { respond }),
+    processDue: () => t.call<{ processed: number }>(processDue, {}, { respond }),
+    emails: () => t.runs.filter((run) => run.name === 'invites:sendIssuedInvite').map((run) => run.args),
+    outcomes: () =>
+      t.runs.filter((run) => run.name === 'sync/outbox:applyOutcome').map((run) => run.args.outcome as Fields),
   };
 }
 
-function actionCtx(row: Row) {
-  const db = {
-    async get(id: string) {
-      return id === row._id ? row : null;
-    },
-    async patch(id: string, value: Record<string, unknown>) {
-      if (id !== row._id) return;
-      for (const [key, field] of Object.entries(value)) {
-        if (field === undefined) delete row[key];
-        else row[key] = field;
-      }
-    },
-  };
-  const emails: Array<Record<string, unknown>> = [];
-  const ctx = {
-    runQuery: async (ref: never, args: Record<string, unknown>) => {
-      const name = getFunctionName(ref);
-      if (name === 'sync/outbox:get') return run(get, { db }, args);
-      if (name === 'sync/outbox:clientNotionId') return 'internal-page';
-      throw new Error(`Unexpected query ${name}`);
-    },
-    runMutation: async (ref: never, args: Record<string, unknown>) => {
-      const name = getFunctionName(ref);
-      if (name === 'sync/outbox:claim') return run(claim, { db }, args);
-      if (name === 'sync/outbox:release') return run(release, { db }, args);
-      if (name === 'sync/outbox:applyOutcome') return null;
-      if (name === 'invites:issueTokenAfterConfirm') {
-        return {
-          issued: true,
-          raw: 'raw-token',
-          to: 'ada@example.com',
-          name: 'Ada Lovelace',
-          alreadyHasLogin: false,
-        };
-      }
-      throw new Error(`Unexpected mutation ${name}`);
-    },
-    runAction: async (ref: never, args: Record<string, unknown>) => {
-      const name = getFunctionName(ref);
-      if (name === 'invites:sendIssuedInvite') {
-        emails.push(args);
-        return { sent: true };
-      }
-      throw new Error(`Unexpected action ${name}`);
-    },
-  };
-  return { ctx, emails };
-}
+const issuedToken = () => ({
+  issued: true,
+  raw: 'raw-token',
+  to: 'ada@example.com',
+  name: 'Ada Lovelace',
+  alreadyHasLogin: false,
+});
 
 describe('invite outbox pass', () => {
   const env = { ...process.env };
@@ -147,52 +144,53 @@ describe('invite outbox pass', () => {
   });
 
   it('sends a queued invite to Notion and the email handler in the claiming pass', async () => {
-    const row = inviteRow();
-    const { ctx, emails } = actionCtx(row);
-    const result = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; error?: string };
+    const w = world('internal-page', { 'invites:issueTokenAfterConfirm': issuedToken });
+    const id = w.row();
+    const result = await w.process(id);
 
     assert.equal(result.ok, true, result.error ?? 'not ok');
     assert.equal(calls.some((call) => call.startsWith('POST') && call.endsWith('/pages')), true);
-    assert.equal(emails.length, 1);
-    assert.equal(emails[0]?.to, 'ada@example.com');
-    assert.equal(typeof emails[0]?.rawToken, 'string');
+    assert.equal(w.emails().length, 1);
+    assert.equal(w.emails()[0]?.to, 'ada@example.com');
+    assert.equal(typeof w.emails()[0]?.rawToken, 'string');
   });
 
   it('does not send while another attempt holds a live lease', async () => {
-    const row = inviteRow({ status: 'inflight', claimedAt: Date.now() });
-    const { ctx, emails } = actionCtx(row);
-    const result = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; error?: string };
+    const w = world('internal-page', { 'invites:issueTokenAfterConfirm': issuedToken });
+    const id = w.row({ status: 'inflight', claimedAt: Date.now() });
+    const result = await w.process(id);
 
     assert.equal(result.ok, false);
-    assert.equal(emails.length, 0);
+    assert.equal(w.emails().length, 0);
     assert.equal(calls.some((call) => call.endsWith('/pages')), false);
-    assert.equal(row.status, 'inflight');
+    assert.equal(w.t.row(id)?.status, 'inflight');
   });
 
   it('reclaims an invite whose lease expired and then sends it', async () => {
-    const row = inviteRow({ status: 'inflight', claimedAt: Date.now() - OUTBOX_LEASE_MS });
-    const { ctx, emails } = actionCtx(row);
-    const result = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; error?: string };
+    const w = world('internal-page', { 'invites:issueTokenAfterConfirm': issuedToken });
+    const id = w.row({ status: 'inflight', claimedAt: Date.now() - OUTBOX_LEASE_MS });
+    const result = await w.process(id);
 
     assert.equal(result.ok, true, result.error ?? 'not ok');
-    assert.equal(emails.length, 1);
+    assert.equal(w.emails().length, 1);
     assert.equal(calls.some((call) => call.startsWith('POST') && call.endsWith('/pages')), true);
   });
 
   it('does not send an invite that is still in backoff', async () => {
-    const row = inviteRow({ status: 'failed', attempts: 1, nextAttemptAt: Date.now() + 30_000 });
-    const { ctx, emails } = actionCtx(row);
-    const result = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; error?: string };
+    const w = world('internal-page', { 'invites:issueTokenAfterConfirm': issuedToken });
+    const id = w.row({ status: 'failed', attempts: 1, nextAttemptAt: Date.now() + 30_000 });
+    const result = await w.process(id);
 
     assert.equal(result.ok, false);
     assert.match(result.error ?? '', /not due/);
-    assert.equal(emails.length, 0);
+    assert.equal(w.emails().length, 0);
     assert.equal(calls.some((call) => call.endsWith('/pages')), false);
-    assert.equal(row.status, 'failed');
+    assert.equal(w.t.row(id)?.status, 'failed');
   });
 
   it('patches a claimed task stage and confirms it', async () => {
-    const row = inviteRow({
+    const w = world('internal-page', { 'invites:issueTokenAfterConfirm': issuedToken });
+    const id = w.row({
       kind: 'task-stage',
       database: 'tasks',
       notionPageId: 'page-1',
@@ -200,73 +198,28 @@ describe('invite outbox pass', () => {
       payload: JSON.stringify({ properties: { Stage: 'Planning' } }),
       idempotencyKey: 'task-stage:page-1:Planning::2026-11-10T00:00:00.000Z',
     });
-    const outcomes: Array<Record<string, unknown>> = [];
-    const { ctx, emails } = actionCtx(row);
-    const original = ctx.runMutation;
-    ctx.runMutation = async (ref: never, args: Record<string, unknown>) => {
-      if (getFunctionName(ref) === 'sync/outbox:applyOutcome') {
-        outcomes.push(args.outcome as Record<string, unknown>);
-        return null;
-      }
-      return original(ref, args);
-    };
-    const result = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; error?: string };
+    const result = await w.process(id);
 
     assert.equal(result.ok, true, result.error ?? 'not ok');
     assert.equal(calls.some((call) => call.startsWith('GET ') && call.includes('/pages/page-1')), true);
     assert.equal(calls.some((call) => call.startsWith('PATCH ') && call.includes('/pages/page-1')), true);
-    assert.equal(outcomes[0]?.kind, 'confirmed');
-    assert.equal(emails.length, 0);
+    assert.equal(w.outcomes()[0]?.kind, 'confirmed');
+    assert.equal(w.t.row(id)?.status, 'done');
+    assert.equal(w.emails().length, 0);
   });
 
   it('confirms the invite, issues the token, and then calls the email handler', async () => {
-    const row = inviteRow();
-    const tables: Record<string, Row[]> = {
-      notionOutbox: [row],
-      inviteTokens: [],
-      pendingInvites: [],
-      contacts: [],
-      notionWriteState: [],
-      auditEvents: [],
-    };
-    const db = chainDb(tables);
-    const emails: Array<Record<string, unknown>> = [];
-    const mutationCtx = {
-      db,
-      runQuery: async () => null,
-      runMutation: async () => null,
-    };
-    const ctx = {
-      runQuery: async (ref: never, args: Record<string, unknown>) => {
-        const name = getFunctionName(ref);
-        if (name === 'sync/outbox:get') return run(get, mutationCtx, args);
-        if (name === 'sync/outbox:clientNotionId') return 'internal-page';
-        throw new Error(`Unexpected query ${name}`);
-      },
-      runMutation: async (ref: never, args: Record<string, unknown>) => {
-        const name = getFunctionName(ref);
-        if (name === 'sync/outbox:claim') return run(claim, mutationCtx, args);
-        if (name === 'sync/outbox:release') return run(release, mutationCtx, args);
-        if (name === 'sync/outbox:applyOutcome') return run(applyOutcome, mutationCtx, args);
-        if (name === 'invites:issueTokenAfterConfirm') return run(issueTokenAfterConfirm, mutationCtx, args);
-        throw new Error(`Unexpected mutation ${name}`);
-      },
-      runAction: async (ref: never, args: Record<string, unknown>) => {
-        const name = getFunctionName(ref);
-        if (name === 'invites:sendIssuedInvite') {
-          emails.push(args);
-          return { sent: true };
-        }
-        throw new Error(`Unexpected action ${name}`);
-      },
-    };
-    const result = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; error?: string };
+    const w = world('internal-page');
+    const id = w.row();
+    const result = await w.process(id);
 
     assert.equal(result.ok, true, result.error ?? 'not ok');
-    assert.equal(row.status, 'done');
-    assert.equal(tables.inviteTokens.length, 1);
-    assert.equal(tables.inviteTokens[0]?.status, 'live');
-    assert.equal(tables.inviteTokens[0]?.emailNormalized, 'ada@example.com');
+    assert.equal(w.t.row(id)?.status, 'done');
+    const tokens = w.t.rows('inviteTokens');
+    assert.equal(tokens.length, 1);
+    assert.equal(tokens[0]?.status, 'live');
+    assert.equal(tokens[0]?.emailNormalized, 'ada@example.com');
+    const emails = w.emails();
     assert.equal(emails.length, 1);
     assert.equal(emails[0]?.to, 'ada@example.com');
     assert.equal(typeof emails[0]?.rawToken, 'string');
@@ -274,82 +227,29 @@ describe('invite outbox pass', () => {
   });
 });
 
-class EqBuilder {
-  private checks: Array<(row: Row) => boolean> = [];
-  eq(field: string, value: unknown): this {
-    this.checks.push((row) => row[field] === value);
-    return this;
-  }
-  lte(field: string, value: number): this {
-    this.checks.push((row) => typeof row[field] === 'number' && (row[field] as number) <= value);
-    return this;
-  }
-  matches(row: Row): boolean {
-    return this.checks.every((check) => check(row));
-  }
-}
-
-function chainDb(tables: Record<string, Row[]>) {
-  let seq = 1;
-  return {
-    async get(id: string) {
-      for (const rows of Object.values(tables)) {
-        const found = rows.find((row) => row._id === id);
-        if (found) return found;
-      }
-      return null;
-    },
-    async insert(table: string, value: Record<string, unknown>) {
-      const stored = { ...value, _id: `gen-${seq++}` } as Row;
-      (tables[table] ??= []).push(stored);
-      return stored._id;
-    },
-    async patch(id: string, value: Record<string, unknown>) {
-      for (const rows of Object.values(tables)) {
-        const row = rows.find((item) => item._id === id);
-        if (!row) continue;
-        for (const [key, field] of Object.entries(value)) {
-          if (field === undefined) delete row[key];
-          else row[key] = field;
-        }
-        return;
-      }
-    },
-    query(table: string) {
-      const chain = (list: Row[]) => ({
-        withIndex(_name: string, build?: (q: EqBuilder) => EqBuilder) {
-          const builder = new EqBuilder();
-          build?.(builder);
-          return chain(list.filter((row) => builder.matches(row)));
-        },
-        collect: async () => list,
-        unique: async () => {
-          if (list.length > 1) throw new Error('Expected a unique row');
-          return list[0] ?? null;
-        },
-        take: async (n: number) => list.slice(0, n),
-      });
-      return chain(tables[table] ?? []);
-    },
-  };
-}
-
 describe('outbox rows due for another attempt', () => {
   it('returns an inflight row whose lease has expired and skips a live lease', async () => {
     const now = 1_000_000;
-    const rows: Row[] = [
-      { _id: 'queued', status: 'queued', nextAttemptAt: 0, claimedAt: undefined },
-      { _id: 'failed', status: 'failed', nextAttemptAt: now, claimedAt: undefined },
-      { _id: 'waiting', status: 'queued', nextAttemptAt: now + 1, claimedAt: undefined },
-      { _id: 'crashed', status: 'inflight', nextAttemptAt: 0, claimedAt: now - OUTBOX_LEASE_MS },
-      { _id: 'held', status: 'inflight', nextAttemptAt: 0, claimedAt: now - 1_000 },
-      { _id: 'early', status: 'inflight', nextAttemptAt: now + 1, claimedAt: now - OUTBOX_LEASE_MS - 1 },
+    const t = memoryCtx();
+    const orgId = seedOrg(t);
+    const ids: Record<string, string> = {};
+    const seeds: Array<[string, Fields]> = [
+      ['queued', { status: 'queued', nextAttemptAt: 0 }],
+      ['failed', { status: 'failed', nextAttemptAt: now }],
+      ['waiting', { status: 'queued', nextAttemptAt: now + 1 }],
+      ['crashed', { status: 'inflight', nextAttemptAt: 0, claimedAt: now - OUTBOX_LEASE_MS }],
+      ['held', { status: 'inflight', nextAttemptAt: 0, claimedAt: now - 1_000 }],
+      ['early', { status: 'inflight', nextAttemptAt: now + 1, claimedAt: now - OUTBOX_LEASE_MS - 1 }],
     ];
-    const due = (await run(listDue, { db: chainDb({ notionOutbox: rows }) }, { now })) as Row[];
+    for (const [name, fields] of seeds) ids[name] = outboxRow(t, orgId, fields);
+    const names = new Map(Object.entries(ids).map(([name, id]) => [id, name]));
+
+    const due = await t.call<Array<{ _id: string }>>(listDue, { now });
     assert.deepEqual(
-      due.map((row) => row._id),
+      due.map((row) => names.get(row._id)),
       ['crashed', 'queued', 'failed'],
     );
+    assert.deepEqual(t.reads.unbounded(), []);
   });
 });
 
@@ -392,36 +292,15 @@ function schemaFetch(properties: Record<string, unknown>, onSchema: () => void) 
   return calls;
 }
 
-function workerCtx(rows: Row[]) {
-  const outcomes: Array<Record<string, unknown>> = [];
-  const byId = new Map(rows.map((row) => [row._id, row]));
-  const ctx = {
-    runQuery: async (ref: never, args: Record<string, unknown>) => {
-      const name = getFunctionName(ref);
-      if (name === 'sync/outbox:listDue') return rows;
-      if (name === 'sync/outbox:get') return byId.get(String(args.id)) ?? null;
-      if (name === 'sync/outbox:clientNotionId') return 'client-page';
-      throw new Error(`Unexpected query ${name}`);
-    },
-    runMutation: async (ref: never, args: Record<string, unknown>) => {
-      const name = getFunctionName(ref);
-      if (name === 'sync/taskWrite:drainPendingStages') return null;
-      if (name === 'sync/outbox:claim') return { claimed: true as const };
-      if (name === 'sync/outbox:release') return null;
-      if (name === 'sync/outbox:applyOutcome') {
-        outcomes.push(args.outcome as Record<string, unknown>);
-        return null;
-      }
-      if (name === 'invites:issueTokenAfterConfirm') return { issued: false };
-      if (name === 'sync/upsert:upsertProject') return 'proj-1';
-      if (name === 'sync/outbox:attachProjectId') return null;
-      throw new Error(`Unexpected mutation ${name}`);
-    },
-    runAction: async () => {
-      throw new Error('no action');
-    },
-  };
-  return { ctx, outcomes };
+/** The worker world: invite issue is answered as not issued, project upsert returns a seeded project. */
+function workerWorld() {
+  let projectId = '';
+  const w = world('client-page', {
+    'invites:issueTokenAfterConfirm': () => ({ issued: false }),
+    'sync/upsert:upsertProject': () => projectId,
+  });
+  projectId = seedProject(w.t, w.orgId);
+  return { ...w, projectId };
 }
 
 describe('outbox work with a live property list', () => {
@@ -439,28 +318,32 @@ describe('outbox work with a live property list', () => {
   });
 
   it('patches a task description after the re-read matches, and conflicts when it does not', async () => {
-    const row = inviteRow({
-      _id: 'out-desc',
-      kind: 'task-description',
-      database: 'tasks',
-      notionPageId: 'page-1',
-      expectedLastEditedTime: EXPECTED,
-      payload: JSON.stringify({ properties: { Description: 'Staff note' } }),
-      idempotencyKey: 'task-description:page-1',
-    });
+    const w = workerWorld();
+    const description = (key: string) =>
+      w.row({
+        kind: 'task-description',
+        database: 'tasks',
+        notionPageId: 'page-1',
+        expectedLastEditedTime: EXPECTED,
+        payload: JSON.stringify({ properties: { Description: 'Staff note' } }),
+        idempotencyKey: key,
+      });
+    const id = description('task-description:page-1');
     let schemas = 0;
     const calls = schemaFetch({ Description: { type: 'rich_text' }, Name: { type: 'title' } }, () => {
       schemas += 1;
     });
-    const { ctx, outcomes } = workerCtx([row]);
-    const result = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; error?: string };
+    const result = await w.process(id);
     assert.equal(result.ok, true, result.error ?? 'not ok');
     assert.equal(schemas, 1);
-    assert.equal(outcomes[0]?.kind, 'confirmed');
+    assert.equal(w.outcomes()[0]?.kind, 'confirmed');
+    assert.equal(w.t.row(id)?.status, 'done');
     assert.equal(calls.some((call) => call.startsWith('PATCH ')), true);
     const patch = calls.find((call) => call.startsWith('PATCH '));
     assert.ok(patch);
 
+    // The first row is done, so the conflict pass runs on a second queued row.
+    const conflictId = description('task-description:page-1:again');
     schemas = 0;
     globalThis.fetch = (async (url: string | URL, init?: RequestInit) => {
       const path = String(url);
@@ -482,22 +365,24 @@ describe('outbox work with a live property list', () => {
       if (method === 'PATCH') return new Response('should not patch', { status: 500 });
       return new Response('unexpected', { status: 500 });
     }) as typeof fetch;
-    const conflicted = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; error?: string };
+    const conflicted = await w.process(conflictId);
     assert.equal(conflicted.ok, false);
     assert.match(conflicted.error ?? '', /Nothing was written/);
-    assert.equal(outcomes.at(-1)?.kind, 'conflict');
+    const outcomes = w.outcomes();
+    assert.equal(outcomes[outcomes.length - 1]?.kind, 'conflict');
+    assert.equal(w.t.row(conflictId)?.status, 'conflict');
   });
 
   it('checks invite-state and project-create against the live property list', async () => {
-    const invite = inviteRow({
-      _id: 'out-state',
-      kind: 'setInviteState',
-      database: 'contacts',
-      notionPageId: 'page-1',
-      expectedLastEditedTime: EXPECTED,
-      payload: JSON.stringify({ properties: { 'Portal Access': 'Enabled', 'Invite Status': 'Accepted' } }),
-      idempotencyKey: 'state:page-1',
-    });
+    const inviteState = (w: ReturnType<typeof workerWorld>) =>
+      w.row({
+        kind: 'setInviteState',
+        database: 'contacts',
+        notionPageId: 'page-1',
+        expectedLastEditedTime: EXPECTED,
+        payload: JSON.stringify({ properties: { 'Portal Access': 'Enabled', 'Invite Status': 'Accepted' } }),
+        idempotencyKey: 'state:page-1',
+      });
     let schemas = 0;
     schemaFetch(
       { 'Portal Access': { type: 'select' }, Name: { type: 'title' }, Email: { type: 'email' } },
@@ -505,11 +390,13 @@ describe('outbox work with a live property list', () => {
         schemas += 1;
       },
     );
-    const missing = workerCtx([invite]);
-    const rejected = (await run(processOne, missing.ctx, { id: invite._id })) as { ok: boolean; error?: string };
+    const missing = workerWorld();
+    const missingId = inviteState(missing);
+    const rejected = await missing.process(missingId);
     assert.equal(rejected.ok, false);
     assert.equal(rejected.error, 'Notion is missing property "Invite Status".');
-    assert.equal(missing.outcomes[0]?.kind, 'rejected');
+    assert.equal(missing.outcomes()[0]?.kind, 'rejected');
+    assert.equal(missing.t.row(missingId)?.status, 'dead');
     assert.equal(schemas, 1);
 
     schemas = 0;
@@ -523,29 +410,29 @@ describe('outbox work with a live property list', () => {
         schemas += 1;
       },
     );
-    const present = workerCtx([invite]);
-    const accepted = (await run(processOne, present.ctx, { id: invite._id })) as { ok: boolean; error?: string };
+    const present = workerWorld();
+    const presentId = inviteState(present);
+    const accepted = await present.process(presentId);
     assert.equal(accepted.ok, true, accepted.error ?? 'not ok');
-    assert.equal(present.outcomes[0]?.kind, 'confirmed');
+    assert.equal(present.outcomes()[0]?.kind, 'confirmed');
+    assert.equal(present.t.row(presentId)?.status, 'done');
 
-    const project = inviteRow({
-      _id: 'out-project',
-      kind: 'project-create',
-      database: 'projects',
-      payload: JSON.stringify({
-        properties: {
-          Name: 'Spring menu',
-          Client: ['client-page'],
-          'Publish to Warehaus': true,
-          Archive: false,
-          Source: 'portal',
-          'External ID': 'wh_prj_menu',
-        },
-      }),
-      idempotencyKey: 'project-create:wh_prj_menu',
-      notionPageId: undefined,
-      expectedLastEditedTime: undefined,
-    });
+    const projectCreate = (w: ReturnType<typeof workerWorld>) =>
+      w.row({
+        kind: 'project-create',
+        database: 'projects',
+        payload: JSON.stringify({
+          properties: {
+            Name: 'Spring menu',
+            Client: ['client-page'],
+            'Publish to Warehaus': true,
+            Archive: false,
+            Source: 'portal',
+            'External ID': 'wh_prj_menu',
+          },
+        }),
+        idempotencyKey: 'project-create:wh_prj_menu',
+      });
     schemas = 0;
     schemaFetch(
       {
@@ -559,11 +446,13 @@ describe('outbox work with a live property list', () => {
         schemas += 1;
       },
     );
-    const incomplete = workerCtx([project]);
-    const projectRejected = (await run(processOne, incomplete.ctx, { id: project._id })) as { ok: boolean; error?: string };
+    const incomplete = workerWorld();
+    const incompleteId = projectCreate(incomplete);
+    const projectRejected = await incomplete.process(incompleteId);
     assert.equal(projectRejected.ok, false);
     assert.match(projectRejected.error ?? '', /External ID/);
-    assert.equal(incomplete.outcomes[0]?.kind, 'rejected');
+    assert.equal(incomplete.outcomes()[0]?.kind, 'rejected');
+    assert.equal(incomplete.t.row(incompleteId)?.status, 'dead');
 
     schemaFetch(
       {
@@ -578,23 +467,25 @@ describe('outbox work with a live property list', () => {
         schemas += 1;
       },
     );
-    const created = workerCtx([project]);
-    const projectOk = (await run(processOne, created.ctx, { id: project._id })) as { ok: boolean; error?: string };
+    const created = workerWorld();
+    const createdId = projectCreate(created);
+    const projectOk = await created.process(createdId);
     assert.equal(projectOk.ok, true, projectOk.error ?? 'not ok');
-    assert.equal(created.outcomes[0]?.kind, 'confirmed');
+    assert.equal(created.outcomes()[0]?.kind, 'confirmed');
+    assert.equal(created.t.row(createdId)?.status, 'done');
+    assert.equal(JSON.parse(String(created.t.row(createdId)?.resultJson)).projectId, created.projectId);
   });
 
   it('reads each data source once per processDue run', async () => {
-    const first = inviteRow({
-      _id: 'out-a',
+    const w = workerWorld();
+    const first = w.row({
       kind: 'task-description',
       database: 'tasks',
       notionPageId: 'page-1',
       expectedLastEditedTime: EXPECTED,
       payload: JSON.stringify({ properties: { Description: 'One' } }),
     });
-    const second = inviteRow({
-      _id: 'out-b',
+    const second = w.row({
       kind: 'task-stage',
       database: 'tasks',
       notionPageId: 'page-1',
@@ -605,9 +496,12 @@ describe('outbox work with a live property list', () => {
     schemaFetch({ Description: {}, Stage: {}, Name: {} }, () => {
       schemas += 1;
     });
-    const { ctx } = workerCtx([first, second]);
-    const result = (await run(processDue, ctx, {})) as { processed: number };
+    const result = await w.processDue();
     assert.equal(result.processed, 2);
     assert.equal(schemas, 1);
+    assert.deepEqual(
+      w.t.runs.filter((run) => run.name === 'sync/outbox:claim').map((run) => run.args.id),
+      [first, second],
+    );
   });
 });

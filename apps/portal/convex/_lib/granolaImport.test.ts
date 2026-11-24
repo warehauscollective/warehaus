@@ -5,137 +5,48 @@ import { applyImport, retryImport } from '../sync/granola';
 import { getForClient, listForClient } from '../sharedResources';
 import { searchCatalog } from './portalSearch';
 import { PortalAuthError } from './identity';
+import { memoryCtx } from './memoryCtx.testkit';
+import { seedProject } from './seedRows.testkit';
 
-type Row = Record<string, unknown> & { _id: string };
-
-class EqBuilder {
-  private eqs: Array<[string, unknown]> = [];
-  eq(field: string, value: unknown): this {
-    this.eqs.push([field, value]);
-    return this;
-  }
-  matches(row: Row): boolean {
-    return this.eqs.every(([field, value]) => row[field] === value);
-  }
-}
-
-function memoryDb(tables: Record<string, Row[]>) {
-  let seq = 1;
-  return {
-    async get(id: string) {
-      for (const rows of Object.values(tables)) {
-        const found = rows.find((row) => row._id === id);
-        if (found) return found;
-      }
-      return null;
-    },
-    async insert(table: string, row: Record<string, unknown>) {
-      const stored = { ...row, _id: `gen-${seq++}` } as Row;
-      (tables[table] ??= []).push(stored);
-      return stored._id;
-    },
-    async patch(id: string, value: Record<string, unknown>) {
-      const row = await this.get(id);
-      if (!row) return;
-      for (const [key, field] of Object.entries(value)) {
-        if (field === undefined) delete row[key];
-        else row[key] = field;
-      }
-    },
-    query(table: string) {
-      const chain = (list: Row[]) => ({
-        withIndex(_name: string, build?: (q: EqBuilder) => EqBuilder) {
-          const builder = new EqBuilder();
-          build?.(builder);
-          return chain(list.filter((row) => builder.matches(row)));
-        },
-        collect: async () => list,
-        unique: async () => {
-          if (list.length > 1) throw new Error('Expected a unique row');
-          return list[0] ?? null;
-        },
-      });
-      return chain(tables[table] ?? []);
-    },
-  };
-}
+type Fields = Record<string, unknown>;
 
 const TRANSCRIPT = 'TRANSCRIPT: Ada: the raw speaker turns stay in Notion.';
 
-const tables = (): Record<string, Row[]> => ({
-  clients: [
-    {
-      _id: 'org-north',
-      companyName: 'Northwind',
-      slug: 'northwind',
-      portalAccess: 'Enabled',
-    },
-  ],
-  contacts: [
-    {
-      _id: 'contact-client',
-      orgId: 'org-north',
-      name: 'Ada Client',
-      email: 'ada@northwind.test',
-      authUserId: 'auth-client',
-      role: 'Client Member',
-      portalAccess: 'Enabled',
-    },
-    {
-      _id: 'contact-staff',
-      orgId: 'org-north',
-      name: 'Maya Internal',
-      email: 'maya@warehaus.studio',
-      authUserId: 'auth-staff',
-      role: 'Warehaus Staff',
-      portalAccess: 'Enabled',
-    },
-  ],
-  projects: [
-    {
-      _id: 'proj-public',
-      orgId: 'org-north',
-      name: 'Website refresh',
-      publishToWarehaus: true,
-      archive: false,
-      type: ['Website'],
-    },
-  ],
-  sharedResources: [
-    {
-      _id: 'res-kept',
-      orgId: 'org-north',
-      notionPageId: 'granola:standup',
-      externalId: 'wh_grn_standup',
-      title: 'Internal standup',
-      description: 'Summary: The earlier recap stays.',
-      type: 'Meeting notes',
-      source: 'granola',
-      publishToWarehaus: false,
-      archive: false,
-      lastSyncedAt: 1,
-    },
-  ],
-  syncMeta: [],
-});
-
-type Handler = (ctx: unknown, args: Record<string, unknown>) => Promise<unknown>;
-
-function run(fn: object, ctx: unknown, args: Record<string, unknown> = {}) {
-  return (fn as { _handler: Handler })._handler(ctx, args);
+/**
+ * The client org `northwind` (the slug the fixture notes name), its client and
+ * staff contacts, one published project and (unless `kept` is false) one
+ * earlier, unpublished recap.
+ */
+function world({ kept = true } = {}) {
+  const t = memoryCtx();
+  t.actor('client');
+  t.actor('staff');
+  const orgId = t.rows('clients').find((row) => row.slug === 'northwind')?._id as string;
+  const projectId = seedProject(t, orgId, { name: 'Website refresh', publishToWarehaus: true, archive: false, type: ['Website'] });
+  const resource = (fields: Fields) => t.seed('sharedResources', { orgId, archive: false, ...fields });
+  const keptId = kept && resource({
+    notionPageId: 'granola:standup',
+    externalId: 'wh_grn_standup',
+    title: 'Internal standup',
+    description: 'Summary: The earlier recap stays.',
+    type: 'Meeting notes',
+    source: 'granola',
+    publishToWarehaus: false,
+    lastSyncedAt: 1,
+  });
+  return { t, orgId, projectId, keptId, resource };
 }
 
 describe('granola applyImport', () => {
   it('writes a recap with publish off and leaves a failed note unchanged', async () => {
-    const data = tables();
-    const ctx = { db: memoryDb(data) };
-    const result = await run(applyImport, ctx, {
+    const { t, keptId } = world();
+    const result = await t.call(applyImport, {
       configured: true,
       notes: FIXTURE_GRANOLA_NOTES,
     });
     assert.deepEqual(result, { configured: true, imported: 1, failed: 1 });
 
-    const kickoff = data.sharedResources.find((row) => row.notionPageId === 'granola:kickoff');
+    const kickoff = t.rows('sharedResources').find((row) => row.notionPageId === 'granola:kickoff');
     assert.ok(kickoff);
     assert.equal(kickoff.publishToWarehaus, false);
     assert.equal(kickoff.source, 'granola');
@@ -143,145 +54,117 @@ describe('granola applyImport', () => {
     assert.equal(String(kickoff.description).includes(TRANSCRIPT), false);
     assert.equal(kickoff.sourceNotionUrl, 'https://www.notion.so/0123456789abcdef0123456789abcdef');
 
-    const standup = data.sharedResources.find((row) => row._id === 'res-kept');
+    const standup = t.row(keptId as string);
     assert.equal(standup?.description, 'Summary: The earlier recap stays.');
     assert.equal(standup?.publishToWarehaus, false);
 
-    const meta = data.syncMeta.find((row) => row.key === 'granola-import');
+    const meta = t.rows('syncMeta').find((row) => row.key === 'granola-import');
     assert.equal(meta?.lastError, GRANOLA_IMPORT_FAILED);
-    const stored = JSON.stringify({ resources: data.sharedResources, meta: data.syncMeta });
+    const stored = JSON.stringify({ resources: t.rows('sharedResources'), meta: t.rows('syncMeta') });
     assert.equal(stored.includes(TRANSCRIPT), false);
     assert.equal(stored.includes('raw speaker'), false);
   });
 
   it('keeps publish off on update and does not turn a published recap back on by itself', async () => {
-    const data = tables();
-    data.sharedResources.push({
-      _id: 'res-live',
-      orgId: 'org-north',
+    const { t, resource } = world();
+    const liveId = resource({
       notionPageId: 'granola:kickoff',
       title: 'Old title',
       description: 'Summary: Old.',
       type: 'Meeting notes',
       source: 'granola',
       publishToWarehaus: true,
-      archive: false,
       lastSyncedAt: 1,
     });
-    await run(applyImport, { db: memoryDb(data) }, {
+    await t.call(applyImport, {
       configured: true,
       notes: [FIXTURE_GRANOLA_NOTES[0]],
     });
-    const kickoff = data.sharedResources.find((row) => row.notionPageId === 'granola:kickoff');
+    const kickoffs = t.rows('sharedResources').filter((row) => row.notionPageId === 'granola:kickoff');
+    assert.equal(kickoffs.length, 1);
+    const kickoff = t.row(liveId);
     assert.equal(kickoff?.publishToWarehaus, true);
     assert.match(String(kickoff?.description), /The menu structure is agreed/);
     assert.equal(String(kickoff?.description).includes('TRANSCRIPT'), false);
   });
 
   it('does not insert fixture notes when credentials are missing', async () => {
-    const data = tables();
-    const before = data.sharedResources.length;
-    await run(applyImport, { db: memoryDb(data) }, { configured: false });
-    assert.equal(data.sharedResources.length, before);
-    const meta = data.syncMeta.find((row) => row.key === 'granola-import');
+    const { t } = world();
+    const before = t.rows('sharedResources').length;
+    await t.call(applyImport, { configured: false });
+    assert.equal(t.rows('sharedResources').length, before);
+    const meta = t.rows('syncMeta').find((row) => row.key === 'granola-import');
     assert.equal(meta?.details, JSON.stringify({ configured: false }));
     assert.equal(meta?.lastError, undefined);
   });
 
   it('rejects a client retry and lets staff schedule the import', async () => {
-    const data = tables();
-    const clientCtx = {
-      auth: { getUserIdentity: async () => ({ subject: 'auth-client' }) },
-      db: memoryDb(data),
-      scheduler: { runAfter: async () => { throw new Error('client must not schedule'); } },
-    };
-    await assert.rejects(run(retryImport, clientCtx, {}), (err: unknown) => {
+    const { t } = world();
+    await assert.rejects(t.call(retryImport, {}, { as: 'client' }), (err: unknown) => {
       assert.ok(err instanceof PortalAuthError);
       return true;
     });
+    assert.equal(t.scheduled.length, 0);
 
-    const scheduled: unknown[] = [];
-    const staffCtx = {
-      auth: { getUserIdentity: async () => ({ subject: 'auth-staff' }) },
-      db: memoryDb(data),
-      scheduler: {
-        runAfter: async (_delay: number, ref: unknown, args: unknown) => {
-          scheduled.push({ ref, args });
-        },
-      },
-    };
-    const result = await run(retryImport, staffCtx, {});
+    const result = await t.call(retryImport, {}, { as: 'staff' });
     assert.deepEqual(result, { scheduled: true });
-    assert.equal(scheduled.length, 1);
+    assert.equal(t.scheduled.length, 1);
+    assert.equal(t.scheduled[0]?.name, 'sync/granola:runImport');
   });
 });
 
 describe('client recap query', () => {
-  const published = {
-    _id: 'res-published',
-    orgId: 'org-north',
-    projectId: 'proj-public',
+  const published = (projectId: string): Fields => ({
+    projectId,
     notionPageId: 'granola:kickoff',
     title: 'Kickoff recap',
     description: `Summary: The menu structure is agreed.\nTranscript:\n${TRANSCRIPT}`,
     type: 'Meeting notes',
     source: 'granola',
     publishToWarehaus: true,
-    archive: false,
     lastSyncedAt: 5,
-  };
-  const transcriptOnly = {
-    _id: 'res-transcript',
-    orgId: 'org-north',
+  });
+  const transcriptOnly: Fields = {
     notionPageId: 'granola:secret',
     title: 'Secret standup',
     description: ['Ada: one', 'Ben: two', 'Cara: three', 'Diego: four'].join('\n'),
     type: 'Meeting notes',
     source: 'granola',
     publishToWarehaus: true,
-    archive: false,
     lastSyncedAt: 6,
   };
-  const ordinary = {
-    _id: 'res-file',
-    orgId: 'org-north',
-    projectId: 'proj-public',
+  const ordinary = (projectId: string): Fields => ({
+    projectId,
     notionPageId: 'notion-file',
     title: 'Brand file',
     description: 'Shared recap',
     type: 'File',
     publishToWarehaus: true,
-    archive: false,
     lastSyncedAt: 7,
-  };
+  });
 
-  function clientCtx(resources: Row[]) {
-    const data = tables();
-    data.sharedResources = resources;
-    return {
-      auth: { getUserIdentity: async () => ({ subject: 'auth-client' }) },
-      db: memoryDb(data),
-    };
+  /** The client org with only the given resources. */
+  function clientWorld(resources: (projectId: string) => Fields[]) {
+    const w = world({ kept: false });
+    const ids = resources(w.projectId).map((fields) => w.resource(fields));
+    return { ...w, ids };
   }
 
   it('returns a published recap and hides the transcript and unpublished notes', async () => {
-    const ctx = clientCtx([
-      published,
+    const { t } = clientWorld((projectId) => [
+      published(projectId),
       transcriptOnly,
-      ordinary,
+      ordinary(projectId),
       {
-        _id: 'res-draft',
-        orgId: 'org-north',
         notionPageId: 'granola:draft',
         title: 'Draft recap',
         description: 'Summary: Not published.',
         source: 'granola',
         publishToWarehaus: false,
-        archive: false,
         lastSyncedAt: 8,
       },
     ]);
-    const rows = (await run(listForClient, ctx, {})) as Array<{ name: string; description: string | null }>;
+    const rows = await t.call<Array<{ name: string; description: string | null }>>(listForClient, {}, { as: 'client' });
     assert.deepEqual(
       rows.map((row) => row.name).sort(),
       ['Brand file', 'Kickoff recap'],
@@ -296,10 +179,12 @@ describe('client recap query', () => {
     assert.equal(encoded.includes('sourceNotionUrl'), false);
     assert.equal(rows.find((row) => row.name === 'Brand file')?.description, 'Shared recap');
 
+    const draft = clientWorld((projectId) => [
+      published(projectId),
+      { ...published(projectId), publishToWarehaus: false, notionPageId: 'granola:draft' },
+    ]);
     await assert.rejects(
-      run(getForClient, clientCtx([published, { ...published, _id: 'res-draft', publishToWarehaus: false, notionPageId: 'granola:draft' }]), {
-        resourceId: 'res-draft',
-      }),
+      draft.t.call(getForClient, { resourceId: draft.ids[1] }, { as: 'client' }),
       (err: unknown) => err instanceof PortalAuthError,
     );
   });

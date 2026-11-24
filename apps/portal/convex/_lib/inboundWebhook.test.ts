@@ -17,96 +17,35 @@ import {
   stageMoveForMerge,
   vercelSignatureHeader,
 } from './inboundWebhook';
+import { memoryCtx, type MemoryCtx, type Respond } from './memoryCtx.testkit';
+import { seedOrg, seedProject, seedTask } from './seedRows.testkit';
 
 const SECRET = 'test_webhook_secret';
 const TASK_ID = '417ffd60316b81bca82ae951aa5a8a4e';
 const SHA = 'abc123def456abc123def456abc123def456abcd';
 const TIME = '2026-11-13T18:00:00.000Z';
+const APPLY_INBOUND = 'sync/inbound:applyInbound';
+const ENQUEUE = 'sync/outbox:enqueue';
 
-type Row = Record<string, unknown> & { _id: string };
-type Handler = (ctx: unknown, args: Record<string, unknown>) => Promise<unknown>;
+type ApplyResult = {
+  ok: true;
+  wrote: boolean;
+  duplicate?: boolean;
+  unmatched?: boolean;
+  limited?: boolean;
+  links: number;
+  stageMoves: number;
+};
 
-class EqBuilder {
-  private eqs: Array<[string, unknown]> = [];
-  eq(field: string, value: unknown): this {
-    this.eqs.push([field, value]);
-    return this;
-  }
-  matches(row: Row): boolean {
-    return this.eqs.every(([field, value]) => row[field] === value);
-  }
-}
-
-function memoryDb(tables: Record<string, Row[]>) {
-  let seq = 1;
-  return {
-    async get(id: string) {
-      for (const rows of Object.values(tables)) {
-        const found = rows.find((row) => row._id === id);
-        if (found) return found;
-      }
-      return null;
-    },
-    async insert(table: string, row: Record<string, unknown>) {
-      const stored = { ...row, _id: `gen-${seq++}` } as Row;
-      (tables[table] ??= []).push(stored);
-      return stored._id;
-    },
-    async patch(id: string, value: Record<string, unknown>) {
-      const row = await this.get(id);
-      if (!row) return;
-      for (const [key, field] of Object.entries(value)) {
-        if (field === undefined) delete row[key];
-        else row[key] = field;
-      }
-    },
-    async delete(id: string) {
-      for (const rows of Object.values(tables)) {
-        const index = rows.findIndex((row) => row._id === id);
-        if (index >= 0) {
-          rows.splice(index, 1);
-          return;
-        }
-      }
-    },
-    query(table: string) {
-      const chain = (list: Row[]) => ({
-        withIndex(_name: string, build?: (q: EqBuilder) => EqBuilder) {
-          const builder = new EqBuilder();
-          build?.(builder);
-          return chain(list.filter((row) => builder.matches(row)));
-        },
-        take: async (count: number) => list.slice(0, count),
-        unique: async () => {
-          if (list.length > 1) throw new Error('Expected a unique row');
-          return list[0] ?? null;
-        },
-        first: async () => list[0] ?? null,
-      });
-      return chain(tables[table] ?? []);
-    },
-  };
-}
-
-function run(fn: object, ctx: unknown, args: Record<string, unknown> = {}) {
-  return (fn as { _handler: Handler })._handler(ctx, args);
-}
-
-function dbCtx(tables: Record<string, Row[]>) {
-  const db = memoryDb(tables);
-  const ctx = {
-    db,
-    scheduler: { runAfter: async () => undefined },
-    runMutation: async (_ref: unknown, args: Record<string, unknown>) => run(enqueue, ctx, args),
-  };
-  return ctx;
-}
-
-function task(extra: Record<string, unknown> = {}): Row {
-  return {
-    _id: 'task-1',
-    orgId: 'org-1',
-    projectId: 'proj-1',
+/**
+ * One org and project with the task the Portal-Task line names. `task()`
+ * reads the stored task row back.
+ */
+function world(taskFields: Record<string, unknown> = {}) {
+  const t = memoryCtx();
+  const orgId = seedOrg(t);
+  const projectId = seedProject(t, orgId);
+  const taskId = seedTask(t, orgId, projectId, {
     notionPageId: TASK_ID,
     name: 'Two-way sync',
     status: 'In Progress',
@@ -115,18 +54,24 @@ function task(extra: Record<string, unknown> = {}): Row {
     stage: 'Building',
     lastEditedTime: TIME,
     lastSyncedAt: 1,
-    ...extra,
-  };
+    ...taskFields,
+  });
+  return { t, orgId, projectId, taskId, task: () => t.row(taskId) };
 }
 
-function tablesWith(row: Row = task()) {
-  return {
-    tasks: [row],
-    taskLinks: [] as Row[],
-    syncEvents: [] as Row[],
-    syncMeta: [] as Row[],
-    notionOutbox: [] as Row[],
-  };
+/** applyInbound queues its Notion write through enqueue. Run it for real. */
+function runEnqueue(t: MemoryCtx): Respond {
+  return (call) => (call.name === ENQUEUE ? t.call(enqueue, call.args) : undefined);
+}
+
+/** The webhook's one mutation, run for real against the same store. */
+function runApplyInbound(t: MemoryCtx): Respond {
+  return (call) =>
+    call.name === APPLY_INBOUND ? t.call(applyInbound, call.args, { respond: runEnqueue(t) }) : undefined;
+}
+
+function apply(t: MemoryCtx, decision: Awaited<ReturnType<typeof decidePull>>['decision']) {
+  return t.call<ApplyResult>(applyInbound, applyArgs(decision), { respond: runEnqueue(t) });
 }
 
 async function withWriteback(on: boolean, fn: () => Promise<void>) {
@@ -208,6 +153,18 @@ function applyArgs(decision: Awaited<ReturnType<typeof decidePull>>['decision'])
   };
 }
 
+async function signedGitHubRequest(rawBody: string, delivery: string) {
+  return new Request('https://example.test/github/webhook', {
+    method: 'POST',
+    headers: {
+      'x-hub-signature-256': await githubSignatureHeader(rawBody, SECRET),
+      'x-github-event': 'pull_request',
+      'x-github-delivery': delivery,
+    },
+    body: rawBody,
+  });
+}
+
 describe('inbound webhook signatures', () => {
   it('rejects a bad, missing, or unsigned GitHub signature', async () => {
     const rawBody = JSON.stringify(pullBody('opened'));
@@ -267,10 +224,9 @@ describe('inbound webhook signatures', () => {
   });
 
   it('does not call the mutation when the signature is bad', async () => {
-    const calls: unknown[] = [];
-    const ctx = { runMutation: async (...args: unknown[]) => calls.push(args) };
+    const t = memoryCtx();
     await withEnv('GITHUB_WEBHOOK_SECRET', SECRET, async () => {
-      const response = await run(githubWebhook, ctx, new Request('https://example.test/github/webhook', {
+      const response = await t.callHttp(githubWebhook, new Request('https://example.test/github/webhook', {
         method: 'POST',
         headers: {
           'x-hub-signature-256': 'sha256=nope',
@@ -278,18 +234,18 @@ describe('inbound webhook signatures', () => {
           'x-github-delivery': 'delivery-1',
         },
         body: JSON.stringify(pullBody('opened')),
-      }) as unknown as Record<string, unknown>);
-      assert.equal((response as Response).status, 401);
+      }));
+      assert.equal(response.status, 401);
     });
     await withEnv('VERCEL_WEBHOOK_SECRET', SECRET, async () => {
-      const response = await run(vercelWebhook, ctx, new Request('https://example.test/vercel/webhook', {
+      const response = await t.callHttp(vercelWebhook, new Request('https://example.test/vercel/webhook', {
         method: 'POST',
         headers: { 'x-vercel-signature': 'nope' },
         body: '{}',
-      }) as unknown as Record<string, unknown>);
-      assert.equal((response as Response).status, 401);
+      }));
+      assert.equal(response.status, 401);
     });
-    assert.equal(calls.length, 0);
+    assert.deepEqual(t.runs, []);
   });
 });
 
@@ -301,39 +257,28 @@ describe('inbound webhook matching', () => {
     assert.equal(decision.ok, true);
     if (decision.ok) assert.deepEqual(decision.plan, { action: 'ignore', reason: 'no_portal_task' });
 
-    const calls: unknown[] = [];
+    const t = memoryCtx();
     await withEnv('GITHUB_WEBHOOK_SECRET', SECRET, async () => {
-      const rawBody = JSON.stringify(body);
-      const response = await run(
+      const response = await t.callHttp(
         githubWebhook,
-        { runMutation: async (...args: unknown[]) => calls.push(args) },
-        new Request('https://example.test/github/webhook', {
-          method: 'POST',
-          headers: {
-            'x-hub-signature-256': await githubSignatureHeader(rawBody, SECRET),
-            'x-github-event': 'pull_request',
-            'x-github-delivery': 'delivery-unmatched-line',
-          },
-          body: rawBody,
-        }) as unknown as Record<string, unknown>,
+        await signedGitHubRequest(JSON.stringify(body), 'delivery-unmatched-line'),
       );
-      assert.equal((response as Response).status, 200);
-      const payload = await (response as Response).json() as { ignored?: string };
+      assert.equal(response.status, 200);
+      const payload = await response.json() as { ignored?: string };
       assert.equal(payload.ignored, 'no_portal_task');
     });
-    assert.equal(calls.length, 0);
+    assert.deepEqual(t.runs, []);
   });
 
   it('writes nothing when the Portal-Task id does not match a task', async () => {
     const { decision } = await decidePull('opened');
-    const stored = tablesWith();
-    stored.tasks[0]!.notionPageId = 'ffffffffffffffffffffffffffffffff';
-    const result = await run(applyInbound, dbCtx(stored), applyArgs(decision));
+    const { t } = world({ notionPageId: 'ffffffffffffffffffffffffffffffff' });
+    const result = await apply(t, decision);
     assert.deepEqual(result, { ok: true, wrote: false, links: 0, stageMoves: 0, unmatched: true });
-    assert.equal(stored.taskLinks.length, 0);
-    assert.equal(stored.syncEvents.length, 0);
-    assert.equal(stored.notionOutbox.length, 0);
-    assert.equal(stored.syncMeta.length, 0);
+    assert.equal(t.rows('taskLinks').length, 0);
+    assert.equal(t.rows('syncEvents').length, 0);
+    assert.equal(t.rows('notionOutbox').length, 0);
+    assert.equal(t.rows('syncMeta').length, 0);
   });
 
   it('ignores another Vercel project and a deploy with no Portal-Task line', async () => {
@@ -385,11 +330,11 @@ describe('inbound webhook matching', () => {
 describe('inbound webhook replays', () => {
   it('treats the same delivery id as a no-op even when the later body would merge', async () => {
     const opened = await decidePull('opened', { delivery: 'delivery-same' });
-    const stored = tablesWith();
+    const { t, task } = world();
     await withWriteback(true, async () => {
-      const first = await run(applyInbound, dbCtx(stored), applyArgs(opened.decision));
-      assert.equal((first as { wrote: boolean }).wrote, true);
-      assert.equal(stored.tasks[0]?.stage, 'Building');
+      const first = await apply(t, opened.decision);
+      assert.equal(first.wrote, true);
+      assert.equal(task()?.stage, 'Building');
       const mergedBody = pullBody('closed');
       const rawBody = JSON.stringify(mergedBody);
       const replay = await decideGitHubWebhook({
@@ -399,55 +344,54 @@ describe('inbound webhook replays', () => {
         deliveryHeader: 'delivery-same',
         secret: SECRET,
       });
-      const second = await run(applyInbound, dbCtx(stored), applyArgs(replay));
+      const second = await apply(t, replay);
       assert.deepEqual(second, { ok: true, wrote: false, links: 0, stageMoves: 0, duplicate: true });
     });
-    assert.equal(stored.taskLinks.length, 1);
-    assert.equal(stored.taskLinks[0]?.state, 'open');
-    assert.equal(stored.tasks[0]?.stage, 'Building');
-    assert.equal(stored.tasks[0]?.status, 'In Progress');
-    assert.equal(stored.tasks[0]?.isDone, false);
-    assert.equal(stored.notionOutbox.length, 0);
-    assert.equal(stored.syncEvents.length, 2);
+    const links = t.rows('taskLinks');
+    assert.equal(links.length, 1);
+    assert.equal(links[0]?.state, 'open');
+    assert.equal(task()?.stage, 'Building');
+    assert.equal(task()?.status, 'In Progress');
+    assert.equal(task()?.isDone, false);
+    assert.equal(t.rows('notionOutbox').length, 0);
+    assert.equal(t.rows('syncEvents').length, 2);
   });
 
   it('does not write again for the same repo, number, and sha', async () => {
     const firstDecision = await decidePull('opened', { delivery: 'delivery-a' });
     const secondDecision = await decidePull('opened', { delivery: 'delivery-b' });
-    const stored = tablesWith();
-    const ctx = dbCtx(stored);
-    const first = await run(applyInbound, ctx, applyArgs(firstDecision.decision));
-    assert.equal((first as { wrote: boolean }).wrote, true);
-    const updatedAt = stored.taskLinks[0]?.updatedAt;
-    const second = await run(applyInbound, ctx, applyArgs(secondDecision.decision));
+    const { t } = world();
+    const first = await apply(t, firstDecision.decision);
+    assert.equal(first.wrote, true);
+    const updatedAt = t.rows('taskLinks')[0]?.updatedAt;
+    const second = await apply(t, secondDecision.decision);
     assert.deepEqual(second, { ok: true, wrote: false, links: 0, stageMoves: 0, duplicate: true });
-    assert.equal(stored.taskLinks.length, 1);
-    assert.equal(stored.taskLinks[0]?.updatedAt, updatedAt);
-    assert.equal(stored.syncEvents.length, 2);
-    assert.equal(stored.syncMeta.length, 1);
+    const links = t.rows('taskLinks');
+    assert.equal(links.length, 1);
+    assert.equal(links[0]?.updatedAt, updatedAt);
+    assert.equal(t.rows('syncEvents').length, 2);
+    assert.equal(t.rows('syncMeta').length, 1);
   });
 
   it('a retried delivery sees the claim and does not insert a second link', async () => {
     const { decision } = await decidePull('opened', { delivery: 'delivery-race' });
-    const stored = tablesWith();
-    stored.syncEvents.push({
-      _id: 'claim-a',
+    const { t } = world();
+    t.seed('syncEvents', {
       eventId: deliveryClaimId('github', 'delivery-race'),
       receivedAt: 1,
       status: 'done',
       processedAt: 1,
     });
-    stored.syncEvents.push({
-      _id: 'claim-b',
+    t.seed('syncEvents', {
       eventId: deliveryClaimId('github', 'delivery-race'),
       receivedAt: 2,
       status: 'done',
       processedAt: 2,
     });
-    const result = await run(applyInbound, dbCtx(stored), applyArgs(decision));
+    const result = await apply(t, decision);
     assert.deepEqual(result, { ok: true, wrote: false, links: 0, stageMoves: 0, duplicate: true });
-    assert.equal(stored.taskLinks.length, 0);
-    assert.equal(stored.syncEvents.length, 2);
+    assert.equal(t.rows('taskLinks').length, 0);
+    assert.equal(t.rows('syncEvents').length, 2);
   });
 
   it('keeps one link when the same url arrives with a new sha', async () => {
@@ -456,14 +400,14 @@ describe('inbound webhook replays', () => {
     const body = pullBody('synchronize');
     (body.pull_request as { head: { sha: string } }).head = { sha: nextSha };
     const synced = await decidePull('synchronize', { body, delivery: 'delivery-url-2' });
-    const stored = tablesWith();
-    const ctx = dbCtx(stored);
-    await run(applyInbound, ctx, applyArgs(opened.decision));
-    const second = await run(applyInbound, ctx, applyArgs(synced.decision));
+    const { t } = world();
+    await apply(t, opened.decision);
+    const second = await apply(t, synced.decision);
     assert.deepEqual(second, { ok: true, wrote: true, links: 1, stageMoves: 0 });
-    assert.equal(stored.taskLinks.length, 1);
-    assert.equal(stored.taskLinks[0]?.sha, nextSha);
-    assert.equal(stored.taskLinks[0]?.url, 'https://github.com/warehauscollective/warehaus/pull/12');
+    const links = t.rows('taskLinks');
+    assert.equal(links.length, 1);
+    assert.equal(links[0]?.sha, nextSha);
+    assert.equal(links[0]?.url, 'https://github.com/warehauscollective/warehaus/pull/12');
   });
 
   it('patches a legacy duplicate url instead of inserting a third row', async () => {
@@ -471,17 +415,16 @@ describe('inbound webhook replays', () => {
     const body = pullBody('synchronize');
     (body.pull_request as { head: { sha: string } }).head = { sha: nextSha };
     const synced = await decidePull('synchronize', { body, delivery: 'delivery-legacy-url' });
-    const stored = tablesWith();
+    const { t, orgId, taskId } = world();
     const url = 'https://github.com/warehauscollective/warehaus/pull/12';
-    stored.taskLinks.push(
-      { _id: 'link-1', orgId: 'org-1', taskId: 'task-1', kind: 'PR', url, sha: SHA, state: 'open' },
-      { _id: 'link-2', orgId: 'org-1', taskId: 'task-1', kind: 'PR', url, sha: SHA, state: 'open' },
-    );
-    const result = await run(applyInbound, dbCtx(stored), applyArgs(synced.decision));
-    assert.equal((result as { wrote: boolean }).wrote, true);
-    assert.equal(stored.taskLinks.length, 2);
-    assert.equal(stored.taskLinks[0]?.sha, nextSha);
-    assert.equal(stored.taskLinks[1]?.sha, SHA);
+    const legacy = { orgId, taskId, kind: 'PR', url, sha: SHA, state: 'open', addedBy: 'github-webhook', createdAt: 1 };
+    const firstLink = t.seed('taskLinks', legacy);
+    const secondLink = t.seed('taskLinks', legacy);
+    const result = await apply(t, synced.decision);
+    assert.equal(result.wrote, true);
+    assert.equal(t.rows('taskLinks').length, 2);
+    assert.equal(t.row(firstLink)?.sha, nextSha);
+    assert.equal(t.row(secondLink)?.sha, SHA);
   });
 });
 
@@ -494,42 +437,44 @@ describe('inbound webhook stage moves', () => {
       assert.equal(decision.plan.items[0]?.state, 'merged');
       assert.equal(decision.plan.items[0]?.kind, 'PR');
     }
-    const row = task();
-    const stored = tablesWith(row);
+    const { t, task } = world();
     await withWriteback(true, async () => {
-      const result = await run(applyInbound, dbCtx(stored), applyArgs(decision));
+      const result = await apply(t, decision);
       assert.deepEqual(result, { ok: true, wrote: true, links: 1, stageMoves: 1 });
     });
-    assert.equal(row.stage, MERGE_REVIEW_STAGE);
-    assert.equal(row.status, 'In Progress');
-    assert.equal(row.isDone, false);
-    assert.equal(row.publishToWarehaus, false);
-    assert.equal(stored.notionOutbox.length, 1);
-    const payload = JSON.parse(String(stored.notionOutbox[0]?.payload)) as {
+    assert.deepEqual(t.runs.map((call) => call.name), [ENQUEUE]);
+    const row = task();
+    assert.equal(row?.stage, MERGE_REVIEW_STAGE);
+    assert.equal(row?.status, 'In Progress');
+    assert.equal(row?.isDone, false);
+    assert.equal(row?.publishToWarehaus, false);
+    const outbox = t.rows('notionOutbox');
+    assert.equal(outbox.length, 1);
+    const payload = JSON.parse(String(outbox[0]?.payload)) as {
       properties: Record<string, string>;
     };
     assert.equal(payload.properties.Stage, 'Shipped');
     assert.equal(payload.properties['GitHub Issue/PR'], 'https://github.com/warehauscollective/warehaus/pull/12');
     assert.equal('Status' in payload.properties, false);
     assert.equal(Object.values(payload.properties).includes('Done'), false);
-    assert.equal(stored.taskLinks[0]?.kind, 'PR');
-    assert.equal(stored.taskLinks[0]?.sha, SHA);
-    assert.equal(stored.taskLinks[0]?.state, 'merged');
+    const links = t.rows('taskLinks');
+    assert.equal(links[0]?.kind, 'PR');
+    assert.equal(links[0]?.sha, SHA);
+    assert.equal(links[0]?.state, 'merged');
   });
 
   it('keeps the link when write-back is off and does not patch the stage', async () => {
     const { decision } = await decidePull('closed', { delivery: 'delivery-off' });
-    const row = task();
-    const stored = tablesWith(row);
+    const { t, task } = world();
     await withWriteback(false, async () => {
-      const result = await run(applyInbound, dbCtx(stored), applyArgs(decision));
-      assert.equal((result as { links: number }).links, 1);
-      assert.equal((result as { stageMoves: number }).stageMoves, 0);
+      const result = await apply(t, decision);
+      assert.equal(result.links, 1);
+      assert.equal(result.stageMoves, 0);
     });
-    assert.equal(row.stage, 'Building');
-    assert.equal(row.status, 'In Progress');
-    assert.equal(stored.notionOutbox.length, 0);
-    assert.equal(stored.taskLinks.length, 1);
+    assert.equal(task()?.stage, 'Building');
+    assert.equal(task()?.status, 'In Progress');
+    assert.equal(t.rows('notionOutbox').length, 0);
+    assert.equal(t.rows('taskLinks').length, 1);
   });
 
   it('does not move a Done or Shipped task backwards', () => {
@@ -578,17 +523,16 @@ describe('inbound webhook stage moves', () => {
 
   it('does not move a parked task to Ready to Ship when the pull request merges', async () => {
     const { decision } = await decidePull('closed', { delivery: 'delivery-parked' });
-    const row = task({ stage: 'Parked' });
-    const stored = tablesWith(row);
+    const { t, task } = world({ stage: 'Parked' });
     await withWriteback(true, async () => {
-      const result = await run(applyInbound, dbCtx(stored), applyArgs(decision));
-      assert.equal((result as { links: number }).links, 1);
-      assert.equal((result as { stageMoves: number }).stageMoves, 0);
+      const result = await apply(t, decision);
+      assert.equal(result.links, 1);
+      assert.equal(result.stageMoves, 0);
     });
-    assert.equal(row.stage, 'Parked');
-    assert.equal(row.status, 'In Progress');
-    assert.equal(stored.notionOutbox.length, 0);
-    assert.equal(stored.taskLinks[0]?.state, 'merged');
+    assert.equal(task()?.stage, 'Parked');
+    assert.equal(task()?.status, 'In Progress');
+    assert.equal(t.rows('notionOutbox').length, 0);
+    assert.equal(t.rows('taskLinks')[0]?.state, 'merged');
   });
 
   it('notes a closed unmerged pull request and does not queue a stage', async () => {
@@ -596,14 +540,13 @@ describe('inbound webhook stage moves', () => {
     (body.pull_request as { merged: boolean }).merged = false;
     const { decision } = await decidePull('closed', { body, delivery: 'delivery-closed' });
     if (decision.ok && decision.plan.action === 'apply') assert.equal(decision.plan.items[0]?.moveStage, false);
-    const row = task();
-    const stored = tablesWith(row);
+    const { t, task } = world();
     await withWriteback(true, async () => {
-      await run(applyInbound, dbCtx(stored), applyArgs(decision));
+      await apply(t, decision);
     });
-    assert.equal(row.stage, 'Building');
-    assert.equal(stored.notionOutbox.length, 0);
-    assert.equal(stored.taskLinks[0]?.state, 'closed');
+    assert.equal(task()?.stage, 'Building');
+    assert.equal(t.rows('notionOutbox').length, 0);
+    assert.equal(t.rows('taskLinks')[0]?.state, 'closed');
   });
 
   it('records a warehaus-portal deploy without moving the stage', async () => {
@@ -627,17 +570,17 @@ describe('inbound webhook stage moves', () => {
       signatureHeader: await vercelSignatureHeader(rawBody, SECRET),
       secret: SECRET,
     });
-    const row = task();
-    const stored = tablesWith(row);
+    const { t, task } = world();
     await withWriteback(true, async () => {
-      const result = await run(applyInbound, dbCtx(stored), applyArgs(decision));
+      const result = await apply(t, decision);
       assert.deepEqual(result, { ok: true, wrote: true, links: 1, stageMoves: 0 });
     });
-    assert.equal(row.stage, 'Building');
-    assert.equal(stored.notionOutbox.length, 0);
-    assert.equal(stored.taskLinks[0]?.kind, 'deploy');
-    assert.equal(stored.taskLinks[0]?.state, 'succeeded');
-    assert.equal(stored.taskLinks[0]?.url, 'https://warehaus-portal-abc123.vercel.app');
+    assert.equal(task()?.stage, 'Building');
+    assert.equal(t.rows('notionOutbox').length, 0);
+    const links = t.rows('taskLinks');
+    assert.equal(links[0]?.kind, 'deploy');
+    assert.equal(links[0]?.state, 'succeeded');
+    assert.equal(links[0]?.url, 'https://warehaus-portal-abc123.vercel.app');
   });
 
   it('accepts a check conclusion and does not move the stage', async () => {
@@ -674,17 +617,16 @@ describe('inbound webhook stage moves', () => {
 
   it('drops a new write once the defensive rate limit is full', async () => {
     const { decision } = await decidePull('opened', { delivery: 'delivery-limited' });
-    const stored = tablesWith();
-    stored.syncMeta.push({
-      _id: 'rate-1',
+    const { t } = world();
+    t.seed('syncMeta', {
       key: INBOUND_RATE_KEY,
       details: JSON.stringify({ windowStartedAt: Date.now(), windowCount: INBOUND_RATE_LIMIT }),
       lastSyncedAt: Date.now(),
     });
-    const result = await run(applyInbound, dbCtx(stored), applyArgs(decision));
+    const result = await apply(t, decision);
     assert.deepEqual(result, { ok: true, wrote: false, links: 0, stageMoves: 0, limited: true });
-    assert.equal(stored.taskLinks.length, 0);
-    assert.equal(stored.syncEvents.length, 0);
+    assert.equal(t.rows('taskLinks').length, 0);
+    assert.equal(t.rows('syncEvents').length, 0);
   });
 });
 
@@ -694,29 +636,36 @@ describe('inbound webhook claims and checks', () => {
     const dashedBody = pullBody('opened');
     (dashedBody.pull_request as { body: string }).body = `Portal-Task: ${dashed}`;
     const dashedDecision = await decidePull('opened', { body: dashedBody, delivery: 'delivery-dashed' });
-    const dashedStore = tablesWith(task({ notionPageId: dashed }));
-    const dashedResult = await run(applyInbound, dbCtx(dashedStore), applyArgs(dashedDecision.decision));
-    assert.equal((dashedResult as { links: number }).links, 1);
-    assert.equal(dashedStore.taskLinks.length, 1);
+    const dashedWorld = world({ notionPageId: dashed });
+    const dashedResult = await apply(dashedWorld.t, dashedDecision.decision);
+    assert.equal(dashedResult.links, 1);
+    assert.equal(dashedWorld.t.rows('taskLinks').length, 1);
 
     const other = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
     const multiBody = pullBody('opened');
     (multiBody.pull_request as { body: string }).body = `Portal-Task: ${TASK_ID}\nPortal-Task: ${other}\n`;
     const multi = await decidePull('opened', { body: multiBody, delivery: 'delivery-multi' });
-    const stored = tablesWith();
-    stored.tasks.push(task({ _id: 'task-2', notionPageId: other, name: 'Second' }));
-    await run(applyInbound, dbCtx(stored), applyArgs(multi.decision));
-    assert.equal(stored.taskLinks.length, 2);
-    assert.equal(new Set(stored.taskLinks.map((row) => row.taskId)).size, 2);
-    assert.equal(stored.syncEvents.length, 2);
+    const { t, orgId, projectId } = world();
+    seedTask(t, orgId, projectId, {
+      notionPageId: other,
+      name: 'Second',
+      status: 'In Progress',
+      stage: 'Building',
+      lastEditedTime: TIME,
+      lastSyncedAt: 1,
+    });
+    await apply(t, multi.decision);
+    const links = t.rows('taskLinks');
+    assert.equal(links.length, 2);
+    assert.equal(new Set(links.map((row) => row.taskId)).size, 2);
+    assert.equal(t.rows('syncEvents').length, 2);
   });
 
   it('updates an existing pull request link from workflow_run and writes nothing when the sha is new', async () => {
     const opened = await decidePull('opened', { delivery: 'delivery-pr-for-run' });
-    const stored = tablesWith();
-    const ctx = dbCtx(stored);
-    await run(applyInbound, ctx, applyArgs(opened.decision));
-    const beforeEvents = stored.syncEvents.length;
+    const { t, task } = world();
+    await apply(t, opened.decision);
+    const beforeEvents = t.rows('syncEvents').length;
 
     const unknownSha = 'cccccccccccccccccccccccccccccccccccccccc';
     const miss = await decidePull('opened', {
@@ -724,11 +673,11 @@ describe('inbound webhook claims and checks', () => {
       event: 'workflow_run',
       delivery: 'delivery-run-miss',
     });
-    const missed = await run(applyInbound, ctx, applyArgs(miss.decision));
+    const missed = await apply(t, miss.decision);
     assert.deepEqual(missed, { ok: true, wrote: false, links: 0, stageMoves: 0 });
-    assert.equal(stored.taskLinks.length, 1);
-    assert.equal(stored.taskLinks[0]?.state, 'open');
-    assert.equal(stored.syncEvents.length, beforeEvents);
+    assert.equal(t.rows('taskLinks').length, 1);
+    assert.equal(t.rows('taskLinks')[0]?.state, 'open');
+    assert.equal(t.rows('syncEvents').length, beforeEvents);
 
     const hit = await decidePull('opened', {
       body: { action: 'completed', workflow_run: { conclusion: 'failure', head_sha: SHA } },
@@ -740,28 +689,27 @@ describe('inbound webhook claims and checks', () => {
       assert.equal(hit.decision.plan.matchSha, SHA);
       assert.equal(hit.decision.plan.items.length, 0);
     }
-    const updated = await run(applyInbound, ctx, applyArgs(hit.decision));
+    const updated = await apply(t, hit.decision);
     assert.deepEqual(updated, { ok: true, wrote: true, links: 1, stageMoves: 0 });
-    assert.equal(stored.taskLinks.length, 1);
-    assert.equal(stored.taskLinks[0]?.state, 'failure');
-    assert.equal(stored.tasks[0]?.stage, 'Building');
-    assert.equal(stored.notionOutbox.length, 0);
+    assert.equal(t.rows('taskLinks').length, 1);
+    assert.equal(t.rows('taskLinks')[0]?.state, 'failure');
+    assert.equal(task()?.stage, 'Building');
+    assert.equal(t.rows('notionOutbox').length, 0);
   });
 
   it('still moves the stage when a merge follows an open of the same sha', async () => {
     const opened = await decidePull('opened', { delivery: 'delivery-then-open' });
     const merged = await decidePull('closed', { delivery: 'delivery-then-merge' });
-    const row = task();
-    const stored = tablesWith(row);
-    const ctx = dbCtx(stored);
+    const { t, task } = world();
     await withWriteback(true, async () => {
-      await run(applyInbound, ctx, applyArgs(opened.decision));
-      const second = await run(applyInbound, ctx, applyArgs(merged.decision));
-      assert.equal((second as { stageMoves: number }).stageMoves, 1);
+      await apply(t, opened.decision);
+      const second = await apply(t, merged.decision);
+      assert.equal(second.stageMoves, 1);
     });
-    assert.equal(stored.taskLinks.length, 1);
-    assert.equal(stored.taskLinks[0]?.state, 'merged');
-    assert.equal(row.stage, MERGE_REVIEW_STAGE);
+    const links = t.rows('taskLinks');
+    assert.equal(links.length, 1);
+    assert.equal(links[0]?.state, 'merged');
+    assert.equal(task()?.stage, MERGE_REVIEW_STAGE);
   });
 
   it('applies each Vercel deployment state once and keeps a single deploy link', async () => {
@@ -785,20 +733,20 @@ describe('inbound webhook claims and checks', () => {
         secret: SECRET,
       });
     }
-    const stored = tablesWith();
-    const ctx = dbCtx(stored);
+    const { t, task } = world();
     const created = await vercel('deployment.created', 'evt_created');
     const succeeded = await vercel('deployment.succeeded', 'evt_succeeded');
     const replay = await vercel('deployment.succeeded', 'evt_succeeded_again');
-    await run(applyInbound, ctx, applyArgs(created));
-    const next = await run(applyInbound, ctx, applyArgs(succeeded));
-    const again = await run(applyInbound, ctx, applyArgs(replay));
-    assert.equal((next as { wrote: boolean }).wrote, true);
+    await apply(t, created);
+    const next = await apply(t, succeeded);
+    const again = await apply(t, replay);
+    assert.equal(next.wrote, true);
     assert.deepEqual(again, { ok: true, wrote: false, links: 0, stageMoves: 0, duplicate: true });
-    assert.equal(stored.taskLinks.length, 1);
-    assert.equal(stored.taskLinks[0]?.state, 'succeeded');
-    assert.equal(stored.taskLinks[0]?.url, 'https://warehaus-portal-abc123.vercel.app');
-    assert.equal(stored.tasks[0]?.stage, 'Building');
+    const links = t.rows('taskLinks');
+    assert.equal(links.length, 1);
+    assert.equal(links[0]?.state, 'succeeded');
+    assert.equal(links[0]?.url, 'https://warehaus-portal-abc123.vercel.app');
+    assert.equal(task()?.stage, 'Building');
   });
 
   it('rejects a body over 1 MiB with 413 before the signature', async () => {
@@ -808,73 +756,62 @@ describe('inbound webhook claims and checks', () => {
     assert.equal(payloadTooLarge(String(INBOUND_MAX_BODY_BYTES + 1), '{}'), true);
     assert.equal(payloadTooLarge(null, `${exact}b`), true);
 
-    const calls: unknown[] = [];
+    const t = memoryCtx();
     const oversized = `${exact}b`;
     await withEnv('GITHUB_WEBHOOK_SECRET', SECRET, async () => {
-      const response = await run(
+      // The header understates the size, so the body itself must be measured.
+      const response = await t.callHttp(
         githubWebhook,
-        { runMutation: async (...args: unknown[]) => calls.push(args) },
-        {
-          text: async () => oversized,
-          headers: { get: (name: string) => (name.toLowerCase() === 'content-length' ? '12' : null) },
-        } as unknown as Record<string, unknown>,
+        new Request('https://example.test/github/webhook', {
+          method: 'POST',
+          headers: { 'content-length': '12' },
+          body: oversized,
+        }),
       );
-      assert.equal((response as Response).status, 413);
-      const payload = await (response as Response).json() as { error?: string };
+      assert.equal(response.status, 413);
+      const payload = await response.json() as { error?: string };
       assert.deepEqual(payload, { error: 'payload_too_large' });
     });
     await withEnv('VERCEL_WEBHOOK_SECRET', SECRET, async () => {
-      const response = await run(
+      const response = await t.callHttp(
         vercelWebhook,
-        { runMutation: async (...args: unknown[]) => calls.push(args) },
-        {
-          text: async () => '{}',
-          headers: {
-            get: (name: string) => (name.toLowerCase() === 'content-length' ? String(INBOUND_MAX_BODY_BYTES + 1) : null),
-          },
-        } as unknown as Record<string, unknown>,
+        new Request('https://example.test/vercel/webhook', {
+          method: 'POST',
+          headers: { 'content-length': String(INBOUND_MAX_BODY_BYTES + 1) },
+          body: '{}',
+        }),
       );
-      assert.equal((response as Response).status, 413);
+      assert.equal(response.status, 413);
     });
-    assert.equal(calls.length, 0);
+    assert.deepEqual(t.runs, []);
   });
 
   it('returns 429 for a rate-limited delivery and does not record it', async () => {
-    const stored = tablesWith();
-    stored.syncMeta.push({
-      _id: 'rate-http',
+    const { t } = world();
+    t.seed('syncMeta', {
       key: INBOUND_RATE_KEY,
       details: JSON.stringify({ windowStartedAt: Date.now(), windowCount: INBOUND_RATE_LIMIT }),
       lastSyncedAt: Date.now(),
     });
     const rawBody = JSON.stringify(pullBody('opened'));
     await withEnv('GITHUB_WEBHOOK_SECRET', SECRET, async () => {
-      const response = await run(
+      const response = await t.callHttp(
         githubWebhook,
-        {
-          runMutation: async (_ref: unknown, args: Record<string, unknown>) =>
-            run(applyInbound, dbCtx(stored), args),
-        },
-        new Request('https://example.test/github/webhook', {
-          method: 'POST',
-          headers: {
-            'x-hub-signature-256': await githubSignatureHeader(rawBody, SECRET),
-            'x-github-event': 'pull_request',
-            'x-github-delivery': 'delivery-http-limited',
-          },
-          body: rawBody,
-        }) as unknown as Record<string, unknown>,
+        await signedGitHubRequest(rawBody, 'delivery-http-limited'),
+        { respond: runApplyInbound(t) },
       );
-      assert.equal((response as Response).status, 429);
-      const payload = await (response as Response).json() as { error?: string };
+      assert.equal(response.status, 429);
+      const payload = await response.json() as { error?: string };
       assert.deepEqual(payload, { error: 'rate_limited' });
     });
-    assert.equal(stored.syncEvents.length, 0);
-    assert.equal(stored.taskLinks.length, 0);
+    assert.deepEqual(t.runs.map((call) => call.name), [APPLY_INBOUND]);
+    assert.equal(t.rows('syncEvents').length, 0);
+    assert.equal(t.rows('taskLinks').length, 0);
   });
 
   it('returns a generic 500 and logs without the payload', async () => {
     const rawBody = JSON.stringify(pullBody('opened'));
+    const t = memoryCtx();
     const logs: unknown[][] = [];
     const original = console.error;
     console.error = (...args: unknown[]) => {
@@ -882,30 +819,19 @@ describe('inbound webhook claims and checks', () => {
     };
     try {
       await withEnv('GITHUB_WEBHOOK_SECRET', SECRET, async () => {
-        const response = await run(
-          githubWebhook,
-          {
-            runMutation: async () => {
-              throw new Error(`boom ${rawBody}`);
-            },
+        const response = await t.callHttp(githubWebhook, await signedGitHubRequest(rawBody, 'delivery-boom'), {
+          respond: () => {
+            throw new Error(`boom ${rawBody}`);
           },
-          new Request('https://example.test/github/webhook', {
-            method: 'POST',
-            headers: {
-              'x-hub-signature-256': await githubSignatureHeader(rawBody, SECRET),
-              'x-github-event': 'pull_request',
-              'x-github-delivery': 'delivery-boom',
-            },
-            body: rawBody,
-          }) as unknown as Record<string, unknown>,
-        );
-        assert.equal((response as Response).status, 500);
-        const payload = await (response as Response).json() as { error?: string };
+        });
+        assert.equal(response.status, 500);
+        const payload = await response.json() as { error?: string };
         assert.deepEqual(payload, { error: 'internal' });
       });
     } finally {
       console.error = original;
     }
+    assert.deepEqual(t.runs.map((call) => call.name), [APPLY_INBOUND]);
     assert.deepEqual(logs, [['[inbound-webhook] github failed']]);
   });
 });

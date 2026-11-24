@@ -25,6 +25,7 @@ import { isPortalOwnedTask, isToDoTask } from './milestoneTasks';
 /** Most tasks one read looks at. Over it, the read refuses instead of reading part of the set. */
 export const MILESTONE_TASK_SET_CAP = 200;
 export const TOO_MANY_TASKS = 'This milestone has too many tasks to close at once.';
+export const TOO_MANY_LINKED = `This milestone has more than ${MILESTONE_TASK_SET_CAP} tasks.`;
 export const SHIP_NEEDS_A_TASK = 'Shipped needs at least one task that is not Parked.';
 export const SHIP_NEEDS_DONE = 'Shipped needs every task that is not Parked to be Done.';
 
@@ -220,6 +221,20 @@ async function linkedDocs(ctx: QueryCtx | MutationCtx, milestone: MilestoneRef) 
     .query('tasks')
     .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
     .take(MILESTONE_TASK_SET_CAP + 1);
+}
+
+/**
+ * The tasks linked to a milestone, without subtasks, for a write that needs
+ * the siblings (next order, reorder). One indexed read, capped. Over the cap
+ * it refuses rather than decide from part of the list.
+ */
+export async function loadLinkedTasks(
+  ctx: QueryCtx | MutationCtx,
+  milestone: MilestoneRef,
+): Promise<{ ok: true; rows: Doc<'tasks'>[] } | TooMany> {
+  const linked = await linkedDocs(ctx, milestone);
+  if (linked.length > MILESTONE_TASK_SET_CAP) return { ok: false, reason: TOO_MANY_LINKED };
+  return { ok: true, rows: linked.filter((row) => row.orgId === milestone.orgId && row.milestoneId === milestone._id) };
 }
 
 /**

@@ -34,8 +34,51 @@ import {
 } from './agentRun';
 import { checklistDetailText, checklistState, checklistSummary } from './milestoneTasks';
 import { classifyClaimable } from './milestoneTaskSet';
+import * as agentModule from '../agent';
+import { claimNext, completeTask, releaseStuckRuns, reportBuild, touchRunner, writePlannedTasks } from '../agent';
+import crons from '../crons';
+import { create as createStaffMilestone, createFromAi, setStatus } from '../milestones';
+import { createMilestone, listNeedsPeter, updateMilestone } from '../portalApi';
+import { setAgentDriver, setAgentRepo } from '../projects';
+import { RUNNER_NEEDS_REPO } from './agentRun';
+import { PortalAuthError } from './identity';
+import { memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
+import { seedMilestone, seedMilestoneWorld } from './seedRows.testkit';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
+
+const RUNNER = 'peter-mbp';
+const OTHER_RUNNER = 'studio-mini';
+const REPO = 'warehauscollective/warehaus';
+const SHA = 'c'.repeat(40);
+const SOURCE = 'portal-milestone';
+const API = { tokenId: 'apiTokens:1', requestHash: 'hash', tokenName: 'grok-bot' };
+
+type Claim = { ok: boolean; kind: string; resumed: boolean; runId: string; reason?: string; task?: { id: string; title: string } };
+
+/** A served project with a Building milestone and its ordered tasks. */
+function building(t: MemoryCtx, names: string[] = ['First'], milestone: Record<string, unknown> = {}, project: Record<string, unknown> = {}) {
+  const world = seedMilestoneWorld(t, { status: 'Building', branch: 'milestone/launch', ...milestone }, { agentRepo: REPO, ...project });
+  const taskIds = names.map((name, index) => world.task({ name, source: SOURCE, milestoneOrder: index }));
+  return { ...world, taskIds };
+}
+
+function seedRun(t: MemoryCtx, ids: { orgId: string; milestoneId: string }, fields: Record<string, unknown> = {}) {
+  return t.seed('agentRuns', {
+    orgId: ids.orgId,
+    milestoneId: ids.milestoneId,
+    kind: 'task',
+    runnerId: OTHER_RUNNER,
+    tool: 'claude_code',
+    mode: 'headless',
+    status: 'running',
+    startedAt: Date.now(),
+    ...fields,
+  });
+}
+
+const claim = (t: MemoryCtx, runnerId = RUNNER, extra: Record<string, unknown> = {}) =>
+  t.call<Claim>(claimNext, { runnerId, repos: [REPO], ...extra });
 const TOKEN_A = 'a'.repeat(32);
 const TOKEN_B = 'b'.repeat(32);
 const configured = `peter-mbp=${TOKEN_A},studio-mini=${TOKEN_B}`;
@@ -66,8 +109,11 @@ describe('runner tokens', () => {
     if (!bad.ok) assert.equal(bad.status, 400);
   });
 
-  it('compares the token in constant time', () => {
-    assert.match(read('./agentRun.ts'), /timingSafeEqualUtf8\(given, reference\)/);
+  it('never compares the token with == or ===, so the check stays constant time', () => {
+    // Absence guard: a plain comparison would leak the token through timing.
+    const source = read('./agentRun.ts');
+    const authorize = source.slice(source.indexOf('export function authorizeRunner'), source.indexOf('export function reposForRunner'));
+    assert.doesNotMatch(authorize, /[!=]==?\s*(given|reference|expected\??\.token)\b|\b(given|reference|token)\s*[!=]==?/);
   });
 
   it('hands a runner only the repositories named on its token', () => {
@@ -83,8 +129,9 @@ describe('runner tokens', () => {
     }
     const bare = authorizeRunner({ configured, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' });
     if (bare.ok) assert.deepEqual(reposForRunner(bare.repos, ['warehauscollective/warehaus']), []);
-    const http = read('../agentHttp.ts');
-    assert.match(http, /reposForRunner\(auth\.repos, body\.repos\)/);
+    // Absence guard: the claim route never hands on the repositories a runner asked for without its token's allowlist.
+    const http = read('../agentHttp.ts').replaceAll('reposForRunner(auth.repos, body.repos)', '');
+    assert.doesNotMatch(http, /body\.repos/);
   });
 });
 
@@ -111,9 +158,45 @@ describe('rate limit and liveness', () => {
     assert.deepEqual(held, { ok: false, reason: RUNNER_RATE_LIMITED });
     const later = runnerTouchDecision({ lastSeenAt: now, windowStart: now, count: 1, now: now + 60_000 });
     assert.deepEqual(later, { ok: true, write: true, windowStart: now + 60_000, count: 1, lastSeenAt: now + 60_000 });
-    const agent = read('../agent.ts');
-    assert.match(agent, /if \(!decision\.write\) return \{ ok: true as const \}/);
-    assert.match(agent, /CLAIM_PER_PROJECT = 5/);
+  });
+
+  it('touchRunner writes the runner row once, and a call inside the same minute writes nothing', async () => {
+    const t = memoryCtx();
+    assert.deepEqual(await t.call(touchRunner, { runnerId: RUNNER }), { ok: true });
+    const first = t.rows('agentRunners');
+    assert.equal(first.length, 1);
+    assert.equal(first[0]?.count, 1);
+    assert.deepEqual(await t.call(touchRunner, { runnerId: RUNNER }), { ok: true });
+    assert.deepEqual(t.rows('agentRunners'), first);
+  });
+
+  it('a claim inspects at most 5 milestones of one project, so one project cannot starve the rest', async () => {
+    const t = memoryCtx();
+    const { orgId, projectId } = building(t, []);
+    // Five busy milestones on the same project come first in the scan.
+    const busy = [t.rows('milestones')[0]?._id as string];
+    for (let i = 0; i < 4; i += 1) busy.push(seedMilestone(t, orgId, projectId, { status: 'Building' }));
+    for (const milestoneId of busy) seedRun(t, { orgId, milestoneId });
+    const sixth = seedMilestone(t, orgId, projectId, { status: 'Building' });
+    t.seed('tasks', {
+      orgId,
+      projectId,
+      milestoneId: sixth,
+      notionPageId: 'sixth-task',
+      lastSyncedAt: 0,
+      name: 'Past the cap',
+      status: 'To Do',
+      isDone: false,
+      publishToWarehaus: false,
+      source: SOURCE,
+      milestoneOrder: 0,
+    });
+    assert.equal((await claim(t)).kind, 'none');
+    // Another project's milestone, later in the scan, is still reached.
+    const other = building(t, ['Other project task']);
+    const next = await claim(t);
+    assert.equal(next.kind, 'task');
+    assert.equal(next.task?.id, other.taskIds[0]);
   });
 
   it('reads a quiet runner as offline', () => {
@@ -134,20 +217,35 @@ describe('claiming', () => {
     ...over,
   });
 
-  it('claims in one mutation, and a second runner cannot take the same task', () => {
-    const agent = read('../agent.ts');
-    const claim = agent.slice(agent.indexOf('export const claimNext'), agent.indexOf('async function ownedRun'));
-    // The read, the claim patch and the run insert are in the same internalMutation, so Convex serializes them.
-    assert.match(claim, /internalMutation/);
-    assert.match(claim, /claimedBy: args\.runnerId/);
-    assert.match(claim, /ctx\.db\.insert\('agentRuns'/);
-    assert.doesNotMatch(claim, /ctx\.scheduler|runAction/);
+  it('claims in one mutation, and a second runner cannot take the same task', async () => {
+    const t = memoryCtx();
+    const { taskIds, milestoneId } = building(t, ['First', 'Second']);
+    const first = await claim(t);
+    assert.equal(first.kind, 'task');
+    assert.equal(first.resumed, false);
+    assert.equal(first.task?.id, taskIds[0]);
+    // The claim patch and the run row land in the same mutation, with nothing scheduled or run elsewhere.
+    assert.equal(t.row(taskIds[0] as string)?.claimedBy, RUNNER);
+    assert.equal(t.row(taskIds[0] as string)?.status, 'In Progress');
+    const runs = t.rows('agentRuns');
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0]?._id, first.runId);
+    assert.equal(runs[0]?.taskId, taskIds[0]);
+    assert.equal(runs[0]?.milestoneId, milestoneId);
+    assert.deepEqual(t.scheduled, []);
+    assert.deepEqual(t.runs, []);
+    // A second runner does not get the claimed task, or any other task on that milestone's branch.
+    assert.equal((await claim(t, OTHER_RUNNER)).kind, 'none');
+    assert.equal(t.row(taskIds[1] as string)?.claimedBy, undefined);
     // The second runner reads the task after the first commit and sees it claimed.
     const afterFirstClaim = [task({ id: 'a', status: 'In Progress', claimedBy: 'peter-mbp' }), task({ id: 'b', milestoneOrder: 1 })];
     assert.equal(classifyClaimable(afterFirstClaim).nextClaimable?.id, 'b');
-    // A runner with a run still open gets that run back.
-    assert.match(claim, /const open = await runningRunFor\(ctx, args\.runnerId\);/);
-    assert.match(claim, /resumed: true/);
+    // A runner with a run still open gets that run back, and nothing new is claimed.
+    const again = await claim(t);
+    assert.equal(again.resumed, true);
+    assert.equal(again.runId, first.runId);
+    assert.equal(again.task?.id, taskIds[0]);
+    assert.equal(t.rows('agentRuns').length, 1);
   });
 });
 
@@ -173,14 +271,37 @@ describe('finishing a task', () => {
     assert.deepEqual(completeDecision({ status: 'done', commitSha: 'not a sha' }), { ok: false, reason: COMMIT_SHA_INVALID });
   });
 
-  it('moves the milestone through the shared status decision and is idempotent', () => {
-    const agent = read('../agent.ts');
-    const complete = agent.slice(agent.indexOf('export const completeTask'), agent.indexOf('export const writePlannedTasks'));
-    assert.match(complete, /if \(run\.status !== 'running'\)/);
-    assert.match(complete, /duplicate: true/);
-    assert.match(agent, /changeMilestoneStatus\(ctx, milestone, \{\n    cause: 'set',\n    to: 'Ready to Ship'/);
-    assert.doesNotMatch(agent, /transitionMilestone/);
-    assert.doesNotMatch(agent, /status: 'Shipped'/);
+  it('moves the milestone to Ready to Ship through the one status writer, and a repeat writes nothing', async () => {
+    const t = memoryCtx();
+    const { milestoneId, taskIds } = building(t, ['Only task']);
+    const run = await claim(t);
+    const done = await t.call<{ ok: boolean; duplicate: boolean; milestoneStatus: string }>(completeTask, {
+      runnerId: RUNNER,
+      runId: run.runId,
+      status: 'done',
+      commitSha: SHA,
+    });
+    assert.deepEqual([done.ok, done.duplicate, done.milestoneStatus], [true, false, 'Ready to Ship']);
+    assert.equal(t.row(milestoneId)?.status, 'Ready to Ship');
+    assert.equal(t.row(taskIds[0] as string)?.lastCommitSha, SHA);
+    // The status writer's own effects: one status activity row and Peter's approval note.
+    assert.equal(t.rows('activity').filter((row) => row.type === 'milestone.status' && row.milestoneId === milestoneId).length, 1);
+    assert.equal(t.rows('milestoneNotes').filter((note) => note.needsPeter === 'open' && note.reason === 'approval').length, 1);
+    const tables = ['agentRuns', 'agentEvents', 'tasks', 'milestones', 'milestoneNotes', 'activity'];
+    const before = JSON.stringify(tables.map((table) => t.rows(table)));
+    const again = await t.call<{ ok: boolean; duplicate: boolean; run: string; milestoneStatus: string }>(completeTask, {
+      runnerId: RUNNER,
+      runId: run.runId,
+      status: 'done',
+      commitSha: SHA,
+    });
+    assert.deepEqual([again.ok, again.duplicate, again.run, again.milestoneStatus], [true, true, 'succeeded', 'Ready to Ship']);
+    assert.equal(JSON.stringify(tables.map((table) => t.rows(table))), before);
+  });
+
+  it('never writes Shipped from the runner', () => {
+    // Absence guard: only a merge or Mark complete ships a milestone.
+    assert.doesNotMatch(read('../agent.ts'), /status: 'Shipped'/);
   });
 });
 
@@ -280,25 +401,30 @@ describe('who can read agent tables', () => {
     const agent = read('../agent.ts');
     assert.equal(agent.includes('clientQuery'), false);
     assert.equal(agent.includes('clientMutation'), false);
-    assert.match(agent, /export const feedForMilestone = adminQuery/);
-    // Every other export is internal, so only the runner routes reach it.
-    const exported = agent.match(/export const \w+ = (\w+)/g) ?? [];
-    assert.deepEqual(
-      exported.filter((line) => !line.endsWith('internalMutation')).sort(),
-      [
-        'export const buildingProgress = adminQuery',
-        'export const feedForMilestone = adminQuery',
-        'export const regeneratePlan = adminMutation',
-        'export const retryBlocked = adminMutation',
-      ],
-    );
+  });
+
+  it('exposes four staff functions and keeps every other function internal', async () => {
+    type Registered = { _handler?: unknown; isPublic?: boolean; isInternal?: boolean };
+    const functions = Object.entries(agentModule as Record<string, unknown>).filter(
+      ([, value]) => typeof (value as Registered | null)?._handler === 'function',
+    ) as Array<[string, Registered]>;
+    const publicNames = functions.filter(([, fn]) => fn.isPublic).map(([name]) => name).sort();
+    assert.deepEqual(publicNames, ['buildingProgress', 'feedForMilestone', 'regeneratePlan', 'retryBlocked']);
+    // Every other function is internal, so only the runner routes reach it.
+    for (const [name, fn] of functions) assert.equal(fn.isPublic === true || fn.isInternal === true, true, name);
+    const t = memoryCtx();
+    const { milestoneId } = building(t);
+    for (const name of publicNames) {
+      const fn = (agentModule as Record<string, unknown>)[name];
+      await assert.rejects(t.call(fn, { milestoneId }, { as: 'client' }), PortalAuthError, `${name} as client`);
+      await assert.rejects(t.call(fn, { milestoneId }), PortalAuthError, `${name} signed out`);
+    }
   });
 
   it('holds no model key in Convex', () => {
     for (const file of ['../agent.ts', '../agentHttp.ts', './agentRun.ts']) {
       assert.equal(/ANTHROPIC|OPENAI|api\.anthropic\.com|CLAUDE_CODE_OAUTH/.test(read(file)), false, file);
     }
-    assert.match(read('../agentHttp.ts'), /process\.env\.RUNNER_TOKENS/);
   });
 });
 
@@ -308,24 +434,63 @@ describe('queue rules', () => {
     assert.equal(planningForNewMilestone({ taskCount: 0, status: 'Planning' }), true);
     assert.equal(planningForNewMilestone({ taskCount: 3, status: 'Awaiting Go' }), false);
     assert.equal(planningForNewMilestone({ taskCount: 0, status: 'Parked' }), false);
-    // Neither create path looks at createdVia to decide.
-    assert.doesNotMatch(read('../milestones.ts'), /createdVia === 'portal' &&/);
-    assert.match(read('../portalApi.ts'), /planningForNewMilestone\(\{ taskCount: proposed\.tasks\.length/);
+  });
+
+  it('queues planning for a new milestone with no tasks from every create path, and not for a bot that sends tasks', async () => {
+    const t = memoryCtx();
+    const { orgId, projectId } = building(t, []);
+    const base = { projectId, objective: 'Ship it', goals: [] as string[] };
+    const staff = await t.call<{ id: string }>(createStaffMilestone, { ...base, name: 'From staff', status: 'Planning' }, { as: 'staff' });
+    const ai = await t.call<{ id: string }>(createFromAi, { ...base, orgId, name: 'From Claude', status: 'Planning', createdVia: 'claude' });
+    const bare = await t.call<{ status: number; body: { id: string } }>(createMilestone, { ...API, ...base, key: 'bare', name: 'Bot, no tasks' });
+    const listed = await t.call<{ status: number; body: { id: string } }>(createMilestone, {
+      ...API,
+      ...base,
+      key: 'listed',
+      name: 'Bot with tasks',
+      proposedTasks: [{ title: 'One' }, { title: 'Two' }, { title: 'Three' }],
+    });
+    assert.equal(bare.status, 200);
+    assert.equal(listed.status, 200);
+    for (const id of [staff.id, ai.id, bare.body.id]) {
+      assert.equal(t.row(id)?.status, 'Planning', id);
+      assert.equal(t.row(id)?.planning, 'queued', id);
+    }
+    assert.equal(t.row(listed.body.id)?.planning, undefined);
   });
 
   it('keeps one task run per milestone and releases a run whose runner went quiet', async () => {
     const { runIsStuck, STUCK_RUN_AFTER_MS } = await import('./agentRun');
-    const agent = read('../agent.ts');
-    assert.match(agent, /withIndex\('by_milestone_status', \(q\) => q\.eq\('milestoneId', milestone\._id\)\.eq\('status', 'running'\)\)/);
-    assert.match(agent, /if \(busy\) continue;/);
     assert.equal(runIsStuck({ lastSeenAt: 0, startedAt: 0, now: STUCK_RUN_AFTER_MS }), true);
     assert.equal(runIsStuck({ lastSeenAt: 1000, startedAt: 0, now: 1000 + STUCK_RUN_AFTER_MS - 1 }), false);
     assert.equal(runIsStuck({ lastSeenAt: null, startedAt: 5000, now: 6000 }), false);
-    const sweep = agent.slice(agent.indexOf('export const releaseStuckRuns'), agent.indexOf('export const feedForMilestone'));
-    // Indexed and capped. No whole-table read.
-    assert.match(sweep, /withIndex\('by_status', \(q\) => q\.eq\('status', 'running'\)\)\s*\.take\(STUCK_RUN_SCAN\)/);
-    assert.doesNotMatch(sweep, /\.collect\(\)/);
-    assert.match(read('../crons.ts'), /internal\.agent\.releaseStuckRuns/);
+  });
+
+  it('claims nothing on a milestone that already has a running run', async () => {
+    const t = memoryCtx();
+    const { orgId, milestoneId, taskIds } = building(t, ['Waiting']);
+    seedRun(t, { orgId, milestoneId });
+    assert.equal((await claim(t)).kind, 'none');
+    assert.equal(t.row(taskIds[0] as string)?.status, 'To Do');
+    assert.equal(t.rows('agentRuns').length, 1);
+  });
+
+  it('the stuck sweep blocks a quiet run with one indexed, capped read, and runs from a cron', async () => {
+    const t = memoryCtx();
+    const { orgId, milestoneId, taskIds } = building(t, ['Stuck task']);
+    const taskId = taskIds[0] as string;
+    await t.db.patch(taskId, { status: 'In Progress', claimedBy: OTHER_RUNNER, claimedAt: 1 });
+    const runId = seedRun(t, { orgId, milestoneId }, { taskId, startedAt: 1 });
+    t.reads.reset();
+    const result = await t.call<{ scanned: number; released: number }>(releaseStuckRuns, {});
+    assert.deepEqual(result, { scanned: 1, released: 1 });
+    assert.equal(t.row(runId)?.status, 'cancelled');
+    assert.equal(t.row(taskId)?.status, 'Blocked');
+    assert.deepEqual(t.reads.unbounded(), []);
+    assert.deepEqual(t.reads.unindexed(), []);
+    assert.deepEqual(t.reads.all[0], { table: 'agentRuns', index: 'by_status', eq: ['status'], terminal: 'take', limit: 25 });
+    const jobs = Object.values((crons as unknown as { crons: Record<string, { name: string }> }).crons);
+    assert.equal(jobs.some((job) => job.name === 'agent:releaseStuckRuns'), true);
   });
 });
 
@@ -345,20 +510,45 @@ describe('repository fail-safe', () => {
     assert.equal(projectServedBy(null, ['a/b']), false);
   });
 
-  it('checks the repository before planning and before tasks, and a runner with none gets nothing', () => {
-    const agent = read('../agent.ts');
-    const claim = agent.slice(agent.indexOf('export const claimNext'), agent.indexOf('async function ownedRun'));
-    assert.match(claim, /if \(repos\.length === 0\) return \{ ok: true as const, resumed: false, kind: 'none' as const/);
-    assert.match(claim, /if \(!\(await served\(planning\.projectId\)\)\) continue;/);
-    assert.match(claim, /if \(!\(await served\(milestone\.projectId\)\)\) continue;/);
-    // The repo setting and the agent are written only by staff.
-    const projects = read('../projects.ts');
-    assert.match(projects, /export const setAgentRepo = adminMutation/);
-    assert.match(projects, /export const setAgentDriver = adminMutation/);
-    // The route ignores any tool a runner sends. The project setting decides.
-    assert.doesNotMatch(read('../agentHttp.ts'), /tool: field\(body, 'tool'\)/);
-    assert.match(claim, /buildAgent\(project\?\.agentDriver\)/);
-    assert.match(claim, /tool: 'claude_code'/);
+  it('checks the repository before planning and before tasks, and a runner with none gets nothing', async () => {
+    const t = memoryCtx();
+    const elsewhere = { agentRepo: 'someone/else' };
+    const planning = seedMilestoneWorld(t, { status: 'Planning', planning: 'queued' }, elsewhere);
+    const builder = building(t, ['Not yours'], {}, elsewhere);
+    const none = await t.call<Claim>(claimNext, { runnerId: RUNNER });
+    assert.deepEqual([none.kind, none.reason], ['none', RUNNER_NEEDS_REPO]);
+    assert.equal((await t.call<Claim>(claimNext, { runnerId: RUNNER, repos: [] })).kind, 'none');
+    // A runner for another repository is handed neither the planning job nor the task.
+    assert.equal((await claim(t)).kind, 'none');
+    assert.equal(t.row(planning.milestoneId)?.planning, 'queued');
+    assert.equal(t.row(builder.taskIds[0] as string)?.status, 'To Do');
+    assert.deepEqual(t.rows('agentRuns'), []);
+    // The runner that serves that repository gets the planning job first.
+    const served = await t.call<Claim>(claimNext, { runnerId: RUNNER, repos: ['someone/else'] });
+    assert.equal(served.kind, 'planning');
+  });
+
+  it('lets only staff set the repository and the agent', async () => {
+    const t = memoryCtx();
+    const { projectId } = building(t, []);
+    for (const as of ['client', undefined] as const) {
+      await assert.rejects(t.call(setAgentRepo, { projectId, repo: 'someone/else' }, { as }), PortalAuthError);
+      await assert.rejects(t.call(setAgentDriver, { projectId, driver: 'cursor' }, { as }), PortalAuthError);
+    }
+    assert.equal(t.row(projectId)?.agentRepo, REPO);
+    assert.equal(t.row(projectId)?.agentDriver, undefined);
+  });
+
+  it('runs the agent the project names and ignores a tool the runner sends', async () => {
+    const t = memoryCtx();
+    building(t, ['Claude task']);
+    const task = await claim(t, RUNNER, { tool: 'cursor' });
+    assert.equal(task.kind, 'task');
+    assert.equal(t.row(task.runId)?.tool, 'claude_code');
+    building(t, ['Cursor task'], {}, { agentDriver: 'cursor' });
+    const build = await claim(t, OTHER_RUNNER, { tool: 'claude_code' });
+    assert.equal(build.kind, 'build');
+    assert.equal(t.row(build.runId)?.tool, 'cursor');
   });
 });
 
@@ -390,15 +580,61 @@ describe('needs Peter notes', () => {
     assert.match(blocked, /Blocked on: needs Figma frame/);
   });
 
-  it('lists open notes with one indexed, capped read and no new outbound call', () => {
-    const api = read('../portalApi.ts');
-    const list = api.slice(api.indexOf('export const listNeedsPeter'), api.indexOf('export const addMilestoneNote'));
-    assert.match(list, /withIndex\('by_needsPeter', \(q\) => q\.eq\('needsPeter', 'open'\)\)\s*\.order\('desc'\)\s*\.take\(NEEDS_PETER_LIMIT\)/);
-    assert.doesNotMatch(list, /\.collect\(\)/);
-    const agent = read('../agent.ts');
-    assert.doesNotMatch(agent, /fetch\(|runAction|scheduler/);
-    assert.match(agent, /needsPeter: 'open'/);
-    assert.match(agent, /answerNotes\(ctx, milestone\._id, \{ reason: 'blocked', taskId: task\._id \}\)/);
+  it('lists open notes newest first with one indexed, capped read', async () => {
+    const t = memoryCtx();
+    const { orgId, milestoneId } = building(t, []);
+    const note = (body: string, createdAt: number, open: boolean) =>
+      t.seed('milestoneNotes', {
+        orgId,
+        milestoneId,
+        body,
+        addedBy: 'runner:peter-mbp',
+        createdAt,
+        reason: 'blocked',
+        ...(open ? { needsPeter: 'open' } : {}),
+      });
+    note('older', 1, true);
+    note('answered', 2, false);
+    note('newer', 3, true);
+    t.reads.reset();
+    const listed = await t.call<{ status: number; body: { items: Array<{ body: string }> } }>(listNeedsPeter, {});
+    assert.equal(listed.status, 200);
+    assert.deepEqual(listed.body.items.map((item) => item.body), ['newer', 'older']);
+    assert.deepEqual(t.reads.unbounded(), []);
+    assert.deepEqual(t.reads.unindexed(), []);
+  });
+
+  it('makes no outbound call from the runner functions', () => {
+    // Absence guard: the runner side never fetches, schedules or runs an action.
+    assert.doesNotMatch(read('../agent.ts'), /fetch\(|runAction|scheduler/);
+  });
+
+  it('leaves an open note when a task is blocked, and a done task closes only its own note', async () => {
+    const t = memoryCtx();
+    const { orgId, milestoneId, taskIds } = building(t, ['Needs a frame', 'Has a note']);
+    const [blockedId, notedId] = taskIds as [string, string];
+    const run = await claim(t);
+    await t.call(completeTask, { runnerId: RUNNER, runId: run.runId, status: 'blocked', reason: 'needs Figma frame' });
+    const open = () => t.rows('milestoneNotes').filter((row) => row.needsPeter === 'open');
+    assert.equal(open().length, 1);
+    assert.equal(open()[0]?.reason, 'blocked');
+    assert.equal(open()[0]?.taskId, blockedId);
+    assert.match(String(open()[0]?.body), /Blocked on: needs Figma frame/);
+    // An older blocked note on the second task, still open.
+    t.seed('milestoneNotes', {
+      orgId,
+      milestoneId,
+      body: 'Task 02 is blocked and needs you',
+      addedBy: 'runner:peter-mbp',
+      createdAt: 1,
+      needsPeter: 'open',
+      reason: 'blocked',
+      taskId: notedId,
+    });
+    const next = await claim(t);
+    assert.equal(next.task?.id, notedId);
+    await t.call(completeTask, { runnerId: RUNNER, runId: next.runId, status: 'done', commitSha: SHA });
+    assert.deepEqual(open().map((row) => row.taskId), [blockedId]);
   });
 });
 
@@ -460,11 +696,43 @@ describe('auto-planning and agent choice', () => {
       recentRuns: PLANNING_RATE_LIMIT,
     });
     assert.equal(capped.enqueue, false);
-    const milestones = read('./milestoneLifecycle.ts');
-    assert.match(milestones, /queuePlanning\(ctx, current\)/);
-    assert.match(read('../portalApi.ts'), /changeMilestoneStatus\(ctx, milestone/);
-    assert.match(read('../agent.ts'), /origin: 'planner'/);
-    assert.doesNotMatch(read('../agent.ts').slice(read('../agent.ts').indexOf('export const writePlannedTasks')), /Awaiting Go/);
+    // Absence guard: a planning run never moves the milestone toward Awaiting Go. Staff edit the draft first.
+    const agent = read('../agent.ts');
+    assert.doesNotMatch(agent.slice(agent.indexOf('export const writePlannedTasks')), /Awaiting Go/);
+  });
+
+  it('queues planning when a milestone with no tasks enters Planning, from staff or the staff API', async () => {
+    const t = memoryCtx();
+    const empty = seedMilestoneWorld(t, { status: 'Idea' });
+    await t.call(setStatus, { milestoneId: empty.milestoneId, status: 'Planning' }, { as: 'staff' });
+    assert.equal(t.row(empty.milestoneId)?.planning, 'queued');
+    const viaApi = seedMilestoneWorld(t, { status: 'Idea' });
+    const moved = await t.call<{ status: number }>(updateMilestone, { ...API, key: 'move', milestoneId: viaApi.milestoneId, status: 'Planning' });
+    assert.equal(moved.status, 200);
+    assert.equal(t.row(viaApi.milestoneId)?.status, 'Planning');
+    assert.equal(t.row(viaApi.milestoneId)?.planning, 'queued');
+    assert.equal(t.rows('activity').filter((row) => row.type === 'milestone.status' && row.milestoneId === viaApi.milestoneId).length, 1);
+    // A milestone that already has a task is not planned.
+    const withTask = seedMilestoneWorld(t, { status: 'Idea' });
+    withTask.task({ name: 'Already here', source: SOURCE });
+    await t.call(setStatus, { milestoneId: withTask.milestoneId, status: 'Planning' }, { as: 'staff' });
+    assert.equal(t.row(withTask.milestoneId)?.planning, undefined);
+  });
+
+  it('a planning run writes planner tasks and leaves the milestone in Planning', async () => {
+    const t = memoryCtx();
+    const { milestoneId } = seedMilestoneWorld(t, { status: 'Planning', planning: 'queued' }, { agentRepo: REPO });
+    const run = await claim(t);
+    assert.equal(run.kind, 'planning');
+    const wrote = await t.call<{ ok: boolean; taskIds: string[]; milestoneStatus: string }>(writePlannedTasks, {
+      runnerId: RUNNER,
+      runId: run.runId,
+      tasks: [{ title: 'One' }, { title: 'Two' }, { title: 'Three' }],
+    });
+    assert.deepEqual([wrote.ok, wrote.taskIds.length, wrote.milestoneStatus], [true, 3, 'Planning']);
+    assert.deepEqual(wrote.taskIds.map((id) => t.row(id)?.origin), ['planner', 'planner', 'planner']);
+    assert.equal(t.row(milestoneId)?.status, 'Planning');
+    assert.equal(t.row(milestoneId)?.planning, undefined);
   });
 
   it('picks the project agent and maps Cursor commits onto tasks', async () => {
@@ -492,8 +760,20 @@ describe('auto-planning and agent choice', () => {
     ]);
     assert.equal(cursorAgentUrl('https://cursor.com/agents/bc-20ed844d'), 'https://cursor.com/agents/bc-20ed844d');
     assert.equal(cursorAgentUrl('https://example.com/agents/bc-20ed844d'), null);
-    assert.match(read('../agent.ts'), /kind: 'agent'/);
+    // Absence guard: no Cursor key and no production deployment name in the runner code.
     assert.doesNotMatch(read('../agent.ts'), /CURSOR_API_KEY|unique-turtle-383/);
+  });
+
+  it('links each task a Cursor build finished to its agent', async () => {
+    const t = memoryCtx();
+    const { taskIds } = building(t, ['Cursor task'], {}, { agentDriver: 'cursor' });
+    const run = await claim(t);
+    assert.equal(run.kind, 'build');
+    const url = 'https://cursor.com/agents/bc-20ed844d';
+    await t.call(reportBuild, { runnerId: RUNNER, runId: run.runId, status: 'finished', agentUrl: url, tasks: [{ taskId: taskIds[0], commitSha: SHA }] });
+    const links = t.rows('taskLinks');
+    assert.equal(links.length, 1);
+    assert.deepEqual([links[0]?.taskId, links[0]?.kind, links[0]?.url], [taskIds[0], 'agent', url]);
   });
 });
 

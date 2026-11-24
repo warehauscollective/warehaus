@@ -2,6 +2,10 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { isClientVisibleActivityType } from '@warehaus/portal-sync';
+import { attachTask, attachTaskFromAi, create, saveFromAi } from '../milestones';
+import { createMilestone } from '../portalApi';
+import { PortalAuthError } from './identity';
+import { MemoryCtxError, memoryCtx } from './memoryCtx.testkit';
 import {
   AI_CANNOT_DECIDE,
   AI_LOCKED,
@@ -25,6 +29,11 @@ import {
   type RoadmapTaskInput,
 } from './milestones';
 import { transitionMilestone } from './milestoneStatus';
+import { seedMilestone, seedMilestoneWorld, seedOrg, seedProject, seedTask } from './seedRows.testkit';
+
+const schemaError = (pattern: RegExp) => (error: unknown) => error instanceof MemoryCtxError && pattern.test(error.message);
+const without = (row: Record<string, unknown> | null, ...keys: string[]) =>
+  Object.fromEntries(Object.entries(row ?? {}).filter(([key]) => !keys.includes(key)));
 
 const projectOpen = {
   name: 'Northwind site',
@@ -70,13 +79,7 @@ describe('milestone create', () => {
     assert.equal(created.activityType, 'milestone.ready');
   });
 
-  it('rejects an empty or missing objective over REST and through the mutation', () => {
-    const api = readFileSync(new URL('../portalApi.ts', import.meta.url), 'utf8');
-    const mutation = api.slice(api.indexOf('export const createMilestone'), api.indexOf('export const updateMilestone'));
-    const rest = api.slice(api.indexOf("if (path === '/api/v1/milestones')"), api.indexOf("if (path === '/api/v1/milestones/update')"));
-    assert.doesNotMatch(mutation, /allowEmptyObjective/);
-    assert.match(mutation, /objective: args\.objective/);
-    assert.match(rest, /objective: String\(body\.objective \?\? ''\)/);
+  it('rejects an empty or missing objective over the staff API and through the portal mutation', async () => {
     const bodies: Array<{ name: string; objective?: string }> = [
       { name: 'Launch' },
       { name: 'Launch', objective: '' },
@@ -89,6 +92,39 @@ describe('milestone create', () => {
         { ok: false, reason: 'Objective is required' },
       );
     }
+
+    const t = memoryCtx();
+    const orgId = seedOrg(t);
+    const projectId = seedProject(t, orgId);
+    const tokenId = t.seed('apiTokens', {
+      name: 'grok',
+      tokenHash: 'hash',
+      tokenPrefix: 'wh_',
+      scope: 'read-write',
+      createdAt: 0,
+      rateLimit: 100,
+      rateWindowMs: 60_000,
+      windowStartedAt: 0,
+      windowCount: 0,
+    });
+    // The REST route sends a missing objective as '' (String(body.objective ?? '')).
+    for (const [index, objective] of ['', '   '].entries()) {
+      const result = await t.call(createMilestone, {
+        tokenId,
+        key: `key-${index}`,
+        requestHash: `hash-${index}`,
+        projectId,
+        name: 'Launch',
+        objective,
+        goals: [],
+      });
+      assert.deepEqual(result, { status: 400, body: { error: 'Objective is required' } });
+    }
+    await assert.rejects(
+      t.call(create, { projectId, name: 'Launch', objective: '  ', goals: [] }, { as: 'staff' }),
+      (error: unknown) => error instanceof PortalAuthError && error.message === 'Objective is required',
+    );
+    assert.deepEqual(t.rows('milestones'), []);
   });
 
   it('caps the objective at the card brief length', () => {
@@ -295,17 +331,28 @@ describe('tasks on a milestone', () => {
     );
   });
 
-  it('writes only the link fields', () => {
+  it('writes only the link fields', async () => {
     const patch = taskLinkPatch('m-1', nextMilestoneOrder([0, null]));
     assert.deepEqual(patch, { milestoneId: 'm-1', milestoneOrder: 1 });
     assert.equal('isDone' in patch, false);
     assert.equal('status' in patch, false);
     assert.equal('stage' in patch, false);
-    const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
-    const link = source.slice(source.indexOf('async function linkTask'), source.indexOf('export const attachTask'));
-    assert.equal(link.split('.patch(').length - 1, 1);
-    assert.match(link, /ctx\.db\.patch\(task\._id/);
-    assert.doesNotMatch(link, /parent\._id/);
+
+    const t = memoryCtx();
+    const world = seedMilestoneWorld(t);
+    world.task({ milestoneOrder: 0 });
+    const parent = seedTask(t, world.orgId, world.projectId, { status: 'In Progress' });
+    const child = seedTask(t, world.orgId, world.projectId, { parentTaskId: parent, stage: 'Building' });
+    const sibling = seedTask(t, world.orgId, world.projectId, { parentTaskId: parent });
+    const before = { parent: t.row(parent), child: t.row(child), sibling: t.row(sibling) };
+
+    assert.deepEqual(await t.call(attachTask, { milestoneId: world.milestoneId, taskId: child }, { as: 'staff' }), { ok: true });
+    assert.equal(t.row(child)?.milestoneId, world.milestoneId);
+    assert.equal(t.row(child)?.milestoneOrder, 1);
+    assert.deepEqual(without(t.row(child), 'milestoneId', 'milestoneOrder'), without(before.child, 'milestoneId', 'milestoneOrder'));
+    // Attaching a subtask does not write its parent or its siblings.
+    assert.deepEqual(t.row(parent), before.parent);
+    assert.deepEqual(t.row(sibling), before.sibling);
   });
 });
 
@@ -552,61 +599,79 @@ describe('roadmap', () => {
 });
 
 describe('schema slice', () => {
-  it('stores milestones in the portal schema without a Notion page id', () => {
-    const schema = readFileSync(new URL('../schema.ts', import.meta.url), 'utf8');
-    const start = schema.indexOf('milestones: defineTable');
-    const end = schema.indexOf('milestoneResources: defineTable');
-    const block = schema.slice(start, end);
-    assert.ok(start > 0 && end > start);
-    assert.match(block, /publishToWarehaus: v\.boolean\(\)/);
-    assert.match(block, /goals: v\.array\(v\.string\(\)\)/);
-    assert.doesNotMatch(block, /notionPageId/);
-    assert.match(schema, /milestoneId: v\.optional\(v\.id\('milestones'\)\)/);
-    assert.match(schema, /\.index\('by_orgId_milestoneId', \['orgId', 'milestoneId'\]\)/);
-    assert.match(schema, /milestoneResources: defineTable/);
-    assert.doesNotMatch(schema.slice(end, schema.indexOf('contacts: defineTable')), /notionPageId/);
+  it('stores milestones in the portal schema without a Notion page id', async () => {
+    const t = memoryCtx();
+    const orgId = seedOrg(t);
+    const projectId = seedProject(t, orgId);
+    const { id } = await t.call<{ id: string }>(create, { projectId, name: 'Launch', objective: 'Up', goals: [' Hero ', ''] }, { as: 'staff' });
+    const row = t.row(id);
+    assert.equal(row?.publishToWarehaus, false);
+    assert.deepEqual(row?.goals, ['Hero']);
+    assert.equal('notionPageId' in (row ?? {}), false);
+    assert.throws(() => seedMilestone(t, orgId, projectId, { notionPageId: 'page-1' }), schemaError(/milestones\.notionPageId: not in the validator/));
+    assert.throws(() => seedMilestone(t, orgId, projectId, { publishToWarehaus: 'yes' }), schemaError(/milestones\.publishToWarehaus: expected boolean/));
+
+    // A task may have no milestone, and tasks are read by org and milestone.
+    const loose = seedTask(t, orgId, projectId);
+    const linked = seedTask(t, orgId, projectId, { milestoneId: id });
+    assert.equal('milestoneId' in (t.row(loose) ?? {}), false);
+    const onMilestone = await t.db.query('tasks').withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', orgId).eq('milestoneId', id)).take(10);
+    assert.deepEqual(onMilestone.map((task) => task._id), [linked]);
+
+    // Resource links are portal rows too.
+    const resourceId = t.seed('sharedResources', { orgId, notionPageId: 'res-1', lastSyncedAt: 0, title: 'Brief', publishToWarehaus: true, archive: false });
+    t.seed('milestoneResources', { orgId, milestoneId: id, resourceId, sortOrder: 0 });
+    assert.throws(
+      () => t.seed('milestoneResources', { orgId, milestoneId: id, resourceId, sortOrder: 1, notionPageId: 'page-2' }),
+      schemaError(/milestoneResources\.notionPageId: not in the validator/),
+    );
   });
 
-  it('patches only the attached task and skips a task that is already linked', () => {
-    const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
-    const link = source.slice(source.indexOf('async function linkTask'), source.indexOf('function raiseLink'));
-    assert.equal(link.split('.patch(').length - 1, 1);
-    assert.match(link, /ctx\.db\.patch\(task\._id/);
-    assert.match(link, /if \(decision\.alreadyAttached\) return \{ ok: true \}/);
-    assert.doesNotMatch(link, /parent\._id/);
+  it('patches only the attached task and skips a task that is already linked', async () => {
+    const t = memoryCtx();
+    const world = seedMilestoneWorld(t);
+    world.task({ milestoneOrder: 0 });
+    const linked = world.task({ milestoneOrder: 5 });
+    const before = t.row(linked);
+    // A rewrite would move it to the next order, 6.
+    assert.deepEqual(await t.call(attachTask, { milestoneId: world.milestoneId, taskId: linked }, { as: 'staff' }), { ok: true });
+    assert.deepEqual(t.row(linked), before);
   });
 
-  it('does not let the milestone mutations close tasks or write task responses', () => {
+  it('does not let the milestone mutations close tasks or write task responses', async () => {
+    // Absence guards: no milestone mutation closes a task, writes a task response, or takes an approval.
     const source = readFileSync(new URL('../milestones.ts', import.meta.url), 'utf8');
     assert.doesNotMatch(source, /taskResponses/);
     assert.doesNotMatch(source, /isDone:\s*(true|false)/);
     assert.doesNotMatch(source, /patch\([^)]*isDone/);
-    assert.match(source, /writeMilestoneActivity/);
-    assert.match(source, /actor: 'ai'/);
     assert.doesNotMatch(source, /approval: v\.literal\('approved'\)/);
+  });
+
+  it('stops the AI mutations on an approved milestone', async () => {
+    const t = memoryCtx();
+    const world = seedMilestoneWorld(t, { approval: 'approved', name: 'Launch' });
+    const loose = seedTask(t, world.orgId, world.projectId);
+    const before = { milestone: t.row(world.milestoneId), task: t.row(loose) };
+    await assert.rejects(t.call(saveFromAi, { milestoneId: world.milestoneId, name: 'Renamed' }), (error: unknown) => error instanceof PortalAuthError && error.message === AI_LOCKED);
+    await assert.rejects(t.call(saveFromAi, { milestoneId: world.milestoneId, status: 'Planning' }), PortalAuthError);
+    await assert.rejects(t.call(attachTaskFromAi, { milestoneId: world.milestoneId, taskId: loose }), (error: unknown) => error instanceof PortalAuthError && error.message === AI_LOCKED);
+    assert.deepEqual({ milestone: t.row(world.milestoneId), task: t.row(loose) }, before);
+    assert.deepEqual(t.rows('activity'), []);
   });
 });
 
 describe('milestone activity rows', () => {
   it('stores milestoneId so two milestones with the same name stay separate', async () => {
-    const inserted: Array<{ table: string; row: { milestoneId: string; name: string; type: string } }> = [];
-    const ctx = {
-      db: {
-        insert: async (table: string, row: { milestoneId: string; name: string; type: string }) => {
-          inserted.push({ table, row });
-        },
-      },
-    };
-    await writeMilestoneActivity(ctx, { _id: 'm-launch', orgId: 'org', projectId: 'p-site', name: 'Launch' }, 'milestone.approved', 5);
-    await writeMilestoneActivity(ctx, { _id: 'm-billing', orgId: 'org', projectId: 'p-site', name: 'Launch' }, 'milestone.changes_requested', 6);
-    assert.deepEqual(
-      inserted.map((entry) => entry.row.milestoneId),
-      ['m-launch', 'm-billing'],
-    );
-    assert.equal(inserted[0]?.table, 'activity');
-    assert.equal(inserted[0]?.row.name, 'Launch');
-    assert.equal(inserted[1]?.row.name, 'Launch');
-    assert.equal(inserted[0]?.row.type, 'milestone.approved');
-    assert.notEqual(inserted[0]?.row.milestoneId, inserted[1]?.row.milestoneId);
+    const t = memoryCtx();
+    const orgId = seedOrg(t);
+    const projectId = seedProject(t, orgId);
+    const launch = seedMilestone(t, orgId, projectId, { name: 'Launch' });
+    const billing = seedMilestone(t, orgId, projectId, { name: 'Launch' });
+    await writeMilestoneActivity(t, { _id: launch, orgId, projectId, name: 'Launch' }, 'milestone.approved', 5);
+    await writeMilestoneActivity(t, { _id: billing, orgId, projectId, name: 'Launch' }, 'milestone.changes_requested', 6);
+    const rows = t.rows('activity');
+    assert.deepEqual(rows.map((row) => row.milestoneId), [launch, billing]);
+    assert.deepEqual(rows.map((row) => row.name), ['Launch', 'Launch']);
+    assert.deepEqual(rows.map((row) => row.type), ['milestone.approved', 'milestone.changes_requested']);
   });
 });

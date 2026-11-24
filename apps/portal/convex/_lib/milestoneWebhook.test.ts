@@ -13,75 +13,40 @@ import {
   type InboundPlan,
 } from './inboundWebhook';
 import { branchCandidate, uniqueMilestoneBranch } from './milestoneBranchStore';
+import { memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
+import { seedMilestone, seedMilestoneWorld } from './seedRows.testkit';
 
 const SECRET = 'webhook-secret-for-tests';
 const SHA = 'a'.repeat(40);
 const BRANCH = 'milestone/client-experience-launch';
 
-type Row = Record<string, unknown> & { _id: string };
-
-/** A small in-memory stand-in for the tables the webhook mutation touches. */
-function fakeDb(seed: { milestones: Row[]; projects?: Row[]; tasks?: Row[] }) {
-  const tables: Record<string, Row[]> = {
-    milestones: seed.milestones,
-    projects: seed.projects ?? [],
-    syncEvents: [],
-    syncMeta: [],
-    activity: [],
-    agentEvents: [],
-    tasks: seed.tasks ?? [],
-    taskLinks: [],
-  };
-  let next = 1;
-  const db = {
-    get: async (id: string) => {
-      for (const rows of Object.values(tables)) {
-        const row = rows.find((item) => item._id === id);
-        if (row) return row;
-      }
-      return null;
-    },
-    query: (table: string) => ({
-      withIndex: (_index: string, range: (q: { eq: (field: string, value: unknown) => unknown }) => unknown) => {
-        const wanted: Array<[string, unknown]> = [];
-        const q = {
-          eq: (field: string, value: unknown) => {
-            wanted.push([field, value]);
-            return q;
-          },
-        };
-        range(q);
-        const rows = () => (tables[table] ?? []).filter((row) => wanted.every(([field, value]) => row[field] === value));
-        return { first: async () => rows()[0] ?? null, take: async (count: number) => rows().slice(0, count) };
-      },
-    }),
-    insert: async (table: string, value: Record<string, unknown>) => {
-      const row = { ...value, _id: `${table}:${next}` };
-      next += 1;
-      (tables[table] ??= []).push(row);
-      return row._id;
-    },
-    patch: async (id: string, value: Record<string, unknown>) => {
-      for (const rows of Object.values(tables)) {
-        const row = rows.find((item) => item._id === id);
-        if (row) Object.assign(row, value);
-      }
-    },
-  };
-  return { db, tables };
-}
-
 type Applied = { ok: true; wrote: boolean; duplicate?: boolean; milestone?: boolean; shipped?: boolean };
 
-function apply(ctx: unknown, plan: Extract<InboundPlan, { action: 'apply' }>): Promise<Applied> {
-  const handler = (applyInbound as unknown as { _handler: (ctx: unknown, args: unknown) => Promise<Applied> })._handler;
-  return handler(ctx, {
+function apply(t: MemoryCtx, plan: Extract<InboundPlan, { action: 'apply' }>): Promise<Applied> {
+  return t.call<Applied>(applyInbound, {
     source: plan.source,
     ...(plan.deliveryId ? { deliveryId: plan.deliveryId } : {}),
     ...(plan.contentKey ? { contentKey: plan.contentKey } : {}),
     ...(plan.milestone ? { milestone: plan.milestone } : {}),
     items: plan.items,
   });
+}
+
+/**
+ * A project and the milestone on BRANCH, Ready to Ship and approved unless
+ * overridden. `agentRepo: null` leaves the project with no repository.
+ */
+function world(input: { milestone?: Record<string, unknown>; agentRepo?: string | null; doneTask?: boolean } = {}) {
+  const t = memoryCtx();
+  const agentRepo = input.agentRepo === undefined ? 'warehauscollective/warehaus' : input.agentRepo;
+  const ids = seedMilestoneWorld(
+    t,
+    { name: 'Client experience launch', status: 'Ready to Ship', approval: 'approved', branch: BRANCH, ...input.milestone },
+    agentRepo ? { agentRepo } : {},
+  );
+  const taskId = input.doneTask ? ids.task({ status: 'Done', isDone: true }) : null;
+  const milestone = () => t.row(ids.milestoneId);
+  return { t, ...ids, taskId, milestone };
 }
 
 function pullBody(input: { action: string; merged?: boolean; head?: string; base?: string; body?: string }) {
@@ -110,34 +75,6 @@ async function githubPlan(rawBody: string, delivery = 'delivery-milestone-1') {
   assert.equal(decision.ok, true);
   if (!decision.ok) throw new Error('unsigned');
   return decision.plan;
-}
-
-function matchingProject(): Row {
-  return { _id: 'project', agentRepo: 'warehauscollective/warehaus' };
-}
-
-function doneTask(over: Record<string, unknown> = {}): Row {
-  return {
-    _id: 'tasks:1',
-    orgId: 'org',
-    milestoneId: 'milestones:1',
-    status: 'Done',
-    isDone: true,
-    ...over,
-  };
-}
-
-function milestoneRow(over: Record<string, unknown> = {}): Row {
-  return {
-    _id: 'milestones:1',
-    orgId: 'org',
-    projectId: 'project',
-    name: 'Client experience launch',
-    status: 'Ready to Ship',
-    approval: 'approved',
-    branch: BRANCH,
-    ...over,
-  };
 }
 
 describe('milestone branch on a pull request', () => {
@@ -182,130 +119,113 @@ describe('milestone branch on a pull request', () => {
 
 describe('merge sets Shipped', () => {
   it('moves the milestone to Shipped once, and a retry changes nothing', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [matchingProject()], tasks: [doneTask()] });
+    const { t, milestone } = world({ doneTask: true });
     const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
     assert.equal(plan.action, 'apply');
     if (plan.action !== 'apply') return;
 
-    const first = await apply({ db }, plan);
+    const first = await apply(t, plan);
     assert.equal(first.wrote, true);
     assert.equal(first.shipped, true);
-    const milestone = tables.milestones?.[0];
-    assert.equal(milestone?.status, 'Shipped');
-    assert.equal(milestone?.prUrl, 'https://github.com/warehauscollective/warehaus/pull/140');
-    assert.equal(tables.activity?.length, 1);
-    assert.equal(tables.agentEvents?.length, 1);
+    assert.equal(milestone()?.status, 'Shipped');
+    assert.equal(milestone()?.prUrl, 'https://github.com/warehauscollective/warehaus/pull/140');
+    assert.equal(t.rows('activity').length, 1);
+    assert.equal(t.rows('agentEvents').length, 1);
 
     // GitHub redelivers the same delivery id.
-    const retry = await apply({ db }, plan);
+    const retry = await apply(t, plan);
     assert.equal(retry.duplicate, true);
     assert.equal(retry.wrote, false);
     // A new delivery id with the same content is the same snapshot.
-    const replay = await apply({ db }, { ...plan, deliveryId: 'delivery-milestone-2' });
+    const replay = await apply(t, { ...plan, deliveryId: 'delivery-milestone-2' });
     assert.equal(replay.duplicate, true);
-    assert.equal(tables.activity?.length, 1);
-    assert.equal(tables.agentEvents?.length, 1);
+    assert.equal(t.rows('activity').length, 1);
+    assert.equal(t.rows('agentEvents').length, 1);
   });
 
   it('writes nothing a second time even with no claim to stop it', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [matchingProject()], tasks: [doneTask()] });
+    const { t } = world({ doneTask: true });
     const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
     if (plan.action !== 'apply') throw new Error('expected apply');
-    await apply({ db }, plan);
+    await apply(t, plan);
     // Drop both keys so only the stored values can stop a second write.
     const bare = { ...plan, deliveryId: undefined, contentKey: undefined };
-    const again = await apply({ db }, bare);
+    const again = await apply(t, bare);
     assert.equal(again.wrote, false);
-    assert.equal(tables.activity?.length, 1);
+    assert.equal(t.rows('activity').length, 1);
   });
 
   it('changes nothing for a merge on a branch no milestone owns', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow()] });
+    const { t, milestone } = world({ doneTask: true });
     const plan = await githubPlan(pullBody({ action: 'closed', merged: true, head: 'milestone/some-other-work' }));
     if (plan.action !== 'apply') throw new Error('expected apply');
-    const result = await apply({ db }, plan);
+    const result = await apply(t, plan);
     assert.equal(result.wrote, false);
-    assert.equal(tables.milestones?.[0]?.status, 'Ready to Ship');
-    assert.equal(tables.milestones?.[0]?.prUrl, undefined);
-    assert.equal(tables.activity?.length, 0);
-    assert.equal(tables.syncEvents?.length, 0);
+    assert.equal(milestone()?.status, 'Ready to Ship');
+    assert.equal(milestone()?.prUrl, undefined);
+    assert.equal(t.rows('activity').length, 0);
+    assert.equal(t.rows('syncEvents').length, 0);
   });
 
   it('stores the pull request on open and does not ship', async () => {
-    const { db, tables } = fakeDb({
-      milestones: [milestoneRow({ status: 'Building', approval: 'unreviewed' })],
-      projects: [matchingProject()],
-    });
+    const { t, milestone } = world({ milestone: { status: 'Building', approval: 'unreviewed' } });
     const plan = await githubPlan(pullBody({ action: 'opened' }));
     if (plan.action !== 'apply') throw new Error('expected apply');
-    const result = await apply({ db }, plan);
+    const result = await apply(t, plan);
     assert.equal(result.wrote, true);
     assert.equal(result.shipped, undefined);
-    const milestone = tables.milestones?.[0];
-    assert.equal(milestone?.status, 'Building');
-    assert.equal(milestone?.previewPrNumber, 140);
-    assert.equal(milestone?.previewCommit, SHA);
-    assert.equal(tables.activity?.length, 0);
+    assert.equal(milestone()?.status, 'Building');
+    assert.equal(milestone()?.previewPrNumber, 140);
+    assert.equal(milestone()?.previewCommit, SHA);
+    assert.equal(t.rows('activity').length, 0);
   });
 });
 
 describe('the repository has to match', () => {
-  const project = (agentRepo?: string): Row => ({ _id: 'project', ...(agentRepo ? { agentRepo } : {}) });
-
   it('does not ship a milestone for a merge of the same branch name in another repository', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [project('someone/other-repo')] });
+    const { t, milestone } = world({ agentRepo: 'someone/other-repo' });
     const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
     if (plan.action !== 'apply') throw new Error('expected apply');
-    const result = await apply({ db }, plan);
+    const result = await apply(t, plan);
     assert.equal(result.wrote, false);
-    assert.equal(tables.milestones?.[0]?.status, 'Ready to Ship');
-    assert.equal(tables.milestones?.[0]?.prUrl, undefined);
-    assert.equal(tables.activity?.length, 0);
-    assert.equal(tables.syncEvents?.length, 0);
+    assert.equal(milestone()?.status, 'Ready to Ship');
+    assert.equal(milestone()?.prUrl, undefined);
+    assert.equal(t.rows('activity').length, 0);
+    assert.equal(t.rows('syncEvents').length, 0);
   });
 
   it('ships when the repository matches, whatever the letter case', async () => {
-    const { db, tables } = fakeDb({
-      milestones: [milestoneRow()],
-      projects: [project('WarehausCollective/Warehaus')],
-      tasks: [doneTask()],
-    });
+    const { t, milestone } = world({ agentRepo: 'WarehausCollective/Warehaus', doneTask: true });
     const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
     if (plan.action !== 'apply') throw new Error('expected apply');
-    const result = await apply({ db }, plan);
+    const result = await apply(t, plan);
     assert.equal(result.shipped, true);
-    assert.equal(tables.milestones?.[0]?.status, 'Shipped');
+    assert.equal(milestone()?.status, 'Shipped');
   });
 
   it('does not write when the project has no repository set', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [project()], tasks: [doneTask()] });
+    const { t, milestone } = world({ agentRepo: null, doneTask: true });
     const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
     if (plan.action !== 'apply') throw new Error('expected apply');
-    const result = await apply({ db }, plan);
+    const result = await apply(t, plan);
     assert.equal(result.wrote, false);
     assert.equal(result.shipped, undefined);
-    assert.equal(tables.milestones?.[0]?.status, 'Ready to Ship');
-    assert.equal(tables.milestones?.[0]?.prUrl, undefined);
+    assert.equal(milestone()?.status, 'Ready to Ship');
+    assert.equal(milestone()?.prUrl, undefined);
   });
 
   it('stores the pull request and does not ship when a subtask is still open', async () => {
-    const { db, tables } = fakeDb({
-      milestones: [milestoneRow()],
-      projects: [matchingProject()],
-      tasks: [
-        doneTask(),
-        { _id: 'tasks:2', orgId: 'org', milestoneId: 'milestones:1', parentTaskId: 'tasks:1', status: 'To do', isDone: false },
-      ],
-    });
+    const { t, milestone, task, taskId } = world({ doneTask: true });
+    task({ parentTaskId: taskId, status: 'To do', isDone: false });
     const plan = await githubPlan(pullBody({ action: 'closed', merged: true }));
     if (plan.action !== 'apply') throw new Error('expected apply');
-    const result = await apply({ db }, plan);
+    const result = await apply(t, plan);
     assert.equal(result.wrote, true);
     assert.equal(result.shipped, undefined);
-    assert.equal(tables.milestones?.[0]?.status, 'Ready to Ship');
-    assert.equal(tables.milestones?.[0]?.prUrl, 'https://github.com/warehauscollective/warehaus/pull/140');
-    assert.equal(tables.activity?.length, 0);
-    assert.equal(tables.agentEvents?.length, 0);
+    assert.equal(milestone()?.status, 'Ready to Ship');
+    assert.equal(milestone()?.prUrl, 'https://github.com/warehauscollective/warehaus/pull/140');
+    assert.equal(t.rows('activity').length, 0);
+    assert.equal(t.rows('agentEvents').length, 0);
   });
 
   it('compares the two names and nothing else', () => {
@@ -356,22 +276,19 @@ describe('Vercel preview on a milestone branch', () => {
   });
 
   it('stores the preview when a build of the branch succeeds, once', async () => {
-    const { db, tables } = fakeDb({
-      milestones: [milestoneRow({ status: 'Building', approval: 'unreviewed' })],
-      projects: [matchingProject()],
-    });
+    const { t, milestone } = world({ milestone: { status: 'Building', approval: 'unreviewed' } });
     const plan = await vercelPlan(vercelBody('deployment.succeeded', BRANCH));
     assert.equal(plan.action, 'apply');
     if (plan.action !== 'apply') return;
     assert.equal(plan.milestone?.kind, 'deploy');
-    const first = await apply({ db }, plan);
+    const first = await apply(t, plan);
     assert.equal(first.wrote, true);
     // This branch name is too long for a stable host, so the build's own URL is stored.
-    assert.equal(tables.milestones?.[0]?.previewUrl, 'https://warehaus-portal-abc123-warehaus-collective.vercel.app');
-    assert.equal(tables.milestones?.[0]?.previewCommit, SHA);
-    const retry = await apply({ db }, plan);
+    assert.equal(milestone()?.previewUrl, 'https://warehaus-portal-abc123-warehaus-collective.vercel.app');
+    assert.equal(milestone()?.previewCommit, SHA);
+    const retry = await apply(t, plan);
     assert.equal(retry.duplicate, true);
-    assert.equal(tables.agentEvents?.length, 1);
+    assert.equal(t.rows('agentEvents').length, 1);
   });
 
   it('ignores a build that is still running, and a build of another branch', async () => {
@@ -386,36 +303,23 @@ describe('Vercel preview on a milestone branch', () => {
   });
 
   it('adds no preview to an approved milestone', async () => {
-    const { db, tables } = fakeDb({ milestones: [milestoneRow()], projects: [matchingProject()] });
+    const { t, milestone } = world();
     const plan = await vercelPlan(vercelBody('deployment.succeeded', BRANCH));
     if (plan.action !== 'apply') throw new Error('expected apply');
-    const result = await apply({ db }, plan);
+    const result = await apply(t, plan);
     assert.equal(result.wrote, false);
-    assert.equal(tables.milestones?.[0]?.previewUrl, undefined);
+    assert.equal(milestone()?.previewUrl, undefined);
+    assert.equal(t.rows('agentEvents').length, 0);
   });
 });
 
 describe('branch names', () => {
   it('gives a second milestone with the same name its own branch', async () => {
-    const taken = new Set(['milestone/launch', 'milestone/launch-2']);
-    const ctx = {
-      db: {
-        query: () => ({
-          withIndex: (_index: string, range: (q: { eq: (field: string, value: string) => unknown }) => unknown) => {
-            let wanted = '';
-            range({
-              eq: (_field, value) => {
-                wanted = value;
-                return null;
-              },
-            });
-            return { first: async () => (taken.has(wanted) ? { _id: 'x' } : null) };
-          },
-        }),
-      },
-    };
-    assert.equal(await uniqueMilestoneBranch(ctx, 'Launch'), 'milestone/launch-3');
-    assert.equal(await uniqueMilestoneBranch(ctx, 'Something new'), 'milestone/something-new');
+    const t = memoryCtx();
+    const { orgId, projectId } = seedMilestoneWorld(t, { name: 'Launch', branch: 'milestone/launch' });
+    seedMilestone(t, orgId, projectId, { name: 'Launch', branch: 'milestone/launch-2' });
+    assert.equal(await uniqueMilestoneBranch({ db: t.db }, 'Launch'), 'milestone/launch-3');
+    assert.equal(await uniqueMilestoneBranch({ db: t.db }, 'Something new'), 'milestone/something-new');
   });
 
   it('keeps a suffixed name inside the length limit', () => {

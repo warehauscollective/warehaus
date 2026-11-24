@@ -1,143 +1,52 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { listStaffNotices, markNoticeRead } from '../invitesSync';
+import { memoryCtx } from './memoryCtx.testkit';
+import { seedContact, seedOrg } from './seedRows.testkit';
 
-type Row = Record<string, unknown> & { _id: string };
+type Listed = Array<{ unread: boolean; readAt: number | null }>;
 
-class EqBuilder {
-  private eqs: Array<[string, unknown]> = [];
-  eq(field: string, value: unknown): this {
-    this.eqs.push([field, value]);
-    return this;
-  }
-  matches(row: Row): boolean {
-    return this.eqs.every(([field, value]) => row[field] === value);
-  }
-}
-
-class MemoryIndex {
-  constructor(private readonly rows: Row[]) {}
-  order(direction: 'asc' | 'desc') {
-    const sorted = [...this.rows].sort((a, b) => {
-      const av = (a.timestamp ?? a.createdAt ?? 0) as number;
-      const bv = (b.timestamp ?? b.createdAt ?? 0) as number;
-      if (av === bv) return 0;
-      const cmp = av < bv ? -1 : 1;
-      return direction === 'desc' ? -cmp : cmp;
-    });
-    return {
-      take: async (n: number) => sorted.slice(0, n),
-    };
-  }
-  async unique() {
-    if (this.rows.length > 1) throw new Error('Expected a unique row');
-    return this.rows[0] ?? null;
-  }
-}
-
-function memoryDb(tables: Record<string, Row[]>) {
-  let seq = 1;
-  return {
-    async get(id: string) {
-      for (const rows of Object.values(tables)) {
-        const found = rows.find((row) => row._id === id);
-        if (found) return found;
-      }
-      return null;
-    },
-    async insert(table: string, doc: Record<string, unknown>) {
-      const row = { ...doc, _id: `${table}-${seq++}` } as Row;
-      tables[table] = tables[table] ?? [];
-      tables[table].push(row);
-      return row._id;
-    },
-    query(table: string) {
-      const rows = () => tables[table] ?? [];
-      return {
-        withIndex(_name: string, build?: (q: EqBuilder) => EqBuilder) {
-          const matched = build ? rows().filter((row) => build(new EqBuilder()).matches(row)) : rows();
-          return new MemoryIndex(matched);
-        },
-      };
-    },
-  };
-}
-
-const org = {
-  _id: 'org-northwind',
-  companyName: 'Northwind',
-  slug: 'northwind',
-  portalAccess: 'Enabled' as const,
-};
-
-const tables: Record<string, Row[]> = {
-  clients: [org],
-  contacts: [
-    {
-      _id: 'contact-a',
-      orgId: org._id,
-      name: 'Ada Staff',
-      email: 'ada.staff@warehaus.test',
-      authUserId: 'auth-a',
-      role: 'Warehaus Staff',
-      portalAccess: 'Enabled',
-      notionPageId: 'staff-a',
-    },
-    {
-      _id: 'contact-b',
-      orgId: org._id,
-      name: 'Bea Staff',
-      email: 'bea.staff@warehaus.test',
-      authUserId: 'auth-b',
-      role: 'Warehaus Staff',
-      portalAccess: 'Enabled',
-      notionPageId: 'staff-b',
-    },
-  ],
-  notices: [
-    {
-      _id: 'notice-1',
-      orgId: org._id,
+describe('per-staff notice reads', () => {
+  it('keeps staff B unread after staff A marks the notice read', async () => {
+    const t = memoryCtx();
+    const orgId = seedOrg(t, { companyName: 'Northwind', slug: 'northwind' });
+    for (const [key, name] of [
+      ['a', 'Ada Staff'],
+      ['b', 'Bea Staff'],
+    ]) {
+      seedContact(t, orgId, {
+        name,
+        email: `${name.split(' ')[0]?.toLowerCase()}.staff@warehaus.test`,
+        authUserId: `auth-${key}`,
+        role: 'Warehaus Staff',
+        notionPageId: `staff-${key}`,
+      });
+    }
+    const noticeId = t.seed('notices', {
+      orgId,
       audience: 'staff',
       message: 'Homepage: Stage "Mystery" is not a portal stage',
       edgeCase: 'unknown-stage:page-1',
       createdAt: 20,
-    },
-  ],
-  noticeReads: [],
-};
+    });
+    const staffA = { as: { authUserId: 'auth-a' } };
+    const staffB = { as: { authUserId: 'auth-b' } };
 
-const db = memoryDb(tables);
-
-function ctxFor(subject: string) {
-  return {
-    auth: { getUserIdentity: async () => ({ subject }) },
-    db,
-  };
-}
-
-type Handler = (ctx: ReturnType<typeof ctxFor>, args: Record<string, unknown>) => Promise<unknown>;
-
-function run(fn: object, subject: string, args: Record<string, unknown> = {}) {
-  return (fn as { _handler: Handler })._handler(ctxFor(subject), args);
-}
-
-describe('per-staff notice reads', () => {
-  it('keeps staff B unread after staff A marks the notice read', async () => {
-    const beforeA = (await run(listStaffNotices, 'auth-a')) as Array<{ unread: boolean }>;
-    const beforeB = (await run(listStaffNotices, 'auth-b')) as Array<{ unread: boolean }>;
+    const beforeA = await t.call<Listed>(listStaffNotices, {}, staffA);
+    const beforeB = await t.call<Listed>(listStaffNotices, {}, staffB);
     assert.equal(beforeA[0]?.unread, true);
     assert.equal(beforeB[0]?.unread, true);
 
-    const marked = await run(markNoticeRead, 'auth-a', { noticeId: 'notice-1' });
+    const marked = await t.call(markNoticeRead, { noticeId }, staffA);
     assert.deepEqual(marked, { ok: true });
 
-    const afterA = (await run(listStaffNotices, 'auth-a')) as Array<{ unread: boolean; readAt: number | null }>;
-    const afterB = (await run(listStaffNotices, 'auth-b')) as Array<{ unread: boolean; readAt: number | null }>;
+    const afterA = await t.call<Listed>(listStaffNotices, {}, staffA);
+    const afterB = await t.call<Listed>(listStaffNotices, {}, staffB);
     assert.equal(afterA[0]?.unread, false);
     assert.ok(afterA[0]?.readAt);
     assert.equal(afterB[0]?.unread, true);
     assert.equal(afterB[0]?.readAt, null);
-    assert.equal(tables.notices[0]?.readAt, undefined);
+    assert.equal(t.row(noticeId)?.readAt, undefined);
+    assert.equal(t.rows('noticeReads').length, 1);
   });
 });

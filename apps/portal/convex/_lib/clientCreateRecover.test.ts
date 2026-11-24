@@ -1,76 +1,15 @@
 import assert from 'node:assert/strict';
 import { afterEach, beforeEach, describe, it } from 'node:test';
 import { buildClientCreateProperties } from '@warehaus/portal-sync';
-import { getFunctionName } from 'convex/server';
 import { findByExternalId, findByNotionPage } from '../clientCreate';
 import { applyOutcome, attachClientId, claim, get, release } from '../sync/outbox';
 import { processOne } from '../sync/outboxWork';
 import { upsertClient } from '../sync/upsert';
+import { memoryCtx, type MemoryCtx, type Respond } from './memoryCtx.testkit';
+import { seedOrg } from './seedRows.testkit';
 
-type Row = Record<string, unknown> & { _id: string };
-type Handler = (ctx: unknown, args: Record<string, unknown>) => Promise<unknown>;
-
-function run(fn: object, ctx: unknown, args: Record<string, unknown> = {}) {
-  return (fn as { _handler: Handler })._handler(ctx, args);
-}
-
-class EqBuilder {
-  private eqs: Array<[string, unknown]> = [];
-  eq(field: string, value: unknown): this {
-    this.eqs.push([field, value]);
-    return this;
-  }
-  matches(row: Row): boolean {
-    return this.eqs.every(([field, value]) => row[field] === value);
-  }
-}
-
-function memoryDb(tables: Record<string, Row[]>) {
-  let seq = 1;
-  return {
-    async get(id: string) {
-      for (const rows of Object.values(tables)) {
-        const found = rows.find((row) => row._id === id);
-        if (found) return found;
-      }
-      return null;
-    },
-    async insert(table: string, row: Record<string, unknown>) {
-      const stored = { ...row, _id: `gen-${seq++}` } as Row;
-      (tables[table] ??= []).push(stored);
-      return stored._id;
-    },
-    async patch(id: string, value: Record<string, unknown>) {
-      for (const rows of Object.values(tables)) {
-        const row = rows.find((item) => item._id === id);
-        if (!row) continue;
-        for (const [key, field] of Object.entries(value)) {
-          if (field === undefined) delete row[key];
-          else row[key] = field;
-        }
-        return;
-      }
-    },
-    query(table: string) {
-      const chain = (list: Row[]) => ({
-        withIndex(_name: string, build?: (q: EqBuilder) => EqBuilder) {
-          const builder = new EqBuilder();
-          build?.(builder);
-          return chain(list.filter((row) => builder.matches(row)));
-        },
-        collect: async () => {
-          throw new Error(`${table}.collect is not used`);
-        },
-        take: async (count: number) => list.slice(0, count),
-        unique: async () => {
-          if (list.length > 1) throw new Error('Expected a unique row');
-          return list[0] ?? null;
-        },
-      });
-      return chain(tables[table] ?? []);
-    },
-  };
-}
+type Fields = Record<string, unknown>;
+type Result = { ok: boolean; clientId?: string; error?: string };
 
 function clientPayload() {
   const built = buildClientCreateProperties({ companyName: 'North Wind' });
@@ -89,6 +28,58 @@ const notionPage = {
     Source: { type: 'select', select: { name: 'portal' } },
   },
 };
+
+/** A fresh ctx with the Warehaus staff org and one client-create outbox row on it. */
+function world(row: Fields = {}) {
+  const t = memoryCtx();
+  const staffOrgId = seedOrg(t, { slug: 'warehaus-internal', companyName: 'Warehaus', nameKey: 'warehaus' });
+  const outboxId = t.seed('notionOutbox', {
+    idempotencyKey: 'client-create:wh_cli_north-wind',
+    kind: 'client-create',
+    database: 'clients',
+    orgId: staffOrgId,
+    payload: JSON.stringify({ properties: clientPayload() }),
+    actor: 'staff',
+    status: 'queued',
+    attempts: 0,
+    nextAttemptAt: 0,
+    createdAt: Date.now(),
+    ...row,
+  });
+  return { t, staffOrgId, outboxId, newClients: () => t.rows('clients').filter((item) => item._id !== staffOrgId) };
+}
+
+/**
+ * Answers processOne's nested calls by really running them on the same db.
+ * `upsert` can stand in for upsertClient (to make it throw). Mail and invites
+ * fail the test.
+ */
+function responder(t: MemoryCtx, upsert?: (args: Fields) => unknown): Respond {
+  return (run) => {
+    if (run.kind === 'action') throw new Error(`client create must not send mail (${run.name})`);
+    if (/invite|mail/.test(run.name)) throw new Error(`client create must not call ${run.name}`);
+    switch (run.name) {
+      case 'sync/outbox:get':
+        return t.call(get, run.args);
+      case 'clientCreate:findByNotionPage':
+        return t.call(findByNotionPage, run.args);
+      case 'clientCreate:findByExternalId':
+        return t.call(findByExternalId, run.args);
+      case 'sync/outbox:claim':
+        return t.call(claim, run.args);
+      case 'sync/outbox:release':
+        return t.call(release, run.args);
+      case 'sync/outbox:applyOutcome':
+        return t.call(applyOutcome, run.args);
+      case 'sync/outbox:attachClientId':
+        return t.call(attachClientId, run.args);
+      case 'sync/upsert:upsertClient':
+        return upsert ? upsert(run.args) : t.call(upsertClient, run.args);
+      default:
+        throw new Error(`unexpected ${run.kind} ${run.name}`);
+    }
+  };
+}
 
 describe('client create recovers a failed upsert', () => {
   const env = { ...process.env };
@@ -130,124 +121,56 @@ describe('client create recovers a failed upsert', () => {
   });
 
   it('does not mark the outbox done when the upsert throws, then the retry inserts the client', async () => {
-    const row: Row = {
-      _id: 'out-1',
-      idempotencyKey: 'client-create:wh_cli_north-wind',
-      kind: 'client-create',
-      database: 'clients',
-      orgId: 'org-staff',
-      payload: JSON.stringify({ properties: clientPayload() }),
-      actor: 'staff',
-      status: 'queued',
-      attempts: 0,
-      nextAttemptAt: 0,
-      createdAt: Date.now(),
-    };
-    const tables: Record<string, Row[]> = {
-      notionOutbox: [row],
-      clients: [],
-      notionWriteState: [],
-      auditEvents: [],
-    };
-    const db = memoryDb(tables);
+    const { t, outboxId, newClients } = world();
     let upserts = 0;
-    const ctx = {
-      runQuery: async (ref: never, args: Record<string, unknown>) => {
-        const name = getFunctionName(ref);
-        if (name === 'sync/outbox:get') return run(get, { db }, args);
-        if (name === 'clientCreate:findByNotionPage') return run(findByNotionPage, { db }, args);
-        if (name === 'clientCreate:findByExternalId') return run(findByExternalId, { db }, args);
-        throw new Error(`unexpected query ${name}`);
-      },
-      runMutation: async (ref: never, args: Record<string, unknown>) => {
-        const name = getFunctionName(ref);
-        if (name === 'sync/outbox:claim') return run(claim, { db }, args);
-        if (name === 'sync/outbox:release') return run(release, { db }, args);
-        if (name === 'sync/outbox:applyOutcome') return run(applyOutcome, { db }, args);
-        if (name === 'sync/outbox:attachClientId') return run(attachClientId, { db }, args);
-        if (name === 'sync/upsert:upsertClient') {
-          upserts += 1;
-          if (upserts === 1) throw new Error('convex upsert failed');
-          return run(upsertClient, { db }, args);
-        }
-        if (name.includes('invite') || name.includes('mail')) throw new Error(`client create must not call ${name}`);
-        throw new Error(`unexpected mutation ${name}`);
-      },
-      runAction: async () => {
-        throw new Error('client create must not send mail');
-      },
-    };
+    const respond = responder(t, (args) => {
+      upserts += 1;
+      if (upserts === 1) throw new Error('convex upsert failed');
+      return t.call(upsertClient, args);
+    });
 
-    const first = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; error?: string };
+    const first = await t.call<Result>(processOne, { id: outboxId }, { respond });
     assert.equal(first.ok, false);
     assert.match(first.error ?? '', /convex upsert failed/);
-    assert.equal(row.status, 'failed');
-    assert.notEqual(row.status, 'done');
+    assert.equal(t.row(outboxId)?.status, 'failed');
+    assert.notEqual(t.row(outboxId)?.status, 'done');
     assert.equal(posts, 1);
-    assert.equal(tables.clients.length, 0);
+    assert.equal(newClients().length, 0);
 
-    row.nextAttemptAt = 0;
-    const second = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; clientId?: string };
-    assert.equal(second.ok, true, (second as { error?: string }).error ?? 'retry did not recover');
+    // Make the retry due now instead of after the backoff.
+    await t.db.patch(outboxId, { nextAttemptAt: 0 });
+    const second = await t.call<Result>(processOne, { id: outboxId }, { respond });
+    assert.equal(second.ok, true, second.error ?? 'retry did not recover');
+    // The retry found the page it already made and did not post a second one.
     assert.equal(posts, 1);
-    assert.equal(row.status, 'done');
-    assert.equal(tables.clients.length, 1);
-    assert.equal(tables.clients[0]?.notionPageId, 'page-new');
-    assert.equal(tables.clients[0]?.portalAccess, 'Disabled');
-    assert.equal(tables.clients[0]?.status, 'Prospect');
-    assert.equal(tables.clients[0]?.syncHiddenAt, undefined);
-    assert.equal(row.orgId, second.clientId);
-    assert.equal(row.orgId, tables.clients[0]?._id);
+    const row = t.row(outboxId);
+    assert.equal(row?.status, 'done');
+    const clients = newClients();
+    assert.equal(clients.length, 1);
+    assert.equal(clients[0]?.notionPageId, 'page-new');
+    assert.equal(clients[0]?.portalAccess, 'Disabled');
+    assert.equal(clients[0]?.status, 'Prospect');
+    assert.equal(clients[0]?.syncHiddenAt, undefined);
+    assert.equal(row?.orgId, second.clientId);
+    assert.equal(row?.orgId, clients[0]?._id);
+    assert.equal(t.runs.some((run) => run.kind === 'action'), false);
   });
 
   it('upserts a done row that confirmed Notion and never stored a client', async () => {
-    const row: Row = {
-      _id: 'out-done',
-      idempotencyKey: 'client-create:wh_cli_north-wind',
-      kind: 'client-create',
-      database: 'clients',
-      orgId: 'org-staff',
-      payload: JSON.stringify({ properties: clientPayload() }),
-      actor: 'staff',
+    const { t, outboxId, newClients } = world({
       status: 'done',
       attempts: 1,
-      nextAttemptAt: 0,
-      createdAt: Date.now(),
       notionPageId: 'page-done',
       resultJson: JSON.stringify({ notionPageId: 'page-done', reused: true }),
-    };
-    const tables: Record<string, Row[]> = {
-      notionOutbox: [row],
-      clients: [],
-      notionWriteState: [],
-      auditEvents: [],
-    };
-    const db = memoryDb(tables);
-    const ctx = {
-      runQuery: async (ref: never, args: Record<string, unknown>) => {
-        const name = getFunctionName(ref);
-        if (name === 'sync/outbox:get') return run(get, { db }, args);
-        if (name === 'clientCreate:findByNotionPage') return run(findByNotionPage, { db }, args);
-        if (name === 'clientCreate:findByExternalId') return run(findByExternalId, { db }, args);
-        throw new Error(`unexpected query ${name}`);
-      },
-      runMutation: async (ref: never, args: Record<string, unknown>) => {
-        const name = getFunctionName(ref);
-        if (name === 'sync/outbox:claim') return run(claim, { db }, args);
-        if (name === 'sync/outbox:attachClientId') return run(attachClientId, { db }, args);
-        if (name === 'sync/upsert:upsertClient') return run(upsertClient, { db }, args);
-        throw new Error(`unexpected mutation ${name}`);
-      },
-      runAction: async () => {
-        throw new Error('no mail');
-      },
-    };
-    const result = (await run(processOne, ctx, { id: row._id })) as { ok: boolean; clientId?: string; error?: string };
+    });
+    const result = await t.call<Result>(processOne, { id: outboxId }, { respond: responder(t) });
     assert.equal(result.ok, true, result.error ?? 'done row did not upsert');
     assert.equal(posts, 0);
-    assert.equal(tables.clients.length, 1);
-    assert.equal(tables.clients[0]?.notionPageId, 'page-done');
-    assert.equal(row.orgId, result.clientId);
-    assert.match(String(row.resultJson), /clientId/);
+    const clients = newClients();
+    assert.equal(clients.length, 1);
+    assert.equal(clients[0]?.notionPageId, 'page-done');
+    const row = t.row(outboxId);
+    assert.equal(row?.orgId, result.clientId);
+    assert.match(String(row?.resultJson), /clientId/);
   });
 });
