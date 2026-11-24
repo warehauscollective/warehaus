@@ -49,6 +49,7 @@ import type * as _lib_registration from "../_lib/registration.js";
 import type * as _lib_resendCooldown from "../_lib/resendCooldown.js";
 import type * as _lib_revertLimit from "../_lib/revertLimit.js";
 import type * as _lib_reviewPreview from "../_lib/reviewPreview.js";
+import type * as _lib_runnerHealth from "../_lib/runnerHealth.js";
 import type * as _lib_safeRedirect from "../_lib/safeRedirect.js";
 import type * as _lib_seedMarkers from "../_lib/seedMarkers.js";
 import type * as _lib_sessionLifetime from "../_lib/sessionLifetime.js";
@@ -174,6 +175,7 @@ declare const fullApi: ApiFromModules<{
   "_lib/resendCooldown": typeof _lib_resendCooldown;
   "_lib/revertLimit": typeof _lib_revertLimit;
   "_lib/reviewPreview": typeof _lib_reviewPreview;
+  "_lib/runnerHealth": typeof _lib_runnerHealth;
   "_lib/safeRedirect": typeof _lib_safeRedirect;
   "_lib/seedMarkers": typeof _lib_seedMarkers;
   "_lib/sessionLifetime": typeof _lib_sessionLifetime;
