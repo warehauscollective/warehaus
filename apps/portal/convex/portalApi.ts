@@ -10,7 +10,6 @@ import {
   authorizeApiCall,
   bearerToken,
   claimIdempotency,
-  clientIsStaffVisible,
   createProjectExternalId,
   IDEMPOTENCY_IN_PROGRESS_ERROR,
   idempotencyKeyError,
@@ -71,6 +70,7 @@ import { apiStatusFields, apiStatusInput } from './_lib/milestoneStatus';
 import { contextSourceForToken } from './_lib/projectContext';
 import { convexFailureText } from './_lib/userFacingError';
 import { applyTaskChanges, type TaskChange } from './_lib/taskChange';
+import { staffMayReadOrg, staffOrgs, staffTask } from './_lib/staffRead';
 
 const PAGE_CAP = 50;
 
@@ -85,27 +85,6 @@ const ATTACH_FALLBACK = 'The milestone link failed before a reason was returned'
 function attachError(error: string, code: AttachFailureCode | 'failed'): ApiResult {
   const text = error === 'Request failed' ? ATTACH_FALLBACK : error;
   return fail(attachFailureStatus(code), text, code);
-}
-
-function staffTask(row: Doc<'tasks'>) {
-  return {
-    id: row._id,
-    orgId: row.orgId,
-    projectId: row.projectId,
-    name: row.name,
-    status: row.status,
-    stage: row.stage ?? null,
-    priority: row.priority ?? null,
-    nextAction: row.nextAction ?? null,
-    isDone: row.isDone,
-    updatedAt: row.updatedAt ?? null,
-    lastEditedTime: row.lastEditedTime ?? null,
-    notionPageId: row.notionPageId,
-    publishToWarehaus: row.publishToWarehaus,
-    milestoneId: row.milestoneId ?? null,
-    description: row.description ?? null,
-    fieldStamps: row.fieldStamps ?? null,
-  };
 }
 
 function staffMilestone(row: Doc<'milestones'>) {
@@ -265,10 +244,6 @@ const listArgs = {
   limit: v.number(),
 };
 
-async function orgVisible(ctx: { db: { get: (id: Id<'clients'>) => Promise<Doc<'clients'> | null> } }, orgId: Id<'clients'>) {
-  return clientIsStaffVisible(await ctx.db.get(orgId));
-}
-
 export const listTasks = internalQuery({
   args: listArgs,
   handler: async (ctx, args) => {
@@ -282,14 +257,7 @@ export const listTasks = internalQuery({
     if (!plan.ok) return fail(400, plan.error);
     const opts = { numItems: Math.min(args.limit, PAGE_CAP), cursor: args.cursor };
     const projectId = args.projectId;
-    const orgSeen = new Map<Id<'clients'>, boolean>();
-    const visibleOrg = async (orgId: Id<'clients'>) => {
-      const cached = orgSeen.get(orgId);
-      if (cached != null) return cached;
-      const ok = await orgVisible(ctx, orgId);
-      orgSeen.set(orgId, ok);
-      return ok;
-    };
+    const visibleOrg = staffOrgs(ctx).visible;
     let milestone: Doc<'milestones'> | null = null;
     if (plan.index === 'by_milestone') {
       if (!args.milestoneId) return fail(400, 'Milestone id is required');
@@ -387,7 +355,7 @@ export const getTask = internalQuery({
   args: { taskId: v.id('tasks') },
   handler: async (ctx, args) => {
     const task = await ctx.db.get(args.taskId);
-    if (!task || !(await orgVisible(ctx, task.orgId))) return fail(404, 'Task not found');
+    if (!task || !(await staffMayReadOrg(ctx, task.orgId))) return fail(404, 'Task not found');
     const links = await ctx.db
       .query('taskLinks')
       .withIndex('by_taskId', (q) => q.eq('taskId', task._id))
@@ -436,7 +404,7 @@ export const listMilestones = internalQuery({
   args: { projectId: v.id('projects'), cursor: v.union(v.string(), v.null()), limit: v.number() },
   handler: async (ctx, args) => {
     const project = await ctx.db.get(args.projectId);
-    if (!project || !(await orgVisible(ctx, project.orgId))) return fail(404, 'Project not found');
+    if (!project || !(await staffMayReadOrg(ctx, project.orgId))) return fail(404, 'Project not found');
     const page = await ctx.db
       .query('milestones')
       .withIndex('by_projectId', (q) => q.eq('projectId', args.projectId))
@@ -456,7 +424,7 @@ export const listComments = internalQuery({
   args: { taskId: v.id('tasks'), cursor: v.union(v.string(), v.null()), limit: v.number() },
   handler: async (ctx, args) => {
     const task = await ctx.db.get(args.taskId);
-    if (!task || !(await orgVisible(ctx, task.orgId))) return fail(404, 'Task not found');
+    if (!task || !(await staffMayReadOrg(ctx, task.orgId))) return fail(404, 'Task not found');
     const page = await ctx.db
       .query('taskComments')
       .withIndex('by_taskId_createdAt', (q) => q.eq('taskId', args.taskId))
@@ -477,7 +445,7 @@ export const listLinks = internalQuery({
   args: { taskId: v.id('tasks'), cursor: v.union(v.string(), v.null()), limit: v.number() },
   handler: async (ctx, args) => {
     const task = await ctx.db.get(args.taskId);
-    if (!task || !(await orgVisible(ctx, task.orgId))) return fail(404, 'Task not found');
+    if (!task || !(await staffMayReadOrg(ctx, task.orgId))) return fail(404, 'Task not found');
     const page = await ctx.db
       .query('taskLinks')
       .withIndex('by_taskId', (q) => q.eq('taskId', args.taskId))
@@ -508,7 +476,7 @@ export const createTask = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const project = await ctx.db.get(args.projectId);
-    if (!project || !(await orgVisible(ctx, project.orgId))) {
+    if (!project || !(await staffMayReadOrg(ctx, project.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
     }
     const milestoneGate = taskMilestoneGate(
@@ -565,7 +533,7 @@ export const updateTask = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const task = await ctx.db.get(args.taskId);
-    if (!task || !(await orgVisible(ctx, task.orgId))) {
+    if (!task || !(await staffMayReadOrg(ctx, task.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
     }
     const changes: TaskChange[] = [];
@@ -617,7 +585,7 @@ export const createMilestone = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const project = await ctx.db.get(args.projectId);
-    if (!project || !(await orgVisible(ctx, project.orgId))) {
+    if (!project || !(await staffMayReadOrg(ctx, project.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
     }
     const wanted = apiStatusInput(args);
@@ -706,7 +674,7 @@ export const getMilestoneStatus = internalQuery({
   args: { milestoneId: v.id('milestones') },
   handler: async (ctx, args): Promise<ApiResult> => {
     const milestone = await ctx.db.get(args.milestoneId);
-    if (!milestone || !(await orgVisible(ctx, milestone.orgId))) return fail(404, 'Milestone not found');
+    if (!milestone || !(await staffMayReadOrg(ctx, milestone.orgId))) return fail(404, 'Milestone not found');
     const tasks = await ctx.db
       .query('tasks')
       .withIndex('by_orgId_milestoneId', (q) => q.eq('orgId', milestone.orgId).eq('milestoneId', milestone._id))
@@ -796,7 +764,7 @@ export const listNeedsPeter = internalQuery({
       .take(NEEDS_PETER_LIMIT);
     const items = [];
     for (const note of open) {
-      if (!(await orgVisible(ctx, note.orgId))) continue;
+      if (!(await staffMayReadOrg(ctx, note.orgId))) continue;
       const milestone = await ctx.db.get(note.milestoneId);
       if (!milestone) continue;
       items.push({
@@ -822,7 +790,7 @@ export const addMilestoneNote = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const milestone = await ctx.db.get(args.milestoneId);
-    if (!milestone || !(await orgVisible(ctx, milestone.orgId))) {
+    if (!milestone || !(await staffMayReadOrg(ctx, milestone.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Milestone not found'));
     }
     const note = noteDecision(args.body);
@@ -854,7 +822,7 @@ export const updateMilestone = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const milestone = await ctx.db.get(args.milestoneId);
-    if (!milestone || !(await orgVisible(ctx, milestone.orgId))) {
+    if (!milestone || !(await staffMayReadOrg(ctx, milestone.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Milestone not found'));
     }
     const contentFields = args.name != null || args.objective != null || args.goals != null;
@@ -894,7 +862,7 @@ export const addComment = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const task = await ctx.db.get(args.taskId);
-    if (!task || !(await orgVisible(ctx, task.orgId))) {
+    if (!task || !(await staffMayReadOrg(ctx, task.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
     }
     const planned = planApiComment(args.body);
@@ -924,7 +892,7 @@ export const addLink = internalMutation({
     const opened = await openIdempotency(ctx, args);
     if (!('action' in opened)) return opened;
     const task = await ctx.db.get(args.taskId);
-    if (!task || !(await orgVisible(ctx, task.orgId))) {
+    if (!task || !(await staffMayReadOrg(ctx, task.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Task not found'));
     }
     const planned = planApiLink({ kind: args.kind, url: args.url, title: args.title });
@@ -990,10 +958,10 @@ export const attachTask = internalMutation({
     if (!('action' in opened)) return opened;
     const milestone = await ctx.db.get(args.milestoneId);
     const task = await ctx.db.get(args.taskId);
-    if (!milestone || !(await orgVisible(ctx, milestone.orgId))) {
+    if (!milestone || !(await staffMayReadOrg(ctx, milestone.orgId))) {
       return finishIdempotency(ctx, opened.id, attachError('Milestone not found', 'not_found'));
     }
-    if (!task || !(await orgVisible(ctx, task.orgId))) {
+    if (!task || !(await staffMayReadOrg(ctx, task.orgId))) {
       return finishIdempotency(ctx, opened.id, attachError('Task not found', 'not_found'));
     }
     try {
@@ -1018,10 +986,10 @@ export const detachTask = internalMutation({
     if (!('action' in opened)) return opened;
     const milestone = await ctx.db.get(args.milestoneId);
     const task = await ctx.db.get(args.taskId);
-    if (!milestone || !(await orgVisible(ctx, milestone.orgId))) {
+    if (!milestone || !(await staffMayReadOrg(ctx, milestone.orgId))) {
       return finishIdempotency(ctx, opened.id, attachError('Milestone not found', 'not_found'));
     }
-    if (!task || !(await orgVisible(ctx, task.orgId))) {
+    if (!task || !(await staffMayReadOrg(ctx, task.orgId))) {
       return finishIdempotency(ctx, opened.id, attachError('Task not found', 'not_found'));
     }
     try {

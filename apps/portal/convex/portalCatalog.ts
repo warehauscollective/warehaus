@@ -5,6 +5,7 @@
  */
 
 import { clientIsStaffVisible } from '@warehaus/portal-sync';
+import { staffClient, staffOrgs, staffProject } from './_lib/staffRead';
 import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel';
 import { internalQuery } from './_generated/server';
@@ -13,36 +14,6 @@ const PAGE_CAP = 50;
 
 function fail(status: number, error: string) {
   return { status, body: { error } };
-}
-
-function staffClient(row: Doc<'clients'>) {
-  return {
-    id: row._id,
-    companyName: row.companyName,
-    slug: row.slug,
-    status: row.status,
-    portalAccess: row.portalAccess,
-    primaryEmail: row.primaryEmail ?? null,
-    phone: row.phone ?? null,
-    notionPageId: row.notionPageId,
-    source: row.source ?? null,
-  };
-}
-
-function staffProject(row: Doc<'projects'>) {
-  return {
-    id: row._id,
-    orgId: row.orgId,
-    name: row.name,
-    description: row.description ?? null,
-    status: row.status,
-    publishToWarehaus: row.publishToWarehaus,
-    archive: row.archive,
-    type: row.type,
-    syncHidden: row.syncHiddenAt != null,
-    notionPageId: row.notionPageId,
-    externalId: row.externalId ?? null,
-  };
 }
 
 export const readSession = internalQuery({
@@ -116,20 +87,10 @@ export const listProjects = internalQuery({
       ? ctx.db.query('projects').withIndex('by_orgId', (q) => q.eq('orgId', args.orgId as Id<'clients'>))
       : ctx.db.query('projects')
     ).paginate({ numItems: Math.min(args.limit, PAGE_CAP), cursor: args.cursor });
-    const orgSeen = new Map<Id<'clients'>, boolean>();
+    const orgs = staffOrgs(ctx);
     const items = [];
     for (const row of page.page) {
-      if (args.orgId) {
-        items.push(staffProject(row));
-        continue;
-      }
-      let visible = orgSeen.get(row.orgId);
-      if (visible == null) {
-        visible = clientIsStaffVisible(await ctx.db.get(row.orgId));
-        orgSeen.set(row.orgId, visible);
-      }
-      if (!visible) continue;
-      items.push(staffProject(row));
+      if (args.orgId || (await orgs.visible(row.orgId))) items.push(staffProject(row));
     }
     // Concealed clients are skipped after the page is read, so a page can be shorter than `limit` while `hasMore` is true.
     return {

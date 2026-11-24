@@ -38,6 +38,7 @@ import {
   type TaskChangeResult,
 } from './_lib/taskChange';
 import { linearEnv, serveTasks, serveTasksByOrg } from './_lib/taskPlatformRead';
+import { staffRowsFor, staffVisibleClients } from './_lib/staffRead';
 import { userFacingErrorMessage } from './_lib/userFacingError';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 
@@ -194,13 +195,13 @@ export const moveRules = clientQuery({
 export const listForStaff = adminQuery({
   args: {},
   handler: async (ctx) => {
-    const projects = await ctx.db.query('projects').collect();
+    const clients = await staffVisibleClients(ctx);
+    const projects = await staffRowsFor(ctx, 'projects', clients);
     const projectById = new Map(projects.map((p) => [p._id, p] as const));
-    const clients = await ctx.db.query('clients').collect();
     const platformByOrg = new Map<string, 'notion' | 'linear' | undefined>(
       clients.map((client) => [client._id, client.taskPlatform]),
     );
-    const rows = serveTasksByOrg(await ctx.db.query('tasks').collect(), (orgId) => platformByOrg.get(orgId));
+    const rows = serveTasksByOrg(await staffRowsFor(ctx, 'tasks', clients), (orgId) => platformByOrg.get(orgId));
     return rows
       .filter((row) => row.archivedAt == null)
       .map((row) => {

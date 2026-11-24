@@ -1,6 +1,7 @@
 import { clientSeesProject, isOrgVisibleToClients } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { serveTasksByOrg } from './_lib/taskPlatformRead';
+import { staffRowsFor, staffVisibleClients } from './_lib/staffRead';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 import { PortalAuthError } from './_lib/identity';
 import { AGENT_REPO_INVALID, agentRepo, buildAgent } from './_lib/agentRun';
@@ -77,9 +78,9 @@ export const listForOrgAdmin = adminQuery({
 export const listPublishedForStaff = adminQuery({
   args: {},
   handler: async (ctx) => {
-    const clients = await ctx.db.query('clients').collect();
+    const clients = await staffVisibleClients(ctx);
     const clientById = new Map(clients.map((c) => [c._id, c] as const));
-    const rows = await ctx.db.query('projects').collect();
+    const rows = await staffRowsFor(ctx, 'projects', clients);
 
     return rows
       .filter(isPublishedProject)
@@ -131,17 +132,17 @@ function isInternalClient(client: { slug: string; companyName: string } | undefi
 export const listForStaff = adminQuery({
   args: {},
   handler: async (ctx) => {
-    const clients = await ctx.db.query('clients').collect();
+    const clients = await staffVisibleClients(ctx);
     const clientById = new Map(clients.map((c) => [c._id, c] as const));
     const tasks = serveTasksByOrg(
-      (await ctx.db.query('tasks').collect()).filter((task) => task.syncHiddenAt == null),
+      (await staffRowsFor(ctx, 'tasks', clients)).filter((task) => task.syncHiddenAt == null),
       (orgId) => clientById.get(orgId as Id<'clients'>)?.taskPlatform,
     );
     const taskCount = new Map<string, number>();
     for (const task of tasks) {
       taskCount.set(task.projectId, (taskCount.get(task.projectId) ?? 0) + 1);
     }
-    const rows = await ctx.db.query('projects').collect();
+    const rows = await staffRowsFor(ctx, 'projects', clients);
     return rows
       .map((row) => {
         const client = clientById.get(row.orgId);

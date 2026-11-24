@@ -50,6 +50,10 @@ _Avoid_: unsynced stage, stage draft
 
 ## Clients
 
+**Concealed client**:
+A client row that sync has trashed, archived or quarantined. Nobody reads a concealed client's projects, tasks or other rows: not the client, and not staff in the portal or the staff API. A client with portal access Disabled is not concealed; staff still see it.
+_Avoid_: hidden client, disabled client, deleted client
+
 **Client visibility**:
 Whether a client can see a project, a task, or an item on a project (a doc or a shared resource). A client sees it only when their org has portal access and is not concealed, the row is published, not archived and not hidden by sync, and its project is one the client may see. Warehaus Studio and Internal projects are never visible to clients. An item with no project needs only the org check. Archived tasks still show in history; the board leaves them out.
 _Avoid_: published, client-safe, public
