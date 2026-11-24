@@ -94,6 +94,9 @@ describe('milestone loop frames', () => {
       const view = html(createElement(MilestoneLoopView, { model }));
       assert.equal(view.includes('data-testid="milestone-try-again"'), kind === 'empty' || kind === 'failed', kind);
       assert.equal(view.includes('data-testid="milestone-retry"'), kind === 'blocked', kind);
+      // Regenerate is on the drafted card only (ADR-0005): it archives the planner's drafts and plans again.
+      const withRegenerate = html(createElement(MilestoneLoopView, { model, onRegenerate: () => undefined }));
+      assert.equal(withRegenerate.includes('data-testid="milestone-regenerate"'), kind === 'drafted', kind);
       assert.equal(/disabled="" tabindex="-1" data-testid="milestone-awaiting"/.test(view), ['generating', 'empty', 'failed'].includes(kind), kind);
       assert.equal(view.includes('Ready to Ship'), false, kind);
     }
