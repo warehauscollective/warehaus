@@ -166,9 +166,12 @@ async function waitingOnPersonNames(ctx: QueryCtx, milestone: Doc<'milestones'>)
   return loaded.set.waitingOnPerson.slice(0, 5).map((task) => task.doc.name);
 }
 
-function milestoneContext(milestone: Doc<'milestones'>, branch: string) {
+/** What a runner is told about the milestone, including the project's repository, so it works in its own clone. */
+async function milestoneContext(ctx: QueryCtx, milestone: Doc<'milestones'>, branch: string) {
+  const project = await ctx.db.get(milestone.projectId);
   return {
     id: milestone._id,
+    repo: agentRepo(project?.agentRepo),
     name: milestone.name,
     objective: milestone.objective,
     goals: milestone.goals,
@@ -291,7 +294,7 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
       kind: 'planning' as const,
       driver: 'claude_code' as const,
       runId: run._id,
-      milestone: milestoneContext(milestone, branch),
+      milestone: await milestoneContext(ctx, milestone, branch),
     };
   }
   if (run.kind === 'build') {
@@ -302,7 +305,7 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
       runId: run._id,
       externalId: run.externalId ?? null,
       externalUrl: run.externalUrl ?? null,
-      milestone: milestoneContext(milestone, branch),
+      milestone: await milestoneContext(ctx, milestone, branch),
       tasks: claim.ok ? claim.openBuild.map(buildTaskPayload) : [],
     };
   }
@@ -311,7 +314,7 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
   return {
     kind: 'task' as const,
     runId: run._id,
-    milestone: milestoneContext(milestone, branch),
+    milestone: await milestoneContext(ctx, milestone, branch),
     task: {
       id: task._id,
       order: (task.milestoneOrder ?? 0) + 1,
@@ -425,7 +428,7 @@ export const claimNext = internalMutation({
         kind: 'planning' as const,
         driver: 'claude_code' as const,
         runId,
-        milestone: milestoneContext(planning, await branchFor(ctx, planning)),
+        milestone: await milestoneContext(ctx, planning, await branchFor(ctx, planning)),
       };
     }
 

@@ -587,6 +587,8 @@ describe('repository fail-safe', () => {
     const task = await claim(t, RUNNER, { tool: 'cursor' });
     assert.equal(task.kind, 'task');
     assert.equal(t.row(task.runId)?.tool, 'claude_code');
+    // The claim names the project's repository, so the runner works in its own clone of it.
+    assert.equal((task as unknown as { milestone: { repo: string | null } }).milestone.repo, REPO);
     building(t, ['Cursor task'], {}, { agentDriver: 'cursor' });
     const build = await claim(t, OTHER_RUNNER, { tool: 'claude_code' });
     assert.equal(build.kind, 'build');

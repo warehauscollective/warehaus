@@ -27,7 +27,7 @@ export const KEYCHAIN_SERVICE = 'warehaus-runner';
 
 export const USAGE = `Usage:
   npm run runner -- setup [--production] [--id <runner-id>]
-  npm run runner -- start [--production] --repo <owner/name> [--id <runner-id>] [--mode interactive|headless] [--once] [--dir <path>]
+  npm run runner -- start [--production] [--repo <owner/name>] [--id <runner-id>] [--mode interactive|headless] [--once]
 
 setup       Pairs this Mac with the Portal. It prints an 8-character code and
             opens the Portal: staff enter the code in the Runner status modal
@@ -36,14 +36,14 @@ setup       Pairs this Mac with the Portal. It prints an 8-character code and
             production. Staff can change it when they confirm.
 
 start       Takes work from the Portal.
-  --repo    GitHub repository this runner serves, as owner/name. Repeat it or
-            separate with commas for more than one. The runner is only handed
-            work for projects set to one of these.
+            A registered runner serves every project that names a repository,
+            in its own clone under ~/warehaus-runner/repos/<owner>/<name>.
+  --repo    Only take work for this repository, as owner/name. Repeat it or
+            separate with commas for more than one.
   --id      Runner id. Defaults to the id saved by setup.
   --mode    interactive (default) opens Claude Code for you to drive.
             headless runs "claude -p" and draws on Agent SDK credit.
   --once    Do one piece of work, then exit.
-  --dir     Checkout of the repository. Defaults to the current directory.
 
 --production  Talks to the production Portal. Never the default: a runner
               paired to production refuses to start without it.
@@ -56,8 +56,8 @@ PORTAL_AGENT_URL and RUNNER_TOKEN in the environment still override them.`;
 export function parseArgs(argv) {
   const [command, ...rest] = argv;
   if (command !== 'start' && command !== 'setup') return { ok: false, error: USAGE };
-  const options = { command, production: false, id: '', mode: 'interactive', once: false, dir: '', repos: [] };
-  const valued = command === 'start' ? ['--id', '--mode', '--repo', '--dir'] : ['--id'];
+  const options = { command, production: false, id: '', mode: 'interactive', once: false, repos: [] };
+  const valued = command === 'start' ? ['--id', '--mode', '--repo'] : ['--id'];
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     if (flag === '--production') {
@@ -88,10 +88,6 @@ export function parseArgs(argv) {
     return { ok: false, error: `--id must be 2 to 40 lowercase letters, digits or hyphens.\n\n${USAGE}` };
   }
   if (command === 'setup') return { ok: true, options };
-  // Fail safe: with no repository named, the Portal hands this runner nothing.
-  if (options.repos.length === 0) {
-    return { ok: false, error: `--repo is required: the GitHub repository this runner serves, as owner/name.\n\n${USAGE}` };
-  }
   if (options.mode !== 'interactive' && options.mode !== 'headless') {
     return { ok: false, error: `--mode must be interactive or headless.\n\n${USAGE}` };
   }
@@ -217,6 +213,38 @@ export function fenceUntrusted(label, value) {
 /** Folder name for a milestone worktree: the branch with slashes turned into hyphens. */
 export function worktreeName(branch) {
   return branch.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
+}
+
+/** The runner's own folder: its clones and worktrees live here, never in a person's checkout. */
+export const RUNNER_HOME_DIR = 'warehaus-runner';
+
+/** `owner/name` checked and lowercased, or null. */
+export function cloneRepoName(repo) {
+  const value = String(repo ?? '').trim();
+  if (!REPO_PATTERN.test(value) || value.includes('..')) return null;
+  return value.toLowerCase();
+}
+
+/** The runner's clone of a repository: <home>/repos/<owner>/<name>. */
+export function clonePath(home, repo) {
+  const name = cloneRepoName(repo);
+  if (!name) throw new Error(`Not a repository: ${repo}`);
+  const [owner, project] = name.split('/');
+  return `${home}/repos/${owner}/${project}`;
+}
+
+/** The worktree for a milestone branch: <home>/worktrees/<owner>/<name>/<branch>. */
+export function cloneWorktreePath(home, repo, branch) {
+  const name = cloneRepoName(repo);
+  if (!name) throw new Error(`Not a repository: ${repo}`);
+  const [owner, project] = name.split('/');
+  return `${home}/worktrees/${owner}/${project}/${worktreeName(branch)}`;
+}
+
+/** The reason a run is blocked when the runner cannot get a clone. Peter sees it in the needs Peter note. */
+export function cloneFailedReason(repo) {
+  const name = cloneRepoName(repo);
+  return name ? `The runner could not clone ${name}` : 'The project has no repository the runner can clone';
 }
 
 /** Only `milestone/<slug>` branches are ever created or pushed. The rule lives in the protocol. */

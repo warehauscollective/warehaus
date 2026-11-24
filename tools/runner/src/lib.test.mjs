@@ -35,13 +35,17 @@ describe('arguments', () => {
   it('reads start with an id and defaults to interactive', () => {
     assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'WarehausCollective/warehaus']), {
       ok: true,
-      options: { command: 'start', production: false, id: 'peter-mbp', mode: 'interactive', once: false, dir: '', repos: ['warehauscollective/warehaus'] },
+      options: { command: 'start', production: false, id: 'peter-mbp', mode: 'interactive', once: false, repos: ['warehauscollective/warehaus'] },
     });
     const full = parseArgs([
-      'start', '--id', 'peter-mbp', '--mode', 'headless', '--once', '--dir', '/tmp/x',
+      'start', '--id', 'peter-mbp', '--mode', 'headless', '--once',
       '--repo', 'a/b,c/d', '--repo', 'a/b',
     ]);
-    assert.deepEqual(full.options, { command: 'start', production: false, id: 'peter-mbp', mode: 'headless', once: true, dir: '/tmp/x', repos: ['a/b', 'c/d'] });
+    assert.deepEqual(full.options, { command: 'start', production: false, id: 'peter-mbp', mode: 'headless', once: true, repos: ['a/b', 'c/d'] });
+    // A registered runner names no repository: it serves every project that has one.
+    assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp']).options.repos, []);
+    // The runner works only in its own clones, so there is no --dir.
+    assert.equal(parseArgs(['start', '--dir', '/tmp/x']).ok, false);
     // The id may come from the file setup wrote.
     assert.equal(parseArgs(['start', '--repo', 'a/b']).ok, true);
     assert.equal(parseArgs(['start', '--production', '--repo', 'a/b']).options.production, true);
@@ -50,7 +54,7 @@ describe('arguments', () => {
   it('reads setup, with --production only when asked', () => {
     assert.deepEqual(parseArgs(['setup']).options.production, false);
     assert.deepEqual(parseArgs(['setup', '--production', '--id', 'studio-mini-prod']).options, {
-      command: 'setup', production: true, id: 'studio-mini-prod', mode: 'interactive', once: false, dir: '', repos: [],
+      command: 'setup', production: true, id: 'studio-mini-prod', mode: 'interactive', once: false, repos: [],
     });
     assert.equal(parseArgs(['setup', '--repo', 'a/b']).ok, false);
     assert.equal(parseArgs(['setup', '--once']).ok, false);
@@ -65,12 +69,10 @@ describe('arguments', () => {
   });
 
   it('refuses a missing id, a bad mode and an unknown flag', () => {
-    assert.equal(parseArgs(['start']).ok, false);
+    assert.equal(parseArgs(['start', '--mode']).ok, false);
     assert.equal(parseArgs(['start', '--id', 'Peter MBP', '--repo', 'a/b']).ok, false);
     assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'a/b', '--mode', 'fast']).ok, false);
     assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'a/b', '--force']).ok, false);
-    // No repository named: the runner does not start.
-    assert.equal(parseArgs(['start', '--id', 'peter-mbp']).ok, false);
     assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--repo', '/tmp/x']).ok, false);
     assert.equal(parseArgs(['stop']).ok, false);
   });
@@ -174,15 +176,17 @@ describe('prompts', () => {
 });
 
 describe('repository', () => {
-  it('reads owner/name from a remote and only claims for the checkout it is in', () => {
+  it('reads owner/name from a remote, and claims for every project or only the repositories named', () => {
     assert.equal(repoFromRemote('https://github.com/WarehausCollective/warehaus.git'), 'warehauscollective/warehaus');
     assert.equal(repoFromRemote('git@github.com:warehauscollective/warehaus.git'), 'warehauscollective/warehaus');
     assert.equal(repoFromRemote('https://gitlab.com/a/b.git'), null);
     assert.equal(repoFromRemote(''), null);
     const cli = read('./cli.mjs');
-    assert.match(cli, /!parsed\.options\.repos\.includes\(origin\)/);
-    assert.match(cli, /repos: \[origin\]/);
+    assert.match(cli, /repos: parsed\.options\.repos/);
     assert.match(cli, /repos: config\.repos/);
+    // Work runs in the runner's own clone of the repository the Portal names.
+    assert.match(cli, /ensureClone\(work\.milestone\?\.repo, runnerHome\)/);
+    assert.equal(cli.includes('process.cwd()'), false);
   });
 });
 
@@ -321,7 +325,7 @@ describe('drivers', () => {
     assert.match(publishFn, /push', '-u', 'origin', branch/);
     const build = read('./drivers/cursorBuild.mjs');
     assert.match(build, /The Cursor agent finished without a Portal-Task trailer/);
-    const publish = build.indexOf('tools.publishMilestoneBranch(config.repo, branch)');
+    const publish = build.indexOf('tools.publishMilestoneBranch(checkout, branch)');
     const launch = build.indexOf('cursorRequest(');
     assert.equal(publish >= 0 && launch > publish, true);
     assert.equal(build.includes('The milestone branch is not on origin'), false);

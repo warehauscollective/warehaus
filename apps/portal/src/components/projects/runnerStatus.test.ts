@@ -97,11 +97,11 @@ describe('runner status modal body', () => {
     );
     assert.equal(
       text(body('offline')),
-      "Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE — START COMMAND npm run runner -- start --production --repo warehauscollective/warehaus No runner serving this repository has been seen in the last 10 minutes. Moving a milestone to Building won't start an agent until one is running.",
+      "Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE — START COMMAND npm run runner -- start --production No runner serving this repository has been seen in the last 10 minutes. Moving a milestone to Building won't start an agent until one is running.",
     );
     assert.equal(
       text(body('offline-building')),
-      'Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE Client experience launch START COMMAND npm run runner -- start --production --repo warehauscollective/warehaus Client experience launch is Building and waiting for the runner. Start it to pick the milestone up.',
+      'Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE Client experience launch START COMMAND npm run runner -- start --production Client experience launch is Building and waiting for the runner. Start it to pick the milestone up.',
     );
     assert.equal(
       text(body('no-repo')),

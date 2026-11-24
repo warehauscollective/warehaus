@@ -106,7 +106,7 @@ export async function runSetup({ production, id, say }) {
     chmodSync(path, 0o600);
     const flag = production ? ' --production' : '';
     say(`Paired as ${runnerId}. The secret is in the Keychain (${KEYCHAIN_SERVICE}); ${path} has the URL and id.`);
-    say(`Start it from a checkout of the repository it serves: npm run runner -- start${flag} --repo <owner/name>`);
+    say(`Start it with: npm run runner -- start${flag}. It keeps its own clones under ~/warehaus-runner/repos.`);
     return { runnerId };
   }
 }

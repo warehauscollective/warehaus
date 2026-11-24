@@ -172,7 +172,9 @@ export type RunnerHealthCopy = {
  * wrote, so only a fallback runner needs `--id`.
  */
 export function runnerStartCommand(runnerId: string, repo: string, production: boolean, registered = false): string {
-  return `npm run runner -- start${production ? ' --production' : ''}${registered ? '' : ` --id ${runnerId}`} --repo ${repo}`;
+  // A registered runner serves every project with a repository, in its own clones.
+  if (registered) return `npm run runner -- start${production ? ' --production' : ''}`;
+  return `npm run runner -- start${production ? ' --production' : ''} --id ${runnerId} --repo ${repo}`;
 }
 
 /** Every string the chip and the modal show for one state. */
