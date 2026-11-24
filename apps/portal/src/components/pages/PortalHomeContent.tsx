@@ -1,97 +1,24 @@
 'use client';
 
-import { useLayoutEffect, useMemo, useState } from 'react';
-import { api } from '@convex/_generated/api';
-import { useSafeQuery } from '@/hooks/useSafeQuery';
+import { useMemo } from 'react';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
-import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
-import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
-import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
-import { isConvexConfigured } from '@/lib/convex/client';
-import { FIXTURE_PROJECTS, FIXTURE_TASKS } from '@/lib/data/fixtures';
-import {
-  buildDashboard,
-  EMPTY_OUTBOX,
-  OUTBOX_HEALTH_LIMIT,
-  type DashboardActivity,
-  type DashboardNotice,
-  type DashboardProject,
-  type DashboardTask,
-  type OutboxHealth,
-  type PullMeta,
-} from '@/lib/data/dashboard';
+import { buildDashboard } from '@/lib/data/dashboard';
+import { useHomePage } from '@/lib/data/homePage';
 import { NewTaskControl } from '@/components/tasks/NewTaskControl';
-import { DashboardHome, type DashPreview } from '@/components/pages/DashboardHome';
-import { useStaffJoinedWelcome, type StaffJoined } from '@/lib/staffJoined';
-
-type SyncHealthPayload = {
-  pull: PullMeta;
-  writebackEnabled: boolean;
-  outbox: OutboxHealth;
-  notices: DashboardNotice[];
-  granola?: {
-    configured: boolean;
-    lastRunAt: string | null;
-    lastError: string | null;
-  };
-};
-
-function useDashPreview(fixtures: boolean): DashPreview {
-  const [preview, setPreview] = useState<DashPreview>(null);
-  useLayoutEffect(() => {
-    if (!fixtures) return;
-    const value = new URLSearchParams(window.location.search).get('dash');
-    if (
-      value === 'empty' ||
-      value === 'loading' ||
-      value === 'error' ||
-      value === 'long' ||
-      value === 'capped' ||
-      value === 'blank'
-    ) {
-      setPreview(value);
-    }
-  }, [fixtures]);
-  return preview;
-}
-
-function useJoinedFixture(fixtures: boolean): StaffJoined | null {
-  const saved = useStaffJoinedWelcome();
-  const [forced, setForced] = useState<StaffJoined | null>(null);
-  useLayoutEffect(() => {
-    if (!fixtures) return;
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('joined') !== '1') return;
-    setForced({
-      name: params.get('name')?.trim() || 'Jordan Blake',
-      passwordSet: params.get('passwordSet') !== '0',
-      inviterName: 'Peter Roquemore',
-    });
-  }, [fixtures]);
-  return forced ?? saved;
-}
+import { DashboardHome } from '@/components/pages/DashboardHome';
 
 export function PortalHomeContent() {
   const { sectionFor } = usePortalView();
   const { data, loading, error } = usePortalData();
   const { portalSession } = usePortalAuth();
-  const fixtures = useFixturePreview();
-  const joined = useJoinedFixture(fixtures);
-  const configured = isConvexConfigured();
   const isStaff = Boolean(portalSession?.isStaff);
   const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
-  const staff = useStaffCrossOrg(configured && isStaff && !fixtures, hostSlug);
-  const preview = useDashPreview(fixtures);
-  const feed = useActivityFeed();
-
-  const liveSync = useSafeQuery<SyncHealthPayload>(
-    api.portalData.getSyncHealth,
-    configured && isStaff && !fixtures && data.tenant.ok ? { hostSlug } : 'skip',
-  );
+  const page = useHomePage({ isStaff, hostSlug, snapshot: data, snapshotLoading: loading });
+  const { preview, joined } = page;
 
   const section = sectionFor('dashboard');
   const focus =
@@ -104,95 +31,17 @@ export function PortalHomeContent() {
           : 'all';
 
   const blank = preview === 'blank';
-  const projects = (
-    blank
-      ? []
-      : fixtures
-        ? isStaff
-          ? FIXTURE_PROJECTS
-          : data.projects
-        : isStaff && staff.projects
-          ? staff.projects
-          : data.projects
-  ) as DashboardProject[];
-  const tasks = (
-    blank ? [] : fixtures ? (isStaff ? FIXTURE_TASKS : data.tasks) : isStaff && staff.tasks ? staff.tasks : data.tasks
-  ) as DashboardTask[];
-
-  const capped = preview === 'capped' && isStaff;
   const model = useMemo(
-    () =>
-      buildDashboard({
-        audience: isStaff ? 'staff' : 'client',
-        projects,
-        tasks,
-        activity: (blank ? [] : feed.items) as DashboardActivity[],
-        pull: blank
-          ? { lastSyncedAt: null, lastError: null }
-          : isStaff
-            ? liveSync.data?.pull ?? {
-                // getSyncHealth loads after the snapshot. Until it arrives, the
-                // pull line falls back to syncMeta so the card is not blank.
-                lastSyncedAt: data.syncMeta.lastSyncedAt,
-                lastError: data.syncMeta.lastError,
-              }
-            : { lastSyncedAt: null, lastError: null },
-        outbox: blank
-          ? EMPTY_OUTBOX
-          : capped
-            ? {
-                counts: {
-                  queued: OUTBOX_HEALTH_LIMIT,
-                  inflight: 0,
-                  failed: OUTBOX_HEALTH_LIMIT,
-                  dead: 0,
-                  conflict: 0,
-                },
-                oldestCreatedAt: Date.now(),
-              }
-            : isStaff
-              ? liveSync.data?.outbox ?? EMPTY_OUTBOX
-              : EMPTY_OUTBOX,
-        writebackEnabled: !blank && (capped || (isStaff && liveSync.data?.writebackEnabled === true)),
-        notices: blank ? [] : isStaff ? liveSync.data?.notices ?? [] : [],
-        ...(isStaff
-          ? {
-              granola: blank
-                ? { configured: false, lastRunAt: null, lastError: null }
-                : liveSync.data?.granola ?? {
-                    configured: false,
-                    lastRunAt: null,
-                    lastError: null,
-                  },
-            }
-          : {}),
-        now: Date.now(),
-      }),
-    [isStaff, projects, tasks, feed.items, liveSync.data, data.syncMeta.lastSyncedAt, data.syncMeta.lastError, capped, blank],
+    () => buildDashboard({ ...page.dashboard, audience: isStaff ? 'staff' : 'client', now: Date.now() }),
+    [isStaff, page.dashboard],
   );
 
-  const projectsLoading = blank
-    ? false
-    : loading || feed.loading || (isStaff && !fixtures && staff.projectsLoading && projects.length === 0);
   const eyebrow =
     joined || blank
       ? '● PORTAL · DASHBOARD'
       : isStaff
         ? tenantEyebrow(data.tenant, 'Dashboard')
         : `● ${data.tenant.clientName ?? 'Portal'} · Dashboard`;
-  const staffProjects = (staff.projects ?? []) as Array<{
-    id: string;
-    name: string;
-    internal?: boolean;
-    orgId?: string;
-    notionPageId?: string | null;
-  }>;
-  const taskProjects = staffProjects.flatMap((project) =>
-    project.orgId && project.notionPageId
-      ? [{ id: project.id, name: project.name, orgId: project.orgId, notionPageId: project.notionPageId }]
-      : [],
-  );
-
   return (
     <PortalWorkspace
       eyebrow={eyebrow}
@@ -200,8 +49,8 @@ export function PortalHomeContent() {
       actions={
         isStaff && !joined && !blank ? (
           <NewTaskControl
-            projects={taskProjects}
-            writebackEnabled={liveSync.data?.writebackEnabled === true}
+            projects={page.newTask.projects}
+            writebackEnabled={page.newTask.writebackEnabled}
             hostSlug={hostSlug}
           />
         ) : undefined
@@ -211,7 +60,7 @@ export function PortalHomeContent() {
         <DashboardHome
           model={model}
           focus={focus}
-          loading={projectsLoading}
+          loading={page.loading}
           preview={preview}
           showLoadError={!isStaff && Boolean(error)}
           clientName={isStaff ? null : data.tenant.clientName}

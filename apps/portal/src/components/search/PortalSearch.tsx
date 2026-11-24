@@ -3,22 +3,17 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { useRouter } from 'next/navigation';
 import type { PortalTab } from '@warehaus/logic/portal';
-import { api } from '@convex/_generated/api';
 import type { SearchGroups, SearchHit } from '@convex/_lib/portalSearch';
-import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PortalModal } from '@/components/ui/PortalModal';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
-import { useSafeQuery } from '@/hooks/useSafeQuery';
-import { isConvexConfigured } from '@/lib/convex/client';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
-import { staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
+import { useSearchResults } from '@/lib/data/searchResults';
 import { clearSearchParam } from '@/lib/nav/clearSearchParam';
 import { CLOSE_TASK_FOR_SEARCH, openSearchFromDock, taskDialogIsOpen } from '@/lib/nav/dockLayer';
 import { openPortalHref } from '@/lib/nav/openPortalHref';
 import { SEARCH_NO_RESULTS_COPY } from '@/lib/search/noResultsCopy';
-import { searchFixtures } from '@/lib/search/fixtureSearch';
 import {
   readSearchRecents,
   writeSearchRecent,
@@ -47,9 +42,7 @@ const QUICK_LINKS: Array<{ id: string; label: string; tab: PortalTab; icon: 'gri
   { id: 'activity', label: 'Activity', tab: 'activity', icon: 'activity' },
 ];
 
-const EMPTY: SearchGroups = { projects: [], tasks: [], docs: [], resources: [] };
 const GROUP_CAP = 5;
-const FIXTURE_DELAY_KEY = 'wh-search-preview-delay';
 const META_SEP = ' · ';
 
 type Scope = 'all' | keyof SearchGroups;
@@ -60,18 +53,6 @@ type Item =
 
 function blankGroups(): SearchGroups {
   return { projects: [], tasks: [], docs: [], resources: [] };
-}
-
-function fixturePreviewDelay(fixtures: boolean): number {
-  if (!fixtures || typeof window === 'undefined') return 0;
-  try {
-    const raw = window.sessionStorage.getItem(FIXTURE_DELAY_KEY);
-    const value = raw ? Number(raw) : 0;
-    if (!Number.isFinite(value) || value <= 0 || value > 5000) return 0;
-    return value;
-  } catch {
-    return 0;
-  }
 }
 
 function forAudience(hit: SearchHit, staff: boolean): SearchHit {
@@ -186,8 +167,6 @@ function rowChrome(selected: boolean, intent: Intent): CSSProperties {
 export function PortalSearch() {
   const router = useRouter();
   const { setActiveTab } = usePortalTab();
-  const fixtures = useFixturePreview();
-  const configured = isConvexConfigured();
   const { portalSession, authUser } = usePortalAuth();
   const isStaff = Boolean(portalSession?.isStaff);
   const recentScope: SearchRecentScope = {
@@ -197,7 +176,6 @@ export function PortalSearch() {
   };
   const recentScopeRef = useRef(recentScope);
   recentScopeRef.current = recentScope;
-  const roster = staffRosterQueriesDeployed();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const [active, setActive] = useState(0);
@@ -206,31 +184,14 @@ export function PortalSearch() {
   const [expanded, setExpanded] = useState<Partial<Record<keyof SearchGroups, boolean>>>({});
   const [narrow, setNarrow] = useState(false);
   const [recents, setRecents] = useState<SearchHit[]>([]);
-  const [kept, setKept] = useState<SearchGroups>(EMPTY);
-  const [pendingSince, setPendingSince] = useState<number | null>(null);
   const [slow, setSlow] = useState(false);
   const triggerRef = useRef<HTMLElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const hostSlug = typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const needle = query.trim().slice(0, 100);
-  const [liveNeedle, setLiveNeedle] = useState('');
-
-  useEffect(() => {
-    const id = window.setTimeout(() => setLiveNeedle(needle), 200);
-    return () => window.clearTimeout(id);
-  }, [needle]);
-
-  const live = open && !fixtures && configured && roster && liveNeedle.length > 0 && needle.length > 0;
-  const staffState = useSafeQuery<SearchGroups>(
-    api.search.forStaff,
-    live && isStaff ? { q: liveNeedle, hostSlug } : 'skip',
-  );
-  const clientState = useSafeQuery<SearchGroups>(
-    api.search.forClient,
-    live && portalSession && !isStaff ? { q: liveNeedle, hostSlug } : 'skip',
-  );
-  const serverGroups = isStaff ? staffState.data : clientState.data;
-  const serverLoading = isStaff ? staffState.loading : clientState.loading;
+  const results = useSearchResults({ open, needle, isStaff, hasSession: Boolean(portalSession), hostSlug });
+  const kept = results.groups;
+  const pendingSince = results.pendingSince;
 
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
@@ -239,47 +200,6 @@ export function PortalSearch() {
     media.addEventListener('change', apply);
     return () => media.removeEventListener('change', apply);
   }, []);
-
-  useEffect(() => {
-    if (!fixtures) return;
-    if (!needle) {
-      setKept(blankGroups());
-      setPendingSince(null);
-      return;
-    }
-    const delay = fixturePreviewDelay(fixtures);
-    if (delay <= 0) {
-      setKept(searchFixtures(isStaff ? 'staff' : 'client', needle));
-      setPendingSince(null);
-      return;
-    }
-    setPendingSince((current) => current ?? Date.now());
-    const id = window.setTimeout(() => {
-      setKept(searchFixtures(isStaff ? 'staff' : 'client', needle));
-      setPendingSince(null);
-    }, delay);
-    return () => window.clearTimeout(id);
-  }, [fixtures, needle, isStaff]);
-
-  useEffect(() => {
-    if (fixtures) return;
-    if (!needle) {
-      setKept(blankGroups());
-      setPendingSince(null);
-      return;
-    }
-    if (!roster || !configured) {
-      setKept(blankGroups());
-      setPendingSince(null);
-      return;
-    }
-    if (liveNeedle !== needle || serverLoading || serverGroups == null) {
-      setPendingSince((current) => current ?? Date.now());
-      return;
-    }
-    setKept(serverGroups);
-    setPendingSince(null);
-  }, [fixtures, needle, roster, configured, liveNeedle, serverLoading, serverGroups]);
 
   useEffect(() => {
     if (pendingSince == null) {
@@ -429,7 +349,7 @@ export function PortalSearch() {
 
   const keptCount = GROUPS.reduce((sum, group) => sum + kept[group.key].length, 0);
   const showSkeleton = Boolean(needle) && slow && pendingSince != null && keptCount === 0;
-  const unavailable = Boolean(needle) && !fixtures && !roster;
+  const unavailable = results.unavailable;
   const empty = Boolean(needle) && !showSkeleton && pendingSince == null && !unavailable && resultCount === 0;
   const copy = isStaff ? SEARCH_NO_RESULTS_COPY.staff : SEARCH_NO_RESULTS_COPY.client;
 

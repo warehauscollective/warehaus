@@ -32,22 +32,17 @@ import {
 } from '@/lib/data/projectList';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
-import { projectsForViewer, viewerIsStaff } from '@/lib/data/portalSnapshotCache';
 import { useRetryPortalData } from '@/components/providers/PortalDataRetry';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
-import { isConvexConfigured } from '@/lib/convex/client';
-import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
-import { useSafeQuery } from '@/hooks/useSafeQuery';
-import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
-import { api } from '@convex/_generated/api';
-import { FIXTURE_CLIENTS, FIXTURE_CONTACTS, FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_RESOURCES, FIXTURE_TASKS } from '@/lib/data/fixtures';
-import { warehausLead } from '@/lib/data/clientDetail';
+import type { PortalTask } from '@/lib/data/view-models';
 import {
-  attachKnownSync,
-  type PortalProject,
-  type PortalTask,
-} from '@/lib/data/view-models';
+  useProjectLead,
+  useProjectTask,
+  useProjectsPage,
+  type ProjectRow,
+  type ResourceOption,
+} from '@/lib/data/projectsPage';
 import { ClientLink } from '@/components/nav/ClientLink';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
 import { clearSearchParam, setSearchParams } from '@/lib/nav/clearSearchParam';
@@ -57,7 +52,7 @@ import { keepProjectWhileLoading, readTaskListView } from '@/lib/nav/taskListLoc
 import { portalNavDetail } from '@/lib/nav/openPortalHref';
 import { clearPortalReturn, peekPortalReturn, takePortalReturn, taskCloseLabel } from '@/lib/nav/portalReturn';
 import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from '@/lib/nav/boardRoute';
-import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
+import { DocsBlock } from '@/components/docs/DocsBlock';
 import { NewProjectControl } from '@/components/projects/NewProjectControl';
 import { useFixtureCreatePreview, useWritebackEnabled } from '@/hooks/useWritebackEnabled';
 import {
@@ -71,7 +66,6 @@ import { AgentDriverSetting } from '@/components/projects/AgentDriverSetting';
 import { ProjectRepoSetting } from '@/components/projects/ProjectRepoSetting';
 import { TaskDetailModal } from '@/components/tasks/TaskDetailModal';
 import { PROJECT_UNAVAILABLE } from '@warehaus/portal-sync';
-import type { Id } from '@convex/_generated/dataModel';
 
 const SECTION_TITLE: Record<string, string> = {
   all: 'All projects',
@@ -79,19 +73,7 @@ const SECTION_TITLE: Record<string, string> = {
   shipped: 'Shipped',
 };
 
-type ProjectRow = PortalProject & {
-  clientName?: string | null;
-  internal?: boolean;
-  taskCount?: number;
-  publishToWarehaus?: boolean;
-  /** Staff only. Absent for clients. */
-  agentRepo?: string | null;
-  agentDriver?: 'claude_code' | 'cursor' | null;
-};
-
 export function ProjectsContent() {
-  const fixtures = useFixturePreview();
-  const configured = isConvexConfigured();
   const { sectionFor, setSectionFor, openLinkedClient, setOpenProjectId } = usePortalView();
   const [createOpen, setCreateOpen] = useState(false);
   const writebackEnabled = useWritebackEnabled();
@@ -104,17 +86,23 @@ export function ProjectsContent() {
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const activeSection = sectionFor('projects');
-  const settling = !fixtures && (sessionPending || joining || linkStatus === 'loading');
-  const isStaff = viewerIsStaff(portalSession, settling);
   const [filter, setFilter] = useState<ProjectListFilter>('all');
   const [forceEmpty, setForceEmpty] = useState(false);
   const [forceFiltered, setForceFiltered] = useState(false);
   const [forceLoading, setForceLoading] = useState(false);
   const [forceError, setForceError] = useState<string | null>(null);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [archivedFixtureIds, setArchivedFixtureIds] = useState<string[]>([]);
+  const page = useProjectsPage({
+    auth: { portalSession, sessionPending, joining, linkStatus },
+    hostSlug,
+    snapshot: data,
+    snapshotLoading: loading,
+    archivedIds: archivedFixtureIds,
+  });
+  const { preview: fixtures, isStaff, projects, tasks, docs } = page;
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
   const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
-  const [archivedFixtureIds, setArchivedFixtureIds] = useState<string[]>([]);
   const pathname = usePathname() || '';
   const router = useRouter();
   useEffect(() => {
@@ -158,41 +146,7 @@ export function ProjectsContent() {
     if (list === 'filtered') setFilter('shipped');
   }, [fixtures]);
 
-  const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
-  const directory = useSafeQuery<Array<{ id: string; name: string }>>(
-    api.clients.listDirectory,
-    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
-  );
-  const clientDocsState = useSafeQuery<DocRow[]>(
-    api.clientDocs.listForClient,
-    !fixtures && configured && !isStaff && data.tenant.ok ? { hostSlug } : 'skip',
-  );
-
-  const projects = useMemo(() => {
-    const rows = (
-      fixtures
-        ? FIXTURE_PROJECTS
-        : projectsForViewer({
-            isStaff,
-            staffProjects: staff.projects,
-            clientProjects: data.projects,
-          })
-    ) as ProjectRow[];
-    return attachKnownSync(rows, data.projects);
-  }, [fixtures, isStaff, staff.projects, data.projects]);
-  const tasks = (
-    fixtures
-      ? FIXTURE_TASKS.filter((task) => (isStaff || (task.publishToWarehaus && !task.syncHidden)) && !archivedFixtureIds.includes(task.id))
-      : isStaff
-        ? staff.tasks ?? data.tasks
-        : data.tasks
-  ) as PortalTask[];
-  const docs = (
-    fixtures ? FIXTURE_DOCS : isStaff ? staff.docs ?? [] : clientDocsState.data ?? []
-  ) as DocRow[];
-  const projectsLoading =
-    forceLoading ||
-    (!fixtures && (settling || (isStaff ? staff.projectsLoading : loading)));
+  const projectsLoading = forceLoading || page.loading;
 
   const listed = useMemo(
     () => (forceFiltered ? projects.filter((project) => !projectMatchesFilter(project, 'shipped')) : projects),
@@ -248,17 +202,7 @@ export function ProjectsContent() {
     window.addEventListener(CLOSE_TASK_FOR_SEARCH, onSwap);
     return () => window.removeEventListener(CLOSE_TASK_FOR_SEARCH, onSwap);
   }, [routeProjectId, router]);
-  const leadPeople = useSafeQuery<Array<{ name: string; role?: string | null }>>(
-    api.contacts.listForOrg,
-    !fixtures && configured && isStaff && openProject?.orgId
-      ? { orgId: openProject.orgId as Id<'clients'>, hostSlug }
-      : 'skip',
-  );
-  const leadName = !isStaff
-    ? data.leadName ?? null
-    : fixtures
-      ? warehausLead(FIXTURE_CONTACTS.filter((contact) => contact.orgId === openProject?.orgId))
-      : warehausLead(leadPeople.data ?? []);
+  const leadName = useProjectLead(page, openProject?.orgId, data, hostSlug);
 
   const closeProject = () => {
     setOpenId(null);
@@ -380,7 +324,7 @@ export function ProjectsContent() {
 
   const loadError = projectListQueryError({
     snapshotError: forceError ?? error,
-    projectsError: isStaff ? staff.projectsError : null,
+    projectsError: page.error,
     syncError: data.syncMeta.lastError,
   });
   const errorMode = projectsLoading ? 'none' : projectListErrorMode(loadError, viewerCount);
@@ -395,7 +339,7 @@ export function ProjectsContent() {
   const openCreate = () => {
     requestProjectCreate(createEnabled, () => setCreateOpen(true));
   };
-  const projectClients = (fixtures ? FIXTURE_CLIENTS : directory.data ?? []).map((client) => {
+  const projectClients = page.clients.map((client) => {
     const rows = projects.filter((project) => project.orgId === client.id);
     const counted = 'projectCount' in client && typeof client.projectCount === 'number' ? client.projectCount : rows.length;
     const internal = 'internal' in client ? Boolean(client.internal) : rows.some((project) => project.internal);
@@ -416,7 +360,7 @@ export function ProjectsContent() {
       else router.push(`/tasks/${task.id}`);
     };
     const resourceChoices = resourcesForProject(
-      (fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[],
+      page.resources,
       openProject.id,
     ).map((resource) => ({ id: resource.id, title: resource.name }));
     return (
@@ -429,7 +373,7 @@ export function ProjectsContent() {
               tasks={projectTasks}
               staff={isStaff}
               fixtures={fixtures}
-              live={!fixtures && configured && !settling}
+              live={page.live}
               hostSlug={hostSlug}
               clientName={openProject.internal ? null : openProject.clientName ?? null}
               viewerEmail={portalSession?.email ?? null}
@@ -487,7 +431,7 @@ export function ProjectsContent() {
             hostSlug={hostSlug}
             fixtures={fixtures}
             clientName={openProject.internal ? null : openProject.clientName ?? null}
-            resources={(fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[]}
+            resources={page.resources}
             onClose={closeTask}
             onArchived={setArchivedFixtureIds}
             onOpenTask={(id) => {
@@ -692,7 +636,7 @@ export function ProjectsContent() {
             const project = projects.find((item) => item.id === openTask?.projectId);
             return project && !project.internal ? project.clientName ?? null : null;
           })()}
-          resources={(fixtures ? FIXTURE_RESOURCES : staff.resources ?? []) as ResourceOption[]}
+          resources={page.resources}
           onClose={closeTask}
           onArchived={setArchivedFixtureIds}
           onOpenTask={(id) => {
@@ -705,18 +649,6 @@ export function ProjectsContent() {
     </PortalWorkspace>
   );
 }
-
-type ResourceOption = {
-  id: string;
-  name: string;
-  type: string | null;
-  projectId?: string | null;
-  notionPageId?: string | null;
-  publishToWarehaus?: boolean;
-  updatedAt?: number | null;
-  lastSyncedAt?: number | null;
-  attachedCount?: number | null;
-};
 
 function KpiCard({
   label,
@@ -780,27 +712,9 @@ function ProjectTaskOverlay({
   onOpenTask: (id: string) => void;
   onArchived?: (ids: string[]) => void;
 }) {
-  const task = tasks.find((item) => item.id === taskId) ?? null;
-  const taskKey = !fixtures && task ? (task.id as Id<'tasks'>) : null;
-  const clientSubs = useSafeQuery<PortalTask[]>(
-    api.tasks.listSubtasksForClient,
-    taskKey && !staff ? { hostSlug, taskId: taskKey } : 'skip',
-  );
-  const staffAttached = useSafeQuery<ResourceOption[]>(
-    api.sharedResources.listAttachedForStaff,
-    taskKey && staff ? { hostSlug, taskId: taskKey } : 'skip',
-  );
-  const clientAttached = useSafeQuery<ResourceOption[]>(
-    api.sharedResources.listAttachedForClient,
-    taskKey && !staff ? { hostSlug, taskId: taskKey } : 'skip',
-  );
+  const data = useProjectTask({ page: { preview: fixtures }, taskId, tasks, staff, hostSlug, resources });
+  const { task, subtasks, review } = data;
   const [phone, setPhone] = useState(false);
-  const [fixtureStage, setFixtureStage] = useState<string | null>(null);
-  const [fixtureArchive, setFixtureArchive] = useState(false);
-  const [fixtureMenu, setFixtureMenu] = useState<'assignee' | 'due' | 'project' | 'add-source' | null>(null);
-  const [fixtureFieldError, setFixtureFieldError] = useState<'assignee' | 'due' | 'project' | null>(null);
-  const [fixtureSourceError, setFixtureSourceError] = useState<string | null>(null);
-  const [fixtureAssignee, setFixtureAssignee] = useState<'contact' | null>(null);
   const closeLabel = taskCloseLabel(peekPortalReturn());
   useEffect(() => {
     const media = window.matchMedia('(max-width: 767px)');
@@ -809,51 +723,26 @@ function ProjectTaskOverlay({
     media.addEventListener('change', apply);
     return () => media.removeEventListener('change', apply);
   }, []);
-  useEffect(() => {
-    if (!fixtures) return;
-    const params = new URLSearchParams(window.location.search);
-    setFixtureStage(params.get('stageConfirm'));
-    setFixtureArchive(params.get('confirm') === 'archive');
-    const menu = params.get('menu');
-    setFixtureMenu(menu === 'assignee' || menu === 'due' || menu === 'project' || menu === 'add-source' ? menu : null);
-    const field = params.get('fieldError');
-    setFixtureFieldError(field === 'assignee' || field === 'due' || field === 'project' ? field : null);
-    setFixtureSourceError(params.get('sourceError'));
-    setFixtureAssignee(params.get('assignee') === 'contact' ? 'contact' : null);
-  }, [fixtures]);
-  const subtasks = staff
-    ? tasks.filter((item) => item.parentTaskId === taskId)
-    : (clientSubs.data ?? []).filter((item) => item.publishToWarehaus !== false);
-  const fixtureAttached = fixtures && task
-    ? resources.filter((resource) => {
-        if (resource.projectId !== task.projectId) return false;
-        if (staff) return true;
-        return resource.publishToWarehaus !== false;
-      })
-    : [];
-  const attached = staff
-    ? fixtures ? fixtureAttached : staffAttached.data ?? []
-    : clientAttached.data ?? [];
   return (
     <TaskDetailModal
-      task={task && fixtures && fixtureAssignee === 'contact' ? { ...task, assigneeContactId: 'ct-maya', assigneeName: 'Maya Chen' } : task}
+      task={task}
       staff={staff}
       phone={phone}
       unavailable={!task}
       subtasks={subtasks}
-      resources={attached}
+      resources={data.attached}
       projectResources={resources.filter((resource) => !task?.projectId || resource.projectId === task.projectId)}
       clientName={clientName}
       hostSlug={hostSlug}
       live={!fixtures}
-      initialStageConfirm={phone ? fixtureStage : null}
-      initialArchive={fixtureArchive}
-      initialMenu={fixtureMenu}
-      initialFieldError={fixtureFieldError}
-      initialSourceError={fixtureSourceError}
+      initialStageConfirm={phone ? review.stageConfirm : null}
+      initialArchive={review.archive}
+      initialMenu={review.menu}
+      initialFieldError={review.fieldError}
+      initialSourceError={review.sourceError}
       onArchived={onArchived}
-      people={fixtures && task ? FIXTURE_CONTACTS.filter((contact) => contact.orgId === task.orgId && contact.role === 'Warehaus Staff' && contact.portalAccess === 'Enabled').map((contact) => ({ id: contact.id, name: contact.name })) : []}
-      projects={fixtures && task ? FIXTURE_PROJECTS.filter((project) => project.orgId === task.orgId && !project.internal && !project.syncHidden).map((project) => ({ id: project.id, name: project.name })) : []}
+      people={data.people}
+      projects={data.projects}
       closeLabel={closeLabel}
       onClose={onClose}
       onOpenTask={onOpenTask}
