@@ -488,7 +488,8 @@ describe('queue rules', () => {
     const runId = seedRun(t, { orgId, milestoneId }, { taskId, startedAt: 1 });
     t.reads.reset();
     const result = await t.call<{ scanned: number; released: number; pairingsSwept: number }>(releaseStuckRuns, {});
-    assert.deepEqual(result, { scanned: 1, released: 1, pairingsSwept: 0 });
+    // No runner is registered here, so the Building milestone also gets the no-runner note.
+    assert.deepEqual(result, { scanned: 1, released: 1, pairingsSwept: 0, noRunnerOpened: 1, noRunnerClosed: 0 });
     assert.equal(t.row(runId)?.status, 'cancelled');
     assert.equal(t.row(taskId)?.status, 'Blocked');
     assert.deepEqual(t.reads.unbounded(), []);
@@ -519,9 +520,8 @@ describe('queue rules', () => {
     assert.equal(result.released, 1);
     assert.equal(t.row(runId)?.status, 'failed');
     assert.equal(t.row(runId)?.blockedReason, CURSOR_BUILD_TOO_LONG);
-    const notes = t.rows('milestoneNotes').filter((note) => note.milestoneId === milestoneId);
+    const notes = t.rows('milestoneNotes').filter((note) => note.milestoneId === milestoneId && /2 hours/.test(String(note.body)));
     assert.equal(notes.length, 1);
-    assert.match(String(notes[0]?.body), /2 hours/);
   });
 
   it('leaves a Cursor build under 2 hours alone while its runner is seen', async () => {

@@ -186,3 +186,31 @@ export const revokeRunner = adminMutation({
     return { ok: true as const, released };
   },
 });
+
+/** Queued planning flags cleared per call. Run again until `cleared` is 0. */
+const QUEUE_CLEAR_BATCH = 25;
+
+/**
+ * ADR-0005, detail 3: production starts from an empty queue. Run once by hand
+ * when production is switched on, after the deploy Peter asks for:
+ *
+ *   npx convex run --prod runners:clearQueuedPlanning '{"confirm":"clear the planning queue"}'
+ *
+ * Clears `planning: 'queued'` so no old milestone starts planning by surprise.
+ * Indexed and bounded; a milestone already planning or blocked is left alone.
+ * Internal: no client or staff call reaches it.
+ */
+export const clearQueuedPlanning = internalMutation({
+  args: { confirm: v.literal('clear the planning queue') },
+  handler: async (ctx) => {
+    const now = Date.now();
+    const queued = await ctx.db
+      .query('milestones')
+      .withIndex('by_planning', (q) => q.eq('planning', 'queued'))
+      .take(QUEUE_CLEAR_BATCH);
+    for (const milestone of queued) {
+      await ctx.db.patch(milestone._id, { planning: undefined, planningReplace: undefined, loopChangedAt: now });
+    }
+    return { cleared: queued.length, names: queued.map((milestone) => milestone.name) };
+  },
+});

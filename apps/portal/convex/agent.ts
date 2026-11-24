@@ -53,8 +53,15 @@ import { PORTAL_MILESTONE_TASK_SOURCE, plannerDraftToArchive, stageForNewMilesto
 import { loadClaimableTasks, loadMilestoneTaskSet, type LoadedTask } from './_lib/milestoneTaskSet';
 import { PortalAuthError } from './_lib/identity';
 import { adminMutation, adminQuery } from './_lib/wrappers';
-import { RUNNER_HEALTH_MAX_RUNNERS, runnersAllowedFor, type RunnerHealthView } from './_lib/runnerHealth';
-import { runnerAccess } from './_lib/runnerRegistry';
+import { RUNNER_HEALTH_MAX_RUNNERS, RUNNER_READY_WITHIN_MS, runnersAllowedFor, type RunnerHealthView } from './_lib/runnerHealth';
+import {
+  NO_RUNNER_NOTE_SCAN,
+  NO_RUNNER_SCAN,
+  anyRunnerOnline,
+  isNoRunnerNote,
+  noRunnerNoteFor,
+  runnerAccess,
+} from './_lib/runnerRegistry';
 import { registeredRunners, sweepExpiredPairings } from './_lib/runnerRegistryStore';
 import { RUNNER_PROTOCOL_MIN } from '@warehaus/runner-protocol';
 import { PRODUCTION_DEPLOYMENT } from './_lib/reviewPreview';
@@ -920,9 +927,56 @@ export const releaseStuckRuns = internalMutation({
     }
     // Expired runner pairings ride on the same cron: one indexed read, at most 50 deletes.
     const pairingsSwept = await sweepExpiredPairings(ctx, now);
-    return { scanned: running.length, released, pairingsSwept };
+    const noRunner = await noteMissingRunner(ctx, now);
+    return { scanned: running.length, released, pairingsSwept, ...noRunner };
   },
 });
+
+/**
+ * ADR-0005 amendment, alerts. A Building milestone with a repository that has
+ * waited 30 minutes while no registered runner is online gets one open "needs
+ * Peter" note, saying whether no runner is set up at all. The notes close when
+ * a runner is online again, or when the milestone leaves Building. Bounded:
+ * at most 10 runners, 50 open notes and 10 Building milestones per sweep.
+ */
+async function noteMissingRunner(ctx: MutationCtx, now: number) {
+  const runners = await registeredRunners(ctx);
+  const online = anyRunnerOnline(runners, now, RUNNER_READY_WITHIN_MS);
+  const open = await ctx.db
+    .query('milestoneNotes')
+    .withIndex('by_needsPeter', (q) => q.eq('needsPeter', 'open'))
+    .take(NO_RUNNER_NOTE_SCAN);
+  const noted = new Map<string, Doc<'milestoneNotes'>>();
+  for (const note of open) if (note.reason === 'blocked' && isNoRunnerNote(note.body)) noted.set(note.milestoneId, note);
+  let closed = 0;
+  let opened = 0;
+  for (const note of noted.values()) {
+    const milestone = online ? null : await ctx.db.get(note.milestoneId);
+    if (!online && milestone?.status === 'Building' && milestone.archivedAt == null) continue;
+    await ctx.db.patch(note._id, { needsPeter: undefined });
+    closed += 1;
+  }
+  if (online) return { noRunnerOpened: opened, noRunnerClosed: closed };
+  const building = await ctx.db
+    .query('milestones')
+    .withIndex('by_status', (q) => q.eq('status', 'Building'))
+    .take(NO_RUNNER_SCAN);
+  for (const milestone of building) {
+    if (milestone.archivedAt != null || noted.has(milestone._id)) continue;
+    const project = await ctx.db.get(milestone.projectId);
+    const body = noRunnerNoteFor({
+      online,
+      registeredCount: runners.length,
+      hasRepo: agentRepo(project?.agentRepo) != null,
+      buildingSince: milestone.statusChangedAt ?? milestone._creationTime,
+      now,
+    });
+    if (!body) continue;
+    await needsPeter(ctx, milestone, { reason: 'blocked', body, addedBy: 'portal', at: now });
+    opened += 1;
+  }
+  return { noRunnerOpened: opened, noRunnerClosed: closed };
+}
 
 async function rememberAgentLink(
   ctx: MutationCtx,

@@ -435,7 +435,9 @@ describe('cursor build hold and agent lock', () => {
     assert.match(String(run().blockedReason), /30 minutes/);
     const task = t.rows('tasks').find((row) => row.milestoneId === milestoneId && row.status === 'Blocked');
     assert.equal(task?.blockedReason, 'Runner went quiet for 30 minutes');
-    const notes = () => t.rows('milestoneNotes').filter((row) => row.needsPeter === 'open' && row.reason === 'blocked' && !row.taskId);
+    // The no-runner alert is its own note (no runner is registered in this world); this test counts the build's.
+    const notes = () =>
+      t.rows('milestoneNotes').filter((row) => row.needsPeter === 'open' && row.reason === 'blocked' && !row.taskId && !/no runner/i.test(String(row.body)));
     assert.equal(notes().length, 1);
     const again = await t.call<{ released: number }>(releaseStuckRuns, {});
     assert.equal(again.released, 0);

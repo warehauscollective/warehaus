@@ -356,6 +356,8 @@ export default defineSchema({
      * Feeds the staff "Updated" stamp. Staff only.
      */
     loopChangedAt: v.optional(v.number()),
+    /** When Status last changed. Set by the one status writer. Absent on milestones older than the field. */
+    statusChangedAt: v.optional(v.number()),
     /** Staff pressed Regenerate. The next plan replaces the drafted To do tasks. */
     planningReplace: v.optional(v.boolean()),
     /** The milestone's one branch, `milestone/<slug>`. Set on create. Absent on older rows. Staff only. */

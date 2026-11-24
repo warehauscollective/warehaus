@@ -5,14 +5,18 @@ import { RUNNER_PAIR_PATHS, RUNNER_PROTOCOL_HEADER, RUNNER_PROTOCOL_MIN, RUNNER_
 import { claimNext, releaseStuckRuns, runnerHealth, touchRunner } from '../agent';
 import { agentPairHttp } from '../agentHttp';
 import * as runnersModule from '../runners';
-import { confirmPairing, findPairing, pairingStatus, revokeRunner, startPairing } from '../runners';
+import { clearQueuedPlanning, confirmPairing, findPairing, pairingStatus, revokeRunner, startPairing } from '../runners';
 import { PortalAuthError } from './identity';
 import { memoryCtx, type MemoryCtx, type RunCall } from './memoryCtx.testkit';
 import {
   PAIRING_CODE_ALPHABET,
   PAIRING_MAX_OPEN,
   PAIRING_TTL_MS,
+  NO_REGISTERED_RUNNER_NOTE,
+  NO_RUNNER_AFTER_MS,
+  NO_RUNNER_ONLINE_NOTE,
   RUNNER_ID_TAKEN,
+  noRunnerNoteFor,
   formatPairingCode,
   normalizePairingCode,
   pairingCodeFrom,
@@ -250,3 +254,73 @@ describe('who can pair and revoke', () => {
     }
   });
 });
+
+describe('no runner alerts', () => {
+  type Sweep = { noRunnerOpened: number; noRunnerClosed: number };
+  const openNotes = (t: MemoryCtx, milestoneId: string) =>
+    t.rows('milestoneNotes').filter((note) => note.milestoneId === milestoneId && note.needsPeter === 'open');
+
+  it('picks the note from whether any runner is set up, and waits 30 minutes', () => {
+    const base = { online: false, registeredCount: 0, hasRepo: true, buildingSince: 0, now: NO_RUNNER_AFTER_MS };
+    assert.equal(noRunnerNoteFor(base), NO_REGISTERED_RUNNER_NOTE);
+    assert.equal(noRunnerNoteFor({ ...base, registeredCount: 1 }), NO_RUNNER_ONLINE_NOTE);
+    assert.equal(noRunnerNoteFor({ ...base, now: NO_RUNNER_AFTER_MS - 1 }), null);
+    assert.equal(noRunnerNoteFor({ ...base, online: true }), null);
+    assert.equal(noRunnerNoteFor({ ...base, hasRepo: false }), null);
+  });
+
+  it('leaves one note on a milestone Building 30 minutes with no runner, and closes it when a runner is online', async () => {
+    const t = memoryCtx();
+    const now = Date.now();
+    const { milestoneId } = seedMilestoneWorld(t, { status: 'Building', statusChangedAt: now - NO_RUNNER_AFTER_MS - 1 }, { agentRepo: REPO });
+    const fresh = seedMilestoneWorld(t, { status: 'Building', statusChangedAt: now }, { agentRepo: REPO });
+    const noRepo = seedMilestoneWorld(t, { status: 'Building', statusChangedAt: 1 }, {});
+    const first = await t.call<Sweep>(releaseStuckRuns, {});
+    assert.equal(first.noRunnerOpened, 1);
+    assert.deepEqual(openNotes(t, milestoneId).map((note) => note.body), [NO_REGISTERED_RUNNER_NOTE]);
+    assert.deepEqual(openNotes(t, fresh.milestoneId), []);
+    assert.deepEqual(openNotes(t, noRepo.milestoneId), []);
+    // One open note per milestone: a second sweep adds none.
+    t.reads.reset();
+    assert.equal((await t.call<Sweep>(releaseStuckRuns, {})).noRunnerOpened, 0);
+    assert.equal(openNotes(t, milestoneId).length, 1);
+    assert.deepEqual(t.reads.unbounded(), []);
+    assert.deepEqual(t.reads.unindexed(), []);
+    // A registered runner comes online: the note closes.
+    t.seed('agentRunners', { runnerId: 'peter-mbp-prod', windowStart: now, count: 0, lastSeenAt: Date.now(), registeredAt: now, tokenHash: 'h'.repeat(64) });
+    assert.equal((await t.call<Sweep>(releaseStuckRuns, {})).noRunnerClosed, 1);
+    assert.deepEqual(openNotes(t, milestoneId), []);
+  });
+
+  it('says no runner is online when one is registered but quiet, and closes the note when the milestone leaves Building', async () => {
+    const t = memoryCtx();
+    const now = Date.now();
+    t.seed('agentRunners', { runnerId: 'peter-mbp-prod', windowStart: 0, count: 0, lastSeenAt: now - 60 * 60_000, registeredAt: 1, tokenHash: 'h'.repeat(64) });
+    const { milestoneId } = seedMilestoneWorld(t, { status: 'Building', statusChangedAt: 1 }, { agentRepo: REPO });
+    await t.call(releaseStuckRuns, {});
+    assert.deepEqual(openNotes(t, milestoneId).map((note) => note.body), [NO_RUNNER_ONLINE_NOTE]);
+    await t.db.patch(milestoneId, { status: 'Parked' });
+    assert.equal((await t.call<Sweep>(releaseStuckRuns, {})).noRunnerClosed, 1);
+    assert.deepEqual(openNotes(t, milestoneId), []);
+  });
+});
+
+describe('production queue clear', () => {
+  it('clears queued planning once, by hand, with an indexed bounded read, and leaves other states alone', async () => {
+    const t = memoryCtx();
+    const queued = seedMilestoneWorld(t, { status: 'Planning', planning: 'queued', name: 'Double Booking Awareness' }, {});
+    const blocked = seedMilestoneWorld(t, { status: 'Planning', planning: 'blocked' }, { agentRepo: REPO });
+    await assert.rejects(t.call(clearQueuedPlanning, { confirm: 'yes' }));
+    t.reads.reset();
+    const result = await t.call<{ cleared: number; names: string[] }>(clearQueuedPlanning, { confirm: 'clear the planning queue' });
+    assert.deepEqual(result, { cleared: 1, names: ['Double Booking Awareness'] });
+    assert.equal(t.row(queued.milestoneId)?.planning, undefined);
+    assert.equal(t.row(blocked.milestoneId)?.planning, 'blocked');
+    assert.deepEqual(t.reads.unbounded(), []);
+    assert.deepEqual(t.reads.unindexed(), []);
+    assert.equal((await t.call<{ cleared: number }>(clearQueuedPlanning, { confirm: 'clear the planning queue' })).cleared, 0);
+    // Internal only.
+    assert.match(read('../runners.ts'), /export const clearQueuedPlanning = internalMutation/);
+  });
+});
+

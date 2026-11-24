@@ -133,3 +133,40 @@ export function pairingPoll(
   if (row.expiresAt <= now) return { status: 'expired' };
   return { status: 'open', expiresAt: row.expiresAt };
 }
+
+/** A milestone Building this long with no runner online gets a "needs Peter" note (ADR-0005 amendment). */
+export const NO_RUNNER_AFTER_MS = 30 * 60_000;
+/** Building milestones the sweep checks for a missing runner. */
+export const NO_RUNNER_SCAN = 10;
+/** Open notes read to find the no-runner ones. */
+export const NO_RUNNER_NOTE_SCAN = 50;
+
+export const NO_REGISTERED_RUNNER_NOTE =
+  'No runner is set up on this deployment, so this milestone cannot build. Set one up from Runner status on the project page.';
+export const NO_RUNNER_ONLINE_NOTE =
+  'This milestone has been Building for 30 minutes and no runner is online. Start one, or check its log.';
+
+export function isNoRunnerNote(body: unknown): boolean {
+  return body === NO_REGISTERED_RUNNER_NOTE || body === NO_RUNNER_ONLINE_NOTE;
+}
+
+/** True when any registered runner was seen inside the window. */
+export function anyRunnerOnline(runners: readonly { lastSeenAt?: number | null }[], now: number, windowMs: number): boolean {
+  return runners.some((runner) => runner.lastSeenAt != null && now - runner.lastSeenAt < windowMs);
+}
+
+/**
+ * The note a Building milestone should carry, or null. Only a milestone that
+ * has a repository and has waited 30 minutes, while no runner is online.
+ */
+export function noRunnerNoteFor(input: {
+  online: boolean;
+  registeredCount: number;
+  hasRepo: boolean;
+  buildingSince: number;
+  now: number;
+}): string | null {
+  if (input.online || !input.hasRepo) return null;
+  if (input.now - input.buildingSince < NO_RUNNER_AFTER_MS) return null;
+  return input.registeredCount === 0 ? NO_REGISTERED_RUNNER_NOTE : NO_RUNNER_ONLINE_NOTE;
+}
