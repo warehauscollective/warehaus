@@ -6,7 +6,6 @@
  */
 
 import { linearTaskPlatform } from './linearTaskPlatform';
-import { notionTaskPlatform } from './notionTaskPlatform';
 
 export const TASK_PLATFORMS = ['notion', 'linear'] as const;
 export type TaskPlatform = (typeof TASK_PLATFORMS)[number];
@@ -158,10 +157,6 @@ export function linearApiKey(env: TaskPlatformEnv): string | null {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-export function adapterFor(platform: TaskPlatform): TaskPlatformAdapter {
-  return platform === 'linear' ? linearTaskPlatform : notionTaskPlatform;
-}
-
 /** Sync preview. Linear with a key returns remote and does not fetch. */
 export function linearSyncMiss(env: TaskPlatformEnv): PlatformMiss {
   if (!linearApiKey(env)) {
@@ -180,13 +175,12 @@ export function readTaskPlatform<T>(input: {
     const miss = linearSyncMiss(input.env);
     return { platform, tasks: miss, milestones: miss };
   }
-  const adapter = adapterFor(platform);
-  const tasks = adapter.readTasks(input.tasks, input.env);
-  const milestones = adapter.readMilestones(input.env);
-  if (tasks instanceof Promise || milestones instanceof Promise) {
-    throw new Error('Task platform preview must not fetch');
-  }
-  return { platform, tasks, milestones };
+  // Notion tasks are already in Convex. Notion has no milestones yet.
+  return {
+    platform,
+    tasks: { ok: true, platform: 'notion', items: [...input.tasks] },
+    milestones: { ok: true, platform: 'notion', items: [] },
+  };
 }
 
 export function taskPlatformStatus<T>(read: PlatformRead<T>): TaskPlatformStatus {

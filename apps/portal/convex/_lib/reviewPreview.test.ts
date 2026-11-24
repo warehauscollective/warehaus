@@ -21,7 +21,6 @@ import {
   previewDeleteAfterFailure,
   previewDeletedActivity,
   previewProtectionCoversPreviews,
-  previewProjectCreateEnabled,
   removalAfterDelete,
   retryActorAllowed,
   retryPreviewPatch,
@@ -66,15 +65,12 @@ describe('fail closed convex check', () => {
     if (!turtle.ok) assert.match(turtle.reason, /unique-turtle-383/);
     assert.equal(assertPreviewAppUrl(READY_URL).ok, true);
     assert.equal(assertPreviewNotionFlags({ NOTION_WRITEBACK_ENABLED: 'true' }).ok, false);
-    assert.equal(assertPreviewNotionFlags({ NOTION_PROJECT_CREATE_ENABLED: 'true' }).ok, false);
     assert.equal(assertPreviewNotionFlags({ INVITE_EMAIL_ENABLED: 'true' }).ok, false);
     assert.equal(assertPreviewNotionFlags({}).ok, false);
     const blank = blankPreviewNotionEnv();
     assert.equal(assertPreviewNotionFlags(blank).ok, true);
     assert.equal(assertPreviewNotionFlags({ ...blank, NOTION_WAREHAUS_TOKEN: 'secret' }).ok, false);
     assert.equal(assertPreviewNotionFlags({ ...blank, NOTION_WEBHOOK_SECRET: 'secret' }).ok, false);
-    assert.equal(previewProjectCreateEnabled({ vercelEnv: 'preview', flag: 'true' }), false);
-    assert.equal(previewProjectCreateEnabled({ vercelEnv: 'production', flag: 'true' }), true);
   });
 });
 
@@ -224,7 +220,7 @@ describe('preview copy and delete', () => {
       assert.equal(env[key], '');
       assert.equal(buildEnv[key], '');
     }
-    for (const key of ['NOTION_WRITEBACK_ENABLED', 'NOTION_PROJECT_CREATE_ENABLED', 'INVITE_EMAIL_ENABLED'] as const) {
+    for (const key of ['NOTION_WRITEBACK_ENABLED', 'INVITE_EMAIL_ENABLED'] as const) {
       assert.equal(env[key], 'false');
       assert.equal(buildEnv[key], 'false');
     }

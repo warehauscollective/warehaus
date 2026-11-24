@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { authorizePortalWrite, isNotionWritebackEnabled } from './writeAuthz';
+import { authorizePortalWrite } from './writeAuthz';
 
 describe('portal write authorization', () => {
   it('allows staff and rejects everyone else', () => {
@@ -38,13 +38,5 @@ describe('portal write authorization', () => {
       database: 'activity',
     });
     assert.equal(decision.ok, false);
-  });
-
-  it('treats only the exact string true as on', () => {
-    assert.equal(isNotionWritebackEnabled('true'), true);
-    assert.equal(isNotionWritebackEnabled(undefined), false);
-    assert.equal(isNotionWritebackEnabled(''), false);
-    assert.equal(isNotionWritebackEnabled('TRUE'), false);
-    assert.equal(isNotionWritebackEnabled('1'), false);
   });
 });

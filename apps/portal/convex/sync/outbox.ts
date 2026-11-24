@@ -8,7 +8,6 @@ import {
   clientCreateEnqueueError,
   isMissingPropertyRejection,
   isNewerEditedTime,
-  isNotionWritebackEnabled,
   outboxLeaseUnexpired,
   planIdempotentEnqueue,
   takeOutboxLease,
@@ -26,6 +25,7 @@ import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { linkTaskToCreateMilestone, milestoneIdFromPayload } from '../_lib/taskMilestoneLink';
+import { writebackAllowed } from './notion';
 
 const actor = v.union(v.literal('staff'), v.literal('clientAdmin'), v.literal('system'));
 
@@ -40,7 +40,7 @@ type EnqueueResult =
     };
 
 function writebackOn(): boolean {
-  return isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED);
+  return writebackAllowed();
 }
 
 function parsePayload(payload: string): { properties: WriteProperties } | { error: string } {

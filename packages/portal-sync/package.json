@@ -2,7 +2,7 @@
   "name": "@warehaus/portal-sync",
   "version": "0.1.0",
   "private": true,
-  "description": "Portal Notion→Convex allowlist contracts, row gates, and file metadata types.",
+  "description": "Portal Notion\u2192Convex allowlist contracts, row gates, and file metadata types.",
   "type": "module",
   "exports": {
     ".": {
@@ -24,9 +24,15 @@
     "./files": {
       "types": "./src/files.ts",
       "default": "./src/files.ts"
+    },
+    "./notion-memory": {
+      "types": "./src/notionMemory.testkit.ts",
+      "default": "./src/notionMemory.testkit.ts"
     }
   },
-  "files": ["src"],
+  "files": [
+    "src"
+  ],
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test src/**/*.test.ts"

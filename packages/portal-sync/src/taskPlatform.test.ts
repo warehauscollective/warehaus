@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { linearTaskPlatform } from './linearTaskPlatform';
-import { notionTaskPlatform } from './notionTaskPlatform';
 import {
-  adapterFor,
   readTaskPlatform,
   storedTaskPlatform,
   taskPlatformBlockedMessage,
@@ -26,14 +24,9 @@ describe('task platform adapter', () => {
     assert.equal(storedTaskPlatform('linear'), 'linear');
   });
 
-  it('uses one interface for both modules', () => {
-    const adapters: TaskPlatformAdapter[] = [notionTaskPlatform, linearTaskPlatform];
-    assert.deepEqual(
-      adapters.map((adapter) => adapter.platform),
-      ['notion', 'linear'],
-    );
-    assert.equal(adapterFor('notion'), notionTaskPlatform);
-    assert.equal(adapterFor('linear'), linearTaskPlatform);
+  it('reads Linear through the task platform interface', () => {
+    const adapter: TaskPlatformAdapter = linearTaskPlatform;
+    assert.equal(adapter.platform, 'linear');
   });
 
   it('returns the Notion tasks and an empty milestone seam', () => {

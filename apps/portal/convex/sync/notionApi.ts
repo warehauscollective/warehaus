@@ -1,11 +1,9 @@
 /**
- * Minimal Notion data-source query helpers for Convex actions (fetch-based).
- * Uses Notion API 2025-09-03 (data_sources), matching @notionhq/client v5.
+ * Pull-side Notion helpers. Every call goes through the Notion client (ADR-0002).
  */
 
 import { PORTAL_COLLECTIONS } from '@warehaus/portal-sync';
-
-const NOTION_VERSION = '2025-09-03';
+import { notionClient, type NotionRawPage } from './notion';
 
 export type NotionPageRow = {
   id: string;
@@ -15,55 +13,13 @@ export type NotionPageRow = {
   inTrash: boolean;
 };
 
-const dataSourceCache = new Map<string, string>();
-
-export function notionToken(): string {
-  const token = process.env.NOTION_WAREHAUS_TOKEN;
-  if (!token) {
-    throw new Error('NOTION_WAREHAUS_TOKEN is not set on the Convex deployment');
-  }
-  return token;
-}
-
-async function notionFetch(path: string, init?: RequestInit) {
-  const res = await fetch(`https://api.notion.com/v1${path}`, {
-    ...init,
-    headers: {
-      Authorization: `Bearer ${notionToken()}`,
-      'Notion-Version': NOTION_VERSION,
-      'Content-Type': 'application/json',
-      ...(init?.headers ?? {}),
-    },
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    throw new Error(`Notion ${path} → ${res.status}: ${body.slice(0, 400)}`);
-  }
-  return res.json();
-}
-
 /**
  * Resolve database page id → primary data_source id.
  * Allowlisted IDs in `@warehaus/portal-sync` are already data_source (collection) ids —
  * those 404 on `/databases/{id}` and must pass through.
  */
-export async function resolveDataSourceId(databaseOrSourceId: string): Promise<string> {
-  const cached = dataSourceCache.get(databaseOrSourceId);
-  if (cached) return cached;
-
-  try {
-    const db = await notionFetch(`/databases/${databaseOrSourceId}`);
-    const id = db?.data_sources?.[0]?.id;
-    if (typeof id === 'string' && id) {
-      dataSourceCache.set(databaseOrSourceId, id);
-      return id;
-    }
-  } catch {
-    // Likely already a data_source_id (or not shared) — try as-is at query time.
-  }
-
-  dataSourceCache.set(databaseOrSourceId, databaseOrSourceId);
-  return databaseOrSourceId;
+export function resolveDataSourceId(databaseOrSourceId: string): Promise<string> {
+  return notionClient().resolveDataSourceId(databaseOrSourceId);
 }
 
 /**
@@ -72,11 +28,8 @@ export async function resolveDataSourceId(databaseOrSourceId: string): Promise<s
  */
 export async function listDataSourcePropertyNames(databaseOrSourceId: string): Promise<string[] | null> {
   try {
-    const dataSourceId = await resolveDataSourceId(databaseOrSourceId);
-    const json = await notionFetch(`/data_sources/${dataSourceId}`);
-    const props = json?.properties;
-    if (!props || typeof props !== 'object') return null;
-    return Object.keys(props as Record<string, unknown>);
+    const names = await notionClient().listPropertyNames(databaseOrSourceId);
+    return names.length ? names : null;
   } catch {
     return null;
   }
@@ -92,14 +45,7 @@ export type QueryPagesOpts = {
   archived?: boolean;
 };
 
-function toNotionPageRow(page: {
-  id: string;
-  last_edited_time?: string;
-  properties: Record<string, unknown>;
-  archived?: boolean;
-  in_trash?: boolean;
-  is_archived?: boolean;
-}, fromArchivedQuery: boolean): NotionPageRow {
+function toNotionPageRow(page: NotionRawPage & { properties: Record<string, unknown> }, fromArchivedQuery: boolean): NotionPageRow {
   return {
     id: page.id,
     lastEdited: page.last_edited_time ?? '',
@@ -114,28 +60,20 @@ export async function queryAllDataSourcePages(
   databaseOrSourceId: string,
   opts?: QueryPagesOpts,
 ): Promise<NotionPageRow[]> {
-  const dataSourceId = await resolveDataSourceId(databaseOrSourceId);
+  const notion = notionClient();
   const out: NotionPageRow[] = [];
-  let cursor: string | undefined;
+  let cursor: string | null = null;
   do {
-    const body: Record<string, unknown> = { page_size: 100 };
-    if (cursor) body.start_cursor = cursor;
-    if (opts?.archived) body.is_archived = true;
-    if (opts?.editedSinceIso) {
-      body.filter = {
-        timestamp: 'last_edited_time',
-        last_edited_time: { after: opts.editedSinceIso },
-      };
-    }
-    const json = await notionFetch(`/data_sources/${dataSourceId}/query`, {
-      method: 'POST',
-      body: JSON.stringify(body),
+    const page = await notion.queryDataSource(databaseOrSourceId, {
+      cursor,
+      archived: opts?.archived,
+      editedSinceIso: opts?.editedSinceIso,
     });
-    for (const page of json.results ?? []) {
-      if (!page?.id || !page.properties) continue;
-      out.push(toNotionPageRow(page, Boolean(opts?.archived)));
+    for (const row of page.results) {
+      if (!row?.id || !row.properties) continue;
+      out.push(toNotionPageRow({ ...row, properties: row.properties }, Boolean(opts?.archived)));
     }
-    cursor = json.has_more ? json.next_cursor : undefined;
+    cursor = page.nextCursor;
   } while (cursor);
   return out;
 }
@@ -143,9 +81,9 @@ export async function queryAllDataSourcePages(
 /** Fetch one page by id. Returns null when Notion no longer has it. */
 export async function fetchNotionPage(pageId: string): Promise<NotionPageRow | null> {
   try {
-    const page = await notionFetch(`/pages/${pageId}`);
+    const page = await notionClient().getPage(pageId);
     if (!page?.id || !page.properties) return null;
-    return toNotionPageRow(page, false);
+    return toNotionPageRow({ ...page, properties: page.properties }, false);
   } catch {
     return null;
   }
@@ -162,7 +100,8 @@ export const SYNC_SOURCES = {
 
 /**
  * Write durable Blob (or portal) URL onto the Shared Resource `URL` property.
- * Idempotent when Notion already has the same URL.
+ * Idempotent when Notion already has the same URL. A resource-URL write:
+ * skipped unless write-back is on and a Blob token is set (ADR-0002).
  */
 export async function writeSharedResourceUrl(input: {
   notionPageId: string;
@@ -170,13 +109,12 @@ export async function writeSharedResourceUrl(input: {
   currentUrl?: string | null;
 }): Promise<'written' | 'skipped'> {
   if (!input.url || input.currentUrl === input.url) return 'skipped';
-  await notionFetch(`/pages/${input.notionPageId}`, {
-    method: 'PATCH',
-    body: JSON.stringify({
-      properties: {
-        URL: { url: input.url },
-      },
-    }),
+  const result = await notionClient().patchProperties('resource-url', input.notionPageId, {
+    URL: { url: input.url },
   });
+  if (result.skipped) return 'skipped';
+  if (!result.ok) {
+    throw new Error(`Notion /pages/${input.notionPageId} → ${result.status}: ${result.error ?? ''}`);
+  }
   return 'written';
 }

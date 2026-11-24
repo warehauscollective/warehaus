@@ -93,7 +93,6 @@ Set on **Convex** (not Next dualStore):
 NOTION_WAREHAUS_TOKEN=
 NOTION_WEBHOOK_SECRET=          # required; Notion verification_token (HMAC). Fail closed if unset.
 NOTION_WRITEBACK_ENABLED=       # exact "true" or off. Leave unset. Dev only, never prod.
-NOTION_PROJECT_CREATE_ENABLED=  # unused. Write-back is the only gate. Leave unset.
 BLOB_READ_WRITE_TOKEN=          # Shared Resource / doc image copy
 STRIPE_WEBHOOK_SECRET=          # Phase 4 (parked until keys)
 NEXT_PUBLIC_CONVEX_URL=

@@ -5,7 +5,7 @@ import { buildActivityFeed } from './_lib/activityFeed';
 import { staffQuarantineActivity } from './_lib/quarantineActivity';
 import { clientIsStaffVisible, clientMaySeeProject, clientMaySeeTask, isOrgVisibleToClients, readTaskPlatform, staffGranolaStatus, taskPlatformStatus } from '@warehaus/portal-sync';
 import { linearEnv } from './_lib/taskPlatformRead';
-import { isNotionWritebackEnabled } from './_lib/writeAuthz';
+import { writebackAllowed } from './sync/notion';
 
 /**
  * CLIENT-tier org snapshot for the signed-in portal UI.
@@ -472,7 +472,7 @@ export const getSyncHealth = adminQuery({
         lastSyncedAt: syncMeta?.lastSyncedAt ? new Date(syncMeta.lastSyncedAt).toISOString() : null,
         lastError: syncMeta?.lastError ?? null,
       },
-      writebackEnabled: isNotionWritebackEnabled(),
+      writebackEnabled: writebackAllowed(),
       outbox: { counts, oldestCreatedAt },
       granola: staffGranolaStatus(granolaMeta),
       notices: notices

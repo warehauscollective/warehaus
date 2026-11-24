@@ -13,7 +13,6 @@ import {
   planTaskDescriptionWrite,
   planTaskLiveFieldsWrite,
   planTaskResourceWrite,
-  isNotionWritebackEnabled,
   isTaskStage,
   notionOnlyStageReason,
   planTaskStageWrite,
@@ -30,6 +29,7 @@ import { taskMilestoneGate } from '../_lib/milestoneTasks';
 import { internal } from '../_generated/api';
 import type { Id } from '../_generated/dataModel';
 import { internalMutation, type MutationCtx } from '../_generated/server';
+import { writebackAllowed } from './notion';
 
 type EnqueueStatusResult =
   | { ok: false; error: string }
@@ -40,7 +40,7 @@ type StageEnqueueResult =
   | { ok: true; pending: boolean; outboxId?: Id<'notionOutbox'>; duplicate?: boolean };
 
 function writebackOn(): boolean {
-  return isNotionWritebackEnabled(process.env.NOTION_WRITEBACK_ENABLED);
+  return writebackAllowed();
 }
 
 async function listTaskStageRows(ctx: MutationCtx, notionPageId: string) {
