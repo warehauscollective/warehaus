@@ -1115,7 +1115,7 @@ export const detachTaskFromAi = internalMutation({
 });
 
 /**
- * Retired. This mutation does not call applyHumanDecision and does not write milestone.note.
+ * Retired. This mutation makes no review decision and does not write milestone.note.
  * Approve and requestChanges are the only review writers. They do not close tasks.
  */
 export const decide = adminMutation({
@@ -1347,7 +1347,6 @@ async function applyMilestoneReview(
     approval: 'changes_requested',
     approverContactId: contactId,
     decidedAt,
-    status: planned.status,
     iteration: planned.nextIteration,
     previewUrl: '',
     designCheck: 'pending',
@@ -1374,6 +1373,10 @@ async function applyMilestoneReview(
     createdTaskIds,
   });
   await logMilestone(ctx, milestone, 'milestone.changes_requested', decidedAt);
+  // Ready to Ship to Building through the one writer, which closes the approval note.
+  const reviewed = (await ctx.db.get(milestone._id)) ?? milestone;
+  const moved = await changeMilestoneStatus(ctx, reviewed, { cause: 'request_changes', actorName: 'Peter', at: decidedAt });
+  if (!moved.ok) fail(moved.reason);
   return {
     ok: true as const,
     status: 200,

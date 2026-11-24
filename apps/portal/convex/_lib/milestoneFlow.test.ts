@@ -15,7 +15,7 @@ import { claimNext, completeTask, recordEvent, releaseStuckRuns, reportBuild, re
 import { AGENT_DRIVER_LOCKED, setAgentDriver } from '../projects';
 import { PortalAuthError } from './identity';
 import { reviewForApi } from '../milestones';
-import { createMilestone } from '../portalApi';
+import { createMilestone, updateMilestone } from '../portalApi';
 import { applyInbound } from '../sync/inbound';
 import { buildRoadmap, roadmapViewForAudience } from './milestones';
 import { RETRY_RUN_ACTIVE, RETRY_RUN_WINDING_DOWN, RUN_LEASE_GRACE_MS } from './agentRun';
@@ -233,6 +233,8 @@ describe('milestone loop, bot to Shipped', () => {
     assert.equal(rowsOf('agentEvents').some((event) => event.type === 'ready'), true);
 
     // 5. Peter requests changes in Grok Bot, with two task lines.
+    const statusRows = () => rowsOf('activity').filter((row) => row.type === 'milestone.status').length;
+    const statusRowsBefore = statusRows();
     const changes = await handler<{ ok: boolean; status: number; error?: string; iteration?: number; milestoneStatus?: string; createdTaskIds?: string[] }>(
       reviewForApi,
     )(ctx, {
@@ -251,6 +253,8 @@ describe('milestone loop, bot to Shipped', () => {
     assert.equal(milestone().approval, 'changes_requested');
     // Peter answered, so nothing waits on him.
     assert.equal(openNotes().length, 0);
+    // The move back to Building went through the one writer: one status row.
+    assert.equal(statusRows(), statusRowsBefore + 1);
     const review = tasks().filter((task) => taskOrigin({ origin: task.origin as string, source: task.source as string }) === 'review');
     assert.deepEqual(review.map((task) => [task.name, task.round]), [
       ['Give the review card more space at 390', 2],
@@ -707,6 +711,129 @@ describe('cursor build hold and agent lock', () => {
     assert.equal(typeof draft?.archivedAt, 'number');
     assert.equal(kept?.archivedAt, undefined);
     assert.equal(rowsOf('tasks').some((row) => row._id === drafted), true);
+  });
+});
+
+describe('status change from the staff API and a merge', () => {
+  async function seed(status: string, tasks: Array<Record<string, unknown>>) {
+    const { db, rowsOf } = memoryDb();
+    const ctx = { db, scheduler: { runAfter: async () => undefined } };
+    const orgId = await db.insert('clients', { name: 'Warehaus', portalAccess: 'Enabled' });
+    const projectId = await db.insert('projects', { orgId, name: 'Warehaus Portal', agentRepo: REPO });
+    const milestoneId = await db.insert('milestones', {
+      orgId,
+      projectId,
+      name: 'Lifecycle check',
+      objective: 'One writer.',
+      goals: [],
+      status,
+      approval: 'unreviewed',
+      publishToWarehaus: false,
+      branch: 'milestone/lifecycle-check',
+    });
+    const ids: string[] = [];
+    for (const task of tasks) {
+      const parent = typeof task.parent === 'number' ? ids[task.parent] : undefined;
+      const { parent: _parent, ...fields } = task;
+      ids.push(
+        await db.insert('tasks', {
+          orgId,
+          projectId,
+          name: `Task ${ids.length + 1}`,
+          status: 'To Do',
+          isDone: false,
+          stage: 'Building',
+          source: 'portal-milestone',
+          ...(parent ? { parentTaskId: parent } : { milestoneId }),
+          ...fields,
+        }),
+      );
+    }
+    const milestone = () => rowsOf('milestones').find((row) => row._id === milestoneId) as Row;
+    const openNotes = () => rowsOf('milestoneNotes').filter((note) => note.needsPeter === 'open' && note.reason === 'approval');
+    return { ctx, db, rowsOf, milestoneId, ids, milestone, openNotes };
+  }
+
+  const update = (ctx: unknown, milestoneId: string, key: string, status: string) =>
+    handler<{ status: number; body: { id?: string; error?: string } }>(updateMilestone)(ctx, {
+      tokenId: 'apiTokens:1',
+      key,
+      requestHash: key,
+      tokenName: 'grok-bot',
+      milestoneId,
+      status,
+    });
+
+  it('a staff API move into Ready to Ship writes the hand-off, and a move out closes the note', async () => {
+    const run = await seed('Building', [{ status: 'Done', isDone: true }, {}]);
+    const moved = await update(run.ctx, run.milestoneId, 'k1', 'Ready to Ship');
+    assert.equal(moved.status, 200, JSON.stringify(moved.body));
+    assert.equal(run.milestone().status, 'Ready to Ship');
+    assert.equal(run.openNotes().length, 1);
+    assert.equal(run.openNotes()[0]?.addedBy, 'grok-bot');
+    assert.match(String(run.openNotes()[0]?.body), /Heads up: 1 task is still open\./);
+    assert.ok(run.milestone().localPreviewUrl);
+    assert.deepEqual(
+      run.rowsOf('agentEvents').filter((event) => event.type === 'ready').map((event) => event.summary),
+      ['Moved to Ready to Ship by grok-bot'],
+    );
+    const back = await update(run.ctx, run.milestoneId, 'k2', 'Awaiting Go');
+    assert.equal(back.status, 200, JSON.stringify(back.body));
+    assert.equal(run.openNotes().length, 0);
+  });
+
+  it('a staff API Shipped with an open task is refused and writes nothing', async () => {
+    const run = await seed('Ready to Ship', [{ status: 'Done', isDone: true }, {}]);
+    const refused = await update(run.ctx, run.milestoneId, 'k1', 'Shipped');
+    assert.equal(refused.status, 400);
+    assert.equal(run.milestone().status, 'Ready to Ship');
+    assert.equal(run.rowsOf('activity').length, 0);
+  });
+
+  it('a merge with an open subtask stores the pull request and does not ship, and a later merge does', async () => {
+    const run = await seed('Ready to Ship', [{ status: 'Done', isDone: true }, { parent: 0 }]);
+    await run.db.insert('milestoneNotes', {
+      orgId: run.milestone().orgId,
+      milestoneId: run.milestoneId,
+      body: 'Approve?',
+      addedBy: 'runner:peter-mbp',
+      createdAt: 1,
+      needsPeter: 'open',
+      reason: 'approval',
+    });
+    const merged = (n: number) =>
+      handler<{ wrote: boolean; shipped?: boolean }>(applyInbound)(run.ctx, {
+        source: 'github',
+        deliveryId: `delivery-${n}`,
+        contentKey: `warehauscollective/warehaus#${n}#${SHA}#merged`,
+        milestone: {
+          kind: 'pull',
+          branch: 'milestone/lifecycle-check',
+          repo: REPO,
+          prUrl: `https://github.com/warehauscollective/warehaus/pull/${n}`,
+          prNumber: n,
+          sha: SHA,
+          merged: true,
+        },
+        items: [],
+      });
+    const first = await merged(141);
+    assert.notEqual(first.shipped, true);
+    assert.equal(run.milestone().status, 'Ready to Ship');
+    assert.equal(run.milestone().prUrl, 'https://github.com/warehauscollective/warehaus/pull/141');
+    assert.equal(run.openNotes().length, 1);
+
+    await run.db.patch(run.ids[1]!, { status: 'Done', isDone: true });
+    const second = await merged(142);
+    assert.equal(second.shipped, true);
+    assert.equal(run.milestone().status, 'Shipped');
+    // Leaving Ready to Ship closes Peter's note.
+    assert.equal(run.openNotes().length, 0);
+    assert.deepEqual(
+      run.rowsOf('agentEvents').filter((event) => event.key === 'merged:142').map((event) => event.summary),
+      ['Pull request #142 merged · milestone is Shipped'],
+    );
+    assert.equal(run.rowsOf('activity').filter((row) => row.type === 'milestone.status').length, 1);
   });
 });
 

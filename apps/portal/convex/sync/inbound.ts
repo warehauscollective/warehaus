@@ -33,10 +33,7 @@ import {
   type MilestoneInbound,
   type WebhookDecision,
 } from '../_lib/inboundWebhook';
-import { loadMilestoneTaskSet } from '../_lib/milestoneTaskSet';
-import { detailActivitySummary } from '../_lib/milestoneDetails';
-import { writeMilestoneActivity } from '../_lib/milestones';
-import { STATUS_ACTIVITY, transitionMilestone } from '../_lib/milestoneStatus';
+import { changeMilestoneStatus } from '../_lib/milestoneLifecycle';
 import { assertStaffPreviewLink } from '../_lib/previewLink';
 import { processedSyncEventPatch } from '../_lib/syncEventRetention';
 
@@ -208,7 +205,7 @@ async function linkForTaskUrl(
 /**
  * What a delivery for a `milestone/<slug>` branch writes on that milestone.
  * A pull request stores its link, number, title and head commit. A merge into
- * the default branch moves Status to Shipped through `transitionMilestone`.
+ * the default branch moves Status to Shipped through the Status change (`changeMilestoneStatus`).
  * A finished Vercel build stores the branch preview. Every write is skipped
  * when the stored value already matches, so a replay changes nothing.
  */
@@ -259,38 +256,26 @@ async function applyMilestoneInbound(
   if (milestone.previewBranch !== inbound.branch) patch.previewBranch = inbound.branch;
   if (milestone.previewCommit !== inbound.sha && milestone.status !== 'Shipped') patch.previewCommit = inbound.sha;
 
+  if (Object.keys(patch).length > 0) await ctx.db.patch(milestone._id, patch);
   let shipped = false;
   if (inbound.merged) {
     // A merge ships only when every task that is not Parked is Done. The pull
     // request fields above are stored either way.
-    const loaded = await loadMilestoneTaskSet(ctx, milestone);
-    if (loaded.ok && loaded.set.canShip.ok) {
-      const moved = transitionMilestone({ from: milestone.status, cause: 'merge' });
-      if (moved.ok && moved.wrote) {
-        patch.status = moved.status;
-        shipped = true;
-      }
-    }
-  }
-  if (Object.keys(patch).length === 0) return { wrote: false, shipped: false };
-  await ctx.db.patch(milestone._id, patch);
-  if (shipped) {
-    await writeMilestoneActivity(
-      ctx as unknown as Parameters<typeof writeMilestoneActivity>[0],
-      milestone,
-      STATUS_ACTIVITY,
-      now,
-      detailActivitySummary({ actor: 'GitHub', from: milestone.status, to: 'Shipped', at: now }),
-    );
-    await ctx.db.insert('agentEvents', {
-      orgId: milestone.orgId,
-      milestoneId: milestone._id,
-      type: 'note',
-      summary: `Pull request #${inbound.prNumber} merged · milestone is Shipped`,
-      key: `merged:${inbound.prNumber}`,
+    const current = (await ctx.db.get(milestone._id)) ?? milestone;
+    const moved = await changeMilestoneStatus(ctx, current, {
+      cause: 'merge',
+      actorName: 'GitHub',
       at: now,
+      prUrl: inbound.prUrl,
+      event: {
+        type: 'note',
+        summary: `Pull request #${inbound.prNumber} merged · milestone is Shipped`,
+        key: `merged:${inbound.prNumber}`,
+      },
     });
+    shipped = moved.ok && moved.wrote && moved.status === 'Shipped';
   }
+  if (Object.keys(patch).length === 0 && !shipped) return { wrote: false, shipped: false };
   return { wrote: true, shipped };
 }
 

@@ -48,7 +48,6 @@ import {
   writeMilestoneActivity,
   type AttachFailureCode,
 } from './_lib/milestones';
-import { detailActivitySummary } from './_lib/milestoneDetails';
 import {
   PORTAL_MILESTONE_TASK_SOURCE,
   taskMilestoneGate,
@@ -69,15 +68,9 @@ import { currentIteration, NEW_ITERATION_TASK_DONE } from './_lib/milestoneRevie
 import { reviewPreviews } from './_lib/previewLink';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { NEEDS_PETER_LIMIT, planningForNewMilestone } from './_lib/agentRun';
-import { queuePlanning } from './planningQueue';
 import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
-import { loadMilestoneTaskSet } from './_lib/milestoneTaskSet';
-import {
-  STATUS_ACTIVITY,
-  apiStatusFields,
-  apiStatusInput,
-  transitionMilestone,
-} from './_lib/milestoneStatus';
+import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
+import { apiStatusFields, apiStatusInput } from './_lib/milestoneStatus';
 import { contextSourceForToken } from './_lib/projectContext';
 import { convexFailureText } from './_lib/userFacingError';
 
@@ -942,44 +935,21 @@ export const updateMilestone = internalMutation({
     const wanted = apiStatusInput(args);
     if (!wanted.ok) return finishIdempotency(ctx, opened.id, fail(400, wanted.reason));
     if (wanted.status === 'Building') return finishIdempotency(ctx, opened.id, fail(400, BOT_STATUS_BUILDING));
-    const from = milestone.status;
-    let tasksReady = wanted.status !== 'Shipped' || from === 'Shipped';
-    if (wanted.status === 'Shipped' && from !== 'Shipped') {
-      const loaded = await loadMilestoneTaskSet(ctx, milestone);
-      const gate = loaded.ok ? loaded.set.canShip : loaded;
-      if (!gate.ok) return finishIdempotency(ctx, opened.id, fail(400, gate.reason));
-      tasksReady = true;
-    }
-    const moved =
-      wanted.status == null
-        ? null
-        : transitionMilestone({ from, cause: 'set', to: wanted.status, tasksReady });
-    if (moved && !moved.ok) return finishIdempotency(ctx, opened.id, fail(400, moved.reason));
     if (Object.keys(edited.patch).length === 0 && wanted.status == null) {
       return finishIdempotency(ctx, opened.id, fail(400, 'At least one field is required'));
     }
-    const patch = {
-      ...edited.patch,
-      ...(moved?.ok && moved.wrote ? { status: moved.status } : {}),
-    };
-    // A repeat of the stored values writes nothing.
-    if (Object.keys(patch).length > 0) await ctx.db.patch(milestone._id, patch);
-    if (moved?.ok && moved.wrote) {
-      const at = Date.now();
-      const actorName = args.tokenName?.trim() || 'Staff API';
-      await writeMilestoneActivity(
-        ctx as Parameters<typeof writeMilestoneActivity>[0],
-        milestone,
-        STATUS_ACTIVITY,
-        at,
-        detailActivitySummary({ actor: actorName, from, to: moved.status, at }),
-      );
-      const current = await ctx.db.get(milestone._id);
-      if (current && moved.status === 'Planning') await queuePlanning(ctx, current);
-      if (current?.planning === 'queued' && moved.status !== 'Planning') {
-        await ctx.db.patch(current._id, { planning: undefined, planningReplace: undefined });
-      }
+    // The status first: a refusal writes nothing, so the content edit must not land before it.
+    if (wanted.status != null) {
+      const moved = await changeMilestoneStatus(ctx, milestone, {
+        cause: 'set',
+        to: wanted.status,
+        actorName: args.tokenName?.trim() || 'Staff API',
+        at: Date.now(),
+      });
+      if (!moved.ok) return finishIdempotency(ctx, opened.id, fail(400, moved.reason));
     }
+    // A repeat of the stored values writes nothing.
+    if (Object.keys(edited.patch).length > 0) await ctx.db.patch(milestone._id, edited.patch);
     return finishIdempotency(ctx, opened.id, { status: 200, body: { id: milestone._id } });
   },
 });

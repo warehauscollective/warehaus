@@ -6,7 +6,6 @@ import {
   AI_CANNOT_DECIDE,
   AI_LOCKED,
   HUMAN_CONTENT_LOCKED,
-  applyHumanDecision,
   attachTaskDecision,
   buildRoadmap,
   writeMilestoneActivity,
@@ -310,73 +309,6 @@ describe('tasks on a milestone', () => {
   });
 });
 
-describe('human decision', () => {
-  const tasks = [{ id: 't-1', isDone: false, status: 'In Progress', stage: 'Building' }];
-
-  it('approves without closing tasks', () => {
-    const decided = applyHumanDecision({
-      actor: 'human',
-      decision: 'approved',
-      note: ' The homepage matches the frame ',
-      approverContactId: 'contact-1',
-      at: 100,
-      tasks,
-    });
-    assert.equal(decided.ok, true);
-    if (!decided.ok) return;
-    assert.equal(decided.patch.approval, 'approved');
-    assert.equal(decided.patch.note, 'The homepage matches the frame');
-    assert.equal(decided.patch.approverContactId, 'contact-1');
-    assert.equal(decided.patch.decidedAt, 100);
-    assert.equal(decided.patch.status, undefined);
-    assert.deepEqual(decided.taskWrites, []);
-    assert.equal(decided.tasks[0]?.isDone, false);
-    assert.equal(decided.tasks[0]?.status, 'In Progress');
-    assert.equal(decided.activityType, 'milestone.approved');
-  });
-
-  it('sends the milestone back to active work', () => {
-    const decided = applyHumanDecision({
-      actor: 'human',
-      decision: 'changes_requested',
-      note: 'The menu is still two columns',
-      approverContactId: 'contact-1',
-      at: 200,
-      tasks,
-    });
-    assert.equal(decided.ok, true);
-    if (!decided.ok) return;
-    assert.equal(decided.patch.status, 'Building');
-    assert.equal(decided.activityType, 'milestone.changes_requested');
-    assert.equal(decided.tasks[0]?.isDone, false);
-  });
-
-  it('refuses an AI decision and an empty note', () => {
-    const ai = applyHumanDecision({
-      actor: 'ai',
-      decision: 'approved',
-      note: 'Looks good',
-      approverContactId: 'contact-1',
-      at: 1,
-      tasks,
-    });
-    assert.equal(ai.ok, false);
-    if (ai.ok) return;
-    assert.equal(ai.reason, AI_CANNOT_DECIDE);
-    assert.equal(
-      applyHumanDecision({
-        actor: 'human',
-        decision: 'approved',
-        note: '   ',
-        approverContactId: 'contact-1',
-        at: 1,
-        tasks,
-      }).ok,
-      false,
-    );
-  });
-});
-
 describe('resources', () => {
   it('keeps a link in the same org', () => {
     assert.equal(resourceLinkDecision('org-1', 'org-1').ok, true);
@@ -650,7 +582,6 @@ describe('schema slice', () => {
     assert.doesNotMatch(source, /isDone:\s*(true|false)/);
     assert.doesNotMatch(source, /patch\([^)]*isDone/);
     assert.match(source, /writeMilestoneActivity/);
-    assert.match(source, /applyHumanDecision/);
     assert.match(source, /actor: 'ai'/);
     assert.doesNotMatch(source, /approval: v\.literal\('approved'\)/);
   });

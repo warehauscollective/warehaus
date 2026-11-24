@@ -178,8 +178,8 @@ describe('finishing a task', () => {
     const complete = agent.slice(agent.indexOf('export const completeTask'), agent.indexOf('export const writePlannedTasks'));
     assert.match(complete, /if \(run\.status !== 'running'\)/);
     assert.match(complete, /duplicate: true/);
-    assert.match(complete, /moveMilestone\(ctx, milestone, 'Ready to Ship'/);
-    assert.match(agent, /transitionMilestone\(\{ from: milestone\.status, cause: 'set', to \}\)/);
+    assert.match(agent, /changeMilestoneStatus\(ctx, milestone, \{\n    cause: 'set',\n    to: 'Ready to Ship'/);
+    assert.doesNotMatch(agent, /transitionMilestone/);
     assert.doesNotMatch(agent, /status: 'Shipped'/);
   });
 });
@@ -461,9 +461,8 @@ describe('auto-planning and agent choice', () => {
     });
     assert.equal(capped.enqueue, false);
     const milestones = read('./milestoneLifecycle.ts');
-    const portal = read('../portalApi.ts');
     assert.match(milestones, /queuePlanning\(ctx, current\)/);
-    assert.match(portal, /queuePlanning\(ctx, current\)/);
+    assert.match(read('../portalApi.ts'), /changeMilestoneStatus\(ctx, milestone/);
     assert.match(read('../agent.ts'), /origin: 'planner'/);
     assert.doesNotMatch(read('../agent.ts').slice(read('../agent.ts').indexOf('export const writePlannedTasks')), /Awaiting Go/);
   });
