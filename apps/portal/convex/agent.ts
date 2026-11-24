@@ -23,6 +23,8 @@ import {
   buildTaskState,
   completeDecision,
   cursorAgentToResume,
+  cursorBuildTooLong,
+  CURSOR_BUILD_TOO_LONG,
   cursorAgentUrl,
   eventSummary,
   eventType,
@@ -459,6 +461,7 @@ export const claimNext = internalMutation({
         // The stuck sweep closed the last build but nobody saw its cloud agent
         // stop. Follow that agent. A second one would push to the same branch.
         const resume = cursorAgentToResume(recent);
+        const followed = resume ? recent.find((run) => run.kind === 'build' && run.externalId === resume.externalId) : undefined;
         const runId = await ctx.db.insert('agentRuns', {
           orgId: milestone.orgId,
           milestoneId: milestone._id,
@@ -470,6 +473,7 @@ export const claimNext = internalMutation({
           startedAt: now,
           ...(resume ? { externalId: resume.externalId } : {}),
           ...(resume?.externalUrl ? { externalUrl: resume.externalUrl } : {}),
+          agentStartedAt: followed ? (followed.agentStartedAt ?? followed.startedAt) : now,
         });
         await writeEvent(ctx, {
           orgId: milestone.orgId,
@@ -847,6 +851,15 @@ export const releaseStuckRuns = internalMutation({
         .query('agentRunners')
         .withIndex('by_runnerId', (q) => q.eq('runnerId', run.runnerId))
         .unique();
+      if (run.kind === 'build' && cursorBuildTooLong({ agentStartedAt: run.agentStartedAt, startedAt: run.startedAt, now })) {
+        // One Cursor agent per milestone, and none past 2 hours: blocked with a "needs Peter" note.
+        const long = await ctx.db.get(run.milestoneId);
+        if (long) {
+          await blockCursorBuild(ctx, run, long, run.runnerId, CURSOR_BUILD_TOO_LONG, now, false);
+          released += 1;
+          continue;
+        }
+      }
       if (!runIsStuck({ lastSeenAt: runner?.lastSeenAt, startedAt: run.startedAt, now })) continue;
       const why = 'Runner went quiet for 30 minutes';
       const milestone = await ctx.db.get(run.milestoneId);

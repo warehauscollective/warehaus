@@ -497,6 +497,43 @@ describe('queue rules', () => {
     const jobs = Object.values((crons as unknown as { crons: Record<string, { name: string }> }).crons);
     assert.equal(jobs.some((job) => job.name === 'agent:releaseStuckRuns'), true);
   });
+
+  it('blocks a Cursor build after 2 hours with a needs Peter note, counting from the first launch', async () => {
+    const { CURSOR_BUILD_MAX_MS, CURSOR_BUILD_TOO_LONG, cursorBuildTooLong } = await import('./agentRun');
+    const now = Date.now();
+    assert.equal(cursorBuildTooLong({ startedAt: now - CURSOR_BUILD_MAX_MS + 1000, now }), false);
+    assert.equal(cursorBuildTooLong({ startedAt: now - CURSOR_BUILD_MAX_MS, now }), true);
+    // A resumed build counts from the agent's first launch, not the follow-up run.
+    assert.equal(cursorBuildTooLong({ agentStartedAt: now - CURSOR_BUILD_MAX_MS, startedAt: now - 60_000, now }), true);
+    const t = memoryCtx();
+    const { orgId, milestoneId } = building(t, ['Long build'], {}, { agentDriver: 'cursor' });
+    t.seed('agentRunners', { runnerId: OTHER_RUNNER, windowStart: now, count: 0, lastSeenAt: now });
+    const runId = seedRun(t, { orgId, milestoneId }, {
+      kind: 'build',
+      tool: 'cursor',
+      startedAt: now - 60_000,
+      agentStartedAt: now - CURSOR_BUILD_MAX_MS - 1000,
+      externalId: 'bc-long',
+    });
+    const result = await t.call<{ released: number }>(releaseStuckRuns, {});
+    assert.equal(result.released, 1);
+    assert.equal(t.row(runId)?.status, 'failed');
+    assert.equal(t.row(runId)?.blockedReason, CURSOR_BUILD_TOO_LONG);
+    const notes = t.rows('milestoneNotes').filter((note) => note.milestoneId === milestoneId);
+    assert.equal(notes.length, 1);
+    assert.match(String(notes[0]?.body), /2 hours/);
+  });
+
+  it('leaves a Cursor build under 2 hours alone while its runner is seen', async () => {
+    const t = memoryCtx();
+    const now = Date.now();
+    const { orgId, milestoneId } = building(t, ['Short build'], {}, { agentDriver: 'cursor' });
+    t.seed('agentRunners', { runnerId: OTHER_RUNNER, windowStart: now, count: 0, lastSeenAt: now });
+    const runId = seedRun(t, { orgId, milestoneId }, { kind: 'build', tool: 'cursor', startedAt: now - 60 * 60_000 });
+    const result = await t.call<{ released: number }>(releaseStuckRuns, {});
+    assert.equal(result.released, 0);
+    assert.equal(t.row(runId)?.status, 'running');
+  });
 });
 
 describe('repository fail-safe', () => {

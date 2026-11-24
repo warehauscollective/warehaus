@@ -412,6 +412,8 @@ export default defineSchema({
     blockedReason: v.optional(v.string()),
     /** Cursor cloud agent id. Staff only. Not a secret. */
     externalId: v.optional(v.string()),
+    /** Build runs: when this Cursor agent first started. A resumed build keeps it, so the 2-hour cap counts the whole agent. */
+    agentStartedAt: v.optional(v.number()),
     /** Cursor agent link. Staff only. Not a secret. */
     externalUrl: v.optional(v.string()),
     /**

@@ -287,6 +287,14 @@ export const STUCK_RUN_AFTER_MS = 30 * 60_000;
 /** Running runs looked at per sweep. */
 export const STUCK_RUN_SCAN = 25;
 
+/** A Cursor build still running after this long is blocked for Peter (ADR-0005). No money budget for now. */
+export const CURSOR_BUILD_MAX_MS = 2 * 60 * 60_000;
+export const CURSOR_BUILD_TOO_LONG = 'The Cursor agent ran for 2 hours without finishing';
+
+export function cursorBuildTooLong(input: { agentStartedAt?: number | null; startedAt: number; now: number }): boolean {
+  return input.now - (input.agentStartedAt ?? input.startedAt) >= CURSOR_BUILD_MAX_MS;
+}
+
 export function runIsStuck(input: { lastSeenAt: number | null | undefined; startedAt: number; now: number }): boolean {
   const last = Math.max(input.lastSeenAt ?? 0, input.startedAt);
   return input.now - last >= STUCK_RUN_AFTER_MS;
