@@ -95,7 +95,7 @@ describe('notes', () => {
     const api = read('../portalApi.ts');
     const note = api.slice(api.indexOf('export const addMilestoneNote'), api.indexOf('export const updateMilestone'));
     assert.match(note, /internalMutation/);
-    assert.match(note, /orgVisible\(ctx, milestone\.orgId\)/);
+    assert.match(note, /staffMayReadOrg\(ctx, milestone\.orgId\)/);
   });
 });
 
