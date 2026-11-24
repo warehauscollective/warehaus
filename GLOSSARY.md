@@ -33,3 +33,7 @@ _Avoid_: blob write-back, URL sync
 **Milestone task set**:
 The tasks a milestone is judged by: the same rows its roadmap shows, which are the tasks linked to the milestone plus the subtasks under them. Archived tasks are not in it. Whether a milestone is done, can ship, or has work for a runner is always asked of its task set.
 _Avoid_: milestone tasks, linked tasks, close set
+
+**Status change**:
+A milestone moving from one Status to another. Every status change passes the same gate, writes one activity row, and runs what that status asks for on the way in and out, such as Peter's approval note on entering Ready to Ship. The cause says why it moved: set by a person or the staff API, play, Mark complete, a merge, or a review asking for changes.
+_Avoid_: status write, transition, status update
