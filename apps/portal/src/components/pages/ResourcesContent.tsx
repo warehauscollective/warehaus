@@ -1,38 +1,27 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { useMutation } from 'convex/react';
+import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { PrimaryButton } from '@/components/ui/primitives';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { resourceKind } from '@/components/tasks/AttachedResourceRow';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
-import { ResourceDetail, type ResourceTaskRow } from '@/components/resources/ResourceDetail';
+import { ResourceDetail } from '@/components/resources/ResourceDetail';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
-import { isConvexConfigured } from '@/lib/convex/client';
-import { FIXTURE_DOCS, FIXTURE_PROJECTS, FIXTURE_RESOURCES, FIXTURE_TASKS, FIXTURE_TASK_RESOURCES } from '@/lib/data/fixtures';
-import { isStudioProjectName, withoutClientLeaks } from '@/lib/data/clientDetail';
-import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
-import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
-import { staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
-import { useSafeQuery } from '@/hooks/useSafeQuery';
-import type { Id } from '@convex/_generated/dataModel';
-import { api } from '@convex/_generated/api';
-import { clientMayOpenGranolaRecap, clientSafeResourceText } from '@warehaus/portal-sync';
+import { clientSafeResourceText } from '@warehaus/portal-sync';
+import { clientMayOpenResource, useResourcesPage, type ResourceRow } from '@/lib/data/resourcesPage';
 import { PublishChip } from '@/components/sync/SyncChip';
 import {
   attachedHint,
   isDraftRecap,
   isMeetingResource,
-  resourceAttachmentMeta,
   resourceListStats,
   resourceMatchesFilter,
-  resourceSourceLabel,
   resourceTitleLine,
   type ResourceListFilter,
 } from '@/lib/data/resourceList';
@@ -210,58 +199,6 @@ function ResourcePreviewState({
   return null;
 }
 
-type ResourceRow = (typeof FIXTURE_RESOURCES)[number];
-
-type DocHit = {
-  id: string;
-  title: string;
-  summary?: string | null;
-  docType?: string | null;
-  status?: string;
-  publishToWarehaus?: boolean;
-  syncHidden?: boolean;
-};
-
-function fixtureTasksFor(resourceId: string, staff: boolean): ResourceTaskRow[] {
-  const ids = new Set(
-    FIXTURE_TASK_RESOURCES.filter((link) => link.resourceId === resourceId).map((link) => link.taskId),
-  );
-  return FIXTURE_TASKS.filter((task) => ids.has(task.id)).flatMap((task) => {
-    const project = FIXTURE_PROJECTS.find((item) => item.id === task.projectId);
-    if (!staff) {
-      if (task.syncHidden || task.publishToWarehaus === false) return [];
-      if (!project || project.internal || project.publishToWarehaus === false || isStudioProjectName(project.name)) {
-        return [];
-      }
-    }
-    const row: ResourceTaskRow = {
-      id: task.id,
-      name: task.name,
-      status: task.status,
-      isDone: task.isDone,
-      stage: task.stage,
-      category: task.category,
-      projectName: project?.name ?? task.projectName,
-      projectInternal: Boolean(project?.internal || isStudioProjectName(project?.name)),
-      date: task.date,
-      ...(staff ? { publishToWarehaus: task.publishToWarehaus } : {}),
-    };
-    return [staff ? row : withoutClientLeaks(row)];
-  });
-}
-
-function clientMayOpen(row: ResourceRow): boolean {
-  if (row.publishToWarehaus === false || row.syncHidden) return false;
-  if (isStudioProjectName(row.projectName)) return false;
-  const source = row as { notionPageId?: string | null; source?: string | null };
-  return clientMayOpenGranolaRecap({
-    notionPageId: source.notionPageId,
-    source: source.source,
-    publishToWarehaus: row.publishToWarehaus,
-    description: row.description,
-  });
-}
-
 function pathId(pathname: string, prefix: string): string | null {
   const match = pathname.match(new RegExp(`^${prefix}([^/?#]+)`));
   if (!match?.[1]) return null;
@@ -273,8 +210,6 @@ function pathId(pathname: string, prefix: string): string | null {
 }
 
 export function ResourcesContent() {
-  const fixtures = useFixturePreview();
-  const configured = isConvexConfigured();
   const pathname = usePathname() || '';
   const { sectionFor, setSectionFor } = usePortalView();
   const { data, error } = usePortalData();
@@ -284,37 +219,6 @@ export function ResourcesContent() {
   const activeSection = sectionFor('resources');
   const isStaff = Boolean(portalSession?.isStaff);
 
-  const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
-  const clientRows = useSafeQuery<ResourceRow[]>(
-    api.sharedResources.listForClient,
-    !fixtures && configured && !isStaff && data.tenant.ok ? { hostSlug } : 'skip',
-  );
-  const clientDocs = useSafeQuery<DocHit[]>(
-    api.clientDocs.listForClient,
-    !fixtures && configured && !isStaff && data.tenant.ok ? { hostSlug } : 'skip',
-  );
-  const liveSync = useSafeQuery<{ granola?: { lastError: string | null } }>(
-    api.portalData.getSyncHealth,
-    !fixtures && configured && isStaff && data.tenant.ok ? { hostSlug } : 'skip',
-  );
-  const retryImport = useMutation(api.sync.granola.retryImport);
-  const [retrying, setRetrying] = useState(false);
-  const importFailed = isStaff && Boolean(liveSync.data?.granola?.lastError);
-  const onRetryImport = () => {
-    if (!configured || fixtures || retrying) return;
-    setRetrying(true);
-    void retryImport({ hostSlug }).finally(() => setRetrying(false));
-  };
-
-  const rows = useMemo(() => {
-    const source = (fixtures ? FIXTURE_RESOURCES : isStaff ? staff.resources ?? [] : clientRows.data ?? []) as ResourceRow[];
-    if (isStaff) return source;
-    return source.filter(clientMayOpen).map((row) => withoutClientLeaks(row));
-  }, [fixtures, isStaff, staff.resources, clientRows.data]);
-  const docs = useMemo(
-    () => (fixtures ? FIXTURE_DOCS : isStaff ? staff.docs ?? [] : clientDocs.data ?? []) as DocHit[],
-    [fixtures, isStaff, staff.docs, clientDocs.data],
-  );
   const [openResourceId, setOpenResourceId] = useState<string | null>(null);
   const [navDocId, setNavDocId] = useState<string | null>(null);
   const [resourceScreen, setResourceScreen] = useState<ResourceScreen>('ready');
@@ -334,19 +238,9 @@ export function ResourcesContent() {
       setOpenResourceId(null);
     }
   }, [pathname]);
-  const staffUsed = useSafeQuery<ResourceTaskRow[]>(
-    api.sharedResources.usedInTasks,
-    !fixtures && configured && isStaff && openResourceId
-      ? { hostSlug, resourceId: openResourceId as Id<'sharedResources'> }
-      : 'skip',
-  );
-  const clientUsed = useSafeQuery<ResourceTaskRow[]>(
-    api.sharedResources.usedInTasksForClient,
-    !fixtures && configured && !isStaff && openResourceId
-      ? { hostSlug, resourceId: openResourceId as Id<'sharedResources'> }
-      : 'skip',
-  );
-  const loading = !fixtures && (isStaff ? staff.resourcesLoading : clientRows.loading);
+  const page = useResourcesPage({ isStaff, hostSlug, tenantOk: data.tenant.ok, openResourceId });
+  const { rows, docs, loading, docsPending, importFailed, retrying } = page;
+  const onRetryImport = page.retryImport;
   const [draftOnly, setDraftOnly] = useState(false);
   const keepDraft = useRef(false);
   const narrow = useMaxWidth(480);
@@ -386,8 +280,7 @@ export function ResourcesContent() {
 
   const pathDocId = pathId(pathname, '/docs/') ?? navDocId;
   const pathResourceId = pathId(pathname, '/resources/');
-  const docsPending = !fixtures && (isStaff ? staffRosterQueriesDeployed() && staff.docs == null : clientDocs.loading);
-  const resourcesPending = !fixtures && (isStaff ? staff.resourcesLoading : clientRows.loading);
+  const resourcesPending = loading;
 
   if (pathDocId) {
     const doc = docs.find((item) => item.id === pathDocId);
@@ -422,12 +315,8 @@ export function ResourcesContent() {
   if (opened || (selectedId && !longRow)) {
     const row = opened;
     const shownName = resourceScreen === 'long' && row ? (isStaff ? LONG_RESOURCE_STAFF : LONG_RESOURCE_CLIENT) : row?.name;
-    const allowed = Boolean(row) && (isStaff || clientMayOpen(row as ResourceRow));
-    const taskState = fixtures
-      ? { data: row ? fixtureTasksFor(row.id, isStaff) : [], loading: false }
-      : isStaff
-        ? staffUsed
-        : clientUsed;
+    const allowed = Boolean(row) && (isStaff || clientMayOpenResource(row as ResourceRow));
+    const taskState = row ? page.tasksFor(row.id) : { data: [], loading: false };
     const closeResource = () => {
       setOpenResourceId(null);
       setResourceScreen('ready');
@@ -490,7 +379,7 @@ export function ResourcesContent() {
   const counted = rows.map((row) => ({
     type: row.type,
     publishToWarehaus: isStaff ? row.publishToWarehaus : true,
-    attachedCount: attachmentCount(row, isStaff, fixtures),
+    attachedCount: page.attachmentCount(row),
   }));
   const stats = resourceListStats(counted, isStaff);
   const chips: Array<{ key: ResourceListFilter; label: string; count: number }> = [
@@ -613,9 +502,9 @@ export function ResourcesContent() {
                     );
                   })}
                 </div>
-                {resourceScreen === 'ready' && (error || staff.resourcesError) ? (
+                {resourceScreen === 'ready' && (error || page.error) ? (
                   <p style={{ fontSize: 13, color: 'var(--danger-text)', marginTop: 16 }}>
-                    {isStaff ? error || staff.resourcesError : 'We could not load your resources'}
+                    {isStaff ? error || page.error : 'We could not load your resources'}
                   </p>
                 ) : null}
                 {loading ? (
@@ -683,7 +572,7 @@ export function ResourcesContent() {
                             <span className="min-w-0 flex-1">
                               <span className="block truncate" style={{ fontSize: 16, fontWeight: 500 }}>{resourceTitleLine(row.name, when)}</span>
                               <span className="ds-mono mt-1 block truncate" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-                                {attachmentCopy(row, isStaff, fixtures)}
+                                {page.attachmentCopy(row)}
                               </span>
                               {narrow ? <span className="mt-2 flex">{marks}</span> : null}
                             </span>
@@ -721,26 +610,6 @@ export function ResourcesContent() {
       </PortalTilePane>
     </PortalWorkspace>
   );
-}
-
-function attachmentCount(row: ResourceRow, staff: boolean, fixtures: boolean): number | undefined {
-  if (fixtures) {
-    const linked = fixtureTasksFor(row.id, staff).length;
-    if (!staff) return linked;
-    return Math.max(linked, row.attachedCount ?? 0);
-  }
-  return typeof row.attachedCount === 'number' ? row.attachedCount : undefined;
-}
-
-function attachmentCopy(row: ResourceRow, staff: boolean, fixtures: boolean): string {
-  const source = resourceSourceLabel(row.type);
-  if (fixtures) {
-    const tasks = fixtureTasksFor(row.id, staff);
-    if (tasks.length > 0) return resourceAttachmentMeta(source, tasks[0]?.name, tasks.length - 1);
-  }
-  const count = typeof row.attachedCount === 'number' ? row.attachedCount : 0;
-  if (row.projectName) return resourceAttachmentMeta(source, row.projectName, Math.max(0, count - 1));
-  return source;
 }
 
 function PublishMark({ published }: { published: boolean }) {
