@@ -255,6 +255,9 @@ export {
   projectCreateIdempotencyKey,
   clientCreateIdempotencyKey,
   outboxKindSendsInvite,
+  OUTBOX_KINDS,
+  isOutboxKind,
+  isPatchKind,
   nextBackoffMs,
   shouldNotifyStaff,
   isOutboxDead,
@@ -272,6 +275,7 @@ export {
   isMissingPropertyRejection,
   auditEventForOutcome,
   type OutboxStatus,
+  type OutboxKind,
   type OutboxItem,
   type AttemptPlan,
   type LeaseTake,
@@ -332,6 +336,7 @@ export {
   TASK_ESTIMATES,
   TASK_PRIORITIES,
   TASK_SOURCES,
+  NEXT_ACTION_MAX,
   planTaskLiveFieldsWrite,
   planTaskDateWrite,
   taskLiveFieldsWriteError,
@@ -509,3 +514,14 @@ export {
   type WriteDecision,
   type WriteKind,
 } from './notionClient';
+
+export {
+  TASK_STAMPED_FIELDS,
+  mergePulledTask,
+  pullBeatsStamp,
+  type TaskStampedField,
+  type TaskFieldStamps,
+  type LocalTaskForPull,
+  type PulledTask,
+  type MergedTask,
+} from './taskPullMerge';

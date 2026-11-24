@@ -15,6 +15,7 @@ import {
   missingWritebackProperty,
   missingWritebackReason,
   outboxKindSendsInvite,
+  isOutboxKind,
   projectCreateConvexFields,
   runClientCreateAttempt,
   runOutboxAttempt,
@@ -23,6 +24,7 @@ import {
   type ClientCreateAttempt,
   type ClientUpsertFields,
   type OutboxItem,
+  type OutboxKind,
   type WriteProperties,
   type WritebackDatabase,
 } from '@warehaus/portal-sync';
@@ -61,10 +63,10 @@ function parseProperties(payload: string): WriteProperties {
   return parsed.properties ?? {};
 }
 
-function toItem(row: Doc<'notionOutbox'>): OutboxItem {
+function toItem(row: Doc<'notionOutbox'>, kind: OutboxKind): OutboxItem {
   return {
     idempotencyKey: row.idempotencyKey,
-    kind: row.kind,
+    kind,
     database: asDatabase(row.database),
     orgId: row.orgId,
     notionPageId: row.notionPageId,
@@ -222,7 +224,13 @@ async function execute(
   const row = await ctx.runQuery(internal.sync.outbox.get, { id });
   if (!row) return { ok: false, error: 'Outbox row was missing' };
 
-  const item = toItem(row);
+  // The stored kind is a string. One no writer knows is refused, not sent.
+  if (!isOutboxKind(row.kind)) {
+    const reason = `Unknown outbox kind ${row.kind}`;
+    await ctx.runMutation(internal.sync.outbox.applyOutcome, { id, outcome: { kind: 'rejected', reason } });
+    return { ok: false, error: reason };
+  }
+  const item = toItem(row, row.kind);
   const database = item.database;
   let outcome: AttemptOutcome;
   let clientAttempt: ClientCreateAttempt | null = null;
@@ -380,7 +388,7 @@ async function execute(
     },
   });
 
-  if (outboxKindSendsInvite(row.kind)) {
+  if (outboxKindSendsInvite(item.kind)) {
     const issued = await ctx.runMutation(internal.invites.issueTokenAfterConfirm, {
       outboxId: row._id,
       notionPageId: outcome.write.notionPageId,

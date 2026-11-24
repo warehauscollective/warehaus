@@ -15,6 +15,8 @@ import {
   validatePropertyPatch,
   validateTaskStatusUpdate,
   validateWriteback,
+  type OutboxKind,
+  type OutboxStatus,
   type WriteProperties,
   type WritebackDatabase,
 } from '@warehaus/portal-sync';
@@ -25,6 +27,7 @@ import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { linkTaskToCreateMilestone, milestoneIdFromPayload } from '../_lib/taskMilestoneLink';
+import { outboxKind } from '../_lib/outboxKind';
 import { writebackAllowed } from './notion';
 
 const actor = v.union(v.literal('staff'), v.literal('clientAdmin'), v.literal('system'));
@@ -70,10 +73,72 @@ function asDatabase(value: string): WritebackDatabase | null {
   return null;
 }
 
+/** A row to queue. The caller has already planned and checked it. */
+export type OutboxRowInput = {
+  idempotencyKey: string;
+  kind: OutboxKind;
+  orgId: Id<'clients'>;
+  database: WritebackDatabase;
+  notionPageId?: string;
+  expectedLastEditedTime?: string;
+  properties: WriteProperties;
+  /** Extra payload fields, such as a task create's milestone. */
+  payloadExtra?: Record<string, unknown>;
+  actor: 'staff' | 'system';
+  actorId?: string;
+};
+
+export type OutboxRowLookup =
+  | { found: false }
+  | { found: true; outboxId: Id<'notionOutbox'>; status: OutboxStatus; resultJson: string | null };
+
+/** The row already queued under this key, if any. A read only, so a caller can check before writing. */
+export async function findOutboxRow(ctx: MutationCtx, idempotencyKey: string): Promise<OutboxRowLookup> {
+  const existing = await ctx.db
+    .query('notionOutbox')
+    .withIndex('by_idempotencyKey', (q) => q.eq('idempotencyKey', idempotencyKey))
+    .unique();
+  if (!existing) return { found: false };
+  return { found: true, outboxId: existing._id, status: existing.status, resultJson: existing.resultJson ?? null };
+}
+
+/**
+ * Queue one outbox row in the caller's mutation: dedupe by key, insert,
+ * schedule the worker. It checks nothing else; the write policy and the
+ * planning are the caller's. An existing key is returned, not written again.
+ */
+export async function insertOutboxRow(
+  ctx: MutationCtx,
+  row: OutboxRowInput,
+): Promise<{ outboxId: Id<'notionOutbox'>; duplicate: boolean; status: OutboxStatus; resultJson: string | null }> {
+  const existing = await findOutboxRow(ctx, row.idempotencyKey);
+  if (existing.found) {
+    return { outboxId: existing.outboxId, duplicate: true, status: existing.status, resultJson: existing.resultJson };
+  }
+  const now = Date.now();
+  const outboxId = await ctx.db.insert('notionOutbox', {
+    idempotencyKey: row.idempotencyKey,
+    kind: row.kind,
+    orgId: row.orgId,
+    database: row.database,
+    payload: JSON.stringify({ properties: row.properties, ...(row.payloadExtra ?? {}) }),
+    actor: row.actor,
+    status: 'queued',
+    attempts: 0,
+    nextAttemptAt: now,
+    createdAt: now,
+    ...(row.notionPageId ? { notionPageId: row.notionPageId } : {}),
+    ...(row.expectedLastEditedTime ? { expectedLastEditedTime: row.expectedLastEditedTime } : {}),
+    ...(row.actorId ? { actorId: row.actorId } : {}),
+  });
+  await ctx.scheduler.runAfter(0, internal.sync.outboxWork.processOne, { id: outboxId });
+  return { outboxId, duplicate: false, status: 'queued', resultJson: null };
+}
+
 export const enqueue = internalMutation({
   args: {
     idempotencyKey: v.string(),
-    kind: v.string(),
+    kind: outboxKind,
     orgId: v.id('clients'),
     database: v.string(),
     notionPageId: v.optional(v.string()),
@@ -151,7 +216,7 @@ export const enqueue = internalMutation({
 });
 
 function validateEnqueueKind(input: {
-  kind: string;
+  kind: OutboxKind;
   database: WritebackDatabase;
   properties: WriteProperties;
   notionPageId?: string;
@@ -202,6 +267,14 @@ function validateEnqueueKind(input: {
     if (input.database !== 'tasks') return 'Task field updates only write the Tasks database';
     const fieldError = taskLiveFieldsWriteError(input.properties);
     if (fieldError) return fieldError;
+    const validated = validatePropertyPatch({ database: 'tasks', properties: input.properties });
+    if (!validated.ok) return validated.errors.join('; ');
+    if (!input.notionPageId) return 'Updates require a Notion page';
+    if (!input.expectedLastEditedTime) return 'Updates require the last read time';
+    return null;
+  }
+  if (input.kind === 'task-date' || input.kind === 'task-resources' || input.kind === 'task-link') {
+    if (input.database !== 'tasks') return 'Task changes only write the Tasks database';
     const validated = validatePropertyPatch({ database: 'tasks', properties: input.properties });
     if (!validated.ok) return validated.errors.join('; ');
     if (!input.notionPageId) return 'Updates require a Notion page';

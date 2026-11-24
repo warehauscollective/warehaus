@@ -44,9 +44,53 @@ export const OUTBOX_LEASE_MS = 15 * 60 * 1000;
 
 export type OutboxStatus = 'queued' | 'inflight' | 'done' | 'failed' | 'dead' | 'conflict';
 
+/**
+ * Every outbox write kind. `update` is old: rows already queued still send,
+ * and nothing new writes it (ADR-0003).
+ */
+export const OUTBOX_KINDS = [
+  'task-status',
+  'task-stage',
+  'task-fields',
+  'task-description',
+  'task-date',
+  'task-resources',
+  'task-link',
+  'task-archive',
+  'create',
+  'update',
+  'project-create',
+  'client-create',
+  'createInvite',
+  'setInviteState',
+  'revert',
+] as const;
+
+export type OutboxKind = (typeof OUTBOX_KINDS)[number];
+
+export function isOutboxKind(value: string): value is OutboxKind {
+  return (OUTBOX_KINDS as readonly string[]).includes(value);
+}
+
+/** Kinds that patch properties on an existing page, with the last-edited conflict check. */
+const PATCH_KINDS: ReadonlySet<OutboxKind> = new Set<OutboxKind>([
+  'task-status',
+  'task-stage',
+  'task-fields',
+  'task-description',
+  'task-date',
+  'task-resources',
+  'task-link',
+  'update',
+]);
+
+export function isPatchKind(kind: OutboxKind): boolean {
+  return PATCH_KINDS.has(kind);
+}
+
 export type OutboxItem = {
   idempotencyKey: string;
-  kind: string;
+  kind: OutboxKind;
   database: WritebackDatabase;
   orgId: string;
   notionPageId?: string;
@@ -93,7 +137,7 @@ export function clientCreateIdempotencyKey(externalId: string): string {
 }
 
 /** Invite mail runs only for these kinds. Client create is not one of them. */
-export function outboxKindSendsInvite(kind: string): boolean {
+export function outboxKindSendsInvite(kind: OutboxKind): boolean {
   return kind === 'createInvite' || kind === 'setInviteState';
 }
 
@@ -367,12 +411,7 @@ export async function runOutboxAttempt(input: {
   // `setInviteState` and `revert` already use validatePropertyPatch above.
   // They re-read only when expectedLastEditedTime is present, because some
   // state changes have no prior read. That is not the full-page bug.
-  const isPatch =
-    input.item.kind === 'task-status' ||
-    input.item.kind === 'task-stage' ||
-    input.item.kind === 'task-description' ||
-    input.item.kind === 'update' ||
-    input.item.kind === 'task-fields';
+  const isPatch = isPatchKind(input.item.kind);
   const validated = isPatch
     ? validatePropertyPatch({
         database: input.item.database,

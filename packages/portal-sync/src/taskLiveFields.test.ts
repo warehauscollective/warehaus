@@ -60,10 +60,13 @@ describe('task live field writes', () => {
     assert.equal(planTaskLiveFieldsWrite({ ...page, expectedLastEditedTime: '', estimate: 'S' }).ok, false);
     assert.equal(
       taskLiveFieldsWriteError({ Status: 'Done', Estimate: 'S' }),
-      'Task field updates can only set Estimate, Priority, Source, or Publish to Warehaus',
+      'Task field updates can only set Estimate, Priority, Source, Publish to Warehaus, or Next Action',
     );
     assert.equal(taskLiveFieldsWriteError({ 'Publish to Warehaus': 'yes' }), 'Publish to Warehaus must be true or false');
-    assert.equal(taskLiveFieldsWriteError({ 'Is Done': true }), 'Task field updates can only set Estimate, Priority, Source, or Publish to Warehaus');
+    assert.equal(
+      taskLiveFieldsWriteError({ 'Is Done': true }),
+      'Task field updates can only set Estimate, Priority, Source, Publish to Warehaus, or Next Action',
+    );
   });
 });
 

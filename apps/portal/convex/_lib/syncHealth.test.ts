@@ -22,7 +22,7 @@ type Health = {
 function seedOutbox(t: MemoryCtx, orgId: string, key: string, fields: { status: string; createdAt: number; nextAttemptAt: number; payload: string }) {
   return t.seed('notionOutbox', {
     idempotencyKey: key,
-    kind: 'task.update',
+    kind: 'update',
     orgId,
     database: 'tasks',
     actor: 'system',
