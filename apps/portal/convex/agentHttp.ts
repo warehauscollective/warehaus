@@ -7,6 +7,7 @@
  *   POST /agent/tasks     the task list from a planning run
  *   POST /agent/complete  end a task run, or a planning run that failed
  *   POST /agent/build     progress from the one Cursor agent on a milestone
+ *   POST /agent/ping      an idle runner saying it is alive. Reads and hands out nothing
  *
  * Each call is rate limited per runner. Claim and complete are idempotent on
  * the run: a retry returns the same run or the stored outcome.
@@ -16,7 +17,7 @@ import { internal } from './_generated/api';
 import { httpAction } from './_generated/server';
 import { authorizeRunner, reposForRunner } from './_lib/agentRun';
 
-export const AGENT_ROUTES = ['/agent/claim', '/agent/events', '/agent/tasks', '/agent/complete', '/agent/build'] as const;
+export const AGENT_ROUTES = ['/agent/claim', '/agent/events', '/agent/tasks', '/agent/complete', '/agent/build', '/agent/ping'] as const;
 
 const BODY_LIMIT = 60_000;
 
@@ -57,6 +58,8 @@ export const agentHttp = httpAction(async (ctx, request) => {
   if (!alive.ok) return json({ error: alive.error }, alive.status);
 
   const path = new URL(request.url).pathname;
+  // The touch above is the whole heartbeat: at most one write a minute.
+  if (path === '/agent/ping') return json({ ok: true }, 200);
   if (path === '/agent/claim') {
     const result = await ctx.runMutation(internal.agent.claimNext, {
       runnerId,

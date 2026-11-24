@@ -403,21 +403,22 @@ describe('who can read agent tables', () => {
     assert.equal(agent.includes('clientMutation'), false);
   });
 
-  it('exposes four staff functions and keeps every other function internal', async () => {
+  it('exposes five staff functions and keeps every other function internal', async () => {
     type Registered = { _handler?: unknown; isPublic?: boolean; isInternal?: boolean };
     const functions = Object.entries(agentModule as Record<string, unknown>).filter(
       ([, value]) => typeof (value as Registered | null)?._handler === 'function',
     ) as Array<[string, Registered]>;
     const publicNames = functions.filter(([, fn]) => fn.isPublic).map(([name]) => name).sort();
-    assert.deepEqual(publicNames, ['buildingProgress', 'feedForMilestone', 'regeneratePlan', 'retryBlocked']);
+    assert.deepEqual(publicNames, ['buildingProgress', 'feedForMilestone', 'regeneratePlan', 'retryBlocked', 'runnerHealth']);
     // Every other function is internal, so only the runner routes reach it.
     for (const [name, fn] of functions) assert.equal(fn.isPublic === true || fn.isInternal === true, true, name);
     const t = memoryCtx();
-    const { milestoneId } = building(t);
+    const { milestoneId, projectId } = building(t);
     for (const name of publicNames) {
       const fn = (agentModule as Record<string, unknown>)[name];
-      await assert.rejects(t.call(fn, { milestoneId }, { as: 'client' }), PortalAuthError, `${name} as client`);
-      await assert.rejects(t.call(fn, { milestoneId }), PortalAuthError, `${name} signed out`);
+      const args = name === 'runnerHealth' ? { projectId } : { milestoneId };
+      await assert.rejects(t.call(fn, args, { as: 'client' }), PortalAuthError, `${name} as client`);
+      await assert.rejects(t.call(fn, args), PortalAuthError, `${name} signed out`);
     }
   });
 

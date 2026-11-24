@@ -13,6 +13,7 @@ import { cursorBuild } from './drivers/cursorBuild.mjs';
 import { repoTools } from './repo.mjs';
 import { runnerClient } from '../../../packages/runner-protocol/index.mjs';
 import {
+  heartbeatSlices,
   idleDelayMs,
   parseArgs,
   parsePlanOutput,
@@ -153,6 +154,18 @@ function sleep(ms) {
   return new Promise((done) => setTimeout(done, ms));
 }
 
+/**
+ * Waits between empty polls, pinging the Portal every heartbeat so the runner
+ * health chip keeps reading Ready. A ping claims nothing. A failed one is skipped.
+ */
+async function idleWait(config, ms) {
+  const slices = heartbeatSlices(ms);
+  for (let index = 0; index < slices.length; index += 1) {
+    await sleep(slices[index]);
+    if (index < slices.length - 1) await call(config, '/agent/ping', {}).catch(() => {});
+  }
+}
+
 async function main() {
   const parsed = parseArgs(process.argv.slice(2));
   if (!parsed.ok) {
@@ -216,7 +229,7 @@ async function main() {
     }
     if (parsed.options.once) break;
     if (buildStillRunning) await sleep(idleDelayMs(1));
-    else if (work.kind !== 'task' && work.kind !== 'planning' && work.kind !== 'build') await sleep(idleDelayMs(empty));
+    else if (work.kind !== 'task' && work.kind !== 'planning' && work.kind !== 'build') await idleWait(config, idleDelayMs(empty));
   }
 }
 

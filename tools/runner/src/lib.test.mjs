@@ -6,6 +6,8 @@ import {
   childEnv,
   defaultBranchName,
   hookEvent,
+  HEARTBEAT_MS,
+  heartbeatSlices,
   idleDelayMs,
   isMilestoneBranch,
   parseArgs,
@@ -210,6 +212,22 @@ describe('task outcome', () => {
     assert.equal(idleDelayMs(1), 60_000);
     assert.equal(idleDelayMs(2), 120_000);
     assert.equal(idleDelayMs(9), 300_000);
+  });
+
+  it('pings every 75 seconds through a long wait, and not at all through a short one', () => {
+    assert.equal(HEARTBEAT_MS, 75_000);
+    assert.deepEqual(heartbeatSlices(60_000), [60_000]);
+    assert.deepEqual(heartbeatSlices(120_000), [75_000, 45_000]);
+    assert.deepEqual(heartbeatSlices(300_000), [75_000, 75_000, 75_000, 75_000]);
+    assert.deepEqual(heartbeatSlices(0), [0]);
+    for (const wait of [60_000, 120_000, 240_000, 300_000]) {
+      const slices = heartbeatSlices(wait);
+      assert.equal(slices.reduce((sum, slice) => sum + slice, 0), wait);
+      assert.equal(Math.max(...slices) <= HEARTBEAT_MS, true);
+    }
+    const cli = read('./cli.mjs');
+    assert.match(cli, /await idleWait\(config, idleDelayMs\(empty\)\)/);
+    assert.match(cli, /call\(config, '\/agent\/ping', \{\}\)\.catch\(\(\) => \{\}\)/);
   });
 });
 

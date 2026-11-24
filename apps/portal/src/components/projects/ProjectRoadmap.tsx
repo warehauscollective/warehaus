@@ -59,6 +59,7 @@ import { ProjectResources, ActivityList } from './roadmapParts';
 import { MilestoneListCard } from './MilestoneListCard';
 import { CreateMilestone } from './MilestoneForms';
 import { MilestoneDetail } from './MilestoneDetailView';
+import { RunnerHealth } from './RunnerStatus';
 
 export { lastReviewLabel, AWAITING_MERGE_LINE, clientTileDate, milestoneTileDate, milestoneTileHeadline, milestoneTileStatus, tileProgressLabel, tileMetaLine, resourceAudienceLine, milestoneDetachOptions, inclusiveProgressCopy } from './milestoneTile';
 export type { MilestoneActivityItem } from './milestoneTile';
@@ -422,6 +423,13 @@ export function ProjectRoadmap({
   );
 
   const page = Boolean(onBackToProjects);
+  // Add repo on the runner chip: the repository setting sits on Project details.
+  const openRepoSetting = () => {
+    setProjectTab('details');
+    window.setTimeout(() => {
+      document.querySelector('[data-testid="project-repo-setting"]')?.scrollIntoView({ block: 'center' });
+    }, 50);
+  };
 
   return (
     <section data-testid="project-roadmap" className="flex flex-col gap-6">
@@ -475,7 +483,17 @@ export function ProjectRoadmap({
                 page && projectTab === 'resources' ? (
                   <MilestoneListButton onClick={() => setGrillingOpen(true)}>Start grilling</MilestoneListButton>
                 ) : (
-                  <MilestoneListButton onClick={() => setCreateOpen(true)}>New milestone</MilestoneListButton>
+                  <div data-testid="project-heading-actions" className="flex min-w-0 flex-col items-start gap-6 lg:flex-row lg:items-center lg:gap-4">
+                    <RunnerHealth
+                      projectId={project.id}
+                      staff={staff}
+                      fixtures={fixtures}
+                      live={live}
+                      hostSlug={hostSlug}
+                      onAddRepo={page && details ? openRepoSetting : undefined}
+                    />
+                    <MilestoneListButton onClick={() => setCreateOpen(true)}>New milestone</MilestoneListButton>
+                  </div>
                 )
               ) : null
             }

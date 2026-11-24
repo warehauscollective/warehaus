@@ -1,8 +1,8 @@
 /**
  * The runner's side of a milestone: claim a task or a planning job, record
  * what happened, and finish. Every function here is internal and is reached
- * only through the runner HTTP routes in `agentHttp.ts`, plus one staff query
- * for the run feed. No client query reads `agentRuns`, `agentEvents` or
+ * only through the runner HTTP routes in `agentHttp.ts`, plus the staff queries
+ * for the run feed and the runner health chip. No client query reads `agentRuns`, `agentEvents` or
  * `agentRunners`. Nothing here calls a model.
  */
 
@@ -16,6 +16,7 @@ import {
   RUN_ENDED,
   RUN_NOT_FOUND,
   RUN_NOT_YOURS,
+  agentRepo,
   blockedNote,
   buildAgent,
   buildTaskState,
@@ -49,6 +50,8 @@ import { PORTAL_MILESTONE_TASK_SOURCE, plannerDraftToArchive, stageForNewMilesto
 import { loadClaimableTasks, loadMilestoneTaskSet, type LoadedTask } from './_lib/milestoneTaskSet';
 import { PortalAuthError } from './_lib/identity';
 import { adminMutation, adminQuery } from './_lib/wrappers';
+import { runnersAllowedFor, type RunnerHealthView } from './_lib/runnerHealth';
+import { PRODUCTION_DEPLOYMENT } from './_lib/reviewPreview';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { planningRunsInWindow, queuePlanning } from './planningQueue';
 
@@ -1274,6 +1277,65 @@ export const feedForMilestone = adminQuery({
         milestone.status === 'Building'
           ? await waitingOnPersonNames(ctx, milestone)
           : [],
+    };
+  },
+});
+
+/** Running runs one runner is checked for. A runner holds one at a time. */
+const HEALTH_RUN_SCAN = 5;
+/** Milestones read to find one in Building. Same cap as the agent lock. */
+const HEALTH_MILESTONE_SCAN = 100;
+
+/**
+ * Staff runner health for one project: is a repository set, which runners
+ * may serve it, when each last called, and what is being worked on. Indexed
+ * and capped. Runner ids and names only: a token never leaves this function.
+ * Clients have no query here.
+ */
+export const runnerHealth = adminQuery({
+  args: { projectId: v.id('projects') },
+  handler: async (ctx, args): Promise<RunnerHealthView | null> => {
+    const project = await ctx.db.get(args.projectId);
+    if (!project) return null;
+    const repo = agentRepo(project.agentRepo);
+    const production = (process.env.CONVEX_CLOUD_URL ?? '').includes(PRODUCTION_DEPLOYMENT);
+    if (!repo) return { repoSet: false, repo: null, production, runnerAllowed: false, runners: [], working: null, building: null };
+    const ids = runnersAllowedFor(process.env.RUNNER_TOKENS, repo);
+    if (ids.length === 0) return { repoSet: true, repo, production, runnerAllowed: false, runners: [], working: null, building: null };
+    const runners: RunnerHealthView['runners'] = [];
+    let working: RunnerHealthView['working'] = null;
+    for (const id of ids) {
+      const row = await ctx.db
+        .query('agentRunners')
+        .withIndex('by_runnerId', (q) => q.eq('runnerId', id))
+        .unique();
+      runners.push({ id, lastSeenAt: row?.lastSeenAt ?? null });
+      if (working) continue;
+      const runs = await ctx.db
+        .query('agentRuns')
+        .withIndex('by_runner_status', (q) => q.eq('runnerId', id).eq('status', 'running'))
+        .take(HEALTH_RUN_SCAN);
+      for (const run of runs) {
+        const milestone = await ctx.db.get(run.milestoneId);
+        if (milestone && milestone.projectId === project._id) {
+          working = { milestoneId: milestone._id, milestoneName: milestone.name };
+          break;
+        }
+      }
+    }
+    const milestones = await ctx.db
+      .query('milestones')
+      .withIndex('by_projectId', (q) => q.eq('projectId', project._id))
+      .take(HEALTH_MILESTONE_SCAN);
+    const held = milestones.find((row) => row.status === 'Building' && row.archivedAt == null);
+    return {
+      repoSet: true,
+      repo,
+      production,
+      runnerAllowed: true,
+      runners,
+      working,
+      building: held ? { milestoneId: held._id, milestoneName: held.name } : null,
     };
   },
 });
