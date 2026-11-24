@@ -14,7 +14,8 @@ import { describe, it } from 'node:test';
 import { claimNext, completeTask, recordEvent, releaseStuckRuns, reportBuild, retryBlocked, writePlannedTasks } from '../agent';
 import { AGENT_DRIVER_LOCKED, setAgentDriver } from '../projects';
 import { PortalAuthError } from './identity';
-import { addTask, listForClientProject, reviewForApi } from '../milestones';
+import { addTask, listForClientProject, reviewForApi, setStatus } from '../milestones';
+import { CHAT_CHANGES_NOTE } from './milestoneReview';
 import { createMilestone, updateMilestone } from '../portalApi';
 import { applyInbound } from '../sync/inbound';
 import { buildRoadmap, roadmapViewForAudience } from './milestones';
@@ -207,12 +208,16 @@ describe('milestone loop, bot to Shipped', () => {
     assert.equal(changes.ok, true, changes.error ?? '');
     assert.equal(changes.iteration, 2);
     assert.equal(changes.createdTaskIds?.length, 2);
-    assert.equal(milestone().status, 'Building');
+    // A Grok Bot review waits at Awaiting Go with a note for staff (ADR-0005). Only staff start the build.
+    assert.equal(milestone().status, 'Awaiting Go');
     assert.equal(milestone().approval, 'changes_requested');
+    assert.equal(t.rows('milestoneNotes').some((note) => note.body === CHAT_CHANGES_NOTE), true);
     // Peter answered, so nothing waits on him.
     assert.equal(openNotes().length, 0);
-    // The move back to Building went through the one writer: one status row.
+    // The move went through the one writer: one status row.
     assert.equal(statusRows(), statusRowsBefore + 1);
+    await t.call(setStatus, { milestoneId, status: 'Building' }, { as: 'staff' });
+    assert.equal(milestone().status, 'Building');
     const review = tasks().filter((task) => taskOrigin({ origin: task.origin as string, source: task.source as string }) === 'review');
     assert.deepEqual(
       review.map((task) => [task.name, task.round]),

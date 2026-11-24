@@ -279,6 +279,17 @@ export function historyPageLimit(value: number | null | undefined): number {
   return Math.min(50, Math.max(1, Math.floor(value)));
 }
 
+/**
+ * Where a change request sends the milestone. From the Portal it goes back to
+ * Building. From Grok Bot chat it waits at Awaiting Go: only staff start a
+ * build (ADR-0005).
+ */
+export function requestChangesTarget(source: string | null | undefined): 'Building' | 'Awaiting Go' {
+  return source === 'chat' ? 'Awaiting Go' : 'Building';
+}
+
+export const CHAT_CHANGES_NOTE = 'Peter asked for changes in Grok Bot. The milestone waits at Awaiting Go until staff start the build.';
+
 export function planReview(input: PlanReviewInput): PlanReview {
   const actor = reviewActorDecision(input.actor, input.decision);
   if (!actor.ok) return actor;
@@ -298,7 +309,7 @@ export function planReview(input: PlanReviewInput): PlanReview {
   if (iteration !== input.currentIteration) {
     return { ok: false, reason: `${STALE_ITERATION} Current iteration is ${input.currentIteration}.` };
   }
-  const moved = transitionMilestone({ from: input.status, cause: input.decision });
+  const moved = transitionMilestone({ from: input.status, cause: input.decision, to: requestChangesTarget(input.actor.source) });
   if (!moved.ok) return { ok: false, reason: moved.reason };
   if (!input.hasPreview) return { ok: false, reason: WAITING_ON_BUILD };
   if (input.decision === 'approve') {
