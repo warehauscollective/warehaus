@@ -49,7 +49,10 @@ npx convex env set BETTER_AUTH_SECRET '…'
 npx convex env set RESEND_API_KEY 're_…'             # Warehaus Pro Resend (warehaus.studio verified)
 npx convex env set EMAIL_FROM 'Warehaus Portal <portal@warehaus.studio>'
 npx convex env set EMAIL_REPLY_TO 'peter@warehaus.co'
+npx convex env set GITHUB_PR_READ_TOKEN 'github_pat_…'  # read-only: Pull requests Read on warehauscollective/warehaus
 ```
+
+`GITHUB_PR_READ_TOKEN` signs the merge check that runs when a task moves to Shipped. Without it the check reads GitHub unsigned, shares a 60-an-hour limit per IP with other Convex tenants, and is usually refused as rate limited. Use a fine-grained token with only Pull requests: Read on this repo. Never reuse `REVIEW_PREVIEW_GITHUB_TOKEN`.
 
 Password reset UI: `/forgot-password` → Resend email → `/reset-password?token=…`.
 Send from `Warehaus Portal <portal@warehaus.studio>` via `EMAIL_FROM`. `warehaus.studio` is verified in Resend.

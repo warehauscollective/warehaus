@@ -1,6 +1,10 @@
 /**
- * One public GitHub read when staff set a task to Shipped.
- * No token. The review-preview token is not used here. No polling.
+ * One GitHub read when staff set a task to Shipped. No polling.
+ *
+ * Signed with `GITHUB_PR_READ_TOKEN` when it is set: a read-only token for
+ * pull requests on this repo. Unsigned reads share GitHub's 60-an-hour limit
+ * per IP with every other tenant on Convex's servers, so they are usually
+ * refused. The review-preview token is never used here.
  */
 
 const PULL = /^(?:https:\/\/)?github\.com\/([^/\s]+)\/([^/\s]+)\/pull\/(\d+)\/?$/i;
@@ -67,26 +71,41 @@ function rateLimited(response: Response): boolean {
   return response.headers.get('retry-after') != null;
 }
 
-/** Public pull request read. Sends no credential. */
+export const PR_READ_TOKEN_ENV = 'GITHUB_PR_READ_TOKEN';
+
+function prReadToken(): string | null {
+  const value = typeof process !== 'undefined' ? process.env[PR_READ_TOKEN_ENV]?.trim() : '';
+  return value ? value : null;
+}
+
+/**
+ * Pull request read. Signed when a read token is set. A token GitHub refuses
+ * (401) falls back to one unsigned read, so a bad token never blocks Shipped
+ * on its own.
+ */
 export async function verifyPullMerged(input: {
   link: string;
   fetchImpl?: typeof fetch;
+  /** Read token. Omitted means `GITHUB_PR_READ_TOKEN`; null means unsigned. */
+  token?: string | null;
 }): Promise<{ ok: true; link: string } | { ok: false; error: string }> {
   const parsed = parsePullRequestRef(input.link);
   if (!parsed) return { ok: false, error: SHIPPED_NEEDS_LINK };
   const fetchImpl = input.fetchImpl ?? fetch;
+  const token = input.token === undefined ? prReadToken() : input.token;
+  const read = (signed: boolean) =>
+    fetchImpl(`https://api.github.com/repos/${SHIP_OWNER}/${SHIP_REPO}/pulls/${parsed.number}`, {
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        ...(signed && token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      signal: AbortSignal.timeout(8000),
+    });
   let response: Response;
   try {
-    response = await fetchImpl(
-      `https://api.github.com/repos/${SHIP_OWNER}/${SHIP_REPO}/pulls/${parsed.number}`,
-      {
-        headers: {
-          Accept: 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-        signal: AbortSignal.timeout(8000),
-      },
-    );
+    response = await read(Boolean(token));
+    if (token && response.status === 401) response = await read(false);
   } catch {
     return { ok: false, error: SHIPPED_UNVERIFIED };
   }
