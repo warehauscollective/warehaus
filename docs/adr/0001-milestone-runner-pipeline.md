@@ -79,3 +79,12 @@ Peter gave the go for auto-planning and agent choice at 4:40 PM ET. These points
 - A failed or stuck run is blocked, shows its reason, and appears in `list_needs_peter`. Staff retry it. It is not put straight back in the queue.
 - Both agents share one pull request, the local preview note, and Ready to Ship. The staff Vercel preview starts when the pull request is labeled `ready-for-review`, and that preview stays on `graceful-mastiff-960`.
 - Building is still set only from the staff UI. The planning, progress, blocked, and agent screens wait for their design frames. The controls that are in now are stubs.
+
+## Amendment, 2026-11-24
+
+Peter accepted these in the architecture review on 2026-11-24. They replace the matching lines above where they differ.
+
+- **The Ready to Ship hand-off runs every time a milestone enters Ready to Ship from an earlier status**, not only when the runner finishes the last task. Play, the status menu and the staff API run it too. It stores the local preview link if missing, writes the "needs Peter" note, and adds a feed line. If tasks are still open, the note says how many.
+- **Reopening from Shipped is not a hand-off.** Restore, or an undo that lands on Ready to Ship, writes no approval note.
+- **Leaving Ready to Ship closes the open approval note**, whatever moved it: a review asking for changes, a staff move back to Building, or Parked. Approve keeps Ready to Ship and still closes the note.
+- **Every status change goes through one module**, `convex/_lib/milestoneLifecycle.ts`. It decides the Shipped gate itself from the milestone task set. Mark complete and undo use the same gate in its "no open tasks" form, which allows an empty milestone. No caller tells it the tasks are ready.

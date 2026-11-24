@@ -16,8 +16,6 @@ import {
   RUN_ENDED,
   RUN_NOT_FOUND,
   RUN_NOT_YOURS,
-  LOCAL_PREVIEW_DEFAULT,
-  approvalNote,
   blockedNote,
   buildAgent,
   buildTaskState,
@@ -45,12 +43,10 @@ import {
   trimEventPayload,
 } from './_lib/agentRun';
 import { proposedTasksDecision } from './_lib/milestoneBot';
-import { detailActivitySummary } from './_lib/milestoneDetails';
-import { writeMilestoneActivity } from './_lib/milestones';
-import { STATUS_ACTIVITY, transitionMilestone, type MilestoneStatus } from './_lib/milestoneStatus';
+import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
+import type { MilestoneStatus } from './_lib/milestoneStatus';
 import { PORTAL_MILESTONE_TASK_SOURCE, plannerDraftToArchive, stageForNewMilestoneTask } from './_lib/milestoneTasks';
 import { loadClaimableTasks, loadMilestoneTaskSet, type LoadedTask } from './_lib/milestoneTaskSet';
-import { currentIteration } from './_lib/milestoneReview';
 import { PortalAuthError } from './_lib/identity';
 import { adminMutation, adminQuery } from './_lib/wrappers';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
@@ -93,27 +89,6 @@ async function writeEvent(
     ...(input.key ? { key: input.key } : {}),
     at: input.at,
   });
-}
-
-/** One status move through the shared decision, with its activity row. */
-async function moveMilestone(
-  ctx: MutationCtx,
-  milestone: Doc<'milestones'>,
-  to: MilestoneStatus,
-  actor: string,
-  at: number,
-): Promise<boolean> {
-  const moved = transitionMilestone({ from: milestone.status, cause: 'set', to });
-  if (!moved.ok || !moved.wrote) return false;
-  await ctx.db.patch(milestone._id, { status: moved.status });
-  await writeMilestoneActivity(
-    ctx as unknown as Parameters<typeof writeMilestoneActivity>[0],
-    milestone,
-    STATUS_ACTIVITY,
-    at,
-    detailActivitySummary({ actor, from: moved.from, to: moved.status, at }),
-  );
-  return true;
 }
 
 /** Leaves one open note for Peter. Read by Grok Bot through the staff API. */
@@ -676,31 +651,16 @@ async function markReady(
   }
   await tooManyTasksNote(ctx, milestone, { open: false });
   if (!loaded.set.allDone) return milestone.status;
-  const moved = await moveMilestone(ctx, milestone, 'Ready to Ship', `Runner ${runnerId}`, now);
-  if (!moved) return milestone.status;
-  const localPreviewUrl = milestone.localPreviewUrl ?? LOCAL_PREVIEW_DEFAULT;
-  if (!milestone.localPreviewUrl) await ctx.db.patch(milestone._id, { localPreviewUrl });
-  await answerNotes(ctx, milestone._id, { reason: 'approval' });
-  await needsPeter(ctx, milestone, {
-    reason: 'approval',
-    addedBy: `runner:${runnerId}`,
+  const moved = await changeMilestoneStatus(ctx, milestone, {
+    cause: 'set',
+    to: 'Ready to Ship',
+    actorName: `Runner ${runnerId}`,
+    noteAuthor: `runner:${runnerId}`,
     at: now,
-    body: approvalNote({
-      milestoneName: milestone.name,
-      iteration: currentIteration(milestone.iteration),
-      branch: milestone.branch ?? milestoneBranch(milestone.name),
-      prUrl,
-      prNumber: milestone.previewPrNumber ?? null,
-      localPreviewUrl,
-    }),
+    readyLine: 'All tasks done · milestone is Ready to Ship',
+    prUrl,
   });
-  await writeEvent(ctx, {
-    orgId: milestone.orgId,
-    milestoneId: milestone._id,
-    type: 'ready',
-    summary: 'All tasks done · milestone is Ready to Ship',
-    at: now + 1,
-  });
+  if (!moved.ok || !moved.wrote) return milestone.status;
   return 'Ready to Ship';
 }
 

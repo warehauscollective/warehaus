@@ -285,7 +285,7 @@ describe('server enforcement', () => {
     const end = source.indexOf('export const decide');
     const block = source.slice(start, end);
     assert.ok(start > 0 && end > start);
-    assert.match(block, /transitionMilestone/);
+    assert.match(block, /changeMilestoneStatus/);
     assert.doesNotMatch(block, /isPeterEmail/);
     assert.match(block, /projectMoveDecision/);
     assert.match(block, /taskIdsToMove/);
@@ -301,10 +301,11 @@ describe('server enforcement', () => {
     assert.match(statusBlock, /expected: args\.expectedStatus/);
     // Every status write goes through the one writer, which skips a no-op.
     assert.equal(statusBlock.includes('ctx.db.patch'), false);
-    assert.match(statusBlock, /writeStatus\(ctx, milestone, moved, ctx\.identity\.name\)/);
-    const writer = source.slice(source.indexOf('async function writeStatus'), source.indexOf('async function replaceResources'));
-    assert.match(writer, /if \(!decision\.wrote\) return false;/);
-    assert.equal(writer.match(/logMilestone\(/g)?.length, 1);
+    assert.match(statusBlock, /changeMilestoneStatus\(ctx, milestone, \{/);
+    const lifecycle = readFileSync(new URL('./milestoneLifecycle.ts', import.meta.url), 'utf8');
+    const writer = lifecycle.slice(lifecycle.indexOf('export async function changeMilestoneStatus'));
+    assert.match(writer, /if \(!moved\.wrote\) return moved;/);
+    assert.equal(writer.match(/writeMilestoneActivity\(/g)?.length, 1);
     assert.match(block, /wrote: false/);
     assert.match(block, /'milestone\.project'/);
     assert.doesNotMatch(block, /clientMutation/);

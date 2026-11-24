@@ -16,7 +16,6 @@ import type { MilestoneCreatedVia, TaskOrigin } from './milestoneTasks';
 import { classifyMilestoneTasks, roadmapCounts, taskSetGroups } from './milestoneTaskSet';
 
 export const MILESTONE_APPROVALS = ['unreviewed', 'approved', 'changes_requested'] as const;
-export const HUMAN_DECISIONS = ['approved', 'changes_requested'] as const;
 
 export const MILESTONE_ACTIVITY = {
   ready: 'milestone.ready',
@@ -28,7 +27,6 @@ export const MILESTONE_ACTIVITY = {
 } as const;
 
 export type MilestoneApproval = (typeof MILESTONE_APPROVALS)[number];
-export type HumanDecision = (typeof HUMAN_DECISIONS)[number];
 export type MilestoneActor = 'human' | 'ai';
 export type MilestoneActivityType = (typeof MILESTONE_ACTIVITY)[keyof typeof MILESTONE_ACTIVITY];
 
@@ -51,10 +49,6 @@ export type MilestoneProjectGate = {
 };
 
 type Rule = { ok: true } | { ok: false; reason: string };
-
-export function isHumanDecision(value: string): value is HumanDecision {
-  return (HUMAN_DECISIONS as readonly string[]).includes(value);
-}
 
 /** Ordered text lines. Empty lines drop. Nothing becomes a checkbox or a task. */
 export function normalizeGoals(goals: readonly string[]): string[] {
@@ -283,51 +277,6 @@ export function detachTaskDecision(input: {
     return { ok: false, reason: 'Task is not on this milestone' };
   }
   return { ok: true };
-}
-
-export function applyHumanDecision(input: {
-  actor: MilestoneActor;
-  decision: string;
-  note: string;
-  approverContactId: string;
-  at: number;
-  tasks: readonly { id: string; isDone: boolean; status: string; stage: string | null }[];
-}):
-  | {
-      ok: true;
-      patch: {
-        approval: HumanDecision;
-        note: string;
-        approverContactId: string;
-        decidedAt: number;
-        status?: 'Building';
-      };
-      activityType: 'milestone.approved' | 'milestone.changes_requested';
-      taskWrites: readonly [];
-      tasks: typeof input.tasks;
-    }
-  | { ok: false; reason: string } {
-  if (input.actor !== 'human') return { ok: false, reason: AI_CANNOT_DECIDE };
-  if (!isHumanDecision(input.decision)) {
-    return { ok: false, reason: 'Approval must be approved or changes requested' };
-  }
-  const note = input.note.trim();
-  if (!note) return { ok: false, reason: 'A note is required' };
-  if (!input.approverContactId.trim()) return { ok: false, reason: 'Approver is required' };
-  return {
-    ok: true,
-    patch: {
-      approval: input.decision,
-      note,
-      approverContactId: input.approverContactId,
-      decidedAt: input.at,
-      ...(input.decision === 'changes_requested' ? { status: 'Building' as const } : {}),
-    },
-    activityType:
-      input.decision === 'approved' ? MILESTONE_ACTIVITY.approved : MILESTONE_ACTIVITY.changesRequested,
-    taskWrites: [],
-    tasks: input.tasks,
-  };
 }
 
 export type RoadmapTaskInput = {
