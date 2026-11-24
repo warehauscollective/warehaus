@@ -1,4 +1,5 @@
 // Pure helpers for the runner. No network, no child processes, no file writes.
+import { COMPLETE_STATUSES, PLAN_TASKS_MAX, PLAN_TASKS_MIN, isMilestoneBranch } from '../../../packages/runner-protocol/index.mjs';
 
 export const RUNNER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
 export const PRODUCTION_DEPLOYMENT = 'unique-turtle-383';
@@ -132,10 +133,8 @@ export function worktreeName(branch) {
   return branch.replace(/[^a-zA-Z0-9._-]+/g, '-').replace(/^-+|-+$/g, '');
 }
 
-/** Only `milestone/<slug>` branches are ever created or pushed. */
-export function isMilestoneBranch(branch) {
-  return /^milestone\/[a-z0-9][a-z0-9-]{0,47}$/.test(branch);
-}
+/** Only `milestone/<slug>` branches are ever created or pushed. The rule lives in the protocol. */
+export { isMilestoneBranch };
 
 function fill(template, values) {
   return template.replace(/\{\{(\w+)\}\}/g, (_, key) => (key in values ? String(values[key]) : ''));
@@ -178,7 +177,9 @@ export function parsePlan(text) {
   }
   const tasks = Array.isArray(parsed) ? parsed : parsed?.tasks;
   if (!Array.isArray(tasks)) return { ok: false, error: 'The planner needs a "tasks" list.' };
-  if (tasks.length < 3 || tasks.length > 10) return { ok: false, error: 'A plan has 3 to 10 tasks.' };
+  if (tasks.length < PLAN_TASKS_MIN || tasks.length > PLAN_TASKS_MAX) {
+    return { ok: false, error: `A plan has ${PLAN_TASKS_MIN} to ${PLAN_TASKS_MAX} tasks.` };
+  }
   const out = [];
   for (const task of tasks) {
     const title = typeof task === 'string' ? task : task?.title;
@@ -240,9 +241,10 @@ export function parseGitLog(text) {
 /** How a finished task run is reported. A blocked file wins. No new commit means the task goes back. */
 export function taskOutcome({ before, after, blockedReason }) {
   const reason = (blockedReason ?? '').replace(/\s+/g, ' ').trim();
-  if (reason) return { status: 'blocked', reason: reason.slice(0, 240), ...(after && after !== before ? { commitSha: after } : {}) };
-  if (!after || after === before) return { status: 'failed', reason: 'The run ended with no new commit' };
-  return { status: 'done', commitSha: after };
+  const [done, blocked, failed] = COMPLETE_STATUSES;
+  if (reason) return { status: blocked, reason: reason.slice(0, 240), ...(after && after !== before ? { commitSha: after } : {}) };
+  if (!after || after === before) return { status: failed, reason: 'The run ended with no new commit' };
+  return { status: done, commitSha: after };
 }
 
 /** Idle wait before the next claim: one minute, doubling to five while nothing is waiting. */

@@ -10,6 +10,8 @@ A milestone holds an ordered task list. The runner is a CLI on a staff Mac. It c
 
 Code: `tools/runner/`, `apps/portal/convex/agent.ts`, `apps/portal/convex/agentHttp.ts`, `apps/portal/convex/_lib/agentRun.ts`.
 
+The wire rules both sides share (routes, plan size, task outcomes, branch shape, the runner's HTTP client) live in `packages/runner-protocol`, a plain ESM package the runner imports with no build.
+
 ## Decisions
 
 1. **Two previews. Peter approves from the local one.** Local is `npm run preview:pr -- milestone/<slug>` on his Mac against shared dev `graceful-mastiff-960`. It is the link in every approval request. The Vercel branch preview is for staff only and is never the link he is asked to approve from. Neither ever points at production `unique-turtle-383`.

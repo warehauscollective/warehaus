@@ -3,10 +3,11 @@
  * Grok Bot and Claude. Pure. No Convex imports.
  */
 
+import { PLAN_TASKS_MAX, PLAN_TASKS_MIN } from '@warehaus/runner-protocol';
 import type { MilestoneCreatedVia } from './milestoneTasks';
 
-export const PROPOSED_TASKS_MIN = 3;
-export const PROPOSED_TASKS_MAX = 10;
+export const PROPOSED_TASKS_MIN = PLAN_TASKS_MIN;
+export const PROPOSED_TASKS_MAX = PLAN_TASKS_MAX;
 export const PROPOSED_TASKS_SHAPE = 'proposedTasks must be a list of task titles, or of objects with a title';
 export const PROPOSED_TASKS_COUNT = `Propose ${PROPOSED_TASKS_MIN} to ${PROPOSED_TASKS_MAX} tasks, or none`;
 export const PROPOSED_TASK_TITLE = 'Every proposed task needs a title under 200 characters';

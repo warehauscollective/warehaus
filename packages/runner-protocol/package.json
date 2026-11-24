@@ -1,0 +1,20 @@
+{
+  "name": "@warehaus/runner-protocol",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The wire between the build runner and the portal's /agent HTTP routes. Plain ESM so the runner imports it with no build.",
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./index.mjs"
+    }
+  },
+  "files": [
+    "index.mjs",
+    "index.d.ts"
+  ],
+  "scripts": {
+    "test": "node --test index.test.mjs"
+  }
+}

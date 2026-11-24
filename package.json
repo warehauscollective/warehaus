@@ -18,7 +18,7 @@
     "test:preflight": "node --test scripts/preflight-portal-dev.test.mjs",
     "test:preview-pr": "node --test scripts/preview-pr.test.mjs",
     "runner": "node tools/runner/src/cli.mjs",
-    "test:runner": "node --test tools/runner/src/lib.test.mjs tools/runner/src/cursorFlow.test.mjs",
+    "test:runner": "node --test tools/runner/src/lib.test.mjs tools/runner/src/cursorFlow.test.mjs packages/runner-protocol/index.test.mjs",
     "build": "turbo run build",
     "build:web": "turbo run build --filter=@warehaus/web",
     "build:portal": "turbo run build --filter=@warehaus/portal",

@@ -11,6 +11,7 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cursorBuild } from './drivers/cursorBuild.mjs';
 import { repoTools } from './repo.mjs';
+import { runnerClient } from '../../../packages/runner-protocol/index.mjs';
 import {
   idleDelayMs,
   parseArgs,
@@ -31,27 +32,11 @@ function say(message) {
   process.stdout.write(`[runner] ${message}\n`);
 }
 
-async function call(config, path, body) {
-  const response = await fetch(`${config.url}${path}`, {
-    method: 'POST',
-    headers: {
-      authorization: `Bearer ${config.token}`,
-      'x-runner-id': config.id,
-      'content-type': 'application/json',
-    },
-    body: JSON.stringify(body),
-  });
-  let data = null;
-  try {
-    data = await response.json();
-  } catch {
-    data = null;
-  }
-  if (!response.ok) {
-    const reason = data && typeof data.error === 'string' ? data.error : `HTTP ${response.status}`;
-    throw new Error(`${path}: ${reason}`);
-  }
-  return data ?? {};
+/** One protocol client per runner config. */
+const clients = new WeakMap();
+function client(config) {
+  if (!clients.has(config)) clients.set(config, runnerClient({ url: config.url, token: config.token, runnerId: config.id }));
+  return clients.get(config);
 }
 
 const tools = repoTools({ say });
@@ -121,12 +106,12 @@ async function doTask(config, work) {
     const pushed = git(dir, ['push', '-u', 'origin', work.milestone.branch]);
     if (!pushed.ok) {
       say(`Push failed: ${pushed.err}`);
-      await call(config, '/agent/complete', { runId: work.runId, status: 'failed', reason: 'The push to origin failed' });
+      await client(config).completeTask({ runId: work.runId, status: 'failed', reason: 'The push to origin failed' });
       return;
     }
   }
   const prUrl = outcome.commitSha ? ensurePullRequest(dir, work) : null;
-  const result = await call(config, '/agent/complete', { runId: work.runId, ...outcome, ...(prUrl ? { prUrl } : {}) });
+  const result = await client(config).completeTask({ runId: work.runId, ...outcome, ...(prUrl ? { prUrl } : {}) });
   if (result.milestoneStatus === 'Ready to Ship') markReadyForReview(dir, work.milestone.branch);
   say(`Reported ${outcome.status}${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
 }
@@ -143,10 +128,10 @@ async function doPlanning(config, work) {
   const plan = parsePlanOutput(planned.out);
   if (!plan.ok) {
     say(`No usable plan: ${plan.error}`);
-    await call(config, '/agent/complete', { runId: work.runId, kind: 'planning', reason: plan.error });
+    await client(config).failPlanning({ runId: work.runId, reason: plan.error });
     return;
   }
-  const result = await call(config, '/agent/tasks', { runId: work.runId, tasks: plan.tasks });
+  const result = await client(config).writeTasks({ runId: work.runId, tasks: plan.tasks });
   say(`Wrote ${plan.tasks.length} tasks${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
 }
 
@@ -159,7 +144,7 @@ function doBuild(config, work) {
     work,
     key: (process.env.CURSOR_API_KEY ?? '').trim(),
     tools,
-    call: (path, body) => call(config, path, body),
+    call: (path, body) => client(config).post(path, body),
     say,
   });
 }
@@ -198,7 +183,7 @@ async function main() {
   for (;;) {
     let work;
     try {
-      work = await call(config, '/agent/claim', { mode: config.mode, repos: config.repos });
+      work = await client(config).claim({ mode: config.mode, repos: config.repos });
     } catch (error) {
       say(error.message);
       if (parsed.options.once) process.exit(1);
@@ -215,14 +200,15 @@ async function main() {
         else await doPlanning(config, work);
       } catch (error) {
         say(error.message);
-        const body =
+        const reason = 'The runner hit an error';
+        const api = client(config);
+        const report =
           work.kind === 'build'
-            ? { runId: work.runId, status: 'failed', reason: 'The runner hit an error' }
+            ? api.reportBuild({ runId: work.runId, status: 'failed', reason })
             : work.kind === 'task'
-              ? { runId: work.runId, status: 'failed', reason: 'The runner hit an error' }
-              : { runId: work.runId, kind: 'planning', reason: 'The runner hit an error' };
-        const path = work.kind === 'build' ? '/agent/build' : '/agent/complete';
-        await call(config, path, body).catch((failed) => say(failed.message));
+              ? api.completeTask({ runId: work.runId, status: 'failed', reason })
+              : api.failPlanning({ runId: work.runId, reason });
+        await report.catch((failed) => say(failed.message));
       }
     } else {
       empty += 1;
