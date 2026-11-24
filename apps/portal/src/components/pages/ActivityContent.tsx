@@ -5,9 +5,7 @@ import { ActivityFeedRow } from '@/components/activity/ActivityFeedRow';
 import { activityFilterFadeOnScroll, scrollActiveIntoView, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
-import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
-import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import {
   CLIENT_ACTIVITY_ERROR,
@@ -18,23 +16,9 @@ import {
   withActivityLongPreview,
   type ActivityFilter,
 } from '@/lib/data/activity';
-import { FIXTURE_CLIENT_ACTIVITY_PAGE, FIXTURE_STAFF_ACTIVITY_PAGE } from '@/lib/data/fixtures';
+import { useActivityPage } from '@/lib/data/activityPage';
 import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
-
-type ActivityPreview = 'empty' | 'loading' | 'error' | 'long' | null;
-
-function useActivityPreview(fixtures: boolean): ActivityPreview {
-  const [preview, setPreview] = useState<ActivityPreview>(null);
-  useEffect(() => {
-    if (!fixtures) return;
-    const value = new URLSearchParams(window.location.search).get('activity');
-    if (value === 'empty' || value === 'loading' || value === 'error' || value === 'long') {
-      setPreview(value);
-    }
-  }, [fixtures]);
-  return preview;
-}
 
 function filterForSection(section: string, staff: boolean): ActivityFilter {
   if (section === 'tasks') return 'tasks';
@@ -46,10 +30,9 @@ function filterForSection(section: string, staff: boolean): ActivityFilter {
 export function ActivityContent() {
   const { sectionFor, setSectionFor } = usePortalView();
   const { data } = usePortalData();
-  const fixtures = useFixturePreview();
-  const feed = useActivityFeed();
-  const preview = useActivityPreview(fixtures);
   const staff = data.tenant.mode === 'team';
+  const page = useActivityPage(staff);
+  const preview = page.preview;
   const narrow = useMaxWidth(480);
   const section = sectionFor('activity');
   const [filter, setFilter] = useState<ActivityFilter>('all');
@@ -59,13 +42,9 @@ export function ActivityContent() {
     setFilter(filterForSection(section, staff));
   }, [section, staff]);
 
-  const source = fixtures
-    ? staff
-      ? FIXTURE_STAFF_ACTIVITY_PAGE
-      : FIXTURE_CLIENT_ACTIVITY_PAGE
-    : feed.items;
-  const failed = preview === 'error' || (!fixtures && Boolean(feed.error));
-  const busy = preview === 'loading' || (!fixtures && feed.loading && !failed);
+  const source = page.items;
+  const failed = page.failed;
+  const busy = page.loading;
   // The clock and the viewer's zone are read only after mount. Reading them
   // during render made the server's "5m ago" differ from the client's.
   const [mounted, setMounted] = useState(false);

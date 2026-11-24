@@ -2,8 +2,6 @@
 
 import { useEffect, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { api } from '@convex/_generated/api';
-import type { Id } from '@convex/_generated/dataModel';
 import { TeamInvites } from '@/components/pages/TeamInvites';
 import { PortalToast } from '@/components/ui/PortalToast';
 import {
@@ -20,7 +18,7 @@ import type { InviteDraft } from '@/components/pages/TeamInvites';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { AccountProfile } from '@/components/account/AccountProfile';
 import { NotificationSettings } from '@/components/account/NotificationSettings';
-import { DocsStatesGallery, type DocRow } from '@/components/docs/DocsBlock';
+import { DocsStatesGallery } from '@/components/docs/DocsBlock';
 import {
   ClientCompany,
   ClientDetail,
@@ -45,18 +43,7 @@ import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
-import { isConvexConfigured } from '@/lib/convex/client';
-import {
-  FIXTURE_CLIENTS,
-  FIXTURE_CONTACTS,
-  FIXTURE_DOCS,
-  FIXTURE_PROJECTS,
-  FIXTURE_TASKS,
-} from '@/lib/data/fixtures';
-import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
-import { useSafeQuery } from '@/hooks/useSafeQuery';
-import { useStaffCrossOrg } from '@/hooks/useStaffCrossOrg';
-import { isMissingConvexFunction, staffRosterQueriesDeployed } from '@/lib/data/staffRoster';
+import { useAccountPage } from '@/lib/data/accountPage';
 import { clientTeamCrumbs, clientVisiblePerson, formatClientSince, isStudioProjectName, warehausLead, withoutClientLeaks } from '@/lib/data/clientDetail';
 import { openPortalHref } from '@/lib/nav/openPortalHref';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
@@ -113,12 +100,8 @@ const SECTION_TITLE: Record<string, string> = {
   tokens: 'API tokens',
 };
 
-type DirectoryRow = (typeof FIXTURE_CLIENTS)[number];
-
 export function AccountContent() {
   const router = useRouter();
-  const fixtures = useFixturePreview();
-  const configured = isConvexConfigured();
   const { sectionFor, setSectionFor, linkedClientId, clearLinkedClient } = usePortalView();
   const { data, error, loading: portalLoading } = usePortalData();
   const retryPortalData = useRetryPortalData();
@@ -135,10 +118,8 @@ export function AccountContent() {
   const teamTrail = clientTeamCrumbs(teamPhone);
   const [docsPreview, setDocsPreview] = useState<string | null>(null);
   const [clientScreen, setClientScreen] = useState<ClientScreen>('ready');
-  const [teamScreen, setTeamScreen] = useTeamScreen(fixtures);
   const [teamAttempt, setTeamAttempt] = useState(0);
   const [inviteDraft, setInviteDraft] = useState<InviteDraft>({ name: '', email: '' });
-  const [clientPeopleCache, setClientPeopleCache] = useState<ClientPersonRow[] | null>(null);
   const [clientFormOpen, setClientFormOpen] = useState(false);
   const [projectFormOpen, setProjectFormOpen] = useState(false);
   const [createdProjects, setCreatedProjects] = useState<Array<ClientProjectRow & { orgId: string }>>([]);
@@ -181,30 +162,19 @@ export function AccountContent() {
     }
   }, [isClient, activeSection, setSectionFor]);
 
-  const directoryState = useSafeQuery<DirectoryRow[]>(
-    api.clients.listDirectory,
-    !fixtures && configured && isStaff ? { hostSlug } : 'skip',
-  );
-  const staff = useStaffCrossOrg(!fixtures && configured && isStaff, hostSlug);
-  const roster = staffRosterQueriesDeployed();
-  const peopleState = useSafeQuery<Array<(typeof FIXTURE_CONTACTS)[number]>>(
-    api.contacts.listForOrg,
-    !fixtures && configured && isStaff && roster && clientId
-      ? { orgId: clientId as Id<'clients'>, hostSlug }
-      : 'skip',
-  );
-  const peopleMissing = isMissingConvexFunction(peopleState.error);
-  const clientPeopleState = useSafeQuery<ClientPersonRow[]>(
-    api.contacts.listForClient,
-    !fixtures && configured && isClient ? { hostSlug } : 'skip',
-  );
-  const clientDocsState = useSafeQuery<DocRow[]>(
-    api.clientDocs.listForClient,
-    !fixtures && configured && isClient ? { hostSlug } : 'skip',
-  );
+  const page = useAccountPage({
+    isStaff,
+    hostSlug,
+    clientId,
+    orgId: portalSession?.orgId,
+    snapshot: data,
+    snapshotLoading: portalLoading,
+  });
+  const preview = page.preview;
+  const [teamScreen, setTeamScreen] = useTeamScreen(preview);
   const taskPlatform = useClientTaskPlatform({
-    live: configured && !fixtures,
-    fixtures,
+    live: page.live,
+    fixtures: preview,
     hostSlug,
     mode:
       isStaff && activeSection === 'clients' && clientId
@@ -214,25 +184,7 @@ export function AccountContent() {
           : 'off',
     clientId,
   });
-  useEffect(() => {
-    if (clientPeopleState.data) setClientPeopleCache(clientPeopleState.data);
-  }, [clientPeopleState.data]);
-
-  const clients = (fixtures ? FIXTURE_CLIENTS : directoryState.data ?? []) as DirectoryRow[];
-  const projects = (
-    fixtures ? FIXTURE_PROJECTS : isStaff ? staff.projects ?? [] : data.projects
-  ) as typeof FIXTURE_PROJECTS;
-  const tasks = (fixtures ? FIXTURE_TASKS : staff.tasks ?? data.tasks) as typeof FIXTURE_TASKS;
-  const docs = (
-    fixtures ? FIXTURE_DOCS : isStaff ? staff.docs ?? [] : clientDocsState.data ?? []
-  ) as DocRow[];
-  const contacts = fixtures
-    ? FIXTURE_CONTACTS.filter((contact) => contact.orgId === (isStaff ? clientId : portalSession?.orgId))
-    : isStaff
-      ? peopleMissing
-        ? []
-        : peopleState.data ?? []
-      : clientPeopleState.data ?? [];
+  const { clients, projects, tasks, docs, contacts } = page;
 
   const selected = clients.find((client) => client.id === clientId) ?? null;
   const directory: DirectoryClient[] = clients.map((client) => {
@@ -257,26 +209,21 @@ export function AccountContent() {
   const titleLines = longClient && (clientOpen || (companyOpen && !showTeam)) ? 2 : 1;
   const showNewClient = isStaff && activeSection === 'clients' && !selected && docsPreview !== 'states';
   const retryTeam = () => {
-    if (fixtures) {
+    if (preview) {
       setTeamScreen('ready');
       return;
     }
     setTeamAttempt((attempt) => attempt + 1);
   };
   const teamPreview: TeamScreen = showTeam ? teamScreen : 'ready';
-  const teamQueryFailed = !fixtures && Boolean(clientPeopleState.error) && !clientPeopleState.data;
-  const clientTeamPeople = peopleForTeamScreen(
-    teamPreview,
-    fixtures
-      ? contacts.filter(clientVisiblePerson)
-      : (clientPeopleState.data ?? (teamQueryFailed ? clientPeopleCache : null) ?? []).filter(clientVisiblePerson),
-  ).map((person, index) =>
-    fixtures && teamPreview === 'long' && index === 0
+  const teamQueryFailed = page.team.failed;
+  const clientTeamPeople = peopleForTeamScreen(teamPreview, page.team.people.filter(clientVisiblePerson)).map((person, index) =>
+    preview && teamPreview === 'long' && index === 0
       ? { ...withoutClientLeaks(person), name: LONG_TEAM_NAME, email: LONG_TEAM_EMAIL, role: LONG_TEAM_ROLE }
       : withoutClientLeaks(person),
   ) as ClientPersonRow[];
   const retryClientScreen = () => {
-    if (fixtures) {
+    if (preview) {
       setClientScreen('ready');
       setFilter('all');
       return;
@@ -296,7 +243,7 @@ export function AccountContent() {
       ? 'Try again in a moment.'
       : clientScreen === 'refresh'
         ? 'Last synced 22 minutes ago. Lumen Dental has a sync problem.'
-        : directoryState.error;
+        : page.clientsError;
   const companyProjects =
     clientScreen === 'empty' || clientScreen === 'error'
       ? []
@@ -316,8 +263,7 @@ export function AccountContent() {
   // Fixture screens set `clientScreen`. Live data uses the snapshot and the
   // client queries, so a still-loading company cannot render as true-empty.
   const companyLoading =
-    clientScreen === 'loading' ||
-    (!fixtures && (portalLoading || clientPeopleState.loading || clientDocsState.loading));
+    clientScreen === 'loading' || page.companyLoading;
 
   const leaveClient = () => {
     setClientId(null);
@@ -392,7 +338,7 @@ export function AccountContent() {
         ) : undefined
       }
     >
-      {fixtures && docsPreview === 'states' ? (
+      {preview && docsPreview === 'states' ? (
         <PortalTilePane>
           <DocsStatesGallery />
         </PortalTilePane>
@@ -465,7 +411,7 @@ export function AccountContent() {
             }}
             onOpen={(id) => setClientId(id)}
             onCreate={isStaff ? () => setClientFormOpen(true) : undefined}
-            loading={clientScreen === 'loading' || (directoryState.loading && !fixtures)}
+            loading={clientScreen === 'loading' || page.clientsLoading}
             error={directoryError}
             errorTitle={clientScreen === 'refresh' ? 'Client list is out of date' : undefined}
             onRetry={retryClientScreen}
@@ -489,12 +435,12 @@ export function AccountContent() {
             loading={
               companyLoading ||
               teamPreview === 'loading' ||
-              (!fixtures && showTeam && clientPeopleState.loading && !clientPeopleState.data && !clientPeopleCache)
+              (showTeam && page.team.loading)
             }
             error={
               !showTeam
                 ? companyError
-                : teamPreview === 'error' || (teamQueryFailed && !clientPeopleCache?.length)
+                : teamPreview === 'error' || (teamQueryFailed && page.team.people.length === 0)
                   ? TEAM_ERROR_COPY.title
                   : teamQueryFailed
                     ? TEAM_STALE_COPY.title
@@ -522,11 +468,11 @@ export function AccountContent() {
             email={portalSession?.email ?? ''}
             role={portalSession?.role}
             orgName={isStaff ? 'Warehaus' : data.tenant.clientName}
-            ownerLane={fixtures && isStaff ? 'Dream, Design, Develop' : null}
+            ownerLane={preview && isStaff ? 'Dream, Design, Develop' : null}
             onSignOut={() => {
               void (async () => {
                 await signOut();
-                if (!fixtures) router.replace('/login');
+                if (!preview) router.replace('/login');
               })();
             }}
           />
@@ -535,14 +481,14 @@ export function AccountContent() {
 
       {activeSection === 'notifications' && (
         <PortalTilePane>
-          <NotificationSettings staff={isStaff} live={configured && !fixtures} hostSlug={hostSlug} />
+          <NotificationSettings staff={isStaff} live={page.live} hostSlug={hostSlug} />
         </PortalTilePane>
       )}
 
       {isStaff && clientFormOpen ? (
         <NewClientControl
           open
-          fixtures={fixtures}
+          fixtures={preview}
           hostSlug={hostSlug}
           onClose={() => setClientFormOpen(false)}
           onOpen={(id) => {
@@ -563,7 +509,7 @@ export function AccountContent() {
             internal: client.internal,
           }))}
           clientPreset={{ id: selected.id, name: selected.name, locked: true }}
-          fixtures={fixtures}
+          fixtures={preview}
           hostSlug={hostSlug}
           onCreated={(project) => {
             setCreatedProjects((rows) => [
@@ -598,7 +544,7 @@ export function AccountContent() {
 
       {isStaff && activeSection === 'tokens' && (
         <PortalTilePane>
-          <ApiTokensPanel live={configured && !fixtures} hostSlug={hostSlug} />
+          <ApiTokensPanel live={page.live} hostSlug={hostSlug} />
         </PortalTilePane>
       )}
 
@@ -606,8 +552,8 @@ export function AccountContent() {
         <TeamInvites
           key={teamAttempt}
           hostSlug={hostSlug}
-          configured={configured && !fixtures}
-          fixtures={fixtures}
+          configured={page.live}
+          fixtures={preview}
           screen={teamScreen}
           draft={inviteDraft}
           onDraftChange={setInviteDraft}

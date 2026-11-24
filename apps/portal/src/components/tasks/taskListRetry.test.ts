@@ -7,7 +7,10 @@ describe('task list retry and quick-add', () => {
     const projects = readFileSync(new URL('../pages/ProjectsContent.tsx', import.meta.url), 'utf8');
     const shell = readFileSync(new URL('../layout/PortalShell.tsx', import.meta.url), 'utf8');
     const swipe = readFileSync(new URL('../layout/PortalSwipeWorkspace.tsx', import.meta.url), 'utf8');
-    assert.match(projects, /useStaffCrossOrg\(/);
+    const pageData = readFileSync(new URL('../../lib/data/projectsPage.ts', import.meta.url), 'utf8');
+    // The page's data hook owns the staff queries, so remounting the page retries them.
+    assert.match(projects, /useProjectsPage\(/);
+    assert.match(pageData, /useStaffCrossOrg\(/);
     assert.match(projects, /retryPortalData\(\)/);
     assert.match(shell, /<PortalDataRetryProvider>/);
     assert.match(swipe, /<ProjectsContent \/>/);
