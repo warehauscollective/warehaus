@@ -70,7 +70,7 @@ describe('task field mutations', () => {
     const otherProject = seedProject(t, otherOrg, { name: 'Other brand' });
     const before = everything(t);
     const assignee = await t.call<Result>(setAssignee, { taskId, assigneeContactId: otherStaff }, staff);
-    assert.deepEqual(assignee, { ok: false, error: 'Choose someone on this client', assigneeName: 'Alex Bauer' });
+    assert.deepEqual(assignee, { ok: false, code: 'invalid', error: 'Choose someone on this client' });
     const project = await t.call<Result>(moveProject, { taskId, projectId: otherProject }, staff);
     assert.deepEqual(project, { ok: false, error: 'Choose a project on this client' });
     assert.deepEqual(everything(t), before);
@@ -81,7 +81,7 @@ describe('task field mutations', () => {
     const saved = await t.call<Result>(setAssignee, { taskId, assigneeContactId: maya }, staff);
     assert.equal(saved.ok, true);
     const taskAfter = t.row(taskId);
-    assert.deepEqual(changedKeys(taskBefore, taskAfter), ['assigneeContactId', 'assigneeName']);
+    assert.deepEqual(changedKeys(taskBefore, taskAfter), ['assigneeContactId', 'assigneeName', 'fieldStamps', 'updatedAt']);
     assert.equal(taskAfter?.assigneeContactId, maya);
     assert.equal(taskAfter?.assigneeName, 'Maya Chen');
     assert.equal(JSON.stringify(taskAfter).includes('Owner / DRI'), false);
@@ -156,7 +156,7 @@ describe('task field mutations', () => {
     const { t, taskId } = world({ date: '2026-10-20' });
     const before = t.row(taskId);
     const bad = await t.call<Result>(setDueDate, { taskId, date: '2026-02-31' }, staff);
-    assert.deepEqual(bad, { ok: false, error: 'Use a calendar day' });
+    assert.deepEqual(bad, { ok: false, code: 'invalid', error: 'Use a calendar day' });
     assert.deepEqual(t.row(taskId), before);
     const month = await t.call<Result>(setDueDate, { taskId, date: '2026-13-01' }, staff);
     assert.equal(month.ok, false);

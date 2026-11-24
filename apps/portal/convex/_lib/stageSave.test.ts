@@ -4,9 +4,10 @@ import { WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
 import schema from '../schema';
 import { applyOutcome, enqueue } from '../sync/outbox';
 import { processDue } from '../sync/outboxWork';
-import { DRAIN_PENDING_TAKE, drainPendingStages, enqueueLiveFields, enqueueStage, enqueueStatus } from '../sync/taskWrite';
+import { DRAIN_PENDING_TAKE, drainPendingStages, enqueueStage, enqueueStatus } from '../sync/taskWrite';
 import { upsertTask } from '../sync/upsert';
 import { detachTask } from '../milestones';
+import { updateLiveFields } from '../tasks';
 import { memoryCtx, type CallOptions, type MemoryCtx, type Respond } from './memoryCtx.testkit';
 import { seedMilestone, seedOrg, seedProject, seedTask } from './seedRows.testkit';
 
@@ -131,57 +132,47 @@ describe('taskWriteGuards stage save', () => {
     });
   });
 
-  it('returns the write-back-off error and writes nothing when the flag is not exactly true', async () => {
+  it('saves live fields in the portal and queues nothing when the flag is not exactly true', async () => {
     for (const flag of [undefined, 'TRUE', 'false', '1']) {
       const w = world();
+      w.t.actor('staff');
       const taskId = w.task({ estimate: 'S', priority: 'Low', source: 'portal', publishToWarehaus: true });
-      const before = everything(w.t);
       await withFlagValue(flag, async () => {
-        const result = await w.call(enqueueLiveFields, {
-          taskId,
-          estimate: 'M',
-          priority: 'High',
-          source: 'notion-ui',
-          publishToWarehaus: false,
-          expectedLastEditedTime: TIME,
-        });
-        assert.deepEqual(result, { ok: false, error: WRITEBACK_OFF_ERROR });
+        const result = await w.call(
+          updateLiveFields,
+          { taskId, estimate: 'M', priority: 'High', source: 'notion-ui', publishToWarehaus: false, expectedLastEditedTime: TIME },
+          { as: 'staff', respond: w.respond },
+        );
+        assert.deepEqual(result, { ok: true, wrote: true, notion: 'off', outboxIds: [] });
         const row = w.t.row(taskId);
-        assert.equal(row?.estimate, 'S');
-        assert.equal(row?.priority, 'Low');
-        assert.equal(row?.source, 'portal');
-        assert.equal(row?.publishToWarehaus, true);
+        assert.deepEqual([row?.estimate, row?.priority, row?.source, row?.publishToWarehaus], ['M', 'High', 'notion-ui', false]);
         assert.equal(w.outboxRows().length, 0);
-        assert.deepEqual(everything(w.t), before);
       });
     }
   });
 
-  it('enqueues Estimate, Priority, Source, and publish without patching the task', async () => {
+  it('saves Estimate, Priority, Source and publish, stamps them, and queues one task-fields row', async () => {
     const w = world();
+    w.t.actor('staff');
+    const staffId = String(w.t.rows('contacts').find((row) => row.authUserId === 'auth-staff')?._id);
     const taskId = w.task({ estimate: 'S', priority: 'Low', source: 'portal', publishToWarehaus: true });
-    const taskBefore = w.t.row(taskId);
     await withFlag(true, async () => {
-      const result = await w.call(enqueueLiveFields, {
-        taskId,
-        estimate: 'M',
-        priority: 'High',
-        source: 'arc',
-        publishToWarehaus: false,
-        expectedLastEditedTime: TIME,
-        actorId: 'contact-staff',
-      });
+      const result = await w.call(
+        updateLiveFields,
+        { taskId, estimate: 'M', priority: 'High', source: 'arc', publishToWarehaus: false, expectedLastEditedTime: TIME },
+        { as: 'staff', respond: w.respond },
+      );
       assert.equal(result.ok, true);
-      assert.equal(typeof result.outboxId, 'string');
+      assert.equal(result.notion, 'queued');
       assert.equal(w.outboxRows().length, 1);
       const queued = w.outboxRows()[0];
-      assert.equal(result.outboxId, queued?._id);
+      assert.deepEqual(result.outboxIds, [queued?._id]);
       assert.equal(queued?.kind, 'task-fields');
       assert.equal(queued?.database, 'tasks');
       assert.equal(queued?.notionPageId, 'page-1');
       assert.equal(queued?.expectedLastEditedTime, TIME);
       assert.equal(queued?.actor, 'staff');
-      assert.equal(queued?.actorId, 'contact-staff');
+      assert.equal(queued?.actorId, staffId);
       assert.deepEqual(JSON.parse(String(queued?.payload)).properties, {
         Estimate: 'M',
         Priority: 'High',
@@ -189,32 +180,28 @@ describe('taskWriteGuards stage save', () => {
         'Publish to Warehaus': false,
       });
       const row = w.t.row(taskId);
-      assert.equal(row?.estimate, 'S');
-      assert.equal(row?.priority, 'Low');
-      assert.equal(row?.source, 'portal');
-      assert.equal(row?.publishToWarehaus, true);
+      assert.deepEqual([row?.estimate, row?.priority, row?.source, row?.publishToWarehaus], ['M', 'High', 'arc', false]);
       assert.equal(row?.lastEditedTime, TIME);
-      assert.deepEqual(row, taskBefore);
+      const stamps = row?.fieldStamps as Record<string, { updatedBy: string }>;
+      assert.deepEqual(
+        ['estimate', 'priority', 'source', 'publishToWarehaus'].map((field) => stamps[field]?.updatedBy),
+        [staffId, staffId, staffId, staffId],
+      );
     });
   });
 
-  it('enqueues a single cleared estimate and refuses an unknown one', async () => {
+  it('queues a single cleared estimate and refuses an unknown source', async () => {
     const w = world();
+    w.t.actor('staff');
     const taskId = w.task({ estimate: 'S', publishToWarehaus: false });
+    const staff: CallOptions = { as: 'staff', respond: w.respond };
     await withFlag(true, async () => {
-      const cleared = await w.call(enqueueLiveFields, {
-        taskId,
-        estimate: null,
-        expectedLastEditedTime: TIME,
-      });
+      const cleared = await w.call(updateLiveFields, { taskId, estimate: null, expectedLastEditedTime: TIME }, staff);
       assert.equal(cleared.ok, true);
       assert.deepEqual(JSON.parse(String(w.outboxRows()[0]?.payload)).properties, { Estimate: null });
-      const rejected = await w.call(enqueueLiveFields, {
-        taskId,
-        source: 'notion',
-        expectedLastEditedTime: TIME,
-      });
-      assert.deepEqual(rejected, { ok: false, error: 'Unknown source' });
+      const rejected = await w.call(updateLiveFields, { taskId, source: 'notion', expectedLastEditedTime: TIME }, staff);
+      assert.equal(rejected.ok, false);
+      assert.equal(rejected.error, 'Unknown source');
       const status = await w.call(enqueue, {
         idempotencyKey: 'task-fields:status',
         kind: 'task-fields',
@@ -228,8 +215,8 @@ describe('taskWriteGuards stage save', () => {
       });
       assert.equal(status.ok, false);
       assert.equal(w.outboxRows().length, 1);
-      assert.equal(w.t.row(taskId)?.estimate, 'S');
-      assert.equal(w.t.row(taskId)?.publishToWarehaus, false);
+      assert.equal(w.t.row(taskId)?.estimate, undefined, 'the cleared estimate was saved');
+      assert.equal(w.t.row(taskId)?.source, undefined, 'the refused source was not');
     });
   });
 

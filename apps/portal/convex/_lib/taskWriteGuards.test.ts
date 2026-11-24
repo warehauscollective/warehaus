@@ -1,9 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { WRITEBACK_OFF_ERROR } from '@warehaus/portal-sync';
 import { enqueue } from '../sync/outbox';
 import { enqueueCreate, enqueueStage, enqueueStatus } from '../sync/taskWrite';
-import { createTask, moveStage, moveStatus, updateLiveFields } from '../tasks';
+import { createTask, moveStage, moveStatus, saveShipped, updateLiveFields } from '../tasks';
 import { PortalAuthError } from './identity';
 import { memoryCtx, type MemoryCtx, type Respond, type RunCall } from './memoryCtx.testkit';
 import { seedMilestone, seedOrg, seedProject, seedTask } from './seedRows.testkit';
@@ -259,20 +258,50 @@ describe('move authorization', () => {
     assert.equal(t.rows('notionOutbox').length, 0);
   });
 
-  it('lets Warehaus studio staff past auth, then write-back off writes nothing', async () => {
+  it('lets Warehaus studio staff past auth, then write-back off saves in the portal and queues nothing', async () => {
     const { t, taskId } = moveWorld();
     await withWriteback(undefined, async () => {
       const options = { as: 'staff' as const, respond: chain(t) };
-      const status = await t.call<Result>(moveStatus, { taskId, status: 'To Do', expectedLastEditedTime: EDITED }, options);
-      assert.deepEqual(status, { ok: false, error: WRITEBACK_OFF_ERROR });
+      const status = await t.call<Result>(moveStatus, { taskId, status: 'In Progress', expectedLastEditedTime: EDITED }, options);
+      assert.deepEqual(status, { ok: true, wrote: true, notion: 'off', outboxIds: [] });
       const stage = await t.call<Result>(moveStage, { taskId, stage: 'Planning', expectedLastEditedTime: EDITED }, options);
-      assert.deepEqual(stage, { ok: false, error: WRITEBACK_OFF_ERROR });
+      assert.deepEqual(stage, { ok: true, wrote: true, notion: 'off', outboxIds: [] });
     });
-    // The status move reached the real outbox, which refused it.
-    assert.equal(outboxRuns(t).length, 1);
-    assert.equal(t.row(taskId)?.stage, 'Idea');
-    assert.equal(t.row(taskId)?.stagePendingAt, undefined);
+    assert.equal(t.row(taskId)?.status, 'In Progress');
+    assert.equal(t.row(taskId)?.stage, 'Planning');
+    assert.equal(t.row(taskId)?.stagePendingAt, undefined, 'nothing is pending when nothing was queued');
     assert.equal(t.rows('notionOutbox').length, 0);
+    assert.deepEqual(t.scheduled, []);
+  });
+
+  it('refuses a staff move against a stale last edit time and writes nothing', async () => {
+    const { t, taskId } = moveWorld();
+    await withWriteback('true', async () => {
+      const options = { as: 'staff' as const, respond: chain(t) };
+      const status = await t.call<Result>(moveStatus, { taskId, status: 'In Progress', expectedLastEditedTime: '2026-10-01T00:00:00.000Z' }, options);
+      assert.equal(status.ok, false);
+      assert.equal(status.code, 'stale');
+    });
+    assert.equal(t.row(taskId)?.status, 'To Do');
+    assert.equal(t.rows('notionOutbox').length, 0);
+  });
+
+  it('saves a verified Shipped and queues the stage with its pull request link', async () => {
+    const { t, taskId } = moveWorld();
+    const link = 'https://github.com/warehauscollective/warehaus/pull/171';
+    await withWriteback('true', async () => {
+      const result = await t.call<Result>(
+        saveShipped,
+        { taskId, pullRequestLink: link, expectedLastEditedTime: EDITED, actorId: 'contacts:staff' },
+        { respond: chain(t) },
+      );
+      assert.equal(result.notion, 'queued');
+    });
+    assert.equal(t.row(taskId)?.stage, 'Shipped');
+    assert.equal(t.row(taskId)?.stagePendingPullRequest, link);
+    const [row] = t.rows('notionOutbox');
+    assert.equal(row?.kind, 'task-stage');
+    assert.deepEqual(JSON.parse(String(row?.payload)).properties, { Stage: 'Shipped', 'GitHub Issue/PR': link });
   });
 
   it('files a flag-on cross-org move under the task org', async () => {
@@ -280,7 +309,7 @@ describe('move authorization', () => {
     const studioId = t.rows('clients').find((row) => row.slug === 'warehaus')?._id;
     await withWriteback('true', async () => {
       const options = { as: 'staff' as const, respond: chain(t) };
-      const status = await t.call<Result>(moveStatus, { taskId, status: 'To Do', expectedLastEditedTime: EDITED }, options);
+      const status = await t.call<Result>(moveStatus, { taskId, status: 'In Progress', expectedLastEditedTime: EDITED }, options);
       assert.equal(status.ok, true);
       const stage = await t.call<Result>(moveStage, { taskId, stage: 'Planning', expectedLastEditedTime: EDITED }, options);
       assert.equal(stage.ok, true);

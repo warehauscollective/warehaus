@@ -9,10 +9,6 @@
 import {
   WRITEBACK_OFF_ERROR,
   planTaskCreate,
-  planTaskDateWrite,
-  planTaskDescriptionWrite,
-  planTaskLiveFieldsWrite,
-  planTaskResourceWrite,
   isTaskStage,
   notionOnlyStageReason,
   planTaskStageWrite,
@@ -259,118 +255,6 @@ export const enqueueCreate = internalMutation({
   },
 });
 
-export const enqueueDescription = internalMutation({
-  args: {
-    taskId: v.id('tasks'),
-    description: v.string(),
-    expectedLastEditedTime: v.string(),
-    actorId: v.optional(v.string()),
-  },
-  handler: async (ctx, args): Promise<EnqueueStatusResult> => {
-    const task = await ctx.db.get(args.taskId);
-    if (!task) return { ok: false as const, error: 'Task not found' };
-    if (task.descriptionSource === 'body') {
-      return { ok: false as const, error: 'Edit in Notion' };
-    }
-    const planned = planTaskDescriptionWrite({
-      actor: 'staff',
-      description: args.description,
-      notionPageId: task.notionPageId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-    });
-    if (!planned.ok) return { ok: false as const, error: planned.error };
-    return ctx.runMutation(internal.sync.outbox.enqueue, {
-      idempotencyKey: planned.idempotencyKey,
-      kind: 'task-description',
-      orgId: task.orgId,
-      database: 'tasks',
-      notionPageId: task.notionPageId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-      payload: JSON.stringify({ properties: planned.properties }),
-      actor: 'staff' as const,
-      actorId: args.actorId,
-      schedule: true,
-    });
-  },
-});
-
-/**
- * Staff Estimate, Priority, Source, and Publish to Warehaus.
- * Enqueues one Notion patch and does not patch the task row.
- * When NOTION_WRITEBACK_ENABLED is not exactly "true", enqueue returns
- * the write-back-off error and inserts nothing.
- */
-export const enqueueLiveFields = internalMutation({
-  args: {
-    taskId: v.id('tasks'),
-    expectedLastEditedTime: v.string(),
-    actorId: v.optional(v.string()),
-    estimate: v.optional(v.union(v.string(), v.null())),
-    priority: v.optional(v.union(v.string(), v.null())),
-    source: v.optional(v.union(v.string(), v.null())),
-    publishToWarehaus: v.optional(v.boolean()),
-  },
-  handler: async (ctx, args): Promise<EnqueueStatusResult> => {
-    const task = await ctx.db.get(args.taskId);
-    if (!task) return { ok: false as const, error: 'Task not found' };
-    const planned = planTaskLiveFieldsWrite({
-      actor: 'staff',
-      notionPageId: task.notionPageId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-      ...(args.estimate !== undefined ? { estimate: args.estimate } : {}),
-      ...(args.priority !== undefined ? { priority: args.priority } : {}),
-      ...(args.source !== undefined ? { source: args.source } : {}),
-      ...(args.publishToWarehaus !== undefined ? { publishToWarehaus: args.publishToWarehaus } : {}),
-    });
-    if (!planned.ok) return { ok: false as const, error: planned.error };
-    return ctx.runMutation(internal.sync.outbox.enqueue, {
-      idempotencyKey: planned.idempotencyKey,
-      kind: 'task-fields',
-      orgId: task.orgId,
-      database: 'tasks',
-      notionPageId: task.notionPageId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-      payload: JSON.stringify({ properties: planned.properties }),
-      actor: 'staff' as const,
-      actorId: args.actorId,
-      schedule: true,
-    });
-  },
-});
-
-/** Queues the Notion Date. The caller has already saved the portal copy. */
-export const enqueueDate = internalMutation({
-  args: {
-    taskId: v.id('tasks'),
-    date: v.union(v.string(), v.null()),
-    expectedLastEditedTime: v.string(),
-    actorId: v.optional(v.string()),
-  },
-  handler: async (ctx, args): Promise<EnqueueStatusResult> => {
-    if (!writebackOn()) return { ok: false as const, error: WRITEBACK_OFF_ERROR };
-    const task = await ctx.db.get(args.taskId);
-    if (!task) return { ok: false as const, error: 'Task not found' };
-    const planned = planTaskDateWrite({
-      date: args.date,
-      notionPageId: task.notionPageId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-    });
-    if (!planned.ok) return { ok: false as const, error: planned.error };
-    return ctx.runMutation(internal.sync.outbox.enqueue, {
-      idempotencyKey: planned.idempotencyKey,
-      kind: 'update',
-      orgId: task.orgId,
-      database: 'tasks',
-      notionPageId: task.notionPageId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-      payload: JSON.stringify({ properties: planned.properties }),
-      actor: 'staff' as const,
-      actorId: args.actorId,
-      schedule: true,
-    });
-  },
-});
-
 /** Queues a Notion page archive. The caller has already hidden the portal row. */
 export const enqueueArchive = internalMutation({
   args: {
@@ -391,38 +275,6 @@ export const enqueueArchive = internalMutation({
       database: 'tasks',
       notionPageId: task.notionPageId,
       payload: JSON.stringify({ properties: {} }),
-      actor: 'staff' as const,
-      actorId: args.actorId,
-      schedule: true,
-    });
-  },
-});
-
-export const enqueueResources = internalMutation({
-  args: {
-    taskId: v.id('tasks'),
-    resourceNotionIds: v.array(v.string()),
-    expectedLastEditedTime: v.string(),
-    actorId: v.optional(v.string()),
-  },
-  handler: async (ctx, args): Promise<EnqueueStatusResult> => {
-    const task = await ctx.db.get(args.taskId);
-    if (!task) return { ok: false as const, error: 'Task not found' };
-    const planned = planTaskResourceWrite({
-      actor: 'staff',
-      resourceNotionIds: args.resourceNotionIds,
-      notionPageId: task.notionPageId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-    });
-    if (!planned.ok) return { ok: false as const, error: planned.error };
-    return ctx.runMutation(internal.sync.outbox.enqueue, {
-      idempotencyKey: planned.idempotencyKey,
-      kind: 'update',
-      orgId: task.orgId,
-      database: 'tasks',
-      notionPageId: task.notionPageId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-      payload: JSON.stringify({ properties: planned.properties }),
       actor: 'staff' as const,
       actorId: args.actorId,
       schedule: true,
