@@ -27,3 +27,9 @@ _Avoid_: auth sync, auth write-back
 **Resource URL**:
 The write kind that records a Shared Resource's durable file link on its Notion page.
 _Avoid_: blob write-back, URL sync
+
+## Milestones
+
+**Milestone task set**:
+The tasks a milestone is judged by: the same rows its roadmap shows, which are the tasks linked to the milestone plus the subtasks under them. Archived tasks are not in it. Whether a milestone is done, can ship, or has work for a runner is always asked of its task set.
+_Avoid_: milestone tasks, linked tasks, close set
