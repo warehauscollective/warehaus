@@ -3,16 +3,20 @@
  * returns the task as it was, so Undo can put it back. A write that would
  * change nothing is skipped.
  *
- * Notion: archiving queues the same page archive `tasks.archiveTask` always
- * has. Restore and Undo write the Portal only.
+ * Status and stage go through the task change (ADR-0003, actor `closeout`),
+ * so they are stamped and written back like any other change. Archiving
+ * queues the Notion page archive. Archive, restore and milestone moves are
+ * portal only.
  */
 
 import { v } from 'convex/values';
-import { internal } from '../_generated/api';
 import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
+import { writebackAllowed } from '../sync/notion';
+import { insertOutboxRow } from '../sync/outbox';
 import { nextMilestoneOrder } from './milestones';
 import { isPortalOwnedTask } from './milestoneTasks';
+import { applyTaskChanges, type TaskChange } from './taskChange';
 
 /** A parent and one level of subtasks, the same bound `archiveTask` has always used. */
 export const ARCHIVE_CHILD_TAKE = 50;
@@ -93,14 +97,34 @@ export async function archiveTaskTree(
   if (task.archivedAt != null) return { wrote: false, notion: 'portal' };
   // A task the portal owns has no Notion page to archive.
   if (isPortalOwnedTask(task)) return { wrote: true, notion: 'portal' };
-  const queued = await ctx.runMutation(internal.sync.taskWrite.enqueueArchive, {
-    taskId: task._id,
+  if (!task.notionPageId) return { wrote: true, notion: 'portal' };
+  if (!writebackAllowed()) return { wrote: true, notion: 'off' };
+  await insertOutboxRow(ctx, {
+    idempotencyKey: `task-archive:${task.notionPageId}`,
+    kind: 'task-archive',
+    orgId: task.orgId,
+    database: 'tasks',
+    notionPageId: task.notionPageId,
+    properties: {},
+    actor: 'staff',
     actorId,
   });
-  return { wrote: true, notion: queued.ok ? 'queued' : 'off' };
+  return { wrote: true, notion: 'queued' };
 }
 
-/** Done is stored here, then sent to Notion through the status outbox when the task has a page. */
+/** A closeout task change. Closeout passes only known statuses and stages, so a refusal is a bug. */
+async function closeoutChange(
+  ctx: MutationCtx,
+  task: Doc<'tasks'>,
+  changes: TaskChange[],
+  actorId: string | undefined,
+): Promise<{ wrote: boolean; notion: NotionMirror }> {
+  const result = await applyTaskChanges(ctx, task, changes, { actor: 'closeout', actorId });
+  if (!result.ok) throw new Error(`Closeout task change refused: ${result.error}`);
+  return { wrote: result.wrote, notion: result.notion };
+}
+
+/** Done (or the restored status) through the task change. */
 export async function writeTaskStatus(
   ctx: MutationCtx,
   task: Doc<'tasks'>,
@@ -111,34 +135,20 @@ export async function writeTaskStatus(
   const isDone = status === 'Done';
   if (task.status === status && task.isDone === isDone) return { wrote: false, notion: 'portal' };
   log.note(task);
-  await ctx.db.patch(task._id, { status, isDone, updatedAt: Date.now() });
-  return { wrote: true, notion: await mirrorStatus(ctx, task, status, actorId) };
-}
-
-async function mirrorStatus(
-  ctx: MutationCtx,
-  task: Doc<'tasks'>,
-  status: string,
-  actorId: string | undefined,
-): Promise<NotionMirror> {
-  if (!task.lastEditedTime || !task.notionPageId || task.notionPageId.startsWith('portal:') || isPortalOwnedTask(task)) {
-    return 'portal';
-  }
-  const queued = await ctx.runMutation(internal.sync.taskWrite.enqueueStatus, {
-    taskId: task._id,
-    status,
-    expectedLastEditedTime: task.lastEditedTime,
-    actorId,
-  });
-  return queued.ok ? 'queued' : 'off';
+  return closeoutChange(ctx, task, [{ field: 'status', status }], actorId);
 }
 
 /** Leftover parked where it is. Stage is the field the close gate reads. */
-export async function parkTask(ctx: MutationCtx, task: Doc<'tasks'>, log: SnapshotLog): Promise<boolean> {
+export async function parkTask(
+  ctx: MutationCtx,
+  task: Doc<'tasks'>,
+  log: SnapshotLog,
+  actorId?: string,
+): Promise<boolean> {
   if (task.stage === 'Parked') return false;
   log.note(task);
-  await ctx.db.patch(task._id, { stage: 'Parked', updatedAt: Date.now() });
-  return true;
+  const result = await closeoutChange(ctx, task, [{ field: 'stage', stage: 'Parked' }], actorId);
+  return result.wrote;
 }
 
 /** Leftovers moved onto another milestone of the same project, after the tasks already there. */
@@ -187,13 +197,16 @@ export async function restoreTaskSnapshots(
   for (const snapshot of snapshots.slice(0, UNDO_TASK_CAP)) {
     const task = await ctx.db.get(snapshot.taskId);
     if (!task || (orgId && task.orgId !== orgId)) continue;
-    const patch: Partial<Doc<'tasks'>> & Record<string, unknown> = {};
-    const statusChanged = task.status !== snapshot.status || task.isDone !== snapshot.isDone;
-    if (statusChanged) {
-      patch.status = snapshot.status;
-      patch.isDone = snapshot.isDone;
+    const changes: TaskChange[] = [];
+    if (task.status !== snapshot.status || task.isDone !== snapshot.isDone) {
+      changes.push({ field: 'status', status: snapshot.status });
     }
-    if ((task.stage ?? null) !== snapshot.stage) patch.stage = snapshot.stage ?? undefined;
+    if ((task.stage ?? null) !== snapshot.stage && snapshot.stage) {
+      changes.push({ field: 'stage', stage: snapshot.stage });
+    }
+    const patch: Partial<Doc<'tasks'>> & Record<string, unknown> = {};
+    // A stage the snapshot did not have is cleared in the portal only: Notion has no empty stage to write.
+    if ((task.stage ?? null) !== snapshot.stage && !snapshot.stage) patch.stage = undefined;
     if ((task.archivedAt ?? null) !== snapshot.archivedAt) patch.archivedAt = snapshot.archivedAt ?? undefined;
     if ((task.milestoneId ?? null) !== snapshot.milestoneId) {
       let allowed = snapshot.milestoneId == null;
@@ -212,10 +225,10 @@ export async function restoreTaskSnapshots(
     } else if ((task.milestoneOrder ?? null) !== snapshot.milestoneOrder) {
       patch.milestoneOrder = snapshot.milestoneOrder ?? undefined;
     }
-    if (Object.keys(patch).length === 0) continue;
-    await ctx.db.patch(task._id, { ...patch, updatedAt: Date.now() });
+    if (changes.length === 0 && Object.keys(patch).length === 0) continue;
+    if (changes.length > 0) await closeoutChange(ctx, task, changes, actorId);
+    if (Object.keys(patch).length > 0) await ctx.db.patch(task._id, { ...patch, updatedAt: Date.now() });
     wrote += 1;
-    if (statusChanged) await mirrorStatus(ctx, task, snapshot.status, actorId);
   }
   return wrote;
 }

@@ -19,7 +19,6 @@ import {
   sourceLinkHref,
   sourceStateChip,
   planApiTaskCreate,
-  planApiTaskUpdate,
   portalRequestAuth,
   pullFieldsChanged,
   pullUpdatedAt,
@@ -34,8 +33,6 @@ import {
   type IdempotencyRecord,
   type PullFieldSnapshot,
 } from './portalApi';
-
-const page = { notionPageId: 'page-1', expectedLastEditedTime: '2026-11-13T15:00:00.000Z' };
 
 describe('portal API auth scopes', () => {
   it('rejects a missing or revoked token and a read token that writes', () => {
@@ -414,47 +411,7 @@ describe('portal HTTP auth', () => {
 });
 
 describe('portal API outbox plans', () => {
-  it('patches status, priority, and next action with kind update', () => {
-    const planned = planApiTaskUpdate({
-      ...page,
-      status: 'In Progress',
-      priority: 'High',
-      nextAction: 'Review the diff',
-    });
-    assert.equal(planned.ok, true);
-    if (!planned.ok) return;
-    assert.equal(planned.writes.length, 1);
-    assert.equal(planned.writes[0]?.kind, 'update');
-    assert.deepEqual(planned.writes[0]?.properties, {
-      Status: 'In Progress',
-      Priority: 'High',
-      'Next Action': 'Review the diff',
-    });
-  });
-
-  it('keeps a stage move on the task-stage path and create on the create path', () => {
-    const stage = planApiTaskUpdate({ ...page, stage: 'Planning' });
-    assert.equal(stage.ok, true);
-    if (!stage.ok) return;
-    assert.equal(stage.writes[0]?.kind, 'task-stage');
-    assert.equal(stage.writes[0]?.properties.Stage, 'Planning');
-    const unverified = planApiTaskUpdate({
-      ...page,
-      stage: 'Shipped',
-      pullRequestLink: 'https://github.com/warehauscollective/warehaus/pull/38',
-    });
-    assert.equal(unverified.ok, false);
-    const shipped = planApiTaskUpdate({
-      ...page,
-      stage: 'Shipped',
-      pullRequestLink: 'https://github.com/warehauscollective/warehaus/pull/38',
-      verifiedMerge: true,
-    });
-    assert.equal(shipped.ok, true);
-    if (shipped.ok) {
-      assert.equal(shipped.writes[0]?.kind, 'task-stage');
-      assert.equal(shipped.writes[0]?.properties.Stage, 'Shipped');
-    }
+  it('keeps create on the create path', () => {
     const created = planApiTaskCreate({
       name: 'Ship the API',
       status: 'To Do',

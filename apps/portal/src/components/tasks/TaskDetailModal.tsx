@@ -18,7 +18,7 @@ import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
 import { StaffLiveFields } from './StaffLiveFields';
 import { TaskGlyph } from './TaskGlyph';
 import { AddSourceForm, TaskSources } from './TaskSources';
-import { fieldSaveNote, projectMoveCopy } from './taskFieldCopy';
+import { projectMoveCopy, taskChangeNote } from './taskFieldCopy';
 import { taskCloseoutState } from '@convex/_lib/closeout';
 import { useTaskCloseoutActions } from '@/components/closeout/closeoutActions';
 import {
@@ -237,10 +237,8 @@ export function TaskDetailModal({
     void setDueDate({ hostSlug, taskId: task.id as Id<'tasks'>, date: pending })
       .then((result) => {
         setDueSlot((current) => finishFieldSave(current, result.ok));
-        if (result.ok) {
-          const note = fieldSaveNote(result.notion, result.wrote);
-          if (note) setAsideNote(note);
-        }
+        const note = taskChangeNote(result);
+        if (note) setAsideNote(note);
       })
       .catch(() => setDueSlot((current) => finishFieldSave(current, false)));
   };
@@ -361,15 +359,16 @@ export function TaskDetailModal({
     return () => window.removeEventListener(CLOSE_TASK_FOR_SEARCH, onSwap);
   }, []);
   const saveStage = (stage: string) => {
-    if (!live || !task?.lastEditedTime) return;
+    if (!live || !task) return;
     const request = {
       hostSlug,
       taskId: task.id as Id<'tasks'>,
-      expectedLastEditedTime: task.lastEditedTime,
+      expectedLastEditedTime: task.lastEditedTime ?? '',
     };
     const pending = stage === 'Shipped' ? commitShipped(request) : moveStage({ ...request, stage });
     void pending.then((result) => {
-      if (!result.ok) setAsideNote(result.error);
+      const note = taskChangeNote(result);
+      if (note) setAsideNote(note);
     });
   };
   const confirmStage = () => {
@@ -525,14 +524,15 @@ export function TaskDetailModal({
                 <StatusMenu
                   value={shownStatus}
                   onChange={(status) => {
-                    if (!live || !task.lastEditedTime) return;
+                    if (!live) return;
                     void moveStatus({
                       hostSlug,
                       taskId: task.id as Id<'tasks'>,
                       status,
-                      expectedLastEditedTime: task.lastEditedTime,
+                      expectedLastEditedTime: task.lastEditedTime ?? '',
                     }).then((result) => {
-                      if (!result.ok) setAsideNote(result.error);
+                      const note = taskChangeNote(result);
+                      if (note) setAsideNote(note);
                     });
                   }}
                 />
@@ -658,12 +658,12 @@ export function TaskDetailModal({
                 published={task.publishToWarehaus}
                 done={task.isDone}
                 onSave={async (patch) => {
-                  if (!live || !task.lastEditedTime) return { ok: false, error: 'Nothing was sent.' };
+                  if (!live) return { ok: false, error: 'Nothing was sent.' };
                   try {
                     return await updateLiveFields({
                       hostSlug,
                       taskId: task.id as Id<'tasks'>,
-                      expectedLastEditedTime: task.lastEditedTime,
+                      expectedLastEditedTime: task.lastEditedTime ?? '',
                       ...patch,
                     });
                   } catch (err) {
@@ -1025,7 +1025,7 @@ function TaskDescription({
   const locked = staff && taskDescriptionEditMode(task.descriptionSource) === 'notion';
 
   const save = async () => {
-    if (!live || !task.lastEditedTime) {
+    if (!live) {
       setEditing(false);
       setNote('Nothing was sent.');
       return;
@@ -1036,9 +1036,9 @@ function TaskDescription({
         hostSlug,
         taskId: task.id as Id<'tasks'>,
         description: draft,
-        expectedLastEditedTime: task.lastEditedTime,
+        expectedLastEditedTime: task.lastEditedTime ?? '',
       });
-      setNote(result.ok ? 'Queued for Notion.' : result.error);
+      setNote(taskChangeNote(result));
     } catch (err) {
       setNote(userFacingErrorMessage(err, 'Could not save the description'));
     } finally {
@@ -1295,10 +1295,7 @@ function AttachPicker({
   });
 
   const onSave = async () => {
-    if (!task.notionPageId || !task.lastEditedTime) {
-      setNote('This task has no Notion edit time yet. Nothing was sent.');
-      return;
-    }
+
     const notionIds = resources
       .filter((resource) => picked.includes(resource.id) && resource.notionPageId)
       .map((resource) => resource.notionPageId as string);
@@ -1306,10 +1303,10 @@ function AttachPicker({
       hostSlug,
       taskId: task.id as Id<'tasks'>,
       resourceNotionIds: notionIds,
-      expectedLastEditedTime: task.lastEditedTime,
+      expectedLastEditedTime: task.lastEditedTime ?? '',
     });
     if (!result.ok) {
-      setNote(result.error);
+      setNote(taskChangeNote(result));
       return;
     }
     onClose();

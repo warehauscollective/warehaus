@@ -16,7 +16,7 @@ import {
 import { v } from 'convex/values';
 import { internal } from './_generated/api';
 import type { Id } from './_generated/dataModel';
-import { action, internalQuery } from './_generated/server';
+import { action, internalMutation, internalQuery, type MutationCtx } from './_generated/server';
 import { buildTaskTimeline } from './_lib/activityFeed';
 import { RESTORED_TASK_STATUS } from './_lib/closeout';
 import {
@@ -31,13 +31,27 @@ import {
 } from './_lib/closeoutStore';
 import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
 import { assertHostMatchesOrg, isStaff, PortalAuthError, resolveIdentityFromContact } from './_lib/identity';
+import {
+  applyTaskChanges,
+  type TaskChange,
+  type TaskChangeOptions,
+  type TaskChangeResult,
+} from './_lib/taskChange';
 import { linearEnv, serveTasks, serveTasksByOrg } from './_lib/taskPlatformRead';
 import { userFacingErrorMessage } from './_lib/userFacingError';
 import { adminMutation, adminQuery, clientQuery } from './_lib/wrappers';
 
-type TaskWriteResult =
-  | { ok: false; error: string }
-  | { ok: true; pending?: boolean; outboxId?: Id<'notionOutbox'>; duplicate?: boolean };
+/** Load the task and apply a staff task change (ADR-0003). */
+async function changeTask(
+  ctx: MutationCtx,
+  taskId: Id<'tasks'>,
+  changes: TaskChange[],
+  options: TaskChangeOptions,
+): Promise<TaskChangeResult> {
+  const task = await ctx.db.get(taskId);
+  if (!task) return { ok: false, code: 'refused', error: 'Task not found' };
+  return applyTaskChanges(ctx, task, changes, options);
+}
 
 /** CLIENT serializer — never emit Priority, Estimate, Owner, parent, resources, or a SERVER description. */
 function descriptionForClient(row: { description?: string | null; publishToWarehaus: boolean }): string | null {
@@ -265,14 +279,12 @@ export const moveStatus = adminMutation({
     status: v.string(),
     expectedLastEditedTime: v.string(),
   },
-  handler: async (ctx, args): Promise<TaskWriteResult> => {
-    return ctx.runMutation(internal.sync.taskWrite.enqueueStatus, {
-      taskId: args.taskId,
-      status: args.status,
-      expectedLastEditedTime: args.expectedLastEditedTime,
+  handler: async (ctx, args): Promise<TaskChangeResult> =>
+    changeTask(ctx, args.taskId, [{ field: 'status', status: args.status }], {
+      actor: 'staff',
       actorId: ctx.identity.contactId,
-    });
-  },
+      expectedLastEditedTime: args.expectedLastEditedTime,
+    }),
 });
 
 export const moveStage = adminMutation({
@@ -282,16 +294,12 @@ export const moveStage = adminMutation({
     expectedLastEditedTime: v.string(),
     pullRequestLink: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<TaskWriteResult> => {
-    return ctx.runMutation(internal.sync.taskWrite.enqueueStage, {
-      taskId: args.taskId,
-      stage: args.stage,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-      pullRequestLink: args.pullRequestLink,
+  handler: async (ctx, args): Promise<TaskChangeResult> =>
+    changeTask(ctx, args.taskId, [{ field: 'stage', stage: args.stage, pullRequestLink: args.pullRequestLink }], {
       actor: 'staff',
       actorId: ctx.identity.contactId,
-    });
-  },
+      expectedLastEditedTime: args.expectedLastEditedTime,
+    }),
 });
 
 /**
@@ -357,7 +365,7 @@ export const commitShipped = action({
     expectedLastEditedTime: v.string(),
     pullRequestLink: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<TaskWriteResult> => {
+  handler: async (ctx, args): Promise<TaskChangeResult | { ok: false; error: string }> => {
     const auth = await ctx.auth.getUserIdentity();
     if (!auth) return { ok: false, error: 'Not authenticated' };
     let prepared: { ok: true; link: string; actorId: string } | { ok: false; error: string };
@@ -375,16 +383,30 @@ export const commitShipped = action({
     if (!prepared.ok) return prepared;
     const verified = await verifyPullMerged({ link: prepared.link });
     if (!verified.ok) return verified;
-    return ctx.runMutation(internal.sync.taskWrite.enqueueStage, {
+    return ctx.runMutation(internal.tasks.saveShipped, {
       taskId: args.taskId,
-      stage: 'Shipped',
       pullRequestLink: verified.link,
       expectedLastEditedTime: args.expectedLastEditedTime,
-      actor: 'staff',
       actorId: prepared.actorId,
-      verifiedMerge: true,
     });
   },
+});
+
+/** Shipped after `commitShipped` confirmed the merge on GitHub. Only that action calls this. */
+export const saveShipped = internalMutation({
+  args: {
+    taskId: v.id('tasks'),
+    pullRequestLink: v.string(),
+    expectedLastEditedTime: v.string(),
+    actorId: v.string(),
+  },
+  handler: async (ctx, args): Promise<TaskChangeResult> =>
+    changeTask(
+      ctx,
+      args.taskId,
+      [{ field: 'stage', stage: 'Shipped', pullRequestLink: args.pullRequestLink, verifiedMerge: true }],
+      { actor: 'staff', actorId: args.actorId, expectedLastEditedTime: args.expectedLastEditedTime },
+    ),
 });
 
 export const createTask = adminMutation({
@@ -399,7 +421,7 @@ export const createTask = adminMutation({
     /** Required. A task only exists inside a milestone. */
     milestoneId: v.id('milestones'),
   },
-  handler: async (ctx, args): Promise<TaskWriteResult> => {
+  handler: async (ctx, args): Promise<{ ok: false; error: string } | { ok: true; outboxId: Id<'notionOutbox'>; duplicate: boolean }> => {
     return ctx.runMutation(internal.sync.taskWrite.enqueueCreate, {
       ...args,
       actorId: ctx.identity.contactId,
@@ -415,16 +437,19 @@ export const updateLiveFields = adminMutation({
     priority: v.optional(v.union(v.string(), v.null())),
     source: v.optional(v.union(v.string(), v.null())),
     publishToWarehaus: v.optional(v.boolean()),
+    nextAction: v.optional(v.union(v.string(), v.null())),
   },
-  handler: async (ctx, args): Promise<TaskWriteResult> => {
-    return ctx.runMutation(internal.sync.taskWrite.enqueueLiveFields, {
-      taskId: args.taskId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
+  handler: async (ctx, args): Promise<TaskChangeResult> => {
+    const changes: TaskChange[] = [];
+    if (args.estimate !== undefined) changes.push({ field: 'estimate', estimate: args.estimate });
+    if (args.priority !== undefined) changes.push({ field: 'priority', priority: args.priority });
+    if (args.source !== undefined) changes.push({ field: 'source', source: args.source });
+    if (args.publishToWarehaus !== undefined) changes.push({ field: 'publishToWarehaus', publishToWarehaus: args.publishToWarehaus });
+    if (args.nextAction !== undefined) changes.push({ field: 'nextAction', nextAction: args.nextAction });
+    return changeTask(ctx, args.taskId, changes, {
+      actor: 'staff',
       actorId: ctx.identity.contactId,
-      ...(args.estimate !== undefined ? { estimate: args.estimate } : {}),
-      ...(args.priority !== undefined ? { priority: args.priority } : {}),
-      ...(args.source !== undefined ? { source: args.source } : {}),
-      ...(args.publishToWarehaus !== undefined ? { publishToWarehaus: args.publishToWarehaus } : {}),
+      expectedLastEditedTime: args.expectedLastEditedTime,
     });
   },
 });
@@ -435,14 +460,12 @@ export const updateDescription = adminMutation({
     description: v.string(),
     expectedLastEditedTime: v.string(),
   },
-  handler: async (ctx, args): Promise<TaskWriteResult> => {
-    return ctx.runMutation(internal.sync.taskWrite.enqueueDescription, {
-      taskId: args.taskId,
-      description: args.description,
-      expectedLastEditedTime: args.expectedLastEditedTime,
+  handler: async (ctx, args): Promise<TaskChangeResult> =>
+    changeTask(ctx, args.taskId, [{ field: 'description', description: args.description }], {
+      actor: 'staff',
       actorId: ctx.identity.contactId,
-    });
-  },
+      expectedLastEditedTime: args.expectedLastEditedTime,
+    }),
 });
 
 export const activityForClient = clientQuery({
@@ -560,49 +583,22 @@ type FieldSave =
   | { ok: false; error: string }
   | { ok: true; wrote: boolean; notion: 'off' | 'queued' | 'portal' };
 
-/** A real UTC calendar day, or null to clear. Anything else is rejected. */
-function calendarDay(value: string | null): string | null | 'bad' {
-  if (value == null) return null;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return 'bad';
-  const [year, month, day] = value.split('-').map(Number);
-  if (!year || month < 1 || month > 12 || day < 1 || day > 31) return 'bad';
-  const date = new Date(Date.UTC(year, month - 1, day));
-  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return 'bad';
-  return value;
-}
-
 export const setAssignee = adminMutation({
   args: {
     taskId: v.id('tasks'),
     assigneeContactId: v.union(v.id('contacts'), v.null()),
   },
-  handler: async (ctx, args): Promise<FieldSave & { assigneeName: string | null }> => {
-    const task = await ctx.db.get(args.taskId);
-    if (!task || task.archivedAt != null) return { ok: false, error: 'Task not found', assigneeName: null };
-    if (!args.assigneeContactId) {
-      if (task.assigneeContactId == null && !task.assigneeName) {
-        return { ok: true, wrote: false, notion: 'portal', assigneeName: task.assigneeName ?? null };
-      }
-      await ctx.db.patch(task._id, { assigneeContactId: undefined, assigneeName: undefined });
-      return { ok: true, wrote: true, notion: 'portal', assigneeName: null };
-    }
-    const contact = await ctx.db.get(args.assigneeContactId);
-    const name = contact?.name.trim() ?? '';
-    if (
-      !contact ||
-      contact.orgId !== task.orgId ||
-      contact.role !== 'Warehaus Staff' ||
-      contact.portalAccess !== 'Enabled' ||
-      contact.syncHiddenAt != null ||
-      !name
-    ) {
-      return { ok: false, error: 'Choose someone on this client', assigneeName: task.assigneeName ?? null };
-    }
-    if (task.assigneeContactId === contact._id && task.assigneeName === name) {
-      return { ok: true, wrote: false, notion: 'portal', assigneeName: name };
-    }
-    await ctx.db.patch(task._id, { assigneeContactId: contact._id, assigneeName: name });
-    return { ok: true, wrote: true, notion: 'portal', assigneeName: name };
+  handler: async (
+    ctx,
+    args,
+  ): Promise<
+    Extract<TaskChangeResult, { ok: false }> | (Extract<TaskChangeResult, { ok: true }> & { assigneeName: string | null })
+  > => {
+    const result = await changeTask(ctx, args.taskId, [{ field: 'assignee', assigneeContactId: args.assigneeContactId }], {
+      actor: 'staff',
+      actorId: ctx.identity.contactId,
+    });
+    return result.ok ? { ...result, assigneeName: result.assigneeName ?? null } : result;
   },
 });
 
@@ -611,25 +607,11 @@ export const setDueDate = adminMutation({
     taskId: v.id('tasks'),
     date: v.union(v.string(), v.null()),
   },
-  handler: async (ctx, args): Promise<FieldSave> => {
-    const task = await ctx.db.get(args.taskId);
-    if (!task || task.archivedAt != null) return { ok: false, error: 'Task not found' };
-    const next = calendarDay(args.date);
-    if (next === 'bad') return { ok: false, error: 'Use a calendar day' };
-    if ((task.date ?? null) === next) return { ok: true, wrote: false, notion: 'portal' };
-    await ctx.db.patch(task._id, { date: next ?? undefined });
-    if (!task.lastEditedTime || task.notionPageId.startsWith('portal:')) {
-      return { ok: true, wrote: true, notion: 'portal' };
-    }
-    const queued = await ctx.runMutation(internal.sync.taskWrite.enqueueDate, {
-      taskId: task._id,
-      date: next,
-      expectedLastEditedTime: task.lastEditedTime,
+  handler: async (ctx, args): Promise<TaskChangeResult> =>
+    changeTask(ctx, args.taskId, [{ field: 'date', date: args.date }], {
+      actor: 'staff',
       actorId: ctx.identity.contactId,
-    });
-    if (!queued.ok) return { ok: true, wrote: true, notion: 'off' };
-    return { ok: true, wrote: true, notion: 'queued' };
-  },
+    }),
 });
 
 export const moveProject = adminMutation({
@@ -783,10 +765,10 @@ export const setResources = adminMutation({
     resourceNotionIds: v.array(v.string()),
     expectedLastEditedTime: v.string(),
   },
-  handler: async (ctx, args): Promise<TaskWriteResult> => {
-    return ctx.runMutation(internal.sync.taskWrite.enqueueResources, {
-      ...args,
+  handler: async (ctx, args): Promise<TaskChangeResult> =>
+    changeTask(ctx, args.taskId, [{ field: 'resources', resourceNotionIds: args.resourceNotionIds }], {
+      actor: 'staff',
       actorId: ctx.identity.contactId,
-    });
-  },
+      expectedLastEditedTime: args.expectedLastEditedTime,
+    }),
 });

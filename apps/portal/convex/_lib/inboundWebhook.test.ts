@@ -442,9 +442,11 @@ describe('inbound webhook stage moves', () => {
       const result = await apply(t, decision);
       assert.deepEqual(result, { ok: true, wrote: true, links: 1, stageMoves: 1 });
     });
-    assert.deepEqual(t.runs.map((call) => call.name), [ENQUEUE]);
+    assert.deepEqual(t.runs.map((call) => call.name), [], 'the task change inserts the row in this mutation');
     const row = task();
     assert.equal(row?.stage, MERGE_REVIEW_STAGE);
+    assert.equal((row?.fieldStamps as Record<string, { updatedBy: string }>).stage?.updatedBy, 'github-webhook');
+    assert.equal(row?.stagePendingBy, 'github-webhook');
     assert.equal(row?.status, 'In Progress');
     assert.equal(row?.isDone, false);
     assert.equal(row?.publishToWarehaus, false);
@@ -463,15 +465,16 @@ describe('inbound webhook stage moves', () => {
     assert.equal(links[0]?.state, 'merged');
   });
 
-  it('keeps the link when write-back is off and does not patch the stage', async () => {
+  it('keeps the link and saves Shipped in the portal when write-back is off', async () => {
     const { decision } = await decidePull('closed', { delivery: 'delivery-off' });
     const { t, task } = world();
     await withWriteback(false, async () => {
       const result = await apply(t, decision);
       assert.equal(result.links, 1);
-      assert.equal(result.stageMoves, 0);
+      assert.equal(result.stageMoves, 1);
     });
-    assert.equal(task()?.stage, 'Building');
+    assert.equal(task()?.stage, MERGE_REVIEW_STAGE);
+    assert.equal(task()?.stagePendingAt, undefined);
     assert.equal(task()?.status, 'In Progress');
     assert.equal(t.rows('notionOutbox').length, 0);
     assert.equal(t.rows('taskLinks').length, 1);

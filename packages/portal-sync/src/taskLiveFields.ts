@@ -1,10 +1,10 @@
 /**
- * Staff edits for Estimate, Priority, Source, and Publish to Warehaus.
+ * Staff edits for Estimate, Priority, Source, Publish to Warehaus and Next Action.
  * The outbox is the only Notion write. This module does not patch a task row.
  * Is Done stays read-only. Clients never receive these fields.
  */
 
-import { validatePropertyPatch, type WriteProperties, type WriteValue } from './writeback';
+import type { WriteProperties, WriteValue } from './writeback';
 
 /** Notion Tasks Estimate select. Unknown names fail closed. */
 export const TASK_ESTIMATES = ['XS', 'S', 'M', 'L', 'XL'] as const;
@@ -17,13 +17,17 @@ export type TaskEstimate = (typeof TASK_ESTIMATES)[number];
 export type TaskPriority = (typeof TASK_PRIORITIES)[number];
 export type TaskSource = (typeof TASK_SOURCES)[number];
 
-const FIELD_NAMES = ['Estimate', 'Priority', 'Source', 'Publish to Warehaus'] as const;
+const FIELD_NAMES = ['Estimate', 'Priority', 'Source', 'Publish to Warehaus', 'Next Action'] as const;
+
+/** Longest Next Action the portal writes. */
+export const NEXT_ACTION_MAX = 500;
 
 export type TaskLiveFieldInput = {
   estimate?: string | null;
   priority?: string | null;
   source?: string | null;
   publishToWarehaus?: boolean;
+  nextAction?: string | null;
 };
 
 function isOneOf(value: string, options: readonly string[]): boolean {
@@ -47,7 +51,7 @@ export function taskLiveFieldsWriteError(properties: WriteProperties): string | 
   if (names.length === 0) return 'At least one property is required';
   for (const name of names) {
     if (!FIELD_NAMES.includes(name as (typeof FIELD_NAMES)[number])) {
-      return 'Task field updates can only set Estimate, Priority, Source, or Publish to Warehaus';
+      return 'Task field updates can only set Estimate, Priority, Source, Publish to Warehaus, or Next Action';
     }
   }
   if ('Estimate' in properties) {
@@ -64,6 +68,11 @@ export function taskLiveFieldsWriteError(properties: WriteProperties): string | 
   }
   if ('Publish to Warehaus' in properties && typeof properties['Publish to Warehaus'] !== 'boolean') {
     return 'Publish to Warehaus must be true or false';
+  }
+  if ('Next Action' in properties) {
+    const next = properties['Next Action'];
+    if (next != null && typeof next !== 'string') return 'Next action must be text';
+    if (typeof next === 'string' && next.length > NEXT_ACTION_MAX) return 'Next action is too long';
   }
   return null;
 }
@@ -93,6 +102,7 @@ export function planTaskLiveFieldsWrite(
   if (input.priority !== undefined) properties.Priority = selectValue(input.priority);
   if (input.source !== undefined) properties.Source = selectValue(input.source);
   if (input.publishToWarehaus !== undefined) properties['Publish to Warehaus'] = input.publishToWarehaus;
+  if (input.nextAction !== undefined) properties['Next Action'] = selectValue(input.nextAction);
 
   const error = taskLiveFieldsWriteError(properties);
   if (error) return { ok: false, error };
@@ -103,23 +113,3 @@ export function planTaskLiveFieldsWrite(
   };
 }
 
-const DAY = /^\d{4}-\d{2}-\d{2}$/;
-
-/** Notion Date. Null clears the day. The caller still saves the portal copy when this is refused. */
-export function planTaskDateWrite(input: {
-  date: string | null;
-  notionPageId: string;
-  expectedLastEditedTime: string;
-}): { ok: true; properties: WriteProperties; idempotencyKey: string } | { ok: false; error: string } {
-  if (!input.notionPageId) return { ok: false, error: 'Updates require a Notion page' };
-  if (!input.expectedLastEditedTime) return { ok: false, error: 'Updates require the last read time' };
-  if (input.date != null && !DAY.test(input.date)) return { ok: false, error: 'Use a calendar day' };
-  const properties: WriteProperties = { Date: input.date };
-  const validated = validatePropertyPatch({ database: 'tasks', properties });
-  if (!validated.ok) return { ok: false, error: validated.errors.join('; ') };
-  return {
-    ok: true,
-    properties,
-    idempotencyKey: `task-date:${input.notionPageId}:${input.date ?? ''}:${input.expectedLastEditedTime}`,
-  };
-}

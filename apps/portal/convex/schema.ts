@@ -1,5 +1,6 @@
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
+import { fieldStamp } from './_lib/outboxKind';
 
 /**
  * Portal Convex schema — separate deployment from Motoko/agent.
@@ -128,6 +129,8 @@ export default defineSchema({
     stagePendingBaseEditedTime: v.optional(v.string()),
     /** Ready to Ship link for the unsent move. Not pullRequestUrl. */
     stagePendingPullRequest: v.optional(v.string()),
+    /** Who made the unsent move, so the drain keeps the actor. */
+    stagePendingBy: v.optional(v.string()),
     /** SERVER self-relation, one level deep. */
     parentNotionPageId: v.optional(v.union(v.string(), v.null())),
     parentTaskId: v.optional(v.id('tasks')),
@@ -191,13 +194,23 @@ export default defineSchema({
     nextAction: v.optional(v.union(v.string(), v.null())),
     /** Milliseconds. Set when a merged field or a source link changes. */
     updatedAt: v.optional(v.number()),
-    /** Last writer per field. Absent until a pull or the staff API stamps it. */
+    /**
+     * Last writer per field (ADR-0003). A task change stamps every field it
+     * saves; a pull replaces a stamped field only with a newer Notion edit.
+     */
     fieldStamps: v.optional(
       v.object({
-        status: v.optional(v.object({ updatedAt: v.number(), updatedBy: v.string() })),
-        stage: v.optional(v.object({ updatedAt: v.number(), updatedBy: v.string() })),
-        priority: v.optional(v.object({ updatedAt: v.number(), updatedBy: v.string() })),
-        nextAction: v.optional(v.object({ updatedAt: v.number(), updatedBy: v.string() })),
+        status: v.optional(fieldStamp),
+        stage: v.optional(fieldStamp),
+        priority: v.optional(fieldStamp),
+        nextAction: v.optional(fieldStamp),
+        date: v.optional(fieldStamp),
+        estimate: v.optional(fieldStamp),
+        source: v.optional(fieldStamp),
+        publishToWarehaus: v.optional(fieldStamp),
+        description: v.optional(fieldStamp),
+        resources: v.optional(fieldStamp),
+        assignee: v.optional(fieldStamp),
       }),
     ),
   })
@@ -829,6 +842,10 @@ export default defineSchema({
    */
   notionOutbox: defineTable({
     idempotencyKey: v.string(),
+    /**
+     * One of `OUTBOX_KINDS` (`_lib/outboxKind.ts`). Stored as a string so a
+     * deploy never fails on an old row; every writer passes the typed validator.
+     */
     kind: v.string(),
     orgId: v.id('clients'),
     database: v.string(),

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import schema from '../schema';
-import { enqueueArchive } from '../sync/taskWrite';
 import { addLink, archiveTask, moveProject, setAssignee, setDueDate } from '../tasks';
 import { PortalAuthError } from './identity';
 import { memoryCtx, type CallOptions, type MemoryCtx, type Respond } from './memoryCtx.testkit';
@@ -70,7 +69,7 @@ describe('task field mutations', () => {
     const otherProject = seedProject(t, otherOrg, { name: 'Other brand' });
     const before = everything(t);
     const assignee = await t.call<Result>(setAssignee, { taskId, assigneeContactId: otherStaff }, staff);
-    assert.deepEqual(assignee, { ok: false, error: 'Choose someone on this client', assigneeName: 'Alex Bauer' });
+    assert.deepEqual(assignee, { ok: false, code: 'invalid', error: 'Choose someone on this client' });
     const project = await t.call<Result>(moveProject, { taskId, projectId: otherProject }, staff);
     assert.deepEqual(project, { ok: false, error: 'Choose a project on this client' });
     assert.deepEqual(everything(t), before);
@@ -81,7 +80,7 @@ describe('task field mutations', () => {
     const saved = await t.call<Result>(setAssignee, { taskId, assigneeContactId: maya }, staff);
     assert.equal(saved.ok, true);
     const taskAfter = t.row(taskId);
-    assert.deepEqual(changedKeys(taskBefore, taskAfter), ['assigneeContactId', 'assigneeName']);
+    assert.deepEqual(changedKeys(taskBefore, taskAfter), ['assigneeContactId', 'assigneeName', 'fieldStamps', 'updatedAt']);
     assert.equal(taskAfter?.assigneeContactId, maya);
     assert.equal(taskAfter?.assigneeName, 'Maya Chen');
     assert.equal(JSON.stringify(taskAfter).includes('Owner / DRI'), false);
@@ -126,8 +125,7 @@ describe('task field mutations', () => {
       assert.equal(typeof row?.archivedAt, 'number');
       assert.deepEqual(changedKeys(before.get(id) ?? null, row ?? null), ['archivedAt']);
     }
-    assert.equal(t.runs.length, 1);
-    assert.equal(t.runs[0]?.name, 'sync/taskWrite:enqueueArchive');
+    assert.equal(t.runs.length, 0, 'the page archive is queued in this mutation, not a nested one');
   });
 
   it('archives the Notion page only when write-back is on', async () => {
@@ -135,17 +133,18 @@ describe('task field mutations', () => {
     const { t, taskId } = world();
     try {
       delete process.env.NOTION_WRITEBACK_ENABLED;
-      const off = await t.call<Result>(enqueueArchive, { taskId, actorId: 'contact-staff' }, { respond: queued });
-      assert.equal(off.ok, false);
-      assert.equal(t.runs.length, 0);
+      const off = await t.call<Result>(archiveTask, { taskId }, staff);
+      assert.equal(off.notion, 'off');
+      assert.equal(t.rows('notionOutbox').length, 0);
 
+      const { t: t2, taskId: taskId2 } = world();
       process.env.NOTION_WRITEBACK_ENABLED = 'true';
-      const on = await t.call<Result>(enqueueArchive, { taskId, actorId: 'contact-staff' }, { respond: queued });
-      assert.equal(on.ok, true);
-      assert.equal(t.runs.length, 1);
-      assert.equal(t.runs[0]?.name, 'sync/outbox:enqueue');
-      assert.equal(t.runs[0]?.args.kind, 'task-archive');
-      assert.equal(t.runs[0]?.args.notionPageId, 'notion-task-1');
+      const on = await t2.call<Result>(archiveTask, { taskId: taskId2 }, staff);
+      assert.equal(on.notion, 'queued');
+      const [row] = t2.rows('notionOutbox');
+      assert.equal(row?.kind, 'task-archive');
+      assert.equal(row?.notionPageId, 'notion-task-1');
+      assert.equal(row?.actorId, t2.rows('contacts').find((contact) => contact.authUserId === 'auth-staff')?._id);
     } finally {
       if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
       else process.env.NOTION_WRITEBACK_ENABLED = previous;
@@ -156,7 +155,7 @@ describe('task field mutations', () => {
     const { t, taskId } = world({ date: '2026-10-20' });
     const before = t.row(taskId);
     const bad = await t.call<Result>(setDueDate, { taskId, date: '2026-02-31' }, staff);
-    assert.deepEqual(bad, { ok: false, error: 'Use a calendar day' });
+    assert.deepEqual(bad, { ok: false, code: 'invalid', error: 'Use a calendar day' });
     assert.deepEqual(t.row(taskId), before);
     const month = await t.call<Result>(setDueDate, { taskId, date: '2026-13-01' }, staff);
     assert.equal(month.ok, false);

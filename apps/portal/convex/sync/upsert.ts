@@ -5,11 +5,9 @@ import {
   isApprovedInternalWarehausProject,
   isOrgVisibleToClients,
   isWarehausInternalClient,
-  mergePulledField,
-  mergePulledStage,
+  mergePulledTask,
   pullFieldsChanged,
   pullUpdatedAt,
-  resolvePulledStage,
   storedPullLastEditedTime,
   projectCountsForTaskGate,
   projectStaffVisibleForTasks,
@@ -22,24 +20,12 @@ import { heldTaskProjectId } from '../_lib/milestoneDetails';
 import { v } from 'convex/values';
 import { notionWriteAllowedForTask } from '../_lib/milestoneReview';
 import { internal } from '../_generated/api';
-import { internalMutation, internalQuery, type MutationCtx } from '../_generated/server';
+import { internalMutation, internalQuery } from '../_generated/server';
 import type { Id } from '../_generated/dataModel';
 import { matchingQuarantineId } from '../_lib/quarantineRow';
 import { linkTaskToCreateMilestone, milestoneIdFromPayload } from '../_lib/taskMilestoneLink';
 import { ensureSourceLinks } from '../_lib/taskSourceLinks';
-
-/** Queued or failed task-stage rows only. Inflight, done, and conflict stay. */
-async function deleteUnsentTaskStageRows(ctx: MutationCtx, notionPageId: string): Promise<void> {
-  const rows = await ctx.db
-    .query('notionOutbox')
-    .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
-    .collect();
-  for (const row of rows) {
-    if (row.kind !== 'task-stage') continue;
-    if (row.status !== 'queued' && row.status !== 'failed') continue;
-    await ctx.db.delete(row._id);
-  }
-}
+import { deleteUnsentStageRows } from '../_lib/taskChange';
 
 const hiddenReasonArg = v.optional(
   v.union(v.literal('gate'), v.literal('ancestor'), v.literal('trashed')),
@@ -193,95 +179,33 @@ export const upsertTask = internalMutation({
     if (!notionWriteAllowedForTask({ source: args.source, notionPageId: args.notionPageId })) {
       return existing?._id ?? null;
     }
-    const merge = mergePulledStage({
-      notionStage: fields.stage ?? null,
-      notionLastEditedTime: fields.lastEditedTime ?? null,
-      localStage: existing?.stage ?? null,
-      localLastEditedTime: existing?.lastEditedTime ?? null,
-      stageSynced: existing?.stageSynced ?? null,
-      pending: existing?.stagePendingAt != null,
-      stagePendingBaseEditedTime: existing?.stagePendingBaseEditedTime ?? null,
+    const now = Date.now();
+    const merged = mergePulledTask(existing, {
       name: fields.name,
       notionPageId: args.notionPageId,
+      status: fields.status,
+      isDone: fields.isDone,
+      stage: fields.stage ?? null,
+      lastEditedTime: fields.lastEditedTime ?? null,
+      priority: fields.priority ?? null,
+      nextAction: nextAction ?? null,
+      date: fields.date ?? null,
+      estimate: fields.estimate ?? null,
+      source: fields.source ?? null,
+      publishToWarehaus: fields.publishToWarehaus,
+      ...(description !== undefined || descriptionSource !== undefined ? { description, descriptionSource } : {}),
+      ...(fields.resourceNotionIds !== undefined ? { resourceNotionIds: fields.resourceNotionIds } : {}),
     });
-    const now = Date.now();
-    const descriptionPatch =
-      description === undefined && descriptionSource === undefined
-        ? {}
-        : description
-          ? {
-              description,
-              descriptionSource:
-                descriptionSource === 'body' || descriptionSource === 'property'
-                  ? descriptionSource
-                  : undefined,
-            }
-          : {
-              description: undefined,
-              descriptionSource: descriptionSource === 'none' ? ('none' as const) : undefined,
-            };
-    const editedMs = typeof fields.lastEditedTime === 'string' ? Date.parse(fields.lastEditedTime) : Number.NaN;
-    const notionEditedMs = Number.isFinite(editedMs) ? editedMs : null;
-    const statusMerge = mergePulledField({
-      field: 'status',
-      notionValue: fields.status,
-      notionEditedMs,
-      localValue: existing?.status ?? null,
-      localStamp: existing?.fieldStamps?.status ?? null,
-    });
-    const priorityMerge = mergePulledField({
-      field: 'priority',
-      notionValue: fields.priority ?? null,
-      notionEditedMs,
-      localValue: existing?.priority ?? null,
-      localStamp: existing?.fieldStamps?.priority ?? null,
-    });
-    const nextMerge = mergePulledField({
-      field: 'nextAction',
-      notionValue: nextAction ?? null,
-      notionEditedMs,
-      localValue: existing?.nextAction ?? null,
-      localStamp: existing?.fieldStamps?.nextAction ?? null,
-    });
-    const stageResolved = resolvePulledStage({
-      pending: existing?.stagePendingAt != null,
-      notionStage: fields.stage ?? null,
-      notionEditedMs,
-      localStage: existing?.stage ?? null,
-      localStamp: existing?.fieldStamps?.stage ?? null,
-      pulledStage: merge.stage,
-      pulledStageSynced: merge.stageSynced,
-      pulledLastEditedTime: merge.lastEditedTime,
-    });
-    const pendingPatch = stageResolved.keptLocal
-      ? {}
-      : merge.clearPending
-        ? {
-            stageSynced: merge.stageSynced,
-            stagePendingAt: undefined,
-            stagePendingBaseEditedTime: undefined,
-            stagePendingPullRequest: undefined,
-          }
-        : {
-            stageSynced: merge.stageSynced,
-            ...(merge.stagePendingBaseEditedTime
-              ? { stagePendingBaseEditedTime: merge.stagePendingBaseEditedTime }
-              : {}),
-          };
-    const fieldStamps = {
-      ...(existing?.fieldStamps ?? {}),
-      ...(statusMerge.applied && statusMerge.stamp ? { status: statusMerge.stamp } : {}),
-      ...(priorityMerge.applied && priorityMerge.stamp ? { priority: priorityMerge.stamp } : {}),
-      ...(nextMerge.applied && nextMerge.stamp ? { nextAction: nextMerge.stamp } : {}),
-      ...(stageResolved.stamp ? { stage: stageResolved.stamp } : {}),
-    };
-    const status = statusMerge.applied ? fields.status : (existing?.status ?? fields.status);
-    const isDone = statusMerge.applied ? fields.isDone : (existing?.isDone ?? fields.isDone);
-    const stage = stageResolved.keptLocal ? (existing?.stage ?? null) : stageResolved.stage;
-    const priority = priorityMerge.applied ? (fields.priority ?? null) : (existing?.priority ?? null);
-    const mergedNextAction = nextMerge.applied ? (nextAction ?? null) : (existing?.nextAction ?? null);
-    const mergedDescription =
-      description === undefined ? (existing?.description ?? null) : description ? description : null;
+    const descriptionPatch = merged.description
+      ? {
+          description: merged.description.description ?? undefined,
+          descriptionSource: merged.description.descriptionSource ?? undefined,
+        }
+      : {};
+    const fieldStamps = merged.fieldStamps;
+    const { status, isDone, stage, priority } = merged;
+    const mergedNextAction = merged.nextAction;
+    const mergedDescription = merged.description ? merged.description.description : (existing?.description ?? null);
     const before = existing
       ? {
           name: existing.name,
@@ -299,7 +223,7 @@ export const upsertTask = internalMutation({
       : null;
     const after = {
       name: fields.name,
-      date: fields.date ?? null,
+      date: merged.date,
       description: mergedDescription,
       status,
       isDone,
@@ -337,14 +261,19 @@ export const upsertTask = internalMutation({
       projectId: heldProject.projectId,
       ...(heldProject.clearHold ? { portalProjectId: undefined } : {}),
       stage,
-      lastEditedTime: storedPullLastEditedTime(stageResolved.lastEditedTime, existing?.lastEditedTime),
-      ...pendingPatch,
+      date: merged.date ?? undefined,
+      estimate: merged.estimate ?? undefined,
+      source: merged.source ?? undefined,
+      publishToWarehaus: merged.publishToWarehaus,
+      ...(merged.resourceNotionIds ? { resourceNotionIds: merged.resourceNotionIds } : {}),
+      lastEditedTime: storedPullLastEditedTime(merged.lastEditedTime, existing?.lastEditedTime),
+      ...merged.stagePatch,
       ...visibilityStamp(hiddenReason, now, Boolean(existing)),
       lastSyncedAt: now,
       ...descriptionPatch,
       status,
       isDone,
-      ...(priorityMerge.applied ? { priority: fields.priority } : existing ? { priority: existing.priority } : {}),
+      priority: priority ?? undefined,
       nextAction: mergedNextAction,
       ...(existing?.assigneeContactId
         ? {}
@@ -387,12 +316,12 @@ export const upsertTask = internalMutation({
         if (milestoneId) await linkTaskToCreateMilestone(ctx, created, milestoneId);
       }
     }
-    if (merge.deleteUnsent) await deleteUnsentTaskStageRows(ctx, args.notionPageId);
-    if (merge.notice) {
+    if (merged.deleteUnsent) await deleteUnsentStageRows(ctx, args.notionPageId);
+    if (merged.notice) {
       await ctx.runMutation(internal.invitesSync.recordStaffNotice, {
         orgId: args.orgId,
-        message: merge.notice.message,
-        edgeCase: merge.notice.edgeCase,
+        message: merged.notice.message,
+        edgeCase: merged.notice.edgeCase,
       });
     }
     return taskId;

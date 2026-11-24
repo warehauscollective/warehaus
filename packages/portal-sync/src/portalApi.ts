@@ -8,8 +8,7 @@
  * those writes do not enqueue a page.
  */
 
-import { TASK_PRIORITIES, type TaskPriority } from './taskLiveFields';
-import { isLiveTaskStatus, isPullRequestLink, planTaskCreate, planTaskStageWrite, type TaskWriteProperties } from './taskBoard';
+import { isLiveTaskStatus, isPullRequestLink, planTaskCreate, type TaskWriteProperties } from './taskBoard';
 import { validatePropertyPatch, type WriteProperties } from './writeback';
 
 export const API_RATE_LIMIT_DEFAULT = 60;
@@ -62,11 +61,6 @@ const STAGE_RANK: Record<string, number> = {
 export type FieldStamp = { updatedAt: number; updatedBy: string };
 export type StampedField = 'status' | 'stage' | 'priority' | 'nextAction';
 export type FieldOrigin = 'api' | 'event' | 'pull';
-
-export type ApiOutboxWrite = {
-  kind: 'update' | 'task-stage' | 'create';
-  properties: WriteProperties | TaskWriteProperties;
-};
 
 export function bearerToken(header: string | null): string | null {
   if (!header) return null;
@@ -557,26 +551,6 @@ export function applyFieldWrite(input: {
   return { apply: true, stamp: { updatedAt: input.updatedAt, updatedBy: input.updatedBy } };
 }
 
-export function mergePulledField(input: {
-  field: 'status' | 'priority' | 'nextAction';
-  notionValue: string | null;
-  notionEditedMs: number | null;
-  localValue: string | null;
-  localStamp: FieldStamp | null;
-}): { applied: boolean; value: string | null; stamp: FieldStamp | null } {
-  const decision = applyFieldWrite({
-    field: input.field,
-    origin: 'pull',
-    currentValue: input.localValue,
-    currentStamp: input.localStamp,
-    nextValue: input.notionValue,
-    updatedAt: input.notionEditedMs ?? 0,
-    updatedBy: 'notion',
-  });
-  if (!decision.apply) return { applied: false, value: input.localValue, stamp: input.localStamp };
-  return { applied: true, value: input.notionValue, stamp: decision.stamp };
-}
-
 /**
  * Stage from a pull. An in-flight move keeps `mergePulledStage`. Otherwise the
  * Notion edit time has to beat `fieldStamps.stage`. An older pull keeps the
@@ -683,66 +657,6 @@ export function pullUpdatedAt(input: {
 }): number | undefined {
   if (input.fieldsChanged || input.linksChanged) return input.now;
   return input.previousUpdatedAt ?? undefined;
-}
-
-function priorityProperty(value: string | null): { ok: true; value: string | null } | { ok: false; error: string } {
-  if (value == null) return { ok: true, value: null };
-  const text = value.trim();
-  if (!text) return { ok: true, value: null };
-  if (!(TASK_PRIORITIES as readonly string[]).includes(text)) return { ok: false, error: 'Unknown priority' };
-  return { ok: true, value: text as TaskPriority };
-}
-
-export function planApiTaskUpdate(input: {
-  notionPageId: string;
-  expectedLastEditedTime: string;
-  status?: string;
-  priority?: string | null;
-  nextAction?: string | null;
-  stage?: string;
-  pullRequestLink?: string;
-  /** Set only after the staff write has verified the pull request. */
-  verifiedMerge?: boolean;
-}): { ok: true; writes: ApiOutboxWrite[] } | { ok: false; error: string } {
-  if (!input.notionPageId) return { ok: false, error: 'Updates require a Notion page' };
-  if (!input.expectedLastEditedTime) return { ok: false, error: 'Updates require the last read time' };
-
-  const properties: WriteProperties = {};
-  if (input.status !== undefined) {
-    if (!isLiveTaskStatus(input.status)) return { ok: false, error: 'Unknown status' };
-    properties.Status = input.status;
-  }
-  if (input.priority !== undefined) {
-    const priority = priorityProperty(input.priority);
-    if (!priority.ok) return priority;
-    properties.Priority = priority.value;
-  }
-  if (input.nextAction !== undefined) {
-    const text = input.nextAction?.trim() ?? '';
-    if (text.length > 500) return { ok: false, error: 'Next action is too long' };
-    properties['Next Action'] = text.length > 0 ? text : null;
-  }
-
-  const writes: ApiOutboxWrite[] = [];
-  if (Object.keys(properties).length > 0) {
-    const validated = validatePropertyPatch({ database: 'tasks', properties });
-    if (!validated.ok) return { ok: false, error: validated.errors.join('; ') };
-    writes.push({ kind: 'update', properties });
-  }
-  if (input.stage !== undefined) {
-    const stage = planTaskStageWrite({
-      actor: 'staff',
-      stage: input.stage,
-      pullRequestLink: input.pullRequestLink,
-      notionPageId: input.notionPageId,
-      expectedLastEditedTime: input.expectedLastEditedTime,
-      verifiedMerge: input.verifiedMerge,
-    });
-    if (!stage.ok) return stage;
-    writes.push({ kind: 'task-stage', properties: stage.properties });
-  }
-  if (writes.length === 0) return { ok: false, error: 'At least one field is required' };
-  return { ok: true, writes };
 }
 
 export function planApiTaskCreate(input: {

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { planTaskDateWrite, planTaskLiveFieldsWrite, taskLiveFieldsWriteError } from './taskLiveFields';
+import { planTaskLiveFieldsWrite, taskLiveFieldsWriteError } from './taskLiveFields';
 
 const page = {
   actor: 'staff' as const,
@@ -60,25 +60,13 @@ describe('task live field writes', () => {
     assert.equal(planTaskLiveFieldsWrite({ ...page, expectedLastEditedTime: '', estimate: 'S' }).ok, false);
     assert.equal(
       taskLiveFieldsWriteError({ Status: 'Done', Estimate: 'S' }),
-      'Task field updates can only set Estimate, Priority, Source, or Publish to Warehaus',
+      'Task field updates can only set Estimate, Priority, Source, Publish to Warehaus, or Next Action',
     );
     assert.equal(taskLiveFieldsWriteError({ 'Publish to Warehaus': 'yes' }), 'Publish to Warehaus must be true or false');
-    assert.equal(taskLiveFieldsWriteError({ 'Is Done': true }), 'Task field updates can only set Estimate, Priority, Source, or Publish to Warehaus');
+    assert.equal(
+      taskLiveFieldsWriteError({ 'Is Done': true }),
+      'Task field updates can only set Estimate, Priority, Source, Publish to Warehaus, or Next Action',
+    );
   });
 });
 
-describe('task date writes', () => {
-  it('plans a day and a cleared date', () => {
-    const planned = planTaskDateWrite({ date: '2026-10-20', notionPageId: 'page-1', expectedLastEditedTime: '2026-10-01T00:00:00.000Z' });
-    assert.equal(planned.ok, true);
-    if (planned.ok) assert.deepEqual(planned.properties, { Date: '2026-10-20' });
-    const cleared = planTaskDateWrite({ date: null, notionPageId: 'page-1', expectedLastEditedTime: '2026-10-01T00:00:00.000Z' });
-    assert.equal(cleared.ok, true);
-    if (cleared.ok) assert.deepEqual(cleared.properties, { Date: null });
-  });
-
-  it('rejects a bad day and a missing page', () => {
-    assert.equal(planTaskDateWrite({ date: '10/20/2026', notionPageId: 'page-1', expectedLastEditedTime: 't' }).ok, false);
-    assert.equal(planTaskDateWrite({ date: '2026-10-20', notionPageId: '', expectedLastEditedTime: 't' }).ok, false);
-  });
-});

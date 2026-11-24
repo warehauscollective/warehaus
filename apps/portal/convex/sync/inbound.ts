@@ -9,7 +9,7 @@
  * sees the claim. Lookups use .first() so a leftover duplicate cannot 5xx.
  */
 
-import { planTaskStageWrite, takeRateLimit } from '@warehaus/portal-sync';
+import { takeRateLimit } from '@warehaus/portal-sync';
 import { v } from 'convex/values';
 import { internal } from '../_generated/api';
 import type { Doc } from '../_generated/dataModel';
@@ -36,6 +36,7 @@ import {
 import { changeMilestoneStatus } from '../_lib/milestoneLifecycle';
 import { assertStaffPreviewLink } from '../_lib/previewLink';
 import { processedSyncEventPatch } from '../_lib/syncEventRetention';
+import { applyTaskChanges } from '../_lib/taskChange';
 
 const itemValidator = v.object({
   notionPageId: v.string(),
@@ -176,19 +177,6 @@ async function rememberRate(
     details,
     lastSyncedAt: now,
   });
-}
-
-async function deleteOtherStageRows(ctx: MutationCtx, notionPageId: string, keepKey: string) {
-  const rows = await ctx.db
-    .query('notionOutbox')
-    .withIndex('by_notionPageId', (q) => q.eq('notionPageId', notionPageId))
-    .take(20);
-  for (const row of rows) {
-    if (row.kind !== 'task-stage') continue;
-    if (row.status !== 'queued' && row.status !== 'failed') continue;
-    if (row.idempotencyKey === keepKey) continue;
-    await ctx.db.delete(row._id);
-  }
 }
 
 async function linkForTaskUrl(
@@ -426,46 +414,17 @@ export const applyInbound = internalMutation({
         lastEditedTime: task.lastEditedTime,
         now,
       });
-      if (!stage.ok) continue;
-      const edited = task.lastEditedTime?.trim() ?? '';
-      const planned = planTaskStageWrite({
-        actor: 'staff',
-        stage: stage.stage,
-        pullRequestLink: item.url,
-        notionPageId: task.notionPageId,
-        expectedLastEditedTime: edited,
-        allowReviewStage: true,
-      });
-      if (!planned.ok) continue;
-      if ('Status' in planned.properties || planned.properties.Stage !== MERGE_REVIEW_STAGE) continue;
-      const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
-        idempotencyKey: planned.idempotencyKey,
-        kind: 'task-stage',
-        orgId: task.orgId,
-        database: 'tasks',
-        notionPageId: task.notionPageId,
-        expectedLastEditedTime: edited,
-        payload: JSON.stringify({ properties: planned.properties }),
-        actor: 'staff',
-        actorId: 'github-webhook',
-        schedule: true,
-      });
-      if (!queued.ok) continue;
-      await deleteOtherStageRows(ctx, task.notionPageId, planned.idempotencyKey);
-      const alreadyPending = typeof task.stagePendingAt === 'number';
-      const currentStage = typeof task.stage === 'string' && task.stage.trim() ? task.stage : null;
-      await ctx.db.patch(task._id, {
-        stage: MERGE_REVIEW_STAGE,
-        stagePendingAt: alreadyPending ? task.stagePendingAt : now,
-        stagePendingBaseEditedTime: edited,
-        ...(alreadyPending ? {} : { stageSynced: currentStage }),
-        stagePendingPullRequest: item.url,
-        fieldStamps: {
-          ...(task.fieldStamps ?? {}),
-          stage: stage.stamp,
-        },
-      });
-      stageMoves += 1;
+      if (!stage.ok || stage.stage !== MERGE_REVIEW_STAGE) continue;
+      // Re-read: an earlier item in this delivery may have moved the same task.
+      const current = await ctx.db.get(task._id);
+      if (!current) continue;
+      const moved = await applyTaskChanges(
+        ctx,
+        current,
+        [{ field: 'stage', stage: stage.stage, pullRequestLink: item.url, allowReviewStage: true }],
+        { actor: 'webhook', actorId: 'github-webhook', at: now },
+      );
+      if (moved.ok && moved.wrote) stageMoves += 1;
     }
 
     await rememberRate(ctx, rate.row, rate.windowStartedAt, rate.windowCount, now);
