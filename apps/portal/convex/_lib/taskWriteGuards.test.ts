@@ -5,707 +5,319 @@ import { enqueue } from '../sync/outbox';
 import { enqueueCreate, enqueueStage, enqueueStatus } from '../sync/taskWrite';
 import { createTask, moveStage, moveStatus, updateLiveFields } from '../tasks';
 import { PortalAuthError } from './identity';
+import { memoryCtx, type MemoryCtx, type Respond, type RunCall } from './memoryCtx.testkit';
+import { seedMilestone, seedOrg, seedProject, seedTask } from './seedRows.testkit';
 
-type Handler = (ctx: unknown, args: Record<string, unknown>) => Promise<{ ok: boolean; error?: string }>;
+type Result = Record<string, unknown> & { ok: boolean; error?: string };
 
-function run(fn: object, ctx: unknown, args: Record<string, unknown>) {
-  return (fn as { _handler: Handler })._handler(ctx, args);
+const EDITED = '2026-10-28T00:00:00.000Z';
+const OUTBOX = 'sync/outbox:enqueue';
+
+/** The Notion outbox answers every enqueue as queued. */
+const queued: Respond = () => ({ ok: true, outboxId: 'notionOutbox:1', duplicate: false });
+
+/** Run each nested internal mutation for real, so the outbox rows land in the ctx. */
+function chain(t: MemoryCtx): Respond {
+  const registry: Record<string, unknown> = {
+    'sync/taskWrite:enqueueStatus': enqueueStatus,
+    'sync/taskWrite:enqueueStage': enqueueStage,
+    [OUTBOX]: enqueue,
+  };
+  const respond: Respond = (call: RunCall) => {
+    const fn = registry[call.name];
+    if (!fn) throw new Error(`unexpected mutation ${call.name}`);
+    return t.call(fn, call.args, { respond });
+  };
+  return respond;
+}
+
+async function withWriteback<T>(value: string | undefined, body: () => Promise<T>): Promise<T> {
+  const previous = process.env.NOTION_WRITEBACK_ENABLED;
+  if (value === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+  else process.env.NOTION_WRITEBACK_ENABLED = value;
+  try {
+    return await body();
+  } finally {
+    if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
+    else process.env.NOTION_WRITEBACK_ENABLED = previous;
+  }
+}
+
+const outboxRuns = (t: MemoryCtx) => t.runs.filter((run) => run.name === OUTBOX);
+const staffContactId = (t: MemoryCtx) => t.rows('contacts').find((row) => row.authUserId === 'auth-staff')?._id;
+
+/** Northwind with one project whose Notion page is `notion-proj`. */
+function northwind() {
+  const t = memoryCtx();
+  const orgId = seedOrg(t, { slug: 'northwind', companyName: 'Northwind' });
+  const projectId = seedProject(t, orgId, { notionPageId: 'notion-proj', name: 'Site' });
+  return { t, orgId, projectId };
 }
 
 describe('createTask project org', () => {
   it('rejects a project that belongs to another client', async () => {
-    const calls: unknown[] = [];
-    const result = await run(
+    const t = memoryCtx();
+    const northwindId = seedOrg(t, { slug: 'northwind' });
+    const otherId = seedOrg(t, { slug: 'other' });
+    seedProject(t, otherId, { notionPageId: 'notion-proj' });
+    const result = await t.call<Result>(
       enqueueCreate,
-      {
-        db: {
-          query: () => ({
-            withIndex: () => ({
-              unique: async () => ({ _id: 'proj-other', orgId: 'org-other', notionPageId: 'notion-proj' }),
-            }),
-          }),
-        },
-        runMutation: async (_ref: unknown, args: unknown) => {
-          calls.push(args);
-          return { ok: true, outboxId: 'out-1', duplicate: false };
-        },
-      },
-      {
-        orgId: 'org-northwind',
-        name: 'Homepage',
-        status: 'To Do',
-        projectNotionId: 'notion-proj',
-        externalId: 'wh_tsk_homepage',
-      },
+      { orgId: northwindId, name: 'Homepage', status: 'To Do', projectNotionId: 'notion-proj', externalId: 'wh_tsk_homepage' },
+      { respond: queued },
     );
     assert.deepEqual(result, { ok: false, error: 'Project is not in this client' });
-    assert.equal(calls.length, 0);
+    assert.equal(t.runs.length, 0);
   });
 
   it('queues a create when the project belongs to the org', async () => {
-    const calls: Array<{ actor?: string; orgId?: string }> = [];
-    const result = await run(
+    const { t, orgId, projectId } = northwind();
+    const milestoneId = seedMilestone(t, orgId, projectId, { status: 'Building' });
+    const result = await t.call<Result>(
       enqueueCreate,
       {
-        db: {
-          query: () => ({
-            withIndex: () => ({
-              unique: async () => ({ _id: 'proj-public', orgId: 'org-northwind', notionPageId: 'notion-proj' }),
-            }),
-          }),
-          get: async () => ({ _id: 'm-launch', orgId: 'org-northwind', projectId: 'proj-public', status: 'Building' }),
-        },
-        runMutation: async (_ref: unknown, args: { actor?: string; orgId?: string }) => {
-          calls.push(args);
-          return { ok: true, outboxId: 'out-1', duplicate: false };
-        },
-      },
-      {
-        orgId: 'org-northwind',
+        orgId,
         name: 'Homepage',
         status: 'To Do',
         projectNotionId: 'notion-proj',
         externalId: 'wh_tsk_homepage',
-        milestoneId: 'm-launch',
+        milestoneId,
         actorId: 'contact-staff',
       },
+      { respond: queued },
     );
     assert.equal(result.ok, true);
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0]?.actor, 'staff');
-    assert.equal(calls[0]?.orgId, 'org-northwind');
+    assert.equal(t.runs.length, 1);
+    assert.equal(t.runs[0]?.name, OUTBOX);
+    assert.equal(t.runs[0]?.args.actor, 'staff');
+    assert.equal(t.runs[0]?.args.orgId, orgId);
   });
 
   it('forwards milestoneId from createTask into the outbox payload', async () => {
-    const forwarded: Array<{ milestoneId?: string; actorId?: string }> = [];
-    const staff = {
-      _id: 'contact-staff',
-      orgId: 'org-warehaus',
-      name: 'Maya Staff',
-      email: 'maya@warehaus.studio',
-      authUserId: 'auth-staff',
-      role: 'Warehaus Staff' as const,
-      portalAccess: 'Enabled' as const,
-    };
-    const created = await run(
+    const { t, orgId, projectId } = northwind();
+    const launch = seedMilestone(t, orgId, projectId, { status: 'Building' });
+    const otherProject = seedProject(t, orgId);
+    const other = seedMilestone(t, orgId, otherProject, { status: 'Building' });
+    const shippedId = seedMilestone(t, orgId, projectId, { status: 'Shipped', approval: 'approved' });
+
+    const created = await t.call<Result>(
       createTask,
-      {
-        auth: { getUserIdentity: async () => ({ subject: 'auth-staff' }) },
-        db: {
-          get: async (id: string) =>
-            id === 'org-warehaus' ? { _id: 'org-warehaus', slug: 'warehaus', portalAccess: 'Enabled' } : null,
-          query: (table: string) => ({
-            withIndex: () => ({ unique: async () => (table === 'contacts' ? staff : null) }),
-          }),
-        },
-        runMutation: async (_ref: unknown, args: { milestoneId?: string; actorId?: string }) => {
-          forwarded.push(args);
-          return { ok: true, outboxId: 'out-1', duplicate: false };
-        },
-      },
-      {
-        orgId: 'org-northwind',
-        name: 'Homepage',
-        status: 'To Do',
-        projectNotionId: 'notion-proj',
-        externalId: 'wh_tsk_homepage',
-        milestoneId: 'm-launch',
-      },
+      { orgId, name: 'Homepage', status: 'To Do', projectNotionId: 'notion-proj', externalId: 'wh_tsk_homepage', milestoneId: launch },
+      { as: 'staff', respond: queued },
     );
     assert.equal(created.ok, true);
-    assert.equal(forwarded[0]?.milestoneId, 'm-launch');
-    assert.equal(forwarded[0]?.actorId, 'contact-staff');
+    assert.equal(t.runs[0]?.name, 'sync/taskWrite:enqueueCreate');
+    assert.equal(t.runs[0]?.args.milestoneId, launch);
+    assert.equal(t.runs[0]?.args.actorId, staffContactId(t));
 
-    const queued: Array<{ payload?: string }> = [];
-    const db = {
-      query: () => ({
-        withIndex: () => ({
-          unique: async () => ({ _id: 'proj-public', orgId: 'org-northwind', notionPageId: 'notion-proj' }),
-        }),
-      }),
-      get: async (id: string) =>
-        id === 'm-launch'
-          ? { _id: 'm-launch', orgId: 'org-northwind', projectId: 'proj-public', status: 'Building' }
-          : id === 'm-other'
-            ? { _id: 'm-other', orgId: 'org-northwind', projectId: 'proj-other', status: 'Building' }
-            : id === 'm-shipped'
-              ? { _id: 'm-shipped', orgId: 'org-northwind', projectId: 'proj-public', status: 'Shipped' }
-              : null,
-    };
-    const accepted = await run(
+    const base = { orgId, name: 'Homepage', status: 'To Do', projectNotionId: 'notion-proj' };
+    const accepted = await t.call<Result>(
       enqueueCreate,
-      {
-        db,
-        runMutation: async (_ref: unknown, args: { payload?: string }) => {
-          queued.push(args);
-          return { ok: true, outboxId: 'out-2', duplicate: false };
-        },
-      },
-      {
-        orgId: 'org-northwind',
-        name: 'Homepage',
-        status: 'To Do',
-        projectNotionId: 'notion-proj',
-        externalId: 'wh_tsk_homepage',
-        milestoneId: 'm-launch',
-        actorId: 'contact-staff',
-      },
+      { ...base, externalId: 'wh_tsk_homepage', milestoneId: launch, actorId: 'contact-staff' },
+      { respond: queued },
     );
     assert.equal(accepted.ok, true);
-    const payload = JSON.parse(queued[0]?.payload ?? '{}') as { properties?: object; milestoneId?: string };
-    assert.equal(payload.milestoneId, 'm-launch');
+    assert.equal(outboxRuns(t).length, 1);
+    const payload = JSON.parse(String(outboxRuns(t)[0]?.args.payload ?? '{}')) as { properties?: object; milestoneId?: string };
+    assert.equal(payload.milestoneId, launch);
     assert.equal(typeof payload.properties, 'object');
 
-    const rejected = await run(
-      enqueueCreate,
-      { db, runMutation: async () => ({ ok: true, outboxId: 'out-3', duplicate: false }) },
-      {
-        orgId: 'org-northwind',
-        name: 'Homepage',
-        status: 'To Do',
-        projectNotionId: 'notion-proj',
-        externalId: 'wh_tsk_homepage_2',
-        milestoneId: 'm-other',
-      },
-    );
+    const rejected = await t.call<Result>(enqueueCreate, { ...base, externalId: 'wh_tsk_homepage_2', milestoneId: other }, { respond: queued });
     assert.deepEqual(rejected, { ok: false, error: 'Milestone is not on this project' });
-    assert.equal(queued.length, 1);
+    assert.equal(outboxRuns(t).length, 1);
 
-    const plain = await run(
-      enqueueCreate,
-      {
-        db,
-        runMutation: async (_ref: unknown, args: { payload?: string }) => {
-          queued.push(args);
-          return { ok: true, outboxId: 'out-4', duplicate: false };
-        },
-      },
-      {
-        orgId: 'org-northwind',
-        name: 'Homepage',
-        status: 'To Do',
-        projectNotionId: 'notion-proj',
-        externalId: 'wh_tsk_homepage_3',
-      },
-    );
+    const plain = await t.call<Result>(enqueueCreate, { ...base, externalId: 'wh_tsk_homepage_3' }, { respond: queued });
     // No milestone: nothing is queued. A task only exists inside a milestone.
     assert.deepEqual(plain, { ok: false, error: 'Choose a milestone. A task only exists inside a milestone.' });
-    assert.equal(queued.length, 1);
+    assert.equal(outboxRuns(t).length, 1);
 
-    const shipped = await run(
-      enqueueCreate,
-      { db, runMutation: async () => ({ ok: true, outboxId: 'out-5', duplicate: false }) },
-      {
-        orgId: 'org-northwind',
-        name: 'Homepage',
-        status: 'To Do',
-        projectNotionId: 'notion-proj',
-        externalId: 'wh_tsk_homepage_4',
-        milestoneId: 'm-shipped',
-      },
-    );
+    const shipped = await t.call<Result>(enqueueCreate, { ...base, externalId: 'wh_tsk_homepage_4', milestoneId: shippedId }, { respond: queued });
     assert.deepEqual(shipped, { ok: false, error: 'This milestone has shipped. Add the task to a new milestone.' });
-    assert.equal(queued.length, 1);
+    assert.equal(outboxRuns(t).length, 1);
   });
 });
 
 describe('enqueueStage actor', () => {
-  const task = {
-    _id: 'task-1',
-    orgId: 'org-northwind',
-    notionPageId: 'page-1',
-    lastEditedTime: '2026-10-28T00:00:00.000Z',
-  };
+  /** A Notion task last edited at EDITED, with the given stage (none when omitted). */
+  function stageWorld() {
+    const { t, orgId, projectId } = northwind();
+    const task = (stage?: string) =>
+      seedTask(t, orgId, projectId, { lastEditedTime: EDITED, ...(stage === undefined ? {} : { stage }) });
+    return { t, orgId, task };
+  }
+  const base = { expectedLastEditedTime: EDITED, actor: 'staff' as const, actorId: 'contact-staff' };
 
   it('records the staff actor and actor id on the outbox call', async () => {
-    const previous = process.env.NOTION_WRITEBACK_ENABLED;
-    process.env.NOTION_WRITEBACK_ENABLED = 'true';
-    const calls: Array<{ actor?: string; actorId?: string }> = [];
-    const result = await run(
-      enqueueStage,
-      {
-        db: {
-          get: async () => task,
-          patch: async () => undefined,
-          query: () => ({ withIndex: () => ({ collect: async () => [] }) }),
-        },
-        runMutation: async (_ref: unknown, args: { actor?: string; actorId?: string }) => {
-          calls.push(args);
-          return { ok: true, outboxId: 'out-1', duplicate: false };
-        },
-      },
-      {
-        taskId: 'task-1',
-        stage: 'Idea',
-        expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-        actor: 'staff',
-        actorId: 'contact-staff',
-      },
-    );
+    const { t, task } = stageWorld();
+    const taskId = task();
+    const result = await withWriteback('true', () => t.call<Result>(enqueueStage, { ...base, taskId, stage: 'Idea' }, { respond: queued }));
     assert.equal(result.ok, true);
-    assert.equal(calls[0]?.actor, 'staff');
-    assert.equal(calls[0]?.actorId, 'contact-staff');
-    if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
-    else process.env.NOTION_WRITEBACK_ENABLED = previous;
+    assert.equal(t.runs[0]?.name, OUTBOX);
+    assert.equal(t.runs[0]?.args.actor, 'staff');
+    assert.equal(t.runs[0]?.args.actorId, 'contact-staff');
   });
 
   it('does not queue a row when the actor is a client', async () => {
-    const calls: unknown[] = [];
-    const result = await run(
+    const { t, task } = stageWorld();
+    const taskId = task();
+    const before = t.row(taskId);
+    const result = await t.call<Result>(
       enqueueStage,
-      {
-        db: { get: async () => task },
-        runMutation: async (_ref: unknown, args: unknown) => {
-          calls.push(args);
-          return { ok: true, outboxId: 'out-1', duplicate: false };
-        },
-      },
-      {
-        taskId: 'task-1',
-        stage: 'Idea',
-        expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-        actor: 'client',
-        actorId: 'contact-client',
-      },
+      { ...base, taskId, stage: 'Idea', actor: 'client', actorId: 'contact-client' },
+      { respond: queued },
     );
     assert.equal(result.ok, false);
-    assert.equal(calls.length, 0);
+    assert.equal(t.runs.length, 0);
+    assert.deepEqual(t.row(taskId), before);
   });
 
   it('queues Idea or Planning from No stage yet and refuses every other stage', async () => {
-    const previous = process.env.NOTION_WRITEBACK_ENABLED;
-    process.env.NOTION_WRITEBACK_ENABLED = 'true';
-    const calls: string[] = [];
-    const ctx = {
-      db: {
-        get: async () => task,
-        patch: async () => undefined,
-        query: () => ({ withIndex: () => ({ collect: async () => [] }) }),
-      },
-      runMutation: async (_ref: unknown, args: { payload?: string }) => {
-        calls.push(args.payload ?? '');
-        return { ok: true, outboxId: 'out-1', duplicate: false };
-      },
-    };
-    const base = {
-      taskId: 'task-1',
-      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-      actor: 'staff' as const,
-      actorId: 'contact-staff',
-    };
-    const parked = await run(enqueueStage, ctx, { ...base, stage: 'Parked' });
-    assert.deepEqual(parked, { ok: false, error: 'Tasks with no stage can move to Idea or Planning.' });
-    const unknown = await run(enqueueStage, { ...ctx, db: { get: async () => ({ ...task, stage: 'Brainstorm' }) } }, { ...base, stage: 'Awaiting Go' });
-    assert.equal(unknown.ok, false);
-    const planning = await run(enqueueStage, ctx, { ...base, stage: 'Planning' });
-    assert.equal(planning.ok, true);
-    const filed = await run(
-      enqueueStage,
-      {
-        ...ctx,
-        db: {
-          get: async () => ({ ...task, stage: 'Idea' }),
-          patch: async () => undefined,
-          query: () => ({ withIndex: () => ({ collect: async () => [] }) }),
-        },
-      },
-      { ...base, stage: 'Parked' },
-    );
-    assert.equal(filed.ok, true);
-    assert.equal(calls.length, 2);
-    if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
-    else process.env.NOTION_WRITEBACK_ENABLED = previous;
+    const { t, task } = stageWorld();
+    await withWriteback('true', async () => {
+      const call = (taskId: string, stage: string) => t.call<Result>(enqueueStage, { ...base, taskId, stage }, { respond: queued });
+      const parked = await call(task(), 'Parked');
+      assert.deepEqual(parked, { ok: false, error: 'Tasks with no stage can move to Idea or Planning.' });
+      const unknown = await call(task('Brainstorm'), 'Awaiting Go');
+      assert.equal(unknown.ok, false);
+      const planning = await call(task(), 'Planning');
+      assert.equal(planning.ok, true);
+      const filed = await call(task('Idea'), 'Parked');
+      assert.equal(filed.ok, true);
+      assert.equal(outboxRuns(t).length, 2);
+    });
   });
 
   it('lets staff enter and leave Building and still refuses Shipped', async () => {
-    const calls: unknown[] = [];
-    const ctxFor = (stage?: string) => ({
-      db: {
-        get: async () => ({ ...task, stage }),
-        patch: async () => undefined,
-        query: () => ({ withIndex: () => ({ collect: async () => [] }) }),
-      },
-      runMutation: async () => {
-        calls.push(stage ?? '');
-        return { ok: true, outboxId: 'out-1', duplicate: false };
-      },
-    });
-    const base = {
-      taskId: 'task-1',
-      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-      actor: 'staff' as const,
-      actorId: 'contact-staff',
-    };
-    const previous = process.env.NOTION_WRITEBACK_ENABLED;
-    process.env.NOTION_WRITEBACK_ENABLED = 'true';
-    try {
-      const intoBuilding = await run(enqueueStage, ctxFor('Idea'), { ...base, stage: 'Building' });
+    const { t, task } = stageWorld();
+    await withWriteback('true', async () => {
+      const call = (from: string, stage: string) => t.call<Result>(enqueueStage, { ...base, taskId: task(from), stage }, { respond: queued });
+      const intoBuilding = await call('Idea', 'Building');
       assert.equal(intoBuilding.ok, true);
-      const outOfBuilding = await run(enqueueStage, ctxFor('Building'), { ...base, stage: 'Idea' });
+      const outOfBuilding = await call('Building', 'Idea');
       assert.equal(outOfBuilding.ok, true);
-      const intoShipped = await run(enqueueStage, ctxFor('Planning'), { ...base, stage: 'Shipped' });
+      const intoShipped = await call('Planning', 'Shipped');
       assert.equal(intoShipped.ok, false);
-      if (!intoShipped.ok) assert.match(intoShipped.error ?? '', /merged into main/);
-      const outOfShipped = await run(enqueueStage, ctxFor('Shipped'), { ...base, stage: 'Planning' });
+      assert.match(intoShipped.error ?? '', /merged into main/);
+      const outOfShipped = await call('Shipped', 'Planning');
       assert.equal(outOfShipped.ok, false);
-      if (!outOfShipped.ok) assert.match(outOfShipped.error ?? '', /Leaving Shipped stays locked/);
-      assert.equal(calls.length, 2);
-    } finally {
-      if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
-      else process.env.NOTION_WRITEBACK_ENABLED = previous;
-    }
+      assert.match(outOfShipped.error ?? '', /Leaving Shipped stays locked/);
+      assert.equal(outboxRuns(t).length, 2);
+    });
   });
 
   it('stores the actor argument on the outbox row', async () => {
-    const previous = process.env.NOTION_WRITEBACK_ENABLED;
-    process.env.NOTION_WRITEBACK_ENABLED = 'true';
-    const inserted: Array<Record<string, unknown>> = [];
-    try {
-      const ctx = {
-        db: {
-          query: () => ({
-            withIndex: () => ({ unique: async () => null }),
-          }),
-          insert: async (_table: string, row: Record<string, unknown>) => {
-            inserted.push(row);
-            return 'outbox-1';
-          },
-        },
-        scheduler: { runAfter: async () => undefined },
-      };
-      const args = {
-        idempotencyKey: 'task-stage:page-1:Idea::2026-10-28T00:00:00.000Z',
-        kind: 'task-stage',
-        orgId: 'org-northwind',
-        database: 'tasks',
-        notionPageId: 'page-1',
-        expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-        payload: JSON.stringify({ properties: { Stage: 'Idea' } }),
-        actorId: 'contact-staff',
-        schedule: false,
-      };
-      const staff = await run(enqueue, ctx, { ...args, actor: 'staff' });
+    const { t, orgId } = northwind();
+    const args = {
+      idempotencyKey: `task-stage:page-1:Idea::${EDITED}`,
+      kind: 'task-stage',
+      orgId,
+      database: 'tasks',
+      notionPageId: 'page-1',
+      expectedLastEditedTime: EDITED,
+      payload: JSON.stringify({ properties: { Stage: 'Idea' } }),
+      actorId: 'contact-staff',
+      schedule: false,
+    };
+    await withWriteback('true', async () => {
+      const staff = await t.call<Result>(enqueue, { ...args, actor: 'staff' });
       assert.equal(staff.ok, true);
-      assert.equal(inserted[0]?.actor, 'staff');
-      assert.equal(inserted[0]?.actorId, 'contact-staff');
+      const rows = t.rows('notionOutbox');
+      assert.equal(rows.length, 1);
+      assert.equal(rows[0]?.actor, 'staff');
+      assert.equal(rows[0]?.actorId, 'contact-staff');
 
-      const client = await run(enqueue, ctx, { ...args, idempotencyKey: 'other', actor: 'clientAdmin' });
+      const client = await t.call<Result>(enqueue, { ...args, idempotencyKey: 'other', actor: 'clientAdmin' });
       assert.equal(client.ok, false);
-      assert.equal(inserted.length, 1);
-    } finally {
-      if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
-      else process.env.NOTION_WRITEBACK_ENABLED = previous;
-    }
+      assert.equal(t.rows('notionOutbox').length, 1);
+    });
   });
 });
 
 describe('move authorization', () => {
-  const northwindTask: Record<string, unknown> = {
-    _id: 'task-north',
-    orgId: 'org-northwind',
-    notionPageId: 'page-north',
-    stage: 'Idea',
-    lastEditedTime: '2026-10-28T00:00:00.000Z',
-  };
+  /** A Northwind task at stage Idea, and the Warehaus staff contact that moves it. */
+  function moveWorld() {
+    const { t, orgId, projectId } = northwind();
+    t.actor('staff');
+    const taskId = seedTask(t, orgId, projectId, { notionPageId: 'page-north', stage: 'Idea', lastEditedTime: EDITED });
+    return { t, orgId, taskId };
+  }
 
   it('rejects a missing task before any outbox insert', async () => {
-    const calls: unknown[] = [];
-    const ctx = {
-      db: { get: async () => null },
-      runMutation: async (_ref: unknown, args: unknown) => {
-        calls.push(args);
-        return { ok: true, outboxId: 'out-1', duplicate: false };
-      },
-    };
-    const statusMissing = await run(enqueueStatus, ctx, {
-      taskId: 'task-missing',
-      status: 'To Do',
-      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-    });
+    const { t } = northwind();
+    const statusMissing = await t.call<Result>(
+      enqueueStatus,
+      { taskId: 'tasks:999', status: 'To Do', expectedLastEditedTime: EDITED },
+      { respond: queued },
+    );
     assert.deepEqual(statusMissing, { ok: false, error: 'Task not found' });
-    const stageMissing = await run(enqueueStage, ctx, {
-      taskId: 'task-missing',
-      stage: 'Idea',
-      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-      actor: 'staff',
-    });
+    const stageMissing = await t.call<Result>(
+      enqueueStage,
+      { taskId: 'tasks:999', stage: 'Idea', expectedLastEditedTime: EDITED, actor: 'staff' },
+      { respond: queued },
+    );
     assert.deepEqual(stageMissing, { ok: false, error: 'Task not found' });
-    assert.equal(calls.length, 0);
+    assert.equal(t.runs.length, 0);
+    assert.equal(t.rows('notionOutbox').length, 0);
   });
 
   it('lets Warehaus studio staff past auth, then write-back off writes nothing', async () => {
-    const previous = process.env.NOTION_WRITEBACK_ENABLED;
-    delete process.env.NOTION_WRITEBACK_ENABLED;
-    const inserted: unknown[] = [];
-    const studio = {
-      _id: 'org-warehaus',
-      slug: 'warehaus',
-      portalAccess: 'Enabled' as const,
-    };
-    const staff = {
-      _id: 'contact-staff',
-      orgId: studio._id,
-      name: 'Maya Staff',
-      email: 'maya@warehaus.studio',
-      authUserId: 'auth-staff',
-      role: 'Warehaus Staff' as const,
-      portalAccess: 'Enabled' as const,
-    };
-    const outboxCtx = {
-      db: {
-        query: () => ({
-          withIndex: () => ({ unique: async () => null }),
-        }),
-        insert: async (_table: string, row: unknown) => {
-          inserted.push(row);
-          return 'outbox-1';
-        },
-      },
-      scheduler: { runAfter: async () => undefined },
-    };
-    const ctx = {
-      auth: { getUserIdentity: async () => ({ subject: 'auth-staff' }) },
-      db: {
-        async get(id: string) {
-          if (id === studio._id) return studio;
-          if (id === northwindTask._id) return northwindTask;
-          return null;
-        },
-        async patch(_id: string, value: Record<string, unknown>) {
-          for (const [key, field] of Object.entries(value)) {
-            if (field === undefined) delete northwindTask[key];
-            else northwindTask[key] = field;
-          }
-        },
-        query(table: string) {
-          return {
-            withIndex(_name: string, build: (q: { eq: (field: string, value: string) => unknown }) => unknown) {
-              const recorder = {
-                pairs: [] as Array<[string, string]>,
-                eq(field: string, value: string) {
-                  this.pairs.push([field, value]);
-                  return this;
-                },
-              };
-              build(recorder);
-              const rows = table === 'contacts' ? [staff] : [];
-              const matched = rows.filter((row) =>
-                recorder.pairs.every(([field, value]) => (row as Record<string, string>)[field] === value),
-              );
-              return { unique: async () => matched[0] ?? null };
-            },
-          };
-        },
-      },
-      runMutation: async (_ref: unknown, args: Record<string, unknown>) => {
-        if (typeof args.kind === 'string') return run(enqueue, outboxCtx, args);
-        if (typeof args.status === 'string') return run(enqueueStatus, ctx, args);
-        if (typeof args.stage === 'string') return run(enqueueStage, ctx, args);
-        throw new Error('unexpected mutation');
-      },
-    };
-    try {
-      const status = await run(moveStatus, ctx, {
-        taskId: northwindTask._id,
-        status: 'To Do',
-        expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-      });
+    const { t, taskId } = moveWorld();
+    await withWriteback(undefined, async () => {
+      const options = { as: 'staff' as const, respond: chain(t) };
+      const status = await t.call<Result>(moveStatus, { taskId, status: 'To Do', expectedLastEditedTime: EDITED }, options);
       assert.deepEqual(status, { ok: false, error: WRITEBACK_OFF_ERROR });
-      const stage = await run(moveStage, ctx, {
-        taskId: northwindTask._id,
-        stage: 'Planning',
-        expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-      });
+      const stage = await t.call<Result>(moveStage, { taskId, stage: 'Planning', expectedLastEditedTime: EDITED }, options);
       assert.deepEqual(stage, { ok: false, error: WRITEBACK_OFF_ERROR });
-      assert.equal(northwindTask.stage, 'Idea');
-      assert.equal(northwindTask.stagePendingAt, undefined);
-      assert.equal(inserted.length, 0);
-    } finally {
-      if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
-      else process.env.NOTION_WRITEBACK_ENABLED = previous;
-    }
+    });
+    // The status move reached the real outbox, which refused it.
+    assert.equal(outboxRuns(t).length, 1);
+    assert.equal(t.row(taskId)?.stage, 'Idea');
+    assert.equal(t.row(taskId)?.stagePendingAt, undefined);
+    assert.equal(t.rows('notionOutbox').length, 0);
   });
 
   it('files a flag-on cross-org move under the task org', async () => {
-    const previous = process.env.NOTION_WRITEBACK_ENABLED;
-    process.env.NOTION_WRITEBACK_ENABLED = 'true';
-    const taskOrgId = 'org-northwind';
-    const task: Record<string, unknown> = {
-      _id: 'task-north-flag',
-      orgId: taskOrgId,
-      notionPageId: 'page-north-flag',
-      stage: 'Idea',
-      lastEditedTime: '2026-10-28T00:00:00.000Z',
-    };
-    const inserted: Array<Record<string, unknown>> = [];
-    const studio = {
-      _id: 'org-warehaus',
-      slug: 'warehaus',
-      portalAccess: 'Enabled' as const,
-    };
-    const staff = {
-      _id: 'contact-staff',
-      orgId: studio._id,
-      name: 'Maya Staff',
-      email: 'maya@warehaus.studio',
-      authUserId: 'auth-staff',
-      role: 'Warehaus Staff' as const,
-      portalAccess: 'Enabled' as const,
-    };
-    const outboxCtx = {
-      db: {
-        query: () => ({
-          withIndex: () => ({ unique: async () => null }),
-        }),
-        insert: async (_table: string, row: Record<string, unknown>) => {
-          inserted.push(row);
-          return `outbox-${inserted.length}`;
-        },
-      },
-      scheduler: { runAfter: async () => undefined },
-    };
-    const ctx = {
-      auth: { getUserIdentity: async () => ({ subject: 'auth-staff' }) },
-      db: {
-        async get(id: string) {
-          if (id === studio._id) return studio;
-          if (id === task._id) return task;
-          return null;
-        },
-        async patch(_id: string, value: Record<string, unknown>) {
-          for (const [key, field] of Object.entries(value)) {
-            if (field === undefined) delete task[key];
-            else task[key] = field;
-          }
-        },
-        query(table: string) {
-          return {
-            withIndex(_name: string, build: (q: { eq: (field: string, value: string) => unknown }) => unknown) {
-              const recorder = {
-                pairs: [] as Array<[string, string]>,
-                eq(field: string, value: string) {
-                  this.pairs.push([field, value]);
-                  return this;
-                },
-              };
-              build(recorder);
-              const rows = table === 'contacts' ? [staff] : [];
-              const matched = rows.filter((row) =>
-                recorder.pairs.every(([field, value]) => (row as Record<string, string>)[field] === value),
-              );
-              return {
-                unique: async () => matched[0] ?? null,
-                collect: async () => matched,
-              };
-            },
-          };
-        },
-      },
-      runMutation: async (_ref: unknown, args: Record<string, unknown>) => {
-        if (typeof args.kind === 'string') return run(enqueue, outboxCtx, args);
-        if (typeof args.status === 'string') return run(enqueueStatus, ctx, args);
-        if (typeof args.stage === 'string') return run(enqueueStage, ctx, args);
-        throw new Error('unexpected mutation');
-      },
-    };
-    try {
-      const status = await run(moveStatus, ctx, {
-        taskId: task._id,
-        status: 'To Do',
-        expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-      });
+    const { t, orgId, taskId } = moveWorld();
+    const studioId = t.rows('clients').find((row) => row.slug === 'warehaus')?._id;
+    await withWriteback('true', async () => {
+      const options = { as: 'staff' as const, respond: chain(t) };
+      const status = await t.call<Result>(moveStatus, { taskId, status: 'To Do', expectedLastEditedTime: EDITED }, options);
       assert.equal(status.ok, true);
-      const stage = await run(moveStage, ctx, {
-        taskId: task._id,
-        stage: 'Planning',
-        expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-      });
+      const stage = await t.call<Result>(moveStage, { taskId, stage: 'Planning', expectedLastEditedTime: EDITED }, options);
       assert.equal(stage.ok, true);
-      assert.equal(task.orgId, taskOrgId);
-      assert.equal(inserted.length, 2);
-      assert.deepEqual(
-        inserted.map((row) => row.orgId),
-        [taskOrgId, taskOrgId],
-      );
-      assert.equal(inserted.some((row) => row.orgId === studio._id), false);
-      assert.deepEqual(
-        inserted.map((row) => row.kind),
-        ['task-status', 'task-stage'],
-      );
-      assert.equal(inserted.every((row) => row.actorId === staff._id), true);
-    } finally {
-      if (previous === undefined) delete process.env.NOTION_WRITEBACK_ENABLED;
-      else process.env.NOTION_WRITEBACK_ENABLED = previous;
-    }
+    });
+    assert.equal(t.row(taskId)?.orgId, orgId);
+    const inserted = t.rows('notionOutbox');
+    assert.equal(inserted.length, 2);
+    assert.deepEqual(
+      inserted.map((row) => row.orgId),
+      [orgId, orgId],
+    );
+    assert.equal(inserted.some((row) => row.orgId === studioId), false);
+    assert.deepEqual(
+      inserted.map((row) => row.kind),
+      ['task-status', 'task-stage'],
+    );
+    assert.equal(inserted.every((row) => row.actorId === staffContactId(t)), true);
   });
 
   it('rejects a client caller at adminMutation and does not enqueue', async () => {
-    const calls: unknown[] = [];
-    const client = {
-      _id: 'org-northwind',
-      slug: 'northwind',
-      portalAccess: 'Enabled' as const,
-    };
-    const contact = {
-      _id: 'contact-client',
-      orgId: client._id,
-      name: 'Ada Client',
-      email: 'ada@northwind.test',
-      authUserId: 'auth-client',
-      role: 'Client Admin' as const,
-      portalAccess: 'Enabled' as const,
-    };
-    const ctx = {
-      auth: { getUserIdentity: async () => ({ subject: 'auth-client' }) },
-      runMutation: async (_ref: unknown, args: unknown) => {
-        calls.push(args);
-        return { ok: true, outboxId: 'out-1', duplicate: false };
-      },
-      db: {
-        async get(id: string) {
-          if (id === client._id) return client;
-          return null;
-        },
-        query(table: string) {
-          return {
-            withIndex(_name: string, build: (q: { eq: (field: string, value: string) => unknown }) => unknown) {
-              const recorder = {
-                pairs: [] as Array<[string, string]>,
-                eq(field: string, value: string) {
-                  this.pairs.push([field, value]);
-                  return this;
-                },
-              };
-              build(recorder);
-              const rows = table === 'contacts' ? [contact] : [];
-              const matched = rows.filter((row) =>
-                recorder.pairs.every(([field, value]) => (row as Record<string, string>)[field] === value),
-              );
-              return { unique: async () => matched[0] ?? null };
-            },
-          };
-        },
-      },
-    };
-    const args = {
-      taskId: 'task-1',
-      expectedLastEditedTime: '2026-10-28T00:00:00.000Z',
-    };
-    await assert.rejects(run(moveStatus, ctx, { ...args, status: 'To Do' }), (err: unknown) => {
+    const { t, taskId } = moveWorld();
+    t.actor('client');
+    const before = ['tasks', 'notionOutbox'].map((table) => t.rows(table));
+    const args = { taskId, expectedLastEditedTime: EDITED };
+    const asClient = { as: 'client' as const, respond: queued };
+    const staffOnly = (err: unknown) => {
       assert.ok(err instanceof PortalAuthError);
       assert.equal(err.message, 'Staff role required');
       return true;
-    });
-    await assert.rejects(run(moveStage, ctx, { ...args, stage: 'Idea' }), (err: unknown) => {
-      assert.ok(err instanceof PortalAuthError);
-      assert.equal(err.message, 'Staff role required');
-      return true;
-    });
-    await assert.rejects(run(updateLiveFields, ctx, { ...args, estimate: 'M' }), (err: unknown) => {
-      assert.ok(err instanceof PortalAuthError);
-      assert.equal(err.message, 'Staff role required');
-      return true;
-    });
-    assert.equal(calls.length, 0);
+    };
+    await assert.rejects(t.call(moveStatus, { ...args, status: 'To Do' }, asClient), staffOnly);
+    await assert.rejects(t.call(moveStage, { ...args, stage: 'Idea' }, asClient), staffOnly);
+    await assert.rejects(t.call(updateLiveFields, { ...args, estimate: 'M' }, asClient), staffOnly);
+    assert.equal(t.runs.length, 0);
+    assert.deepEqual(
+      ['tasks', 'notionOutbox'].map((table) => t.rows(table)),
+      before,
+    );
   });
 });

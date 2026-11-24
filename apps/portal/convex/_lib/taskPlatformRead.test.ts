@@ -4,160 +4,56 @@ import { getSnapshot } from '../portalData';
 import { getForClient, listForClient } from '../tasks';
 import { getMyTaskPlatform, getTaskPlatform, setTaskPlatform } from '../clients';
 import { PortalAuthError } from './identity';
+import { memoryCtx } from './memoryCtx.testkit';
+import { seedOrg, seedProject, seedTask } from './seedRows.testkit';
 
-type Row = Record<string, unknown> & { _id: string };
-
-class EqBuilder {
-  private eqs: Array<[string, unknown]> = [];
-  eq(field: string, value: unknown): this {
-    this.eqs.push([field, value]);
-    return this;
-  }
-  matches(row: Row): boolean {
-    return this.eqs.every(([field, value]) => row[field] === value);
-  }
+/** Northwind with one published project and task. The 'client' actor joins this org. */
+function world() {
+  const t = memoryCtx();
+  const orgId = seedOrg(t, { slug: 'northwind', companyName: 'Northwind', notionPageId: 'client-notion', lastSyncedAt: 1 });
+  const projectId = seedProject(t, orgId, {
+    name: 'Northwind site',
+    status: 'In Progress',
+    type: ['Website'],
+    notionPageId: 'project-public',
+    lastSyncedAt: 1,
+  });
+  const taskId = seedTask(t, orgId, projectId, {
+    name: 'Homepage',
+    status: 'To Do',
+    publishToWarehaus: true,
+    notionPageId: 'task-public-notion',
+    lastSyncedAt: 1,
+    stage: 'Planning',
+    description: 'Staff only task copy',
+  });
+  t.actor('client');
+  t.actor('staff');
+  return { t, orgId, taskId };
 }
 
-function memoryDb(tables: Record<string, Row[]>, patches: Array<{ id: string; value: Record<string, unknown> }>) {
-  return {
-    async get(id: string) {
-      for (const rows of Object.values(tables)) {
-        const found = rows.find((row) => row._id === id);
-        if (found) return found;
-      }
-      return null;
-    },
-    async patch(id: string, value: Record<string, unknown>) {
-      patches.push({ id, value });
-      for (const rows of Object.values(tables)) {
-        const found = rows.find((row) => row._id === id);
-        if (found) Object.assign(found, value);
-      }
-    },
-    query(table: string) {
-      const rows = tables[table] ?? [];
-      return {
-        withIndex(_name: string, build?: (q: EqBuilder) => EqBuilder) {
-          const matched = build ? rows.filter((row) => build(new EqBuilder()).matches(row)) : rows;
-          return {
-            order() {
-              return this;
-            },
-            async take(n: number) {
-              return matched.slice(0, n);
-            },
-            async collect() {
-              return matched;
-            },
-            async unique() {
-              if (matched.length > 1) throw new Error('Expected a unique row');
-              return matched[0] ?? null;
-            },
-          };
-        },
-        async collect() {
-          return rows;
-        },
-      };
-    },
-  };
-}
-
-const org = {
-  _id: 'org-north',
-  companyName: 'Northwind',
-  slug: 'northwind',
-  portalAccess: 'Enabled' as const,
-  notionPageId: 'client-notion',
-  lastSyncedAt: 1,
-  taskPlatform: undefined as 'notion' | 'linear' | undefined,
+const authError = (message: string) => (err: unknown) => {
+  assert.ok(err instanceof PortalAuthError);
+  assert.equal(err.message, message);
+  return true;
 };
-
-const task = {
-  _id: 'task-public',
-  orgId: org._id,
-  projectId: 'proj-public',
-  name: 'Homepage',
-  status: 'To Do',
-  isDone: false,
-  publishToWarehaus: true,
-  notionPageId: 'task-public-notion',
-  lastSyncedAt: 1,
-  stage: 'Planning',
-  description: 'Staff only task copy',
-};
-
-const tables: Record<string, Row[]> = {
-  clients: [org],
-  contacts: [
-    {
-      _id: 'contact-client',
-      orgId: org._id,
-      name: 'Ada Client',
-      email: 'ada@northwind.test',
-      authUserId: 'auth-client',
-      role: 'Client Admin',
-      portalAccess: 'Enabled',
-    },
-    {
-      _id: 'contact-staff',
-      orgId: org._id,
-      name: 'Maya Staff',
-      email: 'maya@warehaus.co',
-      authUserId: 'auth-staff',
-      role: 'Warehaus Staff',
-      portalAccess: 'Enabled',
-    },
-  ],
-  projects: [
-    {
-      _id: 'proj-public',
-      orgId: org._id,
-      name: 'Northwind site',
-      status: 'In Progress',
-      type: ['Website'],
-      archive: false,
-      publishToWarehaus: true,
-      notionPageId: 'project-public',
-      lastSyncedAt: 1,
-    },
-  ],
-  tasks: [task],
-  activity: [],
-  syncMeta: [],
-};
-
-function ctxFor(subject: string, patches: Array<{ id: string; value: Record<string, unknown> }>) {
-  return {
-    auth: { getUserIdentity: async () => ({ subject }) },
-    db: memoryDb(tables, patches),
-  };
-}
-
-type Handler = (ctx: ReturnType<typeof ctxFor>, args: Record<string, unknown>) => Promise<unknown>;
-
-function run(fn: object, subject: string, args: Record<string, unknown> = {}) {
-  const patches: Array<{ id: string; value: Record<string, unknown> }> = [];
-  const ctx = ctxFor(subject, patches);
-  return (fn as { _handler: Handler })._handler(ctx, args).then((result) => ({ result, patches }));
-}
 
 describe('client task platform', () => {
   const previous = process.env.LINEAR_API_KEY;
 
   it('keeps Notion tasks when the field is missing, and leaves them stored when the read is Linear', async () => {
     delete process.env.LINEAR_API_KEY;
+    const { t, orgId, taskId } = world();
+    const storedTask = t.row(taskId);
     try {
-      org.taskPlatform = undefined;
-      const notion = await run(listForClient, 'auth-client');
-      const listed = notion.result as Array<{ name: string }>;
+      const listed = await t.call<Array<{ name: string }>>(listForClient, {}, { as: 'client' });
       assert.equal(listed.some((row) => row.name === 'Homepage'), true);
-      assert.deepEqual(notion.patches, []);
+      assert.deepEqual(t.row(taskId), storedTask);
 
-      const snapshot = (await run(getSnapshot, 'auth-client')).result as {
+      const snapshot = await t.call<{
         tasks: Array<{ name: string }>;
         taskPlatform: { platform: string; canChange: boolean; tasks: { ok: boolean }; milestones: { ok: boolean; count?: number } };
-      };
+      }>(getSnapshot, {}, { as: 'client' });
       assert.equal(snapshot.tasks.some((row) => row.name === 'Homepage'), true);
       assert.equal(snapshot.taskPlatform.platform, 'notion');
       assert.equal(snapshot.taskPlatform.canChange, false);
@@ -165,24 +61,19 @@ describe('client task platform', () => {
       assert.equal(snapshot.taskPlatform.milestones.ok, true);
       assert.equal(snapshot.taskPlatform.milestones.count, 0);
 
-      org.taskPlatform = 'linear';
-      const hidden = await run(listForClient, 'auth-client');
-      assert.deepEqual(hidden.result, []);
-      assert.equal(task.name, 'Homepage');
-      assert.equal(task.notionPageId, 'task-public-notion');
-      const linearSnapshot = (await run(getSnapshot, 'auth-client')).result as {
+      await t.db.patch(orgId, { taskPlatform: 'linear' });
+      const hidden = await t.call(listForClient, {}, { as: 'client' });
+      assert.deepEqual(hidden, []);
+      assert.deepEqual(t.row(taskId), storedTask);
+      const linearSnapshot = await t.call<{
         tasks: unknown[];
         taskPlatform: { tasks: { ok: boolean; reason?: string } };
-      };
+      }>(getSnapshot, {}, { as: 'client' });
       assert.deepEqual(linearSnapshot.tasks, []);
       assert.equal(linearSnapshot.taskPlatform.tasks.ok, false);
       assert.equal(linearSnapshot.taskPlatform.tasks.reason, 'not-configured');
-      await assert.rejects(run(getForClient, 'auth-client', { taskId: 'task-public' }), (err: unknown) => {
-        assert.ok(err instanceof PortalAuthError);
-        assert.equal(err.message, 'Linear is not configured');
-        return true;
-      });
-      assert.equal(task.name, 'Homepage');
+      await assert.rejects(t.call(getForClient, { taskId }, { as: 'client' }), authError('Linear is not configured'));
+      assert.deepEqual(t.row(taskId), storedTask);
 
       process.env.LINEAR_API_KEY = 'linear-test-key';
       const originalFetch = globalThis.fetch;
@@ -192,26 +83,20 @@ describe('client task platform', () => {
         throw new Error('query fetched');
       };
       try {
-        const remoteSnapshot = (await run(getSnapshot, 'auth-client')).result as {
+        const remoteSnapshot = await t.call<{
           tasks: unknown[];
           taskPlatform: { tasks: { ok: boolean; reason?: string } };
-        };
+        }>(getSnapshot, {}, { as: 'client' });
         assert.equal(calls, 0);
         assert.deepEqual(remoteSnapshot.tasks, []);
         assert.equal(remoteSnapshot.taskPlatform.tasks.reason, 'remote');
         assert.equal(JSON.stringify(remoteSnapshot).includes('linear-test-key'), false);
-        assert.equal(task.name, 'Homepage');
-        assert.equal(task.notionPageId, 'task-public-notion');
-        await assert.rejects(run(getForClient, 'auth-client', { taskId: 'task-public' }), (err: unknown) => {
-          assert.ok(err instanceof PortalAuthError);
-          assert.equal(err.message, 'This client reads tasks from Linear');
-          return true;
-        });
+        assert.deepEqual(t.row(taskId), storedTask);
+        await assert.rejects(t.call(getForClient, { taskId }, { as: 'client' }), authError('This client reads tasks from Linear'));
       } finally {
         globalThis.fetch = originalFetch;
       }
     } finally {
-      org.taskPlatform = undefined;
       if (previous === undefined) delete process.env.LINEAR_API_KEY;
       else process.env.LINEAR_API_KEY = previous;
     }
@@ -219,52 +104,45 @@ describe('client task platform', () => {
 
   it('lets staff store the choice and rejects a client, without rewriting tasks', async () => {
     delete process.env.LINEAR_API_KEY;
-    const before = structuredClone(task);
+    const { t, orgId, taskId } = world();
+    const storedTask = t.row(taskId);
+    const storedOrg = t.row(orgId);
     try {
       await assert.rejects(
-        run(setTaskPlatform, 'auth-client', { orgId: org._id, platform: 'linear' }),
-        (err: unknown) => {
-          assert.ok(err instanceof PortalAuthError);
-          assert.equal(err.message, 'Staff role required');
-          return true;
-        },
+        t.call(setTaskPlatform, { orgId, platform: 'linear' }, { as: 'client' }),
+        authError('Staff role required'),
       );
-      assert.equal(org.taskPlatform, undefined);
-      assert.deepEqual(task, before);
+      assert.equal(t.row(orgId)?.taskPlatform, undefined);
+      assert.deepEqual(t.row(orgId), storedOrg);
+      assert.deepEqual(t.row(taskId), storedTask);
 
-      const saved = await run(setTaskPlatform, 'auth-staff', { orgId: org._id, platform: 'linear' });
-      assert.deepEqual(saved.patches, [{ id: org._id, value: { taskPlatform: 'linear' } }]);
-      assert.equal(org.taskPlatform, 'linear');
-      assert.deepEqual(task, before);
+      const saved = await t.call(setTaskPlatform, { orgId, platform: 'linear' }, { as: 'staff' });
+      assert.deepEqual(saved, { orgId, platform: 'linear' });
+      // The patch is only `taskPlatform`.
+      assert.deepEqual(t.row(orgId), { ...storedOrg, taskPlatform: 'linear' });
+      assert.deepEqual(t.row(taskId), storedTask);
 
-      const clientView = (await run(getMyTaskPlatform, 'auth-client')).result as {
-        platform: string;
-        canChange: boolean;
-        tasks: { ok: boolean };
-      };
+      const clientView = await t.call<{ platform: string; canChange: boolean; tasks: { ok: boolean } }>(
+        getMyTaskPlatform,
+        {},
+        { as: 'client' },
+      );
       assert.equal(clientView.platform, 'linear');
       assert.equal(clientView.canChange, false);
       assert.equal(clientView.tasks.ok, false);
 
-      const staffView = (await run(getTaskPlatform, 'auth-staff', { orgId: org._id })).result as {
-        canChange: boolean;
-        platform: string;
-      };
+      const staffView = await t.call<{ canChange: boolean; platform: string }>(getTaskPlatform, { orgId }, { as: 'staff' });
       assert.equal(staffView.platform, 'linear');
       assert.equal(staffView.canChange, true);
-      await assert.rejects(run(getTaskPlatform, 'auth-client', { orgId: org._id }), (err: unknown) => {
-        assert.ok(err instanceof PortalAuthError);
-        assert.equal(err.message, 'Staff role required');
-        return true;
-      });
+      await assert.rejects(t.call(getTaskPlatform, { orgId }, { as: 'client' }), authError('Staff role required'));
 
-      const back = await run(setTaskPlatform, 'auth-staff', { orgId: org._id, platform: 'notion' });
-      assert.deepEqual(back.patches, [{ id: org._id, value: { taskPlatform: 'notion' } }]);
-      assert.deepEqual(task, before);
-      const restored = (await run(listForClient, 'auth-client')).result as Array<{ name: string }>;
+      const back = await t.call(setTaskPlatform, { orgId, platform: 'notion' }, { as: 'staff' });
+      assert.deepEqual(back, { orgId, platform: 'notion' });
+      assert.deepEqual(t.row(orgId), { ...storedOrg, taskPlatform: 'notion' });
+      assert.deepEqual(t.row(taskId), storedTask);
+      const restored = await t.call<Array<{ name: string }>>(listForClient, {}, { as: 'client' });
       assert.equal(restored.some((row) => row.name === 'Homepage'), true);
     } finally {
-      org.taskPlatform = undefined;
       if (previous === undefined) delete process.env.LINEAR_API_KEY;
       else process.env.LINEAR_API_KEY = previous;
     }

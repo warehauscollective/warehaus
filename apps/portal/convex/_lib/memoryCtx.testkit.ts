@@ -545,8 +545,21 @@ export function memoryCtx() {
     }
   }
 
+  /**
+   * Run an `httpAction` handler with a request. It gets an action ctx, so its
+   * `runQuery`, `runMutation` and `runAction` calls are recorded in `runs` and
+   * answered by `respond`. A test that needs the mutation to really run calls
+   * it with `call` from `respond`.
+   */
+  async function callHttp(fn: unknown, request: Request, options: CallOptions = {}): Promise<Response> {
+    const registered = fn as { isHttp?: boolean; _handler?: (ctx: unknown, request: Request) => Promise<Response> };
+    if (!registered?.isHttp || typeof registered._handler !== 'function') throw new MemoryCtxError('callHttp() needs an httpAction');
+    return registered._handler(ctxFor('action', options), request);
+  }
+
   return {
     call,
+    callHttp,
     /** Insert a row before the test runs. Checked against the schema. */
     seed: (table: string, doc: Record<string, Value>) => insertRow(table, doc),
     /** Seed the contact for an actor and return its auth user id. */

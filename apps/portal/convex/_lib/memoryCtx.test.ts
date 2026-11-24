@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { v } from 'convex/values';
 import { internal } from '../_generated/api';
-import { internalAction, internalMutation, internalQuery } from '../_generated/server';
+import { httpAction, internalAction, internalMutation, internalQuery } from '../_generated/server';
 import { advance, setStatus } from '../milestones';
 import { PortalAuthError } from './identity';
 import { MemoryCtxError, checkAgainst, memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
@@ -278,5 +278,27 @@ describe('memoryCtx call', () => {
     const result = await t.call(asksAnAction, {}, { respond: (call) => ({ answered: call.name }) });
     assert.deepEqual(result, { answered: 'milestones:deleteReviewPreview' });
     assert.deepEqual(t.runs.map((run) => [run.kind, run.name]), [['action', 'milestones:deleteReviewPreview']]);
+  });
+});
+
+const echoHttp = httpAction(async (ctx, request) => {
+  const answer = await ctx.runMutation(internal.milestones.saveFromAi as never, { body: await request.text() } as never);
+  return new Response(JSON.stringify(answer), { status: 200 });
+});
+
+describe('memoryCtx callHttp', () => {
+  it('runs an http action with an action ctx and records its run calls', async () => {
+    const t = memoryCtx();
+    const response = await t.callHttp(echoHttp, new Request('https://example.test/hook', { method: 'POST', body: 'hi' }), {
+      respond: (call) => ({ seen: call.args.body }),
+    });
+    assert.equal(response.status, 200);
+    assert.deepEqual(await response.json(), { seen: 'hi' });
+    assert.deepEqual(t.runs.map((run) => run.kind), ['mutation']);
+  });
+
+  it('refuses a function that is not an http action', async () => {
+    const t = memoryCtx();
+    await assert.rejects(t.callHttp(setStatus, new Request('https://example.test/')), throwsMemory(/needs an httpAction/));
   });
 });

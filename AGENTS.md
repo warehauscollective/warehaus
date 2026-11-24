@@ -86,7 +86,7 @@ const result = await t.call(advance, { milestoneId, expectedStatus: 'Building' }
 assert.equal(t.row(milestoneId)?.status, 'Ready to Ship');
 ```
 
-- `call(fn, args, { as, respond })` runs a query, mutation or action handler. `as` is `'staff'`, `'peter'`, `'client'` or `{ authUserId }`, and seeds that contact. No `as` means signed out. Do not reach for `fn._handler`.
+- `call(fn, args, { as, respond })` runs a query, mutation or action handler. `as` is `'staff'`, `'peter'`, `'client'` or `{ authUserId }`, and seeds that contact. No `as` means signed out. `callHttp(fn, request, { respond })` runs an `httpAction` with an action ctx. Do not reach for `fn._handler`.
 - What it enforces, as Convex does:
   - A `withIndex` names an index in `schema.ts`, and its `eq` fields are a leading prefix of that index.
   - Arguments match the function's `args` validator. Every seeded or written row matches its table in `schema.ts`.
