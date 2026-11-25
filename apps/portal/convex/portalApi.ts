@@ -1,8 +1,8 @@
 /**
  * Staff-only /api/v1. Tokens are hashed. Writes that mirror a Notion task use
- * the outbox: kind `update` for field and link patches, kind `create` for a
- * new task, and kind `task-stage` for stage moves. Milestones and comments
- * stay in Convex. There is no Notion database or comment write for them.
+ * the outbox: kind `update` for field and link patches and kind `task-stage`
+ * for stage moves. A task created here lives inside a milestone and is stored
+ * in the portal only, like a staff add. Milestones and comments stay in Convex. There is no Notion database or comment write for them.
  */
 
 import { ConvexError, v } from 'convex/values';
@@ -41,12 +41,14 @@ import {
   attachFailureStatus,
   contentEditDecision,
   createMilestoneDecision,
+  nextMilestoneOrder,
   writeMilestoneActivity,
   type AttachFailureCode,
 } from './_lib/milestones';
 import {
   PORTAL_MILESTONE_TASK_SOURCE,
   isPortalOwnedTask,
+  stageForNewMilestoneTask,
   taskMilestoneGate,
   taskOrigin,
 } from './_lib/milestoneTasks';
@@ -72,6 +74,7 @@ import { contextSourceForToken } from './_lib/projectContext';
 import { convexFailureText } from './_lib/userFacingError';
 import { applyTaskChanges, type TaskChange } from './_lib/taskChange';
 import { staffMayReadOrg, staffOrgs, staffTask } from './_lib/staffRead';
+import { loadLinkedTasks } from './_lib/milestoneTaskSet';
 
 const PAGE_CAP = 50;
 
@@ -462,6 +465,12 @@ export const listLinks = internalQuery({
   },
 });
 
+/**
+ * One task inside a milestone. It is stored in the portal only, the way a staff
+ * add or a create_milestone task list is: no Notion page and no outbox row. A
+ * Notion create would land unpublished, the pull gate would skip it, and the
+ * task would never reach the milestone.
+ */
 export const createTask = internalMutation({
   args: {
     ...idemArgs,
@@ -480,12 +489,13 @@ export const createTask = internalMutation({
     if (!project || !(await staffMayReadOrg(ctx, project.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
     }
-    const milestoneGate = taskMilestoneGate(
-      args.milestoneId ? await ctx.db.get(args.milestoneId) : null,
-      { orgId: project.orgId, projectId: project._id },
-    );
-    if (!milestoneGate.ok) return finishIdempotency(ctx, opened.id, fail(400, milestoneGate.reason));
+    const milestone = args.milestoneId ? await ctx.db.get(args.milestoneId) : null;
+    const milestoneGate = taskMilestoneGate(milestone, { orgId: project.orgId, projectId: project._id });
+    if (!milestoneGate.ok || !milestone) {
+      return finishIdempotency(ctx, opened.id, fail(400, milestoneGate.ok ? 'Milestone not found' : milestoneGate.reason));
+    }
     const externalId = `wh_tsk_${(await sha256Hex(`${args.tokenId}:${args.key}`)).slice(0, 24)}`;
+    // Same name, status, date and stage rules as before. The Notion properties are not sent.
     const planned = planApiTaskCreate({
       name: args.name,
       status: args.status,
@@ -495,23 +505,31 @@ export const createTask = internalMutation({
       stage: args.stage,
     });
     if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
-    const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
-      idempotencyKey: planned.idempotencyKey,
-      kind: 'create',
+    const siblings = await loadLinkedTasks(ctx, milestone);
+    if (!siblings.ok) return finishIdempotency(ctx, opened.id, fail(400, siblings.reason));
+    const at = Date.now();
+    const key = `${PORTAL_MILESTONE_TASK_SOURCE}:${milestone._id}:api:${externalId}`;
+    const taskId = await ctx.db.insert('tasks', {
       orgId: project.orgId,
-      database: 'tasks',
-      payload: JSON.stringify({
-        properties: planned.properties,
-        ...(args.milestoneId ? { milestoneId: args.milestoneId } : {}),
-      }),
-      actor: 'staff' as const,
-      actorId: args.tokenName,
-      schedule: true,
+      projectId: project._id,
+      notionPageId: key,
+      externalId: key,
+      lastSyncedAt: at,
+      name: String(planned.properties.Name),
+      status: args.status,
+      isDone: args.status === 'Done',
+      ...(args.date ? { date: args.date } : {}),
+      stage: args.stage ?? stageForNewMilestoneTask(milestone.status),
+      publishToWarehaus: false,
+      source: PORTAL_MILESTONE_TASK_SOURCE,
+      origin: 'manual',
+      milestoneId: milestone._id,
+      milestoneOrder: nextMilestoneOrder(siblings.rows.map((row) => row.milestoneOrder)),
+      updatedAt: at,
     });
-    if (!queued.ok) return finishIdempotency(ctx, opened.id, fail(400, queued.error));
     return finishIdempotency(ctx, opened.id, {
       status: 200,
-      body: { externalId, outboxId: queued.outboxId, duplicate: queued.duplicate },
+      body: { id: taskId, externalId: key, milestoneId: milestone._id, duplicate: false },
     });
   },
 });
