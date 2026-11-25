@@ -7,10 +7,8 @@
 
 import { COMPLETE_STATUSES, type CompleteStatus } from '@warehaus/runner-protocol';
 import { isBlockedTask } from './milestoneTasks';
-import { timingSafeEqualUtf8 } from './constantTime';
 
 export const RUNNER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
-export const RUNNER_UNCONFIGURED = 'The runner is not configured';
 export const RUNNER_UNAUTHORIZED = 'Unauthorized';
 export const RUNNER_ID_INVALID = 'Runner id must be 2 to 40 lowercase letters, digits or hyphens';
 export const RUNNER_RATE_LIMITED = 'Too many requests from this runner. Wait a minute.';
@@ -18,61 +16,6 @@ export const RUN_NOT_FOUND = 'Run not found';
 export const RUN_NOT_YOURS = 'That run belongs to another runner';
 export const RUN_ENDED = 'That run has ended';
 export const PLAN_NOT_PLANNING = 'That run is not a planning run';
-
-export type RunnerToken = { token: string; repos: string[] };
-
-/**
- * `RUNNER_TOKENS` in the Convex environment. One runner per entry, separated
- * by a new line or by a comma that starts the next `id=`. Each entry is
- * `id=token` and the repositories that runner may serve, separated by spaces.
- * A token under 24 characters is ignored. A runner with no repository is
- * handed nothing.
- */
-export function parseRunnerTokens(raw: string | null | undefined): Map<string, RunnerToken> {
-  const tokens = new Map<string, RunnerToken>();
-  const entries = (raw ?? '').split(/\n|,(?=\s*[a-z0-9][a-z0-9-]{1,39}\s*=)/);
-  for (const part of entries) {
-    const at = part.indexOf('=');
-    if (at < 1) continue;
-    const id = part.slice(0, at).trim().toLowerCase();
-    const pieces = part.slice(at + 1).trim().split(/\s+/).filter(Boolean);
-    const token = pieces[0] ?? '';
-    if (!RUNNER_ID_PATTERN.test(id) || token.length < 24) continue;
-    tokens.set(id, { token, repos: runnerRepos(pieces.slice(1)) });
-  }
-  return tokens;
-}
-
-/** Bearer token for the named runner. Compared in constant time. */
-export function authorizeRunner(input: {
-  configured: string | null | undefined;
-  authorizationHeader: string | null;
-  runnerId: string | null | undefined;
-}): { ok: true; runnerId: string; repos: string[] } | { ok: false; status: 400 | 401 | 503; reason: string } {
-  const tokens = parseRunnerTokens(input.configured);
-  if (tokens.size === 0) return { ok: false, status: 503, reason: RUNNER_UNCONFIGURED };
-  const runnerId = (input.runnerId ?? '').trim().toLowerCase();
-  if (!RUNNER_ID_PATTERN.test(runnerId)) return { ok: false, status: 400, reason: RUNNER_ID_INVALID };
-  const match = /^Bearer\s+(\S+)\s*$/.exec(input.authorizationHeader ?? '');
-  const expected = tokens.get(runnerId);
-  // Compare against something even when the id is unknown, so timing does not name valid ids.
-  const reference = expected?.token ?? 'x'.repeat(32);
-  const given = match?.[1] ?? '';
-  const same = timingSafeEqualUtf8(given, reference);
-  if (!expected || !same) return { ok: false, status: 401, reason: RUNNER_UNAUTHORIZED };
-  return { ok: true, runnerId, repos: expected.repos };
-}
-
-/**
- * Repositories this claim may see: the ones the request named that the
- * token also allows. An empty allowlist or an empty request yields none.
- */
-export function reposForRunner(allowed: readonly string[], requested: unknown): string[] {
-  const asked = runnerRepos(requested);
-  if (allowed.length === 0 || asked.length === 0) return [];
-  const permit = new Set(allowed);
-  return asked.filter((repo) => permit.has(repo));
-}
 
 export const RUNNER_RATE_WINDOW_MS = 60_000;
 export const RUNNER_RATE_LIMIT = 120;

@@ -84,19 +84,17 @@ export type RunnerRegistration = {
 const DUMMY_HASH = '0'.repeat(64);
 
 /**
- * How a runner call is allowed: by its registration, by the `RUNNER_TOKENS`
- * fallback, or not at all. The hash compare is constant time and runs even
- * when the id has no registration, so timing does not name registered ids.
+ * How a runner call is allowed: by its registration, or not at all. The hash
+ * compare is constant time and runs even when the id has no registration, so
+ * timing does not name registered ids.
  */
 export function runnerAccess(input: {
   row: RunnerRegistration;
   tokenHash: string | null | undefined;
-  envAuthorized: boolean;
-}): 'registered' | 'env' | null {
+}): 'registered' | null {
   const stored = input.row?.registeredAt != null && input.row.tokenHash ? input.row.tokenHash : null;
   const same = timingSafeEqualUtf8(input.tokenHash ?? '', stored ?? DUMMY_HASH);
-  if (stored && input.tokenHash && same) return 'registered';
-  return input.envAuthorized ? 'env' : null;
+  return stored && input.tokenHash && same ? 'registered' : null;
 }
 
 /** `X-Runner-Protocol` as a number. A missing or odd header is version 1. */

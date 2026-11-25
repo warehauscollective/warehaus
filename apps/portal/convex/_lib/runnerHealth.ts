@@ -7,32 +7,13 @@
  * runner is online, gives the start command.
  */
 
-import { agentRepo, parseRunnerTokens } from './agentRun';
-
 /** A runner seen inside this window reads as Ready. After it, Offline. */
 export const RUNNER_READY_WITHIN_MS = 10 * 60_000;
-/** Runners one project read looks at. */
-export const RUNNER_HEALTH_MAX_RUNNERS = 10;
-
-/**
- * Ids of the runners in `RUNNER_TOKENS` that may serve this repository.
- * The tokens are parsed and dropped here. Only ids leave.
- */
-export function runnersAllowedFor(configured: string | null | undefined, projectRepo: string | null | undefined): string[] {
-  const repo = agentRepo(projectRepo);
-  if (!repo) return [];
-  const ids: string[] = [];
-  for (const [id, entry] of parseRunnerTokens(configured)) {
-    if (entry.repos.includes(repo)) ids.push(id);
-    if (ids.length >= RUNNER_HEALTH_MAX_RUNNERS) break;
-  }
-  return ids;
-}
 
 export type RunnerHealthRunner = {
   id: string;
   lastSeenAt: number | null;
-  /** Registered from the Portal. False for a runner from the `RUNNER_TOKENS` fallback. */
+  /** Registered from the Portal. Every runner is, since the `RUNNER_TOKENS` fallback was removed. */
   registered?: boolean;
   protocolVersion?: number | null;
 };

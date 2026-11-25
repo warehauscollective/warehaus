@@ -1,8 +1,7 @@
 /**
  * Runner HTTP routes. The runner on a staff Mac calls these with its secret
- * as the bearer token and its id in `X-Runner-Id`. A registered runner is
- * checked against the stored hash of its secret; `RUNNER_TOKENS` is read
- * only as a fallback until the dev runner is re-paired (ADR-0005 amendment).
+ * as the bearer token and its id in `X-Runner-Id`. Only a registered runner
+ * is let in: its secret is checked against the stored hash (ADR-0005).
  *
  *   POST /agent/claim     next planning job, task, or Cursor build
  *   POST /agent/events    one short line for the run feed
@@ -23,7 +22,7 @@
 import { RUNNER_PAIR_PATHS, RUNNER_PROTOCOL_HEADER } from '@warehaus/runner-protocol';
 import { internal } from './_generated/api';
 import { httpAction } from './_generated/server';
-import { RUNNER_ID_INVALID, RUNNER_ID_PATTERN, RUNNER_UNAUTHORIZED, authorizeRunner, reposForRunner, runnerRepos } from './_lib/agentRun';
+import { RUNNER_ID_INVALID, RUNNER_ID_PATTERN, RUNNER_UNAUTHORIZED, runnerRepos } from './_lib/agentRun';
 import {
   PAIRING_BAD_REQUEST,
   pairingCodeFrom,
@@ -67,12 +66,6 @@ export const agentHttp = httpAction(async (ctx, request) => {
   if (!RUNNER_ID_PATTERN.test(runnerId)) return json({ error: RUNNER_ID_INVALID }, 400);
   const bearer = /^Bearer\s+(\S+)\s*$/.exec(request.headers.get('authorization') ?? '')?.[1] ?? '';
   if (!bearer) return json({ error: RUNNER_UNAUTHORIZED }, 401);
-  // Fallback until the dev runner is re-paired. A missing RUNNER_TOKENS is no longer an error.
-  const env = authorizeRunner({
-    configured: process.env.RUNNER_TOKENS,
-    authorizationHeader: request.headers.get('authorization'),
-    runnerId,
-  });
   const protocolVersion = runnerProtocolVersion(request.headers.get(RUNNER_PROTOCOL_HEADER));
 
   const read = await readBody(request);
@@ -82,7 +75,6 @@ export const agentHttp = httpAction(async (ctx, request) => {
   const alive = await ctx.runMutation(internal.agent.touchRunner, {
     runnerId,
     tokenHash: await sha256Hex(bearer),
-    envAuthorized: env.ok,
     protocolVersion,
   });
   if (!alive.ok) return json({ error: alive.error }, alive.status);
@@ -92,14 +84,13 @@ export const agentHttp = httpAction(async (ctx, request) => {
   if (path === '/agent/ping') return json({ ok: true }, 200);
   if (path === '/agent/claim') {
     // A registered runner below the minimum protocol gets no work until it is updated.
-    if (alive.registered && runnerOutOfDate(protocolVersion)) return json({ error: RUNNER_OUT_OF_DATE }, 426);
+    if (runnerOutOfDate(protocolVersion)) return json({ error: RUNNER_OUT_OF_DATE }, 426);
     const result = await ctx.runMutation(internal.agent.claimNext, {
       runnerId,
       mode: field(body, 'mode') || undefined,
       // The project setting picks the agent. A tool on the request is ignored.
-      ...(alive.registered
-        ? { repos: runnerRepos(body.repos), anyRepo: true }
-        : { repos: reposForRunner(env.ok ? env.repos : [], body.repos) }),
+      repos: runnerRepos(body.repos),
+      anyRepo: true,
     });
     return json(result, 200);
   }

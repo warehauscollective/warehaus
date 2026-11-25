@@ -63,5 +63,5 @@ Built on the branch `milestone/runner-on-production`, awaiting Peter's approval:
 - The internal mutation `runners:clearQueuedPlanning`, run once by hand on production after the deploy, for detail 3.
 - Request changes from Grok Bot moves to Awaiting Go; Regenerate on the drafted tasks card; a Cursor build is blocked after 2 hours.
 
-Still to do: remove the `RUNNER_TOKENS` fallback and the dev env var once the dev runner is re-paired, which needs this code deployed to dev first.
+Done (task 13): the `RUNNER_TOKENS` fallback is removed from Convex, and the dev env var with it, after the dev runner was re-paired. Every runner, on dev and production, gets in only through its registration.
 

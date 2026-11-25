@@ -48,7 +48,7 @@ For a project set to Cursor, also set `CURSOR_API_KEY` on this Mac. Leave it uns
 
 The Claude process gets an allowlist of its environment and holds no runner secret. Copying the hooks from `hooks/settings.example.json` into `.claude/settings.json` posts nothing from inside the session, because the runner does not pass its secret on. The runner still reports when a run starts and when it finishes. File contents and command output stay on the Mac.
 
-**Until the dev runner is re-paired**, dev Convex still reads `RUNNER_TOKENS` as a fallback. It is removed, with the dev env var, once dev is re-paired. `PORTAL_AGENT_URL` and `RUNNER_TOKEN` in the environment, with `--id`, still override the saved file and the Keychain, for a host with no Keychain.
+Convex reads no `RUNNER_TOKENS`: a runner gets in only through its registration, on dev and production alike. `PORTAL_AGENT_URL` and `RUNNER_TOKEN` in the environment, with `--id`, still override the saved file and the Keychain, for a host with no Keychain.
 
 ## Run
 
