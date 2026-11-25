@@ -16,6 +16,7 @@ import {
   runnerChipExpanded,
   runnerFixtureState,
   runnerHealthFixture,
+  runnerIdPrefill,
   runnerModalStep,
 } from './RunnerStatus';
 
@@ -162,7 +163,7 @@ describe('runner set-up states', () => {
   it('pairs from the code the command prints', () => {
     assert.equal(
       html(createElement(RunnerSetupBody, { production: true, code: '', onCode: noop, onPair: noop })),
-      "No runner set up ON THE MAC THAT WILL RUN WORK npm run runner -- setup --production Pairing code The command prints an 8-character code. Enter it here to pair that Mac. Its secret goes straight to the Mac's Keychain and is never shown. Pair runner",
+      "No runner set up ON THE MAC THAT WILL RUN WORK npm run runner -- setup --production Pairing code The command prints an 8-character code. Enter it here to pair that Mac. Its secret goes straight to the Mac's Keychain and is never shown. Pair runner Enter the 8-character code to pair.",
     );
     assert.equal(
       html(createElement(RunnerConfirmBody, { code: 'K7QM-4XPA', production: true, runnerId: 'peter-mbp-prod', onRunnerId: noop, onCancel: noop, onConfirm: noop })),
@@ -172,6 +173,36 @@ describe('runner set-up states', () => {
       html(createElement(RunnerPairedBody, { runnerId: 'peter-mbp-prod', lastSeen: 'Just now', production: true, onDone: noop })),
       'Runner paired RUNNER peter-mbp-prod LAST SEEN Just now SERVES Every project with a repository this Mac can reach KEEP IT RUNNING npm run runner -- install --production Installing adds a login item that starts the runner at login and restarts it if it stops. Done',
     );
+  });
+
+  it('says why Pair and Confirm are disabled, and stops once they are not', () => {
+    const setup = (code: string) => renderToStaticMarkup(createElement(RunnerSetupBody, { production: true, code, onCode: noop, onPair: noop }));
+    assert.match(setup('K7QM'), /aria-describedby="runner-pair-hint"/);
+    assert.match(text(setup('K7QM')), /Pair runner Enter the 8-character code to pair\.$/);
+    assert.doesNotMatch(setup('K7QM-4XPA'), /runner-pair-hint|runner-disabled-hint/);
+    assert.match(text(setup('K7QM-4XPA')), /Pair runner$/);
+
+    const confirm = (runnerId: string) =>
+      renderToStaticMarkup(createElement(RunnerConfirmBody, { code: 'K7QM-4XPA', production: true, runnerId, onRunnerId: noop, onCancel: noop, onConfirm: noop }));
+    assert.match(confirm('  '), /aria-describedby="runner-confirm-hint"/);
+    assert.match(text(confirm('  ')), /Confirm and pair Enter a runner id to pair\.$/);
+    assert.doesNotMatch(confirm('peter-mbp-prod'), /runner-disabled-hint/);
+  });
+
+  it('fills the proposed runner id once for a code, so a cleared field stays cleared', () => {
+    const found = { code: 'K7QM-4XPA', proposedRunnerId: 'peter-mbp-prod' };
+    assert.equal(runnerIdPrefill({ step: 'confirm', found, filledFor: null }), 'peter-mbp-prod');
+    assert.equal(runnerIdPrefill({ step: 'confirm', found, filledFor: 'K7QM-4XPA' }), null);
+    assert.equal(runnerIdPrefill({ step: 'confirm', found: { code: 'ZZZZ-9999', proposedRunnerId: 'studio-mini-prod' }, filledFor: 'K7QM-4XPA' }), 'studio-mini-prod');
+    assert.equal(runnerIdPrefill({ step: 'confirm', found: undefined, filledFor: null }), null);
+    assert.equal(runnerIdPrefill({ step: 'setup', found, filledFor: null }), null);
+  });
+
+  it('draws the pairing inputs as the Figma Input: surface-2, a 2px ring border, 16 radius, 14/21', () => {
+    const input = renderToStaticMarkup(createElement(RunnerSetupBody, { production: true, code: '', onCode: noop, onPair: noop })).match(/<input[^>]*>/)?.[0] ?? '';
+    for (const rule of ['padding:10px 12px', 'border-radius:16px', 'border:2px solid var(--ring)', 'background:var(--surface-2)', 'font-size:14px', 'line-height:21px']) {
+      assert.ok(input.includes(rule), rule);
+    }
   });
 
   it('lists registered runners with Revoke, and asks before revoking the last one', () => {

@@ -236,16 +236,17 @@ function Stack({ step, children }: { step: RunnerModalStep; children: ReactNode 
   );
 }
 
+/** The Input in RunnerStatus / Body: surface-2 fill, a 2px ring border, 16 radius, 14/21 mono. */
 const inputStyle: CSSProperties = {
   boxSizing: 'border-box',
   width: '100%',
-  height: 36,
-  padding: '0 12px',
-  borderRadius: 8,
-  border: '1px solid var(--border)',
-  background: 'var(--surface-elevated)',
+  padding: '10px 12px',
+  borderRadius: 16,
+  border: '2px solid var(--ring)',
+  background: 'var(--surface-2)',
   color: 'var(--fg)',
-  fontSize: 12,
+  fontSize: 14,
+  lineHeight: '21px',
 };
 
 function TextField({
@@ -264,8 +265,8 @@ function TextField({
   autoFocus?: boolean;
 }) {
   return (
-    <label className="flex flex-col" style={{ gap: 6 }}>
-      <span style={{ fontSize: 12, lineHeight: 'normal', color: 'var(--fg)' }}>{label}</span>
+    <label className="flex flex-col" style={{ gap: 8 }}>
+      <span style={{ fontSize: 14, lineHeight: '21px', color: 'var(--fg)' }}>{label}</span>
       <input
         className="ds-mono"
         data-testid={testId}
@@ -288,6 +289,18 @@ function Actions({ children }: { children: ReactNode }) {
     </div>
   );
 }
+
+/** Why the button beside it is disabled. Read out with the button, and gone once it is enabled. */
+function DisabledHint({ id, children }: { id: string; children: ReactNode }) {
+  return (
+    <span id={id} data-testid="runner-disabled-hint" style={{ fontSize: 12, lineHeight: 'normal', color: 'var(--muted)' }}>
+      {children}
+    </span>
+  );
+}
+
+export const RUNNER_PAIR_HINT = 'Enter the 8-character code to pair.';
+export const RUNNER_CONFIRM_HINT = 'Enter a runner id to pair.';
 
 function DangerButton({ children, onClick, disabled, testId }: { children: ReactNode; onClick: () => void; disabled?: boolean; testId: string }) {
   return (
@@ -337,6 +350,7 @@ export function RunnerSetupBody({
   onPair: () => void;
   error?: string | null;
 }) {
+  const incomplete = code.replace(/[\s-]/g, '').length !== 8;
   return (
     <Stack step="setup">
       <Heading dot="unset" label={RUNNER_SETUP_TITLE} />
@@ -346,9 +360,12 @@ export function RunnerSetupBody({
         {error ?? "The command prints an 8-character code. Enter it here to pair that Mac. Its secret goes straight to the Mac's Keychain and is never shown."}
       </Helper>
       <Actions>
-        <PrimaryButton testId="runner-pair" onClick={onPair} disabled={code.replace(/[\s-]/g, '').length !== 8}>
-          Pair runner
-        </PrimaryButton>
+        <span className="inline-flex" aria-describedby={incomplete ? 'runner-pair-hint' : undefined}>
+          <PrimaryButton testId="runner-pair" onClick={onPair} disabled={incomplete}>
+            Pair runner
+          </PrimaryButton>
+        </span>
+        {incomplete ? <DisabledHint id="runner-pair-hint">{RUNNER_PAIR_HINT}</DisabledHint> : null}
       </Actions>
     </Stack>
   );
@@ -373,6 +390,7 @@ export function RunnerConfirmBody({
   busy?: boolean;
   error?: string | null;
 }) {
+  const empty = !runnerId.trim();
   return (
     <Stack step="confirm">
       <Heading dot="ready" label="Confirm this runner" />
@@ -386,9 +404,12 @@ export function RunnerConfirmBody({
         <OutlineButton testId="runner-confirm-cancel" onClick={onCancel}>
           Cancel
         </OutlineButton>
-        <PrimaryButton testId="runner-confirm" onClick={onConfirm} disabled={busy || !runnerId.trim()}>
-          Confirm and pair
-        </PrimaryButton>
+        <span className="inline-flex" aria-describedby={empty ? 'runner-confirm-hint' : undefined}>
+          <PrimaryButton testId="runner-confirm" onClick={onConfirm} disabled={busy || empty}>
+            Confirm and pair
+          </PrimaryButton>
+        </span>
+        {empty ? <DisabledHint id="runner-confirm-hint">{RUNNER_CONFIRM_HINT}</DisabledHint> : null}
       </Actions>
     </Stack>
   );
@@ -610,6 +631,25 @@ type Outcome = { ok: true; runnerId?: string } | { ok: false; error: string };
 
 const FIXTURE_PAIRING: PairingFound = { code: 'K7QM-4XPA', proposedRunnerId: 'peter-mbp-prod', expiresAt: 0, production: true };
 
+/**
+ * The runner id to put in the confirm field, or null to leave it alone. The
+ * proposed id fills the field once for each pairing code, so an id the staff
+ * member clears or retypes stays as they left it.
+ */
+export function runnerIdPrefill({
+  step,
+  found,
+  filledFor,
+}: {
+  step: RunnerModalStep;
+  found: { code: string; proposedRunnerId: string } | null | undefined;
+  /** The code the field was last filled for. */
+  filledFor: string | null;
+}): string | null {
+  if (step !== 'confirm' || !found || filledFor === found.code) return null;
+  return found.proposedRunnerId;
+}
+
 /** Whether the expanded line shows. Only at 1440, on hover or while focus is inside the chip. */
 export function runnerChipExpanded({ hover, hovered, focused }: { hover: boolean; hovered: boolean; focused: boolean }): boolean {
   return hover && (hovered || focused);
@@ -742,9 +782,18 @@ export function RunnerHealth({
     setFixtureOpened(true);
   }, [fixtureStep, fixtureOpened]);
   const found = fixtures ? FIXTURE_PAIRING : pairing.data;
+  const filledFor = useRef<string | null>(null);
   useEffect(() => {
-    if (step === 'confirm' && found && !runnerId) setRunnerId(found.proposedRunnerId);
-  }, [step, found, runnerId]);
+    // Leaving the confirm step forgets the fill, so the next pairing starts from its own proposed id.
+    if (step !== 'confirm') {
+      filledFor.current = null;
+      return;
+    }
+    const proposed = runnerIdPrefill({ step, found, filledFor: filledFor.current });
+    if (proposed == null || !found) return;
+    filledFor.current = found.code;
+    setRunnerId(proposed);
+  }, [step, found]);
 
   if (!staff || now == null) return null;
   const view = fixtures ? runnerHealthFixture(runnerFixtureState(params.get('runner')), now) : query.data;
