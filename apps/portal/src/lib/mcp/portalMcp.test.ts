@@ -216,6 +216,20 @@ describe('portal MCP tools', () => {
     if (published.ok) assert.equal(published.call.body?.publishToWarehaus, true);
   });
 
+  it('updates a Portal-only task with no last read time', () => {
+    for (const name of ['update_task', 'move_task_stage']) {
+      const planned = planToolCall(name, { taskId: 'task-1', status: 'Done', stage: 'Building', idempotencyKey: `${name}-portal-only` });
+      assert.equal(planned.ok, true, name);
+      if (!planned.ok) continue;
+      assert.equal(planned.call.path, '/api/v1/tasks/update');
+      assert.equal(planned.call.body?.expectedLastEditedTime, undefined, name);
+      const empty = planToolCall(name, { taskId: 'task-1', stage: 'Building', expectedLastEditedTime: '', idempotencyKey: `${name}-empty` });
+      assert.equal(empty.ok, true, name);
+      const tool = portalTools.find((item) => item.name === name);
+      assert.match(tool?.description ?? '', /Leave it out when get_task shows lastEditedTime null/, name);
+    }
+  });
+
   it('posts a cursor agent url with kind agent', () => {
     const tool = portalTools.find((item) => item.name === 'add_task_link');
     assert.match(tool?.description ?? '', /kind `agent`/);

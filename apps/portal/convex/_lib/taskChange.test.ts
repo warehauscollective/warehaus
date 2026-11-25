@@ -136,7 +136,7 @@ describe('task change: every field against a Notion task', () => {
 
 describe('task change: portal-owned and archived tasks', () => {
   for (const c of FIELD_CASES) {
-    const refusal = c.name === 'status' ? PORTAL_TASK_STATUS : c.name === 'description' ? PORTAL_TASK_DETAIL : null;
+    const refusal = c.name === 'description' ? PORTAL_TASK_DETAIL : null;
     it(`${c.name} on a portal-owned task ${refusal ? 'is refused' : 'saves in the portal only'}`, async () => {
       await withWriteback(true, async () => {
         const w = world('portal');
@@ -171,6 +171,22 @@ describe('task change: portal-owned and archived tasks', () => {
       const portal = world('portal');
       const parked = await portal.run([{ field: 'status', status: 'Done' }], { actor: 'closeout' });
       assert.deepEqual(parked, { ok: true, wrote: true, notion: 'portal', outboxIds: [] });
+    });
+  });
+
+  it('lets staff and the staff API set the status of a portal-owned task, and refuses Notion', async () => {
+    await withWriteback(true, async () => {
+      for (const actor of ['staff', 'api'] as const) {
+        const w = world('portal');
+        const result = await w.run([{ field: 'status', status: 'Done' }], { actor });
+        assert.deepEqual(result, { ok: true, wrote: true, notion: 'portal', outboxIds: [] }, actor);
+        assert.deepEqual([w.task().status, w.task().isDone], ['Done', true], actor);
+      }
+      const w = world('portal');
+      const before = snapshot(w.t);
+      const refused = await w.run([{ field: 'status', status: 'Done' }], { actor: 'webhook' });
+      assert.deepEqual(refused, { ok: false, code: 'refused', error: PORTAL_TASK_STATUS });
+      assert.equal(snapshot(w.t), before);
     });
   });
 });

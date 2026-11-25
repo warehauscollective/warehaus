@@ -46,6 +46,7 @@ import {
 } from './_lib/milestones';
 import {
   PORTAL_MILESTONE_TASK_SOURCE,
+  isPortalOwnedTask,
   taskMilestoneGate,
   taskOrigin,
 } from './_lib/milestoneTasks';
@@ -897,7 +898,8 @@ export const addLink = internalMutation({
     }
     const planned = planApiLink({ kind: args.kind, url: args.url, title: args.title });
     if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
-    if (planned.property) {
+    // A Portal-only task has no Notion page, so its link stays in the portal and needs no read time.
+    if (planned.property && !isPortalOwnedTask(task)) {
       if (!args.expectedLastEditedTime) {
         return finishIdempotency(ctx, opened.id, fail(400, 'Updates require the last read time'));
       }

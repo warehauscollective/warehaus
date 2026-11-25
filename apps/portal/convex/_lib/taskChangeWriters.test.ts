@@ -14,7 +14,7 @@ import { drainPendingStages } from '../sync/taskWrite';
 import { SnapshotLog, parkTask, restoreTaskSnapshots, type TaskSnapshot } from './closeoutStore';
 import { memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
 import { seedOrg, seedProject, seedTask } from './seedRows.testkit';
-import { EARLIER_WRITE_FAILED, PORTAL_TASK_STATUS, TASK_CHANGED_IN_NOTION } from './taskChange';
+import { EARLIER_WRITE_FAILED, TASK_CHANGED_IN_NOTION } from './taskChange';
 
 const TIME = '2026-11-20T10:00:00.000Z';
 
@@ -163,12 +163,14 @@ describe('staff API updateTask', () => {
     });
   });
 
-  it("refuses a portal-owned task's status: the runner and Mark done set it", async () => {
+  it("sets a portal-owned task's status in the portal only", async () => {
     await withWriteback(true, async () => {
       const w = world({ notionPageId: 'portal-milestone:m1:1', source: 'portal-milestone', lastEditedTime: undefined });
       const result = await w.update({ status: 'Done', expectedLastEditedTime: '' });
-      assert.deepEqual(result, { status: 400, body: { error: PORTAL_TASK_STATUS, code: 'refused' } });
-      assert.equal(w.task().status, 'In Progress');
+      assert.equal(result.status, 200, JSON.stringify(result.body));
+      assert.equal(result.body.notion, 'portal');
+      assert.deepEqual([w.task().status, w.task().isDone], ['Done', true]);
+      assert.equal(w.t.rows('notionOutbox').length, 0);
     });
   });
 

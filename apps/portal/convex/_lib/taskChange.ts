@@ -94,7 +94,7 @@ export type TaskChangeRefusal = 'stale' | 'refused' | 'conflict' | 'invalid';
 
 export const RESTORE_FIRST = 'Restore the task first.';
 export const TASK_CHANGED_IN_NOTION = 'This task changed in Notion. Check it and try again.';
-export const PORTAL_TASK_STATUS = "The runner and Mark done set this task's status.";
+export const PORTAL_TASK_STATUS = "Notion can't set this task's status. It lives in the portal.";
 export const PORTAL_TASK_DETAIL = "Edit this task's detail on its milestone.";
 export const EDIT_IN_NOTION = 'Edit in Notion';
 export const EARLIER_WRITE_FAILED = 'Notion refused this change earlier. Check the task in Notion.';
@@ -187,7 +187,8 @@ export async function applyTaskChanges(
   for (const change of changes) {
     switch (change.field) {
       case 'status': {
-        if (portalOwned && options.actor !== 'closeout') return refuse('refused', PORTAL_TASK_STATUS);
+        // Staff, the staff API, closeout and the runner set a Portal-only task's status. Notion never does: it has no page.
+        if (portalOwned && options.actor === 'webhook') return refuse('refused', PORTAL_TASK_STATUS);
         const valid = validateTaskStatusUpdate(change.status);
         if (!valid.ok) return refuse('invalid', valid.errors.join('; '));
         const isDone = change.status === 'Done';
