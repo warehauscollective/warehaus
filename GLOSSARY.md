@@ -75,3 +75,21 @@ _Avoid_: planner job, auto-plan
 **Build agent**:
 The tool a project builds its milestones with: Claude Code or a Cursor cloud agent. Staff choose it per project; planning does not use it.
 _Avoid_: driver, agent choice, tool
+
+## Platforms
+
+**Mac app**:
+The Warehaus app on a staff Mac. It shows the Portal in its own window and runs the runner from the menu bar, showing Ready, Working, Paused or Needs attention. Staff download it from the Portal.
+_Avoid_: runner app, desktop app
+
+**Native bridge**:
+The typed set of messages between the web Portal and a native shell such as the Mac app. The page uses it to report the attention feed, and the shell uses it to open a page. It is the only way the two talk.
+_Avoid_: JS bridge, postMessage API
+
+**Attention feed**:
+What needs the signed-in person right now: the open Asks waiting on them and new alerts, already filtered by their notification preferences and leaving out their own actions. Every client shows the same feed.
+_Avoid_: notification list, inbox
+
+**Ask**:
+A note that waits on one named staff member to answer it: an approval request or a blocked task. It stays open until that person answers. The Portal shows it as Needs you.
+_Avoid_: needs Peter, needs attention
