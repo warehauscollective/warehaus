@@ -47,7 +47,7 @@ export function runnerHealthFixture(state: RunnerHealthState, now: number): Runn
   const base = { production: true, protocolMin: 2 };
   if (state === 'no-repo') return { ...base, registeredCount: 0, repoSet: false, repo: null, runnerAllowed: false, runners: [], working: null, building: null };
   if (state === 'no-runner') return { ...base, registeredCount: 0, repoSet: true, repo: FIXTURE_REPO, runnerAllowed: false, runners: [], working: null, building: null };
-  const fresh = state === 'ready' || state === 'working';
+  const fresh = state === 'ready' || state === 'working' || state === 'paused';
   return {
     ...base,
     registeredCount: 2,
@@ -55,7 +55,7 @@ export function runnerHealthFixture(state: RunnerHealthState, now: number): Runn
     repo: FIXTURE_REPO,
     runnerAllowed: true,
     runners: [
-      { id: 'peter-mbp-prod', lastSeenAt: now - (fresh ? 4 * 60_000 : 2 * 60 * 60_000), registered: true, protocolVersion: 2 },
+      { id: 'peter-mbp-prod', lastSeenAt: now - (fresh ? 4 * 60_000 : 2 * 60 * 60_000), registered: true, protocolVersion: 2, ...(state === 'paused' ? { paused: true } : {}) },
       { id: 'studio-mini-prod', lastSeenAt: now - 3 * 24 * 60 * 60_000, registered: true, protocolVersion: 2 },
     ],
     working: state === 'working' ? FIXTURE_MILESTONE : null,

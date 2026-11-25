@@ -61,6 +61,7 @@ import {
   isNoRunnerNote,
   noRunnerNoteFor,
   runnerAccess,
+  runnerPausePatch,
 } from './_lib/runnerRegistry';
 import { registeredRunners, sweepExpiredPairings } from './_lib/runnerRegistryStore';
 import { RUNNER_PROTOCOL_MIN } from '@warehaus/runner-protocol';
@@ -200,15 +201,18 @@ async function branchFor(ctx: MutationCtx, milestone: Doc<'milestones'>): Promis
  * Called first by every runner route. A runner is let in only by its
  * registration: the hash of its bearer token matches.
  * The runner row is patched at most once a minute. Calls inside that minute
- * do not write, unless the runner's protocol version changed.
+ * do not write, unless the runner's protocol version or its paused flag changed.
+ * `paused` comes from the runner app: absent means "not saying", so an older
+ * runner never clears a pause.
  */
 export const touchRunner = internalMutation({
   args: {
     runnerId: v.string(),
     tokenHash: v.optional(v.string()),
     protocolVersion: v.optional(v.number()),
+    paused: v.optional(v.boolean()),
   },
-  handler: async (ctx, { runnerId, tokenHash, protocolVersion }) => {
+  handler: async (ctx, { runnerId, tokenHash, protocolVersion, paused }) => {
     const now = Date.now();
     const row = await ctx.db
       .query('agentRunners')
@@ -225,8 +229,11 @@ export const touchRunner = internalMutation({
     });
     if (!decision.ok) return failure(429, decision.reason);
     const versionChanged = protocolVersion != null && row?.protocolVersion !== protocolVersion;
+    const pause = runnerPausePatch(row?.pausedAt, paused, now);
     if (!decision.write) {
-      if (row && versionChanged) await ctx.db.patch(row._id, { protocolVersion });
+      if (row && (versionChanged || pause)) {
+        await ctx.db.patch(row._id, { ...(versionChanged ? { protocolVersion } : {}), ...(pause ?? {}) });
+      }
       return { ok: true as const, registered };
     }
     const version = protocolVersion != null ? { protocolVersion } : {};
@@ -235,13 +242,15 @@ export const touchRunner = internalMutation({
         row.windowStart === decision.windowStart &&
         row.count === decision.count &&
         row.lastSeenAt === decision.lastSeenAt &&
-        !versionChanged;
+        !versionChanged &&
+        !pause;
       if (!same) {
         await ctx.db.patch(row._id, {
           windowStart: decision.windowStart,
           count: decision.count,
           lastSeenAt: decision.lastSeenAt,
           ...version,
+          ...(pause ?? {}),
         });
       }
     } else {
@@ -1423,6 +1432,7 @@ export const runnerHealth = adminQuery({
       lastSeenAt: row.lastSeenAt ?? null,
       registered: true,
       protocolVersion: row.protocolVersion ?? null,
+      paused: row.pausedAt != null,
     }));
     if (runners.length === 0) return { ...base, repoSet: true, repo, runnerAllowed: false, runners: [], working: null, building: null };
     let working: RunnerHealthView['working'] = null;

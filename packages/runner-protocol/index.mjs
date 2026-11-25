@@ -12,7 +12,11 @@ export const RUNNER_PATHS = Object.freeze({
   tasks: '/agent/tasks',
   complete: '/agent/complete',
   build: '/agent/build',
+  ping: '/agent/ping',
 });
+
+/** The latest runner app build. The app asks between runs, with its runner secret. */
+export const RUNNER_APP_RELEASE_PATH = '/agent/app-release';
 
 /** Pairing a new runner. These two routes take no runner token. */
 export const RUNNER_PAIR_PATHS = Object.freeze({
@@ -86,7 +90,9 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
 
   return {
     post,
-    claim: ({ mode, repos }) => post(RUNNER_PATHS.claim, { mode, repos }),
+    claim: ({ mode, repos, paused }) => post(RUNNER_PATHS.claim, { mode, repos, ...(paused != null ? { paused } : {}) }),
+    ping: ({ paused } = {}) => post(RUNNER_PATHS.ping, paused != null ? { paused } : {}),
+    appRelease: () => post(RUNNER_APP_RELEASE_PATH, {}),
     event: ({ runId, type, summary }) => post(RUNNER_PATHS.events, { runId, type, summary }),
     writeTasks: ({ runId, tasks }) => post(RUNNER_PATHS.tasks, { runId, tasks }),
     completeTask: ({ runId, status, commitSha, reason, prUrl }) =>

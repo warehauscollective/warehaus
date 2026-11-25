@@ -9,6 +9,7 @@
  *   POST /agent/complete  end a task run, or a planning run that failed
  *   POST /agent/build     progress from the one Cursor agent on a milestone
  *   POST /agent/ping      an idle runner saying it is alive. Reads and hands out nothing
+ *   POST /agent/app-release  the latest runner app build, for the app to update itself between runs
  *
  * Pairing takes no runner token:
  *
@@ -19,20 +20,21 @@
  * the run: a retry returns the same run or the stored outcome.
  */
 
-import { RUNNER_PAIR_PATHS, RUNNER_PROTOCOL_HEADER } from '@warehaus/runner-protocol';
+import { RUNNER_APP_RELEASE_PATH, RUNNER_PAIR_PATHS, RUNNER_PROTOCOL_HEADER } from '@warehaus/runner-protocol';
 import { internal } from './_generated/api';
 import { httpAction } from './_generated/server';
 import { RUNNER_ID_INVALID, RUNNER_ID_PATTERN, RUNNER_UNAUTHORIZED, runnerRepos } from './_lib/agentRun';
 import {
   PAIRING_BAD_REQUEST,
   pairingCodeFrom,
+  RUNNER_PAUSED,
   runnerOutOfDate,
   runnerProtocolVersion,
   RUNNER_OUT_OF_DATE,
 } from './_lib/runnerRegistry';
 import { sha256Hex } from './_lib/tokenCrypto';
 
-export const AGENT_ROUTES = ['/agent/claim', '/agent/events', '/agent/tasks', '/agent/complete', '/agent/build', '/agent/ping'] as const;
+export const AGENT_ROUTES = ['/agent/claim', '/agent/events', '/agent/tasks', '/agent/complete', '/agent/build', '/agent/ping', RUNNER_APP_RELEASE_PATH] as const;
 export const AGENT_PAIR_ROUTES = [RUNNER_PAIR_PATHS.start, RUNNER_PAIR_PATHS.poll] as const;
 
 const BODY_LIMIT = 60_000;
@@ -72,19 +74,28 @@ export const agentHttp = httpAction(async (ctx, request) => {
   if (!read.ok) return read.response;
   const body = read.body;
 
+  // The runner app sends `paused` on every call; an older runner sends nothing.
+  const paused = typeof body.paused === 'boolean' ? body.paused : undefined;
   const alive = await ctx.runMutation(internal.agent.touchRunner, {
     runnerId,
     tokenHash: await sha256Hex(bearer),
     protocolVersion,
+    ...(paused !== undefined ? { paused } : {}),
   });
   if (!alive.ok) return json({ error: alive.error }, alive.status);
 
   const path = new URL(request.url).pathname;
   // The touch above is the whole heartbeat: at most one write a minute.
   if (path === '/agent/ping') return json({ ok: true }, 200);
+  if (path === RUNNER_APP_RELEASE_PATH) {
+    const release = await ctx.runQuery(internal.runnerApp.latestForRunner, {});
+    return json(release ?? { ok: true, release: null }, 200);
+  }
   if (path === '/agent/claim') {
     // A registered runner below the minimum protocol gets no work until it is updated.
     if (runnerOutOfDate(protocolVersion)) return json({ error: RUNNER_OUT_OF_DATE }, 426);
+    // A paused runner app takes no new work. It still finishes the run it holds.
+    if (paused === true) return json({ ok: true, resumed: false, kind: 'none', reason: RUNNER_PAUSED }, 200);
     const result = await ctx.runMutation(internal.agent.claimNext, {
       runnerId,
       mode: field(body, 'mode') || undefined,

@@ -39,7 +39,7 @@ const body = (state: (typeof RUNNER_HEALTH_STATES)[number]) =>
 
 describe('runner status fixtures', () => {
   it('has a fixture for every ?runner= value, and Ready by default', () => {
-    assert.deepEqual([...RUNNER_HEALTH_STATES], ['ready', 'working', 'offline', 'offline-building', 'no-repo', 'no-runner']);
+    assert.deepEqual([...RUNNER_HEALTH_STATES], ['ready', 'working', 'paused', 'offline', 'offline-building', 'no-repo', 'no-runner']);
     for (const state of RUNNER_HEALTH_STATES) {
       assert.equal(runnerFixtureState(state), state);
       assert.equal(runnerHealthState(runnerHealthFixture(state, NOW), NOW), state);
@@ -53,6 +53,7 @@ describe('runner status chip', () => {
   it('shows the 1440 line for each state', () => {
     assert.equal(text(chip('ready')), 'Runner ready · peter-mbp-prod · seen 4m ago');
     assert.equal(text(chip('working')), 'Runner working · Client experience launch');
+    assert.equal(text(chip('paused')), 'Runner paused · peter-mbp-prod · paused');
     assert.equal(text(chip('offline')), 'Runner offline · last seen 2h ago');
     assert.equal(text(chip('offline-building')), 'Runner offline · Client experience launch');
     assert.equal(text(chip('no-repo', false, () => undefined)), 'Runner not set up · Add repo');
@@ -61,12 +62,12 @@ describe('runner status chip', () => {
 
   it('shrinks to a dot and a short label at 390', () => {
     const labels = RUNNER_HEALTH_STATES.map((state) => text(chip(state, true, () => undefined)));
-    assert.deepEqual(labels, ['Ready', 'Working', 'Offline', 'Offline', 'Not set up', 'Not set up']);
+    assert.deepEqual(labels, ['Ready', 'Working', 'Paused', 'Offline', 'Offline', 'Not set up', 'Not set up']);
   });
 
   it('uses the right dot and the amber outline only for offline while Building', () => {
     const dots = RUNNER_HEALTH_STATES.map((state) => /data-runner-dot="(\w+)"/.exec(chip(state))?.[1]);
-    assert.deepEqual(dots, ['ready', 'warning', 'offline', 'warning', 'unset', 'unset']);
+    assert.deepEqual(dots, ['ready', 'warning', 'warning', 'offline', 'warning', 'unset', 'unset']);
     for (const state of RUNNER_HEALTH_STATES) {
       const html = chip(state);
       assert.equal(html.includes('border:1px solid var(--warning)'), state === 'offline-building', state);

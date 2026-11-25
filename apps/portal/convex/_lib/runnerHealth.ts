@@ -16,6 +16,8 @@ export type RunnerHealthRunner = {
   /** Registered from the Portal. Every runner is, since the `RUNNER_TOKENS` fallback was removed. */
   registered?: boolean;
   protocolVersion?: number | null;
+  /** Paused from the runner app on its Mac: it takes no new work. */
+  paused?: boolean;
 };
 export type RunnerHealthMilestone = { milestoneId: string; milestoneName: string };
 
@@ -38,7 +40,7 @@ export type RunnerHealthView = {
   protocolMin?: number;
 };
 
-export const RUNNER_HEALTH_STATES = ['ready', 'working', 'offline', 'offline-building', 'no-repo', 'no-runner'] as const;
+export const RUNNER_HEALTH_STATES = ['ready', 'working', 'paused', 'offline', 'offline-building', 'no-repo', 'no-runner'] as const;
 export type RunnerHealthState = (typeof RUNNER_HEALTH_STATES)[number];
 
 /** The allowed runner seen most recently. One never seen sorts last. */
@@ -54,8 +56,10 @@ export function runnerHealthState(view: RunnerHealthView, now: number): RunnerHe
   if (!view.repoSet) return 'no-repo';
   if (!view.runnerAllowed || view.runners.length === 0) return 'no-runner';
   if (view.working) return 'working';
-  const seen = latestRunner(view.runners)?.lastSeenAt;
-  if (seen != null && now - seen < RUNNER_READY_WITHIN_MS) return 'ready';
+  const fresh = view.runners.filter((runner) => runner.lastSeenAt != null && now - runner.lastSeenAt < RUNNER_READY_WITHIN_MS);
+  // One runner taking work is enough for Ready. Paused only when every runner seen is paused.
+  if (fresh.some((runner) => !runner.paused)) return 'ready';
+  if (fresh.length > 0) return 'paused';
   return view.building ? 'offline-building' : 'offline';
 }
 
@@ -79,6 +83,8 @@ export const RUNNER_SETUP_HELPER =
 export const RUNNER_CONFIRM_HELPER = 'Only confirm a code you can see in your own terminal. Codes expire after 10 minutes.';
 export const RUNNER_PAIRED_HELPER = 'Installing adds a login item that starts the runner at login and restarts it if it stops.';
 export const RUNNER_LIST_HELPER = 'Revoking a runner stops it taking work at once. Any run in progress goes back to the queue.';
+export const RUNNER_PAUSED_HELPER =
+  'Paused from the runner app on this Mac. A run in progress finishes; no new work starts until someone resumes it there.';
 export const RUNNER_SERVES = 'Every project with a repository this Mac can reach';
 
 /** The command staff run on the Mac that will take work. */
@@ -120,6 +126,7 @@ export const RUNNER_EMPTY = '—';
 const LABEL: Record<RunnerHealthState, { full: string; compact: string }> = {
   ready: { full: 'Runner ready', compact: 'Ready' },
   working: { full: 'Runner working', compact: 'Working' },
+  paused: { full: 'Runner paused', compact: 'Paused' },
   offline: { full: 'Runner offline', compact: 'Offline' },
   'offline-building': { full: 'Runner offline', compact: 'Offline' },
   'no-repo': { full: 'Runner not set up', compact: 'Not set up' },
@@ -201,6 +208,20 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
   if (state === 'working') {
     const milestone = view.working?.milestoneName ?? RUNNER_EMPTY;
     return { ...base, ...fields, dot: 'warning', meta: milestone, milestone, helper: 'The runner is working on this milestone.' };
+  }
+  if (state === 'paused') {
+    const paused = latestRunner(view.runners.filter((one) => one.paused)) ?? runner;
+    const pausedSeen = paused?.lastSeenAt != null ? agoLabel(paused.lastSeenAt, now) : RUNNER_EMPTY;
+    return {
+      ...base,
+      ...fields,
+      runner: paused?.id ?? name,
+      lastSeen: pausedSeen,
+      dot: 'warning',
+      meta: `${paused?.id ?? name} · paused`,
+      milestone: RUNNER_EMPTY,
+      helper: RUNNER_PAUSED_HELPER,
+    };
   }
   if (state === 'ready') {
     return {
