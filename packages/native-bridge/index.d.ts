@@ -3,6 +3,8 @@ export declare const SHELL_CAPABILITIES: readonly ShellCapability[];
 export declare const ALERT_KINDS: readonly AlertKind[];
 export declare const PORTAL_LINK_SCHEME: 'warehaus:';
 export declare const MAX_ALERTS: number;
+export declare const SHELL_HANDLER_NAME: 'warehaus';
+export declare const SHELL_EVENT: 'warehaus:shell';
 
 export type ShellCapability = 'badge' | 'notify' | 'openExternal';
 export type AlertKind = 'ask' | 'readyToShip';

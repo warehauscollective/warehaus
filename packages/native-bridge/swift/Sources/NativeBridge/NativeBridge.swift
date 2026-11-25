@@ -7,6 +7,10 @@ public enum NativeBridge {
     public static let bridgeVersion = 1
     public static let portalLinkScheme = "warehaus"
     public static let maxAlerts = 20
+    /// The WKWebView script message handler name the page posts to.
+    public static let handlerName = "warehaus"
+    /// The window CustomEvent name the shell dispatches into the page; `detail` is the message.
+    public static let eventName = "warehaus:shell"
 }
 
 public enum ShellCapability: String, Codable, CaseIterable, Sendable {

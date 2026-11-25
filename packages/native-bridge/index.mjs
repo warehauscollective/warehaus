@@ -19,6 +19,14 @@ export const PORTAL_LINK_SCHEME = 'warehaus:';
 /** At most this many alerts in one attention message. */
 export const MAX_ALERTS = 20;
 
+/**
+ * Transport. The shell adds a WKWebView script message handler with this name;
+ * the page posts with `window.webkit.messageHandlers.warehaus.postMessage(msg)`.
+ */
+export const SHELL_HANDLER_NAME = 'warehaus';
+/** The shell sends to the page by dispatching a CustomEvent with this name on window; `detail` is the message. */
+export const SHELL_EVENT = 'warehaus:shell';
+
 const SHELL_TO_PAGE = new Set(['shell.hello', 'navigate']);
 const PAGE_TO_SHELL = new Set(['attention', 'openExternal']);
 
