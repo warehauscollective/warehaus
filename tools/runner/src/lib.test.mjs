@@ -9,6 +9,7 @@ import {
   HEARTBEAT_MS,
   heartbeatSlices,
   idleDelayMs,
+  idleWait,
   isMilestoneBranch,
   parseArgs,
   mapCursorCommits,
@@ -262,8 +263,26 @@ describe('task outcome', () => {
       assert.equal(Math.max(...slices) <= HEARTBEAT_MS, true);
     }
     const cli = read('./cli.mjs');
-    assert.match(cli, /await idleWait\(config, idleDelayMs\(empty\)\)/);
-    assert.match(cli, /call\(config, '\/agent\/ping', \{\}\)\.catch\(\(\) => \{\}\)/);
+    assert.match(cli, /await waitIdle\(config, idleDelayMs\(empty\)\)/);
+    assert.match(cli, /client\(config\)\.post\('\/agent\/ping', \{\}\)/);
+  });
+
+  it('idleWait runs its pings: one between slices, none after the last, failures skipped', async () => {
+    const slept = [];
+    let pings = 0;
+    await idleWait({ ms: 300_000, sleep: async (ms) => void slept.push(ms), ping: async () => void (pings += 1) });
+    assert.deepEqual(slept, [75_000, 75_000, 75_000, 75_000]);
+    assert.equal(pings, 3);
+    pings = 0;
+    await idleWait({ ms: 60_000, sleep: async () => {}, ping: async () => void (pings += 1) });
+    assert.equal(pings, 0);
+    await idleWait({ ms: 120_000, sleep: async () => {}, ping: () => { throw new Error('sync boom'); } });
+    await idleWait({ ms: 120_000, sleep: async () => {}, ping: async () => { throw new Error('offline'); } });
+  });
+
+  it('cli.mjs pings through the protocol client, and every call-style identifier it uses is defined', () => {
+    const cli = read('./cli.mjs');
+    assert.doesNotMatch(cli, /(?<![.\w])call\(config/);
   });
 });
 
