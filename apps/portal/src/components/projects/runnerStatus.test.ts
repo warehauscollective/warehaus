@@ -13,6 +13,7 @@ import {
   RunnerSetupBody,
   RunnerStatusBody,
   RunnerStatusChip,
+  runnerChipExpanded,
   runnerFixtureState,
   runnerHealthFixture,
   runnerModalStep,
@@ -207,5 +208,21 @@ describe('runner set-up states', () => {
     assert.match(source, /position: 'absolute', top: 0, right: 0/);
     assert.match(chip('ready'), /data-size="default"/);
     assert.match(chip('ready', true), /data-size="compact"/);
+  });
+
+  it('expands on hover or keyboard focus at 1440, and never on a phone', () => {
+    assert.equal(runnerChipExpanded({ hover: true, hovered: false, focused: false }), false);
+    assert.equal(runnerChipExpanded({ hover: true, hovered: true, focused: false }), true);
+    // Focus keeps the line open after the pointer leaves, so the focused button never unmounts.
+    assert.equal(runnerChipExpanded({ hover: true, hovered: false, focused: true }), true);
+    assert.equal(runnerChipExpanded({ hover: false, hovered: true, focused: true }), false);
+  });
+
+  it('gives the compact and the expanded chip the same button that opens the modal', () => {
+    for (const compact of [true, false]) {
+      const html = chip('ready', compact);
+      assert.match(html, /<button type="button" data-testid="runner-status-open" aria-haspopup="dialog"/);
+      assert.doesNotMatch(html, /tabindex="-1"/);
+    }
   });
 });

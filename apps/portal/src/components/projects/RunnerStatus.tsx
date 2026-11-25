@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react';
 import { useMutation } from 'convex/react';
 import { useSearchParams } from 'next/navigation';
 import { api } from '@convex/_generated/api';
@@ -610,27 +610,77 @@ type Outcome = { ok: true; runnerId?: string } | { ok: false; error: string };
 
 const FIXTURE_PAIRING: PairingFound = { code: 'K7QM-4XPA', proposedRunnerId: 'peter-mbp-prod', expiresAt: 0, production: true };
 
+/** Whether the expanded line shows. Only at 1440, on hover or while focus is inside the chip. */
+export function runnerChipExpanded({ hover, hovered, focused }: { hover: boolean; hovered: boolean; focused: boolean }): boolean {
+  return hover && (hovered || focused);
+}
+
 /**
  * The compact chip, and at 1440 the expanded line floating over it on hover
  * or keyboard focus. The wrapper keeps the compact chip's size, so the
  * heading never reflows.
+ *
+ * The compact chip hides while the line is expanded, and a hidden button
+ * cannot hold focus. So when Tab lands on the compact chip, focus moves to
+ * the expanded line's button, where Enter opens the modal. When a modal
+ * opened by keyboard closes, focus comes back to the chip.
  */
-function HoverChip({ copy, hover, onOpen, onAddRepo }: { copy: RunnerHealthCopy; hover: boolean; onOpen: () => void; onAddRepo?: () => void }) {
-  const [shown, setShown] = useState(false);
+function HoverChip({
+  copy,
+  hover,
+  modalOpen = false,
+  onOpen,
+  onAddRepo,
+}: {
+  copy: RunnerHealthCopy;
+  hover: boolean;
+  modalOpen?: boolean;
+  onOpen: () => void;
+  onAddRepo?: () => void;
+}) {
+  const [hovered, setHovered] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const compactRef = useRef<HTMLSpanElement>(null);
+  const expandedRef = useRef<HTMLSpanElement>(null);
+  const openedByKeyboard = useRef(false);
+  const wasModalOpen = useRef(modalOpen);
+  const shown = runnerChipExpanded({ hover, hovered, focused });
+
+  // Before paint, so the browser never drops focus from the hidden compact chip.
+  useLayoutEffect(() => {
+    if (shown && compactRef.current?.contains(document.activeElement)) {
+      expandedRef.current?.querySelector<HTMLElement>('button')?.focus();
+    }
+  }, [shown]);
+
+  // The expanded line unmounts as focus enters the modal, so the modal has
+  // nothing to hand focus back to. Focus the compact chip; it expands again.
+  useEffect(() => {
+    if (wasModalOpen.current && !modalOpen && openedByKeyboard.current) {
+      openedByKeyboard.current = false;
+      compactRef.current?.querySelector<HTMLElement>('button')?.focus();
+    }
+    wasModalOpen.current = modalOpen;
+  }, [modalOpen]);
+
   return (
     <span
       data-testid="runner-status-hover"
       style={{ position: 'relative', display: 'inline-flex', minWidth: 0 }}
-      onMouseEnter={hover ? () => setShown(true) : undefined}
-      onMouseLeave={hover ? () => setShown(false) : undefined}
-      onFocus={hover ? () => setShown(true) : undefined}
-      onBlur={hover ? (event) => (event.currentTarget.contains(event.relatedTarget as Node | null) ? undefined : setShown(false)) : undefined}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      onFocus={() => setFocused(true)}
+      onBlur={(event) => (event.currentTarget.contains(event.relatedTarget as Node | null) ? undefined : setFocused(false))}
+      // A click with no pointer behind it (detail 0) is Enter or Space.
+      onClickCapture={(event) => {
+        openedByKeyboard.current = event.detail === 0;
+      }}
     >
-      <span style={{ visibility: shown ? 'hidden' : 'visible', display: 'inline-flex', minWidth: 0 }}>
+      <span ref={compactRef} style={{ visibility: shown ? 'hidden' : 'visible', display: 'inline-flex', minWidth: 0 }}>
         <RunnerStatusChip copy={copy} compact onOpen={onOpen} />
       </span>
       {shown ? (
-        <span style={{ position: 'absolute', top: 0, right: 0, zIndex: 20, display: 'inline-flex' }}>
+        <span ref={expandedRef} style={{ position: 'absolute', top: 0, right: 0, zIndex: 20, display: 'inline-flex' }}>
           <RunnerStatusChip copy={copy} floating onOpen={onOpen} onAddRepo={onAddRepo} />
         </span>
       ) : null}
@@ -797,7 +847,7 @@ export function RunnerHealth({
   }
   return (
     <>
-      <HoverChip copy={copy} hover={!phone} onOpen={() => setOpen(true)} onAddRepo={addRepo} />
+      <HoverChip copy={copy} hover={!phone} modalOpen={open} onOpen={() => setOpen(true)} onAddRepo={addRepo} />
       {open ? (
         <RunnerStatusModal copy={copy} narrow={narrow} onClose={close} onAddRepo={addRepo}>
           {body}
