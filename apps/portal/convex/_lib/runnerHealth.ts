@@ -4,7 +4,8 @@
  *
  * ADR-0005: online means a runner serving the project's repository was seen
  * in the last 10 minutes. The modal names the runner by its id and, when no
- * runner is online, gives the start command.
+ * runner is online, points to the runner app on the Mac. Staff never see a
+ * terminal command: set-up, updates and removal all happen in the app.
  */
 
 /** A runner seen inside this window reads as Ready. After it, Offline. */
@@ -79,23 +80,20 @@ export const RUNNER_ADD_REPO = 'Add repo';
 export const RUNNER_SET_UP = 'Set up runner';
 export const RUNNER_SETUP_TITLE = 'No runner set up';
 export const RUNNER_SETUP_HELPER =
-  "The command prints an 8-character code. Enter it here to pair that Mac. Its secret goes straight to the Mac's Keychain and is never shown.";
-export const RUNNER_CONFIRM_HELPER = 'Only confirm a code you can see in your own terminal. Codes expire after 10 minutes.';
-export const RUNNER_PAIRED_HELPER = 'Installing adds a login item that starts the runner at login and restarts it if it stops.';
+  'Download the app and open it. It asks you to sign in to GitHub and Claude Code, then sends you back here to confirm this Mac. No terminal needed.';
+export const RUNNER_APP_FIELD = 'RUNNER APP FOR MAC';
+export const RUNNER_APP_REQUIREMENTS = 'Apple silicon · macOS 14 or later';
+export const RUNNER_DOWNLOAD = 'Download runner app';
+export const RUNNER_NO_RELEASE = 'The runner app has no release on this deployment yet. It is published with the next production deploy that changes the runner.';
+export const RUNNER_CONFIRM_HELPER = 'Only confirm a code you can see in the runner app on your Mac. Codes expire after 10 minutes.';
+export const RUNNER_KEEP_RUNNING = 'Starts at login from the runner app';
+export const RUNNER_PAIRED_HELPER = 'The runner app starts at login and restarts the runner if it stops. Pause it or remove it from the menu bar on the Mac.';
+/** What staff do on the Mac when no runner is online. */
+export const RUNNER_ON_THE_MAC = 'Open Warehaus Runner from Applications';
 export const RUNNER_LIST_HELPER = 'Revoking a runner stops it taking work at once. Any run in progress goes back to the queue.';
 export const RUNNER_PAUSED_HELPER =
   'Paused from the runner app on this Mac. A run in progress finishes; no new work starts until someone resumes it there.';
 export const RUNNER_SERVES = 'Every project with a repository this Mac can reach';
-
-/** The command staff run on the Mac that will take work. */
-export function runnerSetupCommand(production: boolean): string {
-  return `npm run runner -- setup${production ? ' --production' : ''}`;
-}
-
-/** Keeps the runner running: a login item per deployment. */
-export function runnerInstallCommand(production: boolean): string {
-  return `npm run runner -- install${production ? ' --production' : ''}`;
-}
 
 /** The revoke helper. On the last runner it says what waits. */
 export function runnerRevokeHelper(lastRunner: boolean, production: boolean): string {
@@ -116,8 +114,9 @@ export function runnerOutOfDateCopy(view: RunnerHealthView, now: number): Runner
     runner: runner.id,
     lastSeen: runner.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now) : RUNNER_NOT_SEEN,
     version: `Protocol ${runner.protocolVersion} · the Portal needs ${min}`,
-    update: `git pull && ${runnerInstallCommand(view.production)}`,
-    helper: 'The Portal refuses claims from this runner until it is updated. The runner never updates its own code.',
+    update: 'The runner app updates itself between runs',
+    helper:
+      'The Portal refuses claims from this runner until it updates. The app installs the update after any run in progress. If it stays out of date, choose Check for update in its menu.',
   };
 }
 export const RUNNER_NOT_SEEN = 'not seen yet';
@@ -145,25 +144,12 @@ export type RunnerHealthCopy = {
   /** Text after the label on the 1440 chip. On `no-repo` it is the Add repo link. */
   meta: string;
   runner: string;
-  /** Only while no runner is online: the command that starts one for this repository. */
-  startCommand: string | null;
-  /** Only on Not set up with a repository: the command that pairs a Mac. */
-  setupCommand: string | null;
+  /** Only while no runner is online: what to do on the Mac. Never a terminal command. */
+  onTheMac: string | null;
   lastSeen: string;
   milestone: string;
   helper: string;
 };
-
-/**
- * The command that starts a runner serving `repo`, as a staff member types it
- * on the runner's Mac. A registered runner reads its id from the file setup
- * wrote, so only a fallback runner needs `--id`.
- */
-export function runnerStartCommand(runnerId: string, repo: string, production: boolean, registered = false): string {
-  // A registered runner serves every project with a repository, in its own clones.
-  if (registered) return `npm run runner -- start${production ? ' --production' : ''}`;
-  return `npm run runner -- start${production ? ' --production' : ''} --id ${runnerId} --repo ${repo}`;
-}
 
 /** Every string the chip and the modal show for one state. */
 export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHealthCopy {
@@ -180,8 +166,7 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
       dot: 'unset',
       meta: RUNNER_ADD_REPO,
       runner: RUNNER_EMPTY,
-      startCommand: null,
-      setupCommand: null,
+      onTheMac: null,
       lastSeen: RUNNER_EMPTY,
       milestone: RUNNER_EMPTY,
       helper: 'This project has no GitHub repo. Add a repo before the runner can start an agent.',
@@ -193,8 +178,7 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
       dot: 'unset',
       meta: RUNNER_SET_UP,
       runner: RUNNER_EMPTY,
-      startCommand: null,
-      setupCommand: runnerSetupCommand(view.production),
+      onTheMac: null,
       lastSeen: RUNNER_EMPTY,
       milestone: RUNNER_EMPTY,
       helper: RUNNER_SETUP_HELPER,
@@ -203,8 +187,7 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
   const runner = latestRunner(view.runners);
   const name = runner?.id ?? RUNNER_EMPTY;
   const seen = runner?.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now) : null;
-  const fields = { runner: name, lastSeen: seen ?? RUNNER_EMPTY, startCommand: null, setupCommand: null };
-  const startCommand = runner && view.repo ? runnerStartCommand(runner.id, view.repo, view.production, runner.registered === true) : null;
+  const fields = { runner: name, lastSeen: seen ?? RUNNER_EMPTY, onTheMac: null };
   if (state === 'working') {
     const milestone = view.working?.milestoneName ?? RUNNER_EMPTY;
     return { ...base, ...fields, dot: 'warning', meta: milestone, milestone, helper: 'The runner is working on this milestone.' };
@@ -239,20 +222,21 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
       ...base,
       ...fields,
       dot: 'warning',
-      startCommand,
+      onTheMac: RUNNER_ON_THE_MAC,
       meta: milestone,
       milestone,
-      helper: `${milestone} is Building and waiting for the runner. Start it to pick the milestone up.`,
+      helper: `${milestone} is Building and waiting for the runner. Open Warehaus Runner on the Mac to pick the milestone up.`,
     };
   }
   return {
     ...base,
     ...fields,
     dot: 'offline',
-    startCommand,
+    onTheMac: RUNNER_ON_THE_MAC,
     meta: seen ? `last seen ${seen}` : RUNNER_NOT_SEEN,
     milestone: RUNNER_EMPTY,
-    helper: "No runner serving this repository has been seen in the last 10 minutes. Moving a milestone to Building won't start an agent until one is running.",
+    helper:
+      "No runner serving this repository has been seen in the last 10 minutes. The runner app starts at login, so check the Mac is on and open Warehaus Runner if it was quit. Moving a milestone to Building won't start an agent until one is running.",
   };
 }
 
