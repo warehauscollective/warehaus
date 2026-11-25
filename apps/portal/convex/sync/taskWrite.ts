@@ -1,5 +1,5 @@
 /**
- * The task create outbox write and the pending-stage drain. Every task field
+ * The Portal task create (stored in the portal only) and the pending-stage drain. Every task field
  * change goes through `applyTaskChanges` (convex/_lib/taskChange.ts).
  */
 
@@ -7,17 +7,19 @@ import { planTaskCreate, stageDrainWrite, taskCreateProjectGate } from '@warehau
 import { v } from 'convex/values';
 import { deleteUnsentStageRows } from '../_lib/taskChange';
 import { taskMilestoneGate } from '../_lib/milestoneTasks';
-import { internal } from '../_generated/api';
 import type { Id } from '../_generated/dataModel';
 import { internalMutation } from '../_generated/server';
+import { insertMilestoneTask } from '../_lib/milestoneTaskCreate';
 import { writebackAllowed } from './notion';
 import { insertOutboxRow } from './outbox';
 
-type EnqueueResult =
-  | { ok: false; error: string }
-  | { ok: true; outboxId: Id<'notionOutbox'>; duplicate: boolean };
+type CreateResult = { ok: false; error: string } | { ok: true; taskId: Id<'tasks'>; duplicate: boolean };
 
-export const enqueueCreate = internalMutation({
+/**
+ * Portal New task. The task is stored in the portal only, inside its
+ * milestone (convex/_lib/milestoneTaskCreate.ts). Nothing goes to Notion.
+ */
+export const createInMilestone = internalMutation({
   args: {
     orgId: v.id('clients'),
     name: v.string(),
@@ -29,7 +31,7 @@ export const enqueueCreate = internalMutation({
     milestoneId: v.optional(v.id('milestones')),
     actorId: v.optional(v.string()),
   },
-  handler: async (ctx, args): Promise<EnqueueResult> => {
+  handler: async (ctx, args): Promise<CreateResult> => {
     const project = await ctx.db
       .query('projects')
       .withIndex('by_notionPageId', (q) => q.eq('notionPageId', args.projectNotionId))
@@ -37,11 +39,11 @@ export const enqueueCreate = internalMutation({
     const projectGate = taskCreateProjectGate(project, args.orgId);
     if (!projectGate.ok) return { ok: false as const, error: projectGate.error };
     if (!project) return { ok: false as const, error: 'Project is not in this client' };
-    const milestoneGate = taskMilestoneGate(
-      args.milestoneId ? await ctx.db.get(args.milestoneId) : null,
-      { orgId: args.orgId, projectId: project._id },
-    );
+    const milestone = args.milestoneId ? await ctx.db.get(args.milestoneId) : null;
+    const milestoneGate = taskMilestoneGate(milestone, { orgId: args.orgId, projectId: project._id });
     if (!milestoneGate.ok) return { ok: false as const, error: milestoneGate.reason };
+    if (!milestone) return { ok: false as const, error: 'Milestone not found' };
+    // Same name, status, date and stage rules as before. The Notion properties are not sent.
     const planned = planTaskCreate({
       actor: 'staff',
       name: args.name,
@@ -52,19 +54,18 @@ export const enqueueCreate = internalMutation({
       stage: args.stage,
     });
     if (!planned.ok) return { ok: false as const, error: planned.error };
-    return ctx.runMutation(internal.sync.outbox.enqueue, {
-      idempotencyKey: planned.idempotencyKey,
-      kind: 'create',
-      orgId: args.orgId,
-      database: 'tasks',
-      payload: JSON.stringify({
-        properties: planned.properties,
-        ...(args.milestoneId ? { milestoneId: args.milestoneId } : {}),
-      }),
-      actor: 'staff' as const,
-      actorId: args.actorId,
-      schedule: true,
+    const inserted = await insertMilestoneTask(ctx, {
+      project,
+      milestone,
+      name: String(planned.properties.Name),
+      status: args.status,
+      date: args.date,
+      stage: args.stage,
+      via: 'ui',
+      ref: args.externalId,
     });
+    if (!inserted.ok) return { ok: false as const, error: inserted.reason };
+    return { ok: true as const, taskId: inserted.taskId, duplicate: inserted.duplicate };
   },
 });
 

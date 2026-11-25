@@ -41,14 +41,12 @@ import {
   attachFailureStatus,
   contentEditDecision,
   createMilestoneDecision,
-  nextMilestoneOrder,
   writeMilestoneActivity,
   type AttachFailureCode,
 } from './_lib/milestones';
 import {
   PORTAL_MILESTONE_TASK_SOURCE,
   isPortalOwnedTask,
-  stageForNewMilestoneTask,
   taskMilestoneGate,
   taskOrigin,
 } from './_lib/milestoneTasks';
@@ -74,7 +72,7 @@ import { contextSourceForToken } from './_lib/projectContext';
 import { convexFailureText } from './_lib/userFacingError';
 import { applyTaskChanges, type TaskChange } from './_lib/taskChange';
 import { staffMayReadOrg, staffOrgs, staffTask } from './_lib/staffRead';
-import { loadLinkedTasks } from './_lib/milestoneTaskSet';
+import { insertMilestoneTask } from './_lib/milestoneTaskCreate';
 
 const PAGE_CAP = 50;
 
@@ -505,31 +503,20 @@ export const createTask = internalMutation({
       stage: args.stage,
     });
     if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
-    const siblings = await loadLinkedTasks(ctx, milestone);
-    if (!siblings.ok) return finishIdempotency(ctx, opened.id, fail(400, siblings.reason));
-    const at = Date.now();
-    const key = `${PORTAL_MILESTONE_TASK_SOURCE}:${milestone._id}:api:${externalId}`;
-    const taskId = await ctx.db.insert('tasks', {
-      orgId: project.orgId,
-      projectId: project._id,
-      notionPageId: key,
-      externalId: key,
-      lastSyncedAt: at,
+    const inserted = await insertMilestoneTask(ctx, {
+      project,
+      milestone,
       name: String(planned.properties.Name),
       status: args.status,
-      isDone: args.status === 'Done',
-      ...(args.date ? { date: args.date } : {}),
-      stage: args.stage ?? stageForNewMilestoneTask(milestone.status),
-      publishToWarehaus: false,
-      source: PORTAL_MILESTONE_TASK_SOURCE,
-      origin: 'manual',
-      milestoneId: milestone._id,
-      milestoneOrder: nextMilestoneOrder(siblings.rows.map((row) => row.milestoneOrder)),
-      updatedAt: at,
+      date: args.date,
+      stage: args.stage,
+      via: 'api',
+      ref: externalId,
     });
+    if (!inserted.ok) return finishIdempotency(ctx, opened.id, fail(400, inserted.reason));
     return finishIdempotency(ctx, opened.id, {
       status: 200,
-      body: { id: taskId, externalId: key, milestoneId: milestone._id, duplicate: false },
+      body: { id: inserted.taskId, externalId: inserted.key, milestoneId: milestone._id, duplicate: inserted.duplicate },
     });
   },
 });
