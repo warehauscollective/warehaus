@@ -184,11 +184,11 @@ export const portalTools: PortalTool[] = [
   {
     name: 'update_task',
     description:
-      'Update task status, priority, next action, or stage through the staff update path. Last write wins per field. Stage Shipped is allowed when the task has a pull request link and GitHub shows that pull request merged into main. The check runs on this write. Send lastEditedTime from get_task and an idempotency key.',
+      'Update task status, priority, next action, or stage through the staff update path. Last write wins per field. Stage Shipped is allowed when the task has a pull request link and GitHub shows that pull request merged into main. The check runs on this write. Send lastEditedTime from get_task and an idempotency key. Leave it out when get_task shows lastEditedTime null (a Portal-only task).',
     write: true,
     schema: {
       taskId: z.string().min(1),
-      expectedLastEditedTime: z.string().min(1),
+      expectedLastEditedTime: z.string().optional(),
       status: status.optional(),
       priority: z.string().max(200).nullable().optional(),
       nextAction: z.string().max(500).nullable().optional(),
@@ -214,12 +214,12 @@ export const portalTools: PortalTool[] = [
   {
     name: 'move_task_stage',
     description:
-      'Move a task stage through the staff update path. Last write wins on stage, and the Notion outbox uses the task-stage write. Staff can set Shipped when the task has a pull request link and GitHub shows that pull request merged into main. The check runs on this write. Send lastEditedTime from get_task and an idempotency key.',
+      'Move a task stage through the staff update path. Last write wins on stage, and the Notion outbox uses the task-stage write. Staff can set Shipped when the task has a pull request link and GitHub shows that pull request merged into main. The check runs on this write. Send lastEditedTime from get_task and an idempotency key. Leave it out when get_task shows lastEditedTime null (a Portal-only task).',
     write: true,
     schema: {
       taskId: z.string().min(1),
       stage,
-      expectedLastEditedTime: z.string().min(1),
+      expectedLastEditedTime: z.string().optional(),
       pullRequestLink: z.string().min(1).optional(),
       idempotencyKey,
     },
@@ -354,7 +354,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'add_task_link',
     description:
-      'Add a staff task link. Post a Cursor agent URL with kind `agent`. Kinds that mirror a Notion field go through the update outbox and need lastEditedTime from get_task. Kind `agent` does not write a Notion field. A duplicate link is not written again. Send an idempotency key.',
+      'Add a staff task link. Post a Cursor agent URL with kind `agent`. Kinds that mirror a Notion field go through the update outbox and need lastEditedTime from get_task, except on a Portal-only task (lastEditedTime null), whose link stays in the portal. Kind `agent` does not write a Notion field. A duplicate link is not written again. Send an idempotency key.',
     write: true,
     schema: {
       taskId: z.string().min(1),
