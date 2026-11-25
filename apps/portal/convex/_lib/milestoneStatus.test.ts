@@ -312,3 +312,19 @@ describe('staff API aliases', () => {
     assert.deepEqual(apiStatusFields('Ready to Ship'), { status: 'Ready to Ship', stage: 'Ready to Ship', workStatus: 'ready' });
   });
 });
+
+describe('a change request from Grok Bot', () => {
+  it('waits at Awaiting Go; one from the Portal goes back to Building', async () => {
+    const { transitionMilestone } = await import('./milestoneStatus');
+    const { requestChangesTarget } = await import('./milestoneReview');
+    assert.equal(requestChangesTarget('chat'), 'Awaiting Go');
+    assert.equal(requestChangesTarget('portal'), 'Building');
+    const chat = transitionMilestone({ from: 'Ready to Ship', cause: 'request_changes', to: 'Awaiting Go' });
+    assert.deepEqual(chat, { ok: true, from: 'Ready to Ship', status: 'Awaiting Go', wrote: true });
+    const portal = transitionMilestone({ from: 'Ready to Ship', cause: 'request_changes' });
+    assert.equal(portal.ok && portal.status, 'Building');
+    // A change request never lands anywhere else.
+    const odd = transitionMilestone({ from: 'Ready to Ship', cause: 'request_changes', to: 'Shipped' });
+    assert.equal(odd.ok && odd.status, 'Building');
+  });
+});

@@ -23,6 +23,12 @@ import {
   taskOutcome,
   taskPrompt,
   worktreeName,
+  proposedRunnerId,
+  parseConfigFile,
+  configFileText,
+  keychainAccount,
+  launchAgentLabel,
+  launchAgentPlist,
 } from './lib.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -31,22 +37,44 @@ describe('arguments', () => {
   it('reads start with an id and defaults to interactive', () => {
     assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'WarehausCollective/warehaus']), {
       ok: true,
-      options: { id: 'peter-mbp', mode: 'interactive', once: false, dir: '', repos: ['warehauscollective/warehaus'] },
+      options: { command: 'start', production: false, id: 'peter-mbp', mode: 'interactive', once: false, repos: ['warehauscollective/warehaus'] },
     });
     const full = parseArgs([
-      'start', '--id', 'peter-mbp', '--mode', 'headless', '--once', '--dir', '/tmp/x',
+      'start', '--id', 'peter-mbp', '--mode', 'headless', '--once',
       '--repo', 'a/b,c/d', '--repo', 'a/b',
     ]);
-    assert.deepEqual(full.options, { id: 'peter-mbp', mode: 'headless', once: true, dir: '/tmp/x', repos: ['a/b', 'c/d'] });
+    assert.deepEqual(full.options, { command: 'start', production: false, id: 'peter-mbp', mode: 'headless', once: true, repos: ['a/b', 'c/d'] });
+    // A registered runner names no repository: it serves every project that has one.
+    assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp']).options.repos, []);
+    // The runner works only in its own clones, so there is no --dir.
+    assert.equal(parseArgs(['start', '--dir', '/tmp/x']).ok, false);
+    // The id may come from the file setup wrote.
+    assert.equal(parseArgs(['start', '--repo', 'a/b']).ok, true);
+    assert.equal(parseArgs(['start', '--production', '--repo', 'a/b']).options.production, true);
+  });
+
+  it('reads setup, with --production only when asked', () => {
+    assert.deepEqual(parseArgs(['setup']).options.production, false);
+    assert.deepEqual(parseArgs(['setup', '--production', '--id', 'studio-mini-prod']).options, {
+      command: 'setup', production: true, id: 'studio-mini-prod', mode: 'interactive', once: false, repos: [],
+    });
+    assert.equal(parseArgs(['setup', '--repo', 'a/b']).ok, false);
+    assert.equal(parseArgs(['setup', '--once']).ok, false);
+    assert.equal(parseArgs(['setup', '--id', 'Bad Id']).ok, false);
+  });
+
+  it('proposes the id from the Mac name, with -prod on production', () => {
+    assert.equal(proposedRunnerId('Peters-MacBook-Pro.local', false), 'peters-macbook-pro');
+    assert.equal(proposedRunnerId('Peters-MacBook-Pro.local', true), 'peters-macbook-pro-prod');
+    assert.equal(proposedRunnerId('', true), 'runner-prod');
+    assert.equal(proposedRunnerId('x'.repeat(80), true).length <= 40, true);
   });
 
   it('refuses a missing id, a bad mode and an unknown flag', () => {
-    assert.equal(parseArgs(['start']).ok, false);
+    assert.equal(parseArgs(['start', '--mode']).ok, false);
     assert.equal(parseArgs(['start', '--id', 'Peter MBP', '--repo', 'a/b']).ok, false);
     assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'a/b', '--mode', 'fast']).ok, false);
     assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'a/b', '--force']).ok, false);
-    // No repository named: the runner does not start.
-    assert.equal(parseArgs(['start', '--id', 'peter-mbp']).ok, false);
     assert.equal(parseArgs(['start', '--id', 'peter-mbp', '--repo', '/tmp/x']).ok, false);
     assert.equal(parseArgs(['stop']).ok, false);
   });
@@ -60,6 +88,7 @@ describe('environment', () => {
       ok: true,
       url: 'https://graceful-mastiff-960.convex.site',
       token,
+      production: false,
     });
     assert.equal(readEnv({ RUNNER_TOKEN: token }).ok, false);
     assert.equal(readEnv({ PORTAL_AGENT_URL: 'https://graceful-mastiff-960.convex.site' }).ok, false);
@@ -67,10 +96,15 @@ describe('environment', () => {
     assert.equal(readEnv({ PORTAL_AGENT_URL: 'https://example.com', RUNNER_TOKEN: token }).ok, false);
   });
 
-  it('refuses production', () => {
+  it('refuses production unless started with --production, and --production refuses anything else', () => {
     const production = { PORTAL_AGENT_URL: 'https://unique-turtle-383.convex.site', RUNNER_TOKEN: token };
     assert.equal(readEnv(production).ok, false);
     assert.equal(readEnv({ ...production, RUNNER_ALLOW_PRODUCTION: '1' }).ok, false);
+    assert.deepEqual(readEnv(production, { production: true }), { ok: true, url: production.PORTAL_AGENT_URL, token, production: true });
+    const dev = { PORTAL_AGENT_URL: 'https://graceful-mastiff-960.convex.site', RUNNER_TOKEN: token };
+    assert.equal(readEnv(dev, { production: true }).ok, false);
+    // A runner paired to production refuses to start without the flag.
+    assert.equal(readEnv({ ...dev, RUNNER_PRODUCTION: '1' }).ok, false);
     assert.equal(readFileSync(new URL('./lib.mjs', import.meta.url), 'utf8').includes('RUNNER_ALLOW_PRODUCTION'), false);
   });
 
@@ -144,15 +178,17 @@ describe('prompts', () => {
 });
 
 describe('repository', () => {
-  it('reads owner/name from a remote and only claims for the checkout it is in', () => {
+  it('reads owner/name from a remote, and claims for every project or only the repositories named', () => {
     assert.equal(repoFromRemote('https://github.com/WarehausCollective/warehaus.git'), 'warehauscollective/warehaus');
     assert.equal(repoFromRemote('git@github.com:warehauscollective/warehaus.git'), 'warehauscollective/warehaus');
     assert.equal(repoFromRemote('https://gitlab.com/a/b.git'), null);
     assert.equal(repoFromRemote(''), null);
     const cli = read('./cli.mjs');
-    assert.match(cli, /!parsed\.options\.repos\.includes\(origin\)/);
-    assert.match(cli, /repos: \[origin\]/);
+    assert.match(cli, /repos: parsed\.options\.repos/);
     assert.match(cli, /repos: config\.repos/);
+    // Work runs in the runner's own clone of the repository the Portal names.
+    assert.match(cli, /ensureClone\(work\.milestone\?\.repo, runnerHome\)/);
+    assert.equal(cli.includes('process.cwd()'), false);
   });
 });
 
@@ -265,7 +301,9 @@ describe('no model credentials', () => {
     }
     assert.match(cli, /spawn\('claude'/);
     assert.equal((cli.match(/spawn\('claude'/g) ?? []).length, 2);
-    assert.equal((cli.match(/spawn\('/g) ?? []).length, 2);
+    // The only other program the CLI starts is caffeinate, which holds no credential.
+    assert.deepEqual([...new Set(cli.match(/spawn\('(\w+)'/g))].sort(), ["spawn('caffeinate'", "spawn('claude'"]);
+    assert.equal((cli.match(/spawn\('/g) ?? []).length, 3);
     // git and gh are the only other programs, and only repo.mjs starts them.
     assert.equal(/spawn/.test(read('./drivers/cursorBuild.mjs')), false);
     assert.deepEqual([...new Set(read('./repo.mjs').match(/exec\('(\w+)'/g))].sort(), ["exec('gh'", "exec('git'"]);
@@ -291,7 +329,7 @@ describe('drivers', () => {
     assert.match(publishFn, /push', '-u', 'origin', branch/);
     const build = read('./drivers/cursorBuild.mjs');
     assert.match(build, /The Cursor agent finished without a Portal-Task trailer/);
-    const publish = build.indexOf('tools.publishMilestoneBranch(config.repo, branch)');
+    const publish = build.indexOf('tools.publishMilestoneBranch(checkout, branch)');
     const launch = build.indexOf('cursorRequest(');
     assert.equal(publish >= 0 && launch > publish, true);
     assert.equal(build.includes('The milestone branch is not on origin'), false);
@@ -320,3 +358,51 @@ describe('drivers', () => {
     assert.equal(env.HOME, '/tmp');
   });
 });
+
+describe('setup files', () => {
+  it('saves the URL and id, never the secret, and reads them back', () => {
+    const text = configFileText({ url: 'https://unique-turtle-383.convex.site', id: 'peter-mbp-prod', production: true });
+    assert.deepEqual(parseConfigFile(text), {
+      PORTAL_AGENT_URL: 'https://unique-turtle-383.convex.site',
+      RUNNER_ID: 'peter-mbp-prod',
+      RUNNER_PRODUCTION: '1',
+    });
+    assert.doesNotMatch(text, /TOKEN|SECRET/);
+    assert.equal(keychainAccount('unique-turtle-383', 'peter-mbp-prod'), 'unique-turtle-383:peter-mbp-prod');
+  });
+});
+
+describe('kept running', () => {
+  it('reads install and uninstall, with --production only when asked', () => {
+    assert.deepEqual(parseArgs(['install']).options.production, false);
+    assert.equal(parseArgs(['install', '--production']).options.production, true);
+    assert.equal(parseArgs(['uninstall', '--production']).ok, true);
+    assert.equal(parseArgs(['install', '--id', 'x']).ok, false);
+    assert.equal(parseArgs(['install', '--repo', 'a/b']).ok, false);
+  });
+
+  it('writes one headless launchd agent per deployment, with --production written in and no secret', () => {
+    assert.notEqual(launchAgentLabel(true), launchAgentLabel(false));
+    const input = { node: '/n/node', cli: '/r/cli.mjs', workingDirectory: '/r', logPath: '/l/x.log', path: '/usr/bin:/bin' };
+    const prod = launchAgentPlist({ ...input, production: true });
+    assert.match(prod, /<string>co\.warehaus\.runner\.prod<\/string>/);
+    assert.match(prod, /<string>start<\/string>\n    <string>--production<\/string>\n    <string>--mode<\/string>\n    <string>headless<\/string>/);
+    assert.match(prod, /<key>RunAtLoad<\/key>\n  <true\/>/);
+    assert.match(prod, /<key>KeepAlive<\/key>\n  <true\/>/);
+    assert.equal(/token|secret|RUNNER_TOKEN/i.test(prod), false);
+    const dev = launchAgentPlist({ ...input, production: false });
+    assert.equal(dev.includes('--production'), false);
+    assert.match(launchAgentPlist({ ...input, production: false, workingDirectory: '/a&b<c>' }), /\/a&amp;b&lt;c&gt;/);
+  });
+
+  it('holds caffeinate -i only while a run is in progress', () => {
+    const cli = read('./cli.mjs');
+    assert.match(cli, /spawn\('caffeinate', \['-i', '-w', String\(process\.pid\)\]/);
+    const start = cli.indexOf('const release = holdAwake();');
+    const end = cli.indexOf('release();', start + 30);
+    assert.equal(start > 0 && end > start, true);
+    assert.match(cli.slice(start, end + 20), /finally \{\n\s+release\(\);/);
+    assert.equal(cli.includes('caffeinate -is'), false);
+  });
+});
+

@@ -1,6 +1,8 @@
 /**
- * Runner HTTP routes. The runner on a staff Mac calls these with its own
- * bearer token from `RUNNER_TOKENS` and its id in `X-Runner-Id`.
+ * Runner HTTP routes. The runner on a staff Mac calls these with its secret
+ * as the bearer token and its id in `X-Runner-Id`. A registered runner is
+ * checked against the stored hash of its secret; `RUNNER_TOKENS` is read
+ * only as a fallback until the dev runner is re-paired (ADR-0005 amendment).
  *
  *   POST /agent/claim     next planning job, task, or Cursor build
  *   POST /agent/events    one short line for the run feed
@@ -9,15 +11,30 @@
  *   POST /agent/build     progress from the one Cursor agent on a milestone
  *   POST /agent/ping      an idle runner saying it is alive. Reads and hands out nothing
  *
+ * Pairing takes no runner token:
+ *
+ *   POST /agent/pair/start  the CLI sends hashes of its secret and poll key, gets a code
+ *   POST /agent/pair/poll   the CLI asks whether staff confirmed the code. A read only
+ *
  * Each call is rate limited per runner. Claim and complete are idempotent on
  * the run: a retry returns the same run or the stored outcome.
  */
 
+import { RUNNER_PAIR_PATHS, RUNNER_PROTOCOL_HEADER } from '@warehaus/runner-protocol';
 import { internal } from './_generated/api';
 import { httpAction } from './_generated/server';
-import { authorizeRunner, reposForRunner } from './_lib/agentRun';
+import { RUNNER_ID_INVALID, RUNNER_ID_PATTERN, RUNNER_UNAUTHORIZED, authorizeRunner, reposForRunner, runnerRepos } from './_lib/agentRun';
+import {
+  PAIRING_BAD_REQUEST,
+  pairingCodeFrom,
+  runnerOutOfDate,
+  runnerProtocolVersion,
+  RUNNER_OUT_OF_DATE,
+} from './_lib/runnerRegistry';
+import { sha256Hex } from './_lib/tokenCrypto';
 
 export const AGENT_ROUTES = ['/agent/claim', '/agent/events', '/agent/tasks', '/agent/complete', '/agent/build', '/agent/ping'] as const;
+export const AGENT_PAIR_ROUTES = [RUNNER_PAIR_PATHS.start, RUNNER_PAIR_PATHS.poll] as const;
 
 const BODY_LIMIT = 60_000;
 
@@ -30,42 +47,59 @@ function field(body: Record<string, unknown>, key: string): string {
   return typeof value === 'string' ? value : '';
 }
 
+async function readBody(request: Request): Promise<{ ok: true; body: Record<string, unknown> } | { ok: false; response: Response }> {
+  const raw = await request.text();
+  if (raw.length > BODY_LIMIT) return { ok: false, response: json({ error: 'Request is too large' }, 400) };
+  if (!raw.trim()) return { ok: true, body: {} };
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      return { ok: false, response: json({ error: 'Request body must be a JSON object' }, 400) };
+    }
+    return { ok: true, body: parsed as Record<string, unknown> };
+  } catch {
+    return { ok: false, response: json({ error: 'Request body must be a JSON object' }, 400) };
+  }
+}
+
 export const agentHttp = httpAction(async (ctx, request) => {
-  const auth = authorizeRunner({
+  const runnerId = (request.headers.get('x-runner-id') ?? '').trim().toLowerCase();
+  if (!RUNNER_ID_PATTERN.test(runnerId)) return json({ error: RUNNER_ID_INVALID }, 400);
+  const bearer = /^Bearer\s+(\S+)\s*$/.exec(request.headers.get('authorization') ?? '')?.[1] ?? '';
+  if (!bearer) return json({ error: RUNNER_UNAUTHORIZED }, 401);
+  // Fallback until the dev runner is re-paired. A missing RUNNER_TOKENS is no longer an error.
+  const env = authorizeRunner({
     configured: process.env.RUNNER_TOKENS,
     authorizationHeader: request.headers.get('authorization'),
-    runnerId: request.headers.get('x-runner-id'),
+    runnerId,
   });
-  if (!auth.ok) return json({ error: auth.reason }, auth.status);
-  const runnerId = auth.runnerId;
+  const protocolVersion = runnerProtocolVersion(request.headers.get(RUNNER_PROTOCOL_HEADER));
 
-  const raw = await request.text();
-  if (raw.length > BODY_LIMIT) return json({ error: 'Request is too large' }, 400);
-  let body: Record<string, unknown> = {};
-  if (raw.trim()) {
-    try {
-      const parsed = JSON.parse(raw) as unknown;
-      if (parsed == null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        return json({ error: 'Request body must be a JSON object' }, 400);
-      }
-      body = parsed as Record<string, unknown>;
-    } catch {
-      return json({ error: 'Request body must be a JSON object' }, 400);
-    }
-  }
+  const read = await readBody(request);
+  if (!read.ok) return read.response;
+  const body = read.body;
 
-  const alive = await ctx.runMutation(internal.agent.touchRunner, { runnerId });
+  const alive = await ctx.runMutation(internal.agent.touchRunner, {
+    runnerId,
+    tokenHash: await sha256Hex(bearer),
+    envAuthorized: env.ok,
+    protocolVersion,
+  });
   if (!alive.ok) return json({ error: alive.error }, alive.status);
 
   const path = new URL(request.url).pathname;
   // The touch above is the whole heartbeat: at most one write a minute.
   if (path === '/agent/ping') return json({ ok: true }, 200);
   if (path === '/agent/claim') {
+    // A registered runner below the minimum protocol gets no work until it is updated.
+    if (alive.registered && runnerOutOfDate(protocolVersion)) return json({ error: RUNNER_OUT_OF_DATE }, 426);
     const result = await ctx.runMutation(internal.agent.claimNext, {
       runnerId,
       mode: field(body, 'mode') || undefined,
       // The project setting picks the agent. A tool on the request is ignored.
-      repos: reposForRunner(auth.repos, body.repos),
+      ...(alive.registered
+        ? { repos: runnerRepos(body.repos), anyRepo: true }
+        : { repos: reposForRunner(env.ok ? env.repos : [], body.repos) }),
     });
     return json(result, 200);
   }
@@ -119,6 +153,45 @@ export const agentHttp = httpAction(async (ctx, request) => {
       ...(body.reason !== undefined ? { reason: body.reason } : {}),
     });
     return result.ok ? json(result, 200) : json({ error: result.error }, result.status);
+  }
+  return json({ error: 'Not found' }, 404);
+});
+
+/** Random bytes for a pairing code. Mutations have no real randomness, so the code is made here. */
+function newCode(): string {
+  const bytes = new Uint8Array(8);
+  crypto.getRandomValues(bytes);
+  return pairingCodeFrom(bytes);
+}
+
+/**
+ * Pairing routes for `npm run runner -- setup`. No runner token: the CLI has
+ * none yet. Start sends only hashes; poll is a read, so waiting writes nothing.
+ */
+export const agentPairHttp = httpAction(async (ctx, request) => {
+  const read = await readBody(request);
+  if (!read.ok) return read.response;
+  const body = read.body;
+  const path = new URL(request.url).pathname;
+  if (path === RUNNER_PAIR_PATHS.start) {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const result = await ctx.runMutation(internal.runners.startPairing, {
+        code: newCode(),
+        proposedRunnerId: field(body, 'proposedRunnerId'),
+        tokenHash: field(body, 'tokenHash'),
+        pollKeyHash: field(body, 'pollKeyHash'),
+      });
+      if (result.ok) return json(result, 200);
+      if (result.error !== 'retry') return json({ error: result.error }, result.status);
+    }
+    return json({ error: 'Could not make a pairing code. Try again.' }, 503);
+  }
+  if (path === RUNNER_PAIR_PATHS.poll) {
+    const code = field(body, 'code');
+    const pollKey = field(body, 'pollKey');
+    if (!code || pollKey.length < 32) return json({ error: PAIRING_BAD_REQUEST }, 400);
+    const result = await ctx.runQuery(internal.runners.pairingStatus, { code, pollKeyHash: await sha256Hex(pollKey) });
+    return json(result, 200);
   }
   return json({ error: 'Not found' }, 404);
 });

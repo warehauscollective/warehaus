@@ -14,7 +14,8 @@ import { describe, it } from 'node:test';
 import { claimNext, completeTask, recordEvent, releaseStuckRuns, reportBuild, retryBlocked, writePlannedTasks } from '../agent';
 import { AGENT_DRIVER_LOCKED, setAgentDriver } from '../projects';
 import { PortalAuthError } from './identity';
-import { addTask, listForClientProject, reviewForApi } from '../milestones';
+import { addTask, listForClientProject, reviewForApi, setStatus } from '../milestones';
+import { CHAT_CHANGES_NOTE } from './milestoneReview';
 import { createMilestone, updateMilestone } from '../portalApi';
 import { applyInbound } from '../sync/inbound';
 import { buildRoadmap, roadmapViewForAudience } from './milestones';
@@ -207,12 +208,16 @@ describe('milestone loop, bot to Shipped', () => {
     assert.equal(changes.ok, true, changes.error ?? '');
     assert.equal(changes.iteration, 2);
     assert.equal(changes.createdTaskIds?.length, 2);
-    assert.equal(milestone().status, 'Building');
+    // A Grok Bot review waits at Awaiting Go with a note for staff (ADR-0005). Only staff start the build.
+    assert.equal(milestone().status, 'Awaiting Go');
     assert.equal(milestone().approval, 'changes_requested');
+    assert.equal(t.rows('milestoneNotes').some((note) => note.body === CHAT_CHANGES_NOTE), true);
     // Peter answered, so nothing waits on him.
     assert.equal(openNotes().length, 0);
-    // The move back to Building went through the one writer: one status row.
+    // The move went through the one writer: one status row.
     assert.equal(statusRows(), statusRowsBefore + 1);
+    await t.call(setStatus, { milestoneId, status: 'Building' }, { as: 'staff' });
+    assert.equal(milestone().status, 'Building');
     const review = tasks().filter((task) => taskOrigin({ origin: task.origin as string, source: task.source as string }) === 'review');
     assert.deepEqual(
       review.map((task) => [task.name, task.round]),
@@ -430,7 +435,9 @@ describe('cursor build hold and agent lock', () => {
     assert.match(String(run().blockedReason), /30 minutes/);
     const task = t.rows('tasks').find((row) => row.milestoneId === milestoneId && row.status === 'Blocked');
     assert.equal(task?.blockedReason, 'Runner went quiet for 30 minutes');
-    const notes = () => t.rows('milestoneNotes').filter((row) => row.needsPeter === 'open' && row.reason === 'blocked' && !row.taskId);
+    // The no-runner alert is its own note (no runner is registered in this world); this test counts the build's.
+    const notes = () =>
+      t.rows('milestoneNotes').filter((row) => row.needsPeter === 'open' && row.reason === 'blocked' && !row.taskId && !/no runner/i.test(String(row.body)));
     assert.equal(notes().length, 1);
     const again = await t.call<{ released: number }>(releaseStuckRuns, {});
     assert.equal(again.released, 0);

@@ -159,7 +159,7 @@ export async function changeMilestoneStatus(
 
   const from = moved.from;
   const to = moved.status;
-  await ctx.db.patch(milestone._id, { status: to });
+  await ctx.db.patch(milestone._id, { status: to, statusChangedAt: input.at });
   await writeMilestoneActivity(
     ctx as unknown as Parameters<typeof writeMilestoneActivity>[0],
     milestone,

@@ -1,21 +1,33 @@
 'use client';
 
-import { useEffect, useState, type CSSProperties } from 'react';
+import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
+import { useMutation } from 'convex/react';
 import { useSearchParams } from 'next/navigation';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import {
   RUNNER_ADD_REPO,
+  RUNNER_CONFIRM_HELPER,
   RUNNER_HEALTH_STATES,
+  RUNNER_LIST_HELPER,
   RUNNER_MODAL_TITLE,
+  RUNNER_PAIRED_HELPER,
+  RUNNER_SERVES,
+  RUNNER_SETUP_TITLE,
+  agoLabel,
   runnerHealthCopy,
+  runnerInstallCommand,
+  runnerOutOfDateCopy,
+  runnerRevokeHelper,
+  runnerSetupCommand,
+  type RunnerHealthRunner,
   type RunnerDot,
   type RunnerHealthCopy,
   type RunnerHealthState,
   type RunnerHealthView,
 } from '@convex/_lib/runnerHealth';
 import { PortalModal } from '@/components/ui/PortalModal';
-import { PrimaryButton } from '@/components/ui/primitives';
+import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useSafeQuery } from '@/hooks/useSafeQuery';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 
@@ -32,15 +44,20 @@ export function runnerFixtureState(value: string | null | undefined): RunnerHeal
 
 /** Fixture data for one state. Times are offsets from `now`, so the copy matches the frames. */
 export function runnerHealthFixture(state: RunnerHealthState, now: number): RunnerHealthView {
-  if (state === 'no-repo') return { repoSet: false, repo: null, production: true, runnerAllowed: false, runners: [], working: null, building: null };
-  if (state === 'no-runner') return { repoSet: true, repo: FIXTURE_REPO, production: true, runnerAllowed: false, runners: [], working: null, building: null };
+  const base = { production: true, protocolMin: 2 };
+  if (state === 'no-repo') return { ...base, registeredCount: 0, repoSet: false, repo: null, runnerAllowed: false, runners: [], working: null, building: null };
+  if (state === 'no-runner') return { ...base, registeredCount: 0, repoSet: true, repo: FIXTURE_REPO, runnerAllowed: false, runners: [], working: null, building: null };
   const fresh = state === 'ready' || state === 'working';
   return {
+    ...base,
+    registeredCount: 2,
     repoSet: true,
     repo: FIXTURE_REPO,
-    production: true,
     runnerAllowed: true,
-    runners: [{ id: 'peter-mbp-prod', lastSeenAt: now - (fresh ? 4 * 60_000 : 2 * 60 * 60_000) }],
+    runners: [
+      { id: 'peter-mbp-prod', lastSeenAt: now - (fresh ? 4 * 60_000 : 2 * 60 * 60_000), registered: true, protocolVersion: 2 },
+      { id: 'studio-mini-prod', lastSeenAt: now - 3 * 24 * 60 * 60_000, registered: true, protocolVersion: 2 },
+    ],
     working: state === 'working' ? FIXTURE_MILESTONE : null,
     building: state === 'offline-building' ? FIXTURE_MILESTONE : null,
   };
@@ -89,20 +106,25 @@ const FOCUS =
   'focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--fg)] focus-visible:outline-offset-4';
 
 /**
- * The chip. Default is the 1440 header chip: dot, label, and a meta line.
- * Compact is the 390 chip: dot and a short label. Pressing it opens the modal.
- * On Not set up the Add repo link is its own control beside it.
+ * The chip. Compact (dot and a short label) is what the header shows at every
+ * width. Expanded is the full line: dot, label and meta. At 1440 it shows on
+ * hover or focus, floating over the compact chip so nothing reflows. A phone
+ * has no hover: tapping opens the modal. Pressing either opens the modal. On
+ * Not set up the Add repo link is its own control on the expanded line.
  */
 export function RunnerStatusChip({
   copy,
   compact = false,
   onOpen,
   onAddRepo,
+  floating = false,
 }: {
   copy: RunnerHealthCopy;
   compact?: boolean;
   onOpen?: () => void;
   onAddRepo?: () => void;
+  /** The floating hover line: surface fill and the elevated shadow. */
+  floating?: boolean;
 }) {
   const link = !compact && copy.state === 'no-repo' && onAddRepo != null;
   const label = compact ? copy.compactLabel : copy.label;
@@ -140,6 +162,7 @@ export function RunnerStatusChip({
         borderRadius: 999,
         border: `1px solid ${copy.warning ? 'var(--warning)' : 'var(--border)'}`,
         fontFamily: 'var(--font-geist), var(--font-body)',
+        ...(floating ? { background: 'var(--surface-elevated)', boxShadow: '0 8px 24px rgba(0, 0, 0, 0.24)' } : {}),
       }}
     >
       <button
@@ -172,7 +195,7 @@ export function RunnerStatusChip({
   );
 }
 
-function Field({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+function Field({ label, value, mono }: { label: string; value: ReactNode; mono?: boolean }) {
   return (
     <div className="flex flex-col" style={{ gap: 4 }}>
       <span className="ds-mono" style={{ fontSize: 10, lineHeight: 'normal', color: 'var(--muted)' }}>
@@ -188,8 +211,320 @@ function Field({ label, value, mono }: { label: string; value: string; mono?: bo
   );
 }
 
+function Heading({ dot, label, tone }: { dot: RunnerDot; label: string; tone?: string }) {
+  return (
+    <div className="flex items-center" style={{ gap: 8 }}>
+      <RunnerDotGlyph dot={dot} />
+      <span style={{ fontSize: 16, fontWeight: 600, lineHeight: 'normal', color: tone ?? 'var(--fg)' }}>{label}</span>
+    </div>
+  );
+}
+
+function Helper({ children, tone }: { children: ReactNode; tone?: string }) {
+  return (
+    <p data-testid="runner-status-helper" style={{ margin: 0, fontSize: 14, lineHeight: 'normal', color: tone ?? 'var(--muted)' }}>
+      {children}
+    </p>
+  );
+}
+
+function Stack({ step, children }: { step: RunnerModalStep; children: ReactNode }) {
+  return (
+    <div data-testid="runner-status-body" data-runner-step={step} className="flex flex-col" style={{ gap: 16, fontFamily: 'var(--font-geist), var(--font-body)' }}>
+      {children}
+    </div>
+  );
+}
+
+const inputStyle: CSSProperties = {
+  boxSizing: 'border-box',
+  width: '100%',
+  height: 36,
+  padding: '0 12px',
+  borderRadius: 8,
+  border: '1px solid var(--border)',
+  background: 'var(--surface-elevated)',
+  color: 'var(--fg)',
+  fontSize: 12,
+};
+
+function TextField({
+  label,
+  value,
+  onChange,
+  placeholder,
+  testId,
+  autoFocus,
+}: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  testId: string;
+  autoFocus?: boolean;
+}) {
+  return (
+    <label className="flex flex-col" style={{ gap: 6 }}>
+      <span style={{ fontSize: 12, lineHeight: 'normal', color: 'var(--fg)' }}>{label}</span>
+      <input
+        className="ds-mono"
+        data-testid={testId}
+        value={value}
+        placeholder={placeholder}
+        autoFocus={autoFocus}
+        autoComplete="off"
+        spellCheck={false}
+        onChange={(event) => onChange(event.target.value)}
+        style={inputStyle}
+      />
+    </label>
+  );
+}
+
+function Actions({ children }: { children: ReactNode }) {
+  return (
+    <div className="flex items-center" style={{ gap: 8 }}>
+      {children}
+    </div>
+  );
+}
+
+function DangerButton({ children, onClick, disabled, testId }: { children: ReactNode; onClick: () => void; disabled?: boolean; testId: string }) {
+  return (
+    <button
+      type="button"
+      data-testid={testId}
+      onClick={onClick}
+      disabled={disabled}
+      className={FOCUS}
+      style={{
+        height: 32,
+        padding: '0 12px',
+        borderRadius: 8,
+        border: '1px solid var(--danger, #e5484d)',
+        background: 'none',
+        color: 'var(--danger, #e5484d)',
+        fontSize: 12,
+        fontWeight: 500,
+        cursor: disabled ? 'default' : 'pointer',
+        opacity: disabled ? 0.55 : 1,
+      }}
+    >
+      {children}
+    </button>
+  );
+}
+
+/** Steps of the set-up and runner list flow inside the one Runner status modal. */
+export const RUNNER_MODAL_STEPS = ['status', 'setup', 'confirm', 'paired', 'runners', 'revoke'] as const;
+export type RunnerModalStep = (typeof RUNNER_MODAL_STEPS)[number];
+
+export function runnerModalStep(value: string | null | undefined): RunnerModalStep | null {
+  return RUNNER_MODAL_STEPS.find((step) => step === value) ?? null;
+}
+
+/** Not set up with a repository: the command, and a field for the code it prints. */
+export function RunnerSetupBody({
+  production,
+  code,
+  onCode,
+  onPair,
+  error,
+}: {
+  production: boolean;
+  code: string;
+  onCode: (value: string) => void;
+  onPair: () => void;
+  error?: string | null;
+}) {
+  return (
+    <Stack step="setup">
+      <Heading dot="unset" label={RUNNER_SETUP_TITLE} />
+      <Field label="ON THE MAC THAT WILL RUN WORK" value={runnerSetupCommand(production)} mono />
+      <TextField label="Pairing code" value={code} onChange={onCode} placeholder="K7QM-4XPA" testId="runner-pairing-code" autoFocus />
+      <Helper tone={error ? 'var(--warning)' : undefined}>
+        {error ?? "The command prints an 8-character code. Enter it here to pair that Mac. Its secret goes straight to the Mac's Keychain and is never shown."}
+      </Helper>
+      <Actions>
+        <PrimaryButton testId="runner-pair" onClick={onPair} disabled={code.replace(/[\s-]/g, '').length !== 8}>
+          Pair runner
+        </PrimaryButton>
+      </Actions>
+    </Stack>
+  );
+}
+
+export function RunnerConfirmBody({
+  code,
+  production,
+  runnerId,
+  onRunnerId,
+  onCancel,
+  onConfirm,
+  busy,
+  error,
+}: {
+  code: string;
+  production: boolean;
+  runnerId: string;
+  onRunnerId: (value: string) => void;
+  onCancel: () => void;
+  onConfirm: () => void;
+  busy?: boolean;
+  error?: string | null;
+}) {
+  return (
+    <Stack step="confirm">
+      <Heading dot="ready" label="Confirm this runner" />
+      <div className="flex flex-col" style={{ gap: 12 }}>
+        <Field label="CODE" value={code} mono />
+        <Field label="DEPLOYMENT" value={production ? 'Production' : 'Shared dev'} />
+      </div>
+      <TextField label="Runner id" value={runnerId} onChange={onRunnerId} testId="runner-confirm-id" />
+      <Helper tone={error ? 'var(--warning)' : undefined}>{error ?? RUNNER_CONFIRM_HELPER}</Helper>
+      <Actions>
+        <OutlineButton testId="runner-confirm-cancel" onClick={onCancel}>
+          Cancel
+        </OutlineButton>
+        <PrimaryButton testId="runner-confirm" onClick={onConfirm} disabled={busy || !runnerId.trim()}>
+          Confirm and pair
+        </PrimaryButton>
+      </Actions>
+    </Stack>
+  );
+}
+
+export function RunnerPairedBody({
+  runnerId,
+  lastSeen,
+  production,
+  onDone,
+}: {
+  runnerId: string;
+  lastSeen: string;
+  production: boolean;
+  onDone: () => void;
+}) {
+  return (
+    <Stack step="paired">
+      <Heading dot="ready" label="Runner paired" />
+      <div className="flex flex-col" style={{ gap: 12 }}>
+        <Field label="RUNNER" value={runnerId} />
+        <Field label="LAST SEEN" value={lastSeen} />
+        <Field label="SERVES" value={RUNNER_SERVES} />
+        <Field label="KEEP IT RUNNING" value={runnerInstallCommand(production)} mono />
+      </div>
+      <Helper>{RUNNER_PAIRED_HELPER}</Helper>
+      <Actions>
+        <PrimaryButton testId="runner-paired-done" onClick={onDone}>
+          Done
+        </PrimaryButton>
+      </Actions>
+    </Stack>
+  );
+}
+
+export function RunnerListBody({
+  copy,
+  runners,
+  production,
+  now,
+  onRevoke,
+  onPairAnother,
+}: {
+  copy: RunnerHealthCopy;
+  runners: RunnerHealthRunner[];
+  production: boolean;
+  now: number;
+  onRevoke: (runnerId: string) => void;
+  onPairAnother: () => void;
+}) {
+  const registered = runners.filter((runner) => runner.registered);
+  return (
+    <Stack step="runners">
+      <Heading dot={copy.dot} label={copy.label} tone={copy.warning ? 'var(--warning)' : undefined} />
+      <Field label={`RUNNERS ON ${production ? 'PRODUCTION' : 'SHARED DEV'}`} value={`${registered.length} registered`} />
+      <ul className="flex flex-col" style={{ gap: 12, margin: 0, padding: 0, listStyle: 'none' }}>
+        {registered.map((runner) => (
+          <li key={runner.id} data-testid="runner-list-row" className="flex items-center justify-between" style={{ gap: 12 }}>
+            <span className="flex flex-col" style={{ gap: 2, minWidth: 0 }}>
+              <span style={{ fontSize: 14, color: 'var(--fg)', overflowWrap: 'anywhere' }}>{runner.id}</span>
+              <span className="ds-mono" style={{ fontSize: 10, color: 'var(--muted)' }}>
+                SEEN {runner.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now).toUpperCase() : 'NEVER'}
+              </span>
+            </span>
+            <button type="button" data-testid="runner-list-revoke" onClick={() => onRevoke(runner.id)} className={FOCUS} style={{ ...plainButton, fontSize: 12, color: 'var(--muted)' }}>
+              Revoke
+            </button>
+          </li>
+        ))}
+      </ul>
+      <Helper>{RUNNER_LIST_HELPER}</Helper>
+      <Actions>
+        <OutlineButton testId="runner-pair-another" onClick={onPairAnother}>
+          Pair another runner
+        </OutlineButton>
+      </Actions>
+    </Stack>
+  );
+}
+
+export function RunnerRevokeBody({
+  runner,
+  now,
+  lastRunner,
+  production,
+  onCancel,
+  onRevoke,
+  busy,
+}: {
+  runner: RunnerHealthRunner;
+  now: number;
+  lastRunner: boolean;
+  production: boolean;
+  onCancel: () => void;
+  onRevoke: () => void;
+  busy?: boolean;
+}) {
+  return (
+    <Stack step="revoke">
+      <Heading dot="warning" label={`Revoke ${runner.id}?`} />
+      <div className="flex flex-col" style={{ gap: 12 }}>
+        <Field label="RUNNER" value={runner.id} />
+        <Field label="LAST SEEN" value={runner.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now) : '—'} />
+      </div>
+      <Helper>{runnerRevokeHelper(lastRunner, production)}</Helper>
+      <Actions>
+        <OutlineButton testId="runner-revoke-cancel" onClick={onCancel}>
+          Cancel
+        </OutlineButton>
+        <DangerButton testId="runner-revoke" onClick={onRevoke} disabled={busy}>
+          Revoke runner
+        </DangerButton>
+      </Actions>
+    </Stack>
+  );
+}
+
+export function RunnerOutOfDateBody({ view, now }: { view: RunnerHealthView; now: number }) {
+  const copy = runnerOutOfDateCopy(view, now);
+  if (!copy) return null;
+  return (
+    <Stack step="status">
+      <Heading dot="warning" label="Runner out of date" tone="var(--warning)" />
+      <div className="flex flex-col" style={{ gap: 12 }}>
+        <Field label="RUNNER" value={copy.runner} />
+        <Field label="LAST SEEN" value={copy.lastSeen} />
+        <Field label="VERSION" value={copy.version} />
+        <Field label="UPDATE" value={copy.update} mono />
+      </div>
+      <Helper tone="var(--warning)">{copy.helper}</Helper>
+    </Stack>
+  );
+}
+
 /** Modal content: status, the fields, the start command while offline, and the helper line. */
-export function RunnerStatusBody({ copy }: { copy: RunnerHealthCopy }) {
+export function RunnerStatusBody({ copy, onManage }: { copy: RunnerHealthCopy; onManage?: () => void }) {
   const tone = copy.warning ? 'var(--warning)' : undefined;
   return (
     <div data-testid="runner-status-body" data-runner-state={copy.state} className="flex flex-col" style={{ gap: 16, fontFamily: 'var(--font-geist), var(--font-body)' }}>
@@ -206,6 +541,13 @@ export function RunnerStatusBody({ copy }: { copy: RunnerHealthCopy }) {
       <p data-testid="runner-status-helper" style={{ margin: 0, fontSize: 14, lineHeight: 'normal', color: tone ?? 'var(--muted)' }}>
         {copy.helper}
       </p>
+      {onManage ? (
+        <Actions>
+          <OutlineButton testId="runner-manage" onClick={onManage}>
+            Manage runners
+          </OutlineButton>
+        </Actions>
+      ) : null}
     </div>
   );
 }
@@ -216,13 +558,16 @@ export function RunnerStatusModal({
   narrow,
   onClose,
   onAddRepo,
+  children,
 }: {
   copy: RunnerHealthCopy;
   narrow: boolean;
   onClose: () => void;
   onAddRepo?: () => void;
+  /** A set-up or runner list step. Without it the modal shows the status body. */
+  children?: ReactNode;
 }) {
-  const addRepo = copy.state === 'no-repo' && onAddRepo != null;
+  const addRepo = !children && copy.state === 'no-repo' && onAddRepo != null;
   return (
     <PortalModal
       testId="runner-status-dialog"
@@ -244,7 +589,7 @@ export function RunnerStatusModal({
         ) : undefined
       }
     >
-      <RunnerStatusBody copy={copy} />
+      {children ?? <RunnerStatusBody copy={copy} />}
     </PortalModal>
   );
 }
@@ -260,11 +605,45 @@ function useClock(intervalMs: number): number | null {
   return now;
 }
 
+type PairingFound = { code: string; proposedRunnerId: string; expiresAt: number; production: boolean };
+type Outcome = { ok: true; runnerId?: string } | { ok: false; error: string };
+
+const FIXTURE_PAIRING: PairingFound = { code: 'K7QM-4XPA', proposedRunnerId: 'peter-mbp-prod', expiresAt: 0, production: true };
+
 /**
- * Staff-only runner health on the project header. One reactive query. The
- * relative times move on a local clock. Fixture previews read `?runner=` and
- * make no query. Renders nothing for a client, while loading, or when the
- * deployment has no such query yet.
+ * The compact chip, and at 1440 the expanded line floating over it on hover
+ * or keyboard focus. The wrapper keeps the compact chip's size, so the
+ * heading never reflows.
+ */
+function HoverChip({ copy, hover, onOpen, onAddRepo }: { copy: RunnerHealthCopy; hover: boolean; onOpen: () => void; onAddRepo?: () => void }) {
+  const [shown, setShown] = useState(false);
+  return (
+    <span
+      data-testid="runner-status-hover"
+      style={{ position: 'relative', display: 'inline-flex', minWidth: 0 }}
+      onMouseEnter={hover ? () => setShown(true) : undefined}
+      onMouseLeave={hover ? () => setShown(false) : undefined}
+      onFocus={hover ? () => setShown(true) : undefined}
+      onBlur={hover ? (event) => (event.currentTarget.contains(event.relatedTarget as Node | null) ? undefined : setShown(false)) : undefined}
+    >
+      <span style={{ visibility: shown ? 'hidden' : 'visible', display: 'inline-flex', minWidth: 0 }}>
+        <RunnerStatusChip copy={copy} compact onOpen={onOpen} />
+      </span>
+      {shown ? (
+        <span style={{ position: 'absolute', top: 0, right: 0, zIndex: 20, display: 'inline-flex' }}>
+          <RunnerStatusChip copy={copy} floating onOpen={onOpen} onAddRepo={onAddRepo} />
+        </span>
+      ) : null}
+    </span>
+  );
+}
+
+/**
+ * Staff-only runner health on the project header. One reactive query for the
+ * chip; the pairing lookup runs only while staff confirm a code. The relative
+ * times move on a local clock. Fixture previews read `?runner=` and
+ * `?runnerModal=` (a step name or `open`) and make no query. Renders nothing
+ * for a client, while loading, or when the deployment has no such query yet.
  */
 export function RunnerHealth({
   projectId,
@@ -286,32 +665,144 @@ export function RunnerHealth({
   const narrow = useMaxWidth(767);
   const now = useClock(RUNNER_CLOCK_MS);
   const [open, setOpen] = useState(false);
+  const [step, setStep] = useState<RunnerModalStep>('status');
+  const [code, setCode] = useState('');
+  const [runnerId, setRunnerId] = useState('');
+  const [pairedId, setPairedId] = useState('');
+  const [revoking, setRevoking] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
   const [fixtureOpened, setFixtureOpened] = useState(false);
-  const query = useSafeQuery<RunnerHealthView | null>(
-    api.agent.runnerHealth,
-    staff && live && !fixtures ? { projectId: projectId as Id<'projects'>, hostSlug } : 'skip',
-  );
-  const fixtureModal = fixtures && params.get('runnerModal') === 'open';
+  const querying = staff && live && !fixtures;
+  const query = useSafeQuery<RunnerHealthView | null>(api.agent.runnerHealth, querying ? { projectId: projectId as Id<'projects'>, hostSlug } : 'skip');
+  const pairing = useSafeQuery<PairingFound | null>(api.runners.findPairing, querying && open && step === 'confirm' ? { code, hostSlug } : 'skip');
+  const confirm = useMutation(api.runners.confirmPairing);
+  const revoke = useMutation(api.runners.revokeRunner);
+  const fixtureStep = fixtures ? params.get('runnerModal') : null;
   useEffect(() => {
-    if (!fixtureModal || fixtureOpened) return;
+    if (!fixtureStep || fixtureOpened) return;
     setOpen(true);
+    setStep(runnerModalStep(fixtureStep) ?? 'status');
+    if (fixtureStep === 'confirm') {
+      setCode(FIXTURE_PAIRING.code);
+      setRunnerId(FIXTURE_PAIRING.proposedRunnerId);
+    }
+    if (fixtureStep === 'paired') setPairedId('peter-mbp-prod');
+    if (fixtureStep === 'revoke') setRevoking('peter-mbp-prod');
     setFixtureOpened(true);
-  }, [fixtureModal, fixtureOpened]);
+  }, [fixtureStep, fixtureOpened]);
+  const found = fixtures ? FIXTURE_PAIRING : pairing.data;
+  useEffect(() => {
+    if (step === 'confirm' && found && !runnerId) setRunnerId(found.proposedRunnerId);
+  }, [step, found, runnerId]);
 
   if (!staff || now == null) return null;
   const view = fixtures ? runnerHealthFixture(runnerFixtureState(params.get('runner')), now) : query.data;
   if (!view) return null;
   const copy = runnerHealthCopy(view, now);
+  const close = () => {
+    setOpen(false);
+    setStep('status');
+    setCode('');
+    setRunnerId('');
+    setError(null);
+  };
   const addRepo = onAddRepo
     ? () => {
-        setOpen(false);
+        close();
         onAddRepo();
       }
     : undefined;
+  const go = (next: RunnerModalStep) => {
+    setError(null);
+    setStep(next);
+  };
+  const run = async (action: () => Promise<Outcome>, onOk: (result: Outcome & { ok: true }) => void) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      const result = fixtures ? ({ ok: true } as Outcome) : await action();
+      if (result.ok) onOk(result);
+      else setError(result.error);
+    } catch (failed) {
+      setError(failed instanceof Error ? failed.message : 'That did not work. Try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const registered = view.runners.filter((runner) => runner.registered);
+  const pairedRunner = view.runners.find((runner) => runner.id === pairedId);
+  const revokeTarget = view.runners.find((runner) => runner.id === revoking);
+  let body: ReactNode = null;
+  if (step === 'setup' || (step === 'status' && copy.state === 'no-runner')) {
+    body = <RunnerSetupBody production={view.production} code={code} onCode={setCode} onPair={() => go('confirm')} error={error} />;
+  } else if (step === 'confirm') {
+    body =
+      found === null && !fixtures ? (
+        <RunnerSetupBody production={view.production} code={code} onCode={setCode} onPair={() => go('confirm')} error="No open pairing has that code. Codes expire after 10 minutes." />
+      ) : (
+        <RunnerConfirmBody
+          code={found?.code ?? code}
+          production={found?.production ?? view.production}
+          runnerId={runnerId}
+          onRunnerId={setRunnerId}
+          onCancel={() => go('setup')}
+          busy={busy || !found}
+          error={error}
+          onConfirm={() =>
+            run(
+              () => confirm({ code, runnerId: runnerId.trim().toLowerCase(), hostSlug }) as Promise<Outcome>,
+              (result) => {
+                setPairedId(result.runnerId ?? runnerId.trim().toLowerCase());
+                go('paired');
+              },
+            )
+          }
+        />
+      );
+  } else if (step === 'paired') {
+    const seen = pairedRunner?.lastSeenAt != null ? agoLabel(pairedRunner.lastSeenAt, now) : 'Not seen yet';
+    body = <RunnerPairedBody runnerId={pairedId} lastSeen={seen} production={view.production} onDone={close} />;
+  } else if (step === 'runners') {
+    body = (
+      <RunnerListBody
+        copy={copy}
+        runners={view.runners}
+        production={view.production}
+        now={now}
+        onRevoke={(id) => {
+          setRevoking(id);
+          go('revoke');
+        }}
+        onPairAnother={() => go('setup')}
+      />
+    );
+  } else if (step === 'revoke' && revokeTarget) {
+    body = (
+      <RunnerRevokeBody
+        runner={revokeTarget}
+        now={now}
+        lastRunner={registered.length <= 1}
+        production={view.production}
+        busy={busy}
+        onCancel={() => go('runners')}
+        onRevoke={() => run(() => revoke({ runnerId: revokeTarget.id, hostSlug }) as Promise<Outcome>, () => go('runners'))}
+      />
+    );
+  } else if (runnerOutOfDateCopy(view, now)) {
+    body = <RunnerOutOfDateBody view={view} now={now} />;
+  } else if (registered.length > 0) {
+    body = <RunnerStatusBody copy={copy} onManage={() => go('runners')} />;
+  }
   return (
     <>
-      <RunnerStatusChip copy={copy} compact={phone} onOpen={() => setOpen(true)} onAddRepo={addRepo} />
-      {open ? <RunnerStatusModal copy={copy} narrow={narrow} onClose={() => setOpen(false)} onAddRepo={addRepo} /> : null}
+      <HoverChip copy={copy} hover={!phone} onOpen={() => setOpen(true)} onAddRepo={addRepo} />
+      {open ? (
+        <RunnerStatusModal copy={copy} narrow={narrow} onClose={close} onAddRepo={addRepo}>
+          {body}
+        </RunnerStatusModal>
+      ) : null}
     </>
   );
 }

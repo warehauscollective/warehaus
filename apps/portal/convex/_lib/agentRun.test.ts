@@ -129,8 +129,11 @@ describe('runner tokens', () => {
     }
     const bare = authorizeRunner({ configured, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' });
     if (bare.ok) assert.deepEqual(reposForRunner(bare.repos, ['warehauscollective/warehaus']), []);
-    // Absence guard: the claim route never hands on the repositories a runner asked for without its token's allowlist.
-    const http = read('../agentHttp.ts').replaceAll('reposForRunner(auth.repos, body.repos)', '');
+    // Absence guard: a fallback runner's repositories always pass its token's allowlist. Only a
+    // registered runner, which serves every project with a repository, names its own.
+    const http = read('../agentHttp.ts')
+      .replaceAll('reposForRunner(env.ok ? env.repos : [], body.repos)', '')
+      .replaceAll('{ repos: runnerRepos(body.repos), anyRepo: true }', '');
     assert.doesNotMatch(http, /body\.repos/);
   });
 });
@@ -162,11 +165,12 @@ describe('rate limit and liveness', () => {
 
   it('touchRunner writes the runner row once, and a call inside the same minute writes nothing', async () => {
     const t = memoryCtx();
-    assert.deepEqual(await t.call(touchRunner, { runnerId: RUNNER }), { ok: true });
+    const env = { runnerId: RUNNER, envAuthorized: true };
+    assert.deepEqual(await t.call(touchRunner, env), { ok: true, registered: false });
     const first = t.rows('agentRunners');
     assert.equal(first.length, 1);
     assert.equal(first[0]?.count, 1);
-    assert.deepEqual(await t.call(touchRunner, { runnerId: RUNNER }), { ok: true });
+    assert.deepEqual(await t.call(touchRunner, env), { ok: true, registered: false });
     assert.deepEqual(t.rows('agentRunners'), first);
   });
 
@@ -483,8 +487,9 @@ describe('queue rules', () => {
     await t.db.patch(taskId, { status: 'In Progress', claimedBy: OTHER_RUNNER, claimedAt: 1 });
     const runId = seedRun(t, { orgId, milestoneId }, { taskId, startedAt: 1 });
     t.reads.reset();
-    const result = await t.call<{ scanned: number; released: number }>(releaseStuckRuns, {});
-    assert.deepEqual(result, { scanned: 1, released: 1 });
+    const result = await t.call<{ scanned: number; released: number; pairingsSwept: number }>(releaseStuckRuns, {});
+    // No runner is registered here, so the Building milestone also gets the no-runner note.
+    assert.deepEqual(result, { scanned: 1, released: 1, pairingsSwept: 0, noRunnerOpened: 1, noRunnerClosed: 0 });
     assert.equal(t.row(runId)?.status, 'cancelled');
     assert.equal(t.row(taskId)?.status, 'Blocked');
     assert.deepEqual(t.reads.unbounded(), []);
@@ -492,6 +497,42 @@ describe('queue rules', () => {
     assert.deepEqual(t.reads.all[0], { table: 'agentRuns', index: 'by_status', eq: ['status'], terminal: 'take', limit: 25 });
     const jobs = Object.values((crons as unknown as { crons: Record<string, { name: string }> }).crons);
     assert.equal(jobs.some((job) => job.name === 'agent:releaseStuckRuns'), true);
+  });
+
+  it('blocks a Cursor build after 2 hours with a needs Peter note, counting from the first launch', async () => {
+    const { CURSOR_BUILD_MAX_MS, CURSOR_BUILD_TOO_LONG, cursorBuildTooLong } = await import('./agentRun');
+    const now = Date.now();
+    assert.equal(cursorBuildTooLong({ startedAt: now - CURSOR_BUILD_MAX_MS + 1000, now }), false);
+    assert.equal(cursorBuildTooLong({ startedAt: now - CURSOR_BUILD_MAX_MS, now }), true);
+    // A resumed build counts from the agent's first launch, not the follow-up run.
+    assert.equal(cursorBuildTooLong({ agentStartedAt: now - CURSOR_BUILD_MAX_MS, startedAt: now - 60_000, now }), true);
+    const t = memoryCtx();
+    const { orgId, milestoneId } = building(t, ['Long build'], {}, { agentDriver: 'cursor' });
+    t.seed('agentRunners', { runnerId: OTHER_RUNNER, windowStart: now, count: 0, lastSeenAt: now });
+    const runId = seedRun(t, { orgId, milestoneId }, {
+      kind: 'build',
+      tool: 'cursor',
+      startedAt: now - 60_000,
+      agentStartedAt: now - CURSOR_BUILD_MAX_MS - 1000,
+      externalId: 'bc-long',
+    });
+    const result = await t.call<{ released: number }>(releaseStuckRuns, {});
+    assert.equal(result.released, 1);
+    assert.equal(t.row(runId)?.status, 'failed');
+    assert.equal(t.row(runId)?.blockedReason, CURSOR_BUILD_TOO_LONG);
+    const notes = t.rows('milestoneNotes').filter((note) => note.milestoneId === milestoneId && /2 hours/.test(String(note.body)));
+    assert.equal(notes.length, 1);
+  });
+
+  it('leaves a Cursor build under 2 hours alone while its runner is seen', async () => {
+    const t = memoryCtx();
+    const now = Date.now();
+    const { orgId, milestoneId } = building(t, ['Short build'], {}, { agentDriver: 'cursor' });
+    t.seed('agentRunners', { runnerId: OTHER_RUNNER, windowStart: now, count: 0, lastSeenAt: now });
+    const runId = seedRun(t, { orgId, milestoneId }, { kind: 'build', tool: 'cursor', startedAt: now - 60 * 60_000 });
+    const result = await t.call<{ released: number }>(releaseStuckRuns, {});
+    assert.equal(result.released, 0);
+    assert.equal(t.row(runId)?.status, 'running');
   });
 });
 
@@ -546,6 +587,8 @@ describe('repository fail-safe', () => {
     const task = await claim(t, RUNNER, { tool: 'cursor' });
     assert.equal(task.kind, 'task');
     assert.equal(t.row(task.runId)?.tool, 'claude_code');
+    // The claim names the project's repository, so the runner works in its own clone of it.
+    assert.equal((task as unknown as { milestone: { repo: string | null } }).milestone.repo, REPO);
     building(t, ['Cursor task'], {}, { agentDriver: 'cursor' });
     const build = await claim(t, OTHER_RUNNER, { tool: 'claude_code' });
     assert.equal(build.kind, 'build');

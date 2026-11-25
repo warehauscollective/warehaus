@@ -7,10 +7,13 @@
 
 import { spawn } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
+import { homedir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { cursorBuild } from './drivers/cursorBuild.mjs';
+import { runInstall, runUninstall } from './install.mjs';
 import { repoTools } from './repo.mjs';
+import { deploymentFor, readKeychainSecret, readSavedConfig, runSetup } from './setup.mjs';
 import { runnerClient } from '../../../packages/runner-protocol/index.mjs';
 import {
   heartbeatSlices,
@@ -20,7 +23,7 @@ import {
   planPrompt,
   childEnv,
   readEnv,
-  repoFromRemote,
+  RUNNER_HOME_DIR,
   selectDriver,
   taskOutcome,
   taskPrompt,
@@ -41,7 +44,18 @@ function client(config) {
 }
 
 const tools = repoTools({ say });
-const { git, ensureWorktree, ensurePullRequest, markReadyForReview } = tools;
+const { git, ensureClone, ensureWorktree, ensurePullRequest, markReadyForReview } = tools;
+
+/** The runner's own folder, ~/warehaus-runner. Its clones live in repos/, its worktrees in worktrees/. */
+const runnerHome = join(homedir(), RUNNER_HOME_DIR);
+
+/**
+ * The runner's clone of the project's repository. Throws with a `reason` the
+ * Portal shows Peter when it cannot be cloned; the run is blocked, not retried.
+ */
+function checkoutFor(work) {
+  return ensureClone(work.milestone?.repo, runnerHome);
+}
 
 function claudeEnv(config, runId) {
   return childEnv(process.env, {
@@ -96,7 +110,7 @@ function readIfPresent(path) {
 async function doTask(config, work) {
   const order = String(work.task.order).padStart(2, '0');
   say(`Task ${order} · ${work.task.title} · ${work.milestone.branch}`);
-  const dir = ensureWorktree(config.repo, work.milestone.branch);
+  const dir = ensureWorktree(checkoutFor(work), work.milestone.branch);
   const notes = join(dir, '.runner');
   rmSync(join(notes, 'blocked.txt'), { force: true });
   const before = git(dir, ['rev-parse', 'HEAD']).out;
@@ -119,7 +133,7 @@ async function doTask(config, work) {
 
 async function doPlanning(config, work) {
   say(`Planning · ${work.milestone.name}`);
-  const dir = ensureWorktree(config.repo, work.milestone.branch);
+  const dir = ensureWorktree(checkoutFor(work), work.milestone.branch);
   const planned = await runClaudePlan(
     config,
     dir,
@@ -139,15 +153,28 @@ async function doPlanning(config, work) {
 /** One step of a Cursor build. The key stays in this process: see drivers/cursorBuild.mjs. */
 function doBuild(config, work) {
   say(`Cursor · ${work.milestone.name} · ${work.milestone.branch}`);
+  const checkout = checkoutFor(work);
   return cursorBuild({
     config,
-    repoName: config.repos[0] ?? '',
+    checkout,
+    repoName: work.milestone.repo,
     work,
     key: (process.env.CURSOR_API_KEY ?? '').trim(),
     tools,
     call: (path, body) => client(config).post(path, body),
     say,
   });
+}
+
+/**
+ * Keeps the Mac from idle sleep while a run is in progress, and only then.
+ * Returns the release. Off macOS it does nothing.
+ */
+function holdAwake() {
+  if (process.platform !== 'darwin') return () => {};
+  const child = spawn('caffeinate', ['-i', '-w', String(process.pid)], { stdio: 'ignore' });
+  child.on('error', () => {});
+  return () => child.kill();
 }
 
 function sleep(ms) {
@@ -172,26 +199,36 @@ async function main() {
     process.stderr.write(`${parsed.error}\n`);
     process.exit(2);
   }
-  const env = readEnv(process.env);
+  const { production } = parsed.options;
+  if (parsed.options.command === 'setup') {
+    await runSetup({ production, id: parsed.options.id, say });
+    return;
+  }
+  if (parsed.options.command === 'install') return runInstall({ production, say });
+  if (parsed.options.command === 'uninstall') return runUninstall({ production, say });
+  // The environment wins; otherwise the file and Keychain entry setup wrote.
+  const saved = readSavedConfig(production);
+  const id = parsed.options.id || saved.RUNNER_ID || '';
+  if (!id && !production && readSavedConfig(true).RUNNER_ID) {
+    process.stderr.write('This Mac is paired to production only. Start it with --production.\n');
+    process.exit(2);
+  }
+  if (!id) {
+    process.stderr.write('No runner id. Run npm run runner -- setup, or pass --id.\n');
+    process.exit(2);
+  }
+  const url = process.env.PORTAL_AGENT_URL || saved.PORTAL_AGENT_URL || '';
+  const token = process.env.RUNNER_TOKEN || readKeychainSecret(deploymentFor(production).name, id);
+  const env = readEnv({ PORTAL_AGENT_URL: url, RUNNER_PRODUCTION: saved.RUNNER_PRODUCTION }, { production, token });
   if (!env.ok) {
     process.stderr.write(`${env.error}\n`);
     process.exit(2);
   }
-  const repo = resolve(parsed.options.dir || process.cwd());
-  if (!git(repo, ['rev-parse', '--show-toplevel']).ok) {
-    process.stderr.write(`${repo} is not a git repository.\n`);
-    process.exit(2);
-  }
-  // The checkout has to be one of the repositories this runner serves, so work
-  // for one project is never committed into another project's repository.
-  const origin = repoFromRemote(git(repo, ['remote', 'get-url', 'origin']).out);
-  if (!origin || !parsed.options.repos.includes(origin)) {
-    process.stderr.write(`${repo} is ${origin ?? 'not a GitHub checkout'}, which is not in --repo ${parsed.options.repos.join(',')}.\n`);
-    process.exit(2);
-  }
-  // One checkout, one repository: only that repository's projects are claimed here.
-  const config = { ...env, id: parsed.options.id, mode: parsed.options.mode, repo, repos: [origin] };
-  say(`Runner ${config.id} · ${config.mode} · ${origin} · ${new URL(config.url).hostname}`);
+  // A registered runner names no repository and serves every project that has one,
+  // each in its own clone. --repo narrows it to those repositories.
+  const config = { ...env, id, mode: parsed.options.mode, repos: parsed.options.repos };
+  const serves = config.repos.length ? config.repos.join(', ') : 'every project with a repository';
+  say(`Runner ${config.id} · ${config.mode} · ${serves} · ${new URL(config.url).hostname}`);
   let empty = 0;
   for (;;) {
     let work;
@@ -207,21 +244,26 @@ async function main() {
     let buildStillRunning = false;
     if (work.kind === 'task' || work.kind === 'planning' || work.kind === 'build') {
       empty = 0;
+      const release = holdAwake();
       try {
         if (driver === 'cursor') buildStillRunning = (await doBuild(config, work)) === 'running';
         else if (work.kind === 'task') await doTask(config, work);
         else await doPlanning(config, work);
       } catch (error) {
         say(error.message);
-        const reason = 'The runner hit an error';
+        // A clone that failed blocks the run with its own reason, which lands in a needs Peter note.
+        const blocked = typeof error.reason === 'string' && error.reason ? error.reason : null;
+        const reason = blocked ?? 'The runner hit an error';
         const api = client(config);
         const report =
           work.kind === 'build'
             ? api.reportBuild({ runId: work.runId, status: 'failed', reason })
             : work.kind === 'task'
-              ? api.completeTask({ runId: work.runId, status: 'failed', reason })
+              ? api.completeTask({ runId: work.runId, status: blocked ? 'blocked' : 'failed', reason })
               : api.failPlanning({ runId: work.runId, reason });
         await report.catch((failed) => say(failed.message));
+      } finally {
+        release();
       }
     } else {
       empty += 1;

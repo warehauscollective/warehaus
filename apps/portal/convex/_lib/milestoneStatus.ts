@@ -101,7 +101,8 @@ export function legacyWorkStatus(status: MilestoneStatus): LegacyWorkStatus {
  * - `set`: a person, the staff API, or AI names a status.
  * - `advance`: the play button. One step forward.
  * - `approve`: the review result. Needs Ready to Ship and keeps it.
- * - `request_changes`: the review result. Needs Ready to Ship, returns to Building.
+ * - `request_changes`: the review result. Needs Ready to Ship. Returns to Building, or to Awaiting Go
+ *   when `to` says so (a Grok Bot review: only staff start a build, ADR-0005).
  * - `merge`: the pull request merged and the caller already passed the close gate. Sets Shipped.
  */
 export type TransitionCause = 'set' | 'advance' | 'approve' | 'request_changes' | 'merge';
@@ -178,7 +179,7 @@ export function transitionMilestone(input: TransitionInput): Transition {
 
   if (cause === 'request_changes') {
     if (from !== 'Ready to Ship') return reject('not_ready', APPROVE_NOT_READY);
-    return move(from, 'Building');
+    return move(from, input.to === 'Awaiting Go' ? 'Awaiting Go' : 'Building');
   }
 
   return move(from, 'Shipped');

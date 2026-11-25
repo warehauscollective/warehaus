@@ -13,6 +13,7 @@ import { internalMutation } from './_generated/server';
 import {
   PLAN_NOT_PLANNING,
   RUNNER_NEEDS_REPO,
+  RUNNER_UNAUTHORIZED,
   RUN_ENDED,
   RUN_NOT_FOUND,
   RUN_NOT_YOURS,
@@ -22,6 +23,8 @@ import {
   buildTaskState,
   completeDecision,
   cursorAgentToResume,
+  cursorBuildTooLong,
+  CURSOR_BUILD_TOO_LONG,
   cursorAgentUrl,
   eventSummary,
   eventType,
@@ -50,7 +53,17 @@ import { PORTAL_MILESTONE_TASK_SOURCE, plannerDraftToArchive, stageForNewMilesto
 import { loadClaimableTasks, loadMilestoneTaskSet, type LoadedTask } from './_lib/milestoneTaskSet';
 import { PortalAuthError } from './_lib/identity';
 import { adminMutation, adminQuery } from './_lib/wrappers';
-import { runnersAllowedFor, type RunnerHealthView } from './_lib/runnerHealth';
+import { RUNNER_HEALTH_MAX_RUNNERS, RUNNER_READY_WITHIN_MS, runnersAllowedFor, type RunnerHealthView } from './_lib/runnerHealth';
+import {
+  NO_RUNNER_NOTE_SCAN,
+  NO_RUNNER_SCAN,
+  anyRunnerOnline,
+  isNoRunnerNote,
+  noRunnerNoteFor,
+  runnerAccess,
+} from './_lib/runnerRegistry';
+import { registeredRunners, sweepExpiredPairings } from './_lib/runnerRegistryStore';
+import { RUNNER_PROTOCOL_MIN } from '@warehaus/runner-protocol';
 import { PRODUCTION_DEPLOYMENT } from './_lib/reviewPreview';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { planningRunsInWindow, queuePlanning } from './planningQueue';
@@ -69,7 +82,7 @@ function failure(status: number, error: string): Failure {
   return { ok: false, status, error };
 }
 
-async function writeEvent(
+export async function writeEvent(
   ctx: MutationCtx,
   input: {
     orgId: Id<'clients'>;
@@ -160,9 +173,12 @@ async function waitingOnPersonNames(ctx: QueryCtx, milestone: Doc<'milestones'>)
   return loaded.set.waitingOnPerson.slice(0, 5).map((task) => task.doc.name);
 }
 
-function milestoneContext(milestone: Doc<'milestones'>, branch: string) {
+/** What a runner is told about the milestone, including the project's repository, so it works in its own clone. */
+async function milestoneContext(ctx: QueryCtx, milestone: Doc<'milestones'>, branch: string) {
+  const project = await ctx.db.get(milestone.projectId);
   return {
     id: milestone._id,
+    repo: agentRepo(project?.agentRepo),
     name: milestone.name,
     objective: milestone.objective,
     goals: milestone.goals,
@@ -181,17 +197,28 @@ async function branchFor(ctx: MutationCtx, milestone: Doc<'milestones'>): Promis
 }
 
 /**
- * Called first by every runner route. The runner row is patched at most
- * once a minute. Calls inside that minute do not write.
+ * Called first by every runner route. A runner is let in by its registration
+ * (the hash of its bearer token matches) or, until the dev runner is
+ * re-paired, by the `RUNNER_TOKENS` fallback the route already checked.
+ * The runner row is patched at most once a minute. Calls inside that minute
+ * do not write, unless the runner's protocol version changed.
  */
 export const touchRunner = internalMutation({
-  args: { runnerId: v.string() },
-  handler: async (ctx, { runnerId }) => {
+  args: {
+    runnerId: v.string(),
+    tokenHash: v.optional(v.string()),
+    envAuthorized: v.optional(v.boolean()),
+    protocolVersion: v.optional(v.number()),
+  },
+  handler: async (ctx, { runnerId, tokenHash, envAuthorized, protocolVersion }) => {
     const now = Date.now();
     const row = await ctx.db
       .query('agentRunners')
       .withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))
       .unique();
+    const access = runnerAccess({ row, tokenHash, envAuthorized: envAuthorized === true });
+    if (!access) return failure(401, RUNNER_UNAUTHORIZED);
+    const registered = access === 'registered';
     const decision = runnerTouchDecision({
       lastSeenAt: row?.lastSeenAt,
       windowStart: row?.windowStart,
@@ -199,19 +226,36 @@ export const touchRunner = internalMutation({
       now,
     });
     if (!decision.ok) return failure(429, decision.reason);
-    if (!decision.write) return { ok: true as const };
+    const versionChanged = protocolVersion != null && row?.protocolVersion !== protocolVersion;
+    if (!decision.write) {
+      if (row && versionChanged) await ctx.db.patch(row._id, { protocolVersion });
+      return { ok: true as const, registered };
+    }
+    const version = protocolVersion != null ? { protocolVersion } : {};
     if (row) {
-      const same = row.windowStart === decision.windowStart && row.count === decision.count && row.lastSeenAt === decision.lastSeenAt;
-      if (!same) await ctx.db.patch(row._id, { windowStart: decision.windowStart, count: decision.count, lastSeenAt: decision.lastSeenAt });
+      const same =
+        row.windowStart === decision.windowStart &&
+        row.count === decision.count &&
+        row.lastSeenAt === decision.lastSeenAt &&
+        !versionChanged;
+      if (!same) {
+        await ctx.db.patch(row._id, {
+          windowStart: decision.windowStart,
+          count: decision.count,
+          lastSeenAt: decision.lastSeenAt,
+          ...version,
+        });
+      }
     } else {
       await ctx.db.insert('agentRunners', {
         runnerId,
         windowStart: decision.windowStart,
         count: decision.count,
         lastSeenAt: decision.lastSeenAt,
+        ...version,
       });
     }
-    return { ok: true as const };
+    return { ok: true as const, registered };
   },
 });
 
@@ -257,7 +301,7 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
       kind: 'planning' as const,
       driver: 'claude_code' as const,
       runId: run._id,
-      milestone: milestoneContext(milestone, branch),
+      milestone: await milestoneContext(ctx, milestone, branch),
     };
   }
   if (run.kind === 'build') {
@@ -268,7 +312,7 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
       runId: run._id,
       externalId: run.externalId ?? null,
       externalUrl: run.externalUrl ?? null,
-      milestone: milestoneContext(milestone, branch),
+      milestone: await milestoneContext(ctx, milestone, branch),
       tasks: claim.ok ? claim.openBuild.map(buildTaskPayload) : [],
     };
   }
@@ -277,7 +321,7 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
   return {
     kind: 'task' as const,
     runId: run._id,
-    milestone: milestoneContext(milestone, branch),
+    milestone: await milestoneContext(ctx, milestone, branch),
     task: {
       id: task._id,
       order: (task.milestoneOrder ?? 0) + 1,
@@ -313,12 +357,21 @@ export const claimNext = internalMutation({
     tool: v.optional(v.string()),
     /** Repositories this runner serves, as owner/name. Work for any other project is not handed over. */
     repos: v.optional(v.any()),
+    /**
+     * A registered runner that names no repository serves every project that
+     * names one (ADR-0005 amendment). It still gets nothing for a project with none.
+     */
+    anyRepo: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const repos = runnerRepos(args.repos);
-    // Fail safe: a runner that names no repository is handed nothing.
-    if (repos.length === 0) return { ok: true as const, resumed: false, kind: 'none' as const, reason: RUNNER_NEEDS_REPO };
-    const served = async (projectId: Id<'projects'>) => projectServedBy(await ctx.db.get(projectId), repos);
+    const anyRepo = args.anyRepo === true && repos.length === 0;
+    // Fail safe: a runner that names no repository, and is not registered, is handed nothing.
+    if (repos.length === 0 && !anyRepo) return { ok: true as const, resumed: false, kind: 'none' as const, reason: RUNNER_NEEDS_REPO };
+    const served = async (projectId: Id<'projects'>) => {
+      const project = await ctx.db.get(projectId);
+      return anyRepo ? agentRepo(project?.agentRepo) != null : projectServedBy(project, repos);
+    };
     const open = await runningRunFor(ctx, args.runnerId);
     if (open) {
       const payload = await runPayload(ctx, open);
@@ -382,7 +435,7 @@ export const claimNext = internalMutation({
         kind: 'planning' as const,
         driver: 'claude_code' as const,
         runId,
-        milestone: milestoneContext(planning, await branchFor(ctx, planning)),
+        milestone: await milestoneContext(ctx, planning, await branchFor(ctx, planning)),
       };
     }
 
@@ -418,6 +471,7 @@ export const claimNext = internalMutation({
         // The stuck sweep closed the last build but nobody saw its cloud agent
         // stop. Follow that agent. A second one would push to the same branch.
         const resume = cursorAgentToResume(recent);
+        const followed = resume ? recent.find((run) => run.kind === 'build' && run.externalId === resume.externalId) : undefined;
         const runId = await ctx.db.insert('agentRuns', {
           orgId: milestone.orgId,
           milestoneId: milestone._id,
@@ -429,6 +483,7 @@ export const claimNext = internalMutation({
           startedAt: now,
           ...(resume ? { externalId: resume.externalId } : {}),
           ...(resume?.externalUrl ? { externalUrl: resume.externalUrl } : {}),
+          agentStartedAt: followed ? (followed.agentStartedAt ?? followed.startedAt) : now,
         });
         await writeEvent(ctx, {
           orgId: milestone.orgId,
@@ -747,7 +802,11 @@ export const writePlannedTasks = internalMutation({
   },
 });
 
-/** Ends a planning run that wrote nothing. The job goes back in the queue. */
+/**
+ * Ends a planning run that wrote nothing. The planning job is blocked with its
+ * reason and leaves a "needs Peter" note; staff press Retry to queue it again.
+ * It is not put straight back in the queue (ADR-0001, amendment 2026-11-22).
+ */
 export const failPlanning = internalMutation({
   args: { runnerId: v.string(), runId: v.string(), reason: v.optional(v.any()) },
   handler: async (ctx, args) => {
@@ -806,6 +865,15 @@ export const releaseStuckRuns = internalMutation({
         .query('agentRunners')
         .withIndex('by_runnerId', (q) => q.eq('runnerId', run.runnerId))
         .unique();
+      if (run.kind === 'build' && cursorBuildTooLong({ agentStartedAt: run.agentStartedAt, startedAt: run.startedAt, now })) {
+        // One Cursor agent per milestone, and none past 2 hours: blocked with a "needs Peter" note.
+        const long = await ctx.db.get(run.milestoneId);
+        if (long) {
+          await blockCursorBuild(ctx, run, long, run.runnerId, CURSOR_BUILD_TOO_LONG, now, false);
+          released += 1;
+          continue;
+        }
+      }
       if (!runIsStuck({ lastSeenAt: runner?.lastSeenAt, startedAt: run.startedAt, now })) continue;
       const why = 'Runner went quiet for 30 minutes';
       const milestone = await ctx.db.get(run.milestoneId);
@@ -861,9 +929,58 @@ export const releaseStuckRuns = internalMutation({
       });
       released += 1;
     }
-    return { scanned: running.length, released };
+    // Expired runner pairings ride on the same cron: one indexed read, at most 50 deletes.
+    const pairingsSwept = await sweepExpiredPairings(ctx, now);
+    const noRunner = await noteMissingRunner(ctx, now);
+    return { scanned: running.length, released, pairingsSwept, ...noRunner };
   },
 });
+
+/**
+ * ADR-0005 amendment, alerts. A Building milestone with a repository that has
+ * waited 30 minutes while no registered runner is online gets one open "needs
+ * Peter" note, saying whether no runner is set up at all. The notes close when
+ * a runner is online again, or when the milestone leaves Building. Bounded:
+ * at most 10 runners, 50 open notes and 10 Building milestones per sweep.
+ */
+async function noteMissingRunner(ctx: MutationCtx, now: number) {
+  const runners = await registeredRunners(ctx);
+  const online = anyRunnerOnline(runners, now, RUNNER_READY_WITHIN_MS);
+  const open = await ctx.db
+    .query('milestoneNotes')
+    .withIndex('by_needsPeter', (q) => q.eq('needsPeter', 'open'))
+    .take(NO_RUNNER_NOTE_SCAN);
+  const noted = new Map<string, Doc<'milestoneNotes'>>();
+  for (const note of open) if (note.reason === 'blocked' && isNoRunnerNote(note.body)) noted.set(note.milestoneId, note);
+  let closed = 0;
+  let opened = 0;
+  for (const note of noted.values()) {
+    const milestone = online ? null : await ctx.db.get(note.milestoneId);
+    if (!online && milestone?.status === 'Building' && milestone.archivedAt == null) continue;
+    await ctx.db.patch(note._id, { needsPeter: undefined });
+    closed += 1;
+  }
+  if (online) return { noRunnerOpened: opened, noRunnerClosed: closed };
+  const building = await ctx.db
+    .query('milestones')
+    .withIndex('by_status', (q) => q.eq('status', 'Building'))
+    .take(NO_RUNNER_SCAN);
+  for (const milestone of building) {
+    if (milestone.archivedAt != null || noted.has(milestone._id)) continue;
+    const project = await ctx.db.get(milestone.projectId);
+    const body = noRunnerNoteFor({
+      online,
+      registeredCount: runners.length,
+      hasRepo: agentRepo(project?.agentRepo) != null,
+      buildingSince: milestone.statusChangedAt ?? milestone._creationTime,
+      now,
+    });
+    if (!body) continue;
+    await needsPeter(ctx, milestone, { reason: 'blocked', body, addedBy: 'portal', at: now });
+    opened += 1;
+  }
+  return { noRunnerOpened: opened, noRunnerClosed: closed };
+}
 
 async function rememberAgentLink(
   ctx: MutationCtx,
@@ -1299,18 +1416,29 @@ export const runnerHealth = adminQuery({
     if (!project) return null;
     const repo = agentRepo(project.agentRepo);
     const production = (process.env.CONVEX_CLOUD_URL ?? '').includes(PRODUCTION_DEPLOYMENT);
-    if (!repo) return { repoSet: false, repo: null, production, runnerAllowed: false, runners: [], working: null, building: null };
-    const ids = runnersAllowedFor(process.env.RUNNER_TOKENS, repo);
-    if (ids.length === 0) return { repoSet: true, repo, production, runnerAllowed: false, runners: [], working: null, building: null };
-    const runners: RunnerHealthView['runners'] = [];
-    let working: RunnerHealthView['working'] = null;
-    for (const id of ids) {
+    // Registered runners serve every project with a repository; the env fallback names its repositories.
+    const registered = await registeredRunners(ctx);
+    const base = { production, protocolMin: RUNNER_PROTOCOL_MIN, registeredCount: registered.length };
+    if (!repo) return { ...base, repoSet: false, repo: null, runnerAllowed: false, runners: [], working: null, building: null };
+    const runners: RunnerHealthView['runners'] = registered.map((row) => ({
+      id: row.runnerId,
+      lastSeenAt: row.lastSeenAt ?? null,
+      registered: true,
+      protocolVersion: row.protocolVersion ?? null,
+    }));
+    for (const id of runnersAllowedFor(process.env.RUNNER_TOKENS, repo)) {
+      if (runners.length >= RUNNER_HEALTH_MAX_RUNNERS) break;
+      if (runners.some((runner) => runner.id === id)) continue;
       const row = await ctx.db
         .query('agentRunners')
         .withIndex('by_runnerId', (q) => q.eq('runnerId', id))
         .unique();
-      runners.push({ id, lastSeenAt: row?.lastSeenAt ?? null });
-      if (working) continue;
+      runners.push({ id, lastSeenAt: row?.lastSeenAt ?? null, registered: false, protocolVersion: row?.protocolVersion ?? null });
+    }
+    if (runners.length === 0) return { ...base, repoSet: true, repo, runnerAllowed: false, runners: [], working: null, building: null };
+    let working: RunnerHealthView['working'] = null;
+    for (const { id } of runners) {
+      if (working) break;
       const runs = await ctx.db
         .query('agentRuns')
         .withIndex('by_runner_status', (q) => q.eq('runnerId', id).eq('status', 'running'))
@@ -1329,9 +1457,9 @@ export const runnerHealth = adminQuery({
       .take(HEALTH_MILESTONE_SCAN);
     const held = milestones.find((row) => row.status === 'Building' && row.archivedAt == null);
     return {
+      ...base,
       repoSet: true,
       repo,
-      production,
       runnerAllowed: true,
       runners,
       working,

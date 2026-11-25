@@ -24,7 +24,6 @@ Merging does not deploy anything. Production still waits for Peter's "deploy mai
 
 - Push the schema and functions to `graceful-mastiff-960` once, then stop. Never use `--prod`, never run `npx convex deploy`, and don't leave `convex dev` running.
 - Set these environment variables on the dev deployment:
-  - `RUNNER_TOKENS=peter-mbp=<random token, at least 24 characters> <owner/name>`. Dev only. Never set `RUNNER_TOKENS`, or a project's repository, on production `unique-turtle-383`.
   - `GITHUB_WEBHOOK_SECRET=<secret>`
   - `VERCEL_WEBHOOK_SECRET=<secret>`, if you want the Vercel preview link on the milestone.
 
@@ -41,16 +40,13 @@ Merging does not deploy anything. Production still waits for Peter's "deploy mai
 ## 4. Mac runner
 
 ```bash
-export PORTAL_AGENT_URL=https://graceful-mastiff-960.convex.site
+npm run runner -- setup
 ```
 
-```bash
-export RUNNER_TOKEN=<the token for peter-mbp>
-```
-
-- The runner does not pass `RUNNER_TOKEN` into Claude, so the Activity hook posts nothing from inside the session. The start and the finish of a run are still reported.
+- Enter the printed code in the Runner status modal on any project page and confirm the id. The secret goes to the Keychain; nothing is printed.
+- The runner keeps its own clones under `~/warehaus-runner/repos/`, so it can start from any folder.
 - Use the default `--mode interactive`. `--mode headless` draws on the Agent SDK credit instead of plan limits.
-- Only if the test project is set to Cursor: export `CURSOR_API_KEY` in this same shell. The key stays in the runner process on this Mac. It is never sent to Convex, Vercel, Claude, Notion or chat, and it is never printed or logged. Leave it unset everywhere else. Planning still runs on Claude Code.
+- Only if the test project is set to Cursor: export `CURSOR_API_KEY` in the runner's shell. The key stays in the runner process on this Mac. It is never sent to Convex, Vercel, Claude, Notion or chat, and it is never printed or logged. Leave it unset everywhere else. Planning still runs on Claude Code.
 
 ## 5. Grok Bot
 
@@ -67,7 +63,7 @@ Open the Vercel dashboard. Confirm the Preview environment variables point at `g
 2. Have the runner plan it:
 
    ```bash
-   npm run runner -- start --id peter-mbp --repo <owner/name> --once
+   npm run runner -- start --once
    ```
 
    The runner should write 3 to 10 tasks and leave the milestone in Planning. Staff edit the list, then move it to Awaiting Go.
@@ -90,4 +86,5 @@ Open the Vercel dashboard. Confirm the Preview environment variables point at `g
 
 - **Notion:** shared dev still uses the production Notion token, so Portal-only test tasks are safest. Avoid any step that writes synced Notion tasks.
 - **Stuck runs:** a run stuck over 30 minutes is released by the 10-minute cron. No manual fix is needed. Retry opens once the released run's runner answers, or 10 minutes after the release, so a second run never starts on top of one still working. See "Retry and the run it replaces" in `README.md`.
-- **Repo mismatch:** if the runner gets `kind: 'none'`, check that `--repo` matches the project's repository setting exactly.
+- **No work:** if the runner gets `kind: 'none'`, check that the project names its repository, and that any `--repo` you passed matches it exactly.
+- **Clone failed:** a repository the runner cannot clone blocks the run with a "needs Peter" note. Check `gh auth status` and `gh auth setup-git`.

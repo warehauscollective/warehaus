@@ -103,6 +103,8 @@ import {
   NEW_ITERATION_TASK_DONE,
   normalizeLocalPreview,
   planReview,
+  requestChangesTarget,
+  CHAT_CHANGES_NOTE,
   previewStatusPatch,
   RETRY_WAITS_ON_TOKENS,
   reviewChatLine,
@@ -1371,8 +1373,19 @@ async function applyMilestoneReview(
   await logMilestone(ctx, milestone, 'milestone.changes_requested', decidedAt);
   // Ready to Ship to Building through the one writer, which closes the approval note.
   const reviewed = (await ctx.db.get(milestone._id)) ?? milestone;
-  const moved = await changeMilestoneStatus(ctx, reviewed, { cause: 'request_changes', actorName: 'Peter', at: decidedAt });
+  const to = requestChangesTarget(args.source);
+  const moved = await changeMilestoneStatus(ctx, reviewed, { cause: 'request_changes', to, actorName: 'Peter', at: decidedAt });
   if (!moved.ok) fail(moved.reason);
+  if (to === 'Awaiting Go') {
+    // A chat review leaves a note for staff, who start the build.
+    await ctx.db.insert('milestoneNotes', {
+      orgId: milestone.orgId,
+      milestoneId: milestone._id,
+      body: CHAT_CHANGES_NOTE,
+      addedBy: args.tokenName ?? 'grok-bot',
+      createdAt: decidedAt,
+    });
+  }
   return {
     ok: true as const,
     status: 200,

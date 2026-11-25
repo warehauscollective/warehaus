@@ -12,6 +12,7 @@ import { cursorBuildPrompt, cursorCreateBody, cursorRequest } from './cursor.mjs
 /**
  * @param {object} input
  * @param {{ repo: string }} input.config  `repo` is the checkout directory.
+ * @param {string} [input.checkout]  The runner's clone of that repository. Defaults to config.repo.
  * @param {string} input.repoName  GitHub `owner/name` the agent works in.
  * @param {object} input.work  The build job from `POST /agent/claim`.
  * @param {string} input.key  The Cursor API key, read by the caller. Empty blocks the build.
@@ -21,7 +22,7 @@ import { cursorBuildPrompt, cursorCreateBody, cursorRequest } from './cursor.mjs
  * @param {(message: string) => void} [input.say]
  * @returns {Promise<'running' | 'settled'>}
  */
-export async function cursorBuild({ config, repoName, work, key, tools, call, fetchImpl, say = () => {} }) {
+export async function cursorBuild({ config, checkout = config.repo, repoName, work, key, tools, call, fetchImpl, say = () => {} }) {
   const branch = work.milestone.branch;
   const fail = async (reason, extra = {}) => {
     await call('/agent/build', { runId: work.runId, status: 'failed', reason, ...extra });
@@ -32,7 +33,7 @@ export async function cursorBuild({ config, repoName, work, key, tools, call, fe
   let agentUrl = work.externalUrl || '';
   if (!agentId) {
     // The branch has to exist on origin before the agent starts: see cursorCreateBody.
-    const published = tools.publishMilestoneBranch(config.repo, branch);
+    const published = tools.publishMilestoneBranch(checkout, branch);
     if (!published.ok) return fail(published.error);
     const prompt = cursorBuildPrompt('', { ...work, repo: repoName });
     const created = await cursorRequest({
@@ -64,13 +65,13 @@ export async function cursorBuild({ config, repoName, work, key, tools, call, fe
   }
   const link = agentUrl || looked.agent.url;
   if (looked.agent.state === 'failed') return fail(looked.agent.reason, link ? { agentUrl: link } : {});
-  tools.git(config.repo, ['fetch', 'origin', branch, '--quiet']);
-  const log = tools.git(config.repo, ['log', `origin/${branch}`, '--format=%H%x1f%B%x1e']);
+  tools.git(checkout, ['fetch', 'origin', branch, '--quiet']);
+  const log = tools.git(checkout, ['log', `origin/${branch}`, '--format=%H%x1f%B%x1e']);
   const done = mapCursorCommits(parseGitLog(log.out), work.tasks ?? []);
   if (done.length === 0) {
     return fail('The Cursor agent finished without a Portal-Task trailer', link ? { agentUrl: link } : {});
   }
-  const dir = tools.ensureWorktree(config.repo, branch);
+  const dir = tools.ensureWorktree(checkout, branch);
   const prUrl = looked.agent.prUrl || tools.ensurePullRequest(dir, work);
   const result = await call('/agent/build', {
     runId: work.runId,

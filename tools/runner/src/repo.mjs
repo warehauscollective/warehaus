@@ -5,8 +5,8 @@
 
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync } from 'node:fs';
-import { dirname, join, resolve } from 'node:path';
-import { defaultBranchName, isMilestoneBranch, pullRequestBody, worktreeName } from './lib.mjs';
+import { basename, dirname, join, resolve } from 'node:path';
+import { cloneFailedReason, clonePath, cloneRepoName, cloneWorktreePath, defaultBranchName, isMilestoneBranch, pullRequestBody, repoFromRemote, worktreeName } from './lib.mjs';
 
 /**
  * @param {{ exec?: typeof spawnSync, say?: (message: string) => void }} [options]
@@ -34,10 +34,41 @@ export function repoTools({ exec = spawnSync, say = () => {} } = {}) {
     return defaultBranchName(ref.ok ? ref.out : '', fromGh);
   }
 
-  /** A worktree for the milestone branch, beside the repository. Created from the default branch when the branch is new. */
+  /**
+   * The runner's own clone of `owner/name` under <home>/repos. An existing
+   * clone is used only when its origin is that repository. Throws an error
+   * carrying `reason` when the repository cannot be cloned or the folder holds
+   * another one, so the run is blocked for Peter instead of retried.
+   */
+  function ensureClone(repo, home) {
+    const name = cloneRepoName(repo);
+    const fail = (detail) => Object.assign(new Error(detail ? `${cloneFailedReason(repo)}: ${detail}` : cloneFailedReason(repo)), { reason: cloneFailedReason(repo) });
+    if (!name) throw fail('');
+    const dir = clonePath(home, name);
+    if (existsSync(join(dir, '.git'))) {
+      const origin = repoFromRemote(git(dir, ['remote', 'get-url', 'origin']).out);
+      if (origin !== name) throw Object.assign(new Error(`${dir} is ${origin ?? 'not a GitHub clone'}, not ${name}.`), { reason: `The runner's clone of ${name} points somewhere else` });
+      git(dir, ['fetch', 'origin', '--quiet']);
+      return dir;
+    }
+    mkdirSync(dirname(dir), { recursive: true });
+    const cloned = git(dirname(dir), ['clone', '--quiet', `https://github.com/${name}.git`, dir]);
+    if (!cloned.ok) throw fail(cloned.err.split('\n')[0] ?? '');
+    return dir;
+  }
+
+  /**
+   * A worktree for the milestone branch, created from the default branch when
+   * the branch is new. For the runner's own clone (<home>/repos/<owner>/<name>)
+   * it goes in <home>/worktrees/<owner>/<name>; for any other checkout, beside it.
+   */
   function ensureWorktree(repo, branch) {
     if (!isMilestoneBranch(branch)) throw new Error(`Refusing branch ${branch}. Only milestone/<slug> is used.`);
-    const dir = resolve(repo, '..', 'warehaus-runner', worktreeName(branch));
+    const owner = dirname(repo);
+    const dir =
+      basename(dirname(owner)) === 'repos'
+        ? cloneWorktreePath(dirname(dirname(owner)), `${basename(owner)}/${basename(repo)}`, branch)
+        : resolve(repo, '..', 'warehaus-runner', worktreeName(branch));
     if (existsSync(join(dir, '.git'))) {
       const current = git(dir, ['branch', '--show-current']);
       if (current.out !== branch) throw new Error(`${dir} is on ${current.out || 'no branch'}, not ${branch}.`);
@@ -107,5 +138,5 @@ export function repoTools({ exec = spawnSync, say = () => {} } = {}) {
     return { ok: true };
   }
 
-  return { git, gh, defaultBranch, ensureWorktree, ensurePullRequest, markReadyForReview, milestoneBranchOnOrigin, publishMilestoneBranch };
+  return { git, gh, defaultBranch, ensureClone, ensureWorktree, ensurePullRequest, markReadyForReview, milestoneBranchOnOrigin, publishMilestoneBranch };
 }

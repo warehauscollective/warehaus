@@ -15,6 +15,8 @@ import type { ChecklistActions } from './MilestoneChecklist';
 
 export const LOOP_AWAITING = 'Move to Awaiting Go';
 export const LOOP_TRY = 'Try again';
+/** Drafted card: archive the planner's drafts and plan again (ADR-0005). */
+export const LOOP_REGENERATE = 'Regenerate';
 export const LOOP_RETRY = 'Retry';
 export const LOOP_GENERATING_REASON = 'Tasks are still being drafted.';
 export const LOOP_EMPTY_REASON = 'Add at least one task before moving to Awaiting Go.';
@@ -66,6 +68,8 @@ export type LoopModel = {
   awaiting: 'hidden' | 'enabled' | 'disabled';
   awaitingReason?: string;
   tryAgain: boolean;
+  /** Drafted: archive the planner's drafts and plan again. */
+  regenerate?: boolean;
   retry: boolean;
   /** Page subtitle without the desktop-only stamp. */
   subtitle?: string;
@@ -134,6 +138,7 @@ export function fixtureLoopModel(kind: string): LoopModel | null {
       addHint: true,
       awaiting: 'enabled',
       tryAgain: false,
+      regenerate: true,
       retry: false,
       subtitle: 'Milestone · 6 drafted tasks',
       desktopStamp: LOOP_UPDATED,
@@ -326,6 +331,7 @@ export function MilestoneLoopView({
   busy,
   onAwaiting,
   onTryAgain,
+  onRegenerate,
   onRetry,
   onAdd,
   onRename,
@@ -334,6 +340,7 @@ export function MilestoneLoopView({
   busy?: boolean;
   onAwaiting?: () => void;
   onTryAgain?: () => void;
+  onRegenerate?: () => void;
   onRetry?: () => void;
   onAdd?: (title: string) => void;
   onRename?: (id: string, title: string) => void;
@@ -399,12 +406,17 @@ export function MilestoneLoopView({
             ))}
           </div>
         ) : null}
-        {model.awaiting !== 'hidden' || model.tryAgain || model.retry ? (
+        {model.awaiting !== 'hidden' || model.tryAgain || model.retry || model.regenerate ? (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, alignItems: 'center' }}>
               {model.tryAgain ? (
                 <button type="button" data-testid="milestone-try-again" disabled={busy} onClick={onTryAgain} style={outline}>
                   {LOOP_TRY}
+                </button>
+              ) : null}
+              {model.regenerate && onRegenerate ? (
+                <button type="button" data-testid="milestone-regenerate" disabled={busy} onClick={onRegenerate} style={outline}>
+                  {LOOP_REGENERATE}
                 </button>
               ) : null}
               {model.awaiting === 'enabled' ? (
@@ -851,6 +863,10 @@ export function MilestoneLoopLive({
           run(() => setStatus({ hostSlug, milestoneId: milestone.id as Id<'milestones'>, status: 'Awaiting Go', expectedStatus: 'Planning' }));
         }}
         onTryAgain={() => {
+          if (fixtures) return;
+          run(() => regenerate({ hostSlug, milestoneId: milestone.id as Id<'milestones'> }));
+        }}
+        onRegenerate={() => {
           if (fixtures) return;
           run(() => regenerate({ hostSlug, milestoneId: milestone.id as Id<'milestones'> }));
         }}

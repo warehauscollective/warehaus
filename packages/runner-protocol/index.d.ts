@@ -5,6 +5,13 @@ export declare const RUNNER_PATHS: Readonly<{
   complete: '/agent/complete';
   build: '/agent/build';
 }>;
+export declare const RUNNER_PAIR_PATHS: Readonly<{
+  start: '/agent/pair/start';
+  poll: '/agent/pair/poll';
+}>;
+export declare const RUNNER_PROTOCOL_VERSION: number;
+export declare const RUNNER_PROTOCOL_MIN: number;
+export declare const RUNNER_PROTOCOL_HEADER: 'x-runner-protocol';
 export declare const PLAN_TASKS_MIN: 3;
 export declare const PLAN_TASKS_MAX: 10;
 export declare const COMPLETE_STATUSES: readonly ['done', 'blocked', 'failed'];

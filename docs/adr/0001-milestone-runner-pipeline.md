@@ -56,12 +56,16 @@ Built:
 - Decision 4 in its fail-safe form: the field, the staff mutation `projects.setAgentRepo`, the claim filter, and the runner's required `--repo`. The runner also checks that the checkout it runs in is that repository.
 - The hand-off above.
 
+Built since (checked against the code on 2026-11-24):
+
+- The staff screen to set a project's repository (`ProjectRepoSetting` on the project page).
+- The per-project build agent choice, Claude Code or Cursor (`AgentDriverSetting`).
+- Cursor: one cloud agent per milestone on the milestone branch.
+- Decision 4's runner allowlist is replaced by runner registrations: a registered runner serves every project that names a repository, in its own clone (ADR-0005, amendment).
+
 Not built:
 
-- A screen to set a project's repository. Today it is set with the staff mutation.
-- The per-project tool choice.
 - `preview:pr` does not post its own link. The hand-off stores `http://localhost:3100/`, which is where `preview:pr` serves unless `PORTAL_PORT` is set.
-- Cursor.
 
 ## Consequences
 
@@ -80,7 +84,7 @@ Peter gave the go for auto-planning and agent choice at 4:40 PM ET. These points
 - Staff pick the build agent per project, next to the repository: Claude Code or Cursor. Planning still uses Claude. Cursor launches one cloud agent per milestone on the milestone branch. `CURSOR_API_KEY` stays on the runner.
 - A failed or stuck run is blocked, shows its reason, and appears in `list_needs_peter`. Staff retry it. It is not put straight back in the queue.
 - Both agents share one pull request, the local preview note, and Ready to Ship. The staff Vercel preview starts when the pull request is labeled `ready-for-review`, and that preview stays on `graceful-mastiff-960`.
-- Building is still set only from the staff UI. The planning, progress, blocked, and agent screens wait for their design frames. The controls that are in now are stubs.
+- Building is still set only from the staff UI. The planning, progress, blocked, and agent screens were built from their approved design frames (the milestone loop card); they are no longer stubs (checked 2026-11-24).
 
 ## Amendment, 2026-11-24
 
