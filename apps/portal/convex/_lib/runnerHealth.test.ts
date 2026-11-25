@@ -6,6 +6,7 @@ import {
   RUNNER_HEARTBEAT_MS,
   RUNNER_READY_WITHIN_MS,
   agoLabel,
+  agoLabelLong,
   latestRunner,
   runnerHealthCopy,
   runnerHealthState,
@@ -217,6 +218,15 @@ describe('runner health copy', () => {
     assert.equal(agoLabel(NOW - 2 * 60 * 60_000, NOW), '2h ago');
     assert.equal(agoLabel(NOW - 47 * 60 * 60_000, NOW), '47h ago');
     assert.equal(agoLabel(NOW - 72 * 60 * 60_000, NOW), '3d ago');
+  });
+
+  it('spells relative times out for the runner list, Revoke and Out of date', () => {
+    assert.equal(agoLabelLong(NOW + 5_000, NOW), '0 sec ago');
+    assert.equal(agoLabelLong(NOW - 59_999, NOW), '59 sec ago');
+    assert.equal(agoLabelLong(NOW - 4 * 60_000, NOW), '4 min ago');
+    assert.equal(agoLabelLong(NOW - 60 * 60_000, NOW), '1 hour ago');
+    assert.equal(agoLabelLong(NOW - 47 * 60 * 60_000, NOW), '47 hours ago');
+    assert.equal(agoLabelLong(NOW - 72 * 60 * 60_000, NOW), '3 days ago');
   });
 });
 

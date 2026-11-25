@@ -208,20 +208,32 @@ describe('runner set-up states', () => {
   it('lists registered runners with Revoke, and asks before revoking the last one', () => {
     assert.equal(
       html(createElement(RunnerListBody, { copy, runners: view.runners, production: true, now: NOW, onRevoke: noop, onPairAnother: noop })),
-      'Runner ready RUNNERS ON PRODUCTION 2 registered peter-mbp-prod SEEN 4M AGO Revoke studio-mini-prod SEEN 3D AGO Revoke Revoking a runner stops it taking work at once. Any run in progress goes back to the queue. Pair another runner',
+      'Runner ready RUNNERS ON PRODUCTION 2 registered peter-mbp-prod SEEN 4 MIN AGO Revoke studio-mini-prod SEEN 3 DAYS AGO Revoke Revoking a runner stops it taking work at once. Any run in progress goes back to the queue. Pair another runner',
     );
     const runner = view.runners[0]!;
     assert.equal(
       html(createElement(RunnerRevokeBody, { runner, now: NOW, lastRunner: true, production: true, onCancel: noop, onRevoke: noop })),
-      'Revoke peter-mbp-prod? RUNNER peter-mbp-prod LAST SEEN 4m ago It stops taking work at once, and any run in progress goes back to the queue. This is the last production runner, so production milestones wait until another is paired. Cancel Revoke runner',
+      'Revoke peter-mbp-prod? RUNNER peter-mbp-prod LAST SEEN 4 min ago It stops taking work at once, and any run in progress goes back to the queue. This is the last production runner, so production milestones wait until another is paired. Cancel Revoke runner',
     );
+  });
+
+  it('colors the heading dots as Figma: muted on Confirm, amber ring with a danger core on Revoke', () => {
+    const heading = (markup: string) => markup.match(/<svg[^>]*data-runner-dot[^>]*>.*?<\/svg>/)?.[0] ?? '';
+    const confirm = heading(renderToStaticMarkup(createElement(RunnerConfirmBody, { code: 'K7QM-4XPA', production: true, runnerId: 'peter-mbp-prod', onRunnerId: noop, onCancel: noop, onConfirm: noop })));
+    assert.match(confirm, /data-runner-dot="offline"/);
+    assert.match(confirm, /color:var\(--muted\)/);
+    assert.match(confirm, /r="4" fill="currentColor"/);
+    const revoke = heading(renderToStaticMarkup(createElement(RunnerRevokeBody, { runner: view.runners[0]!, now: NOW, lastRunner: true, production: true, onCancel: noop, onRevoke: noop })));
+    assert.match(revoke, /color:var\(--warning\)/);
+    assert.match(revoke, /stroke="currentColor"/);
+    assert.match(revoke, /r="4" fill="var\(--danger, #e5484d\)"/);
   });
 
   it('says a runner is out of date and how to update it', () => {
     const old = { ...view, protocolMin: 4, runners: [{ ...view.runners[0]!, protocolVersion: 3 }] };
     assert.equal(
       html(createElement(RunnerOutOfDateBody, { view: old, now: NOW })),
-      'Runner out of date RUNNER peter-mbp-prod LAST SEEN 4m ago VERSION Protocol 3 · the Portal needs 4 UPDATE git pull && npm run runner -- install --production The Portal refuses claims from this runner until it is updated. The runner never updates its own code.',
+      'Runner out of date RUNNER peter-mbp-prod LAST SEEN 4 min ago VERSION Protocol 3 · the Portal needs 4 UPDATE git pull && npm run runner -- install --production The Portal refuses claims from this runner until it is updated. The runner never updates its own code.',
     );
     assert.equal(html(createElement(RunnerOutOfDateBody, { view, now: NOW })), '');
   });

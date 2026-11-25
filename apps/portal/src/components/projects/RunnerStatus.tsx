@@ -15,6 +15,7 @@ import {
   RUNNER_SERVES,
   RUNNER_SETUP_TITLE,
   agoLabel,
+  agoLabelLong,
   runnerHealthCopy,
   runnerInstallCommand,
   runnerOutOfDateCopy,
@@ -70,8 +71,10 @@ const DOT_COLOR: Record<RunnerDot, string> = {
   unset: 'var(--muted)',
 };
 
-/** 12px ring with an 8px core. Not set up is the ring alone. */
-function RunnerDotGlyph({ dot }: { dot: RunnerDot }) {
+const DANGER = 'var(--danger, #e5484d)';
+
+/** 12px ring with an 8px core. Not set up is the ring alone. `core` recolors the core only. */
+function RunnerDotGlyph({ dot, core }: { dot: RunnerDot; core?: string }) {
   return (
     <svg
       width="12"
@@ -83,7 +86,7 @@ function RunnerDotGlyph({ dot }: { dot: RunnerDot }) {
       style={{ display: 'block', flex: '0 0 auto', color: DOT_COLOR[dot] }}
     >
       <circle cx="6" cy="6" r="5.25" strokeWidth="1.5" stroke="currentColor" />
-      {dot === 'unset' ? null : <circle cx="6" cy="6" r="4" fill="currentColor" />}
+      {dot === 'unset' ? null : <circle cx="6" cy="6" r="4" fill={core ?? 'currentColor'} />}
     </svg>
   );
 }
@@ -211,10 +214,10 @@ function Field({ label, value, mono }: { label: string; value: ReactNode; mono?:
   );
 }
 
-function Heading({ dot, label, tone }: { dot: RunnerDot; label: string; tone?: string }) {
+function Heading({ dot, label, tone, core }: { dot: RunnerDot; label: string; tone?: string; core?: string }) {
   return (
     <div className="flex items-center" style={{ gap: 8 }}>
-      <RunnerDotGlyph dot={dot} />
+      <RunnerDotGlyph dot={dot} core={core} />
       <span style={{ fontSize: 16, fontWeight: 600, lineHeight: 'normal', color: tone ?? 'var(--fg)' }}>{label}</span>
     </div>
   );
@@ -314,9 +317,9 @@ function DangerButton({ children, onClick, disabled, testId }: { children: React
         height: 32,
         padding: '0 12px',
         borderRadius: 8,
-        border: '1px solid var(--danger, #e5484d)',
+        border: `1px solid ${DANGER}`,
         background: 'none',
-        color: 'var(--danger, #e5484d)',
+        color: DANGER,
         fontSize: 12,
         fontWeight: 500,
         cursor: disabled ? 'default' : 'pointer',
@@ -393,7 +396,8 @@ export function RunnerConfirmBody({
   const empty = !runnerId.trim();
   return (
     <Stack step="confirm">
-      <Heading dot="ready" label="Confirm this runner" />
+      {/* Not paired yet: the muted dot, as in Figma. Green waits for Runner paired. */}
+      <Heading dot="offline" label="Confirm this runner" />
       <div className="flex flex-col" style={{ gap: 12 }}>
         <Field label="CODE" value={code} mono />
         <Field label="DEPLOYMENT" value={production ? 'Production' : 'Shared dev'} />
@@ -471,7 +475,7 @@ export function RunnerListBody({
             <span className="flex flex-col" style={{ gap: 2, minWidth: 0 }}>
               <span style={{ fontSize: 14, color: 'var(--fg)', overflowWrap: 'anywhere' }}>{runner.id}</span>
               <span className="ds-mono" style={{ fontSize: 10, color: 'var(--muted)' }}>
-                SEEN {runner.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now).toUpperCase() : 'NEVER'}
+                SEEN {runner.lastSeenAt != null ? agoLabelLong(runner.lastSeenAt, now).toUpperCase() : 'NEVER'}
               </span>
             </span>
             <button type="button" data-testid="runner-list-revoke" onClick={() => onRevoke(runner.id)} className={FOCUS} style={{ ...plainButton, fontSize: 12, color: 'var(--muted)' }}>
@@ -509,10 +513,11 @@ export function RunnerRevokeBody({
 }) {
   return (
     <Stack step="revoke">
-      <Heading dot="warning" label={`Revoke ${runner.id}?`} />
+      {/* Figma: amber ring, danger core. */}
+      <Heading dot="warning" core={DANGER} label={`Revoke ${runner.id}?`} />
       <div className="flex flex-col" style={{ gap: 12 }}>
         <Field label="RUNNER" value={runner.id} />
-        <Field label="LAST SEEN" value={runner.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now) : '—'} />
+        <Field label="LAST SEEN" value={runner.lastSeenAt != null ? agoLabelLong(runner.lastSeenAt, now) : '—'} />
       </div>
       <Helper>{runnerRevokeHelper(lastRunner, production)}</Helper>
       <Actions>
@@ -599,6 +604,7 @@ export function RunnerStatusModal({
       narrow={narrow}
       sheet={narrow ? 'bottom' : 'center'}
       onClose={onClose}
+      focusPanel
       panelStyle={{ padding: addRepo ? '8px 24px' : '8px 24px 24px' }}
       footer={
         addRepo ? (
