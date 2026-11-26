@@ -106,7 +106,7 @@ Archived frames are left as they are.
 ## Iterating
 
 - Change the canonical screen or the component in place. Never copy a screen to make "v2".
-- After each iteration, the agent adds a line to the section's Changelog. When Peter approves, he or a staff member saves a named Figma version in Figma (File, Save to version history): `<Milestone> - iter <N>`, for example `Runner on production - iter 2`. Version history is where old iterations live. Agents cannot save versions: the Figma MCP does not support it.
+- After each iteration, the agent adds a line to the section's Changelog. The Changelog, the Archive section and Figma's automatic version history are the record of past iterations. Nobody saves named Figma versions; Peter dropped that step on 2026-11-26.
 - Side-by-side options are allowed only in the page's `Exploration` section. Once Peter picks one, it is applied to the canonical screen or component and the Exploration frames are moved to Archive.
 - A proposal waiting on Peter sits in `Exploration`, not next to the current screens.
 

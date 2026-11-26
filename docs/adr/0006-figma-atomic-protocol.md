@@ -17,7 +17,7 @@ The in-file rules (frame `713:2396`) already said "each screen exists once" and 
 3. **Two hand-built frames per screen.** 1440 Dark and 390 Dark are made components. 1440 Light and 390 Light are instances of them with the Light variable mode. Peter still sees Dark and Light at 1440 and 390.
 4. **Page layout.** Library: Foundations, Atoms, Molecules, Organisms. Tab pages: one section per screen (SCREEN and OVERLAYS rows), then Local components, then Exploration. The STATES row is dropped.
 5. **Local before shared.** An organism used by one tab lives in that page's Local components. It moves to the library when a second tab needs it.
-6. **Iterate in place.** Edit the canonical screen, add a Changelog line, and keep options only in Exploration. Peter or a staff member saves a named Figma version per iteration when approving, since the Figma MCP cannot save versions.
+6. **Iterate in place.** Edit the canonical screen, add a Changelog line, and keep options only in Exploration. (Amended 2026-11-26: no named Figma version is saved per iteration. See Amendments.)
 7. **Archive, never delete.** Old frames move to Archive. Moves and renumbers are recorded in `docs/design/figma-id-map.md`.
 8. **Approval.** Peter approves a design from the changed component sets plus the one canonical screen, not from a deck of state screens.
 
@@ -38,3 +38,7 @@ The in-file rules (frame `713:2396`) already said "each screen exists once" and 
 - Canonical screens are rebuilt from instances as each page is migrated. Archived frames are left as they are.
 - Section IDs become page letter plus 2 digits (D, P, R, V, A). Clients moves from "13" to A04.
 - Code Connect mapping of variant properties to React props is a later milestone.
+
+## Amendments
+
+- 2026-11-26, Peter, in a Claude Code session: drop saving a named Figma version (`<Milestone> - iter <N>`) when a design is approved. The Changelog, the Archive section and Figma's automatic version history are enough.
