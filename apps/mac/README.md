@@ -44,8 +44,9 @@ notifications on top of both (ADR-0006, decision 8):
 - **RunnerSupervisor** starts the Node runner (`tools/runner`) as a child
   process with `start --supervised --mode headless --parallel 4` (plus `--production` in
   release builds) and reads its state lines: one `@@warehaus {json}` line per
-  change on stdout. It maps them to the four menu states, Ready, Working,
-  Paused and Needs attention (`MenuState.from`). Pause and Resume are `pause`
+  change on stdout. It maps them to the menu states, Ready, Working,
+  Paused, Needs attention and Waiting (Claude's usage limit, which ends on its
+  own and never notifies) (`MenuState.from`). Pause and Resume are `pause`
   and `resume` on the runner's stdin; the runner then sends `paused` on every
   heartbeat, so the Portal chip reads Paused. A run in progress always
   finishes first. Remove runs `remove`, which revokes the runner in the
@@ -153,9 +154,12 @@ Debug launch arguments, ticked under Product › Scheme › Edit Scheme › Run 
 Arguments. None of them touch this Mac's real gh, Claude Code, pairing or
 launchd agent:
 
-- `-RunnerFixture ready|working|working-several|paused|attention`: the menu
-  states with fixture data and no runner. `working-several` shows three runs
-  at once.
+- `-RunnerFixture ready|working|working-several|paused|attention|waiting|waiting-working`:
+  the menu states with fixture data and no runner. `working-several` shows
+  three runs at once. `waiting` is the usage-limit wait; `waiting-working` is
+  the wait while two runs finish.
+- `-MenuSnapshot <folder>`: writes every menu state, Dark and Light, as PNGs
+  for the design check, then quits. No runner starts.
 - `-SetupFixture fresh|signed-out|github-code|installing|claude-signin|pairing|expired|takeover|done`:
   the checklist and pairing windows; clicks move the fixture along.
 - `-SetupSnapshot <folder>`: writes every checklist and pairing state, Dark

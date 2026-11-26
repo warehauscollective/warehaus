@@ -24,6 +24,41 @@ final class MenuStateTests: XCTestCase {
         XCTAssertNil(menu.secondaryPause)
     }
 
+    func testWaitingOnTheUsageLimit() {
+        let utc = TimeZone(identifier: "UTC")!
+        // now is 2027-01-15 08:00 UTC; the reset is 13:21 the same day.
+        let until = now.addingTimeInterval(5 * 3600 + 21 * 60)
+        let waiting = snapshot([started, .waiting(.usageLimit, until: until)])
+        let menu = MenuState.from(waiting, pauseRequested: false, now: now, timeZone: utc)
+        XCTAssertEqual(menu.status, .waiting)
+        XCTAssertEqual(menu.lines, ["Claude hit its usage limit.", "Takes work again at 1:21 PM."])
+        XCTAssertEqual(menu.primary, [MenuItem("Pause runner", .pause), MenuItem("Open Portal", .openPortal)])
+        XCTAssertTrue(menu.showsUpdateLine)
+        // A reset on a later day names the day.
+        let weekly = snapshot([started, .waiting(.usageLimit, until: now.addingTimeInterval(3 * 86_400))])
+        XCTAssertEqual(MenuState.from(weekly, pauseRequested: false, now: now, timeZone: utc).lines.last, "Takes work again at Mon 8:00 AM.")
+        // Pause wins, and the wait ends at the reset or when the runner claims again.
+        XCTAssertEqual(MenuState.from(waiting, pauseRequested: true, now: now, timeZone: utc).status, .paused)
+        XCTAssertEqual(MenuState.from(waiting, pauseRequested: false, now: until, timeZone: utc).status, .ready)
+        XCTAssertEqual(MenuState.from(snapshot([started, .waiting(.usageLimit, until: until), .idle]), pauseRequested: false, now: now).status, .ready)
+        // No reset time: half an hour.
+        XCTAssertEqual(snapshot([started, .waiting(.usageLimit, until: nil)]).usageLimitUntil, now.addingTimeInterval(-12 * 60 + 30 * 60))
+    }
+
+    func testWaitingWhileRunsFinish() {
+        let utc = TimeZone(identifier: "UTC")!
+        let other = WorkInfo(runId: "r2", kind: .task, milestoneId: "m2", milestone: "Milestone tasks as a board", taskOrder: 5)
+        let first = WorkInfo(runId: "r1", kind: .task, milestoneId: "m1", milestone: "Client experience launch", taskOrder: 3)
+        let until = now.addingTimeInterval(31 * 60)
+        let menu = MenuState.from(snapshot([started, .working(first), .working(other), .waiting(.usageLimit, until: until)]), pauseRequested: false, now: now, timeZone: utc)
+        XCTAssertEqual(menu.status, .working)
+        XCTAssertEqual(menu.lines, ["2 runs in progress", "Client experience launch · task 3", "Milestone tasks as a board · task 5", "Usage limit: no new work until 8:31 AM"])
+        XCTAssertEqual(menu.primary.first, MenuItem("Pause after these runs", .pauseAfterRun))
+        // The last run ends during the wait: Waiting.
+        let ended = snapshot([started, .working(first), .waiting(.usageLimit, until: until), .finished(first, status: "released")])
+        XCTAssertEqual(MenuState.from(ended, pauseRequested: false, now: now, timeZone: utc).status, .waiting)
+    }
+
     func testWorking() {
         let menu = MenuState.from(snapshot([started, .working(work)]), pauseRequested: false, now: now)
         XCTAssertEqual(menu.status, .working)

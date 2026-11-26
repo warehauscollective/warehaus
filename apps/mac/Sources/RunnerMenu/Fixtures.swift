@@ -2,10 +2,11 @@ import Combine
 import Foundation
 import RunnerSupervisor
 
-/// The four approved menu states from fixture data, for SwiftUI previews and
+/// The approved menu states from fixture data, for SwiftUI previews and
 /// for a debug run with no runner paired:
 ///
 ///     -RunnerFixture ready | working | working-several | paused | attention
+///                    | waiting | waiting-working
 ///
 /// Pause and Resume work on the fixture so the states can be clicked through.
 @MainActor
@@ -43,6 +44,17 @@ public final class FixtureControl: RunnerControl {
             return base
         case "attention":
             base.attention = .github
+            return base
+        case "waiting":
+            base.usageLimitUntil = now.addingTimeInterval(5 * 60 * 60 + 21 * 60)
+            return base
+        case "waiting-working":
+            base.runs = [
+                WorkInfo(runId: "r1", kind: .task, milestoneId: "fixture-milestone", milestone: "Client experience launch", taskOrder: 3, task: "Hero"),
+                WorkInfo(runId: "r2", kind: .task, milestoneId: "fixture-milestone-3", milestone: "Milestone tasks as a board", taskOrder: 5, task: "Board"),
+            ]
+            base.activity = .working(base.runs[0])
+            base.usageLimitUntil = now.addingTimeInterval(5 * 60 * 60 + 21 * 60)
             return base
         default:
             return nil

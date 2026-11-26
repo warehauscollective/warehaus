@@ -20,6 +20,21 @@ final class RunnerEventTests: XCTestCase {
         )
         XCTAssertEqual(RunnerEvent.parse(line: #"@@warehaus {"type":"attention","reason":"github","at":1}"#), .attention(.github))
         XCTAssertEqual(RunnerEvent.parse(line: #"@@warehaus {"type":"attention","reason":"out_of_date","at":1}"#), .attention(.outOfDate))
+        XCTAssertEqual(
+            RunnerEvent.parse(line: #"@@warehaus {"type":"waiting","reason":"usage_limit","until":1800019260000,"resetsAt":1800019200000,"at":1}"#),
+            .waiting(.usageLimit, until: Date(timeIntervalSince1970: 1_800_019_260))
+        )
+        XCTAssertEqual(RunnerEvent.parse(line: #"@@warehaus {"type":"waiting","reason":"usage_limit","at":1}"#), .waiting(.usageLimit, until: nil))
+        XCTAssertNil(RunnerEvent.parse(line: #"@@warehaus {"type":"waiting","reason":"bored","at":1}"#))
+    }
+
+    /// The runner's WAITING_REASONS must each decode here.
+    func testKnowsEveryWaitTheRunnerSends() throws {
+        let lib = try String(contentsOf: repoFile("tools/runner/src/lib.mjs"), encoding: .utf8)
+        let line = try XCTUnwrap(lib.split(separator: "\n").first { $0.contains("export const WAITING_REASONS") })
+        let names = line.split(separator: "'").enumerated().filter { $0.offset % 2 == 1 }.map { String($0.element) }
+        XCTAssertFalse(names.isEmpty)
+        for name in names { XCTAssertNotNil(WaitReason(rawValue: name), name) }
     }
 
     func testIgnoresLogLinesAndAnythingUnknown() {

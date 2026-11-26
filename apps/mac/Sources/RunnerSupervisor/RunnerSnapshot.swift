@@ -32,6 +32,8 @@ public struct RunnerSnapshot: Equatable, Sendable {
     public var lastRun: LastRun?
     /// Every run in progress, oldest first: one per milestone, up to the runner's slots.
     public var runs: [WorkInfo] = []
+    /// Claude hit its usage limit: the runner takes no new work until this time.
+    public var usageLimitUntil: Date?
 
     public init(
         runnerId: String? = nil,
@@ -57,10 +59,13 @@ public struct RunnerSnapshot: Equatable, Sendable {
             runs = []
             activity = paused ? .paused : .idle
             attention = nil
+            usageLimitUntil = nil
         case .idle:
+            // The runner only claims again once the limit has reset, so either line ends the wait.
             runs = []
             activity = .idle
             attention = nil
+            usageLimitUntil = nil
         case let .working(work):
             if let index = runs.firstIndex(where: { $0.runId == work.runId }) {
                 runs[index] = work
@@ -69,6 +74,7 @@ public struct RunnerSnapshot: Equatable, Sendable {
             }
             activity = .working(runs[0])
             attention = nil
+            usageLimitUntil = nil
         case let .finished(work, status):
             runs.removeAll { $0.runId == work.runId }
             // A Cursor build still going comes back; it is not a finished run.
@@ -82,7 +88,16 @@ public struct RunnerSnapshot: Equatable, Sendable {
             attention = nil
         case let .attention(reason):
             attention = reason
+        case let .waiting(.usageLimit, until):
+            // No reset time: the runner backs off for half an hour.
+            usageLimitUntil = until ?? now.addingTimeInterval(30 * 60)
         }
+    }
+
+    /// The usage-limit wait, while it lasts.
+    public func usageLimitWait(at now: Date) -> Date? {
+        guard let until = usageLimitUntil, until > now else { return nil }
+        return until
     }
 
     public var isWorking: Bool {
