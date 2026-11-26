@@ -7,6 +7,7 @@ import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@c
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { clientSeesDetailsRow, formatDueDate, textBlurSave } from '@convex/_lib/milestoneDetails';
 import { shippedLockedReason, shippedOpenTag } from '@convex/_lib/closeout';
+import { isPeterEmail } from '@convex/_lib/milestoneReview';
 import { MILESTONE_STATUSES, nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
@@ -20,6 +21,27 @@ const APPROVAL_LABEL = {
   approved: 'Approved',
   changes_requested: 'Changes requested',
 } as const;
+
+/** The Approval value while an approval Ask waits on the person looking at it (GLOSSARY.md, Ask). */
+export const APPROVAL_NEEDS_YOU = 'Needs you';
+
+/**
+ * The line under "Needs you", or null when no approval waits on this viewer.
+ * An approval Ask goes to Peter, the only approver, so only he is told it
+ * needs him. It is open while the milestone is Ready to Ship with a preview
+ * and the current iteration has no decision.
+ */
+export function approvalNeedsYou(input: {
+  milestone: Pick<MilestoneRoadmapView, 'status' | 'review'>;
+  viewerEmail: string | null | undefined;
+}): string | null {
+  const review = input.milestone.review;
+  if (!review || input.milestone.status !== 'Ready to Ship') return null;
+  if (!isPeterEmail(input.viewerEmail)) return null;
+  if (!(review.localPreviewUrl || review.previewUrl)) return null;
+  if (review.history.some((item) => item.iteration === review.iteration)) return null;
+  return `Iteration ${review.iteration} ready to review`;
+}
 
 export type MoveTarget = { id: string; name: string };
 
@@ -71,6 +93,7 @@ export function useMilestoneDetailEdits({
   staff,
   fixtures,
   hostSlug,
+  viewerEmail = null,
   moveTargets,
   preview = null,
   showFields,
@@ -402,6 +425,20 @@ export function useMilestoneDetailEdits({
     return target.name.toLowerCase().includes(query);
   });
 
+  const needsYouLine = staff ? approvalNeedsYou({ milestone, viewerEmail }) : null;
+  // Under Status on a phone, under Owner on desktop, as in the Milestone properties frames.
+  const needsYouRow = (placement: 'phone' | 'desktop') =>
+    needsYouLine ? (
+      <div className={placement === 'phone' ? 'col-span-2 lg:hidden' : 'hidden lg:block'}>
+        <DetailRow label="APPROVAL">
+          <ReadValue testId="milestone-approval-needs-you">{APPROVAL_NEEDS_YOU}</ReadValue>
+          <p style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+            {needsYouLine}
+          </p>
+        </DetailRow>
+      </div>
+    ) : null;
+
   const fields = showFields ? (
     <Panel testId="milestone-details">
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-1" data-details-ready={ready ? 'true' : 'false'} data-phone={phone ? 'true' : 'false'} data-details-state={preview ?? 'idle'}>
@@ -451,6 +488,7 @@ export function useMilestoneDetailEdits({
             </Popover>
           ) : null}
         </DetailRow>
+        {needsYouRow('phone')}
         {clientSeesDetailsRow('owner', staff) ? (
           <DetailRow label="OWNER" outlined={staff}>
             {staff ? (
@@ -476,6 +514,7 @@ export function useMilestoneDetailEdits({
             ) : null}
           </DetailRow>
         ) : null}
+        {needsYouRow('desktop')}
         {clientSeesDetailsRow('creator', staff) ? (
           <DetailRow label="CREATOR">
             <ReadValue testId="milestone-creator">{milestone.creatorName?.trim() || '—'}</ReadValue>
@@ -621,7 +660,7 @@ export function useMilestoneDetailEdits({
             setTileLink={mutations.setTileLink}
           />
         ) : null}
-        {clientSeesDetailsRow('approval', staff) && milestone.approval && milestone.approval !== 'unreviewed' ? (
+        {clientSeesDetailsRow('approval', staff) && milestone.approval && milestone.approval !== 'unreviewed' && !needsYouLine ? (
           <DetailRow label="APPROVAL" wide>
             <ReadValue testId="milestone-approval">{APPROVAL_LABEL[milestone.approval]}</ReadValue>
           </DetailRow>
