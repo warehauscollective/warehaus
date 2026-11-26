@@ -10,6 +10,7 @@
  *   POST /agent/complete  end a task run, or a planning run that failed
  *   POST /agent/build     progress from the one Cursor agent on a milestone
  *   POST /agent/ping      an idle runner saying it is alive. Reads and hands out nothing
+ *   POST /agent/unpair    a registered runner revoking itself (Remove this runner in the Mac app)
  *
  * Pairing takes no runner token:
  *
@@ -33,7 +34,15 @@ import {
 } from './_lib/runnerRegistry';
 import { sha256Hex } from './_lib/tokenCrypto';
 
-export const AGENT_ROUTES = ['/agent/claim', '/agent/events', '/agent/tasks', '/agent/complete', '/agent/build', '/agent/ping'] as const;
+export const AGENT_ROUTES = [
+  '/agent/claim',
+  '/agent/events',
+  '/agent/tasks',
+  '/agent/complete',
+  '/agent/build',
+  '/agent/ping',
+  '/agent/unpair',
+] as const;
 export const AGENT_PAIR_ROUTES = [RUNNER_PAIR_PATHS.start, RUNNER_PAIR_PATHS.poll] as const;
 
 const BODY_LIMIT = 60_000;
@@ -90,6 +99,12 @@ export const agentHttp = httpAction(async (ctx, request) => {
   const path = new URL(request.url).pathname;
   // The touch above is the whole heartbeat: at most one write a minute.
   if (path === '/agent/ping') return json({ ok: true }, 200);
+  if (path === '/agent/unpair') {
+    // Only a registered runner, proven by its own secret, removes itself. A RUNNER_TOKENS runner has nothing to revoke.
+    if (!alive.registered) return json({ error: RUNNER_UNAUTHORIZED }, 401);
+    const result = await ctx.runMutation(internal.runners.unpairRunner, { runnerId });
+    return result.ok ? json(result, 200) : json({ error: result.error }, 404);
+  }
   if (path === '/agent/claim') {
     // A registered runner below the minimum protocol gets no work until it is updated.
     if (alive.registered && runnerOutOfDate(protocolVersion)) return json({ error: RUNNER_OUT_OF_DATE }, 426);

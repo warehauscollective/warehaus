@@ -142,6 +142,20 @@ node tools/runner/scripts/check-cursor-branch.mjs --launch --cleanup
 
 Each step prints `ok` or `FAIL`. A pass looks like: branch on origin, branch starts at `main`, agent launched, agent finished, a commit carries `Portal-Task: check:1`, Cursor opened no pull request, draft pull request into `main`, pull request closed, branch deleted. Leave off `--cleanup` to look at the branch and the pull request first, then run the clean-up line the script prints. Add a line to the dry run log below when you run step 2.
 
+## Under the runner Mac app
+
+The Warehaus Runner Mac app (`apps/mac`) starts the runner itself, so staff never type these commands. It runs:
+
+```bash
+node tools/runner/src/cli.mjs start --supervised --mode headless --production [--paused]
+node tools/runner/src/cli.mjs remove --production
+```
+
+- `--supervised` prints one state line per change on stdout, `@@warehaus ` and a JSON object: `started`, `idle`, `working`, `finished`, `paused`, or `attention` with a reason (`unauthorized`, `out_of_date`, `github`, `unreachable`, `not_paired`). Every other line is the runner's own log. It reads `pause` or `resume` on stdin, and stops when the app closes its stdin.
+- A paused runner claims nothing and sends `paused: true` with each heartbeat, so the Portal chip reads Paused. A run in progress finishes first.
+- Supervised, it checks `gh auth status` every 10 minutes and takes no work while GitHub is signed out.
+- `remove` revokes the runner in the Portal with its own secret (`POST /agent/unpair`), removes its launchd agent, and deletes its Keychain secret and saved file. Exit code 3 means it was removed from the Mac but the Portal could not be reached; 4 means the Keychain entry could not be deleted.
+
 ## Moving it to a server
 
 The runner is host-agnostic on purpose, so it can move to an always-on machine later without a code change.
