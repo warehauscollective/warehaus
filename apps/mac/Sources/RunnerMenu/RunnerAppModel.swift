@@ -81,16 +81,31 @@ public final class RunnerAppModel: ObservableObject {
             .store(in: &bag)
     }
 
+    /// First launch: the checklist and pairing windows.
+    public private(set) var setupWindows: SetupWindows?
+
     /// The app as shipped: the real supervisor and system services. A debug
     /// build launched with `-RunnerFixture ready|working|paused|attention`
-    /// shows that state from fixture data and starts no runner.
+    /// shows that state from fixture data and starts no runner, and one
+    /// launched with `-SetupFixture <name>` shows the checklist from fixture
+    /// data and runs no setup command (FixtureSetupSystem).
     public static func live(arguments: UserDefaults = .standard) -> RunnerAppModel {
         let policy = DeploymentPolicy.current
         let opener = WorkspaceOpener()
         let loginItem = MainAppLoginItem()
         let control: RunnerControl
+        var setupSystem: SetupSystem = LiveSetupSystem(policy: policy)
+        var setupFixture: FixtureSetupSystem?
+        var snapshotting = false
         #if DEBUG
-        if let name = arguments.string(forKey: "RunnerFixture"), let fixture = FixtureControl(named: name) {
+        // Snapshots run on fixtures only: no runner and no setup command starts.
+        snapshotting = SetupSnapshot.scheduleIfAsked(arguments: arguments)
+        if let name = snapshotting ? "fresh" : arguments.string(forKey: "SetupFixture"), let fixture = FixtureSetupSystem(named: name) {
+            setupFixture = fixture
+            setupSystem = fixture
+        }
+        if let name = arguments.string(forKey: "RunnerFixture") ?? (setupFixture != nil ? "ready" : nil),
+           let fixture = FixtureControl(named: name) {
             control = fixture
         } else {
             control = RunnerSupervisor(policy: policy)
@@ -98,18 +113,32 @@ public final class RunnerAppModel: ObservableObject {
         #else
         control = RunnerSupervisor(policy: policy)
         #endif
+        let setup = SetupModel(policy: policy, system: setupSystem, facts: setupFixture?.facts, showsPairing: setupFixture?.showsPairing ?? false)
+        let windows = SetupWindows(model: setup)
         let model = RunnerAppModel(
             policy: policy,
             control: control,
             loginItem: loginItem,
             notifier: SystemNotifier(),
             updates: StubUpdateChecker(),
-            setUp: BrowserSetUpFlow(opener: opener, policy: policy),
+            setUp: windows,
             opener: opener
         )
+        model.setupWindows = windows
         loginItem.enableOnFirstLaunch(policy: policy)
         model.loginItemOn = loginItem.isEnabled
-        control.start()
+
+        setup.onComplete = { [weak windows] newPairing in
+            windows?.closeChecklist()
+            if newPairing { control.restart() } else { control.start() }
+        }
+        // The runner starts only with a pairing this build may use and no old
+        // launchd agent still running the same runner at login.
+        if setup.readyWithoutChecklist && setupFixture == nil {
+            control.start()
+        } else if !snapshotting {
+            DispatchQueue.main.async { windows.showChecklist() }
+        }
         return model
     }
 
