@@ -16,7 +16,7 @@
 		7A0000000000000000000F01 /* WarehausRunnerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WarehausRunnerApp.swift; sourceTree = "<group>"; };
 		7A0000000000000000000F02 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		7A0000000000000000000F03 /* WarehausRunner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WarehausRunner.entitlements; sourceTree = "<group>"; };
-		7A0000000000000000000F04 /* Warehaus Runner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Warehaus Runner.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7A0000000000000000000F04 /* Warehaus Portal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Warehaus Portal.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 		7A0000000000000000000F05 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -46,7 +46,7 @@
 		7A0000000000000000000E02 /* Products */ = {
 			isa = PBXGroup;
 			children = (
-				7A0000000000000000000F04 /* Warehaus Runner.app */,
+				7A0000000000000000000F04 /* Warehaus Portal.app */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -54,9 +54,9 @@
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
-		7A0000000000000000000C01 /* Warehaus Runner */ = {
+		7A0000000000000000000C01 /* Warehaus Portal */ = {
 			isa = PBXNativeTarget;
-			buildConfigurationList = 7A0000000000000000000L02 /* Build configuration list for PBXNativeTarget "Warehaus Runner" */;
+			buildConfigurationList = 7A0000000000000000000L02 /* Build configuration list for PBXNativeTarget "Warehaus Portal" */;
 			buildPhases = (
 				7A0000000000000000000B02 /* Sources */,
 				7A0000000000000000000B01 /* Frameworks */,
@@ -66,12 +66,12 @@
 			);
 			dependencies = (
 			);
-			name = "Warehaus Runner";
+			name = "Warehaus Portal";
 			packageProductDependencies = (
 				7A0000000000000000000D01 /* RunnerMenu */,
 			);
-			productName = "Warehaus Runner";
-			productReference = 7A0000000000000000000F04 /* Warehaus Runner.app */;
+			productName = "Warehaus Portal";
+			productReference = 7A0000000000000000000F04 /* Warehaus Portal.app */;
 			productType = "com.apple.product-type.application";
 		};
 /* End PBXNativeTarget section */
@@ -106,7 +106,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
-				7A0000000000000000000C01 /* Warehaus Runner */,
+				7A0000000000000000000C01 /* Warehaus Portal */,
 			);
 		};
 /* End PBXProject section */
@@ -194,7 +194,7 @@
 				);
 				MARKETING_VERSION = 0.1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = co.warehaus.runner.app;
-				PRODUCT_NAME = "Warehaus Runner";
+				PRODUCT_NAME = "Warehaus Portal";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Debug;
@@ -219,7 +219,7 @@
 				MARKETING_VERSION = 0.1.0;
 				OTHER_CODE_SIGN_FLAGS = "--timestamp";
 				PRODUCT_BUNDLE_IDENTIFIER = co.warehaus.runner.app;
-				PRODUCT_NAME = "Warehaus Runner";
+				PRODUCT_NAME = "Warehaus Portal";
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;
@@ -236,7 +236,7 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
-		7A0000000000000000000L02 /* Build configuration list for PBXNativeTarget "Warehaus Runner" */ = {
+		7A0000000000000000000L02 /* Build configuration list for PBXNativeTarget "Warehaus Portal" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
 				7A0000000000000000000G03 /* Debug */,

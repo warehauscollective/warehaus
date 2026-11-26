@@ -1,8 +1,8 @@
 import RunnerMenu
 import SwiftUI
 
-/// Warehaus Runner: the menu bar app that keeps the runner going on a staff
-/// Mac and shows the Portal in its own window. Everything lives in the
+/// Warehaus Portal: shows the Portal in its own window and keeps the runner
+/// going from the menu bar on a staff Mac. Everything lives in the
 /// RunnerMenu, RunnerSupervisor and PortalWindow modules in apps/mac/Sources;
 /// this target only signs, bundles and launches them.
 @main

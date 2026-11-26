@@ -33,7 +33,8 @@ public protocol UpdateWorkspace: AnyObject {
 public protocol AppSwapping: AnyObject {
     /// False when the app can't replace itself where it is (no write access).
     func canReplace() -> Bool
-    /// Moves this app aside as the rollback copy and puts `newApp` in its place.
+    /// Moves this app aside as the rollback copy and puts `newApp` in the same
+    /// folder under its own name (a renamed app lands at its new name).
     func swap(in newApp: URL) throws
     /// Starts the app now in place, telling it where to check in. Returns its process id.
     func launchReplacement(checkIn: URL) async throws -> pid_t
@@ -280,7 +281,7 @@ public final class LiveUpdateWorkspace: UpdateWorkspace {
         let folder = root.appendingPathComponent("\(release.build)-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         self.folder = folder
-        let zip = folder.appendingPathComponent("Warehaus-Runner.zip")
+        let zip = folder.appendingPathComponent("Warehaus-Portal.zip")
         if release.url.isFileURL {
             try FileManager.default.copyItem(at: release.url, to: zip)
         } else {
@@ -347,6 +348,9 @@ public final class LiveUpdateWorkspace: UpdateWorkspace {
 public final class LiveAppSwapper: AppSwapping {
     private let installed: URL
     private let rollback: URL
+    /// Where the new app lives after `swap`: next to this one, under the new
+    /// app's own name. Same as `installed` unless the app was renamed.
+    private var replacement: URL
     public let checkInFlag: URL
     private var extraArguments: [String]
     private let log = Logger(subsystem: "co.warehaus.runner.app", category: "update")
@@ -354,6 +358,7 @@ public final class LiveAppSwapper: AppSwapping {
     /// - extraArguments: passed on to the new app (debug fixtures only).
     public init(installed: URL = Bundle.main.bundleURL, root: URL = LiveUpdateWorkspace.defaultRoot, extraArguments: [String] = []) {
         self.installed = installed
+        replacement = installed
         rollback = root.appendingPathComponent("rollback/\(installed.lastPathComponent)", isDirectory: true)
         checkInFlag = root.appendingPathComponent("checked-in")
         self.extraArguments = extraArguments
@@ -369,9 +374,15 @@ public final class LiveAppSwapper: AppSwapping {
         try files.createDirectory(at: rollback.deletingLastPathComponent(), withIntermediateDirectories: true)
         if files.fileExists(atPath: rollback.path) { try files.removeItem(at: rollback) }
         try? files.removeItem(at: checkInFlag)
+        let target = installed.deletingLastPathComponent().appendingPathComponent(newApp.lastPathComponent, isDirectory: true)
+        // A renamed app never lands on top of some other copy already there.
+        if target.standardizedFileURL != installed.standardizedFileURL, files.fileExists(atPath: target.path) {
+            throw CocoaError(.fileWriteFileExists, userInfo: [NSFilePathErrorKey: target.path])
+        }
         try files.moveItem(at: installed, to: rollback)
         do {
-            try files.moveItem(at: newApp, to: installed)
+            try files.moveItem(at: newApp, to: target)
+            replacement = target
         } catch {
             // Put this app back before reporting.
             try? files.moveItem(at: rollback, to: installed)
@@ -383,7 +394,7 @@ public final class LiveAppSwapper: AppSwapping {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.createsNewApplicationInstance = true
         configuration.arguments = ["-UpdateCheckIn", checkIn.path] + extraArguments
-        let app = try await NSWorkspace.shared.openApplication(at: installed, configuration: configuration)
+        let app = try await NSWorkspace.shared.openApplication(at: replacement, configuration: configuration)
         return app.processIdentifier
     }
 
@@ -399,8 +410,10 @@ public final class LiveAppSwapper: AppSwapping {
         if pid > 0, let app = NSRunningApplication(processIdentifier: pid) { app.forceTerminate() }
         let files = FileManager.default
         guard files.fileExists(atPath: rollback.path) else { return }
+        if files.fileExists(atPath: replacement.path) { try files.removeItem(at: replacement) }
         if files.fileExists(atPath: installed.path) { try files.removeItem(at: installed) }
         try files.moveItem(at: rollback, to: installed)
+        replacement = installed
     }
 
     public func finish() {

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Puts the runner and its runtime inside a built Warehaus Runner.app and signs
+# Puts the runner and its runtime inside a built Warehaus Portal.app and signs
 # each nested binary, so the app needs nothing installed to run the runner:
 #
 #   Contents/Resources/runner/
@@ -8,7 +8,7 @@
 #       packages/runner-protocol/{index.mjs,package.json}
 #       licenses/{node,gh}.txt
 #
-#   apps/mac/scripts/bundle-runtime.sh "<path>/Warehaus Runner.app" [--identity "<Developer ID>"]
+#   apps/mac/scripts/bundle-runtime.sh "<path>/Warehaus Portal.app" [--identity "<Developer ID>"]
 #
 # Node and gh are downloaded once from the official URLs into apps/mac/build/
 # runtime-cache and checked against the SHA-256 in runtime.lock every time.

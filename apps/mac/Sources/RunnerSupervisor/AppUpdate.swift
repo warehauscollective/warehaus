@@ -118,7 +118,7 @@ public enum UpdateRejection: Equatable, Sendable {
         case .sizeMismatch, .checksumMismatch: return "the download didn't match"
         case .badSignature: return "the signature didn't check out"
         case .wrongTeam: return "it isn't signed by Warehaus"
-        case .wrongApp: return "it isn't Warehaus Runner"
+        case .wrongApp: return "it isn't Warehaus Portal"
         case .notNewer: return "it isn't newer than this version"
         case .notNotarized: return "macOS didn't accept it"
         case .wrongBuild: return "it isn't the build the Portal named"

@@ -150,7 +150,7 @@ describe('runner health copy', () => {
         '2h ago',
         '—',
         command,
-        "No runner serving this repository has been seen in the last 10 minutes. The runner app starts at login, so check the Mac is on and open Warehaus Runner if it was quit. Moving a milestone to Building won't start an agent until one is running.",
+        "No runner serving this repository has been seen in the last 10 minutes. The runner app starts at login, so check the Mac is on and open Warehaus Portal if it was quit. Moving a milestone to Building won't start an agent until one is running.",
       ],
     );
 
@@ -165,7 +165,7 @@ describe('runner health copy', () => {
         '2h ago',
         'Client experience launch',
         command,
-        'Client experience launch is Building and waiting for the runner. Open Warehaus Runner on the Mac to pick the milestone up.',
+        'Client experience launch is Building and waiting for the runner. Open Warehaus Portal on the Mac to pick the milestone up.',
       ],
     );
 
@@ -185,7 +185,7 @@ describe('runner health copy', () => {
     const never = runnerHealthCopy(view({ runners: [{ id: 'peter-mbp', lastSeenAt: null }], production: false }), NOW);
     assert.deepEqual(
       [never.state, never.meta, never.lastSeen, never.onTheMac],
-      ['offline', 'not seen yet', '—', 'Open Warehaus Runner from Applications'],
+      ['offline', 'not seen yet', '—', 'Open Warehaus Portal from Applications'],
     );
   });
 

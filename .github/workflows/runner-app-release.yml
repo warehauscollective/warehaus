@@ -1,6 +1,6 @@
 name: Runner app release
 
-# Builds Warehaus Runner (apps/mac), signs it with the Warehaus LLC Developer ID,
+# Builds Warehaus Portal (apps/mac), signs it with the Warehaus LLC Developer ID,
 # notarizes and staples it, checks Gatekeeper, and publishes the zip to the
 # Portal's runner app release check (production Convex). Staff download it from
 # Set up runner; runners update to it between runs.
