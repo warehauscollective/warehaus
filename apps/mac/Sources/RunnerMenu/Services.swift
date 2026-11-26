@@ -86,59 +86,13 @@ public final class SystemNotifier: AttentionNotifying {
     }
 }
 
-// MARK: - Updates (stub until the self-update task)
+// MARK: - Set-up
 
-public enum UpdateStatus: Equatable, Sendable {
-    case upToDate(version: String)
-    case available(version: String)
-    case checking(version: String)
-}
-
-/// The update line and Check for update. The self-update task replaces the
-/// stub with a real check against `/agent/app-release` that installs between runs.
-@MainActor
-public protocol UpdateChecking {
-    var status: UpdateStatus { get }
-    func checkNow() async -> UpdateStatus
-}
-
-@MainActor
-public final class StubUpdateChecker: UpdateChecking {
-    public let version: String
-
-    public init(version: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev") {
-        self.version = version
-    }
-
-    public var status: UpdateStatus { .upToDate(version: version) }
-
-    public func checkNow() async -> UpdateStatus { .upToDate(version: version) }
-}
-
-// MARK: - Set-up (stub until the first-launch task)
-
-/// Pairing and GitHub sign-in. The first-launch task replaces this with the
-/// checklist and pairing windows from the design.
+/// Pairing and GitHub sign-in from the menu. SetupWindows opens the checklist.
 @MainActor
 public protocol SetUpFlow {
     func pair()
     func signInToGitHub()
-}
-
-@MainActor
-public final class BrowserSetUpFlow: SetUpFlow {
-    private let opener: URLOpening
-    private let policy: DeploymentPolicy
-
-    public init(opener: URLOpening, policy: DeploymentPolicy) {
-        self.opener = opener
-        self.policy = policy
-    }
-
-    /// For now: the Portal, where staff set up a runner from the runner chip.
-    public func pair() { opener.open(policy.portalURL) }
-
-    public func signInToGitHub() { opener.open(URL(string: "https://github.com/login")!) }
 }
 
 // MARK: - Links

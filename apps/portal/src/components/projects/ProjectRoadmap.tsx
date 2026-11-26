@@ -172,6 +172,7 @@ export function ProjectRoadmap({
   const auth = usePortalAuth();
   const isPeter = isPeterEmail(auth.authUser?.email);
   const approveMilestone = useMutation(api.milestones.approve);
+  const approveDesign = useMutation(api.milestones.approveDesign);
   const setMilestoneStatus = useMutation(api.milestones.setStatus);
   const advanceMilestone = useMutation(api.milestones.advance);
   const setTileLink = useMutation(api.milestones.setTileLink);
@@ -409,6 +410,13 @@ export function ProjectRoadmap({
           notes: '',
         })
       }
+      onApproveDesign={async () => {
+        if (fixtures) {
+          patchMilestone(milestone.id, { designApprovedAt: Date.now() });
+          return;
+        }
+        await approveDesign({ hostSlug, milestoneId: milestone.id as Id<'milestones'> });
+      }}
       onSetLink={async (field, url) => {
         if (fixtures) {
           patchMilestone(

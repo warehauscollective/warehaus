@@ -276,6 +276,12 @@ export default defineSchema({
     approverContactId: v.optional(v.id('contacts')),
     /** When that human decided. */
     decidedAt: v.optional(v.number()),
+    /**
+     * When Peter approved this milestone's design (Approve designs on the tile).
+     * Staff only. Clients never receive it. Absent until he approves.
+     */
+    designApprovedAt: v.optional(v.number()),
+    designApproverContactId: v.optional(v.id('contacts')),
     /** Clients do not see a milestone until this is true. Inserts stay false. */
     publishToWarehaus: v.boolean(),
     /**
@@ -470,9 +476,28 @@ export default defineSchema({
     revokedAt: v.optional(v.number()),
     /** The runner protocol version from its last heartbeat. */
     protocolVersion: v.optional(v.number()),
+    /** Set while the runner app on that Mac is paused. Cleared when it resumes. */
+    pausedAt: v.optional(v.number()),
   })
     .index('by_runnerId', ['runnerId'])
     .index('by_registeredAt', ['registeredAt']),
+
+  /**
+   * Runner app builds published by CI on a production deploy (decision 0005).
+   * The zip lives in Convex file storage, so the download is never public:
+   * staff get it from the Portal and runners through their own secret.
+   */
+  runnerAppReleases: defineTable({
+    version: v.string(),
+    /** Monotonic build number. The app updates to a higher one. */
+    build: v.number(),
+    storageId: v.id('_storage'),
+    sha256: v.string(),
+    size: v.number(),
+    minMacOS: v.string(),
+    publishedAt: v.number(),
+  })
+    .index('by_build', ['build']),
 
   /**
    * A runner set-up waiting for staff to confirm its code. The CLI holds the

@@ -11,16 +11,12 @@ import {
   RUNNER_RATE_LIMIT,
   RUNNER_RATE_LIMITED,
   RUNNER_RATE_WINDOW_MS,
-  RUNNER_UNAUTHORIZED,
-  authorizeRunner,
   completeDecision,
   eventSummary,
   eventType,
   feedLimit,
   milestoneBranch,
-  parseRunnerTokens,
   redactSecrets,
-  reposForRunner,
   runnerOnline,
   runnerRateDecision,
   runnerTouchDecision,
@@ -44,6 +40,7 @@ import { RUNNER_NEEDS_REPO } from './agentRun';
 import { PortalAuthError } from './identity';
 import { memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
 import { seedMilestone, seedMilestoneWorld } from './seedRows.testkit';
+import { sha256Hex } from './tokenCrypto';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
@@ -79,62 +76,14 @@ function seedRun(t: MemoryCtx, ids: { orgId: string; milestoneId: string }, fiel
 
 const claim = (t: MemoryCtx, runnerId = RUNNER, extra: Record<string, unknown> = {}) =>
   t.call<Claim>(claimNext, { runnerId, repos: [REPO], ...extra });
-const TOKEN_A = 'a'.repeat(32);
-const TOKEN_B = 'b'.repeat(32);
-const configured = `peter-mbp=${TOKEN_A},studio-mini=${TOKEN_B}`;
-
-describe('runner tokens', () => {
-  it('reads one token per runner and drops short or malformed entries', () => {
-    const tokens = parseRunnerTokens(`${configured}\nshort=abc, Bad Id=${TOKEN_A},=x`);
-    assert.deepEqual([...tokens.keys()], ['peter-mbp', 'studio-mini']);
-    assert.equal(parseRunnerTokens(undefined).size, 0);
-  });
-
-  it('accepts only the named runner with its own token', () => {
-    const ok = authorizeRunner({ configured, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' });
-    assert.deepEqual(ok, { ok: true, runnerId: 'peter-mbp', repos: [] });
-    // Another runner's token, an unknown id, and a missing header are all refused the same way.
-    for (const [header, id] of [
-      [`Bearer ${TOKEN_B}`, 'peter-mbp'],
-      [`Bearer ${TOKEN_A}`, 'someone-else'],
-      [null, 'peter-mbp'],
-      [`Basic ${TOKEN_A}`, 'peter-mbp'],
-    ] as const) {
-      const refused = authorizeRunner({ configured, authorizationHeader: header, runnerId: id });
-      assert.deepEqual(refused, { ok: false, status: 401, reason: RUNNER_UNAUTHORIZED });
+describe('no RUNNER_TOKENS fallback', () => {
+  it('reads no RUNNER_TOKENS anywhere in Convex, and every claim is a registered runner naming its repositories', () => {
+    // Absence guard (ADR-0005, task 13): runners get in only by their registration.
+    for (const path of ['../agent.ts', '../agentHttp.ts', './agentRun.ts', './runnerHealth.ts', './runnerRegistry.ts']) {
+      assert.doesNotMatch(read(path), /process\.env\.RUNNER_TOKENS|parseRunnerTokens|authorizeRunner|envAuthorized/, path);
     }
-    assert.equal(authorizeRunner({ configured: '', authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' }).ok, false);
-    const bad = authorizeRunner({ configured, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'Peter MBP' });
-    assert.equal(bad.ok, false);
-    if (!bad.ok) assert.equal(bad.status, 400);
-  });
-
-  it('never compares the token with == or ===, so the check stays constant time', () => {
-    // Absence guard: a plain comparison would leak the token through timing.
-    const source = read('./agentRun.ts');
-    const authorize = source.slice(source.indexOf('export function authorizeRunner'), source.indexOf('export function reposForRunner'));
-    assert.doesNotMatch(authorize, /[!=]==?\s*(given|reference|expected\??\.token)\b|\b(given|reference|token)\s*[!=]==?/);
-  });
-
-  it('hands a runner only the repositories named on its token', () => {
-    const raw = `peter-mbp=${TOKEN_A} WarehausCollective/Warehaus other/repo\nstudio-mini=${TOKEN_B}`;
-    const tokens = parseRunnerTokens(raw);
-    assert.deepEqual(tokens.get('peter-mbp')?.repos, ['warehauscollective/warehaus', 'other/repo']);
-    assert.deepEqual(tokens.get('studio-mini')?.repos, []);
-    const ok = authorizeRunner({ configured: raw, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' });
-    assert.equal(ok.ok, true);
-    if (ok.ok) {
-      assert.deepEqual(reposForRunner(ok.repos, ['warehauscollective/warehaus', 'secret/other']), ['warehauscollective/warehaus']);
-      assert.deepEqual(reposForRunner(ok.repos, []), []);
-    }
-    const bare = authorizeRunner({ configured, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' });
-    if (bare.ok) assert.deepEqual(reposForRunner(bare.repos, ['warehauscollective/warehaus']), []);
-    // Absence guard: a fallback runner's repositories always pass its token's allowlist. Only a
-    // registered runner, which serves every project with a repository, names its own.
-    const http = read('../agentHttp.ts')
-      .replaceAll('reposForRunner(env.ok ? env.repos : [], body.repos)', '')
-      .replaceAll('{ repos: runnerRepos(body.repos), anyRepo: true }', '');
-    assert.doesNotMatch(http, /body\.repos/);
+    const http = read('../agentHttp.ts');
+    assert.match(http, /repos: runnerRepos\(body\.repos\),\s*anyRepo: true/);
   });
 });
 
@@ -165,12 +114,18 @@ describe('rate limit and liveness', () => {
 
   it('touchRunner writes the runner row once, and a call inside the same minute writes nothing', async () => {
     const t = memoryCtx();
-    const env = { runnerId: RUNNER, envAuthorized: true };
-    assert.deepEqual(await t.call(touchRunner, env), { ok: true, registered: false });
+    const tokenHash = await sha256Hex('runner-secret-'.padEnd(40, 'x'));
+    t.seed('agentRunners', { runnerId: RUNNER, windowStart: 0, count: 0, tokenHash, registeredAt: 1 });
+    const call = { runnerId: RUNNER, tokenHash };
+    assert.deepEqual(await t.call(touchRunner, call), { ok: true, registered: true });
     const first = t.rows('agentRunners');
     assert.equal(first.length, 1);
     assert.equal(first[0]?.count, 1);
-    assert.deepEqual(await t.call(touchRunner, env), { ok: true, registered: false });
+    assert.deepEqual(await t.call(touchRunner, call), { ok: true, registered: true });
+    assert.deepEqual(t.rows('agentRunners'), first);
+    // An unregistered id, or a wrong secret, is refused and writes nothing.
+    assert.equal((await t.call<{ ok: boolean }>(touchRunner, { runnerId: 'someone-else', tokenHash })).ok, false);
+    assert.equal((await t.call<{ ok: boolean }>(touchRunner, { runnerId: RUNNER, tokenHash: await sha256Hex('wrong') })).ok, false);
     assert.deepEqual(t.rows('agentRunners'), first);
   });
 

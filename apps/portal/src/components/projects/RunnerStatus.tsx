@@ -7,19 +7,23 @@ import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
 import {
   RUNNER_ADD_REPO,
+  RUNNER_APP_FIELD,
+  RUNNER_APP_REQUIREMENTS,
   RUNNER_CONFIRM_HELPER,
+  RUNNER_DOWNLOAD,
   RUNNER_HEALTH_STATES,
+  RUNNER_KEEP_RUNNING,
   RUNNER_LIST_HELPER,
   RUNNER_MODAL_TITLE,
   RUNNER_PAIRED_HELPER,
+  RUNNER_NO_RELEASE,
   RUNNER_SERVES,
+  RUNNER_SETUP_HELPER,
   RUNNER_SETUP_TITLE,
   agoLabel,
   runnerHealthCopy,
-  runnerInstallCommand,
   runnerOutOfDateCopy,
   runnerRevokeHelper,
-  runnerSetupCommand,
   type RunnerHealthRunner,
   type RunnerDot,
   type RunnerHealthCopy,
@@ -47,7 +51,7 @@ export function runnerHealthFixture(state: RunnerHealthState, now: number): Runn
   const base = { production: true, protocolMin: 2 };
   if (state === 'no-repo') return { ...base, registeredCount: 0, repoSet: false, repo: null, runnerAllowed: false, runners: [], working: null, building: null };
   if (state === 'no-runner') return { ...base, registeredCount: 0, repoSet: true, repo: FIXTURE_REPO, runnerAllowed: false, runners: [], working: null, building: null };
-  const fresh = state === 'ready' || state === 'working';
+  const fresh = state === 'ready' || state === 'working' || state === 'paused';
   return {
     ...base,
     registeredCount: 2,
@@ -55,7 +59,7 @@ export function runnerHealthFixture(state: RunnerHealthState, now: number): Runn
     repo: FIXTURE_REPO,
     runnerAllowed: true,
     runners: [
-      { id: 'peter-mbp-prod', lastSeenAt: now - (fresh ? 4 * 60_000 : 2 * 60 * 60_000), registered: true, protocolVersion: 2 },
+      { id: 'peter-mbp-prod', lastSeenAt: now - (fresh ? 4 * 60_000 : 2 * 60 * 60_000), registered: true, protocolVersion: 2, ...(state === 'paused' ? { paused: true } : {}) },
       { id: 'studio-mini-prod', lastSeenAt: now - 3 * 24 * 60 * 60_000, registered: true, protocolVersion: 2 },
     ],
     working: state === 'working' ? FIXTURE_MILESTONE : null,
@@ -323,32 +327,52 @@ export function runnerModalStep(value: string | null | undefined): RunnerModalSt
   return RUNNER_MODAL_STEPS.find((step) => step === value) ?? null;
 }
 
-/** Not set up with a repository: the command, and a field for the code it prints. */
+/** The latest runner app build staff can download. Undefined while loading, null when none is published. */
+export type RunnerDownload = { url: string; version: string } | null | undefined;
+
+/**
+ * Not set up with a repository: download the runner app, then the code it
+ * shows. No terminal. The primary button is Download until a full code is
+ * typed, then Pair runner. The app normally opens Confirm itself with the
+ * code filled in, so typing is the fallback.
+ */
 export function RunnerSetupBody({
-  production,
+  download,
   code,
   onCode,
   onPair,
   error,
 }: {
-  production: boolean;
+  download: RunnerDownload;
   code: string;
   onCode: (value: string) => void;
   onPair: () => void;
   error?: string | null;
 }) {
+  const complete = code.replace(/[\s-]/g, '').length === 8;
+  const noRelease = download === null;
   return (
     <Stack step="setup">
       <Heading dot="unset" label={RUNNER_SETUP_TITLE} />
-      <Field label="ON THE MAC THAT WILL RUN WORK" value={runnerSetupCommand(production)} mono />
-      <TextField label="Pairing code" value={code} onChange={onCode} placeholder="K7QM-4XPA" testId="runner-pairing-code" autoFocus />
-      <Helper tone={error ? 'var(--warning)' : undefined}>
-        {error ?? "The command prints an 8-character code. Enter it here to pair that Mac. Its secret goes straight to the Mac's Keychain and is never shown."}
-      </Helper>
+      <Field label={RUNNER_APP_FIELD} value={download ? `${RUNNER_APP_REQUIREMENTS} · ${download.version}` : RUNNER_APP_REQUIREMENTS} />
+      <TextField label="Pairing code" value={code} onChange={onCode} placeholder="K7QM-4XPA" testId="runner-pairing-code" />
+      <Helper tone={error ? 'var(--warning)' : undefined}>{error ?? (noRelease && !complete ? RUNNER_NO_RELEASE : RUNNER_SETUP_HELPER)}</Helper>
       <Actions>
-        <PrimaryButton testId="runner-pair" onClick={onPair} disabled={code.replace(/[\s-]/g, '').length !== 8}>
-          Pair runner
-        </PrimaryButton>
+        {complete ? (
+          <PrimaryButton testId="runner-pair" onClick={onPair}>
+            Pair runner
+          </PrimaryButton>
+        ) : (
+          <PrimaryButton
+            testId="runner-download"
+            disabled={!download}
+            onClick={() => {
+              if (download) window.location.assign(download.url);
+            }}
+          >
+            {RUNNER_DOWNLOAD}
+          </PrimaryButton>
+        )}
       </Actions>
     </Stack>
   );
@@ -394,17 +418,7 @@ export function RunnerConfirmBody({
   );
 }
 
-export function RunnerPairedBody({
-  runnerId,
-  lastSeen,
-  production,
-  onDone,
-}: {
-  runnerId: string;
-  lastSeen: string;
-  production: boolean;
-  onDone: () => void;
-}) {
+export function RunnerPairedBody({ runnerId, lastSeen, onDone }: { runnerId: string; lastSeen: string; onDone: () => void }) {
   return (
     <Stack step="paired">
       <Heading dot="ready" label="Runner paired" />
@@ -412,7 +426,7 @@ export function RunnerPairedBody({
         <Field label="RUNNER" value={runnerId} />
         <Field label="LAST SEEN" value={lastSeen} />
         <Field label="SERVES" value={RUNNER_SERVES} />
-        <Field label="KEEP IT RUNNING" value={runnerInstallCommand(production)} mono />
+        <Field label="KEEP IT RUNNING" value={RUNNER_KEEP_RUNNING} />
       </div>
       <Helper>{RUNNER_PAIRED_HELPER}</Helper>
       <Actions>
@@ -516,14 +530,14 @@ export function RunnerOutOfDateBody({ view, now }: { view: RunnerHealthView; now
         <Field label="RUNNER" value={copy.runner} />
         <Field label="LAST SEEN" value={copy.lastSeen} />
         <Field label="VERSION" value={copy.version} />
-        <Field label="UPDATE" value={copy.update} mono />
+        <Field label="UPDATE" value={copy.update} />
       </div>
       <Helper tone="var(--warning)">{copy.helper}</Helper>
     </Stack>
   );
 }
 
-/** Modal content: status, the fields, the start command while offline, and the helper line. */
+/** Modal content: status, the fields, what to do on the Mac while offline, and the helper line. */
 export function RunnerStatusBody({ copy, onManage }: { copy: RunnerHealthCopy; onManage?: () => void }) {
   const tone = copy.warning ? 'var(--warning)' : undefined;
   return (
@@ -536,7 +550,7 @@ export function RunnerStatusBody({ copy, onManage }: { copy: RunnerHealthCopy; o
         <Field label="RUNNER" value={copy.runner} />
         <Field label="LAST SEEN" value={copy.lastSeen} />
         <Field label="MILESTONE" value={copy.milestone} />
-        {copy.startCommand ? <Field label="START COMMAND" value={copy.startCommand} mono /> : null}
+        {copy.onTheMac ? <Field label="ON THE MAC" value={copy.onTheMac} /> : null}
       </div>
       <p data-testid="runner-status-helper" style={{ margin: 0, fontSize: 14, lineHeight: 'normal', color: tone ?? 'var(--muted)' }}>
         {copy.helper}
@@ -608,6 +622,7 @@ function useClock(intervalMs: number): number | null {
 type PairingFound = { code: string; proposedRunnerId: string; expiresAt: number; production: boolean };
 type Outcome = { ok: true; runnerId?: string } | { ok: false; error: string };
 
+const FIXTURE_DOWNLOAD: RunnerDownload = { url: '#runner-app', version: '1.0.0' };
 const FIXTURE_PAIRING: PairingFound = { code: 'K7QM-4XPA', proposedRunnerId: 'peter-mbp-prod', expiresAt: 0, production: true };
 
 /**
@@ -678,6 +693,8 @@ export function RunnerHealth({
   const pairing = useSafeQuery<PairingFound | null>(api.runners.findPairing, querying && open && step === 'confirm' ? { code, hostSlug } : 'skip');
   const confirm = useMutation(api.runners.confirmPairing);
   const revoke = useMutation(api.runners.revokeRunner);
+  const settingUp = open && (step === 'setup' || step === 'confirm');
+  const release = useSafeQuery<RunnerDownload>(api.runnerApp.latestDownload, querying && settingUp ? { hostSlug } : 'skip');
   const fixtureStep = fixtures ? params.get('runnerModal') : null;
   useEffect(() => {
     if (!fixtureStep || fixtureOpened) return;
@@ -700,6 +717,7 @@ export function RunnerHealth({
   const view = fixtures ? runnerHealthFixture(runnerFixtureState(params.get('runner')), now) : query.data;
   if (!view) return null;
   const copy = runnerHealthCopy(view, now);
+  const download: RunnerDownload = fixtures ? FIXTURE_DOWNLOAD : release.data;
   const close = () => {
     setOpen(false);
     setStep('status');
@@ -736,11 +754,11 @@ export function RunnerHealth({
   const revokeTarget = view.runners.find((runner) => runner.id === revoking);
   let body: ReactNode = null;
   if (step === 'setup' || (step === 'status' && copy.state === 'no-runner')) {
-    body = <RunnerSetupBody production={view.production} code={code} onCode={setCode} onPair={() => go('confirm')} error={error} />;
+    body = <RunnerSetupBody download={download} code={code} onCode={setCode} onPair={() => go('confirm')} error={error} />;
   } else if (step === 'confirm') {
     body =
       found === null && !fixtures ? (
-        <RunnerSetupBody production={view.production} code={code} onCode={setCode} onPair={() => go('confirm')} error="No open pairing has that code. Codes expire after 10 minutes." />
+        <RunnerSetupBody download={download} code={code} onCode={setCode} onPair={() => go('confirm')} error="No open pairing has that code. Codes expire after 10 minutes." />
       ) : (
         <RunnerConfirmBody
           code={found?.code ?? code}
@@ -763,7 +781,7 @@ export function RunnerHealth({
       );
   } else if (step === 'paired') {
     const seen = pairedRunner?.lastSeenAt != null ? agoLabel(pairedRunner.lastSeenAt, now) : 'Not seen yet';
-    body = <RunnerPairedBody runnerId={pairedId} lastSeen={seen} production={view.production} onDone={close} />;
+    body = <RunnerPairedBody runnerId={pairedId} lastSeen={seen} onDone={close} />;
   } else if (step === 'runners') {
     body = (
       <RunnerListBody

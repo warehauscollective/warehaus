@@ -1,22 +1,27 @@
 import AppKit
 
 enum MenuBarIcon {
-    /// The "W" in a rounded square from the design, as a template image so it
-    /// follows the menu bar's light and dark appearance.
+    /// The Warehaus logomark (Figma Logo, Type=Mark, 159:833): five rounded
+    /// bars, alternately raised and lowered. Drawn as a template image so it
+    /// follows the menu bar's light and dark appearance, and matches the app
+    /// icon (apps/mac/App/AppIcon.svg).
     static let image: NSImage = {
-        let size = NSSize(width: 18, height: 14)
-        let image = NSImage(size: size, flipped: false) { rect in
+        // The mark is 67.2 x 28 in Figma. Scale it to 22pt wide.
+        let scale: CGFloat = 22 / 67.2
+        let size = NSSize(width: 22, height: (28 * scale).rounded(.up))
+        let barWidth = 12.096 * scale
+        let barHeight = 21.28 * scale
+        let radius = 3.92 * scale
+        let drop = 6.72 * scale
+        let step = 13.776 * scale
+        let image = NSImage(size: size, flipped: true) { rect in
             NSColor.black.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: 3, yRadius: 3).fill()
-            let attributes: [NSAttributedString.Key: Any] = [
-                .font: NSFont.systemFont(ofSize: 10, weight: .heavy),
-                .foregroundColor: NSColor.black,
-            ]
-            let letter = NSAttributedString(string: "W", attributes: attributes)
-            let bounds = letter.size()
-            let origin = NSPoint(x: (rect.width - bounds.width) / 2, y: (rect.height - bounds.height) / 2)
-            NSGraphicsContext.current?.compositingOperation = .destinationOut
-            letter.draw(at: origin)
+            let top = (rect.height - 28 * scale) / 2
+            for index in 0..<5 {
+                let y = top + (index.isMultiple(of: 2) ? 0 : drop)
+                let bar = NSRect(x: CGFloat(index) * step, y: y, width: barWidth, height: barHeight)
+                NSBezierPath(roundedRect: bar, xRadius: radius, yRadius: radius).fill()
+            }
             return true
         }
         image.isTemplate = true

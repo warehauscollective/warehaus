@@ -26,8 +26,8 @@ import { runnerClient } from '../../../packages/runner-protocol/index.mjs';
 import {
   attentionForStatus,
   HEARTBEAT_MS,
-  heartbeatSlices,
   idleDelayMs,
+  idleWait,
   parseArgs,
   parsePlanOutput,
   planPrompt,
@@ -238,17 +238,17 @@ function wakeableSleep(ms) {
 
 /**
  * Waits between empty polls, pinging the Portal every heartbeat so the runner
- * health chip keeps reading Ready. A ping claims nothing. A failed one is skipped.
- * Pause or Resume ends the wait early.
+ * health chip keeps reading Ready, and carrying Paused. See idleWait in lib.mjs.
+ * Pause or Resume from the app ends the wait early.
  */
-async function idleWait(config, ms) {
-  const slices = heartbeatSlices(ms);
+function waitIdle(config, ms) {
   const pausedAtStart = control.paused;
-  for (let index = 0; index < slices.length; index += 1) {
-    await wakeableSleep(slices[index]);
-    if (control.paused !== pausedAtStart) return;
-    if (index < slices.length - 1) await client(config).ping({ paused: control.paused }).catch(() => {});
-  }
+  return idleWait({
+    ms,
+    sleep: wakeableSleep,
+    stopped: () => control.paused !== pausedAtStart,
+    ping: () => client(config).ping({ paused: control.paused }),
+  });
 }
 
 /** How long a GitHub sign-in check is trusted before `gh auth status` runs again. */
@@ -303,6 +303,31 @@ async function runRemove({ production }) {
   if (!revoked) process.exit(3);
 }
 
+/**
+ * `app-release`: the latest runner app build, for the Mac app's self-update.
+ * The app never holds the runner secret, so it asks through this command,
+ * which prints one app_release line. Exit 3 when the Portal refuses the
+ * secret, 2 when this Mac is not paired, 1 when the Portal can't be reached.
+ */
+async function runAppRelease({ production }) {
+  const saved = readSavedConfig(production);
+  const id = saved.RUNNER_ID || '';
+  if (!id) process.exit(2);
+  const token = readKeychainSecret(deploymentFor(production).name, id);
+  const env = readEnv({ PORTAL_AGENT_URL: saved.PORTAL_AGENT_URL, RUNNER_PRODUCTION: saved.RUNNER_PRODUCTION }, { production, token });
+  if (!env.ok) {
+    process.stderr.write(`${env.error}\n`);
+    process.exit(2);
+  }
+  try {
+    const result = await runnerClient({ url: env.url, token: env.token, runnerId: id, timeoutMs: 15_000 }).appRelease();
+    process.stdout.write(supervisorLine('app_release', { release: result?.release ?? null }));
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exit(error.status === 401 ? 3 : 1);
+  }
+}
+
 async function main() {
   const parsed = parseArgs(process.argv.slice(2));
   if (!parsed.ok) {
@@ -311,12 +336,14 @@ async function main() {
   }
   const { production } = parsed.options;
   if (parsed.options.command === 'setup') {
-    await runSetup({ production, id: parsed.options.id, say });
+    supervised = parsed.options.supervised === true;
+    await runSetup({ production, id: parsed.options.id, say, report: supervised ? report : null });
     return;
   }
   if (parsed.options.command === 'install') return runInstall({ production, say });
   if (parsed.options.command === 'uninstall') return runUninstall({ production, say });
   if (parsed.options.command === 'remove') return runRemove({ production });
+  if (parsed.options.command === 'app-release') return runAppRelease({ production });
   supervised = parsed.options.supervised === true;
   control.paused = parsed.options.paused === true;
   if (supervised) listenForCommands();
@@ -417,7 +444,7 @@ async function main() {
     }
     if (parsed.options.once) break;
     if (buildStillRunning) await sleep(idleDelayMs(1));
-    else if (work.kind !== 'task' && work.kind !== 'planning' && work.kind !== 'build') await idleWait(config, idleDelayMs(empty));
+    else if (work.kind !== 'task' && work.kind !== 'planning' && work.kind !== 'build') await waitIdle(config, idleDelayMs(empty));
   }
 }
 

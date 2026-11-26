@@ -9,6 +9,7 @@ import {
   HEARTBEAT_MS,
   heartbeatSlices,
   idleDelayMs,
+  idleWait,
   isMilestoneBranch,
   parseArgs,
   attentionForStatus,
@@ -26,6 +27,7 @@ import {
   selectDriver,
   taskOutcome,
   taskPrompt,
+  designApprovalLine,
   worktreeName,
   proposedRunnerId,
   parseConfigFile,
@@ -63,7 +65,7 @@ describe('arguments', () => {
   it('reads setup, with --production only when asked', () => {
     assert.deepEqual(parseArgs(['setup']).options.production, false);
     assert.deepEqual(parseArgs(['setup', '--production', '--id', 'studio-mini-prod']).options, {
-      command: 'setup', production: true, id: 'studio-mini-prod', mode: 'interactive', once: false, repos: [],
+      command: 'setup', production: true, id: 'studio-mini-prod', mode: 'interactive', once: false, repos: [], supervised: false,
     });
     assert.equal(parseArgs(['setup', '--repo', 'a/b']).ok, false);
     assert.equal(parseArgs(['setup', '--once']).ok, false);
@@ -173,6 +175,16 @@ describe('prompts', () => {
     assert.match(prompt, /branch `milestone\/launch`/);
     assert.match(prompt, /- Hero matches/);
     assert.equal(prompt.includes('{{'), false);
+    // No design approval yet: the prompt says nothing about design.
+    assert.equal(prompt.includes('Design: approved'), false);
+  });
+
+  it('says the design is approved once Peter pressed Approve designs', () => {
+    const approved = { ...work, milestone: { ...work.milestone, designApprovedAt: Date.UTC(2026, 10, 25, 18) } };
+    const prompt = taskPrompt(read('../prompts/task.md'), approved);
+    assert.match(prompt, /Design: approved by Peter in the Portal on 2026-11-25\. Build tasks can go ahead\./);
+    assert.equal(designApprovalLine(null), '');
+    assert.equal(designApprovalLine('2026-11-25'), '');
   });
 
   it('fills the planning prompt and keeps it read only', () => {
@@ -269,9 +281,41 @@ describe('task outcome', () => {
       assert.equal(Math.max(...slices) <= HEARTBEAT_MS, true);
     }
     const cli = read('./cli.mjs');
-    assert.match(cli, /await idleWait\(config, idleDelayMs\(empty\)\)/);
-    // The ping goes through the protocol client (it used to call an undefined `call`) and carries Paused.
-    assert.match(cli, /client\(config\)\.ping\(\{ paused: control\.paused \}\)\.catch\(\(\) => \{\}\)/);
+    assert.match(cli, /await waitIdle\(config, idleDelayMs\(empty\)\)/);
+    // The ping goes through the protocol client and carries Paused.
+    assert.match(cli, /client\(config\)\.ping\(\{ paused: control\.paused \}\)/);
+  });
+
+  it('idleWait runs its pings: one between slices, none after the last, failures skipped', async () => {
+    const slept = [];
+    let pings = 0;
+    await idleWait({ ms: 300_000, sleep: async (ms) => void slept.push(ms), ping: async () => void (pings += 1) });
+    assert.deepEqual(slept, [75_000, 75_000, 75_000, 75_000]);
+    assert.equal(pings, 3);
+    pings = 0;
+    await idleWait({ ms: 60_000, sleep: async () => {}, ping: async () => void (pings += 1) });
+    assert.equal(pings, 0);
+    await idleWait({ ms: 120_000, sleep: async () => {}, ping: () => { throw new Error('sync boom'); } });
+    await idleWait({ ms: 120_000, sleep: async () => {}, ping: async () => { throw new Error('offline'); } });
+  });
+
+  it('idleWait stops early when Pause or Resume changes, without another ping', async () => {
+    const slept = [];
+    let pings = 0;
+    let stop = false;
+    await idleWait({
+      ms: 300_000,
+      sleep: async (ms) => { slept.push(ms); if (slept.length === 2) stop = true; },
+      ping: async () => void (pings += 1),
+      stopped: () => stop,
+    });
+    assert.deepEqual(slept, [75_000, 75_000]);
+    assert.equal(pings, 1);
+  });
+
+  it('cli.mjs pings through the protocol client, and every call-style identifier it uses is defined', () => {
+    const cli = read('./cli.mjs');
+    assert.doesNotMatch(cli, /(?<![.\w])call\(config/);
   });
 });
 
@@ -420,7 +464,9 @@ describe('runner Mac app supervision', () => {
     assert.equal(started.ok, true);
     assert.equal(started.options.supervised, true);
     assert.equal(started.options.paused, true);
-    assert.equal(parseArgs(['setup', '--supervised']).ok, false);
+    assert.equal(parseArgs(['setup', '--supervised']).options.supervised, true);
+    assert.equal(parseArgs(['setup', '--paused']).ok, false);
+    assert.equal(parseArgs(['install', '--supervised']).ok, false);
     assert.deepEqual(parseArgs(['remove', '--production']).options, {
       command: 'remove', production: true, id: '', mode: 'interactive', once: false, repos: [],
     });
@@ -434,6 +480,25 @@ describe('runner Mac app supervision', () => {
     assert.throws(() => supervisorLine('dancing'));
     assert.throws(() => supervisorLine('attention', { reason: 'bored' }));
     assert.doesNotThrow(() => supervisorLine('attention', { reason: 'github' }));
+  });
+
+  it('writes the pairing lines setup --supervised gives the app', () => {
+    const line = supervisorLine('pairing', { code: 'K7QM-4XPA', runnerId: 'peter-mbp-prod', expiresAt: 600, production: true, at: 1 });
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), {
+      type: 'pairing', code: 'K7QM-4XPA', runnerId: 'peter-mbp-prod', expiresAt: 600, production: true, at: 1,
+    });
+    assert.doesNotThrow(() => supervisorLine('paired', { runnerId: 'peter-mbp-prod' }));
+    assert.doesNotThrow(() => supervisorLine('pair_expired'));
+  });
+
+  it('reads app-release and writes its line', () => {
+    assert.deepEqual(parseArgs(['app-release', '--production']).options, {
+      command: 'app-release', production: true, id: '', mode: 'interactive', once: false, repos: [],
+    });
+    assert.equal(parseArgs(['app-release', '--once']).ok, false);
+    const release = { version: '0.1.1', build: 312, sha256: 'a'.repeat(64), size: 10, minMacOS: '14.0', publishedAt: 1, url: 'https://x.convex.cloud/api/storage/1' };
+    const line = supervisorLine('app_release', { release, at: 1 });
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), { type: 'app_release', release, at: 1 });
   });
 
   it('takes pause and resume on stdin, nothing else', () => {
