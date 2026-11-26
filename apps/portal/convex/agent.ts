@@ -53,7 +53,7 @@ import { PORTAL_MILESTONE_TASK_SOURCE, plannerDraftToArchive, stageForNewMilesto
 import { loadClaimableTasks, loadMilestoneTaskSet, type LoadedTask } from './_lib/milestoneTaskSet';
 import { PortalAuthError } from './_lib/identity';
 import { adminMutation, adminQuery } from './_lib/wrappers';
-import { RUNNER_HEALTH_MAX_RUNNERS, RUNNER_READY_WITHIN_MS, runnersAllowedFor, type RunnerHealthView } from './_lib/runnerHealth';
+import { RUNNER_READY_WITHIN_MS, type RunnerHealthView } from './_lib/runnerHealth';
 import {
   NO_RUNNER_NOTE_SCAN,
   NO_RUNNER_SCAN,
@@ -61,6 +61,7 @@ import {
   isNoRunnerNote,
   noRunnerNoteFor,
   runnerAccess,
+  runnerPausePatch,
 } from './_lib/runnerRegistry';
 import { registeredRunners, sweepExpiredPairings } from './_lib/runnerRegistryStore';
 import { RUNNER_PROTOCOL_MIN } from '@warehaus/runner-protocol';
@@ -199,26 +200,27 @@ async function branchFor(ctx: MutationCtx, milestone: Doc<'milestones'>): Promis
 }
 
 /**
- * Called first by every runner route. A runner is let in by its registration
- * (the hash of its bearer token matches) or, until the dev runner is
- * re-paired, by the `RUNNER_TOKENS` fallback the route already checked.
+ * Called first by every runner route. A runner is let in only by its
+ * registration: the hash of its bearer token matches.
  * The runner row is patched at most once a minute. Calls inside that minute
- * do not write, unless the runner's protocol version changed.
+ * do not write, unless the runner's protocol version or its paused flag changed.
+ * `paused` comes from the runner app: absent means "not saying", so an older
+ * runner never clears a pause.
  */
 export const touchRunner = internalMutation({
   args: {
     runnerId: v.string(),
     tokenHash: v.optional(v.string()),
-    envAuthorized: v.optional(v.boolean()),
     protocolVersion: v.optional(v.number()),
+    paused: v.optional(v.boolean()),
   },
-  handler: async (ctx, { runnerId, tokenHash, envAuthorized, protocolVersion }) => {
+  handler: async (ctx, { runnerId, tokenHash, protocolVersion, paused }) => {
     const now = Date.now();
     const row = await ctx.db
       .query('agentRunners')
       .withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))
       .unique();
-    const access = runnerAccess({ row, tokenHash, envAuthorized: envAuthorized === true });
+    const access = runnerAccess({ row, tokenHash });
     if (!access) return failure(401, RUNNER_UNAUTHORIZED);
     const registered = access === 'registered';
     const decision = runnerTouchDecision({
@@ -229,8 +231,11 @@ export const touchRunner = internalMutation({
     });
     if (!decision.ok) return failure(429, decision.reason);
     const versionChanged = protocolVersion != null && row?.protocolVersion !== protocolVersion;
+    const pause = runnerPausePatch(row?.pausedAt, paused, now);
     if (!decision.write) {
-      if (row && versionChanged) await ctx.db.patch(row._id, { protocolVersion });
+      if (row && (versionChanged || pause)) {
+        await ctx.db.patch(row._id, { ...(versionChanged ? { protocolVersion } : {}), ...(pause ?? {}) });
+      }
       return { ok: true as const, registered };
     }
     const version = protocolVersion != null ? { protocolVersion } : {};
@@ -239,13 +244,15 @@ export const touchRunner = internalMutation({
         row.windowStart === decision.windowStart &&
         row.count === decision.count &&
         row.lastSeenAt === decision.lastSeenAt &&
-        !versionChanged;
+        !versionChanged &&
+        !pause;
       if (!same) {
         await ctx.db.patch(row._id, {
           windowStart: decision.windowStart,
           count: decision.count,
           lastSeenAt: decision.lastSeenAt,
           ...version,
+          ...(pause ?? {}),
         });
       }
     } else {
@@ -1418,7 +1425,7 @@ export const runnerHealth = adminQuery({
     if (!project) return null;
     const repo = agentRepo(project.agentRepo);
     const production = (process.env.CONVEX_CLOUD_URL ?? '').includes(PRODUCTION_DEPLOYMENT);
-    // Registered runners serve every project with a repository; the env fallback names its repositories.
+    // Registered runners serve every project with a repository.
     const registered = await registeredRunners(ctx);
     const base = { production, protocolMin: RUNNER_PROTOCOL_MIN, registeredCount: registered.length };
     if (!repo) return { ...base, repoSet: false, repo: null, runnerAllowed: false, runners: [], working: null, building: null };
@@ -1427,16 +1434,8 @@ export const runnerHealth = adminQuery({
       lastSeenAt: row.lastSeenAt ?? null,
       registered: true,
       protocolVersion: row.protocolVersion ?? null,
+      paused: row.pausedAt != null,
     }));
-    for (const id of runnersAllowedFor(process.env.RUNNER_TOKENS, repo)) {
-      if (runners.length >= RUNNER_HEALTH_MAX_RUNNERS) break;
-      if (runners.some((runner) => runner.id === id)) continue;
-      const row = await ctx.db
-        .query('agentRunners')
-        .withIndex('by_runnerId', (q) => q.eq('runnerId', id))
-        .unique();
-      runners.push({ id, lastSeenAt: row?.lastSeenAt ?? null, registered: false, protocolVersion: row?.protocolVersion ?? null });
-    }
     if (runners.length === 0) return { ...base, repoSet: true, repo, runnerAllowed: false, runners: [], working: null, building: null };
     let working: RunnerHealthView['working'] = null;
     for (const { id } of runners) {

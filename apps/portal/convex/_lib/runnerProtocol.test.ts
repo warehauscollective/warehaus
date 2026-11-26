@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { afterEach, beforeEach, describe, it } from 'node:test';
+import { describe, it } from 'node:test';
 import { COMPLETE_STATUSES, PLAN_TASKS_MAX, PLAN_TASKS_MIN, isMilestoneBranch, runnerClient } from '@warehaus/runner-protocol';
 import { touchRunner } from '../agent';
 import { agentHttp } from '../agentHttp';
@@ -13,16 +13,6 @@ import { memoryCtx, type RunCall } from './memoryCtx.testkit';
  * arguments the portal expects.
  */
 const TOKEN = 'runner-token-0123456789abcdef';
-let saved: string | undefined;
-
-beforeEach(() => {
-  saved = process.env.RUNNER_TOKENS;
-  process.env.RUNNER_TOKENS = `mac-mini=${TOKEN} warehauscollective/warehaus`;
-});
-afterEach(() => {
-  if (saved === undefined) delete process.env.RUNNER_TOKENS;
-  else process.env.RUNNER_TOKENS = saved;
-});
 
 function wired() {
   const t = memoryCtx();
@@ -66,7 +56,7 @@ describe('runner protocol', () => {
       runnerId: 'mac-mini',
       fetch: ((url: string, init: RequestInit) => {
         const t = memoryCtx();
-        // The real touchRunner decides: no registration and no RUNNER_TOKENS match, so it refuses.
+        // The real touchRunner decides: no registration for this runner, so it refuses.
         const respond = (call: RunCall) => (call.name.endsWith('touchRunner') ? t.call(touchRunner, call.args) : { ok: true });
         return t.callHttp(agentHttp, new Request(url, init), { respond });
       }) as typeof fetch,

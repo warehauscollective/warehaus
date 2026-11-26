@@ -5,7 +5,11 @@ export declare const RUNNER_PATHS: Readonly<{
   complete: '/agent/complete';
   build: '/agent/build';
   unpair: '/agent/unpair';
+  ping: '/agent/ping';
 }>;
+export declare const RUNNER_APP_RELEASE_PATH: '/agent/app-release';
+export declare const RUNNER_PAIR_QUERY: 'runnerPair';
+export declare function runnerPairUrl(portalOrigin: string, code: string): string;
 export declare const RUNNER_PAIR_PATHS: Readonly<{
   start: '/agent/pair/start';
   poll: '/agent/pair/poll';
@@ -25,6 +29,7 @@ export type RunnerClient = {
   claim(input: { mode: string; repos: string[]; paused?: boolean }): Promise<Record<string, unknown>>;
   ping(input?: { paused?: boolean }): Promise<Record<string, unknown>>;
   unpair(): Promise<Record<string, unknown>>;
+  appRelease(): Promise<Record<string, unknown>>;
   event(input: { runId: string; type: string; summary: string }): Promise<Record<string, unknown>>;
   writeTasks(input: { runId: string; tasks: Array<{ title: string; detail?: string }> }): Promise<Record<string, unknown>>;
   completeTask(input: {
