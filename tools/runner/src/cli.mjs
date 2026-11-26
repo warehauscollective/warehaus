@@ -16,8 +16,8 @@ import { repoTools } from './repo.mjs';
 import { deploymentFor, readKeychainSecret, readSavedConfig, runSetup } from './setup.mjs';
 import { runnerClient } from '../../../packages/runner-protocol/index.mjs';
 import {
-  heartbeatSlices,
   idleDelayMs,
+  idleWait,
   parseArgs,
   parsePlanOutput,
   planPrompt,
@@ -181,16 +181,9 @@ function sleep(ms) {
   return new Promise((done) => setTimeout(done, ms));
 }
 
-/**
- * Waits between empty polls, pinging the Portal every heartbeat so the runner
- * health chip keeps reading Ready. A ping claims nothing. A failed one is skipped.
- */
-async function idleWait(config, ms) {
-  const slices = heartbeatSlices(ms);
-  for (let index = 0; index < slices.length; index += 1) {
-    await sleep(slices[index]);
-    if (index < slices.length - 1) await call(config, '/agent/ping', {}).catch(() => {});
-  }
+/** Waits between empty polls, pinging the Portal every heartbeat. See idleWait in lib.mjs. */
+function waitIdle(config, ms) {
+  return idleWait({ ping: () => client(config).post('/agent/ping', {}), ms });
 }
 
 async function main() {
@@ -271,7 +264,7 @@ async function main() {
     }
     if (parsed.options.once) break;
     if (buildStillRunning) await sleep(idleDelayMs(1));
-    else if (work.kind !== 'task' && work.kind !== 'planning' && work.kind !== 'build') await idleWait(config, idleDelayMs(empty));
+    else if (work.kind !== 'task' && work.kind !== 'planning' && work.kind !== 'build') await waitIdle(config, idleDelayMs(empty));
   }
 }
 

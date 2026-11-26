@@ -390,6 +390,19 @@ export function heartbeatSlices(waitMs, beatMs = HEARTBEAT_MS) {
   return slices;
 }
 
+/**
+ * Waits between empty polls, pinging the Portal every heartbeat so the runner
+ * health chip keeps reading Ready. A ping claims nothing. A failed one is skipped.
+ * `ping` and `sleep` are injected so a test can run the real loop.
+ */
+export async function idleWait({ ping, ms, sleep = (wait) => new Promise((done) => setTimeout(done, wait)) }) {
+  const slices = heartbeatSlices(ms);
+  for (let index = 0; index < slices.length; index += 1) {
+    await sleep(slices[index]);
+    if (index < slices.length - 1) await Promise.resolve().then(ping).catch(() => {});
+  }
+}
+
 const SECRET_VALUE =
   /(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|whp_[A-Za-z0-9_-]{12,}|Bearer\s+[A-Za-z0-9._~+/=-]{12,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,})/g;
 
