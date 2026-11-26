@@ -41,6 +41,7 @@ import {
   type MilestoneProjectGate,
   type MilestoneRoadmapView,
   type RoadmapTaskInput,
+  taskMoveTargetDecision,
 } from './_lib/milestones';
 import {
   detailActivitySummary,
@@ -53,6 +54,7 @@ import {
   taskIdsToMove,
 } from './_lib/milestoneDetails';
 import { loadLinkedTasks, loadMilestoneTaskSet, loadedTask } from './_lib/milestoneTaskSet';
+import { applyTaskChanges } from './_lib/taskChange';
 import { changeMilestoneStatus, type StatusChange } from './_lib/milestoneLifecycle';
 import {
   MILESTONE_ARCHIVED,
@@ -412,6 +414,9 @@ async function toRoadmap(
     ...(audience === 'staff' && milestone.branch ? { branch: milestone.branch } : {}),
     ...(audience === 'staff' && milestone.prUrl ? { prUrl: milestone.prUrl } : {}),
     ...(updatedAt != null ? { updatedAt } : {}),
+    ...(audience === 'staff' && milestone.status === 'Shipped' && milestone.statusChangedAt != null
+      ? { shippedAt: milestone.statusChangedAt }
+      : {}),
     resources: await milestoneResources(ctx, milestone, audience, orgVisible),
     openCount: roadmap.openCount,
     doneCount: roadmap.doneCount,
@@ -1088,6 +1093,57 @@ async function unlinkTask(ctx: MutationCtx, actor: 'human' | 'ai', milestoneId: 
 export const detachTask = adminMutation({
   args: { milestoneId: v.id('milestones'), taskId: v.id('tasks') },
   handler: async (ctx, args) => unlinkTask(ctx, 'human', args.milestoneId, args.taskId),
+});
+
+/** A task the milestone lists: linked to it, or a subtask under a task that is. */
+async function taskOnMilestone(ctx: MutationCtx, milestone: Doc<'milestones'>, taskId: Id<'tasks'>): Promise<Doc<'tasks'>> {
+  const task = await ctx.db.get(taskId);
+  if (!task) fail('Task not found');
+  if (task.milestoneId === milestone._id) return task;
+  const parent = task.parentTaskId ? await ctx.db.get(task.parentTaskId) : null;
+  if (parent?.milestoneId === milestone._id) return task;
+  fail('Task is not on this milestone');
+}
+
+/**
+ * Park one task from the Ready to Ship next step. Parked tasks do not count
+ * toward Shipped. The same stage write as the task page, without the Notion
+ * stamp check: last write wins, as on the staff API.
+ */
+export const parkMilestoneTask = adminMutation({
+  args: { milestoneId: v.id('milestones'), taskId: v.id('tasks') },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    if (milestone.archivedAt != null) fail(MILESTONE_ARCHIVED);
+    const task = await taskOnMilestone(ctx, milestone, args.taskId);
+    if (task.stage === 'Parked') return { ok: true as const, wrote: false };
+    const result = await applyTaskChanges(ctx, task, [{ field: 'stage', stage: 'Parked' }], {
+      actor: 'staff',
+      actorId: ctx.identity.contactId,
+    });
+    if (!result.ok) fail(result.error);
+    return { ok: true as const, wrote: result.wrote };
+  },
+});
+
+/** Move one top-level task to another milestone on the same project, in one write. */
+export const moveMilestoneTask = adminMutation({
+  args: { milestoneId: v.id('milestones'), taskId: v.id('tasks'), toMilestoneId: v.id('milestones') },
+  handler: async (ctx, args) => {
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const target = await ctx.db.get(args.toMilestoneId);
+    const refused = taskMoveTargetDecision(
+      { id: milestone._id, projectId: milestone.projectId },
+      target ? { id: target._id, projectId: target.projectId, status: target.status, archived: target.archivedAt != null } : null,
+    );
+    if (refused === 'archived') fail(MILESTONE_ARCHIVED);
+    if (refused) fail(refused);
+    const task = await taskOnMilestone(ctx, milestone, args.taskId);
+    if (task.milestoneId !== milestone._id) fail('Move the parent task. A subtask moves with it.');
+    await unlinkTask(ctx, 'human', milestone._id, task._id);
+    raiseLink(await linkTask(ctx, 'human', args.toMilestoneId, task._id));
+    return { ok: true as const };
+  },
 });
 
 /** Staff API. Same human unlink rules as the portal button. */

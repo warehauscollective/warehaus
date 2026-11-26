@@ -72,19 +72,6 @@ export function boardLaneTasks<T extends { id: string; parentTaskId?: string | n
   return tasks.filter((task) => !task.parentTaskId || !ids.has(task.parentTaskId));
 }
 
-export function boardCountsFromTasks(
-  tasks: readonly { id: string; parentTaskId?: string | null; isDone: boolean }[],
-): { lanes: number; laneDone: number; nested: number } {
-  const lanes = boardLaneTasks(tasks);
-  const laneIds = new Set(lanes.map((task) => task.id));
-  const nested = tasks.filter((task) => !laneIds.has(task.id));
-  return {
-    lanes: lanes.length,
-    laneDone: lanes.filter((task) => task.isDone).length,
-    nested: nested.length,
-  };
-}
-
 /** The decision stored on the milestone row. Activity names are not an input. */
 export function storedMilestoneReview(milestone: {
   id: string;

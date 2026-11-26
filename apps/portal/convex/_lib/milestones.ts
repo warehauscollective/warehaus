@@ -530,6 +530,7 @@ const CLIENT_ROADMAP_OMIT = [
   'prUrl',
   'review',
   'updatedAt',
+  'shippedAt',
 ] as const;
 
 /**
@@ -573,6 +574,8 @@ export type MilestoneRoadmapView = {
   approverName: string | null;
   /** Staff only. Absent for clients, including the key. */
   decidedAt?: number | null;
+  /** Staff only, and only while Shipped: when the status became Shipped. Absent on older rows. */
+  shippedAt?: number;
   publishToWarehaus: boolean;
   createdAt?: number | null;
   /** Contact id of the owner. Absent when unassigned. */
@@ -652,3 +655,20 @@ export type MilestoneReviewView = {
   deployFinishedAt: number | null;
   history: MilestoneReviewHistoryItem[];
 };
+
+/**
+ * Where a task can move from the Ready to Ship next step: another milestone
+ * on the same project that is neither Shipped nor archived. Null allows it.
+ * `archived` is returned as a code so the caller words it with its own copy.
+ */
+export function taskMoveTargetDecision(
+  from: { id: string; projectId: string },
+  to: { id: string; projectId: string; status: string; archived: boolean } | null,
+): string | null {
+  if (!to) return 'Milestone not found';
+  if (to.id === from.id) return 'The task is already on this milestone';
+  if (to.projectId !== from.projectId) return 'Pick a milestone on the same project';
+  if (to.archived) return 'archived';
+  if (to.status === 'Shipped') return 'That milestone has shipped. Pick an open one.';
+  return null;
+}

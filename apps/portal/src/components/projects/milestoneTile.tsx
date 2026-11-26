@@ -258,7 +258,7 @@ export function taskTotal(milestone: MilestoneRoadmapView): number {
   return milestone.openCount + milestone.doneCount;
 }
 
-/** Nested subtasks on the milestone rows. Lane badges on the board come from boardCountsFromTasks. */
+/** Nested subtasks on the milestone rows. The Tasks tab count comes from tasksTabCount. */
 export function boardTaskCounts(milestone: MilestoneRoadmapView): { lanes: number; laneDone: number; nested: number } {
   return {
     lanes: milestone.rows.length,

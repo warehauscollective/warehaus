@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { approvalField } from './readyToShip';
 import type { Id } from '@convex/_generated/dataModel';
 import { assertStaffPreviewLink, PREVIEW_LINK_LOCAL } from '@convex/_lib/previewLink';
 import { localPreviewHint, tileLinkChangeDecision, type TileLinkField } from '@convex/_lib/tileLinks';
@@ -15,11 +16,6 @@ import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { FieldLabel, Panel, fieldStyle } from './milestoneChrome';
 import { StatusPlayButton, useMilestoneStatusMoves } from './MilestoneStatusControl';
 
-const APPROVAL_LABEL = {
-  unreviewed: 'Unreviewed',
-  approved: 'Approved',
-  changes_requested: 'Changes requested',
-} as const;
 
 export type MoveTarget = { id: string; name: string };
 
@@ -402,6 +398,7 @@ export function useMilestoneDetailEdits({
     return target.name.toLowerCase().includes(query);
   });
 
+  const approval = approvalField({ status: statusNow, approval: milestone.approval, approverName: milestone.approverName, decidedAt: milestone.decidedAt });
   const fields = showFields ? (
     <Panel testId="milestone-details">
       <div className="grid grid-cols-2 gap-5 lg:grid-cols-1" data-details-ready={ready ? 'true' : 'false'} data-phone={phone ? 'true' : 'false'} data-details-state={preview ?? 'idle'}>
@@ -451,6 +448,16 @@ export function useMilestoneDetailEdits({
             </Popover>
           ) : null}
         </DetailRow>
+        {staff && approval ? (
+          <DetailRow label="APPROVAL" wide>
+            <ReadValue testId="milestone-approval">{approval.value}</ReadValue>
+            {approval.note ? (
+              <p data-testid="milestone-approval-note" style={{ marginTop: 6, fontFamily: 'var(--font-mono)', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                {approval.note}
+              </p>
+            ) : null}
+          </DetailRow>
+        ) : null}
         {clientSeesDetailsRow('owner', staff) ? (
           <DetailRow label="OWNER" outlined={staff}>
             {staff ? (
@@ -621,12 +628,7 @@ export function useMilestoneDetailEdits({
             setTileLink={mutations.setTileLink}
           />
         ) : null}
-        {clientSeesDetailsRow('approval', staff) && milestone.approval && milestone.approval !== 'unreviewed' ? (
-          <DetailRow label="APPROVAL" wide>
-            <ReadValue testId="milestone-approval">{APPROVAL_LABEL[milestone.approval]}</ReadValue>
-          </DetailRow>
-        ) : null}
-        {clientSeesDetailsRow('review', staff) && reviewLine ? (
+        {clientSeesDetailsRow('review', staff) && reviewLine && milestone.approval !== 'approved' ? (
           <DetailRow label="LAST REVIEW" wide>
             <ReadValue testId="milestone-last-review">{reviewLine}</ReadValue>
           </DetailRow>

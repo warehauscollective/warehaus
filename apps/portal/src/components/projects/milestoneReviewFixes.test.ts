@@ -3,7 +3,6 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import {
   activityForMilestone,
-  boardCountsFromTasks,
   clientMilestoneEmptyKind,
   dialogTabBoundary,
   goalKey,
@@ -188,20 +187,9 @@ describe('milestone review fixes', () => {
     assert.match(roadmap, /testId="milestone-unavailable"/);
   });
 
-  it('counts lane cards from the tasks the board can draw', () => {
-    const shown = [
-      { id: 'parent', parentTaskId: null, isDone: false },
-      { id: 'child', parentTaskId: 'parent', isDone: true },
-    ];
-    assert.deepEqual(boardCountsFromTasks(shown), { lanes: 1, laneDone: 0, nested: 1 });
-    assert.deepEqual(boardCountsFromTasks([]), { lanes: 0, laneDone: 0, nested: 0 });
-    assert.deepEqual(boardCountsFromTasks([{ id: 'child', parentTaskId: 'plan', isDone: true }]), {
-      lanes: 1,
-      laneDone: 1,
-      nested: 0,
-    });
-    assert.match(roadmap, /const board = boardCountsFromTasks\(shownTasks\)/);
-    assert.match(roadmap, /label: `Tasks · \$\{board\.lanes\}`/);
+  it('counts the Tasks tab from the checklist rows and their subtasks', () => {
+    assert.match(roadmap, /const tabCount = tasksTabCount\(milestone\.rows\)/);
+    assert.match(roadmap, /label: `Tasks · \$\{tabCount\}`/);
   });
 
   it('traps dialog focus and restores it on close', () => {
