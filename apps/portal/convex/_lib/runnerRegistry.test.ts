@@ -86,14 +86,14 @@ describe('pairing codes', () => {
 });
 
 describe('runner access', () => {
-  it('lets in a registered runner by the hash of its secret, or the fallback, and nothing else', async () => {
+  it('lets in a registered runner by the hash of its secret, and nothing else', async () => {
     const tokenHash = await sha256Hex(SECRET);
     const row = { tokenHash, registeredAt: 1 };
-    assert.equal(runnerAccess({ row, tokenHash, envAuthorized: false }), 'registered');
-    assert.equal(runnerAccess({ row, tokenHash: await sha256Hex('wrong'), envAuthorized: false }), null);
-    assert.equal(runnerAccess({ row: { tokenHash, registeredAt: null }, tokenHash, envAuthorized: false }), null);
-    assert.equal(runnerAccess({ row: null, tokenHash, envAuthorized: true }), 'env');
-    assert.equal(runnerAccess({ row: null, tokenHash: null, envAuthorized: false }), null);
+    assert.equal(runnerAccess({ row, tokenHash }), 'registered');
+    assert.equal(runnerAccess({ row, tokenHash: await sha256Hex('wrong') }), null);
+    assert.equal(runnerAccess({ row: { tokenHash, registeredAt: null }, tokenHash }), null);
+    assert.equal(runnerAccess({ row: null, tokenHash }), null);
+    assert.equal(runnerAccess({ row: null, tokenHash: null }), null);
   });
 
   it('compares the hash in constant time', () => {

@@ -11,16 +11,12 @@ import {
   runnerHealthState,
   runnerStartCommand,
   RUNNER_SETUP_HELPER,
-  runnersAllowedFor,
   type RunnerHealthView,
 } from './runnerHealth';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
 const NOW = 1_800_000_000_000;
-const TOKEN_A = 'a'.repeat(32);
-const TOKEN_B = 'b'.repeat(32);
-const CONFIGURED = `peter-mbp=${TOKEN_A} warehauscollective/warehaus\nstudio-mini=${TOKEN_B} acme/site warehauscollective/warehaus`;
 const LAUNCH = { milestoneId: 'm1', milestoneName: 'Client experience launch' };
 
 function view(patch: Partial<RunnerHealthView> = {}): RunnerHealthView {
@@ -79,17 +75,7 @@ describe('runner heartbeat throttle', () => {
   });
 });
 
-describe('runners allowed for a project', () => {
-  it('returns ids for the repository and never a token', () => {
-    assert.deepEqual(runnersAllowedFor(CONFIGURED, 'warehauscollective/warehaus'), ['peter-mbp', 'studio-mini']);
-    assert.deepEqual(runnersAllowedFor(CONFIGURED, 'https://github.com/Acme/Site.git'), ['studio-mini']);
-    assert.deepEqual(runnersAllowedFor(CONFIGURED, 'acme/other'), []);
-    assert.deepEqual(runnersAllowedFor(CONFIGURED, null), []);
-    assert.deepEqual(runnersAllowedFor(undefined, 'acme/site'), []);
-    const out = JSON.stringify(runnersAllowedFor(CONFIGURED, 'warehauscollective/warehaus'));
-    assert.equal(out.includes(TOKEN_A) || out.includes(TOKEN_B), false);
-  });
-
+describe('runner start command', () => {
   it('builds the start command, with --production only on production', () => {
     assert.equal(
       runnerStartCommand('peter-mbp-prod', 'warehauscollective/warehaus', true),
@@ -225,13 +211,13 @@ describe('who can read runner health', () => {
     const agent = read('../agent.ts');
     assert.match(agent, /export const runnerHealth = adminQuery\(/);
     const block = agent.slice(agent.indexOf('export const runnerHealth'));
-    // The environment value goes straight into the id filter and nowhere else.
-    assert.deepEqual(block.match(/RUNNER_TOKENS/g), ['RUNNER_TOKENS']);
-    assert.match(block, /runnersAllowedFor\(process\.env\.RUNNER_TOKENS, repo\)/);
-    assert.equal(/token/.test(block.replace('RUNNER_TOKENS', '').replace(/a token never leaves/i, '')), false);
+    // Only registered runners count: no environment fallback, and no token in the view.
+    assert.equal(block.includes('RUNNER_TOKENS'), false);
+    assert.equal(/token/i.test(block.replace(/a token never leaves/i, '')), false);
     // Indexed and capped: no bare collect.
     assert.equal(block.includes('.collect()'), false);
-    for (const index of ['by_runnerId', 'by_runner_status', 'by_projectId']) assert.equal(block.includes(index), true, index);
+    assert.match(block, /registeredRunners\(ctx\)/);
+    for (const index of ['by_runner_status', 'by_projectId']) assert.equal(block.includes(index), true, index);
     assert.match(read('./wrappers.ts'), /export const adminQuery = customQuery\(query, \{[\s\S]*?Staff role required/);
   });
 
