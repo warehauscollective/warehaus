@@ -12,7 +12,26 @@ export const RUNNER_PATHS = Object.freeze({
   tasks: '/agent/tasks',
   complete: '/agent/complete',
   build: '/agent/build',
+  ping: '/agent/ping',
+  unpair: '/agent/unpair',
 });
+
+/** The latest runner app build. The app asks between runs, with its runner secret. */
+export const RUNNER_APP_RELEASE_PATH = '/agent/app-release';
+
+/**
+ * The Portal page the runner app opens to pair: any Portal page with
+ * `?runnerPair=<code>` opens Confirm pairing with the code filled in, for a
+ * signed-in staff member. The code is not a secret: confirming it is.
+ */
+export const RUNNER_PAIR_QUERY = 'runnerPair';
+
+/** `https://portal.example/?runnerPair=K7QM-4XPA` from a Portal origin and a code. */
+export function runnerPairUrl(portalOrigin, code) {
+  const url = new URL('/', portalOrigin);
+  url.searchParams.set(RUNNER_PAIR_QUERY, String(code).trim().toUpperCase());
+  return url.toString();
+}
 
 /** Pairing a new runner. These two routes take no runner token. */
 export const RUNNER_PAIR_PATHS = Object.freeze({
@@ -46,7 +65,8 @@ export function isMilestoneBranch(value) {
 
 /**
  * The runner's HTTP client for /agent. Every call is a POST with the runner
- * token and id. A non-2xx answer throws `Error("<path>: <reason>")`.
+ * token and id. A non-2xx answer throws `Error("<path>: <reason>")` with the
+ * HTTP status on `error.status`.
  * Planning failure still travels as `/agent/complete` with `kind: 'planning'`
  * so a runner built from main keeps working against an older deployment.
  */
@@ -76,7 +96,9 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
       }
       if (!response.ok) {
         const reason = data && typeof data.error === 'string' ? data.error : `HTTP ${response.status}`;
-        throw new Error(`${path}: ${reason}`);
+        const error = new Error(`${path}: ${reason}`);
+        error.status = response.status;
+        throw error;
       }
       return data ?? {};
     } finally {
@@ -86,7 +108,12 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
 
   return {
     post,
-    claim: ({ mode, repos }) => post(RUNNER_PATHS.claim, { mode, repos }),
+    claim: ({ mode, repos, paused }) => post(RUNNER_PATHS.claim, { mode, repos, ...(paused != null ? { paused } : {}) }),
+    // The runner app sends `paused` on every call so the Portal can show Paused.
+    ping: ({ paused } = {}) => post(RUNNER_PATHS.ping, paused != null ? { paused } : {}),
+    appRelease: () => post(RUNNER_APP_RELEASE_PATH, {}),
+    // The runner revoking its own registration, for Remove this runner in the app.
+    unpair: () => post(RUNNER_PATHS.unpair, {}),
     event: ({ runId, type, summary }) => post(RUNNER_PATHS.events, { runId, type, summary }),
     writeTasks: ({ runId, tasks }) => post(RUNNER_PATHS.tasks, { runId, tasks }),
     completeTask: ({ runId, status, commitSha, reason, prUrl }) =>

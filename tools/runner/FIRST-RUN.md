@@ -1,90 +1,150 @@
-# First live milestone run
+# Set up a Mac as a runner
 
-A checklist for the first end-to-end run of the milestone pipeline: create a milestone, plan its tasks, press Go, let the runner build, preview, approve, merge.
+For Warehaus staff. Everything here happens in the Portal and in the Warehaus Portal app. You never open a terminal.
 
-Every step uses shared dev `graceful-mastiff-960`. Nothing here touches production `unique-turtle-383`.
+A runner is a staff Mac that takes milestone work from the Portal and hands it to an agent. The app keeps it going in the menu bar, starts it at login, and updates it between runs.
 
-## 1. Start from current `main`
+**You need:** a staff account on the Portal, a Mac with Apple silicon on macOS 14 or later, a GitHub account with push access to the repositories you build, and a Claude account.
 
-The pipeline is already on `main`: #141 to #143, #148, #150, #153 and #154 are merged. One pull request is still open and should be in before the first run: the auto-planning leftovers (wrap-up skips Parked tasks, plus the loop card fixes). It waits for Peter's approval in Grok Bot or the Portal.
+## 1. Download the app
 
-Run the tests on `main` once it is in:
+1. In the Portal, open any project and click the runner status chip next to its name. The Runner status modal opens.
+2. Choose **Set up runner**, then **Download runner app**. Only staff see this.
+3. Move **Warehaus Portal** from Downloads to **Applications**. It has to live there so it can update itself.
+   Already have **Warehaus Runner** in Applications? That's the same app under its old name. It renames itself to Warehaus Portal the next time it updates, so you don't need a second copy.
 
-```bash
-npm run test:runner
-```
+The app is signed by Warehaus LLC and notarized by Apple, so it opens like any other app. It is only ever downloaded from the Portal, never the App Store.
 
-```bash
-npm run test:portal-convex
-```
+If the modal says the runner app has no release yet, it is published with the next production deploy that changes the runner. Ask Peter.
 
-Merging does not deploy anything. Production still waits for Peter's "deploy main".
+## 2. Open it and follow the checklist
 
-## 2. Push to shared dev only
+Open Warehaus Portal from Applications. A window called **Set up this Mac as a runner** lists three steps. Each one opens your browser, and nothing installs without a click.
 
-- Push the schema and functions to `graceful-mastiff-960` once, then stop. Never use `--prod`, never run `npx convex deploy`, and don't leave `convex dev` running.
-- Set these environment variables on the dev deployment:
-  - `GITHUB_WEBHOOK_SECRET=<secret>`
-  - `VERCEL_WEBHOOK_SECRET=<secret>`, if you want the Vercel preview link on the milestone.
+1. **GitHub.** Click **Sign in**. GitHub opens in your browser, and the row shows a one-time code to enter there. When you're done the row says "Signed in as <your login>". If it already shows a green check, you're signed in.
+2. **Claude Code.** If it says "Not installed yet", click **Install**. That runs Anthropic's official installer, then asks you to sign in through your browser. If Claude Code is already installed it only asks you to sign in.
+3. **Pair with the Portal.** This unlocks after the first two. Click **Pair**.
 
-## 3. Set up the test project
+## 3. Confirm this Mac in the Portal
 
-- Pick a test project, not a client one. Set its repository with the staff screen (`ProjectRepoSetting`) or with `projects.setAgentRepo`, as `owner/name`. A project without this is never handed to a runner.
-- On that GitHub repository, add a webhook:
-  - URL: `https://graceful-mastiff-960.convex.site/github/webhook`
-  - Content type: JSON
-  - Secret: the same `GITHUB_WEBHOOK_SECRET`
-  - Event: Pull requests
-- Optional: add a Vercel webhook pointing at `/vercel/webhook` with `VERCEL_WEBHOOK_SECRET`.
+When you click Pair, a second window, **Confirm this Mac in the Portal**, shows a pairing code like `K7QM-4XPA`, the runner id this Mac proposes, and how long the code has left. Your browser opens the Portal with the same code filled in.
 
-## 4. Mac runner
+1. In the Portal, **Confirm this runner** shows the code and the deployment (Production). Check the code matches the one in the app.
+2. The runner id is this Mac's name with `-prod` at the end. You can change it.
+3. Click **Confirm and pair**.
 
-```bash
-npm run runner -- setup
-```
+The app window closes on its own and the runner starts. The Portal shows **Runner paired**.
 
-- Enter the printed code in the Runner status modal on any project page and confirm the id. The secret goes to the Keychain; nothing is printed.
-- The runner keeps its own clones under `~/warehaus-runner/repos/`, so it can start from any folder.
-- Use the default `--mode interactive`. `--mode headless` draws on the Agent SDK credit instead of plan limits.
-- Only if the test project is set to Cursor: export `CURSOR_API_KEY` in the runner's shell. The key stays in the runner process on this Mac. It is never sent to Convex, Vercel, Claude, Notion or chat, and it is never printed or logged. Leave it unset everywhere else. Planning still runs on Claude Code.
+- A code lasts 10 minutes. If it runs out, the checklist says so; click **Pair again**.
+- If the browser didn't open, click **Open Portal again**.
+- Only confirm a code you can see in the app on your own Mac.
 
-## 5. Grok Bot
+The runner's secret is made on your Mac and kept in its Keychain. Nobody sees it, and you never copy it.
 
-- Connect it to the Portal MCP server (see `docs/portal-mcp.md`).
-- Tell it to check `list_needs_peter` and bring Peter any open notes.
+## 4. The menu bar
 
-## 6. Vercel check
+The Warehaus icon in the menu bar shows what the runner is doing.
 
-Open the Vercel dashboard. Confirm the Preview environment variables point at `graceful-mastiff-960`, not `unique-turtle-383`, and that `REVIEW_PREVIEW` isn't set to `1` anywhere builds aren't wanted.
+| State | What it means | Rows you'll see |
+| --- | --- | --- |
+| **Ready** | Waiting for work. The header shows the runner id, "Production", and the last run. | Pause runner · Open Portal |
+| **Working** | A run is in progress. The header names the milestone and task. The Mac stays awake until the run ends. | Pause after this run · Open milestone in Portal (or Open Portal) |
+| **Paused** | Takes no new work. The Portal shows Paused. | Resume runner · Open Portal |
+| **Needs attention** | Something only you can fix. The header says what, and the first row fixes it when it can. | The fix · Open Portal · Pause runner or Resume runner |
 
-## 7. Dry run
+Every state also has:
 
-1. Create a milestone with no tasks on the test project. Its planning gets queued.
-2. Have the runner plan it:
+- **The update line and Check for update**: see "Updates" below.
+- **Start at login**: On by default. Click it to turn it off or on.
+- **Remove this runner…**
+- **Quit**: stops the runner until you open the app again. Quitting during a run stops that run, so choose **Pause after this run** first. A stopped run is released for Retry in the Portal after about 30 minutes.
 
-   ```bash
-   npm run runner -- start --once
-   ```
+**Pausing.** Pause runner stops new work. During a run the row reads **Pause after this run**: the run finishes, then the runner pauses. **Keep working after this run** cancels that. The app remembers a pause after a restart.
 
-   The runner should write 3 to 10 tasks and leave the milestone in Planning. Staff edit the list, then move it to Awaiting Go.
-3. Press Go. The milestone moves to Building.
-4. Run the same command once per task. Each task should end with a commit on `milestone/<slug>`, one PR into the default branch, and the task marked Done on the Tasks tab with its commit.
-5. Test a blocked task once: have Claude write `.runner/blocked.txt`. A "needs Peter" note should appear, and Grok Bot should pick it up.
-6. When the last task is done, the milestone should move to Ready to Ship with the local preview stored and an approval note written. Open the preview with:
+You get a notification only when you need to act, such as a GitHub sign-in that expired. Nothing is sent for normal work.
 
-   ```bash
-   npm run preview:pr -- milestone/<slug>
-   ```
+## 5. Updates
 
-   A task whose Stage is Parked does not hold this up, and the runner never takes one. To test it, park one To do task before the last run: the milestone should still reach Ready to Ship.
+The app updates itself between runs, never during one.
 
-7. Test the review loop once: request changes. A review task appears, the milestone goes back to Building, and the runner claims the task.
-8. Approve. That records the decision and nothing else.
-9. Merge the test PR. The webhook should move the milestone to Shipped.
+It checks when it opens, about every six hours, and when you click **Check for update**. The update line says where it stands:
 
-## Watch for
+- **Up to date** · v0.1.0
+- **Checking for update…**
+- **Downloading update…**
+- **Update waits for this run**: a run is in progress, and the update installs after it.
+- **Installs before the next run**
+- **Installing update…**: the app stops the runner, replaces itself, and opens the new version. It takes a few seconds.
+- **Update failed: …**: says why, and offers Check for update again. Nothing was installed.
+- **Can't update here. Move the app to Applications.**
 
-- **Notion:** shared dev still uses the production Notion token, so Portal-only test tasks are safest. Avoid any step that writes synced Notion tasks.
-- **Stuck runs:** a run stuck over 30 minutes is released by the 10-minute cron. No manual fix is needed. Retry opens once the released run's runner answers, or 10 minutes after the release, so a second run never starts on top of one still working. See "Retry and the run it replaces" in `README.md`.
-- **No work:** if the runner gets `kind: 'none'`, check that the project names its repository, and that any `--repo` you passed matches it exactly.
-- **Clone failed:** a repository the runner cannot clone blocks the run with a "needs Peter" note. Check `gh auth status` and `gh auth setup-git`.
+Before installing, the app checks that the download is the exact build the Portal named, is signed by Warehaus, and is notarized by Apple. If the new version doesn't start, the old one puts itself back.
+
+## 6. Remove this runner
+
+Choose **Remove this runner…** in the menu, then **Remove runner** to confirm. The app:
+
+- revokes the runner in the Portal, so it stops taking work at once,
+- hands any run in progress back to the Portal for Retry,
+- takes Warehaus Portal out of your login items,
+- deletes the runner's secret from this Mac's Keychain.
+
+If the Portal can't be reached, the runner is still removed from the Mac, and a notification asks you to revoke it in the Portal under **Manage runners**.
+
+Staff can also revoke any runner from the Portal: Runner status › **Manage runners** › **Revoke runner**.
+
+## 7. A Mac that was set up from the terminal
+
+Some Macs were set up before the app existed. Opening the app on one of them is safe.
+
+- If this Mac is already paired, the checklist says "Already paired as <id>. This app takes it over." There's no need to pair again.
+- If the old runner still starts at login, the checklist explains that and shows **Replace it**. Click it, and the app stops the old runner, removes it from login, and runs the runner itself. Until you click, the app doesn't start a second runner.
+
+## Troubleshooting
+
+Everything here is done in the app or the Portal.
+
+| You see | Do this |
+| --- | --- |
+| The Portal chip says **Offline** | Open Warehaus Portal from Applications. If it's open, check it isn't Paused. |
+| The Portal says **Runner out of date** | Click **Check for update** in the menu. The update installs after any run in progress. |
+| **GitHub sign-in expired** | Choose **Sign in to GitHub…** in the menu. |
+| **This runner was revoked in the Portal** or **isn't paired yet** | Choose **Pair with the Portal…** and confirm the code in the Portal. |
+| **The runner keeps stopping** | Choose **Restart runner**. |
+| **Can't reach the Portal** | Check your internet connection. The runner keeps trying on its own. |
+| **The runner files are missing** | Download the app again from the Portal and replace the one in Applications. |
+| **Can't update here** | Move Warehaus Portal into Applications in Finder, then open it again. |
+| **Update failed** | Click **Check for update** again. If it keeps failing, tell Peter. |
+| Anything else | Choose **Remove this runner…**, then open the app and pair again. |
+
+The app runs Claude Code headless, so its work uses the monthly Agent SDK credit, not your Claude plan limits.
+
+---
+
+## Not for staff: first live milestone run (developers)
+
+A checklist for developers testing the whole milestone pipeline end to end on shared dev `graceful-mastiff-960`: create a milestone, plan it, press Go, build, preview, approve, merge. It uses terminal commands, the CLI and shared dev. Nothing here touches production `unique-turtle-383`. Staff never need it. See "For developers and maintainers" in `README.md` first.
+
+1. **Start from current `main`** and run the tests: `npm run test:runner` and `npm run test:portal-convex`. Merging does not deploy anything. Production still waits for Peter's "deploy main".
+2. **Push to shared dev only.** Push the schema and functions to `graceful-mastiff-960` once, then stop. Never use `--prod`, never run `npx convex deploy`, and don't leave `convex dev` running. Set `GITHUB_WEBHOOK_SECRET` on the dev deployment, and `VERCEL_WEBHOOK_SECRET` if you want the Vercel preview link on the milestone.
+3. **Set up a test project**, not a client one. Set its repository on the project page (`ProjectRepoSetting`) or with `projects.setAgentRepo`, as `owner/name`. On that GitHub repository, add a webhook to `https://graceful-mastiff-960.convex.site/github/webhook` (JSON, the same secret, Pull requests events). Optionally add a Vercel webhook to `/vercel/webhook`.
+4. **A dev runner.** Release builds of the app pair to production only, so on shared dev use the CLI: `npm run runner -- setup`, then confirm the code in the Runner status modal on a dev Portal. Use the default `--mode interactive`; `--mode headless` draws on the Agent SDK credit. For a Cursor project, export `CURSOR_API_KEY` in that shell only.
+5. **Grok Bot.** Connect it to the Portal MCP server (`docs/portal-mcp.md`) and have it check `list_needs_peter`.
+6. **Vercel.** Confirm the Preview environment points at `graceful-mastiff-960`, not `unique-turtle-383`.
+7. **Dry run.**
+   1. Create a milestone with no tasks. Its planning gets queued.
+   2. `npm run runner -- start --once`. The runner writes 3 to 10 tasks and leaves the milestone in Planning. Staff edit the list, then move it to Awaiting Go.
+   3. Press Go. The milestone moves to Building.
+   4. Run the same command once per task. Each task ends with a commit on `milestone/<slug>`, one PR into the default branch, and the task Done with its commit.
+   5. Test a blocked task once: have Claude write `.runner/blocked.txt`. A "needs Peter" note appears.
+   6. After the last task the milestone moves to Ready to Ship, with the local preview stored. Open it with `npm run preview:pr -- milestone/<slug>`. A Parked task does not hold this up.
+   7. Request changes once. A review task appears, and the milestone goes back to Building.
+   8. Approve. That records the decision and nothing else.
+   9. Merge the test PR. The webhook moves the milestone to Shipped.
+
+Watch for:
+
+- **Notion:** shared dev still uses the production Notion token, so use Portal-only test tasks.
+- **Stuck runs:** the 10-minute cron releases a run stuck for over 30 minutes. See "Retry and the run it replaces" in `README.md`.
+- **No work:** check the project names its repository, and that any `--repo` matches it exactly.
+- **Clone failed:** check `gh auth status` and `gh auth setup-git`.

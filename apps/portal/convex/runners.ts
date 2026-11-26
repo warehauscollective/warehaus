@@ -8,7 +8,7 @@
  */
 
 import { v } from 'convex/values';
-import type { QueryCtx } from './_generated/server';
+import type { MutationCtx, QueryCtx } from './_generated/server';
 import { internalMutation, internalQuery } from './_generated/server';
 import { writeEvent } from './agent';
 import { PRODUCTION_DEPLOYMENT } from './_lib/reviewPreview';
@@ -144,47 +144,59 @@ export const confirmPairing = adminMutation({
 });
 
 /**
- * Staff revoke a runner. Its next call is refused. A task or planning run it
- * holds goes back to the queue. A Cursor build keeps running in the cloud and
- * the stuck-run cron handles it like any quiet runner.
+ * Revokes one registered runner: its next call is refused. A task or planning
+ * run it holds goes back to the queue. A Cursor build keeps running in the
+ * cloud and the stuck-run cron handles it like any quiet runner.
  */
+async function revokeRegistration(ctx: MutationCtx, runnerId: string | null, summaryVerb: string) {
+  const now = Date.now();
+  const row = runnerId ? await runnerRow(ctx, runnerId) : null;
+  if (!row || row.registeredAt == null || !runnerId) return { ok: false as const, error: RUNNER_NOT_REGISTERED };
+  await ctx.db.patch(row._id, { tokenHash: undefined, registeredAt: undefined, revokedAt: now });
+  const running = await ctx.db
+    .query('agentRuns')
+    .withIndex('by_runner_status', (q) => q.eq('runnerId', runnerId).eq('status', 'running'))
+    .take(REVOKE_RUN_SCAN);
+  let released = 0;
+  for (const run of running) {
+    if (run.kind === 'build') continue;
+    const milestone = await ctx.db.get(run.milestoneId);
+    await ctx.db.patch(run._id, { status: 'cancelled', endedAt: now, settledAt: now, blockedReason: 'Runner revoked' });
+    if (run.kind === 'task' && run.taskId) {
+      const task = await ctx.db.get(run.taskId);
+      if (task && !task.isDone && task.claimedBy === runnerId) {
+        await ctx.db.patch(task._id, { status: 'To Do', claimedBy: undefined, claimedAt: undefined, updatedAt: now });
+      }
+    } else if (milestone?.planning === 'running') {
+      await ctx.db.patch(milestone._id, { planning: 'queued', loopChangedAt: now });
+    }
+    await writeEvent(ctx, {
+      orgId: run.orgId,
+      milestoneId: run.milestoneId,
+      runId: run._id,
+      type: 'note',
+      summary: `Runner ${runnerId} ${summaryVerb} · run back in the queue`,
+      at: now,
+    });
+    released += 1;
+  }
+  return { ok: true as const, released };
+}
+
+/** Staff revoke a runner from the Runner status modal. Asks for confirmation in the UI first. */
 export const revokeRunner = adminMutation({
   args: { runnerId: v.string() },
-  handler: async (ctx, args) => {
-    const now = Date.now();
-    const runnerId = normalizeRunnerId(args.runnerId);
-    const row = runnerId ? await runnerRow(ctx, runnerId) : null;
-    if (!row || row.registeredAt == null || !runnerId) return { ok: false as const, error: RUNNER_NOT_REGISTERED };
-    await ctx.db.patch(row._id, { tokenHash: undefined, registeredAt: undefined, revokedAt: now });
-    const running = await ctx.db
-      .query('agentRuns')
-      .withIndex('by_runner_status', (q) => q.eq('runnerId', runnerId).eq('status', 'running'))
-      .take(REVOKE_RUN_SCAN);
-    let released = 0;
-    for (const run of running) {
-      if (run.kind === 'build') continue;
-      const milestone = await ctx.db.get(run.milestoneId);
-      await ctx.db.patch(run._id, { status: 'cancelled', endedAt: now, settledAt: now, blockedReason: 'Runner revoked' });
-      if (run.kind === 'task' && run.taskId) {
-        const task = await ctx.db.get(run.taskId);
-        if (task && !task.isDone && task.claimedBy === runnerId) {
-          await ctx.db.patch(task._id, { status: 'To Do', claimedBy: undefined, claimedAt: undefined, updatedAt: now });
-        }
-      } else if (milestone?.planning === 'running') {
-        await ctx.db.patch(milestone._id, { planning: 'queued', loopChangedAt: now });
-      }
-      await writeEvent(ctx, {
-        orgId: run.orgId,
-        milestoneId: run.milestoneId,
-        runId: run._id,
-        type: 'note',
-        summary: `Runner ${runnerId} revoked · run back in the queue`,
-        at: now,
-      });
-      released += 1;
-    }
-    return { ok: true as const, released };
-  },
+  handler: async (ctx, args) => revokeRegistration(ctx, normalizeRunnerId(args.runnerId), 'revoked'),
+});
+
+/**
+ * A runner revoking itself: Remove this runner in the runner Mac app, through
+ * `/agent/unpair`. The httpAction has already checked the runner's secret
+ * against its registration, so only that runner can remove itself.
+ */
+export const unpairRunner = internalMutation({
+  args: { runnerId: v.string() },
+  handler: async (ctx, args) => revokeRegistration(ctx, normalizeRunnerId(args.runnerId), 'removed from its Mac'),
 });
 
 /** Queued planning flags cleared per call. Run again until `cleared` is 0. */

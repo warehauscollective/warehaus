@@ -9,8 +9,13 @@ import {
   HEARTBEAT_MS,
   heartbeatSlices,
   idleDelayMs,
+  idleWait,
   isMilestoneBranch,
   parseArgs,
+  attentionForStatus,
+  SUPERVISOR_PREFIX,
+  supervisorCommand,
+  supervisorLine,
   mapCursorCommits,
   parseGitLog,
   parsePlan,
@@ -22,6 +27,7 @@ import {
   selectDriver,
   taskOutcome,
   taskPrompt,
+  designApprovalLine,
   worktreeName,
   proposedRunnerId,
   parseConfigFile,
@@ -37,13 +43,16 @@ describe('arguments', () => {
   it('reads start with an id and defaults to interactive', () => {
     assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'WarehausCollective/warehaus']), {
       ok: true,
-      options: { command: 'start', production: false, id: 'peter-mbp', mode: 'interactive', once: false, repos: ['warehauscollective/warehaus'] },
+      options: {
+        command: 'start', production: false, id: 'peter-mbp', mode: 'interactive', once: false, repos: ['warehauscollective/warehaus'],
+        supervised: false, paused: false,
+      },
     });
     const full = parseArgs([
       'start', '--id', 'peter-mbp', '--mode', 'headless', '--once',
       '--repo', 'a/b,c/d', '--repo', 'a/b',
     ]);
-    assert.deepEqual(full.options, { command: 'start', production: false, id: 'peter-mbp', mode: 'headless', once: true, repos: ['a/b', 'c/d'] });
+    assert.deepEqual(full.options, { command: 'start', production: false, id: 'peter-mbp', mode: 'headless', once: true, repos: ['a/b', 'c/d'], supervised: false, paused: false });
     // A registered runner names no repository: it serves every project that has one.
     assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp']).options.repos, []);
     // The runner works only in its own clones, so there is no --dir.
@@ -56,7 +65,7 @@ describe('arguments', () => {
   it('reads setup, with --production only when asked', () => {
     assert.deepEqual(parseArgs(['setup']).options.production, false);
     assert.deepEqual(parseArgs(['setup', '--production', '--id', 'studio-mini-prod']).options, {
-      command: 'setup', production: true, id: 'studio-mini-prod', mode: 'interactive', once: false, repos: [],
+      command: 'setup', production: true, id: 'studio-mini-prod', mode: 'interactive', once: false, repos: [], supervised: false,
     });
     assert.equal(parseArgs(['setup', '--repo', 'a/b']).ok, false);
     assert.equal(parseArgs(['setup', '--once']).ok, false);
@@ -166,6 +175,16 @@ describe('prompts', () => {
     assert.match(prompt, /branch `milestone\/launch`/);
     assert.match(prompt, /- Hero matches/);
     assert.equal(prompt.includes('{{'), false);
+    // No design approval yet: the prompt says nothing about design.
+    assert.equal(prompt.includes('Design: approved'), false);
+  });
+
+  it('says the design is approved once Peter pressed Approve designs', () => {
+    const approved = { ...work, milestone: { ...work.milestone, designApprovedAt: Date.UTC(2026, 10, 25, 18) } };
+    const prompt = taskPrompt(read('../prompts/task.md'), approved);
+    assert.match(prompt, /Design: approved by Peter in the Portal on 2026-11-25\. Build tasks can go ahead\./);
+    assert.equal(designApprovalLine(null), '');
+    assert.equal(designApprovalLine('2026-11-25'), '');
   });
 
   it('fills the planning prompt and keeps it read only', () => {
@@ -262,8 +281,41 @@ describe('task outcome', () => {
       assert.equal(Math.max(...slices) <= HEARTBEAT_MS, true);
     }
     const cli = read('./cli.mjs');
-    assert.match(cli, /await idleWait\(config, idleDelayMs\(empty\)\)/);
-    assert.match(cli, /call\(config, '\/agent\/ping', \{\}\)\.catch\(\(\) => \{\}\)/);
+    assert.match(cli, /await waitIdle\(config, idleDelayMs\(empty\)\)/);
+    // The ping goes through the protocol client and carries Paused.
+    assert.match(cli, /client\(config\)\.ping\(\{ paused: control\.paused \}\)/);
+  });
+
+  it('idleWait runs its pings: one between slices, none after the last, failures skipped', async () => {
+    const slept = [];
+    let pings = 0;
+    await idleWait({ ms: 300_000, sleep: async (ms) => void slept.push(ms), ping: async () => void (pings += 1) });
+    assert.deepEqual(slept, [75_000, 75_000, 75_000, 75_000]);
+    assert.equal(pings, 3);
+    pings = 0;
+    await idleWait({ ms: 60_000, sleep: async () => {}, ping: async () => void (pings += 1) });
+    assert.equal(pings, 0);
+    await idleWait({ ms: 120_000, sleep: async () => {}, ping: () => { throw new Error('sync boom'); } });
+    await idleWait({ ms: 120_000, sleep: async () => {}, ping: async () => { throw new Error('offline'); } });
+  });
+
+  it('idleWait stops early when Pause or Resume changes, without another ping', async () => {
+    const slept = [];
+    let pings = 0;
+    let stop = false;
+    await idleWait({
+      ms: 300_000,
+      sleep: async (ms) => { slept.push(ms); if (slept.length === 2) stop = true; },
+      ping: async () => void (pings += 1),
+      stopped: () => stop,
+    });
+    assert.deepEqual(slept, [75_000, 75_000]);
+    assert.equal(pings, 1);
+  });
+
+  it('cli.mjs pings through the protocol client, and every call-style identifier it uses is defined', () => {
+    const cli = read('./cli.mjs');
+    assert.doesNotMatch(cli, /(?<![.\w])call\(config/);
   });
 });
 
@@ -406,3 +458,60 @@ describe('kept running', () => {
   });
 });
 
+describe('runner Mac app supervision', () => {
+  it('reads --supervised, --paused and remove', () => {
+    const started = parseArgs(['start', '--production', '--supervised', '--paused', '--mode', 'headless']);
+    assert.equal(started.ok, true);
+    assert.equal(started.options.supervised, true);
+    assert.equal(started.options.paused, true);
+    assert.equal(parseArgs(['setup', '--supervised']).options.supervised, true);
+    assert.equal(parseArgs(['setup', '--paused']).ok, false);
+    assert.equal(parseArgs(['install', '--supervised']).ok, false);
+    assert.deepEqual(parseArgs(['remove', '--production']).options, {
+      command: 'remove', production: true, id: '', mode: 'interactive', once: false, repos: [],
+    });
+  });
+
+  it('writes one prefixed JSON line per state', () => {
+    const line = supervisorLine('working', { kind: 'task', milestone: 'Launch', taskOrder: 3, at: 1 });
+    assert.ok(line.startsWith(SUPERVISOR_PREFIX));
+    assert.ok(line.endsWith('\n'));
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), { type: 'working', kind: 'task', milestone: 'Launch', taskOrder: 3, at: 1 });
+    assert.throws(() => supervisorLine('dancing'));
+    assert.throws(() => supervisorLine('attention', { reason: 'bored' }));
+    assert.doesNotThrow(() => supervisorLine('attention', { reason: 'github' }));
+  });
+
+  it('writes the pairing lines setup --supervised gives the app', () => {
+    const line = supervisorLine('pairing', { code: 'K7QM-4XPA', runnerId: 'peter-mbp-prod', expiresAt: 600, production: true, at: 1 });
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), {
+      type: 'pairing', code: 'K7QM-4XPA', runnerId: 'peter-mbp-prod', expiresAt: 600, production: true, at: 1,
+    });
+    assert.doesNotThrow(() => supervisorLine('paired', { runnerId: 'peter-mbp-prod' }));
+    assert.doesNotThrow(() => supervisorLine('pair_expired'));
+  });
+
+  it('reads app-release and writes its line', () => {
+    assert.deepEqual(parseArgs(['app-release', '--production']).options, {
+      command: 'app-release', production: true, id: '', mode: 'interactive', once: false, repos: [],
+    });
+    assert.equal(parseArgs(['app-release', '--once']).ok, false);
+    const release = { version: '0.1.1', build: 312, sha256: 'a'.repeat(64), size: 10, minMacOS: '14.0', publishedAt: 1, url: 'https://x.convex.cloud/api/storage/1' };
+    const line = supervisorLine('app_release', { release, at: 1 });
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), { type: 'app_release', release, at: 1 });
+  });
+
+  it('takes pause and resume on stdin, nothing else', () => {
+    assert.equal(supervisorCommand('pause\n'), 'pause');
+    assert.equal(supervisorCommand(' Resume '), 'resume');
+    assert.equal(supervisorCommand('rm -rf /'), null);
+    assert.equal(supervisorCommand(''), null);
+  });
+
+  it('needs a person only for a revoked or out-of-date runner', () => {
+    assert.equal(attentionForStatus(401), 'unauthorized');
+    assert.equal(attentionForStatus(426), 'out_of_date');
+    assert.equal(attentionForStatus(500), null);
+    assert.equal(attentionForStatus(undefined), null);
+  });
+});

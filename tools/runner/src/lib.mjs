@@ -26,20 +26,31 @@ export const DEPLOYMENTS = Object.freeze({
 export const KEYCHAIN_SERVICE = 'warehaus-runner';
 
 export const USAGE = `Usage:
-  npm run runner -- setup [--production] [--id <runner-id>]
+  npm run runner -- setup [--production] [--id <runner-id>] [--supervised]
   npm run runner -- install [--production]
   npm run runner -- uninstall [--production]
-  npm run runner -- start [--production] [--repo <owner/name>] [--id <runner-id>] [--mode interactive|headless] [--once]
+  npm run runner -- remove [--production]
+  npm run runner -- app-release [--production]
+  npm run runner -- start [--production] [--repo <owner/name>] [--id <runner-id>] [--mode interactive|headless] [--once] [--supervised] [--paused]
 
 setup       Pairs this Mac with the Portal. It prints an 8-character code and
             opens the Portal: staff enter the code in the Runner status modal
             on any project page. The secret goes to this Mac's Keychain only.
   --id      Runner id to propose. Defaults to this Mac's name, with -prod on
             production. Staff can change it when they confirm.
+  --supervised  Under the runner Mac app: print pairing, paired and
+            pair_expired lines and leave opening the Portal to the app.
 
 install     Writes a launchd agent that starts the runner at login and
             restarts it if it stops, one per deployment, then loads it. It
             runs headless. Run setup first. uninstall removes it.
+
+remove      Revokes this runner in the Portal, removes its launchd agent,
+            and deletes its secret from the Keychain and its saved file.
+            The runner Mac app runs this for Remove this runner.
+
+app-release Prints the latest runner Mac app build as one app_release line.
+            The app runs this to update itself between runs.
 
 start       Takes work from the Portal.
             A registered runner serves every project that names a repository,
@@ -50,6 +61,9 @@ start       Takes work from the Portal.
   --mode    interactive (default) opens Claude Code for you to drive.
             headless runs "claude -p" and draws on Agent SDK credit.
   --once    Do one piece of work, then exit.
+  --supervised  Run under the runner Mac app: print one state line per
+            change on stdout and read pause or resume on stdin.
+  --paused  Start paused: take no new work, and tell the Portal so.
 
 --production  Talks to the production Portal. Never the default: a runner
               paired to production refuses to start without it.
@@ -61,8 +75,10 @@ PORTAL_AGENT_URL and RUNNER_TOKEN in the environment still override them.`;
 /** Parses `setup …` or `start …`. Returns an error string for anything else. */
 export function parseArgs(argv) {
   const [command, ...rest] = argv;
-  if (!['start', 'setup', 'install', 'uninstall'].includes(command)) return { ok: false, error: USAGE };
+  if (!['start', 'setup', 'install', 'uninstall', 'remove', 'app-release'].includes(command)) return { ok: false, error: USAGE };
   const options = { command, production: false, id: '', mode: 'interactive', once: false, repos: [] };
+  if (command === 'start') Object.assign(options, { supervised: false, paused: false });
+  if (command === 'setup') options.supervised = false;
   const valued = command === 'start' ? ['--id', '--mode', '--repo'] : command === 'setup' ? ['--id'] : [];
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
@@ -70,8 +86,12 @@ export function parseArgs(argv) {
       options.production = true;
       continue;
     }
-    if (flag === '--once' && command === 'start') {
-      options.once = true;
+    if (command === 'start' && (flag === '--once' || flag === '--supervised' || flag === '--paused')) {
+      options[flag.slice(2)] = true;
+      continue;
+    }
+    if (command === 'setup' && flag === '--supervised') {
+      options.supervised = true;
       continue;
     }
     if (valued.includes(flag)) {
@@ -264,8 +284,20 @@ function goalLines(goals) {
   return goals && goals.length > 0 ? goals.map((goal) => `- ${goal}`).join('\n') : '- (none written)';
 }
 
+/**
+ * Set by the Portal once Peter presses Approve designs. Empty until then, so a
+ * milestone with no design work reads as before. Mirrors designApprovalLine in
+ * apps/portal/convex/_lib/designApproval.ts.
+ */
+export function designApprovalLine(designApprovedAt) {
+  if (typeof designApprovedAt !== 'number' || !Number.isFinite(designApprovedAt) || designApprovedAt <= 0) return '';
+  const day = new Date(designApprovedAt).toISOString().slice(0, 10);
+  return `Design: approved by Peter in the Portal on ${day}. Build tasks can go ahead.`;
+}
+
 export function taskPrompt(template, work) {
   return fill(template, {
+    designApproval: designApprovalLine(work.milestone.designApprovedAt),
     milestoneName: fenceUntrusted('NAME', work.milestone.name),
     objective: fenceUntrusted('OBJECTIVE', work.milestone.objective),
     goals: fenceUntrusted('GOALS', goalLines(work.milestone.goals)),
@@ -372,6 +404,51 @@ export function idleDelayMs(emptyPolls) {
   return Math.min(5 * 60_000, 60_000 * 2 ** Math.min(Math.max(emptyPolls - 1, 0), 3));
 }
 
+/**
+ * The runner Mac app (apps/mac) starts the runner with --supervised and reads
+ * its stdout. A state line is this prefix and one JSON object; every other
+ * line is the runner's own log. Keep in step with RunnerEvent.swift.
+ */
+export const SUPERVISOR_PREFIX = '@@warehaus ';
+export const SUPERVISOR_EVENTS = Object.freeze([
+  'started',
+  'idle',
+  'working',
+  'finished',
+  'paused',
+  'attention',
+  // `setup --supervised`: the app shows the code and opens the Portal itself.
+  'pairing',
+  'paired',
+  'pair_expired',
+  // `app-release`: the latest runner app build, for the app's self-update.
+  'app_release',
+]);
+export const ATTENTION_REASONS = Object.freeze(['unauthorized', 'out_of_date', 'github', 'unreachable', 'not_paired']);
+
+/** One state line for the app. Unknown types throw: the Swift side would drop them. */
+export function supervisorLine(type, fields = {}) {
+  if (!SUPERVISOR_EVENTS.includes(type)) throw new Error(`Unknown supervisor event ${type}`);
+  if (type === 'attention' && !ATTENTION_REASONS.includes(fields.reason)) throw new Error(`Unknown attention reason ${fields.reason}`);
+  return `${SUPERVISOR_PREFIX}${JSON.stringify({ type, ...fields, at: fields.at ?? Date.now() })}\n`;
+}
+
+/** A line the app writes on the runner's stdin: pause or resume. Anything else is ignored. */
+export function supervisorCommand(line) {
+  const word = String(line ?? '').trim().toLowerCase();
+  return word === 'pause' || word === 'resume' ? word : null;
+}
+
+/**
+ * Why a failed Portal call needs a person, from the HTTP status the protocol
+ * client puts on the error. null means wait and try again.
+ */
+export function attentionForStatus(status) {
+  if (status === 401) return 'unauthorized';
+  if (status === 426) return 'out_of_date';
+  return null;
+}
+
 /** How often an idle runner pings, so the Portal chip keeps reading Ready (seen within the last 10 minutes). */
 export const HEARTBEAT_MS = 75_000;
 
@@ -388,6 +465,20 @@ export function heartbeatSlices(waitMs, beatMs = HEARTBEAT_MS) {
   }
   if (left > 0 || slices.length === 0) slices.push(left);
   return slices;
+}
+
+/**
+ * Waits between empty polls, pinging the Portal every heartbeat so the runner
+ * health chip keeps reading Ready. A ping claims nothing. A failed one is skipped.
+ * `ping` and `sleep` are injected so a test can run the real loop.
+ */
+export async function idleWait({ ping, ms, sleep = (wait) => new Promise((done) => setTimeout(done, wait)), stopped = () => false }) {
+  const slices = heartbeatSlices(ms);
+  for (let index = 0; index < slices.length; index += 1) {
+    await sleep(slices[index]);
+    if (stopped()) return;
+    if (index < slices.length - 1) await Promise.resolve().then(ping).catch(() => {});
+  }
 }
 
 const SECRET_VALUE =

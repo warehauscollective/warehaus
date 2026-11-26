@@ -342,6 +342,8 @@ export const listTasks = internalQuery({
             updatedAt: task.updatedAt,
             lastEditedTime: task.lastEditedTime,
             notionPageId: task.notionPageId,
+            source: task.source,
+            portalOwned: task.portalOwned,
             publishToWarehaus: task.publishToWarehaus,
             milestoneId: task.milestoneId,
           };
@@ -526,7 +528,8 @@ export const updateTask = internalMutation({
     ...idemArgs,
     tokenName: v.string(),
     taskId: v.id('tasks'),
-    expectedLastEditedTime: v.string(),
+    /** Required for a Notion-backed task. Ignored for a Portal-only task, which has no Notion edit time. */
+    expectedLastEditedTime: v.optional(v.string()),
     status: v.optional(v.string()),
     priority: v.optional(v.union(v.string(), v.null())),
     nextAction: v.optional(v.union(v.string(), v.null())),
@@ -558,7 +561,8 @@ export const updateTask = internalMutation({
     const result = await applyTaskChanges(ctx, task, changes, {
       actor: 'api',
       actorId: args.tokenName,
-      expectedLastEditedTime: args.expectedLastEditedTime,
+      // Missing still means stale for a Notion-backed task. applyTaskChanges skips the check for Portal-only tasks.
+      expectedLastEditedTime: args.expectedLastEditedTime ?? '',
       at: now,
     });
     if (!result.ok) {

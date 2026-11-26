@@ -1,0 +1,29 @@
+name: Native bridge (Swift)
+
+# The Swift copy of the native bridge decodes the same fixtures as the
+# TypeScript copy (ADR-0006, decision 7). Runs only when the bridge changes.
+# No credentials. This workflow does not deploy.
+on:
+  pull_request:
+    paths:
+      - "packages/native-bridge/**"
+      - ".github/workflows/native-bridge-swift.yml"
+  push:
+    branches: [main]
+    paths:
+      - "packages/native-bridge/**"
+      - ".github/workflows/native-bridge-swift.yml"
+
+concurrency:
+  group: native-bridge-swift-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  swift:
+    name: Swift contract tests
+    runs-on: macos-15
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Test
+        run: swift test --package-path packages/native-bridge/swift

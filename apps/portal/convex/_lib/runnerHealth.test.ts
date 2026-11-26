@@ -9,18 +9,14 @@ import {
   latestRunner,
   runnerHealthCopy,
   runnerHealthState,
-  runnerStartCommand,
+  RUNNER_ON_THE_MAC,
   RUNNER_SETUP_HELPER,
-  runnersAllowedFor,
   type RunnerHealthView,
 } from './runnerHealth';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
 const NOW = 1_800_000_000_000;
-const TOKEN_A = 'a'.repeat(32);
-const TOKEN_B = 'b'.repeat(32);
-const CONFIGURED = `peter-mbp=${TOKEN_A} warehauscollective/warehaus\nstudio-mini=${TOKEN_B} acme/site warehauscollective/warehaus`;
 const LAUNCH = { milestoneId: 'm1', milestoneName: 'Client experience launch' };
 
 function view(patch: Partial<RunnerHealthView> = {}): RunnerHealthView {
@@ -79,26 +75,10 @@ describe('runner heartbeat throttle', () => {
   });
 });
 
-describe('runners allowed for a project', () => {
-  it('returns ids for the repository and never a token', () => {
-    assert.deepEqual(runnersAllowedFor(CONFIGURED, 'warehauscollective/warehaus'), ['peter-mbp', 'studio-mini']);
-    assert.deepEqual(runnersAllowedFor(CONFIGURED, 'https://github.com/Acme/Site.git'), ['studio-mini']);
-    assert.deepEqual(runnersAllowedFor(CONFIGURED, 'acme/other'), []);
-    assert.deepEqual(runnersAllowedFor(CONFIGURED, null), []);
-    assert.deepEqual(runnersAllowedFor(undefined, 'acme/site'), []);
-    const out = JSON.stringify(runnersAllowedFor(CONFIGURED, 'warehauscollective/warehaus'));
-    assert.equal(out.includes(TOKEN_A) || out.includes(TOKEN_B), false);
-  });
-
-  it('builds the start command, with --production only on production', () => {
-    assert.equal(
-      runnerStartCommand('peter-mbp-prod', 'warehauscollective/warehaus', true),
-      'npm run runner -- start --production --id peter-mbp-prod --repo warehauscollective/warehaus',
-    );
-    assert.equal(
-      runnerStartCommand('peter-mbp', 'warehauscollective/warehaus', false),
-      'npm run runner -- start --id peter-mbp --repo warehauscollective/warehaus',
-    );
+describe('no terminal commands', () => {
+  it('never shows a command in any state', () => {
+    const source = readFileSync(new URL('./runnerHealth.ts', import.meta.url), 'utf8');
+    assert.doesNotMatch(source, /npm run|git pull/);
   });
 });
 
@@ -145,7 +125,7 @@ describe('runner health copy', () => {
     const ready = runnerHealthCopy(view(), NOW);
     assert.equal(`${ready.label} · ${ready.meta}`, 'Runner ready · peter-mbp-prod · seen 4m ago');
     assert.deepEqual(
-      [ready.compactLabel, ready.dot, ready.runner, ready.lastSeen, ready.milestone, ready.startCommand, ready.helper],
+      [ready.compactLabel, ready.dot, ready.runner, ready.lastSeen, ready.milestone, ready.onTheMac, ready.helper],
       ['Ready', 'ready', 'peter-mbp-prod', '4m ago', '—', null, 'The runner will start an agent when a milestone moves to Building.'],
     );
 
@@ -157,11 +137,11 @@ describe('runner health copy', () => {
     );
 
     const late = NOW + 2 * 60 * 60_000 - 4 * 60_000;
-    const command = 'npm run runner -- start --production --id peter-mbp-prod --repo warehauscollective/warehaus';
+    const command = RUNNER_ON_THE_MAC;
     const offline = runnerHealthCopy(view(), late);
     assert.equal(`${offline.label} · ${offline.meta}`, 'Runner offline · last seen 2h ago');
     assert.deepEqual(
-      [offline.compactLabel, offline.dot, offline.warning, offline.runner, offline.lastSeen, offline.milestone, offline.startCommand, offline.helper],
+      [offline.compactLabel, offline.dot, offline.warning, offline.runner, offline.lastSeen, offline.milestone, offline.onTheMac, offline.helper],
       [
         'Offline',
         'offline',
@@ -170,14 +150,14 @@ describe('runner health copy', () => {
         '2h ago',
         '—',
         command,
-        "No runner serving this repository has been seen in the last 10 minutes. Moving a milestone to Building won't start an agent until one is running.",
+        "No runner serving this repository has been seen in the last 10 minutes. The runner app starts at login, so check the Mac is on and open Warehaus Portal if it was quit. Moving a milestone to Building won't start an agent until one is running.",
       ],
     );
 
     const held = runnerHealthCopy(view({ building: LAUNCH }), late);
     assert.equal(`${held.label} · ${held.meta}`, 'Runner offline · Client experience launch');
     assert.deepEqual(
-      [held.compactLabel, held.dot, held.warning, held.lastSeen, held.milestone, held.startCommand, held.helper],
+      [held.compactLabel, held.dot, held.warning, held.lastSeen, held.milestone, held.onTheMac, held.helper],
       [
         'Offline',
         'warning',
@@ -185,7 +165,7 @@ describe('runner health copy', () => {
         '2h ago',
         'Client experience launch',
         command,
-        'Client experience launch is Building and waiting for the runner. Start it to pick the milestone up.',
+        'Client experience launch is Building and waiting for the runner. Open Warehaus Portal on the Mac to pick the milestone up.',
       ],
     );
 
@@ -204,8 +184,8 @@ describe('runner health copy', () => {
   it('says so when an allowed runner has never called', () => {
     const never = runnerHealthCopy(view({ runners: [{ id: 'peter-mbp', lastSeenAt: null }], production: false }), NOW);
     assert.deepEqual(
-      [never.state, never.meta, never.lastSeen, never.startCommand],
-      ['offline', 'not seen yet', '—', 'npm run runner -- start --id peter-mbp --repo warehauscollective/warehaus'],
+      [never.state, never.meta, never.lastSeen, never.onTheMac],
+      ['offline', 'not seen yet', '—', 'Open Warehaus Portal from Applications'],
     );
   });
 
@@ -225,13 +205,13 @@ describe('who can read runner health', () => {
     const agent = read('../agent.ts');
     assert.match(agent, /export const runnerHealth = adminQuery\(/);
     const block = agent.slice(agent.indexOf('export const runnerHealth'));
-    // The environment value goes straight into the id filter and nowhere else.
-    assert.deepEqual(block.match(/RUNNER_TOKENS/g), ['RUNNER_TOKENS']);
-    assert.match(block, /runnersAllowedFor\(process\.env\.RUNNER_TOKENS, repo\)/);
-    assert.equal(/token/.test(block.replace('RUNNER_TOKENS', '').replace(/a token never leaves/i, '')), false);
+    // Only registered runners count: no environment fallback, and no token in the view.
+    assert.equal(block.includes('RUNNER_TOKENS'), false);
+    assert.equal(/token/i.test(block.replace(/a token never leaves/i, '')), false);
     // Indexed and capped: no bare collect.
     assert.equal(block.includes('.collect()'), false);
-    for (const index of ['by_runnerId', 'by_runner_status', 'by_projectId']) assert.equal(block.includes(index), true, index);
+    assert.match(block, /registeredRunners\(ctx\)/);
+    for (const index of ['by_runner_status', 'by_projectId']) assert.equal(block.includes(index), true, index);
     assert.match(read('./wrappers.ts'), /export const adminQuery = customQuery\(query, \{[\s\S]*?Staff role required/);
   });
 
