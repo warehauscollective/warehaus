@@ -185,6 +185,8 @@ async function milestoneContext(ctx: QueryCtx, milestone: Doc<'milestones'>, bra
     status: milestone.status,
     branch,
     prUrl: milestone.prUrl ?? null,
+    /** Set once Peter presses Approve designs. The task prompt says so. */
+    designApprovedAt: milestone.designApprovedAt ?? null,
   };
 }
 

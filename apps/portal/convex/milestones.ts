@@ -118,6 +118,7 @@ import {
   reviewPreviews,
   reviewRetryLiveOnClient,
 } from './_lib/previewLink';
+import { approveDesignDecision, ONLY_PETER_DESIGNS } from './_lib/designApproval';
 import {
   PREVIEW_DELETED_ACTIVITY,
   PREVIEW_READY_ACTIVITY,
@@ -403,6 +404,7 @@ async function toRoadmap(
     dueDate: milestone.dueDate ?? null,
     ...(audience === 'staff' && milestone.localPreviewUrl ? { localPreviewUrl: milestone.localPreviewUrl } : {}),
     ...(audience === 'staff' && milestone.figmaUrl ? { figmaUrl: milestone.figmaUrl } : {}),
+    ...(audience === 'staff' && milestone.designApprovedAt ? { designApprovedAt: milestone.designApprovedAt } : {}),
     creatorName: await creatorNameFor(ctx, milestone),
     ...(audience === 'staff' && milestone.createdVia ? { createdVia: milestone.createdVia } : {}),
     ...(audience === 'staff' && milestone.planning ? { planning: milestone.planning } : {}),
@@ -1423,6 +1425,29 @@ export const approve = adminMutation({
     });
     if (!result.ok) fail(result.error);
     return result;
+  },
+});
+
+/**
+ * Approve designs on the tile. Peter only, before build. Saves who and when,
+ * and writes one staff-only Activity row. Status does not change and nothing
+ * merges or deploys. A second press keeps the first approval and writes nothing.
+ */
+export const approveDesign = adminMutation({
+  args: { milestoneId: v.id('milestones') },
+  handler: async (ctx, args) => {
+    if (ctx.identity.role !== 'Warehaus Staff' || !isPeterEmail(ctx.identity.email)) fail(ONLY_PETER_DESIGNS);
+    const contactId = ctx.identity.contactId as Id<'contacts'>;
+    const milestone = await loadMilestone(ctx, args.milestoneId);
+    const decision = approveDesignDecision(milestone);
+    if (!decision.ok) fail(decision.reason);
+    if (decision.already) {
+      return { ok: true as const, designApprovedAt: milestone.designApprovedAt as number, already: true };
+    }
+    const at = Date.now();
+    await ctx.db.patch(milestone._id, { designApprovedAt: at, designApproverContactId: contactId });
+    await logMilestone(ctx, milestone, 'milestone.design_approved', at, 'Designs approved by Peter');
+    return { ok: true as const, designApprovedAt: at, already: false };
   },
 });
 

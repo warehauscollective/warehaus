@@ -16,6 +16,7 @@ import type * as _lib_closeout from "../_lib/closeout.js";
 import type * as _lib_closeoutStore from "../_lib/closeoutStore.js";
 import type * as _lib_constantTime from "../_lib/constantTime.js";
 import type * as _lib_contactJoin from "../_lib/contactJoin.js";
+import type * as _lib_designApproval from "../_lib/designApproval.js";
 import type * as _lib_devAccess from "../_lib/devAccess.js";
 import type * as _lib_email from "../_lib/email.js";
 import type * as _lib_githubPull from "../_lib/githubPull.js";
@@ -145,6 +146,7 @@ declare const fullApi: ApiFromModules<{
   "_lib/closeoutStore": typeof _lib_closeoutStore;
   "_lib/constantTime": typeof _lib_constantTime;
   "_lib/contactJoin": typeof _lib_contactJoin;
+  "_lib/designApproval": typeof _lib_designApproval;
   "_lib/devAccess": typeof _lib_devAccess;
   "_lib/email": typeof _lib_email;
   "_lib/githubPull": typeof _lib_githubPull;

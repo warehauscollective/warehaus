@@ -93,3 +93,21 @@ _Avoid_: notification list, inbox
 **Ask**:
 A note that waits on one named staff member to answer it: an approval request or a blocked task. It stays open until that person answers. The Portal shows it as Needs you.
 _Avoid_: needs Peter, needs attention
+
+## Design
+
+**Canonical screen**:
+The one Figma screen for a view of a route, in its default populated state. Its 1440 Dark and 390 Dark frames are hand built; its Light frames are instances of them. Rules: `docs/design/figma-protocol.md`.
+_Avoid_: screen version, final screen, v2
+
+**Component set**:
+A Figma component with all its looks as variants, such as every `State` of a Button. A component state lives here, never as its own screen.
+_Avoid_: states frame, state screens
+
+**Local component**:
+An organism that only one Portal tab uses, kept in that tab page's Local components section. It moves to the library the second time another tab needs it.
+_Avoid_: page component, one-off component
+
+**Exploration**:
+The section on a tab page for side-by-side options and proposals waiting on Peter. It is empty when nothing is open; the chosen option is applied to the canonical screen and the rest go to Archive.
+_Avoid_: proposal section, iteration copy, sandbox
