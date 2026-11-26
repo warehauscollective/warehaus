@@ -31,6 +31,13 @@ public enum AttentionReason: String, Codable, Sendable, CaseIterable {
     }
 }
 
+/// Why the runner waits on its own, from a `waiting` line (`WAITING_REASONS`
+/// in tools/runner/src/lib.mjs). Nobody has to act, so it never notifies.
+public enum WaitReason: String, Codable, Sendable, CaseIterable {
+    /// Claude hit the account usage limit. The runner takes no new work until the reset.
+    case usageLimit = "usage_limit"
+}
+
 public enum RunKind: String, Codable, Sendable {
     case task, planning, build
 }
@@ -65,6 +72,8 @@ public enum RunnerEvent: Equatable, Sendable {
     case finished(WorkInfo, status: String)
     case paused
     case attention(AttentionReason)
+    /// `until` is when the runner takes work again, or nil when it did not say.
+    case waiting(WaitReason, until: Date?)
 
     /// Must match `SUPERVISOR_PREFIX` in tools/runner/src/lib.mjs.
     public static let prefix = "@@warehaus "
@@ -91,6 +100,10 @@ public enum RunnerEvent: Equatable, Sendable {
         case "attention":
             guard let value = raw.reason, let reason = AttentionReason(rawValue: value) else { return nil }
             return .attention(reason)
+        case "waiting":
+            guard let value = raw.reason, let reason = WaitReason(rawValue: value) else { return nil }
+            // The runner sends milliseconds since 1970.
+            return .waiting(reason, until: raw.until.map { Date(timeIntervalSince1970: $0 / 1000) })
         default:
             return nil
         }
@@ -109,6 +122,7 @@ public enum RunnerEvent: Equatable, Sendable {
         var task: String?
         var status: String?
         var reason: String?
+        var until: Double?
 
         var work: WorkInfo? {
             guard let value = kind, let kind = RunKind(rawValue: value) else { return nil }

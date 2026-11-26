@@ -79,7 +79,7 @@ struct MenuHeader: View {
     private var dotColor: Color {
         switch menu.status {
         case .ready, .working: return Color(nsColor: .systemGreen)
-        case .paused: return Color(nsColor: .systemOrange)
+        case .paused, .waiting: return Color(nsColor: .systemOrange)
         case .needsAttention: return Color(nsColor: .systemRed)
         }
     }
