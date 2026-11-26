@@ -75,3 +75,21 @@ _Avoid_: planner job, auto-plan
 **Build agent**:
 The tool a project builds its milestones with: Claude Code or a Cursor cloud agent. Staff choose it per project; planning does not use it.
 _Avoid_: driver, agent choice, tool
+
+## Design
+
+**Canonical screen**:
+The one Figma screen for a view of a route, in its default populated state. Its 1440 Dark and 390 Dark frames are hand built; its Light frames are instances of them. Rules: `docs/design/figma-protocol.md`.
+_Avoid_: screen version, final screen, v2
+
+**Component set**:
+A Figma component with all its looks as variants, such as every `State` of a Button. A component state lives here, never as its own screen.
+_Avoid_: states frame, state screens
+
+**Local component**:
+An organism that only one Portal tab uses, kept in that tab page's Local components section. It moves to the library the second time another tab needs it.
+_Avoid_: page component, one-off component
+
+**Exploration**:
+The section on a tab page for side-by-side options and proposals waiting on Peter. It is empty when nothing is open; the chosen option is applied to the canonical screen and the rest go to Archive.
+_Avoid_: proposal section, iteration copy, sandbox

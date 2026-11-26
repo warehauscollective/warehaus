@@ -30,6 +30,7 @@ Figma file for every Portal design: [Warehaus Studio](https://www.figma.com/desi
 - One page per Portal tab: Portal - Dashboard (`689:31056`), Portal - Projects (`689:31057`), Portal - Resources (`689:31058`), Portal - Activity (`689:31059`), Portal - Account (`689:31060`).
 - Core / Components, the component library: Portal - Component Library (`151:5387`).
 - Iterate on existing frames only. No new page, no new file, no parallel copy of a screen, and do not publish the library.
+- Figma protocol: `docs/design/figma-protocol.md` (ADR-0006). Atoms, Molecules, Organisms in the library. Components carry the states as variants; one canonical screen per view, built from instances. Hand-build 1440 Dark and 390 Dark only; Light frames are instances on the Light mode. Options go in the page's Exploration section; old frames go to Archive.
 
 ## Code graph (graphify)
 
