@@ -144,6 +144,9 @@ export function fixtureMilestones(
 }
 
 const PREVIEW_REVIEW_AT = Date.parse('2026-11-03T15:00:00Z');
+// 12:04 PM ET on Nov 17, and Nov 25 for the deploy.
+const PREVIEW_APPROVED_AT = Date.parse('2026-11-17T17:04:00Z');
+const PREVIEW_SHIPPED_AT = Date.parse('2026-11-25T16:00:00Z');
 
 /** Fixture Peter tile: Ready to Ship with a review preview so Approve attaches under the stage. */
 function readyTileReview(): MilestoneReviewView {
@@ -237,7 +240,7 @@ function withLoopFixture(milestone: MilestoneRoadmapView, loop: string): Milesto
 
 function previewMilestone(
   patch: Pick<MilestoneRoadmapView, 'id' | 'name' | 'objective' | 'status' | 'approval'> &
-    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName'>>,
+    Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName' | 'rows' | 'openCount' | 'doneCount' | 'shippedAt'>>,
 ): MilestoneRoadmapView {
   return {
     goals: [],
@@ -256,7 +259,8 @@ function previewMilestone(
 
 /**
  * Fixture-only list previews. `?chip=long` stretches the first chip.
- * `?tiles=states` adds an in-progress tile, a reviewed tile, an approved tile awaiting merge, and a tile whose status is Shipped.
+ * `?tiles=states` adds an in-progress tile, a reviewed tile, two approved Ready to Ship tiles
+ * (one with open tasks, one with every task done), and an approved tile whose status is Shipped.
  * An empty search leaves the list alone.
  */
 export function applyFixtureMilestonePreview(
@@ -332,18 +336,49 @@ export function applyFixtureMilestonePreview(
     }),
     previewMilestone({
       id: 'm-preview-approved',
-      name: 'Approved, awaiting merge',
+      name: 'Approved, tasks open',
       objective: 'The brand system is approved.',
-      // Approval keeps Ready to Ship. Shipped comes with the deploy, or with Mark complete.
+      // Approval keeps Ready to Ship. Open tasks block Shipped until they are done, parked or moved.
       status: 'Ready to Ship',
       approval: 'approved',
-      decidedAt: PREVIEW_REVIEW_AT,
-      approverName: 'Northwind',
+      decidedAt: PREVIEW_APPROVED_AT,
+      approverName: 'Peter Roquemore',
       note: 'Approved with the brand file.',
       resources: [
         { id: 'r-brand', title: 'Brand file', url: null },
         { id: 'r-brand-2', title: 'Logo sheet', url: null },
       ],
+      openCount: 2,
+      doneCount: 4,
+      rows: [
+        ...['Logo lockups', 'Colour tokens', 'Type scale', 'Brand file export'].map((name, index) => ({
+          ...previewChild(`approved-done-${index}`),
+          name,
+          status: 'Done',
+          isDone: true,
+          children: [],
+        })),
+        { ...previewChild('approved-open-0'), name: 'Fix the footer link colour', stage: 'Building', status: 'In Progress', children: [] },
+        { ...previewChild('approved-open-1'), name: 'Update the favicon', children: [] },
+      ],
+    }),
+    previewMilestone({
+      id: 'm-preview-clear',
+      name: 'Approved, every task done',
+      objective: 'The pricing page is approved.',
+      status: 'Ready to Ship',
+      approval: 'approved',
+      decidedAt: PREVIEW_APPROVED_AT,
+      approverName: 'Peter Roquemore',
+      openCount: 0,
+      doneCount: 3,
+      rows: ['Pricing table', 'Plan copy', 'FAQ'].map((name, index) => ({
+        ...previewChild(`clear-done-${index}`),
+        name,
+        status: 'Done',
+        isDone: true,
+        children: [],
+      })),
     }),
     previewMilestone({
       id: 'm-preview-shipped',
@@ -352,7 +387,17 @@ export function applyFixtureMilestonePreview(
       status: 'Shipped',
       approval: 'approved',
       decidedAt: PREVIEW_REVIEW_AT,
-      approverName: 'Northwind',
+      approverName: 'Peter Roquemore',
+      openCount: 0,
+      doneCount: 5,
+      shippedAt: PREVIEW_SHIPPED_AT,
+      rows: ['Hero', 'Navigation', 'Pricing', 'Footer', 'Launch checklist'].map((name, index) => ({
+        ...previewChild(`shipped-done-${index}`),
+        name,
+        status: 'Done',
+        isDone: true,
+        children: [],
+      })),
     }),
   ];
 }

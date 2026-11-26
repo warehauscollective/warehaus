@@ -465,6 +465,9 @@ export function ProjectRoadmap({
           closeout={staff ? closeoutControl(selected) : null}
           archivedTasks={archivedTasks.filter((task) => task.milestoneId === selected.id)}
           taskCloseout={fixtures ? undefined : taskActions}
+          taskMoveTargets={milestones
+            .filter((item) => item.id !== selected.id && item.status !== 'Shipped')
+            .map((item) => ({ id: item.id, name: item.name }))}
         />
       ) : (
         <>

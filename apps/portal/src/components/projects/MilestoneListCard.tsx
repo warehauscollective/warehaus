@@ -8,7 +8,7 @@ import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { PortalModal } from '@/components/ui/PortalModal';
-import { OutlineButton } from '@/components/ui/primitives';
+import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { StatusMenu } from './milestoneDetailsEdit';
 import { TileStatusControl, useMilestoneStatusMoves } from './MilestoneStatusControl';
@@ -18,7 +18,8 @@ import {
   StatusChip,
   fieldStyle,
 } from './milestoneChrome';
-import { AWAITING_MERGE_LINE, milestoneTileHeadline, milestoneTileStatus, ProgressCopy, tileMetaLine, StaffOnlyChip, taskTotal, boardTaskCounts } from './milestoneTile';
+import { milestoneTileHeadline, milestoneTileStatus, ProgressCopy, tileMetaLine, StaffOnlyChip, taskTotal, boardTaskCounts } from './milestoneTile';
+import { approvedByShort, readyToShipNextStep, shortDay } from './readyToShip';
 
 const TILE_MENU_WIDTH = 320;
 
@@ -208,6 +209,8 @@ export function MilestoneListCard({
   const chipRef = useRef<HTMLButtonElement>(null);
   const desktopMenuWasOpen = useRef(false);
   const [deploying, setDeploying] = useState(false);
+  const [shipping, setShipping] = useState(false);
+  const [shipError, setShipError] = useState<string | null>(null);
   const [deployError, setDeployError] = useState<string | null>(null);
   useEffect(() => {
     if (!staff || stagePreview !== 'menu') return;
@@ -287,7 +290,9 @@ export function MilestoneListCard({
   });
   const stage = milestoneTileStatus({ status: moves.shown });
   const subtasks = boardTaskCounts(milestone).nested;
-  const awaitingMerge = staff && milestone.approval === 'approved' && milestone.status !== 'Shipped';
+  // Staff see who approved and the one next step. Figma tile states 770:12190, the peter approved rows.
+  const approvedBox = staff && milestone.approval === 'approved';
+  const tileStep = readyToShipNextStep(milestone, staff);
   const dateLine = milestoneTileHeadline({
     staff,
     approval: milestone.approval,
@@ -413,7 +418,7 @@ export function MilestoneListCard({
           <h2 data-testid="milestone-name" className={narrow ? 'text-[21px] leading-[32px]' : 'text-[21px] leading-[32px] lg:text-[20px] lg:leading-[30px]'} style={{ fontFamily: 'var(--font-geist), var(--font-body)', fontWeight: 500 }}>
             {milestone.name}
           </h2>
-          {dateLine ? (
+          {dateLine && !approvedBox ? (
             <p data-testid="milestone-due" className="shrink-0" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
               {dateLine}
             </p>
@@ -506,23 +511,67 @@ export function MilestoneListCard({
           </span>
         ) : null}
         </div>
-        {awaitingMerge ? (
-          <p
-            data-testid="milestone-awaiting"
+        {approvedBox ? (
+          <div
+            data-testid="milestone-approved"
+            data-kind={tileStep.kind}
+            className="flex flex-col gap-2"
             style={{
-              margin: 0,
               width: '100%',
               boxSizing: 'border-box',
               border: '1px solid var(--border)',
               borderRadius: 9,
-              padding: '8px 10px',
-              fontSize: 12,
-              lineHeight: '18px',
-              color: 'var(--fg)',
+              padding: 12,
             }}
           >
-            {AWAITING_MERGE_LINE}
-          </p>
+            <p className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+              {approvedByShort({ approverName: milestone.approverName, decidedAt: milestone.decidedAt })}
+            </p>
+            {tileStep.kind === 'blocked' ? (
+              <>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--fg)' }}>
+                  {tileStep.blocking.length === 1 ? '1 open task blocks Shipped' : `${tileStep.blocking.length} open tasks block Shipped`}
+                </p>
+                <button
+                  type="button"
+                  data-testid="milestone-approved-view-tasks"
+                  onClick={onOpen}
+                  style={{ all: 'unset', cursor: 'pointer', fontSize: 14, lineHeight: '21px', textDecoration: 'underline', textUnderlineOffset: 3 }}
+                >
+                  {tileStep.blocking.length === 1 ? 'View 1 task' : `View ${tileStep.blocking.length} tasks`}
+                </button>
+              </>
+            ) : null}
+            {tileStep.kind === 'clear' ? (
+              <>
+                <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--fg)' }}>Every task done</p>
+                {onSetStatus ? (
+                  <PrimaryButton
+                    testId="milestone-approved-mark-shipped"
+                    className="w-full"
+                    disabled={shipping}
+                    onClick={() => {
+                      setShipping(true);
+                      setShipError(null);
+                      void Promise.resolve(onSetStatus('Shipped', 'Ready to Ship'))
+                        .catch((caught: unknown) => setShipError(userFacingErrorMessage(caught, 'Couldn’t mark it shipped. Nothing changed.')))
+                        .finally(() => setShipping(false));
+                    }}
+                  >
+                    {shipping ? 'Marking shipped…' : 'Mark shipped'}
+                  </PrimaryButton>
+                ) : null}
+                {shipError ? (
+                  <p role="alert" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--danger-text)' }}>{shipError}</p>
+                ) : null}
+              </>
+            ) : null}
+            {tileStep.kind === 'shipped' ? (
+              <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--fg)' }}>
+                {milestone.shippedAt != null ? `Shipped ${shortDay(milestone.shippedAt)}` : 'Shipped'}
+              </p>
+            ) : null}
+          </div>
         ) : null}
         <span
           className={narrow ? 'ds-mono max-w-full whitespace-normal' : 'ds-mono max-w-full whitespace-normal lg:w-max lg:max-w-none lg:whitespace-nowrap'}

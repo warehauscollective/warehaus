@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { isClientVisibleActivityType } from '@warehaus/portal-sync';
-import { attachTask, attachTaskFromAi, create, saveFromAi } from '../milestones';
+import { attachTask, attachTaskFromAi, create, moveMilestoneTask, parkMilestoneTask, saveFromAi } from '../milestones';
 import { createMilestone } from '../portalApi';
 import { PortalAuthError } from './identity';
 import { MemoryCtxError, memoryCtx } from './memoryCtx.testkit';
@@ -12,6 +12,7 @@ import {
   HUMAN_CONTENT_LOCKED,
   attachTaskDecision,
   buildRoadmap,
+  taskMoveTargetDecision,
   writeMilestoneActivity,
   clientMaySeeLinkedResource,
   clientMaySeeMilestone,
@@ -673,5 +674,68 @@ describe('milestone activity rows', () => {
     assert.deepEqual(rows.map((row) => row.milestoneId), [launch, billing]);
     assert.deepEqual(rows.map((row) => row.name), ['Launch', 'Launch']);
     assert.deepEqual(rows.map((row) => row.type), ['milestone.approved', 'milestone.changes_requested']);
+  });
+});
+
+describe('taskMoveTargetDecision', () => {
+  const from = { id: 'm1', projectId: 'p1' };
+  const open = { id: 'm2', projectId: 'p1', status: 'Planning', archived: false };
+  it('allows an open milestone on the same project', () => {
+    assert.equal(taskMoveTargetDecision(from, open), null);
+    assert.equal(taskMoveTargetDecision(from, { ...open, status: 'Ready to Ship' }), null);
+  });
+  it('refuses a missing, same, other-project, archived or shipped milestone', () => {
+    assert.equal(taskMoveTargetDecision(from, null), 'Milestone not found');
+    assert.equal(taskMoveTargetDecision(from, { ...open, id: 'm1' }), 'The task is already on this milestone');
+    assert.equal(taskMoveTargetDecision(from, { ...open, projectId: 'p2' }), 'Pick a milestone on the same project');
+    assert.equal(taskMoveTargetDecision(from, { ...open, archived: true }), 'archived');
+    assert.equal(taskMoveTargetDecision(from, { ...open, status: 'Shipped' }), 'That milestone has shipped. Pick an open one.');
+  });
+});
+
+describe('next step at Ready to Ship', () => {
+  it('parks a blocking task and skips the write when it is already Parked', async () => {
+    const t = memoryCtx();
+    const world = seedMilestoneWorld(t, { status: 'Ready to Ship' });
+    const taskId = world.task({ status: 'To Do', stage: 'Building' });
+    assert.deepEqual(await t.call(parkMilestoneTask, { milestoneId: world.milestoneId, taskId }, { as: 'staff' }), { ok: true, wrote: true });
+    assert.equal(t.row(taskId)?.stage, 'Parked');
+    const parked = t.row(taskId);
+    assert.deepEqual(await t.call(parkMilestoneTask, { milestoneId: world.milestoneId, taskId }, { as: 'staff' }), { ok: true, wrote: false });
+    assert.deepEqual(t.row(taskId), parked);
+  });
+
+  it('refuses a task that is not on the milestone', async () => {
+    const t = memoryCtx();
+    const world = seedMilestoneWorld(t, { status: 'Ready to Ship' });
+    const stray = seedTask(t, world.orgId, world.projectId, {});
+    await assert.rejects(t.call(parkMilestoneTask, { milestoneId: world.milestoneId, taskId: stray }, { as: 'staff' }));
+    assert.notEqual(t.row(stray)?.stage, 'Parked');
+  });
+
+  it('moves a top-level task to another open milestone and refuses a subtask', async () => {
+    const t = memoryCtx();
+    const world = seedMilestoneWorld(t, { status: 'Ready to Ship' });
+    const next = seedMilestone(t, world.orgId, world.projectId, { status: 'Planning' });
+    const parent = world.task({});
+    const child = seedTask(t, world.orgId, world.projectId, { parentTaskId: parent });
+    await assert.rejects(
+      t.call(moveMilestoneTask, { milestoneId: world.milestoneId, taskId: child, toMilestoneId: next }, { as: 'staff' }),
+      /Move the parent task/,
+    );
+    await t.call(moveMilestoneTask, { milestoneId: world.milestoneId, taskId: parent, toMilestoneId: next }, { as: 'staff' });
+    assert.equal(t.row(parent)?.milestoneId, next);
+  });
+
+  it('will not move a task onto a shipped milestone', async () => {
+    const t = memoryCtx();
+    const world = seedMilestoneWorld(t, { status: 'Ready to Ship' });
+    const shipped = seedMilestone(t, world.orgId, world.projectId, { status: 'Shipped' });
+    const taskId = world.task({});
+    await assert.rejects(
+      t.call(moveMilestoneTask, { milestoneId: world.milestoneId, taskId, toMilestoneId: shipped }, { as: 'staff' }),
+      /has shipped/,
+    );
+    assert.equal(t.row(taskId)?.milestoneId, world.milestoneId);
   });
 });

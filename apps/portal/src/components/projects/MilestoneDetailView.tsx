@@ -26,7 +26,6 @@ import {
 } from './milestoneChrome';
 import {
   activityForMilestone,
-  boardCountsFromTasks,
   goalKey,
   MENU_ERROR_ID,
   milestoneResourceChoices,
@@ -35,7 +34,7 @@ import {
   storedMilestoneReview,
   tabIds,
 } from './milestoneGuards';
-import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, type FixturePatch, lastReviewLabel, resourceAudienceLine, taskTotal, boardTaskCounts, nestedCopy, milestoneDetachOptions, inclusiveProgressCopy, milestoneTasks, fixtureOwnerChoices } from './milestoneTile';
+import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, type FixturePatch, lastReviewLabel, resourceAudienceLine, taskTotal, boardTaskCounts, nestedCopy, milestoneDetachOptions, inclusiveProgressCopy, fixtureOwnerChoices } from './milestoneTile';
 import { ActivityList } from './roadmapParts';
 import { MoreMenu, EditDialog } from './MilestoneForms';
 import { MilestoneLoopLive, fixtureLoopModel, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
@@ -43,6 +42,8 @@ import { MilestoneChecklist, type ChecklistActions } from './MilestoneChecklist'
 import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
 import type { ArchivedTask } from './ArchivedView';
 import { MilestoneRunFeedLive } from './MilestoneRunFeed';
+import { ReadyToShipNextStep, type NextStepActions } from './ReadyToShipNextStep';
+import { tasksTabCount } from './readyToShip';
 
 type MilestoneTab = 'overview' | 'tasks' | 'activity' | 'reviews';
 
@@ -110,6 +111,14 @@ type MilestoneMutations = {
   clearPreviewLink?: (args: { hostSlug?: string; milestoneId: Id<'milestones'> }) => Promise<unknown>;
   /** Task writes on the Tasks tab. Absent in fixture previews. */
   tasks?: ChecklistActions;
+  /** Ready to Ship next step: park or move one blocking task. */
+  parkTask?: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; taskId: Id<'tasks'> }) => Promise<unknown>;
+  moveTask?: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    taskId: Id<'tasks'>;
+    toMilestoneId: Id<'milestones'>;
+  }) => Promise<unknown>;
 };
 
 export function MilestoneDetail(props: {
@@ -136,6 +145,8 @@ export function MilestoneDetail(props: {
   archivedTasks?: readonly ArchivedTask[];
   /** Task close-out writes. Absent in fixture previews. */
   taskCloseout?: (taskId: string) => TaskCloseoutActions;
+  /** Other open milestones on this project, for Move to on the Ready to Ship next step. */
+  taskMoveTargets?: readonly { id: string; name: string }[];
 }) {
   const save = useMutation(api.milestones.save);
   const setPublish = useMutation(api.milestones.setPublish);
@@ -153,6 +164,8 @@ export function MilestoneDetail(props: {
   const editTask = useMutation(api.milestones.editTask);
   const removeTask = useMutation(api.milestones.removeTask);
   const reorderTasks = useMutation(api.milestones.reorderTasks);
+  const parkTask = useMutation(api.milestones.parkMilestoneTask);
+  const moveTask = useMutation(api.milestones.moveMilestoneTask);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadedTargets, setLoadedTargets] = useState<MoveTarget[]>([]);
   const [moveListOpen, setMoveListOpen] = useState(false);
@@ -224,7 +237,7 @@ export function MilestoneDetail(props: {
           />
         ) : null
       }
-      mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink, tasks: { addTask, editTask, removeTask, reorderTasks } }}
+      mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink, parkTask, moveTask, tasks: { addTask, editTask, removeTask, reorderTasks } }}
     />
   );
 }
@@ -259,7 +272,9 @@ export function MilestoneDetailView({
   closeout = null,
   archivedTasks = [],
   taskCloseout,
+  taskMoveTargets = [],
 }: {
+  taskMoveTargets?: readonly { id: string; name: string }[];
   closeout?: ReactNode;
   archivedTasks?: readonly ArchivedTask[];
   taskCloseout?: (taskId: string) => TaskCloseoutActions;
@@ -302,8 +317,7 @@ export function MilestoneDetailView({
   const locked = milestone.approval === 'approved';
   const total = taskTotal(milestone);
   const recordBoard = boardTaskCounts(milestone);
-  const shownTasks = milestoneTasks(tasks, milestone);
-  const board = boardCountsFromTasks(shownTasks);
+  const tabCount = tasksTabCount(milestone.rows);
   const storedReview = storedMilestoneReview(milestone);
   const milestoneActivity = activityForMilestone(activity, milestone.id);
   const choices = milestoneResourceChoices(
@@ -347,6 +361,32 @@ export function MilestoneDetailView({
       clearPreviewLink: mutations.clearPreviewLink,
     },
   });
+
+  // The loop card covers Planning and Building only. It renders nothing at Ready to Ship, so the review card shows there.
+  const loopShown = Boolean(loop) && (Boolean(loopPreview) || milestone.status === 'Planning' || milestone.status === 'Building');
+  const milestoneKey = milestone.id as Id<'milestones'>;
+  // Fixtures show the live controls but write nothing.
+  const nextStepActions: NextStepActions | undefined = fixtures
+    ? { openTask: () => setTab('tasks'), parkTask: async () => null, moveTask: async () => null, markShipped: async () => null }
+    : !mutations.parkTask || !mutations.moveTask || !mutations.setStatus
+      ? undefined
+      : {
+          openTask: (taskId) => {
+            const task = tasks.find((item) => item.id === taskId);
+            if (task && onOpenTask) onOpenTask(task);
+            else setTab('tasks');
+          },
+          parkTask: (taskId) => mutations.parkTask!({ hostSlug, milestoneId: milestoneKey, taskId: taskId as Id<'tasks'> }),
+          moveTask: (taskId, toMilestoneId) =>
+            mutations.moveTask!({
+              hostSlug,
+              milestoneId: milestoneKey,
+              taskId: taskId as Id<'tasks'>,
+              toMilestoneId: toMilestoneId as Id<'milestones'>,
+            }),
+          markShipped: () =>
+            mutations.setStatus!({ hostSlug, milestoneId: milestoneKey, status: 'Shipped', expectedStatus: 'Ready to Ship' }),
+        };
 
   const run = async (action: () => Promise<unknown>) => {
     setBusy(true);
@@ -393,7 +433,7 @@ export function MilestoneDetailView({
         onChange={(id) => setTab(id as MilestoneTab)}
         tabs={[
           { id: 'overview', label: 'Overview' },
-          { id: 'tasks', label: `Tasks · ${board.lanes}` },
+          { id: 'tasks', label: `Tasks · ${tabCount}` },
           ...(staff ? [{ id: 'reviews' as const, label: `Reviews · ${milestone.review?.history.length ?? 0}` }] : []),
           { id: 'activity', label: 'Activity' },
         ]}
@@ -403,8 +443,17 @@ export function MilestoneDetailView({
       {tab === 'overview' ? (
         <div className="flex flex-col gap-6">
           {loop}
-          {staff && milestone.review && !loop ? (
+          {staff && milestone.review && !loopShown ? (
             <MilestoneReviewLive milestone={milestone} hostSlug={hostSlug} isPeter={isPeter} phone={phone} />
+          ) : null}
+          {!loopShown ? (
+            <ReadyToShipNextStep
+              milestone={milestone}
+              staff={staff}
+              phone={phone}
+              actions={nextStepActions}
+              moveTargets={taskMoveTargets}
+            />
           ) : null}
         <div className="flex flex-col gap-6 lg:flex-row lg:items-start">
           <div className="order-first w-full lg:order-last lg:w-[292px] lg:shrink-0">
@@ -449,7 +498,7 @@ export function MilestoneDetailView({
                     {' The open count is not the decision.'}
                   </p>
                 </div>
-                <OutlineButton nowrap onClick={() => setTab('tasks')}>View tasks · {board.lanes}</OutlineButton>
+                <OutlineButton nowrap onClick={() => setTab('tasks')}>View tasks · {tabCount}</OutlineButton>
               </div>
             </Panel>
             <Panel>

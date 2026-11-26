@@ -145,7 +145,7 @@ describe('fixture roadmap', () => {
     const states = applyFixtureMilestonePreview(staff, '?tiles=states');
     assert.deepEqual(
       states.map((milestone) => milestone.name),
-      ['Launch the homepage', 'Billing export draft', 'Case study', 'Navigation pass', 'Approved, awaiting merge', 'Production launch'],
+      ['Launch the homepage', 'Billing export draft', 'Case study', 'Navigation pass', 'Approved, tasks open', 'Approved, every task done', 'Production launch'],
     );
     assert.equal(states[2]?.status, 'Building');
     assert.equal(states[2]?.approval, 'unreviewed');
@@ -153,8 +153,9 @@ describe('fixture roadmap', () => {
     assert.equal(states[4]?.id, 'm-preview-approved');
     assert.equal(states[4]?.approval, 'approved');
     assert.equal(states[4]?.status, 'Ready to Ship');
-    assert.equal(states[5]?.id, 'm-preview-shipped');
-    assert.equal(states[5]?.status, 'Shipped');
+    assert.equal(states[5]?.id, 'm-preview-clear');
+    assert.equal(states[6]?.id, 'm-preview-shipped');
+    assert.equal(states[6]?.status, 'Shipped');
     const links = applyFixtureMilestonePreview(staff, '?tiles=links');
     assert.equal(links[0]?.localPreviewUrl, 'http://localhost:3200');
     assert.equal(links[0]?.figmaUrl, 'https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Portal');
@@ -333,7 +334,9 @@ describe('roadmap markup', () => {
         doneCount: 6,
       }),
     });
-    assert.match(approved, /data-testid="milestone-awaiting"[^>]*>Approved · awaiting merge and deploy</);
+    assert.match(approved, /data-testid="milestone-approved" data-kind="none"/);
+    assert.match(approved, new RegExp(`>Approved by Peter · ${day}<`));
+    assert.equal(approved.includes('milestone-awaiting'), false);
     assert.equal(approved.includes('data-testid="milestone-due"'), false);
     assert.match(approved, />Open milestone</);
     assert.match(approved, />6 \/ 6 tasks complete</);
@@ -349,7 +352,8 @@ describe('roadmap markup', () => {
       staff: true,
       milestone: tileMilestone({ approval: 'approved', decidedAt: null, resources: [resource] }),
     });
-    assert.match(approvedUndated, /data-testid="milestone-awaiting"[^>]*>Approved · awaiting merge and deploy</);
+    assert.match(approvedUndated, /data-testid="milestone-approved"/);
+    assert.match(approvedUndated, />Approved by Peter</);
     assert.equal(approvedUndated.includes('data-testid="milestone-due"'), false);
     assert.match(approvedUndated, /data-testid="milestone-meta"[^>]*>1 resource</);
     assert.equal(approvedUndated.includes('No review yet'), false);
@@ -365,7 +369,8 @@ describe('roadmap markup', () => {
       }),
     });
     assert.match(approvedReady, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
-    assert.match(approvedReady, /data-testid="milestone-awaiting"[^>]*>Approved · awaiting merge and deploy</);
+    assert.match(approvedReady, /data-testid="milestone-approved" data-kind="(blocked|clear)"/);
+    assert.match(approvedReady, new RegExp(`>Approved by Peter · ${day}<`));
     assert.equal(approvedReady.includes('data-testid="milestone-due"'), false);
     assert.match(approvedReady, />Open milestone</);
     assert.match(approvedReady, /data-testid="milestone-meta"[^>]*>2 resources</);
@@ -381,7 +386,7 @@ describe('roadmap markup', () => {
       }),
     });
     assert.match(clientAwaiting, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Ready to Ship</);
-    assert.equal(clientAwaiting.includes('Approved · awaiting merge and deploy'), false);
+    assert.equal(clientAwaiting.includes('milestone-approved'), false);
     assert.equal(clientAwaiting.includes('milestone-due'), false);
     assert.match(clientAwaiting, />Open milestone</);
 
@@ -473,7 +478,10 @@ describe('roadmap markup', () => {
     });
     assert.match(shipped, /data-testid="milestone-status-chip"[^>]*>[\s\S]*Shipped</);
     assert.equal(shipped.includes('Approved · awaiting merge and deploy'), false);
-    assert.match(shipped, new RegExp(`data-testid="milestone-due"[^>]*>Approved ${day}<`));
+    // The approved box carries the approval, so the headline date does not repeat it.
+    assert.equal(shipped.includes('data-testid="milestone-due"'), false);
+    assert.match(shipped, /data-testid="milestone-approved" data-kind="shipped"/);
+    assert.match(shipped, new RegExp(`>Approved by Peter · ${day}<`));
 
     const longChip = renderTile({
       staff: true,
@@ -720,15 +728,22 @@ describe('MilestoneDetailView', () => {
         note: 'Approved with the brand file.',
       }),
     );
-    assert.equal(field(html, 'milestone-last-review'), `Northwind · ${day}`);
-    assert.equal(html.includes('>Northwind<'), false);
+    assert.equal(html.includes('data-testid="milestone-last-review"'), false);
+    assert.equal(field(html, 'milestone-approval'), 'Approved by Northwind');
+    const changes = renderDetail(
+      tileMilestone({ approval: 'changes_requested', status: 'Building', approverName: 'Northwind', decidedAt }),
+    );
+    assert.equal(field(changes, 'milestone-last-review'), `Northwind · ${day}`);
+    assert.equal(changes.includes('>Northwind<'), false);
   });
 
   it('omits the approval row until a review exists', () => {
     const unreviewed = renderDetail(tileMilestone({ approval: 'unreviewed' }));
     assert.equal(unreviewed.includes('data-testid="milestone-approval"'), false);
     const approved = renderDetail(tileMilestone({ approval: 'approved', status: 'Ready to Ship' }));
-    assert.equal(field(approved, 'milestone-approval'), 'Approved');
+    assert.equal(field(approved, 'milestone-approval'), 'Approved by Peter');
+    const waiting = renderDetail(tileMilestone({ approval: 'unreviewed', status: 'Ready to Ship' }));
+    assert.equal(field(waiting, 'milestone-approval'), 'Waiting for Peter');
     const changes = renderDetail(tileMilestone({ approval: 'changes_requested', status: 'Building' }));
     assert.equal(field(changes, 'milestone-approval'), 'Changes requested');
   });
