@@ -36,7 +36,7 @@ public struct DeploymentPolicy: Equatable, Sendable {
     }
 
     /// How many milestones the runner works at once, one run on each.
-    public static let parallelRuns = 3
+    public static let parallelRuns = 4
 
     /// The runner's arguments. Headless, because nobody drives a session from
     /// the menu bar. `--production` is written in for release builds only.

@@ -58,11 +58,11 @@ final class MenuStateTests: XCTestCase {
         menu = MenuState.from(state, pauseRequested: true, now: now)
         XCTAssertEqual(menu.lines.last, "Pauses when these runs end")
         XCTAssertEqual(menu.primary.first, MenuItem("Keep working after these runs", .cancelPauseAfterRun))
-        // Past three runs the rest are counted.
+        // All four slots in use: a line for each.
         state.apply(.working(c), at: now)
         state.apply(.working(d), at: now)
         XCTAssertEqual(MenuState.from(state, pauseRequested: false, now: now).lines, [
-            "4 runs in progress", "Client experience launch · task 3", "Double booking · planning", "Figma cleanup · Cursor build", "and 1 more",
+            "4 runs in progress", "Client experience launch · task 3", "Double booking · planning", "Figma cleanup · Cursor build", "Status picker · task 1",
             "Keeping this Mac awake until the runs end",
         ])
         // One finishing leaves the others working; the last one finishing is Ready.

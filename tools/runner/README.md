@@ -37,7 +37,7 @@ Staff never run any command on this page. These are for working on the runner it
 
 Only tasks stored in the Portal are claimed: tasks from the brief, from a change request, or added on the milestone. A task that syncs from Notion is left for a person.
 
-The runner works one task at a time on each milestone, and with `--parallel N` up to N milestones at once (the Mac app uses 3). The Portal never hands out two runs on one milestone, because its tasks share one branch. It commits straight to the milestone branch. It never merges, never closes a pull request, never deploys, and never pushes any branch but `milestone/<slug>`.
+The runner works one task at a time on each milestone, and with `--parallel N` up to N milestones at once (the Mac app uses 4). The Portal never hands out two runs on one milestone, because its tasks share one branch. It commits straight to the milestone branch. It never merges, never closes a pull request, never deploys, and never pushes any branch but `milestone/<slug>`.
 
 When the pull request merges into the default branch, the GitHub webhook moves the milestone to Shipped only if every task that is not Parked is Done, subtasks included. Staff set Shipped through the same check. The runner never sets it.
 
@@ -77,7 +77,7 @@ npm run runner -- start
 - `--once` does one piece of work and exits.
 - `--production` talks to the production Portal.
 - `--paused` starts paused: it claims nothing until it reads `resume`.
-- `--parallel N` (headless only, 1 to 5, default 1) works up to N milestones at once, one run on each. Each claim sends `slots` and the run ids it holds (protocol 3); the Portal hands back a run the runner lost track of first, and nothing new once every slot is in use. A Cursor build whose agent is still going gives its slot back for a minute, then is followed again. **Each run is its own headless Claude session, so N runs use the Agent SDK credit N times as fast.**
+- `--parallel N` (headless only, 1 to 4, default 1) works up to N milestones at once, one run on each. Each claim sends `slots` and the run ids it holds (protocol 3); the Portal hands back a run the runner lost track of first, and nothing new once every slot is in use. A Cursor build whose agent is still going gives its slot back for a minute, then is followed again. **Each run is its own headless Claude session, so N runs use the Agent SDK credit N times as fast.**
 
 With nothing to do, the runner waits one minute, then longer, up to five minutes between checks. During a longer wait it calls `POST /agent/ping` every 75 seconds. The ping claims nothing: it only tells the Portal the runner is alive, so the runner status chip on the project page reads Ready (seen within the last 10 minutes). Each call sends the runner's protocol version, and `paused: true` while paused. A runner below the Portal's minimum shows "Runner out of date" and gets no work until it is updated. The CLI never updates its own code; under the Mac app, the app updates itself, and the runner with it, between runs.
 
@@ -156,7 +156,7 @@ The Warehaus Portal Mac app (`apps/mac`) starts the runner from its bundle (`Con
 
 ```bash
 node tools/runner/src/cli.mjs setup --supervised --production           # first launch: pairing
-node tools/runner/src/cli.mjs start --supervised --mode headless --parallel 3 --production [--paused]
+node tools/runner/src/cli.mjs start --supervised --mode headless --parallel 4 --production [--paused]
 node tools/runner/src/cli.mjs app-release --production                  # the update check
 node tools/runner/src/cli.mjs remove --production                       # Remove this runner…
 ```

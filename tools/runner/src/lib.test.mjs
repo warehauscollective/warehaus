@@ -520,18 +520,18 @@ describe('runner Mac app supervision', () => {
 });
 
 describe('parallel runs', () => {
-  it('reads --parallel for headless runs only, from 1 to 5', () => {
+  it('reads --parallel for headless runs only, from 1 to 4', () => {
     assert.equal(parseArgs(['start', '--mode', 'headless', '--parallel', '3']).options.parallel, 3);
     assert.equal(parseArgs(['start']).options.parallel, 1);
     assert.equal(parseArgs(['start', '--parallel', '1']).ok, true);
     assert.match(parseArgs(['start', '--parallel', '2']).error, /needs --mode headless/);
     assert.match(parseArgs(['start', '--mode', 'headless', '--parallel', '2', '--once']).error, /do not go together/);
-    for (const bad of ['0', '6', '2.5', 'many']) {
+    for (const bad of ['0', '5', '2.5', 'many']) {
       assert.match(parseArgs(['start', '--mode', 'headless', '--parallel', bad]).error, /--parallel must be/);
     }
-    assert.equal(MAX_PARALLEL, 5);
+    assert.equal(MAX_PARALLEL, 4);
     // The Portal caps slots at the same number.
-    assert.match(read('../../../apps/portal/convex/_lib/agentRun.ts'), /RUNNER_MAX_SLOTS = 5;/);
+    assert.match(read('../../../apps/portal/convex/_lib/agentRun.ts'), /RUNNER_MAX_SLOTS = 4;/);
   });
 
   it('holds a slot per run, and a Cursor build cools down before the Portal hands it back', () => {

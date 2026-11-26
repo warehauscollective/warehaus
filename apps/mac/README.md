@@ -42,7 +42,7 @@ Two deep modules that never talk to each other, with the menu bar and
 notifications on top of both (ADR-0006, decision 8):
 
 - **RunnerSupervisor** starts the Node runner (`tools/runner`) as a child
-  process with `start --supervised --mode headless --parallel 3` (plus `--production` in
+  process with `start --supervised --mode headless --parallel 4` (plus `--production` in
   release builds) and reads its state lines: one `@@warehaus {json}` line per
   change on stdout. It maps them to the four menu states, Ready, Working,
   Paused and Needs attention (`MenuState.from`). Pause and Resume are `pause`

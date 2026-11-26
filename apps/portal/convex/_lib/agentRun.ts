@@ -531,7 +531,7 @@ export const NEEDS_PETER_LIMIT = 20;
  * a different milestone. One run per milestone stays the rule: tasks on a
  * milestone share one branch.
  */
-export const RUNNER_MAX_SLOTS = 5;
+export const RUNNER_MAX_SLOTS = 4;
 export const RUNNER_BUSY = 'Every run slot on this runner is in use.';
 
 /** The slots a claim asks for. A runner that sends none (protocol 2) has one. */

@@ -62,7 +62,7 @@ start       Takes work from the Portal.
             headless runs "claude -p" and draws on Agent SDK credit.
   --once    Do one piece of work, then exit.
   --parallel  Work up to this many milestones at once, one run on each
-            (1 to 5, default 1). Headless only.
+            (1 to 4, default 1). Headless only.
   --supervised  Run under the runner Mac app: print one state line per
             change on stdout and read pause or resume on stdin.
   --paused  Start paused: take no new work, and tell the Portal so.
@@ -622,7 +622,7 @@ ${strings(args)}
 }
 
 /** Most runs one runner works at once. Must match RUNNER_MAX_SLOTS in apps/portal/convex/_lib/agentRun.ts. */
-export const MAX_PARALLEL = 5;
+export const MAX_PARALLEL = 4;
 
 /**
  * The runner's run slots. A run holds a slot from its claim until it ends. A

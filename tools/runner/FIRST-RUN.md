@@ -48,7 +48,7 @@ The Warehaus icon in the menu bar shows what the runner is doing.
 | State | What it means | Rows you'll see |
 | --- | --- | --- |
 | **Ready** | Waiting for work. The header shows the runner id, "Production", and the last run. | Pause runner · Open Portal |
-| **Working** | Runs are in progress, up to three milestones at once, one task on each. The header names each milestone and task. The Mac stays awake until they end. | Pause after this run (Pause after these runs when there are several) · Open milestone in Portal, or Open Portal |
+| **Working** | Runs are in progress, up to four milestones at once, one task on each. The header names each milestone and task. The Mac stays awake until they end. | Pause after this run (Pause after these runs when there are several) · Open milestone in Portal, or Open Portal |
 | **Paused** | Takes no new work. The Portal shows Paused. | Resume runner · Open Portal |
 | **Needs attention** | Something only you can fix. The header says what, and the first row fixes it when it can. | The fix · Open Portal · Pause runner or Resume runner |
 

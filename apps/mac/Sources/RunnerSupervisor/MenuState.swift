@@ -133,15 +133,9 @@ public struct MenuState: Equatable, Sendable {
         return "\(id) · \(deployment)"
     }
 
-    /// Most run lines in the header. The rest are counted: "and 2 more".
-    static let runLineLimit = 3
-
-    /// "3 runs in progress", then one line per run.
+    /// "3 runs in progress", then one line per run (at most four: the runner's slots).
     static func runLines(_ runs: [WorkInfo]) -> [String] {
-        var lines = ["\(runs.count) runs in progress"]
-        lines += runs.prefix(runLineLimit).map(workLine)
-        if runs.count > runLineLimit { lines.append("and \(runs.count - runLineLimit) more") }
-        return lines
+        ["\(runs.count) runs in progress"] + runs.map(workLine)
     }
 
     /// "Client experience launch · task 3". The claim carries the task's place, not the milestone's count.
