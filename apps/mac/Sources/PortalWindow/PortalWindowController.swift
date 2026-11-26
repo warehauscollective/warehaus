@@ -21,20 +21,43 @@ public final class PortalWindowController: NSObject {
     let origins: PortalOrigins?
     let appVersion: String
     private let openInBrowser: (URL) -> Void
+    private let notifier: AlertNotifying
+    private var tracker: AlertTracker
+    /// What the Mac lets the app do; the hello claims `notify` only when authorized.
+    private(set) var permission: NotificationPermission = .notDetermined
     let log = Logger(subsystem: "co.warehaus.runner.app", category: "PortalWindow")
 
     private(set) var window: NSWindow?
     private(set) var webView: WKWebView?
     private var bridge: BridgeProxy?
     /// True once the current page finished loading and got its hello.
-    private var pageReady = false
+    private(set) var pageReady = false
     /// warehaus:// links that arrived before the page was ready.
     private var pendingLinks: [String] = []
 
-    public init(origins: PortalOrigins?, appVersion: String, openInBrowser: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }) {
+    public init(
+        origins: PortalOrigins?,
+        appVersion: String,
+        notifier: AlertNotifying = SystemAlertNotifier(),
+        seenAlerts: SeenAlertStoring = DefaultsSeenAlertStore(),
+        openInBrowser: @escaping (URL) -> Void = { NSWorkspace.shared.open($0) }
+    ) {
         self.origins = origins
         self.appVersion = appVersion
+        self.notifier = notifier
+        tracker = AlertTracker(store: seenAlerts)
         self.openInBrowser = openInBrowser
+        super.init()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(appBecameActive), name: NSApplication.didBecomeActiveNotification, object: nil
+        )
+    }
+
+    /// A Portal notification was clicked: show the window and hand its raw
+    /// warehaus:// link to the page.
+    public func openNotification(userInfo: [AnyHashable: Any]) {
+        guard let link = AlertNotificationContent.link(fromUserInfo: userInfo) else { return }
+        open(portalLink: link)
     }
 
     /// Shows the window, building it and loading the Portal the first time.
@@ -108,6 +131,7 @@ public final class PortalWindowController: NSObject {
         window.contentView = content
         self.window = window
         self.webView = webView
+        refreshPermission()
         loadHome()
     }
 
@@ -172,7 +196,7 @@ public final class PortalWindowController: NSObject {
 
     // MARK: - Bridge
 
-    private func send(_ message: ShellMessage) {
+    func send(_ message: ShellMessage) {
         webView?.evaluateJavaScript(ShellScript.dispatch(message)) { [log] _, error in
             if let error { log.error("Shell message failed: \(error.localizedDescription, privacy: .public)") }
         }
@@ -186,9 +210,42 @@ public final class PortalWindowController: NSObject {
         }
         switch PageAction.from(message.body) {
         case let .openExternal(url): openInBrowser(url)
-        case .ignore: break
+        case let .attention(count, alerts): handleAttention(count: count, alerts: alerts)
         case let .refuse(reason): log.notice("Refused a page message: \(reason, privacy: .public)")
         }
+    }
+}
+
+// MARK: - Attention
+
+extension PortalWindowController {
+    /// Badge the Dock with the count, and notify alerts not seen before. The
+    /// first attention after launch only seeds the seen list. Permission is
+    /// asked the first time an alert would notify, never at launch.
+    func handleAttention(count: Int, alerts: [AttentionAlert]) {
+        notifier.setBadge(DockBadge.label(count: count))
+        let fresh = tracker.receive(alerts)
+        guard !fresh.isEmpty else { return }
+        Task {
+            if permission == .notDetermined { setPermission(await notifier.requestPermission()) }
+            guard permission == .authorized else { return }
+            for alert in fresh { notifier.post(AlertNotificationContent(alert)) }
+        }
+    }
+
+    @objc private func appBecameActive() {
+        refreshPermission()
+    }
+
+    /// Re-reads permission (it can change in System Settings) and re-sends the hello when it did.
+    func refreshPermission() {
+        Task { setPermission(await notifier.permission()) }
+    }
+
+    private func setPermission(_ value: NotificationPermission) {
+        guard value != permission else { return }
+        permission = value
+        if pageReady { send(ShellScript.hello(appVersion: appVersion, permission: value)) }
     }
 }
 
@@ -221,7 +278,7 @@ extension PortalWindowController: WKNavigationDelegate {
 
     public func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         guard let url = webView.url, origins?.isPortal(url) == true else { return }
-        send(ShellScript.hello(appVersion: appVersion))
+        send(ShellScript.hello(appVersion: appVersion, permission: permission))
         pageReady = true
         let links = pendingLinks
         pendingLinks.removeAll()
@@ -229,6 +286,7 @@ extension PortalWindowController: WKNavigationDelegate {
         #if DEBUG
         logShellState(webView)
         snapshotIfAsked()
+        injectAttentionFixtureIfAsked()
         #endif
     }
 

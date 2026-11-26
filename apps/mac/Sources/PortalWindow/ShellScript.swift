@@ -11,13 +11,12 @@ public enum ShellScript {
         return "window.dispatchEvent(new CustomEvent(\(name),{detail:\(detail)}));"
     }
 
-    /// The hello this app sends after every page load. Capabilities are only
-    /// what the window does today.
-    public static func hello(appVersion: String) -> ShellMessage {
-        .hello(appVersion: appVersion, capabilities: capabilities)
+    /// The hello this app sends after every page load, and again when
+    /// notification permission changes. Capabilities come from
+    /// `NotificationPermission.capabilities`: only what the window handles now.
+    public static func hello(appVersion: String, permission: NotificationPermission) -> ShellMessage {
+        .hello(appVersion: appVersion, capabilities: permission.capabilities)
     }
-
-    public static let capabilities: [ShellCapability] = [.openExternal]
 
     /// The app version for the hello. The page refuses a hello whose version
     /// is not like 1.4.0, so anything else is sent as 0.0.0.
@@ -39,15 +38,15 @@ public enum ShellScript {
 public enum PageAction: Equatable, Sendable {
     /// Open this https link in the default browser.
     case openExternal(URL)
-    /// Accepted and ignored. `attention` waits for the badge and notifications.
-    case ignore
+    /// The open count for the Dock badge and the alerts to consider notifying.
+    case attention(count: Int, alerts: [AttentionAlert])
     /// Dropped. The reason is logged.
     case refuse(String)
 
     public static func from(_ body: Any) -> PageAction {
         switch BridgeDecoder.decodePageMessage(body) {
         case let .success(.openExternal(url)): return .openExternal(url)
-        case .success(.attention): return .ignore
+        case let .success(.attention(count, alerts)): return .attention(count: count, alerts: alerts)
         case let .failure(refusal): return .refuse(refusal.reason)
         }
     }

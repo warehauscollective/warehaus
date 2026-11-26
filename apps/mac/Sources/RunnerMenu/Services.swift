@@ -1,4 +1,5 @@
 import AppKit
+import NotificationRouting
 import Foundation
 import ServiceManagement
 import UserNotifications
@@ -60,6 +61,8 @@ public protocol AttentionNotifying {
 }
 
 public final class SystemNotifier: AttentionNotifying {
+    /// The notification router's source for the runner's act-only notifications.
+    public static let source = "runner"
     private var asked = false
 
     public init() {}
@@ -72,6 +75,7 @@ public final class SystemNotifier: AttentionNotifying {
             let content = UNMutableNotificationContent()
             content.title = title
             content.body = body
+            content.userInfo = [NotificationRouter.sourceKey: Self.source]
             center.add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
         }
         if asked { return post() }

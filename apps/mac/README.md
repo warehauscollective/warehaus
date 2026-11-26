@@ -14,9 +14,11 @@ apps/mac/
   Package.swift                 Swift package: the modules and their tests
   Sources/RunnerSupervisor/     the runner supervisor (Foundation only)
   Sources/PortalWindow/         the Portal window and the Mac adapter of the native bridge
+  Sources/NotificationRouting/  the one notification center delegate, routing clicks by source
   Sources/RunnerMenu/           menu bar dropdown, Remove dialog, login item, notifications
   Tests/RunnerSupervisorTests/  state mapping and supervisor tests, against a fake runner
-  Tests/PortalWindowTests/      origin policy, link routing and the bridge scripts
+  Tests/PortalWindowTests/      origin policy, link routing, bridge scripts, alerts and badge
+  Tests/NotificationRoutingTests/ click routing by source
   App/WarehausRunner.xcodeproj  the app target: a thin @main that links RunnerMenu
   scripts/build-release.sh      signed, notarized, stapled release build
 ```
@@ -53,6 +55,20 @@ notifications on top of both (ADR-0006, decision 8):
   goes to the page raw with `navigate`. Portal-origin navigations stay in the
   window; every other link goes to the default browser (`LinkRouter`). It
   never imports RunnerSupervisor. The menu's Open Portal opens this window.
+
+  `attention` from the page sets the Dock badge to the count (none at 0) and
+  posts one notification per alert id not seen before (Figma, Projects /
+  Mac app / Needs you and Ready to Ship notifications). Seen ids live in
+  UserDefaults (the newest 200), so a reload or relaunch never notifies
+  twice, and the first `attention` after launch only seeds them. Permission
+  is asked the first time an alert would notify, never at launch. The hello
+  claims `badge` and `openExternal` always and `notify` only while the Mac
+  allows it, and is sent again when that changes. Clicking a notification
+  opens the window and hands the alert's raw link to the page.
+- **NotificationRouting** is the one `UNUserNotificationCenter` delegate.
+  The window tags its notifications `source: portal`, the runner menu tags
+  its act-only ones `source: runner`, and the app delegate registers a click
+  handler for each. Neither module imports the other for this.
 
 Seams left for their own tasks, each a small protocol with a stub today:
 
@@ -104,7 +120,11 @@ Then run the debug app with `-RunnerFixture ready -OpenPortalWindow YES
 `-PortalWindowSize 1024x768`, `-PortalAppearance dark|light` and
 `-PortalWindowSnapshot <folder>` size the window, force the appearance and
 write a PNG plus what the page made of the shell (`data-shell`, the hello,
-the inset) without screen recording permission.
+the inset) and the native state (badge, permission, delivered
+notifications) without screen recording permission.
+`-AttentionFixture needs-you|ready-to-ship|both|clear` has the page post
+fixture `attention` messages through the real bridge handler (an empty seed,
+then the fixture), until the Convex attention feed exists.
 
 A signed and notarized build:
 
