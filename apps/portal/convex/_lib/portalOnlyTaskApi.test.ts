@@ -6,7 +6,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { Doc } from '../_generated/dataModel';
-import { addLink, updateTask } from '../portalApi';
+import { addLink, getTask, updateTask } from '../portalApi';
 import { memoryCtx } from './memoryCtx.testkit';
 import { PORTAL_MILESTONE_TASK_SOURCE } from './milestoneTasks';
 import { seedOrg, seedProject, seedTask } from './seedRows.testkit';
@@ -34,6 +34,23 @@ const PORTAL_ONLY = {
   status: 'To Do',
 };
 
+/** The shape `create_milestone` writes: a `:brief:` placeholder page id, no lastEditedTime. */
+const MILESTONE_BRIEF = {
+  source: PORTAL_MILESTONE_TASK_SOURCE,
+  notionPageId: `${PORTAL_MILESTONE_TASK_SOURCE}:milestone-1:brief:0`,
+  externalId: `${PORTAL_MILESTONE_TASK_SOURCE}:milestone-1:brief:0`,
+  status: 'To Do',
+  stage: 'Awaiting Go',
+};
+
+/** What clients send as expectedLastEditedTime for a task with no Notion edit time. */
+const READ_TIMES: Record<string, (task: Doc<'tasks'>) => Record<string, unknown>> = {
+  omitted: () => ({}),
+  empty: () => ({ expectedLastEditedTime: '' }),
+  dummy: () => ({ expectedLastEditedTime: '2026-11-25T23:00:00.000Z' }),
+  updatedAt: (task) => ({ expectedLastEditedTime: String(task.updatedAt) }),
+};
+
 const NOTION_BACKED = { notionPageId: 'page-1', lastEditedTime: TIME, status: 'To Do' };
 
 function world(fields: Record<string, unknown>) {
@@ -59,6 +76,7 @@ function world(fields: Record<string, unknown>) {
     update: (body: Record<string, unknown>) => t.call<ApiResult>(updateTask, { ...ids(), ...body }),
     link: (body: Record<string, unknown>) => t.call<ApiResult>(addLink, { ...ids(), ...body }),
     task: () => t.row(taskId) as Doc<'tasks'>,
+    get: () => t.call<ApiResult>(getTask, { taskId }),
     links: () => t.rows('taskLinks'),
     outbox: () => t.rows('notionOutbox'),
   };
@@ -73,6 +91,38 @@ describe('staff API on a Portal-only task', () => {
       assert.deepEqual([w.task().status, w.task().isDone], ['Done', true]);
       assert.equal(w.outbox().length, 0);
     });
+  });
+
+  for (const [label, readTime] of Object.entries(READ_TIMES)) {
+    it(`sets status on a create_milestone task with the read time ${label}`, async () => {
+      await withWriteback(async () => {
+        const w = world(MILESTONE_BRIEF);
+        const result = await w.update({ ...readTime(w.task()), status: 'Done' });
+        assert.equal(result.status, 200, JSON.stringify(result.body));
+        assert.deepEqual([w.task().status, w.task().isDone], ['Done', true]);
+        assert.equal(w.outbox().length, 0);
+      });
+    });
+
+    it(`moves the stage of a create_milestone task with the read time ${label}`, async () => {
+      await withWriteback(async () => {
+        const w = world(MILESTONE_BRIEF);
+        const result = await w.update({ ...readTime(w.task()), stage: 'Building' });
+        assert.equal(result.status, 200, JSON.stringify(result.body));
+        assert.equal(w.task().stage, 'Building');
+        assert.equal(w.outbox().length, 0);
+      });
+    });
+  }
+
+  it('shows get_task as Portal-only, with no Notion page id', async () => {
+    const w = world(MILESTONE_BRIEF);
+    const result = await w.get();
+    assert.equal(result.status, 200, JSON.stringify(result.body));
+    assert.equal(result.body.source, PORTAL_MILESTONE_TASK_SOURCE);
+    assert.equal(result.body.portalOwned, true);
+    assert.equal(result.body.notionPageId, null);
+    assert.equal(result.body.lastEditedTime, null);
   });
 
   it('adds a PR link with no read time, without a Notion write', async () => {
@@ -101,6 +151,26 @@ describe('staff API on a Notion-backed task', () => {
       assert.deepEqual(result, { status: 409, body: { error: TASK_CHANGED_IN_NOTION, code: 'stale' } });
       assert.equal(w.task().status, 'To Do');
     });
+  });
+
+  it('still refuses a missing or mismatched read time as stale', async () => {
+    await withWriteback(async () => {
+      const w = world(NOTION_BACKED);
+      for (const readTime of [{}, { expectedLastEditedTime: '2026-11-19T00:00:00.000Z' }]) {
+        const result = await w.update({ ...readTime, status: 'Done' });
+        assert.deepEqual(result, { status: 409, body: { error: TASK_CHANGED_IN_NOTION, code: 'stale' } });
+      }
+      assert.equal(w.task().status, 'To Do');
+      assert.equal(w.outbox().length, 0);
+    });
+  });
+
+  it('shows get_task as Notion-backed, with its page id', async () => {
+    const w = world(NOTION_BACKED);
+    const result = await w.get();
+    assert.equal(result.body.portalOwned, false);
+    assert.equal(result.body.notionPageId, 'page-1');
+    assert.equal(result.body.lastEditedTime, TIME);
   });
 
   it('still needs the read time for a PR link', async () => {
