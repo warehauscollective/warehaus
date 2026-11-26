@@ -3,6 +3,7 @@ export declare const RUNNER_PATHS: Readonly<{
   events: '/agent/events';
   tasks: '/agent/tasks';
   complete: '/agent/complete';
+  release: '/agent/release';
   build: '/agent/build';
   ping: '/agent/ping';
   unpair: '/agent/unpair';
@@ -40,6 +41,7 @@ export type RunnerClient = {
     prUrl?: string;
   }): Promise<Record<string, unknown>>;
   failPlanning(input: { runId: string; reason: string }): Promise<Record<string, unknown>>;
+  release(input: { runId: string; reason?: string; until?: number }): Promise<Record<string, unknown>>;
   reportBuild(body: Record<string, unknown>): Promise<Record<string, unknown>>;
 };
 

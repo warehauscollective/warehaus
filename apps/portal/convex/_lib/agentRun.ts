@@ -360,6 +360,19 @@ export function completeDecision(input: {
   };
 }
 
+export const RELEASE_KIND_INVALID = 'Only a task or planning run can be handed back';
+export const RELEASE_DEFAULT_REASON = 'The runner handed the run back';
+
+/**
+ * Why a run was handed back, for the feed and the run row: the runner's own
+ * words, masked and cut down, or a plain default. A release is not a failure,
+ * so it never blocks the task and never leaves a needs Peter note.
+ */
+export function releaseReason(value: unknown): string {
+  const summary = eventSummary(typeof value === 'string' && value.trim() ? value : RELEASE_DEFAULT_REASON);
+  return summary.ok ? summary.summary : RELEASE_DEFAULT_REASON;
+}
+
 /** `milestone/<slug>`: lowercase words from the name, at most 48 characters. */
 export function milestoneBranch(name: string): string {
   const slug = name

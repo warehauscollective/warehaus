@@ -11,6 +11,8 @@ export const RUNNER_PATHS = Object.freeze({
   events: '/agent/events',
   tasks: '/agent/tasks',
   complete: '/agent/complete',
+  // Hands a task or planning run back untouched: Claude hit the account usage limit.
+  release: '/agent/release',
   build: '/agent/build',
   ping: '/agent/ping',
   unpair: '/agent/unpair',
@@ -133,6 +135,10 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
         ...(prUrl ? { prUrl } : {}),
       }),
     failPlanning: ({ runId, reason }) => post(RUNNER_PATHS.complete, { runId, kind: 'planning', reason }),
+    // The task goes back to To do (a plan back to the queue) with no needs Peter note.
+    // A Portal that predates it answers 404, and the run stays open until the next claim hands it back.
+    release: ({ runId, reason, until }) =>
+      post(RUNNER_PATHS.release, { runId, ...(reason ? { reason } : {}), ...(until != null ? { until } : {}) }),
     reportBuild: (body) => post(RUNNER_PATHS.build, body),
   };
 }

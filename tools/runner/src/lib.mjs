@@ -400,13 +400,199 @@ export function parseGitLog(text) {
     .filter(Boolean);
 }
 
-/** How a finished task run is reported. A blocked file wins. No new commit means the task goes back. */
-export function taskOutcome({ before, after, blockedReason }) {
+/**
+ * How a finished task run is reported. A blocked file wins. A run Claude ended
+ * on the account usage limit is released: the task goes back to To do, with
+ * no needs Peter note, and any commit it made stays in the worktree for the
+ * next run. Otherwise no new commit means the run failed.
+ */
+export function taskOutcome({ before, after, blockedReason, usageLimit = null }) {
   const reason = (blockedReason ?? '').replace(/\s+/g, ' ').trim();
   const [done, blocked, failed] = COMPLETE_STATUSES;
   if (reason) return { status: blocked, reason: reason.slice(0, 240), ...(after && after !== before ? { commitSha: after } : {}) };
+  if (usageLimit) return { status: RELEASED, reason: usageLimitReason(usageLimit) };
   if (!after || after === before) return { status: failed, reason: 'The run ended with no new commit' };
   return { status: done, commitSha: after };
+}
+
+/** A run handed back untouched. Not a Portal complete status: it travels on /agent/release. */
+export const RELEASED = 'released';
+
+/** How long the runner waits when Claude names no reset time it can read. */
+export const USAGE_LIMIT_BACKOFF_MS = 30 * 60_000;
+/** Longest wait a parsed reset time can ask for: a weekly limit, plus a day. */
+export const USAGE_LIMIT_MAX_WAIT_MS = 8 * 24 * 60 * 60_000;
+/** Slack after the reset, so the first claim does not race the account's own clock. */
+export const USAGE_LIMIT_MARGIN_MS = 60_000;
+
+/**
+ * The last lines Claude printed, as Claude Code words a usage limit:
+ *   You've hit your 5-hour limit · resets 8:30am (America/New_York)
+ *   You've reached your weekly limit · resets Mon 9am
+ *   5-hour limit reached ∙ resets 3pm
+ *   Claude AI usage limit reached|1764163800
+ * Only a short line on its own counts, near the end of the output, so a
+ * summary that talks about limits is not mistaken for one.
+ */
+const USAGE_LIMIT_LINE = [
+  /^(?:claude(?: ai)? )?usage limit reached\b/i,
+  /^you(?:'|’)?ve (?:hit|reached) your\b.{0,40}\blimit\b/i,
+  /^you have (?:hit|reached) your\b.{0,40}\blimit\b/i,
+  /^(?:your )?(?:\d+-hour|five-hour|session|daily|weekly|opus|sonnet)\b.{0,30}\blimit (?:reached|hit)\b/i,
+];
+
+const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'];
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+
+function validTimeZone(zone) {
+  if (!zone) return null;
+  try {
+    new Intl.DateTimeFormat('en-US', { timeZone: zone });
+    return zone;
+  } catch {
+    return null;
+  }
+}
+
+/** Wall-clock parts of an instant in a time zone. */
+function wallParts(ms, timeZone) {
+  const parts = {};
+  const format = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    hourCycle: 'h23',
+    year: 'numeric',
+    month: 'numeric',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: 'numeric',
+    second: 'numeric',
+    weekday: 'short',
+  });
+  for (const part of format.formatToParts(new Date(ms))) parts[part.type] = part.value;
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month) - 1,
+    day: Number(parts.day),
+    hour: Number(parts.hour) % 24,
+    minute: Number(parts.minute),
+    second: Number(parts.second),
+    weekday: WEEKDAYS.indexOf(String(parts.weekday).slice(0, 3).toLowerCase()),
+  };
+}
+
+/** The instant a wall-clock time in a zone falls on. Two passes settle a DST edge. */
+function fromWall({ year, month, day, hour, minute }, timeZone) {
+  const target = Date.UTC(year, month, day, hour, minute);
+  let guess = target;
+  for (let pass = 0; pass < 2; pass += 1) {
+    const seen = wallParts(guess, timeZone);
+    guess += target - Date.UTC(seen.year, seen.month, seen.day, seen.hour, seen.minute);
+  }
+  return guess;
+}
+
+/**
+ * The next instant after `now` that reads `spec` on the wall in `timeZone`.
+ * `spec` is the text after "resets": "8:30am", "3pm", "Mon 9am", "Nov 28, 5pm".
+ * null when it cannot be read.
+ */
+export function nextResetAt(spec, timeZone, now) {
+  const text = String(spec ?? '').trim().toLowerCase();
+  const time = /(\d{1,2})(?::(\d{2}))?\s*(am|pm)?\s*$/.exec(text);
+  if (!time) return null;
+  let hour = Number(time[1]);
+  const minute = Number(time[2] ?? 0);
+  const meridiem = time[3];
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null;
+    hour = (hour % 12) + (meridiem === 'pm' ? 12 : 0);
+  } else if (time[2] == null || hour > 23) {
+    // A bare number is not a time.
+    return null;
+  }
+  if (minute > 59) return null;
+  const before = text.slice(0, time.index).replace(/\bat\b/g, ' ').replace(/[,\s]+/g, ' ').trim();
+  const today = wallParts(now, timeZone);
+  const monthDay = /^([a-z]{3})[a-z]*\.? (\d{1,2})$/.exec(before);
+  if (monthDay && MONTHS.includes(monthDay[1])) {
+    const month = MONTHS.indexOf(monthDay[1]);
+    const day = Number(monthDay[2]);
+    for (const year of [today.year, today.year + 1]) {
+      const at = fromWall({ year, month, day, hour, minute }, timeZone);
+      if (at > now) return at;
+    }
+    return null;
+  }
+  const weekday = before ? WEEKDAYS.indexOf(before.slice(0, 3)) : -1;
+  if (before && (weekday < 0 || !/^[a-z]+\.?$/.test(before))) return null;
+  for (let ahead = 0; ahead <= 7; ahead += 1) {
+    const date = new Date(Date.UTC(today.year, today.month, today.day + ahead));
+    if (weekday >= 0 && date.getUTCDay() !== weekday) continue;
+    const at = fromWall({ year: date.getUTCFullYear(), month: date.getUTCMonth(), day: date.getUTCDate(), hour, minute }, timeZone);
+    if (at > now) return at;
+  }
+  return null;
+}
+
+/**
+ * Whether Claude's output ends on the account usage limit, and when it resets.
+ * Returns null, or `{ message, resetsAt, until }`: `resetsAt` is the reset
+ * instant Claude named, or null; `until` is when the runner takes work again.
+ * `localZone` is the zone a reset with no zone in brackets is read in.
+ */
+export function usageLimitFrom(output, { now = Date.now(), localZone = Intl.DateTimeFormat().resolvedOptions().timeZone } = {}) {
+  const lines = String(output ?? '')
+    .replace(/\x1b\[[0-9;]*[A-Za-z]/g, '')
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .slice(-3);
+  const message = lines.reverse().find((line) => line.length <= 200 && USAGE_LIMIT_LINE.some((pattern) => pattern.test(line)));
+  if (!message) return null;
+  let resetsAt = null;
+  const epoch = /\|\s*(\d{10,13})\s*$/.exec(message);
+  if (epoch) {
+    resetsAt = epoch[1].length === 13 ? Number(epoch[1]) : Number(epoch[1]) * 1000;
+  } else {
+    const reset = /\bresets?\s+(?:at\s+)?(.+?)(?:\s*\(([^)]+)\))?\s*\.?$/i.exec(message);
+    if (reset) {
+      const zone = validTimeZone(reset[2]?.trim()) ?? validTimeZone(localZone) ?? 'UTC';
+      resetsAt = nextResetAt(reset[1], zone, now);
+    }
+  }
+  if (resetsAt != null && !(resetsAt > now)) resetsAt = null;
+  const until =
+    resetsAt == null ? now + USAGE_LIMIT_BACKOFF_MS : Math.min(resetsAt + USAGE_LIMIT_MARGIN_MS, now + USAGE_LIMIT_MAX_WAIT_MS);
+  return { message: message.slice(0, 160), resetsAt, until };
+}
+
+/** The reason the Portal shows for a released run. */
+export function usageLimitReason(limit) {
+  const reset = /\bresets?\b.*$/i.exec(limit?.message ?? '')?.[0];
+  return `Claude usage limit${reset && !reset.includes('|') ? ` · ${reset}` : ''}`.slice(0, 240);
+}
+
+/**
+ * The runner-wide usage-limit hold. A limit is on the account, so one run that
+ * hits it holds every slot: no slot claims until the latest reset seen.
+ */
+export function usageHold(clock = () => Date.now()) {
+  let until = 0;
+  return {
+    /** Holds until `limit.until`, or keeps a later hold. True when the hold moved. */
+    hit(limit) {
+      if (!limit || !(limit.until > until)) return false;
+      until = limit.until;
+      return true;
+    },
+    /** Milliseconds left, or 0 when the runner may claim. */
+    remainingMs() {
+      return Math.max(0, until - clock());
+    },
+    get until() {
+      return until;
+    },
+  };
 }
 
 /** Idle wait before the next claim: one minute, doubling to five while nothing is waiting. */
@@ -427,6 +613,8 @@ export const SUPERVISOR_EVENTS = Object.freeze([
   'finished',
   'paused',
   'attention',
+  // Waiting on something that ends on its own, with `reason` and `until`. Not a person's job.
+  'waiting',
   // `setup --supervised`: the app shows the code and opens the Portal itself.
   'pairing',
   'paired',
@@ -435,11 +623,19 @@ export const SUPERVISOR_EVENTS = Object.freeze([
   'app_release',
 ]);
 export const ATTENTION_REASONS = Object.freeze(['unauthorized', 'out_of_date', 'github', 'unreachable', 'not_paired']);
+/**
+ * Why the runner is waiting, on a `waiting` line. `usage_limit`: Claude hit the
+ * account usage limit; the line carries `until`, when the runner takes work
+ * again, and `resetsAt`, the reset Claude named or null. An app build that does
+ * not know the `waiting` type drops the line.
+ */
+export const WAITING_REASONS = Object.freeze(['usage_limit']);
 
 /** One state line for the app. Unknown types throw: the Swift side would drop them. */
 export function supervisorLine(type, fields = {}) {
   if (!SUPERVISOR_EVENTS.includes(type)) throw new Error(`Unknown supervisor event ${type}`);
   if (type === 'attention' && !ATTENTION_REASONS.includes(fields.reason)) throw new Error(`Unknown attention reason ${fields.reason}`);
+  if (type === 'waiting' && !WAITING_REASONS.includes(fields.reason)) throw new Error(`Unknown waiting reason ${fields.reason}`);
   return `${SUPERVISOR_PREFIX}${JSON.stringify({ type, ...fields, at: fields.at ?? Date.now() })}\n`;
 }
 

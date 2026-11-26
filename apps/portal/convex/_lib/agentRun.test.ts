@@ -31,7 +31,7 @@ import {
 import { checklistDetailText, checklistState, checklistSummary } from './milestoneTasks';
 import { classifyClaimable } from './milestoneTaskSet';
 import * as agentModule from '../agent';
-import { claimNext, completeTask, releaseStuckRuns, reportBuild, touchRunner, writePlannedTasks } from '../agent';
+import { claimNext, completeTask, releaseRun, releaseStuckRuns, reportBuild, touchRunner, writePlannedTasks } from '../agent';
 import crons from '../crons';
 import { create as createStaffMilestone, createFromAi, setStatus } from '../milestones';
 import { createMilestone, listNeedsPeter, updateMilestone } from '../portalApi';
@@ -319,6 +319,48 @@ describe('finishing a task', () => {
     });
     assert.deepEqual([again.ok, again.duplicate, again.run, again.milestoneStatus], [true, true, 'succeeded', 'Ready to Ship']);
     assert.equal(JSON.stringify(tables.map((table) => t.rows(table))), before);
+  });
+
+  it('hands a task back to To do on a release, with no needs Peter note, and the next claim takes it again', async () => {
+    const t = memoryCtx();
+    const { milestoneId, taskIds } = building(t, ['Board columns']);
+    const run = await claim(t);
+    const reason = "Claude usage limit · resets 8:30am (America/New_York)";
+    const released = await t.call<{ ok: boolean; duplicate: boolean }>(releaseRun, { runnerId: RUNNER, runId: run.runId, reason });
+    assert.deepEqual([released.ok, released.duplicate], [true, false]);
+    const task = t.row(taskIds[0] as string);
+    assert.deepEqual([task?.status, task?.claimedBy, task?.blockedReason], ['To Do', undefined, undefined]);
+    const row = t.row(run.runId);
+    assert.equal(row?.status, 'cancelled');
+    assert.equal(typeof row?.settledAt, 'number');
+    assert.equal(t.rows('milestoneNotes').filter((note) => note.needsPeter === 'open').length, 0);
+    const events = t.rows('agentEvents').filter((event) => event.milestoneId === milestoneId);
+    assert.equal(events[events.length - 1]?.type, 'note');
+    assert.match(String(events[events.length - 1]?.summary), /^Task 01 went back to To do · Claude usage limit/);
+    // A repeat writes nothing.
+    const before = JSON.stringify(['agentRuns', 'agentEvents', 'tasks'].map((table) => t.rows(table)));
+    const again = await t.call<{ ok: boolean; duplicate: boolean }>(releaseRun, { runnerId: RUNNER, runId: run.runId, reason });
+    assert.deepEqual([again.ok, again.duplicate], [true, true]);
+    assert.equal(JSON.stringify(['agentRuns', 'agentEvents', 'tasks'].map((table) => t.rows(table))), before);
+    // The released run holds nothing, so the same task is claimable again.
+    const next = await claim(t);
+    assert.equal(next.task?.id, taskIds[0]);
+    assert.notEqual(next.runId, run.runId);
+  });
+
+  it('puts a released plan back in the queue, and refuses another runner or a Cursor build', async () => {
+    const t = memoryCtx();
+    const planning = seedMilestoneWorld(t, { status: 'Planning', planning: 'queued' }, { agentRepo: REPO });
+    const run = await claim(t);
+    assert.equal(run.kind, 'planning');
+    const refused = await t.call<{ ok: boolean; status: number }>(releaseRun, { runnerId: OTHER_RUNNER, runId: run.runId });
+    assert.deepEqual([refused.ok, refused.status], [false, 403]);
+    await t.call(releaseRun, { runnerId: RUNNER, runId: run.runId, reason: 'Claude usage limit' });
+    assert.equal(t.row(planning.milestoneId)?.planning, 'queued');
+    assert.equal(t.rows('milestoneNotes').filter((note) => note.needsPeter === 'open').length, 0);
+    const build = seedRun(t, { orgId: planning.orgId, milestoneId: planning.milestoneId }, { kind: 'build', runnerId: RUNNER });
+    const wrongKind = await t.call<{ ok: boolean; status: number }>(releaseRun, { runnerId: RUNNER, runId: build });
+    assert.deepEqual([wrongKind.ok, wrongKind.status], [false, 400]);
   });
 
   it('never writes Shipped from the runner', () => {

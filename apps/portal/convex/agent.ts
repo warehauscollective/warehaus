@@ -17,6 +17,7 @@ import {
   RUN_ENDED,
   RUN_NOT_FOUND,
   RUN_NOT_YOURS,
+  RELEASE_KIND_INVALID,
   agentRepo,
   blockedNote,
   buildAgent,
@@ -34,6 +35,7 @@ import {
   planningRetryDecision,
   projectServedBy,
   pullRequestUrl,
+  releaseReason,
   retryLeaseDecision,
   runnerRepos,
   runIsStuck,
@@ -863,6 +865,57 @@ export const failPlanning = internalMutation({
       runId: run._id,
       type: 'failed',
       summary: `Planning run stopped · ${why}`,
+      at: now,
+    });
+    return { ok: true as const, duplicate: false };
+  },
+});
+
+/**
+ * The runner hands a run back untouched, because Claude hit the account usage
+ * limit. The run is cancelled and settled, so it holds nothing. A task goes
+ * back to To do and a plan back to the queue, with no needs Peter note: the
+ * runner takes new work again once the limit resets. Idempotent on the run.
+ */
+export const releaseRun = internalMutation({
+  args: { runnerId: v.string(), runId: v.string(), reason: v.optional(v.any()) },
+  handler: async (ctx, args) => {
+    const owned = await ownedRun(ctx, args.runnerId, args.runId);
+    if (!owned.ok) return owned;
+    const { run } = owned;
+    if (run.kind !== 'task' && run.kind !== 'planning') return failure(400, RELEASE_KIND_INVALID);
+    if (run.status !== 'running') {
+      await settleRun(ctx, run, Date.now());
+      return { ok: true as const, duplicate: true };
+    }
+    const now = Date.now();
+    const why = releaseReason(args.reason);
+    await ctx.db.patch(run._id, { status: 'cancelled', endedAt: now, settledAt: now, blockedReason: why });
+    const milestone = await ctx.db.get(run.milestoneId);
+    let summary = `Run handed back · ${why}`;
+    if (run.kind === 'task' && run.taskId) {
+      const task = await ctx.db.get(run.taskId);
+      if (task && !task.isDone && task.claimedBy === args.runnerId) {
+        await ctx.db.patch(task._id, {
+          status: 'To Do',
+          isDone: false,
+          claimedBy: undefined,
+          claimedAt: undefined,
+          blockedReason: undefined,
+          updatedAt: now,
+        });
+      }
+      if (task) summary = `Task ${String((task.milestoneOrder ?? 0) + 1).padStart(2, '0')} went back to To do · ${why}`;
+    } else if (run.kind === 'planning') {
+      if (milestone?.planning === 'running') await ctx.db.patch(milestone._id, { planning: 'queued', loopChangedAt: now });
+      summary = `Planning went back to the queue · ${why}`;
+    }
+    await writeEvent(ctx, {
+      orgId: run.orgId,
+      milestoneId: run.milestoneId,
+      runId: run._id,
+      type: 'note',
+      summary,
       at: now,
     });
     return { ok: true as const, duplicate: false };

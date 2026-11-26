@@ -41,8 +41,10 @@ describe('runner protocol', () => {
     await client.completeTask({ runId: 'run1', status: 'done', commitSha: 'abc1234' });
     await client.failPlanning({ runId: 'run2', reason: 'No JSON' });
     await client.reportBuild({ runId: 'run3', status: 'failed', reason: 'Broke' });
+    await client.release({ runId: 'run4', reason: 'Claude usage limit', until: 1 });
     const names = landed().map(([name]) => String(name).split(/[:.]/).pop());
-    assert.deepEqual(names, ['claimNext', 'recordEvent', 'writePlannedTasks', 'completeTask', 'failPlanning', 'reportBuild']);
+    assert.deepEqual(names, ['claimNext', 'recordEvent', 'writePlannedTasks', 'completeTask', 'failPlanning', 'reportBuild', 'releaseRun']);
+    assert.deepEqual(landed()[6]![1], { runnerId: 'mac-mini', runId: 'run4', reason: 'Claude usage limit' });
     const complete = landed()[3]![1] as Record<string, unknown>;
     assert.equal(complete.status, 'done');
     assert.equal(complete.commitSha, 'abc1234');

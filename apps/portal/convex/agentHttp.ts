@@ -7,6 +7,7 @@
  *   POST /agent/events    one short line for the run feed
  *   POST /agent/tasks     the task list from a planning run
  *   POST /agent/complete  end a task run, or a planning run that failed
+ *   POST /agent/release   hand a task or planning run back untouched (Claude hit its usage limit)
  *   POST /agent/build     progress from the one Cursor agent on a milestone
  *   POST /agent/ping      an idle runner saying it is alive. Reads and hands out nothing
  *   POST /agent/app-release  the latest runner app build, for the app to update itself between runs
@@ -40,6 +41,7 @@ export const AGENT_ROUTES = [
   '/agent/events',
   '/agent/tasks',
   '/agent/complete',
+  '/agent/release',
   '/agent/build',
   '/agent/ping',
   '/agent/unpair',
@@ -159,6 +161,14 @@ export const agentHttp = httpAction(async (ctx, request) => {
       ...(body.commitSha !== undefined ? { commitSha: body.commitSha } : {}),
       ...(body.reason !== undefined ? { reason: body.reason } : {}),
       ...(body.prUrl !== undefined ? { prUrl: body.prUrl } : {}),
+    });
+    return result.ok ? json(result, 200) : json({ error: result.error }, result.status);
+  }
+  if (path === '/agent/release') {
+    const result = await ctx.runMutation(internal.agent.releaseRun, {
+      runnerId,
+      runId: field(body, 'runId'),
+      ...(body.reason !== undefined ? { reason: body.reason } : {}),
     });
     return result.ok ? json(result, 200) : json({ error: result.error }, result.status);
   }
