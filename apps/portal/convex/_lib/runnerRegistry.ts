@@ -168,3 +168,20 @@ export function noRunnerNoteFor(input: {
   if (input.now - input.buildingSince < NO_RUNNER_AFTER_MS) return null;
   return input.registeredCount === 0 ? NO_REGISTERED_RUNNER_NOTE : NO_RUNNER_ONLINE_NOTE;
 }
+
+/**
+ * The `pausedAt` change one heartbeat asks for, or null when nothing changes.
+ * `paused` absent means the runner did not say, so a stored pause stays.
+ */
+export function runnerPausePatch(
+  pausedAt: number | null | undefined,
+  paused: boolean | null | undefined,
+  now: number,
+): { pausedAt: number | undefined } | null {
+  if (paused == null) return null;
+  if (paused && pausedAt == null) return { pausedAt: now };
+  if (!paused && pausedAt != null) return { pausedAt: undefined };
+  return null;
+}
+
+export const RUNNER_PAUSED = 'This runner is paused in the runner app. Resume it there to take work.';
