@@ -58,7 +58,7 @@ Notes go in the section's description, or one Note frame at the end of the SCREE
 - Prototype: On click, Open overlay from the trigger. A nested create or confirm uses Swap overlay; overlays never stack.
 - Desktop overlays: Center, Dissolve. Phone sheets: Bottom, Move in, 250 ms ease-out. Menus: Manual, under the trigger.
 - Overlay settings in the Prototype panel: background black 10%, Close when clicking outside.
-- Modals open one at a time, with a very light scrim and blur 40. The blur is in code (`PortalModal`, `--scrim-blur`); the A1 reference frame `689:71297` shows it.
+- Modals open one at a time, with a very light scrim and blur 40. The blur is in code (`PortalModal`, `--scrim-blur`); the New project modal (`1166:12900`, P01 OVERLAYS) is the reference. The older A1 Light frame `689:71297` is in Archive.
 - No right-side panels or drawers anywhere.
 
 ## Screen budget
@@ -74,7 +74,7 @@ Every screen is Dark and Light at 1440 and 390, but only two frames are built by
 
 Edit only the Dark components. The Light instances follow. Never detach a Light instance.
 
-Turn an existing frame into a component in place (Create component on the frame). That keeps its node ID, so links in tasks and ADRs still work.
+Turn an existing frame into a component in place (Create component on the frame). Through the Plugin API this gives the frame a new node ID, so record the old and new IDs in `docs/design/figma-id-map.md` in the same pull request.
 
 ### What earns its own screen
 
