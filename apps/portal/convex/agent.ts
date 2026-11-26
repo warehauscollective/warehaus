@@ -53,6 +53,7 @@ import {
   RUNNER_MAX_SLOTS,
   runnerSlots,
 } from './_lib/agentRun';
+import { closeAsk, closeAsksOnMilestone, openAsk, openAsks, openAsksOnMilestone, type AskReason } from './_lib/askStore';
 import { proposedTasksDecision } from './_lib/milestoneBot';
 import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
 import type { MilestoneStatus } from './_lib/milestoneStatus';
@@ -115,39 +116,17 @@ export async function writeEvent(
   });
 }
 
-/** Leaves one open note for Peter. Read by Grok Bot through the staff API. */
-async function needsPeter(
-  ctx: MutationCtx,
-  milestone: Doc<'milestones'>,
-  input: { reason: 'approval' | 'blocked'; body: string; taskId?: Id<'tasks'>; addedBy: string; at: number },
-) {
-  await ctx.db.insert('milestoneNotes', {
-    orgId: milestone.orgId,
-    milestoneId: milestone._id,
-    body: input.body,
-    addedBy: input.addedBy,
-    createdAt: input.at,
-    needsPeter: 'open',
-    reason: input.reason,
-    ...(input.taskId ? { taskId: input.taskId } : {}),
-  });
-}
-
-/** Closes open notes on a milestone. With a task, only that task's blocked note. */
+/** Closes open Asks on a milestone. With a task, only that task's blocked Ask. */
 async function answerNotes(
   ctx: MutationCtx,
   milestoneId: Id<'milestones'>,
-  match: { reason: 'approval' | 'blocked'; taskId?: Id<'tasks'> },
+  match: { reason: AskReason; taskId?: Id<'tasks'> },
 ) {
-  const open = await ctx.db
-    .query('milestoneNotes')
-    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestoneId).eq('needsPeter', 'open'))
-    .take(20);
-  for (const note of open) {
-    if (note.reason !== match.reason) continue;
-    if (match.taskId && note.taskId !== match.taskId) continue;
-    await ctx.db.patch(note._id, { needsPeter: undefined });
-  }
+  await closeAsksOnMilestone(
+    ctx,
+    milestoneId,
+    (ask) => ask.reason === match.reason && (!match.taskId || ask.taskId === match.taskId),
+  );
 }
 
 export const TOO_MANY_TASKS_NOTE = 'This milestone has too many tasks to check. Close or split some.';
@@ -161,17 +140,14 @@ async function tooManyTasksNote(
   milestone: Doc<'milestones'>,
   input: { open: true; addedBy: string; at: number } | { open: false },
 ) {
-  const notes = await ctx.db
-    .query('milestoneNotes')
-    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
-    .take(20);
+  const notes = await openAsksOnMilestone(ctx, milestone._id);
   const existing = notes.filter((note) => note.reason === 'blocked' && note.body === TOO_MANY_TASKS_NOTE);
   if (!input.open) {
-    for (const note of existing) await ctx.db.patch(note._id, { needsPeter: undefined });
+    for (const note of existing) await closeAsk(ctx, note);
     return;
   }
   if (existing.length > 0) return;
-  await needsPeter(ctx, milestone, { reason: 'blocked', body: TOO_MANY_TASKS_NOTE, addedBy: input.addedBy, at: input.at });
+  await openAsk(ctx, milestone, { reason: 'blocked', body: TOO_MANY_TASKS_NOTE, addedBy: input.addedBy, at: input.at });
 }
 
 /** The first open tasks a person has to close, from the whole task set. */
@@ -690,7 +666,7 @@ export const completeTask = internalMutation({
     });
 
     if (decision.task.status === 'Blocked') {
-      await needsPeter(ctx, milestone, {
+      await openAsk(ctx, milestone, {
         reason: 'blocked',
         taskId: task._id,
         addedBy: `runner:${args.runnerId}`,
@@ -852,7 +828,7 @@ export const failPlanning = internalMutation({
     const milestone = await ctx.db.get(run.milestoneId);
     if (milestone?.planning === 'running') {
       await ctx.db.patch(milestone._id, { planning: 'blocked', planningBlockedReason: why, loopChangedAt: now });
-      await needsPeter(ctx, milestone, {
+      await openAsk(ctx, milestone, {
         reason: 'blocked',
         addedBy: `runner:${args.runnerId}`,
         at: now,
@@ -973,7 +949,7 @@ export const releaseStuckRuns = internalMutation({
           });
           if (milestone) {
             const order = String((task.milestoneOrder ?? 0) + 1).padStart(2, '0');
-            await needsPeter(ctx, milestone, {
+            await openAsk(ctx, milestone, {
               reason: 'blocked',
               taskId: task._id,
               addedBy: `runner:${run.runnerId}`,
@@ -990,7 +966,7 @@ export const releaseStuckRuns = internalMutation({
         }
       } else if (milestone?.planning === 'running') {
         await ctx.db.patch(milestone._id, { planning: 'blocked', planningBlockedReason: why, loopChangedAt: now });
-        await needsPeter(ctx, milestone, {
+        await openAsk(ctx, milestone, {
           reason: 'blocked',
           addedBy: `runner:${run.runnerId}`,
           at: now,
@@ -1024,10 +1000,7 @@ export const releaseStuckRuns = internalMutation({
 async function noteMissingRunner(ctx: MutationCtx, now: number) {
   const runners = await registeredRunners(ctx);
   const online = anyRunnerOnline(runners, now, RUNNER_READY_WITHIN_MS);
-  const open = await ctx.db
-    .query('milestoneNotes')
-    .withIndex('by_needsPeter', (q) => q.eq('needsPeter', 'open'))
-    .take(NO_RUNNER_NOTE_SCAN);
+  const open = await openAsks(ctx, { limit: NO_RUNNER_NOTE_SCAN });
   const noted = new Map<string, Doc<'milestoneNotes'>>();
   for (const note of open) if (note.reason === 'blocked' && isNoRunnerNote(note.body)) noted.set(note.milestoneId, note);
   let closed = 0;
@@ -1035,7 +1008,7 @@ async function noteMissingRunner(ctx: MutationCtx, now: number) {
   for (const note of noted.values()) {
     const milestone = online ? null : await ctx.db.get(note.milestoneId);
     if (!online && milestone?.status === 'Building' && milestone.archivedAt == null) continue;
-    await ctx.db.patch(note._id, { needsPeter: undefined });
+    await closeAsk(ctx, note);
     closed += 1;
   }
   if (online) return { noRunnerOpened: opened, noRunnerClosed: closed };
@@ -1054,7 +1027,7 @@ async function noteMissingRunner(ctx: MutationCtx, now: number) {
       now,
     });
     if (!body) continue;
-    await needsPeter(ctx, milestone, { reason: 'blocked', body, addedBy: 'portal', at: now });
+    await openAsk(ctx, milestone, { reason: 'blocked', body, addedBy: 'portal', at: now });
     opened += 1;
   }
   return { noRunnerOpened: opened, noRunnerClosed: closed };
@@ -1089,12 +1062,9 @@ async function noteBlockedBuild(
   milestone: Doc<'milestones'>,
   input: { runnerId: string; at: number; body: string },
 ) {
-  const open = await ctx.db
-    .query('milestoneNotes')
-    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
-    .take(20);
+  const open = await openAsksOnMilestone(ctx, milestone._id);
   if (open.some((note) => note.reason === 'blocked' && !note.taskId)) return;
-  await needsPeter(ctx, milestone, {
+  await openAsk(ctx, milestone, {
     reason: 'blocked',
     addedBy: `runner:${input.runnerId}`,
     at: input.at,
@@ -1309,13 +1279,7 @@ export async function retryBlockedWork(
         updatedAt: now,
       });
     }
-    const open = await ctx.db
-      .query('milestoneNotes')
-      .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
-      .take(20);
-    for (const note of open) {
-      if (note.reason === 'blocked' && !note.taskId) await ctx.db.patch(note._id, { needsPeter: undefined });
-    }
+    await closeAsksOnMilestone(ctx, milestone._id, (ask) => ask.reason === 'blocked' && !ask.taskId);
     return { ok: true };
   }
   if (args.taskId) return { ok: true };
@@ -1326,13 +1290,7 @@ export async function retryBlockedWork(
   });
   if (!decision.ok) return failure(400, decision.reason);
   await ctx.db.patch(milestone._id, { planning: 'queued', planningBlockedReason: undefined, loopChangedAt: now });
-  const open = await ctx.db
-    .query('milestoneNotes')
-    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
-    .take(20);
-  for (const note of open) {
-    if (note.reason === 'blocked' && !note.taskId) await ctx.db.patch(note._id, { needsPeter: undefined });
-  }
+  await closeAsksOnMilestone(ctx, milestone._id, (ask) => ask.reason === 'blocked' && !ask.taskId);
   return { ok: true };
 }
 

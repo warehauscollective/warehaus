@@ -598,7 +598,7 @@ describe('milestones.undoCloseout', () => {
 
 describe('status change effects on the portal paths', () => {
   const openNotes = (w: World) =>
-    w.t.rows('milestoneNotes').filter((note) => note.needsPeter === 'open' && note.reason === 'approval');
+    w.t.rows('milestoneNotes').filter((note) => note.open === true && note.reason === 'approval');
 
   it('play into Ready to Ship writes the approval note, the preview link and a feed line', async () => {
     const w = world();

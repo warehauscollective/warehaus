@@ -87,6 +87,7 @@ import {
   type MilestoneCreatedVia,
 } from './_lib/milestoneTasks';
 import { normalizeLocalPreviewUrl, tileLinkChangeDecision, type TileLinkField } from './_lib/tileLinks';
+import { closeAsksOnMilestone, peterContactId } from './_lib/askStore';
 import {
   MILESTONE_ONE_NAME,
   MILESTONE_ONE_OBJECTIVE,
@@ -95,7 +96,6 @@ import {
 } from './_lib/milestoneOneSeed';
 import {
   ALREADY_REVIEWED,
-  PETER_EMAILS,
   chatContactError,
   currentIteration,
   historyPageLimit,
@@ -1183,17 +1183,6 @@ async function staffReview(
   };
 }
 
-async function peterContactId(ctx: MutationCtx): Promise<Id<'contacts'> | null> {
-  for (const email of PETER_EMAILS) {
-    const contact = await ctx.db
-      .query('contacts')
-      .withIndex('by_email', (q) => q.eq('email', email))
-      .unique();
-    if (contact && contact.role === 'Warehaus Staff') return contact._id;
-  }
-  return null;
-}
-
 async function applyMilestoneReview(
   ctx: MutationCtx,
   args: {
@@ -1266,14 +1255,8 @@ async function applyMilestoneReview(
   const siblings = planned.decision === 'approve' ? ({ ok: true, rows: [] } as const) : await loadLinkedTasks(ctx, milestone);
   if (!siblings.ok) return { ok: false as const, status: 409, error: siblings.reason };
   const decidedAt = Date.now();
-  // Peter answered. The open approval request on this milestone is closed.
-  const asked = await ctx.db
-    .query('milestoneNotes')
-    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
-    .take(20);
-  for (const note of asked) {
-    if (note.reason === 'approval') await ctx.db.patch(note._id, { needsPeter: undefined });
-  }
+  // Peter answered. The open approval Ask on this milestone is closed.
+  await closeAsksOnMilestone(ctx, milestone._id, (ask) => ask.reason === 'approval');
   if (planned.decision === 'approve') {
     const deploymentId = milestone.previewDeploymentId?.trim() || '';
     await ctx.db.patch(milestone._id, {

@@ -16,15 +16,16 @@
  *
  * Effects:
  * - Entering Ready to Ship from an earlier status: store the local preview
- *   link if missing, close the old approval note, write Peter's approval
- *   note, add a feed line. Coming back from Shipped is a reopen: none of it.
- * - Leaving Ready to Ship: close the open approval note.
+ *   link if missing, close the old approval Ask, write a new approval Ask
+ *   waiting on Peter, add a feed line. Coming back from Shipped is a reopen: none of it.
+ * - Leaving Ready to Ship: close the open approval Ask.
  * - Entering Planning: queue planning. Leaving it: drop a queued plan.
  */
 
 import type { Doc } from '../_generated/dataModel';
 import type { MutationCtx } from '../_generated/server';
 import { queuePlanning } from '../planningQueue';
+import { closeAsksOnMilestone, openAsk } from './askStore';
 import { LOCAL_PREVIEW_DEFAULT, approvalNote, eventType, milestoneBranch } from './agentRun';
 import { detailActivitySummary } from './milestoneDetails';
 import { currentIteration } from './milestoneReview';
@@ -84,13 +85,7 @@ async function shippedGate(
 }
 
 async function closeApprovalNotes(ctx: MutationCtx, milestone: Doc<'milestones'>) {
-  const open = await ctx.db
-    .query('milestoneNotes')
-    .withIndex('by_milestone_needsPeter', (q) => q.eq('milestoneId', milestone._id).eq('needsPeter', 'open'))
-    .take(20);
-  for (const note of open) {
-    if (note.reason === 'approval') await ctx.db.patch(note._id, { needsPeter: undefined });
-  }
+  await closeAsksOnMilestone(ctx, milestone._id, (ask) => ask.reason === 'approval');
 }
 
 function openCountLine(open: number): string | null {
@@ -113,14 +108,12 @@ async function enterReadyToShip(ctx: MutationCtx, milestone: Doc<'milestones'>, 
     localPreviewUrl,
   });
   const heads = openCountLine(open);
-  await ctx.db.insert('milestoneNotes', {
-    orgId: milestone.orgId,
-    milestoneId: milestone._id,
+  // An approval Ask always waits on Peter, the only approver.
+  await openAsk(ctx, milestone, {
+    reason: 'approval',
     body: heads ? `${body}\n${heads}` : body,
     addedBy: input.noteAuthor ?? input.actorName,
-    createdAt: input.at,
-    needsPeter: 'open',
-    reason: 'approval',
+    at: input.at,
   });
   await ctx.db.insert('agentEvents', {
     orgId: milestone.orgId,

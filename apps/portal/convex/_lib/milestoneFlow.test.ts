@@ -171,7 +171,7 @@ describe('milestone loop, bot to Shipped', () => {
     assert.equal(milestone().status, 'Ready to Ship');
     // Hand-off: the local preview is stored and one open note waits on Peter.
     assert.equal(milestone().localPreviewUrl, 'http://localhost:3100/');
-    const openNotes = () => t.rows('milestoneNotes').filter((note) => note.needsPeter === 'open');
+    const openNotes = () => t.rows('milestoneNotes').filter((note) => note.open === true);
     assert.equal(openNotes().length, 1);
     assert.equal(openNotes()[0]?.reason, 'approval');
     assert.match(String(openNotes()[0]?.body), /npm run preview:pr -- milestone\/client-experience-launch/);
@@ -437,7 +437,7 @@ describe('cursor build hold and agent lock', () => {
     assert.equal(task?.blockedReason, 'Runner went quiet for 30 minutes');
     // The no-runner alert is its own note (no runner is registered in this world); this test counts the build's.
     const notes = () =>
-      t.rows('milestoneNotes').filter((row) => row.needsPeter === 'open' && row.reason === 'blocked' && !row.taskId && !/no runner/i.test(String(row.body)));
+      t.rows('milestoneNotes').filter((row) => row.open === true && row.reason === 'blocked' && !row.taskId && !/no runner/i.test(String(row.body)));
     assert.equal(notes().length, 1);
     const again = await t.call<{ released: number }>(releaseStuckRuns, {});
     assert.equal(again.released, 0);
@@ -535,7 +535,7 @@ describe('cursor build hold and agent lock', () => {
       reason: 'Cursor refused the API key',
     });
     assert.equal(repeat.duplicate, true);
-    const notes = t.rows('milestoneNotes').filter((row) => row.needsPeter === 'open' && row.reason === 'blocked');
+    const notes = t.rows('milestoneNotes').filter((row) => row.open === true && row.reason === 'blocked');
     assert.equal(notes.length, 1);
     await retry(t, milestoneId);
     const retried = await claim(t);
@@ -668,7 +668,7 @@ describe('status change from the staff API and a merge', () => {
     }
     const tokenId = seedToken(t);
     const milestone = () => rowOf(t, milestoneId);
-    const openNotes = () => t.rows('milestoneNotes').filter((note) => note.needsPeter === 'open' && note.reason === 'approval');
+    const openNotes = () => t.rows('milestoneNotes').filter((note) => note.open === true && note.reason === 'approval');
     return { t, orgId, tokenId, milestoneId, ids, milestone, openNotes };
   }
 
@@ -721,7 +721,7 @@ describe('status change from the staff API and a merge', () => {
       body: 'Approve?',
       addedBy: 'runner:peter-mbp',
       createdAt: 1,
-      needsPeter: 'open',
+      open: true,
       reason: 'approval',
     });
     const merged = (n: number) =>

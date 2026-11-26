@@ -536,9 +536,6 @@ export function mapCursorCommits(
   return done;
 }
 
-/** Open notes a single read returns. */
-export const NEEDS_PETER_LIMIT = 20;
-
 /**
  * Parallel runs. A runner holds at most this many open runs at once, each on
  * a different milestone. One run per milestone stays the rule: tasks on a
