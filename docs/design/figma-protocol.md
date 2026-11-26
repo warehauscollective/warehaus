@@ -48,9 +48,18 @@ Top to bottom:
 Each screen section has two rows:
 
 - **SCREEN**: the screen's 4 frames (see Screen budget).
-- **OVERLAYS**: modals, sheets and menus that open from this screen. An overlay frame holds only the overlay: no page behind it, no scrim. Prototype links use Open overlay and Swap overlay.
+- **OVERLAYS**: modals, sheets, menus, popovers, confirms and toasts that open from this screen (see Overlays).
 
-Notes go in the section's description, or one Note frame at the end of the SCREEN row. There is no STATES row; states are variants.
+Notes go in the section's description, or one Note frame at the end of the SCREEN row. The section's Changelog frame sits at the end of the SCREEN row (see Changelog). There is no STATES row; states are variants.
+
+### Overlays
+
+- An overlay frame holds only the overlay: transparent, no page behind it, no scrim.
+- Prototype: On click, Open overlay from the trigger. A nested create or confirm uses Swap overlay; overlays never stack.
+- Desktop overlays: Center, Dissolve. Phone sheets: Bottom, Move in, 250 ms ease-out. Menus: Manual, under the trigger.
+- Overlay settings in the Prototype panel: background black 10%, Close when clicking outside.
+- Modals open one at a time, with a very light scrim and blur 40. The blur is in code (`PortalModal`, `--scrim-blur`); the A1 reference frame `689:71297` shows it.
+- No right-side panels or drawers anywhere.
 
 ## Screen budget
 
@@ -97,9 +106,14 @@ Archived frames are left as they are.
 ## Iterating
 
 - Change the canonical screen or the component in place. Never copy a screen to make "v2".
-- After each iteration, save a named Figma version: `<Milestone> - iter <N>`, for example `Runner on production - iter 2`. Version history is where old iterations live.
+- After each iteration, the agent adds a line to the section's Changelog. When Peter approves, he or a staff member saves a named Figma version in Figma (File, Save to version history): `<Milestone> - iter <N>`, for example `Runner on production - iter 2`. Version history is where old iterations live. Agents cannot save versions: the Figma MCP does not support it.
 - Side-by-side options are allowed only in the page's `Exploration` section. Once Peter picks one, it is applied to the canonical screen or component and the Exploration frames are moved to Archive.
 - A proposal waiting on Peter sits in `Exploration`, not next to the current screens.
+
+## Changelog
+
+- Every edit adds one line to the section's Changelog frame: date · who · what · frame IDs · source.
+- While an agent is working in a section, it adds a lock line at the top of the Changelog: `🔒 <who> editing <what> since <time>`. It removes the line when done. Another agent does not edit a locked section.
 
 ## Archive
 
