@@ -40,6 +40,7 @@ import { ActivityList } from './roadmapParts';
 import { MoreMenu, EditDialog } from './MilestoneForms';
 import { MilestoneLoopLive, fixtureLoopModel, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
 import type { ChecklistActions } from './MilestoneChecklist';
+import { milestoneTaskToOpen } from './milestoneBoard';
 import { MilestoneTaskBoard, type MoveTaskStatus } from './MilestoneTaskBoard';
 import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
 import type { ArchivedTask } from './ArchivedView';
@@ -591,7 +592,7 @@ export function MilestoneDetailView({
             onOpenTask={
               onOpenTask
                 ? (taskId) => {
-                    const task = tasks.find((item) => item.id === taskId);
+                    const task = milestoneTaskToOpen({ taskId, milestone, tasks, project });
                     if (task) onOpenTask(task);
                   }
                 : undefined

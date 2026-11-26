@@ -35,6 +35,15 @@ function pathId(pathname: string, prefix: string): string | null {
  * /projects/:id opens that board. /tasks/:id opens the modal over its board.
  * A missing row and a row the viewer cannot see use the same message.
  */
+/**
+ * The page's tasks, plus a task opened from a milestone card that the page
+ * does not hold. The page's own copy wins as soon as it has one.
+ */
+export function tasksWithOpened<T extends { id: string }>(tasks: T[], opened: T | null): T[] {
+  if (!opened || tasks.some((task) => task.id === opened.id)) return tasks;
+  return [...tasks, opened];
+}
+
 export function resolveBoardRoute(input: {
   pathname: string;
   tasks: readonly { id: string; projectId?: string | null }[];

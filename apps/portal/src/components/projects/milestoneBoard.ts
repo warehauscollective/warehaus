@@ -73,6 +73,45 @@ export function milestoneBoardCards(
 }
 
 /**
+ * The task a card opens in the task modal. A task the page already holds opens
+ * as that task. A task that exists only on the milestone is built from its
+ * row: name, the row's own status, detail, source, pull request and resource
+ * count, on this project and this milestone. Null when no row has the id.
+ */
+export function milestoneTaskToOpen(input: {
+  taskId: string;
+  milestone: Pick<MilestoneRoadmapView, 'id' | 'rows'>;
+  tasks: readonly PortalTask[];
+  project: BoardProject;
+}): PortalTask | null {
+  const { taskId, milestone, tasks, project } = input;
+  const known = tasks.find((task) => task.id === taskId);
+  const parent = milestone.rows.find((row) => row.id === taskId || row.children.some((child) => child.id === taskId));
+  if (!parent) return known ?? null;
+  const row: RoadmapChild = parent.id === taskId ? parent : parent.children.find((child) => child.id === taskId)!;
+  return {
+    id: row.id,
+    name: row.name,
+    status: row.status,
+    isDone: row.isDone,
+    date: null,
+    stage: row.stage,
+    parentTaskId: row === parent ? null : parent.id,
+    resourceCount: row.resourceCount,
+    projectId: project.id,
+    projectName: project.name,
+    projectStatus: project.status ?? null,
+    projectEndDate: project.endDate ?? null,
+    ...(row.onMilestone === false ? {} : { milestoneId: milestone.id }),
+    ...(row.detail ? { description: row.detail } : {}),
+    ...(row.source ? { source: row.source } : {}),
+    ...(row.pullRequestUrl ? { pullRequestUrl: row.pullRequestUrl } : {}),
+    // What the page holds for the task is newer than the row and wins.
+    ...known,
+  };
+}
+
+/**
  * The milestone's full task order after To Do is reordered. Each To Do row's
  * place takes the next id from the new To Do order. Every other row keeps its
  * place, so the saved order still names every row once. Null when the new

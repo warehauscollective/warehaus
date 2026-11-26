@@ -14,6 +14,7 @@ import {
   milestoneBoardCards,
   milestoneBoardReadOnly,
   milestoneBoardStatus,
+  milestoneTaskToOpen,
   runOrderAfterReorder,
 } from './milestoneBoard';
 
@@ -301,5 +302,70 @@ describe('run order in To Do', () => {
     assert.equal(board({ staff: true, status: 'Planning' }).includes('column-order-locked'), false);
     assert.equal(board({ staff: true, status: 'Shipped' }).includes('column-order-locked'), false);
     assert.equal(board({ staff: false, status: 'Building' }).includes('column-order-locked'), false);
+  });
+});
+
+describe('opening a milestone card', () => {
+  const list = [
+    row('only', 'Inbox', {
+      detail: 'Fix the lookup.',
+      source: 'portal-milestone',
+      pullRequestUrl: 'https://github.com/warehauscollective/warehaus/pull/1',
+      resourceCount: 2,
+      portalOwned: true,
+    }),
+    row('parent', 'In Progress', {
+      children: [{ id: 'sub', name: 'Sub', status: 'Done', isDone: true, stage: null, resourceCount: 0, onMilestone: false }],
+    }),
+  ];
+  const open = (taskId: string, tasks: PortalTask[] = []) =>
+    milestoneTaskToOpen({ taskId, milestone: { id: 'm-board', rows: list }, tasks, project });
+
+  it('builds a task that exists only on the milestone from its row', () => {
+    const task = open('only');
+    assert.equal(task?.id, 'only');
+    assert.equal(task?.name, 'Task only');
+    // The row's own status, not the column it sits in.
+    assert.equal(task?.status, 'Inbox');
+    assert.equal(task?.description, 'Fix the lookup.');
+    assert.equal(task?.source, 'portal-milestone');
+    assert.equal(task?.pullRequestUrl, 'https://github.com/warehauscollective/warehaus/pull/1');
+    assert.equal(task?.resourceCount, 2);
+    assert.equal(task?.milestoneId, 'm-board');
+    assert.equal(task?.projectId, 'p-portal');
+    assert.equal(task?.projectName, 'Warehaus Portal');
+    assert.equal(task?.parentTaskId, null);
+  });
+
+  it('opens a subtask under its parent, without claiming a milestone it is not on', () => {
+    const task = open('sub');
+    assert.equal(task?.parentTaskId, 'parent');
+    assert.equal(task?.isDone, true);
+    assert.equal('milestoneId' in (task ?? {}), false);
+  });
+
+  it('opens the task the page already holds as that task', () => {
+    const live: PortalTask = {
+      id: 'only',
+      name: 'Live name',
+      status: 'In Progress',
+      isDone: false,
+      date: '2026-12-01',
+      lastEditedTime: '2026-11-25T10:00:00.000Z',
+      projectId: 'p-other',
+      projectName: 'Other',
+      projectStatus: null,
+      projectEndDate: null,
+    };
+    const task = open('only', [live]);
+    assert.equal(task?.name, 'Live name');
+    assert.equal(task?.status, 'In Progress');
+    assert.equal(task?.date, '2026-12-01');
+    assert.equal(task?.projectId, 'p-other');
+    assert.equal(task?.lastEditedTime, '2026-11-25T10:00:00.000Z');
+  });
+
+  it('opens nothing for an id no row has', () => {
+    assert.equal(open('missing'), null);
   });
 });

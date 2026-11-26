@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, it } from 'node:test';
 import { getPortalTabForPath } from '@warehaus/logic';
 import { PROJECT_UNAVAILABLE, TASK_UNAVAILABLE } from '@warehaus/portal-sync';
-import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute } from './boardRoute';
+import { PROJECT_UNAVAILABLE_HEADING, projectUnavailableCopy, resolveBoardRoute, tasksWithOpened } from './boardRoute';
 
 const tasks = [
   { id: 'task-public', projectId: 'proj-public' },
@@ -87,5 +87,36 @@ describe('board deep links', () => {
       resolveBoardRoute({ pathname: '/projects', tasks, visibleProjectIds: ['proj-public'] }),
       { view: 'list' },
     );
+  });
+});
+
+describe('a task opened from a milestone card', () => {
+  const opened = { id: 'task-milestone-only', projectId: 'proj-public' };
+
+  it('opens over its project board though the page list does not hold it', () => {
+    const input = { pathname: '/tasks/task-milestone-only', visibleProjectIds: ['proj-public'] };
+    assert.deepEqual(resolveBoardRoute({ ...input, tasks }), { view: 'unavailable', message: TASK_UNAVAILABLE });
+    assert.deepEqual(resolveBoardRoute({ ...input, tasks: tasksWithOpened(tasks, opened) }), {
+      view: 'board',
+      projectId: 'proj-public',
+      taskId: 'task-milestone-only',
+    });
+  });
+
+  it('still refuses a project the viewer cannot see', () => {
+    const hidden = { id: 'task-milestone-only', projectId: 'proj-internal' };
+    assert.deepEqual(
+      resolveBoardRoute({
+        pathname: '/tasks/task-milestone-only',
+        tasks: tasksWithOpened(tasks, hidden),
+        visibleProjectIds: ['proj-public'],
+      }),
+      { view: 'unavailable', message: TASK_UNAVAILABLE },
+    );
+  });
+
+  it('leaves the list alone when the page holds the task, or nothing was opened', () => {
+    assert.equal(tasksWithOpened(tasks, null), tasks);
+    assert.equal(tasksWithOpened(tasks, { id: 'task-public', projectId: 'proj-other' }), tasks);
   });
 });
