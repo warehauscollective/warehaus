@@ -39,7 +39,8 @@ import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, t
 import { ActivityList } from './roadmapParts';
 import { MoreMenu, EditDialog } from './MilestoneForms';
 import { MilestoneLoopLive, fixtureLoopModel, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
-import { MilestoneChecklist, type ChecklistActions } from './MilestoneChecklist';
+import type { ChecklistActions } from './MilestoneChecklist';
+import { MilestoneTaskBoard, type MoveTaskStatus } from './MilestoneTaskBoard';
 import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
 import type { ArchivedTask } from './ArchivedView';
 import { MilestoneRunFeedLive } from './MilestoneRunFeed';
@@ -110,6 +111,8 @@ type MilestoneMutations = {
   clearPreviewLink?: (args: { hostSlug?: string; milestoneId: Id<'milestones'> }) => Promise<unknown>;
   /** Task writes on the Tasks tab. Absent in fixture previews. */
   tasks?: ChecklistActions;
+  /** A card's status move on the Tasks board. Absent in fixture previews. */
+  moveTaskStatus?: MoveTaskStatus;
 };
 
 export function MilestoneDetail(props: {
@@ -153,6 +156,7 @@ export function MilestoneDetail(props: {
   const editTask = useMutation(api.milestones.editTask);
   const removeTask = useMutation(api.milestones.removeTask);
   const reorderTasks = useMutation(api.milestones.reorderTasks);
+  const moveTaskStatus = useMutation(api.tasks.moveStatus);
   const [cursor, setCursor] = useState<string | null>(null);
   const [loadedTargets, setLoadedTargets] = useState<MoveTarget[]>([]);
   const [moveListOpen, setMoveListOpen] = useState(false);
@@ -224,7 +228,7 @@ export function MilestoneDetail(props: {
           />
         ) : null
       }
-      mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink, tasks: { addTask, editTask, removeTask, reorderTasks } }}
+      mutations={{ save, setPublish, setStatus, advance, setOwner, setDueDate, setTileLink, moveProject, attachTask, detachTask, attachPreviewLink, clearPreviewLink, tasks: { addTask, editTask, removeTask, reorderTasks }, moveTaskStatus }}
     />
   );
 }
@@ -573,12 +577,15 @@ export function MilestoneDetailView({
           {tasksMenuFailure({ tab, error, editing }).show && error ? (
             <MenuActionError error={error} onDismiss={() => setError(null)} />
           ) : null}
-          <MilestoneChecklist
+          <MilestoneTaskBoard
             milestone={milestone}
+            project={project}
+            tasks={tasks}
             staff={staff}
             fixtures={fixtures}
             hostSlug={hostSlug}
             actions={mutations.tasks}
+            moveStatus={mutations.moveTaskStatus}
             archivedTasks={archivedTasks}
             taskCloseout={taskCloseout}
             onOpenTask={

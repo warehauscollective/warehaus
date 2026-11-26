@@ -121,6 +121,24 @@ export function flagOffDropMessage(result: { ok: boolean; error?: string }): str
   return null;
 }
 
+/**
+ * The status columns a board asked for, in that order. A board that names its
+ * statuses shows those lanes and no others, so it has no Inbox lane and no
+ * lane for a status it did not name.
+ */
+export function pickStatusColumns<T extends { key: string; label: string }>(
+  columns: readonly T[],
+  statuses: readonly string[] | undefined,
+): T[] {
+  if (!statuses) return [...columns];
+  return statuses.flatMap((status) => columns.filter((column) => column.key === status));
+}
+
+/** Moves and adds need staff, the staff move rules, and a board that is not read-only. */
+export function boardCanChange(input: { staff: boolean; actor: 'staff' | 'client' | undefined; readOnly: boolean }): boolean {
+  return input.staff && input.actor === 'staff' && !input.readOnly;
+}
+
 export function readBoardMode(): BoardMode {
   if (typeof window === 'undefined') return 'status';
   return window.localStorage.getItem(GROUP_KEY) === 'stage' ? 'stage' : 'status';
@@ -138,6 +156,9 @@ export function TaskBoard({
   showQuickAdd = true,
   hideGroupToggle = false,
   framed = false,
+  statuses,
+  quickAddStatuses,
+  readOnly = false,
 }: {
   tasks: PortalTask[];
   staff: boolean;
@@ -155,6 +176,12 @@ export function TaskBoard({
   hideGroupToggle?: boolean;
   /** Shared lane surface, equal heights, and the inset fade. Only the milestone board turns this on. */
   framed?: boolean;
+  /** Status columns to show, in order. Unset shows every live status. The milestone board names four. */
+  statuses?: readonly string[];
+  /** Status columns that take a new task. Unset means every column. */
+  quickAddStatuses?: readonly string[];
+  /** Cards still open. Nothing moves and nothing is added. Clients and Shipped milestones. */
+  readOnly?: boolean;
 }) {
   const [mode, setMode] = useState<BoardMode>('status');
   const [phone, setPhone] = useState(false);
@@ -196,13 +223,14 @@ export function TaskBoard({
       }),
     [tasks, overrides],
   );
-  const columns = useMemo(
-    () => boardColumns(boardLaneTasks(viewTasks), mode, staff ? 'staff' : 'client'),
-    [viewTasks, mode, staff],
-  );
+  const columns = useMemo(() => {
+    const all = boardColumns(boardLaneTasks(viewTasks), mode, staff ? 'staff' : 'client');
+    return mode === 'status' ? pickStatusColumns(all, statuses) : all;
+  }, [viewTasks, mode, staff, statuses]);
+  const canChange = boardCanChange({ staff, actor: rules?.actor, readOnly });
   const activeTab = tab && columns.some((column) => column.key === tab) ? tab : columns[0]?.key ?? null;
   const shown = phone ? columns.filter((column) => column.key === activeTab) : columns;
-  const canDrag = staff && !phone && rules?.actor === 'staff';
+  const canDrag = canChange && !phone;
 
   const chooseMode = (next: BoardMode) => {
     setMode(next);
@@ -210,7 +238,7 @@ export function TaskBoard({
     window.localStorage.setItem(GROUP_KEY, next);
   };
 
-  const actor = (): MoveActor => (staff && rules?.actor === 'staff' ? 'staff' : 'client');
+  const actor = (): MoveActor => (canChange ? 'staff' : 'client');
 
   const dropFrom = (task: PortalTask) => (mode === 'stage' ? task.stage ?? '' : task.status);
 
@@ -353,7 +381,7 @@ export function TaskBoard({
               draggingId={activeId}
               dropIndex={dragging && accepting ? dropSlotIndex(resting, dragging) : null}
               dropHeight={liftedHeight}
-              phone={phone}
+              canMoveSheet={phone && canChange}
               shared={framedSurface}
               mode={mode}
               emptyClient={!staff}
@@ -368,7 +396,7 @@ export function TaskBoard({
               onMoveSheet={setMoveTask}
               quick={quick === column.key}
               quickAddEnabled={quickAddEnabled}
-              showQuickAdd={showQuickAdd}
+              showQuickAdd={showQuickAdd && canChange && (!quickAddStatuses || quickAddStatuses.includes(column.key))}
               onQuick={() => {
                 if (!quickAddEnabled) return;
                 setQuick(column.key);
@@ -490,7 +518,7 @@ function Column({
   draggingId,
   dropIndex,
   dropHeight,
-  phone,
+  canMoveSheet,
   shared,
   mode,
   emptyClient,
@@ -519,7 +547,7 @@ function Column({
   draggingId: string | null;
   dropIndex: number | null;
   dropHeight: number | null;
-  phone: boolean;
+  canMoveSheet: boolean;
   shared: boolean;
   mode: BoardMode;
   emptyClient: boolean;
@@ -550,7 +578,7 @@ function Column({
         mode={mode}
         allTasks={allTasks}
         canDrag={canDrag}
-        phone={phone}
+        canMoveSheet={canMoveSheet}
         staff={staff}
         collapsed={collapsed}
         error={failed[task.id]}
@@ -914,7 +942,7 @@ function BoardCard({
   mode,
   allTasks,
   canDrag,
-  phone,
+  canMoveSheet,
   staff,
   collapsed = false,
   error,
@@ -928,7 +956,8 @@ function BoardCard({
   mode: BoardMode;
   allTasks: PortalTask[];
   canDrag: boolean;
-  phone: boolean;
+  /** Press and hold opens the move sheet. Phone only, and never on a read-only board. */
+  canMoveSheet: boolean;
   staff: boolean;
   collapsed?: boolean;
   error?: string;
@@ -961,7 +990,7 @@ function BoardCard({
     cardDragPointerDown(
       event,
       canDrag ? (pointer) => listeners?.onPointerDown?.(pointer) : undefined,
-      phone
+      canMoveSheet
         ? () => {
             timer.current = window.setTimeout(() => onMoveSheet(), 400);
           }

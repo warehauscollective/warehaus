@@ -68,7 +68,7 @@ describe('milestone page mutation errors', () => {
     });
 
     await click(findButton(container, 'Tasks · 0'));
-    assert.match(textOf(container), /TASKS · 0/);
+    assert.ok(findByTestId(container, 'milestone-task-board'));
     await click(findButton(container, 'Assign existing task'));
 
     await click(findButton(container, 'Publish'));
@@ -80,7 +80,7 @@ describe('milestone page mutation errors', () => {
     assert.equal(findButton(container, 'Publish')?.disabled, undefined);
     await click(findButton(container, 'Cancel'));
     assert.equal(findByTestId(container, 'milestone-details-modal'), null);
-    assert.match(textOf(container), /TASKS · 0/);
+    assert.ok(findByTestId(container, 'milestone-task-board'));
 
     assert.equal(findByTestId(container, 'milestone-work-select'), null);
 
@@ -543,6 +543,8 @@ function installDom(): TestDoc {
     requestAnimationFrame: (callback: () => void) => setTimeout(callback, 0),
     cancelAnimationFrame: (id: ReturnType<typeof setTimeout>) => clearTimeout(id),
     getSelection: () => null,
+    // The Tasks tab mounts the task board, which reads the viewport width.
+    matchMedia: () => ({ matches: false, addEventListener() {}, removeEventListener() {} }),
   };
   (document as TestDoc & { defaultView: typeof view }).defaultView = view;
   const target = globalThis as Record<string, unknown>;
@@ -552,6 +554,10 @@ function installDom(): TestDoc {
   target.HTMLIFrameElement = view.HTMLIFrameElement;
   target.Element = view.Element;
   target.Node = view.Node;
+  target.ResizeObserver = class {
+    observe() {}
+    disconnect() {}
+  };
   target.IS_REACT_ACT_ENVIRONMENT = true;
   return document;
 }
