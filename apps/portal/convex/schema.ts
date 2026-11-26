@@ -276,6 +276,12 @@ export default defineSchema({
     approverContactId: v.optional(v.id('contacts')),
     /** When that human decided. */
     decidedAt: v.optional(v.number()),
+    /**
+     * When Peter approved this milestone's design (Approve designs on the tile).
+     * Staff only. Clients never receive it. Absent until he approves.
+     */
+    designApprovedAt: v.optional(v.number()),
+    designApproverContactId: v.optional(v.id('contacts')),
     /** Clients do not see a milestone until this is true. Inserts stay false. */
     publishToWarehaus: v.boolean(),
     /**

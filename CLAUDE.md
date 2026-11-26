@@ -11,7 +11,7 @@
 Approved by Peter in Grok Bot (Portal room), 2026-11-17, 11:46 AM ET. Canonical writeup: `AGENTS.md`. Cursor rule: `.cursor/rules/milestone-build-protocol.mdc`.
 
 - Every change belongs to a Portal milestone or a task inside one. The PR names that task.
-- Design tasks come first, in Dark and Light at 1440 and 390. Peter approves design in Grok Bot or the Portal before build.
+- Design tasks come first, in Dark and Light at 1440 and 390. Peter approves design in Grok Bot or the Portal before build. In the Portal that is the Approve designs button in the tile's Status box; it records the approval and tells the runner build can go ahead.
 - Post dev updates on the milestone (next action and the PR link).
 - A milestone has one Status (Idea, Planning, Awaiting Go, Building, Ready to Ship, Shipped, Parked). Staff can set Shipped when every task that is not Parked is Done. The play button never moves to Shipped. Approval is the separate review result.
 - Product Design Lead checks the build against Figma from screenshots, then Peter previews.
@@ -30,6 +30,7 @@ Figma file for every Portal design: [Warehaus Studio](https://www.figma.com/desi
 - One page per Portal tab: Portal - Dashboard (`689:31056`), Portal - Projects (`689:31057`), Portal - Resources (`689:31058`), Portal - Activity (`689:31059`), Portal - Account (`689:31060`).
 - Core / Components, the component library: Portal - Component Library (`151:5387`).
 - Iterate on existing frames only. No new page, no new file, no parallel copy of a screen, and do not publish the library.
+- Figma protocol: `docs/design/figma-protocol.md` (ADR-0006). Atoms, Molecules, Organisms in the library. Components carry the states as variants; one canonical screen per view, built from instances. Hand-build 1440 Dark and 390 Dark only; Light frames are instances on the Light mode. Options go in the page's Exploration section; old frames go to Archive.
 
 ## Code graph (graphify)
 

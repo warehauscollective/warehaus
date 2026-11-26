@@ -226,7 +226,15 @@ describe('portal MCP tools', () => {
       const empty = planToolCall(name, { taskId: 'task-1', stage: 'Building', expectedLastEditedTime: '', idempotencyKey: `${name}-empty` });
       assert.equal(empty.ok, true, name);
       const tool = portalTools.find((item) => item.name === name);
-      assert.match(tool?.description ?? '', /Leave it out when get_task shows lastEditedTime null/, name);
+      assert.match(tool?.description ?? '', /Leave it out when get_task shows portalOwned true or lastEditedTime null/, name);
+      assert.match(tool?.description ?? '', /any expectedLastEditedTime sent for it is ignored/, name);
+      const dummy = planToolCall(name, {
+        taskId: 'task-1',
+        stage: 'Building',
+        expectedLastEditedTime: '2026-11-25T23:00:00.000Z',
+        idempotencyKey: `${name}-dummy`,
+      });
+      assert.equal(dummy.ok, true, name);
     }
   });
 
