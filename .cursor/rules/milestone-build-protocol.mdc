@@ -8,7 +8,7 @@ alwaysApply: true
 Approved by Peter in Grok Bot (Portal room), 2026-11-17, 11:46 AM ET. Full writeup: `AGENTS.md`. Heading font stays Eurostile (`CLAUDE.md`).
 
 - Every change belongs to a Portal milestone or a task inside one. The PR names that task.
-- Design tasks come first, in Dark and Light at 1440 and 390. Peter approves design in Grok Bot or the Portal before any build.
+- Design tasks come first, in Dark and Light at 1440 and 390. Peter approves design in Grok Bot or the Portal before any build. In the Portal that is the Approve designs button in the tile's Status box.
 - Post dev updates on the milestone (next action and the PR link).
 - Product Design Lead checks the build against Figma from screenshots, then Peter previews.
 - Two previews. Peter always approves from the local one: a build on his Mac against shared dev Convex `graceful-mastiff-960`. The Vercel branch preview is for staff only and is never the link in his approval request. Never production `unique-turtle-383`, for either.

@@ -12,7 +12,7 @@ Every plan or feature follows this. Cursor agents, Claude agents, and Grok bots 
 
 - Every change belongs to a Portal milestone, or a task inside one. Nothing is coded without that link.
 - The pull request names that task.
-- Design tasks come first, in Dark and Light at 1440 and 390. The Figma screens and the spec are tasks before any build task. Peter approves the plan and the design in Grok Bot or the Portal before build starts.
+- Design tasks come first, in Dark and Light at 1440 and 390. The Figma screens and the spec are tasks before any build task. Peter approves the plan and the design in Grok Bot or the Portal before build starts. In the Portal, Peter presses Approve designs in the milestone tile's Status box (Idea to Building only). It saves who and when on the milestone, adds a staff Activity row, and puts a "Design: approved" line in the runner's task prompt. It does not change Status, merge or deploy.
 - Post dev updates on the milestone: the next action and the pull request link.
 - Product Design Lead checks the build against Figma from screenshots (Dark and Light, desktop and phone) and posts pass or fixes on the milestone. Then Peter opens the build.
 - Peter's feedback becomes iteration tasks in the same milestone ("Iteration N: …"). If the design changes, Product Design Lead updates Figma first so Figma and the build match. Rebuild and preview again on his Mac.
