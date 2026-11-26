@@ -88,11 +88,11 @@ Example: the milestone page used to have about 112 screens, one per state × Dar
 
 - A component with more than one look is a component set.
 - Properties, in this order: `Variant`, `Size`, `State`, then booleans and instance-swap properties for slots.
-- Property names and values are Title Case: `State=Loading`, not `state=loading`.
-- `State` covers Default, Hover, Focus and Disabled, plus Loading, Empty and Error where they apply.
+- Property names are Title Case: `State`, `Sheet`, `Is Peter`. Values keep the code's literal values, so they match the React props: `State=waiting-for-build`, `Sheet=center`. Decided by Peter on 2026-11-25.
+- `State` covers default, hover, focus and disabled, plus loading, empty and error where they apply, using the values the code uses.
 - Lay the set out as a grid with a label row and column, so every combination is visible at a glance.
 - No Theme or Mode property. Dark and Light come from variable modes.
-- Names and property names match the React component and its props or `cva` variants in `apps/portal`. Code Connect mapping is a later milestone.
+- Component names match the React component, and property values match its props or `cva` variants in `apps/portal`. Code Connect mapping is a later milestone.
 - A set is never a whole screen. A screen-sized overlay belongs in the page's OVERLAYS row, built from organisms.
 - Every component has a short description: when to use it, and the code component it maps to.
 - One Icon set for the whole file. No domain icon families (such as `Links/Icon` or `Invites/Icon`).
