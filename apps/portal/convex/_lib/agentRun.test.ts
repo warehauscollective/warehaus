@@ -752,6 +752,90 @@ describe('Asks', () => {
     assert.equal(everyone.body.items[2]?.waitingOn?.name, 'Omar Reyes');
   });
 
+  it('lists the Asks for a person named by email, contact id or "peter"', async () => {
+    const t = memoryCtx();
+    const { orgId, milestoneId } = building(t, []);
+    const contact = (name: string, email: string, role: 'Warehaus Staff' | 'Client Admin' = 'Warehaus Staff') =>
+      t.seed('contacts', {
+        orgId,
+        notionPageId: `seed-contact-${name}`,
+        lastSyncedAt: 0,
+        name,
+        email,
+        role,
+        portalAccess: 'Enabled',
+      });
+    const maya = contact('Maya Chen', 'maya@warehaus.test');
+    const peter = contact('Peter', 'peter@warehaus.co');
+    const client = contact('Cleo Client', 'cleo@client.test', 'Client Admin');
+    const ask = (body: string, createdAt: number, waitingOn: string) =>
+      t.seed('milestoneNotes', {
+        orgId,
+        milestoneId,
+        body,
+        addedBy: 'runner:peter-mbp',
+        createdAt,
+        reason: 'blocked',
+        waitingOn,
+        open: true,
+      });
+    ask('for maya', 1, maya);
+    ask('for peter', 2, peter);
+    type Listed = { status: number; body: { items?: Array<{ body: string }>; error?: string } };
+    const bodies = (listed: Listed) => listed.body.items?.map((item) => item.body);
+    t.reads.reset();
+    assert.deepEqual(bodies(await t.call<Listed>(listOpenAsks, { person: ' Maya@Warehaus.test ' })), ['for maya']);
+    assert.deepEqual(bodies(await t.call<Listed>(listOpenAsks, { person: maya })), ['for maya']);
+    assert.deepEqual(bodies(await t.call<Listed>(listOpenAsks, { person: 'peter' })), ['for peter']);
+    assert.deepEqual(t.reads.unbounded(), []);
+    assert.deepEqual(t.reads.unindexed(), []);
+    // A typo, a client and another table's id are a 404, not an empty list.
+    for (const person of ['nobody@warehaus.test', 'cleo@client.test', client, milestoneId, 'not an id']) {
+      const missing = await t.call<Listed>(listOpenAsks, { person });
+      assert.equal(missing.status, 404, person);
+      assert.equal(missing.body.error, 'No staff member matches that person');
+    }
+  });
+
+  it('the old needs-peter read lists Peter\'s Asks, and every open Ask where Peter has no contact', async () => {
+    const t = memoryCtx();
+    const { orgId, milestoneId } = building(t, []);
+    const ask = (body: string, createdAt: number, waitingOn?: string) =>
+      t.seed('milestoneNotes', {
+        orgId,
+        milestoneId,
+        body,
+        addedBy: 'runner:peter-mbp',
+        createdAt,
+        reason: 'blocked',
+        open: true,
+        ...(waitingOn ? { waitingOn } : {}),
+      });
+    type Listed = { status: number; body: { items?: Array<{ body: string }> } };
+    const old = { person: 'peter', personOptional: true };
+    ask('waits on no one', 1);
+    const noPeter = await t.call<Listed>(listOpenAsks, old);
+    assert.deepEqual(noPeter.body.items?.map((item) => item.body), ['waits on no one']);
+    assert.equal((await t.call<Listed>(listOpenAsks, { person: 'peter' })).status, 404);
+
+    const staff = (name: string, email: string) =>
+      t.seed('contacts', {
+        orgId,
+        notionPageId: `seed-contact-${name}`,
+        lastSyncedAt: 0,
+        name,
+        email,
+        role: 'Warehaus Staff',
+        portalAccess: 'Enabled',
+      });
+    const peter = staff('Peter', 'peter@warehaus.co');
+    const maya = staff('Maya Chen', 'maya@warehaus.test');
+    ask('for peter', 2, peter);
+    ask('for maya', 3, maya);
+    const withPeter = await t.call<Listed>(listOpenAsks, old);
+    assert.deepEqual(withPeter.body.items?.map((item) => item.body), ['for peter']);
+  });
+
   it('writes a blocked Ask waiting on Peter, and keeps who it waited on once answered', async () => {
     const t = memoryCtx();
     const { orgId, milestoneId, taskIds } = building(t, ['Needs a frame', 'Has an Ask']);

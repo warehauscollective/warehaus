@@ -65,7 +65,7 @@ import { currentIteration, NEW_ITERATION_TASK_DONE } from './_lib/milestoneRevie
 import { reviewPreviews } from './_lib/previewLink';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
 import { planningForNewMilestone } from './_lib/agentRun';
-import { openAsks } from './_lib/askStore';
+import { ASK_PERSON_MAX, ASK_PERSON_PETER, openAsks, staffContactForPerson } from './_lib/askStore';
 import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
 import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
 import { apiStatusFields, apiStatusInput } from './_lib/milestoneStatus';
@@ -763,13 +763,31 @@ export const getMilestoneStatus = internalQuery({
 
 /**
  * Open Asks: approval requests and blocked tasks, newest first. With
- * `waitingOn`, only the Asks waiting on that staff contact. One indexed read,
- * at most 20. Grok Bot reads this to know what to raise, and with whom.
+ * `waitingOn` or `person`, only the Asks waiting on that staff member. One
+ * indexed read, at most 20. Grok Bot reads this to know what to raise, and
+ * with whom.
+ *
+ * `person` is `peter`, a staff email or a staff contact id. A person who is
+ * not staff is a 404, so a typo is not read as "nothing is waiting".
+ * `personOptional` is for the old needs-peter route only: where Peter has no
+ * contact, Asks wait on no one, and that route still lists them.
  */
 export const listOpenAsks = internalQuery({
-  args: { waitingOn: v.optional(v.id('contacts')) },
+  args: {
+    waitingOn: v.optional(v.id('contacts')),
+    person: v.optional(v.string()),
+    personOptional: v.optional(v.boolean()),
+  },
   handler: async (ctx, args): Promise<ApiResult> => {
-    const open = await openAsks(ctx, { waitingOn: args.waitingOn });
+    let waitingOn = args.waitingOn;
+    if (!waitingOn && args.person != null) {
+      const contactId = await staffContactForPerson(ctx, args.person);
+      if (!contactId && args.personOptional !== true) {
+        return { status: 404, body: { error: 'No staff member matches that person' } };
+      }
+      waitingOn = contactId ?? undefined;
+    }
+    const open = await openAsks(ctx, { waitingOn });
     const people = new Map<string, { id: Id<'contacts'>; name: string } | null>();
     const items = [];
     for (const note of open) {
@@ -1188,8 +1206,18 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
         });
         return json(result.body, result.status);
       }
+      if (url.pathname === '/api/v1/milestones/asks') {
+        const person = url.searchParams.get('person')?.trim();
+        if (person && person.length > ASK_PERSON_MAX) return json({ error: 'Person is too long' }, 400);
+        const result = await ctx.runQuery(internal.portalApi.listOpenAsks, person ? { person } : {});
+        return json(result.body, result.status);
+      }
+      // Old name for /api/v1/milestones/asks?person=peter. Kept for one release.
       if (url.pathname === '/api/v1/milestones/needs-peter') {
-        const result = await ctx.runQuery(internal.portalApi.listOpenAsks, {});
+        const result = await ctx.runQuery(internal.portalApi.listOpenAsks, {
+          person: ASK_PERSON_PETER,
+          personOptional: true,
+        });
         return json(result.body, result.status);
       }
       if (url.pathname === '/api/v1/milestones/item') {

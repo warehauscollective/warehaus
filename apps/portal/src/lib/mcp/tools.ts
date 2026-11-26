@@ -10,6 +10,7 @@ import {
   TASK_STAGES,
   taskListPlan,
 } from '@warehaus/portal-sync';
+import { ASK_PERSON_MAX } from '@convex/_lib/askStore';
 import { MILESTONE_STATUSES } from '@convex/_lib/milestoneStatus';
 import { MILESTONE_OBJECTIVE_LIMIT, attachFailureCode, attachFailureStatus } from '@convex/_lib/milestones';
 import { PROPOSED_TASKS_MAX, PROPOSED_TASKS_MIN } from '@convex/_lib/milestoneBot';
@@ -437,9 +438,21 @@ export const portalTools: PortalTool[] = [
     }),
   },
   {
+    name: 'list_asks',
+    description:
+      'List open Asks, newest first. An Ask is a milestone note that waits on one named staff member: a milestone that reached Ready to Ship and needs review (approval), or a task a runner is blocked on (blocked). Each item has the milestone, the reason, who it is waiting on (waitingOn, with id and name, or null) and a note with the pull request, the local preview command and link, and the approval line or the blocked reason. Pass person to list only the Asks waiting on one staff member: "peter", a staff email, or a staff contact id. Leave it out to list every open Ask. Raise each one with the person it waits on. An approval Ask leaves the list when Peter approves or requests changes; a blocked Ask leaves when that task is done. At most 20.',
+    write: false,
+    schema: { person: z.string().trim().min(1).max(ASK_PERSON_MAX).optional() },
+    call: (args) => ({
+      method: 'GET',
+      path: '/api/v1/milestones/asks',
+      search: search({ person: args.person as string | undefined }),
+    }),
+  },
+  {
     name: 'list_needs_peter',
     description:
-      'List what is waiting on Peter, newest first: milestones that reached Ready to Ship and need his review, and tasks a runner is blocked on. Each item has the milestone, the reason (approval or blocked) and a note with the pull request, the local preview command and link, and the approval line or the blocked reason. Raise each one with Peter. An item leaves the list when he approves or requests changes, or when the blocked task is done. At most 20.',
+      'Old name, kept for one release. Use list_asks with person "peter" instead. Lists the open Asks waiting on Peter, newest first, in the same shape as list_asks. At most 20.',
     write: false,
     schema: {},
     call: () => ({ method: 'GET', path: '/api/v1/milestones/needs-peter' }),

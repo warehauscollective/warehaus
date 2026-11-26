@@ -117,3 +117,30 @@ export async function openAsks(
     .order('desc')
     .take(limit);
 }
+
+/** What `person` names in a list of Asks: `peter`, a staff email, or a staff contact id. */
+export const ASK_PERSON_PETER = 'peter';
+
+/** Longest `person` value the staff API reads. An email is at most 320. */
+export const ASK_PERSON_MAX = 320;
+
+/**
+ * The staff contact a `person` value names, or null when it names no staff
+ * member. `peter` is Peter, a value with an `@` is an email, anything else is
+ * a contact id. Two indexed reads at most.
+ */
+export async function staffContactForPerson(ctx: QueryCtx, person: string): Promise<Id<'contacts'> | null> {
+  const value = person.trim();
+  if (!value) return null;
+  if (value.toLowerCase() === ASK_PERSON_PETER) return peterContactId(ctx);
+  if (value.includes('@')) {
+    const contact = await ctx.db
+      .query('contacts')
+      .withIndex('by_email', (q) => q.eq('email', value.toLowerCase()))
+      .first();
+    return contact && contact.role === 'Warehaus Staff' ? contact._id : null;
+  }
+  const id = ctx.db.normalizeId('contacts', value);
+  const contact = id ? await ctx.db.get(id) : null;
+  return contact && contact.role === 'Warehaus Staff' ? contact._id : null;
+}
