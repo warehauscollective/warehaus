@@ -5,7 +5,8 @@
 // It never reads or forwards a Claude credential and never calls a model API.
 // The only program it starts for model work is the `claude` binary.
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -13,9 +14,18 @@ import { fileURLToPath } from 'node:url';
 import { cursorBuild } from './drivers/cursorBuild.mjs';
 import { runInstall, runUninstall } from './install.mjs';
 import { repoTools } from './repo.mjs';
-import { deploymentFor, readKeychainSecret, readSavedConfig, runSetup } from './setup.mjs';
+import {
+  deleteKeychainSecret,
+  deploymentFor,
+  readKeychainSecret,
+  readSavedConfig,
+  removeSavedConfig,
+  runSetup,
+} from './setup.mjs';
 import { runnerClient } from '../../../packages/runner-protocol/index.mjs';
 import {
+  attentionForStatus,
+  HEARTBEAT_MS,
   heartbeatSlices,
   idleDelayMs,
   parseArgs,
@@ -25,6 +35,8 @@ import {
   readEnv,
   RUNNER_HOME_DIR,
   selectDriver,
+  supervisorCommand,
+  supervisorLine,
   taskOutcome,
   taskPrompt,
 } from './lib.mjs';
@@ -34,6 +46,34 @@ const prompts = join(here, '..', 'prompts');
 
 function say(message) {
   process.stdout.write(`[runner] ${message}\n`);
+}
+
+/**
+ * State lines for the runner Mac app (apps/mac), which starts the runner with
+ * --supervised. Without it this does nothing and the log reads as before.
+ */
+let supervised = false;
+function report(type, fields = {}) {
+  if (supervised) process.stdout.write(supervisorLine(type, fields));
+}
+
+/**
+ * Pause from the app. A paused runner claims nothing and tells the Portal on
+ * every heartbeat; a run in progress finishes first ("Pause after this run").
+ * `wake` cuts a wait short so Pause and Resume take effect at once.
+ */
+const control = { paused: false, wake: null };
+
+function listenForCommands() {
+  const lines = createInterface({ input: process.stdin });
+  lines.on('line', (line) => {
+    const command = supervisorCommand(line);
+    if (!command) return;
+    control.paused = command === 'pause';
+    control.wake?.();
+  });
+  // The app went away: stop with it rather than run unsupervised.
+  lines.on('close', () => process.exit(0));
 }
 
 /** One protocol client per runner config. */
@@ -129,6 +169,7 @@ async function doTask(config, work) {
   const result = await client(config).completeTask({ runId: work.runId, ...outcome, ...(prUrl ? { prUrl } : {}) });
   if (result.milestoneStatus === 'Ready to Ship') markReadyForReview(dir, work.milestone.branch);
   say(`Reported ${outcome.status}${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
+  return outcome.status;
 }
 
 async function doPlanning(config, work) {
@@ -144,10 +185,11 @@ async function doPlanning(config, work) {
   if (!plan.ok) {
     say(`No usable plan: ${plan.error}`);
     await client(config).failPlanning({ runId: work.runId, reason: plan.error });
-    return;
+    return 'failed';
   }
   const result = await client(config).writeTasks({ runId: work.runId, tasks: plan.tasks });
   say(`Wrote ${plan.tasks.length} tasks${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
+  return 'done';
 }
 
 /** One step of a Cursor build. The key stays in this process: see drivers/cursorBuild.mjs. */
@@ -181,16 +223,84 @@ function sleep(ms) {
   return new Promise((done) => setTimeout(done, ms));
 }
 
+/** A sleep that Pause or Resume from the app cuts short. */
+function wakeableSleep(ms) {
+  return new Promise((done) => {
+    const timer = setTimeout(finish, ms);
+    function finish() {
+      clearTimeout(timer);
+      if (control.wake === finish) control.wake = null;
+      done();
+    }
+    control.wake = finish;
+  });
+}
+
 /**
  * Waits between empty polls, pinging the Portal every heartbeat so the runner
  * health chip keeps reading Ready. A ping claims nothing. A failed one is skipped.
+ * Pause or Resume ends the wait early.
  */
 async function idleWait(config, ms) {
   const slices = heartbeatSlices(ms);
+  const pausedAtStart = control.paused;
   for (let index = 0; index < slices.length; index += 1) {
-    await sleep(slices[index]);
-    if (index < slices.length - 1) await call(config, '/agent/ping', {}).catch(() => {});
+    await wakeableSleep(slices[index]);
+    if (control.paused !== pausedAtStart) return;
+    if (index < slices.length - 1) await client(config).ping({ paused: control.paused }).catch(() => {});
   }
+}
+
+/** How long a GitHub sign-in check is trusted before `gh auth status` runs again. */
+const GITHUB_CHECK_MS = 10 * 60_000;
+let githubCheckedAt = 0;
+let githubSignedIn = true;
+
+/** Supervised only: builds push with gh, so a signed-out gh means builds wait. */
+function githubReady() {
+  if (!supervised) return true;
+  const now = Date.now();
+  if (now - githubCheckedAt < GITHUB_CHECK_MS) return githubSignedIn;
+  githubCheckedAt = now;
+  const checked = spawnSync('gh', ['auth', 'status'], { stdio: 'ignore', timeout: 15_000 });
+  githubSignedIn = checked.status === 0;
+  return githubSignedIn;
+}
+
+/**
+ * `npm run runner -- remove`: Remove this runner in the app. Revokes the
+ * registration in the Portal with the runner's own secret, removes the launchd
+ * agent, then deletes the Keychain entry and the saved file. The local steps
+ * run even when the Portal cannot be reached; exit code 3 says the revoke did
+ * not happen, so the app can tell the person to revoke it in the Portal.
+ */
+async function runRemove({ production }) {
+  const deployment = deploymentFor(production);
+  const saved = readSavedConfig(production);
+  const id = saved.RUNNER_ID || '';
+  let revoked = !id;
+  if (id) {
+    const token = readKeychainSecret(deployment.name, id);
+    const env = readEnv({ PORTAL_AGENT_URL: saved.PORTAL_AGENT_URL, RUNNER_PRODUCTION: saved.RUNNER_PRODUCTION }, { production, token });
+    if (env.ok) {
+      try {
+        await runnerClient({ url: env.url, token: env.token, runnerId: id, timeoutMs: 15_000 }).unpair();
+        revoked = true;
+      } catch (error) {
+        // 401: the Portal no longer knows this secret, so it is already revoked.
+        if (error.status === 401) revoked = true;
+        else say(`Could not revoke ${id} in the Portal: ${error.message}`);
+      }
+    } else {
+      say(`Could not revoke ${id} in the Portal: ${env.error}`);
+    }
+  }
+  runUninstall({ production, say });
+  const keychainGone = deleteKeychainSecret(deployment.name, id);
+  removeSavedConfig(production);
+  say(`${id || 'This runner'}: ${revoked ? 'revoked in the Portal' : 'NOT revoked in the Portal'}, launchd agent removed, ${keychainGone ? 'Keychain secret deleted' : 'Keychain secret could not be deleted'}.`);
+  if (!keychainGone) process.exit(4);
+  if (!revoked) process.exit(3);
 }
 
 async function main() {
@@ -206,6 +316,10 @@ async function main() {
   }
   if (parsed.options.command === 'install') return runInstall({ production, say });
   if (parsed.options.command === 'uninstall') return runUninstall({ production, say });
+  if (parsed.options.command === 'remove') return runRemove({ production });
+  supervised = parsed.options.supervised === true;
+  control.paused = parsed.options.paused === true;
+  if (supervised) listenForCommands();
   // The environment wins; otherwise the file and Keychain entry setup wrote.
   const saved = readSavedConfig(production);
   const id = parsed.options.id || saved.RUNNER_ID || '';
@@ -214,6 +328,7 @@ async function main() {
     process.exit(2);
   }
   if (!id) {
+    report('attention', { reason: 'not_paired' });
     process.stderr.write('No runner id. Run npm run runner -- setup, or pass --id.\n');
     process.exit(2);
   }
@@ -221,6 +336,7 @@ async function main() {
   const token = process.env.RUNNER_TOKEN || readKeychainSecret(deploymentFor(production).name, id);
   const env = readEnv({ PORTAL_AGENT_URL: url, RUNNER_PRODUCTION: saved.RUNNER_PRODUCTION }, { production, token });
   if (!env.ok) {
+    if (!token) report('attention', { reason: 'not_paired' });
     process.stderr.write(`${env.error}\n`);
     process.exit(2);
   }
@@ -229,15 +345,32 @@ async function main() {
   const config = { ...env, id, mode: parsed.options.mode, repos: parsed.options.repos };
   const serves = config.repos.length ? config.repos.join(', ') : 'every project with a repository';
   say(`Runner ${config.id} · ${config.mode} · ${serves} · ${new URL(config.url).hostname}`);
+  report('started', { runnerId: config.id, production: config.production, paused: control.paused });
   let empty = 0;
+  let failures = 0;
   for (;;) {
+    if (control.paused) {
+      report('paused');
+      await client(config).ping({ paused: true }).catch((error) => say(error.message));
+      await wakeableSleep(HEARTBEAT_MS);
+      continue;
+    }
+    if (!githubReady()) {
+      report('attention', { reason: 'github' });
+      await wakeableSleep(idleDelayMs(1));
+      continue;
+    }
     let work;
     try {
-      work = await client(config).claim({ mode: config.mode, repos: config.repos });
+      work = await client(config).claim({ mode: config.mode, repos: config.repos, ...(supervised ? { paused: false } : {}) });
+      failures = 0;
     } catch (error) {
       say(error.message);
+      failures += 1;
+      const reason = attentionForStatus(error.status) ?? (failures >= 3 ? 'unreachable' : null);
+      if (reason) report('attention', { reason });
       if (parsed.options.once) process.exit(1);
-      await sleep(idleDelayMs(4));
+      await wakeableSleep(idleDelayMs(4));
       continue;
     }
     const driver = selectDriver(work);
@@ -245,28 +378,41 @@ async function main() {
     if (work.kind === 'task' || work.kind === 'planning' || work.kind === 'build') {
       empty = 0;
       const release = holdAwake();
+      const about = {
+        kind: work.kind,
+        milestoneId: work.milestone?.id ?? null,
+        milestone: work.milestone?.name ?? '',
+        ...(work.kind === 'task' ? { taskOrder: work.task?.order ?? null, task: work.task?.title ?? '' } : {}),
+      };
+      report('working', about);
+      let status = 'done';
       try {
-        if (driver === 'cursor') buildStillRunning = (await doBuild(config, work)) === 'running';
-        else if (work.kind === 'task') await doTask(config, work);
-        else await doPlanning(config, work);
+        if (driver === 'cursor') {
+          buildStillRunning = (await doBuild(config, work)) === 'running';
+          status = buildStillRunning ? 'running' : 'done';
+        } else if (work.kind === 'task') status = (await doTask(config, work)) ?? 'failed';
+        else status = await doPlanning(config, work);
       } catch (error) {
         say(error.message);
         // A clone that failed blocks the run with its own reason, which lands in a needs Peter note.
         const blocked = typeof error.reason === 'string' && error.reason ? error.reason : null;
         const reason = blocked ?? 'The runner hit an error';
         const api = client(config);
-        const report =
+        const failure =
           work.kind === 'build'
             ? api.reportBuild({ runId: work.runId, status: 'failed', reason })
             : work.kind === 'task'
               ? api.completeTask({ runId: work.runId, status: blocked ? 'blocked' : 'failed', reason })
               : api.failPlanning({ runId: work.runId, reason });
-        await report.catch((failed) => say(failed.message));
+        await failure.catch((failed) => say(failed.message));
+        status = blocked ? 'blocked' : 'failed';
       } finally {
         release();
       }
+      if (!buildStillRunning) report('finished', { ...about, status });
     } else {
       empty += 1;
+      report('idle');
       if (!parsed.options.once) say('Nothing to do. Waiting.');
     }
     if (parsed.options.once) break;
