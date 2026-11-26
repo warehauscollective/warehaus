@@ -1,4 +1,5 @@
 import { SHELL_HANDLER_NAME, decodeShellMessage } from '@warehaus/native-bridge';
+import { portalLinkHref } from '../nav/portalLink';
 
 /**
  * Which shell the Portal runs in, and what that shell can do (ADR-0006).
@@ -55,4 +56,16 @@ export function shellAfterMessage(current: ShellState, value: unknown): ShellSta
       openExternal: capabilities.includes('openExternal'),
     },
   };
+}
+
+/**
+ * Where a `navigate` from the shell sends the page, or null. Only the Mac
+ * shell navigates; the link is resolved by `portalLinkHref`, so a link the
+ * Portal does not know leaves the page where it is.
+ */
+export function shellNavigateHref(current: ShellState, value: unknown): string | null {
+  if (current.kind !== 'mac') return null;
+  const decoded = decodeShellMessage(value);
+  if (!decoded.ok || decoded.message.type !== 'navigate') return null;
+  return portalLinkHref(decoded.message.url);
 }

@@ -1,9 +1,9 @@
 # Mac app
 
-The Warehaus app on a staff Mac (see "Mac app" in `GLOSSARY.md`). Today it is
+The Warehaus app on a staff Mac (see "Mac app" in `GLOSSARY.md`). It is
 **Warehaus Runner**: a menu bar app that keeps the production runner going
-headless. The Portal window ("Mac app: Portal window") is added later as its
-own module. Full record: `docs/adr/0006-multi-platform-portal.md`.
+headless, and shows the Portal in its own window. Full record:
+`docs/adr/0006-multi-platform-portal.md`.
 
 Nothing here is a Node workspace.
 
@@ -18,9 +18,11 @@ apps/mac/
   Package.swift                 Swift package: the modules and their tests
   runtime.lock                  the Node and gh versions bundled in the app
   Sources/RunnerSupervisor/     the runner supervisor, checklist and update rules (Foundation only)
+  Sources/PortalWindow/         the Portal window and the Mac adapter of the native bridge
   Sources/RunnerMenu/           menu bar dropdown, checklist and pairing windows, Remove dialog,
                                 login item, notifications, self-update
   Tests/RunnerSupervisorTests/  state mapping, checklist, update rules, against a fake runner
+  Tests/PortalWindowTests/      origin policy, link routing and the bridge scripts
   Tests/RunnerMenuTests/        the self-update coordinator, against fake files and swaps
   App/WarehausRunner.xcodeproj  the app target: a thin @main that links RunnerMenu
   scripts/build-release.sh      signed, notarized, stapled release build (a Mac or CI)
@@ -49,8 +51,18 @@ notifications on top of both (ADR-0006, decision 8):
   `1115-38617`): the dropdown, the Remove confirm dialog, Start at login
   (`SMAppService.mainApp`, on from the first launch in release builds) and
   notifications only when a person must act (`AttentionReason.needsPerson`).
-- **Portal window** (later): the web view and the Mac adapter for the native
-  bridge (`packages/native-bridge/swift`). It never imports RunnerSupervisor.
+- **PortalWindow** shows the hosted Portal in one WKWebView under a
+  transparent 40px title bar strip that drags the window (Figma, Projects /
+  Mac app, 1440 and 1024 frames; minimum 1024 x 768). It is the Mac adapter
+  of the native bridge (`packages/native-bridge/swift`): it adds the
+  `warehaus` script message handler, sends `shell.hello` with
+  `openExternal` after every page load, opens `openExternal` links (https
+  only) in the default browser, accepts and ignores `attention`, and logs
+  and drops anything the decoder refuses. A `warehaus://` link opened
+  anywhere on the Mac (Info.plist `CFBundleURLTypes`) opens the window and
+  goes to the page raw with `navigate`. Portal-origin navigations stay in the
+  window; every other link goes to the default browser (`LinkRouter`). It
+  never imports RunnerSupervisor. The menu's Open Portal opens this window.
 
 The seams, each a small protocol with a live and a fake side:
 
@@ -96,6 +108,13 @@ and process work in `AppUpdater.swift` (RunnerMenu).
 - Release builds run against production `unique-turtle-383` only and read
   `~/.config/warehaus/runner.prod.env`. A pairing to any other deployment is
   Needs attention, never used.
+- The release window loads only the production Portal,
+  `https://warehaus-portal.vercel.app` (the Vercel project's only production
+  domain). Debug windows load only `http://localhost:<port>` (default 3100,
+  or `-PortalURL http://localhost:3190/projects`), and block production
+  Convex: a WebKit content rule blocks every request naming
+  `unique-turtle-383`, and a script replaces the page with a refusal if it
+  tries (`ConvexGuard`).
 - Debug builds run against shared dev and read `runner.env`. They refuse
   production. **A plain debug run starts a real dev runner if this Mac is
   paired to dev**, and it runs Claude headless. Use a fixture to look at the
@@ -124,6 +143,19 @@ launchd agent:
 - `-UpdateRelease <release.json>`: reads the release from a file instead of
   the Portal (a `file://` zip is fine), to try self-update end to end. Debug
   builds only, and never against production.
+
+To check the Portal window against a local fixtures preview (no Convex):
+
+```bash
+PORTAL_PORT=3190 NEXT_PUBLIC_SITE_URL=http://localhost:3190 NEXT_PUBLIC_PORTAL_FIXTURES=1 npm run dev -w @warehaus/portal
+```
+
+Then run the debug app with `-RunnerFixture ready -OpenPortalWindow YES
+-PortalURL http://localhost:3190/projects`. Debug-only arguments
+`-PortalWindowSize 1024x768`, `-PortalAppearance dark|light` and
+`-PortalWindowSnapshot <folder>` size the window, force the appearance and
+write a PNG plus what the page made of the shell (`data-shell`, the hello,
+the inset) without screen recording permission.
 
 A signed and notarized build:
 

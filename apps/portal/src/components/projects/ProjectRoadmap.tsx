@@ -4,6 +4,8 @@ import { groupMilestones } from '@convex/_lib/milestoneTasks';
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
+import { clearSearchParam } from '@/lib/nav/clearSearchParam';
+import { MILESTONE_PARAM, milestoneFromSearch } from '@/lib/nav/portalLink';
 import { DoneGroup } from './DoneGroup';
 import { NeedMilestoneBanner } from './NeedMilestoneBanner';
 import {
@@ -228,6 +230,9 @@ export function ProjectRoadmap({
     const params = new URLSearchParams(searchKey);
     setMilestoneLayout(params.get('layout') === 'board' ? 'board' : 'list');
     setDoneExpanded(params.get('done') === 'open');
+    // `?milestone=<id>` (a warehaus://milestone link from the Mac app) opens that milestone.
+    const linked = milestoneFromSearch(searchKey);
+    if (linked) setOpenMilestoneId(linked);
     if (!fixtures) return;
     setNeedDismissed(params.get('banner') === 'dismissed' || readNeedBannerDismissed(project.id));
     setHideNeedBanner(params.get('banner') === 'hidden');
@@ -467,7 +472,10 @@ export function ProjectRoadmap({
           activityError={activityError}
           onOpenTask={onOpenTask}
           resourceChoices={resourceChoices}
-          onBack={() => setOpenMilestoneId(null)}
+          onBack={() => {
+            setOpenMilestoneId(null);
+            clearSearchParam(MILESTONE_PARAM);
+          }}
           onBackToProjects={page ? onBackToProjects : undefined}
           onFixture={(patch) => patchMilestone(selected.id, patch)}
           closeout={staff ? closeoutControl(selected) : null}

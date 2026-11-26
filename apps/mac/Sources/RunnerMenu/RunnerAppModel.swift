@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import PortalWindow
 import RunnerSupervisor
 
 /// What the menu drives. RunnerSupervisor in the app; a fixture for previews
@@ -22,8 +23,16 @@ extension RunnerSupervisor: RunnerControl {
     }
 }
 
+/// Where Open Portal goes: the app's Portal window. Nil opens the browser.
+@MainActor
+public protocol PortalOpening: AnyObject {
+    func show()
+}
+
+extension PortalWindowController: PortalOpening {}
+
 /// The menu bar app's state and actions. It sits on top of the runner
-/// supervisor; the Portal window will sit beside it, never inside it.
+/// supervisor and the Portal window, which never talk to each other.
 @MainActor
 public final class RunnerAppModel: ObservableObject {
     @Published public private(set) var menu: MenuState
@@ -41,6 +50,7 @@ public final class RunnerAppModel: ObservableObject {
     private var updateTimer: AnyCancellable?
     private let setUp: SetUpFlow
     private let opener: URLOpening
+    private let portal: PortalOpening?
     private let now: () -> Date
 
     private var snapshot = RunnerSnapshot()
@@ -56,6 +66,7 @@ public final class RunnerAppModel: ObservableObject {
         updater: AppUpdater,
         setUp: SetUpFlow,
         opener: URLOpening,
+        portal: PortalOpening? = nil,
         now: @escaping () -> Date = Date.init
     ) {
         self.policy = policy
@@ -65,6 +76,7 @@ public final class RunnerAppModel: ObservableObject {
         self.updater = updater
         self.setUp = setUp
         self.opener = opener
+        self.portal = portal
         self.now = now
         menu = MenuState.from(RunnerSnapshot(), pauseRequested: false, now: now())
         loginItemOn = loginItem.isEnabled
@@ -92,7 +104,8 @@ public final class RunnerAppModel: ObservableObject {
     /// build launched with `-RunnerFixture ready|working|paused|attention`
     /// shows that state from fixture data and starts no runner, and one
     /// launched with `-SetupFixture <name>` shows the checklist from fixture
-    /// data and runs no setup command (FixtureSetupSystem).
+    /// data and runs no setup command (FixtureSetupSystem), and one
+    /// launched with `-OpenPortalWindow YES` opens the Portal window at once.
     public static func live(arguments: UserDefaults = .standard) -> RunnerAppModel {
         let policy = DeploymentPolicy.current
         let opener = WorkspaceOpener()
@@ -113,6 +126,9 @@ public final class RunnerAppModel: ObservableObject {
             control = fixture
         } else {
             control = RunnerSupervisor(policy: policy)
+        }
+        if arguments.bool(forKey: "OpenPortalWindow") {
+            DispatchQueue.main.async { PortalWindowController.shared.show() }
         }
         #else
         control = RunnerSupervisor(policy: policy)
@@ -141,7 +157,8 @@ public final class RunnerAppModel: ObservableObject {
             notifier: SystemNotifier(),
             updater: updater,
             setUp: windows,
-            opener: opener
+            opener: opener,
+            portal: PortalWindowController.shared
         )
         model.setupWindows = windows
         loginItem.enableOnFirstLaunch(policy: policy)
@@ -206,13 +223,18 @@ public final class RunnerAppModel: ObservableObject {
         switch action {
         case .pause, .pauseAfterRun: control.pause()
         case .resume, .cancelPauseAfterRun: control.resume()
-        case .openPortal: opener.open(policy.portalURL)
-        case let .openMilestone(id): opener.open(PortalLinks.milestone(id, policy: policy))
+        case .openPortal: openPortal(policy.portalURL)
+        case let .openMilestone(id): openPortal(PortalLinks.milestone(id, policy: policy))
         case .signInToGitHub: setUp.signInToGitHub()
         case .pairAgain: setUp.pair()
         case .checkForUpdate: checkForUpdate()
         case .restartRunner: control.restart()
         }
+    }
+
+    /// The Portal window when there is one; the browser otherwise.
+    private func openPortal(_ url: URL) {
+        if let portal { portal.show() } else { opener.open(url) }
     }
 
     public func checkForUpdate() {
