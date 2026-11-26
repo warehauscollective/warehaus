@@ -156,7 +156,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'create_task',
     description:
-      'Create one task inside an existing milestone through the staff task path. To start new work, use create_milestone with proposedTasks instead. milestoneId is required: a task only exists inside a milestone on the same project, and a Shipped milestone takes no new tasks. It stays unpublished and is queued on the Notion outbox. Send an idempotency key. Retries with the same key replay the first result.',
+      'Create one task inside an existing milestone through the staff task path. To start new work, use create_milestone with proposedTasks instead. milestoneId is required: a task only exists inside a milestone on the same project, and a Shipped milestone takes no new tasks. It is stored in the Portal only, like a staff add: no Notion page and no outbox row, so it is on the milestone as soon as this returns. The result has its task id. Send an idempotency key. Retries with the same key replay the first result.',
     write: true,
     schema: {
       projectId: z.string().min(1),
