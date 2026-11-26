@@ -114,10 +114,15 @@ public final class RunnerAppModel: ObservableObject {
         var setupSystem: SetupSystem = LiveSetupSystem(policy: policy)
         var setupFixture: FixtureSetupSystem?
         var snapshotting = false
+        var menuSnapshotting = false
         #if DEBUG
         // Snapshots run on fixtures only: no runner and no setup command starts.
         snapshotting = SetupSnapshot.scheduleIfAsked(arguments: arguments)
-        if let name = snapshotting ? "fresh" : arguments.string(forKey: "SetupFixture"), let fixture = FixtureSetupSystem(named: name) {
+        let menuSnapshot = MenuSnapshot.asked(arguments: arguments)
+        menuSnapshotting = menuSnapshot
+        // A menu snapshot runs on fixtures too: the "done" setup fixture means the checklist never opens.
+        if let name = snapshotting ? "fresh" : menuSnapshot ? "done" : arguments.string(forKey: "SetupFixture"),
+           let fixture = FixtureSetupSystem(named: name) {
             setupFixture = fixture
             setupSystem = fixture
         }
@@ -161,6 +166,12 @@ public final class RunnerAppModel: ObservableObject {
             portal: PortalWindowController.shared
         )
         model.setupWindows = windows
+        #if DEBUG
+        MenuSnapshot.scheduleIfAsked(arguments: arguments) { fixture in
+            RunnerAppModel(policy: policy, control: fixture, loginItem: loginItem, notifier: SystemNotifier(),
+                           updater: updater, setUp: windows, opener: opener)
+        }
+        #endif
         loginItem.enableOnFirstLaunch(policy: policy)
         model.loginItemOn = loginItem.isEnabled
 
@@ -177,7 +188,7 @@ public final class RunnerAppModel: ObservableObject {
         } else if arguments.string(forKey: "UpdateRelease") != nil, !policy.production {
             // Debug: try the update end to end on a fixture release.
             model.startUpdateChecks()
-        } else if !snapshotting {
+        } else if !snapshotting && !menuSnapshotting {
             DispatchQueue.main.async { windows.showChecklist() }
         }
         return model

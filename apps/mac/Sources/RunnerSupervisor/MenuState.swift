@@ -24,12 +24,15 @@ public struct MenuItem: Equatable, Sendable {
     }
 }
 
-/// The four states in the approved design (Figma, Mac runner app, node 1115-38617).
+/// The four states in the approved design (Figma, Mac runner app, node 1115-38617),
+/// plus Waiting, approved by Peter in the Claude Code session on 2026-11-26.
 public enum MenuStatus: String, Sendable {
     case ready = "Ready"
     case working = "Working"
     case paused = "Paused"
     case needsAttention = "Needs attention"
+    /// Claude hit its usage limit. Nobody has to act; it ends at the reset.
+    case waiting = "Waiting"
 }
 
 /// The menu bar dropdown for one moment: the status, the header lines under
@@ -65,7 +68,8 @@ public struct MenuState: Equatable, Sendable {
 
     /// Maps the runner's state to the menu. `pauseRequested` is the person's
     /// choice, which the runner applies after any run in progress.
-    public static func from(_ snapshot: RunnerSnapshot, pauseRequested: Bool, now: Date) -> MenuState {
+    public static func from(_ snapshot: RunnerSnapshot, pauseRequested: Bool, now: Date, timeZone: TimeZone = .current) -> MenuState {
+        let wait = snapshot.usageLimitWait(at: now)
         if let reason = snapshot.attention {
             let pause = pauseRequested ? MenuItem("Resume runner", .resume) : MenuItem("Pause runner", .pause)
             var primary: [MenuItem] = []
@@ -87,9 +91,12 @@ public struct MenuState: Equatable, Sendable {
                 let pause = pauseRequested
                     ? MenuItem("Keep working after these runs", .cancelPauseAfterRun)
                     : MenuItem("Pause after these runs", .pauseAfterRun)
+                let after = pauseRequested
+                    ? "Pauses when these runs end"
+                    : wait.map { usageLimitRunsLine($0, now: now, timeZone: timeZone) } ?? "Keeping this Mac awake until the runs end"
                 return MenuState(
                     status: .working,
-                    lines: runLines(runs) + [pauseRequested ? "Pauses when these runs end" : "Keeping this Mac awake until the runs end"],
+                    lines: runLines(runs) + [after],
                     primary: [pause, MenuItem("Open Portal", .openPortal)],
                     updateWaitsForRun: true
                 )
@@ -99,9 +106,12 @@ public struct MenuState: Equatable, Sendable {
             let pause = pauseRequested
                 ? MenuItem("Keep working after this run", .cancelPauseAfterRun)
                 : MenuItem("Pause after this run", .pauseAfterRun)
+            let after = pauseRequested
+                ? "Pauses when this run ends"
+                : wait.map { usageLimitRunsLine($0, now: now, timeZone: timeZone) } ?? "Keeping this Mac awake until the run ends"
             return MenuState(
                 status: .working,
-                lines: [workLine(work), pauseRequested ? "Pauses when this run ends" : "Keeping this Mac awake until the run ends"],
+                lines: [workLine(work), after],
                 primary: [pause, portal],
                 updateWaitsForRun: true
             )
@@ -115,6 +125,13 @@ public struct MenuState: Equatable, Sendable {
             if pauseRequested {
                 return from(RunnerSnapshot(runnerId: snapshot.runnerId, production: snapshot.production, activity: .paused), pauseRequested: true, now: now)
             }
+            if let wait, snapshot.activity == .idle {
+                return MenuState(
+                    status: .waiting,
+                    lines: ["Claude hit its usage limit.", "Takes work again at \(resetTime(wait, now: now, timeZone: timeZone))."],
+                    primary: [MenuItem("Pause runner", .pause), MenuItem("Open Portal", .openPortal)]
+                )
+            }
             var lines = [identityLine(snapshot)]
             if snapshot.activity == .starting { lines.append("Starting…") }
             if let last = snapshot.lastRun { lines.append("Last run: \(last.milestone) · \(ago(last.endedAt, now: now))") }
@@ -124,6 +141,22 @@ public struct MenuState: Equatable, Sendable {
                 primary: [MenuItem("Pause runner", .pause), MenuItem("Open Portal", .openPortal)]
             )
         }
+    }
+
+    /// Under the runs still going: "Usage limit: no new work until 8:31 AM".
+    static func usageLimitRunsLine(_ until: Date, now: Date, timeZone: TimeZone) -> String {
+        "Usage limit: no new work until \(resetTime(until, now: now, timeZone: timeZone))"
+    }
+
+    /// "8:31 AM" today, "Mon 9:01 AM" on a later day, in the Mac's own zone.
+    static func resetTime(_ date: Date, now: Date, timeZone: TimeZone) -> String {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = timeZone
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = timeZone
+        formatter.dateFormat = calendar.isDate(date, inSameDayAs: now) ? "h:mm a" : "EEE h:mm a"
+        return formatter.string(from: date)
     }
 
     /// "peter-mbp-prod · Production".
