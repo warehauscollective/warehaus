@@ -117,6 +117,22 @@ describe('runner health state', () => {
     assert.equal(runnerHealthState(view({ working: LAUNCH }), NOW + 60 * 60_000), 'working');
   });
 
+  it('is Working, not Offline, while the runner is busy on another project', () => {
+    const elsewhere = { runnerId: 'peter-mbp-prod', milestoneName: 'Client onboarding', projectName: 'Ottasee' };
+    assert.equal(runnerHealthState(view({ workingElsewhere: elsewhere }), NOW), 'working-elsewhere');
+    // Quiet for hours, or with a milestone here waiting in Building: still working.
+    assert.equal(runnerHealthState(view({ workingElsewhere: elsewhere, building: LAUNCH }), NOW + 2 * 60 * 60_000), 'working-elsewhere');
+    // A run on this project wins.
+    assert.equal(runnerHealthState(view({ working: LAUNCH, workingElsewhere: elsewhere }), NOW), 'working');
+    // Another runner that is free and online can take this project's work.
+    const runners = [
+      { id: 'peter-mbp-prod', lastSeenAt: NOW - 20_000 },
+      { id: 'studio-mini-prod', lastSeenAt: NOW - 60_000 },
+    ];
+    assert.equal(runnerHealthState(view({ runners, workingElsewhere: elsewhere }), NOW), 'ready');
+    assert.equal(runnerHealthState(view({ runners, workingElsewhere: elsewhere }), NOW + 60 * 60_000), 'working-elsewhere');
+  });
+
   it('warns when the runner is offline and a milestone is Building', () => {
     assert.equal(runnerHealthState(view({ building: LAUNCH }), NOW + 2 * 60 * 60_000), 'offline-building');
     // A Building milestone with a live runner is just Ready.
@@ -156,6 +172,31 @@ describe('runner health copy', () => {
       [working.compactLabel, working.dot, working.warning, working.milestone, working.helper],
       ['Working', 'warning', false, 'Client experience launch', 'The runner is working on this milestone.'],
     );
+
+    const elsewhere = { runnerId: 'peter-mbp-prod', milestoneName: 'Client onboarding', projectName: 'Ottasee' };
+    const busy = runnerHealthCopy(view({ workingElsewhere: elsewhere }), NOW);
+    assert.equal(`${busy.label} · ${busy.meta}`, 'Runner working · on Ottasee');
+    assert.deepEqual(
+      [busy.compactLabel, busy.dot, busy.warning, busy.runner, busy.lastSeen, busy.milestoneLabel, busy.milestone, busy.project, busy.startCommand, busy.helper],
+      [
+        'Working elsewhere',
+        'warning',
+        false,
+        'peter-mbp-prod',
+        '4m ago',
+        'BUILDING',
+        'Client onboarding',
+        'Ottasee',
+        null,
+        "peter-mbp-prod is building Client onboarding on Ottasee. It'll pick this project up when it's done.",
+      ],
+    );
+    const planning = runnerHealthCopy(view({ workingElsewhere: { ...elsewhere, planning: true } }), NOW);
+    assert.deepEqual(
+      [planning.milestoneLabel, planning.helper],
+      ['PLANNING', "peter-mbp-prod is planning Client onboarding on Ottasee. It'll pick this project up when it's done."],
+    );
+    assert.deepEqual([working.milestoneLabel, working.project], ['MILESTONE', null]);
 
     const late = NOW + 2 * 60 * 60_000 - 4 * 60_000;
     const command = 'npm run runner -- start --production --id peter-mbp-prod --repo warehauscollective/warehaus';

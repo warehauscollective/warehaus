@@ -8,6 +8,7 @@ import {
   hookEvent,
   HEARTBEAT_MS,
   heartbeatSlices,
+  keepCheckingIn,
   idleDelayMs,
   isMilestoneBranch,
   parseArgs,
@@ -264,6 +265,30 @@ describe('task outcome', () => {
     const cli = read('./cli.mjs');
     assert.match(cli, /await idleWait\(config, idleDelayMs\(empty\)\)/);
     assert.match(cli, /call\(config, '\/agent\/ping', \{\}\)\.catch\(\(\) => \{\}\)/);
+  });
+});
+
+describe('checking in during a run', () => {
+  it('pings every heartbeat until the run ends, and survives a failed ping', async (t) => {
+    t.mock.timers.enable({ apis: ['setInterval'] });
+    let pings = 0;
+    const stop = keepCheckingIn(() => {
+      pings += 1;
+      if (pings === 2) throw new Error('offline');
+    });
+    t.mock.timers.tick(HEARTBEAT_MS - 1);
+    await Promise.resolve();
+    assert.equal(pings, 0);
+    t.mock.timers.tick(1);
+    await Promise.resolve();
+    assert.equal(pings, 1);
+    t.mock.timers.tick(HEARTBEAT_MS * 2);
+    await Promise.resolve();
+    assert.equal(pings, 3);
+    stop();
+    t.mock.timers.tick(HEARTBEAT_MS * 5);
+    await Promise.resolve();
+    assert.equal(pings, 3);
   });
 });
 

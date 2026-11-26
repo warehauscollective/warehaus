@@ -26,6 +26,7 @@ import {
   runnerOutOfDate,
   runnerProtocolVersion,
 } from './runnerRegistry';
+import { runnerHealthState, type RunnerHealthView } from './runnerHealth';
 import { seedMilestoneWorld } from './seedRows.testkit';
 import { sha256Hex } from './tokenCrypto';
 
@@ -229,6 +230,54 @@ describe('runner health with registrations', () => {
     assert.equal(view.runnerAllowed, true);
     assert.equal(view.registeredCount, 1);
     assert.deepEqual(view.runners.map((runner) => [runner.id, runner.registered]), [['peter-mbp-prod', true]]);
+  });
+});
+
+describe('runner health while the runner is busy on another project', () => {
+  it('names the other project and milestone, and reads Working long after the last call', async () => {
+    const t = memoryCtx();
+    const { code } = (await startOne(t)).body as { code: string };
+    await t.call(confirmPairing, { code, runnerId: 'peter-mbp-prod' }, { as: 'staff' });
+    const busy = seedMilestoneWorld(t, { status: 'Building', branch: 'milestone/launch' }, { agentRepo: REPO });
+    busy.task({ name: 'First', source: 'portal-milestone', milestoneOrder: 0 });
+    const waiting = seedMilestoneWorld(t, { status: 'Building', branch: 'milestone/other' }, { agentRepo: 'someone/else' });
+    await t.call(claimNext, { runnerId: 'peter-mbp-prod', mode: 'headless', repos: [REPO], anyRepo: true });
+
+    const here = await t.call<RunnerHealthView>(runnerHealth, { projectId: busy.projectId }, { as: 'staff' });
+    assert.equal(here.working?.milestoneId, busy.milestoneId);
+    assert.equal(here.workingElsewhere, null);
+
+    const view = await t.call<RunnerHealthView>(runnerHealth, { projectId: waiting.projectId }, { as: 'staff' });
+    assert.equal(view.working, null);
+    assert.deepEqual(view.workingElsewhere, {
+      runnerId: 'peter-mbp-prod',
+      milestoneName: String(t.row(busy.milestoneId)?.name),
+      projectName: String(t.row(busy.projectId)?.name),
+      planning: false,
+    });
+    assert.equal(runnerHealthState(view, Date.now() + 60 * 60_000), 'working-elsewhere');
+    assert.deepEqual(t.reads.unbounded(), []);
+    assert.deepEqual(t.reads.unindexed(), []);
+  });
+
+  it('does not count a Cursor build, which runs in the cloud', async () => {
+    const t = memoryCtx();
+    const { code } = (await startOne(t)).body as { code: string };
+    await t.call(confirmPairing, { code, runnerId: 'peter-mbp-prod' }, { as: 'staff' });
+    const busy = seedMilestoneWorld(t, { status: 'Building', branch: 'milestone/launch' }, { agentRepo: REPO });
+    const waiting = seedMilestoneWorld(t, { status: 'Planning' }, { agentRepo: 'someone/else' });
+    t.seed('agentRuns', {
+      orgId: busy.orgId,
+      milestoneId: busy.milestoneId,
+      kind: 'build',
+      runnerId: 'peter-mbp-prod',
+      tool: 'cursor',
+      mode: 'headless',
+      status: 'running',
+      startedAt: Date.now(),
+    });
+    const view = await t.call<RunnerHealthView>(runnerHealth, { projectId: waiting.projectId }, { as: 'staff' });
+    assert.equal(view.workingElsewhere, null);
   });
 });
 

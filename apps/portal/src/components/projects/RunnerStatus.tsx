@@ -48,7 +48,7 @@ export function runnerHealthFixture(state: RunnerHealthState, now: number): Runn
   const base = { production: true, protocolMin: 2 };
   if (state === 'no-repo') return { ...base, registeredCount: 0, repoSet: false, repo: null, runnerAllowed: false, runners: [], working: null, building: null };
   if (state === 'no-runner') return { ...base, registeredCount: 0, repoSet: true, repo: FIXTURE_REPO, runnerAllowed: false, runners: [], working: null, building: null };
-  const fresh = state === 'ready' || state === 'working';
+  const fresh = state === 'ready' || state === 'working' || state === 'working-elsewhere';
   return {
     ...base,
     registeredCount: 2,
@@ -60,6 +60,8 @@ export function runnerHealthFixture(state: RunnerHealthState, now: number): Runn
       { id: 'studio-mini-prod', lastSeenAt: now - 3 * 24 * 60 * 60_000, registered: true, protocolVersion: 2 },
     ],
     working: state === 'working' ? FIXTURE_MILESTONE : null,
+    workingElsewhere:
+      state === 'working-elsewhere' ? { runnerId: 'peter-mbp-prod', milestoneName: 'Client onboarding', projectName: 'Ottasee' } : null,
     building: state === 'offline-building' ? FIXTURE_MILESTONE : null,
   };
 }
@@ -561,7 +563,8 @@ export function RunnerStatusBody({ copy, onManage }: { copy: RunnerHealthCopy; o
       <div className="flex flex-col" style={{ gap: 12 }}>
         <Field label="RUNNER" value={copy.runner} />
         <Field label="LAST SEEN" value={copy.lastSeen} />
-        <Field label="MILESTONE" value={copy.milestone} />
+        <Field label={copy.milestoneLabel} value={copy.milestone} />
+        {copy.project ? <Field label="PROJECT" value={copy.project} /> : null}
         {copy.startCommand ? <Field label="START COMMAND" value={copy.startCommand} mono /> : null}
       </div>
       <p data-testid="runner-status-helper" style={{ margin: 0, fontSize: 14, lineHeight: 'normal', color: tone ?? 'var(--muted)' }}>

@@ -1437,6 +1437,8 @@ export const runnerHealth = adminQuery({
     }
     if (runners.length === 0) return { ...base, repoSet: true, repo, runnerAllowed: false, runners: [], working: null, building: null };
     let working: RunnerHealthView['working'] = null;
+    // The first run a runner holds on another project. Read only when nothing runs here.
+    let elsewhere: { runnerId: string; milestone: Doc<'milestones'>; planning: boolean } | null = null;
     for (const { id } of runners) {
       if (working) break;
       const runs = await ctx.db
@@ -1445,10 +1447,25 @@ export const runnerHealth = adminQuery({
         .take(HEALTH_RUN_SCAN);
       for (const run of runs) {
         const milestone = await ctx.db.get(run.milestoneId);
-        if (milestone && milestone.projectId === project._id) {
+        if (!milestone) continue;
+        if (milestone.projectId === project._id) {
           working = { milestoneId: milestone._id, milestoneName: milestone.name };
           break;
         }
+        // A Cursor build runs in the cloud: the runner is free to take other work.
+        if (!elsewhere && run.kind !== 'build') elsewhere = { runnerId: id, milestone, planning: run.kind === 'planning' };
+      }
+    }
+    let workingElsewhere: RunnerHealthView['workingElsewhere'] = null;
+    if (!working && elsewhere) {
+      const other = await ctx.db.get(elsewhere.milestone.projectId);
+      if (other) {
+        workingElsewhere = {
+          runnerId: elsewhere.runnerId,
+          milestoneName: elsewhere.milestone.name,
+          projectName: other.name,
+          planning: elsewhere.planning,
+        };
       }
     }
     const milestones = await ctx.db
@@ -1463,6 +1480,7 @@ export const runnerHealth = adminQuery({
       runnerAllowed: true,
       runners,
       working,
+      workingElsewhere,
       building: held ? { milestoneId: held._id, milestoneName: held.name } : null,
     };
   },

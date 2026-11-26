@@ -18,6 +18,7 @@ import { runnerClient } from '../../../packages/runner-protocol/index.mjs';
 import {
   heartbeatSlices,
   idleDelayMs,
+  keepCheckingIn,
   parseArgs,
   parsePlanOutput,
   planPrompt,
@@ -245,6 +246,8 @@ async function main() {
     if (work.kind === 'task' || work.kind === 'planning' || work.kind === 'build') {
       empty = 0;
       const release = holdAwake();
+      // The Portal hears from the runner through a long run, not only between runs.
+      const stopCheckingIn = keepCheckingIn(() => call(config, '/agent/ping', {}));
       try {
         if (driver === 'cursor') buildStillRunning = (await doBuild(config, work)) === 'running';
         else if (work.kind === 'task') await doTask(config, work);
@@ -264,6 +267,7 @@ async function main() {
         await report.catch((failed) => say(failed.message));
       } finally {
         release();
+        stopCheckingIn();
       }
     } else {
       empty += 1;
