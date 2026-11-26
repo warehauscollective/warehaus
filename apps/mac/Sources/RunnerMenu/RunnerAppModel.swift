@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import PortalWindow
 import RunnerSupervisor
 
 /// What the menu drives. RunnerSupervisor in the app; a fixture for previews
@@ -22,8 +23,16 @@ extension RunnerSupervisor: RunnerControl {
     }
 }
 
+/// Where Open Portal goes: the app's Portal window. Nil opens the browser.
+@MainActor
+public protocol PortalOpening: AnyObject {
+    func show()
+}
+
+extension PortalWindowController: PortalOpening {}
+
 /// The menu bar app's state and actions. It sits on top of the runner
-/// supervisor; the Portal window will sit beside it, never inside it.
+/// supervisor and the Portal window, which never talk to each other.
 @MainActor
 public final class RunnerAppModel: ObservableObject {
     @Published public private(set) var menu: MenuState
@@ -40,6 +49,7 @@ public final class RunnerAppModel: ObservableObject {
     private let updates: UpdateChecking
     private let setUp: SetUpFlow
     private let opener: URLOpening
+    private let portal: PortalOpening?
     private let now: () -> Date
 
     private var snapshot = RunnerSnapshot()
@@ -55,6 +65,7 @@ public final class RunnerAppModel: ObservableObject {
         updates: UpdateChecking,
         setUp: SetUpFlow,
         opener: URLOpening,
+        portal: PortalOpening? = nil,
         now: @escaping () -> Date = Date.init
     ) {
         self.policy = policy
@@ -64,6 +75,7 @@ public final class RunnerAppModel: ObservableObject {
         self.updates = updates
         self.setUp = setUp
         self.opener = opener
+        self.portal = portal
         self.now = now
         menu = MenuState.from(RunnerSnapshot(), pauseRequested: false, now: now())
         loginItemOn = loginItem.isEnabled
@@ -83,7 +95,8 @@ public final class RunnerAppModel: ObservableObject {
 
     /// The app as shipped: the real supervisor and system services. A debug
     /// build launched with `-RunnerFixture ready|working|paused|attention`
-    /// shows that state from fixture data and starts no runner.
+    /// shows that state from fixture data and starts no runner, and one
+    /// launched with `-OpenPortalWindow YES` opens the Portal window at once.
     public static func live(arguments: UserDefaults = .standard) -> RunnerAppModel {
         let policy = DeploymentPolicy.current
         let opener = WorkspaceOpener()
@@ -95,6 +108,9 @@ public final class RunnerAppModel: ObservableObject {
         } else {
             control = RunnerSupervisor(policy: policy)
         }
+        if arguments.bool(forKey: "OpenPortalWindow") {
+            DispatchQueue.main.async { PortalWindowController.shared.show() }
+        }
         #else
         control = RunnerSupervisor(policy: policy)
         #endif
@@ -105,12 +121,20 @@ public final class RunnerAppModel: ObservableObject {
             notifier: SystemNotifier(),
             updates: StubUpdateChecker(),
             setUp: BrowserSetUpFlow(opener: opener, policy: policy),
-            opener: opener
+            opener: opener,
+            portal: PortalWindowController.shared
         )
         loginItem.enableOnFirstLaunch(policy: policy)
         model.loginItemOn = loginItem.isEnabled
         control.start()
         return model
+    }
+
+    /// warehaus:// links open the Portal window, which hands them to the page.
+    /// Call from the app's init, before launch finishes, so a link that
+    /// launched the app is not lost.
+    public static func installPortalLinks() {
+        PortalLinkEvents.shared.install { PortalWindowController.shared.open(portalLink: $0) }
     }
 
     // MARK: - State
@@ -142,13 +166,18 @@ public final class RunnerAppModel: ObservableObject {
         switch action {
         case .pause, .pauseAfterRun: control.pause()
         case .resume, .cancelPauseAfterRun: control.resume()
-        case .openPortal: opener.open(policy.portalURL)
-        case let .openMilestone(id): opener.open(PortalLinks.milestone(id, policy: policy))
+        case .openPortal: openPortal(policy.portalURL)
+        case let .openMilestone(id): openPortal(PortalLinks.milestone(id, policy: policy))
         case .signInToGitHub: setUp.signInToGitHub()
         case .pairAgain: setUp.pair()
         case .checkForUpdate: checkForUpdate()
         case .restartRunner: control.restart()
         }
+    }
+
+    /// The Portal window when there is one; the browser otherwise.
+    private func openPortal(_ url: URL) {
+        if let portal { portal.show() } else { opener.open(url) }
     }
 
     public func checkForUpdate() {
