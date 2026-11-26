@@ -5,18 +5,23 @@ import { describe, it } from 'node:test';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import type { PortalTask } from '@/lib/data/view-models';
 import {
+  BOARD_BUILDING,
   BOARD_FOOTER,
   BOARD_INTRO,
   BOARD_SHIPPED,
   MILESTONE_BOARD_STATUSES,
+  ORDER_LOCKED,
   milestoneBoardCards,
   milestoneBoardReadOnly,
   milestoneBoardStatus,
+  runOrderAfterReorder,
 } from './milestoneBoard';
 
 Object.assign(globalThis, { React });
 const { MilestoneTaskBoard } = await import('./MilestoneTaskBoard');
-const { boardCanChange, pickStatusColumns } = await import('@/components/tasks/TaskBoard');
+const { applyPendingOrder, boardCanChange, columnsInGivenOrder, givenOrderSlot, movedOrder, pickStatusColumns, reorderSlot } = await import(
+  '@/components/tasks/TaskBoard'
+);
 
 const project = { id: 'p-portal', name: 'Warehaus Portal' };
 
@@ -213,5 +218,88 @@ describe('milestone Tasks tab board', () => {
     assert.match(html, /data-testid="archived-filter-count"[^>]*>2</);
     assert.equal(html.includes('Archived 0'), false);
     assert.equal(board({ staff: true }).includes('data-testid="archived-filter"'), false);
+  });
+});
+
+describe('run order in To Do', () => {
+  const cardNames = (html: string) => [...html.matchAll(/data-task-name="([^"]+)"/g)].map((m) => m[1]);
+
+  it('shows each column in milestone order, not due date order', () => {
+    const list = [row('late', 'To Do'), row('early', 'To Do'), row('doing', 'In Progress'), row('last', 'To Do')];
+    const dated = (id: string, date: string) => ({ id, name: `Task ${id}`, status: 'To Do', isDone: false, date }) as unknown as PortalTask;
+    const html = renderToStaticMarkup(
+      createElement(MilestoneTaskBoard, {
+        milestone: milestone('Planning', list),
+        project,
+        tasks: [dated('late', '2026-12-30'), dated('early', '2026-12-01')],
+        staff: true,
+        fixtures: true,
+      }),
+    );
+    assert.deepEqual(cardNames(html), ['Task late', 'Task early', 'Task last', 'Task doing']);
+  });
+
+  it('keeps the given order inside each column', () => {
+    const given = [{ id: 'c' }, { id: 'a' }, { id: 'b' }];
+    const columns = [{ key: 'To Do', tasks: [{ id: 'a' }, { id: 'b' }, { id: 'c' }] }];
+    assert.deepEqual(columnsInGivenOrder(columns, given)[0]?.tasks.map((task) => task.id), ['c', 'a', 'b']);
+  });
+
+  it('lands a card from another column where the milestone order puts it', () => {
+    const given = [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }];
+    assert.equal(givenOrderSlot([{ id: 'a' }, { id: 'd' }], { id: 'b' }, given), 1);
+    assert.equal(givenOrderSlot([{ id: 'a' }, { id: 'b' }], { id: 'd' }, given), 2);
+    assert.equal(givenOrderSlot([], { id: 'a' }, given), 0);
+  });
+
+  it('finds the slot under a lifted card from the middles of the resting cards', () => {
+    assert.equal(reorderSlot([100, 200, 300], 50), 0);
+    assert.equal(reorderSlot([100, 200, 300], 150), 1);
+    assert.equal(reorderSlot([100, 200, 300], 350), 3);
+    assert.equal(reorderSlot([], 10), 0);
+  });
+
+  it('moves one card to a slot among the others, and reports no change as null', () => {
+    assert.deepEqual(movedOrder(['a', 'b', 'c'], 'c', 0), ['c', 'a', 'b']);
+    assert.deepEqual(movedOrder(['a', 'b', 'c'], 'a', 2), ['b', 'c', 'a']);
+    assert.deepEqual(movedOrder(['a', 'b', 'c'], 'a', 9), ['b', 'c', 'a']);
+    assert.equal(movedOrder(['a', 'b', 'c'], 'b', 1), null);
+    assert.equal(movedOrder(['a', 'b', 'c'], 'a', -1), null);
+    assert.equal(movedOrder(['a', 'b', 'c'], 'x', 0), null);
+  });
+
+  it('shows an order that is still saving, with an unnamed card last', () => {
+    const tasks = [{ id: 'a' }, { id: 'b' }, { id: 'new' }];
+    assert.deepEqual(applyPendingOrder(tasks, ['b', 'a']).map((task) => task.id), ['b', 'a', 'new']);
+    assert.deepEqual(applyPendingOrder(tasks, null).map((task) => task.id), ['a', 'b', 'new']);
+  });
+
+  it('saves the whole milestone order, moving only the To Do rows', () => {
+    // a and e (Inbox) are To Do. b, c and d keep their places.
+    assert.deepEqual(runOrderAfterReorder(rows, ['e', 'a']), ['e', 'b', 'c', 'd', 'a']);
+    assert.deepEqual(runOrderAfterReorder(rows, ['a', 'e']), ['a', 'b', 'c', 'd', 'e']);
+  });
+
+  it('refuses an order that does not name exactly the To Do rows', () => {
+    for (const ids of [['a'], ['a', 'a'], ['a', 'b'], ['a', 'e', 'x']]) {
+      assert.equal(runOrderAfterReorder(rows, ids), null);
+    }
+  });
+
+  it('locks the To Do order while the milestone is Building, and says so', () => {
+    const building = board({ staff: true, status: 'Building' });
+    assert.match(building, new RegExp(`data-testid="column-order-locked"[^>]*>.*?${ORDER_LOCKED}`));
+    assert.equal([...building.matchAll(/data-testid="column-order-locked"/g)].length, 1);
+    assert.match(building, new RegExp(BOARD_BUILDING));
+    assert.equal(building.includes(BOARD_FOOTER), false);
+    // Add task stays, and cards still move between columns.
+    assert.match(building, /\+ Add task/);
+    assert.match(building, /cursor:grab/);
+  });
+
+  it('shows no lock outside Building, or to a client', () => {
+    assert.equal(board({ staff: true, status: 'Planning' }).includes('column-order-locked'), false);
+    assert.equal(board({ staff: true, status: 'Shipped' }).includes('column-order-locked'), false);
+    assert.equal(board({ staff: false, status: 'Building' }).includes('column-order-locked'), false);
   });
 });

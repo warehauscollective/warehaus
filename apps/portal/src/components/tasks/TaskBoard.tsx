@@ -15,6 +15,7 @@ import {
   useSensors,
   type CollisionDetection,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragOverEvent,
 } from '@dnd-kit/core';
 import {
@@ -139,6 +140,56 @@ export function boardCanChange(input: { staff: boolean; actor: 'staff' | 'client
   return input.staff && input.actor === 'staff' && !input.readOnly;
 }
 
+/** One column whose cards staff move up and down. The milestone board names To Do: its order is the run order. */
+export type BoardReorder = {
+  status: string;
+  /** The order holds still. Cards still move between columns. */
+  locked: boolean;
+  /** Shown in the column header while locked. */
+  lockedLabel: string;
+  /** `ids` is the column's cards in their new order, top first. */
+  onReorder: (input: { task: PortalTask; ids: string[] }) => Promise<{ ok: boolean; error?: string }>;
+};
+
+export const ORDER_NOT_SAVED = 'Couldn’t save the order. Moved back.';
+
+/** Each column's cards in the order the board was given them, in place of due date order. */
+export function columnsInGivenOrder<T extends { id: string }, C extends { tasks: T[] }>(columns: readonly C[], given: readonly T[]): C[] {
+  const position = new Map(given.map((task, index) => [task.id, index] as const));
+  const at = (task: T) => position.get(task.id) ?? Number.MAX_SAFE_INTEGER;
+  return columns.map((column) => ({ ...column, tasks: [...column.tasks].sort((a, b) => at(a) - at(b)) }));
+}
+
+/** Where a card from another column lands when columns keep the given order. */
+export function givenOrderSlot<T extends { id: string }>(resting: readonly T[], card: T, given: readonly T[]): number {
+  const position = new Map(given.map((task, index) => [task.id, index] as const));
+  const own = position.get(card.id) ?? Number.MAX_SAFE_INTEGER;
+  const index = resting.findIndex((task) => (position.get(task.id) ?? Number.MAX_SAFE_INTEGER) > own);
+  return index === -1 ? resting.length : index;
+}
+
+/** The slot under a lifted card: how many resting cards have their middle above the card's middle. */
+export function reorderSlot(restingMiddles: readonly number[], liftedMiddle: number): number {
+  return restingMiddles.filter((middle) => middle < liftedMiddle).length;
+}
+
+/** The column's ids with one card moved to a slot among the others. Null when nothing moves. */
+export function movedOrder(ids: readonly string[], id: string, slot: number): string[] | null {
+  if (!ids.includes(id)) return null;
+  const rest = ids.filter((item) => item !== id);
+  const next = [...rest];
+  next.splice(Math.max(0, Math.min(slot, rest.length)), 0, id);
+  return next.every((item, index) => item === ids[index]) ? null : next;
+}
+
+/** A column's cards in an order still being saved. A card the order does not name stays last. */
+export function applyPendingOrder<T extends { id: string }>(tasks: readonly T[], ids: readonly string[] | null): T[] {
+  if (!ids) return [...tasks];
+  const position = new Map(ids.map((id, index) => [id, index] as const));
+  const at = (task: T) => position.get(task.id) ?? Number.MAX_SAFE_INTEGER;
+  return [...tasks].sort((a, b) => at(a) - at(b));
+}
+
 export function readBoardMode(): BoardMode {
   if (typeof window === 'undefined') return 'status';
   return window.localStorage.getItem(GROUP_KEY) === 'stage' ? 'stage' : 'status';
@@ -159,6 +210,8 @@ export function TaskBoard({
   statuses,
   quickAddStatuses,
   readOnly = false,
+  keepOrder = false,
+  reorder,
 }: {
   tasks: PortalTask[];
   staff: boolean;
@@ -182,7 +235,14 @@ export function TaskBoard({
   quickAddStatuses?: readonly string[];
   /** Cards still open. Nothing moves and nothing is added. Clients and Shipped milestones. */
   readOnly?: boolean;
+  /** Columns keep the order of `tasks`, not due date order. The milestone board passes milestone order. */
+  keepOrder?: boolean;
+  /** The status column staff reorder by drag. Status mode only, and never on a phone. */
+  reorder?: BoardReorder;
 }) {
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [slot, setSlot] = useState<number | null>(null);
+  const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
   const [mode, setMode] = useState<BoardMode>('status');
   const [phone, setPhone] = useState(false);
   const framedSurface = framed && !phone;
@@ -224,13 +284,21 @@ export function TaskBoard({
     [tasks, overrides],
   );
   const columns = useMemo(() => {
-    const all = boardColumns(boardLaneTasks(viewTasks), mode, staff ? 'staff' : 'client');
-    return mode === 'status' ? pickStatusColumns(all, statuses) : all;
-  }, [viewTasks, mode, staff, statuses]);
+    const lanes = boardLaneTasks(viewTasks);
+    const sorted = boardColumns(lanes, mode, staff ? 'staff' : 'client');
+    const all = keepOrder ? columnsInGivenOrder(sorted, lanes) : sorted;
+    const picked = mode === 'status' ? pickStatusColumns(all, statuses) : all;
+    if (mode !== 'status' || !reorder || !pendingOrder) return picked;
+    return picked.map((column) =>
+      column.key === reorder.status ? { ...column, tasks: applyPendingOrder(column.tasks, pendingOrder) } : column,
+    );
+  }, [viewTasks, mode, staff, statuses, keepOrder, reorder, pendingOrder]);
   const canChange = boardCanChange({ staff, actor: rules?.actor, readOnly });
   const activeTab = tab && columns.some((column) => column.key === tab) ? tab : columns[0]?.key ?? null;
   const shown = phone ? columns.filter((column) => column.key === activeTab) : columns;
   const canDrag = canChange && !phone;
+  const reorderStatus = mode === 'status' && reorder ? reorder.status : null;
+  const canReorder = canDrag && reorderStatus != null && reorder != null && !reorder.locked;
 
   const chooseMode = (next: BoardMode) => {
     setMode(next);
@@ -302,15 +370,66 @@ export function TaskBoard({
     setLive(`${saved.message}.`);
   };
 
+  const commitOrder = async (task: PortalTask, ids: string[]) => {
+    if (!reorder) return;
+    setPendingOrder(ids);
+    const place = `${ids.indexOf(task.id) + 1} of ${ids.length}`;
+    setLive(`Moved ${task.name} to ${place} in ${reorder.status}. Saving.`);
+    const result = await reorder.onReorder({ task, ids });
+    setPendingOrder(null);
+    if (result.ok) {
+      setLive(`${task.name} is ${place} in ${reorder.status}.`);
+      return;
+    }
+    const message = result.error ?? ORDER_NOT_SAVED;
+    setToast({ message, retry: () => void commitOrder(task, ids) });
+    setLive(`${task.name} moved back. ${message}`);
+  };
+
+  /** A card dropped, or stepped with the arrow keys, inside the reorder column. */
+  const reorderTo = (task: PortalTask, slotFor: (ids: string[]) => number) => {
+    if (!reorder || !canReorder || pendingOrder) return;
+    const column = columns.find((item) => item.key === reorder.status);
+    if (!column) return;
+    const current = column.tasks.map((item) => item.id);
+    const ids = movedOrder(current, task.id, slotFor(current));
+    if (ids) void commitOrder(task, ids);
+  };
+
+  const onDragMove = (event: DragMoveEvent) => {
+    const lifted = event.active.rect.current.translated;
+    const dragged = viewTasks.find((item) => item.id === String(event.active.id));
+    const over = event.over ? String(event.over.id) : '';
+    if (!canReorder || !lifted || !dragged || dragged.status !== reorderStatus || over !== `column:${reorderStatus}`) {
+      setSlot(null);
+      return;
+    }
+    const lanes = boardRef.current?.querySelectorAll<HTMLElement>('[data-testid="task-column"]') ?? [];
+    const lane = [...lanes].find((node) => node.dataset.columnKey === reorderStatus);
+    if (!lane) return;
+    const middles = [...lane.querySelectorAll<HTMLElement>('[data-testid="task-card"][data-collapsed="rest"]')].map((card) => {
+      const rect = card.getBoundingClientRect();
+      return rect.top + rect.height / 2;
+    });
+    setSlot(reorderSlot(middles, lifted.top + lifted.height / 2));
+  };
+
   const onDragEnd = (event: DragEndEvent) => {
+    const droppedSlot = slot;
     setActiveId(null);
     setOverKey(null);
     setLiftedHeight(null);
+    setSlot(null);
     const task = tasks.find((item) => item.id === String(event.active.id));
     const viewed = viewTasks.find((item) => item.id === String(event.active.id));
     const over = event.over ? String(event.over.id) : '';
     if (!task || !viewed || !over.startsWith('column:')) return;
     const value = over.slice('column:'.length);
+    if (reorder && value === reorderStatus && viewed.status === value) {
+      if (reorder.locked) setLive(`${reorder.lockedLabel}.`);
+      else if (droppedSlot != null) reorderTo(viewed, () => droppedSlot);
+      return;
+    }
     const decision = decide(viewed, value);
     if (decision.kind === 'ignore') return;
     if (decision.kind === 'reject') {
@@ -330,7 +449,7 @@ export function TaskBoard({
   };
 
   return (
-    <div className="flex min-w-0 flex-col gap-3" data-testid="task-board">
+    <div ref={boardRef} className="flex min-w-0 flex-col gap-3" data-testid="task-board">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {hideGroupToggle ? null : <GroupToggle mode={mode} onChange={chooseMode} />}
         <p className="sr-only" aria-live="polite">{live}</p>
@@ -351,11 +470,13 @@ export function TaskBoard({
           setLiftedHeight(liftedHeightRef.current);
         }}
         onDragOver={onDragOver}
+        onDragMove={onDragMove}
         onDragEnd={onDragEnd}
         onDragCancel={() => {
           setActiveId(null);
           setOverKey(null);
           setLiftedHeight(null);
+          setSlot(null);
           setLive('Move cancelled.');
         }}
       >
@@ -365,6 +486,10 @@ export function TaskBoard({
             const hover = dragging && overKey === column.key ? decide(dragging, column.key) : null;
             const accepting = hover?.kind === 'move' || hover?.kind === 'needs';
             const resting = dragging ? column.tasks.filter((task) => task.id !== dragging.id) : column.tasks;
+            const ordering = column.key === reorderStatus;
+            // A To Do card over To Do: the slot follows the pointer. Any other drop lands where the column's order puts it.
+            const reordering = dragging != null && canReorder && ordering && dragging.status === column.key && overKey === column.key;
+            const landing = !dragging || !accepting ? null : keepOrder ? givenOrderSlot(resting, dragging, viewTasks) : dropSlotIndex(resting, dragging);
             return (
             <Column
               key={column.key}
@@ -379,7 +504,13 @@ export function TaskBoard({
               locked={hover?.kind === 'reject'}
               activeTarget={accepting}
               draggingId={activeId}
-              dropIndex={dragging && accepting ? dropSlotIndex(resting, dragging) : null}
+              dropIndex={reordering ? slot : landing}
+              headerNote={ordering && reorder?.locked && canChange ? reorder.lockedLabel : null}
+              onKeyOrder={
+                ordering && canReorder
+                  ? (task, direction) => reorderTo(task, (ids) => ids.indexOf(task.id) + direction)
+                  : undefined
+              }
               dropHeight={liftedHeight}
               canMoveSheet={phone && canChange}
               shared={framedSurface}
@@ -533,6 +664,8 @@ function Column({
   quickAddEnabled,
   showQuickAdd,
   onKeyMove,
+  headerNote,
+  onKeyOrder,
 }: {
   columnKey: string;
   label: string;
@@ -562,6 +695,10 @@ function Column({
   quickAddEnabled: boolean;
   showQuickAdd: boolean;
   onKeyMove: (task: PortalTask, direction: -1 | 1) => void;
+  /** Beside the count, with a lock. The milestone board's To Do reads Order locked while Building. */
+  headerNote: string | null;
+  /** Arrow up and down move a card one place. Only the reorder column passes it. */
+  onKeyOrder?: (task: PortalTask, direction: -1 | 1) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: `column:${columnKey}` });
   const dashed = columnKey.startsWith('unknown-stage');
@@ -587,6 +724,7 @@ function Column({
         onRetry={() => onRetry(task)}
         onMoveSheet={() => onMoveSheet(task)}
         onKeyMove={onKeyMove}
+        onKeyOrder={onKeyOrder}
       />
     ),
   });
@@ -595,6 +733,7 @@ function Column({
       ref={setNodeRef}
       aria-label={label}
       data-testid="task-column"
+      data-column-key={columnKey}
       className="flex min-w-0 w-full flex-col"
       style={{
         position: 'relative',
@@ -621,6 +760,16 @@ function Column({
         <h3 className="ds-mono whitespace-nowrap" style={{ fontSize: 11, letterSpacing: '0.08em' }}>{label.toUpperCase()}</h3>
         <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface)', borderRadius: 999, padding: '0 0.45rem' }}>{restingCount}</span>
         <span className="flex-1" />
+        {headerNote ? (
+          <span
+            className="ds-mono inline-flex items-center gap-1 whitespace-nowrap"
+            data-testid="column-order-locked"
+            style={{ fontSize: 11, color: 'var(--muted)' }}
+          >
+            <TaskGlyph src="/icons/task-lock.svg" size={12} />
+            {headerNote}
+          </span>
+        ) : null}
         {showQuickAdd && staff && !columnKey.startsWith('unknown') ? (
           quickAddEnabled ? (
             <button type="button" aria-label={`Add task to ${label}`} onClick={onQuick} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>+</button>
@@ -951,6 +1100,7 @@ function BoardCard({
   onRetry,
   onMoveSheet,
   onKeyMove,
+  onKeyOrder,
 }: {
   task: PortalTask;
   mode: BoardMode;
@@ -966,6 +1116,7 @@ function BoardCard({
   onRetry: () => void;
   onMoveSheet: () => void;
   onKeyMove: (task: PortalTask, direction: -1 | 1) => void;
+  onKeyOrder?: (task: PortalTask, direction: -1 | 1) => void;
 }) {
   const { attributes, listeners, setNodeRef } = useDraggable({ id: task.id, disabled: !canDrag });
   const timer = useRef<number | null>(null);
@@ -980,6 +1131,10 @@ function BoardCard({
     if (event.key === 'ArrowLeft') {
       event.preventDefault();
       onKeyMove(task, -1);
+    }
+    if (onKeyOrder && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      onKeyOrder(task, event.key === 'ArrowUp' ? -1 : 1);
     }
   };
   const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {

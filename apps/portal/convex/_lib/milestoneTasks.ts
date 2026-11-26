@@ -25,6 +25,12 @@ export const TASK_NOT_ON_MILESTONE = 'That task is not on this milestone.';
 export const TASK_EDIT_IN_SOURCE = 'This task syncs from Notion. Open the task to edit it.';
 export const TASK_STARTED = 'Only a To do task can be changed here.';
 export const REORDER_MISMATCH = 'The task list changed. Refresh and try again.';
+export const RUN_ORDER_LOCKED = 'The milestone is Building, so the To Do order is locked.';
+
+/** The run order holds still while a runner is working down it. */
+export function runOrderLocked(status: MilestoneStatus): boolean {
+  return status === 'Building';
+}
 export const REVIEW_TASK_LIMIT = 20;
 export const TOO_MANY_REVIEW_TASKS = `Add up to ${REVIEW_TASK_LIMIT} task lines.`;
 
@@ -200,13 +206,16 @@ export function removeTaskDecision(input: {
 /**
  * The new order has to name exactly the tasks on the milestone, once each.
  * Returns only the rows whose order changes, so an unchanged list writes nothing.
+ * A Building milestone takes no new order.
  */
 export function reorderDecision(input: {
   staff: boolean;
+  milestoneStatus: MilestoneStatus;
   current: readonly { id: string; milestoneOrder: number | null | undefined }[];
   taskIds: readonly string[];
 }): { ok: true; writes: { id: string; milestoneOrder: number }[] } | { ok: false; reason: string } {
   if (!input.staff) return { ok: false, reason: 'Staff role required' };
+  if (runOrderLocked(input.milestoneStatus)) return { ok: false, reason: RUN_ORDER_LOCKED };
   const wanted = new Set(input.taskIds);
   if (wanted.size !== input.taskIds.length || wanted.size !== input.current.length) {
     return { ok: false, reason: REORDER_MISMATCH };

@@ -3,23 +3,27 @@
 import { useMemo, useState } from 'react';
 import type { Id } from '@convex/_generated/dataModel';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
-import { addTaskDecision } from '@convex/_lib/milestoneTasks';
+import { addTaskDecision, runOrderLocked } from '@convex/_lib/milestoneTasks';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { ArchivedChip } from '@/components/closeout/CloseoutControls';
 import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
-import { TaskBoard, type BoardRules } from '@/components/tasks/TaskBoard';
+import { TaskBoard, type BoardReorder, type BoardRules } from '@/components/tasks/TaskBoard';
 import type { PortalTask } from '@/lib/data/view-models';
 import { ArchivedTaskRow, type ArchivedTask } from './ArchivedView';
 import type { ChecklistActions } from './MilestoneChecklist';
 import { Panel } from './milestoneChrome';
 import {
+  BOARD_BUILDING,
   BOARD_FOOTER,
   BOARD_INTRO,
   BOARD_SAVE_ERROR,
   BOARD_SHIPPED,
   MILESTONE_BOARD_STATUSES,
+  ORDER_LOCKED,
+  RUN_ORDER_STATUS,
   milestoneBoardCards,
   milestoneBoardReadOnly,
+  runOrderAfterReorder,
 } from './milestoneBoard';
 import type { RoadmapProject } from './milestoneTile';
 
@@ -37,8 +41,10 @@ const ADD_TO: readonly string[] = ['To Do'];
 
 /**
  * The milestone's tasks as a board: To Do, In Progress, Blocked, Done. Staff
- * move a card to change its status and add a task under To Do. Clients, and
- * everyone on a Shipped milestone, get the same board read-only.
+ * move a card to change its status and add a task under To Do. Every column is
+ * in milestone order, and To Do is the run order, top first: staff drag within
+ * it to reorder, except while the milestone is Building. Clients, and everyone
+ * on a Shipped milestone, get the same board read-only.
  */
 export function MilestoneTaskBoard({
   milestone,
@@ -60,7 +66,7 @@ export function MilestoneTaskBoard({
   staff: boolean;
   fixtures: boolean;
   hostSlug?: string;
-  actions?: Pick<ChecklistActions, 'addTask'>;
+  actions?: Pick<ChecklistActions, 'addTask' | 'reorderTasks'>;
   moveStatus?: MoveTaskStatus;
   onOpenTask?: (taskId: string) => void;
   /** This milestone's archived tasks. Staff only. */
@@ -69,14 +75,46 @@ export function MilestoneTaskBoard({
   taskCloseout?: (taskId: string) => TaskCloseoutActions;
 }) {
   const [showArchived, setShowArchived] = useState(false);
-  // Fixture previews have no Convex. Added tasks stay in this component.
+  // Fixture previews have no Convex. Added tasks and a new order stay in this component.
   const [localRows, setLocalRows] = useState<MilestoneRoadmapView['rows']>([]);
+  const [localOrder, setLocalOrder] = useState<string[] | null>(null);
   const shipped = milestone.status === 'Shipped';
+  const orderLocked = runOrderLocked(milestone.status);
   const readOnly = milestoneBoardReadOnly({ staff, status: milestone.status }) || !(fixtures || moveStatus != null);
   const canAdd = !readOnly && (fixtures || actions != null);
-  const cards = useMemo(
-    () => milestoneBoardCards(fixtures ? [...milestone.rows, ...localRows] : milestone.rows, tasks, project),
-    [fixtures, milestone.rows, localRows, tasks, project],
+  const rows = useMemo(() => {
+    if (!fixtures) return milestone.rows;
+    const all = [...milestone.rows, ...localRows];
+    if (!localOrder) return all;
+    // A task added after the reorder is not in it, and stays last.
+    const place = (id: string) => (localOrder.includes(id) ? localOrder.indexOf(id) : localOrder.length);
+    return [...all].sort((a, b) => place(a.id) - place(b.id));
+  }, [fixtures, milestone.rows, localRows, localOrder]);
+  const cards = useMemo(() => milestoneBoardCards(rows, tasks, project), [rows, tasks, project]);
+  const reorderTasks = actions?.reorderTasks;
+  const milestoneId = milestone.id;
+  const reorder = useMemo<BoardReorder>(
+    () => ({
+      status: RUN_ORDER_STATUS,
+      locked: orderLocked,
+      lockedLabel: ORDER_LOCKED,
+      onReorder: async ({ ids }) => {
+        const taskIds = runOrderAfterReorder(rows, ids);
+        if (!taskIds) return { ok: false, error: BOARD_SAVE_ERROR };
+        if (fixtures) {
+          setLocalOrder(taskIds);
+          return { ok: true };
+        }
+        if (!reorderTasks) return { ok: false, error: BOARD_SAVE_ERROR };
+        try {
+          await reorderTasks({ hostSlug, milestoneId: milestoneId as Id<'milestones'>, taskIds: taskIds as Id<'tasks'>[] });
+          return { ok: true };
+        } catch (err) {
+          return { ok: false, error: userFacingErrorMessage(err, BOARD_SAVE_ERROR) };
+        }
+      },
+    }),
+    [orderLocked, rows, fixtures, reorderTasks, hostSlug, milestoneId],
   );
   const archivedView = staff && showArchived && archivedTasks.length > 0;
 
@@ -110,6 +148,8 @@ export function MilestoneTaskBoard({
           statuses={MILESTONE_BOARD_STATUSES}
           quickAddStatuses={ADD_TO}
           readOnly={readOnly}
+          keepOrder
+          reorder={reorder}
           showQuickAdd={canAdd}
           hideGroupToggle
           framed
@@ -161,7 +201,7 @@ export function MilestoneTaskBoard({
       )}
       {staff && !archivedView ? (
         <p data-testid="milestone-board-footer" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-          {shipped ? BOARD_SHIPPED : BOARD_FOOTER}
+          {shipped ? BOARD_SHIPPED : orderLocked ? BOARD_BUILDING : BOARD_FOOTER}
         </p>
       ) : null}
     </div>

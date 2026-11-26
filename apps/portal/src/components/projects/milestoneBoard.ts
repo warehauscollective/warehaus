@@ -1,5 +1,5 @@
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
-import { checklistState } from '@convex/_lib/milestoneTasks';
+import { checklistState, RUN_ORDER_LOCKED } from '@convex/_lib/milestoneTasks';
 import type { PortalTask } from '@/lib/data/view-models';
 
 /** The milestone board's columns, left to right. No Inbox lane and no Stage mode. */
@@ -10,6 +10,10 @@ export const BOARD_INTRO =
   'Tasks come from the brief, review feedback, or a manual add. Review happens on the milestone, never on a task.';
 export const BOARD_FOOTER =
   'To Do runs top first. Drag a card to another column to change its status, or within To Do to change the run order.';
+export const BOARD_BUILDING = `${RUN_ORDER_LOCKED} Cards can still move between columns.`;
+export const ORDER_LOCKED = 'Order locked';
+/** The column whose order is the run order. */
+export const RUN_ORDER_STATUS: MilestoneBoardStatus = 'To Do';
 export const BOARD_SHIPPED = 'This milestone has shipped. Its task list is closed.';
 export const BOARD_SAVE_ERROR = 'Couldn’t save the task list. Nothing changed.';
 
@@ -66,4 +70,21 @@ export function milestoneBoardCards(
     };
   };
   return rows.flatMap((row) => [card(row, null), ...row.children.map((child) => card(child, row.id))]);
+}
+
+/**
+ * The milestone's full task order after To Do is reordered. Each To Do row's
+ * place takes the next id from the new To Do order. Every other row keeps its
+ * place, so the saved order still names every row once. Null when the new
+ * order does not name exactly the To Do rows.
+ */
+export function runOrderAfterReorder(
+  rows: readonly { id: string; status: string; isDone: boolean }[],
+  toDoIds: readonly string[],
+): string[] | null {
+  const toDo = rows.filter((row) => milestoneBoardStatus(row) === RUN_ORDER_STATUS);
+  const wanted = new Set(toDoIds);
+  if (wanted.size !== toDoIds.length || wanted.size !== toDo.length || toDo.some((row) => !wanted.has(row.id))) return null;
+  let next = 0;
+  return rows.map((row) => (milestoneBoardStatus(row) === RUN_ORDER_STATUS ? toDoIds[next++]! : row.id));
 }

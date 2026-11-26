@@ -25,6 +25,8 @@ import {
   originLabel,
   removeTaskDecision,
   reorderDecision,
+  runOrderLocked,
+  RUN_ORDER_LOCKED,
   reviewTaskLines,
   taskMilestoneGate,
   taskOrigin,
@@ -156,8 +158,8 @@ describe('editing, removing and reordering', () => {
       { id: 'b', milestoneOrder: 1 },
       { id: 'c', milestoneOrder: 2 },
     ];
-    assert.deepEqual(reorderDecision({ staff: true, current, taskIds: ['a', 'b', 'c'] }), { ok: true, writes: [] });
-    assert.deepEqual(reorderDecision({ staff: true, current, taskIds: ['a', 'c', 'b'] }), {
+    assert.deepEqual(reorderDecision({ staff: true, milestoneStatus: 'Planning', current, taskIds: ['a', 'b', 'c'] }), { ok: true, writes: [] });
+    assert.deepEqual(reorderDecision({ staff: true, milestoneStatus: 'Planning', current, taskIds: ['a', 'c', 'b'] }), {
       ok: true,
       writes: [
         { id: 'c', milestoneOrder: 1 },
@@ -166,10 +168,23 @@ describe('editing, removing and reordering', () => {
     });
   });
 
+  it('locks the order while the milestone is Building', () => {
+    const current = [{ id: 'a', milestoneOrder: 0 }, { id: 'b', milestoneOrder: 1 }];
+    assert.deepEqual(reorderDecision({ staff: true, milestoneStatus: 'Building', current, taskIds: ['b', 'a'] }), {
+      ok: false,
+      reason: RUN_ORDER_LOCKED,
+    });
+    for (const status of ['Idea', 'Planning', 'Awaiting Go', 'Ready to Ship'] as const) {
+      assert.equal(reorderDecision({ staff: true, milestoneStatus: status, current, taskIds: ['b', 'a'] }).ok, true);
+      assert.equal(runOrderLocked(status), false);
+    }
+    assert.equal(runOrderLocked('Building'), true);
+  });
+
   it('refuses a list that does not match the milestone', () => {
     const current = [{ id: 'a', milestoneOrder: 0 }, { id: 'b', milestoneOrder: 1 }];
     for (const taskIds of [['a'], ['a', 'a'], ['a', 'x'], ['a', 'b', 'c']]) {
-      assert.deepEqual(reorderDecision({ staff: true, current, taskIds }), { ok: false, reason: REORDER_MISMATCH });
+      assert.deepEqual(reorderDecision({ staff: true, milestoneStatus: 'Planning', current, taskIds }), { ok: false, reason: REORDER_MISMATCH });
     }
   });
 });
