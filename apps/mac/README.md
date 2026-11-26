@@ -7,16 +7,24 @@ own module. Full record: `docs/adr/0006-multi-platform-portal.md`.
 
 Nothing here is a Node workspace.
 
+**Staff:** this page is for developers and maintainers. To set up a Mac as a
+runner, see [`tools/runner/FIRST-RUN.md`](../../tools/runner/FIRST-RUN.md). No
+staff step uses a terminal.
+
 ## Layout
 
 ```
 apps/mac/
   Package.swift                 Swift package: the modules and their tests
-  Sources/RunnerSupervisor/     the runner supervisor (Foundation only)
-  Sources/RunnerMenu/           menu bar dropdown, Remove dialog, login item, notifications
-  Tests/RunnerSupervisorTests/  state mapping and supervisor tests, against a fake runner
+  runtime.lock                  the Node and gh versions bundled in the app
+  Sources/RunnerSupervisor/     the runner supervisor, checklist and update rules (Foundation only)
+  Sources/RunnerMenu/           menu bar dropdown, checklist and pairing windows, Remove dialog,
+                                login item, notifications, self-update
+  Tests/RunnerSupervisorTests/  state mapping, checklist, update rules, against a fake runner
+  Tests/RunnerMenuTests/        the self-update coordinator, against fake files and swaps
   App/WarehausRunner.xcodeproj  the app target: a thin @main that links RunnerMenu
   scripts/build-release.sh      signed, notarized, stapled release build (a Mac or CI)
+  scripts/bundle-runtime.sh     fills Contents/Resources/runner: Node, gh, tools/runner
   scripts/ci-keychain.sh        CI only: the certificate in a temporary keychain
   scripts/publish-release.sh    CI only: publishes the zip to the Portal (production)
 ```
@@ -44,13 +52,44 @@ notifications on top of both (ADR-0006, decision 8):
 - **Portal window** (later): the web view and the Mac adapter for the native
   bridge (`packages/native-bridge/swift`). It never imports RunnerSupervisor.
 
-Seams left for their own tasks, each a small protocol with a stub today:
+The seams, each a small protocol with a live and a fake side:
 
-| Seam | Today | Task |
+| Seam | Live | Where |
 | --- | --- | --- |
-| `RunnerLocating` | Release: `Contents/Resources/runner` (empty until bundled). Debug: this checkout and Homebrew Node | First launch: bundled Node, runner and gh |
-| `SetUpFlow` | Opens the Portal, or github.com/login | First launch: checklist and pairing windows |
-| `UpdateChecking` | Always "Up to date" | Self-update between runs |
+| `RunnerLocating` | Release: the bundled runner in `Contents/Resources/runner`. Debug: this checkout and Homebrew Node | RunnerSupervisor |
+| `PairingReading`, `PauseStoring` | The saved runner file; the remembered pause | RunnerSupervisor |
+| `SetupSystem` | `gh`, the Claude Code installer, `setup --supervised`, the old launchd agent | RunnerMenu |
+| `ReleaseSource`, `UpdateWorkspace`, `AppSwapping` | `app-release`; the Updates folder; swapping the app bundle | RunnerMenu |
+| `LoginItem`, `AttentionNotifying`, `URLOpening` | `SMAppService.mainApp`; notifications; the browser | RunnerMenu |
+
+## First launch
+
+Until the app runs its own runner, it shows the checklist (GitHub, Claude
+Code, Pair with the Portal), then the pairing window, which shows the code
+from `setup --supervised --production` and opens `/?runnerPair=<code>`. An
+existing pairing is adopted ("Already paired as …"). An old
+`co.warehaus.runner.prod` launchd agent is offered as Replace it, and the app
+starts no runner until it is replaced.
+
+## Self-update
+
+Between runs, never during one (Portal decision 0005, ADR-0005 amendment of
+2026-11-26). The rules are in `AppUpdate.swift` (RunnerSupervisor), the file
+and process work in `AppUpdater.swift` (RunnerMenu).
+
+- Checks on launch, every 6 hours and on Check for update, once the app runs
+  its own runner, through `app-release` (`POST /agent/app-release`). Newer
+  means a higher build number.
+- Downloads to `~/Library/Application Support/co.warehaus.runner.app/Updates`
+  and checks size and SHA-256, then `codesign --verify`, team `7XQWUC33C7`,
+  bundle id `co.warehaus.runner.app`, the build named by the release, and
+  `spctl`.
+- Installs only when the runner is idle, paused or stopped: stops it, swaps
+  the bundle (rollback copy in `Updates/rollback`), and opens the new app with
+  `-UpdateCheckIn <file>`. The old app rolls back if there is no check-in
+  within 45 seconds.
+- An app it cannot replace in place says "Can't update here. Move the app to
+  Applications."
 
 ## Production only
 
@@ -69,17 +108,33 @@ cd apps/mac && swift test
 ```
 
 Or in Xcode: open `apps/mac/App/WarehausRunner.xcodeproj` and run the
-**Warehaus Runner** scheme. To see the four states with fixture data and no
-runner, tick one `-RunnerFixture` argument under Product › Scheme › Edit
-Scheme › Run › Arguments (ready, working, paused, attention). The tests run
-from the package (`xcodebuild -scheme WarehausMac-Package test
--destination platform=macOS` in `apps/mac`).
+**Warehaus Runner** scheme. The tests run from the package (`xcodebuild
+-scheme WarehausMac-Package test -destination platform=macOS` in `apps/mac`).
+
+Debug launch arguments, ticked under Product › Scheme › Edit Scheme › Run ›
+Arguments. None of them touch this Mac's real gh, Claude Code, pairing or
+launchd agent:
+
+- `-RunnerFixture ready|working|paused|attention`: the menu states with
+  fixture data and no runner.
+- `-SetupFixture fresh|signed-out|github-code|installing|claude-signin|pairing|expired|takeover|done`:
+  the checklist and pairing windows; clicks move the fixture along.
+- `-SetupSnapshot <folder>`: writes every checklist and pairing state, Dark
+  and Light, as PNGs for the design check, then quits.
+- `-UpdateRelease <release.json>`: reads the release from a file instead of
+  the Portal (a `file://` zip is fine), to try self-update end to end. Debug
+  builds only, and never against production.
 
 A signed and notarized build:
 
 ```bash
 apps/mac/scripts/build-release.sh
 ```
+
+It runs `bundle-runtime.sh` first, which downloads the Node and `gh` pinned in
+`runtime.lock`, checks their SHA-256, and copies them with `tools/runner` and
+`packages/runner-protocol` into `Contents/Resources/runner` (Node is signed
+with `App/Node.entitlements`). `BUILD_NUMBER` sets the build number.
 
 It signs with "Developer ID Application: Warehaus LLC (7XQWUC33C7)" using
 `--options runtime --timestamp`, notarizes with `xcrun notarytool submit
@@ -137,3 +192,11 @@ Only the release job reads these secrets. It runs by hand, from `main` only.
   app never reads the runner secret; the runner does.
 - Swift never parses `warehaus://` links. It hands them to the page with
   `navigate`.
+
+## Open items
+
+- The runner gets only an allowlist of the app's environment (`HOME`, `USER`,
+  `LOGNAME`, `SHELL`, `TMPDIR`, `LANG`, `SSH_AUTH_SOCK`), so a runner under the
+  app has no `CURSOR_API_KEY` and Cursor builds block with a note. Claude Code
+  projects are not affected. A fix needs its own task, with no terminal step
+  for staff.
