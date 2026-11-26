@@ -111,30 +111,13 @@ public final class StubUpdateChecker: UpdateChecking {
     public func checkNow() async -> UpdateStatus { .upToDate(version: version) }
 }
 
-// MARK: - Set-up (stub until the first-launch task)
+// MARK: - Set-up
 
-/// Pairing and GitHub sign-in. The first-launch task replaces this with the
-/// checklist and pairing windows from the design.
+/// Pairing and GitHub sign-in from the menu. SetupWindows opens the checklist.
 @MainActor
 public protocol SetUpFlow {
     func pair()
     func signInToGitHub()
-}
-
-@MainActor
-public final class BrowserSetUpFlow: SetUpFlow {
-    private let opener: URLOpening
-    private let policy: DeploymentPolicy
-
-    public init(opener: URLOpening, policy: DeploymentPolicy) {
-        self.opener = opener
-        self.policy = policy
-    }
-
-    /// For now: the Portal, where staff set up a runner from the runner chip.
-    public func pair() { opener.open(policy.portalURL) }
-
-    public func signInToGitHub() { opener.open(URL(string: "https://github.com/login")!) }
 }
 
 // MARK: - Links

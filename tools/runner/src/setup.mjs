@@ -81,7 +81,12 @@ async function post(url, body) {
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
-export async function runSetup({ production, id, say }) {
+/**
+ * `report` is set when the Mac app runs `setup --supervised`: it gets pairing,
+ * paired and pair_expired lines and opens the Portal itself (with the code
+ * filled in), so this process opens no browser.
+ */
+export async function runSetup({ production, id, say, report = null }) {
   if (process.platform !== 'darwin') throw new Error('Setup stores the runner secret in the macOS Keychain, so it runs on a Mac.');
   const deployment = deploymentFor(production);
   const agentUrl = (process.env.PORTAL_AGENT_URL || deployment.agentUrl).replace(/\/+$/, '');
@@ -100,7 +105,11 @@ export async function runSetup({ production, id, say }) {
   say(`Proposed id:  ${started.proposedRunnerId} (${production ? 'production' : 'shared dev'})`);
   say(`Open any project in the Portal, tap the runner chip, and enter the code. Opening ${portalUrl}`);
   say('If no browser opens, go there yourself. The code expires in 10 minutes.');
-  spawnSync('open', [portalUrl], { stdio: 'ignore' });
+  if (report) {
+    report('pairing', { code: started.code, runnerId: started.proposedRunnerId, expiresAt: started.expiresAt, production });
+  } else {
+    spawnSync('open', [portalUrl], { stdio: 'ignore' });
+  }
 
   for (;;) {
     await sleep(POLL_EVERY_MS);
@@ -111,7 +120,10 @@ export async function runSetup({ production, id, say }) {
       say(`Waiting… (${error.message})`);
       continue;
     }
-    if (status.status === 'expired') throw new Error('The code expired before anyone confirmed it. Run setup again.');
+    if (status.status === 'expired') {
+      report?.('pair_expired');
+      throw new Error('The code expired before anyone confirmed it. Run setup again.');
+    }
     if (status.status !== 'confirmed') continue;
     const runnerId = String(status.runnerId);
     storeKeychainSecret(deployment.name, runnerId, secret);
@@ -122,6 +134,7 @@ export async function runSetup({ production, id, say }) {
     const flag = production ? ' --production' : '';
     say(`Paired as ${runnerId}. The secret is in the Keychain (${KEYCHAIN_SERVICE}); ${path} has the URL and id.`);
     say(`Start it with: npm run runner -- start${flag}. It keeps its own clones under ~/warehaus-runner/repos.`);
+    report?.('paired', { runnerId });
     return { runnerId };
   }
 }

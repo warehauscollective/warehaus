@@ -63,7 +63,7 @@ describe('arguments', () => {
   it('reads setup, with --production only when asked', () => {
     assert.deepEqual(parseArgs(['setup']).options.production, false);
     assert.deepEqual(parseArgs(['setup', '--production', '--id', 'studio-mini-prod']).options, {
-      command: 'setup', production: true, id: 'studio-mini-prod', mode: 'interactive', once: false, repos: [],
+      command: 'setup', production: true, id: 'studio-mini-prod', mode: 'interactive', once: false, repos: [], supervised: false,
     });
     assert.equal(parseArgs(['setup', '--repo', 'a/b']).ok, false);
     assert.equal(parseArgs(['setup', '--once']).ok, false);
@@ -420,7 +420,9 @@ describe('runner Mac app supervision', () => {
     assert.equal(started.ok, true);
     assert.equal(started.options.supervised, true);
     assert.equal(started.options.paused, true);
-    assert.equal(parseArgs(['setup', '--supervised']).ok, false);
+    assert.equal(parseArgs(['setup', '--supervised']).options.supervised, true);
+    assert.equal(parseArgs(['setup', '--paused']).ok, false);
+    assert.equal(parseArgs(['install', '--supervised']).ok, false);
     assert.deepEqual(parseArgs(['remove', '--production']).options, {
       command: 'remove', production: true, id: '', mode: 'interactive', once: false, repos: [],
     });
@@ -434,6 +436,15 @@ describe('runner Mac app supervision', () => {
     assert.throws(() => supervisorLine('dancing'));
     assert.throws(() => supervisorLine('attention', { reason: 'bored' }));
     assert.doesNotThrow(() => supervisorLine('attention', { reason: 'github' }));
+  });
+
+  it('writes the pairing lines setup --supervised gives the app', () => {
+    const line = supervisorLine('pairing', { code: 'K7QM-4XPA', runnerId: 'peter-mbp-prod', expiresAt: 600, production: true, at: 1 });
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), {
+      type: 'pairing', code: 'K7QM-4XPA', runnerId: 'peter-mbp-prod', expiresAt: 600, production: true, at: 1,
+    });
+    assert.doesNotThrow(() => supervisorLine('paired', { runnerId: 'peter-mbp-prod' }));
+    assert.doesNotThrow(() => supervisorLine('pair_expired'));
   });
 
   it('takes pause and resume on stdin, nothing else', () => {

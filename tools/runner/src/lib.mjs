@@ -26,7 +26,7 @@ export const DEPLOYMENTS = Object.freeze({
 export const KEYCHAIN_SERVICE = 'warehaus-runner';
 
 export const USAGE = `Usage:
-  npm run runner -- setup [--production] [--id <runner-id>]
+  npm run runner -- setup [--production] [--id <runner-id>] [--supervised]
   npm run runner -- install [--production]
   npm run runner -- uninstall [--production]
   npm run runner -- remove [--production]
@@ -37,6 +37,8 @@ setup       Pairs this Mac with the Portal. It prints an 8-character code and
             on any project page. The secret goes to this Mac's Keychain only.
   --id      Runner id to propose. Defaults to this Mac's name, with -prod on
             production. Staff can change it when they confirm.
+  --supervised  Under the runner Mac app: print pairing, paired and
+            pair_expired lines and leave opening the Portal to the app.
 
 install     Writes a launchd agent that starts the runner at login and
             restarts it if it stops, one per deployment, then loads it. It
@@ -72,6 +74,7 @@ export function parseArgs(argv) {
   if (!['start', 'setup', 'install', 'uninstall', 'remove'].includes(command)) return { ok: false, error: USAGE };
   const options = { command, production: false, id: '', mode: 'interactive', once: false, repos: [] };
   if (command === 'start') Object.assign(options, { supervised: false, paused: false });
+  if (command === 'setup') options.supervised = false;
   const valued = command === 'start' ? ['--id', '--mode', '--repo'] : command === 'setup' ? ['--id'] : [];
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
@@ -81,6 +84,10 @@ export function parseArgs(argv) {
     }
     if (command === 'start' && (flag === '--once' || flag === '--supervised' || flag === '--paused')) {
       options[flag.slice(2)] = true;
+      continue;
+    }
+    if (command === 'setup' && flag === '--supervised') {
+      options.supervised = true;
       continue;
     }
     if (valued.includes(flag)) {
@@ -387,7 +394,18 @@ export function idleDelayMs(emptyPolls) {
  * line is the runner's own log. Keep in step with RunnerEvent.swift.
  */
 export const SUPERVISOR_PREFIX = '@@warehaus ';
-export const SUPERVISOR_EVENTS = Object.freeze(['started', 'idle', 'working', 'finished', 'paused', 'attention']);
+export const SUPERVISOR_EVENTS = Object.freeze([
+  'started',
+  'idle',
+  'working',
+  'finished',
+  'paused',
+  'attention',
+  // `setup --supervised`: the app shows the code and opens the Portal itself.
+  'pairing',
+  'paired',
+  'pair_expired',
+]);
 export const ATTENTION_REASONS = Object.freeze(['unauthorized', 'out_of_date', 'github', 'unreachable', 'not_paired']);
 
 /** One state line for the app. Unknown types throw: the Swift side would drop them. */

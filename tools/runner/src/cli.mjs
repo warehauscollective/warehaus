@@ -311,7 +311,8 @@ async function main() {
   }
   const { production } = parsed.options;
   if (parsed.options.command === 'setup') {
-    await runSetup({ production, id: parsed.options.id, say });
+    supervised = parsed.options.supervised === true;
+    await runSetup({ production, id: parsed.options.id, say, report: supervised ? report : null });
     return;
   }
   if (parsed.options.command === 'install') return runInstall({ production, say });
