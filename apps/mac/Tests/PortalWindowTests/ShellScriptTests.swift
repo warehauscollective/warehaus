@@ -14,13 +14,13 @@ final class ShellScriptTests: XCTestCase {
     }
 
     func testHelloScript() throws {
-        let script = ShellScript.dispatch(ShellScript.hello(appVersion: "0.1.0"))
+        let script = ShellScript.dispatch(ShellScript.hello(appVersion: "0.1.0", permission: .authorized))
         XCTAssertEqual(
             script,
-            #"window.dispatchEvent(new CustomEvent("warehaus:shell",{detail:{"appVersion":"0.1.0","bridgeVersion":1,"capabilities":["openExternal"],"platform":"macos","type":"shell.hello"}}));"#
+            #"window.dispatchEvent(new CustomEvent("warehaus:shell",{detail:{"appVersion":"0.1.0","bridgeVersion":1,"capabilities":["badge","notify","openExternal"],"platform":"macos","type":"shell.hello"}}));"#
         )
         let decoded = BridgeDecoder.decodeShellMessage(try detail(of: script))
-        XCTAssertEqual(try decoded.get(), .hello(appVersion: "0.1.0", capabilities: [.openExternal]))
+        XCTAssertEqual(try decoded.get(), .hello(appVersion: "0.1.0", capabilities: [.badge, .notify, .openExternal]))
     }
 
     func testNavigateScriptCarriesTheRawLink() throws {
@@ -43,7 +43,11 @@ final class ShellScriptTests: XCTestCase {
             PageAction.from(["type": "openExternal", "url": "https://github.com/warehaus"]),
             .openExternal(URL(string: "https://github.com/warehaus")!)
         )
-        XCTAssertEqual(PageAction.from(["type": "attention", "count": 2, "alerts": []]), .ignore)
+        XCTAssertEqual(PageAction.from(["type": "attention", "count": 2, "alerts": []]), .attention(count: 2, alerts: []))
+        XCTAssertEqual(
+            PageAction.from(["type": "attention", "count": 1, "alerts": [["id": "a", "kind": "ask", "title": "T", "url": "warehaus://task/t", "createdAt": 1_795_000_000_000]]]),
+            .attention(count: 1, alerts: [Fixture.alert("a", kind: "ask", title: "T", url: "warehaus://task/t")])
+        )
         XCTAssertEqual(PageAction.from(["type": "openExternal", "url": "http://github.com"]), .refuse("url must be an https link"))
         XCTAssertEqual(PageAction.from(["type": "openExternal", "url": "file:///etc/passwd"]), .refuse("url must be an https link"))
         XCTAssertEqual(PageAction.from(["type": "navigate", "url": "warehaus://x"]), .refuse("navigate is not a page to shell message"))
