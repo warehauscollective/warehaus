@@ -22,5 +22,6 @@ let package = Package(
         .target(name: "RunnerSupervisor"),
         .target(name: "RunnerMenu", dependencies: ["RunnerSupervisor"]),
         .testTarget(name: "RunnerSupervisorTests", dependencies: ["RunnerSupervisor"]),
+        .testTarget(name: "RunnerMenuTests", dependencies: ["RunnerMenu", "RunnerSupervisor"]),
     ]
 )

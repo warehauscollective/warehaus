@@ -491,6 +491,16 @@ describe('runner Mac app supervision', () => {
     assert.doesNotThrow(() => supervisorLine('pair_expired'));
   });
 
+  it('reads app-release and writes its line', () => {
+    assert.deepEqual(parseArgs(['app-release', '--production']).options, {
+      command: 'app-release', production: true, id: '', mode: 'interactive', once: false, repos: [],
+    });
+    assert.equal(parseArgs(['app-release', '--once']).ok, false);
+    const release = { version: '0.1.1', build: 312, sha256: 'a'.repeat(64), size: 10, minMacOS: '14.0', publishedAt: 1, url: 'https://x.convex.cloud/api/storage/1' };
+    const line = supervisorLine('app_release', { release, at: 1 });
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), { type: 'app_release', release, at: 1 });
+  });
+
   it('takes pause and resume on stdin, nothing else', () => {
     assert.equal(supervisorCommand('pause\n'), 'pause');
     assert.equal(supervisorCommand(' Resume '), 'resume');

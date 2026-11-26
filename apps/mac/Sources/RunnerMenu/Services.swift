@@ -82,35 +82,6 @@ public final class SystemNotifier: AttentionNotifying {
     }
 }
 
-// MARK: - Updates (stub until the self-update task)
-
-public enum UpdateStatus: Equatable, Sendable {
-    case upToDate(version: String)
-    case available(version: String)
-    case checking(version: String)
-}
-
-/// The update line and Check for update. The self-update task replaces the
-/// stub with a real check against `/agent/app-release` that installs between runs.
-@MainActor
-public protocol UpdateChecking {
-    var status: UpdateStatus { get }
-    func checkNow() async -> UpdateStatus
-}
-
-@MainActor
-public final class StubUpdateChecker: UpdateChecking {
-    public let version: String
-
-    public init(version: String = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev") {
-        self.version = version
-    }
-
-    public var status: UpdateStatus { .upToDate(version: version) }
-
-    public func checkNow() async -> UpdateStatus { .upToDate(version: version) }
-}
-
 // MARK: - Set-up
 
 /// Pairing and GitHub sign-in from the menu. SetupWindows opens the checklist.
