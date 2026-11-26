@@ -60,7 +60,7 @@ A milestone has one field, `status`: `Idea`, `Planning`, `Awaiting Go`, `Buildin
 
 `update_milestone` (`POST /api/v1/milestones/update`) sends only the fields that change, including Shipped when every task that is not Parked is Done. `create_milestone` cannot start a milestone at Shipped.
 
-A task only exists inside a milestone. `create_task` and `POST /api/v1/tasks` need `milestoneId`. A missing milestone, a milestone on another project, and a `Shipped` milestone are each a 400.
+A task only exists inside a milestone. `create_task` and `POST /api/v1/tasks` need `milestoneId`. A missing milestone, a milestone on another project, and a `Shipped` milestone are each a 400. The task is stored in the Portal only (no Notion page, no outbox row), so it is on the milestone at once, and the response carries its `id`.
 
 To start new work, create the milestone and its task list in one call:
 
