@@ -41,6 +41,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Cache the pinned Node and gh downloads
+        uses: actions/cache@v4
+        with:
+          path: apps/mac/build/runtime-cache
+          key: runner-runtime-${{ hashFiles('apps/mac/runtime.lock') }}
+
+      - name: Test the runtime bundler (offline)
+        run: apps/mac/scripts/tests/bundle-runtime.test.sh
+
       - name: Test, build and sign ad hoc with the hardened runtime
         run: |
           xcodebuild -version
@@ -63,6 +72,15 @@ jobs:
         with:
           # The build number is the commit count on main, so it needs full history.
           fetch-depth: 0
+
+      - name: Cache the pinned Node and gh downloads
+        uses: actions/cache@v4
+        with:
+          path: apps/mac/build/runtime-cache
+          key: runner-runtime-${{ hashFiles('apps/mac/runtime.lock') }}
+
+      - name: Test the runtime bundler (offline)
+        run: apps/mac/scripts/tests/bundle-runtime.test.sh
 
       - name: Import the Developer ID certificate into a temporary keychain
         env:

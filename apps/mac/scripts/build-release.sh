@@ -93,13 +93,12 @@ xcodebuild -project "$HERE/App/WarehausRunner.xcodeproj" -scheme "Warehaus Runne
 cp -R "$DERIVED/Build/Products/Release/Warehaus Runner.app" "$APP"
 
 step "Signing with the hardened runtime"
-# Nested code (the bundled Node and gh, from the first-launch task) is signed inside out first.
-if [[ -d "$APP/Contents/Resources/runner/bin" ]]; then
-  find "$APP/Contents/Resources/runner/bin" -type f -perm -u+x -print0 | while IFS= read -r -d '' tool; do
-    codesign --force --options runtime "$TIMESTAMP" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} \
-      --sign "$SIGN_ID" "$tool"
-  done
-fi
+# Node, gh and the runner, signed inside out (Node with App/Node.entitlements).
+# Without --identity it signs them ad hoc (the --unsigned dry run). It finds the
+# identity through the keychain search list, where CI puts its temporary keychain.
+BUNDLE_ARGS=()
+[[ "$ADHOC" == 0 ]] && BUNDLE_ARGS=(--identity "$IDENTITY")
+"$HERE/scripts/bundle-runtime.sh" "$APP" ${BUNDLE_ARGS[@]+"${BUNDLE_ARGS[@]}"}
 codesign --force --options runtime "$TIMESTAMP" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} \
   --entitlements "$HERE/App/WarehausRunner.entitlements" --sign "$SIGN_ID" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
