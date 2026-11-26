@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ProjectRoadmap } from '@/components/projects/ProjectRoadmap';
 import { resourcesForProject } from '@/components/projects/milestoneGuards';
@@ -11,7 +11,6 @@ import {
   activeKpiCaption,
   awaitingKpiCaption,
   clearProjectListFilters,
-  defaultProjectListView,
   effectiveProjectSort,
   normalizeProjectListView,
   projectInitials,
@@ -41,8 +40,9 @@ import {
   type ProjectFilterKey,
   type ProjectListFilter,
   type ProjectListMenuOpen,
-  type ProjectListView,
 } from '@/lib/data/projectList';
+import { reconcileProjectSection } from '@/lib/data/projectListViewStore';
+import { useProjectListView } from '@/hooks/useProjectListView';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
 import { useRetryPortalData } from '@/components/providers/PortalDataRetry';
@@ -86,6 +86,13 @@ const SECTION_TITLE: Record<string, string> = {
   shipped: 'Shipped',
 };
 
+/**
+ * The Projects sidebar section the quick filter chip last agreed with. Kept
+ * for the page session, across tab switches, so a saved chip is not replaced
+ * by a sidebar that nobody touched. Starts on the sidebar's first entry.
+ */
+let agreedProjectSection = 'all';
+
 export function ProjectsContent() {
   const { sectionFor, setSectionFor, openLinkedClient, setOpenProjectId } = usePortalView();
   const [createOpen, setCreateOpen] = useState(false);
@@ -95,11 +102,10 @@ export function ProjectsContent() {
   const { data, loading, error } = usePortalData();
   const activityFeed = useActivityFeed();
   const retryPortalData = useRetryPortalData();
-  const { portalSession, linkStatus, sessionPending, joining } = usePortalAuth();
+  const { portalSession, linkStatus, linkQueryError, sessionPending, joining } = usePortalAuth();
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const activeSection = sectionFor('projects');
-  const [view, setView] = useState<ProjectListView>(defaultProjectListView);
   const [fixtureMenu, setFixtureMenu] = useState<{ open: ProjectListMenuOpen; expanded: ProjectFilterKey[] }>({
     open: null,
     expanded: [],
@@ -118,6 +124,16 @@ export function ProjectsContent() {
     archivedIds: archivedFixtureIds,
   });
   const { preview: fixtures, isStaff, projects, tasks, docs } = page;
+  /** The viewer's saved view: read from Convex, saved after a pause, held in memory in fixture preview. */
+  const listView = useProjectListView({
+    contactId: fixtures ? null : portalSession?.contactId ?? null,
+    isStaff: fixtures ? isStaff : portalSession?.isStaff === true,
+    settling:
+      !portalSession &&
+      (sessionPending || joining || linkStatus === 'loading' || (linkStatus === 'linked' && !linkQueryError)),
+    fixtures,
+  });
+  const { view, ready: viewReady, change: setView } = listView;
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
   const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
   const pathname = usePathname() || '';
@@ -146,13 +162,23 @@ export function ProjectsContent() {
     return () => window.removeEventListener('wh-portal-nav', apply);
   }, [fixtures]);
 
+  const quick = view.quick;
   useEffect(() => {
-    if (fixtures && new URLSearchParams(window.location.search).get('list') === 'filtered') return;
-    if (activeSection === 'all' || activeSection === 'active' || activeSection === 'shipped') {
-      // The sidebar sets the chip only. Menu filters stay until Clear filters.
-      setView((current) => (current.quick === activeSection ? current : { ...current, quick: activeSection }));
+    if (fixtures) {
+      if (new URLSearchParams(window.location.search).get('list') === 'filtered') return;
+      if (activeSection === 'all' || activeSection === 'active' || activeSection === 'shipped') {
+        setView((current) => (current.quick === activeSection ? current : { ...current, quick: activeSection }));
+      }
+      return;
     }
-  }, [activeSection, fixtures]);
+    if (!viewReady) return;
+    // The sidebar sets the chip only. Menu filters stay until Clear filters.
+    // A saved chip that loads moves the sidebar to match instead.
+    const step = reconcileProjectSection({ section: activeSection, agreed: agreedProjectSection, quick });
+    agreedProjectSection = step?.set === 'sidebar' ? step.section : activeSection;
+    if (step?.set === 'chip') setView((current) => ({ ...current, quick: step.quick }));
+    if (step?.set === 'sidebar') setSectionFor('projects', step.section);
+  }, [activeSection, fixtures, viewReady, quick, setView, setSectionFor]);
 
   useEffect(() => {
     if (!fixtures) return;
@@ -162,9 +188,10 @@ export function ProjectsContent() {
     setForceLoading(list === 'loading');
     setForceError(list === 'error' || list === 'refresh' ? 'Network error' : null);
     if (list === 'filtered') setView((current) => ({ ...current, quick: 'shipped' }));
-  }, [fixtures]);
+  }, [fixtures, setView]);
 
-  const projectsLoading = forceLoading || page.loading;
+  // The list waits for the saved view inside its loading state, so the default view never flashes.
+  const projectsLoading = forceLoading || page.loading || !viewReady;
 
   const listed = useMemo(
     () => (forceFiltered ? projects.filter((project) => !projectMatchesFilter(project, 'shipped')) : projects),
@@ -203,17 +230,15 @@ export function ProjectsContent() {
       JSON.parse(fixtureOptionsKey) as typeof viewOptions,
     );
     if (!screen) return;
-    setView(screen.view);
+    setView(() => screen.view);
     setFixtureMenu({ open: screen.open, expanded: screen.expanded });
-  }, [fixtures, isStaff, fixtureOptionsKey]);
+  }, [fixtures, isStaff, fixtureOptionsKey, setView]);
 
   const chooseFilter = (key: ProjectListFilter) => {
     setView((current) => ({ ...current, quick: key }));
     if (key !== 'internal') setSectionFor('projects', key);
   };
-  const changeView = useCallback((update: (current: ProjectListView) => ProjectListView) => {
-    setView((current) => update(current));
-  }, []);
+  const changeView = setView;
   /** Chip to All and every menu filter to Any. The sort stays. The sidebar follows the chip. */
   const clearView = () => {
     setForceFiltered(false);
