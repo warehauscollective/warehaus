@@ -36,7 +36,7 @@ import crons from '../crons';
 import { create as createStaffMilestone, createFromAi, setStatus } from '../milestones';
 import { createMilestone, listNeedsPeter, updateMilestone } from '../portalApi';
 import { setAgentDriver, setAgentRepo } from '../projects';
-import { RUNNER_NEEDS_REPO } from './agentRun';
+import { heldRunIds, openRunDecision, RUNNER_BUSY, RUNNER_MAX_SLOTS, RUNNER_NEEDS_REPO, runnerSlots } from './agentRun';
 import { PortalAuthError } from './identity';
 import { memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
 import { seedMilestone, seedMilestoneWorld } from './seedRows.testkit';
@@ -205,6 +205,69 @@ describe('claiming', () => {
     assert.equal(again.runId, first.runId);
     assert.equal(again.task?.id, taskIds[0]);
     assert.equal(t.rows('agentRuns').length, 1);
+  });
+});
+
+describe('parallel runs', () => {
+  it('reads slots and held runs defensively', () => {
+    assert.equal(runnerSlots(undefined), 1);
+    assert.equal(runnerSlots(3), 3);
+    assert.equal(runnerSlots(2.7), 2);
+    assert.equal(runnerSlots(0), 1);
+    assert.equal(runnerSlots(99), RUNNER_MAX_SLOTS);
+    assert.equal(runnerSlots('3'), 1);
+    assert.deepEqual(heldRunIds(['a', 'a', '', 7, 'b']), ['a', 'b']);
+    assert.deepEqual(heldRunIds('a'), []);
+  });
+
+  it('hands back an open run the runner did not list, and is full when every slot holds a run', () => {
+    assert.deepEqual(openRunDecision({ open: ['a', 'b'], held: ['a'], slots: 3 }), { resume: 'b', full: false });
+    assert.deepEqual(openRunDecision({ open: ['a', 'b'], held: ['a', 'b'], slots: 2 }), { resume: null, full: true });
+    assert.deepEqual(openRunDecision({ open: [], held: [], slots: 1 }), { resume: null, full: false });
+    // Protocol 2: one slot and no list, so the open run comes back.
+    assert.deepEqual(openRunDecision({ open: ['a'], held: [], slots: 1 }), { resume: 'a', full: false });
+  });
+
+  it('works several Building milestones at once, one run on each, up to its slots', async () => {
+    const t = memoryCtx();
+    const first = building(t, ['A1', 'A2']);
+    const second = building(t, ['B1']);
+    const third = building(t, ['C1']);
+    const one = await claim(t, RUNNER, { slots: 2, held: [] });
+    assert.equal(one.kind, 'task');
+    const two = await claim(t, RUNNER, { slots: 2, held: [one.runId] });
+    assert.equal(two.kind, 'task');
+    assert.equal(two.resumed, false);
+    const milestones = new Set(t.rows('agentRuns').map((run) => run.milestoneId));
+    assert.equal(milestones.size, 2, 'two runs on two different milestones');
+    // Both slots are in use: nothing new, even with a third milestone waiting.
+    const full = await claim(t, RUNNER, { slots: 2, held: [one.runId, two.runId] });
+    assert.equal(full.kind, 'none');
+    assert.equal(full.reason, RUNNER_BUSY);
+    assert.equal(t.rows('agentRuns').length, 2);
+    // A third slot takes the third milestone, never a second task on a busy one.
+    const three = await claim(t, RUNNER, { slots: 3, held: [one.runId, two.runId] });
+    assert.equal(three.kind, 'task');
+    const byMilestone = t.rows('agentRuns').map((run) => run.milestoneId);
+    assert.deepEqual(new Set(byMilestone), new Set([first.milestoneId, second.milestoneId, third.milestoneId]));
+    assert.equal(t.row(first.taskIds[1] as string)?.claimedBy, undefined);
+  });
+
+  it('gives a runner that lost track of a run that same run back before anything new', async () => {
+    const t = memoryCtx();
+    building(t, ['A1']);
+    building(t, ['B1']);
+    const one = await claim(t, RUNNER, { slots: 3, held: [] });
+    const again = await claim(t, RUNNER, { slots: 3, held: [] });
+    assert.equal(again.resumed, true);
+    assert.equal(again.runId, one.runId);
+    assert.equal(t.rows('agentRuns').length, 1);
+  });
+
+  it('passes slots and held runs through the claim route', () => {
+    const http = read('../agentHttp.ts');
+    assert.match(http, /slots: runnerSlots\(body\.slots\)/);
+    assert.match(http, /held: heldRunIds\(body\.held\)/);
   });
 });
 

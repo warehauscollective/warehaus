@@ -35,6 +35,8 @@ import {
   keychainAccount,
   launchAgentLabel,
   launchAgentPlist,
+  MAX_PARALLEL,
+  runSlots,
 } from './lib.mjs';
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), 'utf8');
@@ -45,14 +47,14 @@ describe('arguments', () => {
       ok: true,
       options: {
         command: 'start', production: false, id: 'peter-mbp', mode: 'interactive', once: false, repos: ['warehauscollective/warehaus'],
-        supervised: false, paused: false,
+        supervised: false, paused: false, parallel: 1,
       },
     });
     const full = parseArgs([
       'start', '--id', 'peter-mbp', '--mode', 'headless', '--once',
       '--repo', 'a/b,c/d', '--repo', 'a/b',
     ]);
-    assert.deepEqual(full.options, { command: 'start', production: false, id: 'peter-mbp', mode: 'headless', once: true, repos: ['a/b', 'c/d'], supervised: false, paused: false });
+    assert.deepEqual(full.options, { command: 'start', production: false, id: 'peter-mbp', mode: 'headless', once: true, repos: ['a/b', 'c/d'], supervised: false, paused: false, parallel: 1 });
     // A registered runner names no repository: it serves every project that has one.
     assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp']).options.repos, []);
     // The runner works only in its own clones, so there is no --dir.
@@ -281,7 +283,7 @@ describe('task outcome', () => {
       assert.equal(Math.max(...slices) <= HEARTBEAT_MS, true);
     }
     const cli = read('./cli.mjs');
-    assert.match(cli, /await waitIdle\(config, idleDelayMs\(empty\)\)/);
+    assert.match(cli, /await waitIdle\(config, coolDown == null \? idleDelayMs\(empty\)/);
     // The ping goes through the protocol client and carries Paused.
     assert.match(cli, /client\(config\)\.ping\(\{ paused: control\.paused \}\)/);
   });
@@ -372,7 +374,8 @@ describe('drivers', () => {
     assert.equal(selectDriver({ kind: 'task', driver: 'claude_code' }), 'claude_code');
     assert.equal(selectDriver({ kind: 'task' }), 'claude_code');
     const cli = read('./cli.mjs');
-    assert.match(cli, /if \(buildStillRunning\) await sleep\(idleDelayMs\(1\)\)/);
+    // A Cursor agent still going gives its slot back and is followed again after a minute.
+    assert.match(cli, /if \(buildStillRunning\) slots\.coolDown\(work\.runId, idleDelayMs\(1\)\)/);
     // The branch steps live in repo.mjs and the build step in drivers/cursorBuild.mjs.
     // cursorFlow.test.mjs runs both against a real repository with the Cursor API mocked.
     const repo = read('./repo.mjs');
@@ -513,5 +516,51 @@ describe('runner Mac app supervision', () => {
     assert.equal(attentionForStatus(426), 'out_of_date');
     assert.equal(attentionForStatus(500), null);
     assert.equal(attentionForStatus(undefined), null);
+  });
+});
+
+describe('parallel runs', () => {
+  it('reads --parallel for headless runs only, from 1 to 4', () => {
+    assert.equal(parseArgs(['start', '--mode', 'headless', '--parallel', '3']).options.parallel, 3);
+    assert.equal(parseArgs(['start']).options.parallel, 1);
+    assert.equal(parseArgs(['start', '--parallel', '1']).ok, true);
+    assert.match(parseArgs(['start', '--parallel', '2']).error, /needs --mode headless/);
+    assert.match(parseArgs(['start', '--mode', 'headless', '--parallel', '2', '--once']).error, /do not go together/);
+    for (const bad of ['0', '5', '2.5', 'many']) {
+      assert.match(parseArgs(['start', '--mode', 'headless', '--parallel', bad]).error, /--parallel must be/);
+    }
+    assert.equal(MAX_PARALLEL, 4);
+    // The Portal caps slots at the same number.
+    assert.match(read('../../../apps/portal/convex/_lib/agentRun.ts'), /RUNNER_MAX_SLOTS = 4;/);
+  });
+
+  it('holds a slot per run, and a Cursor build cools down before the Portal hands it back', () => {
+    let now = 1_000;
+    const slots = runSlots(2, () => now);
+    assert.equal(slots.free(), true);
+    slots.start('a');
+    slots.start('b');
+    assert.equal(slots.free(), false);
+    assert.deepEqual(slots.held(), ['a', 'b']);
+    slots.finish('a');
+    assert.equal(slots.free(), true);
+    assert.equal(slots.running, 1);
+    slots.coolDown('b', 60_000);
+    assert.equal(slots.running, 0);
+    assert.deepEqual(slots.held(), ['b']);
+    assert.equal(slots.nextCoolDownMs(), 60_000);
+    now += 60_000;
+    assert.deepEqual(slots.held(), []);
+    assert.equal(slots.nextCoolDownMs(), null);
+    // Followed again: it holds a slot as before.
+    slots.start('b');
+    assert.deepEqual(slots.held(), ['b']);
+  });
+
+  it('sends its slots and held runs with each claim, and finishes and reports each run on its own', () => {
+    const cli = read('./cli.mjs');
+    assert.match(cli, /slots: slots\.size,\s*held: slots\.held\(\)/);
+    assert.match(cli, /report\('working', \{ \.\.\.about, running: slots\.running \}\)/);
+    assert.match(cli, /runId: work\.runId,/);
   });
 });

@@ -43,9 +43,10 @@ export const RUNNER_PAIR_PATHS = Object.freeze({
  * The wire version this runner speaks, sent on every call as
  * `X-Runner-Protocol`. The Portal refuses claims from a registered runner
  * below `RUNNER_PROTOCOL_MIN` and shows "Runner out of date". A runner that
- * sends no header is version 1.
+ * sends no header is version 1. Version 3 adds parallel runs: a claim sends
+ * `slots` and the run ids it `held`s. Version 2 still works, one run at a time.
  */
-export const RUNNER_PROTOCOL_VERSION = 2;
+export const RUNNER_PROTOCOL_VERSION = 3;
 export const RUNNER_PROTOCOL_MIN = 2;
 export const RUNNER_PROTOCOL_HEADER = 'x-runner-protocol';
 
@@ -108,7 +109,14 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
 
   return {
     post,
-    claim: ({ mode, repos, paused }) => post(RUNNER_PATHS.claim, { mode, repos, ...(paused != null ? { paused } : {}) }),
+    claim: ({ mode, repos, paused, slots, held }) =>
+      post(RUNNER_PATHS.claim, {
+        mode,
+        repos,
+        ...(paused != null ? { paused } : {}),
+        ...(slots != null ? { slots } : {}),
+        ...(held != null ? { held } : {}),
+      }),
     // The runner app sends `paused` on every call so the Portal can show Paused.
     ping: ({ paused } = {}) => post(RUNNER_PATHS.ping, paused != null ? { paused } : {}),
     appRelease: () => post(RUNNER_APP_RELEASE_PATH, {}),

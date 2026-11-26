@@ -34,7 +34,7 @@ final class RunnerSupervisorTests: XCTestCase {
     func testStartsTheRunnerHeadlessOnProductionAndFollowsItsState() throws {
         let runner = supervisor()
         runner.start()
-        XCTAssertEqual(processes.made.first?.arguments, ["start", "--supervised", "--mode", "headless", "--production"])
+        XCTAssertEqual(processes.made.first?.arguments, ["start", "--supervised", "--mode", "headless", "--parallel", "4", "--production"])
         let child = try XCTUnwrap(processes.last)
         XCTAssertTrue(child.started)
         XCTAssertEqual(runner.snapshot.activity, .starting)

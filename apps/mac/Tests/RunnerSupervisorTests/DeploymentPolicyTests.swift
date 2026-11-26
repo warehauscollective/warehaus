@@ -13,7 +13,7 @@ final class DeploymentPolicyTests: XCTestCase {
         XCTAssertFalse(release.allows(agentURL: "http://unique-turtle-383.convex.site"))
         XCTAssertFalse(release.allows(agentURL: "not a url"))
         XCTAssertEqual(release.configFileName, "runner.prod.env")
-        XCTAssertEqual(release.runnerArguments(paused: false), ["start", "--supervised", "--mode", "headless", "--production"])
+        XCTAssertEqual(release.runnerArguments(paused: false), ["start", "--supervised", "--mode", "headless", "--parallel", "4", "--production"])
         XCTAssertEqual(release.removeArguments, ["remove", "--production"])
         XCTAssertEqual(release.portalURL.host, "warehaus-portal.vercel.app")
     }

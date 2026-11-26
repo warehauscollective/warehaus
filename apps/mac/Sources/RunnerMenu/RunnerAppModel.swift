@@ -101,7 +101,7 @@ public final class RunnerAppModel: ObservableObject {
     public private(set) var setupWindows: SetupWindows?
 
     /// The app as shipped: the real supervisor and system services. A debug
-    /// build launched with `-RunnerFixture ready|working|paused|attention`
+    /// build launched with `-RunnerFixture ready|working|working-several|paused|attention`
     /// shows that state from fixture data and starts no runner, and one
     /// launched with `-SetupFixture <name>` shows the checklist from fixture
     /// data and runs no setup command (FixtureSetupSystem), and one

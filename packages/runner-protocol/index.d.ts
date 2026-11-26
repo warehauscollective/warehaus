@@ -26,7 +26,7 @@ export declare function isMilestoneBranch(value: unknown): value is string;
 
 export type RunnerClient = {
   post(path: string, body: unknown): Promise<Record<string, unknown>>;
-  claim(input: { mode: string; repos: string[]; paused?: boolean }): Promise<Record<string, unknown>>;
+  claim(input: { mode: string; repos: string[]; paused?: boolean; slots?: number; held?: string[] }): Promise<Record<string, unknown>>;
   ping(input?: { paused?: boolean }): Promise<Record<string, unknown>>;
   appRelease(): Promise<Record<string, unknown>>;
   unpair(): Promise<Record<string, unknown>>;

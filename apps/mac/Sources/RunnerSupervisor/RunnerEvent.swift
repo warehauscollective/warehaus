@@ -37,13 +37,16 @@ public enum RunKind: String, Codable, Sendable {
 
 /// The piece of work a `working` or `finished` line is about.
 public struct WorkInfo: Equatable, Sendable {
+    /// The Portal's run id. A runner that predates parallel runs sends none.
+    public var runId: String?
     public var kind: RunKind
     public var milestoneId: String?
     public var milestone: String
     public var taskOrder: Int?
     public var task: String?
 
-    public init(kind: RunKind, milestoneId: String? = nil, milestone: String, taskOrder: Int? = nil, task: String? = nil) {
+    public init(runId: String? = nil, kind: RunKind, milestoneId: String? = nil, milestone: String, taskOrder: Int? = nil, task: String? = nil) {
+        self.runId = runId
         self.kind = kind
         self.milestoneId = milestoneId
         self.milestone = milestone
@@ -57,7 +60,8 @@ public enum RunnerEvent: Equatable, Sendable {
     case started(runnerId: String, production: Bool, paused: Bool)
     case idle
     case working(WorkInfo)
-    /// `status` is done, blocked or failed.
+    /// `status` is done, blocked or failed, or running for a Cursor build
+    /// whose cloud agent is still going and is followed again shortly.
     case finished(WorkInfo, status: String)
     case paused
     case attention(AttentionReason)
@@ -97,6 +101,7 @@ public enum RunnerEvent: Equatable, Sendable {
         var runnerId: String?
         var production: Bool?
         var paused: Bool?
+        var runId: String?
         var kind: String?
         var milestoneId: String?
         var milestone: String?
@@ -107,7 +112,7 @@ public enum RunnerEvent: Equatable, Sendable {
 
         var work: WorkInfo? {
             guard let value = kind, let kind = RunKind(rawValue: value) else { return nil }
-            return WorkInfo(kind: kind, milestoneId: milestoneId, milestone: milestone ?? "", taskOrder: taskOrder, task: task)
+            return WorkInfo(runId: runId, kind: kind, milestoneId: milestoneId, milestone: milestone ?? "", taskOrder: taskOrder, task: task)
         }
     }
 }

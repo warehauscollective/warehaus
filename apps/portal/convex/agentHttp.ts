@@ -24,7 +24,7 @@
 import { RUNNER_APP_RELEASE_PATH, RUNNER_PAIR_PATHS, RUNNER_PROTOCOL_HEADER } from '@warehaus/runner-protocol';
 import { internal } from './_generated/api';
 import { httpAction } from './_generated/server';
-import { RUNNER_ID_INVALID, RUNNER_ID_PATTERN, RUNNER_UNAUTHORIZED, runnerRepos } from './_lib/agentRun';
+import { heldRunIds, RUNNER_ID_INVALID, RUNNER_ID_PATTERN, RUNNER_UNAUTHORIZED, runnerRepos, runnerSlots } from './_lib/agentRun';
 import {
   PAIRING_BAD_REQUEST,
   pairingCodeFrom,
@@ -118,6 +118,9 @@ export const agentHttp = httpAction(async (ctx, request) => {
       // The project setting picks the agent. A tool on the request is ignored.
       repos: runnerRepos(body.repos),
       anyRepo: true,
+      // Parallel runs (protocol 3). A runner that sends neither works one run at a time.
+      ...(typeof body.slots === 'number' ? { slots: runnerSlots(body.slots) } : {}),
+      ...(Array.isArray(body.held) ? { held: heldRunIds(body.held) } : {}),
     });
     return json(result, 200);
   }

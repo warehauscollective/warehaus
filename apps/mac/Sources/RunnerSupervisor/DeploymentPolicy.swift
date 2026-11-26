@@ -35,10 +35,13 @@ public struct DeploymentPolicy: Equatable, Sendable {
         production ? URL(string: "https://warehaus-portal.vercel.app/projects")! : URL(string: "http://localhost:3100/projects")!
     }
 
+    /// How many milestones the runner works at once, one run on each.
+    public static let parallelRuns = 4
+
     /// The runner's arguments. Headless, because nobody drives a session from
     /// the menu bar. `--production` is written in for release builds only.
     public func runnerArguments(paused: Bool) -> [String] {
-        var arguments = ["start", "--supervised", "--mode", "headless"]
+        var arguments = ["start", "--supervised", "--mode", "headless", "--parallel", String(Self.parallelRuns)]
         if production { arguments.append("--production") }
         if paused { arguments.append("--paused") }
         return arguments

@@ -34,6 +34,7 @@ import {
   childEnv,
   readEnv,
   RUNNER_HOME_DIR,
+  runSlots,
   selectDriver,
   supervisorCommand,
   supervisorLine,
@@ -62,7 +63,7 @@ function report(type, fields = {}) {
  * every heartbeat; a run in progress finishes first ("Pause after this run").
  * `wake` cuts a wait short so Pause and Resume take effect at once.
  */
-const control = { paused: false, wake: null };
+const control = { paused: false, wake: null, changed: 0 };
 
 function listenForCommands() {
   const lines = createInterface({ input: process.stdin });
@@ -219,10 +220,6 @@ function holdAwake() {
   return () => child.kill();
 }
 
-function sleep(ms) {
-  return new Promise((done) => setTimeout(done, ms));
-}
-
 /** A sleep that Pause or Resume from the app cuts short. */
 function wakeableSleep(ms) {
   return new Promise((done) => {
@@ -243,12 +240,27 @@ function wakeableSleep(ms) {
  */
 function waitIdle(config, ms) {
   const pausedAtStart = control.paused;
+  const changedAtStart = control.changed;
   return idleWait({
     ms,
     sleep: wakeableSleep,
-    stopped: () => control.paused !== pausedAtStart,
+    // A run that ends frees a slot, so the wait ends too.
+    stopped: () => control.paused !== pausedAtStart || control.changed !== changedAtStart,
     ping: () => client(config).ping({ paused: control.paused }),
   });
+}
+
+/**
+ * Every slot is in use, or the runner is paused with runs still going. Waits
+ * one heartbeat, or less when a run ends or Pause changes, then pings so the
+ * Portal keeps seeing the runner while it works.
+ */
+async function waitBusy(config, ms = HEARTBEAT_MS) {
+  const changedAtStart = control.changed;
+  const pausedAtStart = control.paused;
+  await wakeableSleep(ms);
+  if (control.changed !== changedAtStart || control.paused !== pausedAtStart) return;
+  await client(config).ping().catch((error) => say(error.message));
 }
 
 /** How long a GitHub sign-in check is trusted before `gh auth status` runs again. */
@@ -373,46 +385,25 @@ async function main() {
   const serves = config.repos.length ? config.repos.join(', ') : 'every project with a repository';
   say(`Runner ${config.id} · ${config.mode} · ${serves} · ${new URL(config.url).hostname}`);
   report('started', { runnerId: config.id, production: config.production, paused: control.paused });
-  let empty = 0;
-  let failures = 0;
-  for (;;) {
-    if (control.paused) {
-      report('paused');
-      await client(config).ping({ paused: true }).catch((error) => say(error.message));
-      await wakeableSleep(HEARTBEAT_MS);
-      continue;
-    }
-    if (!githubReady()) {
-      report('attention', { reason: 'github' });
-      await wakeableSleep(idleDelayMs(1));
-      continue;
-    }
-    let work;
-    try {
-      work = await client(config).claim({ mode: config.mode, repos: config.repos, ...(supervised ? { paused: false } : {}) });
-      failures = 0;
-    } catch (error) {
-      say(error.message);
-      failures += 1;
-      const reason = attentionForStatus(error.status) ?? (failures >= 3 ? 'unreachable' : null);
-      if (reason) report('attention', { reason });
-      if (parsed.options.once) process.exit(1);
-      await wakeableSleep(idleDelayMs(4));
-      continue;
-    }
+  const slots = runSlots(parsed.options.parallel);
+  if (slots.size > 1) say(`Works up to ${slots.size} milestones at once`);
+
+  /** One run in its own slot. It reports working and finished with its run id, then frees the slot. */
+  function startRun(work) {
     const driver = selectDriver(work);
-    let buildStillRunning = false;
-    if (work.kind === 'task' || work.kind === 'planning' || work.kind === 'build') {
-      empty = 0;
+    const about = {
+      runId: work.runId,
+      kind: work.kind,
+      milestoneId: work.milestone?.id ?? null,
+      milestone: work.milestone?.name ?? '',
+      ...(work.kind === 'task' ? { taskOrder: work.task?.order ?? null, task: work.task?.title ?? '' } : {}),
+    };
+    slots.start(work.runId);
+    report('working', { ...about, running: slots.running });
+    return (async () => {
       const release = holdAwake();
-      const about = {
-        kind: work.kind,
-        milestoneId: work.milestone?.id ?? null,
-        milestone: work.milestone?.name ?? '',
-        ...(work.kind === 'task' ? { taskOrder: work.task?.order ?? null, task: work.task?.title ?? '' } : {}),
-      };
-      report('working', about);
       let status = 'done';
+      let buildStillRunning = false;
       try {
         if (driver === 'cursor') {
           buildStillRunning = (await doBuild(config, work)) === 'running';
@@ -436,15 +427,83 @@ async function main() {
       } finally {
         release();
       }
-      if (!buildStillRunning) report('finished', { ...about, status });
-    } else {
-      empty += 1;
+      // A Cursor agent still going: give the slot back, and follow it again after a minute.
+      if (buildStillRunning) slots.coolDown(work.runId, idleDelayMs(1));
+      else slots.finish(work.runId);
+      report('finished', { ...about, status, running: slots.running });
+      control.changed += 1;
+      control.wake?.();
+    })();
+  }
+
+  let empty = 0;
+  let failures = 0;
+  let pausedReported = false;
+  for (;;) {
+    if (control.paused) {
+      // Pause after this run: runs in progress finish first, and only then is the runner Paused.
+      if (slots.running > 0) {
+        await waitBusy(config);
+        continue;
+      }
+      if (!pausedReported) report('paused');
+      pausedReported = true;
+      await client(config).ping({ paused: true }).catch((error) => say(error.message));
+      await wakeableSleep(HEARTBEAT_MS);
+      continue;
+    }
+    pausedReported = false;
+    if (!githubReady()) {
+      report('attention', { reason: 'github' });
+      await wakeableSleep(idleDelayMs(1));
+      continue;
+    }
+    if (!slots.free()) {
+      await waitBusy(config, Math.min(HEARTBEAT_MS, slots.nextCoolDownMs() ?? HEARTBEAT_MS));
+      continue;
+    }
+    let work;
+    try {
+      work = await client(config).claim({
+        mode: config.mode,
+        repos: config.repos,
+        slots: slots.size,
+        held: slots.held(),
+        ...(supervised ? { paused: false } : {}),
+      });
+      failures = 0;
+    } catch (error) {
+      say(error.message);
+      failures += 1;
+      const reason = attentionForStatus(error.status) ?? (failures >= 3 ? 'unreachable' : null);
+      if (reason) report('attention', { reason });
+      if (parsed.options.once) process.exit(1);
+      await wakeableSleep(idleDelayMs(4));
+      continue;
+    }
+    if (work.kind === 'task' || work.kind === 'planning' || work.kind === 'build') {
+      empty = 0;
+      // A Portal that predates parallel runs hands back a run this runner already holds. Wait for it instead.
+      if (slots.held().includes(work.runId)) {
+        await waitBusy(config);
+        continue;
+      }
+      const run = startRun(work);
+      if (parsed.options.once) {
+        await run;
+        break;
+      }
+      // Fill the next free slot straight away.
+      continue;
+    }
+    empty += 1;
+    if (slots.running === 0) {
       report('idle');
       if (!parsed.options.once) say('Nothing to do. Waiting.');
     }
     if (parsed.options.once) break;
-    if (buildStillRunning) await sleep(idleDelayMs(1));
-    else if (work.kind !== 'task' && work.kind !== 'planning' && work.kind !== 'build') await waitIdle(config, idleDelayMs(empty));
+    const coolDown = slots.nextCoolDownMs();
+    await waitIdle(config, coolDown == null ? idleDelayMs(empty) : Math.min(idleDelayMs(empty), Math.max(coolDown, 1_000)));
   }
 }
 
