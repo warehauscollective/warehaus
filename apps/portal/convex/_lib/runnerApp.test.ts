@@ -145,7 +145,6 @@ describe('pausing a runner', () => {
     assert.equal(copy.dot, 'warning');
     assert.equal(copy.meta, 'studio-mac · paused');
     assert.equal(copy.helper, RUNNER_PAUSED_HELPER);
-    assert.equal(copy.startCommand, null);
-    assert.equal(copy.setupCommand, null);
+    assert.equal(copy.onTheMac, null);
   });
 });

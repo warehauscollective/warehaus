@@ -98,11 +98,11 @@ describe('runner status modal body', () => {
     );
     assert.equal(
       text(body('offline')),
-      "Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE — START COMMAND npm run runner -- start --production No runner serving this repository has been seen in the last 10 minutes. Moving a milestone to Building won't start an agent until one is running.",
+      "Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE — ON THE MAC Open Warehaus Runner from Applications No runner serving this repository has been seen in the last 10 minutes. The runner app starts at login, so check the Mac is on and open Warehaus Runner if it was quit. Moving a milestone to Building won't start an agent until one is running.",
     );
     assert.equal(
       text(body('offline-building')),
-      'Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE Client experience launch START COMMAND npm run runner -- start --production Client experience launch is Building and waiting for the runner. Start it to pick the milestone up.',
+      'Runner offline RUNNER peter-mbp-prod LAST SEEN 2h ago MILESTONE Client experience launch ON THE MAC Open Warehaus Runner from Applications Client experience launch is Building and waiting for the runner. Open Warehaus Runner on the Mac to pick the milestone up.',
     );
     assert.equal(
       text(body('no-repo')),
@@ -110,7 +110,7 @@ describe('runner status modal body', () => {
     );
     assert.equal(
       text(body('no-runner')),
-      "Runner not set up RUNNER — LAST SEEN — MILESTONE — The command prints an 8-character code. Enter it here to pair that Mac. Its secret goes straight to the Mac's Keychain and is never shown.",
+      'Runner not set up RUNNER — LAST SEEN — MILESTONE — Download the app and open it. It asks you to sign in to GitHub and Claude Code, then sends you back here to confirm this Mac. No terminal needed.',
     );
   });
 });
@@ -137,7 +137,9 @@ describe('runner status is staff only', () => {
 
   it('moves the relative times on a local clock, not a second query', () => {
     // The chip's one query, plus the pairing lookup that runs only while staff confirm a code.
-    assert.equal((source.match(/useSafeQuery</g) ?? []).length, 2);
+    // Health, the pairing lookup while confirming, and the download only while setting up.
+    assert.equal((source.match(/useSafeQuery</g) ?? []).length, 3);
+    assert.match(source, /querying && settingUp \? \{ hostSlug \} : 'skip'/);
     assert.match(source, /RUNNER_CLOCK_MS = 20_000/);
     assert.match(source, /window\.setInterval\(\(\) => setNow\(Date\.now\(\)\), intervalMs\)/);
   });
@@ -159,19 +161,28 @@ describe('runner set-up states', () => {
   const copy = runnerHealthCopy(view, NOW);
   const html = (element: Parameters<typeof renderToStaticMarkup>[0]) => text(renderToStaticMarkup(element));
 
-  it('pairs from the code the command prints', () => {
+  it('sets up from the runner app, with no terminal', () => {
+    const download = { url: 'https://example.convex.cloud/app.zip', version: '1.0.0' };
     assert.equal(
-      html(createElement(RunnerSetupBody, { production: true, code: '', onCode: noop, onPair: noop })),
-      "No runner set up ON THE MAC THAT WILL RUN WORK npm run runner -- setup --production Pairing code The command prints an 8-character code. Enter it here to pair that Mac. Its secret goes straight to the Mac's Keychain and is never shown. Pair runner",
+      html(createElement(RunnerSetupBody, { download, code: '', onCode: noop, onPair: noop })),
+      'No runner set up RUNNER APP FOR MAC Apple silicon · macOS 14 or later · 1.0.0 Pairing code Download the app and open it. It asks you to sign in to GitHub and Claude Code, then sends you back here to confirm this Mac. No terminal needed. Download runner app',
     );
+    assert.match(html(createElement(RunnerSetupBody, { download, code: 'K7QM-4XPA', onCode: noop, onPair: noop })), /Pair runner$/);
+    assert.match(html(createElement(RunnerSetupBody, { download: null, code: '', onCode: noop, onPair: noop })), /no release on this deployment yet/);
     assert.equal(
       html(createElement(RunnerConfirmBody, { code: 'K7QM-4XPA', production: true, runnerId: 'peter-mbp-prod', onRunnerId: noop, onCancel: noop, onConfirm: noop })),
-      'Confirm this runner CODE K7QM-4XPA DEPLOYMENT Production Runner id Only confirm a code you can see in your own terminal. Codes expire after 10 minutes. Cancel Confirm and pair',
+      'Confirm this runner CODE K7QM-4XPA DEPLOYMENT Production Runner id Only confirm a code you can see in the runner app on your Mac. Codes expire after 10 minutes. Cancel Confirm and pair',
     );
     assert.equal(
-      html(createElement(RunnerPairedBody, { runnerId: 'peter-mbp-prod', lastSeen: 'Just now', production: true, onDone: noop })),
-      'Runner paired RUNNER peter-mbp-prod LAST SEEN Just now SERVES Every project with a repository this Mac can reach KEEP IT RUNNING npm run runner -- install --production Installing adds a login item that starts the runner at login and restarts it if it stops. Done',
+      html(createElement(RunnerPairedBody, { runnerId: 'peter-mbp-prod', lastSeen: 'Just now', onDone: noop })),
+      'Runner paired RUNNER peter-mbp-prod LAST SEEN Just now SERVES Every project with a repository this Mac can reach KEEP IT RUNNING Starts at login from the runner app The runner app starts at login and restarts the runner if it stops. Pause it or remove it from the menu bar on the Mac. Done',
     );
+  });
+
+  it('shows no terminal command anywhere in the runner UI', () => {
+    for (const file of ['./RunnerStatus.tsx', './RunnerPairLink.tsx']) {
+      assert.doesNotMatch(readFileSync(new URL(file, import.meta.url), 'utf8'), /npm run|git pull|terminal command/, file);
+    }
   });
 
   it('lists registered runners with Revoke, and asks before revoking the last one', () => {
@@ -186,11 +197,11 @@ describe('runner set-up states', () => {
     );
   });
 
-  it('says a runner is out of date and how to update it', () => {
+  it('says a runner is out of date and that the app updates itself', () => {
     const old = { ...view, protocolMin: 4, runners: [{ ...view.runners[0]!, protocolVersion: 3 }] };
     assert.equal(
       html(createElement(RunnerOutOfDateBody, { view: old, now: NOW })),
-      'Runner out of date RUNNER peter-mbp-prod LAST SEEN 4m ago VERSION Protocol 3 · the Portal needs 4 UPDATE git pull && npm run runner -- install --production The Portal refuses claims from this runner until it is updated. The runner never updates its own code.',
+      'Runner out of date RUNNER peter-mbp-prod LAST SEEN 4m ago VERSION Protocol 3 · the Portal needs 4 UPDATE The runner app updates itself between runs The Portal refuses claims from this runner until it updates. The app installs the update after any run in progress. If it stays out of date, choose Check for update in its menu.',
     );
     assert.equal(html(createElement(RunnerOutOfDateBody, { view, now: NOW })), '');
   });
@@ -208,5 +219,27 @@ describe('runner set-up states', () => {
     assert.match(source, /position: 'absolute', top: 0, right: 0/);
     assert.match(chip('ready'), /data-size="default"/);
     assert.match(chip('ready', true), /data-size="compact"/);
+  });
+});
+
+describe('pairing link from the runner app', async () => {
+  const { runnerPairCode } = await import('./RunnerPairLink');
+  const { runnerPairUrl, RUNNER_PAIR_QUERY } = await import('@warehaus/runner-protocol');
+  it('reads the code from ?runnerPair= and ignores anything else', () => {
+    assert.equal(runnerPairCode('k7qm-4xpa'), 'K7QM-4XPA');
+    assert.equal(runnerPairCode('K7QM4XPA'), 'K7QM-4XPA');
+    assert.equal(runnerPairCode('nope'), null);
+    assert.equal(runnerPairCode(null), null);
+  });
+  it('round-trips the URL the app opens', () => {
+    const url = new URL(runnerPairUrl('https://portal.example', 'k7qm-4xpa'));
+    assert.equal(url.pathname, '/');
+    assert.equal(runnerPairCode(url.searchParams.get(RUNNER_PAIR_QUERY)), 'K7QM-4XPA');
+  });
+  it('is mounted once in the Portal shell, staff only', () => {
+    const shell = readFileSync(new URL('../layout/PortalShell.tsx', import.meta.url), 'utf8');
+    assert.equal((shell.match(/<RunnerPairLink \/>/g) ?? []).length, 1);
+    const link = readFileSync(new URL('./RunnerPairLink.tsx', import.meta.url), 'utf8');
+    assert.match(link, /data\.tenant\.mode === 'team'/);
   });
 });

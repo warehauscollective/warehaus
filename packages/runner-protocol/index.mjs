@@ -19,6 +19,20 @@ export const RUNNER_PATHS = Object.freeze({
 /** The latest runner app build. The app asks between runs, with its runner secret. */
 export const RUNNER_APP_RELEASE_PATH = '/agent/app-release';
 
+/**
+ * The Portal page the runner app opens to pair: any Portal page with
+ * `?runnerPair=<code>` opens Confirm pairing with the code filled in, for a
+ * signed-in staff member. The code is not a secret: confirming it is.
+ */
+export const RUNNER_PAIR_QUERY = 'runnerPair';
+
+/** `https://portal.example/?runnerPair=K7QM-4XPA` from a Portal origin and a code. */
+export function runnerPairUrl(portalOrigin, code) {
+  const url = new URL('/', portalOrigin);
+  url.searchParams.set(RUNNER_PAIR_QUERY, String(code).trim().toUpperCase());
+  return url.toString();
+}
+
 /** Pairing a new runner. These two routes take no runner token. */
 export const RUNNER_PAIR_PATHS = Object.freeze({
   start: '/agent/pair/start',

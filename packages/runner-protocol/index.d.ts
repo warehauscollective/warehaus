@@ -8,6 +8,8 @@ export declare const RUNNER_PATHS: Readonly<{
   unpair: '/agent/unpair';
 }>;
 export declare const RUNNER_APP_RELEASE_PATH: '/agent/app-release';
+export declare const RUNNER_PAIR_QUERY: 'runnerPair';
+export declare function runnerPairUrl(portalOrigin: string, code: string): string;
 export declare const RUNNER_PAIR_PATHS: Readonly<{
   start: '/agent/pair/start';
   poll: '/agent/pair/poll';
