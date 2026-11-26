@@ -939,3 +939,5 @@ Add a row in the same pull request as the move.
 | 2026-11-26 | `246:9993` | Annotation (now in the section's Note) | Onboarding / O02 (old) | Onboarding / O10 · Verify email | | | Onboarding cleanup |
 | 2026-11-26 | `246:9998` | Annotation (now in the section's Note) | Onboarding / O02 (old) | Onboarding / O11 · Can't register email | | | Onboarding cleanup |
 | 2026-11-26 | `254:7703` | Annotation (now in the section's Note) | Onboarding / O03 (old) | Onboarding / O12 · Invite email | | | Onboarding cleanup |
+| 2026-11-26 | `836:4483` | Molecule/Milestone status + action (replaced by Organism/MilestoneStatusControl `1254:8530`) | Component Library / Molecules | Archive — Portal / Library status sets replaced by MilestoneStatusControl (1256:81026) |  | 1256:81026 | One status picker component |
+| 2026-11-26 | `727:10352` | Organism/StatusMenu (replaced by Organism/MilestoneStatusControl `1254:8530`) | Component Library / Organisms | Archive — Portal / Library status sets replaced by MilestoneStatusControl (1256:81026) |  | 1256:81026 | One status picker component |
