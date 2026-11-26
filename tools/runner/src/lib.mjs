@@ -390,19 +390,6 @@ export function heartbeatSlices(waitMs, beatMs = HEARTBEAT_MS) {
   return slices;
 }
 
-/**
- * Calls `ping` every heartbeat while a run is in progress, so a long run still
- * reads as a live runner. Returns the stop. A failed ping is skipped.
- */
-export function keepCheckingIn(ping, beatMs = HEARTBEAT_MS) {
-  const timer = setInterval(() => {
-    Promise.resolve()
-      .then(ping)
-      .catch(() => {});
-  }, beatMs);
-  return () => clearInterval(timer);
-}
-
 const SECRET_VALUE =
   /(sk-[A-Za-z0-9_-]{16,}|gh[pousr]_[A-Za-z0-9]{20,}|whp_[A-Za-z0-9_-]{12,}|Bearer\s+[A-Za-z0-9._~+/=-]{12,}|eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{6,})/g;
 

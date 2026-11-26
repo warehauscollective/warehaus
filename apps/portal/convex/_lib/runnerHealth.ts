@@ -37,14 +37,6 @@ export type RunnerHealthRunner = {
   protocolVersion?: number | null;
 };
 export type RunnerHealthMilestone = { milestoneId: string; milestoneName: string };
-/** A run a runner holds on another project. Names only, for staff. */
-export type RunnerHealthElsewhere = {
-  runnerId: string;
-  milestoneName: string;
-  projectName: string;
-  /** A planning run reads as planning. Anything else is building. */
-  planning?: boolean;
-};
 
 /** What the staff query returns for one project. */
 export type RunnerHealthView = {
@@ -57,8 +49,6 @@ export type RunnerHealthView = {
   runners: RunnerHealthRunner[];
   /** The milestone a runner is on right now, for this project. */
   working: RunnerHealthMilestone | null;
-  /** The run a runner that serves this project holds on another project, if any. */
-  workingElsewhere?: RunnerHealthElsewhere | null;
   /** A milestone on this project in Building, if any. */
   building: RunnerHealthMilestone | null;
   /** Runners registered on this deployment, whatever the project. */
@@ -67,7 +57,7 @@ export type RunnerHealthView = {
   protocolMin?: number;
 };
 
-export const RUNNER_HEALTH_STATES = ['ready', 'working', 'working-elsewhere', 'offline', 'offline-building', 'no-repo', 'no-runner'] as const;
+export const RUNNER_HEALTH_STATES = ['ready', 'working', 'offline', 'offline-building', 'no-repo', 'no-runner'] as const;
 export type RunnerHealthState = (typeof RUNNER_HEALTH_STATES)[number];
 
 /** The allowed runner seen most recently. One never seen sorts last. */
@@ -83,13 +73,8 @@ export function runnerHealthState(view: RunnerHealthView, now: number): RunnerHe
   if (!view.repoSet) return 'no-repo';
   if (!view.runnerAllowed || view.runners.length === 0) return 'no-runner';
   if (view.working) return 'working';
-  // A runner holds one run at a time. One busy on another project is working,
-  // not offline, however long ago it called. Another runner that is free and
-  // online can still take this project's work, so that reads as Ready.
-  const busy = view.workingElsewhere?.runnerId;
-  const free = latestRunner(busy ? view.runners.filter((runner) => runner.id !== busy) : view.runners)?.lastSeenAt;
-  if (free != null && now - free < RUNNER_READY_WITHIN_MS) return 'ready';
-  if (busy) return 'working-elsewhere';
+  const seen = latestRunner(view.runners)?.lastSeenAt;
+  if (seen != null && now - seen < RUNNER_READY_WITHIN_MS) return 'ready';
   return view.building ? 'offline-building' : 'offline';
 }
 
@@ -168,7 +153,6 @@ export const RUNNER_EMPTY = '—';
 const LABEL: Record<RunnerHealthState, { full: string; compact: string }> = {
   ready: { full: 'Runner ready', compact: 'Ready' },
   working: { full: 'Runner working', compact: 'Working' },
-  'working-elsewhere': { full: 'Runner working', compact: 'Working elsewhere' },
   offline: { full: 'Runner offline', compact: 'Offline' },
   'offline-building': { full: 'Runner offline', compact: 'Offline' },
   'no-repo': { full: 'Runner not set up', compact: 'Not set up' },
@@ -193,10 +177,6 @@ export type RunnerHealthCopy = {
   setupCommand: string | null;
   lastSeen: string;
   milestone: string;
-  /** The key above the milestone in the modal. */
-  milestoneLabel: string;
-  /** Only while the runner is busy on another project: that project's name. */
-  project: string | null;
   helper: string;
 };
 
@@ -219,8 +199,6 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
     warning: state === 'offline-building',
     label: LABEL[state].full,
     compactLabel: LABEL[state].compact,
-    milestoneLabel: 'MILESTONE',
-    project: null,
   };
   if (state === 'no-repo') {
     return {
@@ -248,9 +226,7 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
       helper: RUNNER_SETUP_HELPER,
     };
   }
-  const elsewhere = state === 'working-elsewhere' ? view.workingElsewhere : null;
-  // Busy on another project: the modal names the runner that holds that run.
-  const runner = (elsewhere && view.runners.find((row) => row.id === elsewhere.runnerId)) || latestRunner(view.runners);
+  const runner = latestRunner(view.runners);
   const name = runner?.id ?? RUNNER_EMPTY;
   const seen = runner?.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now) : null;
   const fields = { runner: name, lastSeen: seen ?? RUNNER_EMPTY, startCommand: null, setupCommand: null };
@@ -258,19 +234,6 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
   if (state === 'working') {
     const milestone = view.working?.milestoneName ?? RUNNER_EMPTY;
     return { ...base, ...fields, dot: 'warning', meta: milestone, milestone, helper: 'The runner is working on this milestone.' };
-  }
-  if (elsewhere) {
-    const doing = elsewhere.planning ? 'planning' : 'building';
-    return {
-      ...base,
-      ...fields,
-      dot: 'warning',
-      meta: `on ${elsewhere.projectName}`,
-      milestone: elsewhere.milestoneName,
-      milestoneLabel: doing.toUpperCase(),
-      project: elsewhere.projectName,
-      helper: `${name} is ${doing} ${elsewhere.milestoneName} on ${elsewhere.projectName}. It'll pick this project up when it's done.`,
-    };
   }
   if (state === 'ready') {
     return {
@@ -305,5 +268,5 @@ export function runnerHealthCopy(view: RunnerHealthView, now: number): RunnerHea
   };
 }
 
-/** How often a runner says it is alive, idle or mid-run, so a healthy one stays inside the Ready window. */
+/** How often an idle runner says it is alive, so a healthy one stays inside the Ready window. */
 export const RUNNER_HEARTBEAT_MS = 75_000;
