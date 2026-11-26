@@ -7,7 +7,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { createHash, randomBytes } from 'node:crypto';
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir, hostname } from 'node:os';
 import { join } from 'node:path';
 import { RUNNER_PAIR_PATHS } from '../../../packages/runner-protocol/index.mjs';
@@ -36,6 +36,21 @@ export function readKeychainSecret(deploymentName, id) {
     encoding: 'utf8',
   });
   return found.status === 0 ? found.stdout.trim() : '';
+}
+
+/** Deletes this runner's Keychain entry. True when it is gone, including when there was none. */
+export function deleteKeychainSecret(deploymentName, id) {
+  if (process.platform !== 'darwin' || !id) return true;
+  const removed = spawnSync('security', ['delete-generic-password', '-s', KEYCHAIN_SERVICE, '-a', keychainAccount(deploymentName, id)], {
+    stdio: 'ignore',
+  });
+  // 44 is errSecItemNotFound: nothing to delete.
+  return removed.status === 0 || removed.status === 44;
+}
+
+/** Deletes the file setup wrote for this deployment. */
+export function removeSavedConfig(production) {
+  rmSync(join(configDir(), deploymentFor(production).configFile), { force: true });
 }
 
 function storeKeychainSecret(deploymentName, id, secret) {

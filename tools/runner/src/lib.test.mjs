@@ -11,6 +11,10 @@ import {
   idleDelayMs,
   isMilestoneBranch,
   parseArgs,
+  attentionForStatus,
+  SUPERVISOR_PREFIX,
+  supervisorCommand,
+  supervisorLine,
   mapCursorCommits,
   parseGitLog,
   parsePlan,
@@ -37,13 +41,16 @@ describe('arguments', () => {
   it('reads start with an id and defaults to interactive', () => {
     assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp', '--repo', 'WarehausCollective/warehaus']), {
       ok: true,
-      options: { command: 'start', production: false, id: 'peter-mbp', mode: 'interactive', once: false, repos: ['warehauscollective/warehaus'] },
+      options: {
+        command: 'start', production: false, id: 'peter-mbp', mode: 'interactive', once: false, repos: ['warehauscollective/warehaus'],
+        supervised: false, paused: false,
+      },
     });
     const full = parseArgs([
       'start', '--id', 'peter-mbp', '--mode', 'headless', '--once',
       '--repo', 'a/b,c/d', '--repo', 'a/b',
     ]);
-    assert.deepEqual(full.options, { command: 'start', production: false, id: 'peter-mbp', mode: 'headless', once: true, repos: ['a/b', 'c/d'] });
+    assert.deepEqual(full.options, { command: 'start', production: false, id: 'peter-mbp', mode: 'headless', once: true, repos: ['a/b', 'c/d'], supervised: false, paused: false });
     // A registered runner names no repository: it serves every project that has one.
     assert.deepEqual(parseArgs(['start', '--id', 'peter-mbp']).options.repos, []);
     // The runner works only in its own clones, so there is no --dir.
@@ -263,7 +270,8 @@ describe('task outcome', () => {
     }
     const cli = read('./cli.mjs');
     assert.match(cli, /await idleWait\(config, idleDelayMs\(empty\)\)/);
-    assert.match(cli, /call\(config, '\/agent\/ping', \{\}\)\.catch\(\(\) => \{\}\)/);
+    // The ping goes through the protocol client (it used to call an undefined `call`) and carries Paused.
+    assert.match(cli, /client\(config\)\.ping\(\{ paused: control\.paused \}\)\.catch\(\(\) => \{\}\)/);
   });
 });
 
@@ -406,3 +414,39 @@ describe('kept running', () => {
   });
 });
 
+describe('runner Mac app supervision', () => {
+  it('reads --supervised, --paused and remove', () => {
+    const started = parseArgs(['start', '--production', '--supervised', '--paused', '--mode', 'headless']);
+    assert.equal(started.ok, true);
+    assert.equal(started.options.supervised, true);
+    assert.equal(started.options.paused, true);
+    assert.equal(parseArgs(['setup', '--supervised']).ok, false);
+    assert.deepEqual(parseArgs(['remove', '--production']).options, {
+      command: 'remove', production: true, id: '', mode: 'interactive', once: false, repos: [],
+    });
+  });
+
+  it('writes one prefixed JSON line per state', () => {
+    const line = supervisorLine('working', { kind: 'task', milestone: 'Launch', taskOrder: 3, at: 1 });
+    assert.ok(line.startsWith(SUPERVISOR_PREFIX));
+    assert.ok(line.endsWith('\n'));
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), { type: 'working', kind: 'task', milestone: 'Launch', taskOrder: 3, at: 1 });
+    assert.throws(() => supervisorLine('dancing'));
+    assert.throws(() => supervisorLine('attention', { reason: 'bored' }));
+    assert.doesNotThrow(() => supervisorLine('attention', { reason: 'github' }));
+  });
+
+  it('takes pause and resume on stdin, nothing else', () => {
+    assert.equal(supervisorCommand('pause\n'), 'pause');
+    assert.equal(supervisorCommand(' Resume '), 'resume');
+    assert.equal(supervisorCommand('rm -rf /'), null);
+    assert.equal(supervisorCommand(''), null);
+  });
+
+  it('needs a person only for a revoked or out-of-date runner', () => {
+    assert.equal(attentionForStatus(401), 'unauthorized');
+    assert.equal(attentionForStatus(426), 'out_of_date');
+    assert.equal(attentionForStatus(500), null);
+    assert.equal(attentionForStatus(undefined), null);
+  });
+});

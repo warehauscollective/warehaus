@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<!--
+  No App Sandbox: the sandbox would block the runner's child processes
+  (Node, git, gh, claude). The hardened runtime is on (ENABLE_HARDENED_RUNTIME)
+  for notarization. The bundled Node will need its own entitlements
+  (allow-jit) when the first-launch task bundles it.
+-->
+<dict/>
+</plist>
