@@ -4,6 +4,11 @@ import { useId, type ReactNode } from 'react';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import {
+  ProjectListAppliedFilters,
+  ProjectListFilterMenu,
+  type ProjectListFilterMenuProps,
+} from '@/components/projects/ProjectListFilterMenu';
+import {
   PROJECT_CREATE_HINT,
   projectListEmptyCopy,
   projectListLoadNotice,
@@ -195,20 +200,49 @@ export function ProjectKpiSkeleton() {
   );
 }
 
+/**
+ * The toolbar over the list: quick filter chips, then the Filters and Sort
+ * controls, then the values that are set. Hidden while loading and when the
+ * viewer has no projects, so no count shows before the KPI numbers.
+ */
 export function ProjectListFilters({
   loading,
   viewerCount,
+  menu,
   children,
 }: {
   loading: boolean;
   viewerCount: number;
+  /** The filter menu and sort control. Left out, only the chips render. */
+  menu?: ProjectListFilterMenuProps;
   children?: ReactNode;
 }) {
   if (!projectListShowsFilters(viewerCount, loading)) return null;
-  return (
-    <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Project filters" data-testid="project-filters">
+  const chips = (
+    <div
+      className={menu ? 'flex min-w-0 flex-1 flex-wrap gap-2' : 'mt-4 flex flex-wrap gap-2'}
+      role="group"
+      aria-label="Project filters"
+      data-testid="project-filters"
+    >
       {children}
     </div>
+  );
+  if (!menu) return chips;
+  return (
+    <>
+      <div className="mt-4 flex flex-col gap-3 md:flex-row md:items-start md:gap-4" data-testid="project-list-toolbar">
+        {chips}
+        <ProjectListFilterMenu {...menu} />
+      </div>
+      <ProjectListAppliedFilters
+        view={menu.view}
+        options={menu.options}
+        staff={menu.staff}
+        onChange={menu.onChange}
+        onClear={menu.onClear}
+      />
+    </>
   );
 }
 

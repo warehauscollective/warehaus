@@ -318,6 +318,19 @@ html.light .ds-scope {
     padding-top: 0;
   }
 }
+/* Project list filter and sort controls, menu rows and value chips. */
+.project-filter-focus:focus {
+  outline: none;
+}
+.project-filter-focus:focus-visible {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
+/* The date input covers its field and is transparent, so the field shows the ring. */
+.project-filter-date:focus-within {
+  outline: 2px solid var(--fg);
+  outline-offset: 2px;
+}
 /* Dialog Cancel. Replaces the browser's blue ring with the portal ring. */
 .portal-outline-button:focus {
   outline: none;

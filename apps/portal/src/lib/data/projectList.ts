@@ -1,13 +1,18 @@
 import type { PortalProject, PortalTask } from '@/lib/data/view-models';
 import {
   DEFAULT_PROJECT_SORT,
+  PROJECT_SORT_FIRST_DIRECTION,
+  PROJECT_SORT_KEYS,
   defaultProjectListView,
   type ProjectDateRange,
   type ProjectListFilter,
   type ProjectListView,
   type ProjectProgressBand,
+  type ProjectPublishFilter,
   type ProjectSort,
+  type ProjectSortDirection,
   type ProjectSortKey,
+  type ProjectTasksFilter,
   type ProjectUpdatedFilter,
 } from '@convex/_lib/projectListView';
 
@@ -710,4 +715,365 @@ export function projectListViewIsFiltered(view: ProjectListView, staff: boolean)
 /** Chip to All and every menu filter to Any. The sort stays: it is not a filter. */
 export function clearProjectListFilters(view: ProjectListView): ProjectListView {
   return { ...defaultProjectListView(), sort: { ...view.sort } };
+}
+
+/* ── Project list view: menu and control copy ──────────────────────────────── */
+
+export const PROJECT_SORT_LABEL: Record<ProjectSortKey, string> = {
+  lastUpdated: 'Last updated',
+  name: 'Name',
+  client: 'Client',
+  status: 'Status',
+  startDate: 'Start date',
+  endDate: 'End date',
+  progress: 'Progress',
+  tasks: 'Tasks',
+};
+
+export const PROJECT_SORT_DIRECTION_LABEL: Record<ProjectSortKey, Record<ProjectSortDirection, string>> = {
+  lastUpdated: { desc: 'Newest first', asc: 'Oldest first' },
+  name: { asc: 'A to Z', desc: 'Z to A' },
+  client: { asc: 'A to Z', desc: 'Z to A' },
+  status: { asc: 'A to Z', desc: 'Z to A' },
+  startDate: { asc: 'Earliest first', desc: 'Latest first' },
+  endDate: { asc: 'Earliest first', desc: 'Latest first' },
+  progress: { desc: 'Most first', asc: 'Least first' },
+  tasks: { desc: 'Most first', asc: 'Fewest first' },
+};
+
+/** Sort fields in menu order. A client viewer has no Client sort. */
+export function projectSortKeys(staff: boolean): ProjectSortKey[] {
+  return PROJECT_SORT_KEYS.filter((key) => staff || key !== 'client');
+}
+
+/** Both directions for a field, the one picked first on top. */
+export function projectSortDirections(key: ProjectSortKey): ProjectSortDirection[] {
+  const first = PROJECT_SORT_FIRST_DIRECTION[key];
+  return [first, first === 'asc' ? 'desc' : 'asc'];
+}
+
+/** The sort the list uses. A Client sort saved for a client viewer falls back to the default. */
+export function effectiveProjectSort(view: ProjectListView, staff: boolean): ProjectSort {
+  return !staff && view.sort.key === 'client' ? DEFAULT_PROJECT_SORT : view.sort;
+}
+
+/** Sort control value: field, a middle dot, direction. */
+export function projectSortControlLabel(sort: ProjectSort): string {
+  return `${PROJECT_SORT_LABEL[sort.key]} · ${PROJECT_SORT_DIRECTION_LABEL[sort.key][sort.direction]}`;
+}
+
+/** The line under the list heading: field, then direction, lower case. */
+export function projectSortSubtitle(sort: ProjectSort): string {
+  const field = PROJECT_SORT_LABEL[sort.key].toLowerCase();
+  const direction = PROJECT_SORT_DIRECTION_LABEL[sort.key][sort.direction].toLowerCase();
+  return `Sorted by ${field}, ${direction}`;
+}
+
+export type ProjectFilterKey =
+  | 'status'
+  | 'client'
+  | 'publish'
+  | 'stack'
+  | 'startDate'
+  | 'endDate'
+  | 'progress'
+  | 'tasks'
+  | 'updated';
+
+export const PROJECT_FILTER_LABEL: Record<ProjectFilterKey, string> = {
+  status: 'Status',
+  client: 'Client',
+  publish: 'Publish state',
+  stack: 'Stack',
+  startDate: 'Start date',
+  endDate: 'End date',
+  progress: 'Progress',
+  tasks: 'Tasks',
+  updated: 'Last updated',
+};
+
+export const PROJECT_PUBLISH_LABEL: Record<ProjectPublishFilter, string> = {
+  any: 'Any',
+  published: 'Published',
+  unpublished: 'Not published',
+};
+
+export const PROJECT_PROGRESS_LABEL: Record<ProjectProgressBand, string> = {
+  notStarted: 'Not started',
+  inProgress: 'In progress',
+  complete: 'Complete',
+  none: 'No progress yet',
+};
+
+export const PROJECT_TASKS_LABEL: Record<ProjectTasksFilter, string> = {
+  any: 'Any',
+  has: 'Has tasks',
+  none: 'No tasks',
+};
+
+export const PROJECT_UPDATED_LABEL: Record<ProjectUpdatedFilter, string> = {
+  any: 'Any time',
+  '7d': 'Last 7 days',
+  '30d': 'Last 30 days',
+  '90d': 'Last 90 days',
+};
+
+const FILTER_ORDER: readonly ProjectFilterKey[] = [
+  'status',
+  'client',
+  'publish',
+  'stack',
+  'startDate',
+  'endDate',
+  'progress',
+  'tasks',
+  'updated',
+];
+
+/** Menu filters in order. Client and Publish state are staff only. Stack hides when no row has one. */
+export function projectFilterKeys(staff: boolean, options: ProjectListViewOptions): ProjectFilterKey[] {
+  return FILTER_ORDER.filter((key) => {
+    if (key === 'client' || key === 'publish') return staff;
+    if (key === 'stack') return options.stack.length > 0;
+    return true;
+  });
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** `2026-11-01` as `Nov 1, 2026`. No time zone maths: the day is the day that was picked. */
+export function formatProjectFilterDay(day: string): string {
+  const [year, month, date] = day.split('-').map(Number);
+  const name = MONTHS[(month ?? 0) - 1];
+  if (!name || !year || !date) return day;
+  return `${name} ${date}, ${year}`;
+}
+
+function rangeSummary(range: ProjectDateRange): string | null {
+  if (range.from != null && range.to != null) {
+    return `${formatProjectFilterDay(range.from)} to ${formatProjectFilterDay(range.to)}`;
+  }
+  if (range.from != null) return `From ${formatProjectFilterDay(range.from)}`;
+  if (range.to != null) return `To ${formatProjectFilterDay(range.to)}`;
+  return null;
+}
+
+function pickedSummary(labels: readonly string[]): string | null {
+  if (labels.length === 0) return null;
+  return labels.length === 1 ? labels[0] : `${labels.length} selected`;
+}
+
+/** The summary beside a filter's name: `Any`, the one value, or `2 selected`. */
+export function projectFilterSummary(
+  key: ProjectFilterKey,
+  view: ProjectListView,
+  options: ProjectListViewOptions,
+): { text: string; set: boolean } {
+  const clientName = (id: string) => options.clients.find((client) => client.id === id)?.name ?? id;
+  let text: string | null = null;
+  switch (key) {
+    case 'status':
+      text = pickedSummary(view.status);
+      break;
+    case 'client':
+      text = pickedSummary(view.clientIds.map(clientName));
+      break;
+    case 'publish':
+      text = view.publish === 'any' ? null : PROJECT_PUBLISH_LABEL[view.publish];
+      break;
+    case 'stack':
+      text = pickedSummary(view.stack);
+      break;
+    case 'startDate':
+      text = rangeSummary(view.startDate);
+      break;
+    case 'endDate':
+      text = rangeSummary(view.endDate);
+      break;
+    case 'progress':
+      text = pickedSummary(view.progress.map((band) => PROJECT_PROGRESS_LABEL[band]));
+      break;
+    case 'tasks':
+      text = view.tasks === 'any' ? null : PROJECT_TASKS_LABEL[view.tasks];
+      break;
+    case 'updated':
+      text = view.updated === 'any' ? null : PROJECT_UPDATED_LABEL[view.updated];
+      break;
+  }
+  if (text != null) return { text, set: true };
+  return { text: key === 'updated' ? 'Any time' : 'Any', set: false };
+}
+
+export type ProjectFilterValueChip = {
+  id: string;
+  /** With its colon, as drawn: `Client:`. */
+  field: string;
+  value: string;
+  /** The view with this one value removed. */
+  remove: (view: ProjectListView) => ProjectListView;
+};
+
+/** One chip per value that is set, in menu order. Removing a chip removes that value only. */
+export function projectFilterValueChips(
+  view: ProjectListView,
+  staff: boolean,
+  options: ProjectListViewOptions,
+): ProjectFilterValueChip[] {
+  const chips: ProjectFilterValueChip[] = [];
+  const field = (key: ProjectFilterKey) => `${PROJECT_FILTER_LABEL[key]}:`;
+  for (const key of projectFilterKeys(staff, options)) {
+    switch (key) {
+      case 'status':
+        for (const value of view.status) {
+          chips.push({
+            id: `status:${value}`,
+            field: field(key),
+            value,
+            remove: (next) => ({ ...next, status: next.status.filter((item) => statusKey(item) !== statusKey(value)) }),
+          });
+        }
+        break;
+      case 'client':
+        for (const id of view.clientIds) {
+          chips.push({
+            id: `client:${id}`,
+            field: field(key),
+            value: options.clients.find((client) => client.id === id)?.name ?? id,
+            remove: (next) => ({ ...next, clientIds: next.clientIds.filter((item) => item !== id) }),
+          });
+        }
+        break;
+      case 'publish':
+        if (view.publish !== 'any') {
+          chips.push({
+            id: 'publish',
+            field: field(key),
+            value: PROJECT_PUBLISH_LABEL[view.publish],
+            remove: (next) => ({ ...next, publish: 'any' }),
+          });
+        }
+        break;
+      case 'stack':
+        for (const value of view.stack) {
+          chips.push({
+            id: `stack:${value}`,
+            field: field(key),
+            value,
+            remove: (next) => ({ ...next, stack: next.stack.filter((item) => item !== value) }),
+          });
+        }
+        break;
+      case 'startDate':
+      case 'endDate': {
+        const range = view[key];
+        if (range.from != null) {
+          chips.push({
+            id: `${key}:from`,
+            field: field(key),
+            value: `From ${formatProjectFilterDay(range.from)}`,
+            remove: (next) => ({ ...next, [key]: { ...next[key], from: null } }),
+          });
+        }
+        if (range.to != null) {
+          chips.push({
+            id: `${key}:to`,
+            field: field(key),
+            value: `To ${formatProjectFilterDay(range.to)}`,
+            remove: (next) => ({ ...next, [key]: { ...next[key], to: null } }),
+          });
+        }
+        break;
+      }
+      case 'progress':
+        for (const band of view.progress) {
+          chips.push({
+            id: `progress:${band}`,
+            field: field(key),
+            value: PROJECT_PROGRESS_LABEL[band],
+            remove: (next) => ({ ...next, progress: next.progress.filter((item) => item !== band) }),
+          });
+        }
+        break;
+      case 'tasks':
+        if (view.tasks !== 'any') {
+          chips.push({
+            id: 'tasks',
+            field: field(key),
+            value: PROJECT_TASKS_LABEL[view.tasks],
+            remove: (next) => ({ ...next, tasks: 'any' }),
+          });
+        }
+        break;
+      case 'updated':
+        if (view.updated !== 'any') {
+          chips.push({
+            id: 'updated',
+            field: field(key),
+            value: PROJECT_UPDATED_LABEL[view.updated],
+            remove: (next) => ({ ...next, updated: 'any' }),
+          });
+        }
+        break;
+    }
+  }
+  return chips;
+}
+
+export type ProjectListMenuOpen = 'filters' | 'sort' | null;
+
+export type ProjectListFixtureScreen = {
+  view: ProjectListView;
+  open: ProjectListMenuOpen;
+  expanded: ProjectFilterKey[];
+};
+
+/**
+ * Design-review screens for the fixture preview: `?list=filters`, `one-filter`,
+ * `several-filters`, `sort` and `no-matches`. `&menu=filters` or `&menu=sort`
+ * opens that menu on any of them, so a menu can be reviewed with filters set.
+ * Values come from the fixture rows' own options. Null for any other `list`.
+ */
+export function projectListFixtureScreen(
+  list: string | null,
+  menu: string | null,
+  staff: boolean,
+  options: ProjectListViewOptions,
+): ProjectListFixtureScreen | null {
+  const view = defaultProjectListView();
+  let open: ProjectListMenuOpen = menu === 'filters' || menu === 'sort' ? menu : null;
+  let expanded: ProjectFilterKey[] = [];
+  const firstStatus = options.status.slice(0, 1);
+  switch (list) {
+    case 'filters':
+      open = open ?? 'filters';
+      expanded = ['status', 'startDate'];
+      break;
+    case 'one-filter':
+      view.status = firstStatus;
+      expanded = ['status'];
+      break;
+    case 'several-filters':
+      if (staff) {
+        view.clientIds = options.clients.slice(0, 1).map((client) => client.id);
+        view.publish = 'published';
+        expanded = ['client', 'updated'];
+      } else {
+        view.status = firstStatus;
+        view.tasks = 'has';
+        expanded = ['status', 'updated'];
+      }
+      view.updated = '90d';
+      break;
+    case 'sort':
+      open = open ?? 'sort';
+      break;
+    case 'no-matches':
+      view.status = firstStatus;
+      view.startDate = { from: '2999-01-01', to: null };
+      expanded = ['startDate'];
+      break;
+    default:
+      return null;
+  }
+  return { view, open, expanded };
 }

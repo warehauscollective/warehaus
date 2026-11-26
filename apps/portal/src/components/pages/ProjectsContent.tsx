@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ProjectRoadmap } from '@/components/projects/ProjectRoadmap';
 import { resourcesForProject } from '@/components/projects/milestoneGuards';
@@ -10,8 +10,12 @@ import { usePortalView } from '@/components/providers/PortalViewProvider';
 import {
   activeKpiCaption,
   awaitingKpiCaption,
-  projectFilterCounts,
+  clearProjectListFilters,
+  defaultProjectListView,
+  effectiveProjectSort,
+  normalizeProjectListView,
   projectInitials,
+  projectListFixtureScreen,
   projectListKpis,
   projectListErrorMode,
   projectListQueryError,
@@ -19,16 +23,25 @@ import {
   requestProjectCreate,
   EDIT_PROJECT_WRITEBACK_HINT,
   projectListMeta,
+  projectListViewOptions,
   projectMatchesFilter,
+  projectMatchesView,
   projectProgress,
   projectProgressCopy,
+  projectSortSubtitle,
   projectSummaryVisibility,
   projectTaskCount,
+  projectViewChipCounts,
+  projectViewRows,
+  pruneProjectListView,
   shippedKpiCaption,
   showProjectPublish,
-  sortProjectsByLastUpdated,
+  sortProjects,
   viewerProjects,
+  type ProjectFilterKey,
   type ProjectListFilter,
+  type ProjectListMenuOpen,
+  type ProjectListView,
 } from '@/lib/data/projectList';
 import { useActivityFeed } from '@/hooks/useActivityFeed';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
@@ -86,7 +99,11 @@ export function ProjectsContent() {
   const hostSlug =
     typeof window !== 'undefined' ? getHostSlugFromLocation() ?? undefined : undefined;
   const activeSection = sectionFor('projects');
-  const [filter, setFilter] = useState<ProjectListFilter>('all');
+  const [view, setView] = useState<ProjectListView>(defaultProjectListView);
+  const [fixtureMenu, setFixtureMenu] = useState<{ open: ProjectListMenuOpen; expanded: ProjectFilterKey[] }>({
+    open: null,
+    expanded: [],
+  });
   const [forceEmpty, setForceEmpty] = useState(false);
   const [forceFiltered, setForceFiltered] = useState(false);
   const [forceLoading, setForceLoading] = useState(false);
@@ -132,7 +149,8 @@ export function ProjectsContent() {
   useEffect(() => {
     if (fixtures && new URLSearchParams(window.location.search).get('list') === 'filtered') return;
     if (activeSection === 'all' || activeSection === 'active' || activeSection === 'shipped') {
-      setFilter(activeSection);
+      // The sidebar sets the chip only. Menu filters stay until Clear filters.
+      setView((current) => (current.quick === activeSection ? current : { ...current, quick: activeSection }));
     }
   }, [activeSection, fixtures]);
 
@@ -143,7 +161,7 @@ export function ProjectsContent() {
     setForceFiltered(list === 'filtered');
     setForceLoading(list === 'loading');
     setForceError(list === 'error' || list === 'refresh' ? 'Network error' : null);
-    if (list === 'filtered') setFilter('shipped');
+    if (list === 'filtered') setView((current) => ({ ...current, quick: 'shipped' }));
   }, [fixtures]);
 
   const projectsLoading = forceLoading || page.loading;
@@ -152,28 +170,55 @@ export function ProjectsContent() {
     () => (forceFiltered ? projects.filter((project) => !projectMatchesFilter(project, 'shipped')) : projects),
     [projects, forceFiltered],
   );
-  const filterCounts = useMemo(
-    () => projectFilterCounts(forceEmpty ? [] : listed, isStaff),
-    [listed, isStaff, forceEmpty],
-  );
   const viewerCount = forceEmpty ? 0 : viewerProjects(listed, isStaff).length;
   const kpis = useMemo(
     () => projectListKpis(forceEmpty ? [] : listed, forceEmpty ? [] : tasks, isStaff),
     [listed, tasks, isStaff, forceEmpty],
   );
   const awaitingCaption = awaitingKpiCaption(kpis.awaitingGo, kpis.awaitingProjects);
-  const visible = useMemo(() => {
-    if (forceEmpty) return [];
-    const rows = listed.filter((project) => {
-      if (!isStaff && project.internal) return false;
-      return projectMatchesFilter(project, filter);
-    });
-    return sortProjectsByLastUpdated(rows);
-  }, [listed, isStaff, filter, forceEmpty]);
+  /** Rows with the percent and task count each one shows, so filters and sorts read the same numbers. */
+  const rows = useMemo(() => projectViewRows(forceEmpty ? [] : listed, tasks), [listed, tasks, forceEmpty]);
+  const viewOptions = useMemo(() => projectListViewOptions(rows, isStaff), [rows, isStaff]);
+  /** What the list applies and the menu shows: staff-only parts stripped for a client, stale picks dropped. */
+  const shownView = useMemo(
+    () => pruneProjectListView(normalizeProjectListView(view, isStaff), viewOptions),
+    [view, isStaff, viewOptions],
+  );
+  const sort = effectiveProjectSort(shownView, isStaff);
+  const filterCounts = useMemo(() => projectViewChipCounts(rows, shownView, isStaff), [rows, shownView, isStaff]);
+  const visible = useMemo(
+    () => sortProjects(rows.filter((row) => projectMatchesView(row, shownView, isStaff)), sort),
+    [rows, shownView, isStaff, sort],
+  );
+
+  // Design-review screens: `?list=filters`, `one-filter`, `several-filters`, `sort`, `no-matches`, with `&menu=`.
+  const fixtureOptionsKey = JSON.stringify(viewOptions);
+  useEffect(() => {
+    if (!fixtures) return;
+    const params = new URLSearchParams(window.location.search);
+    const screen = projectListFixtureScreen(
+      params.get('list'),
+      params.get('menu'),
+      isStaff,
+      JSON.parse(fixtureOptionsKey) as typeof viewOptions,
+    );
+    if (!screen) return;
+    setView(screen.view);
+    setFixtureMenu({ open: screen.open, expanded: screen.expanded });
+  }, [fixtures, isStaff, fixtureOptionsKey]);
 
   const chooseFilter = (key: ProjectListFilter) => {
-    setFilter(key);
+    setView((current) => ({ ...current, quick: key }));
     if (key !== 'internal') setSectionFor('projects', key);
+  };
+  const changeView = useCallback((update: (current: ProjectListView) => ProjectListView) => {
+    setView((current) => update(current));
+  }, []);
+  /** Chip to All and every menu filter to Any. The sort stays. The sidebar follows the chip. */
+  const clearView = () => {
+    setForceFiltered(false);
+    setView((current) => clearProjectListFilters(current));
+    setSectionFor('projects', 'all');
   };
 
   const accessibleProjectIds = useMemo(
@@ -503,13 +548,27 @@ export function ProjectsContent() {
           <Surface style={{ padding: 24 }}>
             <div className="flex flex-col" style={{ gap: 4 }}>
               <h2 style={{ fontSize: 18, lineHeight: '26px', fontWeight: 600 }}>All projects</h2>
-              <p style={{ fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>Sorted by last updated</p>
+              <p data-testid="project-list-sort-line" style={{ fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
+                {projectSortSubtitle(sort)}
+              </p>
             </div>
-            <ProjectListFilters loading={projectsLoading} viewerCount={viewerCount}>
+            <ProjectListFilters
+              loading={projectsLoading}
+              viewerCount={viewerCount}
+              menu={{
+                view: shownView,
+                options: viewOptions,
+                staff: isStaff,
+                onChange: changeView,
+                onClear: clearView,
+                initialOpen: fixtureMenu.open,
+                initialExpanded: fixtureMenu.expanded,
+              }}
+            >
               {filterCounts.map((chip) => (
                 <FilterChip
                   key={chip.key}
-                  active={filter === chip.key}
+                  active={shownView.quick === chip.key}
                   count={chip.count}
                   onClick={() => chooseFilter(chip.key)}
                 >
@@ -523,21 +582,13 @@ export function ProjectsContent() {
               visibleCount={visible.length}
               staff={isStaff}
               onCreate={openCreate}
-              onClear={() => {
-                setForceFiltered(false);
-                chooseFilter('all');
-              }}
+              onClear={clearView}
               createEnabled={createEnabled}
             >
               <ul className="mt-2">
                 {visible.map((project) => {
-                  const mine = tasks.filter((task) => task.projectId === project.id);
-                  const count = projectTaskCount(mine.length, project.taskCount);
-                  const progress = projectProgress({
-                    projectId: project.id,
-                    progress: project.progress,
-                    tasks,
-                  });
+                  const count = project.taskCount;
+                  const progress = { percent: project.percent };
                   const taskLabel = `${count} ${count === 1 ? 'task' : 'tasks'}`;
                   const progressCopy = projectProgressCopy(progress.percent, count);
                   const showPublish = showProjectPublish(isStaff, project);
