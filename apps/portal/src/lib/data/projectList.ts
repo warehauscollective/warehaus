@@ -376,13 +376,448 @@ export function projectListLoadNotice(
   };
 }
 
-export function sortProjectsByLastUpdated<T extends { lastSyncedAt?: number | null; name: string }>(
+/** The default sort: last updated, newest first. Kept for callers that only need that. */
+export function sortProjectsByLastUpdated<T extends { lastSyncedAt?: number | null; name: string; id?: string }>(
   projects: readonly T[],
 ): T[] {
-  return [...projects].sort((a, b) => {
-    const left = a.lastSyncedAt ?? Number.NEGATIVE_INFINITY;
-    const right = b.lastSyncedAt ?? Number.NEGATIVE_INFINITY;
-    if (right !== left) return right - left;
-    return a.name.localeCompare(b.name);
+  return sortProjects(projects, DEFAULT_PROJECT_SORT);
+}
+
+/* ── Project list view: menu filters, quick filter chip and sort ───────────── */
+
+export type ProjectPublishFilter = 'any' | 'published' | 'unpublished';
+export type ProjectProgressBand = 'notStarted' | 'inProgress' | 'complete' | 'none';
+export type ProjectTasksFilter = 'any' | 'has' | 'none';
+export type ProjectUpdatedFilter = 'any' | '7d' | '30d' | '90d';
+export type ProjectSortKey =
+  | 'lastUpdated'
+  | 'name'
+  | 'client'
+  | 'status'
+  | 'startDate'
+  | 'endDate'
+  | 'progress'
+  | 'tasks';
+export type ProjectSortDirection = 'asc' | 'desc';
+export type ProjectSort = { key: ProjectSortKey; direction: ProjectSortDirection };
+
+/** Dates are `YYYY-MM-DD`. Null means that end of the range is open. */
+export type ProjectDateRange = { from: string | null; to: string | null };
+
+/** What one person has set on the list. An empty list, `any` or a null range does nothing. */
+export type ProjectListView = {
+  /** The quick filter chip. */
+  quick: ProjectListFilter;
+  status: string[];
+  /** Staff only. Client `orgId` values. */
+  clientIds: string[];
+  /** Staff only. */
+  publish: ProjectPublishFilter;
+  stack: string[];
+  startDate: ProjectDateRange;
+  endDate: ProjectDateRange;
+  progress: ProjectProgressBand[];
+  tasks: ProjectTasksFilter;
+  updated: ProjectUpdatedFilter;
+  sort: ProjectSort;
+};
+
+/** A list row with the two numbers the row shows, so filters and sorts use the same ones. */
+export type ProjectViewRow = {
+  id: string;
+  name: string;
+  status: string;
+  stack?: readonly string[];
+  startDate?: string | null;
+  endDate?: string | null;
+  lastSyncedAt?: number | null;
+  publishToWarehaus?: boolean | null;
+  internal?: boolean;
+  orgId?: string;
+  clientName?: string | null;
+  /** `projectProgress().percent`. Null is the em dash. */
+  percent: number | null;
+  /** `projectTaskCount()`. */
+  taskCount: number;
+};
+
+export const PROJECT_PROGRESS_BANDS: readonly ProjectProgressBand[] = ['notStarted', 'inProgress', 'complete', 'none'];
+export const PROJECT_SORT_KEYS: readonly ProjectSortKey[] = [
+  'lastUpdated',
+  'name',
+  'client',
+  'status',
+  'startDate',
+  'endDate',
+  'progress',
+  'tasks',
+];
+
+/** The direction picked when a sort field is chosen. */
+export const PROJECT_SORT_FIRST_DIRECTION: Record<ProjectSortKey, ProjectSortDirection> = {
+  lastUpdated: 'desc',
+  name: 'asc',
+  client: 'asc',
+  status: 'asc',
+  startDate: 'asc',
+  endDate: 'asc',
+  progress: 'desc',
+  tasks: 'desc',
+};
+
+export const DEFAULT_PROJECT_SORT: ProjectSort = { key: 'lastUpdated', direction: 'desc' };
+
+/** A fresh default each call, so a caller can never mutate a shared one. */
+export function defaultProjectListView(): ProjectListView {
+  return {
+    quick: 'all',
+    status: [],
+    clientIds: [],
+    publish: 'any',
+    stack: [],
+    startDate: { from: null, to: null },
+    endDate: { from: null, to: null },
+    progress: [],
+    tasks: 'any',
+    updated: 'any',
+    sort: { ...DEFAULT_PROJECT_SORT },
+  };
+}
+
+const UPDATED_WINDOW_DAYS: Record<Exclude<ProjectUpdatedFilter, 'any'>, number> = { '7d': 7, '30d': 30, '90d': 90 };
+const DAY_MS = 24 * 60 * 60 * 1000;
+const KNOWN_STATUS_ORDER = ['inbox', 'planned', 'in progress', 'paused', 'shipped', 'done'];
+
+function statusKey(status: string): string {
+  return status.trim().toLowerCase();
+}
+
+/** The day part of a stored date, or null when there is none. */
+function dayOf(value: string | null | undefined): string | null {
+  const day = value?.slice(0, 10) ?? '';
+  return /^\d{4}-\d{2}-\d{2}$/.test(day) ? day : null;
+}
+
+function rangeIsSet(range: ProjectDateRange): boolean {
+  return range.from != null || range.to != null;
+}
+
+function inRange(value: string | null | undefined, range: ProjectDateRange): boolean {
+  const day = dayOf(value);
+  if (day == null) return false;
+  if (range.from != null && day < range.from) return false;
+  if (range.to != null && day > range.to) return false;
+  return true;
+}
+
+export function progressBand(percent: number | null): ProjectProgressBand {
+  if (percent == null) return 'none';
+  if (percent <= 0) return 'notStarted';
+  if (percent >= 100) return 'complete';
+  return 'inProgress';
+}
+
+/** Adds the percent and task count each row shows. Tasks are grouped once. */
+export function projectViewRows<T extends { id: string; progress?: number | null; taskCount?: number | null }>(
+  projects: readonly T[],
+  tasks: readonly ProjectListTask[],
+): Array<T & { percent: number | null; taskCount: number }> {
+  const byProject = new Map<string, ProjectListTask[]>();
+  for (const task of tasks) {
+    if (!task.projectId) continue;
+    const list = byProject.get(task.projectId);
+    if (list) list.push(task);
+    else byProject.set(task.projectId, [task]);
+  }
+  return projects.map((project) => {
+    const mine = byProject.get(project.id) ?? [];
+    const { percent } = projectProgress({ projectId: project.id, progress: project.progress, tasks: mine });
+    return { ...project, percent, taskCount: projectTaskCount(mine.length, project.taskCount) };
   });
+}
+
+/**
+ * True when the viewer may see the row and it passes the chip and every set
+ * filter (AND). Values inside one pick-many filter are OR. A client viewer
+ * never matches an internal row, and staff-only filters are ignored for them.
+ */
+export function projectMatchesView(
+  project: ProjectViewRow,
+  view: ProjectListView,
+  staff: boolean,
+  options?: { now?: number },
+): boolean {
+  if (!staff && project.internal) return false;
+  const quick = !staff && view.quick === 'internal' ? 'all' : view.quick;
+  if (!projectMatchesFilter(project, quick)) return false;
+
+  if (view.status.length > 0) {
+    const key = statusKey(project.status);
+    if (!view.status.some((status) => statusKey(status) === key)) return false;
+  }
+  if (staff) {
+    if (view.clientIds.length > 0 && (project.orgId == null || !view.clientIds.includes(project.orgId))) return false;
+    if (view.publish !== 'any') {
+      if (project.internal || project.publishToWarehaus == null) return false;
+      if (project.publishToWarehaus !== (view.publish === 'published')) return false;
+    }
+  }
+  if (view.stack.length > 0) {
+    const stack = project.stack ?? [];
+    if (!view.stack.some((value) => stack.includes(value))) return false;
+  }
+  if (rangeIsSet(view.startDate) && !inRange(project.startDate, view.startDate)) return false;
+  if (rangeIsSet(view.endDate) && !inRange(project.endDate, view.endDate)) return false;
+  if (view.progress.length > 0 && !view.progress.includes(progressBand(project.percent))) return false;
+  if (view.tasks === 'has' && project.taskCount <= 0) return false;
+  if (view.tasks === 'none' && project.taskCount > 0) return false;
+  if (view.updated !== 'any') {
+    if (project.lastSyncedAt == null) return false;
+    const now = options?.now ?? Date.now();
+    if (project.lastSyncedAt < now - UPDATED_WINDOW_DAYS[view.updated] * DAY_MS) return false;
+  }
+  return true;
+}
+
+type SortableProject = {
+  name: string;
+  id?: string;
+  status?: string;
+  clientName?: string | null;
+  startDate?: string | null;
+  endDate?: string | null;
+  lastSyncedAt?: number | null;
+  percent?: number | null;
+  taskCount?: number | null;
+};
+
+function sortValue(project: SortableProject, key: ProjectSortKey): string | number | null {
+  switch (key) {
+    case 'lastUpdated':
+      return project.lastSyncedAt ?? null;
+    case 'name':
+      return project.name;
+    case 'client':
+      return project.clientName?.trim() || null;
+    case 'status':
+      return project.status?.trim() || null;
+    case 'startDate':
+      return dayOf(project.startDate);
+    case 'endDate':
+      return dayOf(project.endDate);
+    case 'progress':
+      return project.percent ?? null;
+    case 'tasks':
+      return project.taskCount ?? null;
+  }
+}
+
+/**
+ * One sort, either direction. A row with no value for the field goes last in
+ * both directions. Ties break by name A to Z, then id, so the order is stable.
+ */
+export function sortProjects<T extends SortableProject>(rows: readonly T[], sort: ProjectSort): T[] {
+  const flip = sort.direction === 'desc' ? -1 : 1;
+  return [...rows].sort((a, b) => {
+    const left = sortValue(a, sort.key);
+    const right = sortValue(b, sort.key);
+    if (left == null || right == null) {
+      if (left != null) return -1;
+      if (right != null) return 1;
+    } else {
+      const order =
+        typeof left === 'number' && typeof right === 'number'
+          ? left - right
+          : String(left).localeCompare(String(right), undefined, { sensitivity: 'base' });
+      if (order !== 0) return order * flip;
+    }
+    const byName = a.name.localeCompare(b.name);
+    if (byName !== 0) return byName;
+    return (a.id ?? '').localeCompare(b.id ?? '');
+  });
+}
+
+/** The rows the list shows: viewer gate first, then the view's filters, then its sort. */
+export function applyProjectListView<T extends ProjectViewRow>(
+  rows: readonly T[],
+  view: ProjectListView,
+  staff: boolean,
+  options?: { now?: number },
+): T[] {
+  const now = options?.now ?? Date.now();
+  const sort = !staff && view.sort.key === 'client' ? DEFAULT_PROJECT_SORT : view.sort;
+  return sortProjects(
+    viewerProjects(rows, staff).filter((row) => projectMatchesView(row, view, staff, { now })),
+    sort,
+  );
+}
+
+/** Chip counts with the menu filters applied: what each chip would list. */
+export function projectViewChipCounts(
+  rows: readonly ProjectViewRow[],
+  view: ProjectListView,
+  staff: boolean,
+  options?: { now?: number },
+): Array<{ key: ProjectListFilter; label: string; count: number }> {
+  const now = options?.now ?? Date.now();
+  const menuOnly = viewerProjects(rows, staff).filter((row) =>
+    projectMatchesView(row, { ...view, quick: 'all' }, staff, { now }),
+  );
+  return projectFilterCounts(menuOnly, staff);
+}
+
+export type ProjectListViewOptions = {
+  status: string[];
+  /** Staff only. Empty for a client viewer. */
+  clients: Array<{ id: string; name: string }>;
+  stack: string[];
+};
+
+/**
+ * Menu choices, from the rows the viewer can see and nothing else. Status:
+ * known values in workflow order, then the rest A to Z. Clients and stack A to Z.
+ */
+export function projectListViewOptions(
+  rows: readonly Pick<ProjectViewRow, 'status' | 'stack' | 'internal' | 'orgId' | 'clientName'>[],
+  staff: boolean,
+): ProjectListViewOptions {
+  const visible = viewerProjects(rows, staff);
+  const statuses = new Map<string, string>();
+  const clients = new Map<string, string>();
+  const stack = new Set<string>();
+  for (const row of visible) {
+    const key = statusKey(row.status);
+    if (key && !statuses.has(key)) statuses.set(key, row.status.trim());
+    const clientName = row.clientName?.trim();
+    if (staff && !row.internal && row.orgId && clientName && !clients.has(row.orgId)) {
+      clients.set(row.orgId, clientName);
+    }
+    for (const value of row.stack ?? []) {
+      if (value.trim()) stack.add(value);
+    }
+  }
+  const rank = (key: string) => {
+    const index = KNOWN_STATUS_ORDER.indexOf(key);
+    return index === -1 ? KNOWN_STATUS_ORDER.length : index;
+  };
+  return {
+    status: [...statuses.entries()]
+      .sort(([leftKey, left], [rightKey, right]) => rank(leftKey) - rank(rightKey) || left.localeCompare(right))
+      .map(([, label]) => label),
+    clients: [...clients.entries()]
+      .map(([id, name]) => ({ id, name }))
+      .sort((a, b) => a.name.localeCompare(b.name) || a.id.localeCompare(b.id)),
+    stack: [...stack].sort((a, b) => a.localeCompare(b)),
+  };
+}
+
+/**
+ * Drops picked values that are not a current choice (a removed client, a
+ * status no project has now), so a stale saved value is not shown as picked
+ * and does not hide every row. Use the result to filter. Do not save it back:
+ * the value may return.
+ */
+export function pruneProjectListView(view: ProjectListView, options: ProjectListViewOptions): ProjectListView {
+  const statusKeys = new Set(options.status.map(statusKey));
+  const clientIds = new Set(options.clients.map((client) => client.id));
+  const stack = new Set(options.stack);
+  return {
+    ...view,
+    status: view.status.filter((value) => statusKeys.has(statusKey(value))),
+    clientIds: view.clientIds.filter((id) => clientIds.has(id)),
+    stack: view.stack.filter((value) => stack.has(value)),
+  };
+}
+
+/** How many menu filters are set. Filters, not values. The chip and the sort do not count. */
+export function activeProjectFilterCount(view: ProjectListView, staff: boolean): number {
+  const set = [
+    view.status.length > 0,
+    staff && view.clientIds.length > 0,
+    staff && view.publish !== 'any',
+    view.stack.length > 0,
+    rangeIsSet(view.startDate),
+    rangeIsSet(view.endDate),
+    view.progress.length > 0,
+    view.tasks !== 'any',
+    view.updated !== 'any',
+  ];
+  return set.filter(Boolean).length;
+}
+
+/** Clear filters shows when the chip is not All or any menu filter is set. */
+export function projectListViewIsFiltered(view: ProjectListView, staff: boolean): boolean {
+  const quick = !staff && view.quick === 'internal' ? 'all' : view.quick;
+  return quick !== 'all' || activeProjectFilterCount(view, staff) > 0;
+}
+
+/** Chip to All and every menu filter to Any. The sort stays: it is not a filter. */
+export function clearProjectListFilters(view: ProjectListView): ProjectListView {
+  return { ...defaultProjectListView(), sort: { ...view.sort } };
+}
+
+const MAX_PICKED = 100;
+const MAX_VALUE_LENGTH = 200;
+
+function pickedStrings(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const value of raw) {
+    if (typeof value !== 'string') continue;
+    const text = value.trim();
+    if (!text || text.length > MAX_VALUE_LENGTH || out.includes(text)) continue;
+    out.push(text);
+    if (out.length >= MAX_PICKED) break;
+  }
+  return out;
+}
+
+function oneOf<T extends string>(raw: unknown, allowed: readonly T[], fallback: T): T {
+  return typeof raw === 'string' && (allowed as readonly string[]).includes(raw) ? (raw as T) : fallback;
+}
+
+function isRealDay(value: unknown): value is string {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const time = Date.parse(`${value}T00:00:00Z`);
+  return !Number.isNaN(time) && new Date(time).toISOString().slice(0, 10) === value;
+}
+
+function dateRange(raw: unknown): ProjectDateRange {
+  const input = (raw != null && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
+  return { from: isRealDay(input.from) ? input.from : null, to: isRealDay(input.to) ? input.to : null };
+}
+
+/**
+ * A safe view from anything stored or sent. Unknown keys and values are
+ * dropped, a bad field falls back to its default, and a client viewer loses
+ * the staff-only parts: the client filter, the publish filter, the Internal
+ * chip and the Client sort.
+ */
+export function normalizeProjectListView(raw: unknown, staff: boolean): ProjectListView {
+  const view = defaultProjectListView();
+  if (raw == null || typeof raw !== 'object' || Array.isArray(raw)) return view;
+  const input = raw as Record<string, unknown>;
+
+  view.quick = oneOf<ProjectListFilter>(input.quick, staff ? ['all', 'active', 'shipped', 'internal'] : ['all', 'active', 'shipped'], 'all');
+  view.status = pickedStrings(input.status);
+  view.stack = pickedStrings(input.stack);
+  view.startDate = dateRange(input.startDate);
+  view.endDate = dateRange(input.endDate);
+  view.progress = PROJECT_PROGRESS_BANDS.filter(
+    (band) => Array.isArray(input.progress) && input.progress.includes(band),
+  );
+  view.tasks = oneOf<ProjectTasksFilter>(input.tasks, ['any', 'has', 'none'], 'any');
+  view.updated = oneOf<ProjectUpdatedFilter>(input.updated, ['any', '7d', '30d', '90d'], 'any');
+  if (staff) {
+    view.clientIds = pickedStrings(input.clientIds);
+    view.publish = oneOf<ProjectPublishFilter>(input.publish, ['any', 'published', 'unpublished'], 'any');
+  }
+
+  const sort = (input.sort != null && typeof input.sort === 'object' ? input.sort : {}) as Record<string, unknown>;
+  const keys = staff ? PROJECT_SORT_KEYS : PROJECT_SORT_KEYS.filter((key) => key !== 'client');
+  if (typeof sort.key === 'string' && (keys as readonly string[]).includes(sort.key)) {
+    const key = sort.key as ProjectSortKey;
+    view.sort = { key, direction: oneOf<ProjectSortDirection>(sort.direction, ['asc', 'desc'], PROJECT_SORT_FIRST_DIRECTION[key]) };
+  }
+  return view;
 }
