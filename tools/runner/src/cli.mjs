@@ -5,7 +5,8 @@
 // It never reads or forwards a Claude credential and never calls a model API.
 // The only program it starts for model work is the `claude` binary.
 
-import { spawn } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import { createInterface } from 'node:readline';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -13,18 +14,34 @@ import { fileURLToPath } from 'node:url';
 import { cursorBuild } from './drivers/cursorBuild.mjs';
 import { runInstall, runUninstall } from './install.mjs';
 import { repoTools } from './repo.mjs';
-import { deploymentFor, readKeychainSecret, readSavedConfig, runSetup } from './setup.mjs';
+import {
+  deleteKeychainSecret,
+  deploymentFor,
+  readKeychainSecret,
+  readSavedConfig,
+  removeSavedConfig,
+  runSetup,
+} from './setup.mjs';
 import { runnerClient } from '../../../packages/runner-protocol/index.mjs';
 import {
-  heartbeatSlices,
+  attentionForStatus,
+  HEARTBEAT_MS,
   idleDelayMs,
+  idleWait,
   parseArgs,
   parsePlanOutput,
   planPrompt,
+  RELEASED,
+  usageHold,
+  usageLimitFrom,
+  usageLimitReason,
   childEnv,
   readEnv,
   RUNNER_HOME_DIR,
+  runSlots,
   selectDriver,
+  supervisorCommand,
+  supervisorLine,
   taskOutcome,
   taskPrompt,
 } from './lib.mjs';
@@ -34,6 +51,34 @@ const prompts = join(here, '..', 'prompts');
 
 function say(message) {
   process.stdout.write(`[runner] ${message}\n`);
+}
+
+/**
+ * State lines for the runner Mac app (apps/mac), which starts the runner with
+ * --supervised. Without it this does nothing and the log reads as before.
+ */
+let supervised = false;
+function report(type, fields = {}) {
+  if (supervised) process.stdout.write(supervisorLine(type, fields));
+}
+
+/**
+ * Pause from the app. A paused runner claims nothing and tells the Portal on
+ * every heartbeat; a run in progress finishes first ("Pause after this run").
+ * `wake` cuts a wait short so Pause and Resume take effect at once.
+ */
+const control = { paused: false, wake: null, changed: 0 };
+
+function listenForCommands() {
+  const lines = createInterface({ input: process.stdin });
+  lines.on('line', (line) => {
+    const command = supervisorCommand(line);
+    if (!command) return;
+    control.paused = command === 'pause';
+    control.wake?.();
+  });
+  // The app went away: stop with it rather than run unsupervised.
+  lines.on('close', () => process.exit(0));
 }
 
 /** One protocol client per runner config. */
@@ -65,20 +110,36 @@ function claudeEnv(config, runId) {
   });
 }
 
-/** Starts the official `claude` CLI and waits for it to exit. */
+/** How much of Claude's output the runner keeps, to spot a usage limit at the end. */
+const OUTPUT_TAIL = 8_000;
+
+/**
+ * Starts the official `claude` CLI and waits for it to exit. Headless, its
+ * output still reaches the log line for line; the runner keeps the tail so it
+ * can tell a usage limit from a run that did nothing. Interactive runs keep
+ * the terminal, so nothing is read from them.
+ */
 function runClaude(config, cwd, prompt, runId) {
-  const args = config.mode === 'headless' ? ['-p', prompt] : [prompt];
+  const headless = config.mode === 'headless';
+  const args = headless ? ['-p', prompt] : [prompt];
   return new Promise((done) => {
     const child = spawn('claude', args, {
       cwd,
-      stdio: 'inherit',
+      stdio: headless ? ['inherit', 'pipe', 'pipe'] : 'inherit',
       env: claudeEnv(config, runId),
     });
+    let tail = '';
+    const keep = (out) => (chunk) => {
+      out.write(chunk);
+      tail = (tail + String(chunk)).slice(-OUTPUT_TAIL);
+    };
+    child.stdout?.on('data', keep(process.stdout));
+    child.stderr?.on('data', keep(process.stderr));
     child.on('error', (error) => {
       say(`Could not start claude: ${error.message}`);
-      done(127);
+      done({ code: 127, tail: '' });
     });
-    child.on('exit', (code) => done(code ?? 1));
+    child.on('close', (code) => done({ code: code ?? 1, tail }));
   });
 }
 
@@ -91,16 +152,56 @@ function runClaudePlan(config, cwd, prompt, runId) {
       env: claudeEnv(config, runId),
     });
     let out = '';
-    child.stdout?.on('data', (chunk) => {
+    const keep = (chunk) => {
       out += String(chunk);
       if (out.length > 100_000) out = out.slice(-100_000);
+    };
+    child.stdout?.on('data', keep);
+    // A usage limit may come on either stream. stderr never reaches parsePlanOutput's JSON: it is at the end.
+    let err = '';
+    child.stderr?.on('data', (chunk) => {
+      err = (err + String(chunk)).slice(-OUTPUT_TAIL);
     });
     child.on('error', (error) => {
       say(`Could not start claude: ${error.message}`);
-      done({ code: 127, out: '' });
+      done({ code: 127, out: '', err: '' });
     });
-    child.on('exit', (code) => done({ code: code ?? 1, out }));
+    child.on('close', (code) => done({ code: code ?? 1, out, err }));
   });
+}
+
+/**
+ * The account usage limit. One run that hits it holds the whole runner: no
+ * slot claims until the reset, and runs already going finish on their own.
+ */
+const usage = usageHold();
+
+/** Notes a usage limit Claude ended a run on, and tells the app the runner is waiting. */
+function holdForUsage(limit) {
+  const moved = usage.hit(limit);
+  if (!moved) return;
+  const when = limit.resetsAt ? `resets ${new Date(limit.resetsAt).toLocaleString()}` : 'no reset time given';
+  say(`Claude hit its usage limit (${when}). Taking no new work until ${new Date(usage.until).toLocaleString()}.`);
+  report('waiting', { reason: 'usage_limit', until: usage.until, resetsAt: limit.resetsAt });
+}
+
+/**
+ * Hands a run back to the Portal without blocking it. Never throws: a run the
+ * Portal did not take back (one that predates /agent/release answers 404, or
+ * the call failed) stays open, and the first claim after the reset hands the
+ * same run back to this runner, because an open run it does not list comes back.
+ */
+async function releaseRun(config, runId, limit) {
+  try {
+    await client(config).release({ runId, reason: usageLimitReason(limit), until: limit.until });
+    say('Handed the run back to the Portal.');
+  } catch (error) {
+    say(
+      error.status === 404
+        ? 'This Portal cannot take a run back yet. It stays open and comes back after the reset.'
+        : `Could not hand the run back (${error.message}). It stays open and comes back after the reset.`,
+    );
+  }
 }
 
 function readIfPresent(path) {
@@ -114,9 +215,16 @@ async function doTask(config, work) {
   const notes = join(dir, '.runner');
   rmSync(join(notes, 'blocked.txt'), { force: true });
   const before = git(dir, ['rev-parse', 'HEAD']).out;
-  await runClaude(config, dir, taskPrompt(readFileSync(join(prompts, 'task.md'), 'utf8'), work), work.runId);
+  const ran = await runClaude(config, dir, taskPrompt(readFileSync(join(prompts, 'task.md'), 'utf8'), work), work.runId);
   const after = git(dir, ['rev-parse', 'HEAD']).out;
-  const outcome = taskOutcome({ before, after, blockedReason: readIfPresent(join(notes, 'blocked.txt')) });
+  const limit = usageLimitFrom(ran.tail);
+  const outcome = taskOutcome({ before, after, blockedReason: readIfPresent(join(notes, 'blocked.txt')), usageLimit: limit });
+  if (outcome.status === RELEASED) {
+    // The work so far stays in the worktree. The next run on this milestone carries on from it.
+    holdForUsage(limit);
+    await releaseRun(config, work.runId, limit);
+    return RELEASED;
+  }
   if (outcome.commitSha) {
     const pushed = git(dir, ['push', '-u', 'origin', work.milestone.branch]);
     if (!pushed.ok) {
@@ -129,6 +237,7 @@ async function doTask(config, work) {
   const result = await client(config).completeTask({ runId: work.runId, ...outcome, ...(prUrl ? { prUrl } : {}) });
   if (result.milestoneStatus === 'Ready to Ship') markReadyForReview(dir, work.milestone.branch);
   say(`Reported ${outcome.status}${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
+  return outcome.status;
 }
 
 async function doPlanning(config, work) {
@@ -141,13 +250,20 @@ async function doPlanning(config, work) {
     work.runId,
   );
   const plan = parsePlanOutput(planned.out);
+  const limit = plan.ok ? null : usageLimitFrom(`${planned.out}\n${planned.err}`);
+  if (limit) {
+    holdForUsage(limit);
+    await releaseRun(config, work.runId, limit);
+    return RELEASED;
+  }
   if (!plan.ok) {
     say(`No usable plan: ${plan.error}`);
     await client(config).failPlanning({ runId: work.runId, reason: plan.error });
-    return;
+    return 'failed';
   }
   const result = await client(config).writeTasks({ runId: work.runId, tasks: plan.tasks });
   say(`Wrote ${plan.tasks.length} tasks${result.milestoneStatus ? ` · milestone is ${result.milestoneStatus}` : ''}`);
+  return 'done';
 }
 
 /** One step of a Cursor build. The key stays in this process: see drivers/cursorBuild.mjs. */
@@ -177,19 +293,123 @@ function holdAwake() {
   return () => child.kill();
 }
 
-function sleep(ms) {
-  return new Promise((done) => setTimeout(done, ms));
+/** A sleep that Pause or Resume from the app cuts short. */
+function wakeableSleep(ms) {
+  return new Promise((done) => {
+    const timer = setTimeout(finish, ms);
+    function finish() {
+      clearTimeout(timer);
+      if (control.wake === finish) control.wake = null;
+      done();
+    }
+    control.wake = finish;
+  });
 }
 
 /**
  * Waits between empty polls, pinging the Portal every heartbeat so the runner
- * health chip keeps reading Ready. A ping claims nothing. A failed one is skipped.
+ * health chip keeps reading Ready, and carrying Paused. See idleWait in lib.mjs.
+ * Pause or Resume from the app ends the wait early.
  */
-async function idleWait(config, ms) {
-  const slices = heartbeatSlices(ms);
-  for (let index = 0; index < slices.length; index += 1) {
-    await sleep(slices[index]);
-    if (index < slices.length - 1) await call(config, '/agent/ping', {}).catch(() => {});
+function waitIdle(config, ms) {
+  const pausedAtStart = control.paused;
+  const changedAtStart = control.changed;
+  return idleWait({
+    ms,
+    sleep: wakeableSleep,
+    // A run that ends frees a slot, so the wait ends too.
+    stopped: () => control.paused !== pausedAtStart || control.changed !== changedAtStart,
+    ping: () => client(config).ping({ paused: control.paused }),
+  });
+}
+
+/**
+ * Every slot is in use, or the runner is paused with runs still going. Waits
+ * one heartbeat, or less when a run ends or Pause changes, then pings so the
+ * Portal keeps seeing the runner while it works.
+ */
+async function waitBusy(config, ms = HEARTBEAT_MS) {
+  const changedAtStart = control.changed;
+  const pausedAtStart = control.paused;
+  await wakeableSleep(ms);
+  if (control.changed !== changedAtStart || control.paused !== pausedAtStart) return;
+  await client(config).ping().catch((error) => say(error.message));
+}
+
+/** How long a GitHub sign-in check is trusted before `gh auth status` runs again. */
+const GITHUB_CHECK_MS = 10 * 60_000;
+let githubCheckedAt = 0;
+let githubSignedIn = true;
+
+/** Supervised only: builds push with gh, so a signed-out gh means builds wait. */
+function githubReady() {
+  if (!supervised) return true;
+  const now = Date.now();
+  if (now - githubCheckedAt < GITHUB_CHECK_MS) return githubSignedIn;
+  githubCheckedAt = now;
+  const checked = spawnSync('gh', ['auth', 'status'], { stdio: 'ignore', timeout: 15_000 });
+  githubSignedIn = checked.status === 0;
+  return githubSignedIn;
+}
+
+/**
+ * `npm run runner -- remove`: Remove this runner in the app. Revokes the
+ * registration in the Portal with the runner's own secret, removes the launchd
+ * agent, then deletes the Keychain entry and the saved file. The local steps
+ * run even when the Portal cannot be reached; exit code 3 says the revoke did
+ * not happen, so the app can tell the person to revoke it in the Portal.
+ */
+async function runRemove({ production }) {
+  const deployment = deploymentFor(production);
+  const saved = readSavedConfig(production);
+  const id = saved.RUNNER_ID || '';
+  let revoked = !id;
+  if (id) {
+    const token = readKeychainSecret(deployment.name, id);
+    const env = readEnv({ PORTAL_AGENT_URL: saved.PORTAL_AGENT_URL, RUNNER_PRODUCTION: saved.RUNNER_PRODUCTION }, { production, token });
+    if (env.ok) {
+      try {
+        await runnerClient({ url: env.url, token: env.token, runnerId: id, timeoutMs: 15_000 }).unpair();
+        revoked = true;
+      } catch (error) {
+        // 401: the Portal no longer knows this secret, so it is already revoked.
+        if (error.status === 401) revoked = true;
+        else say(`Could not revoke ${id} in the Portal: ${error.message}`);
+      }
+    } else {
+      say(`Could not revoke ${id} in the Portal: ${env.error}`);
+    }
+  }
+  runUninstall({ production, say });
+  const keychainGone = deleteKeychainSecret(deployment.name, id);
+  removeSavedConfig(production);
+  say(`${id || 'This runner'}: ${revoked ? 'revoked in the Portal' : 'NOT revoked in the Portal'}, launchd agent removed, ${keychainGone ? 'Keychain secret deleted' : 'Keychain secret could not be deleted'}.`);
+  if (!keychainGone) process.exit(4);
+  if (!revoked) process.exit(3);
+}
+
+/**
+ * `app-release`: the latest runner app build, for the Mac app's self-update.
+ * The app never holds the runner secret, so it asks through this command,
+ * which prints one app_release line. Exit 3 when the Portal refuses the
+ * secret, 2 when this Mac is not paired, 1 when the Portal can't be reached.
+ */
+async function runAppRelease({ production }) {
+  const saved = readSavedConfig(production);
+  const id = saved.RUNNER_ID || '';
+  if (!id) process.exit(2);
+  const token = readKeychainSecret(deploymentFor(production).name, id);
+  const env = readEnv({ PORTAL_AGENT_URL: saved.PORTAL_AGENT_URL, RUNNER_PRODUCTION: saved.RUNNER_PRODUCTION }, { production, token });
+  if (!env.ok) {
+    process.stderr.write(`${env.error}\n`);
+    process.exit(2);
+  }
+  try {
+    const result = await runnerClient({ url: env.url, token: env.token, runnerId: id, timeoutMs: 15_000 }).appRelease();
+    process.stdout.write(supervisorLine('app_release', { release: result?.release ?? null }));
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exit(error.status === 401 ? 3 : 1);
   }
 }
 
@@ -201,11 +421,17 @@ async function main() {
   }
   const { production } = parsed.options;
   if (parsed.options.command === 'setup') {
-    await runSetup({ production, id: parsed.options.id, say });
+    supervised = parsed.options.supervised === true;
+    await runSetup({ production, id: parsed.options.id, say, report: supervised ? report : null });
     return;
   }
   if (parsed.options.command === 'install') return runInstall({ production, say });
   if (parsed.options.command === 'uninstall') return runUninstall({ production, say });
+  if (parsed.options.command === 'remove') return runRemove({ production });
+  if (parsed.options.command === 'app-release') return runAppRelease({ production });
+  supervised = parsed.options.supervised === true;
+  control.paused = parsed.options.paused === true;
+  if (supervised) listenForCommands();
   // The environment wins; otherwise the file and Keychain entry setup wrote.
   const saved = readSavedConfig(production);
   const id = parsed.options.id || saved.RUNNER_ID || '';
@@ -214,6 +440,7 @@ async function main() {
     process.exit(2);
   }
   if (!id) {
+    report('attention', { reason: 'not_paired' });
     process.stderr.write('No runner id. Run npm run runner -- setup, or pass --id.\n');
     process.exit(2);
   }
@@ -221,6 +448,7 @@ async function main() {
   const token = process.env.RUNNER_TOKEN || readKeychainSecret(deploymentFor(production).name, id);
   const env = readEnv({ PORTAL_AGENT_URL: url, RUNNER_PRODUCTION: saved.RUNNER_PRODUCTION }, { production, token });
   if (!env.ok) {
+    if (!token) report('attention', { reason: 'not_paired' });
     process.stderr.write(`${env.error}\n`);
     process.exit(2);
   }
@@ -229,49 +457,139 @@ async function main() {
   const config = { ...env, id, mode: parsed.options.mode, repos: parsed.options.repos };
   const serves = config.repos.length ? config.repos.join(', ') : 'every project with a repository';
   say(`Runner ${config.id} · ${config.mode} · ${serves} · ${new URL(config.url).hostname}`);
-  let empty = 0;
-  for (;;) {
-    let work;
-    try {
-      work = await client(config).claim({ mode: config.mode, repos: config.repos });
-    } catch (error) {
-      say(error.message);
-      if (parsed.options.once) process.exit(1);
-      await sleep(idleDelayMs(4));
-      continue;
-    }
+  report('started', { runnerId: config.id, production: config.production, paused: control.paused });
+  const slots = runSlots(parsed.options.parallel);
+  if (slots.size > 1) say(`Works up to ${slots.size} milestones at once`);
+
+  /** One run in its own slot. It reports working and finished with its run id, then frees the slot. */
+  function startRun(work) {
     const driver = selectDriver(work);
-    let buildStillRunning = false;
-    if (work.kind === 'task' || work.kind === 'planning' || work.kind === 'build') {
-      empty = 0;
+    const about = {
+      runId: work.runId,
+      kind: work.kind,
+      milestoneId: work.milestone?.id ?? null,
+      milestone: work.milestone?.name ?? '',
+      ...(work.kind === 'task' ? { taskOrder: work.task?.order ?? null, task: work.task?.title ?? '' } : {}),
+    };
+    slots.start(work.runId);
+    report('working', { ...about, running: slots.running });
+    return (async () => {
       const release = holdAwake();
+      let status = 'done';
+      let buildStillRunning = false;
       try {
-        if (driver === 'cursor') buildStillRunning = (await doBuild(config, work)) === 'running';
-        else if (work.kind === 'task') await doTask(config, work);
-        else await doPlanning(config, work);
+        if (driver === 'cursor') {
+          buildStillRunning = (await doBuild(config, work)) === 'running';
+          status = buildStillRunning ? 'running' : 'done';
+        } else if (work.kind === 'task') status = (await doTask(config, work)) ?? 'failed';
+        else status = await doPlanning(config, work);
       } catch (error) {
         say(error.message);
         // A clone that failed blocks the run with its own reason, which lands in a needs Peter note.
         const blocked = typeof error.reason === 'string' && error.reason ? error.reason : null;
         const reason = blocked ?? 'The runner hit an error';
         const api = client(config);
-        const report =
+        const failure =
           work.kind === 'build'
             ? api.reportBuild({ runId: work.runId, status: 'failed', reason })
             : work.kind === 'task'
               ? api.completeTask({ runId: work.runId, status: blocked ? 'blocked' : 'failed', reason })
               : api.failPlanning({ runId: work.runId, reason });
-        await report.catch((failed) => say(failed.message));
+        await failure.catch((failed) => say(failed.message));
+        status = blocked ? 'blocked' : 'failed';
       } finally {
         release();
       }
-    } else {
-      empty += 1;
+      // A Cursor agent still going: give the slot back, and follow it again after a minute.
+      if (buildStillRunning) slots.coolDown(work.runId, idleDelayMs(1));
+      else slots.finish(work.runId);
+      report('finished', { ...about, status, running: slots.running });
+      control.changed += 1;
+      control.wake?.();
+    })();
+  }
+
+  let empty = 0;
+  let failures = 0;
+  let pausedReported = false;
+  let usageWaiting = false;
+  for (;;) {
+    if (control.paused) {
+      // Pause after this run: runs in progress finish first, and only then is the runner Paused.
+      if (slots.running > 0) {
+        await waitBusy(config);
+        continue;
+      }
+      if (!pausedReported) report('paused');
+      pausedReported = true;
+      await client(config).ping({ paused: true }).catch((error) => say(error.message));
+      await wakeableSleep(HEARTBEAT_MS);
+      continue;
+    }
+    pausedReported = false;
+    if (!githubReady()) {
+      report('attention', { reason: 'github' });
+      await wakeableSleep(idleDelayMs(1));
+      continue;
+    }
+    // The usage limit holds every slot. Runs already going finish; nothing new is claimed.
+    const held = usage.remainingMs();
+    if (held > 0) {
+      usageWaiting = true;
+      if (parsed.options.once) break;
+      await waitBusy(config, Math.min(HEARTBEAT_MS, held));
+      continue;
+    }
+    if (usageWaiting) {
+      usageWaiting = false;
+      say('The usage limit has reset. Taking work again.');
+    }
+    if (!slots.free()) {
+      await waitBusy(config, Math.min(HEARTBEAT_MS, slots.nextCoolDownMs() ?? HEARTBEAT_MS));
+      continue;
+    }
+    let work;
+    try {
+      work = await client(config).claim({
+        mode: config.mode,
+        repos: config.repos,
+        slots: slots.size,
+        held: slots.held(),
+        ...(supervised ? { paused: false } : {}),
+      });
+      failures = 0;
+    } catch (error) {
+      say(error.message);
+      failures += 1;
+      const reason = attentionForStatus(error.status) ?? (failures >= 3 ? 'unreachable' : null);
+      if (reason) report('attention', { reason });
+      if (parsed.options.once) process.exit(1);
+      await wakeableSleep(idleDelayMs(4));
+      continue;
+    }
+    if (work.kind === 'task' || work.kind === 'planning' || work.kind === 'build') {
+      empty = 0;
+      // A Portal that predates parallel runs hands back a run this runner already holds. Wait for it instead.
+      if (slots.held().includes(work.runId)) {
+        await waitBusy(config);
+        continue;
+      }
+      const run = startRun(work);
+      if (parsed.options.once) {
+        await run;
+        break;
+      }
+      // Fill the next free slot straight away.
+      continue;
+    }
+    empty += 1;
+    if (slots.running === 0) {
+      report('idle');
       if (!parsed.options.once) say('Nothing to do. Waiting.');
     }
     if (parsed.options.once) break;
-    if (buildStillRunning) await sleep(idleDelayMs(1));
-    else if (work.kind !== 'task' && work.kind !== 'planning' && work.kind !== 'build') await idleWait(config, idleDelayMs(empty));
+    const coolDown = slots.nextCoolDownMs();
+    await waitIdle(config, coolDown == null ? idleDelayMs(empty) : Math.min(idleDelayMs(empty), Math.max(coolDown, 1_000)));
   }
 }
 

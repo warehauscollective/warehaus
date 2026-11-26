@@ -1,8 +1,8 @@
 /**
  * Staff-only /api/v1. Tokens are hashed. Writes that mirror a Notion task use
- * the outbox: kind `update` for field and link patches, kind `create` for a
- * new task, and kind `task-stage` for stage moves. Milestones and comments
- * stay in Convex. There is no Notion database or comment write for them.
+ * the outbox: kind `update` for field and link patches and kind `task-stage`
+ * for stage moves. A task created here lives inside a milestone and is stored
+ * in the portal only, like a staff add. Milestones and comments stay in Convex. There is no Notion database or comment write for them.
  */
 
 import { ConvexError, v } from 'convex/values';
@@ -72,6 +72,7 @@ import { contextSourceForToken } from './_lib/projectContext';
 import { convexFailureText } from './_lib/userFacingError';
 import { applyTaskChanges, type TaskChange } from './_lib/taskChange';
 import { staffMayReadOrg, staffOrgs, staffTask } from './_lib/staffRead';
+import { insertMilestoneTask } from './_lib/milestoneTaskCreate';
 
 const PAGE_CAP = 50;
 
@@ -341,6 +342,8 @@ export const listTasks = internalQuery({
             updatedAt: task.updatedAt,
             lastEditedTime: task.lastEditedTime,
             notionPageId: task.notionPageId,
+            source: task.source,
+            portalOwned: task.portalOwned,
             publishToWarehaus: task.publishToWarehaus,
             milestoneId: task.milestoneId,
           };
@@ -462,6 +465,12 @@ export const listLinks = internalQuery({
   },
 });
 
+/**
+ * One task inside a milestone. It is stored in the portal only, the way a staff
+ * add or a create_milestone task list is: no Notion page and no outbox row. A
+ * Notion create would land unpublished, the pull gate would skip it, and the
+ * task would never reach the milestone.
+ */
 export const createTask = internalMutation({
   args: {
     ...idemArgs,
@@ -480,12 +489,13 @@ export const createTask = internalMutation({
     if (!project || !(await staffMayReadOrg(ctx, project.orgId))) {
       return finishIdempotency(ctx, opened.id, fail(404, 'Project not found'));
     }
-    const milestoneGate = taskMilestoneGate(
-      args.milestoneId ? await ctx.db.get(args.milestoneId) : null,
-      { orgId: project.orgId, projectId: project._id },
-    );
-    if (!milestoneGate.ok) return finishIdempotency(ctx, opened.id, fail(400, milestoneGate.reason));
+    const milestone = args.milestoneId ? await ctx.db.get(args.milestoneId) : null;
+    const milestoneGate = taskMilestoneGate(milestone, { orgId: project.orgId, projectId: project._id });
+    if (!milestoneGate.ok || !milestone) {
+      return finishIdempotency(ctx, opened.id, fail(400, milestoneGate.ok ? 'Milestone not found' : milestoneGate.reason));
+    }
     const externalId = `wh_tsk_${(await sha256Hex(`${args.tokenId}:${args.key}`)).slice(0, 24)}`;
+    // Same name, status, date and stage rules as before. The Notion properties are not sent.
     const planned = planApiTaskCreate({
       name: args.name,
       status: args.status,
@@ -495,23 +505,20 @@ export const createTask = internalMutation({
       stage: args.stage,
     });
     if (!planned.ok) return finishIdempotency(ctx, opened.id, fail(400, planned.error));
-    const queued = await ctx.runMutation(internal.sync.outbox.enqueue, {
-      idempotencyKey: planned.idempotencyKey,
-      kind: 'create',
-      orgId: project.orgId,
-      database: 'tasks',
-      payload: JSON.stringify({
-        properties: planned.properties,
-        ...(args.milestoneId ? { milestoneId: args.milestoneId } : {}),
-      }),
-      actor: 'staff' as const,
-      actorId: args.tokenName,
-      schedule: true,
+    const inserted = await insertMilestoneTask(ctx, {
+      project,
+      milestone,
+      name: String(planned.properties.Name),
+      status: args.status,
+      date: args.date,
+      stage: args.stage,
+      via: 'api',
+      ref: externalId,
     });
-    if (!queued.ok) return finishIdempotency(ctx, opened.id, fail(400, queued.error));
+    if (!inserted.ok) return finishIdempotency(ctx, opened.id, fail(400, inserted.reason));
     return finishIdempotency(ctx, opened.id, {
       status: 200,
-      body: { externalId, outboxId: queued.outboxId, duplicate: queued.duplicate },
+      body: { id: inserted.taskId, externalId: inserted.key, milestoneId: milestone._id, duplicate: inserted.duplicate },
     });
   },
 });
@@ -521,7 +528,8 @@ export const updateTask = internalMutation({
     ...idemArgs,
     tokenName: v.string(),
     taskId: v.id('tasks'),
-    expectedLastEditedTime: v.string(),
+    /** Required for a Notion-backed task. Ignored for a Portal-only task, which has no Notion edit time. */
+    expectedLastEditedTime: v.optional(v.string()),
     status: v.optional(v.string()),
     priority: v.optional(v.union(v.string(), v.null())),
     nextAction: v.optional(v.union(v.string(), v.null())),
@@ -553,7 +561,8 @@ export const updateTask = internalMutation({
     const result = await applyTaskChanges(ctx, task, changes, {
       actor: 'api',
       actorId: args.tokenName,
-      expectedLastEditedTime: args.expectedLastEditedTime,
+      // Missing still means stale for a Notion-backed task. applyTaskChanges skips the check for Portal-only tasks.
+      expectedLastEditedTime: args.expectedLastEditedTime ?? '',
       at: now,
     });
     if (!result.ok) {

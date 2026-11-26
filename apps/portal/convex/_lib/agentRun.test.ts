@@ -11,16 +11,12 @@ import {
   RUNNER_RATE_LIMIT,
   RUNNER_RATE_LIMITED,
   RUNNER_RATE_WINDOW_MS,
-  RUNNER_UNAUTHORIZED,
-  authorizeRunner,
   completeDecision,
   eventSummary,
   eventType,
   feedLimit,
   milestoneBranch,
-  parseRunnerTokens,
   redactSecrets,
-  reposForRunner,
   runnerOnline,
   runnerRateDecision,
   runnerTouchDecision,
@@ -35,15 +31,16 @@ import {
 import { checklistDetailText, checklistState, checklistSummary } from './milestoneTasks';
 import { classifyClaimable } from './milestoneTaskSet';
 import * as agentModule from '../agent';
-import { claimNext, completeTask, releaseStuckRuns, reportBuild, touchRunner, writePlannedTasks } from '../agent';
+import { claimNext, completeTask, releaseRun, releaseStuckRuns, reportBuild, touchRunner, writePlannedTasks } from '../agent';
 import crons from '../crons';
 import { create as createStaffMilestone, createFromAi, setStatus } from '../milestones';
 import { createMilestone, listNeedsPeter, updateMilestone } from '../portalApi';
 import { setAgentDriver, setAgentRepo } from '../projects';
-import { RUNNER_NEEDS_REPO } from './agentRun';
+import { heldRunIds, openRunDecision, RUNNER_BUSY, RUNNER_MAX_SLOTS, RUNNER_NEEDS_REPO, runnerSlots } from './agentRun';
 import { PortalAuthError } from './identity';
 import { memoryCtx, type MemoryCtx } from './memoryCtx.testkit';
 import { seedMilestone, seedMilestoneWorld } from './seedRows.testkit';
+import { sha256Hex } from './tokenCrypto';
 
 const read = (path: string) => readFileSync(new URL(path, import.meta.url), 'utf8');
 
@@ -79,62 +76,14 @@ function seedRun(t: MemoryCtx, ids: { orgId: string; milestoneId: string }, fiel
 
 const claim = (t: MemoryCtx, runnerId = RUNNER, extra: Record<string, unknown> = {}) =>
   t.call<Claim>(claimNext, { runnerId, repos: [REPO], ...extra });
-const TOKEN_A = 'a'.repeat(32);
-const TOKEN_B = 'b'.repeat(32);
-const configured = `peter-mbp=${TOKEN_A},studio-mini=${TOKEN_B}`;
-
-describe('runner tokens', () => {
-  it('reads one token per runner and drops short or malformed entries', () => {
-    const tokens = parseRunnerTokens(`${configured}\nshort=abc, Bad Id=${TOKEN_A},=x`);
-    assert.deepEqual([...tokens.keys()], ['peter-mbp', 'studio-mini']);
-    assert.equal(parseRunnerTokens(undefined).size, 0);
-  });
-
-  it('accepts only the named runner with its own token', () => {
-    const ok = authorizeRunner({ configured, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' });
-    assert.deepEqual(ok, { ok: true, runnerId: 'peter-mbp', repos: [] });
-    // Another runner's token, an unknown id, and a missing header are all refused the same way.
-    for (const [header, id] of [
-      [`Bearer ${TOKEN_B}`, 'peter-mbp'],
-      [`Bearer ${TOKEN_A}`, 'someone-else'],
-      [null, 'peter-mbp'],
-      [`Basic ${TOKEN_A}`, 'peter-mbp'],
-    ] as const) {
-      const refused = authorizeRunner({ configured, authorizationHeader: header, runnerId: id });
-      assert.deepEqual(refused, { ok: false, status: 401, reason: RUNNER_UNAUTHORIZED });
+describe('no RUNNER_TOKENS fallback', () => {
+  it('reads no RUNNER_TOKENS anywhere in Convex, and every claim is a registered runner naming its repositories', () => {
+    // Absence guard (ADR-0005, task 13): runners get in only by their registration.
+    for (const path of ['../agent.ts', '../agentHttp.ts', './agentRun.ts', './runnerHealth.ts', './runnerRegistry.ts']) {
+      assert.doesNotMatch(read(path), /process\.env\.RUNNER_TOKENS|parseRunnerTokens|authorizeRunner|envAuthorized/, path);
     }
-    assert.equal(authorizeRunner({ configured: '', authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' }).ok, false);
-    const bad = authorizeRunner({ configured, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'Peter MBP' });
-    assert.equal(bad.ok, false);
-    if (!bad.ok) assert.equal(bad.status, 400);
-  });
-
-  it('never compares the token with == or ===, so the check stays constant time', () => {
-    // Absence guard: a plain comparison would leak the token through timing.
-    const source = read('./agentRun.ts');
-    const authorize = source.slice(source.indexOf('export function authorizeRunner'), source.indexOf('export function reposForRunner'));
-    assert.doesNotMatch(authorize, /[!=]==?\s*(given|reference|expected\??\.token)\b|\b(given|reference|token)\s*[!=]==?/);
-  });
-
-  it('hands a runner only the repositories named on its token', () => {
-    const raw = `peter-mbp=${TOKEN_A} WarehausCollective/Warehaus other/repo\nstudio-mini=${TOKEN_B}`;
-    const tokens = parseRunnerTokens(raw);
-    assert.deepEqual(tokens.get('peter-mbp')?.repos, ['warehauscollective/warehaus', 'other/repo']);
-    assert.deepEqual(tokens.get('studio-mini')?.repos, []);
-    const ok = authorizeRunner({ configured: raw, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' });
-    assert.equal(ok.ok, true);
-    if (ok.ok) {
-      assert.deepEqual(reposForRunner(ok.repos, ['warehauscollective/warehaus', 'secret/other']), ['warehauscollective/warehaus']);
-      assert.deepEqual(reposForRunner(ok.repos, []), []);
-    }
-    const bare = authorizeRunner({ configured, authorizationHeader: `Bearer ${TOKEN_A}`, runnerId: 'peter-mbp' });
-    if (bare.ok) assert.deepEqual(reposForRunner(bare.repos, ['warehauscollective/warehaus']), []);
-    // Absence guard: a fallback runner's repositories always pass its token's allowlist. Only a
-    // registered runner, which serves every project with a repository, names its own.
-    const http = read('../agentHttp.ts')
-      .replaceAll('reposForRunner(env.ok ? env.repos : [], body.repos)', '')
-      .replaceAll('{ repos: runnerRepos(body.repos), anyRepo: true }', '');
-    assert.doesNotMatch(http, /body\.repos/);
+    const http = read('../agentHttp.ts');
+    assert.match(http, /repos: runnerRepos\(body\.repos\),\s*anyRepo: true/);
   });
 });
 
@@ -165,12 +114,18 @@ describe('rate limit and liveness', () => {
 
   it('touchRunner writes the runner row once, and a call inside the same minute writes nothing', async () => {
     const t = memoryCtx();
-    const env = { runnerId: RUNNER, envAuthorized: true };
-    assert.deepEqual(await t.call(touchRunner, env), { ok: true, registered: false });
+    const tokenHash = await sha256Hex('runner-secret-'.padEnd(40, 'x'));
+    t.seed('agentRunners', { runnerId: RUNNER, windowStart: 0, count: 0, tokenHash, registeredAt: 1 });
+    const call = { runnerId: RUNNER, tokenHash };
+    assert.deepEqual(await t.call(touchRunner, call), { ok: true, registered: true });
     const first = t.rows('agentRunners');
     assert.equal(first.length, 1);
     assert.equal(first[0]?.count, 1);
-    assert.deepEqual(await t.call(touchRunner, env), { ok: true, registered: false });
+    assert.deepEqual(await t.call(touchRunner, call), { ok: true, registered: true });
+    assert.deepEqual(t.rows('agentRunners'), first);
+    // An unregistered id, or a wrong secret, is refused and writes nothing.
+    assert.equal((await t.call<{ ok: boolean }>(touchRunner, { runnerId: 'someone-else', tokenHash })).ok, false);
+    assert.equal((await t.call<{ ok: boolean }>(touchRunner, { runnerId: RUNNER, tokenHash: await sha256Hex('wrong') })).ok, false);
     assert.deepEqual(t.rows('agentRunners'), first);
   });
 
@@ -253,6 +208,69 @@ describe('claiming', () => {
   });
 });
 
+describe('parallel runs', () => {
+  it('reads slots and held runs defensively', () => {
+    assert.equal(runnerSlots(undefined), 1);
+    assert.equal(runnerSlots(3), 3);
+    assert.equal(runnerSlots(2.7), 2);
+    assert.equal(runnerSlots(0), 1);
+    assert.equal(runnerSlots(99), RUNNER_MAX_SLOTS);
+    assert.equal(runnerSlots('3'), 1);
+    assert.deepEqual(heldRunIds(['a', 'a', '', 7, 'b']), ['a', 'b']);
+    assert.deepEqual(heldRunIds('a'), []);
+  });
+
+  it('hands back an open run the runner did not list, and is full when every slot holds a run', () => {
+    assert.deepEqual(openRunDecision({ open: ['a', 'b'], held: ['a'], slots: 3 }), { resume: 'b', full: false });
+    assert.deepEqual(openRunDecision({ open: ['a', 'b'], held: ['a', 'b'], slots: 2 }), { resume: null, full: true });
+    assert.deepEqual(openRunDecision({ open: [], held: [], slots: 1 }), { resume: null, full: false });
+    // Protocol 2: one slot and no list, so the open run comes back.
+    assert.deepEqual(openRunDecision({ open: ['a'], held: [], slots: 1 }), { resume: 'a', full: false });
+  });
+
+  it('works several Building milestones at once, one run on each, up to its slots', async () => {
+    const t = memoryCtx();
+    const first = building(t, ['A1', 'A2']);
+    const second = building(t, ['B1']);
+    const third = building(t, ['C1']);
+    const one = await claim(t, RUNNER, { slots: 2, held: [] });
+    assert.equal(one.kind, 'task');
+    const two = await claim(t, RUNNER, { slots: 2, held: [one.runId] });
+    assert.equal(two.kind, 'task');
+    assert.equal(two.resumed, false);
+    const milestones = new Set(t.rows('agentRuns').map((run) => run.milestoneId));
+    assert.equal(milestones.size, 2, 'two runs on two different milestones');
+    // Both slots are in use: nothing new, even with a third milestone waiting.
+    const full = await claim(t, RUNNER, { slots: 2, held: [one.runId, two.runId] });
+    assert.equal(full.kind, 'none');
+    assert.equal(full.reason, RUNNER_BUSY);
+    assert.equal(t.rows('agentRuns').length, 2);
+    // A third slot takes the third milestone, never a second task on a busy one.
+    const three = await claim(t, RUNNER, { slots: 3, held: [one.runId, two.runId] });
+    assert.equal(three.kind, 'task');
+    const byMilestone = t.rows('agentRuns').map((run) => run.milestoneId);
+    assert.deepEqual(new Set(byMilestone), new Set([first.milestoneId, second.milestoneId, third.milestoneId]));
+    assert.equal(t.row(first.taskIds[1] as string)?.claimedBy, undefined);
+  });
+
+  it('gives a runner that lost track of a run that same run back before anything new', async () => {
+    const t = memoryCtx();
+    building(t, ['A1']);
+    building(t, ['B1']);
+    const one = await claim(t, RUNNER, { slots: 3, held: [] });
+    const again = await claim(t, RUNNER, { slots: 3, held: [] });
+    assert.equal(again.resumed, true);
+    assert.equal(again.runId, one.runId);
+    assert.equal(t.rows('agentRuns').length, 1);
+  });
+
+  it('passes slots and held runs through the claim route', () => {
+    const http = read('../agentHttp.ts');
+    assert.match(http, /slots: runnerSlots\(body\.slots\)/);
+    assert.match(http, /held: heldRunIds\(body\.held\)/);
+  });
+});
+
 describe('finishing a task', () => {
   it('closes the task with its commit', () => {
     const done = completeDecision({ status: 'done', commitSha: '4C1E9AA0FF' });
@@ -301,6 +319,48 @@ describe('finishing a task', () => {
     });
     assert.deepEqual([again.ok, again.duplicate, again.run, again.milestoneStatus], [true, true, 'succeeded', 'Ready to Ship']);
     assert.equal(JSON.stringify(tables.map((table) => t.rows(table))), before);
+  });
+
+  it('hands a task back to To do on a release, with no needs Peter note, and the next claim takes it again', async () => {
+    const t = memoryCtx();
+    const { milestoneId, taskIds } = building(t, ['Board columns']);
+    const run = await claim(t);
+    const reason = "Claude usage limit · resets 8:30am (America/New_York)";
+    const released = await t.call<{ ok: boolean; duplicate: boolean }>(releaseRun, { runnerId: RUNNER, runId: run.runId, reason });
+    assert.deepEqual([released.ok, released.duplicate], [true, false]);
+    const task = t.row(taskIds[0] as string);
+    assert.deepEqual([task?.status, task?.claimedBy, task?.blockedReason], ['To Do', undefined, undefined]);
+    const row = t.row(run.runId);
+    assert.equal(row?.status, 'cancelled');
+    assert.equal(typeof row?.settledAt, 'number');
+    assert.equal(t.rows('milestoneNotes').filter((note) => note.needsPeter === 'open').length, 0);
+    const events = t.rows('agentEvents').filter((event) => event.milestoneId === milestoneId);
+    assert.equal(events[events.length - 1]?.type, 'note');
+    assert.match(String(events[events.length - 1]?.summary), /^Task 01 went back to To do · Claude usage limit/);
+    // A repeat writes nothing.
+    const before = JSON.stringify(['agentRuns', 'agentEvents', 'tasks'].map((table) => t.rows(table)));
+    const again = await t.call<{ ok: boolean; duplicate: boolean }>(releaseRun, { runnerId: RUNNER, runId: run.runId, reason });
+    assert.deepEqual([again.ok, again.duplicate], [true, true]);
+    assert.equal(JSON.stringify(['agentRuns', 'agentEvents', 'tasks'].map((table) => t.rows(table))), before);
+    // The released run holds nothing, so the same task is claimable again.
+    const next = await claim(t);
+    assert.equal(next.task?.id, taskIds[0]);
+    assert.notEqual(next.runId, run.runId);
+  });
+
+  it('puts a released plan back in the queue, and refuses another runner or a Cursor build', async () => {
+    const t = memoryCtx();
+    const planning = seedMilestoneWorld(t, { status: 'Planning', planning: 'queued' }, { agentRepo: REPO });
+    const run = await claim(t);
+    assert.equal(run.kind, 'planning');
+    const refused = await t.call<{ ok: boolean; status: number }>(releaseRun, { runnerId: OTHER_RUNNER, runId: run.runId });
+    assert.deepEqual([refused.ok, refused.status], [false, 403]);
+    await t.call(releaseRun, { runnerId: RUNNER, runId: run.runId, reason: 'Claude usage limit' });
+    assert.equal(t.row(planning.milestoneId)?.planning, 'queued');
+    assert.equal(t.rows('milestoneNotes').filter((note) => note.needsPeter === 'open').length, 0);
+    const build = seedRun(t, { orgId: planning.orgId, milestoneId: planning.milestoneId }, { kind: 'build', runnerId: RUNNER });
+    const wrongKind = await t.call<{ ok: boolean; status: number }>(releaseRun, { runnerId: RUNNER, runId: build });
+    assert.deepEqual([wrongKind.ok, wrongKind.status], [false, 400]);
   });
 
   it('never writes Shipped from the runner', () => {

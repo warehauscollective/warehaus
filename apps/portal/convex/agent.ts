@@ -17,6 +17,7 @@ import {
   RUN_ENDED,
   RUN_NOT_FOUND,
   RUN_NOT_YOURS,
+  RELEASE_KIND_INVALID,
   agentRepo,
   blockedNote,
   buildAgent,
@@ -34,6 +35,7 @@ import {
   planningRetryDecision,
   projectServedBy,
   pullRequestUrl,
+  releaseReason,
   retryLeaseDecision,
   runnerRepos,
   runIsStuck,
@@ -45,6 +47,11 @@ import {
   STUCK_RUN_SCAN,
   taskRetryDecision,
   trimEventPayload,
+  heldRunIds,
+  openRunDecision,
+  RUNNER_BUSY,
+  RUNNER_MAX_SLOTS,
+  runnerSlots,
 } from './_lib/agentRun';
 import { proposedTasksDecision } from './_lib/milestoneBot';
 import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
@@ -53,7 +60,7 @@ import { PORTAL_MILESTONE_TASK_SOURCE, plannerDraftToArchive, stageForNewMilesto
 import { loadClaimableTasks, loadMilestoneTaskSet, type LoadedTask } from './_lib/milestoneTaskSet';
 import { PortalAuthError } from './_lib/identity';
 import { adminMutation, adminQuery } from './_lib/wrappers';
-import { RUNNER_HEALTH_MAX_RUNNERS, RUNNER_READY_WITHIN_MS, runnersAllowedFor, type RunnerHealthView } from './_lib/runnerHealth';
+import { RUNNER_READY_WITHIN_MS, type RunnerHealthView } from './_lib/runnerHealth';
 import {
   NO_RUNNER_NOTE_SCAN,
   NO_RUNNER_SCAN,
@@ -61,6 +68,7 @@ import {
   isNoRunnerNote,
   noRunnerNoteFor,
   runnerAccess,
+  runnerPausePatch,
 } from './_lib/runnerRegistry';
 import { registeredRunners, sweepExpiredPairings } from './_lib/runnerRegistryStore';
 import { RUNNER_PROTOCOL_MIN } from '@warehaus/runner-protocol';
@@ -185,6 +193,8 @@ async function milestoneContext(ctx: QueryCtx, milestone: Doc<'milestones'>, bra
     status: milestone.status,
     branch,
     prUrl: milestone.prUrl ?? null,
+    /** Set once Peter presses Approve designs. The task prompt says so. */
+    designApprovedAt: milestone.designApprovedAt ?? null,
   };
 }
 
@@ -197,26 +207,27 @@ async function branchFor(ctx: MutationCtx, milestone: Doc<'milestones'>): Promis
 }
 
 /**
- * Called first by every runner route. A runner is let in by its registration
- * (the hash of its bearer token matches) or, until the dev runner is
- * re-paired, by the `RUNNER_TOKENS` fallback the route already checked.
+ * Called first by every runner route. A runner is let in only by its
+ * registration: the hash of its bearer token matches.
  * The runner row is patched at most once a minute. Calls inside that minute
- * do not write, unless the runner's protocol version changed.
+ * do not write, unless the runner's protocol version or its paused flag changed.
+ * `paused` comes from the runner app: absent means "not saying", so an older
+ * runner never clears a pause.
  */
 export const touchRunner = internalMutation({
   args: {
     runnerId: v.string(),
     tokenHash: v.optional(v.string()),
-    envAuthorized: v.optional(v.boolean()),
     protocolVersion: v.optional(v.number()),
+    paused: v.optional(v.boolean()),
   },
-  handler: async (ctx, { runnerId, tokenHash, envAuthorized, protocolVersion }) => {
+  handler: async (ctx, { runnerId, tokenHash, protocolVersion, paused }) => {
     const now = Date.now();
     const row = await ctx.db
       .query('agentRunners')
       .withIndex('by_runnerId', (q) => q.eq('runnerId', runnerId))
       .unique();
-    const access = runnerAccess({ row, tokenHash, envAuthorized: envAuthorized === true });
+    const access = runnerAccess({ row, tokenHash });
     if (!access) return failure(401, RUNNER_UNAUTHORIZED);
     const registered = access === 'registered';
     const decision = runnerTouchDecision({
@@ -227,8 +238,11 @@ export const touchRunner = internalMutation({
     });
     if (!decision.ok) return failure(429, decision.reason);
     const versionChanged = protocolVersion != null && row?.protocolVersion !== protocolVersion;
+    const pause = runnerPausePatch(row?.pausedAt, paused, now);
     if (!decision.write) {
-      if (row && versionChanged) await ctx.db.patch(row._id, { protocolVersion });
+      if (row && (versionChanged || pause)) {
+        await ctx.db.patch(row._id, { ...(versionChanged ? { protocolVersion } : {}), ...(pause ?? {}) });
+      }
       return { ok: true as const, registered };
     }
     const version = protocolVersion != null ? { protocolVersion } : {};
@@ -237,13 +251,15 @@ export const touchRunner = internalMutation({
         row.windowStart === decision.windowStart &&
         row.count === decision.count &&
         row.lastSeenAt === decision.lastSeenAt &&
-        !versionChanged;
+        !versionChanged &&
+        !pause;
       if (!same) {
         await ctx.db.patch(row._id, {
           windowStart: decision.windowStart,
           count: decision.count,
           lastSeenAt: decision.lastSeenAt,
           ...version,
+          ...(pause ?? {}),
         });
       }
     } else {
@@ -259,11 +275,12 @@ export const touchRunner = internalMutation({
   },
 });
 
-async function runningRunFor(ctx: MutationCtx, runnerId: string) {
+/** The runner's open runs, oldest first. Capped: a runner holds at most RUNNER_MAX_SLOTS. */
+async function runningRunsFor(ctx: MutationCtx, runnerId: string) {
   return ctx.db
     .query('agentRuns')
     .withIndex('by_runner_status', (q) => q.eq('runnerId', runnerId).eq('status', 'running'))
-    .first();
+    .take(RUNNER_MAX_SLOTS * 2);
 }
 
 /** Marks an ended run as settled: the runner answered for it. Writes once. */
@@ -276,19 +293,19 @@ async function settleRun(ctx: MutationCtx, run: Doc<'agentRuns'>, at: number) {
 const SETTLE_SCAN = 5;
 
 /**
- * A runner that asks for work with no run open is not working. Any task or
- * planning run the stuck sweep closed under it is over, so its hold on the
- * milestone ends here. A Cursor build is left alone: its agent runs in the
- * cloud whether or not the runner is busy.
+ * A runner that asks for work says which runs it is still working on. Any
+ * task or planning run the stuck sweep closed under it that it does not list
+ * is over, so its hold on the milestone ends here. A Cursor build is left
+ * alone: its agent runs in the cloud whether or not the runner is busy.
  */
-async function settleIdleRunner(ctx: MutationCtx, runnerId: string, at: number) {
+async function settleIdleRunner(ctx: MutationCtx, runnerId: string, held: ReadonlySet<string>, at: number) {
   const closed = await ctx.db
     .query('agentRuns')
     .withIndex('by_runner_status', (q) => q.eq('runnerId', runnerId).eq('status', 'cancelled'))
     .order('desc')
     .take(SETTLE_SCAN);
   for (const run of closed) {
-    if (run.kind !== 'build') await settleRun(ctx, run, at);
+    if (run.kind !== 'build' && !held.has(run._id)) await settleRun(ctx, run, at);
   }
 }
 
@@ -347,8 +364,9 @@ function buildTaskPayload({ doc: task }: LoadedTask) {
 /**
  * Hands the runner its next piece of work in one transaction: a planning job
  * first, else the lowest-order To do task on the oldest Building milestone.
- * A runner with a run still open gets that same run back, so a repeated call
- * never claims twice.
+ * A runner works up to `slots` runs at once, each on a different milestone,
+ * and lists the runs it holds. An open run it does not list comes back to it,
+ * so a repeated call never claims twice.
  */
 export const claimNext = internalMutation({
   args: {
@@ -362,9 +380,15 @@ export const claimNext = internalMutation({
      * names one (ADR-0005 amendment). It still gets nothing for a project with none.
      */
     anyRepo: v.optional(v.boolean()),
+    /** Run slots: how many runs the runner works at once, one per milestone (1 to RUNNER_MAX_SLOTS). */
+    slots: v.optional(v.number()),
+    /** The run ids the runner is working on now. */
+    held: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const repos = runnerRepos(args.repos);
+    const slots = runnerSlots(args.slots);
+    const held = heldRunIds(args.held);
     const anyRepo = args.anyRepo === true && repos.length === 0;
     // Fail safe: a runner that names no repository, and is not registered, is handed nothing.
     if (repos.length === 0 && !anyRepo) return { ok: true as const, resumed: false, kind: 'none' as const, reason: RUNNER_NEEDS_REPO };
@@ -372,16 +396,19 @@ export const claimNext = internalMutation({
       const project = await ctx.db.get(projectId);
       return anyRepo ? agentRepo(project?.agentRepo) != null : projectServedBy(project, repos);
     };
-    const open = await runningRunFor(ctx, args.runnerId);
-    if (open) {
-      const payload = await runPayload(ctx, open);
+    const open = await runningRunsFor(ctx, args.runnerId);
+    const decision = openRunDecision({ open: open.map((run) => run._id), held, slots });
+    const lost = decision.resume ? open.find((run) => run._id === decision.resume) : undefined;
+    if (lost) {
+      const payload = await runPayload(ctx, lost);
       if (payload) return { ok: true as const, resumed: true, ...payload };
       // The task or milestone behind the run is gone. Close it and look again.
       const closedAt = Date.now();
-      await ctx.db.patch(open._id, { status: 'cancelled', endedAt: closedAt, settledAt: closedAt });
+      await ctx.db.patch(lost._id, { status: 'cancelled', endedAt: closedAt, settledAt: closedAt });
     }
     const now = Date.now();
-    await settleIdleRunner(ctx, args.runnerId, now);
+    await settleIdleRunner(ctx, args.runnerId, new Set(held), now);
+    if (decision.full) return { ok: true as const, resumed: false, kind: 'none' as const, reason: RUNNER_BUSY };
     const mode = runMode(args.mode);
 
     const inspected = new Map<string, number>();
@@ -838,6 +865,57 @@ export const failPlanning = internalMutation({
       runId: run._id,
       type: 'failed',
       summary: `Planning run stopped · ${why}`,
+      at: now,
+    });
+    return { ok: true as const, duplicate: false };
+  },
+});
+
+/**
+ * The runner hands a run back untouched, because Claude hit the account usage
+ * limit. The run is cancelled and settled, so it holds nothing. A task goes
+ * back to To do and a plan back to the queue, with no needs Peter note: the
+ * runner takes new work again once the limit resets. Idempotent on the run.
+ */
+export const releaseRun = internalMutation({
+  args: { runnerId: v.string(), runId: v.string(), reason: v.optional(v.any()) },
+  handler: async (ctx, args) => {
+    const owned = await ownedRun(ctx, args.runnerId, args.runId);
+    if (!owned.ok) return owned;
+    const { run } = owned;
+    if (run.kind !== 'task' && run.kind !== 'planning') return failure(400, RELEASE_KIND_INVALID);
+    if (run.status !== 'running') {
+      await settleRun(ctx, run, Date.now());
+      return { ok: true as const, duplicate: true };
+    }
+    const now = Date.now();
+    const why = releaseReason(args.reason);
+    await ctx.db.patch(run._id, { status: 'cancelled', endedAt: now, settledAt: now, blockedReason: why });
+    const milestone = await ctx.db.get(run.milestoneId);
+    let summary = `Run handed back · ${why}`;
+    if (run.kind === 'task' && run.taskId) {
+      const task = await ctx.db.get(run.taskId);
+      if (task && !task.isDone && task.claimedBy === args.runnerId) {
+        await ctx.db.patch(task._id, {
+          status: 'To Do',
+          isDone: false,
+          claimedBy: undefined,
+          claimedAt: undefined,
+          blockedReason: undefined,
+          updatedAt: now,
+        });
+      }
+      if (task) summary = `Task ${String((task.milestoneOrder ?? 0) + 1).padStart(2, '0')} went back to To do · ${why}`;
+    } else if (run.kind === 'planning') {
+      if (milestone?.planning === 'running') await ctx.db.patch(milestone._id, { planning: 'queued', loopChangedAt: now });
+      summary = `Planning went back to the queue · ${why}`;
+    }
+    await writeEvent(ctx, {
+      orgId: run.orgId,
+      milestoneId: run.milestoneId,
+      runId: run._id,
+      type: 'note',
+      summary,
       at: now,
     });
     return { ok: true as const, duplicate: false };
@@ -1416,7 +1494,7 @@ export const runnerHealth = adminQuery({
     if (!project) return null;
     const repo = agentRepo(project.agentRepo);
     const production = (process.env.CONVEX_CLOUD_URL ?? '').includes(PRODUCTION_DEPLOYMENT);
-    // Registered runners serve every project with a repository; the env fallback names its repositories.
+    // Registered runners serve every project with a repository.
     const registered = await registeredRunners(ctx);
     const base = { production, protocolMin: RUNNER_PROTOCOL_MIN, registeredCount: registered.length };
     if (!repo) return { ...base, repoSet: false, repo: null, runnerAllowed: false, runners: [], working: null, building: null };
@@ -1425,16 +1503,8 @@ export const runnerHealth = adminQuery({
       lastSeenAt: row.lastSeenAt ?? null,
       registered: true,
       protocolVersion: row.protocolVersion ?? null,
+      paused: row.pausedAt != null,
     }));
-    for (const id of runnersAllowedFor(process.env.RUNNER_TOKENS, repo)) {
-      if (runners.length >= RUNNER_HEALTH_MAX_RUNNERS) break;
-      if (runners.some((runner) => runner.id === id)) continue;
-      const row = await ctx.db
-        .query('agentRunners')
-        .withIndex('by_runnerId', (q) => q.eq('runnerId', id))
-        .unique();
-      runners.push({ id, lastSeenAt: row?.lastSeenAt ?? null, registered: false, protocolVersion: row?.protocolVersion ?? null });
-    }
     if (runners.length === 0) return { ...base, repoSet: true, repo, runnerAllowed: false, runners: [], working: null, building: null };
     let working: RunnerHealthView['working'] = null;
     for (const { id } of runners) {

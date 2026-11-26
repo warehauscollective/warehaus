@@ -95,7 +95,7 @@ export function NoticeBell() {
   };
 
   return (
-    <div className="fixed z-40" style={{ top: '1.25rem', right: '1.25rem' }}>
+    <div className="fixed z-40" style={{ top: 'calc(1.25rem + var(--shell-inset-top, 0px))', right: '1.25rem' }}>
       <button
         ref={buttonRef}
         type="button"

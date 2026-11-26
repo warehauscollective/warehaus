@@ -735,7 +735,6 @@ function ProjectTaskOverlay({
       clientName={clientName}
       hostSlug={hostSlug}
       live={!fixtures}
-      initialStageConfirm={phone ? review.stageConfirm : null}
       initialArchive={review.archive}
       initialMenu={review.menu}
       initialFieldError={review.fieldError}

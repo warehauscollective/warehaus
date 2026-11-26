@@ -7,10 +7,8 @@
 
 import { COMPLETE_STATUSES, type CompleteStatus } from '@warehaus/runner-protocol';
 import { isBlockedTask } from './milestoneTasks';
-import { timingSafeEqualUtf8 } from './constantTime';
 
 export const RUNNER_ID_PATTERN = /^[a-z0-9][a-z0-9-]{1,39}$/;
-export const RUNNER_UNCONFIGURED = 'The runner is not configured';
 export const RUNNER_UNAUTHORIZED = 'Unauthorized';
 export const RUNNER_ID_INVALID = 'Runner id must be 2 to 40 lowercase letters, digits or hyphens';
 export const RUNNER_RATE_LIMITED = 'Too many requests from this runner. Wait a minute.';
@@ -18,61 +16,6 @@ export const RUN_NOT_FOUND = 'Run not found';
 export const RUN_NOT_YOURS = 'That run belongs to another runner';
 export const RUN_ENDED = 'That run has ended';
 export const PLAN_NOT_PLANNING = 'That run is not a planning run';
-
-export type RunnerToken = { token: string; repos: string[] };
-
-/**
- * `RUNNER_TOKENS` in the Convex environment. One runner per entry, separated
- * by a new line or by a comma that starts the next `id=`. Each entry is
- * `id=token` and the repositories that runner may serve, separated by spaces.
- * A token under 24 characters is ignored. A runner with no repository is
- * handed nothing.
- */
-export function parseRunnerTokens(raw: string | null | undefined): Map<string, RunnerToken> {
-  const tokens = new Map<string, RunnerToken>();
-  const entries = (raw ?? '').split(/\n|,(?=\s*[a-z0-9][a-z0-9-]{1,39}\s*=)/);
-  for (const part of entries) {
-    const at = part.indexOf('=');
-    if (at < 1) continue;
-    const id = part.slice(0, at).trim().toLowerCase();
-    const pieces = part.slice(at + 1).trim().split(/\s+/).filter(Boolean);
-    const token = pieces[0] ?? '';
-    if (!RUNNER_ID_PATTERN.test(id) || token.length < 24) continue;
-    tokens.set(id, { token, repos: runnerRepos(pieces.slice(1)) });
-  }
-  return tokens;
-}
-
-/** Bearer token for the named runner. Compared in constant time. */
-export function authorizeRunner(input: {
-  configured: string | null | undefined;
-  authorizationHeader: string | null;
-  runnerId: string | null | undefined;
-}): { ok: true; runnerId: string; repos: string[] } | { ok: false; status: 400 | 401 | 503; reason: string } {
-  const tokens = parseRunnerTokens(input.configured);
-  if (tokens.size === 0) return { ok: false, status: 503, reason: RUNNER_UNCONFIGURED };
-  const runnerId = (input.runnerId ?? '').trim().toLowerCase();
-  if (!RUNNER_ID_PATTERN.test(runnerId)) return { ok: false, status: 400, reason: RUNNER_ID_INVALID };
-  const match = /^Bearer\s+(\S+)\s*$/.exec(input.authorizationHeader ?? '');
-  const expected = tokens.get(runnerId);
-  // Compare against something even when the id is unknown, so timing does not name valid ids.
-  const reference = expected?.token ?? 'x'.repeat(32);
-  const given = match?.[1] ?? '';
-  const same = timingSafeEqualUtf8(given, reference);
-  if (!expected || !same) return { ok: false, status: 401, reason: RUNNER_UNAUTHORIZED };
-  return { ok: true, runnerId, repos: expected.repos };
-}
-
-/**
- * Repositories this claim may see: the ones the request named that the
- * token also allows. An empty allowlist or an empty request yields none.
- */
-export function reposForRunner(allowed: readonly string[], requested: unknown): string[] {
-  const asked = runnerRepos(requested);
-  if (allowed.length === 0 || asked.length === 0) return [];
-  const permit = new Set(allowed);
-  return asked.filter((repo) => permit.has(repo));
-}
 
 export const RUNNER_RATE_WINDOW_MS = 60_000;
 export const RUNNER_RATE_LIMIT = 120;
@@ -417,6 +360,19 @@ export function completeDecision(input: {
   };
 }
 
+export const RELEASE_KIND_INVALID = 'Only a task or planning run can be handed back';
+export const RELEASE_DEFAULT_REASON = 'The runner handed the run back';
+
+/**
+ * Why a run was handed back, for the feed and the run row: the runner's own
+ * words, masked and cut down, or a plain default. A release is not a failure,
+ * so it never blocks the task and never leaves a needs Peter note.
+ */
+export function releaseReason(value: unknown): string {
+  const summary = eventSummary(typeof value === 'string' && value.trim() ? value : RELEASE_DEFAULT_REASON);
+  return summary.ok ? summary.summary : RELEASE_DEFAULT_REASON;
+}
+
 /** `milestone/<slug>`: lowercase words from the name, at most 48 characters. */
 export function milestoneBranch(name: string): string {
   const slug = name
@@ -582,3 +538,37 @@ export function mapCursorCommits(
 
 /** Open notes a single read returns. */
 export const NEEDS_PETER_LIMIT = 20;
+
+/**
+ * Parallel runs. A runner holds at most this many open runs at once, each on
+ * a different milestone. One run per milestone stays the rule: tasks on a
+ * milestone share one branch.
+ */
+export const RUNNER_MAX_SLOTS = 4;
+export const RUNNER_BUSY = 'Every run slot on this runner is in use.';
+
+/** The slots a claim asks for. A runner that sends none (protocol 2) has one. */
+export function runnerSlots(raw: unknown): number {
+  const n = typeof raw === 'number' && Number.isFinite(raw) ? Math.floor(raw) : 1;
+  return Math.min(RUNNER_MAX_SLOTS, Math.max(1, n));
+}
+
+/** The run ids the runner says it is working on, deduplicated and capped. */
+export function heldRunIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const ids = raw.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 64);
+  return [...new Set(ids)].slice(0, RUNNER_MAX_SLOTS * 2);
+}
+
+/**
+ * What a claim does with the runner's open runs. An open run the runner did
+ * not list is one it lost track of (it restarted, or a Cursor build came back
+ * to be followed again): hand that back first, oldest first. Otherwise the
+ * runner gets new work only while it has a free slot.
+ */
+export function openRunDecision(input: { open: string[]; held: string[]; slots: number }): { resume: string | null; full: boolean } {
+  const held = new Set(input.held);
+  const resume = input.open.find((id) => !held.has(id)) ?? null;
+  const inUse = input.open.filter((id) => held.has(id)).length;
+  return { resume, full: inUse >= input.slots };
+}

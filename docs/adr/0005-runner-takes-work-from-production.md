@@ -64,5 +64,39 @@ Built on the branch `milestone/runner-on-production`, awaiting Peter's approval:
 - The internal mutation `runners:clearQueuedPlanning`, run once by hand on production after the deploy, for detail 3.
 - Request changes from Grok Bot moves to Awaiting Go; Regenerate on the drafted tasks card; a Cursor build is blocked after 2 hours.
 
-Still to do: remove the `RUNNER_TOKENS` fallback and the dev env var once the dev runner is re-paired, which needs this code deployed to dev first.
+Done (task 13): the `RUNNER_TOKENS` fallback is removed from Convex, and the dev env var with it. Peter decided dev needs no runner, so dev was not re-paired. Runners serve production only, and every runner gets in only through its registration.
+
+## Amendment, 2026-11-26: staff set up the runner with the Mac app
+
+Portal decision 0005 made the runner a native Swift menu bar app, and ADR-0006 (decisions 3 and 8) put it in `apps/mac`, signed and notarized, downloaded only from the Portal. This amendment records what that changes here. The work is tracked in the Portal milestone "Runner Mac app, set up from the Portal". These points replace the matching lines above where they differ.
+
+1. **Staff set up a runner with the app, never the CLI.** Staff download the Mac app (named Warehaus Portal since 2026-11-26, Warehaus Runner before) from the Runner status modal (Set up runner › Download runner app; staff only, Apple silicon, macOS 14 or later) and follow its first-launch checklist: GitHub sign-in, Claude Code (Install, then sign in), then pairing. The app runs `setup --supervised --production`, shows the code, and opens the Portal at `/?runnerPair=<code>`, where staff confirm it. No staff step uses a terminal. The CLI's `setup` stays for developers and for a host with no app (point 3 of the 2026-11-24 amendment).
+2. **The app keeps the runner running, not launchd.** The app starts the bundled runner (`start --supervised --mode headless --production`) with its own Node and `gh`, restarts it if it stops, and starts at login through the macOS login item, on from the first launch. It replaces point 5's launchd agent for staff. On a Mac that already has the production agent, the app adopts the existing pairing and offers Replace it, which unloads and removes `co.warehaus.runner.prod`; until then the app does not start a second runner. `install` stays for a dev runner. Release builds use production only and debug builds refuse it, as before.
+3. **Registry, pairing and revoke, plus unpair.** Registrations, the pairing code (10 minutes, at most 5 open) and Revoke in the Portal are unchanged. Remove this runner… in the app adds the runner's own revoke: `remove` calls `POST /agent/unpair` with the runner's secret, hands any run in progress back for Retry, removes the login item and any old agent, and deletes the Keychain secret. If the Portal cannot be reached, the app asks staff to revoke the runner in the Portal.
+4. **Paused.** Pause in the app sends `pause` to the runner, which claims nothing and sends `paused: true` with each heartbeat, so the Portal shows Paused instead of Offline. A run in progress finishes first. The app remembers a pause across restarts.
+5. **Release check and self-update.** Point 7's "The runner never updates its own code" now holds for the CLI only. The app updates itself, and the runner bundled in it, between runs:
+   - A maintainer runs the release workflow by hand, from `main` only, after a production deploy that changes `apps/mac` or `tools/runner`. It publishes a signed, notarized zip to production Convex (`/runner-app/upload-url`, then `/runner-app/release`). The build number is the commit count on `main`.
+   - The app asks for the latest release on launch, every 6 hours and on Check for update, through the runner (`app-release`, `POST /agent/app-release` with the runner secret). A release is newer when its build number is higher.
+   - Before installing, it checks the zip's size and SHA-256, the signature, the team (7XQWUC33C7), the bundle id, that the build is the one the Portal named, and Gatekeeper.
+   - It installs only while the runner is idle, paused or stopped, never during a run. It keeps a rollback copy, and puts the old app back if the new one does not check in within 45 seconds.
+   - The protocol version check stays: a runner below the minimum shows "Runner out of date" and gets no work.
+
+What stays the same: the runner claims work from production with its registration; the local preview and the staff Vercel preview point at shared dev only; the Claude child process inherits no secret; headless Claude draws on the Agent SDK credit; the no-runner notes and the stuck-run sweep are unchanged; merging still deploys nothing.
+
+## Amendment, 2026-11-26: one runner works several milestones at once
+
+Peter asked on 2026-11-26 for the runner to work every Building milestone instead of one at a time, as a priority. The work is tracked in the Portal milestone "Runner works several Building milestones at once".
+
+- A runner holds up to N open runs (the claim's `slots`, 1 to 4; the Mac app uses 4), each on a different milestone. Inside a milestone nothing changes: one task run at a time, in order, on the one `milestone/<slug>` branch.
+- Each claim lists the runs the runner holds. An open run it does not list comes back to it first; with every slot in use it gets nothing new. A runner that sends no slots (protocol 2) works one run at a time as before.
+- Each run is its own headless Claude session, so N runs use the Agent SDK credit N times as fast.
+
+## Amendment, 2026-11-26: a usage limit hands the run back
+
+On 2026-11-26 the production runner `peteroqs-laptop-prod` blocked tasks 04 to 07 of "Milestone tasks as a board" twice, about 8 seconds apart, each with "The run ended with no new commit". Every Claude transcript ended "You've hit your 5-hour limit · resets 8:30am (America/New_York)". A usage limit is not a task problem, so it should not block the task or ask Peter for anything.
+
+- Headless, the runner reads the last lines of Claude's output. A usage-limit line ends the run as released, not failed. A blocked note from Claude still wins.
+- A new route, `POST /agent/release`, takes a task or planning run back: the run is cancelled and settled, the task goes back to To do (a plan back to the queue), the feed gets a note, and there is no "needs Peter" note. It is its own route, not a fourth complete status, because a Portal that predates it must refuse it plainly (404); an older `failPlanning` would have ignored a status and blocked the plan. On a 404 the runner leaves the run open, and the claim after the reset hands it back.
+- The runner claims nothing until the reset Claude named plus a minute, or 30 minutes when it names none, at most 8 days. The limit is the account's, so one run that hits it holds every slot.
+- Supervised, the runner prints a `waiting` line with reason `usage_limit` and the time it takes work again. It is not an `attention` reason: nobody has to act, and the wait ends on its own. Showing it in the Mac app is later work and needs a design.
 
