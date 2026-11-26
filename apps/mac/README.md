@@ -86,8 +86,9 @@ It signs with "Developer ID Application: Warehaus LLC (7XQWUC33C7)" using
 --keychain-profile warehaus-notary --wait`, staples, and checks
 `spctl -a -vv`, failing unless it reports `accepted` and
 `source=Notarized Developer ID`. The certificate and the notary profile live in
-the Mac's keychain, never in the repo. `--skip-notarize` builds and checks the
-signature only and leaves no zip.
+the Mac's keychain, never in the repo. `--skip-notarize` checks the Developer
+ID signature without notarizing. `--unsigned` needs no certificate: it signs ad
+hoc with the hardened runtime. Neither leaves a zip.
 
 After notarization it writes `build/Warehaus-Runner.zip` and
 `build/release.json` (version, build, sha256, size, minMacOS).
@@ -105,8 +106,9 @@ After notarization it writes `build/Warehaus-Runner.zip` and
   the commit count on `main`, so each release is higher than the last. Running
   it twice on the same commit is refused (409), which is expected.
 - **Dry run** (pull requests that change `apps/mac/**` or `tools/runner/**`).
-  Builds and checks the signature. No notarization, no publish. Skipped when
-  the signing secrets are not available, as on pull requests from forks.
+  Runs `build-release.sh --unsigned`: tests, builds and signs ad hoc. It reads
+  no secrets, so the certificate never reaches pull request code, and it runs
+  on forks too. No Developer ID, no notarization, no publish.
 
 Nothing runs on push, tag or schedule. Deploys are manual, and so is this.
 
@@ -124,9 +126,7 @@ commit them, paste them in chat or print them in a log.
 | `ASC_API_ISSUER_ID` | The team's Issuer ID (a UUID) | Same page, above the key list |
 | `RUNNER_APP_PUBLISH_TOKEN` | The publish token. The same value must be set as `RUNNER_APP_PUBLISH_TOKEN` in the production Convex env. 32 characters or more | `openssl rand -hex 32 \| pbcopy`, then set it in both places |
 
-Only the release job reads the API key and the publish token. The dry run reads
-the two certificate secrets. Pull requests from this repository's branches can
-read them, so only people with write access should push branches here.
+Only the release job reads these secrets. It runs by hand, from `main` only.
 
 ## Rules
 

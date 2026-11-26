@@ -8,9 +8,9 @@ name: Runner app release
 # - release: manual only (workflow_dispatch), from main only. Run it after a
 #   production deploy that changes apps/mac or tools/runner. Deploys are manual,
 #   so this never runs on push, tag or schedule.
-# - dry-run: on pull requests that change the app or the runner. Builds and
-#   checks the signature. No notarization, no publish. Skipped when the signing
-#   secrets are missing (pull requests from forks).
+# - dry-run: on pull requests that change the app or the runner. Tests,
+#   builds and signs ad hoc. Reads no secrets, so it also runs on forks. No
+#   Developer ID, no notarization, no publish.
 #
 # Repository secrets (never in the repo; see apps/mac/README.md):
 #   MAC_DEVELOPER_ID_P12_BASE64, MAC_DEVELOPER_ID_P12_PASSWORD,
@@ -33,43 +33,18 @@ concurrency:
 
 jobs:
   dry-run:
-    name: Build and check signing (no notarize, no publish)
+    name: Build and check (unsigned, no notarize, no publish)
     if: github.event_name == 'pull_request'
     runs-on: macos-15
     timeout-minutes: 30
+    # Reads no secrets: the certificate never reaches pull request code.
     steps:
-      - name: Check for the signing secrets
-        id: secrets
-        env:
-          P12: ${{ secrets.MAC_DEVELOPER_ID_P12_BASE64 }}
-          P12_PASSWORD: ${{ secrets.MAC_DEVELOPER_ID_P12_PASSWORD }}
-        run: |
-          if [[ -n "$P12" && -n "$P12_PASSWORD" ]]; then
-            echo "available=true" >>"$GITHUB_OUTPUT"
-          else
-            echo "available=false" >>"$GITHUB_OUTPUT"
-            echo "::notice::Signing secrets are not available to this pull request (a fork, or not added yet). Skipping the signed dry run."
-          fi
-
       - uses: actions/checkout@v4
-        if: steps.secrets.outputs.available == 'true'
 
-      - name: Import the Developer ID certificate into a temporary keychain
-        if: steps.secrets.outputs.available == 'true'
-        env:
-          MAC_DEVELOPER_ID_P12_BASE64: ${{ secrets.MAC_DEVELOPER_ID_P12_BASE64 }}
-          MAC_DEVELOPER_ID_P12_PASSWORD: ${{ secrets.MAC_DEVELOPER_ID_P12_PASSWORD }}
-        run: apps/mac/scripts/ci-keychain.sh create
-
-      - name: Build and sign
-        if: steps.secrets.outputs.available == 'true'
+      - name: Test, build and sign ad hoc with the hardened runtime
         run: |
           xcodebuild -version
-          apps/mac/scripts/build-release.sh --skip-notarize
-
-      - name: Delete the temporary keychain
-        if: always() && steps.secrets.outputs.available == 'true'
-        run: apps/mac/scripts/ci-keychain.sh delete
+          apps/mac/scripts/build-release.sh --unsigned
 
   release:
     name: Build, sign, notarize and publish

@@ -4,7 +4,7 @@
 # Gatekeeper. The same script runs on a staff Mac and in GitHub Actions
 # (.github/workflows/runner-app-release.yml).
 #
-#   apps/mac/scripts/build-release.sh [--skip-notarize]
+#   apps/mac/scripts/build-release.sh [--skip-notarize | --unsigned]
 #
 # Needs "Developer ID Application: Warehaus LLC (7XQWUC33C7)" with its private
 # key in a keychain (never in the repo). On a Mac that is the login keychain;
@@ -20,8 +20,10 @@
 #                     it to the commit count on main. Default: the project's.
 #   SIGNING_KEYCHAIN  the keychain that holds the identity. Default: the search list.
 #
-# --skip-notarize builds and checks the signature only (the PR dry run). It
-# leaves no zip, because an unnotarized build must never be published.
+# --skip-notarize builds and checks the Developer ID signature, without
+# notarizing. --unsigned needs no certificate at all: it builds, signs ad hoc
+# with the hardened runtime and checks that (the PR dry run, which reads no
+# secrets). Neither leaves a zip, because only a notarized build is published.
 #
 # Output: apps/mac/build/Warehaus Runner.app, and after notarization
 # Warehaus-Runner.zip plus release.json (version, build, sha256, size,
@@ -38,13 +40,27 @@ APP="$OUT/Warehaus Runner.app"
 ZIP="$OUT/Warehaus-Runner.zip"
 META="$OUT/release.json"
 NOTARIZE=1
-[[ "${1:-}" == "--skip-notarize" ]] && NOTARIZE=0
+ADHOC=0
+case "${1:-}" in
+  "") ;;
+  --skip-notarize) NOTARIZE=0 ;;
+  --unsigned) NOTARIZE=0; ADHOC=1 ;;
+  *) echo "Usage: $0 [--skip-notarize | --unsigned]" >&2; exit 2 ;;
+esac
 
 step() { printf '\n== %s\n' "$1"; }
 fail() { echo "$1" >&2; exit 1; }
 
+# What codesign signs with: the Developer ID, or "-" (ad hoc, no timestamp).
+SIGN_ID="$IDENTITY"
+TIMESTAMP="--timestamp"
 KEYCHAIN_ARGS=()
-[[ -n "${SIGNING_KEYCHAIN:-}" ]] && KEYCHAIN_ARGS=(--keychain "$SIGNING_KEYCHAIN")
+if [[ "$ADHOC" == 1 ]]; then
+  SIGN_ID="-"
+  TIMESTAMP="--timestamp=none"
+elif [[ -n "${SIGNING_KEYCHAIN:-}" ]]; then
+  KEYCHAIN_ARGS=(--keychain "$SIGNING_KEYCHAIN")
+fi
 
 NOTARY_ARGS=(--keychain-profile "$PROFILE")
 if [[ -n "${NOTARY_KEY_PATH:-}" || -n "${NOTARY_KEY_ID:-}" || -n "${NOTARY_ISSUER_ID:-}" ]]; then
@@ -53,9 +69,11 @@ if [[ -n "${NOTARY_KEY_PATH:-}" || -n "${NOTARY_KEY_ID:-}" || -n "${NOTARY_ISSUE
   NOTARY_ARGS=(--key "$NOTARY_KEY_PATH" --key-id "$NOTARY_KEY_ID" --issuer "$NOTARY_ISSUER_ID")
 fi
 
-step "Checking the signing identity"
-security find-identity -v -p codesigning ${SIGNING_KEYCHAIN:+"$SIGNING_KEYCHAIN"} | grep -F "$IDENTITY" >/dev/null \
-  || fail "Missing a valid \"$IDENTITY\" in the keychain."
+if [[ "$ADHOC" == 0 ]]; then
+  step "Checking the signing identity"
+  security find-identity -v -p codesigning ${SIGNING_KEYCHAIN:+"$SIGNING_KEYCHAIN"} | grep -F "$IDENTITY" >/dev/null \
+    || fail "Missing a valid \"$IDENTITY\" in the keychain."
+fi
 
 step "Testing the supervisor"
 (cd "$HERE" && swift test --quiet)
@@ -64,31 +82,40 @@ step "Building Release (Apple silicon, macOS 14+)"
 rm -rf "$APP" "$ZIP" "$META"
 BUILD_SETTINGS=()
 [[ -n "${BUILD_NUMBER:-}" ]] && BUILD_SETTINGS+=("CURRENT_PROJECT_VERSION=$BUILD_NUMBER")
-[[ -n "${SIGNING_KEYCHAIN:-}" ]] && BUILD_SETTINGS+=("OTHER_CODE_SIGN_FLAGS=--timestamp --keychain $SIGNING_KEYCHAIN")
+if [[ "$ADHOC" == 1 ]]; then
+  BUILD_SETTINGS+=("CODE_SIGN_IDENTITY=-" "DEVELOPMENT_TEAM=" "OTHER_CODE_SIGN_FLAGS=--timestamp=none")
+elif [[ -n "${SIGNING_KEYCHAIN:-}" ]]; then
+  BUILD_SETTINGS+=("OTHER_CODE_SIGN_FLAGS=--timestamp --keychain $SIGNING_KEYCHAIN")
+fi
 xcodebuild -project "$HERE/App/WarehausRunner.xcodeproj" -scheme "Warehaus Runner" \
   -configuration Release -derivedDataPath "$DERIVED" -destination "generic/platform=macOS" \
   ${BUILD_SETTINGS[@]+"${BUILD_SETTINGS[@]}"} build -quiet
 cp -R "$DERIVED/Build/Products/Release/Warehaus Runner.app" "$APP"
 
-step "Signing with the hardened runtime and a secure timestamp"
+step "Signing with the hardened runtime"
 # Nested code (the bundled Node and gh, from the first-launch task) is signed inside out first.
 if [[ -d "$APP/Contents/Resources/runner/bin" ]]; then
   find "$APP/Contents/Resources/runner/bin" -type f -perm -u+x -print0 | while IFS= read -r -d '' tool; do
-    codesign --force --options runtime --timestamp ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} \
-      --sign "$IDENTITY" "$tool"
+    codesign --force --options runtime "$TIMESTAMP" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} \
+      --sign "$SIGN_ID" "$tool"
   done
 fi
-codesign --force --options runtime --timestamp ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} \
-  --entitlements "$HERE/App/WarehausRunner.entitlements" --sign "$IDENTITY" "$APP"
+codesign --force --options runtime "$TIMESTAMP" ${KEYCHAIN_ARGS[@]+"${KEYCHAIN_ARGS[@]}"} \
+  --entitlements "$HERE/App/WarehausRunner.entitlements" --sign "$SIGN_ID" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
 
 step "Checking the signature"
 SIG="$(codesign -dvv "$APP" 2>&1)"
-grep -qF "Authority=$IDENTITY" <<<"$SIG" || fail "Not signed by \"$IDENTITY\"."
-grep -qF "TeamIdentifier=$TEAM_ID" <<<"$SIG" || fail "Team identifier is not $TEAM_ID."
-grep -qE '^Timestamp=' <<<"$SIG" || fail "No secure timestamp."
 grep -qE 'flags=.*runtime' <<<"$SIG" || fail "The hardened runtime is off."
-echo "Developer ID, team $TEAM_ID, hardened runtime, secure timestamp."
+if [[ "$ADHOC" == 1 ]]; then
+  grep -qF "Signature=adhoc" <<<"$SIG" || fail "Expected an ad hoc signature."
+  echo "Ad hoc, hardened runtime. No certificate was used."
+else
+  grep -qF "Authority=$IDENTITY" <<<"$SIG" || fail "Not signed by \"$IDENTITY\"."
+  grep -qF "TeamIdentifier=$TEAM_ID" <<<"$SIG" || fail "Team identifier is not $TEAM_ID."
+  grep -qE '^Timestamp=' <<<"$SIG" || fail "No secure timestamp."
+  echo "Developer ID, team $TEAM_ID, hardened runtime, secure timestamp."
+fi
 
 VERSION="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP/Contents/Info.plist")"
 BUILD="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$APP/Contents/Info.plist")"
