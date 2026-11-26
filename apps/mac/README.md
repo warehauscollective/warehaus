@@ -1,8 +1,11 @@
 # Mac app
 
 The Warehaus app on a staff Mac (see "Mac app" in `GLOSSARY.md`). It is
-**Warehaus Runner**: a menu bar app that keeps the production runner going
-headless, and shows the Portal in its own window. Full record:
+**Warehaus Portal**: the Portal in its own window, plus a menu bar runner that
+keeps the production runner going headless. Its bundle ID stays
+`co.warehaus.runner.app` from when it was named Warehaus Runner, so installed
+copies keep updating; an update moves a copy still named `Warehaus Runner.app`
+to `Warehaus Portal.app` in the same folder. Full record:
 `docs/adr/0006-multi-platform-portal.md`.
 
 Nothing here is a Node workspace.
@@ -143,7 +146,7 @@ cd apps/mac && swift test
 ```
 
 Or in Xcode: open `apps/mac/App/WarehausRunner.xcodeproj` and run the
-**Warehaus Runner** scheme. The tests run from the package (`xcodebuild
+**Warehaus Portal** scheme. The tests run from the package (`xcodebuild
 -scheme WarehausMac-Package test -destination platform=macOS` in `apps/mac`).
 
 Debug launch arguments, ticked under Product › Scheme › Edit Scheme › Run ›
@@ -197,7 +200,7 @@ the Mac's keychain, never in the repo. `--skip-notarize` checks the Developer
 ID signature without notarizing. `--unsigned` needs no certificate: it signs ad
 hoc with the hardened runtime. Neither leaves a zip.
 
-After notarization it writes `build/Warehaus-Runner.zip` and
+After notarization it writes `build/Warehaus-Portal.zip` and
 `build/release.json` (version, build, sha256, size, minMacOS).
 
 ## Release on CI

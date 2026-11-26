@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds Warehaus Runner for release: Developer ID signed with the hardened
+# Builds Warehaus Portal for release: Developer ID signed with the hardened
 # runtime and a secure timestamp, notarized, stapled, and checked by
 # Gatekeeper. The same script runs on a staff Mac and in GitHub Actions
 # (.github/workflows/runner-app-release.yml).
@@ -25,8 +25,8 @@
 # with the hardened runtime and checks that (the PR dry run, which reads no
 # secrets). Neither leaves a zip, because only a notarized build is published.
 #
-# Output: apps/mac/build/Warehaus Runner.app, and after notarization
-# Warehaus-Runner.zip plus release.json (version, build, sha256, size,
+# Output: apps/mac/build/Warehaus Portal.app, and after notarization
+# Warehaus-Portal.zip plus release.json (version, build, sha256, size,
 # minMacOS) for scripts/publish-release.sh.
 set -euo pipefail
 
@@ -36,8 +36,8 @@ PROFILE="warehaus-notary"
 HERE="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$HERE/build"
 DERIVED="$OUT/DerivedData"
-APP="$OUT/Warehaus Runner.app"
-ZIP="$OUT/Warehaus-Runner.zip"
+APP="$OUT/Warehaus Portal.app"
+ZIP="$OUT/Warehaus-Portal.zip"
 META="$OUT/release.json"
 NOTARIZE=1
 ADHOC=0
@@ -87,10 +87,10 @@ if [[ "$ADHOC" == 1 ]]; then
 elif [[ -n "${SIGNING_KEYCHAIN:-}" ]]; then
   BUILD_SETTINGS+=("OTHER_CODE_SIGN_FLAGS=--timestamp --keychain $SIGNING_KEYCHAIN")
 fi
-xcodebuild -project "$HERE/App/WarehausRunner.xcodeproj" -scheme "Warehaus Runner" \
+xcodebuild -project "$HERE/App/WarehausRunner.xcodeproj" -scheme "Warehaus Portal" \
   -configuration Release -derivedDataPath "$DERIVED" -destination "generic/platform=macOS" \
   ${BUILD_SETTINGS[@]+"${BUILD_SETTINGS[@]}"} build -quiet
-cp -R "$DERIVED/Build/Products/Release/Warehaus Runner.app" "$APP"
+cp -R "$DERIVED/Build/Products/Release/Warehaus Portal.app" "$APP"
 
 step "Signing with the hardened runtime"
 # Node, gh and the runner, signed inside out (Node with App/Node.entitlements).

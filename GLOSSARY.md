@@ -79,7 +79,7 @@ _Avoid_: driver, agent choice, tool
 ## Platforms
 
 **Mac app**:
-The Warehaus app on a staff Mac. It shows the Portal in its own window and runs the runner from the menu bar, showing Ready, Working, Paused or Needs attention. Staff download it from the Portal.
+The Warehaus app on a staff Mac, named **Warehaus Portal** (Warehaus Runner before 2026-11-26). It shows the Portal in its own window and runs the runner from the menu bar, showing Ready, Working, Paused or Needs attention. Staff download it from the Portal.
 _Avoid_: runner app, desktop app
 
 **Native bridge**:

@@ -1,6 +1,6 @@
 # Warehaus runner
 
-The runner is a small Node CLI that takes milestone work from the production Portal (ADR-0005). On a staff Mac the Warehaus Runner app (`apps/mac`) runs it. Nothing in it is tied to a Mac: see "Moving it to a server". It asks the Portal for the next piece of milestone work, runs the project's build agent on the milestone branch, and tells the Portal what happened. The milestone's Activity tab shows the run as it goes.
+The runner is a small Node CLI that takes milestone work from the production Portal (ADR-0005). On a staff Mac the Warehaus Portal app (`apps/mac`) runs it. Nothing in it is tied to a Mac: see "Moving it to a server". It asks the Portal for the next piece of milestone work, runs the project's build agent on the milestone branch, and tells the Portal what happened. The milestone's Activity tab shows the run as it goes.
 
 A project picks its build agent: Claude Code or Cursor. Planning always uses Claude Code, read-only. Building uses the project's agent.
 
@@ -8,7 +8,7 @@ Claude Code has no model API key here. The runner never reads or forwards a Clau
 
 ## For staff: set up a Mac as a runner
 
-Staff never use a terminal. Download **Warehaus Runner** from the Portal (Runner status › Set up runner › Download runner app; staff only, Apple silicon, macOS 14 or later), open it, and follow its checklist: GitHub sign-in, Claude Code, then pair by confirming the code in the Portal. The app keeps the runner going from the menu bar, starts it at login, and updates itself between runs.
+Staff never use a terminal. Download **Warehaus Portal** from the Portal (Runner status › Set up runner › Download runner app; staff only, Apple silicon, macOS 14 or later), open it, and follow its checklist: GitHub sign-in, Claude Code, then pair by confirming the code in the Portal. The app keeps the runner going from the menu bar, starts it at login, and updates itself between runs.
 
 The full staff guide, with the menu, updates, Remove and troubleshooting, is [`FIRST-RUN.md`](FIRST-RUN.md).
 
@@ -151,7 +151,7 @@ Each step prints `ok` or `FAIL`. A pass looks like: branch on origin, branch sta
 
 ## Under the runner Mac app
 
-The Warehaus Runner Mac app (`apps/mac`) starts the runner from its bundle (`Contents/Resources/runner`, with its own Node and `gh`), so staff never type these commands. It runs:
+The Warehaus Portal Mac app (`apps/mac`) starts the runner from its bundle (`Contents/Resources/runner`, with its own Node and `gh`), so staff never type these commands. It runs:
 
 ```bash
 node tools/runner/src/cli.mjs setup --supervised --production           # first launch: pairing

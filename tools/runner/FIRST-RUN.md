@@ -1,6 +1,6 @@
 # Set up a Mac as a runner
 
-For Warehaus staff. Everything here happens in the Portal and in the Warehaus Runner app. You never open a terminal.
+For Warehaus staff. Everything here happens in the Portal and in the Warehaus Portal app. You never open a terminal.
 
 A runner is a staff Mac that takes milestone work from the Portal and hands it to an agent. The app keeps it going in the menu bar, starts it at login, and updates it between runs.
 
@@ -10,7 +10,8 @@ A runner is a staff Mac that takes milestone work from the Portal and hands it t
 
 1. In the Portal, open any project and click the runner status chip next to its name. The Runner status modal opens.
 2. Choose **Set up runner**, then **Download runner app**. Only staff see this.
-3. Move **Warehaus Runner** from Downloads to **Applications**. It has to live there so it can update itself.
+3. Move **Warehaus Portal** from Downloads to **Applications**. It has to live there so it can update itself.
+   Already have **Warehaus Runner** in Applications? That's the same app under its old name. It renames itself to Warehaus Portal the next time it updates, so you don't need a second copy.
 
 The app is signed by Warehaus LLC and notarized by Apple, so it opens like any other app. It is only ever downloaded from the Portal, never the App Store.
 
@@ -18,7 +19,7 @@ If the modal says the runner app has no release yet, it is published with the ne
 
 ## 2. Open it and follow the checklist
 
-Open Warehaus Runner from Applications. A window called **Set up this Mac as a runner** lists three steps. Each one opens your browser, and nothing installs without a click.
+Open Warehaus Portal from Applications. A window called **Set up this Mac as a runner** lists three steps. Each one opens your browser, and nothing installs without a click.
 
 1. **GitHub.** Click **Sign in**. GitHub opens in your browser, and the row shows a one-time code to enter there. When you're done the row says "Signed in as <your login>". If it already shows a green check, you're signed in.
 2. **Claude Code.** If it says "Not installed yet", click **Install**. That runs Anthropic's official installer, then asks you to sign in through your browser. If Claude Code is already installed it only asks you to sign in.
@@ -85,7 +86,7 @@ Choose **Remove this runner…** in the menu, then **Remove runner** to confirm.
 
 - revokes the runner in the Portal, so it stops taking work at once,
 - hands any run in progress back to the Portal for Retry,
-- takes Warehaus Runner out of your login items,
+- takes Warehaus Portal out of your login items,
 - deletes the runner's secret from this Mac's Keychain.
 
 If the Portal can't be reached, the runner is still removed from the Mac, and a notification asks you to revoke it in the Portal under **Manage runners**.
@@ -105,14 +106,14 @@ Everything here is done in the app or the Portal.
 
 | You see | Do this |
 | --- | --- |
-| The Portal chip says **Offline** | Open Warehaus Runner from Applications. If it's open, check it isn't Paused. |
+| The Portal chip says **Offline** | Open Warehaus Portal from Applications. If it's open, check it isn't Paused. |
 | The Portal says **Runner out of date** | Click **Check for update** in the menu. The update installs after any run in progress. |
 | **GitHub sign-in expired** | Choose **Sign in to GitHub…** in the menu. |
 | **This runner was revoked in the Portal** or **isn't paired yet** | Choose **Pair with the Portal…** and confirm the code in the Portal. |
 | **The runner keeps stopping** | Choose **Restart runner**. |
 | **Can't reach the Portal** | Check your internet connection. The runner keeps trying on its own. |
 | **The runner files are missing** | Download the app again from the Portal and replace the one in Applications. |
-| **Can't update here** | Move Warehaus Runner into Applications in Finder, then open it again. |
+| **Can't update here** | Move Warehaus Portal into Applications in Finder, then open it again. |
 | **Update failed** | Click **Check for update** again. If it keeps failing, tell Peter. |
 | Anything else | Choose **Remove this runner…**, then open the app and pair again. |
 

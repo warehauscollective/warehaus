@@ -20,11 +20,11 @@ private final class FakeWorkspace: UpdateWorkspace {
         self.measured = measured
     }
 
-    func download(_ release: AppRelease) async throws -> URL { URL(fileURLWithPath: "/tmp/fake/Warehaus-Runner.zip") }
+    func download(_ release: AppRelease) async throws -> URL { URL(fileURLWithPath: "/tmp/fake/Warehaus-Portal.zip") }
     func measure(_ zip: URL) throws -> (size: Int, sha256: String) { measured }
     func unzip(_ zip: URL) async throws -> URL {
         unzipped += 1
-        return URL(fileURLWithPath: "/tmp/fake/Warehaus Runner.app")
+        return URL(fileURLWithPath: "/tmp/fake/Warehaus Portal.app")
     }
     func inspect(_ app: URL) async -> DownloadFacts { facts }
     func discard() { discarded += 1 }

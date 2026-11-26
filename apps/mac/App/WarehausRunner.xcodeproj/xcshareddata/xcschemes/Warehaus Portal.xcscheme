@@ -15,8 +15,8 @@
             <BuildableReference
                BuildableIdentifier = "primary"
                BlueprintIdentifier = "7A0000000000000000000C01"
-               BuildableName = "Warehaus Runner.app"
-               BlueprintName = "Warehaus Runner"
+               BuildableName = "Warehaus Portal.app"
+               BlueprintName = "Warehaus Portal"
                ReferencedContainer = "container:WarehausRunner.xcodeproj">
             </BuildableReference>
          </BuildActionEntry>
@@ -45,8 +45,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "7A0000000000000000000C01"
-            BuildableName = "Warehaus Runner.app"
-            BlueprintName = "Warehaus Runner"
+            BuildableName = "Warehaus Portal.app"
+            BlueprintName = "Warehaus Portal"
             ReferencedContainer = "container:WarehausRunner.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>
@@ -80,8 +80,8 @@
          <BuildableReference
             BuildableIdentifier = "primary"
             BlueprintIdentifier = "7A0000000000000000000C01"
-            BuildableName = "Warehaus Runner.app"
-            BlueprintName = "Warehaus Runner"
+            BuildableName = "Warehaus Portal.app"
+            BlueprintName = "Warehaus Portal"
             ReferencedContainer = "container:WarehausRunner.xcodeproj">
          </BuildableReference>
       </BuildableProductRunnable>

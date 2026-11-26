@@ -1,4 +1,4 @@
-# The runtime bundled inside Warehaus Runner.app. scripts/bundle-runtime.sh
+# The runtime bundled inside Warehaus Portal.app. scripts/bundle-runtime.sh
 # downloads these exact files from the official URLs and refuses any file whose
 # SHA-256 does not match. Change a version and its checksum together, in one PR.
 # Checksums: https://nodejs.org/dist/v<version>/SHASUMS256.txt and the cli/cli

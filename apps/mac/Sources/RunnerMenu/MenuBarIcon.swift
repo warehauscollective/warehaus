@@ -25,7 +25,7 @@ enum MenuBarIcon {
             return true
         }
         image.isTemplate = true
-        image.accessibilityDescription = "Warehaus runner"
+        image.accessibilityDescription = "Warehaus Portal"
         return image
     }()
 }
