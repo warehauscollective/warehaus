@@ -303,6 +303,31 @@ async function runRemove({ production }) {
   if (!revoked) process.exit(3);
 }
 
+/**
+ * `app-release`: the latest runner app build, for the Mac app's self-update.
+ * The app never holds the runner secret, so it asks through this command,
+ * which prints one app_release line. Exit 3 when the Portal refuses the
+ * secret, 2 when this Mac is not paired, 1 when the Portal can't be reached.
+ */
+async function runAppRelease({ production }) {
+  const saved = readSavedConfig(production);
+  const id = saved.RUNNER_ID || '';
+  if (!id) process.exit(2);
+  const token = readKeychainSecret(deploymentFor(production).name, id);
+  const env = readEnv({ PORTAL_AGENT_URL: saved.PORTAL_AGENT_URL, RUNNER_PRODUCTION: saved.RUNNER_PRODUCTION }, { production, token });
+  if (!env.ok) {
+    process.stderr.write(`${env.error}\n`);
+    process.exit(2);
+  }
+  try {
+    const result = await runnerClient({ url: env.url, token: env.token, runnerId: id, timeoutMs: 15_000 }).appRelease();
+    process.stdout.write(supervisorLine('app_release', { release: result?.release ?? null }));
+  } catch (error) {
+    process.stderr.write(`${error.message}\n`);
+    process.exit(error.status === 401 ? 3 : 1);
+  }
+}
+
 async function main() {
   const parsed = parseArgs(process.argv.slice(2));
   if (!parsed.ok) {
@@ -318,6 +343,7 @@ async function main() {
   if (parsed.options.command === 'install') return runInstall({ production, say });
   if (parsed.options.command === 'uninstall') return runUninstall({ production, say });
   if (parsed.options.command === 'remove') return runRemove({ production });
+  if (parsed.options.command === 'app-release') return runAppRelease({ production });
   supervised = parsed.options.supervised === true;
   control.paused = parsed.options.paused === true;
   if (supervised) listenForCommands();

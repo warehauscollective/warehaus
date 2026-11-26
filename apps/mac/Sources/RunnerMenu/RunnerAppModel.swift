@@ -29,7 +29,7 @@ public final class RunnerAppModel: ObservableObject {
     @Published public private(set) var menu: MenuState
     @Published public private(set) var runnerId: String?
     @Published public private(set) var loginItemOn: Bool
-    @Published public private(set) var update: UpdateStatus
+    @Published public private(set) var updateLine: UpdateLine
     @Published public private(set) var removing = false
     @Published public private(set) var removeMessage: String?
 
@@ -37,7 +37,8 @@ public final class RunnerAppModel: ObservableObject {
     private let control: RunnerControl
     private let loginItem: LoginItem
     private let notifier: AttentionNotifying
-    private let updates: UpdateChecking
+    public let updater: AppUpdater
+    private var updateTimer: AnyCancellable?
     private let setUp: SetUpFlow
     private let opener: URLOpening
     private let now: () -> Date
@@ -52,7 +53,7 @@ public final class RunnerAppModel: ObservableObject {
         control: RunnerControl,
         loginItem: LoginItem,
         notifier: AttentionNotifying,
-        updates: UpdateChecking,
+        updater: AppUpdater,
         setUp: SetUpFlow,
         opener: URLOpening,
         now: @escaping () -> Date = Date.init
@@ -61,13 +62,16 @@ public final class RunnerAppModel: ObservableObject {
         self.control = control
         self.loginItem = loginItem
         self.notifier = notifier
-        self.updates = updates
+        self.updater = updater
         self.setUp = setUp
         self.opener = opener
         self.now = now
         menu = MenuState.from(RunnerSnapshot(), pauseRequested: false, now: now())
         loginItemOn = loginItem.isEnabled
-        update = updates.status
+        updateLine = updater.line(working: false)
+        updater.$phase
+            .sink { [weak self] _ in DispatchQueue.main.async { self?.refresh() } }
+            .store(in: &bag)
 
         control.state
             .sink { [weak self] snapshot, paused in self?.received(snapshot, paused: paused) }
@@ -113,6 +117,21 @@ public final class RunnerAppModel: ObservableObject {
         #else
         control = RunnerSupervisor(policy: policy)
         #endif
+        var releases: ReleaseSource = RunnerReleaseSource(policy: policy)
+        var forwarded: [String] = []
+        #if DEBUG
+        if let file = arguments.string(forKey: "UpdateRelease") { releases = FileReleaseSource(file: URL(fileURLWithPath: file)) }
+        if let fixture = arguments.string(forKey: "RunnerFixture") { forwarded = ["-RunnerFixture", fixture] }
+        #endif
+        let updater = AppUpdater(
+            current: AppBuild.of(.main),
+            source: releases,
+            workspace: LiveUpdateWorkspace(),
+            swapper: LiveAppSwapper(extraArguments: forwarded),
+            stopRunner: { control.stop() },
+            startRunner: { control.start() }
+        )
+        UpdateCheckIn.writeIfAsked(arguments: arguments)
         let setup = SetupModel(policy: policy, system: setupSystem, facts: setupFixture?.facts, showsPairing: setupFixture?.showsPairing ?? false)
         let windows = SetupWindows(model: setup)
         let model = RunnerAppModel(
@@ -120,7 +139,7 @@ public final class RunnerAppModel: ObservableObject {
             control: control,
             loginItem: loginItem,
             notifier: SystemNotifier(),
-            updates: StubUpdateChecker(),
+            updater: updater,
             setUp: windows,
             opener: opener
         )
@@ -128,14 +147,19 @@ public final class RunnerAppModel: ObservableObject {
         loginItem.enableOnFirstLaunch(policy: policy)
         model.loginItemOn = loginItem.isEnabled
 
-        setup.onComplete = { [weak windows] newPairing in
+        setup.onComplete = { [weak windows, weak model] newPairing in
             windows?.closeChecklist()
             if newPairing { control.restart() } else { control.start() }
+            model?.startUpdateChecks()
         }
         // The runner starts only with a pairing this build may use and no old
         // launchd agent still running the same runner at login.
         if setup.readyWithoutChecklist && setupFixture == nil {
             control.start()
+            model.startUpdateChecks()
+        } else if arguments.string(forKey: "UpdateRelease") != nil, !policy.production {
+            // Debug: try the update end to end on a fixture release.
+            model.startUpdateChecks()
         } else if !snapshotting {
             DispatchQueue.main.async { windows.showChecklist() }
         }
@@ -150,10 +174,21 @@ public final class RunnerAppModel: ObservableObject {
         runnerId = snapshot.runnerId
         refresh()
         notifyIfNeeded(snapshot.attention)
+        updater.runnerChanged(snapshot)
     }
 
     private func refresh() {
         menu = MenuState.from(snapshot, pauseRequested: pauseRequested, now: now())
+        updateLine = updater.line(working: snapshot.isWorking)
+    }
+
+    /// Self-update checks: now, then every six hours. They start once the app
+    /// runs its own runner, since the check goes through the runner's secret.
+    public func startUpdateChecks() {
+        guard updateTimer == nil else { return }
+        checkForUpdate()
+        updateTimer = Timer.publish(every: AppUpdateRule.checkInterval, on: .main, in: .common).autoconnect()
+            .sink { [weak self] _ in self?.checkForUpdate() }
     }
 
     /// One notification per reason, when it first appears and only if a person must act.
@@ -181,12 +216,7 @@ public final class RunnerAppModel: ObservableObject {
     }
 
     public func checkForUpdate() {
-        let version: String
-        switch update {
-        case let .upToDate(current), let .available(current), let .checking(current): version = current
-        }
-        update = .checking(version: version)
-        Task { update = await updates.checkNow() }
+        Task { await updater.check() }
     }
 
     public func toggleLoginItem() {
