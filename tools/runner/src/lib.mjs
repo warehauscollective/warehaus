@@ -264,8 +264,20 @@ function goalLines(goals) {
   return goals && goals.length > 0 ? goals.map((goal) => `- ${goal}`).join('\n') : '- (none written)';
 }
 
+/**
+ * Set by the Portal once Peter presses Approve designs. Empty until then, so a
+ * milestone with no design work reads as before. Mirrors designApprovalLine in
+ * apps/portal/convex/_lib/designApproval.ts.
+ */
+export function designApprovalLine(designApprovedAt) {
+  if (typeof designApprovedAt !== 'number' || !Number.isFinite(designApprovedAt) || designApprovedAt <= 0) return '';
+  const day = new Date(designApprovedAt).toISOString().slice(0, 10);
+  return `Design: approved by Peter in the Portal on ${day}. Build tasks can go ahead.`;
+}
+
 export function taskPrompt(template, work) {
   return fill(template, {
+    designApproval: designApprovalLine(work.milestone.designApprovedAt),
     milestoneName: fenceUntrusted('NAME', work.milestone.name),
     objective: fenceUntrusted('OBJECTIVE', work.milestone.objective),
     goals: fenceUntrusted('GOALS', goalLines(work.milestone.goals)),

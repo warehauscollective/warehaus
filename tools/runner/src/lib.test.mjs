@@ -23,6 +23,7 @@ import {
   selectDriver,
   taskOutcome,
   taskPrompt,
+  designApprovalLine,
   worktreeName,
   proposedRunnerId,
   parseConfigFile,
@@ -167,6 +168,16 @@ describe('prompts', () => {
     assert.match(prompt, /branch `milestone\/launch`/);
     assert.match(prompt, /- Hero matches/);
     assert.equal(prompt.includes('{{'), false);
+    // No design approval yet: the prompt says nothing about design.
+    assert.equal(prompt.includes('Design: approved'), false);
+  });
+
+  it('says the design is approved once Peter pressed Approve designs', () => {
+    const approved = { ...work, milestone: { ...work.milestone, designApprovedAt: Date.UTC(2026, 10, 25, 18) } };
+    const prompt = taskPrompt(read('../prompts/task.md'), approved);
+    assert.match(prompt, /Design: approved by Peter in the Portal on 2026-11-25\. Build tasks can go ahead\./);
+    assert.equal(designApprovalLine(null), '');
+    assert.equal(designApprovalLine('2026-11-25'), '');
   });
 
   it('fills the planning prompt and keeps it read only', () => {
