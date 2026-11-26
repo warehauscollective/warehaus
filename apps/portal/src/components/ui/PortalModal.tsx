@@ -27,6 +27,21 @@ export function PortalModalStack({ frames }: { frames: readonly ModalFrame[] }) 
 
 type Sheet = 'center' | 'top' | 'bottom';
 
+/**
+ * What takes focus as a dialog opens: Cancel on a confirm, else the first
+ * field, else the first button. With `focusPanel` a dialog with no field
+ * focuses the panel itself, so Close does not open wearing a focus ring.
+ */
+export function openingFocus<T>({ cancel, field, button, panel, focusPanel }: {
+  cancel?: T | null;
+  field?: T | null;
+  button?: T | null;
+  panel: T;
+  focusPanel: boolean;
+}): T | null {
+  return cancel ?? field ?? (focusPanel ? panel : button ?? null);
+}
+
 export type PortalModalHeader = 'default' | 'compact';
 export type PortalModalIcon = 'spinner' | 'check' | 'alert';
 
@@ -54,6 +69,7 @@ export function PortalModal({
   confirmOnEnter = false,
   cover = false,
   focusCancel = false,
+  focusPanel = false,
   footer,
   blueFocus = false,
   align = 'center',
@@ -92,6 +108,8 @@ export function PortalModal({
   cover?: boolean;
   /** Confirms open on Cancel, not the first field or Close. */
   focusCancel?: boolean;
+  /** With no field, open with focus on the dialog, not on Close. Tab then reaches Close first. */
+  focusPanel?: boolean;
   /**
    * Pinned under the scroll body. Stays on screen while the body scrolls,
    * and a centered dialog shortens so this row sits above the dock.
@@ -135,7 +153,7 @@ export function PortalModal({
     if (panel && !panel.contains(document.activeElement)) {
       // A phone sheet focuses the name field on open. preventScroll keeps the
       // intro and label below the header instead of sliding them under it.
-      (cancel ?? field ?? panel.querySelector<HTMLElement>('button'))?.focus(
+      openingFocus({ cancel, field, button: panel.querySelector<HTMLElement>('button'), panel, focusPanel })?.focus(
         sheetOpen || topAligned ? { preventScroll: true } : undefined,
       );
       if (sheetOpen) {
@@ -170,7 +188,8 @@ export function PortalModal({
       if (nodes.length === 0) return;
       const first = nodes[0];
       const last = nodes[nodes.length - 1];
-      if (event.shiftKey && document.activeElement === first) {
+      // Focus on the panel itself (focusPanel) sits before the first control.
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === panel)) {
         event.preventDefault();
         last?.focus();
       } else if (!event.shiftKey && document.activeElement === last) {
@@ -184,7 +203,7 @@ export function PortalModal({
       if (!cover) document.body.style.overflow = overflow;
       previous?.focus();
     };
-  }, [hidden, cover, confirmOnEnter, focusCancel, narrow, sheet, topAligned]);
+  }, [hidden, cover, confirmOnEnter, focusCancel, focusPanel, narrow, sheet, topAligned]);
 
   const isSheet = !topAligned && placement !== 'center';
   const pinned = Boolean(footer) || showFooter;
@@ -224,6 +243,7 @@ export function PortalModal({
         role={hidden ? undefined : 'dialog'}
         aria-modal={hidden ? undefined : true}
         aria-label={hidden ? undefined : label}
+        tabIndex={hidden || !focusPanel ? undefined : -1}
         data-testid={hidden ? undefined : testId}
         data-focus-ring={hidden || !blueFocus ? undefined : 'info'}
         className={hidden ? undefined : isSheet ? 'portal-modal-panel portal-modal-sheet' : 'portal-modal-panel'}
@@ -244,6 +264,7 @@ export function PortalModal({
           display: 'flex',
           flexDirection: 'column',
           borderRadius: isSheet ? '28px 28px 0 0' : 28,
+          outline: focusPanel ? 'none' : undefined,
         }}
       >
         {!hidden && isSheet ? (

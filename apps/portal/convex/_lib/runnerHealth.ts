@@ -75,6 +75,20 @@ export function agoLabel(at: number, now: number): string {
   return `${Math.floor(hours / 24)}d ago`;
 }
 
+/**
+ * The spelled-out form on the runner list, Revoke and Out of date frames:
+ * `20 sec ago`, `4 min ago`, `2 hours ago`, `3 days ago`.
+ */
+export function agoLabelLong(at: number, now: number): string {
+  const seconds = Math.max(0, Math.floor((now - at) / 1000));
+  if (seconds < 60) return `${seconds} sec ago`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `${hours} ${hours === 1 ? 'hour' : 'hours'} ago`;
+  return `${Math.floor(hours / 24)} days ago`;
+}
+
 export const RUNNER_MODAL_TITLE = 'Runner status';
 export const RUNNER_ADD_REPO = 'Add repo';
 export const RUNNER_SET_UP = 'Set up runner';
@@ -112,7 +126,7 @@ export function runnerOutOfDateCopy(view: RunnerHealthView, now: number): Runner
   if (!runner?.registered || min == null || runner.protocolVersion == null || runner.protocolVersion >= min) return null;
   return {
     runner: runner.id,
-    lastSeen: runner.lastSeenAt != null ? agoLabel(runner.lastSeenAt, now) : RUNNER_NOT_SEEN,
+    lastSeen: runner.lastSeenAt != null ? agoLabelLong(runner.lastSeenAt, now) : RUNNER_NOT_SEEN,
     version: `Protocol ${runner.protocolVersion} · the Portal needs ${min}`,
     update: 'The runner app updates itself between runs',
     helper:
