@@ -108,6 +108,76 @@ KPI cards (Active, Awaiting go, Shipped) **stay unfiltered**. They always show t
 - It keeps the sort. Sort is not a filter.
 - The filtered-empty state ("No projects match these filters.") offers the same Clear filters action.
 
+## 8. Design (task 02)
+
+Drawn in Warehaus Studio (`TS3DcaCgrIdYf0jhvnMy3k`), page Portal - Projects, section P01 · Projects list (`689:49854`). Status: **frames exist, waiting on Peter's approval of the frames** (Grok Bot or the Portal). The library is not published.
+
+### Frames
+
+Every state is a Dark component with a Light instance beside it, at 1440 and 390. Names start with `Projects / Projects list`.
+
+| State | 1440 Dark | 1440 Light | 390 Dark | 390 Light |
+|---|---|---|---|---|
+| Closed (existing frames, changed in place) | `1166:12530` | `1166:12531` | `1166:12730` | `1166:12731` |
+| Filters open | `1265:14952` | `1265:16514` | `1265:20204` | `1265:22921` |
+| One filter | `1265:15355` | `1265:16902` | `1265:20580` | `1265:23273` |
+| Several filters | `1265:15653` | `1265:17140` | `1265:20864` | `1265:23467` |
+| Sort open | `1265:15949` | `1265:17378` | `1265:21146` | `1265:23661` |
+| No matches | `1265:16237` | `1265:17716` | `1265:21417` | `1265:23963` |
+| Client, closed | `1265:17935` | `1265:19244` | `1265:21680` | `1265:24138` |
+| Client, Filters open | `1265:18199` | `1265:19447` | `1265:21922` | `1265:24292` |
+| Client, Several filters | `1265:18612` | `1265:19729` | `1265:22323` | `1265:24533` |
+| Client, Sort open | `1265:18898` | `1265:19954` | `1265:22587` | `1265:24709` |
+
+Design notes sit beside the frames: `Note · Project list filters` (`1266:22415`).
+
+### Components
+
+New in Portal - Component Library (`151:5387`):
+
+| Component | Node |
+|---|---|
+| Atom/Checkbox | `1261:8165` |
+| Atom/Radio | `1261:8169` |
+| Molecule/Filter/Option | `1261:8195` |
+| Molecule/Filter/Trigger | `1261:8228` |
+| Molecule/Sort/Trigger | `1261:8245` |
+| Molecule/Filter/Value chip | `1261:8255` |
+| Molecule/Filter/Section | `1261:8272` |
+| Molecule/Filter/Date range | `1261:8294` |
+| Organism/FilterMenu | `1262:9026` |
+| Organism/SortMenu | `1262:9241` |
+
+Organism/Project list (`1165:12906`, Local components on Portal - Projects): the four default variants now carry the Filters and Sort controls, and it has new variants `State=filtered-one`, `filtered-several` and `filtered-empty`.
+
+### What the frames settle
+
+- **Placement.** At 1440, Filters and Sort sit at the right of the quick filter row. At 390 they sit on their own row under the chips.
+- **Apply.** A filter applies as soon as a value is picked. There is no Apply button.
+- **Count.** The number on Filters is how many filters are set, not how many values.
+- **Set values.** Each value that is set shows as a chip under the toolbar (`Client: Northwind Foods ×`). The × removes that value only. Clear filters follows the chips.
+- **Menu at 1440.** A popover under the control. One row per filter with its summary (`Any`, a value, or `Any time`); a row expands to its options. Pick-many uses checkboxes, pick-one uses radios, dates use FROM and TO fields.
+- **Menu at 390.** A bottom sheet over the scrim, one sheet at a time, with Close and Done. Option rows are 49 tall. A sheet taller than the screen scrolls inside. Clear filters is in the sheet footer when a filter is set.
+- **Sort.** One menu: the field list, then DIRECTION with the two directions for that field. At 390 the control shows the field only; the direction is in the sheet and the subtitle line.
+
+### Copy
+
+Build copy matches these, character for character.
+
+- Controls: `Filters`, `Sort`, `Clear filters`, `Done`, `Close`.
+- Filtered-empty: `No projects match these filters.` with a `Clear filters` button.
+- Filter menu note: `Filters apply as you pick. Saved to your account.` Sheet hint: `Filters apply as you pick`.
+- Sort menu: `Sort by`, `DIRECTION`, `Saved to your account.`
+- Summaries: `Any`, `Any time`, `Any date`. Date fields: `FROM`, `TO`.
+- Sort control value: `Last updated · Newest first` (field, a middle dot, direction). At 390: `Last updated`.
+- Staff subtitle: `Sample data · sorted by last updated, newest first`. The words after `sorted by` follow the sort: field, then direction, lower case.
+
+### Differences to resolve
+
+- **Client quick filters.** Section 4 lists All, Active, Shipped for clients. The existing client frame draws Active and Shipped only, and task 02 did not change the quick filters. Peter to say which is right before the build task touches them.
+- **Client subtitle.** The client card subtitle is `Brand is attached to each project` and has no "sorted by" line. In the client frames the Sort control alone shows the current sort.
+- **Option counts.** The spec defines counts on the quick filter chips only, so menu options are drawn without counts.
+
 ## Out of scope
 
 - Text search.
