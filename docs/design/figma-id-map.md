@@ -632,3 +632,33 @@ Add a row in the same pull request as the move.
 | 2026-11-25 | `1115:38476` | Runner app / Menu · Paused · Dark (now a variant of Organism/Runner app menu 1166:12497; new node ID) | Projects / P07 · Runner app | Projects / Local components (1155:44931) | | | Projects migration |
 | 2026-11-25 | `1115:38506` | Runner app / Menu · Needs attention · Dark (now a variant of Organism/Runner app menu 1166:12497; new node ID) | Projects / P07 · Runner app | Projects / Local components (1155:44931) | | | Projects migration |
 | 2026-11-25 | `1155:44931` | Local components: Organism/Milestone loop 1158:41901, Organism/NextStepCard 1141:42728, Organism/Milestone properties 1158:42100, Organism/TaskBoard 1161:35388, Organism/Milestones 1164:29813, Organism/Project list 1165:12906, Organism/Linear connection 1165:13601, Organism/Runner app menu 1166:12497 | | Projects / Local components | | | Projects migration · new component sets |
+| 2026-11-25 | `689:99352` | Section title | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99353` | Row label · LIST · STAFF | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99354` | Label · Clients / List / Admin / Dark | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99355` | Label · Clients / List / Admin / Light | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99356` | Label · Clients / List / Admin / Mobile | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99357` | Row label · LIST · CLIENT VIEW | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99358` | Label · Clients / List / Client / Dark | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99359` | Label · Clients / List / Client / Light | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99360` | Label · Clients / List / Client / Mobile | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99361` | Row label · DETAIL · CLIENT VIEW | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99362` | Label · Clients / Detail / Client / Dark | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99363` | Label · Clients / Detail / Client / Light | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99364` | Label · Clients / Detail / Client / Mobile | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99365` | Row label · STATES | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `689:99366` | Label · Clients / States / Dark | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `769:13311` | Row label · CLIENT DETAIL (C1) | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `769:13312` | Row label · NEW PROJECT FROM CLIENT | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `769:13313` | Row label · STATES · CLIENT DETAIL PROJECTS EMPTY | Account / 13 Clients | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `684:29628` | Section title | Account / A01 · Account · Profile | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `684:29629` | Row label · STAFF | Account / A01 · Account · Profile | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `684:29630` | Label · Account / Profile / Admin / Dark | Account / A01 · Account · Profile | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `684:29631` | Label · Account / Profile / Admin / Light | Account / A01 · Account · Profile | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `684:29632` | Label · Account / Profile / Admin / Mobile | Account / A01 · Account · Profile | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `684:29633` | Row label · CLIENT | Account / A01 · Account · Profile | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `684:29634` | Label · Account / Profile / Client / Dark | Account / A01 · Account · Profile | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `684:29635` | Label · Account / Profile / Client / Light | Account / A01 · Account · Profile | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `684:29636` | Label · Account / Profile / Client / Mobile | Account / A01 · Account · Profile | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `684:29637` | Row label · STATES | Account / A01 · Account · Profile | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `684:29638` | Label · Account / States / Dark | Account / A01 · Account · Profile | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
+| 2026-11-25 | `249:5550` | Section header (hand-drawn) | Account / A03 · Client team · invites | Archive — Portal / Account before atomic migration (1170:6777) | | | Account migration |
