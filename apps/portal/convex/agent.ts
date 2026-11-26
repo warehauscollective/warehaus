@@ -45,6 +45,11 @@ import {
   STUCK_RUN_SCAN,
   taskRetryDecision,
   trimEventPayload,
+  heldRunIds,
+  openRunDecision,
+  RUNNER_BUSY,
+  RUNNER_MAX_SLOTS,
+  runnerSlots,
 } from './_lib/agentRun';
 import { proposedTasksDecision } from './_lib/milestoneBot';
 import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
@@ -268,11 +273,12 @@ export const touchRunner = internalMutation({
   },
 });
 
-async function runningRunFor(ctx: MutationCtx, runnerId: string) {
+/** The runner's open runs, oldest first. Capped: a runner holds at most RUNNER_MAX_SLOTS. */
+async function runningRunsFor(ctx: MutationCtx, runnerId: string) {
   return ctx.db
     .query('agentRuns')
     .withIndex('by_runner_status', (q) => q.eq('runnerId', runnerId).eq('status', 'running'))
-    .first();
+    .take(RUNNER_MAX_SLOTS * 2);
 }
 
 /** Marks an ended run as settled: the runner answered for it. Writes once. */
@@ -285,19 +291,19 @@ async function settleRun(ctx: MutationCtx, run: Doc<'agentRuns'>, at: number) {
 const SETTLE_SCAN = 5;
 
 /**
- * A runner that asks for work with no run open is not working. Any task or
- * planning run the stuck sweep closed under it is over, so its hold on the
- * milestone ends here. A Cursor build is left alone: its agent runs in the
- * cloud whether or not the runner is busy.
+ * A runner that asks for work says which runs it is still working on. Any
+ * task or planning run the stuck sweep closed under it that it does not list
+ * is over, so its hold on the milestone ends here. A Cursor build is left
+ * alone: its agent runs in the cloud whether or not the runner is busy.
  */
-async function settleIdleRunner(ctx: MutationCtx, runnerId: string, at: number) {
+async function settleIdleRunner(ctx: MutationCtx, runnerId: string, held: ReadonlySet<string>, at: number) {
   const closed = await ctx.db
     .query('agentRuns')
     .withIndex('by_runner_status', (q) => q.eq('runnerId', runnerId).eq('status', 'cancelled'))
     .order('desc')
     .take(SETTLE_SCAN);
   for (const run of closed) {
-    if (run.kind !== 'build') await settleRun(ctx, run, at);
+    if (run.kind !== 'build' && !held.has(run._id)) await settleRun(ctx, run, at);
   }
 }
 
@@ -356,8 +362,9 @@ function buildTaskPayload({ doc: task }: LoadedTask) {
 /**
  * Hands the runner its next piece of work in one transaction: a planning job
  * first, else the lowest-order To do task on the oldest Building milestone.
- * A runner with a run still open gets that same run back, so a repeated call
- * never claims twice.
+ * A runner works up to `slots` runs at once, each on a different milestone,
+ * and lists the runs it holds. An open run it does not list comes back to it,
+ * so a repeated call never claims twice.
  */
 export const claimNext = internalMutation({
   args: {
@@ -371,9 +378,15 @@ export const claimNext = internalMutation({
      * names one (ADR-0005 amendment). It still gets nothing for a project with none.
      */
     anyRepo: v.optional(v.boolean()),
+    /** Run slots: how many runs the runner works at once, one per milestone (1 to RUNNER_MAX_SLOTS). */
+    slots: v.optional(v.number()),
+    /** The run ids the runner is working on now. */
+    held: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const repos = runnerRepos(args.repos);
+    const slots = runnerSlots(args.slots);
+    const held = heldRunIds(args.held);
     const anyRepo = args.anyRepo === true && repos.length === 0;
     // Fail safe: a runner that names no repository, and is not registered, is handed nothing.
     if (repos.length === 0 && !anyRepo) return { ok: true as const, resumed: false, kind: 'none' as const, reason: RUNNER_NEEDS_REPO };
@@ -381,16 +394,19 @@ export const claimNext = internalMutation({
       const project = await ctx.db.get(projectId);
       return anyRepo ? agentRepo(project?.agentRepo) != null : projectServedBy(project, repos);
     };
-    const open = await runningRunFor(ctx, args.runnerId);
-    if (open) {
-      const payload = await runPayload(ctx, open);
+    const open = await runningRunsFor(ctx, args.runnerId);
+    const decision = openRunDecision({ open: open.map((run) => run._id), held, slots });
+    const lost = decision.resume ? open.find((run) => run._id === decision.resume) : undefined;
+    if (lost) {
+      const payload = await runPayload(ctx, lost);
       if (payload) return { ok: true as const, resumed: true, ...payload };
       // The task or milestone behind the run is gone. Close it and look again.
       const closedAt = Date.now();
-      await ctx.db.patch(open._id, { status: 'cancelled', endedAt: closedAt, settledAt: closedAt });
+      await ctx.db.patch(lost._id, { status: 'cancelled', endedAt: closedAt, settledAt: closedAt });
     }
     const now = Date.now();
-    await settleIdleRunner(ctx, args.runnerId, now);
+    await settleIdleRunner(ctx, args.runnerId, new Set(held), now);
+    if (decision.full) return { ok: true as const, resumed: false, kind: 'none' as const, reason: RUNNER_BUSY };
     const mode = runMode(args.mode);
 
     const inspected = new Map<string, number>();

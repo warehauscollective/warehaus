@@ -42,7 +42,7 @@ Two deep modules that never talk to each other, with the menu bar and
 notifications on top of both (ADR-0006, decision 8):
 
 - **RunnerSupervisor** starts the Node runner (`tools/runner`) as a child
-  process with `start --supervised --mode headless` (plus `--production` in
+  process with `start --supervised --mode headless --parallel 3` (plus `--production` in
   release builds) and reads its state lines: one `@@warehaus {json}` line per
   change on stdout. It maps them to the four menu states, Ready, Working,
   Paused and Needs attention (`MenuState.from`). Pause and Resume are `pause`
@@ -153,8 +153,9 @@ Debug launch arguments, ticked under Product › Scheme › Edit Scheme › Run 
 Arguments. None of them touch this Mac's real gh, Claude Code, pairing or
 launchd agent:
 
-- `-RunnerFixture ready|working|paused|attention`: the menu states with
-  fixture data and no runner.
+- `-RunnerFixture ready|working|working-several|paused|attention`: the menu
+  states with fixture data and no runner. `working-several` shows three runs
+  at once.
 - `-SetupFixture fresh|signed-out|github-code|installing|claude-signin|pairing|expired|takeover|done`:
   the checklist and pairing windows; clicks move the fixture along.
 - `-SetupSnapshot <folder>`: writes every checklist and pairing state, Dark

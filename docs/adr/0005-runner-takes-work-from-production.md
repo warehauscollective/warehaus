@@ -81,3 +81,11 @@ Portal decision 0005 made the runner a native Swift menu bar app, and ADR-0006 (
    - The protocol version check stays: a runner below the minimum shows "Runner out of date" and gets no work.
 
 What stays the same: the runner claims work from production with its registration; the local preview and the staff Vercel preview point at shared dev only; the Claude child process inherits no secret; headless Claude draws on the Agent SDK credit; the no-runner notes and the stuck-run sweep are unchanged; merging still deploys nothing.
+
+## Amendment, 2026-11-26: one runner works several milestones at once
+
+Peter asked on 2026-11-26 for the runner to work every Building milestone instead of one at a time, as a priority. The work is tracked in the Portal milestone "Runner works several Building milestones at once".
+
+- A runner holds up to N open runs (the claim's `slots`, 1 to 5; the Mac app uses 3), each on a different milestone. Inside a milestone nothing changes: one task run at a time, in order, on the one `milestone/<slug>` branch.
+- Each claim lists the runs the runner holds. An open run it does not list comes back to it first; with every slot in use it gets nothing new. A runner that sends no slots (protocol 2) works one run at a time as before.
+- Each run is its own headless Claude session, so N runs use the Agent SDK credit N times as fast.

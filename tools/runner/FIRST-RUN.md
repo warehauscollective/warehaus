@@ -48,7 +48,7 @@ The Warehaus icon in the menu bar shows what the runner is doing.
 | State | What it means | Rows you'll see |
 | --- | --- | --- |
 | **Ready** | Waiting for work. The header shows the runner id, "Production", and the last run. | Pause runner · Open Portal |
-| **Working** | A run is in progress. The header names the milestone and task. The Mac stays awake until the run ends. | Pause after this run · Open milestone in Portal (or Open Portal) |
+| **Working** | Runs are in progress, up to three milestones at once, one task on each. The header names each milestone and task. The Mac stays awake until they end. | Pause after this run (Pause after these runs when there are several) · Open milestone in Portal, or Open Portal |
 | **Paused** | Takes no new work. The Portal shows Paused. | Resume runner · Open Portal |
 | **Needs attention** | Something only you can fix. The header says what, and the first row fixes it when it can. | The fix · Open Portal · Pause runner or Resume runner |
 
@@ -59,7 +59,7 @@ Every state also has:
 - **Remove this runner…**
 - **Quit**: stops the runner until you open the app again. Quitting during a run stops that run, so choose **Pause after this run** first. A stopped run is released for Retry in the Portal after about 30 minutes.
 
-**Pausing.** Pause runner stops new work. During a run the row reads **Pause after this run**: the run finishes, then the runner pauses. **Keep working after this run** cancels that. The app remembers a pause after a restart.
+**Pausing.** Pause runner stops new work. During a run the row reads **Pause after this run** (**Pause after these runs** when several are going): every run in progress finishes, then the runner pauses. **Keep working after this run** cancels that. The app remembers a pause after a restart.
 
 You get a notification only when you need to act, such as a GitHub sign-in that expired. Nothing is sent for normal work.
 

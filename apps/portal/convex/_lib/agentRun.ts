@@ -525,3 +525,37 @@ export function mapCursorCommits(
 
 /** Open notes a single read returns. */
 export const NEEDS_PETER_LIMIT = 20;
+
+/**
+ * Parallel runs. A runner holds at most this many open runs at once, each on
+ * a different milestone. One run per milestone stays the rule: tasks on a
+ * milestone share one branch.
+ */
+export const RUNNER_MAX_SLOTS = 5;
+export const RUNNER_BUSY = 'Every run slot on this runner is in use.';
+
+/** The slots a claim asks for. A runner that sends none (protocol 2) has one. */
+export function runnerSlots(raw: unknown): number {
+  const n = typeof raw === 'number' && Number.isFinite(raw) ? Math.floor(raw) : 1;
+  return Math.min(RUNNER_MAX_SLOTS, Math.max(1, n));
+}
+
+/** The run ids the runner says it is working on, deduplicated and capped. */
+export function heldRunIds(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const ids = raw.filter((id): id is string => typeof id === 'string' && id.length > 0 && id.length <= 64);
+  return [...new Set(ids)].slice(0, RUNNER_MAX_SLOTS * 2);
+}
+
+/**
+ * What a claim does with the runner's open runs. An open run the runner did
+ * not list is one it lost track of (it restarted, or a Cursor build came back
+ * to be followed again): hand that back first, oldest first. Otherwise the
+ * runner gets new work only while it has a free slot.
+ */
+export function openRunDecision(input: { open: string[]; held: string[]; slots: number }): { resume: string | null; full: boolean } {
+  const held = new Set(input.held);
+  const resume = input.open.find((id) => !held.has(id)) ?? null;
+  const inUse = input.open.filter((id) => held.has(id)).length;
+  return { resume, full: inUse >= input.slots };
+}

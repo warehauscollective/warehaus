@@ -36,14 +36,16 @@ describe('runner client', () => {
     });
   });
 
-  it('sends a paused flag and an unpair call when asked', async () => {
+  it('sends a paused flag, run slots and an unpair call when asked', async () => {
     const { seen, fetch } = recorder();
     const api = runnerClient({ url: 'u', token: 't', runnerId: 'r', fetch });
     await api.claim({ mode: 'headless', repos: [], paused: true });
+    await api.claim({ mode: 'headless', repos: [], slots: 3, held: ['run1'] });
     await api.ping({ paused: false });
     await api.unpair();
     assert.deepEqual(seen.map((call) => [call.url, call.body]), [
       [`u${RUNNER_PATHS.claim}`, { mode: 'headless', repos: [], paused: true }],
+      [`u${RUNNER_PATHS.claim}`, { mode: 'headless', repos: [], slots: 3, held: ['run1'] }],
       ['u/agent/ping', { paused: false }],
       [`u${RUNNER_PATHS.unpair}`, {}],
     ]);

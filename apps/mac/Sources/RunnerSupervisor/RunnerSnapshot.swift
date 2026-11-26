@@ -6,6 +6,7 @@ public struct RunnerSnapshot: Equatable, Sendable {
         /// The process is starting and has not said who it is yet.
         case starting
         case idle
+        /// The first run in progress. `runs` holds all of them.
         case working(WorkInfo)
         case paused
         /// No runner process: quit, removed, or never started.
@@ -29,6 +30,8 @@ public struct RunnerSnapshot: Equatable, Sendable {
     public var activity: Activity
     public var attention: AttentionReason?
     public var lastRun: LastRun?
+    /// Every run in progress, oldest first: one per milestone, up to the runner's slots.
+    public var runs: [WorkInfo] = []
 
     public init(
         runnerId: String? = nil,
@@ -51,18 +54,30 @@ public struct RunnerSnapshot: Equatable, Sendable {
         case let .started(runnerId, production, paused):
             self.runnerId = runnerId
             self.production = production
+            runs = []
             activity = paused ? .paused : .idle
             attention = nil
         case .idle:
+            runs = []
             activity = .idle
             attention = nil
         case let .working(work):
-            activity = .working(work)
+            if let index = runs.firstIndex(where: { $0.runId == work.runId }) {
+                runs[index] = work
+            } else {
+                runs.append(work)
+            }
+            activity = .working(runs[0])
             attention = nil
         case let .finished(work, status):
-            lastRun = LastRun(milestone: work.milestone, status: status, endedAt: now)
-            if case .working = activity { activity = .idle }
+            runs.removeAll { $0.runId == work.runId }
+            // A Cursor build still going comes back; it is not a finished run.
+            if status != "running" {
+                lastRun = LastRun(milestone: work.milestone, status: status, endedAt: now)
+            }
+            if case .working = activity { activity = runs.first.map(Activity.working) ?? .idle }
         case .paused:
+            runs = []
             activity = .paused
             attention = nil
         case let .attention(reason):

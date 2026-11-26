@@ -61,6 +61,8 @@ start       Takes work from the Portal.
   --mode    interactive (default) opens Claude Code for you to drive.
             headless runs "claude -p" and draws on Agent SDK credit.
   --once    Do one piece of work, then exit.
+  --parallel  Work up to this many milestones at once, one run on each
+            (1 to 5, default 1). Headless only.
   --supervised  Run under the runner Mac app: print one state line per
             change on stdout and read pause or resume on stdin.
   --paused  Start paused: take no new work, and tell the Portal so.
@@ -79,7 +81,8 @@ export function parseArgs(argv) {
   const options = { command, production: false, id: '', mode: 'interactive', once: false, repos: [] };
   if (command === 'start') Object.assign(options, { supervised: false, paused: false });
   if (command === 'setup') options.supervised = false;
-  const valued = command === 'start' ? ['--id', '--mode', '--repo'] : command === 'setup' ? ['--id'] : [];
+  if (command === 'start') options.parallel = 1;
+  const valued = command === 'start' ? ['--id', '--mode', '--repo', '--parallel'] : command === 'setup' ? ['--id'] : [];
   for (let index = 0; index < rest.length; index += 1) {
     const flag = rest[index];
     if (flag === '--production') {
@@ -102,6 +105,10 @@ export function parseArgs(argv) {
           if (!REPO_PATTERN.test(repo)) return { ok: false, error: `--repo must be owner/name, got ${repo}.\n\n${USAGE}` };
           if (!options.repos.includes(repo.toLowerCase())) options.repos.push(repo.toLowerCase());
         }
+      } else if (flag === '--parallel') {
+        const n = /^\d+$/.test(value) ? Number(value) : NaN;
+        if (!(n >= 1 && n <= MAX_PARALLEL)) return { ok: false, error: `--parallel must be a whole number from 1 to ${MAX_PARALLEL}.\n\n${USAGE}` };
+        options.parallel = n;
       } else {
         options[flag.slice(2)] = value;
       }
@@ -117,6 +124,9 @@ export function parseArgs(argv) {
   if (options.mode !== 'interactive' && options.mode !== 'headless') {
     return { ok: false, error: `--mode must be interactive or headless.\n\n${USAGE}` };
   }
+  // An interactive run needs a person at the terminal, so it is one at a time.
+  if (options.parallel > 1 && options.mode !== 'headless') return { ok: false, error: `--parallel needs --mode headless.\n\n${USAGE}` };
+  if (options.parallel > 1 && options.once) return { ok: false, error: `--parallel and --once do not go together.\n\n${USAGE}` };
   return { ok: true, options };
 }
 
@@ -609,4 +619,54 @@ ${strings(args)}
 </dict>
 </plist>
 `;
+}
+
+/** Most runs one runner works at once. Must match RUNNER_MAX_SLOTS in apps/portal/convex/_lib/agentRun.ts. */
+export const MAX_PARALLEL = 5;
+
+/**
+ * The runner's run slots. A run holds a slot from its claim until it ends. A
+ * Cursor build whose cloud agent is still going gives its slot back but stays
+ * held for a short cool-down, so the Portal does not hand it straight back;
+ * after that the next claim returns it and the runner follows the agent again.
+ */
+export function runSlots(size, clock = () => Date.now()) {
+  const active = new Set();
+  const cooling = new Map();
+  const sweep = () => {
+    const now = clock();
+    for (const [id, until] of cooling) if (until <= now) cooling.delete(id);
+  };
+  return {
+    size,
+    /** Run ids to send with a claim: the ones in progress and the ones cooling down. */
+    held() {
+      sweep();
+      return [...active, ...cooling.keys()];
+    },
+    free() {
+      sweep();
+      return active.size + cooling.size < size;
+    },
+    get running() {
+      return active.size;
+    },
+    start(id) {
+      cooling.delete(id);
+      active.add(id);
+    },
+    finish(id) {
+      active.delete(id);
+    },
+    coolDown(id, ms) {
+      active.delete(id);
+      cooling.set(id, clock() + ms);
+    },
+    /** Milliseconds until the next cool-down ends, or null. */
+    nextCoolDownMs() {
+      sweep();
+      if (cooling.size === 0) return null;
+      return Math.max(0, Math.min(...cooling.values()) - clock());
+    },
+  };
 }
