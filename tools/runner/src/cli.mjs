@@ -31,6 +31,10 @@ import {
   parseArgs,
   parsePlanOutput,
   planPrompt,
+  RELEASED,
+  usageHold,
+  usageLimitFrom,
+  usageLimitReason,
   childEnv,
   readEnv,
   RUNNER_HOME_DIR,
@@ -106,20 +110,36 @@ function claudeEnv(config, runId) {
   });
 }
 
-/** Starts the official `claude` CLI and waits for it to exit. */
+/** How much of Claude's output the runner keeps, to spot a usage limit at the end. */
+const OUTPUT_TAIL = 8_000;
+
+/**
+ * Starts the official `claude` CLI and waits for it to exit. Headless, its
+ * output still reaches the log line for line; the runner keeps the tail so it
+ * can tell a usage limit from a run that did nothing. Interactive runs keep
+ * the terminal, so nothing is read from them.
+ */
 function runClaude(config, cwd, prompt, runId) {
-  const args = config.mode === 'headless' ? ['-p', prompt] : [prompt];
+  const headless = config.mode === 'headless';
+  const args = headless ? ['-p', prompt] : [prompt];
   return new Promise((done) => {
     const child = spawn('claude', args, {
       cwd,
-      stdio: 'inherit',
+      stdio: headless ? ['inherit', 'pipe', 'pipe'] : 'inherit',
       env: claudeEnv(config, runId),
     });
+    let tail = '';
+    const keep = (out) => (chunk) => {
+      out.write(chunk);
+      tail = (tail + String(chunk)).slice(-OUTPUT_TAIL);
+    };
+    child.stdout?.on('data', keep(process.stdout));
+    child.stderr?.on('data', keep(process.stderr));
     child.on('error', (error) => {
       say(`Could not start claude: ${error.message}`);
-      done(127);
+      done({ code: 127, tail: '' });
     });
-    child.on('exit', (code) => done(code ?? 1));
+    child.on('close', (code) => done({ code: code ?? 1, tail }));
   });
 }
 
@@ -132,16 +152,56 @@ function runClaudePlan(config, cwd, prompt, runId) {
       env: claudeEnv(config, runId),
     });
     let out = '';
-    child.stdout?.on('data', (chunk) => {
+    const keep = (chunk) => {
       out += String(chunk);
       if (out.length > 100_000) out = out.slice(-100_000);
+    };
+    child.stdout?.on('data', keep);
+    // A usage limit may come on either stream. stderr never reaches parsePlanOutput's JSON: it is at the end.
+    let err = '';
+    child.stderr?.on('data', (chunk) => {
+      err = (err + String(chunk)).slice(-OUTPUT_TAIL);
     });
     child.on('error', (error) => {
       say(`Could not start claude: ${error.message}`);
-      done({ code: 127, out: '' });
+      done({ code: 127, out: '', err: '' });
     });
-    child.on('exit', (code) => done({ code: code ?? 1, out }));
+    child.on('close', (code) => done({ code: code ?? 1, out, err }));
   });
+}
+
+/**
+ * The account usage limit. One run that hits it holds the whole runner: no
+ * slot claims until the reset, and runs already going finish on their own.
+ */
+const usage = usageHold();
+
+/** Notes a usage limit Claude ended a run on, and tells the app the runner is waiting. */
+function holdForUsage(limit) {
+  const moved = usage.hit(limit);
+  if (!moved) return;
+  const when = limit.resetsAt ? `resets ${new Date(limit.resetsAt).toLocaleString()}` : 'no reset time given';
+  say(`Claude hit its usage limit (${when}). Taking no new work until ${new Date(usage.until).toLocaleString()}.`);
+  report('attention', { reason: 'usage_limit', until: usage.until, resetsAt: limit.resetsAt });
+}
+
+/**
+ * Hands a run back to the Portal without blocking it. Never throws: a run the
+ * Portal did not take back (one that predates /agent/release answers 404, or
+ * the call failed) stays open, and the first claim after the reset hands the
+ * same run back to this runner, because an open run it does not list comes back.
+ */
+async function releaseRun(config, runId, limit) {
+  try {
+    await client(config).release({ runId, reason: usageLimitReason(limit), until: limit.until });
+    say('Handed the run back to the Portal.');
+  } catch (error) {
+    say(
+      error.status === 404
+        ? 'This Portal cannot take a run back yet. It stays open and comes back after the reset.'
+        : `Could not hand the run back (${error.message}). It stays open and comes back after the reset.`,
+    );
+  }
 }
 
 function readIfPresent(path) {
@@ -155,9 +215,16 @@ async function doTask(config, work) {
   const notes = join(dir, '.runner');
   rmSync(join(notes, 'blocked.txt'), { force: true });
   const before = git(dir, ['rev-parse', 'HEAD']).out;
-  await runClaude(config, dir, taskPrompt(readFileSync(join(prompts, 'task.md'), 'utf8'), work), work.runId);
+  const ran = await runClaude(config, dir, taskPrompt(readFileSync(join(prompts, 'task.md'), 'utf8'), work), work.runId);
   const after = git(dir, ['rev-parse', 'HEAD']).out;
-  const outcome = taskOutcome({ before, after, blockedReason: readIfPresent(join(notes, 'blocked.txt')) });
+  const limit = usageLimitFrom(ran.tail);
+  const outcome = taskOutcome({ before, after, blockedReason: readIfPresent(join(notes, 'blocked.txt')), usageLimit: limit });
+  if (outcome.status === RELEASED) {
+    // The work so far stays in the worktree. The next run on this milestone carries on from it.
+    holdForUsage(limit);
+    await releaseRun(config, work.runId, limit);
+    return RELEASED;
+  }
   if (outcome.commitSha) {
     const pushed = git(dir, ['push', '-u', 'origin', work.milestone.branch]);
     if (!pushed.ok) {
@@ -183,6 +250,12 @@ async function doPlanning(config, work) {
     work.runId,
   );
   const plan = parsePlanOutput(planned.out);
+  const limit = plan.ok ? null : usageLimitFrom(`${planned.out}\n${planned.err}`);
+  if (limit) {
+    holdForUsage(limit);
+    await releaseRun(config, work.runId, limit);
+    return RELEASED;
+  }
   if (!plan.ok) {
     say(`No usable plan: ${plan.error}`);
     await client(config).failPlanning({ runId: work.runId, reason: plan.error });
@@ -439,6 +512,7 @@ async function main() {
   let empty = 0;
   let failures = 0;
   let pausedReported = false;
+  let usageWaiting = false;
   for (;;) {
     if (control.paused) {
       // Pause after this run: runs in progress finish first, and only then is the runner Paused.
@@ -457,6 +531,18 @@ async function main() {
       report('attention', { reason: 'github' });
       await wakeableSleep(idleDelayMs(1));
       continue;
+    }
+    // The usage limit holds every slot. Runs already going finish; nothing new is claimed.
+    const held = usage.remainingMs();
+    if (held > 0) {
+      usageWaiting = true;
+      if (parsed.options.once) break;
+      await waitBusy(config, Math.min(HEARTBEAT_MS, held));
+      continue;
+    }
+    if (usageWaiting) {
+      usageWaiting = false;
+      say('The usage limit has reset. Taking work again.');
     }
     if (!slots.free()) {
       await waitBusy(config, Math.min(HEARTBEAT_MS, slots.nextCoolDownMs() ?? HEARTBEAT_MS));

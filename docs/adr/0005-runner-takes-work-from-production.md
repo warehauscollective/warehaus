@@ -89,3 +89,13 @@ Peter asked on 2026-11-26 for the runner to work every Building milestone instea
 - A runner holds up to N open runs (the claim's `slots`, 1 to 4; the Mac app uses 4), each on a different milestone. Inside a milestone nothing changes: one task run at a time, in order, on the one `milestone/<slug>` branch.
 - Each claim lists the runs the runner holds. An open run it does not list comes back to it first; with every slot in use it gets nothing new. A runner that sends no slots (protocol 2) works one run at a time as before.
 - Each run is its own headless Claude session, so N runs use the Agent SDK credit N times as fast.
+
+## Amendment, 2026-11-26: a usage limit hands the run back
+
+On 2026-11-26 the production runner `peteroqs-laptop-prod` blocked tasks 04 to 07 of "Milestone tasks as a board" twice, about 8 seconds apart, each with "The run ended with no new commit". Every Claude transcript ended "You've hit your 5-hour limit · resets 8:30am (America/New_York)". A usage limit is not a task problem, so it should not block the task or ask Peter for anything.
+
+- Headless, the runner reads the last lines of Claude's output. A usage-limit line ends the run as released, not failed. A blocked note from Claude still wins.
+- A new route, `POST /agent/release`, takes a task or planning run back: the run is cancelled and settled, the task goes back to To do (a plan back to the queue), the feed gets a note, and there is no "needs Peter" note. It is its own route, not a fourth complete status, because a Portal that predates it must refuse it plainly (404); an older `failPlanning` would have ignored a status and blocked the plan. On a 404 the runner leaves the run open, and the claim after the reset hands it back.
+- The runner claims nothing until the reset Claude named plus a minute, or 30 minutes when it names none, at most 8 days. The limit is the account's, so one run that hits it holds every slot.
+- Supervised, the runner prints `attention` with reason `usage_limit` and the time it takes work again, for the Mac app.
+
