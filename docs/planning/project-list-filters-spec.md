@@ -93,7 +93,7 @@ KPI cards (Active, Awaiting go, Shipped) **stay unfiltered**. They always show t
 - Saved **per signed-in contact**, in Convex. It follows the person across devices and browsers. It is not in `localStorage` and not in the URL.
 - **No expiry.** It stays until the person changes it or presses Clear filters.
 - What is saved: the quick filter chip, every menu filter, and the sort with its direction.
-- Storage: a new table `projectListViews` with one row per contact and a `by_contactId` index, read and written the way `notificationPrefs` is (`getMine` / `saveMine` on the signed-in contact only). One indexed `unique()` read. No scans.
+- Storage: a new table `projectListPrefs` with one row per contact and a `by_contactId` index, read and written the way `notificationPrefs` is (`getMine` / `saveMine` on the signed-in contact only). One indexed `unique()` read. No scans.
 - Staff have one view. It is the same on every client host they open.
 - Writes are kept low: a change is saved after a short pause, a save that matches what is stored is skipped, and a view equal to the default is stored as no row.
 - On load the list waits for the saved view inside the existing loading state, so the default list never flashes before the saved one.
