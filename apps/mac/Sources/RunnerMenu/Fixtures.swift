@@ -64,3 +64,78 @@ public final class FixtureControl: RunnerControl {
         return .removed
     }
 }
+
+/// First launch from fixture data, for screenshots and a debug run that must
+/// not touch this Mac's real gh, Claude Code, pairing or launchd agent:
+///
+///     -SetupFixture fresh | signed-out | github-code | installing | claude-signin
+///                   | pairing | expired | takeover | done
+///
+/// Clicks move the fixture along without running any command.
+@MainActor
+public final class FixtureSetupSystem: SetupSystem {
+    public static let names = ["fresh", "signed-out", "github-code", "installing", "claude-signin", "pairing", "expired", "takeover", "done"]
+
+    public let facts: SetupFacts
+    public let showsPairing: Bool
+
+    public init?(named name: String, now: Date = Date()) {
+        let signedIn = GitHubFact.signedIn(login: "peterroquemore")
+        let code = PairingCode(code: "K7QM-4XPA", runnerId: "peter-mbp-prod", expiresAt: now.addingTimeInterval(9 * 60 + 41))
+        var pairing = false
+        switch name {
+        case "fresh": facts = SetupFacts(github: signedIn, claude: .missing)
+        case "signed-out": facts = SetupFacts(github: .signedOut, claude: .missing)
+        case "github-code": facts = SetupFacts(github: .signingIn(code: "1A2B-3C4D"), claude: .missing)
+        case "installing": facts = SetupFacts(github: signedIn, claude: .installing)
+        case "claude-signin": facts = SetupFacts(github: signedIn, claude: .signedOut)
+        case "pairing":
+            facts = SetupFacts(github: signedIn, claude: .signedIn(email: nil), pair: .pairing(code))
+            pairing = true
+        case "expired": facts = SetupFacts(github: signedIn, claude: .signedIn(email: nil), pair: .expired)
+        case "takeover":
+            facts = SetupFacts(github: signedIn, claude: .signedIn(email: nil), pair: .adopted(runnerId: "peter-mbp-prod"),
+                               oldAgent: .present(label: "co.warehaus.runner.prod"))
+        case "done": facts = SetupFacts(github: signedIn, claude: .signedIn(email: nil), pair: .paired(runnerId: "peter-mbp-prod"))
+        default: return nil
+        }
+        showsPairing = pairing
+    }
+
+    public func githubStatus() async -> GitHubFact { facts.github }
+    public func githubSignIn(code: @escaping @MainActor (String) -> Void) async -> GitHubFact {
+        code("1A2B-3C4D")
+        try? await Task.sleep(for: .seconds(2))
+        return .signedIn(login: "peterroquemore")
+    }
+    public func claudeStatus() async -> ClaudeFact { facts.claude }
+    public func installClaude() async -> ClaudeFact {
+        try? await Task.sleep(for: .seconds(2))
+        return .signedOut
+    }
+    public func claudeSignIn() async -> ClaudeFact {
+        try? await Task.sleep(for: .seconds(2))
+        return .signedIn(email: nil)
+    }
+    public func takeover() -> Takeover { Takeover(adopt: nil, oldAgent: facts.oldAgent) }
+    public func removeOldAgent() async -> String? {
+        try? await Task.sleep(for: .seconds(1))
+        return nil
+    }
+    public func startPairing(_ events: @escaping @MainActor (PairingEvent?) -> Void) -> SetupCancel? {
+        let code = PairingCode(code: "K7QM-4XPA", runnerId: "peter-mbp-prod", expiresAt: Date().addingTimeInterval(600))
+        events(.pairing(code))
+        let cancel = FixtureCancel()
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(6))
+            if !cancel.cancelled { events(.paired(runnerId: code.runnerId)) }
+        }
+        return cancel
+    }
+    public func open(_ url: URL) {}
+}
+
+final class FixtureCancel: SetupCancel {
+    var cancelled = false
+    func cancel() { cancelled = true }
+}

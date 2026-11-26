@@ -16,6 +16,45 @@ public struct RunnerInstallation: Equatable, Sendable {
     }
 
     static let systemPath = ["/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"]
+
+    /// Where Anthropic's installer puts `claude`. The runner spawns it by name.
+    static func userPath(home: URL) -> [String] {
+        [home.appendingPathComponent(".local/bin").path]
+    }
+}
+
+/// The fixed layout scripts/bundle-runtime.sh writes under Contents/Resources.
+/// Change both together.
+///
+///     runner/
+///         bin/node   bin/gh                         (pinned in runtime.lock)
+///         tools/runner/src/cli.mjs   tools/runner/{hooks,prompts}
+///         packages/runner-protocol/{index.mjs,package.json}
+///         licenses/   VERSIONS
+public struct RuntimeLayout: Equatable, Sendable {
+    public let root: URL
+
+    public init(resources: URL) {
+        root = resources.appendingPathComponent("runner", isDirectory: true)
+    }
+
+    public var bin: URL { root.appendingPathComponent("bin", isDirectory: true) }
+    public var node: URL { bin.appendingPathComponent("node") }
+    public var gh: URL { bin.appendingPathComponent("gh") }
+    public var cli: URL { root.appendingPathComponent("tools/runner/src/cli.mjs") }
+    public var protocolPackage: URL { root.appendingPathComponent("packages/runner-protocol/index.mjs") }
+
+    /// The bundled tools first, then `claude` from Anthropic's installer, then the system.
+    public func path(home: URL) -> [String] {
+        [bin.path] + RunnerInstallation.userPath(home: home) + RunnerInstallation.systemPath
+    }
+
+    /// The installation, when every file the runner needs is there.
+    public func installation(home: URL, files: FileManager = .default) -> RunnerInstallation? {
+        guard files.isExecutableFile(atPath: node.path), files.isExecutableFile(atPath: gh.path),
+              files.fileExists(atPath: cli.path), files.fileExists(atPath: protocolPackage.path) else { return nil }
+        return RunnerInstallation(node: node, cli: cli, workingDirectory: root, path: path(home: home))
+    }
 }
 
 /// Finds the runner. A seam: the first-launch task bundles Node, the runner
@@ -24,31 +63,21 @@ public protocol RunnerLocating: Sendable {
     func locate() -> RunnerInstallation?
 }
 
-/// The release layout inside the app bundle, filled in by the first-launch
-/// bundling task:
-///
-///     Warehaus Runner.app/Contents/Resources/runner/
-///         bin/node   bin/gh
-///         tools/runner/src/cli.mjs   packages/runner-protocol/…
+/// The release runner: Node, gh and the runner inside the app bundle
+/// (RuntimeLayout, filled by scripts/bundle-runtime.sh).
 public struct BundledRunner: RunnerLocating {
     public let resources: URL?
+    public let home: URL
 
-    public init(resources: URL? = Bundle.main.resourceURL) {
+    public init(resources: URL? = Bundle.main.resourceURL, home: URL = FileManager.default.homeDirectoryForCurrentUser) {
         self.resources = resources
+        self.home = home
     }
 
+    public var layout: RuntimeLayout? { resources.map(RuntimeLayout.init(resources:)) }
+
     public func locate() -> RunnerInstallation? {
-        guard let root = resources?.appendingPathComponent("runner") else { return nil }
-        let node = root.appendingPathComponent("bin/node")
-        let cli = root.appendingPathComponent("tools/runner/src/cli.mjs")
-        let files = FileManager.default
-        guard files.isExecutableFile(atPath: node.path), files.fileExists(atPath: cli.path) else { return nil }
-        return RunnerInstallation(
-            node: node,
-            cli: cli,
-            workingDirectory: root,
-            path: [root.appendingPathComponent("bin").path] + RunnerInstallation.systemPath
-        )
+        layout?.installation(home: home)
     }
 }
 
@@ -78,7 +107,7 @@ public struct CheckoutRunner: RunnerLocating {
             node: URL(fileURLWithPath: node),
             cli: cli,
             workingDirectory: repo,
-            path: RunnerInstallation.systemPath
+            path: RunnerInstallation.userPath(home: FileManager.default.homeDirectoryForCurrentUser) + RunnerInstallation.systemPath
         )
     }
 }

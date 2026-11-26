@@ -33,5 +33,6 @@ let package = Package(
             name: "PortalWindowTests",
             dependencies: ["PortalWindow", .product(name: "NativeBridge", package: "NativeBridge")]
         ),
+        .testTarget(name: "RunnerMenuTests", dependencies: ["RunnerMenu", "RunnerSupervisor"]),
     ]
 )

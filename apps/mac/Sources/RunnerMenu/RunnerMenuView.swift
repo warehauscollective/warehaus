@@ -41,23 +41,12 @@ public struct RunnerMenuView: View {
         .frame(width: 300)
     }
 
-    /// The update line, then Check for update (design iteration 2).
+    /// The update line, then Check for update (design iteration 2, AppUpdate.swift).
     @ViewBuilder
     private func updateRows(waitsForRun: Bool) -> some View {
-        switch model.update {
-        case let .upToDate(version):
-            MenuRow("Up to date", trailing: "v\(version)", enabled: false) {}
-            // An update found now would wait for the run anyway.
-            if !waitsForRun { MenuRow("Check for update") { model.checkForUpdate() } }
-        case let .available(version):
-            if waitsForRun {
-                MenuRow("Update waits for this run", trailing: "v\(version)", enabled: false) {}
-            } else {
-                MenuRow("Installs before the next run", trailing: "v\(version)", enabled: false) {}
-            }
-        case let .checking(version):
-            MenuRow("Checking for update…", trailing: "v\(version)", enabled: false) {}
-        }
+        let line = model.updateLine
+        MenuRow(line.title, trailing: line.trailing, enabled: false) {}
+        if line.offersCheck { MenuRow("Check for update") { model.checkForUpdate() } }
     }
 }
 

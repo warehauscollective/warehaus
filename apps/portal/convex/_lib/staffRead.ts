@@ -12,6 +12,7 @@
 import { clientIsStaffVisible } from '@warehaus/portal-sync';
 import type { Doc, Id } from '../_generated/dataModel';
 import type { QueryCtx } from '../_generated/server';
+import { isPortalOwnedTask } from './milestoneTasks';
 
 type ReadCtx = Pick<QueryCtx, 'db'>;
 
@@ -86,7 +87,13 @@ export function staffProject(row: Doc<'projects'>) {
   };
 }
 
+/**
+ * A task as the staff API shows it. A Portal-only task (`portalOwned: true`)
+ * has no Notion page: its stored `portal-milestone:` / `portal-review:`
+ * placeholder is not a Notion id, so `notionPageId` is null for it.
+ */
 export function staffTask(row: Doc<'tasks'>) {
+  const portalOwned = isPortalOwnedTask(row);
   return {
     id: row._id,
     orgId: row.orgId,
@@ -99,7 +106,9 @@ export function staffTask(row: Doc<'tasks'>) {
     isDone: row.isDone,
     updatedAt: row.updatedAt ?? null,
     lastEditedTime: row.lastEditedTime ?? null,
-    notionPageId: row.notionPageId,
+    notionPageId: portalOwned ? null : row.notionPageId,
+    source: row.source ?? null,
+    portalOwned,
     publishToWarehaus: row.publishToWarehaus,
     milestoneId: row.milestoneId ?? null,
     description: row.description ?? null,
