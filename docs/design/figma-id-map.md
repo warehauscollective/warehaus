@@ -882,3 +882,60 @@ Add a row in the same pull request as the move.
 | 2026-11-25 | `689:94492` | 12 Docs (emptied, task 5) | Resources / Resources (wrapper) | Archive — Portal / Resources before atomic migration (1198:4668) |  |  | Dashboard, Activity, Resources migration |
 | 2026-11-25 | `689:92680` | Resources (emptied, task 5) | Resources / page | Archive — Portal / Resources before atomic migration (1198:4668) |  |  | Dashboard, Activity, Resources migration |
 | 2026-11-26 | `253:8069` → `1205:2633` | Invites review (now Organism/Client invites review, Size=1440, State=default) | Activity / V03 · Client invites review / Client invites review - 1440 Dark (1196:3074) | Activity / Local components (1196:1885), set 1205:2728; the 1440 Dark now holds instance 1205:2729 | 1196:2892 | 1196:1885 | Activity staff screens at 390 |
+| 2026-11-26 | `689:45094` | 02 Auth · Login, password, 404 (section) | Onboarding | Archive — Portal / Onboarding before atomic migration (1233:4563), renamed "Archived · 02 Auth · Login, password, 404" | 02 | O01 to O03, O09 (1229:2984, 1230:4666, 1230:4891, 1230:6131) | Onboarding cleanup |
+| 2026-11-26 | `689:45095` | LIVE — PORTAL, PUBLIC ROUTES note | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `689:45096` | Portal / login / default / 1440 / Dark | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `689:45121` | Portal / forgot password / default / 1440 / Dark | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `689:45141` | Portal / reset password / form (token) / 1440 / Dark | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `689:45148` | Portal / login / default / 390 / Dark | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `689:45173` | Portal / forgot password / default / 390 / Dark | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `689:45193` | Portal / reset password / form (token) / 390 / Dark | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `689:45200` | Portal / login / default / 1440 / Light | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `689:45225` | Portal / forgot password / default / 1440 / Light | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `689:45245` | Portal / reset password / form (token) / 1440 / Light | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `689:45252` | Portal / login / default / 390 / Light | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `689:45277` | Portal / forgot password / default / 390 / Light | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `689:45297` | Portal / reset password / form (token) / 390 / Light | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `770:15244` | Portal / 404 + login loading · AuthCard · Dark / Light · 1440 / 390 | Onboarding / 02 Auth | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `242:5031` | O02 · Sign up & email verification (section) | Onboarding | Archive — Portal / Onboarding before atomic migration (1233:4563), renamed "Archived · O02 · Sign up & email verification" | O02 | O04 to O06, O10, O11 (1230:5128, 1230:5437, 1230:5638, 1230:6160, 1230:6246) | Onboarding cleanup |
+| 2026-11-26 | `243:5058` | Auth / Sign up — Light | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `243:5144` | Auth / Sign up — Dark | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `243:5230` | Auth / Sign up — Mobile Dark | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `244:5283` | Auth / Check your email — Light | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `244:5315` | Auth / Check your email — Dark | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `244:5347` | Auth / Check your email — Mobile Dark | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `244:5517` | Auth / Link expired — Light | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `244:5542` | Auth / Link expired — Dark | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `244:5567` | Auth / Link expired — Mobile Dark | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `244:9515` | Auth / States — Light | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `244:9566` | Auth / States — Dark | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `244:9627` | Section header | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `246:9923` | Email / Verify your email — Light | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `246:9943` | Email / Verify your email — Dark | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `246:9963` | Email / Can't register — Light | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `246:9978` | Email / Can't register — Dark | Onboarding / O02 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `710:7514` | O03 · Client invites · accept, decline & invite email (section) | Onboarding | Archive — Portal / Onboarding before atomic migration (1233:4563), renamed "Archived · O03 · Client invites · accept, decline & invite email" | O03 | O07, O08, O12 (1230:5819, 1230:6040, 1230:6311) | Onboarding cleanup |
+| 2026-11-26 | `251:11126` | Email / Invite — Dark | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `251:11146` | Email / Invite — Light | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `251:6577` | Invites / Accept — Valid link — Dark | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `251:6828` | Invites / Decline — Confirm — Dark | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `251:10788` | Invites / Accept — Valid link — Light | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `251:10834` | Invites / Accept — Valid link — Mobile Dark | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `254:7713` | Annotation · Accept — Light and Mobile Dark | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `751:4849` | ROW · STAFF ACCEPT INVITE label | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `544:8055` | A01 Accept invite · New user · 1440 · Dark | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `544:8124` | A01 Accept invite · New user · 1440 · Light | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `544:8193` | A01 Accept invite · New user · 390 · Dark | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `544:8262` | A01 Accept invite · New user · 390 · Light | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `543:8003` | E01 Invite email · desktop 760 · Dark | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `543:8047` | E02 Invite email · desktop 760 · Light | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `772:6346` | Invites / Decline — Confirm — Light | Onboarding / O03 | Archive — Portal / Onboarding before atomic migration (1233:4563) | | | Onboarding cleanup |
+| 2026-11-26 | `243:5316` | Annotation (now in the section's Note) | Onboarding / O02 (old) | Onboarding / O04 · Sign up | | | Onboarding cleanup |
+| 2026-11-26 | `244:9617` | Annotation (now in the section's Note) | Onboarding / O02 (old) | Onboarding / O04 · Sign up | | | Onboarding cleanup |
+| 2026-11-26 | `244:5379` | Annotation (now in the section's Note) | Onboarding / O02 (old) | Onboarding / O05 · Check your email | | | Onboarding cleanup |
+| 2026-11-26 | `244:5592` | Annotation (now in the section's Note) | Onboarding / O02 (old) | Onboarding / O06 · Link expired | | | Onboarding cleanup |
+| 2026-11-26 | `254:7708` | Annotation (now in the section's Note) | Onboarding / O03 (old) | Onboarding / O07 · Accept invite | | | Onboarding cleanup |
+| 2026-11-26 | `256:11543` | Annotation (now in the section's Note) | Onboarding / O03 (old) | Onboarding / O07 · Accept invite | | | Onboarding cleanup |
+| 2026-11-26 | `246:9993` | Annotation (now in the section's Note) | Onboarding / O02 (old) | Onboarding / O10 · Verify email | | | Onboarding cleanup |
+| 2026-11-26 | `246:9998` | Annotation (now in the section's Note) | Onboarding / O02 (old) | Onboarding / O11 · Can't register email | | | Onboarding cleanup |
+| 2026-11-26 | `254:7703` | Annotation (now in the section's Note) | Onboarding / O03 (old) | Onboarding / O12 · Invite email | | | Onboarding cleanup |
