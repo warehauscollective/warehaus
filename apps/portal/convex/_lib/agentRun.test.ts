@@ -32,7 +32,6 @@ import {
   retryLeaseDecision,
   runLease,
 } from './agentRun';
-import { checklistDetailText, checklistState, checklistSummary } from './milestoneTasks';
 import { classifyClaimable } from './milestoneTaskSet';
 import * as agentModule from '../agent';
 import { claimNext, completeTask, releaseStuckRuns, reportBuild, touchRunner, writePlannedTasks } from '../agent';
@@ -370,27 +369,6 @@ describe('branch and feed', () => {
     assert.equal(feedLimit(5), FEED_PAGE);
     assert.equal(feedLimit(40), 40);
     assert.equal(feedLimit(5000), FEED_MAX);
-  });
-});
-
-describe('checklist with runner fields', () => {
-  it('shows the commit, the runner and the blocked reason', () => {
-    assert.equal(checklistDetailText({ status: 'Done', isDone: true, commit: '4c1e9aa' }), 'Done · 4c1e9aa');
-    assert.equal(checklistDetailText({ status: 'In Progress', isDone: false, runner: 'peter-mbp' }), 'In progress · peter-mbp');
-    assert.equal(
-      checklistDetailText({ status: 'Blocked', isDone: false, blockedReason: 'needs Figma frame' }),
-      'Blocked · needs Figma frame',
-    );
-    assert.equal(checklistDetailText({ status: 'To Do', isDone: false }), 'To do');
-    assert.equal(checklistState({ status: 'Blocked', isDone: false }), 'blocked');
-    assert.equal(
-      checklistSummary([
-        { status: 'Done', isDone: true },
-        { status: 'In Progress', isDone: false },
-        { status: 'Blocked', isDone: false },
-      ]),
-      '1 done · 1 in progress · 1 blocked',
-    );
   });
 });
 

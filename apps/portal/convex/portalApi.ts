@@ -667,7 +667,7 @@ export const createMilestone = internalMutation({
 });
 
 /**
- * One milestone for a bot: status, the ordered checklist, both previews, the
+ * One milestone for a bot: status, the tasks in order, both previews, the
  * pull request, and the latest reviews, notes and events. Every read is
  * indexed and capped.
  */

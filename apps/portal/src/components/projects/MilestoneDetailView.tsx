@@ -39,7 +39,7 @@ import { type RoadmapProject, type MilestoneActivityItem, type ResourceChoice, t
 import { ActivityList } from './roadmapParts';
 import { MoreMenu, EditDialog } from './MilestoneForms';
 import { MilestoneLoopLive, fixtureLoopModel, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
-import type { ChecklistActions } from './MilestoneChecklist';
+import type { MilestoneTaskActions } from './milestoneBoard';
 import { milestoneNestedToOpen, milestoneTaskToOpen } from './milestoneBoard';
 import { MilestoneTaskBoard, type MoveTaskStatus } from './MilestoneTaskBoard';
 import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
@@ -111,7 +111,7 @@ type MilestoneMutations = {
   }) => Promise<{ ok: boolean; reason?: string }>;
   clearPreviewLink?: (args: { hostSlug?: string; milestoneId: Id<'milestones'> }) => Promise<unknown>;
   /** Task writes on the Tasks tab. Absent in fixture previews. */
-  tasks?: ChecklistActions;
+  tasks?: MilestoneTaskActions;
   /** A card's status move on the Tasks board. Absent in fixture previews. */
   moveTaskStatus?: MoveTaskStatus;
 };

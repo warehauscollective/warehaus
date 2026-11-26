@@ -1,5 +1,6 @@
+import type { Id } from '@convex/_generated/dataModel';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
-import { checklistState, originLabel, RUN_ORDER_LOCKED, runOrderLocked } from '@convex/_lib/milestoneTasks';
+import { milestoneTaskState, originLabel, RUN_ORDER_LOCKED, runOrderLocked } from '@convex/_lib/milestoneTasks';
 import type { PortalTask } from '@/lib/data/view-models';
 
 /** The milestone board's columns, left to right. No Inbox lane and no Stage mode. */
@@ -33,13 +34,27 @@ export const BLOCKED_ASK = {
 export const BOARD_SHIPPED = 'This milestone has shipped. Its task list is closed.';
 export const BOARD_SAVE_ERROR = 'Couldn’t save the task list. Nothing changed.';
 
+/** The four task writes on a milestone. The live page passes Convex mutations. Fixture previews pass none. */
+export type MilestoneTaskActions = {
+  addTask: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; title: string; detail?: string }) => Promise<unknown>;
+  editTask: (args: {
+    hostSlug?: string;
+    milestoneId: Id<'milestones'>;
+    taskId: Id<'tasks'>;
+    title: string;
+    detail?: string;
+  }) => Promise<unknown>;
+  removeTask: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; taskId: Id<'tasks'> }) => Promise<unknown>;
+  reorderTasks: (args: { hostSlug?: string; milestoneId: Id<'milestones'>; taskIds: Id<'tasks'>[] }) => Promise<unknown>;
+};
+
 /**
  * The column a task sits in. Every task lands in one of the four: a status the
  * board has no lane for (Inbox, Not started, Backlog) reads as To Do, and any
  * other started status reads as In Progress.
  */
 export function milestoneBoardStatus(task: { status: string; isDone: boolean }): MilestoneBoardStatus {
-  const state = checklistState(task);
+  const state = milestoneTaskState(task);
   if (state === 'done') return 'Done';
   if (state === 'blocked') return 'Blocked';
   if (state === 'todo' || /^inbox$/i.test(task.status.trim())) return 'To Do';

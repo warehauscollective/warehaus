@@ -12,7 +12,6 @@ import { TaskBoard, type BoardAsk, type BoardCard, type BoardReorder, type Board
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import type { PortalTask } from '@/lib/data/view-models';
 import { ArchivedTaskRow, type ArchivedTask } from './ArchivedView';
-import type { ChecklistActions } from './MilestoneChecklist';
 import { Panel } from './milestoneChrome';
 import {
   BLOCKED_ASK,
@@ -27,6 +26,7 @@ import {
   WAITING_STATUS,
   boardFooter,
   boardSummary,
+  type MilestoneTaskActions,
   milestoneBoardCards,
   milestoneCardOrigins,
   pullRequestChip,
@@ -82,7 +82,7 @@ export function MilestoneTaskBoard({
   staff: boolean;
   fixtures: boolean;
   hostSlug?: string;
-  actions?: Pick<ChecklistActions, 'addTask' | 'reorderTasks'>;
+  actions?: Pick<MilestoneTaskActions, 'addTask' | 'reorderTasks'>;
   moveStatus?: MoveTaskStatus;
   onOpenTask?: (taskId: string) => void;
   /** This milestone's archived tasks. Staff only. */

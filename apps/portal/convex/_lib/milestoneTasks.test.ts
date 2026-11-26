@@ -15,9 +15,7 @@ import {
   TASK_TITLE_REQUIRED,
   TOO_MANY_REVIEW_TASKS,
   addTaskDecision,
-  checklistState,
-  checklistStatusText,
-  checklistSummary,
+  milestoneTaskState,
   createdViaLabel,
   editTaskDecision,
   groupMilestones,
@@ -262,21 +260,12 @@ describe('origin and source labels', () => {
   });
 });
 
-describe('checklist', () => {
-  it('reads done, in progress and to do', () => {
-    assert.equal(checklistState({ status: 'Done', isDone: true }), 'done');
-    assert.equal(checklistState({ status: 'To Do', isDone: false }), 'todo');
-    assert.equal(checklistState({ status: 'In Progress', isDone: false }), 'progress');
-    assert.equal(checklistStatusText({ status: 'in_progress', isDone: false }), 'In progress');
-    assert.equal(checklistStatusText({ status: 'Blocked', isDone: false }), 'Blocked');
-    assert.equal(
-      checklistSummary([
-        { status: 'Done', isDone: true },
-        { status: 'In Progress', isDone: false },
-        { status: 'To Do', isDone: false },
-      ]),
-      '1 done · 1 in progress',
-    );
+describe('milestone task state', () => {
+  it('reads done, in progress, blocked and to do', () => {
+    assert.equal(milestoneTaskState({ status: 'Done', isDone: true }), 'done');
+    assert.equal(milestoneTaskState({ status: 'To Do', isDone: false }), 'todo');
+    assert.equal(milestoneTaskState({ status: 'In Progress', isDone: false }), 'progress');
+    assert.equal(milestoneTaskState({ status: 'Blocked', isDone: false }), 'blocked');
   });
 });
 

@@ -41,7 +41,7 @@ describe('task list retry and quick-add', () => {
 
   it('no longer keeps stage-move state on the project page', () => {
     const projects = readFileSync(new URL('../pages/ProjectsContent.tsx', import.meta.url), 'utf8');
-    // The milestone checklist replaced the board, so the page holds no move mutation or rules query.
+    // Status moves live on the milestone task board, so the page holds no move mutation or rules query.
     assert.equal(projects.includes('retryQueuedStage'), false);
     assert.equal(projects.includes('api.tasks.moveStage'), false);
     assert.equal(projects.includes('api.tasks.moveRules'), false);

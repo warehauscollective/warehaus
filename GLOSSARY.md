@@ -38,6 +38,14 @@ _Avoid_: milestone tasks, linked tasks, close set
 A milestone moving from one Status to another. Every status change passes the same gate, writes one activity row, and runs what that status asks for on the way in and out, such as Peter's approval note on entering Ready to Ship. The cause says why it moved: set by a person or the staff API, play, Mark complete, a merge, or a review asking for changes.
 _Avoid_: status write, transition, status update
 
+**Task board**:
+The tasks of one milestone or one project as cards in columns. A milestone's task board is its Tasks tab and has four status columns: To Do, In Progress, Blocked and Done. Staff open a task from its card and move a card to another column to change its status. Clients see the board read-only, and a Shipped milestone's board is read-only for everyone.
+_Avoid_: checklist, task list, kanban
+
+**Run order**:
+The order a milestone's tasks are worked in: the To Do column of its task board, top first. Staff change it by reordering To Do, except while the milestone is Building.
+_Avoid_: task order, queue, priority
+
 ## Tasks
 
 **Task change**:

@@ -132,7 +132,7 @@ export function taskMilestoneGate(
   return { ok: true };
 }
 
-type ChecklistTask = {
+type MilestoneTask = {
   milestoneId?: string | null;
   source?: string | null;
   notionPageId?: string | null;
@@ -161,7 +161,7 @@ export function isToDoTask(task: { status: string; isDone: boolean }): boolean {
   return /^(to[\s_-]*do|not[\s_-]*started|backlog)$/i.test(task.status.trim());
 }
 
-function changeGate(input: { staff: boolean; milestoneId: string; task: ChecklistTask }): string | null {
+function changeGate(input: { staff: boolean; milestoneId: string; task: MilestoneTask }): string | null {
   if (!input.staff) return 'Staff role required';
   if (input.task.milestoneId !== input.milestoneId) return TASK_NOT_ON_MILESTONE;
   if (!isPortalOwnedTask(input.task)) return TASK_EDIT_IN_SOURCE;
@@ -172,7 +172,7 @@ function changeGate(input: { staff: boolean; milestoneId: string; task: Checklis
 export function editTaskDecision(input: {
   staff: boolean;
   milestoneId: string;
-  task: ChecklistTask & { name: string; description?: string | null };
+  task: MilestoneTask & { name: string; description?: string | null };
   title: string;
   detail?: string | null;
 }):
@@ -196,7 +196,7 @@ export function editTaskDecision(input: {
 export function removeTaskDecision(input: {
   staff: boolean;
   milestoneId: string;
-  task: ChecklistTask;
+  task: MilestoneTask;
 }): { ok: true } | { ok: false; reason: string } {
   const blocked = changeGate(input);
   if (blocked) return { ok: false, reason: blocked };
@@ -246,46 +246,16 @@ export function reviewTaskLines(
   return { ok: true, titles };
 }
 
-export type ChecklistState = 'done' | 'progress' | 'todo' | 'blocked';
+export type MilestoneTaskState = 'done' | 'progress' | 'todo' | 'blocked';
 
 export function isBlockedTask(task: { status: string; isDone: boolean }): boolean {
   return !task.isDone && /^blocked$/i.test(task.status.trim());
 }
 
-export function checklistState(task: { status: string; isDone: boolean }): ChecklistState {
+export function milestoneTaskState(task: { status: string; isDone: boolean }): MilestoneTaskState {
   if (task.isDone) return 'done';
   if (isBlockedTask(task)) return 'blocked';
   return isToDoTask(task) ? 'todo' : 'progress';
-}
-
-/** Status text for a row, with the commit, runner or blocked reason when known. Staff only pass the extras. */
-export function checklistDetailText(task: {
-  status: string;
-  isDone: boolean;
-  commit?: string | null;
-  runner?: string | null;
-  blockedReason?: string | null;
-}): string {
-  const text = checklistStatusText(task);
-  const state = checklistState(task);
-  if (state === 'done' && task.commit) return `${text} · ${task.commit}`;
-  if (state === 'progress' && task.runner) return `${text} · ${task.runner}`;
-  if (state === 'blocked' && task.blockedReason) return `${text} · ${task.blockedReason}`;
-  return text;
-}
-
-export function checklistStatusText(task: { status: string; isDone: boolean }): string {
-  const state = checklistState(task);
-  if (state === 'done') return 'Done';
-  if (state === 'todo') return 'To do';
-  return /in[\s_-]*progress/i.test(task.status) ? 'In progress' : task.status.trim() || 'In progress';
-}
-
-export function checklistSummary(tasks: readonly { status: string; isDone: boolean }[]): string {
-  const done = tasks.filter((task) => checklistState(task) === 'done').length;
-  const progress = tasks.filter((task) => checklistState(task) === 'progress').length;
-  const blocked = tasks.filter((task) => checklistState(task) === 'blocked').length;
-  return `${done} done · ${progress} in progress${blocked > 0 ? ` · ${blocked} blocked` : ''}`;
 }
 
 export type MilestoneGroupId = 'review' | 'progress' | 'shipped';
