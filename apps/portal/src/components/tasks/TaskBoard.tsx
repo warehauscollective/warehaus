@@ -49,7 +49,32 @@ type MoveRequest = {
   mode: BoardMode;
   value: string;
   pullRequestLink?: string;
+  /** The answer to the board's ask. The milestone board saves it as the next action. */
+  answer?: string;
 };
+
+/** Copy for a NeedsDialog that asks one question other than the pull request link. */
+export type NeedsCopy = {
+  title: string;
+  body: (taskName: string) => string;
+  label: string;
+  placeholder: string;
+  /** Shown when the answer is empty. */
+  required: string;
+  submit: string;
+  maxLength?: number;
+};
+
+/** A status column that asks one question before a card lands in it. The milestone board asks on Blocked. */
+export type BoardAsk = { status: string; copy: NeedsCopy };
+
+/** The ask a move to `value` raises, or null. Status columns only. */
+export function boardAskFor(ask: BoardAsk | undefined, mode: BoardMode, value: string): BoardAsk | null {
+  return ask && mode === 'status' && ask.status === value ? ask : null;
+}
+
+/** Phone columns on a framed board: fixed width, side by side, scrolled sideways. */
+export const PHONE_LANE_WIDTH = 220;
 
 const GROUP_KEY = 'wh-task-board-group';
 
@@ -94,7 +119,8 @@ export function stageSavedFeedback(input: {
 
 /** Equal tracks. Emptying a column does not change the template, so the row does not jump. */
 export function boardColumnTemplate(count: number, phone: boolean, framed = false): string {
-  if (phone) return 'minmax(0, 1fr)';
+  // The milestone board keeps every lane on a phone and scrolls sideways. Other boards show one lane per tab.
+  if (phone) return framed ? `repeat(${Math.max(count, 1)}, ${PHONE_LANE_WIDTH}px)` : 'minmax(0, 1fr)';
   // 12rem is the milestone frame, so five lanes fit that board. Other boards keep 12.75rem.
   const track = framed ? '12rem' : '12.75rem';
   return `repeat(${Math.max(count, 1)}, minmax(${track}, 1fr))`;
@@ -212,6 +238,7 @@ export function TaskBoard({
   readOnly = false,
   keepOrder = false,
   reorder,
+  ask,
 }: {
   tasks: PortalTask[];
   staff: boolean;
@@ -239,13 +266,17 @@ export function TaskBoard({
   keepOrder?: boolean;
   /** The status column staff reorder by drag. Status mode only, and never on a phone. */
   reorder?: BoardReorder;
+  /** A status column that asks one question before a card lands in it. The answer rides on the move. */
+  ask?: BoardAsk;
 }) {
   const boardRef = useRef<HTMLDivElement>(null);
   const [slot, setSlot] = useState<number | null>(null);
   const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
   const [mode, setMode] = useState<BoardMode>('status');
   const [phone, setPhone] = useState(false);
-  const framedSurface = framed && !phone;
+  const framedSurface = framed;
+  /** A framed board keeps every lane on a phone. Other boards show one lane per tab. */
+  const phoneTabs = phone && !framed;
   const [overrides, setOverrides] = useState<Record<string, { mode: BoardMode; value: string; pending?: boolean }>>({});
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ message: string; retry?: () => void; undo?: () => void } | null>(null);
@@ -257,6 +288,7 @@ export function TaskBoard({
   const [tab, setTab] = useState<string | null>(null);
   const [moveTask, setMoveTask] = useState<PortalTask | null>(null);
   const [needs, setNeeds] = useState<{ task: PortalTask; value: string; rule: MoveRule } | null>(null);
+  const [asking, setAsking] = useState<{ task: PortalTask; value: string; copy: NeedsCopy } | null>(null);
   const [quick, setQuick] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -295,7 +327,7 @@ export function TaskBoard({
   }, [viewTasks, mode, staff, statuses, keepOrder, reorder, pendingOrder]);
   const canChange = boardCanChange({ staff, actor: rules?.actor, readOnly });
   const activeTab = tab && columns.some((column) => column.key === tab) ? tab : columns[0]?.key ?? null;
-  const shown = phone ? columns.filter((column) => column.key === activeTab) : columns;
+  const shown = phoneTabs ? columns.filter((column) => column.key === activeTab) : columns;
   const canDrag = canChange && !phone;
   const reorderStatus = mode === 'status' && reorder ? reorder.status : null;
   const canReorder = canDrag && reorderStatus != null && reorder != null && !reorder.locked;
@@ -318,7 +350,7 @@ export function TaskBoard({
     setToast({ message: reason });
   };
 
-  const commit = async (task: PortalTask, value: string, pullRequestLink?: string) => {
+  const commit = async (task: PortalTask, value: string, pullRequestLink?: string, answer?: string) => {
     const previous = mode === 'stage' ? task.stage ?? '' : task.status;
     if (previous === value) return;
     setOverrides((current) => ({ ...current, [task.id]: { mode, value } }));
@@ -328,7 +360,7 @@ export function TaskBoard({
       return next;
     });
     setLive(`Moved ${task.name} to ${value}. Saving.`);
-    const result = await onMove({ task, mode, value, pullRequestLink });
+    const result = await onMove({ task, mode, value, pullRequestLink, ...(answer !== undefined ? { answer } : {}) });
     const clearOverride = () => {
       setOverrides((current) => {
         const next = { ...current };
@@ -348,7 +380,7 @@ export function TaskBoard({
       setFailed((current) => ({ ...current, [task.id]: result.error ?? 'Couldn’t save. Moved back.' }));
       setToast({
         message: result.error ?? 'Couldn’t save. Moved back.',
-        retry: () => void commit(task, value, pullRequestLink),
+        retry: () => void commit(task, value, pullRequestLink, answer),
       });
       setLive(`${task.name} moved back. ${result.error ?? 'Couldn’t save.'}`);
       return;
@@ -368,6 +400,13 @@ export function TaskBoard({
     });
     setToast({ message: saved.message, undo: saved.undo });
     setLive(`${saved.message}.`);
+  };
+
+  /** A move the rules allow. A column with an ask opens its dialog first, and the answer saves with the move. */
+  const move = (task: PortalTask, value: string) => {
+    const question = boardAskFor(ask, mode, value);
+    if (question) setAsking({ task, value, copy: question.copy });
+    else void commit(task, value);
   };
 
   const commitOrder = async (task: PortalTask, ids: string[]) => {
@@ -440,7 +479,7 @@ export function TaskBoard({
       setNeeds({ task, value, rule: decision.rule });
       return;
     }
-    void commit(viewed, decision.value);
+    move(viewed, decision.value);
   };
 
   const onDragOver = (event: DragOverEvent) => {
@@ -454,7 +493,7 @@ export function TaskBoard({
         {hideGroupToggle ? null : <GroupToggle mode={mode} onChange={chooseMode} />}
         <p className="sr-only" aria-live="polite">{live}</p>
       </div>
-      {phone ? (
+      {phoneTabs ? (
         <PhoneColumnTabs
           label={mode === 'stage' ? 'Stages' : 'Statuses'}
           columns={columns}
@@ -549,7 +588,7 @@ export function TaskBoard({
                   return;
                 }
                 if (decision.kind === 'needs') setNeeds({ task, value: next.key, rule: decision.rule });
-                else void commit(task, decision.value);
+                else move(task, decision.value);
               }}
             />
             );
@@ -575,6 +614,7 @@ export function TaskBoard({
       {moveTask ? (
         <MoveSheet
           task={moveTask}
+          showName={framed}
           columns={columns.filter((column) => !column.key.startsWith('unknown'))}
           current={dropFrom(moveTask)}
           decisionFor={(value) => decide(moveTask, value)}
@@ -583,7 +623,7 @@ export function TaskBoard({
             const decision = decide(moveTask, value);
             setMoveTask(null);
             if (decision.kind === 'needs') setNeeds({ task: moveTask, value, rule: decision.rule });
-            else if (decision.kind === 'move') void commit(moveTask, decision.value);
+            else if (decision.kind === 'move') move(moveTask, decision.value);
             else if (decision.kind === 'reject') rejectMove(decision.reason);
           }}
         />
@@ -600,6 +640,22 @@ export function TaskBoard({
             const pending = needs;
             setNeeds(null);
             void commit(pending.task, pending.value, pullRequestLink);
+          }}
+        />
+      ) : null}
+      {asking ? (
+        <NeedsDialog
+          taskName={asking.task.name}
+          copy={asking.copy}
+          initialValue={asking.task.nextAction ?? ''}
+          onCancel={() => {
+            setAsking(null);
+            setLive('Move cancelled.');
+          }}
+          onSave={(answer) => {
+            const pending = asking;
+            setAsking(null);
+            void commit(pending.task, pending.value, undefined, answer);
           }}
         />
       ) : null}
@@ -1120,6 +1176,12 @@ function BoardCard({
 }) {
   const { attributes, listeners, setNodeRef } = useDraggable({ id: task.id, disabled: !canDrag });
   const timer = useRef<number | null>(null);
+  /** True once a press and hold opened the move sheet, so the release does not also open the task. */
+  const held = useRef(false);
+  const endPress = () => {
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = null;
+  };
   const press = useRef<{ x: number; y: number } | null>(null);
   const origin = useRef<{ top: number; left: number; width: number; height: number } | null>(null);
   const onKeyDown = (event: KeyboardEvent) => {
@@ -1142,12 +1204,18 @@ function BoardCard({
     origin.current = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
     onLiftSize(rect.height);
     press.current = { x: event.clientX, y: event.clientY };
+    held.current = false;
+    endPress();
     cardDragPointerDown(
       event,
       canDrag ? (pointer) => listeners?.onPointerDown?.(pointer) : undefined,
       canMoveSheet
         ? () => {
-            timer.current = window.setTimeout(() => onMoveSheet(), 400);
+            timer.current = window.setTimeout(() => {
+              timer.current = null;
+              held.current = true;
+              onMoveSheet();
+            }, LONG_PRESS_MS);
           }
         : undefined,
     );
@@ -1155,6 +1223,11 @@ function BoardCard({
   const onClick = (event: MouseEvent<HTMLButtonElement>) => {
     const start = press.current;
     press.current = null;
+    if (held.current) {
+      held.current = false;
+      event.preventDefault();
+      return;
+    }
     if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) {
       event.preventDefault();
       return;
@@ -1180,12 +1253,15 @@ function BoardCard({
         onClick={onClick}
         onKeyDown={onKeyDown}
         onPointerDown={onPointerDown}
-        onPointerUp={() => {
-          if (timer.current) window.clearTimeout(timer.current);
+        onPointerUp={endPress}
+        onPointerLeave={endPress}
+        // A sideways swipe scrolls the lanes. The browser cancels the pointer, and the hold ends with it.
+        onPointerCancel={endPress}
+        onPointerMove={(event) => {
+          const start = press.current;
+          if (timer.current && start && pressMoved(start, { x: event.clientX, y: event.clientY })) endPress();
         }}
-        onPointerLeave={() => {
-          if (timer.current) window.clearTimeout(timer.current);
-        }}
+        onContextMenu={canMoveSheet ? (event) => event.preventDefault() : undefined}
         className="w-full text-left"
         style={collapsed ? collapsedSourceStyle(origin.current) : {
           background: 'transparent',
@@ -1193,7 +1269,9 @@ function BoardCard({
           padding: 0,
           cursor: canDrag ? 'grab' : 'pointer',
           touchAction: canDrag ? 'none' : undefined,
-          userSelect: canDrag ? 'none' : undefined,
+          userSelect: canDrag || canMoveSheet ? 'none' : undefined,
+          WebkitUserSelect: canMoveSheet ? 'none' : undefined,
+          WebkitTouchCallout: canMoveSheet ? 'none' : undefined,
         }}
       >
         <TaskCardFace task={task} mode={mode} allTasks={allTasks} staff={staff} />
@@ -1206,6 +1284,14 @@ function BoardCard({
       ) : null}
     </article>
   );
+}
+
+/** How long a press is held before the move sheet opens. */
+export const LONG_PRESS_MS = 400;
+
+/** A finger that travels this far is scrolling, not holding. */
+export function pressMoved(start: { x: number; y: number }, now: { x: number; y: number }): boolean {
+  return Math.hypot(now.x - start.x, now.y - start.y) > 8;
 }
 
 function initials(name: string): string {
@@ -1306,6 +1392,11 @@ export function TaskCardFace({
         ) : null}
         {staff && task.syncNotice ? <SyncChip audience="staff" syncNotice={task.syncNotice} /> : null}
       </div>
+      {staff && mode === 'status' && task.status === 'Blocked' && task.nextAction ? (
+        <p data-testid="card-waiting-on" style={{ minWidth: 0, fontSize: 12, lineHeight: '18px', color: 'var(--danger-text)', overflowWrap: 'anywhere' }}>
+          {task.nextAction}
+        </p>
+      ) : null}
       <p className="ds-mono flex flex-wrap items-center gap-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
         <span className="inline-flex items-center gap-1">
           <TaskGlyph src="/icons/task-calendar.svg" />
@@ -1374,8 +1465,11 @@ export function MoveSheet({
   decisionFor,
   onClose,
   onPick,
+  showName = false,
 }: {
   task: PortalTask;
+  /** The task's name above the rows. The milestone board shows it. Other boards read it to screen readers only. */
+  showName?: boolean;
   columns: Array<{ key: string; label: string }>;
   current: string;
   decisionFor: (value: string) => BoardDropDecision;
@@ -1384,7 +1478,13 @@ export function MoveSheet({
 }) {
   return (
     <Sheet title="Move to" onClose={onClose}>
-      <p className="sr-only">{task.name}</p>
+      <p
+        className={showName ? undefined : 'sr-only'}
+        data-testid="move-sheet-task"
+        style={showName ? { margin: '0 0 12px', fontSize: 14, lineHeight: '21px', color: 'var(--muted)', overflowWrap: 'anywhere' } : undefined}
+      >
+        {task.name}
+      </p>
       <ul className="flex flex-col gap-2">
         {columns.map((column) => {
           const decision = decisionFor(column.key);
@@ -1418,9 +1518,13 @@ export function NeedsDialog({
   initialValue = '',
   initialNote = '',
   initialError = null,
+  copy,
 }: {
   taskName: string;
-  rule: Extract<MoveRule, { kind: 'needs' }>;
+  /** The pull request rule. Absent when `copy` asks its own question. */
+  rule?: Extract<MoveRule, { kind: 'needs' }>;
+  /** Asks one question in place of the pull request link, with no note for the client. */
+  copy?: NeedsCopy;
   onCancel: () => void;
   onSave: (value: string) => void;
   /** Fixture captures only. Live moves start empty. */
@@ -1431,39 +1535,41 @@ export function NeedsDialog({
   const [value, setValue] = useState(initialValue);
   const [clientNote, setClientNote] = useState(initialNote);
   const [error, setError] = useState<string | null>(initialError);
-  const field = rule.fields[0];
+  const field = rule?.fields[0];
+  const title = copy?.title ?? 'Move to Ready to Ship';
   return (
-    <Modal title="Move to Ready to Ship" onClose={onCancel} labelledBy="needs-title">
+    <Modal title={title} onClose={onCancel} labelledBy="needs-title">
       <form
         className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
           if (!value.trim()) {
-            setError('Pull request link is required.');
+            setError(copy?.required ?? 'Pull request link is required.');
             return;
           }
           onSave(value.trim());
         }}
       >
         <p style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)', margin: 0 }}>
-          “{taskName}” needs a linked pull request before it can be Ready to Ship. Add it now to move it.
+          {copy ? copy.body(taskName) : `“${taskName}” needs a linked pull request before it can be Ready to Ship. Add it now to move it.`}
         </p>
         <label htmlFor="pr-link" className="flex flex-col gap-2" style={{ fontSize: 14 }}>
-          <span>{field?.label ?? 'Pull request link'} <span aria-hidden style={{ color: 'var(--danger-text)' }}>*</span></span>
+          <span>{copy?.label ?? field?.label ?? 'Pull request link'} <span aria-hidden style={{ color: 'var(--danger-text)' }}>*</span></span>
           <span className="needs-field flex items-center gap-2" style={{ border: error ? '2px solid var(--danger)' : '2px solid var(--accent)', borderRadius: 18, background: 'var(--surface-2, var(--bg))', padding: '0.7rem 0.85rem' }}>
-            <span aria-hidden style={{ color: 'var(--muted)' }}>🔗</span>
+            {copy ? null : <span aria-hidden style={{ color: 'var(--muted)' }}>🔗</span>}
             <input
               id="pr-link"
               autoFocus
               required
               value={value}
-              placeholder={field?.placeholder ?? 'github.com/…/pull/123'}
+              maxLength={copy?.maxLength}
+              placeholder={copy?.placeholder ?? field?.placeholder ?? 'github.com/…/pull/123'}
               onChange={(event) => setValue(event.target.value)}
               style={{ flex: 1, border: 0, background: 'transparent', color: 'var(--fg)', outline: 'none' }}
             />
           </span>
         </label>
-        <label htmlFor="client-note" className="flex flex-col gap-2" style={{ fontSize: 14 }}>
+        {copy ? null : <label htmlFor="client-note" className="flex flex-col gap-2" style={{ fontSize: 14 }}>
           Note for the client
           <span className="needs-field block" style={{ borderRadius: 18 }}>
             <textarea
@@ -1474,11 +1580,11 @@ export function NeedsDialog({
               style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 18, background: 'var(--surface-2, var(--bg))', color: 'var(--fg)', padding: '0.7rem 0.85rem', outline: 'none' }}
             />
           </span>
-        </label>
+        </label>}
         {error ? <p style={{ color: 'var(--danger-text)', fontSize: 14, margin: 0 }}>{error}</p> : null}
         <div className="flex justify-end gap-2">
           <OutlineButton onClick={onCancel}>Cancel</OutlineButton>
-          <PrimaryButton type="submit">Move to Ready to Ship</PrimaryButton>
+          <PrimaryButton type="submit">{copy?.submit ?? 'Move to Ready to Ship'}</PrimaryButton>
         </div>
       </form>
     </Modal>

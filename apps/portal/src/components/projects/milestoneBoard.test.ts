@@ -5,10 +5,15 @@ import { describe, it } from 'node:test';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import type { PortalTask } from '@/lib/data/view-models';
 import {
+  BLOCKED_ASK,
   BOARD_BUILDING,
   BOARD_FOOTER,
+  BOARD_FOOTER_PHONE,
   BOARD_INTRO,
   BOARD_SHIPPED,
+  WAITING_STATUS,
+  boardFooter,
+  boardSummary,
   MILESTONE_BOARD_STATUSES,
   ORDER_LOCKED,
   milestoneBoardCards,
@@ -20,9 +25,22 @@ import {
 
 Object.assign(globalThis, { React });
 const { MilestoneTaskBoard } = await import('./MilestoneTaskBoard');
-const { applyPendingOrder, boardCanChange, columnsInGivenOrder, givenOrderSlot, movedOrder, pickStatusColumns, reorderSlot } = await import(
-  '@/components/tasks/TaskBoard'
-);
+const {
+  MoveSheet,
+  NeedsDialog,
+  TaskCardFace,
+  applyPendingOrder,
+  boardAskFor,
+  boardCanChange,
+  boardColumnTemplate,
+  columnsInGivenOrder,
+  givenOrderSlot,
+  movedOrder,
+  pickStatusColumns,
+  pressMoved,
+  reorderSlot,
+  stageSavedFeedback,
+} = await import('@/components/tasks/TaskBoard');
 
 const project = { id: 'p-portal', name: 'Warehaus Portal' };
 
@@ -367,5 +385,127 @@ describe('opening a milestone card', () => {
 
   it('opens nothing for an id no row has', () => {
     assert.equal(open('missing'), null);
+  });
+});
+
+describe('moving a card to Blocked', () => {
+  const ask = { status: WAITING_STATUS, copy: BLOCKED_ASK };
+
+  it('asks only on a move to Blocked, and only on status columns', () => {
+    assert.equal(boardAskFor(ask, 'status', 'Blocked'), ask);
+    assert.equal(boardAskFor(ask, 'status', 'Done'), null);
+    assert.equal(boardAskFor(ask, 'status', 'To Do'), null);
+    assert.equal(boardAskFor(ask, 'stage', 'Blocked'), null);
+    assert.equal(boardAskFor(undefined, 'status', 'Blocked'), null);
+  });
+
+  it('asks what the task is waiting on, with no pull request field and no client note', () => {
+    const html = renderToStaticMarkup(
+      createElement(NeedsDialog, { taskName: 'Task a', copy: BLOCKED_ASK, onCancel: () => undefined, onSave: () => undefined }),
+    );
+    assert.match(html, /Move to Blocked/);
+    assert.match(html, /What is “Task a” waiting on\? It is saved as the task’s next action\./);
+    assert.match(html, /Waiting on/);
+    assert.equal(html.includes('Pull request'), false);
+    assert.equal(html.includes('Ready to Ship'), false);
+    assert.equal(html.includes('Note for the client'), false);
+  });
+
+  it('says what is missing when the answer is empty', () => {
+    const html = renderToStaticMarkup(
+      createElement(NeedsDialog, {
+        taskName: 'Task a',
+        copy: BLOCKED_ASK,
+        initialError: BLOCKED_ASK.required,
+        onCancel: () => undefined,
+        onSave: () => undefined,
+      }),
+    );
+    assert.match(html, /Say what it is waiting on\./);
+  });
+
+  it('keeps the pull request copy on a dialog that passes no copy', () => {
+    const rule = { kind: 'needs' as const, reason: '', fields: [{ key: 'pullRequestLink' as const, label: 'Pull request link', placeholder: 'github.com/…/pull/123' }] };
+    const html = renderToStaticMarkup(
+      createElement(NeedsDialog, { taskName: 'Homepage', rule, onCancel: () => undefined, onSave: () => undefined }),
+    );
+    assert.match(html, /Move to Ready to Ship/);
+    assert.match(html, /Note for the client/);
+  });
+
+  it('carries the next action onto the card, and shows it to staff on a Blocked card only', () => {
+    const cards = milestoneBoardCards(
+      [row('c', 'Blocked', { nextAction: 'Photography from the client' }), row('a', 'To Do', { nextAction: 'Write the brief' })],
+      [],
+      project,
+    );
+    assert.equal(cards[0]?.nextAction, 'Photography from the client');
+    const face = (index: number, staff: boolean) => renderToStaticMarkup(createElement(TaskCardFace, { task: cards[index], staff }));
+    assert.match(face(0, true), /card-waiting-on/);
+    assert.match(face(0, true), /Photography from the client/);
+    assert.equal(face(0, false).includes('Photography from the client'), false);
+    assert.equal(face(1, true).includes('Write the brief'), false);
+  });
+});
+
+describe('leaving Done', () => {
+  it('toasts the move with Undo, and Undo sends the card back to Done', () => {
+    const [card] = milestoneBoardCards([row('d', 'Done')], [], project);
+    const undone: { status: string; value: string }[] = [];
+    const saved = stageSavedFeedback({
+      task: card!,
+      mode: 'status',
+      value: 'In Progress',
+      previous: 'Done',
+      onUndo: (request) => undone.push({ status: request.task.status, value: request.value }),
+    });
+    assert.equal(saved.message, 'Moved “Task d” to In Progress');
+    saved.undo();
+    assert.deepEqual(undone, [{ status: 'In Progress', value: 'Done' }]);
+  });
+});
+
+describe('the board at 390', () => {
+  it('keeps every column, 220 wide, side by side', () => {
+    assert.equal(boardColumnTemplate(4, true, true), 'repeat(4, 220px)');
+    assert.equal(boardColumnTemplate(4, true), 'minmax(0, 1fr)');
+  });
+
+  it('names press and hold in the footer, and keeps the Building and Shipped lines', () => {
+    assert.equal(boardFooter({ status: 'Planning', phone: true }), BOARD_FOOTER_PHONE);
+    assert.equal(BOARD_FOOTER_PHONE, 'To Do runs top first. Press and hold a card to move it.');
+    assert.equal(boardFooter({ status: 'Planning', phone: false }), BOARD_FOOTER);
+    assert.equal(boardFooter({ status: 'Building', phone: true }), BOARD_BUILDING);
+    assert.equal(boardFooter({ status: 'Shipped', phone: true }), BOARD_SHIPPED);
+  });
+
+  it('counts top-level tasks and the done ones for the context card', () => {
+    assert.equal(boardSummary(rows), '5 tasks · 1 complete');
+    assert.equal(boardSummary([{ isDone: false }]), '1 task · 0 complete');
+  });
+
+  it('ends a hold once the finger travels, so a swipe scrolls the columns', () => {
+    assert.equal(pressMoved({ x: 10, y: 10 }, { x: 14, y: 12 }), false);
+    assert.equal(pressMoved({ x: 10, y: 10 }, { x: 30, y: 10 }), true);
+  });
+
+  it('lists the four columns in the move sheet, marks the current one and names the task', () => {
+    const [card] = milestoneBoardCards([row('a', 'To Do')], [], project);
+    const html = renderToStaticMarkup(
+      createElement(MoveSheet, {
+        task: card!,
+        showName: true,
+        columns: MILESTONE_BOARD_STATUSES.map((status) => ({ key: status, label: status })),
+        current: 'To Do',
+        decisionFor: (value: string) => (value === 'To Do' ? { kind: 'ignore' as const } : { kind: 'move' as const, value }),
+        onClose: () => undefined,
+        onPick: () => undefined,
+      }),
+    );
+    assert.match(html, /Move to/);
+    assert.match(html, /To Do · Current/);
+    for (const status of ['In Progress', 'Blocked', 'Done']) assert.match(html, new RegExp(`>${status}<`));
+    assert.equal(/data-testid="move-sheet-task"[^>]*class="sr-only"/.test(html) || /class="sr-only"[^>]*data-testid="move-sheet-task"/.test(html), false);
+    assert.match(html, /Task a/);
   });
 });

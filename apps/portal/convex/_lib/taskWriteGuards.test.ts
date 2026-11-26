@@ -254,6 +254,44 @@ describe('move authorization', () => {
     assert.deepEqual(t.scheduled, []);
   });
 
+  it('saves a move to Blocked and what it is waiting on as one task change', async () => {
+    const { t, taskId } = moveWorld();
+    await withWriteback(undefined, async () => {
+      const options = { as: 'staff' as const, respond: chain(t) };
+      const moved = await t.call<Result>(
+        moveStatus,
+        { taskId, status: 'Blocked', expectedLastEditedTime: EDITED, nextAction: '  Photography from the client ' },
+        options,
+      );
+      assert.equal(moved.ok, true);
+      assert.equal(t.row(taskId)?.status, 'Blocked');
+      assert.equal(t.row(taskId)?.nextAction, 'Photography from the client');
+      const stamps = t.row(taskId)?.fieldStamps as Record<string, { updatedAt: number }>;
+      assert.equal(stamps.status?.updatedAt, stamps.nextAction?.updatedAt, 'one write stamps both fields');
+
+      // Undo and every other move send no next action, and leave it alone.
+      const back = await t.call<Result>(moveStatus, { taskId, status: 'To Do', expectedLastEditedTime: EDITED }, options);
+      assert.equal(back.ok, true);
+      assert.equal(t.row(taskId)?.status, 'To Do');
+      assert.equal(t.row(taskId)?.nextAction, 'Photography from the client');
+    });
+  });
+
+  it('refuses the whole move when the next action is too long', async () => {
+    const { t, taskId } = moveWorld();
+    await withWriteback(undefined, async () => {
+      const result = await t.call<Result>(
+        moveStatus,
+        { taskId, status: 'Blocked', expectedLastEditedTime: EDITED, nextAction: 'x'.repeat(501) },
+        { as: 'staff' as const, respond: chain(t) },
+      );
+      assert.equal(result.ok, false);
+      assert.equal(result.error, 'Next action is too long');
+    });
+    assert.equal(t.row(taskId)?.status, 'To Do');
+    assert.equal(t.row(taskId)?.nextAction, undefined);
+  });
+
   it('refuses a staff move against a stale last edit time and writes nothing', async () => {
     const { t, taskId } = moveWorld();
     await withWriteback('true', async () => {

@@ -4,23 +4,29 @@ import { useMemo, useState } from 'react';
 import type { Id } from '@convex/_generated/dataModel';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
 import { addTaskDecision, runOrderLocked } from '@convex/_lib/milestoneTasks';
+import { NEXT_ACTION_MAX } from '@warehaus/portal-sync';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { ArchivedChip } from '@/components/closeout/CloseoutControls';
 import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
-import { TaskBoard, type BoardReorder, type BoardRules } from '@/components/tasks/TaskBoard';
+import { TaskBoard, type BoardAsk, type BoardReorder, type BoardRules } from '@/components/tasks/TaskBoard';
+import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import type { PortalTask } from '@/lib/data/view-models';
 import { ArchivedTaskRow, type ArchivedTask } from './ArchivedView';
 import type { ChecklistActions } from './MilestoneChecklist';
 import { Panel } from './milestoneChrome';
 import {
-  BOARD_BUILDING,
-  BOARD_FOOTER,
+  BLOCKED_ASK,
+  BOARD_CLIENT_PHONE,
   BOARD_INTRO,
+  BOARD_INTRO_PHONE,
   BOARD_SAVE_ERROR,
-  BOARD_SHIPPED,
+  BOARD_SWIPE,
   MILESTONE_BOARD_STATUSES,
   ORDER_LOCKED,
   RUN_ORDER_STATUS,
+  WAITING_STATUS,
+  boardFooter,
+  boardSummary,
   milestoneBoardCards,
   milestoneBoardReadOnly,
   runOrderAfterReorder,
@@ -33,18 +39,24 @@ export type MoveTaskStatus = (args: {
   taskId: Id<'tasks'>;
   status: string;
   expectedLastEditedTime: string;
+  /** What the task is waiting on. Sent with a move to Blocked, so the move is one task change. */
+  nextAction?: string;
 }) => Promise<{ ok: boolean; error?: string; notion?: 'queued' | 'portal' | 'off' }>;
 
 const STAFF_RULES: BoardRules = { actor: 'staff', statuses: [], stages: [] };
 const CLIENT_RULES: BoardRules = { actor: 'client', statuses: [], stages: [] };
 const ADD_TO: readonly string[] = ['To Do'];
+const ASK_ON_BLOCKED: BoardAsk = { status: WAITING_STATUS, copy: { ...BLOCKED_ASK, maxLength: NEXT_ACTION_MAX } };
 
 /**
  * The milestone's tasks as a board: To Do, In Progress, Blocked, Done. Staff
  * move a card to change its status and add a task under To Do. Every column is
  * in milestone order, and To Do is the run order, top first: staff drag within
- * it to reorder, except while the milestone is Building. Clients, and everyone
- * on a Shipped milestone, get the same board read-only.
+ * it to reorder, except while the milestone is Building. A move to Blocked
+ * asks what the task is waiting on and saves the answer as its next action.
+ * Any move shows a toast with Undo, so a card that left Done can go back. On a
+ * phone the columns scroll sideways and press and hold opens the move sheet.
+ * Clients, and everyone on a Shipped milestone, get the same board read-only.
  */
 export function MilestoneTaskBoard({
   milestone,
@@ -78,7 +90,8 @@ export function MilestoneTaskBoard({
   // Fixture previews have no Convex. Added tasks and a new order stay in this component.
   const [localRows, setLocalRows] = useState<MilestoneRoadmapView['rows']>([]);
   const [localOrder, setLocalOrder] = useState<string[] | null>(null);
-  const shipped = milestone.status === 'Shipped';
+  // The same width TaskBoard treats as a phone.
+  const phone = useMaxWidth(767);
   const orderLocked = runOrderLocked(milestone.status);
   const readOnly = milestoneBoardReadOnly({ staff, status: milestone.status }) || !(fixtures || moveStatus != null);
   const canAdd = !readOnly && (fixtures || actions != null);
@@ -120,7 +133,14 @@ export function MilestoneTaskBoard({
 
   return (
     <div className="flex min-w-0 flex-col gap-4" data-testid="milestone-task-board">
-      {staff ? (
+      {phone ? (
+        <Panel testId="milestone-board-context">
+          <p style={{ margin: 0, fontSize: 16, lineHeight: '24px', fontWeight: 500, color: 'var(--fg)' }}>{boardSummary(rows)}</p>
+          <p style={{ margin: '4px 0 0', fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
+            {staff ? BOARD_INTRO_PHONE : BOARD_CLIENT_PHONE}
+          </p>
+        </Panel>
+      ) : staff ? (
         <Panel>
           <p data-testid="milestone-board-intro" style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--muted)' }}>
             {BOARD_INTRO}
@@ -140,6 +160,12 @@ export function MilestoneTaskBoard({
           </ul>
         </Panel>
       ) : (
+        <>
+        {phone ? (
+          <p className="ds-mono" data-testid="milestone-board-swipe" style={{ margin: 0, fontSize: 10, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--muted)' }}>
+            {BOARD_SWIPE}
+          </p>
+        ) : null}
         <TaskBoard
           tasks={cards}
           staff={staff}
@@ -150,11 +176,12 @@ export function MilestoneTaskBoard({
           readOnly={readOnly}
           keepOrder
           reorder={reorder}
+          ask={ASK_ON_BLOCKED}
           showQuickAdd={canAdd}
           hideGroupToggle
           framed
           onOpen={(task) => onOpenTask?.(task.id)}
-          onMove={async ({ task, value }) => {
+          onMove={async ({ task, value, answer }) => {
             if (fixtures) return { ok: true };
             if (!moveStatus) return { ok: false, error: BOARD_SAVE_ERROR };
             try {
@@ -163,6 +190,7 @@ export function MilestoneTaskBoard({
                 taskId: task.id as Id<'tasks'>,
                 status: value,
                 expectedLastEditedTime: task.lastEditedTime ?? '',
+                ...(answer !== undefined ? { nextAction: answer } : {}),
               });
             } catch (err) {
               return { ok: false, error: userFacingErrorMessage(err, BOARD_SAVE_ERROR) };
@@ -198,10 +226,11 @@ export function MilestoneTaskBoard({
             }
           }}
         />
+        </>
       )}
       {staff && !archivedView ? (
         <p data-testid="milestone-board-footer" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
-          {shipped ? BOARD_SHIPPED : orderLocked ? BOARD_BUILDING : BOARD_FOOTER}
+          {boardFooter({ status: milestone.status, phone })}
         </p>
       ) : null}
     </div>

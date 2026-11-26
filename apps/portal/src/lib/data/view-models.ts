@@ -89,6 +89,8 @@ export type PortalTask = {
   syncNotice?: string | null;
   /** Staff only. True while a saved stage move is still waiting on Notion. */
   stagePending?: boolean;
+  /** Staff only, milestone board only. On a Blocked task it is what the task is waiting on. */
+  nextAction?: string | null;
 };
 
 export type PortalActivity = {

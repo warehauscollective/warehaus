@@ -1,5 +1,5 @@
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
-import { checklistState, RUN_ORDER_LOCKED } from '@convex/_lib/milestoneTasks';
+import { checklistState, RUN_ORDER_LOCKED, runOrderLocked } from '@convex/_lib/milestoneTasks';
 import type { PortalTask } from '@/lib/data/view-models';
 
 /** The milestone board's columns, left to right. No Inbox lane and no Stage mode. */
@@ -14,6 +14,22 @@ export const BOARD_BUILDING = `${RUN_ORDER_LOCKED} Cards can still move between 
 export const ORDER_LOCKED = 'Order locked';
 /** The column whose order is the run order. */
 export const RUN_ORDER_STATUS: MilestoneBoardStatus = 'To Do';
+/** 390 copy. The context card stands in for the intro panel, and the footer names press and hold. */
+export const BOARD_INTRO_PHONE = 'From the brief, review feedback, or a manual add.';
+export const BOARD_CLIENT_PHONE = 'Open a task to see its details.';
+export const BOARD_FOOTER_PHONE = 'To Do runs top first. Press and hold a card to move it.';
+export const BOARD_SWIPE = 'Swipe to see statuses';
+/** The column that asks what the task is waiting on before a card lands in it. */
+export const WAITING_STATUS: MilestoneBoardStatus = 'Blocked';
+/** The Blocked prompt. The answer is saved as the task's next action, with the move. */
+export const BLOCKED_ASK = {
+  title: 'Move to Blocked',
+  body: (taskName: string) => `What is “${taskName}” waiting on? It is saved as the task’s next action.`,
+  label: 'Waiting on',
+  placeholder: 'Who or what it is waiting on',
+  required: 'Say what it is waiting on.',
+  submit: 'Move to Blocked',
+} as const;
 export const BOARD_SHIPPED = 'This milestone has shipped. Its task list is closed.';
 export const BOARD_SAVE_ERROR = 'Couldn’t save the task list. Nothing changed.';
 
@@ -33,6 +49,19 @@ export function milestoneBoardStatus(task: { status: string; isDone: boolean }):
 /** Clients never change the board. Nobody changes a Shipped milestone's board. */
 export function milestoneBoardReadOnly(input: { staff: boolean; status: string }): boolean {
   return !input.staff || input.status === 'Shipped';
+}
+
+/** The 390 context card's title: top-level tasks and how many are done. */
+export function boardSummary(rows: readonly { isDone: boolean }[]): string {
+  const done = rows.filter((row) => row.isDone).length;
+  return `${rows.length} ${rows.length === 1 ? 'task' : 'tasks'} · ${done} complete`;
+}
+
+/** The line under the board, staff only. A phone names press and hold in place of drag. */
+export function boardFooter(input: { status: Parameters<typeof runOrderLocked>[0]; phone: boolean }): string {
+  if (input.status === 'Shipped') return BOARD_SHIPPED;
+  if (runOrderLocked(input.status)) return BOARD_BUILDING;
+  return input.phone ? BOARD_FOOTER_PHONE : BOARD_FOOTER;
 }
 
 type BoardProject = { id: string; name: string; status?: string | null; endDate?: string | null };
@@ -63,6 +92,7 @@ export function milestoneBoardCards(
       stagePending: false,
       parentTaskId,
       resourceCount: row.resourceCount,
+      nextAction: row.nextAction ?? null,
       projectId: known?.projectId ?? project.id,
       projectName: known?.projectName ?? project.name,
       projectStatus: known?.projectStatus ?? project.status ?? null,

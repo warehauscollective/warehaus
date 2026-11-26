@@ -58,6 +58,7 @@ Everything else is an existing component: Chip / Filter (Archived), NewTaskButto
 ## Not drawn, and open for Peter
 
 - The Blocked prompt ("what is it waiting on") and the leaving-Done Undo toast are not drawn here. The existing NeedsDialog copy is about a pull request link, so the Blocked prompt needs its own copy before build. The Undo toast reuses PortalToast `kind=moved`.
+- Task 05 built the Blocked prompt with this copy, which no frame shows yet. Title and button: `Move to Blocked`. Body: `What is “<task>” waiting on? It is saved as the task’s next action.` Field: `Waiting on`, placeholder `Who or what it is waiting on`. Empty answer: `Say what it is waiting on.` It needs Peter's OK and a frame.
 - The page shell in these frames is the older one (Tasks title, Milestone overview button). Only the board and its copy changed.
 - `Milestone page · Tasks · row overflow menu` (`1037:31403`, `1037:31460`) still shows the old five-column board with Inbox. It was left alone. It should be redrawn or retired once this design is approved.
 - Whether a client should see run numbers, and whether Add task stays available while the milestone is Building, are both shown as yes. Say if either should be no.

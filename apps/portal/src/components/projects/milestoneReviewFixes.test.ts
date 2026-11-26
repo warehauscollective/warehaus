@@ -142,7 +142,9 @@ describe('milestone review fixes', () => {
   });
 
   it('limits the shared board surface to the milestone board', () => {
-    assert.match(board, /const framedSurface = framed && !phone/);
+    // The milestone board keeps the shared surface on a phone, where its lanes scroll sideways.
+    assert.match(board, /const framedSurface = framed;/);
+    assert.match(board, /const phoneTabs = phone && !framed;/);
     assert.match(board, /shared=\{framedSurface\}/);
     assert.match(board, /\{shared && fade \?/);
     // The board lives on the milestone Tasks tab. The projects page mounts none.

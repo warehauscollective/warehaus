@@ -303,6 +303,7 @@ async function roadmapTasks(
       runner: task.claimedBy ?? null,
       commit: task.lastCommitSha ?? null,
       blockedReason: task.blockedReason ?? null,
+      nextAction: task.nextAction ?? null,
     });
   }
   return rows;
