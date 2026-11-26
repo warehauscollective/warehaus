@@ -9,6 +9,7 @@ import { passwordRuleState } from '@convex/_lib/passwordRules';
 import { CANT_REGISTER_MESSAGE } from '@convex/_lib/registration';
 import { safeRedirectPath } from '@convex/_lib/safeRedirect';
 import { ButtonSpinner, GhostButton, PrimaryButton, Surface } from '@/components/ui/primitives';
+import { PasswordInput } from '@/components/ui/PasswordInput';
 import {
   CantRegisterMessage,
   CheckEmailPanel,
@@ -189,9 +190,8 @@ export function PortalLoginForm({
         </label>
         <label className="flex flex-col" style={{ gap: 'var(--s-2)' }}>
           <span style={{ fontSize: 'var(--t-sm)', fontWeight: 500 }}>Password</span>
-          <input
+          <PasswordInput
             className="ds-input"
-            type="password"
             autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
             value={password}
             onChange={(e) => setPassword(e.target.value)}
