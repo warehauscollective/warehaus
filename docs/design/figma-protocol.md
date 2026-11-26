@@ -131,7 +131,7 @@ Archived frames are left as they are.
 | Overlay frame | `<Tab> / <View> / <Overlay> - <width> <mode>` | `Projects / Project page / Runner status - 1440 Dark` |
 | Component | `<Tier>/<Name>` | `Atom/Button`, `Organism/Runner status chip` |
 
-- Page letters: D Dashboard, P Projects, R Resources, V Activity, A Account. Numbered from 01 on each page.
+- Page letters: O Onboarding, D Dashboard, P Projects, R Resources, V Activity, A Account. Numbered from 01 on each page.
 - While a section is being renumbered, its old ID goes in the section description for one milestone, then is dropped.
 - No em-dashes, no "v2", "final", "new", dates or "(proposal)" in names. Status lives in the section description or the Portal, not the name.
 - No hand-drawn label text that repeats a frame name. The frame name is the label.
