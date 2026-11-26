@@ -110,6 +110,7 @@ final class AppUpdaterTests: XCTestCase {
         XCTAssertEqual(swapper.launched, 1)
         XCTAssertEqual(swapper.finished, 1)
         XCTAssertEqual(swapper.rolledBack, 0)
+        XCTAssertEqual(workspace.discarded, 1, "the download folder goes once the new app is up")
     }
 
     func testRollsBackWhenTheNewAppFailsToStart() async {

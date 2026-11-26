@@ -188,6 +188,7 @@ public final class AppUpdater: ObservableObject {
             switch SwapOutcome.decide(checkedIn: swapper.checkedIn(swapper.checkInFlag), newAppRunning: swapper.isRunning(pid), waited: waited) {
             case .keepNew:
                 readyApp = nil
+                workspace.discard()
                 swapper.finish()
                 return
             case .rollBack:
@@ -271,6 +272,11 @@ public final class LiveUpdateWorkspace: UpdateWorkspace {
 
     public func download(_ release: AppRelease) async throws -> URL {
         discard()
+        // Leftovers from an earlier try (the rollback copy has its own folder).
+        for old in (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
+        where old.lastPathComponent.first?.isNumber == true {
+            try? FileManager.default.removeItem(at: old)
+        }
         let folder = root.appendingPathComponent("\(release.build)-\(UUID().uuidString.prefix(8))", isDirectory: true)
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         self.folder = folder
