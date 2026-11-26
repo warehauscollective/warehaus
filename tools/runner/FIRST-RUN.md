@@ -136,7 +136,7 @@ A checklist for developers testing the whole milestone pipeline end to end on sh
    2. `npm run runner -- start --once`. The runner writes 3 to 10 tasks and leaves the milestone in Planning. Staff edit the list, then move it to Awaiting Go.
    3. Press Go. The milestone moves to Building.
    4. Run the same command once per task. Each task ends with a commit on `milestone/<slug>`, one PR into the default branch, and the task Done with its commit.
-   5. Test a blocked task once: have Claude write `.runner/blocked.txt`. A "needs Peter" note appears.
+   5. Test a blocked task once: have Claude write `.runner/blocked.txt`. An Ask waiting on Peter appears, and the Portal shows him Needs you.
    6. After the last task the milestone moves to Ready to Ship, with the local preview stored. Open it with `npm run preview:pr -- milestone/<slug>`. A Parked task does not hold this up.
    7. Request changes once. A review task appears, and the milestone goes back to Building.
    8. Approve. That records the decision and nothing else.

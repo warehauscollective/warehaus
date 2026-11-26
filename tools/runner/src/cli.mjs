@@ -485,7 +485,7 @@ async function main() {
         else status = await doPlanning(config, work);
       } catch (error) {
         say(error.message);
-        // A clone that failed blocks the run with its own reason, which lands in a needs Peter note.
+        // A clone that failed blocks the run with its own reason, which lands in an Ask waiting on Peter.
         const blocked = typeof error.reason === 'string' && error.reason ? error.reason : null;
         const reason = blocked ?? 'The runner hit an error';
         const api = client(config);

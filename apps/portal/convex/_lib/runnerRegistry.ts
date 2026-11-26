@@ -132,7 +132,7 @@ export function pairingPoll(
   return { status: 'open', expiresAt: row.expiresAt };
 }
 
-/** A milestone Building this long with no runner online gets a "needs Peter" note (ADR-0005 amendment). */
+/** A milestone Building this long with no runner online gets an Ask waiting on Peter (ADR-0005 amendment). */
 export const NO_RUNNER_AFTER_MS = 30 * 60_000;
 /** Building milestones the sweep checks for a missing runner. */
 export const NO_RUNNER_SCAN = 10;

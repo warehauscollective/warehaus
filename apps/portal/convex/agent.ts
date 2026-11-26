@@ -807,7 +807,7 @@ export const writePlannedTasks = internalMutation({
 
 /**
  * Ends a planning run that wrote nothing. The planning job is blocked with its
- * reason and leaves a "needs Peter" note; staff press Retry to queue it again.
+ * reason and leaves an Ask waiting on Peter; staff press Retry to queue it again.
  * It is not put straight back in the queue (ADR-0001, amendment 2026-11-22).
  */
 export const failPlanning = internalMutation({
@@ -850,7 +850,7 @@ export const failPlanning = internalMutation({
 /**
  * The runner hands a run back untouched, because Claude hit the account usage
  * limit. The run is cancelled and settled, so it holds nothing. A task goes
- * back to To do and a plan back to the queue, with no needs Peter note: the
+ * back to To do and a plan back to the queue, with no Ask: the
  * runner takes new work again once the limit resets. Idempotent on the run.
  */
 export const releaseRun = internalMutation({
@@ -920,7 +920,7 @@ export const releaseStuckRuns = internalMutation({
         .withIndex('by_runnerId', (q) => q.eq('runnerId', run.runnerId))
         .unique();
       if (run.kind === 'build' && cursorBuildTooLong({ agentStartedAt: run.agentStartedAt, startedAt: run.startedAt, now })) {
-        // One Cursor agent per milestone, and none past 2 hours: blocked with a "needs Peter" note.
+        // One Cursor agent per milestone, and none past 2 hours: blocked with an Ask waiting on Peter.
         const long = await ctx.db.get(run.milestoneId);
         if (long) {
           await blockCursorBuild(ctx, run, long, run.runnerId, CURSOR_BUILD_TOO_LONG, now, false);
