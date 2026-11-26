@@ -145,3 +145,30 @@ Add a row in the same pull request as the move.
 | 2026-11-25 | `684:29554` | Label · Chip / Source short · Linear | Library / 01 Components | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
 | 2026-11-25 | `1023:6258` | Note · Need a milestone · Hidden | Library / 06 Feedback & states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
 | 2026-11-25 | `1023:6259` | Note · Done group | Library / 09 Cards & rows | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `689:47011` | Label · ROW STATES · links vs no link · Nov 18 | Library / 02 PortalRowLink · row states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `689:47012` | Note · Row states | Library / 02 PortalRowLink · row states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `689:47015` | S1 · Row states · 1440 · Dark | Library / 02 PortalRowLink · row states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `689:47104` | S2 · Row states · 390 · Dark | Library / 02 PortalRowLink · row states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `689:47164` | S1 · Row states · 1440 · Light | Library / 02 PortalRowLink · row states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `689:47253` | S2 · Row states · 390 · Light | Library / 02 PortalRowLink · row states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `689:48525` | Label · S · Row states · 1440 · Dark | Library / 02 PortalRowLink · row states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `689:48526` | Label · S · Row states · 1440 · Light | Library / 02 PortalRowLink · row states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `689:48527` | Label · S · Row states · 390 · Dark | Library / 02 PortalRowLink · row states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `689:48528` | Label · S · Row states · 390 · Light | Library / 02 PortalRowLink · row states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `1063:7633` | Row label · RUNNER STATUS | Library / 06 Feedback & states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `1066:7833` | RunnerStatus · documentation · Dark | Library / 06 Feedback & states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `1066:8009` | RunnerStatus · documentation · Light | Library / 06 Feedback & states | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29639` | Section title | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29640` | Row label · DARK 390 · HEADER · SHEETS · CLIENT SHEET | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29641` | Label · Mobile header / Menu / Header · Closed · Unread · 390 · Dark | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29642` | Label · Mobile header / Menu / Sheet · Unread · 390 · Dark | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29643` | Label · Mobile header / Menu / Sheet · No notifications · 390 · Dark | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29644` | Label · Mobile header / Menu / Sheet · Search focused + keyboard · 390 · Dark | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29645` | Label · Mobile header / Menu / Sheet / Client / 390 / Dark | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29646` | Row label · LIGHT 390 · HEADER · SHEETS | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29647` | Label · Mobile header / Menu / Header · Closed · Unread · 390 · Light | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29648` | Label · Mobile header / Menu / Sheet · Unread · 390 · Light | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29649` | Label · Mobile header / Menu / Sheet · No notifications · 390 · Light | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29650` | Label · Mobile header / Menu / Sheet · Search focused + keyboard · 390 · Light | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29651` | Row label · SPEC | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
+| 2026-11-25 | `684:29652` | Label · Mobile header / Menu / Spec · tokens, sizes, behaviour | Library / 19 Mobile header & menu | Archive — Portal / Library before atomic regroup (1148:73477) | | | Library regroup |
