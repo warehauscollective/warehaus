@@ -38,12 +38,7 @@ xcodebuild -project "$HERE/App/WarehausRunner.xcodeproj" -scheme "Warehaus Runne
 cp -R "$DERIVED/Build/Products/Release/Warehaus Runner.app" "$APP"
 
 step "Signing with the hardened runtime and a secure timestamp"
-# Nested code (the bundled Node and gh, from the first-launch task) is signed inside out first.
-if [[ -d "$APP/Contents/Resources/runner/bin" ]]; then
-  find "$APP/Contents/Resources/runner/bin" -type f -perm -u+x -print0 | while IFS= read -r -d '' tool; do
-    codesign --force --options runtime --timestamp --sign "$IDENTITY" "$tool"
-  done
-fi
+"$HERE/scripts/bundle-runtime.sh" "$APP" --identity "$IDENTITY"  # Node, gh and the runner, signed inside out
 codesign --force --options runtime --timestamp \
   --entitlements "$HERE/App/WarehausRunner.entitlements" --sign "$IDENTITY" "$APP"
 codesign --verify --deep --strict --verbose=2 "$APP"
