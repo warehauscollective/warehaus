@@ -7,11 +7,8 @@ import SwiftUI
 /// this target only signs, bundles and launches them.
 @main
 struct WarehausRunnerApp: App {
+    @NSApplicationDelegateAdaptor(RunnerAppDelegate.self) private var delegate
     @StateObject private var model = RunnerAppModel.live()
-
-    init() {
-        RunnerAppModel.installPortalLinks()
-    }
 
     var body: some Scene {
         RunnerScenes(model: model)

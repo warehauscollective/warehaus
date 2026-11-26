@@ -25,7 +25,7 @@ extension PortalWindowController {
         }
     }
 
-    static let shellStateScript = "JSON.stringify({shell:document.documentElement.dataset.shell||null,hello:window.__warehausShellHello||null,inset:(function(){var c=document.querySelector('.portal-chrome');return c?getComputedStyle(c).paddingTop:null})(),theme:document.documentElement.classList.contains('light')?'light':'dark'})"
+    static let shellStateScript = "JSON.stringify({shell:document.documentElement.dataset.shell||null,hello:window.__warehausShellHello||null,inset:(function(){var c=document.querySelector('.portal-chrome');return c?getComputedStyle(c).paddingTop:null})(),theme:document.documentElement.classList.contains('light')?'light':'dark',path:location.pathname+location.search})"
 
     /// `log stream --predicate 'category == "PortalWindow"'` shows what the page made of the shell.
     func logShellState(_ webView: WKWebView) {

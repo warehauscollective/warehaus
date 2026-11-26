@@ -130,13 +130,6 @@ public final class RunnerAppModel: ObservableObject {
         return model
     }
 
-    /// warehaus:// links open the Portal window, which hands them to the page.
-    /// Call from the app's init, before launch finishes, so a link that
-    /// launched the app is not lost.
-    public static func installPortalLinks() {
-        PortalLinkEvents.shared.install { PortalWindowController.shared.open(portalLink: $0) }
-    }
-
     // MARK: - State
 
     private func received(_ snapshot: RunnerSnapshot, paused: Bool) {
