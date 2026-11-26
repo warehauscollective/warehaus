@@ -177,6 +177,25 @@ export type BoardReorder = {
   onReorder: (input: { task: PortalTask; ids: string[] }) => Promise<{ ok: boolean; error?: string }>;
 };
 
+/**
+ * The milestone card face. The run number shows in `runStatus` only, top
+ * first. The origin badge and the PR chip are staff only. A board without it
+ * keeps the default face.
+ */
+export type BoardCard = {
+  runStatus: string;
+  origin?: (task: PortalTask) => string | null;
+  pullRequest?: (task: PortalTask) => string | null;
+};
+
+/** What one card shows beyond its name and child count. */
+export type CardFace = { run: string | null; origin: string | null; pullRequest: string | null };
+
+/** `01`, `02`, … by place in the run column. */
+export function runNumbers(ids: readonly string[]): Map<string, string> {
+  return new Map(ids.map((id, index) => [id, String(index + 1).padStart(2, '0')] as const));
+}
+
 export const ORDER_NOT_SAVED = 'Couldn’t save the order. Moved back.';
 
 /** Each column's cards in the order the board was given them, in place of due date order. */
@@ -239,6 +258,7 @@ export function TaskBoard({
   keepOrder = false,
   reorder,
   ask,
+  card,
 }: {
   tasks: PortalTask[];
   staff: boolean;
@@ -268,6 +288,8 @@ export function TaskBoard({
   reorder?: BoardReorder;
   /** A status column that asks one question before a card lands in it. The answer rides on the move. */
   ask?: BoardAsk;
+  /** The milestone card face: run number, origin badge, child count, PR chip. */
+  card?: BoardCard;
 }) {
   const boardRef = useRef<HTMLDivElement>(null);
   const [slot, setSlot] = useState<number | null>(null);
@@ -329,6 +351,16 @@ export function TaskBoard({
   const activeTab = tab && columns.some((column) => column.key === tab) ? tab : columns[0]?.key ?? null;
   const shown = phoneTabs ? columns.filter((column) => column.key === activeTab) : columns;
   const canDrag = canChange && !phone;
+  const cardFace = useMemo(() => {
+    if (!card) return undefined;
+    const runColumn = mode === 'status' ? columns.find((column) => column.key === card.runStatus) : undefined;
+    const runs = runNumbers((runColumn?.tasks ?? []).map((task) => task.id));
+    return (task: PortalTask): CardFace => ({
+      run: runs.get(task.id) ?? null,
+      origin: staff ? card.origin?.(task) ?? null : null,
+      pullRequest: staff ? card.pullRequest?.(task) ?? null : null,
+    });
+  }, [card, columns, mode, staff]);
   const reorderStatus = mode === 'status' && reorder ? reorder.status : null;
   const canReorder = canDrag && reorderStatus != null && reorder != null && !reorder.locked;
 
@@ -536,6 +568,7 @@ export function TaskBoard({
               label={column.label}
               tasks={column.tasks}
               allTasks={viewTasks}
+              cardFace={cardFace}
               staff={staff}
               loading={loading}
               canDrag={canDrag}
@@ -597,7 +630,7 @@ export function TaskBoard({
         <DragOverlay dropAnimation={null} style={{ cursor: 'grabbing' }}>
           {activeId ? (
             <div style={{ height: '100%', transform: 'rotate(2deg) scale(1.03)', transformOrigin: 'center center', cursor: 'grabbing' }}>
-              <TaskCardFace task={viewTasks.find((task) => task.id === activeId) ?? tasks[0]} lifted mode={mode} allTasks={viewTasks} staff={staff} />
+              <LiftedFace task={viewTasks.find((task) => task.id === activeId) ?? tasks[0]} mode={mode} allTasks={viewTasks} staff={staff} cardFace={cardFace} />
             </div>
           ) : null}
         </DragOverlay>
@@ -696,6 +729,7 @@ function Column({
   label,
   tasks,
   allTasks,
+  cardFace,
   staff,
   loading,
   canDrag,
@@ -727,6 +761,7 @@ function Column({
   label: string;
   tasks: PortalTask[];
   allTasks: PortalTask[];
+  cardFace?: (task: PortalTask) => CardFace;
   staff: boolean;
   loading: boolean;
   canDrag: boolean;
@@ -770,6 +805,7 @@ function Column({
         task={task}
         mode={mode}
         allTasks={allTasks}
+        face={cardFace?.(task)}
         canDrag={canDrag}
         canMoveSheet={canMoveSheet}
         staff={staff}
@@ -1146,6 +1182,7 @@ function BoardCard({
   task,
   mode,
   allTasks,
+  face,
   canDrag,
   canMoveSheet,
   staff,
@@ -1161,6 +1198,7 @@ function BoardCard({
   task: PortalTask;
   mode: BoardMode;
   allTasks: PortalTask[];
+  face?: CardFace;
   canDrag: boolean;
   /** Press and hold opens the move sheet. Phone only, and never on a read-only board. */
   canMoveSheet: boolean;
@@ -1274,7 +1312,7 @@ function BoardCard({
           WebkitTouchCallout: canMoveSheet ? 'none' : undefined,
         }}
       >
-        <TaskCardFace task={task} mode={mode} allTasks={allTasks} staff={staff} />
+        <TaskCardFace task={task} mode={mode} allTasks={allTasks} staff={staff} face={face} />
       </button>
       {error ? (
         <p style={{ fontSize: 'var(--t-xs)', color: 'var(--fg)', padding: '0.35rem 0.2rem' }}>
@@ -1299,23 +1337,119 @@ function initials(name: string): string {
   return parts.map((part) => part[0]?.toUpperCase() ?? '').join('');
 }
 
+/** The card that follows the pointer. It keeps the face the resting card had. */
+function LiftedFace({
+  task,
+  mode,
+  allTasks,
+  staff,
+  cardFace,
+}: {
+  task?: PortalTask;
+  mode: BoardMode;
+  allTasks: PortalTask[];
+  staff: boolean;
+  cardFace?: (task: PortalTask) => CardFace;
+}) {
+  return <TaskCardFace task={task} lifted mode={mode} allTasks={allTasks} staff={staff} face={task ? cardFace?.(task) : undefined} />;
+}
+
+const BADGE_TEXT: CSSProperties = { fontSize: 10.56, lineHeight: '15.84px', letterSpacing: '0.22em', textTransform: 'uppercase', whiteSpace: 'nowrap' };
+const BADGE_BOX: CSSProperties = { border: '1px solid var(--border-2)', borderRadius: 999, padding: '2px 8px' };
+
 export function TaskCardFace({
   task,
   lifted = false,
   mode = 'status',
   allTasks = [],
   staff = false,
+  face,
 }: {
   task?: PortalTask;
   lifted?: boolean;
   mode?: BoardMode;
   allTasks?: PortalTask[];
   staff?: boolean;
+  /** The milestone card face. Unset keeps the default face. */
+  face?: CardFace;
 }) {
   if (!task) return null;
   const children = allTasks.filter((item) => item.parentTaskId === task.id);
   const subLabel = children.length > 0 ? `${children.filter((item) => item.isDone).length}/${children.length}` : null;
   const resources = task.resourceCount ?? 0;
+  if (face) {
+    const waiting = staff && task.status === 'Blocked' && task.nextAction ? task.nextAction : null;
+    return (
+      <div
+        data-card-face="milestone"
+        style={{
+          background: lifted ? 'var(--surface-2)' : 'var(--surface)',
+          border: `1px solid ${lifted ? 'var(--border-2)' : 'var(--border)'}`,
+          borderRadius: 18,
+          padding: '14px 12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          boxShadow: lifted ? '0 16px 32px rgb(0 0 0 / 45%)' : undefined,
+          cursor: lifted ? 'grabbing' : undefined,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          {face.run ? (
+            <span className="ds-mono" data-testid="card-run" style={{ flex: '0 0 auto', fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+              {face.run}
+            </span>
+          ) : null}
+          <p
+            style={{
+              flex: '1 1 0',
+              minWidth: 0,
+              fontSize: 14,
+              fontWeight: 500,
+              lineHeight: '21px',
+              overflowWrap: 'anywhere',
+              color: task.isDone ? 'var(--muted)' : 'var(--fg)',
+            }}
+          >
+            {task.name}
+          </p>
+          {lifted ? (
+            <span style={{ color: 'var(--muted)' }}>
+              <TaskGlyph src="/icons/sidebar-menu.svg" size={16} />
+            </span>
+          ) : null}
+        </div>
+        {face.origin || subLabel || face.pullRequest ? (
+          <div className="flex flex-wrap items-center" style={{ gap: '6px 8px' }}>
+            {face.origin ? (
+              <span className="ds-mono" data-testid="card-origin" style={{ ...BADGE_BOX, ...BADGE_TEXT, color: 'var(--muted)' }}>
+                {face.origin}
+              </span>
+            ) : null}
+            {subLabel ? (
+              <span className="ds-mono inline-flex items-center gap-1" data-testid="card-children" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                <TaskGlyph src="/icons/task-checklist.svg" />
+                {subLabel}
+              </span>
+            ) : null}
+            {face.pullRequest ? (
+              <span className="ds-mono inline-flex items-center" data-testid="card-pr" style={{ ...BADGE_BOX, ...BADGE_TEXT, gap: 6, color: 'var(--fg)' }}>
+                <span className="inline-flex" style={{ color: 'var(--muted)' }}>
+                  <TaskGlyph src="/icons/task-pull-request.svg" size={12} />
+                </span>
+                {face.pullRequest}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {waiting ? (
+          <p className="ds-mono" data-testid="card-waiting-on" style={{ minWidth: 0, fontSize: 12, lineHeight: '18px', color: 'var(--danger-text)', overflowWrap: 'anywhere' }}>
+            {waiting}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div
       style={{

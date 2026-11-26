@@ -1,5 +1,5 @@
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
-import { checklistState, RUN_ORDER_LOCKED, runOrderLocked } from '@convex/_lib/milestoneTasks';
+import { checklistState, originLabel, RUN_ORDER_LOCKED, runOrderLocked } from '@convex/_lib/milestoneTasks';
 import type { PortalTask } from '@/lib/data/view-models';
 
 /** The milestone board's columns, left to right. No Inbox lane and no Stage mode. */
@@ -93,6 +93,8 @@ export function milestoneBoardCards(
       parentTaskId,
       resourceCount: row.resourceCount,
       nextAction: row.nextAction ?? null,
+      // The row's link is staff only and already checked. A client row has none.
+      pullRequestUrl: row.pullRequestUrl ?? null,
       projectId: known?.projectId ?? project.id,
       projectName: known?.projectName ?? project.name,
       projectStatus: known?.projectStatus ?? project.status ?? null,
@@ -100,6 +102,26 @@ export function milestoneBoardCards(
     };
   };
   return rows.flatMap((row) => [card(row, null), ...row.children.map((child) => card(child, row.id))]);
+}
+
+/**
+ * The origin badge for each top-level row: Brief, Planner, Manual or Review N.
+ * Staff only. A client row carries no origin, so a client gets no badges.
+ */
+export function milestoneCardOrigins(rows: MilestoneRoadmapView['rows']): Map<string, string> {
+  const origins = new Map<string, string>();
+  for (const row of rows) {
+    const label = originLabel(row.origin, row.round);
+    if (label) origins.set(row.id, label);
+  }
+  return origins;
+}
+
+/** The PR chip's text: `PR #184` when the link names a pull request number, else `PR`. */
+export function pullRequestChip(url: string | null | undefined): string | null {
+  if (!url) return null;
+  const number = /\/pulls?\/(\d+)(?:[/?#]|$)/.exec(url)?.[1];
+  return number ? `PR #${number}` : 'PR';
 }
 
 /**
@@ -139,6 +161,20 @@ export function milestoneTaskToOpen(input: {
     // What the page holds for the task is newer than the row and wins.
     ...known,
   };
+}
+
+/**
+ * The nested child tasks of the row a card opens, built the same way as the
+ * task itself. The task modal lists them under the parent, including children
+ * the page's own task list does not hold. Empty for a child or an unknown id.
+ */
+export function milestoneNestedToOpen(input: Parameters<typeof milestoneTaskToOpen>[0]): PortalTask[] {
+  const row = input.milestone.rows.find((item) => item.id === input.taskId);
+  return (row?.children ?? []).flatMap((child) => {
+    const task = milestoneTaskToOpen({ ...input, taskId: child.id });
+    // A child the page files under another parent stays there.
+    return task && task.parentTaskId === input.taskId ? [task] : [];
+  });
 }
 
 /**

@@ -40,7 +40,7 @@ import { ActivityList } from './roadmapParts';
 import { MoreMenu, EditDialog } from './MilestoneForms';
 import { MilestoneLoopLive, fixtureLoopModel, loopSubtitleLine, milestoneLoopSubtitle } from './MilestoneLoop';
 import type { ChecklistActions } from './MilestoneChecklist';
-import { milestoneTaskToOpen } from './milestoneBoard';
+import { milestoneNestedToOpen, milestoneTaskToOpen } from './milestoneBoard';
 import { MilestoneTaskBoard, type MoveTaskStatus } from './MilestoneTaskBoard';
 import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
 import type { ArchivedTask } from './ArchivedView';
@@ -129,7 +129,8 @@ export function MilestoneDetail(props: {
   preview?: string | null;
   activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
-  onOpenTask?: (task: PortalTask) => void;
+  /** `nested` is the task's child tasks on this milestone, for the task modal's list. */
+  onOpenTask?: (task: PortalTask, nested?: PortalTask[]) => void;
   resourceChoices: ResourceChoice[];
   onBack: () => void;
   onBackToProjects?: () => void;
@@ -284,7 +285,8 @@ export function MilestoneDetailView({
   onLoadMoreTargets?: () => void;
   activity?: readonly MilestoneActivityItem[];
   activityError?: string | null;
-  onOpenTask?: (task: PortalTask) => void;
+  /** `nested` is the task's child tasks on this milestone, for the task modal's list. */
+  onOpenTask?: (task: PortalTask, nested?: PortalTask[]) => void;
   resourceChoices: ResourceChoice[];
   onBack: () => void;
   onBackToProjects?: () => void;
@@ -592,8 +594,9 @@ export function MilestoneDetailView({
             onOpenTask={
               onOpenTask
                 ? (taskId) => {
-                    const task = milestoneTaskToOpen({ taskId, milestone, tasks, project });
-                    if (task) onOpenTask(task);
+                    const open = { taskId, milestone, tasks, project };
+                    const task = milestoneTaskToOpen(open);
+                    if (task) onOpenTask(task, milestoneNestedToOpen(open));
                   }
                 : undefined
             }

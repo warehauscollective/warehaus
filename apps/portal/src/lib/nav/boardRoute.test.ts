@@ -119,4 +119,13 @@ describe('a task opened from a milestone card', () => {
     assert.equal(tasksWithOpened(tasks, null), tasks);
     assert.equal(tasksWithOpened(tasks, { id: 'task-public', projectId: 'proj-other' }), tasks);
   });
+
+  it('adds an opened task and its nested tasks, skipping any the page holds', () => {
+    const parent = { id: 'task-milestone-only', projectId: 'proj-public' };
+    const child = { id: 'task-child', projectId: 'proj-public' };
+    const held = { id: 'task-public', projectId: 'proj-other' };
+    assert.deepEqual(tasksWithOpened(tasks, [parent, child, held]), [...tasks, parent, child]);
+    assert.equal(tasksWithOpened(tasks, [held]), tasks);
+    assert.equal(tasksWithOpened(tasks, []), tasks);
+  });
 });

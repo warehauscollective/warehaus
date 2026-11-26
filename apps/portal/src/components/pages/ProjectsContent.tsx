@@ -101,9 +101,10 @@ export function ProjectsContent() {
     archivedIds: archivedFixtureIds,
   });
   const { preview: fixtures, isStaff, projects, tasks, docs } = page;
-  // A task opened from a milestone card that the page's own list does not hold.
-  // Only the task route and the task modal read it. Lists and counts do not.
-  const [openedTask, setOpenedTask] = useState<PortalTask | null>(null);
+  // A task opened from a milestone card, with its nested child tasks, that the
+  // page's own list may not hold. Only the task route and the task modal read
+  // it. Lists and counts do not.
+  const [openedTask, setOpenedTask] = useState<PortalTask[] | null>(null);
   const modalTasks = useMemo(() => tasksWithOpened(tasks, openedTask), [tasks, openedTask]);
   const [taskView, setTaskView] = useState<'board' | 'table'>('board');
   const [fixtureTaskId, setFixtureTaskId] = useState<string | null>(null);
@@ -358,9 +359,9 @@ export function ProjectsContent() {
       return doc.publishToWarehaus !== false && doc.status !== 'Draft';
     });
     const summary = projectSummaryVisibility(isStaff, openProject);
-    const openTask = (task: PortalTask) => {
+    const openTask = (task: PortalTask, nested: PortalTask[] = []) => {
       clearPortalReturn();
-      setOpenedTask(task);
+      setOpenedTask([task, ...nested]);
       setOpenId(openProject.id);
       if (fixtures) setFixtureTaskId(task.id);
       else router.push(`/tasks/${task.id}`);

@@ -17,6 +17,9 @@ import {
   MILESTONE_BOARD_STATUSES,
   ORDER_LOCKED,
   milestoneBoardCards,
+  milestoneCardOrigins,
+  milestoneNestedToOpen,
+  pullRequestChip,
   milestoneBoardReadOnly,
   milestoneBoardStatus,
   milestoneTaskToOpen,
@@ -38,6 +41,7 @@ const {
   movedOrder,
   pickStatusColumns,
   pressMoved,
+  runNumbers,
   reorderSlot,
   stageSavedFeedback,
 } = await import('@/components/tasks/TaskBoard');
@@ -507,5 +511,110 @@ describe('the board at 390', () => {
     for (const status of ['In Progress', 'Blocked', 'Done']) assert.match(html, new RegExp(`>${status}<`));
     assert.equal(/data-testid="move-sheet-task"[^>]*class="sr-only"/.test(html) || /class="sr-only"[^>]*data-testid="move-sheet-task"/.test(html), false);
     assert.match(html, /Task a/);
+  });
+});
+
+describe('card face', () => {
+  const pr = 'https://github.com/warehauscollective/warehaus/pull/184';
+  const list = [
+    row('a', 'To Do', { origin: 'brief' }),
+    row('b', 'In Progress', {
+      origin: 'review',
+      round: 2,
+      pullRequestUrl: pr,
+      children: [
+        { id: 'b1', name: 'Sub one', status: 'Done', isDone: true, stage: null, resourceCount: 0 },
+        { id: 'b2', name: 'Sub two', status: 'To Do', isDone: false, stage: null, resourceCount: 0 },
+      ],
+    }),
+    row('c', 'Blocked', { origin: 'manual', nextAction: 'Client copy' }),
+    row('d', 'Done', { origin: 'planner' }),
+    row('e', 'Inbox'),
+  ];
+  // What a client is sent: no origin, no pull request, no next action.
+  const clientList = list.map((item) => row(item.id, item.status, { children: item.children }));
+  const cardHtml = (html: string, name: string) => html.split('data-card-face="milestone"').find((part) => part.includes(`>${name}<`)) ?? '';
+  const count = (html: string, testId: string) => [...html.matchAll(new RegExp(`data-testid="${testId}"`, 'g'))].length;
+
+  it('numbers the run column top first', () => {
+    assert.deepEqual([...runNumbers(['x', 'y', 'z'])], [['x', '01'], ['y', '02'], ['z', '03']]);
+    assert.equal(runNumbers(Array.from({ length: 12 }, (_, index) => `t${index}`)).get('t11'), '12');
+  });
+
+  it('shows the run number on To Do cards only', () => {
+    const html = board({ staff: true, list });
+    assert.equal(count(html, 'card-run'), 2);
+    assert.match(cardHtml(html, 'Task a'), /data-testid="card-run"[^>]*>01</);
+    assert.match(cardHtml(html, 'Task e'), /data-testid="card-run"[^>]*>02</);
+    for (const name of ['Task b', 'Task c', 'Task d']) assert.equal(cardHtml(html, name).includes('card-run'), false);
+  });
+
+  it('shows a child count on the parent card, and no card for a child', () => {
+    const html = board({ staff: true, list });
+    assert.equal(count(html, 'task-card'), 5);
+    assert.equal(html.includes('Sub one'), false);
+    assert.equal(count(html, 'card-children'), 1);
+    assert.match(cardHtml(html, 'Task b'), /card-children[\s\S]*1\/2/);
+  });
+
+  it('shows staff the origin badge and the PR chip', () => {
+    const html = board({ staff: true, list });
+    assert.match(cardHtml(html, 'Task a'), /data-testid="card-origin"[^>]*>Brief</);
+    assert.match(cardHtml(html, 'Task b'), /data-testid="card-origin"[^>]*>Review 2</);
+    assert.match(cardHtml(html, 'Task c'), /data-testid="card-origin"[^>]*>Manual</);
+    assert.match(cardHtml(html, 'Task d'), /data-testid="card-origin"[^>]*>Planner</);
+    assert.equal(cardHtml(html, 'Task e').includes('card-origin'), false);
+    assert.equal(count(html, 'card-pr'), 1);
+    assert.match(cardHtml(html, 'Task b'), /card-pr[\s\S]*PR #184/);
+    assert.match(cardHtml(html, 'Task c'), /card-waiting-on[\s\S]*Client copy/);
+  });
+
+  it('shows a client run numbers and child counts, with no origin, PR chip or waiting reason', () => {
+    const html = board({ staff: false, list: clientList });
+    assert.equal(count(html, 'card-run'), 2);
+    assert.equal(count(html, 'card-children'), 1);
+    assert.equal(count(html, 'card-origin'), 0);
+    assert.equal(count(html, 'card-pr'), 0);
+    assert.equal(count(html, 'card-waiting-on'), 0);
+  });
+
+  it('keeps staff-only chips off a client card even when the task carries them', () => {
+    const [card] = milestoneBoardCards([row('b', 'In Progress', { pullRequestUrl: pr })], [], project);
+    const face = { run: null, origin: null, pullRequest: null };
+    const html = renderToStaticMarkup(createElement(TaskCardFace, { task: card, staff: false, face }));
+    assert.equal(html.includes('card-pr'), false);
+    assert.equal(card?.pullRequestUrl, pr);
+  });
+
+  it('mutes the name of a Done card and drops the date line', () => {
+    const [done, open] = milestoneBoardCards([row('d', 'Done'), row('a', 'To Do')], [], project);
+    const face = { run: null, origin: null, pullRequest: null };
+    const html = (task: PortalTask | undefined) => renderToStaticMarkup(createElement(TaskCardFace, { task, staff: true, face }));
+    assert.match(html(done), /color:var\(--muted\)[^>]*>Task d</);
+    assert.match(html(open), /color:var\(--fg\)[^>]*>Task a</);
+    assert.equal(html(open).includes('task-calendar'), false);
+  });
+
+  it('names the pull request number, or PR when the link has none', () => {
+    assert.equal(pullRequestChip(pr), 'PR #184');
+    assert.equal(pullRequestChip(`${pr}/files`), 'PR #184');
+    assert.equal(pullRequestChip('https://example.com/changes'), 'PR');
+    assert.equal(pullRequestChip(null), null);
+  });
+
+  it('labels origins by row, and skips a row with none', () => {
+    assert.deepEqual([...milestoneCardOrigins(list)], [['a', 'Brief'], ['b', 'Review 2'], ['c', 'Manual'], ['d', 'Planner']]);
+    assert.equal(milestoneCardOrigins(clientList).size, 0);
+  });
+
+  it('opens a parent with its nested child tasks, for the modal list', () => {
+    const input = { milestone: { id: 'm-board', rows: list }, tasks: [] as PortalTask[], project };
+    const nested = milestoneNestedToOpen({ ...input, taskId: 'b' });
+    assert.deepEqual(nested.map((task) => [task.id, task.name, task.parentTaskId, task.isDone]), [
+      ['b1', 'Sub one', 'b', true],
+      ['b2', 'Sub two', 'b', false],
+    ]);
+    assert.deepEqual(milestoneNestedToOpen({ ...input, taskId: 'a' }), []);
+    assert.deepEqual(milestoneNestedToOpen({ ...input, taskId: 'b1' }), []);
   });
 });

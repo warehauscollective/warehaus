@@ -8,7 +8,7 @@ import { NEXT_ACTION_MAX } from '@warehaus/portal-sync';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { ArchivedChip } from '@/components/closeout/CloseoutControls';
 import type { TaskCloseoutActions } from '@/components/closeout/closeoutActions';
-import { TaskBoard, type BoardAsk, type BoardReorder, type BoardRules } from '@/components/tasks/TaskBoard';
+import { TaskBoard, type BoardAsk, type BoardCard, type BoardReorder, type BoardRules } from '@/components/tasks/TaskBoard';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import type { PortalTask } from '@/lib/data/view-models';
 import { ArchivedTaskRow, type ArchivedTask } from './ArchivedView';
@@ -28,6 +28,8 @@ import {
   boardFooter,
   boardSummary,
   milestoneBoardCards,
+  milestoneCardOrigins,
+  pullRequestChip,
   milestoneBoardReadOnly,
   runOrderAfterReorder,
 } from './milestoneBoard';
@@ -54,7 +56,9 @@ const ASK_ON_BLOCKED: BoardAsk = { status: WAITING_STATUS, copy: { ...BLOCKED_AS
  * in milestone order, and To Do is the run order, top first: staff drag within
  * it to reorder, except while the milestone is Building. A move to Blocked
  * asks what the task is waiting on and saves the answer as its next action.
- * Any move shows a toast with Undo, so a card that left Done can go back. On a
+ * Any move shows a toast with Undo, so a card that left Done can go back. A
+ * card shows its run number in To Do only, and for staff its origin and a PR
+ * chip. Nested child tasks are a count on the parent card, not cards. On a
  * phone the columns scroll sideways and press and hold opens the move sheet.
  * Clients, and everyone on a Shipped milestone, get the same board read-only.
  */
@@ -104,6 +108,14 @@ export function MilestoneTaskBoard({
     return [...all].sort((a, b) => place(a.id) - place(b.id));
   }, [fixtures, milestone.rows, localRows, localOrder]);
   const cards = useMemo(() => milestoneBoardCards(rows, tasks, project), [rows, tasks, project]);
+  const card = useMemo<BoardCard>(() => {
+    const origins = milestoneCardOrigins(rows);
+    return {
+      runStatus: RUN_ORDER_STATUS,
+      origin: (task) => origins.get(task.id) ?? null,
+      pullRequest: (task) => pullRequestChip(task.pullRequestUrl),
+    };
+  }, [rows]);
   const reorderTasks = actions?.reorderTasks;
   const milestoneId = milestone.id;
   const reorder = useMemo<BoardReorder>(
@@ -177,6 +189,7 @@ export function MilestoneTaskBoard({
           keepOrder
           reorder={reorder}
           ask={ASK_ON_BLOCKED}
+          card={card}
           showQuickAdd={canAdd}
           hideGroupToggle
           framed

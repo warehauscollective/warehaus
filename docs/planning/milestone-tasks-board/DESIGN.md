@@ -62,3 +62,4 @@ Everything else is an existing component: Chip / Filter (Archived), NewTaskButto
 - The page shell in these frames is the older one (Tasks title, Milestone overview button). Only the board and its copy changed.
 - `Milestone page · Tasks · row overflow menu` (`1037:31403`, `1037:31460`) still shows the old five-column board with Inbox. It was left alone. It should be redrawn or retired once this design is approved.
 - Whether a client should see run numbers, and whether Add task stays available while the milestone is Building, are both shown as yes. Say if either should be no.
+- Task 06 built the card face from `Card / Milestone task`. The PR chip reads `PR #184` from the link and is not itself a link: the card is one button, and the link is in the task modal. The milestone card drops the due date, resource count, assignee and sync chips the other boards show, since the component has none of them. Say if any should come back.

@@ -36,12 +36,15 @@ function pathId(pathname: string, prefix: string): string | null {
  * A missing row and a row the viewer cannot see use the same message.
  */
 /**
- * The page's tasks, plus a task opened from a milestone card that the page
- * does not hold. The page's own copy wins as soon as it has one.
+ * The page's tasks, plus a task opened from a milestone card, and its nested
+ * child tasks, that the page does not hold. The page's own copy wins as soon
+ * as it has one.
  */
-export function tasksWithOpened<T extends { id: string }>(tasks: T[], opened: T | null): T[] {
-  if (!opened || tasks.some((task) => task.id === opened.id)) return tasks;
-  return [...tasks, opened];
+export function tasksWithOpened<T extends { id: string }>(tasks: T[], opened: T | readonly T[] | null): T[] {
+  const list: readonly T[] = opened == null ? [] : Array.isArray(opened) ? opened : [opened as T];
+  const held = new Set(tasks.map((task) => task.id));
+  const extra = list.filter((task) => !held.has(task.id));
+  return extra.length === 0 ? tasks : [...tasks, ...extra];
 }
 
 export function resolveBoardRoute(input: {
