@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import { PortalDataRetryProvider } from '@/components/providers/PortalDataRetry';
 import { PortalTabProvider } from '@/components/providers/PortalTabProvider';
 import { PortalViewProvider } from '@/components/providers/PortalViewProvider';
+import { ShellProvider } from '@/lib/shell';
 import { PORTAL_PANEL_GAP } from '@/lib/design/portal-chrome';
 import { NoticeBell } from '@/components/notices/NoticeBell';
 import { PortalSearch } from '@/components/search/PortalSearch';
@@ -39,7 +40,7 @@ function PortalChrome({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <div className="ds-scope relative h-[100dvh] overflow-hidden">
+    <div className="ds-scope portal-chrome relative h-[100dvh] overflow-hidden">
       <PortalToastLive />
       <NoticeBell />
       <PortalSwipeWorkspace />
@@ -54,14 +55,16 @@ function PortalChrome({ children }: { children: ReactNode }) {
 
 export function PortalShell({ children }: { children: ReactNode }) {
   return (
-    <PortalDataRetryProvider>
-      <PortalTabProvider>
-        <PortalViewProvider>
-          <SidebarUserProvider>
-            <PortalChrome>{children}</PortalChrome>
-          </SidebarUserProvider>
-        </PortalViewProvider>
-      </PortalTabProvider>
-    </PortalDataRetryProvider>
+    <ShellProvider>
+      <PortalDataRetryProvider>
+        <PortalTabProvider>
+          <PortalViewProvider>
+            <SidebarUserProvider>
+              <PortalChrome>{children}</PortalChrome>
+            </SidebarUserProvider>
+          </PortalViewProvider>
+        </PortalTabProvider>
+      </PortalDataRetryProvider>
+    </ShellProvider>
   );
 }

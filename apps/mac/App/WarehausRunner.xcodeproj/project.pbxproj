@@ -1,0 +1,265 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		7A0000000000000000000A01 /* WarehausRunnerApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7A0000000000000000000F01 /* WarehausRunnerApp.swift */; };
+		7A0000000000000000000A02 /* RunnerMenu in Frameworks */ = {isa = PBXBuildFile; productRef = 7A0000000000000000000D01 /* RunnerMenu */; };
+		7A0000000000000000000A03 /* AppIcon.icns in Resources */ = {isa = PBXBuildFile; fileRef = 7A0000000000000000000F05 /* AppIcon.icns */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		7A0000000000000000000F01 /* WarehausRunnerApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WarehausRunnerApp.swift; sourceTree = "<group>"; };
+		7A0000000000000000000F02 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		7A0000000000000000000F03 /* WarehausRunner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = WarehausRunner.entitlements; sourceTree = "<group>"; };
+		7A0000000000000000000F04 /* Warehaus Runner.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Warehaus Runner.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		7A0000000000000000000F05 /* AppIcon.icns */ = {isa = PBXFileReference; lastKnownFileType = image.icns; path = AppIcon.icns; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		7A0000000000000000000B01 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7A0000000000000000000A02 /* RunnerMenu in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		7A0000000000000000000E01 = {
+			isa = PBXGroup;
+			children = (
+				7A0000000000000000000F01 /* WarehausRunnerApp.swift */,
+				7A0000000000000000000F02 /* Info.plist */,
+				7A0000000000000000000F03 /* WarehausRunner.entitlements */,
+				7A0000000000000000000F05 /* AppIcon.icns */,
+				7A0000000000000000000E02 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		7A0000000000000000000E02 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				7A0000000000000000000F04 /* Warehaus Runner.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		7A0000000000000000000C01 /* Warehaus Runner */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 7A0000000000000000000L02 /* Build configuration list for PBXNativeTarget "Warehaus Runner" */;
+			buildPhases = (
+				7A0000000000000000000B02 /* Sources */,
+				7A0000000000000000000B01 /* Frameworks */,
+				7A0000000000000000000B03 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "Warehaus Runner";
+			packageProductDependencies = (
+				7A0000000000000000000D01 /* RunnerMenu */,
+			);
+			productName = "Warehaus Runner";
+			productReference = 7A0000000000000000000F04 /* Warehaus Runner.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		7A0000000000000000000P01 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 2700;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					7A0000000000000000000C01 = {
+						CreatedOnToolsVersion = 27.0;
+					};
+				};
+			};
+			buildConfigurationList = 7A0000000000000000000L01 /* Build configuration list for PBXProject "WarehausRunner" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 7A0000000000000000000E01;
+			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				7A0000000000000000000K01 /* XCLocalSwiftPackageReference ".." */,
+			);
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 7A0000000000000000000E02 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				7A0000000000000000000C01 /* Warehaus Runner */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		7A0000000000000000000B03 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7A0000000000000000000A03 /* AppIcon.icns in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		7A0000000000000000000B02 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				7A0000000000000000000A01 /* WarehausRunnerApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		7A0000000000000000000G01 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)";
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		7A0000000000000000000G02 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+			};
+			name = Release;
+		};
+		7A0000000000000000000G03 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_ENTITLEMENTS = WarehausRunner.entitlements;
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = co.warehaus.runner.app;
+				PRODUCT_NAME = "Warehaus Runner";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Debug;
+		};
+		7A0000000000000000000G04 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = arm64;
+				CODE_SIGN_ENTITLEMENTS = WarehausRunner.entitlements;
+				CODE_SIGN_IDENTITY = "Developer ID Application";
+				CODE_SIGN_STYLE = Manual;
+				COMBINE_HIDPI_IMAGES = YES;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 7XQWUC33C7;
+				ENABLE_HARDENED_RUNTIME = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				MARKETING_VERSION = 0.1.0;
+				OTHER_CODE_SIGN_FLAGS = "--timestamp";
+				PRODUCT_BUNDLE_IDENTIFIER = co.warehaus.runner.app;
+				PRODUCT_NAME = "Warehaus Runner";
+				SWIFT_VERSION = 5.0;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		7A0000000000000000000L01 /* Build configuration list for PBXProject "WarehausRunner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7A0000000000000000000G01 /* Debug */,
+				7A0000000000000000000G02 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		7A0000000000000000000L02 /* Build configuration list for PBXNativeTarget "Warehaus Runner" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				7A0000000000000000000G03 /* Debug */,
+				7A0000000000000000000G04 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		7A0000000000000000000K01 /* XCLocalSwiftPackageReference ".." */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ..;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		7A0000000000000000000D01 /* RunnerMenu */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = RunnerMenu;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 7A0000000000000000000P01 /* Project object */;
+}

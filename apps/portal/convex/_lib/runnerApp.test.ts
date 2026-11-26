@@ -95,7 +95,7 @@ describe('the app checking for an update', () => {
   it('asks through the runner routes, with its runner secret', () => {
     assert.equal(RUNNER_APP_RELEASE_PATH, '/agent/app-release');
     const agentHttp = read('../agentHttp.ts');
-    assert.match(agentHttp, /RUNNER_APP_RELEASE_PATH\] as const/);
+    assert.match(agentHttp, /AGENT_ROUTES = \[[^\]]*RUNNER_APP_RELEASE_PATH,?\s*\] as const/);
     // The release check sits after the secret check, like every runner route.
     assert.ok(agentHttp.indexOf('internal.agent.touchRunner') < agentHttp.indexOf('internal.runnerApp.latestForRunner'));
   });
