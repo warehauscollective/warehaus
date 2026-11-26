@@ -55,6 +55,15 @@ Do not target production `unique-turtle-383`. Do not pass `--prod`. Do not run `
 
 Shared dev still uses the production Notion token. A local preview that writes can touch the real Warehaus Notion. The test Notion spec is coming. Until that exists, treat a preview write as a write to live Notion.
 
+## Clients and platforms
+
+Decided by Peter, 2026-11-25. Full record: `docs/adr/0006-multi-platform-portal.md`.
+
+- Convex is the one API for every client: web, the Mac app, and the later Expo app. Put new product logic in Convex or `packages/*`, never in a Next page. The Next server routes (auth, MCP, Notion sync, webhook) stay server-only.
+- New code takes the tenant from the signed-in user, not from host headers alone, so a native client can pass it.
+- Pages and components never import `@warehaus/native-bridge` or read the user agent. Ask `useShell()` what the shell can do. Only the shell sync module in `PortalShell` talks to the bridge.
+- A change to a bridge message changes the TypeScript copy, the Swift copy and `packages/native-bridge/fixtures/messages.json` in the same pull request.
+
 ## Design source
 
 One Figma file holds every Portal design: [Warehaus Studio](https://www.figma.com/design/TS3DcaCgrIdYf0jhvnMy3k/Warehaus-Studio?node-id=689-31057) (file key `TS3DcaCgrIdYf0jhvnMy3k`). Read it through the Figma connector before building or changing a screen.

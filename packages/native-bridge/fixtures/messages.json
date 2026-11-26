@@ -1,0 +1,154 @@
+{
+  "valid": [
+    {
+      "name": "shell hello from the Mac app",
+      "direction": "shellToPage",
+      "message": {
+        "type": "shell.hello",
+        "bridgeVersion": 1,
+        "platform": "macos",
+        "appVersion": "1.0.0",
+        "capabilities": ["badge", "notify", "openExternal"]
+      }
+    },
+    {
+      "name": "shell hello with no capabilities",
+      "direction": "shellToPage",
+      "message": {
+        "type": "shell.hello",
+        "bridgeVersion": 1,
+        "platform": "macos",
+        "appVersion": "1.2.10",
+        "capabilities": []
+      }
+    },
+    {
+      "name": "navigate to a milestone",
+      "direction": "shellToPage",
+      "message": { "type": "navigate", "url": "warehaus://milestone/nn77zctgc8wm54zmdkfxr5zntd8jwsh4" }
+    },
+    {
+      "name": "attention with nothing waiting",
+      "direction": "pageToShell",
+      "message": { "type": "attention", "count": 0, "alerts": [] }
+    },
+    {
+      "name": "attention with an Ask and a Ready to Ship alert",
+      "direction": "pageToShell",
+      "message": {
+        "type": "attention",
+        "count": 2,
+        "alerts": [
+          {
+            "id": "q575ty9z3709wdsy9a4cnthxbh8jx9gt",
+            "kind": "ask",
+            "title": "Approve Runner on production",
+            "url": "warehaus://milestone/nn7dv5y1gzxvk1d28jz0rj1p018jv75e",
+            "createdAt": 1795591788567
+          },
+          {
+            "id": "q576ft1sp1axzqc4709j66x3758jxe62",
+            "kind": "readyToShip",
+            "title": "Mac app: Portal window is Ready to Ship",
+            "url": "warehaus://milestone/nn77zctgc8wm54zmdkfxr5zntd8jwsh4",
+            "createdAt": 1795591270135
+          }
+        ]
+      }
+    },
+    {
+      "name": "open an external link",
+      "direction": "pageToShell",
+      "message": { "type": "openExternal", "url": "https://github.com/warehauscollective/warehaus/pull/185" }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "not an object",
+      "direction": "shellToPage",
+      "message": "shell.hello"
+    },
+    {
+      "name": "unknown type",
+      "direction": "shellToPage",
+      "message": { "type": "shell.goodbye" }
+    },
+    {
+      "name": "page message sent by the shell",
+      "direction": "shellToPage",
+      "message": { "type": "attention", "count": 0, "alerts": [] }
+    },
+    {
+      "name": "shell message sent by the page",
+      "direction": "pageToShell",
+      "message": { "type": "navigate", "url": "warehaus://milestone/abc" }
+    },
+    {
+      "name": "hello from a newer bridge",
+      "direction": "shellToPage",
+      "message": { "type": "shell.hello", "bridgeVersion": 2, "platform": "macos", "appVersion": "2.0.0", "capabilities": [] }
+    },
+    {
+      "name": "hello with an unknown capability",
+      "direction": "shellToPage",
+      "message": { "type": "shell.hello", "bridgeVersion": 1, "platform": "macos", "appVersion": "1.0.0", "capabilities": ["camera"] }
+    },
+    {
+      "name": "hello with a bad app version",
+      "direction": "shellToPage",
+      "message": { "type": "shell.hello", "bridgeVersion": 1, "platform": "macos", "appVersion": "latest", "capabilities": [] }
+    },
+    {
+      "name": "navigate to a web URL",
+      "direction": "shellToPage",
+      "message": { "type": "navigate", "url": "https://portal.warehaus.co/milestone/abc" }
+    },
+    {
+      "name": "attention with a negative count",
+      "direction": "pageToShell",
+      "message": { "type": "attention", "count": -1, "alerts": [] }
+    },
+    {
+      "name": "attention with a fractional count",
+      "direction": "pageToShell",
+      "message": { "type": "attention", "count": 1.5, "alerts": [] }
+    },
+    {
+      "name": "attention alert of an unknown kind",
+      "direction": "pageToShell",
+      "message": {
+        "type": "attention",
+        "count": 1,
+        "alerts": [{ "id": "a", "kind": "chat", "title": "Hi", "url": "warehaus://milestone/abc", "createdAt": 1 }]
+      }
+    },
+    {
+      "name": "attention alert with an empty title",
+      "direction": "pageToShell",
+      "message": {
+        "type": "attention",
+        "count": 1,
+        "alerts": [{ "id": "a", "kind": "ask", "title": " ", "url": "warehaus://milestone/abc", "createdAt": 1 }]
+      }
+    },
+    {
+      "name": "attention alert linking outside warehaus",
+      "direction": "pageToShell",
+      "message": {
+        "type": "attention",
+        "count": 1,
+        "alerts": [{ "id": "a", "kind": "ask", "title": "Approve", "url": "https://example.com", "createdAt": 1 }]
+      }
+    },
+    {
+      "name": "open an http link",
+      "direction": "pageToShell",
+      "message": { "type": "openExternal", "url": "http://example.com" }
+    },
+    {
+      "name": "open a file link",
+      "direction": "pageToShell",
+      "message": { "type": "openExternal", "url": "file:///etc/passwd" }
+    }
+  ]
+}

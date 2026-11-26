@@ -12,6 +12,7 @@ export const RUNNER_PATHS = Object.freeze({
   tasks: '/agent/tasks',
   complete: '/agent/complete',
   build: '/agent/build',
+  unpair: '/agent/unpair',
 });
 
 /** Pairing a new runner. These two routes take no runner token. */
@@ -46,7 +47,8 @@ export function isMilestoneBranch(value) {
 
 /**
  * The runner's HTTP client for /agent. Every call is a POST with the runner
- * token and id. A non-2xx answer throws `Error("<path>: <reason>")`.
+ * token and id. A non-2xx answer throws `Error("<path>: <reason>")` with the
+ * HTTP status on `error.status`.
  * Planning failure still travels as `/agent/complete` with `kind: 'planning'`
  * so a runner built from main keeps working against an older deployment.
  */
@@ -76,7 +78,9 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
       }
       if (!response.ok) {
         const reason = data && typeof data.error === 'string' ? data.error : `HTTP ${response.status}`;
-        throw new Error(`${path}: ${reason}`);
+        const error = new Error(`${path}: ${reason}`);
+        error.status = response.status;
+        throw error;
       }
       return data ?? {};
     } finally {
@@ -86,7 +90,11 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
 
   return {
     post,
-    claim: ({ mode, repos }) => post(RUNNER_PATHS.claim, { mode, repos }),
+    claim: ({ mode, repos, paused }) => post(RUNNER_PATHS.claim, { mode, repos, ...(paused != null ? { paused } : {}) }),
+    // The runner app sends `paused` on every call so the Portal can show Paused.
+    ping: ({ paused } = {}) => post('/agent/ping', paused != null ? { paused } : {}),
+    // The runner revoking its own registration, for Remove this runner in the app.
+    unpair: () => post(RUNNER_PATHS.unpair, {}),
     event: ({ runId, type, summary }) => post(RUNNER_PATHS.events, { runId, type, summary }),
     writeTasks: ({ runId, tasks }) => post(RUNNER_PATHS.tasks, { runId, tasks }),
     completeTask: ({ runId, status, commitSha, reason, prUrl }) =>

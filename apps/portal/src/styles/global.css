@@ -26,6 +26,23 @@ main {
   min-height: 100dvh;
 }
 
+/* Mac app window (ADR-0006). The head boot script sets data-shell="mac" inside
+   the app. The native title bar is transparent and draws the window buttons
+   over a 40px drag strip, so the page starts below it. A browser keeps 0. */
+:root {
+  --shell-inset-top: 0px;
+}
+html[data-shell='mac'] {
+  --shell-inset-top: 40px;
+}
+html[data-shell='mac'] .portal-chrome {
+  padding-top: var(--shell-inset-top);
+}
+html[data-shell='mac'] .portal-chrome main {
+  min-height: 0;
+  height: calc(100dvh - var(--shell-inset-top));
+}
+
 /* Staff source titles. Foreground keeps contrast on the light rail.
    --info is 3.62:1 there, so it is not a link color. */
 .ds-scope a.task-source-link {
@@ -275,7 +292,7 @@ html.light .ds-scope {
 @media (min-width: 1024px) {
   html[data-sidebar='collapsed'] [data-testid='portal-sidebar'] {
     position: fixed;
-    top: 24px;
+    top: calc(24px + var(--shell-inset-top, 0px));
     left: 24px;
     z-index: 30;
     box-sizing: border-box;
@@ -929,7 +946,7 @@ body:has([data-dock-layer='task']):not(:has(.portal-modal-scrim:not([data-dock-l
 }
 @media (min-width: 1024px) {
   .portal-created-toast {
-    top: 72px;
+    top: calc(72px + var(--shell-inset-top, 0px));
     bottom: auto;
   }
 }
