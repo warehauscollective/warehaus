@@ -660,8 +660,11 @@ describe('usage limit', () => {
   });
 
   it('tells the app why the runner waits, and the loop checks the hold before it claims', () => {
-    const line = supervisorLine('attention', { reason: 'usage_limit', until: 2, resetsAt: 1, at: 1 });
-    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), { type: 'attention', reason: 'usage_limit', until: 2, resetsAt: 1, at: 1 });
+    const line = supervisorLine('waiting', { reason: 'usage_limit', until: 2, resetsAt: 1, at: 1 });
+    assert.deepEqual(JSON.parse(line.slice(SUPERVISOR_PREFIX.length)), { type: 'waiting', reason: 'usage_limit', until: 2, resetsAt: 1, at: 1 });
+    assert.throws(() => supervisorLine('waiting', { reason: 'bored' }));
+    // Not an attention reason: nobody has to act, and the Mac app checks every attention reason is one it knows.
+    assert.throws(() => supervisorLine('attention', { reason: 'usage_limit' }));
     const cli = read('./cli.mjs');
     // One runner-wide hold, checked before the slot check and the claim, and released runs never complete as failed.
     assert.equal(cli.match(/usageHold\(\)/g)?.length, 1);

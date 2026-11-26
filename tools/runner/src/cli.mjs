@@ -182,7 +182,7 @@ function holdForUsage(limit) {
   if (!moved) return;
   const when = limit.resetsAt ? `resets ${new Date(limit.resetsAt).toLocaleString()}` : 'no reset time given';
   say(`Claude hit its usage limit (${when}). Taking no new work until ${new Date(usage.until).toLocaleString()}.`);
-  report('attention', { reason: 'usage_limit', until: usage.until, resetsAt: limit.resetsAt });
+  report('waiting', { reason: 'usage_limit', until: usage.until, resetsAt: limit.resetsAt });
 }
 
 /**

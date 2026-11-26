@@ -613,6 +613,8 @@ export const SUPERVISOR_EVENTS = Object.freeze([
   'finished',
   'paused',
   'attention',
+  // Waiting on something that ends on its own, with `reason` and `until`. Not a person's job.
+  'waiting',
   // `setup --supervised`: the app shows the code and opens the Portal itself.
   'pairing',
   'paired',
@@ -620,18 +622,20 @@ export const SUPERVISOR_EVENTS = Object.freeze([
   // `app-release`: the latest runner app build, for the app's self-update.
   'app_release',
 ]);
+export const ATTENTION_REASONS = Object.freeze(['unauthorized', 'out_of_date', 'github', 'unreachable', 'not_paired']);
 /**
- * Why the runner needs attention. `usage_limit` is not a person's job: Claude
- * hit the account usage limit, and the line carries `until`, when the runner
- * takes work again, and `resetsAt`, the reset Claude named or null. An app
- * build that does not know a reason drops the line.
+ * Why the runner is waiting, on a `waiting` line. `usage_limit`: Claude hit the
+ * account usage limit; the line carries `until`, when the runner takes work
+ * again, and `resetsAt`, the reset Claude named or null. An app build that does
+ * not know the `waiting` type drops the line.
  */
-export const ATTENTION_REASONS = Object.freeze(['unauthorized', 'out_of_date', 'github', 'unreachable', 'not_paired', 'usage_limit']);
+export const WAITING_REASONS = Object.freeze(['usage_limit']);
 
 /** One state line for the app. Unknown types throw: the Swift side would drop them. */
 export function supervisorLine(type, fields = {}) {
   if (!SUPERVISOR_EVENTS.includes(type)) throw new Error(`Unknown supervisor event ${type}`);
   if (type === 'attention' && !ATTENTION_REASONS.includes(fields.reason)) throw new Error(`Unknown attention reason ${fields.reason}`);
+  if (type === 'waiting' && !WAITING_REASONS.includes(fields.reason)) throw new Error(`Unknown waiting reason ${fields.reason}`);
   return `${SUPERVISOR_PREFIX}${JSON.stringify({ type, ...fields, at: fields.at ?? Date.now() })}\n`;
 }
 
