@@ -44,6 +44,7 @@ Every plan or feature follows this. Cursor agents, Claude agents, and Grok bots 
 - Peter never approves in Notion. He does not give the OK in Notion, and he does not interact with Notion directly.
 - Agents record his decision in Notion and the Portal on his behalf, with the date and where he said it. Notion is the agents' back office.
 - After that approval, the code can merge and the milestone can close. Merging does not deploy. A production deploy still needs Peter's explicit "deploy main", from `main` only.
+- Ship and deploy (ADR-0007, decided 2026-11-26): at Ready to Ship, Peter's press of the Ship and deploy button in the Portal counts as his approval, the merge and "deploy main" for that milestone. The GitHub `ship` workflow then merges and deploys; agents still never deploy themselves. Warehaus Portal project only, until other projects have a deploy setting.
 
 ### Asks
 

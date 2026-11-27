@@ -38,6 +38,22 @@ _Avoid_: milestone tasks, linked tasks, close set
 A milestone moving from one Status to another. Every status change passes the same gate, writes one activity row, and runs what that status asks for on the way in and out, such as Peter's approval note on entering Ready to Ship. The cause says why it moved: set by a person or the staff API, play, Mark complete, a merge, or a review asking for changes.
 _Avoid_: status write, transition, status update
 
+**Milestone branch**:
+The one branch a milestone's code lives on, `milestone/<slug>`. Every task commits straight to it, and it has one pull request into `main`. At Ready to Ship every task is on it, and the local preview runs from it.
+_Avoid_: feature branch, task branch, sub-branch
+
+**Ship and deploy**:
+The button at Ready to Ship that only Peter can press, in the Portal, after a confirm step. It counts as his approval, the merge and "deploy main" for that milestone. It shows only when the milestone has an open pull request into `main` and its project has a deploy setting (Warehaus Portal for now). ADR-0007.
+_Avoid_: release button, deploy button, ship it
+
+**Ship run**:
+One run of the GitHub `ship` workflow that Ship and deploy starts: check the merged code, squash-merge, then deploy Convex and Vercel from one commit. A project has at most one at a time. A failed ship run shows its step, opens an Ask on Peter, and Retry resumes from the step that failed.
+_Avoid_: deploy job, release pipeline
+
+**Deployed commit**:
+The `main` commit a project's production is running, saved by each successful ship run. Every milestone merged at or before it counts as deployed; a milestone merged later shows Not deployed.
+_Avoid_: release, live version
+
 ## Tasks
 
 **Task change**:

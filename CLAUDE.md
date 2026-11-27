@@ -19,6 +19,7 @@ Approved by Peter in Grok Bot (Portal room), 2026-11-17, 11:46 AM ET. Canonical 
 - On his Mac: `npm run preview:pr -- <branch>`. It prints the localhost URL, refuses a production Convex URL, and does not run `convex dev`.
 - Peter's feedback becomes iteration tasks in the same milestone.
 - Nothing merges or goes live until Peter approves in Grok Bot chat or the Portal. Peter never approves in Notion. Merging does not deploy. Production still needs his explicit "deploy main", from `main` only.
+- Exception (ADR-0007): Peter pressing Ship and deploy at Ready to Ship in the Portal is his approval, merge and "deploy main" for that milestone. Only the GitHub `ship` workflow then deploys; agents never do.
 - Keep Convex usage low: indexed reads, bounded pagination, no whole-table scans, skip no-op writes, no lingering `convex dev`.
 
 Open item: shared dev still uses the production Notion token, so a local preview that writes can touch the real Warehaus Notion. The test Notion spec is coming.
