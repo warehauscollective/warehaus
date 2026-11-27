@@ -319,3 +319,55 @@ A bare `+` used as an icon in three places is now Add: the column add button in 
 - Play Linear at 10px on the advance button is lighter than the old filled triangle (flag 3). A Bold Play still needs Peter's yes.
 - The older file icons were drawn smaller inside their box (the 12px chevron, the 7px lock). The Iconsax drawings fill the box, so chevrons and locks read slightly larger. Check rows and the status menu in Dark and Light at 1440 and 390.
 - Tests that named an icon file now look for the icon by `data-icon`.
+
+## Task 07: visual QA against Figma
+
+Done 2026-11-26. Result: **pass, with one code fix made here and the follow-ups listed below.** None of the follow-ups is a wrong icon.
+
+### How it was checked
+
+- The build ran locally in fixture mode (`NEXT_PUBLIC_PORTAL_FIXTURES=1`, no Convex, no production). It is not the shared dev preview Peter approves from.
+- 28 screens and states were captured in Dark and Light at 1440 and 390: 112 captures. On each one, every `<Icon>` on the page was read from the DOM: name, Linear or Bold, drawn size and drawn colour. 1,282 icons in all.
+- In Figma, the same was read from 73 frames across Dashboard, Projects, Resources, Activity, Account and Onboarding: every `Atom/Icon` instance with its name, style, size and colour, plus any small loose vector or icon character that is not from the set.
+- The two lists were compared, then the Project page (all four frames), Activity, the status menu, the invite card and the `Atom/Icon` set were compared by eye.
+- Screenshots: `apps/portal/qa/iconsax-icons/`, 56 files named `<screen>-<dark|light>-<1440|390>.png`.
+
+Not reached in fixture mode, so not checked on screen: the task modal, the create task and attach pickers, the milestone details editor, the confirm dialogs, the docs list, team and invites, API tokens. Their icons were checked in code against the map only.
+
+### What matches
+
+- **One set.** Every icon on every capture is an `<Icon>`. The only picture files left on screen are the logo and the state marks (`task-check-open`, `docs-dot-off`). Figma has no loose icon drawing left on the 73 frames; what the scan found is the logo and the `Corner bracket` decoration.
+- **Style.** Linear everywhere. Bold only on the active dock tab, on the right tab on every screen where the dock shows, in both themes and both widths.
+- **Names.** Every icon that appears in both a frame and its screen has the same name: the dock (Element3, Kanban, BookSaved, Activity, Profile), SearchNormal, HamburgerMenu, the banner (Warning2, X), the tile (Monitor, More, Lock in Staff only), the status control (ArrowDown2, Play), the status menu (Check, Lock), resource rows (Microphone, DocumentText, ArrowRight2), search (SearchNormal, Layer), the mobile menu (SearchNormal, Notification, ArrowRight2), and the invite card (Lock, Eye, RecordCircle, Profile2User, Clock, Sms).
+- **Sizes.** Dock 16, search button 20, banner 16, tile link 16, status chevron 12, Play 10, Staff only lock 12, status menu lock 14 and tick 16: the same in the frame and the build. Invite state icons are 20 in the build; the card frames were compared by eye, not measured.
+- **Dark and Light.** Icon colours are theme variables. Muted reads `#a4a4a4` in Dark and `#525252` in Light in both Figma and the build. No icon keeps a Dark colour in Light. The review card gallery (`/preview/approvals`) takes its own theme from the URL, so it was captured in Dark only.
+- **Flag 7 (older drawings).** The 33 older Linear variants in `Atom/Icon` and the package drawings in the build look the same at 16px on the Project page and the dock. No variant needs a redraw.
+- **Flag 3 (Play).** Play Linear at 10px reads clearly on the advance button in both themes at both widths, and matches the frame. No Bold Play is needed.
+- **Chevrons and locks.** The Iconsax drawings fill their box, so they read slightly larger than the old files, as task 06 said. Rows and the status menu still line up. The frames show the same.
+
+### Fixed in this task
+
+- **Failed sync chip.** The alert mark was a grey file inside the red chip. After the swap it took the chip's red. It is `color="muted"` again (`sync/SyncChip.tsx`). This was the only place where the swap changed an icon's colour: the other old files were painted with the text colour of their parent, and still are.
+
+### Follow-ups
+
+Figma (Product Design Lead, same milestone):
+
+1. **Back link at 390.** The frames still have `‹` inside the label (`‹ Projects`, `‹ Account`, `‹ Client experience launch`, `‹ VISIT App`). The build draws ArrowLeft2 at 14px, then the label.
+2. **Close marks.** Search at 390 has a `✕` text layer and the task modal at 1440 has `✕  Close`. The build draws X.
+3. **Active dock tab.** The Bold icon on the active tab is still `portal/muted` in the frames. The build draws it in the pill's ink colour, the same as the label, as it did before this milestone.
+4. **`icon/moon` on the sidebar theme toggle** (Staff notices, Client invites review, Profile) is a loose vector. Swap it for Moon.
+
+Where the frame and the build differed before this milestone, and still do. These are colour and size choices, not icon choices, so they were left for Peter to decide:
+
+5. **Need a milestone banner.** The frame shows Warning2 in muted. The build shows it in the warning colour, as the old filled triangle was.
+6. **Row lead icons on Activity and Dashboard.** Frames: 18px, muted. Build: 16px, in the text colour. There is no 18 size token.
+7. **More button on the tile.** Frame: 16px. Build: 14px.
+8. **Status menu tick, mobile menu icons, search quick links, back arrow, tile preview link.** Frame: muted. Build: the text colour of the row or button.
+9. **Notice bell at 1440.** The build has it top right. The 1440 frames do not show it.
+
+Also seen, outside icons: the Projects list frames have Filter and sort controls that the fixture build does not show, and the Activity frame has no dock. Neither is part of this milestone.
+
+### Checks
+
+Portal typecheck passes. Portal tests pass, 1439 of 1439.

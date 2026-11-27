@@ -52,7 +52,7 @@ export function SyncChip({
           }}
         >
           {state === 'synced' ? <Icon name="Check" size="xs" /> : null}
-          {problem ? <Icon name="Warning2" size="xs" /> : null}
+          {problem ? <Icon name="Warning2" size="xs" color="muted" /> : null}
           {pillLabel(row)}
         </span>
       ) : null}
