@@ -15,6 +15,7 @@ import {
   useSensors,
   type CollisionDetection,
   type DragEndEvent,
+  type DragMoveEvent,
   type DragOverEvent,
 } from '@dnd-kit/core';
 import {
@@ -48,7 +49,32 @@ type MoveRequest = {
   mode: BoardMode;
   value: string;
   pullRequestLink?: string;
+  /** The answer to the board's ask. The milestone board saves it as the next action. */
+  answer?: string;
 };
+
+/** Copy for a NeedsDialog that asks one question other than the pull request link. */
+export type NeedsCopy = {
+  title: string;
+  body: (taskName: string) => string;
+  label: string;
+  placeholder: string;
+  /** Shown when the answer is empty. */
+  required: string;
+  submit: string;
+  maxLength?: number;
+};
+
+/** A status column that asks one question before a card lands in it. The milestone board asks on Blocked. */
+export type BoardAsk = { status: string; copy: NeedsCopy };
+
+/** The ask a move to `value` raises, or null. Status columns only. */
+export function boardAskFor(ask: BoardAsk | undefined, mode: BoardMode, value: string): BoardAsk | null {
+  return ask && mode === 'status' && ask.status === value ? ask : null;
+}
+
+/** Phone columns on a framed board: fixed width, side by side, scrolled sideways. */
+export const PHONE_LANE_WIDTH = 220;
 
 const GROUP_KEY = 'wh-task-board-group';
 
@@ -93,7 +119,8 @@ export function stageSavedFeedback(input: {
 
 /** Equal tracks. Emptying a column does not change the template, so the row does not jump. */
 export function boardColumnTemplate(count: number, phone: boolean, framed = false): string {
-  if (phone) return 'minmax(0, 1fr)';
+  // The milestone board keeps every lane on a phone and scrolls sideways. Other boards show one lane per tab.
+  if (phone) return framed ? `repeat(${Math.max(count, 1)}, ${PHONE_LANE_WIDTH}px)` : 'minmax(0, 1fr)';
   // 12rem is the milestone frame, so five lanes fit that board. Other boards keep 12.75rem.
   const track = framed ? '12rem' : '12.75rem';
   return `repeat(${Math.max(count, 1)}, minmax(${track}, 1fr))`;
@@ -121,6 +148,106 @@ export function flagOffDropMessage(result: { ok: boolean; error?: string }): str
   return null;
 }
 
+/**
+ * The status columns a board asked for, in that order. A board that names its
+ * statuses shows those lanes and no others, so it has no Inbox lane and no
+ * lane for a status it did not name.
+ */
+export function pickStatusColumns<T extends { key: string; label: string }>(
+  columns: readonly T[],
+  statuses: readonly string[] | undefined,
+): T[] {
+  if (!statuses) return [...columns];
+  return statuses.flatMap((status) => columns.filter((column) => column.key === status));
+}
+
+/** Moves and adds need staff, the staff move rules, and a board that is not read-only. */
+export function boardCanChange(input: { staff: boolean; actor: 'staff' | 'client' | undefined; readOnly: boolean }): boolean {
+  return input.staff && input.actor === 'staff' && !input.readOnly;
+}
+
+/** One column whose cards staff move up and down. The milestone board names To Do: its order is the run order. */
+export type BoardReorder = {
+  status: string;
+  /** The order holds still. Cards still move between columns. */
+  locked: boolean;
+  /** Shown in the column header while locked. */
+  lockedLabel: string;
+  /** `ids` is the column's cards in their new order, top first. */
+  onReorder: (input: { task: PortalTask; ids: string[] }) => Promise<{ ok: boolean; error?: string }>;
+};
+
+/**
+ * The milestone card face. The run number shows in `runStatus` only, top
+ * first. The origin badge and the PR chip are staff only. A board without it
+ * keeps the default face.
+ */
+export type BoardCard = {
+  runStatus: string;
+  origin?: (task: PortalTask) => string | null;
+  pullRequest?: (task: PortalTask) => string | null;
+  /** A mark before the card's name, such as the Building indicator on the task being built. */
+  leading?: (task: PortalTask) => ReactNode | null;
+  /** The kind chip after the origin, `Design` on a design task. Staff only. */
+  kind?: (task: PortalTask) => string | null;
+  /** A muted line under the chips, such as "Waits for design approval". Staff only. */
+  note?: (task: PortalTask) => string | null;
+};
+
+/** What one card shows beyond its name and child count. */
+export type CardFace = {
+  run: string | null;
+  origin: string | null;
+  pullRequest: string | null;
+  leading?: ReactNode | null;
+  kind?: string | null;
+  note?: string | null;
+};
+
+/** `01`, `02`, … by place in the run column. */
+export function runNumbers(ids: readonly string[]): Map<string, string> {
+  return new Map(ids.map((id, index) => [id, String(index + 1).padStart(2, '0')] as const));
+}
+
+export const ORDER_NOT_SAVED = 'Couldn’t save the order. Moved back.';
+
+/** Each column's cards in the order the board was given them, in place of due date order. */
+export function columnsInGivenOrder<T extends { id: string }, C extends { tasks: T[] }>(columns: readonly C[], given: readonly T[]): C[] {
+  const position = new Map(given.map((task, index) => [task.id, index] as const));
+  const at = (task: T) => position.get(task.id) ?? Number.MAX_SAFE_INTEGER;
+  return columns.map((column) => ({ ...column, tasks: [...column.tasks].sort((a, b) => at(a) - at(b)) }));
+}
+
+/** Where a card from another column lands when columns keep the given order. */
+export function givenOrderSlot<T extends { id: string }>(resting: readonly T[], card: T, given: readonly T[]): number {
+  const position = new Map(given.map((task, index) => [task.id, index] as const));
+  const own = position.get(card.id) ?? Number.MAX_SAFE_INTEGER;
+  const index = resting.findIndex((task) => (position.get(task.id) ?? Number.MAX_SAFE_INTEGER) > own);
+  return index === -1 ? resting.length : index;
+}
+
+/** The slot under a lifted card: how many resting cards have their middle above the card's middle. */
+export function reorderSlot(restingMiddles: readonly number[], liftedMiddle: number): number {
+  return restingMiddles.filter((middle) => middle < liftedMiddle).length;
+}
+
+/** The column's ids with one card moved to a slot among the others. Null when nothing moves. */
+export function movedOrder(ids: readonly string[], id: string, slot: number): string[] | null {
+  if (!ids.includes(id)) return null;
+  const rest = ids.filter((item) => item !== id);
+  const next = [...rest];
+  next.splice(Math.max(0, Math.min(slot, rest.length)), 0, id);
+  return next.every((item, index) => item === ids[index]) ? null : next;
+}
+
+/** A column's cards in an order still being saved. A card the order does not name stays last. */
+export function applyPendingOrder<T extends { id: string }>(tasks: readonly T[], ids: readonly string[] | null): T[] {
+  if (!ids) return [...tasks];
+  const position = new Map(ids.map((id, index) => [id, index] as const));
+  const at = (task: T) => position.get(task.id) ?? Number.MAX_SAFE_INTEGER;
+  return [...tasks].sort((a, b) => at(a) - at(b));
+}
+
 export function readBoardMode(): BoardMode {
   if (typeof window === 'undefined') return 'status';
   return window.localStorage.getItem(GROUP_KEY) === 'stage' ? 'stage' : 'status';
@@ -138,6 +265,13 @@ export function TaskBoard({
   showQuickAdd = true,
   hideGroupToggle = false,
   framed = false,
+  statuses,
+  quickAddStatuses,
+  readOnly = false,
+  keepOrder = false,
+  reorder,
+  ask,
+  card,
 }: {
   tasks: PortalTask[];
   staff: boolean;
@@ -155,10 +289,29 @@ export function TaskBoard({
   hideGroupToggle?: boolean;
   /** Shared lane surface, equal heights, and the inset fade. Only the milestone board turns this on. */
   framed?: boolean;
+  /** Status columns to show, in order. Unset shows every live status. The milestone board names four. */
+  statuses?: readonly string[];
+  /** Status columns that take a new task. Unset means every column. */
+  quickAddStatuses?: readonly string[];
+  /** Cards still open. Nothing moves and nothing is added. Clients and Shipped milestones. */
+  readOnly?: boolean;
+  /** Columns keep the order of `tasks`, not due date order. The milestone board passes milestone order. */
+  keepOrder?: boolean;
+  /** The status column staff reorder by drag. Status mode only, and never on a phone. */
+  reorder?: BoardReorder;
+  /** A status column that asks one question before a card lands in it. The answer rides on the move. */
+  ask?: BoardAsk;
+  /** The milestone card face: run number, origin badge, child count, PR chip. */
+  card?: BoardCard;
 }) {
+  const boardRef = useRef<HTMLDivElement>(null);
+  const [slot, setSlot] = useState<number | null>(null);
+  const [pendingOrder, setPendingOrder] = useState<string[] | null>(null);
   const [mode, setMode] = useState<BoardMode>('status');
   const [phone, setPhone] = useState(false);
-  const framedSurface = framed && !phone;
+  const framedSurface = framed;
+  /** A framed board keeps every lane on a phone. Other boards show one lane per tab. */
+  const phoneTabs = phone && !framed;
   const [overrides, setOverrides] = useState<Record<string, { mode: BoardMode; value: string; pending?: boolean }>>({});
   const [failed, setFailed] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<{ message: string; retry?: () => void; undo?: () => void } | null>(null);
@@ -170,6 +323,7 @@ export function TaskBoard({
   const [tab, setTab] = useState<string | null>(null);
   const [moveTask, setMoveTask] = useState<PortalTask | null>(null);
   const [needs, setNeeds] = useState<{ task: PortalTask; value: string; rule: MoveRule } | null>(null);
+  const [asking, setAsking] = useState<{ task: PortalTask; value: string; copy: NeedsCopy } | null>(null);
   const [quick, setQuick] = useState<string | null>(null);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }));
 
@@ -196,13 +350,35 @@ export function TaskBoard({
       }),
     [tasks, overrides],
   );
-  const columns = useMemo(
-    () => boardColumns(boardLaneTasks(viewTasks), mode, staff ? 'staff' : 'client'),
-    [viewTasks, mode, staff],
-  );
+  const columns = useMemo(() => {
+    const lanes = boardLaneTasks(viewTasks);
+    const sorted = boardColumns(lanes, mode, staff ? 'staff' : 'client');
+    const all = keepOrder ? columnsInGivenOrder(sorted, lanes) : sorted;
+    const picked = mode === 'status' ? pickStatusColumns(all, statuses) : all;
+    if (mode !== 'status' || !reorder || !pendingOrder) return picked;
+    return picked.map((column) =>
+      column.key === reorder.status ? { ...column, tasks: applyPendingOrder(column.tasks, pendingOrder) } : column,
+    );
+  }, [viewTasks, mode, staff, statuses, keepOrder, reorder, pendingOrder]);
+  const canChange = boardCanChange({ staff, actor: rules?.actor, readOnly });
   const activeTab = tab && columns.some((column) => column.key === tab) ? tab : columns[0]?.key ?? null;
-  const shown = phone ? columns.filter((column) => column.key === activeTab) : columns;
-  const canDrag = staff && !phone && rules?.actor === 'staff';
+  const shown = phoneTabs ? columns.filter((column) => column.key === activeTab) : columns;
+  const canDrag = canChange && !phone;
+  const cardFace = useMemo(() => {
+    if (!card) return undefined;
+    const runColumn = mode === 'status' ? columns.find((column) => column.key === card.runStatus) : undefined;
+    const runs = runNumbers((runColumn?.tasks ?? []).map((task) => task.id));
+    return (task: PortalTask): CardFace => ({
+      run: runs.get(task.id) ?? null,
+      origin: staff ? card.origin?.(task) ?? null : null,
+      pullRequest: staff ? card.pullRequest?.(task) ?? null : null,
+      leading: card.leading?.(task) ?? null,
+      kind: staff ? card.kind?.(task) ?? null : null,
+      note: staff ? card.note?.(task) ?? null : null,
+    });
+  }, [card, columns, mode, staff]);
+  const reorderStatus = mode === 'status' && reorder ? reorder.status : null;
+  const canReorder = canDrag && reorderStatus != null && reorder != null && !reorder.locked;
 
   const chooseMode = (next: BoardMode) => {
     setMode(next);
@@ -210,7 +386,7 @@ export function TaskBoard({
     window.localStorage.setItem(GROUP_KEY, next);
   };
 
-  const actor = (): MoveActor => (staff && rules?.actor === 'staff' ? 'staff' : 'client');
+  const actor = (): MoveActor => (canChange ? 'staff' : 'client');
 
   const dropFrom = (task: PortalTask) => (mode === 'stage' ? task.stage ?? '' : task.status);
 
@@ -222,7 +398,7 @@ export function TaskBoard({
     setToast({ message: reason });
   };
 
-  const commit = async (task: PortalTask, value: string, pullRequestLink?: string) => {
+  const commit = async (task: PortalTask, value: string, pullRequestLink?: string, answer?: string) => {
     const previous = mode === 'stage' ? task.stage ?? '' : task.status;
     if (previous === value) return;
     setOverrides((current) => ({ ...current, [task.id]: { mode, value } }));
@@ -232,7 +408,7 @@ export function TaskBoard({
       return next;
     });
     setLive(`Moved ${task.name} to ${value}. Saving.`);
-    const result = await onMove({ task, mode, value, pullRequestLink });
+    const result = await onMove({ task, mode, value, pullRequestLink, ...(answer !== undefined ? { answer } : {}) });
     const clearOverride = () => {
       setOverrides((current) => {
         const next = { ...current };
@@ -252,7 +428,7 @@ export function TaskBoard({
       setFailed((current) => ({ ...current, [task.id]: result.error ?? 'Couldn’t save. Moved back.' }));
       setToast({
         message: result.error ?? 'Couldn’t save. Moved back.',
-        retry: () => void commit(task, value, pullRequestLink),
+        retry: () => void commit(task, value, pullRequestLink, answer),
       });
       setLive(`${task.name} moved back. ${result.error ?? 'Couldn’t save.'}`);
       return;
@@ -274,15 +450,73 @@ export function TaskBoard({
     setLive(`${saved.message}.`);
   };
 
+  /** A move the rules allow. A column with an ask opens its dialog first, and the answer saves with the move. */
+  const move = (task: PortalTask, value: string) => {
+    const question = boardAskFor(ask, mode, value);
+    if (question) setAsking({ task, value, copy: question.copy });
+    else void commit(task, value);
+  };
+
+  const commitOrder = async (task: PortalTask, ids: string[]) => {
+    if (!reorder) return;
+    setPendingOrder(ids);
+    const place = `${ids.indexOf(task.id) + 1} of ${ids.length}`;
+    setLive(`Moved ${task.name} to ${place} in ${reorder.status}. Saving.`);
+    const result = await reorder.onReorder({ task, ids });
+    setPendingOrder(null);
+    if (result.ok) {
+      setLive(`${task.name} is ${place} in ${reorder.status}.`);
+      return;
+    }
+    const message = result.error ?? ORDER_NOT_SAVED;
+    setToast({ message, retry: () => void commitOrder(task, ids) });
+    setLive(`${task.name} moved back. ${message}`);
+  };
+
+  /** A card dropped, or stepped with the arrow keys, inside the reorder column. */
+  const reorderTo = (task: PortalTask, slotFor: (ids: string[]) => number) => {
+    if (!reorder || !canReorder || pendingOrder) return;
+    const column = columns.find((item) => item.key === reorder.status);
+    if (!column) return;
+    const current = column.tasks.map((item) => item.id);
+    const ids = movedOrder(current, task.id, slotFor(current));
+    if (ids) void commitOrder(task, ids);
+  };
+
+  const onDragMove = (event: DragMoveEvent) => {
+    const lifted = event.active.rect.current.translated;
+    const dragged = viewTasks.find((item) => item.id === String(event.active.id));
+    const over = event.over ? String(event.over.id) : '';
+    if (!canReorder || !lifted || !dragged || dragged.status !== reorderStatus || over !== `column:${reorderStatus}`) {
+      setSlot(null);
+      return;
+    }
+    const lanes = boardRef.current?.querySelectorAll<HTMLElement>('[data-testid="task-column"]') ?? [];
+    const lane = [...lanes].find((node) => node.dataset.columnKey === reorderStatus);
+    if (!lane) return;
+    const middles = [...lane.querySelectorAll<HTMLElement>('[data-testid="task-card"][data-collapsed="rest"]')].map((card) => {
+      const rect = card.getBoundingClientRect();
+      return rect.top + rect.height / 2;
+    });
+    setSlot(reorderSlot(middles, lifted.top + lifted.height / 2));
+  };
+
   const onDragEnd = (event: DragEndEvent) => {
+    const droppedSlot = slot;
     setActiveId(null);
     setOverKey(null);
     setLiftedHeight(null);
+    setSlot(null);
     const task = tasks.find((item) => item.id === String(event.active.id));
     const viewed = viewTasks.find((item) => item.id === String(event.active.id));
     const over = event.over ? String(event.over.id) : '';
     if (!task || !viewed || !over.startsWith('column:')) return;
     const value = over.slice('column:'.length);
+    if (reorder && value === reorderStatus && viewed.status === value) {
+      if (reorder.locked) setLive(`${reorder.lockedLabel}.`);
+      else if (droppedSlot != null) reorderTo(viewed, () => droppedSlot);
+      return;
+    }
     const decision = decide(viewed, value);
     if (decision.kind === 'ignore') return;
     if (decision.kind === 'reject') {
@@ -293,7 +527,7 @@ export function TaskBoard({
       setNeeds({ task, value, rule: decision.rule });
       return;
     }
-    void commit(viewed, decision.value);
+    move(viewed, decision.value);
   };
 
   const onDragOver = (event: DragOverEvent) => {
@@ -302,12 +536,12 @@ export function TaskBoard({
   };
 
   return (
-    <div className="flex min-w-0 flex-col gap-3" data-testid="task-board">
+    <div ref={boardRef} className="flex min-w-0 flex-col gap-3" data-testid="task-board">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {hideGroupToggle ? null : <GroupToggle mode={mode} onChange={chooseMode} />}
         <p className="sr-only" aria-live="polite">{live}</p>
       </div>
-      {phone ? (
+      {phoneTabs ? (
         <PhoneColumnTabs
           label={mode === 'stage' ? 'Stages' : 'Statuses'}
           columns={columns}
@@ -323,11 +557,13 @@ export function TaskBoard({
           setLiftedHeight(liftedHeightRef.current);
         }}
         onDragOver={onDragOver}
+        onDragMove={onDragMove}
         onDragEnd={onDragEnd}
         onDragCancel={() => {
           setActiveId(null);
           setOverKey(null);
           setLiftedHeight(null);
+          setSlot(null);
           setLive('Move cancelled.');
         }}
       >
@@ -337,6 +573,10 @@ export function TaskBoard({
             const hover = dragging && overKey === column.key ? decide(dragging, column.key) : null;
             const accepting = hover?.kind === 'move' || hover?.kind === 'needs';
             const resting = dragging ? column.tasks.filter((task) => task.id !== dragging.id) : column.tasks;
+            const ordering = column.key === reorderStatus;
+            // A To Do card over To Do: the slot follows the pointer. Any other drop lands where the column's order puts it.
+            const reordering = dragging != null && canReorder && ordering && dragging.status === column.key && overKey === column.key;
+            const landing = !dragging || !accepting ? null : keepOrder ? givenOrderSlot(resting, dragging, viewTasks) : dropSlotIndex(resting, dragging);
             return (
             <Column
               key={column.key}
@@ -344,6 +584,7 @@ export function TaskBoard({
               label={column.label}
               tasks={column.tasks}
               allTasks={viewTasks}
+              cardFace={cardFace}
               staff={staff}
               loading={loading}
               canDrag={canDrag}
@@ -351,9 +592,15 @@ export function TaskBoard({
               locked={hover?.kind === 'reject'}
               activeTarget={accepting}
               draggingId={activeId}
-              dropIndex={dragging && accepting ? dropSlotIndex(resting, dragging) : null}
+              dropIndex={reordering ? slot : landing}
+              headerNote={ordering && reorder?.locked && canChange ? reorder.lockedLabel : null}
+              onKeyOrder={
+                ordering && canReorder
+                  ? (task, direction) => reorderTo(task, (ids) => ids.indexOf(task.id) + direction)
+                  : undefined
+              }
               dropHeight={liftedHeight}
-              phone={phone}
+              canMoveSheet={phone && canChange}
               shared={framedSurface}
               mode={mode}
               emptyClient={!staff}
@@ -368,7 +615,7 @@ export function TaskBoard({
               onMoveSheet={setMoveTask}
               quick={quick === column.key}
               quickAddEnabled={quickAddEnabled}
-              showQuickAdd={showQuickAdd}
+              showQuickAdd={showQuickAdd && canChange && (!quickAddStatuses || quickAddStatuses.includes(column.key))}
               onQuick={() => {
                 if (!quickAddEnabled) return;
                 setQuick(column.key);
@@ -390,7 +637,7 @@ export function TaskBoard({
                   return;
                 }
                 if (decision.kind === 'needs') setNeeds({ task, value: next.key, rule: decision.rule });
-                else void commit(task, decision.value);
+                else move(task, decision.value);
               }}
             />
             );
@@ -399,7 +646,7 @@ export function TaskBoard({
         <DragOverlay dropAnimation={null} style={{ cursor: 'grabbing' }}>
           {activeId ? (
             <div style={{ height: '100%', transform: 'rotate(2deg) scale(1.03)', transformOrigin: 'center center', cursor: 'grabbing' }}>
-              <TaskCardFace task={viewTasks.find((task) => task.id === activeId) ?? tasks[0]} lifted mode={mode} allTasks={viewTasks} staff={staff} />
+              <LiftedFace task={viewTasks.find((task) => task.id === activeId) ?? tasks[0]} mode={mode} allTasks={viewTasks} staff={staff} cardFace={cardFace} />
             </div>
           ) : null}
         </DragOverlay>
@@ -416,6 +663,7 @@ export function TaskBoard({
       {moveTask ? (
         <MoveSheet
           task={moveTask}
+          showName={framed}
           columns={columns.filter((column) => !column.key.startsWith('unknown'))}
           current={dropFrom(moveTask)}
           decisionFor={(value) => decide(moveTask, value)}
@@ -424,7 +672,7 @@ export function TaskBoard({
             const decision = decide(moveTask, value);
             setMoveTask(null);
             if (decision.kind === 'needs') setNeeds({ task: moveTask, value, rule: decision.rule });
-            else if (decision.kind === 'move') void commit(moveTask, decision.value);
+            else if (decision.kind === 'move') move(moveTask, decision.value);
             else if (decision.kind === 'reject') rejectMove(decision.reason);
           }}
         />
@@ -441,6 +689,22 @@ export function TaskBoard({
             const pending = needs;
             setNeeds(null);
             void commit(pending.task, pending.value, pullRequestLink);
+          }}
+        />
+      ) : null}
+      {asking ? (
+        <NeedsDialog
+          taskName={asking.task.name}
+          copy={asking.copy}
+          initialValue={asking.task.nextAction ?? ''}
+          onCancel={() => {
+            setAsking(null);
+            setLive('Move cancelled.');
+          }}
+          onSave={(answer) => {
+            const pending = asking;
+            setAsking(null);
+            void commit(pending.task, pending.value, undefined, answer);
           }}
         />
       ) : null}
@@ -481,6 +745,7 @@ function Column({
   label,
   tasks,
   allTasks,
+  cardFace,
   staff,
   loading,
   canDrag,
@@ -490,7 +755,7 @@ function Column({
   draggingId,
   dropIndex,
   dropHeight,
-  phone,
+  canMoveSheet,
   shared,
   mode,
   emptyClient,
@@ -505,11 +770,14 @@ function Column({
   quickAddEnabled,
   showQuickAdd,
   onKeyMove,
+  headerNote,
+  onKeyOrder,
 }: {
   columnKey: string;
   label: string;
   tasks: PortalTask[];
   allTasks: PortalTask[];
+  cardFace?: (task: PortalTask) => CardFace;
   staff: boolean;
   loading: boolean;
   canDrag: boolean;
@@ -519,7 +787,7 @@ function Column({
   draggingId: string | null;
   dropIndex: number | null;
   dropHeight: number | null;
-  phone: boolean;
+  canMoveSheet: boolean;
   shared: boolean;
   mode: BoardMode;
   emptyClient: boolean;
@@ -534,6 +802,10 @@ function Column({
   quickAddEnabled: boolean;
   showQuickAdd: boolean;
   onKeyMove: (task: PortalTask, direction: -1 | 1) => void;
+  /** Beside the count, with a lock. The milestone board's To Do reads Order locked while Building. */
+  headerNote: string | null;
+  /** Arrow up and down move a card one place. Only the reorder column passes it. */
+  onKeyOrder?: (task: PortalTask, direction: -1 | 1) => void;
 }) {
   const { setNodeRef } = useDroppable({ id: `column:${columnKey}` });
   const dashed = columnKey.startsWith('unknown-stage');
@@ -549,8 +821,9 @@ function Column({
         task={task}
         mode={mode}
         allTasks={allTasks}
+        face={cardFace?.(task)}
         canDrag={canDrag}
-        phone={phone}
+        canMoveSheet={canMoveSheet}
         staff={staff}
         collapsed={collapsed}
         error={failed[task.id]}
@@ -559,6 +832,7 @@ function Column({
         onRetry={() => onRetry(task)}
         onMoveSheet={() => onMoveSheet(task)}
         onKeyMove={onKeyMove}
+        onKeyOrder={onKeyOrder}
       />
     ),
   });
@@ -567,6 +841,7 @@ function Column({
       ref={setNodeRef}
       aria-label={label}
       data-testid="task-column"
+      data-column-key={columnKey}
       className="flex min-w-0 w-full flex-col"
       style={{
         position: 'relative',
@@ -593,6 +868,16 @@ function Column({
         <h3 className="ds-mono whitespace-nowrap" style={{ fontSize: 11, letterSpacing: '0.08em' }}>{label.toUpperCase()}</h3>
         <span className="ds-mono" style={{ fontSize: 11, color: 'var(--muted)', background: 'var(--surface)', borderRadius: 999, padding: '0 0.45rem' }}>{restingCount}</span>
         <span className="flex-1" />
+        {headerNote ? (
+          <span
+            className="ds-mono inline-flex items-center gap-1 whitespace-nowrap"
+            data-testid="column-order-locked"
+            style={{ fontSize: 11, color: 'var(--muted)' }}
+          >
+            <TaskGlyph src="/icons/task-lock.svg" size={12} />
+            {headerNote}
+          </span>
+        ) : null}
         {showQuickAdd && staff && !columnKey.startsWith('unknown') ? (
           quickAddEnabled ? (
             <button type="button" aria-label={`Add task to ${label}`} onClick={onQuick} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>+</button>
@@ -913,8 +1198,9 @@ function BoardCard({
   task,
   mode,
   allTasks,
+  face,
   canDrag,
-  phone,
+  canMoveSheet,
   staff,
   collapsed = false,
   error,
@@ -923,12 +1209,15 @@ function BoardCard({
   onRetry,
   onMoveSheet,
   onKeyMove,
+  onKeyOrder,
 }: {
   task: PortalTask;
   mode: BoardMode;
   allTasks: PortalTask[];
+  face?: CardFace;
   canDrag: boolean;
-  phone: boolean;
+  /** Press and hold opens the move sheet. Phone only, and never on a read-only board. */
+  canMoveSheet: boolean;
   staff: boolean;
   collapsed?: boolean;
   error?: string;
@@ -937,9 +1226,16 @@ function BoardCard({
   onRetry: () => void;
   onMoveSheet: () => void;
   onKeyMove: (task: PortalTask, direction: -1 | 1) => void;
+  onKeyOrder?: (task: PortalTask, direction: -1 | 1) => void;
 }) {
   const { attributes, listeners, setNodeRef } = useDraggable({ id: task.id, disabled: !canDrag });
   const timer = useRef<number | null>(null);
+  /** True once a press and hold opened the move sheet, so the release does not also open the task. */
+  const held = useRef(false);
+  const endPress = () => {
+    if (timer.current) window.clearTimeout(timer.current);
+    timer.current = null;
+  };
   const press = useRef<{ x: number; y: number } | null>(null);
   const origin = useRef<{ top: number; left: number; width: number; height: number } | null>(null);
   const onKeyDown = (event: KeyboardEvent) => {
@@ -952,18 +1248,28 @@ function BoardCard({
       event.preventDefault();
       onKeyMove(task, -1);
     }
+    if (onKeyOrder && (event.key === 'ArrowUp' || event.key === 'ArrowDown')) {
+      event.preventDefault();
+      onKeyOrder(task, event.key === 'ArrowUp' ? -1 : 1);
+    }
   };
   const onPointerDown = (event: PointerEvent<HTMLButtonElement>) => {
     const rect = event.currentTarget.getBoundingClientRect();
     origin.current = { top: rect.top, left: rect.left, width: rect.width, height: rect.height };
     onLiftSize(rect.height);
     press.current = { x: event.clientX, y: event.clientY };
+    held.current = false;
+    endPress();
     cardDragPointerDown(
       event,
       canDrag ? (pointer) => listeners?.onPointerDown?.(pointer) : undefined,
-      phone
+      canMoveSheet
         ? () => {
-            timer.current = window.setTimeout(() => onMoveSheet(), 400);
+            timer.current = window.setTimeout(() => {
+              timer.current = null;
+              held.current = true;
+              onMoveSheet();
+            }, LONG_PRESS_MS);
           }
         : undefined,
     );
@@ -971,6 +1277,11 @@ function BoardCard({
   const onClick = (event: MouseEvent<HTMLButtonElement>) => {
     const start = press.current;
     press.current = null;
+    if (held.current) {
+      held.current = false;
+      event.preventDefault();
+      return;
+    }
     if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 5) {
       event.preventDefault();
       return;
@@ -996,12 +1307,15 @@ function BoardCard({
         onClick={onClick}
         onKeyDown={onKeyDown}
         onPointerDown={onPointerDown}
-        onPointerUp={() => {
-          if (timer.current) window.clearTimeout(timer.current);
+        onPointerUp={endPress}
+        onPointerLeave={endPress}
+        // A sideways swipe scrolls the lanes. The browser cancels the pointer, and the hold ends with it.
+        onPointerCancel={endPress}
+        onPointerMove={(event) => {
+          const start = press.current;
+          if (timer.current && start && pressMoved(start, { x: event.clientX, y: event.clientY })) endPress();
         }}
-        onPointerLeave={() => {
-          if (timer.current) window.clearTimeout(timer.current);
-        }}
+        onContextMenu={canMoveSheet ? (event) => event.preventDefault() : undefined}
         className="w-full text-left"
         style={collapsed ? collapsedSourceStyle(origin.current) : {
           background: 'transparent',
@@ -1009,10 +1323,12 @@ function BoardCard({
           padding: 0,
           cursor: canDrag ? 'grab' : 'pointer',
           touchAction: canDrag ? 'none' : undefined,
-          userSelect: canDrag ? 'none' : undefined,
+          userSelect: canDrag || canMoveSheet ? 'none' : undefined,
+          WebkitUserSelect: canMoveSheet ? 'none' : undefined,
+          WebkitTouchCallout: canMoveSheet ? 'none' : undefined,
         }}
       >
-        <TaskCardFace task={task} mode={mode} allTasks={allTasks} staff={staff} />
+        <TaskCardFace task={task} mode={mode} allTasks={allTasks} staff={staff} face={face} />
       </button>
       {error ? (
         <p style={{ fontSize: 'var(--t-xs)', color: 'var(--fg)', padding: '0.35rem 0.2rem' }}>
@@ -1024,10 +1340,38 @@ function BoardCard({
   );
 }
 
+/** How long a press is held before the move sheet opens. */
+export const LONG_PRESS_MS = 400;
+
+/** A finger that travels this far is scrolling, not holding. */
+export function pressMoved(start: { x: number; y: number }, now: { x: number; y: number }): boolean {
+  return Math.hypot(now.x - start.x, now.y - start.y) > 8;
+}
+
 function initials(name: string): string {
   const parts = name.trim().split(/\s+/).slice(0, 2);
   return parts.map((part) => part[0]?.toUpperCase() ?? '').join('');
 }
+
+/** The card that follows the pointer. It keeps the face the resting card had. */
+function LiftedFace({
+  task,
+  mode,
+  allTasks,
+  staff,
+  cardFace,
+}: {
+  task?: PortalTask;
+  mode: BoardMode;
+  allTasks: PortalTask[];
+  staff: boolean;
+  cardFace?: (task: PortalTask) => CardFace;
+}) {
+  return <TaskCardFace task={task} lifted mode={mode} allTasks={allTasks} staff={staff} face={task ? cardFace?.(task) : undefined} />;
+}
+
+const BADGE_TEXT: CSSProperties = { fontSize: 10.56, lineHeight: '15.84px', letterSpacing: '0.22em', textTransform: 'uppercase', whiteSpace: 'nowrap' };
+const BADGE_BOX: CSSProperties = { border: '1px solid var(--border-2)', borderRadius: 999, padding: '2px 8px' };
 
 export function TaskCardFace({
   task,
@@ -1035,17 +1379,108 @@ export function TaskCardFace({
   mode = 'status',
   allTasks = [],
   staff = false,
+  face,
 }: {
   task?: PortalTask;
   lifted?: boolean;
   mode?: BoardMode;
   allTasks?: PortalTask[];
   staff?: boolean;
+  /** The milestone card face. Unset keeps the default face. */
+  face?: CardFace;
 }) {
   if (!task) return null;
   const children = allTasks.filter((item) => item.parentTaskId === task.id);
   const subLabel = children.length > 0 ? `${children.filter((item) => item.isDone).length}/${children.length}` : null;
   const resources = task.resourceCount ?? 0;
+  if (face) {
+    const waiting = staff && task.status === 'Blocked' && task.nextAction ? task.nextAction : null;
+    return (
+      <div
+        data-card-face="milestone"
+        style={{
+          background: lifted ? 'var(--surface-2)' : 'var(--surface)',
+          border: `1px solid ${lifted ? 'var(--border-2)' : 'var(--border)'}`,
+          borderRadius: 18,
+          padding: '14px 12px',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 10,
+          boxShadow: lifted ? '0 16px 32px rgb(0 0 0 / 45%)' : undefined,
+          cursor: lifted ? 'grabbing' : undefined,
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
+          {face.leading ? (
+            <span data-testid="card-leading" className="inline-flex items-center" style={{ flex: '0 0 auto', height: 21 }}>
+              {face.leading}
+            </span>
+          ) : null}
+          {face.run ? (
+            <span className="ds-mono" data-testid="card-run" style={{ flex: '0 0 auto', fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+              {face.run}
+            </span>
+          ) : null}
+          <p
+            style={{
+              flex: '1 1 0',
+              minWidth: 0,
+              fontSize: 14,
+              fontWeight: 500,
+              lineHeight: '21px',
+              overflowWrap: 'anywhere',
+              color: task.isDone ? 'var(--muted)' : 'var(--fg)',
+            }}
+          >
+            {task.name}
+          </p>
+          {lifted ? (
+            <span style={{ color: 'var(--muted)' }}>
+              <TaskGlyph src="/icons/sidebar-menu.svg" size={16} />
+            </span>
+          ) : null}
+        </div>
+        {face.origin || face.kind || subLabel || face.pullRequest ? (
+          <div className="flex flex-wrap items-center" style={{ gap: '6px 8px' }}>
+            {face.origin ? (
+              <span className="ds-mono" data-testid="card-origin" style={{ ...BADGE_BOX, ...BADGE_TEXT, color: 'var(--muted)' }}>
+                {face.origin}
+              </span>
+            ) : null}
+            {face.kind ? (
+              <span className="ds-mono" data-testid="card-kind" style={{ ...BADGE_BOX, ...BADGE_TEXT, color: 'var(--muted)' }}>
+                {face.kind}
+              </span>
+            ) : null}
+            {subLabel ? (
+              <span className="ds-mono inline-flex items-center gap-1" data-testid="card-children" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                <TaskGlyph src="/icons/task-checklist.svg" />
+                {subLabel}
+              </span>
+            ) : null}
+            {face.pullRequest ? (
+              <span className="ds-mono inline-flex items-center" data-testid="card-pr" style={{ ...BADGE_BOX, ...BADGE_TEXT, gap: 6, color: 'var(--fg)' }}>
+                <span className="inline-flex" style={{ color: 'var(--muted)' }}>
+                  <TaskGlyph src="/icons/task-pull-request.svg" size={12} />
+                </span>
+                {face.pullRequest}
+              </span>
+            ) : null}
+          </div>
+        ) : null}
+        {face.note && !waiting ? (
+          <p className="ds-mono" data-testid="card-note" style={{ minWidth: 0, fontSize: 12, lineHeight: '18px', color: 'var(--muted)', overflowWrap: 'anywhere' }}>
+            {face.note}
+          </p>
+        ) : null}
+        {waiting ? (
+          <p className="ds-mono" data-testid="card-waiting-on" style={{ minWidth: 0, fontSize: 12, lineHeight: '18px', color: 'var(--danger-text)', overflowWrap: 'anywhere' }}>
+            {waiting}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
   return (
     <div
       style={{
@@ -1122,6 +1557,11 @@ export function TaskCardFace({
         ) : null}
         {staff && task.syncNotice ? <SyncChip audience="staff" syncNotice={task.syncNotice} /> : null}
       </div>
+      {staff && mode === 'status' && task.status === 'Blocked' && task.nextAction ? (
+        <p data-testid="card-waiting-on" style={{ minWidth: 0, fontSize: 12, lineHeight: '18px', color: 'var(--danger-text)', overflowWrap: 'anywhere' }}>
+          {task.nextAction}
+        </p>
+      ) : null}
       <p className="ds-mono flex flex-wrap items-center gap-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
         <span className="inline-flex items-center gap-1">
           <TaskGlyph src="/icons/task-calendar.svg" />
@@ -1190,8 +1630,11 @@ export function MoveSheet({
   decisionFor,
   onClose,
   onPick,
+  showName = false,
 }: {
   task: PortalTask;
+  /** The task's name above the rows. The milestone board shows it. Other boards read it to screen readers only. */
+  showName?: boolean;
   columns: Array<{ key: string; label: string }>;
   current: string;
   decisionFor: (value: string) => BoardDropDecision;
@@ -1200,7 +1643,13 @@ export function MoveSheet({
 }) {
   return (
     <Sheet title="Move to" onClose={onClose}>
-      <p className="sr-only">{task.name}</p>
+      <p
+        className={showName ? undefined : 'sr-only'}
+        data-testid="move-sheet-task"
+        style={showName ? { margin: '0 0 12px', fontSize: 14, lineHeight: '21px', color: 'var(--muted)', overflowWrap: 'anywhere' } : undefined}
+      >
+        {task.name}
+      </p>
       <ul className="flex flex-col gap-2">
         {columns.map((column) => {
           const decision = decisionFor(column.key);
@@ -1234,9 +1683,13 @@ export function NeedsDialog({
   initialValue = '',
   initialNote = '',
   initialError = null,
+  copy,
 }: {
   taskName: string;
-  rule: Extract<MoveRule, { kind: 'needs' }>;
+  /** The pull request rule. Absent when `copy` asks its own question. */
+  rule?: Extract<MoveRule, { kind: 'needs' }>;
+  /** Asks one question in place of the pull request link, with no note for the client. */
+  copy?: NeedsCopy;
   onCancel: () => void;
   onSave: (value: string) => void;
   /** Fixture captures only. Live moves start empty. */
@@ -1247,39 +1700,41 @@ export function NeedsDialog({
   const [value, setValue] = useState(initialValue);
   const [clientNote, setClientNote] = useState(initialNote);
   const [error, setError] = useState<string | null>(initialError);
-  const field = rule.fields[0];
+  const field = rule?.fields[0];
+  const title = copy?.title ?? 'Move to Ready to Ship';
   return (
-    <Modal title="Move to Ready to Ship" onClose={onCancel} labelledBy="needs-title">
+    <Modal title={title} onClose={onCancel} labelledBy="needs-title">
       <form
         className="flex flex-col gap-4"
         onSubmit={(event) => {
           event.preventDefault();
           if (!value.trim()) {
-            setError('Pull request link is required.');
+            setError(copy?.required ?? 'Pull request link is required.');
             return;
           }
           onSave(value.trim());
         }}
       >
         <p style={{ fontSize: 14, lineHeight: '21px', color: 'var(--muted)', margin: 0 }}>
-          “{taskName}” needs a linked pull request before it can be Ready to Ship. Add it now to move it.
+          {copy ? copy.body(taskName) : `“${taskName}” needs a linked pull request before it can be Ready to Ship. Add it now to move it.`}
         </p>
         <label htmlFor="pr-link" className="flex flex-col gap-2" style={{ fontSize: 14 }}>
-          <span>{field?.label ?? 'Pull request link'} <span aria-hidden style={{ color: 'var(--danger-text)' }}>*</span></span>
+          <span>{copy?.label ?? field?.label ?? 'Pull request link'} <span aria-hidden style={{ color: 'var(--danger-text)' }}>*</span></span>
           <span className="needs-field flex items-center gap-2" style={{ border: error ? '2px solid var(--danger)' : '2px solid var(--accent)', borderRadius: 18, background: 'var(--surface-2, var(--bg))', padding: '0.7rem 0.85rem' }}>
-            <span aria-hidden style={{ color: 'var(--muted)' }}>🔗</span>
+            {copy ? null : <span aria-hidden style={{ color: 'var(--muted)' }}>🔗</span>}
             <input
               id="pr-link"
               autoFocus
               required
               value={value}
-              placeholder={field?.placeholder ?? 'github.com/…/pull/123'}
+              maxLength={copy?.maxLength}
+              placeholder={copy?.placeholder ?? field?.placeholder ?? 'github.com/…/pull/123'}
               onChange={(event) => setValue(event.target.value)}
               style={{ flex: 1, border: 0, background: 'transparent', color: 'var(--fg)', outline: 'none' }}
             />
           </span>
         </label>
-        <label htmlFor="client-note" className="flex flex-col gap-2" style={{ fontSize: 14 }}>
+        {copy ? null : <label htmlFor="client-note" className="flex flex-col gap-2" style={{ fontSize: 14 }}>
           Note for the client
           <span className="needs-field block" style={{ borderRadius: 18 }}>
             <textarea
@@ -1290,11 +1745,11 @@ export function NeedsDialog({
               style={{ width: '100%', border: '1px solid var(--border)', borderRadius: 18, background: 'var(--surface-2, var(--bg))', color: 'var(--fg)', padding: '0.7rem 0.85rem', outline: 'none' }}
             />
           </span>
-        </label>
+        </label>}
         {error ? <p style={{ color: 'var(--danger-text)', fontSize: 14, margin: 0 }}>{error}</p> : null}
         <div className="flex justify-end gap-2">
           <OutlineButton onClick={onCancel}>Cancel</OutlineButton>
-          <PrimaryButton type="submit">Move to Ready to Ship</PrimaryButton>
+          <PrimaryButton type="submit">{copy?.submit ?? 'Move to Ready to Ship'}</PrimaryButton>
         </div>
       </form>
     </Modal>

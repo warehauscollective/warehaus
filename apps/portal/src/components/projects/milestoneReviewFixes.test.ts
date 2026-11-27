@@ -142,10 +142,12 @@ describe('milestone review fixes', () => {
   });
 
   it('limits the shared board surface to the milestone board', () => {
-    assert.match(board, /const framedSurface = framed && !phone/);
+    // The milestone board keeps the shared surface on a phone, where its lanes scroll sideways.
+    assert.match(board, /const framedSurface = framed;/);
+    assert.match(board, /const phoneTabs = phone && !framed;/);
     assert.match(board, /shared=\{framedSurface\}/);
     assert.match(board, /\{shared && fade \?/);
-    // The milestone Tasks tab is a checklist now. The projects page mounts no board.
+    // The board lives on the milestone Tasks tab. The projects page mounts none.
     const details = projects.slice(projects.indexOf('details='));
     assert.equal(projects.includes('renderTasks='), false);
     assert.equal(details.includes('<TaskBoard'), false);
@@ -167,10 +169,13 @@ describe('milestone review fixes', () => {
     assert.equal(roadmap.includes('tasks stay on Project details'), false);
     assert.equal(roadmap.includes('Nothing is assigned automatically'), false);
     const listCard = roadmap.slice(roadmap.indexOf('function MilestoneListCard'), roadmap.indexOf('function MilestoneDetail'));
-    assert.equal(listCard.includes('TaskBoard'), false);
+    assert.equal(listCard.includes('<TaskBoard'), false);
+    assert.equal(listCard.includes('<MilestoneTaskBoard'), false);
     assert.match(listCard, /Open milestone/);
     const opened = roadmap.slice(roadmap.indexOf('function MilestoneDetail'));
-    assert.match(opened, /<MilestoneChecklist/);
+    // The Tasks tab is the task board again, in status columns only.
+    assert.match(opened, /<MilestoneTaskBoard/);
+    assert.equal(opened.includes('<MilestoneChecklist'), false);
     assert.equal(opened.includes('renderTasks'), false);
     const detailsStart = projects.indexOf('details=');
     const details = projects.slice(detailsStart, projects.indexOf('</PortalTilePane>', detailsStart));

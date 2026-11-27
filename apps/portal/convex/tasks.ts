@@ -240,13 +240,23 @@ export const moveStatus = adminMutation({
     taskId: v.id('tasks'),
     status: v.string(),
     expectedLastEditedTime: v.string(),
+    /** What the task is waiting on. A move to Blocked saves it with the status, as one task change. */
+    nextAction: v.optional(v.string()),
   },
   handler: async (ctx, args): Promise<TaskChangeResult> =>
-    changeTask(ctx, args.taskId, [{ field: 'status', status: args.status }], {
-      actor: 'staff',
-      actorId: ctx.identity.contactId,
-      expectedLastEditedTime: args.expectedLastEditedTime,
-    }),
+    changeTask(
+      ctx,
+      args.taskId,
+      [
+        { field: 'status', status: args.status },
+        ...(args.nextAction !== undefined ? [{ field: 'nextAction' as const, nextAction: args.nextAction }] : []),
+      ],
+      {
+        actor: 'staff',
+        actorId: ctx.identity.contactId,
+        expectedLastEditedTime: args.expectedLastEditedTime,
+      },
+    ),
 });
 
 export const moveStage = adminMutation({

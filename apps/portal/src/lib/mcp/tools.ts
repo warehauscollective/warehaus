@@ -435,7 +435,7 @@ export const portalTools: PortalTool[] = [
   {
     name: 'get_milestone_status',
     description:
-      'Read one milestone: status, approval, iteration, the ordered task checklist with origin, the local and Vercel previews, the pull request, and the latest reviews, notes and events. Use the iteration it returns when you approve or request changes.',
+      'Read one milestone: status, approval, iteration, the tasks in order with origin, the local and Vercel previews, the pull request, and the latest reviews, notes and events. Use the iteration it returns when you approve or request changes.',
     write: false,
     schema: { milestoneId: z.string().min(1) },
     call: (args) => ({

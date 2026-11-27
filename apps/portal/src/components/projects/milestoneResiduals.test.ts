@@ -128,7 +128,9 @@ describe('milestone residuals', () => {
   it('keeps the pre-PR lane width on boards that are not the milestone frame', () => {
     assert.equal(boardColumnTemplate(5, false), 'repeat(5, minmax(12.75rem, 1fr))');
     assert.equal(boardColumnTemplate(5, false, true), 'repeat(5, minmax(12rem, 1fr))');
-    assert.equal(boardColumnTemplate(5, true, true), 'minmax(0, 1fr)');
+    assert.equal(boardColumnTemplate(5, true), 'minmax(0, 1fr)');
+    // The milestone frame keeps every lane on a phone, 220 wide, scrolled sideways.
+    assert.equal(boardColumnTemplate(5, true, true), 'repeat(5, 220px)');
     assert.equal(boardColumnTemplate(4, false), boardColumnTemplate(5, false).replace('5', '4'));
   });
 

@@ -15,9 +15,7 @@ import {
   TASK_TITLE_REQUIRED,
   TOO_MANY_REVIEW_TASKS,
   addTaskDecision,
-  checklistState,
-  checklistStatusText,
-  checklistSummary,
+  milestoneTaskState,
   createdViaLabel,
   editTaskDecision,
   groupMilestones,
@@ -25,6 +23,8 @@ import {
   originLabel,
   removeTaskDecision,
   reorderDecision,
+  runOrderLocked,
+  RUN_ORDER_LOCKED,
   reviewTaskLines,
   taskMilestoneGate,
   taskOrigin,
@@ -156,8 +156,8 @@ describe('editing, removing and reordering', () => {
       { id: 'b', milestoneOrder: 1 },
       { id: 'c', milestoneOrder: 2 },
     ];
-    assert.deepEqual(reorderDecision({ staff: true, current, taskIds: ['a', 'b', 'c'] }), { ok: true, writes: [] });
-    assert.deepEqual(reorderDecision({ staff: true, current, taskIds: ['a', 'c', 'b'] }), {
+    assert.deepEqual(reorderDecision({ staff: true, milestoneStatus: 'Planning', current, taskIds: ['a', 'b', 'c'] }), { ok: true, writes: [] });
+    assert.deepEqual(reorderDecision({ staff: true, milestoneStatus: 'Planning', current, taskIds: ['a', 'c', 'b'] }), {
       ok: true,
       writes: [
         { id: 'c', milestoneOrder: 1 },
@@ -166,10 +166,23 @@ describe('editing, removing and reordering', () => {
     });
   });
 
+  it('locks the order while the milestone is Building', () => {
+    const current = [{ id: 'a', milestoneOrder: 0 }, { id: 'b', milestoneOrder: 1 }];
+    assert.deepEqual(reorderDecision({ staff: true, milestoneStatus: 'Building', current, taskIds: ['b', 'a'] }), {
+      ok: false,
+      reason: RUN_ORDER_LOCKED,
+    });
+    for (const status of ['Idea', 'Planning', 'Awaiting Go', 'Ready to Ship'] as const) {
+      assert.equal(reorderDecision({ staff: true, milestoneStatus: status, current, taskIds: ['b', 'a'] }).ok, true);
+      assert.equal(runOrderLocked(status), false);
+    }
+    assert.equal(runOrderLocked('Building'), true);
+  });
+
   it('refuses a list that does not match the milestone', () => {
     const current = [{ id: 'a', milestoneOrder: 0 }, { id: 'b', milestoneOrder: 1 }];
     for (const taskIds of [['a'], ['a', 'a'], ['a', 'x'], ['a', 'b', 'c']]) {
-      assert.deepEqual(reorderDecision({ staff: true, current, taskIds }), { ok: false, reason: REORDER_MISMATCH });
+      assert.deepEqual(reorderDecision({ staff: true, milestoneStatus: 'Planning', current, taskIds }), { ok: false, reason: REORDER_MISMATCH });
     }
   });
 });
@@ -247,21 +260,12 @@ describe('origin and source labels', () => {
   });
 });
 
-describe('checklist', () => {
-  it('reads done, in progress and to do', () => {
-    assert.equal(checklistState({ status: 'Done', isDone: true }), 'done');
-    assert.equal(checklistState({ status: 'To Do', isDone: false }), 'todo');
-    assert.equal(checklistState({ status: 'In Progress', isDone: false }), 'progress');
-    assert.equal(checklistStatusText({ status: 'in_progress', isDone: false }), 'In progress');
-    assert.equal(checklistStatusText({ status: 'Blocked', isDone: false }), 'Blocked');
-    assert.equal(
-      checklistSummary([
-        { status: 'Done', isDone: true },
-        { status: 'In Progress', isDone: false },
-        { status: 'To Do', isDone: false },
-      ]),
-      '1 done · 1 in progress',
-    );
+describe('milestone task state', () => {
+  it('reads done, in progress, blocked and to do', () => {
+    assert.equal(milestoneTaskState({ status: 'Done', isDone: true }), 'done');
+    assert.equal(milestoneTaskState({ status: 'To Do', isDone: false }), 'todo');
+    assert.equal(milestoneTaskState({ status: 'In Progress', isDone: false }), 'progress');
+    assert.equal(milestoneTaskState({ status: 'Blocked', isDone: false }), 'blocked');
   });
 });
 

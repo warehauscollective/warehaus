@@ -309,7 +309,7 @@ describe('Archived view', () => {
 });
 
 describe('close-out wiring', () => {
-  it('puts the menu on milestone cards, the milestone header, task rows and the task dialog, for staff only', () => {
+  it('puts the menu on milestone cards, the milestone header and the task dialog, for staff only', () => {
     const card = source('../projects/MilestoneListCard.tsx');
     assert.match(card, /\{staff && closeout \? \(/);
     const roadmap = source('../projects/ProjectRoadmap.tsx');
@@ -319,9 +319,6 @@ describe('close-out wiring', () => {
     assert.match(roadmap, /\{staff && archivedCount > 0 \? \(/);
     const detail = source('../projects/MilestoneDetailView.tsx');
     assert.match(detail, /action=\{staff && closeout \?/);
-    const checklist = source('../projects/MilestoneChecklist.tsx');
-    assert.match(checklist, /if \(!staff\) return null;/);
-    assert.match(checklist, /\{staff && archivedList\.length > 0 \? \(/);
     const dialog = source('../tasks/TaskDetailModal.tsx');
     const header = dialog.slice(dialog.indexOf('data-testid="task-copy-link"'), dialog.indexOf('aria-label="Close"'));
     // In the header, left of Esc and Close.
