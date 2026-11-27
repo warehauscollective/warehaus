@@ -6,6 +6,8 @@ import { runnerAppPublishHttp } from './runnerApp';
 import { RUNNER_APP_PUBLISH_PATHS } from './_lib/runnerApp';
 import { portalApiHttp } from './portalApi';
 import { reviewPreviewHttp } from './milestones';
+import { deployRunHttp } from './deploys';
+import { DEPLOY_RUN_PATH } from './_lib/deploy';
 import { REVIEW_PREVIEW_PATH } from './_lib/reviewPreview';
 import { githubWebhook, vercelWebhook } from './sync/inbound';
 import { notionWebhook } from './sync/queue';
@@ -46,6 +48,12 @@ http.route({
   path: REVIEW_PREVIEW_PATH,
   method: 'POST',
   handler: reviewPreviewHttp,
+});
+
+http.route({
+  path: DEPLOY_RUN_PATH,
+  method: 'POST',
+  handler: deployRunHttp,
 });
 
 for (const path of AGENT_ROUTES) {

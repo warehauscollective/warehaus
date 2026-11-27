@@ -617,6 +617,8 @@ export type MilestoneRoadmapView = {
   designApprovedAt?: number;
   /** Staff only. The design gate: whether build waits, and the Building phase. */
   designGate?: { visual: boolean; buildLocked: boolean; phase: BuildingPhase };
+  /** Staff only. On a Shipped milestone with a recorded merge: whether a deploy run has covered it. */
+  deploy?: 'not-deployed' | 'deployed';
   /** Staff only. Where the milestone was created. Absent for clients, including the key. */
   createdVia?: MilestoneCreatedVia;
   /** Staff only. A planning job waiting for, held by, or blocked on a runner. */
