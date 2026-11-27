@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 import { useEffect, useId, useLayoutEffect, useMemo, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { ProjectRoadmap } from '@/components/projects/ProjectRoadmap';
@@ -584,8 +585,7 @@ export function ProjectsContent() {
                               {projectListMeta(project, data.tenant.clientName)}
                             </span>
                           </span>
-                          {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img alt="" src="/icons/client-chev.svg" width={16} height={16} className="shrink-0 opacity-70 md:hidden" />
+                          <Icon name="ArrowRight2" color="muted" className="shrink-0 opacity-70 md:hidden" />
                         </span>
                         <span className="flex min-w-0 items-center gap-3 md:w-[150px] md:flex-col md:items-start md:gap-2">
                           <span className="h-1.5 min-w-16 flex-1 overflow-hidden rounded-full md:w-full md:flex-none" style={{ background: 'var(--surface-2)' }}>
@@ -612,8 +612,7 @@ export function ProjectsContent() {
                             <PublishMark published={project.publishToWarehaus} />
                           </span>
                         ) : null}
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img alt="" src="/icons/client-chev.svg" width={16} height={16} className="hidden shrink-0 opacity-70 md:block" />
+                        <Icon name="ArrowRight2" color="muted" className="hidden shrink-0 opacity-70 md:block" />
                       </button>
                     </li>
                   );

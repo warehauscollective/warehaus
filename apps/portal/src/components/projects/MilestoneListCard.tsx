@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from 'react';
 import { createPortal } from 'react-dom';
 import { peterMayApproveDeploy } from '@convex/_lib/previewLink';
@@ -125,23 +126,6 @@ function TileStagePopover({
     </div>
   );
   return host ? createPortal(node, host) : node;
-}
-
-function TileLinkIcon({ kind }: { kind: 'preview' | 'figma' }) {
-  const preview = kind === 'preview';
-  return (
-    <svg width={preview ? 12 : 16} height={preview ? 12 : 16} viewBox={preview ? '0 0 12 12' : '0 0 16 16'} fill="none" aria-hidden="true" style={preview ? undefined : { color: 'var(--muted)' }}>
-      {preview ? (
-        <>
-          <rect x="1" y="2" width="10" height="7" rx="1" stroke="currentColor" strokeWidth="1.2" />
-          <path d="M5 4.5L7.2 5.5L5 6.5V4.5Z" fill="currentColor" />
-          <path d="M4 10.5H8" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" />
-        </>
-      ) : (
-        <path d="M2 5.5V3H6M10 3H14V5.5M14 9.5V12H10M6 12H2V9.5" stroke="currentColor" strokeWidth="1.33" />
-      )}
-    </svg>
-  );
 }
 
 function initialTileMenu(preview?: string | null): boolean {
@@ -504,7 +488,7 @@ export function MilestoneListCard({
           {staff ? (
             localUrl ? (
               <a data-testid="milestone-local-preview" className={narrow ? undefined : 'lg:order-1'} href={localUrl} style={linkButtonStyle(false)}>
-                <TileLinkIcon kind="preview" />
+                <Icon name="Monitor" />
                 {narrow ? 'Preview' : (
                   <>
                     <span className="lg:hidden">Preview</span>
@@ -514,7 +498,7 @@ export function MilestoneListCard({
               </a>
             ) : (
               <button type="button" data-testid="milestone-local-preview" className={narrow ? undefined : 'lg:order-1'} onClick={() => openLinkEditor('localPreview')} style={linkButtonStyle(true)}>
-                <TileLinkIcon kind="preview" />
+                <Icon name="Monitor" />
                 {narrow ? 'Preview' : (
                   <>
                     <span className="lg:hidden">Preview</span>
@@ -526,7 +510,7 @@ export function MilestoneListCard({
           ) : null}
           {staff && figmaUrl ? (
             <a data-testid="milestone-figma" className="lg:order-3" href={figmaUrl} target="_blank" rel="noreferrer" style={linkButtonStyle(false)}>
-              <TileLinkIcon kind="figma" />
+              <Icon name="Figma" color="muted" />
               Figma
             </a>
           ) : null}

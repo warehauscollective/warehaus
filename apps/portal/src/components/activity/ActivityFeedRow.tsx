@@ -1,19 +1,18 @@
 'use client';
 
-import { ChevronRight, Lock } from 'lucide-react';
 import { PortalRowLink } from '@/components/layout/PortalRowLink';
-import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon, type IconName } from '@/components/ui/Icon';
 
 /**
  * Activity row from Figma 296:16492.
  * Icon, title, meta, optional publish mark, time.
  * The publish mark is staff-only and reads the server clientVisible flag.
  */
-function rowIcon(lane: string): string {
-  if (lane === 'resources') return '/icons/resource-doc.svg';
-  if (lane === 'people') return '/icons/activity-person.svg';
-  if (lane === 'tasks') return '/icons/task-list.svg';
-  return '/icons/activity-row.svg';
+function rowIcon(lane: string): IconName {
+  if (lane === 'resources') return 'DocumentText';
+  if (lane === 'people') return 'Profile';
+  if (lane === 'tasks') return 'Task';
+  return 'Clock';
 }
 
 export function ActivityFeedRow({
@@ -56,9 +55,9 @@ export function ActivityFeedRow({
         }}
       >
         {locked ? (
-          <Lock data-testid="activity-lock" aria-hidden size={18} strokeWidth={1.5} />
+          <Icon name="Lock" data-testid="activity-lock" />
         ) : (
-          <TaskGlyph src={rowIcon(lane)} size={16} />
+          <Icon name={rowIcon(lane)} />
         )}
       </span>
       <span className="min-w-0 flex-1">
@@ -92,7 +91,7 @@ export function ActivityFeedRow({
         {when}
       </span>
       {link ? (
-        <ChevronRight className="portal-row-chevron shrink-0" aria-hidden data-testid="row-chevron" />
+        <Icon name="ArrowRight2" className="portal-row-chevron shrink-0" data-testid="row-chevron" />
       ) : null}
     </>
   );

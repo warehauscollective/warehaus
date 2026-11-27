@@ -178,9 +178,9 @@ describe('CloseoutConfirm', () => {
     assert.match(html, /role="radiogroup" aria-label="What should happen to those leftovers\?"/);
     const option = (value: string) => html.match(new RegExp(`<button[^>]*data-testid="closeout-option-${value}"[^>]*>[\\s\\S]*?</button>`))?.[0] ?? '';
     assert.match(option('done'), /aria-checked="true"/);
-    assert.match(option('done'), /docs-check\.svg/);
+    assert.match(option('done'), /data-icon="Check"/);
     assert.match(option('archive'), /aria-checked="false"/);
-    assert.equal(option('archive').includes('docs-check.svg'), false);
+    assert.equal(option('archive').includes('data-icon="Check"'), false);
     assert.match(option('park'), />Move them to Parked for later</);
     assert.match(html, />Cancel</);
     assert.match(html, />Mark complete</);

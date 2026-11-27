@@ -84,7 +84,7 @@ describe('client team page', () => {
     assert.equal(html.includes('class="clamp-one"'), false);
     assert.match(html, /border-radius:999px/);
     assert.equal(html.includes('ds-pill'), false);
-    assert.equal(html.includes('client-chev.svg'), false);
+    assert.equal(html.includes('data-icon="ArrowRight2"'), false);
   });
 
   it('renders role and portal status from the listForClient row shape', () => {
@@ -276,7 +276,7 @@ describe('client team page', () => {
     assert.equal(/data-testid="client-task-publish"[^>]*flex-nowrap/.test(detail), false);
     assert.match(detail, />Design<\/span>[\s\S]*?data-testid="client-task-publish"[\s\S]*?Published/);
     assert.match(detail, /lg:flex-nowrap/);
-    assert.match(detail, /client-chev.svg/);
+    assert.match(detail, /data-icon="ArrowRight2"/);
     assert.match(detail, /class="shrink-0 opacity-70 hidden lg:block"/);
     assert.match(detail, /\.client-detail \{ gap: 16px; \}/);
     assert.match(detail, /\.client-detail-card \{ padding: 20px 16px; \}/);
@@ -366,7 +366,7 @@ describe('client states', () => {
     assert.match(html, /No clients yet/);
     assert.match(html, /Add a client to start a project\. Warehaus \(internal\) always exists\./);
     assert.match(html, /Warehaus is the client when none applies/);
-    assert.match(html, /task-layers\.svg/);
+    assert.match(html, /data-icon="Layer"/);
     assert.match(html, /data-testid="new-client"/);
     assert.match(html, /minmax\(0, 1fr\)/);
     assert.equal(html.includes('repeat(2'), false);
@@ -613,7 +613,7 @@ describe('staff new project on a client', () => {
     assert.match(html, /No projects yet/);
     assert.match(html, /Start the first project for Northwind\. It(?:'|&#x27;)s linked to this client automatically\./);
     assert.match(html, /border:1px dashed var\(--border\)/);
-    assert.match(html, /task-layers\.svg/);
+    assert.match(html, /data-icon="Layer"/);
     assert.match(html, /padding-bottom:\s*calc\(82px \+ env\(safe-area-inset-bottom, 0px\)\)/);
     assert.match(html, /data-testid="client-projects-empty"/);
     assert.match(html, /data-testid="client-new-project"/);

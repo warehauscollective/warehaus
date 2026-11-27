@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 import { useState, type CSSProperties, type FormEvent } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
@@ -159,20 +160,7 @@ export function ApiTokensView({
                 <option value="read">Read</option>
                 <option value="read-write">Read and write</option>
               </select>
-              <svg
-                aria-hidden
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                style={{ position: 'absolute', right: 16, top: 15, pointerEvents: 'none', color: 'var(--muted)' }}
-              >
-                <path d="m19 9-7 7-7-7" />
-              </svg>
+              <Icon name="ArrowDown2" color="muted" style={{ position: 'absolute', right: 16, top: 15, pointerEvents: 'none' }} />
             </span>
           </label>
           <button

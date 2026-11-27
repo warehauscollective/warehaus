@@ -502,7 +502,7 @@ describe('roadmap markup', () => {
     assert.equal(client.includes('milestone-status-menu'), false);
     assert.equal(client.includes('data-milestone-status-trigger'), false);
     assert.equal(client.includes('milestone-status-play'), false);
-    assert.equal(client.includes('task-chev-down.svg'), false);
+    assert.equal(client.includes('data-icon="ArrowDown2"'), false);
 
     const desktop = renderTile({ staff: true, milestone, stagePreview: 'menu' });
     assert.match(desktop, /<button[^>]*data-testid="milestone-status-chip"/);
@@ -525,7 +525,7 @@ describe('roadmap markup', () => {
     assert.match(desktop, /aria-label="Status"/);
     // Shipped is locked on this tile, so the hint points to Mark complete.
     assert.match(desktop, /Use Mark complete to close/);
-    assert.match(desktop, /task-chev-down\.svg/);
+    assert.match(desktop, /data-icon="ArrowDown2"/);
     assert.equal(desktop.includes('tile-stage-menu'), false);
     assert.equal(desktop.includes('stage-confirm-sheet'), false);
     assert.equal(desktop.includes('>Close<'), false);

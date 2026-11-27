@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type Ref } from 'react';
-import { Lock } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { PortalModal } from '@/components/ui/PortalModal';
 import { useAction } from 'convex/react';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
@@ -282,7 +282,11 @@ export function NewClientForm({
           <>
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="ds-mono" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>NEW PROJECT  ›  CLIENT</p>
+                <p className="ds-mono flex items-center gap-2" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>
+                  NEW PROJECT
+                  <Icon name="ArrowRight2" size="xs" />
+                  CLIENT
+                </p>
                 <h2 style={{ fontFamily: 'var(--font-body)', fontSize: 20, fontWeight: 600, lineHeight: '30px', marginTop: 2 }}>
                   New client
                 </h2>
@@ -357,7 +361,7 @@ export function NewClientForm({
                   data-testid="new-client-draft"
                   style={{ borderRadius: 18, padding: 12, background: 'var(--bg-2)', color: 'var(--fg)' }}
                 >
-                  <Lock size={16} aria-hidden="true" />
+                  <Icon name="Lock" />
                   <div>
                     <p style={{ fontSize: 14, fontWeight: 500, lineHeight: '21px' }}>Created as a draft client</p>
                     <p className="ds-mono" style={{ fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>

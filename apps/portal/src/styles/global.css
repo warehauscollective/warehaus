@@ -173,10 +173,8 @@ html[data-shell='mac'] .portal-chrome main {
   }
 }
 
-/* Figma back glyph and wordmark are paper (#fdfdfe). Light theme draws them as ink. */
-html.light .nav-back-glyph,
-html.light .portal-wordmark,
-html.light .dock-menu-glyph {
+/* The Figma wordmark is paper (#fdfdfe). Light theme draws it as ink. */
+html.light .portal-wordmark {
   filter: brightness(0);
 }
 
@@ -198,7 +196,6 @@ html.light .ds-scope {
   width: 16px;
   height: 16px;
   flex: 0 0 auto;
-  background-color: currentColor;
 }
 /* Phone keeps 4px between tabs and a 1px border that matches the active fill.
    Desktop tabs sit flush with no border: five 1px borders were the 678 vs 667

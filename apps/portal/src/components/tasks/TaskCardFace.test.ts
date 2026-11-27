@@ -77,10 +77,10 @@ describe('TaskCardFace client stage card', () => {
     const html = renderToStaticMarkup(createElement(TaskCardFace, { task, lifted: true, mode: 'status', staff: true }));
     assert.match(html, /--surface-2/);
     assert.match(html, /0 16px 32px/);
-    assert.match(html, /sidebar-menu\.svg/);
+    assert.match(html, /data-icon="HamburgerMenu"/);
     assert.match(html, /grabbing/);
     const rest = renderToStaticMarkup(createElement(TaskCardFace, { task, mode: 'status', staff: true }));
-    assert.equal(rest.includes('sidebar-menu.svg'), false);
+    assert.equal(rest.includes('data-icon="HamburgerMenu"'), false);
     assert.equal(rest.includes('--surface-2'), false);
   });
 
@@ -211,7 +211,7 @@ describe('TaskCardFace client stage card', () => {
       createElement(BoardToast, { message: saved.message, undo: saved.undo, onDismiss: () => undefined }),
     );
     assert.match(html, /Moved “Homepage” to Planning/);
-    assert.match(html, /docs-check\.svg/);
+    assert.match(html, /data-icon="Check"/);
     assert.match(html, />Undo</);
     assert.match(html, /data-placement="below-board"/);
     const pinned = renderToStaticMarkup(

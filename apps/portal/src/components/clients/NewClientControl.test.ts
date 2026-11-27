@@ -85,7 +85,7 @@ describe('new client dialog', () => {
     assert.match(exists, /Phone \(optional\)/);
     assert.match(exists, /Created as a draft client/);
     assert.match(exists, /Portal access off · unpublished · no invite email/);
-    assert.match(exists, /NEW PROJECT {2}› {2}CLIENT/);
+    assert.match(exists, /NEW PROJECT<svg[^>]*data-icon="ArrowRight2"[^>]*>.*?<\/svg>CLIENT/);
     assert.match(exists, />Back</);
     assert.match(exists, /width:520/);
     assert.equal(exists.includes('rgb('), false);

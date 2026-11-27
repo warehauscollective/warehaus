@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 export type BreadcrumbLink = {
   label: string;
   onClick: () => void;
@@ -75,15 +76,8 @@ export function NavBreadcrumb({
           cursor: 'pointer',
         }}
       >
-        <span className="relative shrink-0" style={{ width: 16, height: 16 }} aria-hidden>
-          {/* Figma icon asset — decorative; the button name is the label. */}
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            alt=""
-            src="/icons/nav-back.svg"
-            className="nav-back-glyph absolute inset-0 block size-full max-w-none"
-          />
-        </span>
+        {/* Decorative; the button name is the label. */}
+        <Icon name="ArrowLeft2" color="fg" className="shrink-0" />
       </button>
       <ol className="flex min-w-0 items-center overflow-hidden" style={{ ...trailStyle, gap: 8 }}>
         <li className="flex shrink-0 items-center">

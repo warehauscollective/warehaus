@@ -448,7 +448,7 @@ export function ProjectRoadmap({
     <section data-testid="project-roadmap" className="flex flex-col gap-6">
       {page && !selected ? (
         <ProjectBreadcrumb
-          back={{ label: '‹ Projects', onClick: () => onBackToProjects?.() }}
+          back={{ label: 'Projects', onClick: () => onBackToProjects?.() }}
           trail={[
             { label: 'Projects', onClick: () => onBackToProjects?.(), testId: 'nav-breadcrumb-parent' },
             { label: project.name, testId: 'nav-breadcrumb-current' },

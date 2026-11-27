@@ -1,3 +1,4 @@
+import { Icon } from '@/components/ui/Icon';
 import { useState, type ReactNode } from 'react';
 import { compareDocsByOrder } from '@warehaus/portal-sync';
 import { OutlineButton } from '@/components/ui/primitives';
@@ -101,16 +102,14 @@ function DocIcon() {
         border: '1px solid var(--border)',
       }}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src="/icons/docs-doc.svg" alt="" width={16} height={16} />
+      <Icon name="DocumentText" color="muted" />
     </span>
   );
 }
 
 function Chevron() {
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img src="/icons/docs-chev.svg" alt="" width={16} height={16} className="shrink-0" />
+    <Icon name="ArrowRight2" color="muted" className="shrink-0" />
   );
 }
 

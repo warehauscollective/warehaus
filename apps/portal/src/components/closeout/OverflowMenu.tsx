@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 import { useEffect, useId, useLayoutEffect, useRef, useState, type CSSProperties, type KeyboardEvent } from 'react';
 import { createPortal } from 'react-dom';
 import { closeoutMenuItems } from '@convex/_lib/closeout';
@@ -37,16 +38,6 @@ export function overflowMenuBox(input: {
   const top = Math.min(Math.max(rawTop, GAP), Math.max(GAP, viewport.height - menu.height - GAP));
   const left = Math.min(Math.max(trigger.right - menu.width, GAP), Math.max(GAP, viewport.width - menu.width - GAP));
   return { top, left, placement };
-}
-
-function Dots() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-      <circle cx="2.5" cy="7" r="1.25" fill="currentColor" />
-      <circle cx="7" cy="7" r="1.25" fill="currentColor" />
-      <circle cx="11.5" cy="7" r="1.25" fill="currentColor" />
-    </svg>
-  );
 }
 
 const itemStyle: CSSProperties = {
@@ -265,7 +256,7 @@ export function OverflowMenu({
           setOpen(!open);
         }}
       >
-        <Dots />
+        <Icon name="More" size="sm" />
       </button>
       {panel ? (host ? createPortal(panel, host) : panel) : null}
       {open && phone && renderSheet ? (

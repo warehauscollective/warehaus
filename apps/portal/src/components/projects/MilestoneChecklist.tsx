@@ -1,6 +1,7 @@
 'use client';
 
-import { useState, type CSSProperties, type FormEvent } from 'react';
+import { Icon } from '@/components/ui/Icon';
+import { useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import type { Id } from '@convex/_generated/dataModel';
 import type { MilestoneRoadmapView, RoadmapChild } from '@convex/_lib/milestones';
 import {
@@ -98,7 +99,7 @@ function RowAction({
   label: string;
   onClick: () => void;
   disabled?: boolean;
-  children: string;
+  children: ReactNode;
 }) {
   return (
     <button
@@ -109,6 +110,9 @@ function RowAction({
       onClick={onClick}
       className={`ds-mono rounded-md ${focusRing}`}
       style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
         minWidth: 28,
         height: 28,
         padding: '0 6px',
@@ -476,14 +480,14 @@ export function MilestoneChecklist({
                           {movable ? (
                             <>
                               <RowAction label={`Move ${row.name} up`} disabled={busy || index === 0} onClick={() => move(index, -1)}>
-                                ↑
+                                <Icon name="ArrowUp2" size="sm" />
                               </RowAction>
                               <RowAction
                                 label={`Move ${row.name} down`}
                                 disabled={busy || index === top.length - 1}
                                 onClick={() => move(index, 1)}
                               >
-                                ↓
+                                <Icon name="ArrowDown2" size="sm" />
                               </RowAction>
                             </>
                           ) : null}
@@ -535,7 +539,7 @@ export function MilestoneChecklist({
               padding: '4px 14px',
             }}
           >
-            <span aria-hidden style={{ color: 'var(--muted)', fontSize: 16 }}>+</span>
+            <Icon name="Add" color="muted" style={{ flex: '0 0 auto' }} />
             <input
               aria-label="Add a task to this milestone"
               placeholder="Add a task to this milestone"

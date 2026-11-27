@@ -25,7 +25,7 @@ describe('ProjectListEmptyState', () => {
     assert.match(html, /No projects yet/);
     assert.match(html, /Create a project under a client, or under Warehaus for internal work\./);
     assert.match(html, /New project/);
-    assert.match(html, /task-layers\.svg/);
+    assert.match(html, /data-icon="Layer"/);
     assert.match(html, /max-width:440px/);
     assert.match(html, /text-wrap:balance/);
     assert.match(html, /data-testid="new-project-hint"/);

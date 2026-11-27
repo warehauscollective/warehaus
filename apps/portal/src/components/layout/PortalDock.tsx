@@ -4,51 +4,25 @@ import { useEffect, useState } from 'react';
 import type { PortalTab } from '@warehaus/logic/portal';
 import { getPortalTabsForMode } from '@warehaus/logic/portal';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
-import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon, type BoldIconName } from '@/components/ui/Icon';
 import { usePortalData } from '@/hooks/usePortalData';
 import { dockLabelClassName, dockTabClassName, dockTabStyle } from './dockTabChrome';
 
-const TAB_ICON: Record<Exclude<PortalTab, 'dashboard'>, string> = {
-  projects: '/icons/dock-projects.svg',
-  resources: '/icons/dock-resources.svg',
-  activity: '/icons/dock-activity.svg',
-  account: '/icons/dock-account.svg',
+/** Figma Dock/Portal 284:8236. The active tab draws Bold, the rest Linear. */
+const TAB_ICON: Record<PortalTab, BoldIconName> = {
+  dashboard: 'Element3',
+  projects: 'Kanban',
+  resources: 'BookSaved',
+  activity: 'Activity',
+  account: 'Profile',
 };
 
-/**
- * Four 4.5px tiles from Dock icon 284:7686. Stroke follows the tab color
- * (ink on the active pill, muted when idle).
- */
-function DashboardGlyph() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.33" />
-      <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.33" />
-      <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.33" />
-      <rect x="9" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.33" />
-    </svg>
-  );
-}
-
-function TabGlyph({ tab }: { tab: PortalTab }) {
-  if (tab === 'dashboard') return <DashboardGlyph />;
-  const src = TAB_ICON[tab];
-  return (
-    <span
-      aria-hidden
-      className="dock-tab-icon"
-      style={{
-        backgroundColor: 'currentColor',
-        WebkitMaskImage: `url(${src})`,
-        maskImage: `url(${src})`,
-        WebkitMaskRepeat: 'no-repeat',
-        maskRepeat: 'no-repeat',
-        WebkitMaskPosition: 'center',
-        maskPosition: 'center',
-        WebkitMaskSize: 'contain',
-        maskSize: 'contain',
-      }}
-    />
+function TabGlyph({ tab, active }: { tab: PortalTab; active: boolean }) {
+  const name = TAB_ICON[tab];
+  return active ? (
+    <Icon name={name} variant="Bold" className="dock-tab-icon" />
+  ) : (
+    <Icon name={name} className="dock-tab-icon" />
   );
 }
 
@@ -94,7 +68,7 @@ export function PortalDock() {
           window.dispatchEvent(new CustomEvent('wh-open-search', { detail: { trigger: event.currentTarget } }));
         }}
       >
-        <TaskGlyph src="/icons/resource-search.svg" size={20} />
+        <Icon name="SearchNormal" size="lg" />
         <span
           id="dock-search-tip"
           role="tooltip"
@@ -148,7 +122,7 @@ export function PortalDock() {
               className={dockTabClassName(isActive)}
               style={dockTabStyle(isActive)}
             >
-              <TabGlyph tab={value} />
+              <TabGlyph tab={value} active={isActive} />
               <span className={dockLabelClassName(isActive, value)}>{label}</span>
             </button>
           );

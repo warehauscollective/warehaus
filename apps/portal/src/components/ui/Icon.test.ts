@@ -112,7 +112,7 @@ describe('Icon', () => {
     }
   });
 
-  it('is the only file that imports the Iconsax package', () => {
+  it('is the only file that imports an icon package', () => {
     const portal = fileURLToPath(new URL('../../..', import.meta.url));
     const walk = (dir: string): string[] =>
       readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
@@ -121,10 +121,28 @@ describe('Icon', () => {
         if (entry.isDirectory()) return walk(path);
         return /\.(ts|tsx|mjs)$/.test(entry.name) ? [path] : [];
       });
-    const importers = ['src', 'app']
-      .flatMap((dir) => walk(join(portal, dir)))
-      .filter((path) => /from\s+['"]iconsax-reactjs/.test(readFileSync(path, 'utf8')))
-      .map((path) => relative(portal, path));
-    assert.deepEqual(importers, ['src/components/ui/Icon.tsx']);
+    const sources = ['src', 'app'].flatMap((dir) => walk(join(portal, dir)));
+    for (const pkg of ['iconsax-reactjs', 'lucide-react']) {
+      const importers = sources
+        .filter((path) => new RegExp(`from\\s+['"]${pkg}`).test(readFileSync(path, 'utf8')))
+        .map((path) => relative(portal, path));
+      assert.deepEqual(importers, ['src/components/ui/Icon.tsx'], pkg);
+    }
+  });
+
+  it('leaves only state marks and the logo as files in public/icons', () => {
+    const icons = fileURLToPath(new URL('../../../public/icons', import.meta.url));
+    assert.deepEqual(readdirSync(icons).sort(), [
+      'activity-published-dot.svg',
+      'docs-dot-off.svg',
+      'docs-dot-on.svg',
+      'item-stage.svg',
+      'task-check-open.svg',
+      'task-check.svg',
+      'task-stage-shipped.svg',
+      'task-stage.svg',
+      'wordmark-ink.png',
+      'wordmark.svg',
+    ]);
   });
 });

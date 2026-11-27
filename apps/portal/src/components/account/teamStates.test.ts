@@ -100,7 +100,7 @@ describe('account team states', () => {
     );
     assert.match(empty, /No people yet/);
     assert.match(empty, /People you invite will show here/);
-    assert.match(empty, /src="\/icons\/team-empty.svg"/);
+    assert.match(empty, /data-icon="People"/);
     assert.match(empty, /width="28"/);
     assert.match(empty, /height="28"/);
     assert.equal(empty.includes('Invite someone'), false);

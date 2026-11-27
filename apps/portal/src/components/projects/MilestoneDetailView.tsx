@@ -364,7 +364,7 @@ export function MilestoneDetailView({
     <div className="flex flex-col gap-6">
       {onBackToProjects ? (
         <ProjectBreadcrumb
-          back={{ label: `‹ ${project.name}`, onClick: onBack }}
+          back={{ label: project.name, onClick: onBack }}
           trail={[
             { label: 'Projects', onClick: onBackToProjects, testId: 'nav-breadcrumb-parent' },
             { label: project.name, onClick: onBack, testId: 'nav-breadcrumb-middle' },

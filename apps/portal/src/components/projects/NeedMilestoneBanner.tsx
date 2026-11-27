@@ -1,16 +1,7 @@
 'use client';
 
-import { X } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { needMilestoneBannerState, needMilestoneCopy } from './needMilestone';
-
-function WarningMark() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" className="shrink-0">
-      <path fill="var(--warning)" d="M7.15 1.7a1 1 0 0 1 1.7 0l5.9 10.2A1 1 0 0 1 13.9 13.4H2.1a1 1 0 0 1-.85-1.5l5.9-10.2Z" />
-      <path fill="var(--surface-2)" d="M7.25 6.1h1.5V10h-1.5zm0 4.7h1.5v1.45h-1.5z" />
-    </svg>
-  );
-}
 
 /**
  * Staff banner for open tasks with no milestone of this project.
@@ -64,7 +55,7 @@ export function NeedMilestoneBanner({
         padding: '10px 12px',
       }}
     >
-      <WarningMark />
+      <Icon name="Warning2" color="warning" className="shrink-0" />
       <p style={{ margin: 0, fontSize: 13, fontWeight: 500, lineHeight: '20px', color: 'var(--fg)', whiteSpace: 'nowrap' }}>
         {needMilestoneCopy(count)}
       </p>
@@ -77,7 +68,7 @@ export function NeedMilestoneBanner({
         className="inline-flex size-7 shrink-0 items-center justify-center rounded-md focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--fg)]"
         style={{ background: 'transparent', color: 'var(--muted)', border: 0, padding: 0, cursor: 'pointer' }}
       >
-        <X size={16} aria-hidden />
+        <Icon name="X" />
       </button>
     </div>
   );

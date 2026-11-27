@@ -6,6 +6,7 @@ import type { PortalTab } from '@warehaus/logic/portal';
 import type { SearchGroups, SearchHit } from '@convex/_lib/portalSearch';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon, type IconName } from '@/components/ui/Icon';
 import { PortalModal } from '@/components/ui/PortalModal';
 import { usePortalAuth } from '@/hooks/usePortalAuth';
 import { getHostSlugFromLocation } from '@/lib/auth/host-slug';
@@ -70,45 +71,27 @@ function forAudience(hit: SearchHit, staff: boolean): SearchHit {
   };
 }
 
-function hitIcon(hit: SearchHit): string {
-  if (hit.kind === 'project' || hit.metaType === 'Project') return '/icons/task-layers.svg';
-  if (hit.kind === 'task' || hit.metaType === 'Task') return '/icons/docs-check.svg';
-  if (hit.metaType === 'Granola') return '/icons/resource-mic.svg';
-  if (hit.metaType === 'Link') return '/icons/resource-link.svg';
-  return '/icons/resource-doc.svg';
+function hitIcon(hit: SearchHit): IconName {
+  if (hit.kind === 'project' || hit.metaType === 'Project') return 'Layer';
+  if (hit.kind === 'task' || hit.metaType === 'Task') return 'Check';
+  if (hit.metaType === 'Granola') return 'Microphone';
+  if (hit.metaType === 'Link') return 'Link';
+  return 'DocumentText';
 }
 
 function stageIsDanger(stage: string): boolean {
   return /await/i.test(stage);
 }
 
-function GridGlyph() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <rect x="2.5" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.33" />
-      <rect x="9" y="2.5" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.33" />
-      <rect x="2.5" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.33" />
-      <rect x="9" y="9" width="4.5" height="4.5" rx="1" stroke="currentColor" strokeWidth="1.33" />
-    </svg>
-  );
-}
-
-function CloseGlyph() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-      <path d="M4 4l8 8M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-    </svg>
-  );
-}
+const LINK_ICONS: Record<(typeof QUICK_LINKS)[number]['icon'], IconName> = {
+  grid: 'Element3',
+  layers: 'Layer',
+  resources: 'BookSaved',
+  activity: 'Activity',
+};
 
 function LinkGlyph({ icon }: { icon: (typeof QUICK_LINKS)[number]['icon'] }) {
-  if (icon === 'grid') return <GridGlyph />;
-  const src = icon === 'layers'
-    ? '/icons/task-layers.svg'
-    : icon === 'resources'
-      ? '/icons/dock-resources.svg'
-      : '/icons/dock-activity.svg';
-  return <TaskGlyph src={src} size={16} />;
+  return <Icon name={LINK_ICONS[icon]} />;
 }
 
 function Kbd({ children }: { children: string }) {
@@ -434,7 +417,7 @@ export function PortalSearch() {
             }}
           >
             <span style={{ color: 'var(--muted)' }}>
-              <TaskGlyph src="/icons/resource-search.svg" size={16} />
+              <Icon name="SearchNormal" />
             </span>
             <input
               ref={inputRef}
@@ -470,7 +453,7 @@ export function PortalSearch() {
                   flex: '0 0 auto',
                 }}
               >
-                <CloseGlyph />
+                <Icon name="X" />
               </button>
             ) : (
               <button
@@ -539,7 +522,7 @@ export function PortalSearch() {
           {empty ? (
             <div data-testid="portal-search-empty" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, padding: '40px 16px', textAlign: 'center' }}>
               <span style={{ width: 36, height: 36, borderRadius: 12, background: 'var(--surface-2)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--muted)' }}>
-                <TaskGlyph src="/icons/resource-search.svg" size={16} />
+                <Icon name="SearchNormal" />
               </span>
               <p style={{ margin: 0, fontSize: 16, fontWeight: 500, overflowWrap: 'anywhere' }}>{copy.title(needle)}</p>
               <p className="ds-mono" style={{ margin: 0, fontSize: 12, color: 'var(--muted)', overflowWrap: 'anywhere' }}>{copy.hint}</p>
@@ -773,7 +756,7 @@ function ResultRow({
             color: 'var(--muted)',
           }}
         >
-          <TaskGlyph src={hitIcon(hit)} size={16} />
+          <Icon name={hitIcon(hit)} />
         </span>
         <span className="min-w-0 flex-1">
           <span
@@ -801,7 +784,7 @@ function ResultRow({
         </span>
         {!narrow ? marks : null}
         <span style={{ color: 'var(--muted)' }}>
-          <TaskGlyph src="/icons/docs-chev.svg" size={16} />
+          <Icon name="ArrowRight2" />
         </span>
       </button>
     </li>

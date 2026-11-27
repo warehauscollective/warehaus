@@ -288,3 +288,34 @@ For task 06:
 - Two Lucide icons are drawn at 18 today (`Lock` in `activity/ActivityFeedRow.tsx`, `Check` in `pages/TeamInvites.tsx`). There is no 18 token, because Figma has no 18 icon. Each takes `md` or `lg`, whichever its frame shows.
 - Figma's default colour for the set is `portal/muted`. The wrapper's default is `current`, because most icons in code sit inside a button or link and take its colour. Pass `color="muted"` where the frame shows a bare muted icon.
 - When the last direct `lucide-react` import is gone, the same "only file" test can cover Lucide too.
+
+## Task 06: icons swapped in code
+
+Done 2026-11-26 in code. Every icon in `apps/portal` now comes from `<Icon>` (`src/components/ui/Icon.tsx`), by the tables in "Code: current icons to `Atom/Icon`" above.
+
+- **Lucide.** No component imports `lucide-react` any more. The wrapper is the only importer, for `Check` and `X`, so the package stays installed (Peter, 2026-11-25). The "only file" test now covers both packages. `lib/data/tabIcons.tsx` had no importer and is deleted.
+- **Files.** 31 icon files are deleted from `public/icons/`. What is left is the state marks and the logo: `task-stage`, `task-stage-shipped`, `item-stage`, `task-check`, `task-check-open`, `docs-dot-on`, `docs-dot-off`, `activity-published-dot`, `wordmark.svg`, `wordmark-ink.png`. A test fails if another file is added. `TaskGlyph` stays, for the stage rings and task circles only.
+- **Inline SVG.** The hand-drawn icons are gone. The `<svg>` tags that remain are state marks: `StateGlyph`, `StatusDot`, `RunnerDotGlyph`, `ItemStageIcon`.
+- **Text characters.** `✕`, `×`, `‹`, `›`, `↑`, `↓` are icons now. `↑↓` in the search hint stays text.
+- **Dock.** Element3, Kanban, BookSaved, Activity, Profile. The active tab is Bold, the rest Linear. The search quick links use Element3, Layer, BookSaved and Activity.
+- **Sizes and colours.** Every size is a token. The two 18px Lucide icons (`Lock` in the activity row, `Check` in the invite sent state) take `md`. An icon that had a fixed grey in its file now takes `color="muted"`; the others take the colour of their parent. CSS for the old files (`.nav-back-glyph`, `.dock-menu-glyph`, the painted `.dock-tab-icon` box) is removed.
+- Spinners, the logo and the state marks are unchanged.
+
+### Where the build follows the frame, not the old code
+
+1. **Switch account** (flag 5). `auth/AcceptInvite.tsx` shows Profile2User, as `Organism/AuthCard` does. It was Lucide `LogOut`.
+2. **Met password rule.** TickCircle, as `Molecule/Invites/Password rule` does. It was a heavy Lucide `Check`. An unmet rule is RecordCircle (flag 4).
+3. **Preview link on the milestone tile.** Monitor at 16px, as `Organism/MilestoneListCard` does. It was 12px.
+4. **Need a milestone banner.** Warning2 Linear in the warning colour. It was a filled triangle. The set has no Bold Warning2.
+5. **Mobile back link.** `‹ Projects` is now ArrowLeft2 at 14px, then the label. The 390 frames still show `‹` inside the text layer (see "Left as they are" in task 04), so Figma needs the same change in the task 07 check.
+6. **New client header.** `NEW PROJECT › CLIENT` now draws ArrowRight2 at 12px between the two words. The words are unchanged.
+
+### Also swapped, not in the inventory
+
+A bare `+` used as an icon in three places is now Add: the column add button in `tasks/TaskBoard.tsx`, the add row in `projects/MilestoneLoop.tsx`, and the add-task input in `projects/MilestoneChecklist.tsx`. The label `+ Add task` is copy and stays text.
+
+### For task 07
+
+- Play Linear at 10px on the advance button is lighter than the old filled triangle (flag 3). A Bold Play still needs Peter's yes.
+- The older file icons were drawn smaller inside their box (the 12px chevron, the 7px lock). The Iconsax drawings fill the box, so chevrons and locks read slightly larger. Check rows and the status menu in Dark and Light at 1440 and 390.
+- Tests that named an icon file now look for the icon by `data-icon`.

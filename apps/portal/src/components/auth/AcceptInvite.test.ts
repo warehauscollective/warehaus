@@ -210,17 +210,18 @@ describe('AcceptInvite sign-up, sign-in, and confirm', () => {
     const inputs = nodes(view.container, 'input');
     const rule = (label: string) =>
       nodes(view.container, 'p').find((node) => node.getAttribute('data-rule') === label);
+    /** The wrapper icon each rule shows, by its `data-icon` name. */
     const iconShape = (label: string) => {
       const marks: string[] = [];
       const row = rule(label);
       if (!row) return marks;
       walk(row, (node) => {
-        if (node.tagName === 'PATH') marks.push(node.getAttribute('d') ?? '');
-        if (node.tagName === 'CIRCLE') marks.push('circle');
+        const name = node.getAttribute?.('data-icon');
+        if (name) marks.push(name);
       });
       return marks;
     };
-    const checkPath = 'M20 6 9 17l-5-5';
+    const checkPath = 'TickCircle';
     const join = () => nodes(view.container, 'button').find((node) => textOf(node).includes('Join Warehaus'));
     const joinDisabled = () => {
       const button = join();
@@ -235,7 +236,7 @@ describe('AcceptInvite sign-up, sign-in, and confirm', () => {
     assert.equal(rule('Passwords match')?.getAttribute('data-met'), 'false');
     assert.deepEqual(iconShape('At least 8 characters'), [checkPath]);
     assert.deepEqual(iconShape('Includes a letter and a number'), [checkPath]);
-    assert.deepEqual(iconShape('Passwords match'), ['circle']);
+    assert.deepEqual(iconShape('Passwords match'), ['RecordCircle']);
     assert.equal(joinDisabled(), true);
     await act(async () => {
       typeInto(inputs[1]!, 'harbor12');

@@ -1,5 +1,7 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
+
 /**
  * Plain milestone trail used by the project page and the milestone detail.
  * Phone shows the back control. Desktop shows the 11px trail.
@@ -16,7 +18,7 @@ export function ProjectBreadcrumb({
     <>
       <button
         type="button"
-        className="portal-crumb portal-crumb-back inline-flex items-center justify-start lg:hidden"
+        className="portal-crumb portal-crumb-back inline-flex items-center justify-start gap-1 lg:hidden"
         data-testid="nav-breadcrumb-back"
         onClick={back.onClick}
         style={{
@@ -33,6 +35,7 @@ export function ProjectBreadcrumb({
           cursor: 'pointer',
         }}
       >
+        <Icon name="ArrowLeft2" size="sm" />
         {back.label}
       </button>
       <nav

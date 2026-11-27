@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 import { useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
@@ -551,7 +552,7 @@ export function MilestoneLoopView({
                 color: 'var(--muted)',
               }}
             >
-              <span style={{ flex: '0 0 auto', fontSize: 14 }}>+</span>
+              <Icon name="Add" size="sm" style={{ flex: '0 0 auto' }} />
               <span style={{ position: 'relative', flex: '1 1 auto', minWidth: 0 }}>
                 <span
                   aria-hidden="true"

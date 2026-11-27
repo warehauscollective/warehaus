@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 import { createdViaLabel } from '@convex/_lib/milestoneTasks';
 import { type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
@@ -226,23 +227,7 @@ export function StaffOnlyChip() {
         whiteSpace: 'nowrap',
       }}
     >
-      <span
-        aria-hidden
-        style={{
-          width: 12,
-          height: 12,
-          flex: '0 0 12px',
-          backgroundColor: 'currentColor',
-          WebkitMaskImage: 'url(/icons/links-lock.svg)',
-          maskImage: 'url(/icons/links-lock.svg)',
-          WebkitMaskRepeat: 'no-repeat',
-          maskRepeat: 'no-repeat',
-          WebkitMaskPosition: 'center',
-          maskPosition: 'center',
-          WebkitMaskSize: 'contain',
-          maskSize: 'contain',
-        }}
-      />
+      <Icon name="Lock" size="xs" style={{ flex: '0 0 12px' }} />
       Staff only
     </span>
   );

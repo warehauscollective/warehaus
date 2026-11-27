@@ -3,7 +3,7 @@
 import { useCallback, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { useConvexAuth, useMutation } from 'convex/react';
 import { useRouter } from 'next/navigation';
-import { AlertTriangle, Check, Circle, CircleCheck, Clock, Lock, LogOut, Mail, ShieldCheck } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { api } from '@convex/_generated/api';
 import { authClient } from '@/lib/auth-client';
 import {
@@ -483,7 +483,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
     <AcceptShell status={shellStatus} subtitle={subtitle}>
         {io.conflicted && !previewKey ? (
           <ErrorCard
-            icon={<AlertTriangle size={20} />}
+            icon={<Icon name="Warning2" size="lg" />}
             kicker="Staff invite"
             title="Setup didn’t finish"
             body={STAFF_ACCESS_CONFLICT_MESSAGE}
@@ -576,7 +576,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           </Card>
         ) : status === 'expired' ? (
           <ErrorCard
-            icon={<Clock size={20} />}
+            icon={<Icon name="Clock" size="lg" />}
             phoneGap="expired"
             kicker="Invite expired"
             title="This invite has expired"
@@ -593,7 +593,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           />
         ) : status === 'used' ? (
           <ErrorCard
-            icon={<CircleCheck size={20} />}
+            icon={<Icon name="TickCircle" size="lg" />}
             kicker="Invite already used"
             title="This invite has already been used"
             body={`It was accepted on ${dayLabel(preview.usedAt) || 'an earlier date'}. If that was you, sign in to continue.`}
@@ -604,7 +604,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           />
         ) : status === 'revoked' ? (
           <ErrorCard
-            icon={<AlertTriangle size={20} />}
+            icon={<Icon name="Warning2" size="lg" />}
             kicker="Invite revoked"
             title="This invite was revoked"
             body="It can’t be used. Ask the person who invited you to send a new one."
@@ -615,7 +615,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           <InvalidCard />
         ) : status === 'off' ? (
           <ErrorCard
-            icon={<AlertTriangle size={20} />}
+            icon={<Icon name="Warning2" size="lg" />}
             kicker="Unavailable"
             title="Invites are unavailable"
             body="This link can’t be accepted right now. Nothing was changed."
@@ -624,7 +624,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           />
         ) : status === 'different-email' ? (
           <ErrorCard
-            icon={<LogOut size={20} />}
+            icon={<Icon name="Profile2User" size="lg" />}
             kicker="Different account"
             title="You’re signed in as someone else"
             body="This invite is for a different email. Switch accounts to accept it."
@@ -639,7 +639,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           />
         ) : status === 'already' ? (
           <ErrorCard
-            icon={<ShieldCheck size={20} />}
+            icon={<Icon name="ShieldTick" size="lg" />}
             kicker="Already staff"
             title="You’re already on the Warehaus team"
             body={`${email || 'This email'} is already Warehaus Staff, so there’s nothing to accept.`}
@@ -648,7 +648,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
           />
         ) : status === 'unverified' ? (
           <ErrorCard
-            icon={<Mail size={20} />}
+            icon={<Icon name="Sms" size="lg" />}
             kicker="Verify your email"
             title="Confirm your email to finish"
             body={`Your account’s email isn’t verified yet. We sent a link to ${email || 'you'}. Open it, then come back to this invite.`}
@@ -662,7 +662,7 @@ function AcceptInviteBody({ io }: { io: AcceptInviteIO }) {
         ) : (
           <ErrorCard
             tone="danger"
-            icon={<AlertTriangle size={20} />}
+            icon={<Icon name="Warning2" size="lg" />}
             kicker="Something went wrong"
             title="We couldn’t finish joining"
             body={`Your invite still works. Try again in a moment. If it keeps happening, send ${firstName(inviter)} the reference below.`}
@@ -761,7 +761,7 @@ function LockedEmail({ email, hint }: { email: string; hint?: string }) {
     <label style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
       <span style={fieldLabel}>Email</span>
       <span data-testid="locked-email" style={{ display: 'flex', alignItems: 'center', gap: 10, minHeight: 52, borderRadius: 10, border: '1px solid var(--border)', background: 'var(--surface-2)', padding: '0 16px', fontSize: 16, lineHeight: '24px' }}>
-        <Lock size={16} className="notice-icon" />
+        <Icon name="Lock" className="notice-icon" />
         <span style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{email}</span>
       </span>
       {hint ? <span style={{ fontSize: 13, lineHeight: '20px', color: 'var(--accept-muted)' }}>{hint}</span> : null}
@@ -788,7 +788,7 @@ function Field({ label, value, onChange, error }: { label: string; value: string
 function Rule({ met, label }: { met: boolean; label: string }) {
   return (
     <p data-rule={label} data-met={met ? 'true' : 'false'} style={{ margin: 0, display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, lineHeight: '20px', color: met ? 'var(--fg)' : 'var(--accept-muted)' }}>
-      {met ? <Check size={16} strokeWidth={2.75} className="notice-icon" aria-hidden /> : <Circle size={16} className="notice-icon" aria-hidden />}
+      {met ? <Icon name="TickCircle" className="notice-icon" /> : <Icon name="RecordCircle" className="notice-icon" />}
       {label}
     </p>
   );
@@ -797,7 +797,7 @@ function Rule({ met, label }: { met: boolean; label: string }) {
 function InvalidCard() {
   return (
     <ErrorCard
-      icon={<AlertTriangle size={20} />}
+      icon={<Icon name="Warning2" size="lg" />}
       kicker="Invalid link"
       title="This invite link can’t be used"
       body="The link is missing or not a valid invite. Ask for a new one."
@@ -885,7 +885,7 @@ function ErrorCard({
       ) : null}
       {callout ? (
         <div data-testid="accept-callout" className="accept-inset" style={{ display: 'flex', gap: 10, alignItems: 'center', padding: 16, borderRadius: 10, border: '1px solid var(--border)', fontSize: 14, lineHeight: '21px' }}>
-          <Clock size={16} className="notice-icon" />
+          <Icon name="Clock" className="notice-icon" />
           <span>{callout}</span>
         </div>
       ) : null}
