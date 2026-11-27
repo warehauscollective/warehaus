@@ -62,6 +62,7 @@ import { MilestoneListCard } from './MilestoneListCard';
 import { CreateMilestone } from './MilestoneForms';
 import { MilestoneDetail } from './MilestoneDetailView';
 import { RunnerHealth } from './RunnerStatus';
+import { DeployToMain } from './DeployToMain';
 
 export { lastReviewLabel, AWAITING_MERGE_LINE, clientTileDate, milestoneTileDate, milestoneTileHeadline, milestoneTileStatus, tileProgressLabel, tileMetaLine, resourceAudienceLine, milestoneDetachOptions, inclusiveProgressCopy } from './milestoneTile';
 export type { MilestoneActivityItem } from './milestoneTile';
@@ -519,6 +520,7 @@ export function ProjectRoadmap({
                       hostSlug={hostSlug}
                       onAddRepo={page && details ? openRepoSetting : undefined}
                     />
+                    <DeployToMain projectId={project.id} staff={staff} fixtures={fixtures} live={live} hostSlug={hostSlug} />
                     <MilestoneListButton onClick={() => setCreateOpen(true)}>New milestone</MilestoneListButton>
                   </div>
                 )

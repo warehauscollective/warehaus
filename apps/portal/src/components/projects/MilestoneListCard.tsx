@@ -409,6 +409,7 @@ export function MilestoneListCard({
       bare={canDeploy || canApproveDesign || designApproved}
       buildState={buildState}
       phase={milestone.designGate?.phase}
+      deploy={milestone.deploy}
     />
   ) : (
     <StatusChip label={stage.label} glyph={stage.glyph} live={buildState === 'live'} />

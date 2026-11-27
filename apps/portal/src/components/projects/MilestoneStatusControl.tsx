@@ -8,6 +8,8 @@ import { PortalToast } from '@/components/ui/PortalToast';
 import type { BuildRunState } from '@convex/_lib/buildRun';
 import { BuildingIndicator, BuildingPhaseSuffix, BuildRunSuffix } from './BuildingIndicator';
 import type { BuildingPhase } from '@convex/_lib/designGate';
+import type { DeployMark } from '@convex/_lib/deploy';
+import { DeploySuffix } from './DeploySuffix';
 
 /** Shown on the control after a failed save. The status has already rolled back. */
 export const STATUS_SAVE_ERROR = 'Couldn’t save. Nothing changed.';
@@ -200,6 +202,7 @@ export function TileStatusControl({
   bare = false,
   buildState = null,
   phase = null,
+  deploy = null,
 }: {
   status: MilestoneStatus;
   saving?: boolean;
@@ -214,6 +217,8 @@ export function TileStatusControl({
   buildState?: BuildRunState | null;
   /** The design gate's Building phase. Staff only. */
   phase?: BuildingPhase | null;
+  /** Staff only. The deploy mark after Shipped. */
+  deploy?: DeployMark | null;
 }) {
   const indicator = buildState && !saving ? buildState : null;
   return (
@@ -249,6 +254,7 @@ export function TileStatusControl({
         <span style={{ flex: '1 1 auto', minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis' }}>
           {saving ? `${status}…` : status}
           {saving ? null : <BuildingPhaseSuffix status={status} phase={phase} />}
+          {saving ? null : <DeploySuffix status={status} mark={deploy} />}
           <BuildRunSuffix state={indicator} />
         </span>
         <span className="text-[var(--muted)]" aria-hidden style={{ display: 'inline-flex' }}>

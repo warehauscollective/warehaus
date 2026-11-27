@@ -124,6 +124,7 @@ import {
   ONLY_PETER_DESIGNS,
   requestDesignChangesDecision,
 } from './_lib/designApproval';
+import { deployMark } from './_lib/deploy';
 import { designGate, taskKind, TASK_KIND_NEEDS_MILESTONE } from './_lib/designGate';
 import { stageForNewMilestoneTask } from './_lib/milestoneTasks';
 import { setTaskKind as writeTaskKind, syncDesignAsk } from './_lib/designGateStore';
@@ -427,6 +428,7 @@ async function toRoadmap(
     ...(audience === 'staff' && milestone.figmaUrl ? { figmaUrl: milestone.figmaUrl } : {}),
     ...(audience === 'staff' && milestone.designApprovedAt ? { designApprovedAt: milestone.designApprovedAt } : {}),
     ...(audience === 'staff' ? { designGate: roadmapDesignGate(inputs, milestone) } : {}),
+    ...(audience === 'staff' ? roadmapDeployMark(milestone) : {}),
     creatorName: await creatorNameFor(ctx, milestone),
     ...(audience === 'staff' && milestone.createdVia ? { createdVia: milestone.createdVia } : {}),
     ...(audience === 'staff' && milestone.planning ? { planning: milestone.planning } : {}),
@@ -1404,6 +1406,12 @@ async function applyMilestoneReview(
     milestoneStatus: planned.status,
     createdTaskIds,
   };
+}
+
+/** The deploy mark for staff. A milestone with nothing to mark carries no key. */
+function roadmapDeployMark(milestone: Doc<'milestones'>): { deploy?: 'not-deployed' | 'deployed' } {
+  const mark = deployMark(milestone);
+  return mark === 'none' ? {} : { deploy: mark };
 }
 
 function peterPortalActor(identity: { role: string; email: string; contactId: string }) {

@@ -16,6 +16,7 @@ import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { FieldLabel, Panel, fieldStyle } from './milestoneChrome';
 import { StatusPlayButton, useMilestoneStatusMoves } from './MilestoneStatusControl';
 import { BuildingIndicator, BuildingPhaseSuffix, BuildRunSuffix, useBuildRunState } from './BuildingIndicator';
+import { DeploySuffix } from './DeploySuffix';
 import type { BuildingPhase } from '@convex/_lib/designGate';
 import type { BuildRunState } from '@convex/_lib/buildRun';
 
@@ -461,6 +462,7 @@ export function useMilestoneDetailEdits({
                 moves.saving ? null : (
                   <>
                     <BuildingPhaseSuffix status={statusNow} phase={milestone.designGate?.phase} />
+                    <DeploySuffix status={statusNow} mark={milestone.deploy} />
                     <BuildRunSuffix state={buildState} />
                   </>
                 )
