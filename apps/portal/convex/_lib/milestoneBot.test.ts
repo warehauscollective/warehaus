@@ -87,11 +87,8 @@ describe('notes', () => {
     for (const file of ['../portalData.ts', '../tasks.ts', '../clients.ts']) {
       assert.equal(read(file).includes('milestoneNotes'), false, file);
     }
-    // milestones.ts touches notes in one place: the review decision closes the open approval request.
-    const milestones = read('../milestones.ts');
-    assert.equal(milestones.split("query('milestoneNotes')").length - 1, 1);
-    const review = milestones.slice(milestones.indexOf('async function applyMilestoneReview'), milestones.indexOf('function peterPortalActor'));
-    assert.match(review, /query\('milestoneNotes'\)/);
+    // milestones.ts never reads the notes table itself: the review decision closes the open approval Ask through the Ask store.
+    assert.equal(read('../milestones.ts').includes("query('milestoneNotes')"), false);
     const api = read('../portalApi.ts');
     const note = api.slice(api.indexOf('export const addMilestoneNote'), api.indexOf('export const updateMilestone'));
     assert.match(note, /internalMutation/);

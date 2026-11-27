@@ -129,14 +129,14 @@ A checklist for developers testing the whole milestone pipeline end to end on sh
 2. **Push to shared dev only.** Push the schema and functions to `graceful-mastiff-960` once, then stop. Never use `--prod`, never run `npx convex deploy`, and don't leave `convex dev` running. Set `GITHUB_WEBHOOK_SECRET` on the dev deployment, and `VERCEL_WEBHOOK_SECRET` if you want the Vercel preview link on the milestone.
 3. **Set up a test project**, not a client one. Set its repository on the project page (`ProjectRepoSetting`) or with `projects.setAgentRepo`, as `owner/name`. On that GitHub repository, add a webhook to `https://graceful-mastiff-960.convex.site/github/webhook` (JSON, the same secret, Pull requests events). Optionally add a Vercel webhook to `/vercel/webhook`.
 4. **A dev runner.** Release builds of the app pair to production only, so on shared dev use the CLI: `npm run runner -- setup`, then confirm the code in the Runner status modal on a dev Portal. Use the default `--mode interactive`; `--mode headless` draws on the Agent SDK credit. For a Cursor project, export `CURSOR_API_KEY` in that shell only.
-5. **Grok Bot.** Connect it to the Portal MCP server (`docs/portal-mcp.md`) and have it check `list_needs_peter`.
+5. **Grok Bot.** Connect it to the Portal MCP server (`docs/portal-mcp.md`) and have it check `list_asks` with `person` set to `peter` (`list_needs_peter` is the old name and still works for one release).
 6. **Vercel.** Confirm the Preview environment points at `graceful-mastiff-960`, not `unique-turtle-383`.
 7. **Dry run.**
    1. Create a milestone with no tasks. Its planning gets queued.
    2. `npm run runner -- start --once`. The runner writes 3 to 10 tasks and leaves the milestone in Planning. Staff edit the list, then move it to Awaiting Go.
    3. Press Go. The milestone moves to Building.
    4. Run the same command once per task. Each task ends with a commit on `milestone/<slug>`, one PR into the default branch, and the task Done with its commit.
-   5. Test a blocked task once: have Claude write `.runner/blocked.txt`. A "needs Peter" note appears.
+   5. Test a blocked task once: have Claude write `.runner/blocked.txt`. An Ask waiting on Peter appears, and the Portal shows him Needs you.
    6. After the last task the milestone moves to Ready to Ship, with the local preview stored. Open it with `npm run preview:pr -- milestone/<slug>`. A Parked task does not hold this up.
    7. Request changes once. A review task appears, and the milestone goes back to Building.
    8. Approve. That records the decision and nothing else.

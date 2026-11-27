@@ -91,7 +91,7 @@ What needs the signed-in person right now: the open Asks waiting on them and new
 _Avoid_: notification list, inbox
 
 **Ask**:
-A note that waits on one named staff member to answer it: an approval request or a blocked task. It stays open until that person answers. The Portal shows it as Needs you.
+A note that waits on one named staff member to answer it: an approval request or a blocked task. It stays open until that person answers. Approval Asks wait on Peter, the only approver; blocked Asks wait on Peter until milestones or tasks have an owner. The Portal shows it as Needs you.
 _Avoid_: needs Peter, needs attention
 
 ## Design

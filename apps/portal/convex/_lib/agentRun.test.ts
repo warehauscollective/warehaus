@@ -34,7 +34,7 @@ import * as agentModule from '../agent';
 import { claimNext, completeTask, releaseRun, releaseStuckRuns, reportBuild, touchRunner, writePlannedTasks } from '../agent';
 import crons from '../crons';
 import { create as createStaffMilestone, createFromAi, setStatus } from '../milestones';
-import { createMilestone, listNeedsPeter, updateMilestone } from '../portalApi';
+import { createMilestone, listOpenAsks, updateMilestone } from '../portalApi';
 import { setAgentDriver, setAgentRepo } from '../projects';
 import { heldRunIds, openRunDecision, RUNNER_BUSY, RUNNER_MAX_SLOTS, RUNNER_NEEDS_REPO, runnerSlots } from './agentRun';
 import { PortalAuthError } from './identity';
@@ -308,7 +308,7 @@ describe('finishing a task', () => {
     assert.equal(t.row(taskIds[0] as string)?.lastCommitSha, SHA);
     // The status writer's own effects: one status activity row and Peter's approval note.
     assert.equal(t.rows('activity').filter((row) => row.type === 'milestone.status' && row.milestoneId === milestoneId).length, 1);
-    assert.equal(t.rows('milestoneNotes').filter((note) => note.needsPeter === 'open' && note.reason === 'approval').length, 1);
+    assert.equal(t.rows('milestoneNotes').filter((note) => note.open === true && note.reason === 'approval').length, 1);
     const tables = ['agentRuns', 'agentEvents', 'tasks', 'milestones', 'milestoneNotes', 'activity'];
     const before = JSON.stringify(tables.map((table) => t.rows(table)));
     const again = await t.call<{ ok: boolean; duplicate: boolean; run: string; milestoneStatus: string }>(completeTask, {
@@ -321,7 +321,7 @@ describe('finishing a task', () => {
     assert.equal(JSON.stringify(tables.map((table) => t.rows(table))), before);
   });
 
-  it('hands a task back to To do on a release, with no needs Peter note, and the next claim takes it again', async () => {
+  it('hands a task back to To do on a release, with no Ask, and the next claim takes it again', async () => {
     const t = memoryCtx();
     const { milestoneId, taskIds } = building(t, ['Board columns']);
     const run = await claim(t);
@@ -333,7 +333,7 @@ describe('finishing a task', () => {
     const row = t.row(run.runId);
     assert.equal(row?.status, 'cancelled');
     assert.equal(typeof row?.settledAt, 'number');
-    assert.equal(t.rows('milestoneNotes').filter((note) => note.needsPeter === 'open').length, 0);
+    assert.equal(t.rows('milestoneNotes').filter((note) => note.open === true).length, 0);
     const events = t.rows('agentEvents').filter((event) => event.milestoneId === milestoneId);
     assert.equal(events[events.length - 1]?.type, 'note');
     assert.match(String(events[events.length - 1]?.summary), /^Task 01 went back to To do · Claude usage limit/);
@@ -357,7 +357,7 @@ describe('finishing a task', () => {
     assert.deepEqual([refused.ok, refused.status], [false, 403]);
     await t.call(releaseRun, { runnerId: RUNNER, runId: run.runId, reason: 'Claude usage limit' });
     assert.equal(t.row(planning.milestoneId)?.planning, 'queued');
-    assert.equal(t.rows('milestoneNotes').filter((note) => note.needsPeter === 'open').length, 0);
+    assert.equal(t.rows('milestoneNotes').filter((note) => note.open === true).length, 0);
     const build = seedRun(t, { orgId: planning.orgId, milestoneId: planning.milestoneId }, { kind: 'build', runnerId: RUNNER });
     const wrongKind = await t.call<{ ok: boolean; status: number }>(releaseRun, { runnerId: RUNNER, runId: build });
     assert.deepEqual([wrongKind.ok, wrongKind.status], [false, 400]);
@@ -559,7 +559,7 @@ describe('queue rules', () => {
     assert.equal(jobs.some((job) => job.name === 'agent:releaseStuckRuns'), true);
   });
 
-  it('blocks a Cursor build after 2 hours with a needs Peter note, counting from the first launch', async () => {
+  it('blocks a Cursor build after 2 hours with an Ask, counting from the first launch', async () => {
     const { CURSOR_BUILD_MAX_MS, CURSOR_BUILD_TOO_LONG, cursorBuildTooLong } = await import('./agentRun');
     const now = Date.now();
     assert.equal(cursorBuildTooLong({ startedAt: now - CURSOR_BUILD_MAX_MS + 1000, now }), false);
@@ -656,7 +656,7 @@ describe('repository fail-safe', () => {
   });
 });
 
-describe('needs Peter notes', () => {
+describe('Asks', () => {
   it('asks for approval from the local preview and never names the Vercel one', async () => {
     const { approvalNote, blockedNote, localPreviewCommand } = await import('./agentRun');
     const note = approvalNote({
@@ -695,17 +695,210 @@ describe('needs Peter notes', () => {
         addedBy: 'runner:peter-mbp',
         createdAt,
         reason: 'blocked',
-        ...(open ? { needsPeter: 'open' } : {}),
+        ...(open ? { open: true } : {}),
       });
     note('older', 1, true);
     note('answered', 2, false);
     note('newer', 3, true);
     t.reads.reset();
-    const listed = await t.call<{ status: number; body: { items: Array<{ body: string }> } }>(listNeedsPeter, {});
+    const listed = await t.call<{ status: number; body: { items: Array<{ body: string }> } }>(listOpenAsks, {});
     assert.equal(listed.status, 200);
     assert.deepEqual(listed.body.items.map((item) => item.body), ['newer', 'older']);
     assert.deepEqual(t.reads.unbounded(), []);
     assert.deepEqual(t.reads.unindexed(), []);
+  });
+
+  it('lists only the Asks waiting on one person, with one indexed, capped read', async () => {
+    const t = memoryCtx();
+    const { orgId, milestoneId } = building(t, []);
+    const staff = (name: string, email: string) =>
+      t.seed('contacts', {
+        orgId,
+        notionPageId: `seed-contact-${name}`,
+        lastSyncedAt: 0,
+        name,
+        email,
+        role: 'Warehaus Staff',
+        portalAccess: 'Enabled',
+      });
+    const maya = staff('Maya Chen', 'maya@warehaus.test');
+    const omar = staff('Omar Reyes', 'omar@warehaus.test');
+    const ask = (body: string, createdAt: number, waitingOn: string | null, open = true) =>
+      t.seed('milestoneNotes', {
+        orgId,
+        milestoneId,
+        body,
+        addedBy: 'runner:peter-mbp',
+        createdAt,
+        reason: 'blocked',
+        ...(waitingOn ? { waitingOn } : {}),
+        ...(open ? { open: true } : {}),
+      });
+    ask('maya older', 1, maya);
+    ask('omar', 2, omar);
+    ask('maya answered', 3, maya, false);
+    ask('maya newer', 4, maya);
+    ask('no one', 5, null);
+    type Listed = { status: number; body: { items: Array<{ body: string; waitingOn: { id: string; name: string } | null }> } };
+    t.reads.reset();
+    const forMaya = await t.call<Listed>(listOpenAsks, { waitingOn: maya });
+    assert.deepEqual(forMaya.body.items.map((item) => item.body), ['maya newer', 'maya older']);
+    assert.deepEqual(forMaya.body.items[0]?.waitingOn, { id: maya, name: 'Maya Chen' });
+    assert.deepEqual(t.reads.unbounded(), []);
+    assert.deepEqual(t.reads.unindexed(), []);
+    const everyone = await t.call<Listed>(listOpenAsks, {});
+    assert.deepEqual(everyone.body.items.map((item) => item.body), ['no one', 'maya newer', 'omar', 'maya older']);
+    assert.equal(everyone.body.items[0]?.waitingOn, null);
+    assert.equal(everyone.body.items[2]?.waitingOn?.name, 'Omar Reyes');
+  });
+
+  it('lists the Asks for a person named by email, contact id or "peter"', async () => {
+    const t = memoryCtx();
+    const { orgId, milestoneId } = building(t, []);
+    const contact = (name: string, email: string, role: 'Warehaus Staff' | 'Client Admin' = 'Warehaus Staff') =>
+      t.seed('contacts', {
+        orgId,
+        notionPageId: `seed-contact-${name}`,
+        lastSyncedAt: 0,
+        name,
+        email,
+        role,
+        portalAccess: 'Enabled',
+      });
+    const maya = contact('Maya Chen', 'maya@warehaus.test');
+    const peter = contact('Peter', 'peter@warehaus.co');
+    const client = contact('Cleo Client', 'cleo@client.test', 'Client Admin');
+    const ask = (body: string, createdAt: number, waitingOn: string) =>
+      t.seed('milestoneNotes', {
+        orgId,
+        milestoneId,
+        body,
+        addedBy: 'runner:peter-mbp',
+        createdAt,
+        reason: 'blocked',
+        waitingOn,
+        open: true,
+      });
+    ask('for maya', 1, maya);
+    ask('for peter', 2, peter);
+    type Listed = { status: number; body: { items?: Array<{ body: string }>; error?: string } };
+    const bodies = (listed: Listed) => listed.body.items?.map((item) => item.body);
+    t.reads.reset();
+    assert.deepEqual(bodies(await t.call<Listed>(listOpenAsks, { person: ' Maya@Warehaus.test ' })), ['for maya']);
+    assert.deepEqual(bodies(await t.call<Listed>(listOpenAsks, { person: maya })), ['for maya']);
+    assert.deepEqual(bodies(await t.call<Listed>(listOpenAsks, { person: 'peter' })), ['for peter']);
+    assert.deepEqual(t.reads.unbounded(), []);
+    assert.deepEqual(t.reads.unindexed(), []);
+    // A typo, a client and another table's id are a 404, not an empty list.
+    for (const person of ['nobody@warehaus.test', 'cleo@client.test', client, milestoneId, 'not an id']) {
+      const missing = await t.call<Listed>(listOpenAsks, { person });
+      assert.equal(missing.status, 404, person);
+      assert.equal(missing.body.error, 'No staff member matches that person');
+    }
+  });
+
+  it('the old needs-peter read lists Peter\'s Asks, and every open Ask where Peter has no contact', async () => {
+    const t = memoryCtx();
+    const { orgId, milestoneId } = building(t, []);
+    const ask = (body: string, createdAt: number, waitingOn?: string) =>
+      t.seed('milestoneNotes', {
+        orgId,
+        milestoneId,
+        body,
+        addedBy: 'runner:peter-mbp',
+        createdAt,
+        reason: 'blocked',
+        open: true,
+        ...(waitingOn ? { waitingOn } : {}),
+      });
+    type Listed = { status: number; body: { items?: Array<{ body: string }> } };
+    const old = { person: 'peter', personOptional: true };
+    ask('waits on no one', 1);
+    const noPeter = await t.call<Listed>(listOpenAsks, old);
+    assert.deepEqual(noPeter.body.items?.map((item) => item.body), ['waits on no one']);
+    assert.equal((await t.call<Listed>(listOpenAsks, { person: 'peter' })).status, 404);
+
+    const staff = (name: string, email: string) =>
+      t.seed('contacts', {
+        orgId,
+        notionPageId: `seed-contact-${name}`,
+        lastSyncedAt: 0,
+        name,
+        email,
+        role: 'Warehaus Staff',
+        portalAccess: 'Enabled',
+      });
+    const peter = staff('Peter', 'peter@warehaus.co');
+    const maya = staff('Maya Chen', 'maya@warehaus.test');
+    ask('for peter', 2, peter);
+    ask('for maya', 3, maya);
+    const withPeter = await t.call<Listed>(listOpenAsks, old);
+    assert.deepEqual(withPeter.body.items?.map((item) => item.body), ['for peter']);
+  });
+
+  it('writes a blocked Ask waiting on Peter, and keeps who it waited on once answered', async () => {
+    const t = memoryCtx();
+    const { orgId, milestoneId, taskIds } = building(t, ['Needs a frame', 'Has an Ask']);
+    const peter = t.seed('contacts', {
+      orgId,
+      notionPageId: 'seed-contact-peter',
+      lastSyncedAt: 0,
+      name: 'Peter',
+      email: 'peter@warehaus.co',
+      role: 'Warehaus Staff',
+      portalAccess: 'Enabled',
+    });
+    const run = await claim(t);
+    await t.call(completeTask, { runnerId: RUNNER, runId: run.runId, status: 'blocked', reason: 'needs Figma frame' });
+    const [note] = t.rows('milestoneNotes');
+    assert.equal(note?.open, true);
+    assert.equal(note?.waitingOn, peter);
+    const listed = await t.call<{ body: { items: Array<{ id: string }> } }>(listOpenAsks, { waitingOn: peter });
+    assert.deepEqual(listed.body.items.map((item) => item.id), [note?._id]);
+    // An older Ask on the second task. Finishing that task answers it.
+    const older = t.seed('milestoneNotes', {
+      orgId,
+      milestoneId,
+      body: 'Task 02 is blocked and needs you',
+      addedBy: 'runner:peter-mbp',
+      createdAt: 1,
+      open: true,
+      waitingOn: peter,
+      reason: 'blocked',
+      taskId: taskIds[1] as string,
+    });
+    const next = await claim(t);
+    await t.call(completeTask, { runnerId: RUNNER, runId: next.runId, status: 'done', commitSha: SHA });
+    assert.equal(t.row(older)?.open, undefined);
+    assert.equal(t.row(older)?.waitingOn, peter);
+  });
+
+  it('writes the approval Ask waiting on Peter when the last task is done', async () => {
+    const t = memoryCtx();
+    const { orgId } = building(t, ['Only task']);
+    const peter = t.seed('contacts', {
+      orgId,
+      notionPageId: 'seed-contact-peter',
+      lastSyncedAt: 0,
+      name: 'Peter',
+      email: 'peter@warehaus.co',
+      role: 'Warehaus Staff',
+      portalAccess: 'Enabled',
+    });
+    const run = await claim(t);
+    await t.call(completeTask, { runnerId: RUNNER, runId: run.runId, status: 'done', commitSha: SHA });
+    const asks = t.rows('milestoneNotes').filter((row) => row.open === true);
+    assert.deepEqual(asks.map((row) => [row.reason, row.waitingOn]), [['approval', peter]]);
+  });
+
+  it('still writes the Ask, waiting on no one, where Peter has no contact', async () => {
+    const t = memoryCtx();
+    building(t, ['Needs a frame']);
+    const run = await claim(t);
+    await t.call(completeTask, { runnerId: RUNNER, runId: run.runId, status: 'blocked', reason: 'needs Figma frame' });
+    const [note] = t.rows('milestoneNotes');
+    assert.equal(note?.open, true);
+    assert.equal(note?.waitingOn, undefined);
   });
 
   it('makes no outbound call from the runner functions', () => {
@@ -719,7 +912,7 @@ describe('needs Peter notes', () => {
     const [blockedId, notedId] = taskIds as [string, string];
     const run = await claim(t);
     await t.call(completeTask, { runnerId: RUNNER, runId: run.runId, status: 'blocked', reason: 'needs Figma frame' });
-    const open = () => t.rows('milestoneNotes').filter((row) => row.needsPeter === 'open');
+    const open = () => t.rows('milestoneNotes').filter((row) => row.open === true);
     assert.equal(open().length, 1);
     assert.equal(open()[0]?.reason, 'blocked');
     assert.equal(open()[0]?.taskId, blockedId);
@@ -731,7 +924,7 @@ describe('needs Peter notes', () => {
       body: 'Task 02 is blocked and needs you',
       addedBy: 'runner:peter-mbp',
       createdAt: 1,
-      needsPeter: 'open',
+      open: true,
       reason: 'blocked',
       taskId: notedId,
     });

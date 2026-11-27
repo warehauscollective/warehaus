@@ -277,7 +277,7 @@ export function cloneWorktreePath(home, repo, branch) {
   return `${home}/worktrees/${owner}/${project}/${worktreeName(branch)}`;
 }
 
-/** The reason a run is blocked when the runner cannot get a clone. Peter sees it in the needs Peter note. */
+/** The reason a run is blocked when the runner cannot get a clone. Peter sees it in the Ask. */
 export function cloneFailedReason(repo) {
   const name = cloneRepoName(repo);
   return name ? `The runner could not clone ${name}` : 'The project has no repository the runner can clone';
@@ -403,7 +403,7 @@ export function parseGitLog(text) {
 /**
  * How a finished task run is reported. A blocked file wins. A run Claude ended
  * on the account usage limit is released: the task goes back to To do, with
- * no needs Peter note, and any commit it made stays in the worktree for the
+ * no Ask, and any commit it made stays in the worktree for the
  * next run. Otherwise no new commit means the run failed.
  */
 export function taskOutcome({ before, after, blockedReason, usageLimit = null }) {

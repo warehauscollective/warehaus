@@ -64,7 +64,8 @@ import {
 import { currentIteration, NEW_ITERATION_TASK_DONE } from './_lib/milestoneReview';
 import { reviewPreviews } from './_lib/previewLink';
 import { uniqueMilestoneBranch } from './_lib/milestoneBranchStore';
-import { NEEDS_PETER_LIMIT, planningForNewMilestone } from './_lib/agentRun';
+import { planningForNewMilestone } from './_lib/agentRun';
+import { ASK_PERSON_MAX, ASK_PERSON_PETER, openAsks, staffContactForPerson } from './_lib/askStore';
 import { resolveShipLink, verifyPullMerged } from './_lib/githubPull';
 import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
 import { apiStatusFields, apiStatusInput } from './_lib/milestoneStatus';
@@ -751,7 +752,8 @@ export const getMilestoneStatus = internalQuery({
           addedBy: note.addedBy,
           createdAt: note.createdAt,
           reason: note.reason ?? null,
-          needsPeter: note.needsPeter === 'open',
+          open: note.open === true,
+          waitingOn: note.waitingOn ?? null,
         })),
         events: recent.map((row) => ({ type: row.type, summary: row.summary ?? null, at: row.timestamp })),
       },
@@ -760,29 +762,53 @@ export const getMilestoneStatus = internalQuery({
 });
 
 /**
- * Open notes that wait on Peter: approval requests and blocked tasks, newest
- * first. One indexed read, at most 20. Grok Bot reads this to know what to
- * raise with him.
+ * Open Asks: approval requests and blocked tasks, newest first. With
+ * `waitingOn` or `person`, only the Asks waiting on that staff member. One
+ * indexed read, at most 20. Grok Bot reads this to know what to raise, and
+ * with whom.
+ *
+ * `person` is `peter`, a staff email or a staff contact id. A person who is
+ * not staff is a 404, so a typo is not read as "nothing is waiting".
+ * `personOptional` is for the old needs-peter route only: where Peter has no
+ * contact, Asks wait on no one, and that route still lists them.
  */
-export const listNeedsPeter = internalQuery({
-  args: {},
-  handler: async (ctx): Promise<ApiResult> => {
-    const open = await ctx.db
-      .query('milestoneNotes')
-      .withIndex('by_needsPeter', (q) => q.eq('needsPeter', 'open'))
-      .order('desc')
-      .take(NEEDS_PETER_LIMIT);
+export const listOpenAsks = internalQuery({
+  args: {
+    waitingOn: v.optional(v.id('contacts')),
+    person: v.optional(v.string()),
+    personOptional: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args): Promise<ApiResult> => {
+    let waitingOn = args.waitingOn;
+    if (!waitingOn && args.person != null) {
+      const contactId = await staffContactForPerson(ctx, args.person);
+      if (!contactId && args.personOptional !== true) {
+        return { status: 404, body: { error: 'No staff member matches that person' } };
+      }
+      waitingOn = contactId ?? undefined;
+    }
+    const open = await openAsks(ctx, { waitingOn });
+    const people = new Map<string, { id: Id<'contacts'>; name: string } | null>();
     const items = [];
     for (const note of open) {
       if (!(await staffMayReadOrg(ctx, note.orgId))) continue;
       const milestone = await ctx.db.get(note.milestoneId);
       if (!milestone) continue;
+      let waitingOn: { id: Id<'contacts'>; name: string } | null = null;
+      if (note.waitingOn) {
+        if (!people.has(note.waitingOn)) {
+          const contact = await ctx.db.get(note.waitingOn);
+          people.set(note.waitingOn, contact ? { id: contact._id, name: contact.name } : null);
+        }
+        waitingOn = people.get(note.waitingOn) ?? null;
+      }
       items.push({
         id: note._id,
         milestoneId: milestone._id,
         milestoneName: milestone.name,
         projectId: milestone.projectId,
         reason: note.reason ?? null,
+        waitingOn,
         body: note.body,
         status: milestone.status,
         iteration: currentIteration(milestone.iteration),
@@ -1180,8 +1206,18 @@ export const portalApiHttp = httpAction(async (ctx, request) => {
         });
         return json(result.body, result.status);
       }
+      if (url.pathname === '/api/v1/milestones/asks') {
+        const person = url.searchParams.get('person')?.trim();
+        if (person && person.length > ASK_PERSON_MAX) return json({ error: 'Person is too long' }, 400);
+        const result = await ctx.runQuery(internal.portalApi.listOpenAsks, person ? { person } : {});
+        return json(result.body, result.status);
+      }
+      // Old name for /api/v1/milestones/asks?person=peter. Kept for one release.
       if (url.pathname === '/api/v1/milestones/needs-peter') {
-        const result = await ctx.runQuery(internal.portalApi.listNeedsPeter, {});
+        const result = await ctx.runQuery(internal.portalApi.listOpenAsks, {
+          person: ASK_PERSON_PETER,
+          personOptional: true,
+        });
         return json(result.body, result.status);
       }
       if (url.pathname === '/api/v1/milestones/item') {

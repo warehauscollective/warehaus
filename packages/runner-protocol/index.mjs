@@ -135,7 +135,7 @@ export function runnerClient({ url, token, runnerId, fetch: fetchImpl = globalTh
         ...(prUrl ? { prUrl } : {}),
       }),
     failPlanning: ({ runId, reason }) => post(RUNNER_PATHS.complete, { runId, kind: 'planning', reason }),
-    // The task goes back to To do (a plan back to the queue) with no needs Peter note.
+    // The task goes back to To do (a plan back to the queue) with no Ask.
     // A Portal that predates it answers 404, and the run stays open until the next claim hands it back.
     release: ({ runId, reason, until }) =>
       post(RUNNER_PATHS.release, { runId, ...(reason ? { reason } : {}), ...(until != null ? { until } : {}) }),

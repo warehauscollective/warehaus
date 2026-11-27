@@ -45,6 +45,16 @@ Every plan or feature follows this. Cursor agents, Claude agents, and Grok bots 
 - Agents record his decision in Notion and the Portal on his behalf, with the date and where he said it. Notion is the agents' back office.
 - After that approval, the code can merge and the milestone can close. Merging does not deploy. A production deploy still needs Peter's explicit "deploy main", from `main` only.
 
+### Asks
+
+Decided by Peter, 2026-11-25. Full record: `docs/adr/0006-multi-platform-portal.md`.
+
+- An Ask is a milestone note that waits on one named staff member: an approval request or a blocked task. See `GLOSSARY.md`.
+- The Portal shows an open Ask as Needs you to the person it waits on.
+- Approval Asks wait on Peter, the only approver. Blocked Asks wait on Peter until milestones or tasks have an owner.
+- Agents read open Asks with `list_asks`, with an optional `person` (`docs/portal-mcp.md`). `list_needs_peter` is the old name and answers for one release.
+- Say Ask in code, notes and docs. ADR-0001 and ADR-0005 keep the old wording as historical records.
+
 ### Convex
 
 Keep Convex usage low: indexed reads, bounded pagination, no whole-table scans, skip no-op writes, no lingering `convex dev`.

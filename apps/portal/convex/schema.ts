@@ -530,18 +530,34 @@ export default defineSchema({
     addedBy: v.string(),
     createdAt: v.number(),
     /**
-     * `open` while the note waits on Peter: an approval request or a blocked
-     * task. Cleared when it is answered, so the open list stays short.
+     * An Ask (GLOSSARY.md): the note waits on one staff member. `open` is true
+     * while it waits and cleared when it is answered, so the open lists stay
+     * short. Written through `_lib/askStore.ts`.
      */
-    needsPeter: v.optional(v.literal('open')),
-    /** Why it needs Peter. Set with needsPeter and kept after it is answered. */
+    open: v.optional(v.literal(true)),
+    /**
+     * The staff contact the Ask waits on. Kept after it is answered. Absent on
+     * a plain note, and on an Ask written where Peter has no contact.
+     */
+    waitingOn: v.optional(v.id('contacts')),
+    /** Why it is an Ask. Set with `open` and kept after it is answered. */
     reason: v.optional(v.union(v.literal('approval'), v.literal('blocked'))),
     /** The blocked task. Absent on an approval request. */
     taskId: v.optional(v.id('tasks')),
+    /**
+     * The flag `open` replaced. Only the one-off migration in
+     * `_lib/askMigration.ts` reads it, through `by_needsPeter`, and clears it
+     * as it turns each row into an Ask waiting on Peter. The field and that
+     * index stay until the migration has run on production; a deploy that
+     * drops them before then fails on the rows that still carry the flag.
+     */
+    needsPeter: v.optional(v.literal('open')),
   })
     .index('by_milestone_createdAt', ['milestoneId', 'createdAt'])
     .index('by_needsPeter', ['needsPeter', 'createdAt'])
-    .index('by_milestone_needsPeter', ['milestoneId', 'needsPeter']),
+    .index('by_open', ['open', 'createdAt'])
+    .index('by_waitingOn_open', ['waitingOn', 'open', 'createdAt'])
+    .index('by_milestone_open', ['milestoneId', 'open']),
 
   /**
    * Milestone → Shared Resource. Same org only.
