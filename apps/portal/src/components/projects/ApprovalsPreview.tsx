@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 import { useEffect } from 'react';
 import { NOTES_REQUIRED } from '@convex/_lib/milestoneReview';
 import { PREVIEW_LINK_LOCAL } from '@convex/_lib/previewLink';
@@ -769,9 +770,7 @@ export function ApprovalsPreview({
             <h3 className="type-heading" style={{ fontSize: 20, lineHeight: '30px', margin: '0 0 12px' }}>Activity</h3>
             <ul className="flex flex-col gap-3" style={{ listStyle: 'none', padding: 0, margin: 0 }}>
               <li className="flex items-start gap-2" style={{ fontSize: 14, lineHeight: '21px' }}>
-                <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true" style={{ marginTop: 3, flex: '0 0 auto' }}>
-                  <path d="M2.5 7.2 5.4 10 11.5 3.8" fill="none" stroke="currentColor" strokeWidth="1.4" />
-                </svg>
+                <Icon name="Check" size="sm" style={{ marginTop: 3, flex: '0 0 auto' }} />
                 <span>Approved by Peter · Nov 17</span>
               </li>
               <li style={{ fontSize: 14, lineHeight: '21px' }}>Design check passed · Nov 17</li>

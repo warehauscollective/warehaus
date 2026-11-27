@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, type CSSProperties, type FormEvent, type KeyboardEvent, type Ref } from 'react';
 import { useAction } from 'convex/react';
-import { AlertCircle, Building2, Check, ChevronDown, Lock, Plus, Search } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { api } from '@convex/_generated/api';
 import type { Id } from '@convex/_generated/dataModel';
@@ -499,7 +499,7 @@ export function NewProjectForm({
           style={{ display: 'flex', flexDirection: 'column', minHeight: 0, flex: '1 1 auto' }}
         >
           <label className="portal-create-field flex items-center gap-2" style={{ minHeight: 44, borderRadius: 18, border: '1px solid var(--border-2)', background: 'var(--surface-2)', padding: '10px 12px' }}>
-            <Search size={16} aria-hidden="true" style={{ color: 'var(--muted)' }} />
+            <Icon name="SearchNormal" color="muted" />
             <input
               ref={searchRef}
               value={pickerQuery}
@@ -545,7 +545,7 @@ export function NewProjectForm({
             onClick={() => onNewClient(pinned.name)}
             style={{ ...optionStyle(active === visible.length), borderTop: '1px solid var(--border)', width: '100%', marginTop: 'auto' }}
           >
-            <Plus size={16} aria-hidden="true" />
+            <Icon name="Add" />
             <span className="min-w-0 flex-1 truncate" style={{ fontWeight: 600 }}>{pinned.label}</span>
             <span style={{ color: 'var(--muted)', fontSize: 13 }}>{pinned.meta}</span>
           </button>
@@ -622,13 +622,13 @@ export function NewProjectForm({
                     border: '1px solid var(--border)',
                   }}
                 >
-                  <Building2 size={16} aria-hidden="true" />
+                  <Icon name="Buildings2" />
                   <span className="min-w-0 flex-1 truncate">{lockedName}</span>
                   <Tag>Preset</Tag>
-                  <Lock size={14} aria-hidden="true" />
+                  <Icon name="Lock" size="sm" />
                 </div>
                 <p className="ds-mono" style={{ display: 'flex', alignItems: 'flex-start', gap: 6, fontSize: 12, color: 'var(--muted)' }}>
-                  <Lock size={14} aria-hidden="true" style={{ flex: '0 0 auto', marginTop: 2 }} />
+                  <Icon name="Lock" size="sm" style={{ flex: '0 0 auto', marginTop: 2 }} />
                   <span>Set from {lockedName}. Start from Projects to pick another client.</span>
                 </p>
               </div>
@@ -658,14 +658,14 @@ export function NewProjectForm({
                 >
                   {selected ? <ClientMark name={selected.name} /> : (
                     <span data-testid="choose-client-icon" className="inline-flex" style={{ color: 'var(--muted)' }}>
-                      <Building2 size={16} aria-hidden="true" />
+                      <Icon name="Buildings2" />
                     </span>
                   )}
                   <span className="min-w-0 flex-1 truncate" style={{ color: selected ? 'var(--fg)' : 'var(--muted)' }}>
                     {selected?.name ?? 'Choose a client'}
                   </span>
                   {fresh && selected ? <Tag>New</Tag> : null}
-                  <ChevronDown size={16} aria-hidden="true" />
+                  <Icon name="ArrowDown2" />
                 </button>
                 {pickerOpen && !narrow ? (
                   <div
@@ -684,7 +684,7 @@ export function NewProjectForm({
                     }}
                   >
                     <label className="flex items-center gap-2" style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
-                      <Search size={16} aria-hidden="true" style={{ color: 'var(--muted)' }} />
+                      <Icon name="SearchNormal" color="muted" />
                       <input
                         ref={searchRef}
                         value={pickerQuery}
@@ -742,7 +742,7 @@ export function NewProjectForm({
                         width: '100%',
                       }}
                     >
-                      <Plus size={16} aria-hidden="true" />
+                      <Icon name="Add" />
                       <span className="min-w-0 flex-1 truncate" style={{ fontWeight: 600 }}>{pinned.label}</span>
                       <span style={{ color: 'var(--muted)', fontSize: 13 }}>{pinned.meta}</span>
                     </button>
@@ -750,7 +750,7 @@ export function NewProjectForm({
                 ) : null}
                 {fresh && selected ? (
                   <p role="status" data-testid="client-created-line" style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-                    <Check size={14} aria-hidden="true" />
+                    <Icon name="Check" size="sm" />
                     {CLIENT_CREATED_COPY}
                   </p>
                 ) : null}
@@ -766,7 +766,7 @@ export function NewProjectForm({
               role={note.tone === 'error' ? 'alert' : 'status'}
               data-testid={note.tone === 'error' ? (locked ? 'locked-project-error' : 'new-project-error') : 'new-project-info'}
             >
-              {note.tone === 'error' ? <AlertCircle size={14} aria-hidden="true" style={{ color: 'var(--danger)' }} /> : null}
+              {note.tone === 'error' ? <Icon name="InfoCircle" size="sm" color="danger" /> : null}
               {note.text}
             </p>
           ) : null}

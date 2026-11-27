@@ -1,6 +1,6 @@
 'use client';
 
-import { ChevronDown, ChevronRight } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { useId, type ReactNode } from 'react';
 import { doneGroupLabel } from './needMilestone';
 
@@ -55,7 +55,7 @@ export function DoneGroup({
           cursor: 'pointer',
         }}
       >
-        {expanded ? <ChevronDown size={16} aria-hidden /> : <ChevronRight size={16} aria-hidden />}
+        {expanded ? <Icon name="ArrowDown2" /> : <Icon name="ArrowRight2" />}
         <span
           className="ds-mono"
           data-testid="milestone-done-label"

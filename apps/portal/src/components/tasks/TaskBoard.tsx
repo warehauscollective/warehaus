@@ -34,6 +34,7 @@ import { formatPortalDate, taskStatusColor, type PortalTask } from '@/lib/data/v
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { scrollActiveIntoView, sectionEdgeFades, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
 import { TaskGlyph } from './TaskGlyph';
+import { Icon } from '@/components/ui/Icon';
 
 export type BoardMode = 'status' | 'stage';
 
@@ -595,7 +596,7 @@ function Column({
         <span className="flex-1" />
         {showQuickAdd && staff && !columnKey.startsWith('unknown') ? (
           quickAddEnabled ? (
-            <button type="button" aria-label={`Add task to ${label}`} onClick={onQuick} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer' }}>+</button>
+            <button type="button" aria-label={`Add task to ${label}`} onClick={onQuick} style={{ color: 'var(--muted)', background: 'none', border: 0, cursor: 'pointer', display: 'inline-flex' }}><Icon name="Add" /></button>
           ) : (
             <DisabledQuickAdd label="+" testId="column-quick-add" labelText={`Add task to ${label}`} />
           )
@@ -1064,7 +1065,7 @@ export function TaskCardFace({
         <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
           <p style={{ flex: '1 1 auto', minWidth: 0, fontSize: 14, fontWeight: 500, lineHeight: '21px', overflowWrap: 'anywhere' }}>{task.name}</p>
           <span style={{ color: 'var(--muted)' }}>
-            <TaskGlyph src="/icons/sidebar-menu.svg" size={16} />
+            <Icon name="HamburgerMenu" />
           </span>
         </div>
       ) : (
@@ -1124,18 +1125,18 @@ export function TaskCardFace({
       </div>
       <p className="ds-mono flex flex-wrap items-center gap-3" style={{ fontSize: 12, color: 'var(--muted)' }}>
         <span className="inline-flex items-center gap-1">
-          <TaskGlyph src="/icons/task-calendar.svg" />
+          <Icon name="Calendar" size="sm" />
           {formatPortalDate(task.date)}
         </span>
         {subLabel ? (
           <span className="inline-flex items-center gap-1">
-            <TaskGlyph src="/icons/task-list.svg" />
+            <Icon name="Task" size="sm" />
             {subLabel}
           </span>
         ) : null}
         {resources > 0 ? (
           <span className="inline-flex items-center gap-1">
-            <TaskGlyph src="/icons/task-link.svg" />
+            <Icon name="Link" size="sm" />
             {resources}
           </span>
         ) : null}

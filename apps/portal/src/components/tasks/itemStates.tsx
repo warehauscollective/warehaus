@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 import { useEffect, useId, useState, type ReactNode } from 'react';
 
 /** Fixture preview only. A live session always stays on the real task list. */
@@ -255,7 +256,7 @@ function ItemEmpty({
         padding: '48px 24px',
       }}
     >
-      <ItemEmptyIcon />
+      <Icon name="Task" size="xl" color="muted" />
       <p style={{ margin: 0, fontSize: 16, fontWeight: 500, lineHeight: '19px' }}>{copy.title}</p>
       <p
         style={{
@@ -390,7 +391,7 @@ export function ItemLongRow({ staff }: { staff: boolean }) {
             {row.meta}
           </span>
         </span>
-        <ItemChevronIcon />
+        <Icon name="ArrowRight2" color="muted" className="shrink-0" data-testid="item-chev" />
       </div>
       <div className="flex flex-wrap items-center" style={{ gap: 8 }}>
         <span
@@ -552,26 +553,6 @@ function ItemOutlineButton({
     >
       {children}
     </button>
-  );
-}
-
-function ItemEmptyIcon() {
-  return (
-    <span aria-hidden style={{ color: 'var(--muted)', display: 'inline-flex' }}>
-      <svg width="28" height="28" viewBox="0 0 28 28" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M5.5 4.5H13.5M5.5 8H13.5M5.5 11.5H13.5M2.5 4.5H3M2.5 8H3M2.5 11.5H3" stroke="currentColor" strokeWidth="1.33" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </span>
-  );
-}
-
-function ItemChevronIcon() {
-  return (
-    <span aria-hidden className="shrink-0" data-testid="item-chev" style={{ color: 'var(--muted)', display: 'inline-flex' }}>
-      <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-        <path d="M6 3L11 8L6 13" stroke="currentColor" strokeWidth="1.33" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    </span>
   );
 }
 

@@ -7,7 +7,7 @@ import { getPortalSidebarSections } from '@/lib/data/sidebarSections';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalTab } from '@/components/providers/PortalTabProvider';
 import { usePortalData } from '@/hooks/usePortalData';
-import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon } from '@/components/ui/Icon';
 import { allProjectsLeavesDetail, commitTabHref, isProjectDetailPath, runTabHomeClick } from '@/lib/nav/tabHome';
 import { MobileMenu } from './MobileMenu';
 import { sidebarItemStyle } from './sidebarItemChrome';
@@ -35,7 +35,7 @@ export function SidebarCollapseToggle({ tipId }: { tipId: string }) {
         aria-expanded={true}
         onClick={toggle}
       >
-        <TaskGlyph src="/icons/sidebar-menu.svg" size={16} />
+        <Icon name="HamburgerMenu" />
       </button>
       <button
         type="button"
@@ -46,7 +46,7 @@ export function SidebarCollapseToggle({ tipId }: { tipId: string }) {
         onClick={toggle}
       >
         <span className="sidebar-chev">
-          <TaskGlyph src="/icons/docs-chev.svg" size={16} />
+          <Icon name="ArrowRight2" />
         </span>
       </button>
       <span id={tipId} className="sidebar-expand-tip" role="tooltip">

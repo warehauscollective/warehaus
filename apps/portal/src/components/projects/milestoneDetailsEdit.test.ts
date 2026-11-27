@@ -215,7 +215,7 @@ describe('milestone details panel', () => {
     // The old NOT DONE tag is gone. The option names the open count instead.
     assert.doesNotMatch(menu, /NOT DONE/);
     assert.match(menu, /Use Mark complete to close/);
-    assert.match(stageOption(menu, 'Shipped'), /task-lock\.svg/);
+    assert.match(stageOption(menu, 'Shipped'), /data-icon="Lock"/);
     assert.equal(menu.includes('>Close<'), false);
 
     const same = view({ staff: true, preview: 'stage-peter', email: 'alex@warehaus.co' });
@@ -250,7 +250,7 @@ describe('milestone details panel', () => {
       const three = render(3, sheet);
       assert.match(stageOption(three, 'Shipped'), />3 OPEN</);
       assert.match(stageOption(three, 'Shipped'), /aria-disabled="true"/);
-      assert.match(stageOption(three, 'Shipped'), /task-lock\.svg/);
+      assert.match(stageOption(three, 'Shipped'), /data-icon="Lock"/);
       assert.match(three, /id="milestone-status-hint"[^>]*>3 open tasks\. Use Mark complete to close them out\.</);
       assert.equal(three.includes('NOT DONE'), false);
     }
@@ -415,7 +415,7 @@ describe('assignee menu selection', () => {
     );
     assert.match(ownerOption(html, 'Alex Bauer'), /aria-selected="true"/);
     assert.match(ownerOption(html, 'Unassigned'), /aria-selected="false"/);
-    assert.equal(ownerOption(html, 'Unassigned').includes('docs-check.svg'), false);
+    assert.equal(ownerOption(html, 'Unassigned').includes('data-icon="Check"'), false);
   });
 
   it('ticks the contact when the assignee is in the list', () => {

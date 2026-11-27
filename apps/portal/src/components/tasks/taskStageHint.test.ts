@@ -20,7 +20,7 @@ describe('Ready to Ship task status', () => {
     assert.equal(source.includes('TASK_STAGE_HINT'), false);
     assert.equal(source.includes('ON MERGE'), false);
     assert.equal(/set on merge/i.test(source), false);
-    assert.equal(source.includes('task-lock.svg'), false);
+    assert.equal(source.includes('name="Lock"'), false);
     assert.equal(source.includes('commitShipped'), false);
     assert.equal(source.includes('set in Notion'), false);
     assert.match(source, /displayedTaskStatus/);

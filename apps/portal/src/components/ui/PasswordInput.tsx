@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, type CSSProperties, type InputHTMLAttributes } from 'react';
-import { Eye, EyeOff } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 
 /**
  * A password field with a show/hide button inside its right edge.
  * Figma: Portal/Input (147:967), Type=Password, Revealed=false|true.
- * The button shows Eye while the password is hidden and EyeOff while it is shown.
+ * The button shows Eye while the password is hidden and EyeSlash while it is shown.
  */
 export function PasswordInput({
   style,
@@ -44,7 +44,7 @@ export function PasswordInput({
           cursor: 'pointer',
         }}
       >
-        {revealed ? <EyeOff size={16} aria-hidden /> : <Eye size={16} aria-hidden />}
+        {revealed ? <Icon name="EyeSlash" /> : <Icon name="Eye" />}
       </button>
     </span>
   );

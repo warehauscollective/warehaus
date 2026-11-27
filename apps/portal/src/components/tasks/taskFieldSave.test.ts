@@ -73,7 +73,7 @@ describe('task field save', () => {
     assert.match(source, /retryFieldSave\(assigneeSlot, saveAssignee\)/);
     assert.match(source, /retryFieldSave\(dueSlot, saveDue\)/);
     assert.match(source, /retryFieldSave\(projectSlot, saveProject\)/);
-    assert.match(source, /task-chev-down\.svg/);
+    assert.match(source, /<Icon name="ArrowDown2"/);
     assert.match(source, /outline-\[var\(--info\)\]/);
     assert.equal(source.includes("?? 'Could not save'"), false);
     assert.equal(source.includes("userFacingErrorMessage(err, 'Could not save')"), false);

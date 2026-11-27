@@ -15,6 +15,7 @@ import { LIVE_TASK_STATUSES, formatPortalDate, taskStatusColor, type PortalTask 
 import { displayedTaskStatus } from '@/lib/data/taskStatus';
 import { AttachedResourceRow, resourceKind } from './AttachedResourceRow';
 import { TaskGlyph } from './TaskGlyph';
+import { Icon, type IconName } from '@/components/ui/Icon';
 import { AddSourceForm, TaskSources } from './TaskSources';
 import { projectMoveCopy, taskChangeNote } from './taskFieldCopy';
 import { taskCloseoutState } from '@convex/_lib/closeout';
@@ -383,7 +384,7 @@ export function TaskDetailModal({
           {phone ? null : (
             <span data-testid="task-esc-hint" className="ds-mono" style={{ fontSize: 11, color: 'var(--faint)' }}>Esc</span>
           )}
-          <button type="button" aria-label="Close" onClick={onClose} style={{ background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}>✕</button>
+          <button type="button" aria-label="Close" onClick={onClose} style={{ display: 'inline-flex', background: 'none', border: 0, color: 'var(--fg)', cursor: 'pointer' }}><Icon name="X" /></button>
         </div>
         <div className={phone ? 'task-sheet-scroll' : undefined} data-testid={phone ? 'task-sheet-scroll' : undefined}>
         <div className={phone ? 'flex flex-col' : 'grid gap-8'} style={phone ? { gap: 24 } : { gridTemplateColumns: 'minmax(0, 1fr) 296px' }}>
@@ -531,7 +532,7 @@ export function TaskDetailModal({
                   open={fieldMenu === 'due'}
                   onOpen={() => setFieldMenu(fieldMenu === 'due' ? null : 'due')}
                   label={formatPortalDate(shownDate)}
-                  icon="/icons/task-calendar.svg"
+                  icon="Calendar"
                 >
                   {fieldMenu === 'due' && !phone ? (
                     <Popover onClose={closeFieldMenu}>
@@ -550,7 +551,7 @@ export function TaskDetailModal({
                 </div>
               ) : (
                 <span className="inline-flex items-center gap-2" style={{ color: 'var(--fg)' }}>
-                  <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-calendar.svg" size={16} /></span>
+                  <span style={{ color: 'var(--muted)' }}><Icon name="Calendar" /></span>
                   {formatPortalDate(task.date)}
                 </span>
               )}
@@ -563,7 +564,7 @@ export function TaskDetailModal({
                   open={fieldMenu === 'project'}
                   onOpen={() => setFieldMenu(fieldMenu === 'project' ? null : 'project')}
                   label={shownProject}
-                  icon="/icons/task-layers.svg"
+                  icon="Layer"
                 >
                   {fieldMenu === 'project' && !phone ? (
                     <Popover onClose={closeFieldMenu}>
@@ -587,11 +588,11 @@ export function TaskDetailModal({
                 </div>
               ) : (
                 <span className="inline-flex flex-wrap items-center gap-2">
-                  <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/task-layers.svg" size={16} /></span>
+                  <span style={{ color: 'var(--muted)' }}><Icon name="Layer" /></span>
                   {task.projectName ?? '—'}
                   {clientName ? (
                     <span className="ds-mono inline-flex items-center gap-1.5" style={{ border: '1px solid var(--border-2, var(--border))', borderRadius: 999, padding: '2px 8px', fontSize: 12, color: 'var(--fg)' }}>
-                      <TaskGlyph src="/icons/task-building.svg" size={12} />
+                      <Icon name="Building" size="xs" />
                       {clientName}
                     </span>
                   ) : null}
@@ -743,7 +744,7 @@ export function TaskDetailModal({
                 width={440}
                 header="compact"
                 showIcon
-                headerIcon={<WarningTriangle />}
+                headerIcon={<Icon name="Warning2" size="lg" />}
                 focusCancel
                 showFooter={false}
               >
@@ -1011,7 +1012,7 @@ function StatusMenu({ value, onChange }: { value: string; onChange: (status: str
         style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', color: 'var(--fg)', padding: '0.45rem 0.7rem' }}
       >
         {value === 'In review' ? <StatusBadge>In review</StatusBadge> : <Pill color={taskStatusColor(value, value === 'Done')}>{value}</Pill>}
-        <TaskGlyph src="/icons/task-chev-down.svg" />
+        <Icon name="ArrowDown2" size="sm" />
       </button>
       {open ? (
         <ul
@@ -1048,16 +1049,6 @@ function StatusMenu({ value, onChange }: { value: string; onChange: (status: str
   );
 }
 
-function WarningTriangle() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-      <path d="M10 3.2 17.4 16.4H2.6L10 3.2Z" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-      <path d="M10 8.2v3.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx="10" cy="14.2" r="0.7" fill="currentColor" />
-    </svg>
-  );
-}
-
 function FieldMenu({
   testId,
   label,
@@ -1068,7 +1059,7 @@ function FieldMenu({
 }: {
   testId: string;
   label: string;
-  icon?: string;
+  icon?: IconName;
   open: boolean;
   onOpen: () => void;
   children: React.ReactNode;
@@ -1083,10 +1074,10 @@ function FieldMenu({
         className="milestone-field group mt-1 flex w-full min-w-0 items-center gap-2 rounded-lg bg-transparent text-left hover:bg-[var(--surface-2)] focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2"
         style={{ minHeight: 32, padding: '4px 8px', border: open ? '1px solid var(--accent)' : '1px solid transparent', background: open ? 'var(--surface-2)' : undefined, color: 'var(--fg)', font: 'inherit', fontSize: 14, lineHeight: '21px', cursor: 'pointer' }}
       >
-        {icon ? <span style={{ color: 'var(--muted)' }}><TaskGlyph src={icon} size={16} /></span> : null}
+        {icon ? <span style={{ color: 'var(--muted)' }}><Icon name={icon} /></span> : null}
         <span className="min-w-0 truncate">{label}</span>
         <span className="ml-auto text-[var(--muted)]" aria-hidden>
-          <TaskGlyph src="/icons/task-chev-down.svg" size={14} />
+          <Icon name="ArrowDown2" size="sm" />
         </span>
       </button>
       {children}
@@ -1186,11 +1177,13 @@ function AttachPicker({
               width: 36,
               height: 36,
               flex: '0 0 auto',
-              fontSize: 20,
-              lineHeight: '36px',
+              display: 'inline-flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              padding: 0,
             }}
           >
-            ×
+            <Icon name="X" />
           </button>
         </div>
         <label
@@ -1202,7 +1195,7 @@ function AttachPicker({
             padding: '10px 12px',
           }}
         >
-          <span style={{ color: 'var(--muted)' }}><TaskGlyph src="/icons/resource-search.svg" size={16} /></span>
+          <span style={{ color: 'var(--muted)' }}><Icon name="SearchNormal" /></span>
           <input
             autoFocus
             value={query}
@@ -1236,7 +1229,7 @@ function AttachPicker({
                       onChange={() => setPicked((current) => checked ? current.filter((id) => id !== resource.id) : [...current, resource.id])}
                     />
                     <span className="inline-flex shrink-0 items-center justify-center" style={{ width: 32, height: 32, borderRadius: 18, background: 'var(--surface-2)', color: 'var(--muted)' }}>
-                      <TaskGlyph src={kind.icon} size={16} />
+                      <Icon name={kind.icon} />
                     </span>
                     <span className="min-w-0 flex-1">
                       <span className="block" style={{ fontSize: 14, fontWeight: 500 }}>{resource.name}</span>

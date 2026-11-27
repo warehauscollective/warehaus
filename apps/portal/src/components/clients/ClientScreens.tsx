@@ -1,9 +1,9 @@
 'use client';
 
 import { useEffect, useId, useRef, useState, type CSSProperties, type ReactNode } from 'react';
-import { Lock } from 'lucide-react';
 import { OutlineButton, Pill, PortalCheckbox, PrimaryButton } from '@/components/ui/primitives';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon } from '@/components/ui/Icon';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
 import { DocsBlock, type DocRow } from '@/components/docs/DocsBlock';
 import { SyncChip } from '@/components/sync/SyncChip';
@@ -243,8 +243,7 @@ function Dot({ tone, children }: { tone: 'on' | 'bad' | 'off'; children: ReactNo
 
 function Chevron({ className = '' }: { className?: string }) {
   return (
-    // eslint-disable-next-line @next/next/no-img-element
-    <img alt="" src="/icons/client-chev.svg" width={16} height={16} className={`shrink-0 opacity-70 ${className}`.trim()} />
+    <Icon name="ArrowRight2" color="muted" className={`shrink-0 opacity-70 ${className}`.trim()} />
   );
 }
 
@@ -1016,7 +1015,7 @@ export function ClientDetail({
               padding: '48px 24px',
             }}
           >
-            <TaskGlyph src="/icons/task-layers.svg" size={28} />
+            <Icon name="Layer" size="xl" />
             <p style={{ margin: 0, fontSize: 16, fontWeight: 500, lineHeight: '19px' }}>No projects yet</p>
             <p style={{ margin: 0, maxWidth: 440, fontSize: 13, lineHeight: '19px', color: 'var(--muted)' }}>
               Start the first project for {client.name}. {"It's linked to this client automatically."}
@@ -1201,7 +1200,7 @@ export function ClientCompany({
           className="flex items-start gap-3"
           style={{ background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 12, padding: '16px 20px' }}
         >
-          <Lock size={16} aria-hidden />
+          <Icon name="Lock" />
           <span className="min-w-0">
             <span className="block" style={{ fontSize: 14, fontWeight: 600 }}>{invite.title}</span>
             <span className="mt-1 block" style={{ fontSize: 13, color: 'var(--muted)' }}>{invite.body}</span>
@@ -1532,7 +1531,7 @@ function EmptyCopy({ title, body, action }: { title: string; body: string; actio
       }}
     >
       <span style={{ color: 'var(--muted)' }}>
-        <TaskGlyph src="/icons/task-layers.svg" size={28} />
+        <Icon name="Layer" size="xl" />
       </span>
       <p style={{ margin: 0, fontSize: 16, fontWeight: 500, lineHeight: '19px' }}>{title}</p>
       <p

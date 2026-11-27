@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 import { useEffect, useRef, type CSSProperties, type ReactElement, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 
@@ -388,17 +389,7 @@ function HeaderGlyph({ icon, headerIcon }: { icon: PortalModalIcon; headerIcon?:
   }
   if (icon === 'spinner') return <span className="portal-modal-spinner" aria-hidden="true" />;
   return (
-    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" style={{ flex: '0 0 auto' }}>
-      {icon === 'check' ? (
-        <path d="M5 10.5 8.2 14 15 6" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      ) : (
-        <>
-          <circle cx="10" cy="10" r="7" fill="none" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M10 6.5v4.5" stroke="currentColor" strokeWidth="1.5" />
-          <circle cx="10" cy="13.6" r="0.8" fill="currentColor" />
-        </>
-      )}
-    </svg>
+    <Icon name={icon === 'check' ? 'Check' : 'InfoCircle'} size="lg" style={{ flex: '0 0 auto' }} />
   );
 }
 

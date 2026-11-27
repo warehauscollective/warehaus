@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityFeedRow } from '@/components/activity/ActivityFeedRow';
 import { activityFilterFadeOnScroll, scrollActiveIntoView, sectionEdgeMask, type EdgeFade } from '@/components/layout/sectionEdgeFade';
-import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon } from '@/components/ui/Icon';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { tenantEyebrow, usePortalData } from '@/hooks/usePortalData';
@@ -272,7 +272,7 @@ function EmptyState({ title, body }: { title: string; body: string }) {
       }}
     >
       <span aria-hidden className="inline-flex" style={{ color: 'var(--faint)' }}>
-        <TaskGlyph src="/icons/activity-row.svg" size={28} />
+        <Icon name="Clock" size="xl" />
       </span>
       <p style={{ fontSize: 16, fontWeight: 500 }}>{title}</p>
       <p style={{ fontSize: 13, lineHeight: '19px', color: 'var(--muted)', maxWidth: 360 }}>{body}</p>

@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, type CSSProperties, type ReactNode, type R
 import { nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon } from '@/components/ui/Icon';
 import { PortalToast } from '@/components/ui/PortalToast';
 
 /** Shown on the control after a failed save. The status has already rolled back. */
@@ -152,7 +153,7 @@ export function StatusPlayButton({ next, onPlay }: { next: MilestoneStatus; onPl
         }}
       >
         <span className="milestone-play-box">
-          <TaskGlyph src="/icons/milestone-play.svg" size={10} />
+          <Icon name="Play" size="2xs" />
         </span>
       </button>
       <span role="tooltip" className="milestone-play-tip ds-mono" data-testid="milestone-status-play-tip">
@@ -239,7 +240,7 @@ export function TileStatusControl({
           {saving ? `${status}…` : status}
         </span>
         <span className="text-[var(--muted)]" aria-hidden style={{ display: 'inline-flex' }}>
-          <TaskGlyph src="/icons/task-chev-down.svg" size={12} />
+          <Icon name="ArrowDown2" size="xs" />
         </span>
       </button>
       {playTo ? <StatusPlayButton next={playTo} onPlay={onPlay} /> : null}

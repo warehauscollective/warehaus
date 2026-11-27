@@ -1,4 +1,4 @@
-import { TaskGlyph } from './TaskGlyph';
+import { Icon, type IconName } from '@/components/ui/Icon';
 import { formatPortalDate } from '@/lib/data/view-models';
 
 export type AttachedResource = {
@@ -11,11 +11,11 @@ export type AttachedResource = {
   attachedCount?: number | null;
 };
 
-export function resourceKind(type: string | null): { label: string; icon: string } {
+export function resourceKind(type: string | null): { label: string; icon: IconName } {
   const value = (type ?? '').toLowerCase();
-  if (/granola|meeting|note/.test(value)) return { label: 'Granola', icon: '/icons/resource-mic.svg' };
-  if (/link|url/.test(value)) return { label: 'Link', icon: '/icons/resource-link.svg' };
-  return { label: /file|pdf|article/.test(value) || !type ? 'Doc' : type, icon: '/icons/resource-doc.svg' };
+  if (/granola|meeting|note/.test(value)) return { label: 'Granola', icon: 'Microphone' };
+  if (/link|url/.test(value)) return { label: 'Link', icon: 'Link' };
+  return { label: /file|pdf|article/.test(value) || !type ? 'Doc' : type, icon: 'DocumentText' };
 }
 
 function isRecap(type: string | null): boolean {
@@ -114,7 +114,7 @@ export function AttachedResourceRow({
             color: 'var(--muted)',
           }}
         >
-          <TaskGlyph src={kind.icon} size={16} />
+          <Icon name={kind.icon} />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block" style={{ fontSize: 16, fontWeight: 500, lineHeight: '22px' }}>{resource.name}</span>
@@ -122,7 +122,7 @@ export function AttachedResourceRow({
         </span>
         {!phone ? marks : null}
         <span style={{ color: 'var(--muted)' }}>
-          <TaskGlyph src="/icons/docs-chev.svg" size={16} />
+          <Icon name="ArrowRight2" />
         </span>
       </div>
       {phone && marks ? (

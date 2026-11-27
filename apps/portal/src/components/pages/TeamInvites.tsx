@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation } from 'convex/react';
 import { useSearchParams } from 'next/navigation';
-import { Check, Clock, Lock, Mail, MoreHorizontal, ShieldCheck, X } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import { api } from '@convex/_generated/api';
 import { teamInviteActions } from '@convex/_lib/inviteFlow';
 import { userFacingErrorMessage } from '@convex/_lib/userFacingError';
@@ -369,7 +369,7 @@ export function TeamInvites({
                         style={iconButton}
                         onClick={() => setMenuId((current) => (current === invite.notionPageId ? null : invite.notionPageId))}
                       >
-                        <MoreHorizontal size={16} className="notice-icon" />
+                        <Icon name="More" className="notice-icon" />
                       </button>
                       {menuId === invite.notionPageId ? (
                         <span
@@ -569,7 +569,7 @@ function StatusPill({ label }: { label: string }) {
       }}
     >
       {active ? <span aria-hidden data-testid="team-status-dot" style={{ width: 6, height: 6, borderRadius: 999, background: 'var(--fg)', flexShrink: 0 }} /> : null}
-      {pending ? <Clock size={14} aria-hidden className="notice-icon" style={{ width: 14, height: 14, minWidth: 14, minHeight: 14 }} /> : null}
+      {pending ? <Icon name="Clock" size="sm" className="notice-icon" style={{ width: 14, height: 14, minWidth: 14, minHeight: 14 }} /> : null}
       {label}
     </span>
   );
@@ -617,7 +617,7 @@ function InviteDialog({
           <div>
             {mode === 'sent' ? (
               <span style={iconBadge}>
-                <Check size={18} />
+                <Icon name="Check" />
               </span>
             ) : null}
             <h2 id="invite-staff-title" style={{ margin: mode === 'sent' ? '12px 0 0' : 0, fontSize: 24, lineHeight: '32px' }}>
@@ -630,12 +630,12 @@ function InviteDialog({
             </p>
           </div>
           <button type="button" aria-label="Close" onClick={onClose} style={iconButton}>
-            <X size={16} />
+            <Icon name="X" />
           </button>
         </div>
         {mode === 'sent' ? (
           <div style={notice}>
-            <Mail size={16} className="notice-icon" />
+            <Icon name="Sms" className="notice-icon" />
             <div>
               <p style={{ margin: 0, fontSize: 14 }}>Pending · expires {dayLabel(pending?.expiresAt ?? sentOn) || 'in 7 days'}</p>
               <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
@@ -664,7 +664,7 @@ function InviteDialog({
             </label>
             {mode === 'invited' ? (
               <div style={notice}>
-                <Clock size={16} className="notice-icon" />
+                <Icon name="Clock" className="notice-icon" />
                 <div>
                   <p style={{ margin: 0, fontSize: 14 }}>Already invited</p>
                   <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
@@ -675,7 +675,7 @@ function InviteDialog({
             ) : null}
             {mode === 'staff' ? (
               <div style={notice}>
-                <ShieldCheck size={16} className="notice-icon" />
+                <Icon name="ShieldTick" className="notice-icon" />
                 <div>
                   <p style={{ margin: 0, fontSize: 14 }}>Already on the team</p>
                   <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
@@ -687,7 +687,7 @@ function InviteDialog({
             <div data-testid="team-role-staff">
               <span style={{ fontSize: 14 }}>Role</span>
               <div style={{ ...field, display: 'flex', alignItems: 'center', gap: 10, marginTop: 8, opacity: locked ? 0.5 : 1 }}>
-                <Lock size={16} className="notice-icon" />
+                <Icon name="Lock" className="notice-icon" />
                 <span style={{ flex: 1 }}>Warehaus Staff</span>
                 <span className="ds-mono" style={{ fontSize: 11, letterSpacing: '0.08em', color: 'var(--muted)' }}>FIXED</span>
               </div>

@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 import { useEffect, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
@@ -63,16 +64,6 @@ const dangerButton: CSSProperties = {
   padding: '12px 16px',
   cursor: 'pointer',
 };
-
-function ClearAlertIcon() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-      <path d="M10 2.2 18 17.2H2L10 2.2Z" fill="none" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M10 7.4v4" fill="none" stroke="currentColor" strokeWidth="1.4" />
-      <circle cx="10" cy="14.2" r="0.9" fill="currentColor" />
-    </svg>
-  );
-}
 
 function HeldButton({
   label,
@@ -350,7 +341,7 @@ export function ProjectRepoSettingView({
           label={CLEAR_TITLE}
           header="compact"
           showIcon
-          headerIcon={<ClearAlertIcon />}
+          headerIcon={<Icon name="Warning2" size="lg" />}
           width={520}
           narrow={narrow}
           sheet={narrow ? 'bottom' : 'center'}

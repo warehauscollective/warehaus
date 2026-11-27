@@ -9,6 +9,7 @@ export declare const tokens: {
   layout: { sectionY: string; gutter: string; maxw: string };
   radius: { sm: string; base: string; lg: string; pill: string };
   cut: { base: string; lg: string };
+  icon: { '2xs': string; xs: string; sm: string; md: string; lg: string; xl: string };
   motion: { speed: string; ease: string };
 };
 

@@ -20,7 +20,7 @@ describe('PortalToast', () => {
     assert.equal(success.includes('role="status"'), false);
     assert.equal(success.includes('role="alert"'), false);
     assert.match(success, /0 8px 24px/);
-    assert.match(success, /docs-check\.svg/);
+    assert.match(success, /data-icon="Check"/);
     assert.match(success, /data-kind="success"/);
     assert.equal(success.includes('Retry'), false);
     const live = renderToStaticMarkup(createElement(PortalToastLive));
@@ -35,7 +35,7 @@ describe('PortalToast', () => {
       onRetry: () => undefined,
     }));
     assert.match(error, /Couldn’t save the change\. Nothing moved\./);
-    assert.match(error, /docs-alert\.svg/);
+    assert.match(error, /data-icon="Warning2"/);
     assert.match(error, />Retry</);
     assert.match(error, /1px solid var\(--danger\)/);
     assert.match(error, /role="alert"/);
@@ -55,7 +55,7 @@ describe('PortalToast', () => {
 
     const invite = renderToStaticMarkup(createElement(PortalToast, { kind: 'invite-sent', placement: 'flow', autoHideMs: 0 }));
     assert.match(invite, /Invite sent/);
-    assert.match(invite, /docs-check\.svg/);
+    assert.match(invite, /data-icon="Check"/);
   });
 
   it('pins a board toast above the dock and keeps a flowing one in the board', () => {

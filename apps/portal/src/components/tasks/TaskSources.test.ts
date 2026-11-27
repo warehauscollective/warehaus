@@ -50,7 +50,7 @@ describe('task sources panel', () => {
     assert.ok(names.includes('Homepage copy questions (opens in a new tab)'));
     assert.equal(html.includes('aria-label="cursor/sources-panel-punch-list'), false);
     assert.match(html, /task-source-link/);
-    assert.match(html, /lucide-external-link/);
+    assert.match(html, /data-icon="ExportSquare"/);
     assert.match(html, /Quarterly seasonal menu photography/);
     assert.match(html, /Showing the first 50/);
     assert.match(html, /cursor\/sources-panel-punch-list/);

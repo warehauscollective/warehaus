@@ -10,7 +10,7 @@ import { shippedLockedReason, shippedOpenTag } from '@convex/_lib/closeout';
 import { isPeterEmail } from '@convex/_lib/milestoneReview';
 import { MILESTONE_STATUSES, nextStatus, statusOptionLock, type MilestoneStatus } from '@convex/_lib/milestoneStatus';
 import type { MilestoneRoadmapView } from '@convex/_lib/milestones';
-import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon } from '@/components/ui/Icon';
 import { PortalModal, type PortalModalHeader } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { FieldLabel, Panel, fieldStyle } from './milestoneChrome';
@@ -1083,18 +1083,18 @@ function ValueButton({
           {tone === 'saving' ? <ToneText>Saving…</ToneText> : null}
           {tone === 'saved' ? (
             <span className="inline-flex items-center gap-1" style={{ color: 'var(--muted)', fontSize: 12 }}>
-              <TaskGlyph src="/icons/docs-check.svg" size={12} />
+              <Icon name="Check" size="xs" />
               Saved
             </span>
           ) : null}
           {tone === 'discarded' ? <ToneText>Change discarded</ToneText> : null}
           {locked ? (
             <span className="ml-auto text-[var(--muted)]" aria-hidden>
-              <TaskGlyph src="/icons/task-lock.svg" size={14} />
+              <Icon name="Lock" size="sm" />
             </span>
           ) : (
             <span className="ml-auto text-[var(--muted)] opacity-100 md:opacity-0 md:group-hover:opacity-100 md:group-focus-within:opacity-100" aria-hidden>
-              <TaskGlyph src="/icons/task-chev-down.svg" size={14} />
+              <Icon name="ArrowDown2" size="sm" />
             </span>
           )}
         </span>
@@ -1111,7 +1111,7 @@ function ToneText({ children }: { children: string }) {
 export function FieldError({ text, onRetry, testId }: { text: string; onRetry: () => void; testId: string }) {
   return (
     <p role="alert" data-testid="milestone-details-error" style={{ marginTop: 6, fontSize: 13, lineHeight: '18px', color: 'var(--danger-text)' }}>
-      <TaskGlyph src="/icons/docs-alert.svg" size={12} /> {text}{' '}
+      <Icon name="Warning2" size="xs" /> {text}{' '}
       <button type="button" data-testid={testId} onClick={onRetry} style={{ color: 'var(--danger-text)', background: 'none', border: 0, padding: 0, font: 'inherit', textDecoration: 'underline', cursor: 'pointer' }}>
         Retry
       </button>
@@ -1227,8 +1227,8 @@ export function StatusMenu({
           >
             <span className="whitespace-nowrap">{status}</span>
             {lock === 'shipped' && openCount > 0 ? <Tag>{shippedOpenTag(openCount)}</Tag> : null}
-            {lock ? <TaskGlyph src="/icons/task-lock.svg" size={14} /> : null}
-            {selected && !lock ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
+            {lock ? <Icon name="Lock" size="sm" /> : null}
+            {selected && !lock ? <Icon name="Check" /> : null}
           </button>
         );
       })}
@@ -1828,7 +1828,7 @@ export function OwnerMenu({
             style={optionStyle(selected)}
           >
             <span className="min-w-0 flex-1">{option.name}</span>
-            {selected ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
+            {selected ? <Icon name="Check" /> : null}
           </button>
         );
       })}
@@ -1894,9 +1894,9 @@ export function DueDateMenu({
     <div role="dialog" aria-label="Due date" data-testid="milestone-due-menu" onKeyDown={(event) => menuKey(event, onClose)} style={menuStyle(sheet)}>
       {sheet ? <SheetHeader title="Due date" onClose={onClose} /> : null}
       <div className="flex items-center justify-between gap-2 px-2 py-2">
-        <button type="button" className="milestone-field" aria-label="Previous month" onClick={() => shift(-1)} style={monthButton}>‹</button>
+        <button type="button" className="milestone-field" aria-label="Previous month" onClick={() => shift(-1)} style={monthButton}><Icon name="ArrowLeft2" /></button>
         <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', fontWeight: 500 }}>{label}</p>
-        <button type="button" className="milestone-field" aria-label="Next month" onClick={() => shift(1)} style={monthButton}>›</button>
+        <button type="button" className="milestone-field" aria-label="Next month" onClick={() => shift(1)} style={monthButton}><Icon name="ArrowRight2" /></button>
       </div>
       <div className="grid grid-cols-7 gap-1 px-2" aria-hidden>
         {WEEKDAYS.map((day, index) => (
@@ -1952,9 +1952,10 @@ const monthButton: CSSProperties = {
   borderRadius: 9,
   background: 'transparent',
   color: 'var(--fg)',
-  font: 'inherit',
-  fontSize: 18,
-  lineHeight: '32px',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 0,
   cursor: 'pointer',
 };
 

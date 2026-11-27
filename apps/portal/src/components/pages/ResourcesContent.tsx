@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { usePathname } from 'next/navigation';
 import { PrimaryButton } from '@/components/ui/primitives';
-import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon } from '@/components/ui/Icon';
 import { resourceKind } from '@/components/tasks/AttachedResourceRow';
 import { PortalTilePane, PortalWorkspace } from '@/components/layout/PortalWorkspace';
 import { NavBreadcrumb } from '@/components/nav/NavBreadcrumb';
@@ -567,7 +567,7 @@ export function ResourcesContent() {
                               className="inline-flex shrink-0 items-center justify-center"
                               style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--surface-2)', border: '1px solid var(--border)', color: 'var(--muted)' }}
                             >
-                              <TaskGlyph src={kind.icon} size={16} />
+                              <Icon name={kind.icon} />
                             </span>
                             <span className="min-w-0 flex-1">
                               <span className="block truncate" style={{ fontSize: 16, fontWeight: 500 }}>{resourceTitleLine(row.name, when)}</span>
@@ -577,8 +577,7 @@ export function ResourcesContent() {
                               {narrow ? <span className="mt-2 flex">{marks}</span> : null}
                             </span>
                             {narrow ? null : marks}
-                            {/* eslint-disable-next-line @next/next/no-img-element */}
-                            <img alt="" src="/icons/client-chev.svg" width={16} height={16} className="shrink-0 opacity-70" />
+                            <Icon name="ArrowRight2" color="muted" className="shrink-0 opacity-70" />
                           </button>
                         </li>
                       );

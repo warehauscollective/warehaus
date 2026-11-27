@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useMutation } from 'convex/react';
@@ -112,14 +113,7 @@ export function NoticeBell() {
           color: 'var(--fg)',
         }}
       >
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-          <path
-            d="M8 1.5a4 4 0 0 0-4 4V8.2L2.7 10.4a.7.7 0 0 0 .6 1.1h9.4a.7.7 0 0 0 .6-1.1L12 8.2V5.5a4 4 0 0 0-4-4Z"
-            stroke="currentColor"
-            strokeWidth="1.33"
-          />
-          <path d="M6.5 12.5a1.5 1.5 0 0 0 3 0" stroke="currentColor" strokeWidth="1.33" strokeLinecap="round" />
-        </svg>
+        <Icon name="Notification" />
         {unread > 0 ? (
           <span
             className="ds-mono absolute"

@@ -1,9 +1,9 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import { Check, ChevronRight, CircleCheck, Shield } from 'lucide-react';
 import { PortalRowLink } from '@/components/layout/PortalRowLink';
 import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon } from '@/components/ui/Icon';
 import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
 import {
   CLIENT_AWAITING_LABEL,
@@ -376,7 +376,7 @@ function ProjectPanel({
             <span className="ds-mono hidden shrink-0 lg:inline" style={{ fontSize: 12, color: 'var(--faint)' }}>
               {project.updatedLabel}
             </span>
-            <ChevronRight className="portal-row-chevron" aria-hidden />
+            <Icon name="ArrowRight2" className="portal-row-chevron" />
           </PortalRowLink>
         ))
       )}
@@ -436,7 +436,7 @@ function AwaitingPanel({
               <span className="hidden shrink-0 flex-wrap items-center justify-end gap-2 lg:flex">
                 <AwaitingBadges row={row} staff includeWhen />
               </span>
-              <ChevronRight className="portal-row-chevron" aria-hidden />
+              <Icon name="ArrowRight2" className="portal-row-chevron" />
             </PortalRowLink>
           ) : (
             <PortalRowLink
@@ -478,7 +478,7 @@ function AwaitingPanel({
               <span className="hidden shrink-0 flex-wrap items-center justify-end gap-2 lg:flex">
                 <AwaitingBadges row={row} staff={false} includeWhen />
               </span>
-              <ChevronRight className="portal-row-chevron shrink-0" aria-hidden />
+              <Icon name="ArrowRight2" className="portal-row-chevron shrink-0" />
             </PortalRowLink>
           ),
         )
@@ -512,7 +512,7 @@ function ActivityPanel({
           const inner = (
           <>
             <span className="shrink-0" style={{ color: 'var(--fg)' }}>
-              <TaskGlyph src="/icons/activity-row.svg" size={16} />
+              <Icon name="Clock" />
             </span>
             <span className="min-w-0 flex-1">
               <span className="block truncate" style={{ fontSize: 16, fontWeight: 500 }}>
@@ -535,7 +535,7 @@ function ActivityPanel({
             <span className="ds-mono shrink-0 text-right" style={{ width: 80, fontSize: 12, color: 'var(--faint)' }}>
               {row.when}
             </span>
-            {row.href ? <ChevronRight className="portal-row-chevron" aria-hidden /> : null}
+            {row.href ? <Icon name="ArrowRight2" className="portal-row-chevron" /> : null}
           </>
           );
           return row.href ? (
@@ -563,7 +563,7 @@ function EmptyAwaiting({ staff }: { staff: boolean }) {
         background: 'var(--bg)',
       }}
     >
-      <Check aria-hidden className="h-7 w-7" style={{ color: 'var(--muted)' }} />
+      <Icon name="Check" size="xl" color="muted" />
       <p style={{ fontSize: 16, fontWeight: 500 }}>
         {staff ? 'Nothing awaiting your go' : 'Nothing needs your attention'}
       </p>
@@ -720,7 +720,7 @@ function JoinedStaff({ name, passwordSet, inviterName }: { name: string; passwor
   return (
     <div data-testid="joined-staff" className="flex flex-col" style={{ gap: 24 }}>
       <div data-testid="joined-banner" style={{ display: 'flex', gap: 12, alignItems: 'flex-start', padding: 16, borderRadius: 12, background: 'var(--surface-2)', color: 'var(--fg)', border: '1px solid var(--border)' }}>
-        <CircleCheck size={16} className="notice-icon" />
+        <Icon name="TickCircle" className="notice-icon" />
         <div>
           <p style={{ margin: 0, fontSize: 14 }}>You’ve joined Warehaus as staff</p>
           <p style={{ margin: '4px 0 0', fontSize: 13, color: 'var(--muted)' }}>
@@ -735,7 +735,7 @@ function JoinedStaff({ name, passwordSet, inviterName }: { name: string; passwor
       </div>
       <div>
         <span style={{ display: 'inline-flex', alignItems: 'center', gap: 6, border: '1px solid var(--border)', borderRadius: 999, padding: '4px 10px', fontSize: 12 }}>
-          <Shield size={14} /> Warehaus Staff
+          <Icon name="Shield" size="sm" /> Warehaus Staff
         </span>
         <h2 style={{ margin: '12px 0 0', fontSize: 30, lineHeight: '45px', fontWeight: 600 }}>Welcome to the Portal, {name}</h2>
         <p style={{ margin: '8px 0 0', fontSize: 15, color: 'var(--muted)' }}>You now have staff access across Warehaus projects. Here’s a good place to start.</p>

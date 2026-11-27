@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 const labelStyle = {
   fontFamily: 'var(--font-mono)',
   fontSize: 10,
@@ -62,12 +63,7 @@ export function ClientLink({
           style={{ ...chipStyle, cursor: 'pointer' }}
         >
           <span style={nameStyle}>{label}</span>
-          <span className="relative shrink-0" style={{ width: 12, height: 12 }} aria-hidden>
-            <span className="absolute inset-x-0 top-0" style={{ bottom: '-13.88%' }}>
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img alt="" src="/icons/client-chev.svg" className="block size-full max-w-none" />
-            </span>
-          </span>
+          <Icon name="ArrowRight2" size="xs" color="muted" className="shrink-0" />
         </button>
       ) : (
         <span data-testid="project-client-empty" style={{ ...chipStyle, ...nameStyle, color: 'var(--faint)', textDecorationLine: 'none' }}>

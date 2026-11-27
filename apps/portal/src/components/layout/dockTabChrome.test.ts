@@ -51,8 +51,10 @@ describe('dock active label', () => {
     const phoneDock = css.slice(css.indexOf('@media (max-width: 767px)'));
     assert.match(phoneDock, /\[aria-selected='true'\]:has\(\.dock-label-account\)\s*\{[^}]*padding-inline:\s*10px;/);
     assert.equal(css.includes('padding-inline: 14px'), false);
-    assert.match(dock, /backgroundColor: 'currentColor'/);
-    assert.match(dock, /stroke="currentColor"/);
+    // Tab icons come from the Icon wrapper and take the tab colour. No file icon, no painted box.
+    assert.equal(dock.includes('/icons/'), false);
+    assert.equal(dock.includes('<svg'), false);
+    assert.doesNotMatch(css, /\.dock-tab-icon\s*\{[^}]*background/);
 
     assert.match(dock, /dockLabelClassName\(isActive, value\)/);
     assert.match(dock, /dockTabClassName\(isActive\)/);

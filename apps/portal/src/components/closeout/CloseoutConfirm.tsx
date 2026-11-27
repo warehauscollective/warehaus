@@ -2,7 +2,7 @@
 
 import { useState, type ReactNode } from 'react';
 import type { ArchiveTaskChoice, LeftoverChoice } from '@convex/_lib/closeout';
-import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon } from '@/components/ui/Icon';
 import { PortalModal } from '@/components/ui/PortalModal';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import { useMaxWidth } from '@/lib/design/useMaxWidth';
@@ -70,16 +70,6 @@ export function confirmContent(input: { kind: ConfirmKind; open: number; parkedM
   };
 }
 
-function WarningTriangle() {
-  return (
-    <svg width="20" height="20" viewBox="0 0 20 20" aria-hidden="true">
-      <path d="M10 3.2 17.6 16.4H2.4L10 3.2Z" fill="none" stroke="var(--danger)" strokeWidth="1.5" strokeLinejoin="round" />
-      <path d="M10 8v4" stroke="var(--danger)" strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx="10" cy="14" r="0.85" fill="var(--danger)" />
-    </svg>
-  );
-}
-
 const FOCUS =
   'focus-visible:[--tw-outline-style:solid] focus-visible:outline-2 focus-visible:outline-[var(--info)] focus-visible:outline-offset-2';
 
@@ -130,7 +120,7 @@ export function CloseoutConfirm({
       width={440}
       header="compact"
       showIcon={content.danger}
-      headerIcon={content.danger ? <WarningTriangle /> : undefined}
+      headerIcon={content.danger ? <Icon name="Warning2" size="lg" color="danger" /> : undefined}
       focusCancel
       showFooter={false}
       locked={busy}
@@ -174,7 +164,7 @@ export function CloseoutConfirm({
                   }}
                 >
                   <span style={{ flex: '1 1 auto', minWidth: 0 }}>{option.label}</span>
-                  {selected ? <TaskGlyph src="/icons/docs-check.svg" size={16} /> : null}
+                  {selected ? <Icon name="Check" /> : null}
                 </button>
               );
             })}

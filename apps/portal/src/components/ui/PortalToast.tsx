@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, type CSSProperties, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
-import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon } from '@/components/ui/Icon';
 
 /**
  * Figma PortalToast 744:2763. One toast, inside the screen, for 3 seconds.
@@ -187,7 +187,7 @@ export function PortalToast({
       className={placement === 'created' ? 'ds-scope portal-toast portal-created-toast' : 'ds-scope portal-toast'}
       style={style}
     >
-      <TaskGlyph src={kind === 'error' ? '/icons/docs-alert.svg' : '/icons/docs-check.svg'} size={16} />
+      <Icon name={kind === 'error' ? 'Warning2' : 'Check'} style={{ flexShrink: 0 }} />
       <p style={{ margin: 0, minWidth: 0 }}>{text}</p>
       {kind === 'error' && onRetry ? (
         <button type="button" data-testid="portal-toast-retry" onClick={onRetry} style={retryStyle}>

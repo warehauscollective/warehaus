@@ -3,7 +3,7 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { usePathname } from 'next/navigation';
 import type { PortalTab } from '@warehaus/logic/portal';
-import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon } from '@/components/ui/Icon';
 import { usePortalView } from '@/components/providers/PortalViewProvider';
 import { usePortalData } from '@/hooks/usePortalData';
 import { useFixturePreview } from '@/components/providers/FixturePreviewProvider';
@@ -390,7 +390,7 @@ export function MenuSheetDialog({
                   border: searchFocused ? '2px solid var(--ring)' : '1px solid var(--border)',
                 }}
               >
-                <TaskGlyph src="/icons/resource-search.svg" size={16} />
+                <Icon name="SearchNormal" />
                 <input
                   ref={searchRef}
                   id="menu-search"
@@ -484,14 +484,7 @@ export function MenuSheetDialog({
                     className="flex w-full items-center text-left"
                     style={{ minHeight: 56, gap: 12, padding: '0 16px', background: 'transparent', border: 0, color: 'var(--fg)', cursor: 'pointer' }}
                   >
-                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
-                      <path
-                        d="M8 1.5a4 4 0 0 0-4 4V8.2L2.7 10.4a.7.7 0 0 0 .6 1.1h9.4a.7.7 0 0 0 .6-1.1L12 8.2V5.5a4 4 0 0 0-4-4Z"
-                        stroke="currentColor"
-                        strokeWidth="1.33"
-                      />
-                      <path d="M6.5 12.5a1.5 1.5 0 0 0 3 0" stroke="currentColor" strokeWidth="1.33" strokeLinecap="round" />
-                    </svg>
+                    <Icon name="Notification" />
                     <span style={{ flex: '1 1 auto', fontFamily: 'var(--font-geist), var(--font-body)', fontSize: 15, lineHeight: '22px', fontWeight: 500 }}>
                       Notifications
                     </span>
@@ -513,7 +506,7 @@ export function MenuSheetDialog({
                       </span>
                     ) : null}
                     <span className="inline-flex shrink-0" style={{ color: 'var(--muted)' }}>
-                      <TaskGlyph src="/icons/menu-arrow.svg" size={16} />
+                      <Icon name="ArrowRight2" />
                     </span>
                   </button>
                 </div>

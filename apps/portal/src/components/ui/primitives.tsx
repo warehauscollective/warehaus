@@ -1,3 +1,4 @@
+import { Icon } from '@/components/ui/Icon';
 import type { CSSProperties, ReactNode } from 'react';
 import { Bevel, Eyebrow as UiEyebrow } from '@warehaus/ui';
 import { PORTAL_SURFACE_RADIUS } from '@/lib/design/portal-chrome';
@@ -41,9 +42,7 @@ export function StatusBadge({ children }: { children: ReactNode }) {
       }}
     >
       {children}
-      <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true">
-        <path d="M2.2 3.6 5 6.4 7.8 3.6" fill="none" stroke="currentColor" strokeWidth="1.25" />
-      </svg>
+      <Icon name="ArrowDown2" size="2xs" />
     </span>
   );
 }

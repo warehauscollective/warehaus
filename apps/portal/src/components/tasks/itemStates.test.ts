@@ -96,7 +96,7 @@ describe('item list states', () => {
     const staff = renderToStaticMarkup(createElement(ItemState, { screen: 'empty', staff: true, onClear: noop }));
     assert.match(staff, new RegExp(ITEM_TRUE_EMPTY.title));
     assert.match(staff, /Tasks synced from Notion will show here\./);
-    assert.match(staff, /currentColor/);
+    assert.match(staff, /data-icon="Task"/);
     assert.equal(staff.includes('Clear filters'), false);
     assert.equal(staff.includes('item-clear-filters'), false);
 
@@ -172,7 +172,7 @@ describe('item list states', () => {
     assert.match(staff, />Planning</);
     assert.match(staff, />In progress</);
     assert.match(staff, />Published</);
-    assert.match(staff, /currentColor/);
+    assert.match(staff, /data-icon="ArrowRight2"/);
     assert.match(staff, /data-testid="item-chev"/);
     assert.match(staff, /width="16"/);
     assert.match(staff, /height="16"/);
@@ -229,7 +229,7 @@ describe('item list states', () => {
     assert.equal(source.includes('convex'), false);
     assert.equal(source.includes('14:05'), false);
     assert.match(source, /if \(!fixtures\) return;/);
-    const icons = ['item-empty.svg', 'item-chev.svg', 'item-stage.svg'].map((file) =>
+    const icons = ['item-stage.svg'].map((file) =>
       readFileSync(new URL(`../../../public/icons/${file}`, import.meta.url), 'utf8'),
     );
     for (const svg of icons) {

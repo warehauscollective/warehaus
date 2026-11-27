@@ -1,3 +1,4 @@
+import { Icon } from '@/components/ui/Icon';
 import { Pill } from '@/components/ui/primitives';
 import {
   rowSyncLabel,
@@ -50,14 +51,8 @@ export function SyncChip({
             color: problem ? 'var(--danger)' : 'var(--muted)',
           }}
         >
-          {state === 'synced' ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src="/icons/docs-check.svg" alt="" width={12} height={12} />
-          ) : null}
-          {problem ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src="/icons/docs-alert.svg" alt="" width={12} height={12} />
-          ) : null}
+          {state === 'synced' ? <Icon name="Check" size="xs" /> : null}
+          {problem ? <Icon name="Warning2" size="xs" color="muted" /> : null}
           {pillLabel(row)}
         </span>
       ) : null}

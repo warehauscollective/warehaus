@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ExternalLink } from 'lucide-react';
+import { Icon } from '@/components/ui/Icon';
 import {
   TASK_LINK_KINDS,
   sourceAddedByLabel,
@@ -54,7 +54,7 @@ function SourceTitle({ href, text }: { href: string | null; text: string }) {
         style={{ fontSize: 'var(--t-sm)', overflowWrap: 'anywhere' }}
       >
         {text}
-        <ExternalLink aria-hidden size={14} strokeWidth={2} style={{ display: 'inline-block', marginLeft: 4, verticalAlign: '-2px' }} />
+        <Icon name="ExportSquare" size="sm" style={{ display: 'inline-block', marginLeft: 4, verticalAlign: '-2px' }} />
       </a>
     </div>
   );

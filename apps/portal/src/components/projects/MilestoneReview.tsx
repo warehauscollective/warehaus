@@ -1,5 +1,6 @@
 'use client';
 
+import { Icon } from '@/components/ui/Icon';
 import { useEffect, useRef, useState } from 'react';
 import { useMutation } from 'convex/react';
 import { api } from '@convex/_generated/api';
@@ -138,14 +139,6 @@ function designPillLabel(check: DesignCheck): string {
   return 'DESIGN CHECK · PENDING';
 }
 
-function CheckIcon({ size = 12 }: { size?: number }) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 12 12" aria-hidden="true">
-      <path d="M2.2 6.2 4.7 8.7 9.8 3.4" fill="none" stroke="currentColor" strokeWidth="1.4" />
-    </svg>
-  );
-}
-
 function Spinner({ size = 16 }: { size?: number }) {
   return (
     <>
@@ -166,29 +159,10 @@ function Spinner({ size = 16 }: { size?: number }) {
   );
 }
 
-function ClockIcon() {
-  return (
-    <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true">
-      <circle cx="6" cy="6" r="4.25" fill="none" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M6 3.4V6.1L7.7 7.1" fill="none" stroke="currentColor" strokeWidth="1.2" />
-    </svg>
-  );
-}
-
-function AlertIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 14 14" aria-hidden="true">
-      <path d="M7 1.6 12.6 12H1.4L7 1.6Z" fill="none" stroke="currentColor" strokeWidth="1.2" />
-      <path d="M7 5.2v2.6" fill="none" stroke="currentColor" strokeWidth="1.2" />
-      <circle cx="7" cy="9.6" r="0.7" fill="currentColor" />
-    </svg>
-  );
-}
-
 function DesignStatusIcon({ check }: { check: DesignCheck }) {
-  if (check === 'pass') return <CheckIcon />;
-  if (check === 'fixes') return <span style={{ color: 'var(--danger-text)', display: 'inline-flex' }}><AlertIcon /></span>;
-  return <ClockIcon />;
+  if (check === 'pass') return <Icon name="Check" size="xs" />;
+  if (check === 'fixes') return <span style={{ color: 'var(--danger-text)', display: 'inline-flex' }}><Icon name="Warning2" size="sm" /></span>;
+  return <Icon name="Clock" size="xs" />;
 }
 
 function StyledCheckbox({
@@ -223,7 +197,7 @@ function StyledCheckbox({
           color: 'var(--bg)',
         }}
       >
-        {checked ? <svg width="10" height="10" viewBox="0 0 10 10"><path d="M2 5.2 4.1 7.2 8 2.8" fill="none" stroke="currentColor" strokeWidth="1.4" /></svg> : null}
+        {checked ? <Icon name="Check" size="2xs" /> : null}
       </span>
     </span>
   );
@@ -252,15 +226,6 @@ function DesignCheckPill({ check }: { check: DesignCheck }) {
       <DesignStatusIcon check={check} />
       {designPillLabel(check)}
     </span>
-  );
-}
-
-function ExternalLinkIcon() {
-  return (
-    <svg width="16" height="16" viewBox="0 0 16 16" aria-hidden="true" style={{ flex: '0 0 auto', marginTop: 2 }}>
-      <path d="M6 3H3.5A1.5 1.5 0 0 0 2 4.5v8A1.5 1.5 0 0 0 3.5 14h8A1.5 1.5 0 0 0 13 12.5V10" fill="none" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M9 2h5v5M14 2 7.5 8.5" fill="none" stroke="currentColor" strokeWidth="1.5" />
-    </svg>
   );
 }
 
@@ -295,7 +260,7 @@ function PreviewBox({
         alignItems: 'flex-start',
       }}
     >
-      <ExternalLinkIcon />
+      <Icon name="ExportSquare" style={{ flex: '0 0 auto', marginTop: 2 }} />
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <a
           href={previewHref(url)}
@@ -566,7 +531,7 @@ export function ReviewDialogBody({
       )}
       {fieldError ? (
         <p role="alert" className="flex items-start gap-2" style={{ margin: 0, color: 'var(--danger-text)', fontSize: 14, lineHeight: '21px' }}>
-          <AlertIcon />
+          <Icon name="Warning2" size="sm" />
           <span>{fieldError}</span>
         </p>
       ) : null}
@@ -679,7 +644,7 @@ function RetryControl({
       )}
       {error ? (
         <p role="alert" data-testid="review-retry-error" className="flex items-start gap-2" style={{ margin: 0, flex: '1 0 100%', color: 'var(--danger-text)', fontSize: 14, lineHeight: '21px' }}>
-          <AlertIcon />
+          <Icon name="Warning2" size="sm" />
           <span>{error}</span>
         </p>
       ) : null}
@@ -726,7 +691,7 @@ function PreviewLifecycle({
   const showRetry = !isPeter && (visual === 'preview-failed' || visual === 'couldnt-remove');
   return (
     <div role="status" className="flex items-start gap-3" style={{ border, borderRadius: 18, padding: '14px 16px' }}>
-      {visual === 'building' ? <Spinner /> : <span style={{ color: visual === 'delete-failed' ? 'var(--portal-warning)' : 'var(--danger-text)', display: 'inline-flex' }}><AlertIcon /></span>}
+      {visual === 'building' ? <Spinner /> : <span style={{ color: visual === 'delete-failed' ? 'var(--portal-warning)' : 'var(--danger-text)', display: 'inline-flex' }}><Icon name="Warning2" size="sm" /></span>}
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <p data-testid="review-status-title" style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--fg)' }}>{title}</p>
         <p data-testid="review-status-detail" className="ds-mono" style={{ margin: 0, fontSize: 12, lineHeight: '18px', color: visual === 'delete-failed' ? 'var(--portal-warning)' : 'var(--muted)' }}>{detail}</p>
@@ -968,7 +933,7 @@ export function MilestoneReviewSurface({
           <div className="flex flex-col gap-5" style={{ marginTop: 16 }}>
             <div className="flex items-start gap-2">
               <span data-testid="review-approved-check" style={{ color: 'var(--fg)', display: 'inline-flex', flex: '0 0 auto' }}>
-                <CheckIcon size={16} />
+                <Icon name="Check" />
               </span>
               <div className="flex min-w-0 flex-1 flex-col gap-1">
                 <p style={{ margin: 0, fontSize: 14, lineHeight: '21px', color: 'var(--fg)' }}>{`Approved by ${who}${stamp ? ` · ${stamp}` : ''}`}</p>
@@ -1018,7 +983,7 @@ export function MilestoneReviewSurface({
               <PreviewLifecycle visual={visual} model={model} phone={phone} isPeter={isPeter} retrying={retryPending} retryError={retryMessage} onRetry={runRetry} />
             ) : (
               <div data-testid="review-waiting-box" className="flex items-start gap-3" style={{ border: '1px dashed var(--border-2)', borderRadius: 18, padding: 16 }}>
-                <ClockIcon />
+                <Icon name="Clock" size="xs" />
                 <div>
                   <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>Waiting for a preview link</p>
                   <p className="ds-mono" style={{ margin: '4px 0 0', fontSize: 12, lineHeight: '18px', color: 'var(--muted)' }}>{WAITING_COPY}</p>
@@ -1063,7 +1028,7 @@ export function MilestoneReviewSurface({
             ) : null}
             {visual === 'error' ? (
               <div role="alert" data-testid="review-error-box" className="flex items-start gap-2" style={{ border: '1px solid var(--danger)', borderRadius: 16, padding: '12px 14px', color: 'var(--danger-text)' }}>
-                <AlertIcon />
+                <Icon name="Warning2" size="sm" />
                 <p style={{ margin: 0, fontSize: 14, lineHeight: '21px' }}>{APPROVAL_SAVE_ERROR}</p>
               </div>
             ) : null}

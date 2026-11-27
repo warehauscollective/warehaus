@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, type ReactNode } from 'react';
-import { TaskGlyph } from '@/components/tasks/TaskGlyph';
+import { Icon } from '@/components/ui/Icon';
 import { OutlineButton, PrimaryButton } from '@/components/ui/primitives';
 import {
   PROJECT_CREATE_HINT,
@@ -66,7 +66,7 @@ export function ProjectListEmptyState({
       }}
     >
       <span style={{ color: 'var(--muted)' }}>
-        <TaskGlyph src="/icons/task-layers.svg" size={28} />
+        <Icon name="Layer" size="xl" />
       </span>
       <p style={{ margin: 0, fontSize: 16, fontWeight: 500, lineHeight: '19px' }}>{copy.title}</p>
       <p
