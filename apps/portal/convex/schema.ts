@@ -1,6 +1,7 @@
 import { defineSchema, defineTable } from 'convex/server';
 import { v } from 'convex/values';
 import { fieldStamp } from './_lib/outboxKind';
+import { projectListViewFields } from './_lib/projectListViewFields';
 
 /**
  * Portal Convex schema — separate deployment from Motoko/agent.
@@ -1029,6 +1030,17 @@ export default defineSchema({
     needsAttention: v.boolean(),
     sharedRecaps: v.boolean(),
     weeklySummary: v.boolean(),
+    updatedAt: v.number(),
+  }).index('by_contactId', ['contactId']),
+
+  /**
+   * The saved project list view: quick filter chip, menu filters and sort.
+   * One row per contact. No row means the default view. Portal only: nothing
+   * here goes to Notion.
+   */
+  projectListPrefs: defineTable({
+    contactId: v.id('contacts'),
+    ...projectListViewFields,
     updatedAt: v.number(),
   }).index('by_contactId', ['contactId']),
 

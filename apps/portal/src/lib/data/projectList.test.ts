@@ -35,6 +35,22 @@ import {
   projectTasksSubtitle,
   showProjectPublish,
   sortProjectsByLastUpdated,
+  activeProjectFilterCount,
+  applyProjectListView,
+  clearProjectListFilters,
+  defaultProjectListView,
+  normalizeProjectListView,
+  progressBand,
+  projectListViewIsFiltered,
+  projectListViewOptions,
+  projectMatchesView,
+  projectViewChipCounts,
+  projectViewRows,
+  pruneProjectListView,
+  sortProjects,
+  type ProjectListView,
+  type ProjectSortKey,
+  type ProjectViewRow,
 } from './projectList';
 
 describe('projectInitials', () => {
@@ -438,5 +454,319 @@ describe('showProjectPublish', () => {
     assert.equal(showProjectPublish(true, published), true);
     assert.equal(showProjectPublish(true, { internal: true, publishToWarehaus: true }), false);
     assert.equal(showProjectPublish(true, { internal: false, publishToWarehaus: null }), false);
+  });
+});
+
+describe('project list view', () => {
+  const NOW = Date.parse('2026-11-26T12:00:00Z');
+  const DAY = 24 * 60 * 60 * 1000;
+  const row = (over: Partial<ProjectViewRow> & { id: string; name: string }): ProjectViewRow => ({
+    status: 'In progress',
+    stack: [],
+    startDate: null,
+    endDate: null,
+    lastSyncedAt: null,
+    percent: null,
+    taskCount: 0,
+    ...over,
+  });
+  const rows: ProjectViewRow[] = [
+    row({
+      id: 'a', name: 'Alpha', status: 'In progress', orgId: 'org_n', clientName: 'Northwind', publishToWarehaus: true,
+      stack: ['Next.js', 'Convex'], startDate: '2026-01-10', endDate: '2026-06-30', lastSyncedAt: NOW - 2 * DAY,
+      percent: 40, taskCount: 5,
+    }),
+    row({
+      id: 'b', name: 'Bravo', status: 'Planned', orgId: 'org_a', clientName: 'Acme', publishToWarehaus: false,
+      stack: ['Webflow'], startDate: '2026-03-01T00:00:00.000Z', endDate: null, lastSyncedAt: NOW - 20 * DAY,
+      percent: 0, taskCount: 2,
+    }),
+    row({
+      id: 'c', name: 'Charlie', status: 'Shipped', orgId: 'org_n', clientName: 'Northwind', publishToWarehaus: true,
+      stack: ['Next.js'], startDate: '2025-09-01', endDate: '2025-12-15', lastSyncedAt: NOW - 60 * DAY,
+      percent: 100, taskCount: 9,
+    }),
+    row({ id: 'd', name: 'Delta', status: 'Inbox', orgId: 'org_a', clientName: 'Acme', publishToWarehaus: true }),
+    row({
+      id: 'e', name: 'Echo', status: 'In progress', internal: true, orgId: 'org_w', clientName: 'Warehaus',
+      stack: ['Convex'], lastSyncedAt: NOW - DAY, percent: 50, taskCount: 3,
+    }),
+  ];
+  const view = (over: Partial<ProjectListView> = {}): ProjectListView => ({ ...defaultProjectListView(), ...over });
+  const ids = (over: Partial<ProjectListView>, staff = true) =>
+    applyProjectListView(rows, view(over), staff, { now: NOW }).map((project) => project.id);
+  const sorted = (key: ProjectSortKey, direction: 'asc' | 'desc', staff = true) => ids({ sort: { key, direction } }, staff);
+
+  it('defaults to every row, last updated newest first, and hands out a fresh object', () => {
+    assert.deepEqual(ids({}), ['e', 'a', 'b', 'c', 'd']);
+    assert.deepEqual(ids({}, false), ['a', 'b', 'c', 'd']);
+    assert.notEqual(defaultProjectListView(), defaultProjectListView());
+    assert.deepEqual(defaultProjectListView().sort, { key: 'lastUpdated', direction: 'desc' });
+  });
+
+  it('filters by status, any picked value, case ignored', () => {
+    assert.deepEqual(ids({ status: ['planned', 'INBOX'] }), ['b', 'd']);
+  });
+
+  it('filters by client', () => {
+    assert.deepEqual(ids({ clientIds: ['org_a'] }), ['b', 'd']);
+    assert.deepEqual(ids({ clientIds: ['org_a', 'org_n'] }), ['a', 'b', 'c', 'd']);
+  });
+
+  it('filters by publish state, and an internal row matches neither', () => {
+    assert.deepEqual(ids({ publish: 'published' }), ['a', 'c', 'd']);
+    assert.deepEqual(ids({ publish: 'unpublished' }), ['b']);
+  });
+
+  it('filters by stack, any picked value', () => {
+    assert.deepEqual(ids({ stack: ['Convex'] }), ['e', 'a']);
+    assert.deepEqual(ids({ stack: ['Webflow', 'Next.js'] }), ['a', 'b', 'c']);
+  });
+
+  it('filters by start and end date, inclusive, with either end open', () => {
+    assert.deepEqual(ids({ startDate: { from: '2026-01-10', to: '2026-03-01' } }), ['a', 'b']);
+    assert.deepEqual(ids({ startDate: { from: '2026-01-11', to: null } }), ['b']);
+    assert.deepEqual(ids({ startDate: { from: null, to: '2025-12-31' } }), ['c']);
+    assert.deepEqual(ids({ endDate: { from: null, to: '2025-12-15' } }), ['c']);
+    assert.deepEqual(ids({ endDate: { from: '2026-01-01', to: null } }), ['a']);
+  });
+
+  it('filters by progress band, including no progress yet', () => {
+    assert.deepEqual(ids({ progress: ['notStarted'] }), ['b']);
+    assert.deepEqual(ids({ progress: ['inProgress'] }), ['e', 'a']);
+    assert.deepEqual(ids({ progress: ['complete'] }), ['c']);
+    assert.deepEqual(ids({ progress: ['none'] }), ['d']);
+    assert.deepEqual(ids({ progress: ['complete', 'none'] }), ['c', 'd']);
+  });
+
+  it('filters by tasks', () => {
+    assert.deepEqual(ids({ tasks: 'has' }), ['e', 'a', 'b', 'c']);
+    assert.deepEqual(ids({ tasks: 'none' }), ['d']);
+  });
+
+  it('filters by last updated window', () => {
+    assert.deepEqual(ids({ updated: '7d' }), ['e', 'a']);
+    assert.deepEqual(ids({ updated: '30d' }), ['e', 'a', 'b']);
+    assert.deepEqual(ids({ updated: '90d' }), ['e', 'a', 'b', 'c']);
+  });
+
+  it('drops a row with no value once that filter is set', () => {
+    assert.equal(ids({ startDate: { from: '2000-01-01', to: null } }).includes('d'), false);
+    assert.equal(ids({ endDate: { from: '2000-01-01', to: null } }).includes('b'), false);
+    assert.equal(ids({ updated: '90d' }).includes('d'), false);
+  });
+
+  it('applies the quick filter chip as one more condition', () => {
+    assert.deepEqual(ids({ quick: 'active' }), ['a', 'b', 'd']);
+    assert.deepEqual(ids({ quick: 'shipped' }), ['c']);
+    assert.deepEqual(ids({ quick: 'internal' }), ['e']);
+    assert.deepEqual(ids({ quick: 'internal', stack: ['Webflow'] }), []);
+  });
+
+  it('combines different filters with AND', () => {
+    assert.deepEqual(ids({ clientIds: ['org_n'], stack: ['Next.js'], tasks: 'has', updated: '30d' }), ['a']);
+    assert.deepEqual(ids({ quick: 'active', status: ['In progress', 'Planned'], publish: 'published' }), ['a']);
+    assert.deepEqual(ids({ status: ['Shipped'], progress: ['notStarted'] }), []);
+  });
+
+  it('sorts by last updated both ways, with no date last', () => {
+    assert.deepEqual(sorted('lastUpdated', 'desc'), ['e', 'a', 'b', 'c', 'd']);
+    assert.deepEqual(sorted('lastUpdated', 'asc'), ['c', 'b', 'a', 'e', 'd']);
+  });
+
+  it('sorts by name both ways', () => {
+    assert.deepEqual(sorted('name', 'asc'), ['a', 'b', 'c', 'd', 'e']);
+    assert.deepEqual(sorted('name', 'desc'), ['e', 'd', 'c', 'b', 'a']);
+  });
+
+  it('sorts by client both ways, ties by name', () => {
+    assert.deepEqual(sorted('client', 'asc'), ['b', 'd', 'a', 'c', 'e']);
+    assert.deepEqual(sorted('client', 'desc'), ['e', 'a', 'c', 'b', 'd']);
+  });
+
+  it('sorts by status both ways, ties by name', () => {
+    assert.deepEqual(sorted('status', 'asc'), ['a', 'e', 'd', 'b', 'c']);
+    assert.deepEqual(sorted('status', 'desc'), ['c', 'b', 'd', 'a', 'e']);
+  });
+
+  it('sorts by start date both ways, with no date last', () => {
+    assert.deepEqual(sorted('startDate', 'asc'), ['c', 'a', 'b', 'd', 'e']);
+    assert.deepEqual(sorted('startDate', 'desc'), ['b', 'a', 'c', 'd', 'e']);
+  });
+
+  it('sorts by end date both ways, with no date last', () => {
+    assert.deepEqual(sorted('endDate', 'asc'), ['c', 'a', 'b', 'd', 'e']);
+    assert.deepEqual(sorted('endDate', 'desc'), ['a', 'c', 'b', 'd', 'e']);
+  });
+
+  it('sorts by progress both ways, with unknown progress last', () => {
+    assert.deepEqual(sorted('progress', 'desc'), ['c', 'e', 'a', 'b', 'd']);
+    assert.deepEqual(sorted('progress', 'asc'), ['b', 'a', 'e', 'c', 'd']);
+  });
+
+  it('sorts by tasks both ways', () => {
+    assert.deepEqual(sorted('tasks', 'desc'), ['c', 'a', 'e', 'b', 'd']);
+    assert.deepEqual(sorted('tasks', 'asc'), ['d', 'b', 'e', 'a', 'c']);
+  });
+
+  it('breaks a full tie by name then id, and does not mutate the input', () => {
+    const tied = [
+      { id: '2', name: 'Same', lastSyncedAt: 5 },
+      { id: '1', name: 'Same', lastSyncedAt: 5 },
+      { id: '3', name: 'Alpha', lastSyncedAt: 5 },
+    ];
+    assert.deepEqual(sortProjects(tied, { key: 'lastUpdated', direction: 'desc' }).map((p) => p.id), ['3', '1', '2']);
+    assert.deepEqual(sortProjects(tied, { key: 'lastUpdated', direction: 'asc' }).map((p) => p.id), ['3', '1', '2']);
+    assert.deepEqual(tied.map((p) => p.id), ['2', '1', '3']);
+  });
+
+  it('never shows a client an internal project, whatever the view says', () => {
+    assert.deepEqual(ids({ quick: 'internal' }, false), ['a', 'b', 'c', 'd']);
+    assert.deepEqual(ids({ stack: ['Convex'] }, false), ['a']);
+    const internal = rows[4];
+    assert.equal(projectMatchesView(internal, view(), false, { now: NOW }), false);
+    assert.equal(projectMatchesView(internal, view({ quick: 'internal' }), false, { now: NOW }), false);
+    assert.equal(projectMatchesView(internal, view(), true, { now: NOW }), true);
+  });
+
+  it('ignores staff-only filters and the Client sort for a client viewer', () => {
+    assert.deepEqual(
+      ids({ clientIds: ['org_a'], publish: 'unpublished', sort: { key: 'client', direction: 'asc' } }, false),
+      ['a', 'b', 'c', 'd'],
+    );
+  });
+
+  it('strips staff-only values from a client view and keeps them for staff', () => {
+    const raw = {
+      quick: 'internal',
+      clientIds: ['org_a'],
+      publish: 'published',
+      status: ['Planned'],
+      sort: { key: 'client', direction: 'desc' },
+    };
+    const client = normalizeProjectListView(raw, false);
+    assert.equal(client.quick, 'all');
+    assert.deepEqual(client.clientIds, []);
+    assert.equal(client.publish, 'any');
+    assert.deepEqual(client.status, ['Planned']);
+    assert.deepEqual(client.sort, { key: 'lastUpdated', direction: 'desc' });
+    const staff = normalizeProjectListView(raw, true);
+    assert.equal(staff.quick, 'internal');
+    assert.deepEqual(staff.clientIds, ['org_a']);
+    assert.equal(staff.publish, 'published');
+    assert.deepEqual(staff.sort, { key: 'client', direction: 'desc' });
+  });
+
+  it('drops unknown keys and values when normalizing', () => {
+    assert.deepEqual(normalizeProjectListView(null, true), defaultProjectListView());
+    assert.deepEqual(normalizeProjectListView('nope', true), defaultProjectListView());
+    assert.deepEqual(normalizeProjectListView([], true), defaultProjectListView());
+    const out = normalizeProjectListView(
+      {
+        quick: 'archived',
+        status: ['Planned', 7, ' Planned ', '', null],
+        stack: 'Next.js',
+        startDate: { from: '2026-02-30', to: '2026-03-01', extra: 1 },
+        endDate: 'soon',
+        progress: ['complete', 'half', 'complete', 'none'],
+        tasks: 'lots',
+        updated: '365d',
+        publish: true,
+        sort: { key: 'priority', direction: 'asc' },
+        search: 'x',
+      },
+      true,
+    );
+    assert.deepEqual(out, {
+      ...defaultProjectListView(),
+      status: ['Planned'],
+      startDate: { from: null, to: '2026-03-01' },
+      progress: ['complete', 'none'],
+    });
+    assert.equal('search' in out, false);
+    assert.deepEqual(normalizeProjectListView({ sort: { key: 'progress', direction: 'sideways' } }, true).sort, {
+      key: 'progress',
+      direction: 'desc',
+    });
+    const good = view({ status: ['Planned'], tasks: 'has', sort: { key: 'name', direction: 'desc' } });
+    assert.deepEqual(normalizeProjectListView(good, true), good);
+  });
+
+  it('builds options from the rows the viewer can see', () => {
+    const extra = [...rows, row({ id: 'f', name: 'Foxtrot', status: 'Blocked' }), row({ id: 'g', name: 'Golf', status: 'in progress' })];
+    assert.deepEqual(projectListViewOptions(extra, true), {
+      status: ['Inbox', 'Planned', 'In progress', 'Shipped', 'Blocked'],
+      clients: [
+        { id: 'org_a', name: 'Acme' },
+        { id: 'org_n', name: 'Northwind' },
+      ],
+      stack: ['Convex', 'Next.js', 'Webflow'],
+    });
+    const internalOnly = [row({ id: 'x', name: 'X', internal: true, status: 'Secret', stack: ['Rust'], orgId: 'org_w', clientName: 'Warehaus' })];
+    assert.deepEqual(projectListViewOptions(internalOnly, false), { status: [], clients: [], stack: [] });
+    assert.deepEqual(projectListViewOptions(rows, false).clients, []);
+    assert.deepEqual(projectListViewOptions(rows, false).stack, ['Convex', 'Next.js', 'Webflow']);
+  });
+
+  it('ignores a stale saved client id instead of hiding every row', () => {
+    const saved = normalizeProjectListView({ clientIds: ['org_gone'], status: ['Archived'], stack: ['Flash'] }, true);
+    assert.deepEqual(applyProjectListView(rows, saved, true, { now: NOW }), []);
+    const live = pruneProjectListView(saved, projectListViewOptions(rows, true));
+    assert.deepEqual(live.clientIds, []);
+    assert.deepEqual(live.status, []);
+    assert.deepEqual(live.stack, []);
+    assert.equal(activeProjectFilterCount(live, true), 0);
+    assert.equal(applyProjectListView(rows, live, true, { now: NOW }).length, 5);
+    const mixed = pruneProjectListView(view({ clientIds: ['org_gone', 'org_a'], status: ['planned'] }), projectListViewOptions(rows, true));
+    assert.deepEqual(mixed.clientIds, ['org_a']);
+    assert.deepEqual(mixed.status, ['planned']);
+  });
+
+  it('counts set filters, not values, and leaves out the chip and the sort', () => {
+    assert.equal(activeProjectFilterCount(view(), true), 0);
+    assert.equal(activeProjectFilterCount(view({ quick: 'active', sort: { key: 'name', direction: 'asc' } }), true), 0);
+    assert.equal(activeProjectFilterCount(view({ status: ['Planned', 'Inbox'], stack: ['Convex'] }), true), 2);
+    const all = view({
+      status: ['Planned'], clientIds: ['org_a'], publish: 'published', stack: ['Convex'],
+      startDate: { from: '2026-01-01', to: null }, endDate: { from: null, to: '2026-12-31' },
+      progress: ['none'], tasks: 'has', updated: '7d',
+    });
+    assert.equal(activeProjectFilterCount(all, true), 9);
+    assert.equal(activeProjectFilterCount(all, false), 7);
+  });
+
+  it('knows when Clear filters applies, and clearing keeps the sort', () => {
+    assert.equal(projectListViewIsFiltered(view(), true), false);
+    assert.equal(projectListViewIsFiltered(view({ sort: { key: 'name', direction: 'asc' } }), true), false);
+    assert.equal(projectListViewIsFiltered(view({ quick: 'shipped' }), true), true);
+    assert.equal(projectListViewIsFiltered(view({ tasks: 'none' }), false), true);
+    assert.equal(projectListViewIsFiltered(view({ clientIds: ['org_a'] }), false), false);
+    const cleared = clearProjectListFilters(view({ quick: 'active', status: ['Planned'], sort: { key: 'tasks', direction: 'asc' } }));
+    assert.deepEqual(cleared, view({ sort: { key: 'tasks', direction: 'asc' } }));
+  });
+
+  it('counts each chip with the menu filters applied', () => {
+    const counts = (over: Partial<ProjectListView>, staff: boolean) =>
+      projectViewChipCounts(rows, view(over), staff, { now: NOW }).map((chip) => [chip.key, chip.count]);
+    assert.deepEqual(counts({ quick: 'shipped' }, true), [['all', 5], ['active', 3], ['shipped', 1], ['internal', 1]]);
+    assert.deepEqual(counts({ stack: ['Convex'] }, true), [['all', 2], ['active', 1], ['shipped', 0], ['internal', 1]]);
+    assert.deepEqual(counts({ stack: ['Convex'] }, false), [['all', 1], ['active', 1], ['shipped', 0]]);
+  });
+
+  it('builds rows with the percent and task count the list shows', () => {
+    const built = projectViewRows(
+      [
+        { id: 'p1', progress: 0.9, taskCount: 7 },
+        { id: 'p2', progress: 0.25, taskCount: 4 },
+        { id: 'p3', progress: null },
+      ],
+      [
+        { projectId: 'p1', isDone: true, stage: 'Shipped' },
+        { projectId: 'p1', isDone: false, stage: 'Building' },
+        { projectId: null, isDone: true, stage: null },
+      ],
+    );
+    assert.deepEqual(built.map((p) => [p.id, p.percent, p.taskCount]), [['p1', 50, 2], ['p2', 25, 4], ['p3', null, 0]]);
+    assert.deepEqual([0, 1, 99, 100, null].map(progressBand), ['notStarted', 'inProgress', 'inProgress', 'complete', 'none']);
   });
 });
