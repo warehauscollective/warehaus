@@ -59,6 +59,8 @@ import { proposedTasksDecision } from './_lib/milestoneBot';
 import { changeMilestoneStatus } from './_lib/milestoneLifecycle';
 import type { MilestoneStatus } from './_lib/milestoneStatus';
 import { PORTAL_MILESTONE_TASK_SOURCE, plannerDraftToArchive, stageForNewMilestoneTask } from './_lib/milestoneTasks';
+import { taskKind } from './_lib/designGate';
+import { syncDesignAsk } from './_lib/designGateStore';
 import { loadClaimableTasks, loadMilestoneTaskSet, type LoadedTask } from './_lib/milestoneTaskSet';
 import { PortalAuthError } from './_lib/identity';
 import { adminMutation, adminQuery } from './_lib/wrappers';
@@ -343,6 +345,8 @@ async function runPayload(ctx: MutationCtx, run: Doc<'agentRuns'>) {
       detail: task.description ?? '',
       origin: task.origin ?? null,
       round: task.round ?? null,
+      /** Design tasks work in Figma and never change code (task.md). */
+      kind: taskKind(task),
     },
     driver: 'claude_code' as const,
   };
@@ -355,6 +359,7 @@ function buildTaskPayload({ doc: task }: LoadedTask) {
     order: (task.milestoneOrder ?? 0) + 1,
     title: task.name,
     detail: task.description ?? '',
+    kind: taskKind(task),
   };
 }
 
@@ -737,6 +742,8 @@ async function markReady(
     return milestone.status;
   }
   await tooManyTasksNote(ctx, milestone, { open: false });
+  // The last design task done on a visual milestone asks Peter to approve the designs.
+  await syncDesignAsk(ctx, milestone, { addedBy: `runner:${runnerId}`, at: now, rows: loaded.set.tasks });
   if (!loaded.set.allDone) return milestone.status;
   const moved = await changeMilestoneStatus(ctx, milestone, {
     cause: 'set',
@@ -806,6 +813,7 @@ export const writePlannedTasks = internalMutation({
           publishToWarehaus: false,
           source: PORTAL_MILESTONE_TASK_SOURCE,
           origin: 'planner',
+          ...(task.kind === 'design' ? { kind: 'design' as const } : {}),
           milestoneId: milestone._id,
           milestoneOrder: index,
           updatedAt: now,

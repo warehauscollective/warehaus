@@ -273,3 +273,28 @@ describe('milestone card face: leading mark', () => {
     assert.match(board, /task\.id === buildingTaskId \? <BuildingIndicator/);
   });
 });
+
+describe('TaskCardFace design gate', () => {
+  const card: PortalTask = { ...task, id: 't-gate', status: 'To Do', stage: null, syncNotice: undefined };
+  it('shows the Design chip and the locked line, and hides the line on a blocked card', () => {
+    const face = { run: '01', origin: 'Brief', pullRequest: null, kind: 'Design', note: 'Waits for design approval' };
+    const html = renderToStaticMarkup(createElement(TaskCardFace, { task: card, mode: 'status', staff: true, face }));
+    assert.match(html, /data-testid="card-kind"[^>]*>Design</);
+    assert.match(html, /data-testid="card-note"[^>]*>Waits for design approval</);
+    const blocked = renderToStaticMarkup(
+      createElement(TaskCardFace, { task: { ...card, status: 'Blocked', nextAction: 'Waiting on copy' }, mode: 'status', staff: true, face }),
+    );
+    assert.equal(blocked.includes('card-note'), false);
+    assert.match(blocked, /Waiting on copy/);
+  });
+});
+
+describe('Tasks page heading (Figma P04)', () => {
+  it('counts tasks at 1440 and drops the count on a phone', async () => {
+    const { tasksSubtitle, TASKS_TITLE } = await import('../projects/MilestoneDetailView');
+    assert.equal(TASKS_TITLE, 'Tasks');
+    assert.equal(tasksSubtitle({ count: 8, phone: false }), 'Work needed to complete this milestone · 8 tasks');
+    assert.equal(tasksSubtitle({ count: 1, phone: false }), 'Work needed to complete this milestone · 1 task');
+    assert.equal(tasksSubtitle({ count: 8, phone: true }), 'Work needed to complete this milestone');
+  });
+});

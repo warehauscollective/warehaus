@@ -7,6 +7,7 @@ import {
 } from '@convex/_lib/milestones';
 import { roadmapCounts } from '@convex/_lib/milestoneTaskSet';
 import type { PortalTask } from '@/lib/data/view-models';
+import { designGate } from '@convex/_lib/designGate';
 
 /**
  * A milestone with new rows, its counts worked out by the same rule the
@@ -235,6 +236,52 @@ function withLoopFixture(milestone: MilestoneRoadmapView, loop: string): Milesto
   };
 }
 
+const GATE_TITLES: { name: string; kind?: 'design' }[] = [
+  { name: 'Design the tile Status box', kind: 'design' },
+  { name: 'Design the task Kind field', kind: 'design' },
+  { name: 'Build the Status box' },
+  { name: 'Build the Kind field' },
+  { name: 'Hold build tasks in the runner claim' },
+];
+
+/**
+ * `?gate=designs|waiting|build`: a visual milestone in Building, in each
+ * phase of the design gate. Two design tasks, then three build tasks.
+ */
+function withDesignGateFixture(milestone: MilestoneRoadmapView, phase: string): MilestoneRoadmapView {
+  const designsDone = phase !== 'designs';
+  const approvedAt = phase === 'build' ? Date.parse('2026-11-26T15:00:00Z') : null;
+  const rows = GATE_TITLES.map((task, index) => {
+    const design = task.kind === 'design';
+    const done = design ? designsDone || index === 0 : false;
+    const doing = design ? !done : approvedAt != null && index === 2;
+    return {
+      id: `gate-${index + 1}`,
+      name: task.name,
+      status: done ? 'Done' : doing ? 'In Progress' : 'To Do',
+      isDone: done,
+      stage: null,
+      resourceCount: 0,
+      children: [],
+      portalOwned: true,
+      origin: 'planner' as const,
+      ...(design ? { kind: 'design' as const } : {}),
+    };
+  });
+  const gate = designGate(
+    rows.map((row) => ({ kind: row.kind ?? null, status: row.status, isDone: row.isDone, stage: null })),
+    approvedAt,
+  );
+  return {
+    ...withRows(milestone, rows),
+    name: 'Design gate and task kinds',
+    status: 'Building',
+    ...(approvedAt != null ? { designApprovedAt: approvedAt } : { designApprovedAt: undefined }),
+    designGate: { visual: gate.visual, buildLocked: gate.buildLocked, phase: gate.phase },
+    branch: 'milestone/design-gate-and-task-kinds',
+  };
+}
+
 function previewMilestone(
   patch: Pick<MilestoneRoadmapView, 'id' | 'name' | 'objective' | 'status' | 'approval'> &
     Partial<Pick<MilestoneRoadmapView, 'decidedAt' | 'resources' | 'note' | 'approverName' | 'buildRun' | 'rows'>>,
@@ -258,6 +305,7 @@ function previewMilestone(
  * Fixture-only list previews. `?chip=long` stretches the first chip.
  * `?tiles=states` adds an in-progress tile, a reviewed tile, an approved tile awaiting merge, and a tile whose status is Shipped.
  * `?tiles=building` adds four Building tiles, one per Building indicator state: live, Queued, Blocked and Stalled.
+ * `?gate=designs|waiting|build` turns the first tile into a visual milestone in each Building phase.
  * An empty search leaves the list alone.
  */
 export function applyFixtureMilestonePreview(
@@ -292,6 +340,8 @@ export function applyFixtureMilestonePreview(
       };
     });
   }
+  const gatePhase = params.get('gate');
+  if (gatePhase && next[0]) next = [withDesignGateFixture(next[0], gatePhase), ...next.slice(1)];
   const loop = params.get('loop');
   if (loop && next[0]) next = [withLoopFixture(next[0], loop), ...next.slice(1)];
   if (params.get('shipped') === '1' && !next.some((milestone) => milestone.id === 'm-preview-shipped')) {

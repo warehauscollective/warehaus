@@ -35,6 +35,7 @@ import {
   runOrderAfterReorder,
 } from './milestoneBoard';
 import type { RoadmapProject } from './milestoneTile';
+import { LOCKED_LINE, TASK_KIND_LABELS } from '@convex/_lib/designGate';
 
 /** A status move on one task. The live page passes `tasks.moveStatus`. Fixture previews pass none. */
 export type MoveTaskStatus = (args: {
@@ -114,14 +115,26 @@ export function MilestoneTaskBoard({
   const buildingTaskId = buildState === 'live' || buildState === 'stalled' ? milestone.buildRun?.taskId ?? null : null;
   const card = useMemo<BoardCard>(() => {
     const origins = milestoneCardOrigins(rows);
+    const kinds = new Map(rows.map((row) => [row.id, row.kind] as const));
+    // Build cards wait while the designs are unapproved: top level, open, not Parked.
+    const stages = new Map(rows.map((row) => [row.id, row.stage] as const));
+    const designLocked = (task: PortalTask) =>
+      milestone.designGate?.buildLocked === true &&
+      !task.parentTaskId &&
+      kinds.has(task.id) &&
+      kinds.get(task.id) !== 'design' &&
+      !task.isDone &&
+      stages.get(task.id) !== 'Parked';
     return {
       runStatus: RUN_ORDER_STATUS,
       origin: (task) => origins.get(task.id) ?? null,
       pullRequest: (task) => pullRequestChip(task.pullRequestUrl),
+      kind: (task) => (kinds.get(task.id) === 'design' ? TASK_KIND_LABELS.design : null),
+      note: (task) => (designLocked(task) ? LOCKED_LINE : null),
       leading: (task) =>
         buildState && buildingTaskId && task.id === buildingTaskId ? <BuildingIndicator state={buildState} size={14} /> : null,
     };
-  }, [rows, buildState, buildingTaskId]);
+  }, [rows, buildState, buildingTaskId, milestone.designGate?.buildLocked]);
   const reorderTasks = actions?.reorderTasks;
   const milestoneId = milestone.id;
   const reorder = useMemo<BoardReorder>(

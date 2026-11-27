@@ -14,7 +14,7 @@ import type { Doc, Id } from '../_generated/dataModel';
 import type { MutationCtx, QueryCtx } from '../_generated/server';
 import { PETER_EMAILS } from './milestoneReview';
 
-export type AskReason = 'approval' | 'blocked';
+export type AskReason = 'approval' | 'blocked' | 'design';
 
 /** Open Asks a single read returns. */
 export const OPEN_ASK_LIMIT = 20;
